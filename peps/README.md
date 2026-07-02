@@ -60,4 +60,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [050](PEP-050-shipping-typesugar-libraries.md)          | Authoring & Shipping Standalone typesugar Libraries       | Done                                                                         |
 | [051](PEP-051-readme-guide-consolidation.md)            | README → Guide Consolidation (one set of docs)            | Done                                                                         |
 | [052](PEP-052-import-scoped-macro-activation.md)        | Import-Scoped Macro Activation (cats-style syntax)        | In Progress                                                                  |
-| [053](PEP-053-always-on-specialization.md)              | Always-On Specialization (no explicit `specialize` API)   | Draft                                                                        |
+| [053](PEP-053-always-on-specialization.md)              | Always-On Specialization (no explicit `specialize` API)   | In Progress                                                                  |

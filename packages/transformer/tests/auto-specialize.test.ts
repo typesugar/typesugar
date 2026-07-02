@@ -205,6 +205,59 @@ const result = /* @no-specialize */ double(arrayFunctor, [1, 2, 3]);
     expect(result.code).toContain("double(arrayFunctor");
   });
 
+  it("honors @no-specialize on the preceding comment line", () => {
+    const code = `
+/** @impl Functor<Array> */
+const arrayFunctor = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+
+const double = (F: { map(fa: any, f: any): any }, xs: number[]) => F.map(xs, (x: number) => x * 2);
+// @no-specialize
+const result = double(arrayFunctor, [1, 2, 3]);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "auto-spec-optout-prevline.ts" });
+
+    expect(result.code).not.toMatch(/__.*double.*Array/);
+    expect(result.code).toContain("double(arrayFunctor");
+  });
+
+  it("@no-specialize-warn suppresses warnings only — specialization still happens", () => {
+    const code = `
+/** @impl Functor<Array> */
+const arrayFunctor = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+
+const double = (F: { map(fa: any, f: any): any }, xs: number[]) => F.map(xs, (x: number) => x * 2);
+const result = /* @no-specialize-warn */ double(arrayFunctor, [1, 2, 3]);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "auto-spec-warn-optout.ts" });
+
+    // Must NOT bail like plain @no-specialize — the substring collision bug
+    // (fixed) used to make -warn disable specialization entirely.
+    expect(result.code).toMatch(/__.*double.*Array/);
+  });
+
+  it("@no-specialize-warn on the preceding comment line suppresses only — still specializes", () => {
+    const code = `
+/** @impl Functor<Array> */
+const arrayFunctor = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+
+const double = (F: { map(fa: any, f: any): any }, xs: number[]) => F.map(xs, (x: number) => x * 2);
+// @no-specialize-warn
+const result = double(arrayFunctor, [1, 2, 3]);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "auto-spec-warn-optout-prevline.ts" });
+
+    expect(result.code).toMatch(/__.*double.*Array/);
+  });
+
   it("falls back gracefully when function body is not resolvable", () => {
     const code = `
 /** @impl Functor<Array> */

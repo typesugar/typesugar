@@ -191,7 +191,7 @@ const unique = dedup([
 
 ## Zero-Cost Guarantee
 
-With `specialize()`, `HashSet<string>` compiles to the equivalent of native `Set<string>` — no wrapper overhead, direct method calls. For custom keys, the only cost is the `Eq`/`Hash` logic for your fields; the collection infrastructure itself inlines away.
+Specialization happens automatically at compile time: `HashSet<string>` compiles to the equivalent of native `Set<string>` — no wrapper overhead, direct method calls. For custom keys, the only cost is the `Eq`/`Hash` logic for your fields; the collection infrastructure itself inlines away.
 
 ---
 

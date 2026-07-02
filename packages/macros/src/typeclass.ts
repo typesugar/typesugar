@@ -71,11 +71,7 @@ import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
   buildStandaloneExtensionCall,
 } from "./extension.js";
-import {
-  registerInstanceMethodsFromAST,
-  extractMethodsFromObjectLiteral,
-  registerInstanceMethods,
-} from "./specialize.js";
+import { registerInstanceMethodsFromAST, extractMethodsFromObjectLiteral } from "./specialize.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,

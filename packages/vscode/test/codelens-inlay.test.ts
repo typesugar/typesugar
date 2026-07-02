@@ -70,13 +70,13 @@ describe("MacroCodeLensProvider", () => {
       expect(comptimeLens!.command!.command).toBe("typesugar.expandMacro");
     });
 
-    it("provides lens for specialize()", () => {
+    it("provides lens for pipe()", () => {
       const expansion = createMockExpansionService();
       const provider = new MacroCodeLensProvider(loader, expansion);
-      const doc = createMockTextDocument("const f = specialize(fn, [dict]);", "test.ts");
+      const doc = createMockTextDocument("const f = pipe(x, a, b);", "test.ts");
 
       const lenses = provider.provideCodeLenses(doc, createMockCancellationToken());
-      const lens = lenses.find((l: vscode.CodeLens) => l.command?.title.includes("specialize"));
+      const lens = lenses.find((l: vscode.CodeLens) => l.command?.title.includes("pipe"));
       expect(lens).toBeDefined();
     });
   });

@@ -82,9 +82,10 @@ Operators (`+`, `-`, `*`, `/`, etc.) dispatch to typeclass methods via `@op` JSD
 
 Scala 3-style typeclass system with `@typeclass`, `@instance`, `@derive`, and `summon()`.
 
-### Zero-Cost Abstractions (`@typesugar/specialize`)
+### Zero-Cost Abstractions
 
-Eliminate typeclass dictionary passing at compile time for true zero-cost abstractions.
+Typeclass dictionary passing is eliminated at compile time automatically — an
+always-on optimization, not an API you call.
 
 ## Package Structure
 
@@ -97,7 +98,6 @@ Eliminate typeclass dictionary passing at compile time for true zero-cost abstra
 | `@typesugar/derive`      | Derive macros                       |
 | `@typesugar/reflect`     | Type reflection                     |
 | `@typesugar/typeclass`   | Typeclass system                    |
-| `@typesugar/specialize`  | Zero-cost specialization            |
 | `unplugin-typesugar`     | Bundler plugins                     |
 | `@typesugar/vscode`      | IDE extension                       |
 
@@ -144,7 +144,6 @@ All core types: `MacroKind`, `MacroContext`, `MacroDefinition`, etc.
 - `reflect` — from `@typesugar/reflect`
 - `derive` — from `@typesugar/derive`
 - `typeclass` — from `@typesugar/typeclass`
-- `specialize` — from `@typesugar/specialize`
 
 ### Functions
 

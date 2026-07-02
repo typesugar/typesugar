@@ -80,14 +80,14 @@ describe("MacroSemanticTokensProvider", () => {
       expect(comptimeToken!.modifiers).toContain("comptime");
     });
 
-    it("highlights specialize as macro", () => {
-      const doc = createMockTextDocument("const f = specialize(fn, [dict]);", "test.ts");
+    it("highlights pipe as macro", () => {
+      const doc = createMockTextDocument("const f = pipe(x, a, b);", "test.ts");
       const result = provider.provideDocumentSemanticTokens(doc, createMockCancellationToken());
       const tokens = decodeTokens(result.data);
 
       const macroToken = tokens.find((t) => t.type === "macro");
       expect(macroToken).toBeDefined();
-      expect(macroToken!.length).toBe("specialize".length);
+      expect(macroToken!.length).toBe("pipe".length);
       expect(macroToken!.modifiers).toContain("macro");
     });
 

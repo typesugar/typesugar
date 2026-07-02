@@ -33,7 +33,6 @@ import { clearRegistries, registerInstanceWithMeta } from "@typesugar/macros";
 import {
   tryExpandTaggedTemplate,
   tryExpandTypeMacro,
-  tryRewriteSpecializeExtension,
   tryRewriteExtensionMethod,
   tryTransformHKTDeclaration,
   tryRewriteTypeclassOperator,
@@ -943,45 +942,6 @@ describe("tryTransformHKTDeclaration", () => {
       const alias = sf.statements[0] as ts.TypeAliasDeclaration;
       return tryTransformHKTDeclaration(ctx, false, visit, alias);
     });
-    expect(result).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// tryRewriteSpecializeExtension
-// ---------------------------------------------------------------------------
-
-describe("tryRewriteSpecializeExtension", () => {
-  it("reports an arity error when specialize() is called with no arguments on a callable receiver", () => {
-    // Use an intersection type so the receiver has BOTH call signatures
-    // (for the getCallSignatures() check) and a `specialize` property.
-    const { result, diagnostics } = withContext(
-      `type Fn = ((a: number) => number) & { specialize: (...args: unknown[]) => unknown };\ndeclare const fn: Fn;\nfn.specialize();`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteSpecializeExtension(ctx, false, visit, expr);
-      },
-      "consumer.ts"
-    );
-    const diags = diagnostics as Array<{ severity: string; message: string }>;
-    expect(
-      diags.some(
-        (d) => d.severity === "error" && /at least one typeclass instance argument/.test(d.message)
-      )
-    ).toBe(true);
-    // On the arity-error path the helper returns the original node back
-    expect(result).toBeDefined();
-  });
-
-  it("returns undefined when the callee has no call signature", () => {
-    const { result } = withContext(
-      `const x = 1;\n(x as any).specialize(undefined);`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteSpecializeExtension(ctx, false, visit, expr);
-      },
-      "consumer.ts"
-    );
     expect(result).toBeUndefined();
   });
 });

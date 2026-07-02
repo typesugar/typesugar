@@ -72,7 +72,6 @@ npx typesugar --explain TS9001
 - [TS9218](./TS9218.md) - Unused derive (warning)
 - [TS9219](./TS9219.md) - Invalid reflect target
 - [TS9220](./TS9220.md) - Module graph error
-- [TS9221](./TS9221.md) - Custom derive error
 
 ## HKT Errors (TS9301-TS9399)
 

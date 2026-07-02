@@ -278,8 +278,6 @@ describe("Built-in macros have module field", () => {
       validatorMacro,
       summonMacro,
       extendMacro,
-      specializeMacro,
-      specializeInlineMacro,
     } = await import("@typesugar/macros");
 
     for (const macro of [
@@ -291,8 +289,6 @@ describe("Built-in macros have module field", () => {
       validatorMacro,
       summonMacro,
       extendMacro,
-      specializeMacro,
-      specializeInlineMacro,
     ]) {
       expect(macro.module, `${macro.name} should have module set`).toBeTruthy();
       expect(typeof macro.module).toBe("string");

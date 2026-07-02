@@ -155,8 +155,8 @@ function debugThis() {
 ### Line Level
 
 ```typescript
-const fast = specialize(add); // Transformed: inlined
-const slow = specialize(add); // @ts-no-typesugar — left as-is
+const fast = add(numericPoint, p1, p2); // Auto-specialized: inlined
+const slow = add(numericPoint, p1, p2); // @ts-no-typesugar — left as-is
 ```
 
 ### Feature-Specific

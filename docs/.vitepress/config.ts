@@ -63,7 +63,6 @@ export default defineConfig({
             items: [
               { text: "@typesugar/typeclass", link: "/reference/packages#typeclass" },
               { text: "@typesugar/derive", link: "/reference/packages#derive" },
-              { text: "@typesugar/specialize", link: "/reference/packages#specialize" },
               { text: "@typesugar/reflect", link: "/reference/packages#reflect" },
             ],
           },

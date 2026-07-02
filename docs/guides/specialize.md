@@ -1,189 +1,133 @@
 # Zero-Cost Specialization
 
-Compile-time specialization for generic functions, eliminating runtime typeclass dictionary passing. Similar to GHC's `SPECIALIZE` pragma or Rust's monomorphization — achieve true zero-cost abstractions where the typeclass instance is baked in at compile time rather than looked up at runtime.
+Compile-time specialization eliminates typeclass dictionary passing from
+generic functions — similar to GHC's `SPECIALIZE` pragma or Rust's
+monomorphization, but **always on and fully automatic** (PEP-053). There is no
+macro to call, no annotation to add, and no package to install: any call that
+passes a known typeclass instance is specialized by the transformer, with the
+instance's method bodies inlined directly at the call site.
 
-## Quick Start
+## How It Works
 
-```bash
-npm install @typesugar/specialize
+Write generic, dictionary-passing code as usual:
+
+```typescript
+interface Ord<A> {
+  compare(a: A, b: A): number;
+}
+
+/** @impl Ord<number> */
+const numberOrd: Ord<number> = {
+  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+};
+
+function sortWith<A>(items: A[], ord: Ord<A>): A[] {
+  return items.slice().sort((a, b) => ord.compare(a, b));
+}
 ```
 
-### Implicit Specialization (Recommended)
+Calling it with a known instance auto-specializes the call:
 
-With `= implicit()`, specialization happens automatically:
+```typescript
+sortWith([3, 1, 2], numberOrd);
+
+// Compiles to (dictionary gone, comparator inlined):
+__sortWith_number__([3, 1, 2]);
+// where the hoisted __sortWith_number__ is:
+// (items) => items.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+```
+
+The transformer:
+
+1. Recognizes that an argument is a typeclass instance whose method bodies it
+   knows (see below).
+2. Resolves the called function's body.
+3. Rewrites the body, replacing every `dict.method(...)` call with the
+   instance's actual implementation, and removes the dictionary parameter.
+4. Hoists the specialized function to module scope (with a `/*#__PURE__*/`
+   annotation for tree-shaking) and **deduplicates**: every call site pairing
+   the same function with the same instances reuses one hoisted definition.
+
+Multiple dictionaries work the same way — `sortAndShow(items, ordNumber,
+showNumber)` specializes on both at once.
+
+### Which instances are recognized
+
+- Instances declared with `/** @impl TC<T> */` (or `@instance`), or with an
+  explicit typeclass type annotation (`const x: Functor<F> = { ... }`), whose
+  object-literal bodies the transformer can read from source.
+- The built-in std/fp/effect instances (Array/Option/Either/Promise functors
+  and monads, FlatMap instances, etc.).
+- Primitive instances (`eqNumber`, `ordString`, ...) inline to native
+  operators (`a === b`, `a < b`) rather than function calls.
+
+Cross-module instance extraction has known gaps (factory-form instances,
+import-alias chains) that are being closed in
+[PEP-053](https://github.com/typesugar/typesugar/blob/main/peps/PEP-053-always-on-specialization.md)
+Wave 2. When an instance isn't recognized, the call simply keeps
+dictionary passing — always correct, just not zero-cost.
+
+### With `= implicit()`
+
+`= implicit()` composes with auto-specialization: the transformer first fills
+in the instance argument, and the filled-in call then specializes like any
+other.
 
 ```typescript
 function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {
   return items.slice().sort((a, b) => ord.compare(a, b));
 }
 
-// Just call it — instance is resolved AND inlined automatically
-const sorted = sortWith([3, 1, 2]); // [1, 2, 3]
-// Compiles to: [3, 1, 2].slice().sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
-
-// Or pass an explicit instance to override
-const sorted2 = sortWith([3, 1, 2], reverseOrd);
+sortWith([3, 1, 2]); // instance resolved AND inlined automatically
 ```
 
-### Extension Method Syntax
+## When Specialization Is Skipped
 
-When you need a named specialized function:
+The transformer only inlines what it can prove sound. A call falls back to
+dictionary passing — semantically identical, just not inlined — and emits a
+[TS9602](/guides/error-messages#auto-specialization-skipped-ts9602) warning
+when the function body:
+
+- can't be resolved (e.g. the function comes from an untyped/dynamic source —
+  declare it as a `const` arrow function or a named `function`);
+- contains a loop, `try/catch`, a `throw`, or mutable `let` bindings;
+- has early/multiple returns that can't be flattened into a single expression
+  (simple guard-clause chains _are_ flattened into ternaries).
+
+Result-returning functions get one extra trick: **return-type-driven
+specialization** rewrites `ok()`/`err()` constructors when a `Result`-typed
+function is used where an `Option`, `Either`, or `Promise` is expected.
+
+## Opting Out
+
+Specialization is on by default; opt out per call with a comment on the same
+line (before the call) or on its own comment line directly above:
 
 ```typescript
-import "@typesugar/specialize"; // Adds .specialize() to functions
+// @no-specialize
+const slow = sortWith([3, 1, 2], numberOrd); // keeps dictionary passing
 
-// Generic function with typeclass constraint
-function sortWith<T>(items: T[], ord: Ord<T>): T[] {
-  return items.slice().sort((a, b) => ord.compare(a, b));
-}
-
-// Create a specialized version using the extension method
-const sortNumbers = sortWith.specialize(numberOrd);
-// Type: (items: number[]) => number[]
-
-// No more passing instances at runtime!
-const sorted = sortNumbers([3, 1, 2]); // [1, 2, 3]
+const alsoSlow = /* @no-specialize */ sortWith([3, 1, 2], numberOrd);
 ```
 
-### Multiple Dictionaries
+To keep specialization but silence a TS9602 skip warning, use
+`// @no-specialize-warn` in the same positions.
 
-```typescript
-function sortAndShow<T>(items: T[], ord: Ord<T>, show: Show<T>): string {
-  const sorted = items.slice().sort((a, b) => ord.compare(a, b));
-  return "[" + sorted.map((item) => show.show(item)).join(", ") + "]";
-}
+The file/function/line-level [opt-out directives](/guides/opt-out)
+(`"use no typesugar"`, `// @ts-no-typesugar`) also disable specialization
+along with everything else.
 
-// Specialize with multiple instances
-const sortAndShowNumbers = sortAndShow.specialize(numberOrd, numberShow);
-```
+## Verifying Zero Cost
 
-## How It Works
-
-| Pattern                          | Runtime Cost               |
-| -------------------------------- | -------------------------- |
-| Generic function with instance   | Dictionary lookup per call |
-| `.specialize(dict)`              | Zero — instance baked in   |
-| `= implicit()` + auto-specialize | Zero — fully automatic     |
-
-### Before Specialization
-
-```typescript
-// Every call passes the typeclass instance
-const sorted = sortWith([3, 1, 2], numberOrd);
-const sorted2 = sortWith([5, 4], numberOrd);
-```
-
-### After Specialization
-
-```typescript
-// Instance is baked into the specialized function
-const sortNumbers = sortWith.specialize(numberOrd);
-const sorted = sortNumbers([3, 1, 2]);
-const sorted2 = sortNumbers([5, 4]);
-```
-
-### With `= implicit()` (Best)
-
-```typescript
-function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] { ... }
-
-// No dictionary passing, no .specialize() — just works
-const sorted = sortWith([3, 1, 2]);
-// Or override: sortWith([3, 1, 2], customOrd)
-```
-
-## Other Specialization Macros
-
-Beyond `= implicit()` and `.specialize()`, the package provides three lower-level macros for inlining and monomorphization.
-
-### Inline a single expression — `specialize$()`
-
-`specialize$(dict, expr)` inline-specializes one expression. `expr` is a lambda `F => body`, and every `F.method()` call in the body is replaced with the inlined implementation from `dict`:
-
-```typescript
-import { specialize$ } from "@typesugar/specialize";
-
-// The lambda parameter receives the dictionary; method calls are inlined
-const result = specialize$(arrayMonad, (F) => F.map([1, 2, 3], (x) => x * 2));
-// Compiles to: [1, 2, 3].map((x) => x * 2)
-
-// Nesting works too
-const nested = specialize$(arrayMonad, (F) =>
-  F.flatMap([1, 2], (x) => F.map([x, x + 1], (y) => y * 2))
-);
-// Compiles to: [1, 2].flatMap((x) => [x, x + 1].map((y) => y * 2))
-```
-
-### Monomorphize a generic — `mono()`
-
-`mono<T>(fn)` produces a version of a generic function fixed to specific type arguments:
-
-```typescript
-import { mono } from "@typesugar/specialize";
-
-const identity = <T>(x: T): T => x;
-
-const identityNumber = mono<number>(identity);
-// Type: (x: number) => number
-
-const identityString = mono<string>(identity);
-// Type: (x: string) => string
-```
-
-### Inline a function call — `inlineCall()`
-
-`inlineCall(expr)` inlines a function call at compile time:
-
-```typescript
-import { inlineCall } from "@typesugar/specialize";
-
-const double = (x: number) => x * 2;
-
-const result = inlineCall(double(21));
-// Compiles to: ((x) => x * 2)(21)
-// And, where the optimizer can fold it: 42
-```
-
-### Legacy: `specialize()` function form
-
-The array-syntax `specialize(fn, [instances])` predates the `.specialize()` extension method and remains for backwards compatibility:
-
-```typescript
-import { specialize } from "@typesugar/specialize";
-
-function sortWith<T>(items: T[], ord: Ord<T>): T[] {
-  return items.slice().sort((a, b) => ord.compare(a, b));
-}
-
-const sortNumbers = specialize(sortWith, [numberOrd]);
-// Type: (items: number[]) => number[]
-const sorted = sortNumbers([3, 1, 2]); // [1, 2, 3]
-```
-
-## API
-
-### Extension Method (Preferred)
-
-- `fn.specialize(instance)` — Create a specialized function with one instance pre-applied
-- `fn.specialize(inst1, inst2, ...)` — Specialize with multiple instances
-
-### Functions
-
-- `specialize(fn, [instances])` — Legacy: create a specialized function (array syntax)
-- `specialize$(dict, expr)` — Inline specialization: `expr` is a lambda `F => body` where `F.method()` calls get inlined
-- `mono<T1, ...>(fn)` — Monomorphize a generic function for specific types
-- `inlineCall(call)` — Attempt to inline a function call
-
-## When to Use What
-
-| Scenario                          | Approach                         |
-| --------------------------------- | -------------------------------- |
-| Most cases                        | `= implicit()` — fully automatic |
-| Need a named specialized function | `fn.specialize(dict)`            |
-| One-off inline specialization     | `specialize$(dict, expr)`        |
-| Legacy code / edge cases          | `specialize(fn, [dict])`         |
+Check the compiled output — the [playground](https://typesugar.org/playground)
+shows it side by side, and [Zero-Cost, Seen](/guides/zero-cost) walks through
+real examples. The hoisted `__fn_Brand__` constants with `/*#__PURE__*/`
+annotations are the specializations; grep your build output for the original
+dictionary parameter to confirm it's gone.
 
 ## Learn More
 
-- [API Reference](/reference/packages#specialize)
-- [Package README](https://github.com/typesugar/typesugar/tree/main/packages/specialize)
+- [Typeclasses Guide](/guides/typeclasses) — defining typeclasses and instances
+- [Error Messages Guide](/guides/error-messages) — TS9602 and friends
+- [Macro Triggers Reference](/macro-triggers) — where auto-specialization runs
+  in the pipeline

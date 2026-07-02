@@ -271,27 +271,6 @@ derive(); // decorator
 
 [Guide](/guides/derive)
 
-### @typesugar/specialize {#specialize}
-
-Zero-cost typeclass specialization.
-
-```bash
-npm install @typesugar/specialize
-```
-
-**Exports:**
-
-```typescript
-specialize();
-specialize$();
-mono<T>();
-inlineCall();
-```
-
-**Inspired by:** GHC SPECIALIZE pragma, Rust monomorphization
-
-[Guide](/guides/specialize)
-
 ### @typesugar/reflect {#reflect}
 
 Compile-time type reflection.

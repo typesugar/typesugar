@@ -3,10 +3,6 @@
   "macros": {
     "expression": {
       "comptime": { "module": "@typesugar/macros", "description": "Compile-time evaluation" },
-      "specialize": {
-        "module": "@typesugar/specialize",
-        "description": "Zero-cost specialization"
-      },
       "summon": { "module": "@typesugar/typeclass", "description": "Typeclass instance lookup" },
       "match": { "module": "@typesugar/std", "description": "Exhaustive pattern matching" },
       "includeStr": {

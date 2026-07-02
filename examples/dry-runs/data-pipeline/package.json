@@ -16,7 +16,6 @@
     "@typesugar/fusion": "workspace:*",
     "@typesugar/macros": "workspace:*",
     "@typesugar/reflect": "workspace:*",
-    "@typesugar/specialize": "workspace:*",
     "@typesugar/std": "workspace:*",
     "@typesugar/transformer": "workspace:*",
     "@typesugar/type-system": "workspace:*",

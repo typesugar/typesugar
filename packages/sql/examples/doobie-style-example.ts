@@ -356,9 +356,8 @@ async function queryOne<A>(
   return transactor.run(cio);
 }
 
-// Specialized version (what the macro produces):
-// const queryUser = specialize(queryOne, UserMeta);
-// Compiles to:
+// Auto-specialized (what queryOne(query, UserMeta, transactor) compiles to
+// once UserMeta is a known instance — no annotation needed):
 // async function queryUser(query, transactor) {
 //   const { sql, params } = query.toSql();
 //   const rows = await transactor.run(ConnectionIO.raw(sql, params));

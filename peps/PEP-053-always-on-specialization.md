@@ -1,6 +1,6 @@
 # PEP-053: Always-On Specialization — Remove the Explicit `specialize` Surface and Static Builtins
 
-**Status:** Draft (2026-07-02)
+**Status:** In Progress (2026-07-02) — Wave 1 landed (explicit surface deleted)
 **Date:** 2026-07-02
 **Author:** Claude (with Dean Povey)
 **Absorbs:** [PEP-052](PEP-052-import-scoped-macro-activation.md) Phase D (the "inlining registry" phase)
@@ -164,6 +164,14 @@ builtins are deleted:
    typeclass type annotation (`const x: Functor<F> = {...}`). Adopt the looser
    rule (annotation suffices) everywhere — several std/effect instances
    (`flatMap*`, `chunkFunctor`, `effectOptionMonad`) carry only annotations.
+6. **Companion-path instances** (found empirically during Wave 1's deep
+   review): `double(p, numericPoint)` specializes but
+   `double(p, Point.Numeric)` — the `@derive`/`@impl` companion form — does
+   not (`getInstanceName` yields `"Point.Numeric"`, which neither the registry
+   nor source extraction resolves). Since companions are the convention the
+   operator/method-sugar paths emit, Wave 2 should make companion property
+   accesses extractable too (resolve the companion member back to its
+   generating instance/derivation).
 
 Known semantic caveats to resolve during migration (not blockers, but each
 needs an explicit decision + test):
@@ -214,17 +222,57 @@ both import (what `position-mapper.ts` already does), never two copies.
 
 ## Waves
 
-- **Wave 1 — delete the explicit surface.** Everything in §What is removed
-  except the builtin table: the four macros + registrations, runtime stubs,
-  `fn.specialize()` rewrite (both copies), the `@typesugar/specialize` package
-  (+ manifest/loader/typesugar wiring, dry-run example deps), TS9601, TS9602
-  rewording (drop "Use explicit specialize()"; point at the body blocker /
-  `@no-specialize-warn`), the `@no-specialize`/`-warn` matching bug + doc
-  mismatch. Rewrite/delete dependent tests (`tests/red-team-specialize.test.ts`,
-  `packages/transformer/tests/specialize-extension.test.ts`, package suites)
-  and examples. Audit `createSpecializedFunction` liveness. _This wave also
-  removes the only registry consumers with no source fallback (the explicit
-  macros read `instanceMethodRegistry` directly), simplifying Wave 4._
+- **Wave 1 — delete the explicit surface. DONE.** Everything in §What is
+  removed except the builtin table: the four macros + registrations, runtime
+  stubs, `fn.specialize()` rewrite (both copies), the `@typesugar/specialize`
+  package (+ manifest/loader/typesugar wiring, dry-run example deps —
+  including a third manifest copy in `packages/vscode/src/manifest.ts` the
+  original blast-radius inventory missed), TS9601 (removed, incl. the dead
+  `TS9221` diagnostic descriptor it was the only user of), TS9602 reworded
+  (dropped "Use explicit specialize()"; points at the body blocker or "falling
+  back to dictionary passing"), the `@no-specialize`/`-warn` substring-collision
+  bug fixed (`-warn` used to hit the bail branch and fully disable
+  specialization instead of just suppressing warnings) + extended to scan the
+  preceding comment line, with new tests for all 4 combinations in both
+  transformers. `createSpecializedFunction` and its whole private helper
+  family (`getDictName`, `specializeFunction`, `rewriteDictCalls`,
+  `createPartialApplication(Multi)`, etc.) confirmed dead (zero callers once
+  the macro + extension were gone) and deleted. Deleted/adapted dependent
+  tests (`tests/red-team-specialize.test.ts`, `specialize-extension.test.ts`,
+  `specialize-diagnostics.test.ts`, `specialize-improvements.test.ts`,
+  `rewriting.test.ts`) and examples (`docs/examples/core/specialize.ts`
+  rewritten to demonstrate auto-specialization; `packages/typeclass/examples/
+showcase.ts`'s live `.specialize()` calls, which would have thrown at
+  runtime — verified by transforming + executing the rewritten section
+  directly, since the only test covering that file only checks "transforms
+  without crashing," never executes the output). Extensive docs sweep
+  (README, AGENTS.md, package READMEs, architecture.md, guides, error
+  reference, vitepress nav) rewriting specialize()-as-API prose to describe
+  the always-on model; also fixed two pre-existing (not caused by this PEP)
+  broken doc examples that never imported PEP-052's required activation
+  marker. Full suite green (7088+ passed), typecheck/format/skip-policy/
+  runtime-purity/vscode/ts-plugin gates all green. Two independent review
+  passes (one before push, findings fixed) confirmed no dangling references
+  to deleted symbols anywhere in the tree. _This wave also removes the only
+  registry consumers with no source fallback (the explicit macros read
+  `instanceMethodRegistry` directly), simplifying Wave 4._
+  **Deep-review round (post-PR, 5-lens):** removed dead imports/helpers the
+  surgery stranded (`markPure`, `parseTypeConstructor`, `getNodeText` +
+  `printer` in specialize.ts; `registerInstanceMethods` import in
+  typeclass.ts); scrubbed three more IDE/diagnostic surfaces still advertising
+  the deleted macro (`core/src/import-suggestions.ts`, the TS9061 template in
+  `core/src/diagnostics.ts`, the vscode `tmLanguage` grammar keyword list);
+  hardened the preceding-line opt-out scan to comment-only lines (a trailing
+  `// @no-specialize` on the previous line no longer opts out the next line's
+  unrelated call — with a negative test) and added the missing legacy-copy
+  `-warn`-preceding-line test; pulled the `docs/guides/specialize.md` rewrite
+  forward from Wave 5 (it opened with `npm install @typesugar/specialize`);
+  fixed the README top example + comparison table (still claimed ambient
+  `===`/`.show()`, false since PEP-052); corrected the typeclasses-guide
+  claim that `double(p, Point.Numeric)` inlines — verified empirically it
+  does NOT (const-name form does; companion-path extraction is now Wave 2
+  gap 6); added the missing changeset (minor: typesugar/macros/transformer/
+  transformer-core, patch: core).
 - **Wave 2 — source-extraction capability.** Gap fixes 1–5 with a test per
   former builtin proving its source instance is extractable (imported, aliased,
   factory-form, property-access member), in both pipelines while they still
@@ -238,12 +286,20 @@ both import (what `position-mapper.ts` already does), never two copies.
   `flatMapStream`; keep primitives + AST cache. Gates: full suite,
   `pnpm bench` (zero-cost benchmarks must still show inlined output — this is
   the regression detector for extraction coverage), playground examples.
-- **Wave 5 — docs sweep.** Rewrite `docs/guides/specialize.md` as the
-  auto-specialization guide (how it works, what blocks inlining, the opt-out);
-  update `docs/reference/packages.md`, `docs/macro-triggers.md`,
-  `docs/guides/error-messages.md` (TS9601 section removed, TS9602 documented),
-  README/docs package tables, sidebar nav, and the secondary guide mentions
-  (typeclasses/fp/validate/opt-out/developer-experience/architecture).
+- **Wave 5 — residual docs/comment sweep.** Most of the originally-planned
+  docs sweep landed with Wave 1 (see its DONE note): `docs/guides/specialize.md`
+  was rewritten as the auto-specialization guide, and
+  `docs/reference/packages.md`, `docs/guides/error-messages.md`, README/docs
+  package tables, sidebar nav, and the secondary guides were all updated,
+  because leaving them describing a deleted API until a later wave meant the
+  live docs site would lie in the interim. Remaining for this wave: the
+  one-line JSDoc/comment mentions of `specialize()` scattered through package
+  sources (`sql/src/{derive-meta,typeclasses,connection-io}.ts`,
+  `collections/src/hash-{set,map}.ts`, `effect/src/{instances,index}.ts`,
+  `validate/src/schema.ts`, `fp/src/{effect/index,typeclasses/functor}.ts`,
+  `std/src/{index,typeclasses/numeric-ops}.ts`), a `docs/macro-triggers.md`
+  consistency pass, and re-dating `docs/PERFORMANCE.md` if Wave 4 moves the
+  benchmark numbers.
 
 Invariant (as in PEP-052): the builtin table stays populated until Wave 4's
 gates prove source extraction covers it — no wave leaves the build, LSP, or
@@ -283,3 +339,9 @@ playground with regressed inlining.
   (module-local helpers in instance bodies) use PEP-032 import emission or
   just fall back — decide in Wave 2 with the `flatMapIterable` case in front
   of us.
+- **Follow-up (needs npm auth, outside the repo):** `@typesugar/specialize`
+  was published to npm at 0.1.1 before Wave 1 deleted the workspace package.
+  Deprecate it on npm
+  (`npm deprecate @typesugar/specialize "Specialization is always-on in typesugar (PEP-053); this package is no longer needed"`)
+  so the orphaned package doesn't mislead. A changeset covering the
+  `@typesugar/macros`/`typesugar` export removals ships with Wave 1.

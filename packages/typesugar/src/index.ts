@@ -100,8 +100,6 @@ export {
   compose,
   flow,
   getOperatorString,
-  // Specialize
-  specialize,
   // Reflect
   reflect,
   typeInfo,
@@ -148,7 +146,3 @@ export { pipeMacro, composeMacro } from "@typesugar/macros";
 // Scala 3-style typeclasses (@typeclass, @impl, @derive, summon, extend)
 import * as typeclassNs from "@typesugar/typeclass";
 export { typeclassNs as typeclassNamespace };
-
-// Zero-cost specialization (specialize, mono, inlineCall)
-import * as specializeNs from "@typesugar/specialize";
-export { specializeNs as specializeNamespace };

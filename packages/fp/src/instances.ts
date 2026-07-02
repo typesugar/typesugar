@@ -28,16 +28,16 @@
  *
  * ```typescript
  * import { optionMonad, arrayMonad } from "./instances.js";
- * import { specialize } from "@typesugar/specialize";
  *
  * // Generic function
  * function double<F>(F: Monad<F>, fa: Kind<F, number>): Kind<F, number> {
  *   return F.map(fa, x => x * 2);
  * }
  *
- * // Zero-cost specialized version (macro eliminates dictionary at compile time)
- * const doubleOption = specialize(double, optionMonad);
- * // Compiles to: (fa) => fa !== null ? fa * 2 : null
+ * // Passing a known dictionary auto-specializes the call at compile time —
+ * // no annotation needed. The dictionary is eliminated entirely.
+ * const doubleOption = double(optionMonad, someOption);
+ * // Compiles to: someOption !== null ? someOption * 2 : null
  * ```
  */
 
@@ -238,10 +238,6 @@ type EitherTraverse<E> = EitherFunctor<E> &
 type EitherSemigroupK<E> = {
   readonly combineK: <A>(x: Either<E, A>, y: Either<E, A>) => Either<E, A>;
 };
-
-// Note: registerInstanceMethods is from @typesugar/specialize package
-// For now, registration is done separately in the macro package
-// import { registerInstanceMethods } from "@typesugar/specialize";
 
 // ============================================================================
 // Option Instances (Zero-Cost: Option<A> = A | null)
@@ -636,9 +632,10 @@ export function eitherSemigroupK<E>(): EitherSemigroupK<E> {
 // ============================================================================
 // Specialization templates
 // ============================================================================
-// These templates are used by @typesugar/specialize to inline typeclass
-// operations at compile time. They should be registered separately in the
-// macro package. See src/macros/specialize.ts for registration.
+// These templates document how the transformer auto-specializes (inlines)
+// these typeclass operations at compile time — see
+// packages/macros/src/specialize.ts and tryExtractInstanceFromSource, which
+// read these instances' own source rather than a separate registration step.
 //
 // Option templates (zero-cost null-based):
 //   optionFunctor.map:   '(fa, f) => fa !== null ? f(fa) : null'

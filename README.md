@@ -2,14 +2,22 @@
 
 **TypeScript that F\*cks! Compile-time macros. Zero runtime. Full type safety.**
 
-> _What if `===` just knew how to compare your types? What if `.show()` worked on any struct? What if it all compiled to exactly what you'd write by hand?_
+> _What if `===` just knew how to compare your types? What if `.clone()` worked on any struct? What if it all compiled to exactly what you'd write by hand?_
 
 typesugar brings compile-time metaprogramming to TypeScript, drawing from the best ideas in Rust, Scala 3, and Zig — and making them feel native to the TypeScript ecosystem.
 
 **[Try it in the Playground →](https://typesugar.org/playground)** — No installation required.
 
 ```typescript
-// Define your types — no decorators needed
+import { derive, Eq, Ord, Clone, Json } from "@typesugar/std";
+// Opt the file into typeclass operator syntax (cats-style) — sugar is never ambient
+import "@typesugar/std/syntax/eq/ops";
+import "@typesugar/std/syntax/ord/ops";
+// Method syntax is its own, quieter opt-in (no native operator is redefined)
+import "@typesugar/std/syntax/clone";
+import "@typesugar/std/syntax/json";
+
+@derive(Eq, Ord, Clone, Json)
 interface User {
   id: number;
   name: string;
@@ -19,12 +27,11 @@ interface User {
 const alice: User = { id: 1, name: "Alice", email: "alice@example.com" };
 const bob: User = { id: 2, name: "Bob", email: "bob@example.com" };
 
-// Operators just work — auto-derived, auto-specialized to zero-cost
+// Operators are activated for this file and an instance is in scope, so they rewrite
 alice === bob; // false (compiles to: alice.id === bob.id && ...)
 alice < bob; // true  (lexicographic field comparison)
 
-// Methods just work too
-alice.show(); // "User(id = 1, name = Alice, email = alice@example.com)"
+// Method syntax too (activated by its marker import above)
 alice.clone(); // deep copy
 alice.toJson(); // JSON serialization
 
@@ -35,7 +42,7 @@ alice.toJson(); // JSON serialization
 
 | Feature                  | typesugar                              | ts-macros               | Babel macros |
 | ------------------------ | -------------------------------------- | ----------------------- | ------------ |
-| **Implicit typeclasses** | `===`, `.show()` just work             | No                      | No           |
+| **Typeclass syntax**     | `===`, `.equals()` via scoped imports  | No                      | No           |
 | **Zero-cost**            | Auto-specialized to direct code        | No                      | No           |
 | **Type-aware**           | Yes — reads the type checker           | No                      | No           |
 | **Compile-time eval**    | Full JS via `vm` sandbox               | `$comptime` (similar)   | No           |
@@ -70,12 +77,11 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 ### Typeclasses & Derivation
 
-| Package                                      | Description                                          |
-| -------------------------------------------- | ---------------------------------------------------- |
-| [@typesugar/typeclass](packages/typeclass)   | `@typeclass`, `@instance`, `summon()`                |
-| [@typesugar/derive](packages/derive)         | `@derive(Eq, Clone, Debug, Json, ...)`               |
-| [@typesugar/specialize](packages/specialize) | Zero-cost typeclass specialization                   |
-| [@typesugar/reflect](packages/reflect)       | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
+| Package                                    | Description                                          |
+| ------------------------------------------ | ---------------------------------------------------- |
+| [@typesugar/typeclass](packages/typeclass) | `@typeclass`, `@instance`, `summon()`                |
+| [@typesugar/derive](packages/derive)       | `@derive(Eq, Clone, Debug, Json, ...)`               |
+| [@typesugar/reflect](packages/reflect)     | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 
 ### Type Safety & Contracts
 
@@ -162,22 +168,21 @@ const fib10 = comptime(() => {
 
 ### Zero-Cost Typeclasses
 
-Typeclasses are auto-derived from type structure and auto-specialized to eliminate overhead:
+Derive instances with `@derive`, activate the syntax you want with an import,
+and everything auto-specializes to eliminate overhead:
 
 ```typescript
+import "@typesugar/std/syntax/eq/ops"; // activate Eq operator syntax
+import "@typesugar/std/syntax/clone"; // activate Clone method syntax
+
+@derive(Eq, Clone)
 interface Point { x: number; y: number }
 
 const p1: Point = { x: 1, y: 2 };
 const p2: Point = { x: 1, y: 2 };
 
-// Just use them — the compiler handles derivation + specialization
 p1 === p2;    // Compiles to: p1.x === p2.x && p1.y === p2.y
-p1.show();    // Compiles to: `Point(x = ${p1.x}, y = ${p1.y})`
 p1.clone();   // Compiles to: { x: p1.x, y: p1.y }
-
-// Optional: @derive documents capabilities in the type definition
-@derive(Show, Eq, Ord, Clone, Json)
-interface User { id: number; name: string; }
 ```
 
 ### Type Reflection
@@ -396,7 +401,7 @@ function debugMe() {
 }
 
 // Just this line
-const slow = specialize(add); // @ts-no-typesugar
+const raw = (42).clamp(0, 100); // @ts-no-typesugar
 
 // Just extensions, keep macros working
 ("use no typesugar extensions");

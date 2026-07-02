@@ -114,10 +114,6 @@ export function createDefaultManifest(): MacroManifest {
           description: "For-yield comprehension",
         },
         asyncDo: { module: "typesugar", description: "Async do-comprehension" },
-        specialize: {
-          module: "typesugar",
-          description: "Zero-cost typeclass specialization",
-        },
       },
       decorator: {
         derive: {

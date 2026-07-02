@@ -24,8 +24,8 @@ import {
   reflectNamespace,
   deriveNamespace,
   // Note: operatorsNamespace doesn't exist - operators are in @typesugar/macros
+  // Note: specializeNamespace doesn't exist - specialization is always-on (PEP-053), not a package
   typeclassNamespace,
-  specializeNamespace,
   // Direct callable exports
   pipe,
   compose,
@@ -69,8 +69,8 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typesugar.reflectNamespace).toBeDefined();
       expect(typesugar.deriveNamespace).toBeDefined();
       // Note: operatorsNamespace doesn't exist - operators are exported directly from @typesugar/macros
+      // Note: specializeNamespace doesn't exist - specialization is always-on (PEP-053), not a package
       expect(typesugar.typeclassNamespace).toBeDefined();
-      expect(typesugar.specializeNamespace).toBeDefined();
     });
 
     it("exports all derive markers", () => {
