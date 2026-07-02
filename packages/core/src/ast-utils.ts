@@ -133,6 +133,38 @@ export function stripPositions<T extends ts.Node>(node: T): T {
 }
 
 /**
+ * Deep-clone an AST subtree into fresh synthetic nodes (pos/end -1, comment
+ * ranges cleared).
+ *
+ * stripPositions/stripCommentsDeep MUTATE the nodes they are given. That is
+ * fine for nodes we own, but extraction may lift method bodies out of a
+ * DIFFERENT source file (cross-module instance extraction); mutating those
+ * would corrupt the other file's AST for its own emit. Clone first, then the
+ * clone can be freely mutated downstream.
+ */
+export function cloneNodeDeep<T extends ts.Node>(node: T): T {
+  let clone = ts.visitEachChild(
+    node,
+    (child) => cloneNodeDeep(child),
+    undefined as unknown as ts.TransformationContext
+  ) as T;
+  if (clone === node) {
+    // Leaf node (no children were replaced) — force a shallow clone.
+    // factory.cloneNode exists at runtime but is missing from the public
+    // NodeFactory typings.
+    clone = (ts.factory as unknown as { cloneNode<U extends ts.Node>(n: U): U }).cloneNode(node);
+  }
+  ts.setTextRange(clone, { pos: -1, end: -1 });
+  ts.setCommentRange(clone, { pos: -1, end: -1 });
+  ts.setSyntheticLeadingComments(clone, undefined);
+  ts.setSyntheticTrailingComments(clone, undefined);
+  // factory.update* (used by visitEachChild) links clones back to their
+  // originals; sever that so the printer never consults the foreign file.
+  ts.setOriginalNode(clone, undefined);
+  return clone;
+}
+
+/**
  * Recursively strip all comment and position information from an AST subtree.
  *
  * Goes further than stripPositions: also clears comment ranges and synthetic

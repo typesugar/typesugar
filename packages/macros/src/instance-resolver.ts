@@ -75,7 +75,9 @@ function importMapCacheFor(program: ts.Program): Map<string, ImportMapEntry[]> {
   return m;
 }
 
-function getImportMap(ctx: MacroContext): ImportMapEntry[] {
+function getImportMap(
+  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">
+): ImportMapEntry[] {
   const cache = importMapCacheFor(ctx.program);
   const key = ctx.sourceFile.fileName;
   const cached = cache.get(key);
@@ -320,6 +322,22 @@ export function resolveInstanceInScopeByName(
   typeName: string,
   scanner: InstanceScanner = defaultScanner
 ): string | undefined {
+  return findInstanceInScopeByName(ctx, tcName, typeName, scanner)?.exportName;
+}
+
+/**
+ * Like {@link resolveInstanceInScopeByName}, but also reports WHERE the instance
+ * lives: `modulePath` is the resolved file path for an imported instance, or
+ * undefined when it was found in the local file. Source-based specialization
+ * uses this to walk from a companion path (`Point.Numeric`) back to the
+ * generating instance declaration (PEP-053 Wave 2 gap 6).
+ */
+export function findInstanceInScopeByName(
+  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  tcName: string,
+  typeName: string,
+  scanner: InstanceScanner = defaultScanner
+): { exportName: string; modulePath?: string } | undefined {
   const baseName = (s: string): string => {
     const m = /^[A-Za-z_$][\w$]*/.exec(s.trim());
     return m ? m[0] : s.trim();
@@ -330,7 +348,7 @@ export function resolveInstanceInScopeByName(
   // Local file (includes non-exported @impl/@instance values).
   const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
   const localHit = local.find(match);
-  if (localHit) return localHit.exportName;
+  if (localHit) return { exportName: localHit.exportName };
 
   // Imported modules.
   for (const entry of getImportMap(ctx)) {
@@ -345,7 +363,7 @@ export function resolveInstanceInScopeByName(
       ctx.program
     );
     const hit = scanned.find(match);
-    if (hit) return hit.exportName;
+    if (hit) return { exportName: hit.exportName, modulePath: entry.resolvedPath };
   }
 
   return undefined;

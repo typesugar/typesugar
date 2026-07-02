@@ -133,7 +133,17 @@ export {
   type InlineFailureReason,
   type InlineClassification,
   type FlattenAnalysis,
+  type MemberMethodResolver,
 } from "./specialize.js";
+// --- Source-based instance extraction for auto-specialization (PEP-053) ---
+export {
+  tryExtractInstanceFromSource,
+  getInstanceName,
+  hasImplAnnotation,
+  hasTypeclassTypeAnnotation,
+  extractBrandFromImpl,
+  type InstanceExtractionContext,
+} from "./instance-extraction.js";
 // --- Implicit parameter resolution (= implicit() default pattern) ---
 export {
   summonAllMacro,
@@ -240,6 +250,7 @@ export { InstanceScanner, instanceScanner, type ScannedInstance } from "./instan
 export {
   resolveInstance,
   clearResolverCache,
+  findInstanceInScopeByName,
   type ResolvedInstance,
   type AmbiguousInstances,
   type ResolutionResult,

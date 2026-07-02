@@ -491,16 +491,28 @@ export function registerInstanceMethodsFromAST(
 }
 
 /**
+ * Resolve an object-literal member that is not a direct function expression —
+ * a property-access reference (`map: optionFunctor.map`), an identifier
+ * reference (`map: mapOption`), or a shorthand property (`{ map }`) — to the
+ * underlying method implementation. Supplied by the source-extraction layer,
+ * which has TypeChecker access (PEP-053 Wave 2 gap 4).
+ */
+export type MemberMethodResolver = (expr: ts.Expression | ts.Identifier) => DictMethod | undefined;
+
+/**
  * Extract method implementations from an object literal expression.
  * Used by @instance and @deriving to register instances for specialization.
  *
  * @param objLiteral - The object literal containing method implementations
  * @param hygiene - Optional hygiene context for generating safe placeholder names
+ * @param resolveMember - Optional resolver for indirect members (property-access,
+ *   identifier, shorthand); without it those members are skipped as before
  * @returns A map of method names to their DictMethod info
  */
 export function extractMethodsFromObjectLiteral(
   objLiteral: ts.ObjectLiteralExpression,
-  hygiene?: HygieneContext
+  hygiene?: HygieneContext,
+  resolveMember?: MemberMethodResolver
 ): Map<string, DictMethod> {
   const methods = new Map<string, DictMethod>();
 
@@ -530,6 +542,15 @@ export function extractMethodsFromObjectLiteral(
           node: initializer,
           params,
         });
+      } else if (
+        resolveMember &&
+        (ts.isPropertyAccessExpression(initializer) || ts.isIdentifier(initializer))
+      ) {
+        // Indirect member: `map: optionFunctor.map` or `map: mapOption`
+        const resolved = resolveMember(initializer);
+        if (resolved) {
+          methods.set(methodName, resolved);
+        }
       }
     }
 
@@ -557,7 +578,14 @@ export function extractMethodsFromObjectLiteral(
 
     // Handle shorthand property: { methodName } where methodName is a function variable
     if (ts.isShorthandPropertyAssignment(prop)) {
-      // Can't extract the implementation from shorthand - skip
+      if (prop.name.text === "URI") continue;
+      if (resolveMember) {
+        const resolved = resolveMember(prop.name);
+        if (resolved) {
+          methods.set(prop.name.text, resolved);
+        }
+      }
+      // Without a resolver we can't extract the implementation from shorthand - skip
       continue;
     }
   }
@@ -1138,6 +1166,11 @@ function inlineFromNode(
     body = methodNode.body;
     params = methodNode.parameters;
   } else if (ts.isMethodDeclaration(methodNode)) {
+    body = methodNode.body;
+    params = methodNode.parameters;
+  } else if (ts.isFunctionDeclaration(methodNode)) {
+    // Indirect members can reference top-level functions (`map: mapOption`
+    // where mapOption is a function declaration) — PEP-053 Wave 2 gap 4.
     body = methodNode.body;
     params = methodNode.parameters;
   } else {

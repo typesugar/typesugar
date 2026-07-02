@@ -204,8 +204,8 @@ double(p, numericPoint);
 // (a) => ({ x: a.x + a.x, y: a.y + a.y })
 ```
 
-Pass the instance by name (`numericPoint`) for specialization; companion-path
-access (`Point.Numeric`) resolves the instance but is not yet source-inlined.
+Both the instance name (`numericPoint`) and companion-path access
+(`Point.Numeric`) specialize.
 If the transformer can't prove the inlining is sound (e.g. the function body
 has a loop or try/catch), it falls back to dictionary passing — always
 correct, just not zero-cost — and emits a TS9602 warning. Opt a call out

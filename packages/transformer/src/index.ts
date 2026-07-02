@@ -37,9 +37,9 @@ import {
   // Registration functions for AST-based extraction
   registerInstanceWithMeta,
   extractOpFromJSDoc,
-  // Source-based specialization
-  extractMethodsFromObjectLiteral,
-  registerInstanceMethodsFromAST,
+  // Source-based specialization (PEP-053 Wave 2: shared implementation)
+  getInstanceName as sharedGetInstanceName,
+  tryExtractInstanceFromSource as sharedTryExtractInstanceFromSource,
   getSpecializationMethodsForDerivation,
   type ImplicitScope,
   type DictMethodMap,
@@ -190,20 +190,6 @@ interface MethodSugarInstance {
   instanceName?: string;
   sourceModule?: string;
   forType: string;
-}
-
-/**
- * Does this variable declaration carry a typeclass-shaped type annotation —
- * `const x: Functor<F> = …` (a PascalCase type reference with ≥1 type argument)?
- * Used to recognize a typeclass instance for source-based inlining without an
- * explicit `@impl` tag, mirroring the instance scanner's resolution discovery.
- */
-function hasTypeclassTypeAnnotation(varDecl: ts.VariableDeclaration | undefined): boolean {
-  const typeNode = varDecl?.type;
-  if (!typeNode || !ts.isTypeReferenceNode(typeNode)) return false;
-  if (!ts.isIdentifier(typeNode.typeName)) return false;
-  if (!/^[A-Z][a-zA-Z0-9]*$/.test(typeNode.typeName.text)) return false;
-  return (typeNode.typeArguments?.length ?? 0) >= 1;
 }
 
 function isSimpleExpression(node: ts.Expression): boolean {
@@ -2913,184 +2899,23 @@ class MacroTransformer {
 
   /**
    * Get the instance dictionary name from an expression.
-   * Handles direct identifiers, property accesses, and type assertions.
+   * PEP-053 Wave 2: shared implementation (also accepts zero-arg factory
+   * calls like `eitherFunctor<E>()`).
    */
   private getInstanceName(expr: ts.Expression): string | undefined {
-    if (ts.isIdentifier(expr)) {
-      return expr.text;
-    }
-    if (ts.isPropertyAccessExpression(expr)) {
-      // Return full dotted path for companion paths (e.g. "Point.Eq")
-      const objName = this.getInstanceName(expr.expression);
-      if (objName) {
-        return `${objName}.${expr.name.text}`;
-      }
-      return expr.name.text;
-    }
-    if (ts.isParenthesizedExpression(expr)) {
-      return this.getInstanceName(expr.expression);
-    }
-    if (ts.isAsExpression(expr)) {
-      return this.getInstanceName(expr.expression);
-    }
-    return undefined;
-  }
-
-  /**
-   * Check if a variable declaration has @impl or @instance in its JSDoc.
-   * Auto-specialization happens for ALL @impl instances where method bodies
-   * can be extracted from the source object literal.
-   * Handles JSDoc on both the declaration and its parent statement.
-   */
-  private hasImplAnnotation(decl: ts.Declaration): boolean {
-    // Check the declaration itself
-    const jsDocs = ts.getJSDocTags(decl);
-    for (const tag of jsDocs) {
-      if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
-        return true;
-      }
-    }
-
-    // Check the parent statement (JSDoc is often attached to VariableStatement)
-    if (ts.isVariableDeclaration(decl)) {
-      const parent = decl.parent?.parent; // VariableDeclaration -> VariableDeclarationList -> VariableStatement
-      if (parent && ts.isVariableStatement(parent)) {
-        const parentTags = ts.getJSDocTags(parent);
-        for (const tag of parentTags) {
-          if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Extract the brand (type name) from @impl annotation.
-   * E.g., @impl Functor<Array> → "Array"
-   * Handles JSDoc on both the declaration and its parent statement.
-   */
-  private extractBrandFromImpl(decl: ts.Declaration): string | undefined {
-    const extractFromTags = (tags: readonly ts.JSDocTag[]): string | undefined => {
-      for (const tag of tags) {
-        if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
-          const comment =
-            typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-          if (comment) {
-            const extracted = extractTypeArgumentsContent(comment.trim());
-            if (extracted !== undefined) return extracted;
-          }
-        }
-      }
-      return undefined;
-    };
-
-    // Check the declaration itself
-    const result = extractFromTags(ts.getJSDocTags(decl));
-    if (result) return result;
-
-    // Check the parent statement (JSDoc is often attached to VariableStatement)
-    if (ts.isVariableDeclaration(decl)) {
-      const parent = decl.parent?.parent; // VariableDeclaration -> VariableDeclarationList -> VariableStatement
-      if (parent && ts.isVariableStatement(parent)) {
-        return extractFromTags(ts.getJSDocTags(parent));
-      }
-    }
-
-    return undefined;
+    return sharedGetInstanceName(expr);
   }
 
   /**
    * Try to extract instance methods from source for auto-specialization.
-   * Auto-specialization happens automatically for ALL @impl instances where
-   * method bodies can be extracted from the source object literal.
-   * No @specialize annotation needed - @impl is sufficient.
-   *
-   * @param argExpr - The argument expression (identifier or property access)
-   * @returns DictMethodMap if @impl is found and methods can be extracted, undefined otherwise
+   * PEP-053 Wave 2: delegates to the shared implementation in
+   * @typesugar/macros, which resolves import aliases, identifier-alias
+   * consts, zero-arg factories, indirect members, and companion paths, and
+   * accepts `@impl`-tagged OR typeclass-annotated declarations (no explicit
+   * annotation on the alias itself needed when the target qualifies).
    */
   private tryExtractInstanceFromSource(argExpr: ts.Expression): DictMethodMap | undefined {
-    const argName = this.getInstanceName(argExpr);
-    if (!argName) return undefined;
-
-    try {
-      // Resolve the argument to its declaration
-      const symbol = this.ctx.typeChecker.getSymbolAtLocation(argExpr);
-      if (!symbol) return undefined;
-
-      const declarations = symbol.getDeclarations();
-      if (!declarations || declarations.length === 0) return undefined;
-
-      for (const decl of declarations) {
-        // Find the object literal initializer
-        let objLiteral: ts.ObjectLiteralExpression | undefined;
-        let varDecl: ts.VariableDeclaration | undefined;
-
-        if (ts.isVariableDeclaration(decl)) {
-          varDecl = decl;
-          if (decl.initializer && ts.isObjectLiteralExpression(decl.initializer)) {
-            objLiteral = decl.initializer;
-          }
-        }
-
-        if (!objLiteral) continue;
-
-        // Accept an instance for source-based inlining if it is either explicitly
-        // `@impl`/`@instance`-annotated, OR carries a typeclass-shaped type
-        // annotation (`const x: Functor<F> = { ... }`). The latter lets instances
-        // be inlined from source WITHOUT an `@impl` tag — and therefore without
-        // triggering the `@impl` attribute macro's companion generation, which would
-        // change a transformed package's exports (PEP-052). Mirrors the scanner's
-        // type-annotation discovery used for resolution.
-        if (!this.hasImplAnnotation(decl) && !hasTypeclassTypeAnnotation(varDecl)) continue;
-
-        // Extract brand from @impl annotation or infer from type annotation
-        let brand = this.extractBrandFromImpl(decl);
-
-        // Fallback: try to infer brand from type annotation
-        if (!brand && varDecl?.type) {
-          try {
-            // Try to get the type argument from the type annotation
-            if (ts.isTypeReferenceNode(varDecl.type) && varDecl.type.typeArguments) {
-              const firstTypeArg = varDecl.type.typeArguments[0];
-              if (firstTypeArg) {
-                brand = safeGetNodeText(firstTypeArg, this.ctx.sourceFile);
-              }
-            }
-
-            // Fallback: use getText() if type reference extraction didn't work
-            if (!brand) {
-              const typeStr = varDecl.type.getText(this.ctx.sourceFile);
-              const extracted = extractTypeArgumentsContent(typeStr);
-              if (extracted) {
-                brand = extracted;
-              }
-            }
-          } catch {
-            // Brand extraction from type annotation failed, continue with fallbacks
-          }
-        }
-
-        // Fallback: use the variable name as brand
-        if (!brand) {
-          brand = argName;
-        }
-
-        // Extract methods from the object literal
-        const methods = extractMethodsFromObjectLiteral(objLiteral, this.ctx.hygiene);
-        if (methods.size > 0) {
-          // Register for caching (so subsequent calls in the same file use cache)
-          registerInstanceMethodsFromAST(argName, brand, methods);
-          return { brand, methods };
-        }
-      }
-    } catch {
-      // Fallback to registry-based lookup on error
-    }
-
-    return undefined;
+    return sharedTryExtractInstanceFromSource(this.ctx, argExpr);
   }
 
   /**

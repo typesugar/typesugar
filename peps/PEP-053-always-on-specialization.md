@@ -1,6 +1,6 @@
 # PEP-053: Always-On Specialization — Remove the Explicit `specialize` Surface and Static Builtins
 
-**Status:** In Progress (2026-07-02) — Wave 1 landed (explicit surface deleted)
+**Status:** In Progress (2026-07-02) — Waves 1–2 landed (explicit surface deleted; source extraction covers aliases, factories, indirect members, companions)
 **Date:** 2026-07-02
 **Author:** Claude (with Dean Povey)
 **Absorbs:** [PEP-052](PEP-052-import-scoped-macro-activation.md) Phase D (the "inlining registry" phase)
@@ -273,10 +273,74 @@ showcase.ts`'s live `.specialize()` calls, which would have thrown at
   does NOT (const-name form does; companion-path extraction is now Wave 2
   gap 6); added the missing changeset (minor: typesugar/macros/transformer/
   transformer-core, patch: core).
-- **Wave 2 — source-extraction capability.** Gap fixes 1–5 with a test per
-  former builtin proving its source instance is extractable (imported, aliased,
-  factory-form, property-access member), in both pipelines while they still
-  exist.
+- **Wave 2 — source-extraction capability. DONE (2026-07-02).** All six gap
+  fixes landed as ONE shared implementation —
+  `packages/macros/src/instance-extraction.ts` — that both pipelines delegate
+  to (the legacy transformer's private clone and transformer-core's copy of
+  `tryExtractInstanceFromSource`/`getInstanceName`/`hasImplAnnotation`/
+  `extractBrandFromImpl` were deleted in favor of it, pre-staging Wave 3):
+  - Gap 1: symbol resolution follows import aliases (`getAliasedSymbol`),
+    including renamed imports; cross-module brand extraction reads the type
+    annotation from the DECLARING file (the old copies passed the call-site
+    file to `getText`, a latent bug).
+  - Gap 2: zero-arg factory calls (`eitherFunctor<E>()`) resolve to the
+    factory's returned object literal — concise arrow body or a block whose
+    trailing return follows only variable statements. Factories with VALUE
+    parameters are rejected (bodies would capture the argument); acceptance is
+    `@impl` on the factory or a typeclass-shaped return annotation. Factory
+    brands use the instance name, never the return annotation's first type
+    argument (a bare type parameter like "E" would collide across factories
+    and poison the specialization cache key).
+  - Gap 3: identifier-alias consts (`const stdFlatMapArray = flatMapArray`)
+    chase initializers (identifier, property access, or factory call),
+    depth-limited to 5; acceptance may be satisfied anywhere along the chain.
+  - Gap 4: indirect object-literal members resolve via a `MemberMethodResolver`
+    hook on `extractMethodsFromObjectLiteral` — property-access members
+    (`map: optionFunctor.map`), identifier members (`map: mapOption`), and
+    shorthand (`{ map }`); `inlineFromNode` learned FunctionDeclaration
+    bodies for the identifier case.
+  - Gap 5: unified acceptance everywhere — `@impl`/`@instance` tag OR
+    typeclass-shaped type annotation (transformer-core previously required the
+    tag; the playground pipeline now matches production).
+  - Gap 6: companion paths (`Point.Numeric`) that have no symbol in the
+    checker's program resolve by scope via the new
+    `findInstanceInScopeByName` (instance-resolver) — the same scanner
+    machinery method sugar trusts — then extract from the located const's
+    declaration. Both the transform-time-generated-companion and
+    real-companion-const shapes are covered by tests.
+  - **DECIDED (was the Wave-2 open question): fallback over import emission.**
+    A method body lifted from ANOTHER module may reference bindings that exist
+    only there (module-local helpers like `iterableMap`, or the module's own
+    imports like `Effect.map`); inlining would capture dangling identifiers.
+    Extraction runs a free-identifier scan on every extracted method and DROPS
+    unsafe ones — the call falls back to dictionary passing, which is always
+    correct. Safe siblings still specialize (per-method, not per-instance).
+    A referenced binding is safe if it is ambient/lib, inside the method
+    itself, or (same-module only) at the call-site file's module scope —
+    which also catches factory-LOCAL bindings (`const functor =
+eitherFunctor<E>()` inside a factory body) that would dangle even
+    same-file. If Wave 4's bench parity gate needs the Either/Effect/Iterable
+    instances inlined cross-module, PEP-032 import emission is the upgrade
+    path.
+  - Extracted method nodes are DEEP-CLONED (`cloneNodeDeep`, new in core)
+    before registration/inlining: `stripPositions`/`stripCommentsDeep` mutate
+    in place, and inlining a method lifted from another file would otherwise
+    corrupt that file's AST for its own emit in program-wide transforms.
+  - Tests: form-coverage suites in both pipelines
+    (`packages/transformer/tests/pep053-source-extraction.test.ts` end-to-end;
+    `packages/transformer-core/tests/specialization.test.ts` unit-level with a
+    new multi-file-program helper), plus a per-former-builtin matrix
+    (`tests/pep053-former-builtins.test.ts`) against the REAL fp/std sources
+    with RENAMED imports (so the still-present builtin table cannot mask an
+    extraction failure): 13 self-contained builtins (array/option/promise
+    instances, Array/Promise FlatMaps + std aliases) inline cross-package;
+    6 helper-dependent ones (Either factories, Iterable FlatMaps + alias)
+    fall back cleanly. Effect instances follow the fallback group's
+    namespace-import shape and are covered by shape, not by pulling the
+    `effect` library into a test program.
+  - Wave 4 note: `arrayFoldable`'s builtin registers a `reduce` method its
+    source instance does not define — deleting the builtin drops `reduce`
+    inlining for it (callers fall back); no code depends on it in-repo.
 - **Wave 3 — pipeline unification.** Legacy transformer consumes
   transformer-core's specialization module; delete the clone. Full suite +
   LSP/vscode + playground gates.
@@ -335,10 +399,12 @@ playground with regressed inlining.
   that contradict "specialization is not an API".
 - **Recommended:** keep `@no-specialize-warn` (fixed), since TS9602 remains
   the only feedback channel for "why didn't this inline".
-- **Open:** whether hoisted specializations that need free identifiers
-  (module-local helpers in instance bodies) use PEP-032 import emission or
-  just fall back — decide in Wave 2 with the `flatMapIterable` case in front
-  of us.
+- **DECIDED (Wave 2, 2026-07-02):** hoisted specializations that would need
+  free identifiers (module-local helpers or the instance module's imports in
+  method bodies) **fall back to dictionary passing** — extraction drops those
+  methods via a cross-module free-identifier scan. Fallback is always correct;
+  PEP-032 import emission remains the upgrade path if Wave 4's bench parity
+  gate needs Either/Effect/Iterable instances inlined cross-module.
 - **Follow-up (needs npm auth, outside the repo):** `@typesugar/specialize`
   was published to npm at 0.1.1 before Wave 1 deleted the workspace package.
   Deprecate it on npm
