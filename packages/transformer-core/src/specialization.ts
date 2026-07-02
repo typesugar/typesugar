@@ -20,8 +20,8 @@ import {
   getResultAlgebra,
   analyzeForFlattening,
   flattenReturnsToExpression,
-  extractMethodsFromObjectLiteral,
-  registerInstanceMethodsFromAST,
+  getInstanceName,
+  tryExtractInstanceFromSource as sharedTryExtractInstanceFromSource,
   type DictMethodMap,
   type ResultAlgebra,
 } from "@typesugar/macros";
@@ -33,8 +33,6 @@ import {
   preserveSourceMap,
   extractTypeArgumentsContent,
 } from "@typesugar/core";
-
-import { safeGetNodeText, type VisitFn } from "./transformer-utils.js";
 
 // ---------------------------------------------------------------------------
 // Void return type detection
@@ -71,164 +69,30 @@ function isVoidReturnType(
 }
 
 // ---------------------------------------------------------------------------
-// Instance name extraction
+// Instance name extraction + source-based instance extraction
+//
+// PEP-053 Wave 2: the implementation is shared with the legacy transformer and
+// lives in @typesugar/macros (instance-extraction.ts). It resolves import
+// aliases, identifier-alias consts, zero-arg factories, indirect members, and
+// companion paths, and accepts `@impl`-tagged OR typeclass-annotated
+// declarations (the unified criteria).
 // ---------------------------------------------------------------------------
 
-export function getInstanceName(expr: ts.Expression): string | undefined {
-  if (ts.isIdentifier(expr)) {
-    return expr.text;
-  }
-  if (ts.isPropertyAccessExpression(expr)) {
-    // Return full dotted path for companion paths (e.g. "Point.Eq")
-    const objName = getInstanceName(expr.expression);
-    if (objName) {
-      return `${objName}.${expr.name.text}`;
-    }
-    return expr.name.text;
-  }
-  if (ts.isParenthesizedExpression(expr)) {
-    return getInstanceName(expr.expression);
-  }
-  if (ts.isAsExpression(expr)) {
-    return getInstanceName(expr.expression);
-  }
-  return undefined;
-}
-
-// ---------------------------------------------------------------------------
-// @impl annotation detection
-// ---------------------------------------------------------------------------
-
-export function hasImplAnnotation(decl: ts.Declaration): boolean {
-  const jsDocs = ts.getJSDocTags(decl);
-  for (const tag of jsDocs) {
-    if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
-      return true;
-    }
-  }
-
-  if (ts.isVariableDeclaration(decl)) {
-    const parent = decl.parent?.parent;
-    if (parent && ts.isVariableStatement(parent)) {
-      const parentTags = ts.getJSDocTags(parent);
-      for (const tag of parentTags) {
-        if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
+export {
+  getInstanceName,
+  hasImplAnnotation,
+  hasTypeclassTypeAnnotation,
+  extractBrandFromImpl,
+} from "@typesugar/macros";
 
 // Re-export for backwards compatibility
 export { extractTypeArgumentsContent } from "@typesugar/core";
-
-// ---------------------------------------------------------------------------
-// Brand extraction from @impl
-// ---------------------------------------------------------------------------
-
-export function extractBrandFromImpl(decl: ts.Declaration): string | undefined {
-  const extractFromTags = (tags: readonly ts.JSDocTag[]): string | undefined => {
-    for (const tag of tags) {
-      if (tag.tagName.text === "impl" || tag.tagName.text === "instance") {
-        const comment =
-          typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-        if (comment) {
-          const text = comment.trim();
-          const extracted = extractTypeArgumentsContent(text);
-          if (extracted !== undefined) return extracted;
-        }
-      }
-    }
-    return undefined;
-  };
-
-  const result = extractFromTags(ts.getJSDocTags(decl));
-  if (result) return result;
-
-  if (ts.isVariableDeclaration(decl)) {
-    const parent = decl.parent?.parent;
-    if (parent && ts.isVariableStatement(parent)) {
-      return extractFromTags(ts.getJSDocTags(parent));
-    }
-  }
-
-  return undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Source-based instance extraction
-// ---------------------------------------------------------------------------
 
 export function tryExtractInstanceFromSource(
   ctx: MacroContextImpl,
   argExpr: ts.Expression
 ): DictMethodMap | undefined {
-  const argName = getInstanceName(argExpr);
-  if (!argName) return undefined;
-
-  try {
-    const symbol = ctx.typeChecker.getSymbolAtLocation(argExpr);
-    if (!symbol) return undefined;
-
-    const declarations = symbol.getDeclarations();
-    if (!declarations || declarations.length === 0) return undefined;
-
-    for (const decl of declarations) {
-      if (!hasImplAnnotation(decl)) continue;
-
-      let objLiteral: ts.ObjectLiteralExpression | undefined;
-      let varDecl: ts.VariableDeclaration | undefined;
-
-      if (ts.isVariableDeclaration(decl)) {
-        varDecl = decl;
-        if (decl.initializer && ts.isObjectLiteralExpression(decl.initializer)) {
-          objLiteral = decl.initializer;
-        }
-      }
-
-      if (!objLiteral) continue;
-
-      let brand = extractBrandFromImpl(decl);
-
-      if (!brand && varDecl?.type) {
-        try {
-          if (ts.isTypeReferenceNode(varDecl.type) && varDecl.type.typeArguments) {
-            const firstTypeArg = varDecl.type.typeArguments[0];
-            if (firstTypeArg) {
-              brand = safeGetNodeText(firstTypeArg, ctx.sourceFile);
-            }
-          }
-
-          if (!brand) {
-            const typeStr = varDecl.type.getText(ctx.sourceFile);
-            const extracted = extractTypeArgumentsContent(typeStr);
-            if (extracted) {
-              brand = extracted;
-            }
-          }
-        } catch {
-          // getText() may fail on synthetic type annotation nodes — skip brand extraction
-        }
-      }
-
-      if (!brand) {
-        brand = argName;
-      }
-
-      const methods = extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene);
-      if (methods.size > 0) {
-        registerInstanceMethodsFromAST(argName, brand, methods);
-        return { brand, methods };
-      }
-    }
-  } catch {
-    // TypeChecker or AST traversal may throw — fall back to registry-based lookup
-  }
-
-  return undefined;
+  return sharedTryExtractInstanceFromSource(ctx, argExpr);
 }
 
 // ---------------------------------------------------------------------------

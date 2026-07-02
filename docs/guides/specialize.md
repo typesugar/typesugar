@@ -55,17 +55,22 @@ showNumber)` specializes on both at once.
 
 - Instances declared with `/** @impl TC<T> */` (or `@instance`), or with an
   explicit typeclass type annotation (`const x: Functor<F> = { ... }`), whose
-  object-literal bodies the transformer can read from source.
+  object-literal bodies the transformer can read from source — including
+  instances imported from other modules (renamed imports too), identifier
+  aliases (`const stdFlatMapArray = flatMapArray`), zero-arg factory instances
+  (`eitherFunctor<E>()`), members that reference other instances
+  (`map: optionFunctor.map`, shorthand `{ map }`), and companion paths
+  (`Point.Numeric`).
 - The built-in std/fp/effect instances (Array/Option/Either/Promise functors
   and monads, FlatMap instances, etc.).
 - Primitive instances (`eqNumber`, `ordString`, ...) inline to native
   operators (`a === b`, `a < b`) rather than function calls.
 
-Cross-module instance extraction has known gaps (factory-form instances,
-import-alias chains) that are being closed in
-[PEP-053](https://github.com/typesugar/typesugar/blob/main/peps/PEP-053-always-on-specialization.md)
-Wave 2. When an instance isn't recognized, the call simply keeps
-dictionary passing — always correct, just not zero-cost.
+One safety rule for cross-module instances: a method body that references its
+own module's local helpers or imports is not inlined (the identifiers wouldn't
+exist at your call site) — that call keeps dictionary passing, which is always
+correct, just not zero-cost. Methods with self-contained bodies still
+specialize.
 
 ### With `= implicit()`
 

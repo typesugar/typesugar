@@ -172,6 +172,7 @@ export {
   stripDecorator,
   stripPositions,
   stripCommentsDeep,
+  cloneNodeDeep,
   jsValueToExpression,
   getPrinter,
   getDummySourceFile,

@@ -22,6 +22,7 @@
  */
 
 import * as ts from "typescript";
+import * as nodePath from "path";
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
@@ -62,6 +63,7 @@ import {
   getInstanceName,
   hasImplAnnotation,
   extractBrandFromImpl,
+  tryExtractInstanceFromSource,
   resolveAutoSpecFunctionBody,
   rewriteDictCallsForAutoSpec,
   inlineAutoSpecializeForHoisting,
@@ -136,6 +138,51 @@ function createProgramFromSource(
 
 function makeCtx(source = "const x = 1;"): MacroContextImpl {
   const { program, sourceFile } = createProgramFromSource(source);
+  return createMacroContext(program, sourceFile, sharedTransformContext);
+}
+
+/**
+ * Build a real ts.Program from MULTIPLE in-memory files, with cross-file
+ * import resolution (PEP-053 Wave 2 cross-module extraction tests).
+ * Keys are file names like "main.ts" / "lib.ts"; relative imports ("./lib")
+ * resolve between them.
+ */
+function createMultiFileProgram(
+  files: Record<string, string>,
+  rootName = "main.ts"
+): { program: ts.Program; sourceFile: ts.SourceFile } {
+  // Module resolution works with absolute paths — key everything by
+  // path.resolve(name) so `./lib` from `main.ts` finds `lib.ts`.
+  const sourceFiles = new Map<string, ts.SourceFile>();
+  const texts = new Map<string, string>();
+  for (const [name, text] of Object.entries(files)) {
+    const resolved = nodePath.resolve(name);
+    texts.set(resolved, text);
+    sourceFiles.set(
+      resolved,
+      ts.createSourceFile(resolved, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    );
+  }
+
+  const host = ts.createCompilerHost(sharedOptions);
+  const origGetSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (name, languageVersion, onError, shouldCreate) => {
+    return (
+      sourceFiles.get(nodePath.resolve(name)) ??
+      origGetSourceFile(name, languageVersion, onError, shouldCreate)
+    );
+  };
+  const origFileExists = host.fileExists.bind(host);
+  host.fileExists = (f) => sourceFiles.has(nodePath.resolve(f)) || origFileExists(f);
+  const origReadFile = host.readFile.bind(host);
+  host.readFile = (f) => texts.get(nodePath.resolve(f)) ?? origReadFile(f);
+
+  const program = ts.createProgram(Array.from(sourceFiles.keys()), sharedOptions, host);
+  return { program, sourceFile: program.getSourceFile(nodePath.resolve(rootName))! };
+}
+
+function makeMultiFileCtx(files: Record<string, string>, rootName = "main.ts"): MacroContextImpl {
+  const { program, sourceFile } = createMultiFileProgram(files, rootName);
   return createMacroContext(program, sourceFile, sharedTransformContext);
 }
 
@@ -1117,5 +1164,319 @@ describe("module wiring", () => {
 
   it("imports registerInstanceMethodsFromAST", () => {
     expect(typeof registerInstanceMethodsFromAST).toBe("function");
+  });
+});
+
+// ===========================================================================
+// PEP-053 Wave 2 — shared source-based extraction (cross-module capability)
+// ===========================================================================
+
+describe("tryExtractInstanceFromSource (PEP-053 Wave 2)", () => {
+  const FUNCTOR_TC = `
+export interface Functor<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+}
+`.trim();
+
+  /** Find the call named `fnName` in the root file and return its argument. */
+  function argOfCall(ctx: MacroContextImpl, argIndex = 0): ts.Expression {
+    const call = findAllCalls(ctx.sourceFile).find(
+      (c) => ts.isIdentifier(c.expression) && c.expression.text === "use"
+    );
+    expect(call).toBeDefined();
+    return call!.arguments[argIndex];
+  }
+
+  it("extracts an instance imported from another module (gap 1)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+${FUNCTOR_TC}
+/** @impl Functor<Array> */
+export const w2ImportedFunctor: Functor<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+`.trim(),
+      "main.ts": `
+import { w2ImportedFunctor } from "./lib";
+declare function use(x: unknown): void;
+use(w2ImportedFunctor);
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.brand).toBe("Array");
+    expect(result!.methods.has("map")).toBe(true);
+  });
+
+  it("follows renamed imports (gap 1)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+${FUNCTOR_TC}
+/** @impl Functor<Array> */
+export const w2RenamedFunctor: Functor<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+`.trim(),
+      "main.ts": `
+import { w2RenamedFunctor as rf } from "./lib";
+declare function use(x: unknown): void;
+use(rf);
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
+  });
+
+  it("extracts a zero-arg factory instance (gap 2)", () => {
+    const ctx = makeMultiFileCtx({
+      "main.ts": `
+interface Functor<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+}
+function w2Factory<E>(): Functor<any> {
+  return {
+    map: (fa: any, f: (a: any) => any) => (fa.ok ? { ok: true, value: f(fa.value) } : fa),
+  };
+}
+declare function use(x: unknown): void;
+use(w2Factory<string>());
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
+  });
+
+  it("rejects factories with value parameters (gap 2)", () => {
+    const ctx = makeMultiFileCtx({
+      "main.ts": `
+interface Functor<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+}
+function w2ValueFactory(tag: string): Functor<any> {
+  return {
+    map: (fa: any[], f: (a: any) => any) => fa.map(f),
+  };
+}
+declare function use(x: unknown): void;
+use(w2ValueFactory("x"));
+`.trim(),
+    });
+
+    expect(tryExtractInstanceFromSource(ctx, argOfCall(ctx))).toBeUndefined();
+  });
+
+  it("chases identifier-alias consts across modules (gap 3)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+${FUNCTOR_TC}
+const base: Functor<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+export const w2AliasFunctor = base;
+`.trim(),
+      "main.ts": `
+import { w2AliasFunctor } from "./lib";
+declare function use(x: unknown): void;
+use(w2AliasFunctor);
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
+  });
+
+  it("resolves property-access members (gap 4)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+export interface Monad<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+  flatMap<A, B>(fa: any, f: (a: A) => any): any;
+}
+interface Functor<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+}
+const baseFunctor: Functor<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+export const w2MemberMonad: Monad<Array<any>> = {
+  map: baseFunctor.map,
+  flatMap: (fa: any[], f: (a: any) => any[]) => fa.flatMap(f),
+};
+`.trim(),
+      "main.ts": `
+import { w2MemberMonad } from "./lib";
+declare function use(x: unknown): void;
+use(w2MemberMonad);
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
+    expect(result!.methods.has("flatMap")).toBe(true);
+  });
+
+  it("accepts annotation-only instances without @impl (gap 5, unified criteria)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+${FUNCTOR_TC}
+export const w2AnnotatedOnly: Functor<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+`.trim(),
+      "main.ts": `
+import { w2AnnotatedOnly } from "./lib";
+declare function use(x: unknown): void;
+use(w2AnnotatedOnly);
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
+  });
+
+  it("resolves companion paths through scope when the checker has no symbol (gap 6)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+export interface Numeric<T> {
+  add(a: T, b: T): T;
+}
+export interface Point { x: number; y: number; }
+/** @impl Numeric<Point> */
+export const w2NumericPoint: Numeric<Point> = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+};
+`.trim(),
+      "main.ts": `
+import { w2NumericPoint } from "./lib";
+import type { Point } from "./lib";
+declare const Point: any;
+declare function use(x: unknown): void;
+use(Point.Numeric);
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("add")).toBe(true);
+  });
+
+  it("drops cross-module methods that reference module-local helpers (safety)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+${FUNCTOR_TC}
+function localHelper(fa: any[], f: (a: any) => any): any[] {
+  return fa.map(f);
+}
+export const w2HelperFunctor: Functor<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => localHelper(fa, f),
+};
+`.trim(),
+      "main.ts": `
+import { w2HelperFunctor } from "./lib";
+declare function use(x: unknown): void;
+use(w2HelperFunctor);
+`.trim(),
+    });
+
+    // The only method captures a module-local helper — extraction yields
+    // nothing and the call falls back to dictionary passing.
+    expect(tryExtractInstanceFromSource(ctx, argOfCall(ctx))).toBeUndefined();
+  });
+
+  it("keeps safe siblings when only some methods are unsafe (safety)", () => {
+    const ctx = makeMultiFileCtx({
+      "lib.ts": `
+export interface Monad<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+  flatMap<A, B>(fa: any, f: (a: A) => any): any;
+}
+function localFlatten(fa: any[], f: (a: any) => any[]): any[] {
+  return fa.flatMap(f);
+}
+export const w2MixedMonad: Monad<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+  flatMap: (fa: any[], f: (a: any) => any[]) => localFlatten(fa, f),
+};
+`.trim(),
+      "main.ts": `
+import { w2MixedMonad } from "./lib";
+declare function use(x: unknown): void;
+use(w2MixedMonad);
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
+    expect(result!.methods.has("flatMap")).toBe(false);
+  });
+
+  it("drops factory methods that reference factory-local bindings, even same-file (safety)", () => {
+    const ctx = makeMultiFileCtx({
+      "main.ts": `
+interface Monad<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+  flatMap<A, B>(fa: any, f: (a: A) => any): any;
+}
+interface Functor<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+}
+function w2BaseFactory<E>(): Functor<any> {
+  return {
+    map: (fa: any[], f: (a: any) => any) => fa.map(f),
+  };
+}
+function w2LocalBindingFactory<E>(): Monad<any> {
+  const functor = w2BaseFactory<E>();
+  return {
+    map: functor.map,
+    flatMap: (fa: any[], f: (a: any) => any[]) => functor.map(fa, f).flat(),
+  };
+}
+declare function use(x: unknown): void;
+use(w2LocalBindingFactory<string>());
+`.trim(),
+    });
+
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    // \`map: functor.map\` resolves THROUGH the local binding to the base
+    // factory's self-contained arrow — extractable. The flatMap body
+    // references \`functor\` directly, which exists only inside the factory —
+    // inlining it would dangle, so it must be dropped even same-file.
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
+    expect(result!.methods.has("flatMap")).toBe(false);
+  });
+
+  it("still extracts same-file instances whose methods use file-local helpers (no scan same-module)", () => {
+    const ctx = makeMultiFileCtx({
+      "main.ts": `
+interface Functor<F> {
+  map<A, B>(fa: any, f: (a: A) => B): any;
+}
+function sameFileHelper(fa: any[], f: (a: any) => any): any[] {
+  return fa.map(f);
+}
+/** @impl Functor<Array> */
+const w2SameFileFunctor: Functor<Array<any>> = {
+  map: (fa: any[], f: (a: any) => any) => sameFileHelper(fa, f),
+};
+declare function use(x: unknown): void;
+use(w2SameFileFunctor);
+`.trim(),
+    });
+
+    // Same-module helpers are in scope at the call site — extraction proceeds.
+    const result = tryExtractInstanceFromSource(ctx, argOfCall(ctx));
+    expect(result).toBeDefined();
+    expect(result!.methods.has("map")).toBe(true);
   });
 });
