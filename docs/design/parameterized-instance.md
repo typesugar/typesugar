@@ -190,9 +190,8 @@ Functor.registerParameterizedInstance("Effect", {
   params: ["E", "R"],
 });
 
-// Method registration for specialize() via @specialize annotation
-// NOTE: registerInstanceMethods() is deprecated. Use @specialize instead:
-// /** @impl Functor<Effect> @specialize */ const effectFunctor = ...
+// NOTE (PEP-053): specialization is automatic for any @impl instance —
+// there is no registration call and no annotation to add.
 ```
 
 #### 3. Summon Resolution
@@ -322,7 +321,7 @@ const effectMonadError: MonadError<Effect<_, E, R>, E> = { ... };
 1. **Existing `@instance("Type")` syntax**: Unchanged (now `@impl`)
 2. **Existing `@instance("Typeclass<Type>")` syntax**: Unchanged (now `@impl`)
 3. **Existing factory functions**: Continue to work as imports
-4. **`@specialize` annotation**: Source-based method registration (replaces deprecated `registerInstanceMethods`)
+4. **Specialization**: automatic from source for any `@impl` instance (PEP-053) — no registration call or annotation
 
 New syntax is additive — no breaking changes.
 

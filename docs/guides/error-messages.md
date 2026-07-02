@@ -239,6 +239,7 @@ the line above), or keep specialization but silence the warning with
 `// @no-specialize-warn`:
 
 ```typescript
+// (arrayFunctor is an @impl Functor<Array> instance in scope)
 // @no-specialize-warn
 const result = processItems(arrayFunctor, items); // Still specialized, no warning
 ```

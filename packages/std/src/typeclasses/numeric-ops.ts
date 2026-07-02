@@ -2,7 +2,7 @@
  * Generic Numeric Operations
  *
  * Derived operations that work for ANY type with a Numeric, Integral, or Fractional instance.
- * All functions use dictionary-passing style for zero-cost specialization via `specialize()`.
+ * All functions use dictionary-passing style; auto-specialization makes them zero-cost.
  *
  * Note: Functions that might conflict with concrete versions in extensions/number.ts
  * are named with `With` suffix (e.g., `gcdWith`, `lerpWith`) to indicate they take

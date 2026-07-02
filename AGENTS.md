@@ -37,7 +37,7 @@ typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driv
 
 7. **Do-Notation via Labeled Blocks** — `let:` / `seq:` for sequential monadic chains (flatMap), `par:` / `all:` for parallel (Promise.all). These compile to zero-cost chains. `par:` blocks can nest inside `let:` blocks.
 
-8. **Reuse `specialize.ts` for Inlining** — `inlineMethod()` is the gold standard for zero-cost. The auto-specialization pipeline (`tryAutoSpecialize` in `packages/transformer/src/index.ts`) is what creates specialized functions today — there is no explicit `specialize()`/`fn.specialize()` call. Study `packages/macros/src/specialize.ts` before implementing new transformations.
+8. **Reuse `specialize.ts` for Inlining** — `inlineMethod()` is the gold standard for zero-cost. The auto-specialization pipeline (`tryAutoSpecialize` in `packages/transformer-core/src/specialization.ts` — the single shared implementation both transformers use, PEP-053) is what creates specialized functions today — there is no explicit `specialize()`/`fn.specialize()` call. Study `packages/macros/src/specialize.ts` before implementing new transformations.
 
 9. **Use `quote()` for AST Construction** — Tagged template quasiquoting with `spread`, `ident`, `raw` helpers. Never use raw `ts.factory` calls in macro implementations.
 

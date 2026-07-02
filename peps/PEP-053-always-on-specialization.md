@@ -1,6 +1,6 @@
 # PEP-053: Always-On Specialization — Remove the Explicit `specialize` Surface and Static Builtins
 
-**Status:** In Progress (2026-07-02) — Waves 1–2 landed (explicit surface deleted; source extraction covers aliases, factories, indirect members, companions)
+**Status:** Implemented (2026-07-03) — all five waves landed: explicit surface deleted, source extraction covers every builtin form, one shared pipeline, static builtin table deleted, docs swept
 **Date:** 2026-07-02
 **Author:** Claude (with Dean Povey)
 **Absorbs:** [PEP-052](PEP-052-import-scoped-macro-activation.md) Phase D (the "inlining registry" phase)
@@ -365,30 +365,68 @@ eitherFunctor<E>()` inside a factory body) that would dangle even
   `checkForValueRef` remain exported but are exercised only by unit tests.
   Production paths (ts-patch, unplugin, CLI, LSP, api/compile.ts) and the
   playground now run the SAME specialization code.
-- **Wave 4 — delete the static builtins.** Remove the 30
-  `registerInstanceMethods` calls, the function itself, and the
-  internal-registration machinery; author-or-drop `eitherBifunctor`/
-  `flatMapStream`; keep primitives + AST cache. Gates: full suite,
-  `pnpm bench` (zero-cost benchmarks must still show inlined output — this is
-  the regression detector for extraction coverage), playground examples.
-- **Wave 5 — residual docs/comment sweep.** Most of the originally-planned
-  docs sweep landed with Wave 1 (see its DONE note): `docs/guides/specialize.md`
-  was rewritten as the auto-specialization guide, and
-  `docs/reference/packages.md`, `docs/guides/error-messages.md`, README/docs
-  package tables, sidebar nav, and the secondary guides were all updated,
-  because leaving them describing a deleted API until a later wave meant the
-  live docs site would lie in the interim. Remaining for this wave: the
-  one-line JSDoc/comment mentions of `specialize()` scattered through package
-  sources (`sql/src/{derive-meta,typeclasses,connection-io}.ts`,
-  `collections/src/hash-{set,map}.ts`, `effect/src/{instances,index}.ts`,
-  `validate/src/schema.ts`, `fp/src/{effect/index,typeclasses/functor}.ts`,
-  `std/src/{index,typeclasses/numeric-ops}.ts`), a `docs/macro-triggers.md`
-  consistency pass, and re-dating `docs/PERFORMANCE.md` if Wave 4 moves the
-  benchmark numbers.
+- **Wave 4 — delete the static builtins. DONE (2026-07-02).** The ~28
+  `registerInstanceMethods(...)` builtin registrations, the function itself,
+  and the internal-registration machinery (`endInternalRegistration`,
+  `isInternalRegistration`) are deleted; the 16 primitive intrinsics and the
+  `instanceMethodRegistry` (as the per-program AST cache fed by
+  `registerInstanceMethodsFromAST`) stay. `eitherBifunctor` and
+  `flatMapStream` are DROPPED, not authored — a repo-wide sweep found nothing
+  (no test, bench, or example) exercising either name. Blast radius was ONE
+  file: `packages/macros/src/specialize.test.ts` imported the deleted
+  function directly; its two cases were rewritten to the AST registration
+  API. The sql package's `registerInstanceMethods` is an unrelated local
+  no-op stub (name collision, untouched). Gate findings: the assumed
+  `pnpm bench` gate turned out to be VACUOUS — `tests/benchmark{,-e2e}.test.ts`
+  measure macro-context/transformer throughput and exercise no builtin
+  instance, and the separate `tests/benchmarks/hkt-perf` microbenches define
+  their instances locally in-file. The real regression detector for
+  extraction coverage is `tests/pep053-former-builtins.test.ts` (Wave 2's
+  real-source matrix), which now runs registry-free by construction: 13
+  self-contained former builtins inline cross-package from source; the
+  helper-dependent Either/Iterable group falls back to dictionary passing
+  (the blessed PEP behavior; PEP-032 import emission remains the upgrade
+  path). Bench, full suite, and playground gates all green.
+- **Wave 5 — residual docs/comment sweep. DONE (2026-07-02).** Most of the
+  originally-planned docs sweep landed with Wave 1 (see its DONE note). This
+  wave rewrote the remaining one-line `specialize()`-as-API comment mentions
+  in package sources (`collections/src/hash-{map,set}.ts`,
+  `effect/src/{index,instances}.ts` — including retitling the
+  "Instance Registration for specialize()" section to "Instance Bundle" —
+  `validate/src/schema.ts`, `std/src/{index,typeclasses/numeric-ops}.ts`;
+  the sql/fp mentions listed at drafting time were already gone by Wave 1's
+  sweep). `docs/macro-triggers.md` needed no changes (it already describes
+  the auto model and `@no-specialize`). `docs/PERFORMANCE.md` needed no
+  re-dating — Wave 4 does not move the benchmark numbers (the benches never
+  exercised the builtins). Also updated `docs/guides/specialize.md`'s
+  "which instances are recognized" list: std/fp/effect instances are
+  recognized from source like any other instance — the builtin-table bullet
+  is gone.
 
 Invariant (as in PEP-052): the builtin table stays populated until Wave 4's
 gates prove source extraction covers it — no wave leaves the build, LSP, or
 playground with regressed inlining.
+
+## Final review round (2026-07-03, post-Waves 3–5)
+
+A five-lens review of the cumulative Waves 3–5 diff (dangling references,
+stranded dead code, empirical behavior, docs truthfulness, test honesty)
+found no code defects. Empirical verification (transform + execute through
+the production pipeline) confirmed: basic auto-spec, both Wave 3 behavior
+deltas (no dangling type-parameter annotations in hoisted output; no
+spurious void TS9602 — while try/catch bodies still warn), trivia-free
+derived-instance inlining, ORIGINAL-name cross-package specialization
+registry-free, clean fallback for namespace-import bodies, and both opt-out
+forms. Fixes applied: five stale doc references to deleted API
+(`.cursor/skills/macro-authoring`, `docs/design/parameterized-instance.md`,
+`docs/ANALYSIS-language-design.md`, `AGENTS.md` pipeline pointer,
+`docs/reference/packages.md` umbrella list still naming the deleted
+specialize package), an editor's note in PEP-032 whose plan references
+pre-PEP-053 API, `docs/architecture.md` §6 relocated to the shared pipeline,
+11 dead imports pruned from `packages/transformer/src/index.ts` (one
+stranded by Wave 2, ten pre-existing), refreshed test-file rationale
+comments, and a new matrix case pinning that original-name imports
+specialize registry-free.
 
 ## Acceptance criteria
 

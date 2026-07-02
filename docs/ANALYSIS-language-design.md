@@ -48,10 +48,11 @@ function map<F>(F: Functor<F>): <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F
 }
 ```
 
-When invoked as `specialize(map, arrayFunctor)`, the system:
+When a call site passes a known instance — `map(arrayFunctor)(xs, f)` — the
+transformer auto-specializes it (PEP-053):
 
 1. Identifies `F` as the dictionary parameter.
-2. Looks up `arrayFunctor`'s method implementations in the `instanceMethodRegistry`.
+2. Extracts `arrayFunctor`'s method implementations from its source declaration.
 3. Substitutes `F.map(fa, f)` with the concrete array implementation `fa.map(f)`.
 4. Removes the `F` parameter from the function signature.
 5. Replaces `Kind<F, A>` type annotations with `Array<A>`.

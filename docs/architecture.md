@@ -443,7 +443,7 @@ The underlying encoding uses phantom kind markers: `type Kind<F, A> = F & { read
 
 ---
 
-## 6. Zero-Cost Specialization (`src/macros/specialize.ts`)
+## 6. Zero-Cost Specialization (`transformer-core/src/specialization.ts` + `macros/src/specialize.ts`)
 
 The specialization system eliminates typeclass dictionary overhead at compile time.
 
@@ -463,12 +463,12 @@ function mapArray<A, B>(fa: Array<A>, f: (a: A) => B): Array<B> {
 
 ### Key Functions
 
-| Function                              | Purpose                                 |
-| ------------------------------------- | --------------------------------------- |
-| `inlineMethod(ctx, method, callArgs)` | Core inlining logic                     |
-| `getInstanceMethods(name)`            | Retrieve registered methods             |
-| `tryAutoSpecialize(...)`              | Entry point — gates + drives inlining   |
-| `tryExtractInstanceFromSource(...)`   | Extracts method bodies from `@impl` AST |
+| Function                              | Purpose                                                                                                                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `inlineMethod(ctx, method, callArgs)` | Core inlining logic (`macros/src/specialize.ts`)                                                                       |
+| `getInstanceMethods(name)`            | Retrieve registered methods (`macros/src/specialize.ts`)                                                               |
+| `tryAutoSpecialize(...)`              | Entry point — gates + drives inlining (`transformer-core/src/specialization.ts`, the single shared pipeline — PEP-053) |
+| `tryExtractInstanceFromSource(...)`   | Extracts method bodies from instance source (`macros/src/instance-extraction.ts`)                                      |
 
 ### Source-Based Specialization
 

@@ -7,10 +7,13 @@
  * matrix proves the Wave 2 capability against the actual declarations in
  * packages/fp and packages/std.
  *
- * Every import is RENAMED: the static builtin table is still registered under
- * the original names, and the registry fallback would mask an extraction
- * failure. A renamed import misses the registry, so a hoisted specialization
- * can only come from genuine source extraction.
+ * Every import is RENAMED. When this matrix was written (Wave 2) the static
+ * builtin table still existed under the original names and the registry
+ * fallback would have masked an extraction failure; renaming bypassed it.
+ * Wave 4 deleted the table, so the whole file now runs registry-free by
+ * construction — the renaming is kept as belt-and-braces (a future registry
+ * write under an original name can never silently vacate this matrix), and a
+ * dedicated case below pins that ORIGINAL-name imports specialize too.
  *
  * Expected outcomes match the PEP's fallback decision:
  * - self-contained method bodies (array/option/promise instances, the
@@ -146,6 +149,23 @@ describe("PEP-053 Wave 2: former builtins extract from their real sources", () =
       expect(result.code).toMatch(new RegExp(`__\\w*${fn}\\w*`));
     });
   }
+
+  it("inlines an ORIGINAL-name import registry-free (post-Wave-4 pin)", () => {
+    const original = transformCode(
+      `
+import { arrayFunctor } from "${FP}";
+function mapOrig(F: any, fa: any) { return F.map(fa, (x: number) => x + 1); }
+export const r = mapOrig(arrayFunctor, [1]);
+`.trim(),
+      {
+        fileName: "consumer-original.ts",
+        readFile: (f: string) => ts.sys.readFile(f),
+        fileExists: (f: string) => ts.sys.fileExists(f),
+      }
+    );
+    expect(original.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(original.code).toMatch(/__\w*mapOrig\w*/);
+  });
 
   for (const [builtin, fn, reason] of FALLBACK) {
     it(`falls back to dictionary passing for ${builtin} (${reason})`, () => {
