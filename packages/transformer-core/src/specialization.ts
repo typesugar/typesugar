@@ -31,6 +31,7 @@ import {
   globalResolutionScope,
   isInOptedOutScope,
   preserveSourceMap,
+  stripCommentsDeep,
   extractTypeArgumentsContent,
 } from "@typesugar/core";
 
@@ -781,7 +782,11 @@ export function tryInlineDerivedInstanceCall(
 
   const result = recursivelyInlineInstanceCalls(ctx, inlined, 0);
 
-  return preserveSourceMap(result, node);
+  // Strip comments from the inlined output — the method template can carry
+  // trivia from the instance declaration (e.g. JSDoc), which the printer
+  // would otherwise emit at the call site. (Behavior unified from the legacy
+  // transformer in PEP-053 Wave 3.)
+  return preserveSourceMap(stripCommentsDeep(result), node);
 }
 
 /**
