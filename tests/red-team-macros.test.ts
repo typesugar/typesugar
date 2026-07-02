@@ -1,8 +1,9 @@
 /**
- * Red Team Tests for Macros (specialize)
+ * Red Team Tests for dictionary-passing semantics.
  *
  * Attack surfaces:
- * - specialize() inlining edge cases
+ * - Generic dictionary-passing edge cases (closures, getters) that
+ *   auto-specialization must preserve when it inlines a call.
  *
  * Note: Match macro edge case tests were removed in PEP-025
  * (old API consolidation). Match edge cases are covered by match tests.
@@ -10,10 +11,11 @@
 import { describe, it, expect } from "vitest";
 
 // ==========================================================================
-// Specialize Macro Edge Cases
+// Dictionary-Passing Edge Cases
 // ==========================================================================
-describe("Specialize Edge Cases", () => {
-  // Test that the runtime fallback works (when macro isn't applied)
+describe("Dictionary-Passing Edge Cases", () => {
+  // Plain runtime behavior — no transformer involved. These pin down the
+  // semantics auto-specialization must preserve when it inlines these calls.
 
   it("Generic function with type parameter", () => {
     interface Functor<F> {

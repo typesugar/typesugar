@@ -20,7 +20,7 @@ This package provides implementations for:
 
 - **Typeclass system**: `@typeclass`, `@impl`, `@derive`, `summon()`, `extend()`
 - **Derivation**: `@derive()`, built-in derives (Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard)
-- **Specialization**: `specialize()`, `inlineMethod()`
+- **Specialization**: always-on compile-time dictionary inlining (no API — `// @no-specialize` to opt out)
 - **Compile-time evaluation**: `comptime()`
 - **Reflection**: `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`
 - **Operators**: `@op` JSDoc on typeclass methods, `pipe()`, `compose()`

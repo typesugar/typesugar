@@ -75,7 +75,6 @@ import {
 import {
   tryExpandTaggedTemplate as tryExpandTaggedTemplateFn,
   tryExpandTypeMacro as tryExpandTypeMacroFn,
-  tryRewriteSpecializeExtension as tryRewriteSpecializeExtensionFn,
   tryRewriteExtensionMethod as tryRewriteExtensionMethodFn,
   tryTransformHKTDeclaration as tryTransformHKTDeclarationFn,
   tryRewriteTypeclassOperator as tryRewriteTypeclassOperatorFn,
@@ -690,23 +689,6 @@ class MacroTransformer {
           visited.equalsGreaterThanToken,
           visited.body
         );
-      }
-    }
-
-    // fn.specialize(dict) must be checked before expression macros
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "specialize"
-    ) {
-      const result = tryRewriteSpecializeExtensionFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (result !== undefined) {
-        return result;
       }
     }
 

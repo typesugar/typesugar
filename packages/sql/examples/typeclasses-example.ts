@@ -313,14 +313,14 @@ console.log("ConnectionIO program created");
 // ============================================================================
 
 /**
- * When used with the `specialize` macro, Read/Write operations are inlined:
+ * Read/Write operations auto-specialize — no annotation needed:
  *
  * ```typescript
  * // Generic code:
  * const readUser = <A>(read: Read<A>, row: SqlRow) => read.read(row);
  *
- * // Specialized for User:
- * const readUserSpecialized = specialize(readUser, ReadUser);
+ * // Calling it with a known instance auto-specializes the call:
+ * readUser(ReadUser, someRow);
  *
  * // Compiles to (no dictionary lookups!):
  * const readUserSpecialized = (row: SqlRow) => ({

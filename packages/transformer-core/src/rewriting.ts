@@ -1,6 +1,6 @@
 /**
  * Extension method rewriting, operator overloading, HKT transformation,
- * tagged template macros, type macros, and specialize-extension handling.
+ * and tagged template / type macro handling.
  *
  * Each function takes explicit parameters instead of relying on class state,
  * so the MacroTransformer methods become thin delegation wrappers.
@@ -11,7 +11,6 @@ import * as ts from "typescript";
 import {
   getOperatorString,
   getInstanceMethods,
-  createSpecializedFunction,
   isKindAnnotation,
   transformHKTDeclaration,
   getOperatorCandidates,
@@ -190,58 +189,6 @@ export function tryExpandTypeMacro(
   } catch (error) {
     ctx.reportError(node, `Type macro expansion failed: ${error}`);
     return ts.visitEachChild(node, visit, ctx.transformContext) as ts.TypeNode;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// fn.specialize(dict) extension
-// ---------------------------------------------------------------------------
-
-export function tryRewriteSpecializeExtension(
-  ctx: MacroContextImpl,
-  verbose: boolean,
-  visit: VisitFn,
-  node: ts.CallExpression
-): ts.Expression | undefined {
-  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "macros")) {
-    return undefined;
-  }
-
-  const propAccess = node.expression as ts.PropertyAccessExpression;
-  const fnExpr = propAccess.expression;
-
-  const fnType = ctx.typeChecker.getTypeAtLocation(fnExpr);
-  const callSignatures = fnType.getCallSignatures();
-  if (callSignatures.length === 0) {
-    return undefined;
-  }
-
-  if (node.arguments.length === 0) {
-    ctx.reportError(node, "fn.specialize() requires at least one typeclass instance argument");
-    return node;
-  }
-
-  const dictArgs = Array.from(node.arguments);
-
-  if (verbose) {
-    const fnName = ts.isIdentifier(fnExpr) ? fnExpr.text : "<expr>";
-    const dictNames = dictArgs.map((d) => (ts.isIdentifier(d) ? d.text : "<expr>")).join(", ");
-    console.log(`[typesugar] Rewriting ${fnName}.specialize(${dictNames})`);
-  }
-
-  const specialized = createSpecializedFunction(ctx, {
-    fnExpr,
-    dictExprs: dictArgs,
-    callExpr: node,
-    suppressWarnings: false,
-  });
-
-  try {
-    const visited = ts.visitNode(specialized, visit) as ts.Expression;
-    return preserveSourceMap(visited, node);
-  } catch (error) {
-    ctx.reportError(node, `specialize() extension method failed: ${error}`);
-    return undefined;
   }
 }
 

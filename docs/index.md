@@ -385,7 +385,7 @@ error[TS9062]: Method `clamp` does not exist on type `number`
 function debug() {
   "use no typesugar";
 } // one function
-specialize(add); // @ts-no-typesugar     // one line
+(42).clamp(0, 100); // @ts-no-typesugar  // one line
 ("use no typesugar extensions"); // just extensions
 ```
 
@@ -412,12 +412,11 @@ specialize(add); // @ts-no-typesugar     // one line
 
 ### Typeclasses & Derivation
 
-| Package                                                 | Description                                          |
-| ------------------------------------------------------- | ---------------------------------------------------- |
-| [@typesugar/typeclass](/reference/packages#typeclass)   | `@typeclass`, `@instance`, `summon()`                |
-| [@typesugar/derive](/reference/packages#derive)         | `@derive(Eq, Clone, Debug, Json, ...)`               |
-| [@typesugar/specialize](/reference/packages#specialize) | Zero-cost typeclass specialization                   |
-| [@typesugar/reflect](/reference/packages#reflect)       | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
+| Package                                               | Description                                          |
+| ----------------------------------------------------- | ---------------------------------------------------- |
+| [@typesugar/typeclass](/reference/packages#typeclass) | `@typeclass`, `@instance`, `summon()`                |
+| [@typesugar/derive](/reference/packages#derive)       | `@derive(Eq, Clone, Debug, Json, ...)`               |
+| [@typesugar/reflect](/reference/packages#reflect)     | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 
 ### Syntax Sugar
 
@@ -474,7 +473,7 @@ typesugar draws from the best ideas across language ecosystems:
 | Language     | What it brings                                             | Packages                                                 |
 | ------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
 | Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect, operators                    |
-| Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, specialize, codec, erased, validate              |
+| Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, codec, erased, validate                          |
 | Zig          | Compile-time evaluation and reflection                     | comptime, reflect, preprocessor                          |
 | C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, graph, parser, units                             |
 | Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math |

@@ -104,10 +104,6 @@ export {
   type ParCombineBuilder,
 } from "./typeclass.js";
 export {
-  specializeMacro,
-  specializeInlineMacro,
-  monoMacro,
-  inlineCallMacro,
   // Internal: registerInstanceMethodsFromAST is used by @impl macro, not public API
   registerInstanceMethodsFromAST,
   extractMethodsFromObjectLiteral,
@@ -119,10 +115,8 @@ export {
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
   inlineMethod,
-  createSpecializedFunction,
   flattenReturnsToExpression,
   analyzeForFlattening,
-  canFlattenToExpression,
   SpecializationCache,
   createHoistedSpecialization,
   getResultAlgebra,
@@ -139,7 +133,6 @@ export {
   type InlineFailureReason,
   type InlineClassification,
   type FlattenAnalysis,
-  type SpecializeOptions,
 } from "./specialize.js";
 // --- Implicit parameter resolution (= implicit() default pattern) ---
 export {
@@ -420,10 +413,6 @@ export {
   pipe,
   compose,
   flow,
-  // Specialize stubs
-  specialize,
-  mono,
-  inlineCall,
   // Reflect stubs
   reflect,
   typeInfo,

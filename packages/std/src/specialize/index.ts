@@ -1,18 +1,16 @@
 /**
  * Std Specialization Support
  *
- * Re-exports std's FlatMap instances for use with the `specialize()` macro.
- * The instances are registered with the core specialization registry at
- * compile time (in the transformer), enabling zero-cost abstraction for
- * generic FlatMap-polymorphic code.
+ * Re-exports std's FlatMap instances so generic FlatMap-polymorphic code
+ * gets zero-cost abstraction automatically. Specialization is an always-on
+ * compiler optimization (PEP-053) — there is no macro to call.
  *
  * ## Usage
  *
- * Users can write generic code using the FlatMap interface and then
- * specialize it to eliminate dictionary passing:
+ * Write generic code using the FlatMap interface; passing one of these known
+ * instances auto-specializes the call, eliminating dictionary passing:
  *
  * ```typescript
- * import { specialize } from "typesugar";
  * import { stdFlatMapArray, stdFlatMapPromise } from "@typesugar/std/specialize";
  *
  * // Generic function using FlatMap
@@ -20,18 +18,15 @@
  *   return F.map(fa, x => x * 2);
  * }
  *
- * // Specialized versions — zero dictionary overhead
- * const doubleArray = specialize(double, stdFlatMapArray);
- * // Expands to: (fa: number[]) => fa.map(x => x * 2)
+ * // Auto-specialized — zero dictionary overhead
+ * double(stdFlatMapArray, [1, 2, 3]);
+ * // Compiles to: [1, 2, 3].map(x => x * 2)
  *
- * const doublePromise = specialize(double, stdFlatMapPromise);
- * // Expands to: (fa: Promise<number>) => fa.then(x => x * 2)
+ * double(stdFlatMapPromise, somePromise);
+ * // Compiles to: somePromise.then(x => x * 2)
  * ```
  *
- * ## Registered Instances
- *
- * The following instances are registered with the core specialization
- * registry and can be referenced by name with `specialize()`:
+ * ## Known Instances
  *
  * - `stdFlatMapArray` / `flatMapArray` — FlatMap for Array<A>
  * - `stdFlatMapPromise` / `flatMapPromise` — FlatMap for Promise<A>
@@ -50,45 +45,45 @@ import {
 } from "../typeclasses/flatmap.js";
 
 // ============================================================================
-// Export std FlatMap instances for use with specialize()
+// Std FlatMap instances — passing these to a generic function auto-specializes
 // ============================================================================
 
 /**
- * FlatMap instance for Array — use with specialize() for zero-cost abstraction.
+ * FlatMap instance for Array — passing it to a generic function auto-specializes.
  *
  * @example
  * ```typescript
- * const doubleArray = specialize(double, stdFlatMapArray);
+ * double(stdFlatMapArray, [1, 2, 3]);
  * ```
  */
 export const stdFlatMapArray: FlatMap<unknown> = flatMapArray;
 
 /**
- * FlatMap instance for Promise — use with specialize() for zero-cost abstraction.
+ * FlatMap instance for Promise — passing it to a generic function auto-specializes.
  *
  * @example
  * ```typescript
- * const doublePromise = specialize(double, stdFlatMapPromise);
+ * double(stdFlatMapPromise, somePromise);
  * ```
  */
 export const stdFlatMapPromise: FlatMap<unknown> = flatMapPromise;
 
 /**
- * FlatMap instance for Iterable — use with specialize() for zero-cost abstraction.
+ * FlatMap instance for Iterable — passing it to a generic function auto-specializes.
  *
  * @example
  * ```typescript
- * const doubleIterable = specialize(double, stdFlatMapIterable);
+ * double(stdFlatMapIterable, someIterable);
  * ```
  */
 export const stdFlatMapIterable: FlatMap<unknown> = flatMapIterable;
 
 /**
- * FlatMap instance for AsyncIterable — use with specialize() for zero-cost abstraction.
+ * FlatMap instance for AsyncIterable — passing it to a generic function auto-specializes.
  *
  * @example
  * ```typescript
- * const doubleAsyncIterable = specialize(double, stdFlatMapAsyncIterable);
+ * double(stdFlatMapAsyncIterable, someAsyncIterable);
  * ```
  */
 export const stdFlatMapAsyncIterable: FlatMap<unknown> = flatMapAsyncIterable;
@@ -98,31 +93,32 @@ export const stdFlatMapAsyncIterable: FlatMap<unknown> = flatMapAsyncIterable;
 // ============================================================================
 
 /**
- * Pre-specialized array map. Equivalent to `specialize((F, fa, f) => F.map(fa, f), stdFlatMapArray)`.
- *
- * This is a compile-time optimization hint — the actual specialization
- * happens when code using these helpers is transformed.
+ * Direct Array map — what `(F, fa, f) => F.map(fa, f)` auto-specializes to
+ * when called with `stdFlatMapArray`.
  */
 export function arrayMap<A, B>(fa: A[], f: (a: A) => B): B[] {
   return fa.map(f);
 }
 
 /**
- * Pre-specialized array flatMap. Equivalent to `specialize((F, fa, f) => F.flatMap(fa, f), stdFlatMapArray)`.
+ * Direct Array flatMap — what `(F, fa, f) => F.flatMap(fa, f)` auto-specializes
+ * to when called with `stdFlatMapArray`.
  */
 export function arrayFlatMap<A, B>(fa: A[], f: (a: A) => B[]): B[] {
   return fa.flatMap(f);
 }
 
 /**
- * Pre-specialized promise map. Equivalent to `specialize((F, fa, f) => F.map(fa, f), stdFlatMapPromise)`.
+ * Direct Promise map — what `(F, fa, f) => F.map(fa, f)` auto-specializes to
+ * when called with `stdFlatMapPromise`.
  */
 export function promiseMap<A, B>(fa: Promise<A>, f: (a: A) => B): Promise<B> {
   return fa.then(f);
 }
 
 /**
- * Pre-specialized promise flatMap. Equivalent to `specialize((F, fa, f) => F.flatMap(fa, f), stdFlatMapPromise)`.
+ * Direct Promise flatMap — what `(F, fa, f) => F.flatMap(fa, f)` auto-specializes
+ * to when called with `stdFlatMapPromise`.
  */
 export function promiseFlatMap<A, B>(fa: Promise<A>, f: (a: A) => Promise<B>): Promise<B> {
   return fa.then(f);

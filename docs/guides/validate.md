@@ -125,16 +125,16 @@ Write validation code that works with any library:
 
 ```typescript
 import { Schema } from "@typesugar/validate";
-import { specialize } from "@typesugar/specialize";
 
 // Generic validation function
 function processBody<F, A>(S: Schema<F>, schema: Kind<F, A>, data: unknown): A {
   return S.parse(schema, data);
 }
 
-// With specialize(), this becomes zero-cost:
-// const processBodyZod = specialize(processBody, zodSchema);
-// Compiles to: (schema, data) => schema.parse(data)
+// Passing a known dictionary auto-specializes the call at compile time —
+// no annotation needed. This is zero-cost:
+// processBody(zodSchema, mySchema, data)
+// Compiles to: mySchema.parse(data)
 ```
 
 ### Derived Operations
@@ -218,7 +218,8 @@ function isUser(value: unknown): value is User {
 }
 ```
 
-When using the `Schema` typeclass with `specialize()`, the dictionary is eliminated:
+Since specialization is always-on, a `Schema` instance passed to a generic
+function auto-specializes and the dictionary is eliminated:
 
 ```typescript
 // Before specialization

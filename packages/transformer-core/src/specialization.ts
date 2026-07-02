@@ -448,11 +448,21 @@ export function tryAutoSpecialize(
       const nodeStart = node.getStart();
       const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
       const lineText = sourceText.slice(lineStart, nodeStart);
+      // Also check the immediately preceding line, for `// @no-specialize` on
+      // its own comment line above the call (the other documented form).
+      const prevLineEnd = lineStart > 0 ? lineStart - 1 : 0;
+      const prevLineStart = sourceText.lastIndexOf("\n", prevLineEnd - 1) + 1;
+      const prevLineText = lineStart > 0 ? sourceText.slice(prevLineStart, prevLineEnd) : "";
+      const scanned = lineText + "\n" + prevLineText;
 
-      if (lineText.includes("@no-specialize")) {
+      // `@no-specialize-warn` contains `@no-specialize` as a substring, so it
+      // must be checked first — otherwise it would always hit the bail branch
+      // below instead of only suppressing warnings.
+      if (scanned.includes("@no-specialize-warn")) {
+        suppressWarnings = true;
+      } else if (scanned.includes("@no-specialize")) {
         return undefined;
       }
-      suppressWarnings = lineText.includes("@no-specialize-warn");
     } catch {
       // getSourceFile()/getStart() may fail on synthetic nodes — proceed with auto-specialization
     }
@@ -497,7 +507,7 @@ export function tryAutoSpecialize(
         node,
         `[TS9602] Auto-specialization of ${fnName} skipped — ` +
           `function body not resolvable. ` +
-          `Use explicit specialize() if you need guaranteed inlining.`
+          `Declare it as a const arrow function or named function so its body can be resolved.`
       );
     }
     return undefined;
@@ -573,8 +583,7 @@ export function tryAutoSpecialize(
         ctx.reportWarning(
           node,
           `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-            `inlining returned no result. ` +
-            `Use explicit specialize() if you need guaranteed inlining.`
+            `inlining returned no result; falling back to dictionary passing.`
         );
       }
     }
@@ -583,7 +592,7 @@ export function tryAutoSpecialize(
       ctx.reportWarning(
         node,
         `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-          `${error}. Use explicit specialize() if you need guaranteed inlining.`
+          `${error}. Falling back to dictionary passing.`
       );
     }
     if (verbose) {

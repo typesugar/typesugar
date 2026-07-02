@@ -12,7 +12,6 @@
     "@typesugar/macros": "workspace:*",
     "@typesugar/mapper": "workspace:*",
     "@typesugar/reflect": "workspace:*",
-    "@typesugar/specialize": "workspace:*",
     "@typesugar/std": "workspace:*",
     "@typesugar/transformer": "workspace:*",
     "@typesugar/typeclass": "workspace:*",

@@ -28,7 +28,6 @@ const DEFAULT_MANIFEST: MacroManifest = {
   macros: {
     expression: {
       comptime: { module: "@typesugar/macros" },
-      specialize: { module: "@typesugar/specialize" },
       summon: { module: "@typesugar/typeclass" },
       match: { module: "@typesugar/std" },
       includeStr: { module: "@typesugar/macros" },

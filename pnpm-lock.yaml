@@ -186,9 +186,6 @@ importers:
       '@typesugar/reflect':
         specifier: workspace:*
         version: link:../../../packages/reflect
-      '@typesugar/specialize':
-        specifier: workspace:*
-        version: link:../../../packages/specialize
       '@typesugar/std':
         specifier: workspace:*
         version: link:../../../packages/std
@@ -243,9 +240,6 @@ importers:
       '@typesugar/reflect':
         specifier: workspace:*
         version: link:../../../packages/reflect
-      '@typesugar/specialize':
-        specifier: workspace:*
-        version: link:../../../packages/specialize
       '@typesugar/std':
         specifier: workspace:*
         version: link:../../../packages/std
@@ -347,9 +341,6 @@ importers:
       '@typesugar/reflect':
         specifier: workspace:*
         version: link:../../../packages/reflect
-      '@typesugar/specialize':
-        specifier: workspace:*
-        version: link:../../../packages/specialize
       '@typesugar/sql':
         specifier: workspace:*
         version: link:../../../packages/sql
@@ -795,19 +786,6 @@ importers:
         specifier: '>=5.0.0'
         version: 5.9.3
 
-  packages/specialize:
-    dependencies:
-      '@typesugar/macros':
-        specifier: workspace:*
-        version: link:../macros
-      typescript:
-        specifier: '>=5.0.0'
-        version: 5.9.3
-    devDependencies:
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
-
   packages/sql:
     dependencies:
       '@typesugar/core':
@@ -971,9 +949,6 @@ importers:
       '@typesugar/reflect':
         specifier: workspace:*
         version: link:../reflect
-      '@typesugar/specialize':
-        specifier: workspace:*
-        version: link:../specialize
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:../transformer

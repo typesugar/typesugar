@@ -1,5 +1,5 @@
 /**
- * Tests for specialize() infrastructure improvements:
+ * Tests for auto-specialization infrastructure:
  * - Phase 1: Early-return flattening to ternary expressions
  * - Phase 2: Deduplication / hoisting via SpecializationCache
  * - Phase 3: Return-type-driven auto-specialization with Result algebras
@@ -13,7 +13,6 @@ import {
   classifyInlineFailureDetailed,
   analyzeForFlattening,
   flattenReturnsToExpression,
-  canFlattenToExpression,
   SpecializationCache,
   createHoistedSpecialization,
   registerResultAlgebra,
@@ -194,14 +193,14 @@ describe("Phase 1: Early-Return Flattening", () => {
     });
   });
 
-  describe("canFlattenToExpression", () => {
+  describe("analyzeForFlattening().canFlatten", () => {
     it("should return true for guard clause pattern", () => {
       const block = parseBlock(`{
         if (x < 0) return "negative";
         if (x === 0) return "zero";
         return "positive";
       }`);
-      expect(canFlattenToExpression(block)).toBe(true);
+      expect(analyzeForFlattening(block).canFlatten).toBe(true);
     });
 
     it("should return false for loop pattern", () => {
@@ -209,7 +208,7 @@ describe("Phase 1: Early-Return Flattening", () => {
         while (x > 0) { x--; }
         return x;
       }`);
-      expect(canFlattenToExpression(block)).toBe(false);
+      expect(analyzeForFlattening(block).canFlatten).toBe(false);
     });
   });
 

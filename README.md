@@ -70,12 +70,11 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 ### Typeclasses & Derivation
 
-| Package                                      | Description                                          |
-| -------------------------------------------- | ---------------------------------------------------- |
-| [@typesugar/typeclass](packages/typeclass)   | `@typeclass`, `@instance`, `summon()`                |
-| [@typesugar/derive](packages/derive)         | `@derive(Eq, Clone, Debug, Json, ...)`               |
-| [@typesugar/specialize](packages/specialize) | Zero-cost typeclass specialization                   |
-| [@typesugar/reflect](packages/reflect)       | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
+| Package                                    | Description                                          |
+| ------------------------------------------ | ---------------------------------------------------- |
+| [@typesugar/typeclass](packages/typeclass) | `@typeclass`, `@instance`, `summon()`                |
+| [@typesugar/derive](packages/derive)       | `@derive(Eq, Clone, Debug, Json, ...)`               |
+| [@typesugar/reflect](packages/reflect)     | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 
 ### Type Safety & Contracts
 
@@ -396,7 +395,7 @@ function debugMe() {
 }
 
 // Just this line
-const slow = specialize(add); // @ts-no-typesugar
+const raw = (42).clamp(0, 100); // @ts-no-typesugar
 
 // Just extensions, keep macros working
 ("use no typesugar extensions");

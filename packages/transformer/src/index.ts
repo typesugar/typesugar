@@ -14,7 +14,6 @@ import {
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
   isRegisteredInstance,
-  createSpecializedFunction,
   isKindAnnotation,
   transformHKTDeclaration,
   tryExpandGenericDerive,
@@ -3283,11 +3282,21 @@ class MacroTransformer {
         const nodeStart = node.getStart();
         const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
         const lineText = sourceText.slice(lineStart, nodeStart);
+        // Also check the immediately preceding line, for `// @no-specialize` on
+        // its own comment line above the call (the other documented form).
+        const prevLineEnd = lineStart > 0 ? lineStart - 1 : 0;
+        const prevLineStart = sourceText.lastIndexOf("\n", prevLineEnd - 1) + 1;
+        const prevLineText = lineStart > 0 ? sourceText.slice(prevLineStart, prevLineEnd) : "";
+        const scanned = lineText + "\n" + prevLineText;
 
-        if (lineText.includes("@no-specialize")) {
+        // `@no-specialize-warn` contains `@no-specialize` as a substring, so it
+        // must be checked first — otherwise it would always hit the bail branch
+        // below instead of only suppressing warnings.
+        if (scanned.includes("@no-specialize-warn")) {
+          suppressWarnings = true;
+        } else if (scanned.includes("@no-specialize")) {
           return undefined;
         }
-        suppressWarnings = lineText.includes("@no-specialize-warn");
       } catch {
         // Proceed with auto-specialization if we can't read comments
       }
@@ -3337,7 +3346,7 @@ class MacroTransformer {
           node,
           `[TS9602] Auto-specialization of ${fnName} skipped — ` +
             `function body not resolvable. ` +
-            `Use explicit specialize() if you need guaranteed inlining.`
+            `Declare it as a const arrow function or named function so its body can be resolved.`
         );
       }
       return undefined;
@@ -3428,8 +3437,7 @@ class MacroTransformer {
           this.ctx.reportWarning(
             node,
             `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-              `inlining returned no result. ` +
-              `Use explicit specialize() if you need guaranteed inlining.`
+              `inlining returned no result; falling back to dictionary passing.`
           );
         }
       }
@@ -3438,7 +3446,7 @@ class MacroTransformer {
         this.ctx.reportWarning(
           node,
           `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-            `${error}. Use explicit specialize() if you need guaranteed inlining.`
+            `${error}. Falling back to dictionary passing.`
         );
       }
       if (this.verbose) {
@@ -3871,20 +3879,6 @@ class MacroTransformer {
           visited.equalsGreaterThanToken,
           visited.body
         );
-      }
-    }
-
-    // fn.specialize(dict) must be checked before expression macros because
-    // the expression macro dispatcher would otherwise match "specialize" as
-    // a registered macro name from `sortWith.specialize(...)`.
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "specialize"
-    ) {
-      const result = this.tryRewriteSpecializeExtension(node);
-      if (result !== undefined) {
-        return result;
       }
     }
 
@@ -5378,59 +5372,6 @@ class MacroTransformer {
     } catch (error) {
       this.ctx.reportError(node, `Type macro expansion failed: ${error}`);
       return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
-    }
-  }
-
-  /**
-   * Try to rewrite `fn.specialize(dict)` — the extension method syntax for
-   * explicit specialization. Creates an inlined, specialized function by
-   * removing dictionary parameters and substituting method bodies.
-   */
-  private tryRewriteSpecializeExtension(node: ts.CallExpression): ts.Expression | undefined {
-    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
-      return undefined;
-    }
-
-    const propAccess = node.expression as ts.PropertyAccessExpression;
-    const fnExpr = propAccess.expression;
-
-    // Receiver must be callable (has call signatures)
-    const fnType = this.ctx.typeChecker.getTypeAtLocation(fnExpr);
-    const callSignatures = fnType.getCallSignatures();
-    if (callSignatures.length === 0) {
-      return undefined;
-    }
-
-    // Must have at least one argument (the dictionary)
-    if (node.arguments.length === 0) {
-      this.ctx.reportError(
-        node,
-        "fn.specialize() requires at least one typeclass instance argument"
-      );
-      return node;
-    }
-
-    const dictArgs = Array.from(node.arguments);
-
-    if (this.verbose) {
-      const fnName = ts.isIdentifier(fnExpr) ? fnExpr.text : "<expr>";
-      const dictNames = dictArgs.map((d) => (ts.isIdentifier(d) ? d.text : "<expr>")).join(", ");
-      console.log(`[typesugar] Rewriting ${fnName}.specialize(${dictNames})`);
-    }
-
-    const specialized = createSpecializedFunction(this.ctx, {
-      fnExpr,
-      dictExprs: dictArgs,
-      callExpr: node,
-      suppressWarnings: false,
-    });
-
-    try {
-      const visited = ts.visitNode(specialized, this.visit.bind(this)) as ts.Expression;
-      return preserveSourceMap(visited, node);
-    } catch (error) {
-      this.ctx.reportError(node, `specialize() extension method failed: ${error}`);
-      return undefined;
     }
   }
 

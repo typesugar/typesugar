@@ -12,7 +12,6 @@ describe("ManifestLoader", () => {
       const loader = new ManifestLoader();
       const names = loader.expressionMacroNames;
       expect(names.has("comptime")).toBe(true);
-      expect(names.has("specialize")).toBe(true);
       expect(names.has("summon")).toBe(true);
       expect(names.has("ops")).toBe(true);
       expect(names.has("pipe")).toBe(true);
@@ -526,7 +525,6 @@ describe("createDefaultManifest", () => {
     // Expression macros
     expect(manifest.macros.expression.comptime).toBeDefined();
     expect(manifest.macros.expression.summon).toBeDefined();
-    expect(manifest.macros.expression.specialize).toBeDefined();
 
     // Decorator macros
     expect(manifest.macros.decorator.derive).toBeDefined();

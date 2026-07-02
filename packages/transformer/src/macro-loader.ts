@@ -33,7 +33,6 @@ const FACADE_TO_PROVIDER: Record<string, string> = {
   "@typesugar/derive": "@typesugar/macros",
   "@typesugar/reflect": "@typesugar/macros",
   "@typesugar/typeclass": "@typesugar/macros",
-  "@typesugar/specialize": "@typesugar/macros",
   typesugar: "@typesugar/macros",
 };
 

@@ -57,11 +57,9 @@ function debugFunction() {
 Use inline comments to skip specific lines:
 
 ```typescript
-import { specialize } from "typesugar";
+const fast = add(numericPoint, p1, p2); // Auto-specialized: inlined
 
-const fast = specialize(add); // Transformed: inlined
-
-const slow = specialize(add); // @ts-no-typesugar — Left as-is
+const slow = add(numericPoint, p1, p2); // @ts-no-typesugar — Left as-is
 ```
 
 You can also use `@ts-no-typesugar-all` to skip all typesugar transformations on that line:

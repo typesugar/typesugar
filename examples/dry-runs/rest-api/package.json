@@ -10,7 +10,6 @@
     "@typesugar/fp": "workspace:*",
     "@typesugar/macros": "workspace:*",
     "@typesugar/reflect": "workspace:*",
-    "@typesugar/specialize": "workspace:*",
     "@typesugar/sql": "workspace:*",
     "@typesugar/std": "workspace:*",
     "@typesugar/transformer": "workspace:*",

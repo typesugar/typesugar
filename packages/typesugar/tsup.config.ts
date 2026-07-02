@@ -23,7 +23,6 @@ export default defineConfig({
     "@typesugar/reflect",
     "@typesugar/derive",
     "@typesugar/typeclass",
-    "@typesugar/specialize",
     "unplugin-typesugar",
   ],
 });

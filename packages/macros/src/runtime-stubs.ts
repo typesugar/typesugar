@@ -516,39 +516,6 @@ export function flow(
 }
 
 // ============================================================================
-// Specialize Stubs
-// ============================================================================
-
-/**
- * Create a specialized (monomorphized) version of a function.
- *
- * @example
- * ```typescript
- * const sortNumbers = specialize(sort, [numericOrd]);
- * // Creates a version specialized for numbers
- * ```
- */
-export function specialize<T extends Function>(_fn: T, _dicts?: unknown[]): T {
-  throw new Error("specialize() must be processed by the typesugar transformer at compile time");
-}
-
-/**
- * Monomorphize a generic function for specific type arguments.
- * Processed by transformer; stub returns the function.
- */
-export function mono<T>(fn: (...args: unknown[]) => unknown): (...args: unknown[]) => unknown {
-  return fn as (...args: unknown[]) => unknown;
-}
-
-/**
- * Inline a function call at compile time.
- * Processed by transformer; stub returns the expression result.
- */
-export function inlineCall<T>(expr: T): T {
-  return expr;
-}
-
-// ============================================================================
 // Reflect Stubs
 // ============================================================================
 

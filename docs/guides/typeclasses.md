@@ -181,51 +181,34 @@ Without the `@typesugar/std/syntax/eq` import, `.equals()` stays a plain
 
 ## Zero-Cost Specialization
 
-The `specialize()` macro inlines typeclass method calls:
+Specialization is an always-on compiler optimization (PEP-053) — there is no
+macro or annotation to request it. Any `@impl` instance's method bodies are
+extracted from its own source, so a generic function called with a known
+instance gets that instance's dictionary eliminated and its methods inlined
+directly, automatically:
 
 ```typescript
-import { specialize } from "@typesugar/specialize";
-
-const showPoint = specialize((p: Point) => {
-  return summon<Show<Point>>().show(p);
-});
-
-// Compiles to direct code, no dictionary lookup:
-// (p: Point) => `Point(x = ${p.x}, y = ${p.y})`
-```
-
-### Auto-Specialization with `@specialize`
-
-Mark instances with `@specialize` to enable automatic inlining at call sites:
-
-```typescript
-/**
- * @impl Numeric<Point>
- * @specialize
- */
+/** @impl Numeric<Point> */
 const numericPoint: Numeric<Point> = {
   add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
   mul: (a, b) => ({ x: a.x * b.x, y: a.y * b.y }),
 };
 // Access via: Point.Numeric
-```
 
-When generic functions are called with `@specialize` instances, method bodies are inlined:
-
-```typescript
 function double<A>(a: A, N: Numeric<A>): A {
   return N.add(a, a);
 }
 
-// Call with @specialize instance:
 double(p, Point.Numeric);
 
 // Compiles to:
 ({ x: p.x + p.x, y: p.y + p.y });
 ```
 
-The `@specialize` annotation tells the transformer to extract method bodies from the instance
-definition and inline them at call sites — no runtime dictionary lookup.
+If the transformer can't prove the inlining is sound (e.g. the function body
+has a loop or try/catch), it falls back to dictionary passing — always
+correct, just not zero-cost — and emits a TS9602 warning. Opt a call out
+entirely with `// @no-specialize`.
 
 ## Common Typeclasses
 
@@ -579,7 +562,7 @@ const ShowNumber2: Show<number> = {
 
 - Define typeclasses in shared packages
 - Use `= implicit()` for cleaner call sites
-- Use `specialize()` for hot paths
+- Trust auto-specialization for hot paths — it's always on
 - Derive instances where possible
 
 ### Don't

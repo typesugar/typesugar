@@ -46,7 +46,7 @@ Every error has:
 | TS9301-TS9399 | HKT                  | Invalid type-level function, kind mismatch                      |
 | TS9401-TS9499 | Extension Methods    | Method not found, ambiguous extension                           |
 | TS9501-TS9599 | Comptime             | Evaluation failed, permission denied                            |
-| TS9601-TS9699 | Specialization       | Dictionary not registered, function body not inlineable         |
+| TS9601-TS9699 | Specialization       | Function body not inlineable, auto-specialization skipped       |
 | TS9701-TS9799 | Import Resolution    | Missing import, ambiguous resolution                            |
 | TS9801-TS9899 | Operators            | Invalid overload, preprocessor/typeclass overlap                |
 
@@ -205,12 +205,15 @@ error[TS9220]: @tailrec: recursive call is not in tail position
      + }
 ```
 
-### Specialization Fallback Warning (TS9601)
+### Auto-Specialization Skipped (TS9602)
 
-When `specialize()` can't inline a function and falls back to dictionary passing:
+Specialization is an always-on compiler optimization (PEP-053) — there is no
+macro to call for it. When a call passes a known typeclass instance but the
+transformer can't prove the inlining is sound, it falls back to dictionary
+passing (always correct, just not zero-cost) and emits TS9602:
 
 ```
-warning[TS9601]: specialize(processItems): falling back to dictionary passing — try/catch
+warning[TS9602]: Auto-specialization of processItems skipped — try/catch
   --> src/process.ts:12:15
    |
 10 |   function processItems<F>(F: Functor<F>, items: Kind<F, Item>) {
@@ -223,20 +226,21 @@ warning[TS9601]: specialize(processItems): falling back to dictionary passing �
    = help: Move error handling outside the specialized function
 ```
 
-Common reasons for fallback:
+Common reasons for skipping:
 
-- **Dictionary not registered**: The instance isn't known to the compiler. Use `@impl` with `@specialize` annotation.
 - **Function body not resolvable**: Can't find the function definition. Use `const fn = ...` or named `function`.
 - **Early return**: Multiple return paths prevent inlining. Extract into helpers.
 - **try/catch**: Error handling blocks inlining. Handle errors at a higher level.
 - **Loops**: Iteration prevents inlining. Use Array methods or recursive helpers.
 - **Mutable variables**: `let` bindings prevent inlining. Use `const` or fold/reduce patterns.
 
-Suppress with `// @no-specialize-warn`:
+Opt a call out of specialization entirely with `// @no-specialize` (same line or
+the line above), or keep specialization but silence the warning with
+`// @no-specialize-warn`:
 
 ```typescript
 // @no-specialize-warn
-const specialized = specialize(fn, dict); // No warning emitted
+const result = processItems(arrayFunctor, items); // Still specialized, no warning
 ```
 
 ## CLI: `--explain`

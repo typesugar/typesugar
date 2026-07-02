@@ -20,7 +20,7 @@ typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driv
 
 1. **Zero-Cost or Don't Ship It** — Every abstraction must compile away to what you'd write by hand. No runtime dictionary lookups, no wrapper types, no closure allocation. If it can be done at compile time, it must be.
 
-2. **Auto-Derivation + Auto-Specialization by Default** — Never require `@derive` annotations for basic typeclass support. When the compiler sees `p1 === p2`, it auto-derives Eq from the type's fields AND auto-specializes (inlines) the method body at the call site. `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `Point.Eq.equals(p1, p2)`. The typeclass abstraction is erased entirely. `@derive(Eq)` is documentation, not activation. Favor auto-specialization everywhere — explicit `specialize()` calls should be the exception, not the norm.
+2. **Explicit Instances, Always-On Specialization** — Instances are never ambient (PEP-052): a type needs `@derive(Eq)` or a hand-written `@instance`/`@impl` before `p1 === p2` means anything beyond native `===`, and `===`/method sugar only rewrite in files that activate the typeclass's syntax (import `@typesugar/std/syntax/eq/ops`, or declare the typeclass locally). Once an instance exists and is in scope, specialization (inlining the dictionary methods) is unconditional and automatic — there is no macro to call for it (PEP-053 deleted `specialize()`/`specialize$()`/`mono()`/`inlineCall()`/`fn.specialize()`). `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `Point.Eq.equals(p1, p2)`; the typeclass abstraction is erased entirely. The only escape hatch is `// @no-specialize` to opt a call out.
 
 3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @derive Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305.
 
@@ -37,7 +37,7 @@ typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driv
 
 7. **Do-Notation via Labeled Blocks** — `let:` / `seq:` for sequential monadic chains (flatMap), `par:` / `all:` for parallel (Promise.all). These compile to zero-cost chains. `par:` blocks can nest inside `let:` blocks.
 
-8. **Reuse `specialize.ts` for Inlining** — `inlineMethod()` is the gold standard for zero-cost. `fn.specialize(dict)` creates named specialized functions. Study `packages/macros/src/specialize.ts` before implementing new transformations.
+8. **Reuse `specialize.ts` for Inlining** — `inlineMethod()` is the gold standard for zero-cost. The auto-specialization pipeline (`tryAutoSpecialize` in `packages/transformer/src/index.ts`) is what creates specialized functions today — there is no explicit `specialize()`/`fn.specialize()` call. Study `packages/macros/src/specialize.ts` before implementing new transformations.
 
 9. **Use `quote()` for AST Construction** — Tagged template quasiquoting with `spread`, `ident`, `raw` helpers. Never use raw `ts.factory` calls in macro implementations.
 
@@ -90,7 +90,6 @@ packages/
 │   ## Typeclasses & Derivation
 ├── typeclass/          # @typesugar/typeclass — Scala 3-style typeclasses
 ├── derive/             # @typesugar/derive — custom derive API
-├── specialize/         # @typesugar/specialize — zero-cost specialization
 ├── reflect/            # @typesugar/reflect — compile-time reflection
 │
 │   ## Syntax Sugar
@@ -129,7 +128,7 @@ packages/
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
 | `@typesugar/transformer-core` | Browser-compatible transform core: `transformCode()`, `MacroTransformer`, source maps, position mapping                               | Node.js APIs (fs, path), caching, CLI     |
 | `@typesugar/transformer`      | Node.js transformer plugin: ts-patch integration, macro loading, file caching, CLI                                                    | Core transformation logic (uses core)     |
-| `@typesugar/typeclass`        | Machinery: `@typeclass`, `@impl`, `@derive`, `summon`, `extend`, `specialize`                                                         | Typeclass definitions                     |
+| `@typesugar/typeclass`        | Machinery: `@typeclass`, `@impl`, `@derive`, `summon`, `extend`                                                                       | Typeclass definitions                     |
 | `@typesugar/std`              | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
 | `@typesugar/fp`               | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
 | `@typesugar/collections`      | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
@@ -238,7 +237,6 @@ If you add a new `@typesugar/*` package with runtime exports:
 | Need                            | Use                                                                     | Location                                     |
 | ------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
 | Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                   | `packages/macros/src/specialize.ts`          |
-| Create specialized function     | `createSpecializedFunction(ctx, options)`                               | `packages/macros/src/specialize.ts`          |
 | Register a new expression macro | `defineExpressionMacro(name, macro)`                                    | `packages/core/src/registry.ts`              |
 | Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                     | `packages/core/src/registry.ts`              |
 | Register a new derive macro     | `defineDeriveMacro(name, macro)`                                        | `packages/core/src/registry.ts`              |
@@ -252,7 +250,6 @@ If you add a new `@typesugar/*` package with runtime exports:
 | Track typeclass instances       | `instanceRegistry`, `findInstance()`                                    | `packages/macros/src/typeclass.ts`           |
 | Mark file as extension source   | `"use extension";` directive at file top                                | `packages/core/src/resolution-scope.ts`      |
 | Mark function as extension      | `@extension` decorator                                                  | `packages/macros/src/extension.ts`           |
-| Register instance methods       | `registerInstanceMethods(dictName, brand, methods)`                     | `packages/macros/src/specialize.ts`          |
 | Extract type metadata           | `extractMetaFromTypeChecker(ctx, typeName)`                             | `packages/macros/src/auto-derive.ts`         |
 | Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                        | `packages/macros/src/typeclass.ts`           |
 | Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                      | `packages/macros/src/syntax-macro.ts`        |

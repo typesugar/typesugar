@@ -823,15 +823,16 @@ assert(sortedManual[4] === 5);
 // Compiles to:
 // sortWith([3, 1, 4], ordNumber);
 
-// The fn.specialize(dict) extension provides explicit specialization:
+// Once the instance is resolved, specialization is automatic (PEP-053) — no
+// extra call needed. The dictionary is eliminated and its methods inlined
+// directly at the call site:
 //
-// const sortNumbers = sortWith.specialize(ordNumber);
-// sortNumbers([3, 1, 4]); // No runtime dictionary lookup
+// sortWith([3, 1, 4], ordNumber); // No runtime dictionary lookup
 //
 // This is the "progressive disclosure" model:
 // 1. Operators/methods just work (fully implicit)
 // 2. = implicit() for generic functions (auto-filled at call site)
-// 3. fn.specialize(dict) for explicit named specializations
+// 3. Passing a known instance auto-specializes — always, no annotation needed
 
 // --------------------------------------------------------------------------
 // 15.3 Generic Operations Using = implicit() Pattern
@@ -1007,9 +1008,9 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 //    - @derive works on discriminated unions
 //    - Generates discriminant-first comparison logic
 //
-// 5. **fn.specialize(dict)** (Section 15.2)
-//    - Extension method syntax for explicit specialization
-//    - Creates zero-cost inlined versions
+// 5. **Auto-Specialization** (Section 15.2)
+//    - Always on — passing a known instance auto-inlines its methods
+//    - No annotation or extra call needed
 //
 // 6. **let:/yield: and par:/yield:** (Section 12)
 //    - Do-notation via FlatMap typeclass

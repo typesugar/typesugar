@@ -910,20 +910,6 @@ A tail-recursive call must be:
   seeAlso: "https://typesugar.dev/errors/TS9220",
 };
 
-export const TS9221: DiagnosticDescriptor = {
-  code: 9221,
-  severity: "error",
-  category: DiagnosticCategory.MacroSyntax,
-  messageTemplate: "Cannot specialize: {reason}",
-  explanation: `The specialize() macro could not inline the function.
-
-Common causes:
-1. The function has no registered method bodies
-2. The function signature doesn't match expected patterns
-3. The instance doesn't have method implementations`,
-  seeAlso: "https://typesugar.dev/errors/TS9221",
-};
-
 export const TS9223: DiagnosticDescriptor = {
   code: 9223,
   severity: "error",
@@ -1328,7 +1314,6 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9218, TS9218],
   [9219, TS9219],
   [9220, TS9220],
-  [9221, TS9221],
   [9222, TS9222],
   [9223, TS9223],
 

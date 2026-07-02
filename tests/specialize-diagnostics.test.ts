@@ -1,14 +1,11 @@
 /**
- * Tests for specialization diagnostics (TS9601, TS9602)
- *
- * These tests verify that the specialize() macro and auto-specialization
- * emit warnings when falling back to dictionary passing.
+ * Tests for inline-failure classification, which drives the TS9602
+ * auto-specialization skip warning.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { MacroContextImpl, createMacroContext } from "@typesugar/core";
-import { classifyInlineFailure, getInlineFailureHelp, specializeMacro } from "@typesugar/macros";
+import { classifyInlineFailure, getInlineFailureHelp } from "@typesugar/macros";
 
 describe("classifyInlineFailure", () => {
   function parseBlock(code: string): ts.Block {
@@ -187,143 +184,5 @@ describe("getInlineFailureHelp", () => {
   it("should return empty string for null", () => {
     const help = getInlineFailureHelp(null);
     expect(help).toBe("");
-  });
-});
-
-describe("specialize macro diagnostics", () => {
-  let ctx: MacroContextImpl;
-  let sourceFile: ts.SourceFile;
-
-  beforeEach(() => {
-    const sourceText = `
-      const fn = (F: any, x: number) => F.map(x, (a: number) => a * 2);
-      const unknownDict = { map: (x: any, f: any) => f(x) };
-    `;
-    sourceFile = ts.createSourceFile(
-      "test.ts",
-      sourceText,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS
-    );
-
-    const options: ts.CompilerOptions = {
-      target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.ESNext,
-    };
-
-    const host = ts.createCompilerHost(options);
-    const program = ts.createProgram(["test.ts"], options, {
-      ...host,
-      getSourceFile: (name) =>
-        name === "test.ts" ? sourceFile : host.getSourceFile(name, ts.ScriptTarget.Latest),
-    });
-
-    const transformContext: ts.TransformationContext = {
-      factory: ts.factory,
-      getCompilerOptions: () => options,
-      startLexicalEnvironment: () => {},
-      suspendLexicalEnvironment: () => {},
-      resumeLexicalEnvironment: () => {},
-      endLexicalEnvironment: () => undefined,
-      hoistFunctionDeclaration: () => {},
-      hoistVariableDeclaration: () => {},
-      requestEmitHelper: () => {},
-      readEmitHelpers: () => undefined,
-      enableSubstitution: () => {},
-      enableEmitNotification: () => {},
-      isSubstitutionEnabled: () => false,
-      isEmitNotificationEnabled: () => false,
-      onSubstituteNode: (_hint, node) => node,
-      onEmitNode: (_hint, node, emitCallback) => emitCallback(_hint, node),
-    };
-
-    ctx = createMacroContext(program, sourceFile, transformContext);
-  });
-
-  it("should emit TS9601 warning when dictionary is not registered", () => {
-    const fnArg = ts.factory.createIdentifier("fn");
-    const dictArg = ts.factory.createIdentifier("unknownDict");
-
-    const callExpr = ts.factory.createCallExpression(
-      ts.factory.createIdentifier("specialize"),
-      undefined,
-      [fnArg, dictArg]
-    );
-
-    specializeMacro.expand(ctx, callExpr, [fnArg, dictArg]);
-
-    const diags = ctx.getDiagnostics();
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags[0].severity).toBe("warning");
-    expect(diags[0].message).toContain("TS9601");
-    expect(diags[0].message).toContain("not registered");
-  });
-
-  it("should emit TS9601 warning when function body is not resolvable", () => {
-    // Use a function that can't be resolved (dynamic property access)
-    const fnArg = ts.factory.createElementAccessExpression(
-      ts.factory.createIdentifier("fns"),
-      ts.factory.createNumericLiteral(0)
-    );
-    const dictArg = ts.factory.createIdentifier("arrayFunctor");
-
-    const callExpr = ts.factory.createCallExpression(
-      ts.factory.createIdentifier("specialize"),
-      undefined,
-      [fnArg, dictArg]
-    );
-
-    specializeMacro.expand(ctx, callExpr, [fnArg, dictArg]);
-
-    const diags = ctx.getDiagnostics();
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags[0].severity).toBe("warning");
-    expect(diags[0].message).toContain("TS9601");
-    expect(diags[0].message).toContain("not resolvable");
-  });
-
-  it("should emit TS9601 warning for try/catch body when detected via classifyInlineFailure", () => {
-    // Test the classifyInlineFailure function directly for try/catch
-    // (The full macro test with synthetic nodes has issues with getText())
-    function parseBlock(code: string): ts.Block {
-      const sourceFile = ts.createSourceFile(
-        "test.ts",
-        `function test() ${code}`,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-      const fn = sourceFile.statements[0] as ts.FunctionDeclaration;
-      return fn.body!;
-    }
-
-    const block = parseBlock(`{
-      try {
-        return doSomething();
-      } catch (e) {
-        return fallback;
-      }
-    }`);
-
-    expect(classifyInlineFailure(block)).toBe("try/catch");
-  });
-
-  it("should return null for simple single-return expression body", () => {
-    // Test that classifyInlineFailure returns null for inlineable code
-    function parseBlock(code: string): ts.Block {
-      const sourceFile = ts.createSourceFile(
-        "test.ts",
-        `function test() ${code}`,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS
-      );
-      const fn = sourceFile.statements[0] as ts.FunctionDeclaration;
-      return fn.body!;
-    }
-
-    const block = parseBlock("{ return x + y; }");
-    expect(classifyInlineFailure(block)).toBe(null);
   });
 });

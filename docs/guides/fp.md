@@ -249,16 +249,8 @@ const result = Some(42)
   .flatMap((x) => Some(x + 1))
   .getOrElse(0);
 
-// Compiled (with specialize)
+// Compiled — auto-specialized, no annotation needed
 const result = 42 * 2 + 1;
-```
-
-Use `specialize()` for hot paths:
-
-```typescript
-import { specialize } from "@typesugar/specialize";
-
-const process = specialize((opt: Option<number>) => opt.map((x) => x * 2).getOrElse(0));
 ```
 
 ## Do-Notation
@@ -297,7 +289,7 @@ See [Do-Notation Guide](./do-notation.md).
 - Use Option instead of null/undefined
 - Use Result for operations that can fail
 - Use IO for side effects
-- Use specialize() for performance-critical code
+- Trust auto-specialization for performance-critical code — it's always on
 
 ### Don't
 

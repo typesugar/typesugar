@@ -1,6 +1,6 @@
 # PEP-053: Always-On Specialization — Remove the Explicit `specialize` Surface and Static Builtins
 
-**Status:** Draft (2026-07-02)
+**Status:** In Progress (2026-07-02) — Wave 1 landed (explicit surface deleted)
 **Date:** 2026-07-02
 **Author:** Claude (with Dean Povey)
 **Absorbs:** [PEP-052](PEP-052-import-scoped-macro-activation.md) Phase D (the "inlining registry" phase)
@@ -214,17 +214,40 @@ both import (what `position-mapper.ts` already does), never two copies.
 
 ## Waves
 
-- **Wave 1 — delete the explicit surface.** Everything in §What is removed
-  except the builtin table: the four macros + registrations, runtime stubs,
-  `fn.specialize()` rewrite (both copies), the `@typesugar/specialize` package
-  (+ manifest/loader/typesugar wiring, dry-run example deps), TS9601, TS9602
-  rewording (drop "Use explicit specialize()"; point at the body blocker /
-  `@no-specialize-warn`), the `@no-specialize`/`-warn` matching bug + doc
-  mismatch. Rewrite/delete dependent tests (`tests/red-team-specialize.test.ts`,
-  `packages/transformer/tests/specialize-extension.test.ts`, package suites)
-  and examples. Audit `createSpecializedFunction` liveness. _This wave also
-  removes the only registry consumers with no source fallback (the explicit
-  macros read `instanceMethodRegistry` directly), simplifying Wave 4._
+- **Wave 1 — delete the explicit surface. DONE.** Everything in §What is
+  removed except the builtin table: the four macros + registrations, runtime
+  stubs, `fn.specialize()` rewrite (both copies), the `@typesugar/specialize`
+  package (+ manifest/loader/typesugar wiring, dry-run example deps —
+  including a third manifest copy in `packages/vscode/src/manifest.ts` the
+  original blast-radius inventory missed), TS9601 (removed, incl. the dead
+  `TS9221` diagnostic descriptor it was the only user of), TS9602 reworded
+  (dropped "Use explicit specialize()"; points at the body blocker or "falling
+  back to dictionary passing"), the `@no-specialize`/`-warn` substring-collision
+  bug fixed (`-warn` used to hit the bail branch and fully disable
+  specialization instead of just suppressing warnings) + extended to scan the
+  preceding comment line, with new tests for all 4 combinations in both
+  transformers. `createSpecializedFunction` and its whole private helper
+  family (`getDictName`, `specializeFunction`, `rewriteDictCalls`,
+  `createPartialApplication(Multi)`, etc.) confirmed dead (zero callers once
+  the macro + extension were gone) and deleted. Deleted/adapted dependent
+  tests (`tests/red-team-specialize.test.ts`, `specialize-extension.test.ts`,
+  `specialize-diagnostics.test.ts`, `specialize-improvements.test.ts`,
+  `rewriting.test.ts`) and examples (`docs/examples/core/specialize.ts`
+  rewritten to demonstrate auto-specialization; `packages/typeclass/examples/
+showcase.ts`'s live `.specialize()` calls, which would have thrown at
+  runtime — verified by transforming + executing the rewritten section
+  directly, since the only test covering that file only checks "transforms
+  without crashing," never executes the output). Extensive docs sweep
+  (README, AGENTS.md, package READMEs, architecture.md, guides, error
+  reference, vitepress nav) rewriting specialize()-as-API prose to describe
+  the always-on model; also fixed two pre-existing (not caused by this PEP)
+  broken doc examples that never imported PEP-052's required activation
+  marker. Full suite green (7088+ passed), typecheck/format/skip-policy/
+  runtime-purity/vscode/ts-plugin gates all green. Two independent review
+  passes (one before push, findings fixed) confirmed no dangling references
+  to deleted symbols anywhere in the tree. _This wave also removes the only
+  registry consumers with no source fallback (the explicit macros read
+  `instanceMethodRegistry` directly), simplifying Wave 4._
 - **Wave 2 — source-extraction capability.** Gap fixes 1–5 with a test per
   former builtin proving its source instance is extractable (imported, aliased,
   factory-form, property-access member), in both pipelines while they still

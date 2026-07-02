@@ -348,14 +348,13 @@ The typeclass system implements Scala 3-style typeclasses with zero-cost special
 
 ### Key Macros
 
-| Macro                | Kind       | Purpose                              |
-| -------------------- | ---------- | ------------------------------------ |
-| `@typeclass`         | Attribute  | Declares a typeclass interface       |
-| `@instance`          | Attribute  | Registers a typeclass instance       |
-| `@derive`            | Attribute  | Auto-derives typeclass instances     |
-| `summon<TC<T>>()`    | Expression | Resolves a typeclass instance        |
-| `value.method(args)` | Expression | Extension method syntax (implicit)   |
-| `specialize(fn)`     | Expression | Inlines typeclass dictionary methods |
+| Macro                | Kind       | Purpose                            |
+| -------------------- | ---------- | ---------------------------------- |
+| `@typeclass`         | Attribute  | Declares a typeclass interface     |
+| `@instance`          | Attribute  | Registers a typeclass instance     |
+| `@derive`            | Attribute  | Auto-derives typeclass instances   |
+| `summon<TC<T>>()`    | Expression | Resolves a typeclass instance      |
+| `value.method(args)` | Expression | Extension method syntax (implicit) |
 
 ### Extension Method Resolution Order
 
@@ -464,25 +463,26 @@ function mapArray<A, B>(fa: Array<A>, f: (a: A) => B): Array<B> {
 
 ### Key Functions
 
-| Function                              | Purpose                             |
-| ------------------------------------- | ----------------------------------- |
-| `inlineMethod(ctx, method, callArgs)` | Core inlining logic                 |
-| `getInstanceMethods(name)`            | Retrieve registered methods         |
-| `specializeMacro`                     | `specialize(fn, dict1, dict2, ...)` |
-| `specializeInlineMacro`               | `specialize$(dict, expr)`           |
+| Function                              | Purpose                                 |
+| ------------------------------------- | --------------------------------------- |
+| `inlineMethod(ctx, method, callArgs)` | Core inlining logic                     |
+| `getInstanceMethods(name)`            | Retrieve registered methods             |
+| `tryAutoSpecialize(...)`              | Entry point — gates + drives inlining   |
+| `tryExtractInstanceFromSource(...)`   | Extracts method bodies from `@impl` AST |
 
 ### Source-Based Specialization
 
-Instead of pre-registering instance methods, use `@specialize` on your instance definition:
+Instance method bodies come straight from the instance's own declaration — no
+separate registration step. Tag it `@impl` (or give it a typeclass type
+annotation) and the transformer extracts its method bodies from the AST at
+compile time:
 
 ```typescript
-/** @impl Functor<Array> @specialize */
+/** @impl Functor<Array> */
 const arrayFunctor: Functor<ArrayF> = {
   map: (fa, f) => fa.map(f),
 };
 ```
-
-The `@specialize` annotation causes the transformer to extract method bodies from the AST at compile time.
 
 ---
 
