@@ -449,10 +449,15 @@ export function tryAutoSpecialize(
       const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
       const lineText = sourceText.slice(lineStart, nodeStart);
       // Also check the immediately preceding line, for `// @no-specialize` on
-      // its own comment line above the call (the other documented form).
+      // its own comment line above the call (the other documented form). Only
+      // comment-only lines count — a marker in a TRAILING comment on the
+      // previous line belongs to that line's statement, not this one.
       const prevLineEnd = lineStart > 0 ? lineStart - 1 : 0;
       const prevLineStart = sourceText.lastIndexOf("\n", prevLineEnd - 1) + 1;
-      const prevLineText = lineStart > 0 ? sourceText.slice(prevLineStart, prevLineEnd) : "";
+      const prevLineRaw = lineStart > 0 ? sourceText.slice(prevLineStart, prevLineEnd) : "";
+      const prevLineTrimmed = prevLineRaw.trim();
+      const prevLineText =
+        prevLineTrimmed.startsWith("//") || prevLineTrimmed.startsWith("/*") ? prevLineRaw : "";
       const scanned = lineText + "\n" + prevLineText;
 
       // `@no-specialize-warn` contains `@no-specialize` as a substring, so it

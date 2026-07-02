@@ -519,7 +519,6 @@ typesugar macros must be imported to be used:
 
 Common macros:
 - comptime — compile-time evaluation
-- specialize — zero-cost inlining
 - match — pattern matching
 - derive — auto-derive instances
 - cfg — conditional compilation`,

@@ -46,29 +46,8 @@
 
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
-import { MacroContextImpl, markPure, stripPositions, stripCommentsDeep } from "@typesugar/core";
+import { MacroContextImpl, stripPositions, stripCommentsDeep } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
-import { parseTypeConstructor } from "./hkt.js";
-
-// Printer for safe text extraction from nodes (works on synthetic nodes too)
-const printer = ts.createPrinter();
-
-/**
- * Safely get the text content of a node.
- * Unlike node.getText(), this works on synthetic nodes that don't have source positions.
- */
-function getNodeText(node: ts.Node, sourceFile?: ts.SourceFile): string {
-  if (ts.isIdentifier(node)) {
-    return node.text;
-  }
-  try {
-    return node.getText();
-  } catch {
-    // Fallback for synthetic nodes
-    const sf = sourceFile ?? ts.createSourceFile("temp.ts", "", ts.ScriptTarget.Latest);
-    return printer.printNode(ts.EmitHint.Unspecified, node, sf);
-  }
-}
 
 // ============================================================================
 // Specialization Deduplication Cache

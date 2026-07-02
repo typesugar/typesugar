@@ -682,6 +682,28 @@ const myEq = <T>(dict: { eq: (a: T, b: T) => boolean }, a: T, b: T) => dict.eq(a
     expect(cache.size).toBe(1);
   });
 
+  it("ignores `@no-specialize` in a TRAILING comment on the preceding line", () => {
+    // The marker after `other(...)` belongs to that line's statement — it must
+    // not opt out the unrelated call on the next line.
+    const src = `
+/** @impl Eq<number> */
+const eqNumber = { eq: (a: number, b: number) => a === b };
+const myEq = <T>(dict: { eq: (a: T, b: T) => boolean }, a: T, b: T) => dict.eq(a, b);
+const other = myEq(eqNumber, 3, 4); // @no-specialize
+myEq(eqNumber, 1, 2);
+`;
+    const { program, sourceFile } = createProgramFromSource(src);
+    const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
+    const cache = new SpecializationCache();
+
+    const calls = findAllCalls(sourceFile).filter(
+      (c) => ts.isIdentifier(c.expression) && c.expression.text === "myEq"
+    );
+    // The second call (line after the trailing comment) must still specialize.
+    expect(tryAutoSpecialize(ctx, false, cache, calls[1])).toBeDefined();
+    expect(cache.size).toBe(1);
+  });
+
   it("honors `// @no-specialize-warn` on the preceding comment line (suppress only)", () => {
     const src = `
 /** @impl Eq<number> */

@@ -260,13 +260,6 @@ const defaultExports: ExportedSymbol[] = [
     description: "Compile-time evaluation",
   },
   {
-    name: "specialize",
-    module: "typesugar",
-    kind: "macro",
-    isReexport: false,
-    description: "Zero-cost inlining",
-  },
-  {
     name: "match",
     module: "typesugar",
     kind: "macro",

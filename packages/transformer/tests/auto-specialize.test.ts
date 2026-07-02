@@ -241,6 +241,23 @@ const result = /* @no-specialize-warn */ double(arrayFunctor, [1, 2, 3]);
     expect(result.code).toMatch(/__.*double.*Array/);
   });
 
+  it("@no-specialize-warn on the preceding comment line suppresses only — still specializes", () => {
+    const code = `
+/** @impl Functor<Array> */
+const arrayFunctor = {
+  map: (fa: any[], f: (a: any) => any) => fa.map(f),
+};
+
+const double = (F: { map(fa: any, f: any): any }, xs: number[]) => F.map(xs, (x: number) => x * 2);
+// @no-specialize-warn
+const result = double(arrayFunctor, [1, 2, 3]);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "auto-spec-warn-optout-prevline.ts" });
+
+    expect(result.code).toMatch(/__.*double.*Array/);
+  });
+
   it("falls back gracefully when function body is not resolvable", () => {
     const code = `
 /** @impl Functor<Array> */

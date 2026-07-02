@@ -73,7 +73,7 @@
     },
     { "$comment": "Expression macros — common built-ins" },
     {
-      "match": "\\b(ops|pipe|compose|summon|extend|typeInfo|fieldNames|validator|Do|forYield|asyncDo|specialize)\\s*(?=\\(|<)",
+      "match": "\\b(ops|pipe|compose|summon|extend|typeInfo|fieldNames|validator|Do|forYield|asyncDo)\\s*(?=\\(|<)",
       "captures": {
         "1": { "name": "entity.name.function.macro.typesugar" }
       }

@@ -193,22 +193,24 @@ const numericPoint: Numeric<Point> = {
   add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
   mul: (a, b) => ({ x: a.x * b.x, y: a.y * b.y }),
 };
-// Access via: Point.Numeric
 
 function double<A>(a: A, N: Numeric<A>): A {
   return N.add(a, a);
 }
 
-double(p, Point.Numeric);
+double(p, numericPoint);
 
-// Compiles to:
-({ x: p.x + p.x, y: p.y + p.y });
+// Compiles to a hoisted, dedup'd specialization — no dictionary:
+// (a) => ({ x: a.x + a.x, y: a.y + a.y })
 ```
 
+Pass the instance by name (`numericPoint`) for specialization; companion-path
+access (`Point.Numeric`) resolves the instance but is not yet source-inlined.
 If the transformer can't prove the inlining is sound (e.g. the function body
 has a loop or try/catch), it falls back to dictionary passing — always
 correct, just not zero-cost — and emits a TS9602 warning. Opt a call out
-entirely with `// @no-specialize`.
+entirely with `// @no-specialize`. See the
+[Specialization Guide](/guides/specialize) for details.
 
 ## Common Typeclasses
 
