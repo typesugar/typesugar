@@ -22,7 +22,6 @@ import {
   eitherResultAlgebra,
   unsafeResultAlgebra,
   promiseResultAlgebra,
-  registerInstanceMethods,
   registerInstanceMethodsFromAST,
   getInstanceMethods,
   isRegisteredInstance,
@@ -221,10 +220,19 @@ describe("Result algebras", () => {
 // ============================================================================
 
 describe("instance method registry", () => {
-  it("registerInstanceMethods stores methods", () => {
-    registerInstanceMethods("testFunctor", "TestF", {
-      map: { source: "(fa, f) => fa.map(f)", params: ["fa", "f"] },
-    });
+  it("registerInstanceMethodsFromAST stores methods and brand", () => {
+    const sf = ts.createSourceFile(
+      "test-functor.ts",
+      `const fn = (fa: number[], f: (a: number) => number) => fa.map(f);`,
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const varStmt = sf.statements[0] as ts.VariableStatement;
+    const init = varStmt.declarationList.declarations[0].initializer!;
+
+    const astMethods = new Map<string, { node?: ts.Expression; params: string[] }>();
+    astMethods.set("map", { node: init, params: ["fa", "f"] });
+    registerInstanceMethodsFromAST("testFunctor", "TestF", astMethods);
 
     expect(isRegisteredInstance("testFunctor")).toBe(true);
     const methods = getInstanceMethods("testFunctor");
@@ -255,9 +263,7 @@ describe("instance method registry", () => {
   });
 
   it("getRegisteredInstanceNames returns all names", () => {
-    registerInstanceMethods("regTestA", "A", {
-      foo: { source: "() => 1", params: [] },
-    });
+    registerInstanceMethodsFromAST("regTestA", "A", new Map());
 
     const names = getRegisteredInstanceNames();
     expect(names).toContain("regTestA");

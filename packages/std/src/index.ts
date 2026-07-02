@@ -85,5 +85,5 @@ export * from "./data";
 export { match } from "./macros/match-runtime.js";
 export { registerStdInstances } from "./macros/register-instances-runtime.js";
 
-// Specialization support (FlatMap instances registered for specialize() macro)
+// Specialization support (FlatMap instances recognized by auto-specialization)
 export * from "./specialize";
