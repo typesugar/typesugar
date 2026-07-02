@@ -113,28 +113,21 @@ print(42, customShow);
 
 ## Deriving Instances
 
-### Auto-Derivation (Default)
+Nothing is ambient (PEP-052): a type gets an instance only when you ask for
+one, either with `@derive` or by writing an `@instance`/`@impl` by hand. There
+is no "the compiler noticed a typeclass operation on a `Point` and synthesized
+an instance from its fields" behavior — that would mean a type's behavior
+depended on which files happen to import which typeclasses, which is exactly
+the non-local, order-dependent resolution typesugar is designed to avoid.
 
-Typeclass instances are auto-derived by default — no annotation needed. When the compiler sees a typeclass operation on a type, it inspects the type's fields and synthesizes an implementation:
+### `@derive` (Required)
 
-```typescript
-interface Point {
-  x: number;
-  y: number;
-}
-
-const p = { x: 1, y: 2 };
-p.show(); // "Point(x = 1, y = 2)" — auto-derived from field structure
-```
-
-### Explicit @derive (Documentation)
-
-`@derive` documents which typeclasses a type supports. The compiler would auto-derive them anyway, but the annotation makes intent visible to human readers:
+`@derive` generates an instance for every typeclass you list:
 
 ```typescript
 import { derive } from "@typesugar/derive";
 
-@derive(Show, Eq, Ord)
+@derive(Eq, Ord)
 class Point {
   constructor(
     public x: number,
@@ -142,8 +135,7 @@ class Point {
   ) {}
 }
 
-summon<Show<Point>>().show(new Point(1, 2));
-// "Point(x = 1, y = 2)"
+summon<Eq<Point>>().equals(new Point(1, 2), new Point(1, 2)); // true
 ```
 
 ### For Generics
@@ -162,17 +154,30 @@ summon<Show<number[]>>().show([1, 2, 3]);
 
 ## Extension Methods
 
-Typeclass methods work as extension methods — just call them directly:
+Typeclass methods are available as extension methods (`a.equals(b)` instead of
+`Point.Eq.equals(a, b)`) — but, like operators, method syntax is import-scoped
+(PEP-052): it activates only in files that import the typeclass's
+`@syntax-methods` marker, or that declare the typeclass themselves. std ships
+these markers for every typeclass it defines:
 
 ```typescript
-import { Show } from "@typesugar/std";
+import "@typesugar/std/syntax/eq"; // activates .equals() / .notEquals()
 
-(42).show(); // "42"
-"hi".show(); // "\"hi\""
-[1, 2].show(); // "[1, 2]"
+@derive(Eq)
+class Point {
+  constructor(
+    public x: number,
+    public y: number
+  ) {}
+}
+
+new Point(1, 2).equals(new Point(1, 2)); // true
 ```
 
-The transformer detects `.show()` on a type, finds the `Show` instance, and rewrites to a direct call.
+Without the `@typesugar/std/syntax/eq` import, `.equals()` stays a plain
+(missing) method call — sugar is never ambient. The louder operator form
+(`@typesugar/std/syntax/eq/ops`, enabling `===`) implies the method form (tier
+3 ⊇ tier 2). See [Operator Syntax](#operator-syntax) below.
 
 ## Zero-Cost Specialization
 
@@ -294,7 +299,15 @@ The `F<A>` syntax is rewritten to `Kind<F, A>` by the transformer. In raw `tsc` 
 
 ## Operator Syntax {#operator-syntax}
 
-Typeclass methods can be mapped to operators using `@op` annotations. When you write `a + b` and `a` has an instance of a typeclass with `@op +`, the transformer rewrites it to a method call.
+Typeclass methods can be mapped to operators using `@op` annotations. When you
+write `a + b` and `a` has an instance of a typeclass with `@op +`, the
+transformer rewrites it to a method call — **but only in files that activated
+that typeclass's operator syntax** (PEP-052): either by declaring the
+typeclass themselves ("you don't import what you define" — the examples
+below are self-activating for exactly this reason), or by importing its
+`@syntax-operators <TC>` marker (e.g. `@typesugar/std/syntax/eq/ops` for
+std's `Eq`). Files that don't activate a typeclass's operator syntax keep
+`+`/`===`/etc. as the native, unrewritten operator.
 
 ### Defining Operator Mappings
 

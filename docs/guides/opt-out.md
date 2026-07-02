@@ -87,13 +87,13 @@ const x = comptime(() => 1 + 1); // → 2
 
 Available features:
 
-| Feature       | What it disables                                                 |
-| ------------- | ---------------------------------------------------------------- |
-| `macros`      | Expression macros, tagged templates, type macros, labeled blocks |
-| `derive`      | `@derive()` decorator expansion                                  |
-| `extensions`  | Standalone extension method rewriting                            |
-| `typeclasses` | `@typeclass`, `@instance`, `summon()`                            |
-| `operators`   | Operator overloading (when implemented)                          |
+| Feature       | What it disables                                                                       |
+| ------------- | -------------------------------------------------------------------------------------- |
+| `macros`      | Expression macros, tagged templates, type macros, labeled blocks                       |
+| `derive`      | `@derive()` decorator expansion                                                        |
+| `extensions`  | Standalone extension method rewriting, typeclass instance-method sugar (`a.equals(b)`) |
+| `typeclasses` | `@typeclass`, `@instance`, `summon()`                                                  |
+| `operators`   | Operator overloading                                                                   |
 
 You can combine multiple features:
 

@@ -3,6 +3,9 @@
 
 import { comptime, staticAssert, derive, Eq, pipe } from "typesugar";
 import { match } from "@typesugar/std";
+// Opt this file into Eq's operator syntax (PEP-052) — without this import,
+// === stays the native, unrewritten operator.
+import "@typesugar/std/syntax/eq/ops";
 
 // 1. comptime() evaluates at BUILD TIME — the result is inlined as a literal
 const buildId = comptime(() => Math.random().toString(36).slice(2, 8));

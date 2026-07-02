@@ -30,8 +30,11 @@ export function origin(): Point { return new Point(0); }
 
     // Consumer imports only \`origin\` (a value), NOT \`Point\` — yet \`p.equals(q)\`
     // must emit \`Point.Eq.equals(...)\` and import \`Point\` so it isn't unbound.
+    // Method sugar is import-scoped (PEP-052 Phase E), so the consumer also
+    // activates Eq's method syntax.
     const consumer = `
 import { origin } from "./point-lib";
+import "@typesugar/std/syntax/eq";
 const p = origin();
 const q = origin();
 export const same = p.equals(q);

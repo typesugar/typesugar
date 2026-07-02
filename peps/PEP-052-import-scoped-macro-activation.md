@@ -1,6 +1,9 @@
 # PEP-052: Import-Scoped Macro Activation (cats-style syntax)
 
-**Status:** In Progress (2026-06-30) — Wave 1 landed (generic engine + Eq/Ord operators, resolver registry-fallback deleted); remaining migration deferred to later waves (see "Implementation status & deferred work")
+**Status:** In Progress (2026-07-02) — Wave 1 + registry-deletion Phases A–C landed (PR #34);
+Phase E concrete-type method-sugar gating landed; remaining: Phase D (moved to
+[PEP-053](PEP-053-always-on-specialization.md)), HKT method sugar / Part 2 (see
+"Implementation status & deferred work")
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")
@@ -427,9 +430,45 @@ bounded, non-redesign follow-up:
   explicit `specialize()`/`specialize$`/`mono()`/`inlineCall()`/`fn.specialize()` surface
   (specialization becomes an always-on optimization with only the `@no-specialize` opt-out)
   and unifies the duplicated specialization pipeline. Tracked there, not here.
-- **Phase E — `@syntax-methods` gating + docs sweep.** Gate method sugar on the activation
-  marker (the breaking flip; activation state already tracked) and update the guides/
-  getting-started/type-safety docs to the import-scoped model.
+- **Phase E — `@syntax-methods` gating + docs sweep. DONE (concrete-type method sugar).**
+  Gated `tryResolveTypeclassMethod` (`p.equals(q)`, `p.compare(q)`, `p.combine(q)`, etc. —
+  the concrete-type instance-method path, resolved via `resolveInstance`/`@derive`
+  companion) on activation, mirroring the operator gate exactly: activated iff the using
+  file imports a `@syntax-methods <TC>` (or `@syntax-operators <TC>`, tier 3 ⊇ tier 2)
+  marker, or declares the typeclass itself. Wired the already-existing but previously
+  unused `getMethodCandidates` (scoped op-index lookup) in place of the unscoped
+  `getTypeclassesDeclaringMethod`; only one call site needed gating (transformer-core has
+  no method-sugar path yet — a separate, pre-existing gap, not a Phase-E duplicate to
+  un-gate). Shipped `@syntax-methods` (+ `/ops` where an operator mapping exists) marker
+  modules in `packages/std/src/syntax/` for every remaining seeded typeclass —
+  `Semigroup`, `Monoid`, `Group`, `Numeric`, `Integral`, `Fractional`, `Clone`, `Debug`,
+  `Default`, `Json`, `TypeGuard` — so the flip doesn't strand any of them without an
+  activation import. Two tests relied on ambient method sugar with no marker import;
+  fixed by adding the import (not by weakening the gate). Docs swept:
+  `docs/guides/typeclasses.md` (removed the false "auto-derived by default"/"@derive is
+  just documentation" claims — both are now required; rewrote Extension Methods to show
+  the required `@syntax-methods` import), `docs/architecture.md` (Extension Method
+  Resolution Order + Operator Overloading sections — dropped the stale
+  `typeclassRegistry.syntax` reference, documented both gates precisely),
+  `docs/guides/opt-out.md` (`operators` feature is implemented, not "when implemented";
+  noted `extensions` also covers method sugar), `docs/index.md` Quick Example (added
+  `Clone`/`Json` + their marker imports; dropped `.show()`, which was never actually
+  reachable — `Show` isn't `@typeclass`-tagged, see below), plus two doc EXAMPLE files
+  that predate this work and were already silently wrong (`docs/examples/getting-started/
+welcome.ts`, `docs/examples/core/derive.ts` — claimed `===` rewrites to structural
+  equality but never imported `@typesugar/std/syntax/eq/ops`, so it was native reference
+  equality all along; no test caught it since `playground-examples.test.ts` only checks
+  "runs without throwing," not output content — fixed both).
+  **Deferred, deliberately not touched:** `Show` (`packages/fp/src/typeclasses/show.ts`)
+  has no `@typeclass` JSDoc tag, so it isn't in the typeclass index and its method sugar
+  (`.show()`) was already unreachable via `tryResolveTypeclassMethod` before this change —
+  tagging it now would activate the `@typeclass` attribute macro (codegen, not inert
+  metadata — the same non-neutral-transform gotcha hit during Phase C's `@impl` additions)
+  and needs its own careful pass with export-shape-test verification, not a drive-by
+  here. HKT method sugar (`xs.map(f)`, `o.flatMap(g)` — resolved by type-constructor
+  brand via the do-notation registry, a different mechanism from the concrete-type path
+  just gated) remains untouched, per "Why deleting the registry is gated on the HKT/
+  method-sugar work" below — still correctly deferred to Wave 2/Part 2.
 
 ### Why deleting the registry is gated on the HKT/method-sugar work
 

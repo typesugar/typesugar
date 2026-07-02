@@ -1,7 +1,7 @@
 /**
  * Activation marker (PEP-052) — import this module to activate `Eq` METHOD
- * syntax (`a.eq(b)` / `a.notEq(b)`) in the importing file. Additive: it
- * introduces method names without redefining any native operator.
+ * syntax (`a.equals(b)` / `a.notEquals(b)`) in the importing file. Additive:
+ * it introduces method names without redefining any native operator.
  *
  * ```ts
  * import "@typesugar/std/syntax/eq";
