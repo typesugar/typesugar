@@ -351,6 +351,14 @@ For generic types:
 
 ### Autospecialization
 
+> **Editor's note (2026-07-02, post-PEP-053):** this section predates PEP-053.
+> The string-source `registerInstanceMethods()` no longer exists — registry
+> writes are `registerInstanceMethodsFromAST()` — the specialization pipeline
+> lives in `packages/transformer-core/src/specialization.ts` (one shared
+> implementation), and companion paths already resolve via scope
+> (PEP-053 Wave 2 gap 6). Re-scope the action items below against that
+> reality before implementing.
+
 `tryAutoSpecialize()` inlines dictionary method calls for zero-cost abstraction. The change is in instance detection:
 
 ```typescript

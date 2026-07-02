@@ -1,6 +1,6 @@
 # PEP-053: Always-On Specialization — Remove the Explicit `specialize` Surface and Static Builtins
 
-**Status:** In Progress (2026-07-02) — Waves 1–2 landed (explicit surface deleted; source extraction covers aliases, factories, indirect members, companions)
+**Status:** Implemented (2026-07-03) — all five waves landed: explicit surface deleted, source extraction covers every builtin form, one shared pipeline, static builtin table deleted, docs swept
 **Date:** 2026-07-02
 **Author:** Claude (with Dean Povey)
 **Absorbs:** [PEP-052](PEP-052-import-scoped-macro-activation.md) Phase D (the "inlining registry" phase)
@@ -406,6 +406,27 @@ eitherFunctor<E>()` inside a factory body) that would dangle even
 Invariant (as in PEP-052): the builtin table stays populated until Wave 4's
 gates prove source extraction covers it — no wave leaves the build, LSP, or
 playground with regressed inlining.
+
+## Final review round (2026-07-03, post-Waves 3–5)
+
+A five-lens review of the cumulative Waves 3–5 diff (dangling references,
+stranded dead code, empirical behavior, docs truthfulness, test honesty)
+found no code defects. Empirical verification (transform + execute through
+the production pipeline) confirmed: basic auto-spec, both Wave 3 behavior
+deltas (no dangling type-parameter annotations in hoisted output; no
+spurious void TS9602 — while try/catch bodies still warn), trivia-free
+derived-instance inlining, ORIGINAL-name cross-package specialization
+registry-free, clean fallback for namespace-import bodies, and both opt-out
+forms. Fixes applied: five stale doc references to deleted API
+(`.cursor/skills/macro-authoring`, `docs/design/parameterized-instance.md`,
+`docs/ANALYSIS-language-design.md`, `AGENTS.md` pipeline pointer,
+`docs/reference/packages.md` umbrella list still naming the deleted
+specialize package), an editor's note in PEP-032 whose plan references
+pre-PEP-053 API, `docs/architecture.md` §6 relocated to the shared pipeline,
+11 dead imports pruned from `packages/transformer/src/index.ts` (one
+stranded by Wave 2, ten pre-existing), refreshed test-file rationale
+comments, and a new matrix case pinning that original-name imports
+specialize registry-free.
 
 ## Acceptance criteria
 

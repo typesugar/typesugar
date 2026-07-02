@@ -12,7 +12,7 @@ Umbrella package including all common packages.
 npm install typesugar
 ```
 
-Includes: core, derive, reflect, typeclass, specialize.
+Includes: core, derive, reflect, typeclass.
 
 **Inspired by:** Umbrella packages (Lodash, Effect)
 

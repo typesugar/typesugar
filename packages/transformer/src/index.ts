@@ -14,7 +14,6 @@ import {
   isKindAnnotation,
   transformHKTDeclaration,
   tryExpandGenericDerive,
-  instanceVarName,
   companionPath,
   tryExtractSumType,
   hasImplicitParams,
@@ -26,8 +25,6 @@ import {
   clearDerivationCaches,
   // Registration functions for AST-based extraction
   registerInstanceWithMeta,
-  extractOpFromJSDoc,
-  getSpecializationMethodsForDerivation,
   type ImplicitScope,
   createRegistrationCall,
   // Instance resolution (PEP-038)
@@ -50,7 +47,6 @@ import {
   MacroContextImpl,
   createMacroContext,
   globalRegistry,
-  standaloneExtensionRegistry,
   findStandaloneExtension,
   getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
@@ -70,8 +66,6 @@ import {
   isInOptedOutScope,
   // Import suggestions
   getSuggestionsForSymbol,
-  getSuggestionsForMethod,
-  getSuggestionsForMacro,
   formatSuggestionsMessage,
   // Source map utilities
   preserveSourceMap,
@@ -85,11 +79,8 @@ import {
   MacroExpansionCache,
   // Type rewrite registry (PEP-012)
   findTypeRewrite,
-  getTypeRewrite,
   getAllTypeRewrites,
   type TypeRewriteEntry,
-  type ConstructorRewrite,
-  type AccessorRewrite,
   type MethodInlinePattern,
   // Statement removal sentinel
   isRemoveExpression,
@@ -98,7 +89,6 @@ import {
   stripCommentsDeep,
   // Type string parsing
   parseTypeInstantiation,
-  extractTypeArgumentsContent,
   stripTypeArguments,
   // Derive diagnostics
   TS9101,
@@ -106,7 +96,7 @@ import {
   TS9104,
   TS9222,
 } from "@typesugar/core";
-import { profiler, PROFILING_ENABLED } from "./profiling.js";
+import { profiler } from "./profiling.js";
 
 // Printer for safe text extraction from nodes (works on synthetic nodes too)
 // Built-in container/global types whose native methods (map/filter/then/…) must
