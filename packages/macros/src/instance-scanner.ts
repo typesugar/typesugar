@@ -500,11 +500,13 @@ function resolveTypeString(typeChecker: ts.TypeChecker, typeString: string): ts.
       [ts.SyntaxKind.StringKeyword]: "getStringType",
       [ts.SyntaxKind.BooleanKeyword]: "getBooleanType",
       [ts.SyntaxKind.BigIntKeyword]: "getBigIntType",
+      [ts.SyntaxKind.SymbolKeyword]: "getESSymbolType",
       [ts.SyntaxKind.UndefinedKeyword]: "getUndefinedType",
       [ts.SyntaxKind.NullKeyword]: "getNullType",
       [ts.SyntaxKind.VoidKeyword]: "getVoidType",
       [ts.SyntaxKind.NeverKeyword]: "getNeverType",
       [ts.SyntaxKind.AnyKeyword]: "getAnyType",
+      [ts.SyntaxKind.UnknownKeyword]: "getUnknownType",
     };
     const getter = intrinsicGetters[keyword];
     if (getter && typeof tc[getter] === "function") {
@@ -514,10 +516,23 @@ function resolveTypeString(typeChecker: ts.TypeChecker, typeString: string): ts.
         /* fall through */
       }
     }
-    // Fallback: try synthetic node (works in some TS host configurations)
+    // Fallback: try synthetic node (works in some TS host configurations).
+    // GUARD (found via `symbol`/`unknown`/`object` all silently resolving to
+    // `any` on an unbound synthetic node before the intrinsic getters above
+    // were added): `any` is bidirectionally assignable to/from every type, so
+    // a keyword that isn't itself `any` resolving to `any` here would make
+    // `isTypeMatch` treat this instance as matching ANY other instance's
+    // type — a false "ambiguous instance" report between unrelated types
+    // (e.g. `Show<symbol>` masquerading as a second `Show<number>`). Prefer
+    // "can't resolve this type string" (undefined) over a silently-wrong
+    // match.
     try {
       const node = ts.factory.createKeywordTypeNode(keyword as ts.KeywordTypeSyntaxKind);
-      return typeChecker.getTypeFromTypeNode(node);
+      const resolved = typeChecker.getTypeFromTypeNode(node);
+      if (keyword !== ts.SyntaxKind.AnyKeyword && resolved.flags & ts.TypeFlags.Any) {
+        return undefined;
+      }
+      return resolved;
     } catch {
       return undefined;
     }

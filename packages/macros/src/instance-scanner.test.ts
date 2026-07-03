@@ -474,3 +474,38 @@ export const flatMapTask = impl("FlatMap<Task>", {
     expect(results[0].doMeta?.bind).toBe("andThen");
   });
 });
+
+describe("resolveTypeString keyword resolution (PEP-052 Wave 5 review fix)", () => {
+  // On some ts.TypeChecker instances, resolving a keyword type via an
+  // unbound synthetic node (ts.factory.createKeywordTypeNode +
+  // getTypeFromTypeNode) silently returns `any` instead of the keyword's own
+  // type — and `any` is bidirectionally assignable to/from everything, so
+  // two DIFFERENT type-annotated instances (e.g. `Show<symbol>` and
+  // `Show<number>`) would incorrectly resolve to the "same" forType and be
+  // reported as an ambiguous instance pair. Exercised end-to-end (not just
+  // resolveTypeString in isolation) because the bug is specifically about
+  // cross-instance type MATCHING, not single-type resolution.
+  it("does not conflate `symbol`, `unknown`, and `object` typed instances with each other", () => {
+    const mod = createTestModule(`
+/** @impl Ord<symbol> */
+export const ordSymbol = { compare: (a: symbol, b: symbol) => 0 };
+/** @impl Ord<unknown> */
+export const ordUnknown = { compare: (a: unknown, b: unknown) => 0 };
+/** @impl Ord<number> */
+export const ordNumber = { compare: (a: number, b: number) => 0 };
+    `);
+
+    const scanner = new InstanceScanner();
+    const results = scanner.scanModule(mod.typeChecker, mod.moduleSymbol, mod.resolvedPath);
+
+    expect(results).toHaveLength(3);
+    const bySymbolName = new Map(results.map((r) => [r.exportName, r]));
+    // Each instance's resolved forType must be distinct — none should have
+    // silently collapsed to `any`.
+    const forTypes = new Set(results.map((r) => bySymbolName.get(r.exportName)!.forType));
+    expect(forTypes.size).toBe(3);
+    for (const r of results) {
+      expect(r.forType && r.forType.flags & ts.TypeFlags.Any).toBeFalsy();
+    }
+  });
+});

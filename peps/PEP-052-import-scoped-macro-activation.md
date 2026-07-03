@@ -1,14 +1,18 @@
 # PEP-052: Import-Scoped Macro Activation (cats-style syntax)
 
-**Status:** In Progress (2026-07-03) — Wave 1 + registry-deletion Phases A–C landed (PR #34);
+**Status:** In Progress (2026-07-04) — Wave 1 + registry-deletion Phases A–C landed (PR #34);
 Phase E concrete-type method-sugar gating landed; Wave 2 `@syntax-labels` gating landed
 (PR #43); Wave 3 scope-based do-notation instance resolution landed — the last
 process-global instance registry (`doNotationRegistry`) is deleted and the
-"No process-global instance/type-rewrite registry" acceptance criterion is met;
-remaining: Phase D (moved to [PEP-053](PEP-053-always-on-specialization.md)) and
-planned Waves 5-10 (`Show` tagging, marker text fallback, intrinsics-from-source,
-JSDoc dispatcher unification, macro-package discovery + algebra relocation,
-optional checker-derived native detection — see "Planned waves")
+"No process-global instance/type-rewrite registry" acceptance criterion is met
+(PR #44); Wave 4 de-magicking landed — HKT typeclass knowledge is declaration-derived,
+the last dead post-registry surfaces deleted (PR #45); Wave 5 `Show` tagging landed
+(also fixed a latent `resolveTypeString` bug affecting any `symbol`/`unknown`/`object`
+-typed instance); remaining: Phase D (moved to
+[PEP-053](PEP-053-always-on-specialization.md)) and planned Waves 6-10 (marker text
+fallback, intrinsics-from-source, JSDoc dispatcher unification, macro-package
+discovery + algebra relocation, optional checker-derived native detection — see
+"Planned waves")
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")
@@ -656,12 +660,45 @@ Wave 4 retained five surfaces with in-code justifications. Dean asked for a
 wave addressing each; here is the plan, ordered by dependency. Waves 5-6 were
 already on the remaining list; 7-10 come from the retained items.
 
-- **Wave 5 — `Show` tagging.** The deliberately-deferred pass from Phase E:
-  add the `@typeclass` tag to `Show` (`packages/fp/src/typeclasses/show.ts`)
-  so `.show()` method sugar becomes reachable through the standard gates.
-  Needs export-shape verification (the tag activates the `@typeclass`
-  attribute macro's codegen when the declaring file is transformed) and a
-  `@syntax-methods Show` marker. Small.
+- **Wave 5 — `Show` tagging. DONE (2026-07-04).** The deliberately-deferred
+  pass from Phase E: `Show`'s interface (`packages/fp/src/typeclasses/show.ts`)
+  now carries `@typeclass`, and a new `@typesugar/fp/syntax/show` marker
+  (`@syntax-methods Show`) activates `.show()` method sugar — `Show` has no
+  operator form, so unlike Eq/Ord there is only one tier.
+  - **Export-shape verified safe:** fp builds without the typesugar plugin
+    (`tsup.config.ts` has no `unplugin-typesugar`; `vitest.config.ts` wires no
+    transformer either), so the `@typeclass` attribute macro's codegen never
+    fires on fp's own build — same precedent Wave 4 already established for
+    fp's HKT interfaces. Confirmed both new tags (`@typeclass`,
+    `@syntax-methods Show`) survive into `dist/**/*.d.ts`.
+  - **Bug found by the careful pass the deferral called for:** `n.show()`
+    resolved to an "Ambiguous Show instance for 'number': showNumber,
+    showSymbol" error the first time a real end-to-end test exercised
+    `resolveInstance`'s type matching with Show's instances in scope.
+    `resolveTypeString` (`instance-scanner.ts`) resolved the `symbol` keyword
+    via an unbound synthetic `ts.factory.createKeywordTypeNode` node — which
+    this checker configuration silently resolves to `any`, not `symbol` — and
+    `any` is bidirectionally assignable to/from everything, so `showSymbol`
+    (`@impl Show<symbol>`) spuriously matched `number`. Probed further:
+    `unknown` and `object` have the identical leak. Fixed two ways: added the
+    checker's internal `getESSymbolType`/`getUnknownType` fast paths (mirroring
+    the existing `getNumberType`/`getStringType`/etc. getters), and hardened
+    the synthetic-node fallback itself — a non-`any` keyword resolving to
+    `any` now returns `undefined` (can't-resolve) rather than the silently
+    wrong type, so any FUTURE keyword hitting the same unbound-node quirk
+    fails safe instead of causing cross-instance false matches. This bug
+    predates Wave 5 (any `@impl <TC><symbol|unknown|object>` instance could
+    have triggered it) but had no reachable trigger until Show's instances
+    became scanner-visible.
+  - Test design note: the activation test fixtures deliberately do NOT
+    name-import `showNumber` — doing so independently satisfies the older,
+    gate-independent "Scala 3-style" standalone-extension-import mechanism
+    (any named import whose value has a same-named, same-shaped method is
+    treated as an extension regardless of `@syntax-methods` activation),
+    which would make the "off" fixture rewrite too and defeat the test. A
+    side-effect import of the instance module is enough for scope-based
+    instance resolution and carries no named binding for the extension
+    scanner to match.
 
 - **Wave 6 — operator/method marker text fallback.** Parity with what labels
   (Wave 2) and do-instances (Wave 3) already have: a resolution-free fallback
