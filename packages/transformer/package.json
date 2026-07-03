@@ -97,7 +97,9 @@
   },
   "devDependencies": {
     "@typesugar/contracts": "workspace:*",
+    "@typesugar/fp": "workspace:*",
     "@typesugar/macros": "workspace:*",
+    "@typesugar/std": "workspace:*",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {

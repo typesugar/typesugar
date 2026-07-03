@@ -56,6 +56,10 @@ export const r = n.show();
 `.trim();
 
     const result = transformCode(code, { fileName: "consumer-show-off.ts" });
+    // Distinguish "correctly left native" from "the fp import silently failed
+    // before rewriting was even attempted" — both would leave `n.show()`
+    // untouched, but only the former should produce zero diagnostics.
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.code).toContain("n.show()");
     expect(result.code).not.toContain("showNumber.show");
   });

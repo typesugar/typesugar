@@ -680,13 +680,18 @@ already on the remaining list; 7-10 come from the retained items.
     this checker configuration silently resolves to `any`, not `symbol` — and
     `any` is bidirectionally assignable to/from everything, so `showSymbol`
     (`@impl Show<symbol>`) spuriously matched `number`. Probed further:
-    `unknown` and `object` have the identical leak. Fixed two ways: added the
-    checker's internal `getESSymbolType`/`getUnknownType` fast paths (mirroring
-    the existing `getNumberType`/`getStringType`/etc. getters), and hardened
-    the synthetic-node fallback itself — a non-`any` keyword resolving to
-    `any` now returns `undefined` (can't-resolve) rather than the silently
-    wrong type, so any FUTURE keyword hitting the same unbound-node quirk
-    fails safe instead of causing cross-instance false matches. This bug
+    `unknown` and `object` have the identical leak. Fixed for all three: added
+    the checker's internal `getESSymbolType`/`getUnknownType`/
+    `getNonPrimitiveType` fast paths (mirroring the existing
+    `getNumberType`/`getStringType`/etc. getters — a review pass caught that
+    the first cut covered only `symbol`/`unknown` and left `object` resolving
+    to `undefined` via the fallback guard below, silently unresolvable rather
+    than silently wrong; `getNonPrimitiveType` closes it). The synthetic-node
+    fallback is ALSO hardened as defense in depth: a non-`any` keyword
+    resolving to `any` now returns `undefined` (can't-resolve) rather than the
+    silently wrong type, so any FUTURE keyword hitting the same unbound-node
+    quirk — one not yet covered by an intrinsic getter — fails safe instead of
+    causing cross-instance false matches. This bug
     predates Wave 5 (any `@impl <TC><symbol|unknown|object>` instance could
     have triggered it) but had no reachable trigger until Show's instances
     became scanner-visible.
@@ -699,6 +704,34 @@ already on the remaining list; 7-10 come from the retained items.
     side-effect import of the instance module is enough for scope-based
     instance resolution and carries no named binding for the extension
     scanner to match.
+  - **Packaging fix, in scope:** `show.ts` is fp's FIRST-EVER `@syntax-*`
+    activation marker (verified: no prior `src/syntax/*.ts` in fp carried one),
+    and fp's `package.json` had `"sideEffects": false` — a bundler doing
+    aggressive dead-import elimination could legally drop a bare
+    `import "@typesugar/fp/syntax/show";` (its entire contract IS the side
+    effect). std's identical markers are protected by `"sideEffects": true`;
+    fp's flag never mattered until this wave shipped its first marker. Flipped
+    to match std. Also added `@typesugar/fp`/`@typesugar/std` as devDependencies
+    of `@typesugar/transformer` (the new test imports both; they were only
+    resolving via the root workspace's hoisted node_modules — the same latent
+    fragility the pre-existing `pep052-method-sugar-companion.test.ts` in the
+    same package already had for `@typesugar/std`, fixed while here).
+  - **Two review findings confirmed real but OUT OF SCOPE — tracked, not
+    fixed here:** (1) `extend()`'s method dispatch (`getTypeclassesDeclaringMethod`,
+    unscoped by design) commits to the FIRST typeclass declaring the called
+    method name with no check that an instance actually exists for the
+    receiver — reproduces identically for `extend(p).equals(q)` on a
+    `Point` with no `Eq` instance (emits a broken, doubled
+    `Eq.summon<Point>("Point").equals(p, q).equals(q)`, referencing an
+    undefined `Eq` companion). Tagging `Show` gives this pre-existing defect
+    one more typeclass name that can trigger it for the `show` method — the
+    defect itself is general and predates this wave (Eq has been in the
+    op-index since Wave 1). (2) SFINAE check-time TS2339 suppression
+    (`sfinae-rules.ts`) only recognizes `@derive`d receivers, not primitive
+    `@impl` instances resolved from scope — so plain `tsc --noEmit`/IDE
+    checking still flags `n.show()` even though the transform is correct.
+    Same gap already existed for Eq/Ord's method sugar over primitives; no
+    prior test exercised that combination. Both filed as follow-ups.
 
 - **Wave 6 — operator/method marker text fallback.** Parity with what labels
   (Wave 2) and do-instances (Wave 3) already have: a resolution-free fallback
