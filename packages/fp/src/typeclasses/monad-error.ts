@@ -22,6 +22,8 @@ import type { Kind } from "../hkt.js";
  * ApplicativeError typeclass - Applicative with error handling
  *
  * E is the error type, F is the type constructor
+ *
+ * @typeclass
  */
 export interface ApplicativeError<F, E> extends Applicative<F> {
   readonly raiseError: <A>(e: E) => Kind<F, A>;
@@ -34,6 +36,8 @@ export interface ApplicativeError<F, E> extends Applicative<F> {
 
 /**
  * MonadError typeclass - Monad with error handling
+ *
+ * @typeclass
  */
 export interface MonadError<F, E> extends ApplicativeError<F, E>, Monad<F> {}
 

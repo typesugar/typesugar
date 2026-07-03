@@ -56,9 +56,7 @@ export { generateStandardTypeclasses, tryExtractSumType, instanceVarName } from 
 export type { SyntaxEntry } from "@typesugar/macros";
 
 // HKT support
-export {
-  hktTypeclassNames,
-  hktExpansionRegistry,
-  registerHKTTypeclass,
-  registerHKTExpansion,
-} from "@typesugar/macros";
+// (hktTypeclassNames/registerHKTTypeclass were removed in PEP-052 Wave 4 —
+// HKT-ness is derived from @typeclass declarations; expansions are keyed per
+// ts.Program, so the raw registry map is no longer exported.)
+export { registerHKTExpansion } from "@typesugar/macros";

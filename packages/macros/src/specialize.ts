@@ -253,29 +253,6 @@ export function getResultAlgebra(typeName: string): ResultAlgebra | undefined {
   return resultAlgebraRegistry.get(typeName);
 }
 
-/**
- * Check if a type name has a registered Result algebra.
- */
-export function hasResultAlgebra(typeName: string): boolean {
-  return resultAlgebraRegistry.has(typeName);
-}
-
-/**
- * Get all registered Result algebras.
- */
-export function getAllResultAlgebras(): ResultAlgebra[] {
-  // Return unique algebras (same algebra may be registered under multiple type names)
-  const seen = new Set<string>();
-  const algebras: ResultAlgebra[] = [];
-  for (const algebra of resultAlgebraRegistry.values()) {
-    if (!seen.has(algebra.name)) {
-      seen.add(algebra.name);
-      algebras.push(algebra);
-    }
-  }
-  return algebras;
-}
-
 // ============================================================================
 // Built-in Result Algebras
 // ============================================================================
@@ -317,47 +294,6 @@ export const eitherResultAlgebra: ResultAlgebra = {
 };
 
 /**
- * Unsafe algebra: ok(v) -> v, err(e) -> throw new Error(String(e))
- *
- * Specializes Result<E, T> to bare T.
- * Errors are converted to thrown exceptions.
- */
-export const unsafeResultAlgebra: ResultAlgebra = {
-  name: "Unsafe",
-  targetTypes: [], // Bare T doesn't have a specific type name; detected by exclusion
-  rewriteOk: (_ctx, value) => value,
-  rewriteErr: (ctx, error) =>
-    ctx.factory.createCallExpression(
-      ctx.factory.createParenthesizedExpression(
-        ctx.factory.createArrowFunction(
-          undefined,
-          undefined,
-          [],
-          undefined,
-          ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          ctx.factory.createBlock(
-            [
-              ctx.factory.createThrowStatement(
-                ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
-                  ctx.factory.createCallExpression(
-                    ctx.factory.createIdentifier("String"),
-                    undefined,
-                    [error]
-                  ),
-                ])
-              ),
-            ],
-            true
-          )
-        )
-      ),
-      undefined,
-      []
-    ),
-  preservesError: false,
-};
-
-/**
  * Promise algebra: ok(v) -> Promise.resolve(v), err(e) -> Promise.reject(e)
  *
  * Specializes Result<E, T> to Promise<T>.
@@ -385,11 +321,15 @@ export const promiseResultAlgebra: ResultAlgebra = {
 };
 
 // Register built-in algebras
+// DELIBERATE builtin seeding (PEP-052 Wave 4 reviewed and retained): these
+// algebras are AST-building rewrite functions — not declarable as JSDoc
+// metadata — and fp has no macro entry to host its own registration, so
+// relocating the seeds would mean inventing loader plumbing for three lines.
+// `registerResultAlgebra` remains the extension point for third-party result
+// types; the seeds are ordinary calls to it, not a privileged path.
 registerResultAlgebra(optionResultAlgebra);
 registerResultAlgebra(eitherResultAlgebra);
 registerResultAlgebra(promiseResultAlgebra);
-// Note: unsafeResultAlgebra is not registered by default as it has no specific target type
-// It's used as a fallback when the target type is the success type (bare T)
 
 // ============================================================================
 // Specialization Registry
@@ -565,6 +505,11 @@ export function getRegisteredInstanceNames(): string[] {
 // Only tryInlineDerivedInstanceCall consults this registry.
 // ---------------------------------------------------------------------------
 
+// DELIBERATE builtin table (PEP-052 Wave 4 reviewed and retained): these
+// intrinsics power derived-instance inlining to native operators
+// (eqNumber.equals → ===). They restate std instances as source strings —
+// a candidate for PEP-053-style source extraction in a follow-up — but they
+// are live and load-bearing, and extraction is its own project.
 const primitiveIntrinsicRegistry = new Map<string, DictMethodMap>();
 
 function registerPrimitiveIntrinsic(

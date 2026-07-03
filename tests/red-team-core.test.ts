@@ -332,36 +332,6 @@ describe("Core Edge Cases", () => {
       expect(scope.mode).toBe("import-scoped");
     });
 
-    it("import-scoped mode: nothing is in scope by default (empty prelude, PEP-052)", () => {
-      expect(tracker.isTypeclassInScope("test.ts", "Show")).toBe(false);
-      expect(tracker.isTypeclassInScope("test.ts", "RandomTypeclass")).toBe(false);
-    });
-
-    it("should respect import-scoped mode", () => {
-      config.set({ resolution: { mode: "import-scoped" } });
-      const newTracker = new ResolutionScopeTracker();
-
-      newTracker.registerImportedTypeclass("test.ts", "Eq", "@typesugar/std");
-      expect(newTracker.isTypeclassInScope("test.ts", "Eq")).toBe(true); // imported
-      // Not imported and no ambient prelude → out of scope (PEP-052).
-      expect(newTracker.isTypeclassInScope("test.ts", "Show")).toBe(false);
-      expect(newTracker.isTypeclassInScope("test.ts", "CustomTC")).toBe(false);
-    });
-
-    it("should handle explicit mode (nothing in scope)", () => {
-      config.set({ resolution: { mode: "explicit" } });
-      const newTracker = new ResolutionScopeTracker();
-
-      newTracker.registerImportedTypeclass("test.ts", "Eq", "@typesugar/std");
-      expect(newTracker.isTypeclassInScope("test.ts", "Eq")).toBe(false);
-      expect(newTracker.isTypeclassInScope("test.ts", "Show")).toBe(false);
-    });
-
-    it("should handle file-level opt-out", () => {
-      tracker.setOptedOut("test.ts", true);
-      expect(tracker.isTypeclassInScope("test.ts", "Eq")).toBe(false);
-    });
-
     it("should handle feature-specific opt-out", () => {
       tracker.addOptedOutFeature("test.ts", "operators");
       expect(tracker.isFeatureOptedOut("test.ts", "operators")).toBe(true);
@@ -369,19 +339,11 @@ describe("Core Edge Cases", () => {
     });
 
     it("should clear scope correctly", () => {
-      tracker.registerImportedTypeclass("test.ts", "Eq", "@typesugar/std");
       tracker.setOptedOut("test.ts", true);
       tracker.clearScope("test.ts");
 
       const scope = tracker.getScope("test.ts");
-      expect(scope.importedTypeclasses.size).toBe(0);
       expect(scope.optedOut).toBe(false);
-    });
-
-    it("should return empty list for opted-out files in getInScopeTypeclasses", () => {
-      tracker.registerImportedTypeclass("test.ts", "Eq", "@typesugar/std");
-      tracker.setOptedOut("test.ts", true);
-      expect(tracker.getInScopeTypeclasses("test.ts")).toEqual([]);
     });
   });
 

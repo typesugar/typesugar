@@ -19,6 +19,8 @@ import type { Kind } from "../hkt.js";
 
 /**
  * SemigroupK typeclass - Semigroup at the type constructor level
+ *
+ * @typeclass
  */
 export interface SemigroupK<F> {
   readonly combineK: <A>(x: Kind<F, A>, y: Kind<F, A>) => Kind<F, A>;
@@ -30,6 +32,8 @@ export interface SemigroupK<F> {
 
 /**
  * MonoidK typeclass - Monoid at the type constructor level
+ *
+ * @typeclass
  */
 export interface MonoidK<F> extends SemigroupK<F> {
   readonly emptyK: <A>() => Kind<F, A>;
@@ -41,6 +45,8 @@ export interface MonoidK<F> extends SemigroupK<F> {
 
 /**
  * Alternative typeclass - MonoidK with Applicative
+ *
+ * @typeclass
  */
 export interface Alternative<F> extends Applicative<F>, MonoidK<F> {}
 

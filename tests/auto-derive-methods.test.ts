@@ -13,7 +13,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { transformCode } from "@typesugar/transformer";
-import { registerInstanceWithMeta, clearDerivationCaches } from "@typesugar/macros";
+import { clearDerivationCaches } from "@typesugar/macros";
 
 // Import macros package to ensure summonMacro is registered
 import "@typesugar/macros";
@@ -22,35 +22,9 @@ beforeEach(() => {
   clearDerivationCaches();
 });
 
-function setupEqTypeclass() {
-  registerInstanceWithMeta({
-    typeclassName: "Eq",
-    forType: "number",
-    instanceName: "eqNumber",
-    derived: false,
-  });
-  registerInstanceWithMeta({
-    typeclassName: "Eq",
-    forType: "string",
-    instanceName: "eqString",
-    derived: false,
-  });
-}
+function setupEqTypeclass() {}
 
-function setupShowTypeclass() {
-  registerInstanceWithMeta({
-    typeclassName: "Show",
-    forType: "number",
-    instanceName: "showNumber",
-    derived: false,
-  });
-  registerInstanceWithMeta({
-    typeclassName: "Show",
-    forType: "string",
-    instanceName: "showString",
-    derived: false,
-  });
-}
+function setupShowTypeclass() {}
 
 // ============================================================================
 // 1. Classes with methods should auto-derive correctly

@@ -22,7 +22,6 @@
 
 import { LazyPipeline } from "./lazy.js";
 import { lazy } from "./lazy-entry.js";
-import { registerInstanceWithMeta } from "@typesugar/macros";
 
 // ============================================================================
 // Functor<LazyPipeline>
@@ -44,14 +43,6 @@ export interface FunctorLazyPipeline {
 export const lazyPipelineFunctor: FunctorLazyPipeline = {
   map: <A, B>(fa: LazyPipeline<A>, f: (a: A) => B): LazyPipeline<B> => fa.map(f),
 };
-registerInstanceWithMeta({
-  typeclassName: "Functor",
-  forType: "LazyPipeline",
-  instanceName: "lazyPipelineFunctor",
-  derived: false,
-  sourceModule: "@typesugar/fusion",
-});
-
 // ============================================================================
 // Filterable<LazyPipeline>
 // ============================================================================
@@ -71,14 +62,6 @@ export const lazyPipelineFilterable: FilterableLazyPipeline = {
   filter: <A>(fa: LazyPipeline<A>, predicate: (a: A) => boolean): LazyPipeline<A> =>
     fa.filter(predicate),
 };
-registerInstanceWithMeta({
-  typeclassName: "Filterable",
-  forType: "LazyPipeline",
-  instanceName: "lazyPipelineFilterable",
-  derived: false,
-  sourceModule: "@typesugar/fusion",
-});
-
 // ============================================================================
 // Foldable<LazyPipeline>
 // ============================================================================
@@ -106,14 +89,6 @@ export const lazyPipelineFoldable: FoldableLazyPipeline = {
     return acc;
   },
 };
-registerInstanceWithMeta({
-  typeclassName: "Foldable",
-  forType: "LazyPipeline",
-  instanceName: "lazyPipelineFoldable",
-  derived: false,
-  sourceModule: "@typesugar/fusion",
-});
-
 // ============================================================================
 // Convenience combinators
 // ============================================================================

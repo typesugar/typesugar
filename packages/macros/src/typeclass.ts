@@ -86,7 +86,11 @@ import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hk
 import { resolveInstance, hasInstanceInScopeByName } from "./instance-resolver.js";
 // Circular by design (typeclass-index seeds from this module's STANDARD_TYPECLASS_DEFS);
 // only referenced inside macro `expand` bodies, so the binding is resolved at call time.
-import { getTypeclassesDeclaringMethod, getTypeclassDef } from "./typeclass-index.js";
+import {
+  getTypeclassesDeclaringMethod,
+  getTypeclassDef,
+  isHktTypeclass as isHktTypeclassDeclared,
+} from "./typeclass-index.js";
 
 // ============================================================================
 // Ambient Derivation Context
@@ -653,6 +657,28 @@ interface TypeclassInfo {
    * If false, only compile-time resolution is used (zero-cost).
    */
   isExported?: boolean;
+  /**
+   * All type parameter names of the interface (the first is `typeParam`).
+   * Used for positional substitution when flattening inherited members.
+   */
+  typeParams?: string[];
+  /**
+   * Named member signatures (member name + raw source text), used by the
+   * op-index to flatten inherited members across `extends` clauses.
+   */
+  memberEntries?: Array<{ name: string; node: ts.TypeElement }>;
+  /**
+   * `extends` heritage references: parent typeclass name + type argument texts.
+   * Resolved by the op-index (declaration-name lookup) to inherit members and
+   * HKT-ness from parent typeclasses.
+   */
+  heritage?: Array<{ name: string; typeArgs: string[] }>;
+  /**
+   * Whether a member signature applies the interface's own type parameter as a
+   * type constructor (`Kind<F, ...>`). Direct members only; the op-index
+   * computes the transitive (heritage-aware) HKT flag from this.
+   */
+  usesKind?: boolean;
 }
 
 interface TypeclassMethod {
@@ -684,32 +710,6 @@ interface InstanceInfo {
    * references an instance from another module.
    */
   sourceModule?: string;
-  /**
-   * Optional metadata for macro-specific use, e.g.
-   * methodNames: override method names (Promise uses "then" instead of "flatMap").
-   */
-  meta?: InstanceMeta;
-}
-
-/**
- * Metadata associated with a typeclass instance for macro use.
- * Allows comprehension macros to access type-specific information
- * without maintaining separate registries.
- */
-interface InstanceMeta {
-  /**
-   * Override method names for this instance.
-   * E.g., Promise uses { bind: "then", map: "then", orElse: "catch" }
-   */
-  methodNames?: {
-    bind?: string;
-    map?: string;
-    orElse?: string;
-  };
-  /**
-   * Arbitrary additional metadata.
-   */
-  [key: string]: unknown;
 }
 
 // ============================================================================
@@ -1565,16 +1565,24 @@ export function buildTypeclassInfoFromInterface(
   const typeParams = iface.typeParameters;
   if (!typeParams || typeParams.length === 0) return undefined;
   const typeParam = typeParams[0].name.text;
+  const typeParamNames = typeParams.map((p) => p.name.text);
 
   // Extract methods from the interface (handles both MethodSignature and PropertySignature).
   const methods: TypeclassMethod[] = [];
   const memberTexts: string[] = [];
+  const memberEntries: Array<{ name: string; node: ts.TypeElement }> = [];
 
   for (const member of iface.members) {
     // Capture raw source text of each member for HKT expansion.
     const sourceFile = member.getSourceFile();
     if (sourceFile) {
-      memberTexts.push(member.getText(sourceFile));
+      const text = member.getText(sourceFile);
+      memberTexts.push(text);
+      if (member.name && ts.isIdentifier(member.name)) {
+        // Keep the AST node — heritage flattening substitutes type params via
+        // a scoped visitor and prints once (no string surgery on code text).
+        memberEntries.push({ name: member.name.text, node: member });
+      }
     }
 
     if (ts.isMethodSignature(member) && member.name) {
@@ -1624,6 +1632,25 @@ export function buildTypeclassInfoFromInterface(
 
   const isExported = iface.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
 
+  // Heritage clauses (`extends Parent<F>`): recorded by name so the op-index can
+  // flatten inherited members and propagate HKT-ness (declaration-derived, PEP-052).
+  const heritage: Array<{ name: string; typeArgs: string[] }> = [];
+  for (const clause of iface.heritageClauses ?? []) {
+    if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
+    for (const t of clause.types) {
+      if (!ts.isIdentifier(t.expression)) continue;
+      heritage.push({
+        name: t.expression.text,
+        typeArgs: (t.typeArguments ?? []).map((a) => a.getText()),
+      });
+    }
+  }
+
+  // HKT detection: the typeclass is higher-kinded iff a member signature applies
+  // the interface's own type parameter as a type constructor — `Kind<F, ...>`.
+  const kindPattern = new RegExp(`\\bKind\\s*<\\s*${escapeRegExp(typeParam)}\\s*[,>]`);
+  const usesKind = memberTexts.some((t) => kindPattern.test(t));
+
   return {
     name: iface.name.text,
     typeParam,
@@ -1633,7 +1660,16 @@ export function buildTypeclassInfoFromInterface(
     fullSignatureText,
     syntax: syntax.size > 0 ? syntax : undefined,
     isExported,
+    typeParams: typeParamNames,
+    memberEntries,
+    heritage: heritage.length > 0 ? heritage : undefined,
+    usesKind,
   };
+}
+
+/** Escape a string for literal use inside a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export const typeclassAttribute = defineAttributeMacro({
@@ -1786,7 +1822,7 @@ export const implAttribute = defineAttributeMacro({
       if (parsed) {
         tcName = parsed.typeclassName;
         typeName = parsed.forType;
-        isHKTInstance = isHKTTypeclass(tcName);
+        isHKTInstance = isHKTTypeclass(ctx.program, tcName);
       } else {
         // Simple type name - typeclass comes from type annotation
         typeName = text;
@@ -1813,7 +1849,7 @@ export const implAttribute = defineAttributeMacro({
         return target;
       }
 
-      isHKTInstance = isHKTTypeclass(tcName);
+      isHKTInstance = isHKTTypeclass(ctx.program, tcName);
     } else {
       ctx.reportError(firstArg, "@instance argument must be a string or identifier");
       return target;
@@ -1854,12 +1890,24 @@ export const implAttribute = defineAttributeMacro({
       // Tier 1 implicit resolution: if typeName isn't a known type function,
       // try to resolve it via TypeChecker and auto-register
       const { base: resolvedBase } = parseTypeConstructor(typeName);
-      if (!hktExpansionRegistry.has(typeName) && !hktExpansionRegistry.has(resolvedBase)) {
-        const resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
+      const expansions = hktExpansionsFor(ctx.program);
+      if (!expansions.has(typeName) && !expansions.has(resolvedBase)) {
+        let resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
         if (resolution) {
           // Auto-register the base type as an HKT expansion
-          registerHKTExpansion(resolution.baseType, resolution.baseType);
-        } else {
+          registerHKTExpansion(ctx.program, resolution.baseType, resolution.baseType);
+        } else if (resolvedBase.length > 1 && resolvedBase.endsWith("F")) {
+          // `*F` convention (replaces the old hardcoded seed table): `OptionF`
+          // names the TypeFunction encoding of `Option`. The encoding interface
+          // itself is not generic, so resolve the stripped base name instead and
+          // register the `*F` spelling as an expansion to it.
+          const strippedBase = resolvedBase.slice(0, -1);
+          resolution = resolveTypeConstructorViaTypeChecker(ctx, strippedBase);
+          if (resolution) {
+            registerHKTExpansion(ctx.program, resolvedBase, resolution.baseType);
+          }
+        }
+        if (!resolution) {
           ctx.diagnostic(TS9305).at(target).withArgs({ type: typeName }).emit();
         }
       }
@@ -1957,59 +2005,37 @@ export const implAttribute = defineAttributeMacro({
 // ============================================================================
 
 /**
- * Set of typeclass names that use Higher-Kinded Types.
- * These require special handling to avoid TypeScript's recursion limits.
+ * HKT type-constructor expansions ("OptionF" → "Option"), keyed PER PROGRAM
+ * (WeakMap — watch/LSP rebuilds invalidate naturally, and one program's
+ * resolutions can never leak into another; same pattern as the op-index).
+ *
+ * Populated by the `@impl` macro's tier-1 TypeChecker auto-registration (and
+ * `registerHKTExpansion` for explicit registrations) — there are no hardcoded
+ * seed entries (PEP-052 Wave 4): the `*F` → base-name convention is resolved
+ * against the program's declarations instead.
  */
-export const hktTypeclassNames = new Set<string>([
-  "Functor",
-  "Apply",
-  "Applicative",
-  "FlatMap",
-  "Monad",
-  "MonadError",
-  "Foldable",
-  "Traverse",
-  "SemigroupK",
-  "MonoidK",
-  "Alternative",
-  "Contravariant",
-  "Invariant",
-  "Bifunctor",
-  "Profunctor",
-]);
+const hktExpansionByProgram = new WeakMap<ts.Program, Map<string, string>>();
 
-/**
- * Registry mapping HKT type constructor names to their concrete expansions.
- * E.g., "OptionF" → "Option", "ArrayF" → "Array"
- */
-export const hktExpansionRegistry = new Map<string, string>([
-  // Standard mappings - users can register more
-  ["Option", "Option"],
-  ["OptionF", "Option"],
-  ["Array", "Array"],
-  ["ArrayF", "Array"],
-  ["Promise", "Promise"],
-  ["PromiseF", "Promise"],
-  ["List", "List"],
-  ["ListF", "List"],
-  ["IO", "IO"],
-  ["IOF", "IO"],
-  ["Id", "Id"],
-  ["IdF", "Id"],
-]);
-
-/**
- * Check if a typeclass uses HKT.
- */
-function isHKTTypeclass(name: string): boolean {
-  return hktTypeclassNames.has(name);
+function hktExpansionsFor(program: ts.Program): Map<string, string> {
+  let m = hktExpansionByProgram.get(program);
+  if (!m) {
+    m = new Map();
+    hktExpansionByProgram.set(program, m);
+  }
+  return m;
 }
 
 /**
- * Register a typeclass as using HKT.
+ * Check if a typeclass uses HKT.
+ *
+ * Declaration-derived (PEP-052 Wave 4): a typeclass is higher-kinded iff its
+ * `@typeclass` interface declaration (or an inherited one) applies its type
+ * parameter as a type constructor — i.e. some member signature references
+ * `Kind<F, ...>` where `F` is the interface's type parameter. Read from the
+ * per-program op-index; no hardcoded name table.
  */
-export function registerHKTTypeclass(name: string): void {
-  hktTypeclassNames.add(name);
+function isHKTTypeclass(program: ts.Program, name: string): boolean {
+  return isHktTypeclassDeclared(program, name);
 }
 
 /**
@@ -2017,15 +2043,24 @@ export function registerHKTTypeclass(name: string): void {
  * @param hktName - The type constructor name (e.g., "OptionF" or "Option")
  * @param concreteName - The concrete type name (e.g., "Option")
  */
-export function registerHKTExpansion(hktName: string, concreteName: string): void {
-  hktExpansionRegistry.set(hktName, concreteName);
+export function registerHKTExpansion(
+  program: ts.Program,
+  hktName: string,
+  concreteName: string
+): void {
+  hktExpansionsFor(program).set(hktName, concreteName);
 }
 
 /**
  * Get the concrete type for an HKT type constructor.
  */
-function getHKTExpansion(hktName: string): string {
-  return hktExpansionRegistry.get(hktName) ?? hktName;
+function getHKTExpansion(program: ts.Program, hktName: string): string {
+  return hktExpansionsFor(program).get(hktName) ?? hktName;
+}
+
+/** Test-only accessor for the per-program HKT expansion lookup. */
+export function getHKTExpansionForTest(program: ts.Program, hktName: string): string {
+  return getHKTExpansion(program, hktName);
 }
 
 /**
@@ -2039,9 +2074,10 @@ function getHKTExpansion(hktName: string): string {
  *   readonly ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>) => Option<B>;
  * }
  *
- * Uses dynamic textual substitution if the typeclass was registered via @typeclass
- * (i.e., has fullSignatureText). Falls back to hardcoded templates for typeclasses
- * like cats that are plain interfaces.
+ * Uses dynamic textual substitution of the typeclass declaration's own signature
+ * text (`fullSignatureText` from the op-index, with inherited members flattened
+ * across `extends` clauses). Returns undefined — no annotation is emitted — when
+ * the typeclass declaration is not visible in the program.
  */
 function generateHKTExpandedType(
   ctx: MacroContext,
@@ -2052,9 +2088,9 @@ function generateHKTExpandedType(
   const { base, fixedArgs } = parseTypeConstructor(hktParam);
 
   // Resolve the expansion: try the full param first, then the base type
-  let expansion = hktExpansionRegistry.has(hktParam)
-    ? getHKTExpansion(hktParam)
-    : getHKTExpansion(base);
+  let expansion = hktExpansionsFor(ctx.program).has(hktParam)
+    ? getHKTExpansion(ctx.program, hktParam)
+    : getHKTExpansion(ctx.program, base);
 
   // For partial application, the expansion substitution needs to include fixed args.
   // e.g., Kind<F, A> → Either<string, A> instead of Either<A>
@@ -2074,12 +2110,6 @@ function generateHKTExpandedType(
       );
     } else {
       signature = expandHKTInSignature(tcInfo.fullSignatureText, tcInfo.typeParam, expansion);
-    }
-  } else {
-    if (fixedArgs.length > 0) {
-      signature = getTypeclassSignatureTemplate(typeclassName, expansion, fixedArgs);
-    } else {
-      signature = getTypeclassSignatureTemplate(typeclassName, expansion);
     }
   }
 
@@ -2145,75 +2175,6 @@ function expandHKTInSignatureWithPartialApp(
   }
 
   return result;
-}
-
-/**
- * Get the concrete type signature template for a typeclass.
- * Returns a string representation of the expanded type.
- *
- * When fixedArgs is provided, generates partially applied types:
- * e.g., Functor with expansion="Either", fixedArgs=["string"]
- * produces `Either<string, A>` instead of `Either<A>`.
- */
-function getTypeclassSignatureTemplate(
-  typeclassName: string,
-  concreteType: string,
-  fixedArgs?: string[]
-): string | undefined {
-  // Build the type application helper: T(A) → "ConcreteType<...fixedArgs, A>"
-  const t = (inner: string): string => {
-    if (fixedArgs && fixedArgs.length > 0) {
-      return `${concreteType}<${fixedArgs.join(", ")}, ${inner}>`;
-    }
-    return `${concreteType}<${inner}>`;
-  };
-
-  const templates: Record<string, string> = {
-    Functor: `{ readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")} }`,
-
-    Applicative: `{
-      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
-      readonly pure: <A>(a: A) => ${t("A")};
-      readonly ap: <A, B>(fab: ${t("(a: A) => B")}, fa: ${t("A")}) => ${t("B")}
-    }`,
-
-    Monad: `{
-      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
-      readonly flatMap: <A, B>(fa: ${t("A")}, f: (a: A) => ${t("B")}) => ${t("B")};
-      readonly pure: <A>(a: A) => ${t("A")};
-      readonly ap: <A, B>(fab: ${t("(a: A) => B")}, fa: ${t("A")}) => ${t("B")}
-    }`,
-
-    Foldable: `{
-      readonly foldLeft: <A, B>(fa: ${t("A")}, b: B, f: (b: B, a: A) => B) => B;
-      readonly foldRight: <A, B>(fa: ${t("A")}, b: B, f: (a: A, b: B) => B) => B
-    }`,
-
-    Traverse: `{
-      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
-      readonly foldLeft: <A, B>(fa: ${t("A")}, b: B, f: (b: B, a: A) => B) => B;
-      readonly foldRight: <A, B>(fa: ${t("A")}, b: B, f: (a: A, b: B) => B) => B;
-      readonly traverse: <G>(G: any) => <A, B>(fa: ${t("A")}, f: (a: A) => any) => any
-    }`,
-
-    SemigroupK: `{ readonly combineK: <A>(x: ${t("A")}, y: ${t("A")}) => ${t("A")} }`,
-
-    MonoidK: `{
-      readonly combineK: <A>(x: ${t("A")}, y: ${t("A")}) => ${t("A")};
-      readonly emptyK: <A>() => ${t("A")}
-    }`,
-
-    Alternative: `{
-      readonly map: <A, B>(fa: ${t("A")}, f: (a: A) => B) => ${t("B")};
-      readonly flatMap: <A, B>(fa: ${t("A")}, f: (a: A) => ${t("B")}) => ${t("B")};
-      readonly pure: <A>(a: A) => ${t("A")};
-      readonly ap: <A, B>(fab: ${t("(a: A) => B")}, fa: ${t("A")}) => ${t("B")};
-      readonly combineK: <A>(x: ${t("A")}, y: ${t("A")}) => ${t("A")};
-      readonly emptyK: <A>() => ${t("A")}
-    }`,
-  };
-
-  return templates[typeclassName];
 }
 
 // ============================================================================
@@ -2760,15 +2721,6 @@ export const implMacro = defineExpressionMacro({
 
     const instanceName = varDecl.name.text;
 
-    // registerInstanceWithMeta is idempotent (replaces in place), so no dedup guard
-    // is needed.
-    registerInstanceWithMeta({
-      typeclassName,
-      forType,
-      instanceName,
-      derived: false,
-    });
-
     // Notify coverage system
     notifyPrimitiveRegistered(forType, typeclassName);
 
@@ -3273,6 +3225,6 @@ export function tryExpandGenericDerive(
 // Exports
 // ============================================================================
 
-export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, SyntaxEntry };
+export type { TypeclassInfo, TypeclassMethod, InstanceInfo, SyntaxEntry };
 
 export { instanceVarName, companionPath, getTypeclassesForMethod };

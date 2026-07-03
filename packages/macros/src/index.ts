@@ -91,7 +91,6 @@ export {
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
-  type InstanceMeta,
   type SyntaxEntry,
 } from "./typeclass.js";
 export {
@@ -111,13 +110,10 @@ export {
   SpecializationCache,
   createHoistedSpecialization,
   getResultAlgebra,
-  hasResultAlgebra,
-  getAllResultAlgebras,
   registerResultAlgebra,
   optionResultAlgebra,
   eitherResultAlgebra,
   promiseResultAlgebra,
-  unsafeResultAlgebra,
   type ResultAlgebra,
   type DictMethodMap,
   type DictMethod,
@@ -257,11 +253,13 @@ export {
   type ResolutionResult,
   type ResolutionSource,
 } from "./instance-resolver.js";
+export { getDoInstanceModule } from "./do-instance-index.js";
 export {
   getOpMapForTypeclass,
   getOperatorCandidates,
   getMethodCandidates,
   getTypeclassesDeclaringMethod,
+  isHktTypeclass,
   type TypeclassOpInfo,
 } from "./typeclass-index.js";
 
@@ -374,13 +372,11 @@ export {
 // HKT enables typeclasses parameterized by type constructors (F<_>).
 // Use @instance("Monad<Option>") for HKT typeclass instances.
 
-// From typeclass.ts - canonical HKT registration
-export {
-  registerHKTExpansion,
-  registerHKTTypeclass,
-  hktExpansionRegistry,
-  hktTypeclassNames,
-} from "./typeclass.js";
+// From typeclass.ts - canonical HKT registration.
+// Whether a typeclass is HKT is declaration-derived (PEP-052 Wave 4): see
+// `isHktTypeclass` in typeclass-index.ts. The old hardcoded name table
+// (hktTypeclassNames/registerHKTTypeclass) is gone.
+export { registerHKTExpansion } from "./typeclass.js";
 
 // From hkt.ts - type-level utilities only
 export {

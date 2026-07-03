@@ -5,9 +5,10 @@ Phase E concrete-type method-sugar gating landed; Wave 2 `@syntax-labels` gating
 (PR #43); Wave 3 scope-based do-notation instance resolution landed — the last
 process-global instance registry (`doNotationRegistry`) is deleted and the
 "No process-global instance/type-rewrite registry" acceptance criterion is met;
-remaining: Phase D (moved to [PEP-053](PEP-053-always-on-specialization.md)),
-named-trigger de-magicking + `Show` tagging + operator/method-marker text fallback
-(see "Implementation status & deferred work")
+remaining: Phase D (moved to [PEP-053](PEP-053-always-on-specialization.md)) and
+planned Waves 5-10 (`Show` tagging, marker text fallback, intrinsics-from-source,
+JSDoc dispatcher unification, macro-package discovery + algebra relocation,
+optional checker-derived native detection — see "Planned waves")
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")
@@ -602,6 +603,116 @@ welcome.ts`, `docs/examples/core/derive.ts` — claimed `===` rewrites to struct
     in-memory-host fallbacks protect the `@typesugar/playground` package's
     exported browser `transform()` and virtual-filename tests, not the
     user-facing docs playground.
+
+- **Wave 4 — de-magicking + cruft. DONE (2026-07-03).** The remaining
+  hardcoded/global surfaces, each either deleted or explicitly marked
+  deliberate:
+  - **Deleted (verified caller-free):** the `InstanceMeta` type and every
+    no-op 1-arg `registerInstanceWithMeta` call (~60 sites — the function only
+    acts when an instance value is passed); the legacy transformer's import
+    pre-scan (`ensureImportedRegistrations` + friends), which existed solely
+    to make those no-op calls; the dead `knownTypeclasses` →
+    `importedTypeclasses` → `isTypeclassInScope` scope chain (zero production
+    callers); the test-only ResultAlgebra API; `register-instances.ts` (its
+    registrations were no-ops since Wave 3, and the Range instances are
+    scanner-visible through their type annotations — deliberately NOT `@impl`
+    tags, which are non-neutral under std's plugin build).
+  - **HKT knowledge is declaration-derived:** `hktTypeclassNames`,
+    the `hktExpansionRegistry` seeds, and `getTypeclassSignatureTemplate` are
+    deleted. fp's typeclass interfaces carry `@typeclass` tags; `isHKTTypeclass`
+    now asks the op-index whether the interface uses its type parameter as
+    `Kind<F,…>` — including through `extends` chains (the op-index flattens
+    heritage with positional type-param substitution and diamond dedup, which
+    is what obsoletes the hand-written signature templates: fp's Monad is an
+    extends-only interface). The `OptionF→Option` seeds became a strip-the-F
+    checker-resolution rule in the `@impl` tier-1 auto-register. Bonus
+    correctness: std's `FlatMap` and effect's interfaces are non-HKT encodings
+    the old name-set misclassified.
+  - **TS9225 hint is provider-declared:** instances carry
+    `@do-instance-module <specifier>` next to `@impl`/`@do-methods`; a cached
+    program-wide index (op-index precedent) serves the hint. The static
+    fallback table survives DEMOTED and documented: full derivation is
+    impossible in principle when the brand's TYPE comes from a different
+    package than its instances (`Effect` from `effect`, the instances from
+    `@typesugar/effect`) and nothing pulls the provider's `.d.ts` into the
+    program.
+  - **Explicitly retained as deliberate (documented in-code):**
+    `resultAlgebraRegistry`'s Option/Either/Promise seeds (algebras are
+    AST-building rewrite functions, not metadata; fp has no macro entry to
+    host relocation; `registerResultAlgebra` is the public extension point);
+    `primitiveIntrinsicRegistry` (live and load-bearing for derived-instance
+    inlining to native operators — prior scoping wrongly called it dead;
+    candidate for PEP-053-style source extraction later); the two
+    intentionally-divergent `JSDOC_MACRO_TAGS` maps (each pipeline's
+    dispatcher special-cases different tags; unifying the maps requires
+    unifying the dispatchers); `BUILTIN_METHOD_RECEIVER_NAMES` (guards JS
+    natives, not typesugar packages); the macro-loader's
+    `KNOWN_MACRO_PACKAGES` (true third-party macro-package discovery needs a
+    `package.json` field design — its own PEP).
+
+### Planned waves (drafted 2026-07-04, after Wave 4's review)
+
+Wave 4 retained five surfaces with in-code justifications. Dean asked for a
+wave addressing each; here is the plan, ordered by dependency. Waves 5-6 were
+already on the remaining list; 7-10 come from the retained items.
+
+- **Wave 5 — `Show` tagging.** The deliberately-deferred pass from Phase E:
+  add the `@typeclass` tag to `Show` (`packages/fp/src/typeclasses/show.ts`)
+  so `.show()` method sugar becomes reachable through the standard gates.
+  Needs export-shape verification (the tag activates the `@typeclass`
+  attribute macro's codegen when the declaring file is transformed) and a
+  `@syntax-methods Show` marker. Small.
+
+- **Wave 6 — operator/method marker text fallback.** Parity with what labels
+  (Wave 2) and do-instances (Wave 3) already have: a resolution-free fallback
+  for `@syntax-operators`/`@syntax-methods` markers so operator activation
+  works in hosts that cannot resolve modules (the browser
+  `@typesugar/playground.transform()` surface). The mechanism exists
+  (`syntaxModule`-style text matching keyed by specifier); operators need a
+  marker-module → typeclass table analog. Small.
+
+- **Wave 7 — intrinsic bodies from source.** Replace
+  `primitiveIntrinsicRegistry`'s 16 hand-written source strings
+  (`eqNumber` → `"a === b"`) with bodies extracted from std's actual
+  instance declarations using PEP-053's source-based instance-extraction
+  machinery (`registerInstanceMethodsFromAST` precedent). Gate: byte-parity
+  on `derive-inline.test.ts`'s inlining output ("recursively inlines
+  eqNumber.equals to ===") — the same neuter-then-delete discipline as
+  Wave 3. This also retires a CLAUDE.md string-codegen exception. Medium.
+
+- **Wave 8 — JSDoc dispatcher unification.** The two `JSDOC_MACRO_TAGS` maps
+  can only merge when their dispatchers do. Scope narrowly to the JSDoc
+  dispatch path (not the whole legacy-transformer absorption): teach
+  transformer-core's dispatcher the legacy visitor's `derive`/`adt`
+  special-cases (they bypass the attribute-macro registry by design — the
+  derive attribute was deleted in PEP-032), then port the legacy transformer
+  to consume the shared dispatcher, then delete its private map. Gate: the
+  jsdoc-macros + derive suites on both pipelines. Medium; a stepping stone
+  for the larger absorption.
+
+- **Wave 9 — macro-package discovery via `package.json` (needs a PEP first).**
+  Replace the macro-loader's `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER`
+  lists and the `@typesugar/*`-prefix speculative loading with a declared
+  manifest field (e.g. `"typesugar": { "macros": "./macros" }`), making
+  third-party macro packages first-class. This changes what code the
+  compiler executes at build time, so it needs its own PEP (discovery
+  semantics, workspace-vs-registry resolution, security posture) — the wave
+  here is: draft that PEP, land the field + loader support behind the
+  existing lists, then delete the lists once std/fp/effect/contracts declare
+  the field. **Unblocks the ResultAlgebra relocation:** once fp can declare
+  a macro entry, the Option/Either algebra seeds move from
+  `@typesugar/macros` into fp (Promise's into std/macros), and the seeds
+  comment in `specialize.ts` comes out. Large.
+
+- **Wave 10 (optional) — checker-derived native detection.** Even
+  `BUILTIN_METHOD_RECEIVER_NAMES` is derivable in principle: rather than a
+  name list, ask whether the receiver type's symbol declarations live in a
+  default-lib file (`program.isSourceFileDefaultLibrary`). Cached per
+  program, this makes the "never hijack JS natives" guard follow the
+  language itself (new globals, unusual lib configurations) instead of a
+  snapshot. Low priority — the list is correct today and changes at TC39
+  speed — but it would leave the transformer with zero hardcoded type-name
+  lists of any kind. Small-medium.
 
 ### Why deleting the registry is gated on the HKT/method-sugar work
 

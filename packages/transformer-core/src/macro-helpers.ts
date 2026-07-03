@@ -29,6 +29,14 @@ import { safeGetNodeText, isPrimitiveType, type VisitFn } from "./transformer-ut
 // JSDoc macro tags
 // ---------------------------------------------------------------------------
 
+// NOTE: this map intentionally DIVERGES from the legacy transformer's private
+// copy (transformer/src/index.ts JSDOC_MACRO_TAGS): each pipeline's dispatcher
+// special-cases different tags — the legacy visitor handles `derive`/`adt`
+// internally (this dispatcher would mis-report them as unknown attribute
+// macros), while this pipeline dispatches `operators`/`operator` through the
+// registry (the legacy one does not). Unifying the maps requires unifying the
+// dispatchers — tracked as part of the transformer-core absorption work, not
+// a drive-by.
 export const JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
   ["typeclass", "typeclass"],
   ["impl", "impl"],

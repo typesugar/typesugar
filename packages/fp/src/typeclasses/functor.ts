@@ -24,6 +24,8 @@ import type { Kind } from "../hkt.js";
  *
  * Uses `Kind<F, A>` which resolves to the concrete type at compile time.
  * Combined with `specialize`, dictionary dispatch is eliminated entirely.
+ *
+ * @typeclass
  */
 export interface Functor<F> {
   readonly map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>;
@@ -82,6 +84,8 @@ export function flap<F>(F: Functor<F>): <A, B>(a: A, fab: Kind<F, (a: A) => B>) 
 /**
  * Contravariant Functor typeclass
  * For types that can be "pre-composed" with a function
+ *
+ * @typeclass
  */
 export interface Contravariant<F> {
   readonly contramap: <A, B>(fa: Kind<F, A>, f: (b: B) => A) => Kind<F, B>;
@@ -93,6 +97,8 @@ export interface Contravariant<F> {
 
 /**
  * Invariant Functor - both covariant and contravariant
+ *
+ * @typeclass
  */
 export interface Invariant<F> {
   readonly imap: <A, B>(fa: Kind<F, A>, f: (a: A) => B, g: (b: B) => A) => Kind<F, B>;

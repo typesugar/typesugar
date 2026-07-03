@@ -16,11 +16,8 @@ import {
   SpecializationCache,
   registerResultAlgebra,
   getResultAlgebra,
-  hasResultAlgebra,
-  getAllResultAlgebras,
   optionResultAlgebra,
   eitherResultAlgebra,
-  unsafeResultAlgebra,
   promiseResultAlgebra,
   registerInstanceMethodsFromAST,
   getInstanceMethods,
@@ -161,11 +158,6 @@ describe("Result algebras", () => {
       expect(eitherResultAlgebra.preservesError).toBe(true);
     });
 
-    it("unsafeResultAlgebra targets raw type", () => {
-      expect(unsafeResultAlgebra.name).toBe("Unsafe");
-      expect(unsafeResultAlgebra.preservesError).toBe(false);
-    });
-
     it("promiseResultAlgebra targets Promise", () => {
       expect(promiseResultAlgebra.name).toBe("Promise");
       expect(promiseResultAlgebra.targetTypes).toContain("Promise");
@@ -181,24 +173,6 @@ describe("Result algebras", () => {
       expect(getResultAlgebra("Promise")).toBeDefined();
     });
 
-    it("hasResultAlgebra returns true for registered types", () => {
-      expect(hasResultAlgebra("Option")).toBe(true);
-      expect(hasResultAlgebra("Either")).toBe(true);
-    });
-
-    it("hasResultAlgebra returns false for unregistered types", () => {
-      expect(hasResultAlgebra("UnknownType")).toBe(false);
-    });
-
-    it("getAllResultAlgebras returns unique algebras", () => {
-      const algebras = getAllResultAlgebras();
-      const names = algebras.map((a) => a.name);
-      // No duplicates
-      expect(new Set(names).size).toBe(names.length);
-      expect(names).toContain("Option");
-      expect(names).toContain("Either");
-    });
-
     it("registerResultAlgebra adds custom algebra", () => {
       registerResultAlgebra({
         name: "TestAlgebra",
@@ -208,7 +182,6 @@ describe("Result algebras", () => {
         preservesError: true,
       });
 
-      expect(hasResultAlgebra("TestType")).toBe(true);
       const algebra = getResultAlgebra("TestType");
       expect(algebra!.name).toBe("TestAlgebra");
     });

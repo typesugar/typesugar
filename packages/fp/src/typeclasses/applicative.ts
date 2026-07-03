@@ -20,6 +20,8 @@ import type { Kind } from "../hkt.js";
 
 /**
  * Apply typeclass - extends Functor with application
+ *
+ * @typeclass
  */
 export interface Apply<F> extends Functor<F> {
   readonly ap: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>) => Kind<F, B>;
@@ -31,6 +33,8 @@ export interface Apply<F> extends Functor<F> {
 
 /**
  * Applicative typeclass - extends Apply with pure
+ *
+ * @typeclass
  */
 export interface Applicative<F> extends Apply<F> {
   readonly pure: <A>(a: A) => Kind<F, A>;

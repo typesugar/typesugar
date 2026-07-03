@@ -733,7 +733,7 @@ typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, stri
 //   - `a < b`   on custom types → `ordInstance.lessThan(a, b)`
 //   - `a + b`   on custom types → `semigroupInstance.combine(a, b)` or `numericInstance.add(a, b)`
 //
-// The `registerStdInstances()` macro (or importing @typesugar/std/macros) registers:
+// Std instances are resolved from scope (PEP-052) — importing @typesugar/std brings:
 // 1. Typeclass definitions with their @op syntax mappings (Eq→"===", Ord→"<", etc.)
 // 2. Primitive instances (eqNumber, ordNumber, semigroupNumber, etc.)
 //
@@ -1000,7 +1000,7 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 //    - `Eq<A>.equals → ===`, `Ord<A>.lessThan → <`, `Numeric<A>.add → +`
 //
 // 2. **Instance Registration** (Section 14)
-//    - registerStdInstances() macro registers all std instances
+//    - std instances are resolved from scope (PEP-052), no registration
 //    - Enables summon<Eq<number>>(), findInstance("Eq", "number"), etc.
 //
 // 3. **= implicit() Pattern** (Section 15)

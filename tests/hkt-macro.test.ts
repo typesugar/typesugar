@@ -376,6 +376,89 @@ const eitherStringMonad = {
     expect(result.code).toContain("eitherStringMonad");
   });
 
+  it("expands Functor<Option> to a concrete structural type from the Kind-using declaration (PEP-052 Wave 4)", () => {
+    const code = `
+type Kind<F, A> = any;
+
+/** @typeclass */
+interface Functor<F> {
+  readonly map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>;
+}
+
+type Option<A> = A | null;
+
+/** @impl Functor<Option> */
+const optionFunctor = {
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => (fa !== null ? f(fa) : null),
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-hkt-expand-functor.ts" });
+
+    expect(result.changed).toBe(true);
+    // The @impl annotation must be the declaration-derived expansion:
+    // Kind<F, A> → Option<A> substituted from Functor's own signature text —
+    // no hardcoded template.
+    const flat = result.code.replace(/\s+/g, " ");
+    expect(flat).toMatch(/optionFunctor:\s*\{/);
+    expect(flat).toContain("Option<A>");
+    expect(flat).toContain("Option<B>");
+  });
+
+  it("expands Monad<Option> with inherited members flattened from extends clauses (PEP-052 Wave 4)", () => {
+    const code = `
+type Kind<F, A> = any;
+
+/** @typeclass */
+interface Functor<F> {
+  readonly map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) => Kind<F, B>;
+}
+
+/** @typeclass */
+interface Apply<F> extends Functor<F> {
+  readonly ap: <A, B>(fab: Kind<F, (a: A) => B>, fa: Kind<F, A>) => Kind<F, B>;
+}
+
+/** @typeclass */
+interface Applicative<F> extends Apply<F> {
+  readonly pure: <A>(a: A) => Kind<F, A>;
+}
+
+/** @typeclass */
+interface FlatMap<F> extends Apply<F> {
+  readonly flatMap: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
+}
+
+/** @typeclass */
+interface Monad<F> extends FlatMap<F>, Applicative<F> {}
+
+type Option<A> = A | null;
+
+/** @impl Monad<Option> */
+const optionMonad = {
+  map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => (fa !== null ? f(fa) : null),
+  flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
+    fa !== null ? f(fa) : null,
+  pure: <A>(a: A): Option<A> => a,
+  ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>): Option<B> =>
+    fab !== null && fa !== null ? fab(fa) : null,
+};
+    `.trim();
+
+    const result = transformCode(code, { fileName: "impl-hkt-expand-monad.ts" });
+
+    expect(result.changed).toBe(true);
+    // Monad's own interface body is empty — the expansion must include the
+    // members inherited from FlatMap/Applicative/Apply/Functor, expanded to
+    // Option (heritage flattening in the op-index).
+    const flat = result.code.replace(/\s+/g, " ");
+    expect(flat).toMatch(/optionMonad:\s*\{/);
+    expect(flat).toContain("flatMap");
+    expect(flat).toContain("pure");
+    expect(flat).toContain("Option<A>");
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+
   it("still works with explicit OptionF (backward compatibility, non-exported)", () => {
     const code = `
 import type { _ } from "@typesugar/type-system";

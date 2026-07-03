@@ -18,7 +18,6 @@
  */
 
 import type { Numeric, Ord } from "@typesugar/std";
-import { registerInstanceWithMeta } from "@typesugar/macros";
 
 // ============================================================================
 // Type Definition
@@ -292,14 +291,6 @@ export const numericInterval: Numeric<Interval> = {
   zero: () => point(0),
   one: () => point(1),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Numeric",
-  forType: "Interval",
-  instanceName: "numericInterval",
-  derived: false,
-});
-
 /**
  * Ord instance for intervals (by lower bound, then upper bound).
  */
@@ -329,14 +320,6 @@ export const ordInterval: Ord<Interval> = {
     return a.hi >= b.hi;
   },
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "Interval",
-  instanceName: "ordInterval",
-  derived: false,
-});
-
 // ============================================================================
 // Utility Functions
 // ============================================================================

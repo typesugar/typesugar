@@ -286,6 +286,7 @@ function getEffectModule(): any {
  *
  * @impl FlatMap<Effect>
  * @do-methods bind=flatMap map=map orElse=catchAll style=static receiver=Effect
+ * @do-instance-module @typesugar/effect/syntax/do
  */
 export const flatMapEffect = {
   map: <A, B>(fa: unknown, f: (a: A) => B): unknown => {
@@ -306,6 +307,7 @@ export const flatMapEffect = {
  *
  * @impl ParCombine<Effect>
  * @do-methods map=map all=all style=static receiver=Effect
+ * @do-instance-module @typesugar/effect/syntax/do
  */
 export const parCombineEffect = {
   all: (effects: readonly unknown[]): unknown => {

@@ -28,8 +28,6 @@ import {
   type TypeMacro,
 } from "@typesugar/core";
 
-import { registerInstanceWithMeta } from "@typesugar/macros";
-
 import {
   tryExpandTaggedTemplate,
   tryExpandTypeMacro,
@@ -949,14 +947,7 @@ describe("tryTransformHKTDeclaration", () => {
 // ---------------------------------------------------------------------------
 
 describe("tryRewriteTypeclassOperator", () => {
-  function registerNumericForPoint(): void {
-    registerInstanceWithMeta({
-      typeclassName: "Numeric",
-      forType: "Point",
-      instanceName: "numericPoint",
-      derived: false,
-    });
-  }
+  function registerNumericForPoint(): void {}
 
   it("rewrites a + b to numericPoint.add(a, b) when the typeclass + instance are in scope", () => {
     // PEP-052: an in-file `@typeclass` (with `@op +`) activates operator syntax, and

@@ -13,7 +13,6 @@
  */
 
 import type { Numeric, Fractional, Floating } from "@typesugar/std";
-import { registerInstanceWithMeta } from "@typesugar/macros";
 
 /**
  * Complex number with real and imaginary parts.
@@ -179,14 +178,6 @@ export const numericComplex: Numeric<Complex> = {
 
   one: () => ({ re: 1, im: 0 }),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Numeric",
-  forType: "Complex",
-  instanceName: "numericComplex",
-  derived: false,
-});
-
 /**
  * Fractional instance for Complex numbers.
  */
@@ -369,21 +360,6 @@ export const floatingComplex: Floating<Complex> = {
    */
   tanh: (z) => fractionalComplex.div(floatingComplex.sinh(z), floatingComplex.cosh(z)),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Fractional",
-  forType: "Complex",
-  instanceName: "fractionalComplex",
-  derived: false,
-});
-
-registerInstanceWithMeta({
-  typeclassName: "Floating",
-  forType: "Complex",
-  instanceName: "floatingComplex",
-  derived: false,
-});
-
 /**
  * Imaginary unit constant: i = 0 + 1i
  */

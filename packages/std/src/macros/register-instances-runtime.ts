@@ -1,16 +1,13 @@
 /**
- * Runtime stub for `registerStdInstances()` (PEP-050 Case-1).
+ * Runtime stub for `registerStdInstances()`.
  *
- * This entry is **runtime-only** and does NOT import `typescript`. The actual
- * instance registration is performed at compile time by the macro in
- * `register-instances.ts` (loaded by the transformer via the `./macros` entry);
- * at runtime this is a no-op.
- */
-
-/**
- * Runtime stub for registerStdInstances.
- * This function does nothing at runtime - all work is done at compile time.
+ * @deprecated No-op kept for API compatibility. Instance resolution is
+ * scope-based (PEP-052): std's instances are discovered from their type
+ * annotations / `@impl` tags by the instance scanner — there is nothing to
+ * register, at compile time or runtime. The compile-time registration macro
+ * this used to pair with was deleted in Wave 4 (its registrations had been
+ * no-ops since the registry deletion in Wave 3).
  */
 export function registerStdInstances(): void {
-  // Placeholder - processed by transformer at compile time
+  // Deliberately empty.
 }

@@ -62,13 +62,10 @@ import {
 import type { MacroContext } from "@typesugar/core";
 
 // Import HKT registries from typeclass.ts (single source of truth)
-// Re-export for backward compatibility
-export {
-  hktTypeclassNames,
-  hktExpansionRegistry,
-  registerHKTExpansion,
-  registerHKTTypeclass,
-} from "./typeclass.js";
+// Re-export for backward compatibility.
+// (hktTypeclassNames/registerHKTTypeclass were deleted in PEP-052 Wave 4 —
+// HKT-ness is now derived from @typeclass declarations via the op-index.)
+export { registerHKTExpansion } from "./typeclass.js";
 
 // ============================================================================
 // Type Constructor Resolution via TypeChecker (Tier 1 Implicit Resolution)
@@ -120,7 +117,35 @@ export function parseTypeConstructor(typeStr: string): { base: string; fixedArgs
  *
  * Returns undefined if the type can't be resolved or isn't generic.
  */
+const typeCtorResolutionCache = new WeakMap<
+  ts.Program,
+  Map<string, TypeConstructorResolution | null>
+>();
+
+/**
+ * Memoized per (program, name): the full-program declaration walk in the
+ * uncached body is the expensive path, and it became hotter when the
+ * hardcoded HKT expansion seeds were deleted (PEP-052 Wave 4 review fix).
+ * Misses are cached too; WeakMap keying invalidates across watch/LSP
+ * rebuilds.
+ */
 export function resolveTypeConstructorViaTypeChecker(
+  ctx: MacroContext,
+  typeNameStr: string
+): TypeConstructorResolution | undefined {
+  let cache = typeCtorResolutionCache.get(ctx.program);
+  if (!cache) {
+    cache = new Map();
+    typeCtorResolutionCache.set(ctx.program, cache);
+  }
+  const cached = cache.get(typeNameStr);
+  if (cached !== undefined) return cached ?? undefined;
+  const result = resolveTypeConstructorViaTypeCheckerUncached(ctx, typeNameStr);
+  cache.set(typeNameStr, result ?? null);
+  return result;
+}
+
+function resolveTypeConstructorViaTypeCheckerUncached(
   ctx: MacroContext,
   typeNameStr: string
 ): TypeConstructorResolution | undefined {
@@ -132,15 +157,6 @@ export function resolveTypeConstructorViaTypeChecker(
   // Find the symbol for the base type in the current source file's scope
   const sourceFile = ctx.sourceFile;
   let symbol: ts.Symbol | undefined;
-
-  // Try to resolve via a temporary type reference parse
-  try {
-    const tempSource = `type __Probe = ${base}<${Array(10).fill("unknown").join(",")}>;`;
-    const tempFile = ts.createSourceFile("__probe.ts", tempSource, ts.ScriptTarget.Latest, true);
-    // This approach is fragile; instead, walk the source file's symbols
-  } catch {
-    // Fall through to symbol-based approach
-  }
 
   // Look up the type name in the current program's type checker
   // Walk the source file to find a matching type declaration

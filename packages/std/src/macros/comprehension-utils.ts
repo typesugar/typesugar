@@ -507,15 +507,18 @@ export function resolveStdDoFallback(
 }
 
 /**
- * Modules known to provide do-notation instances for specific brands — used
- * only in the TS9225 help text so the "no instance in scope" diagnostic can
- * name the exact import to add. Every entry must point at a module that
- * actually exports a scanner-visible (`@impl`-tagged) instance for the brand
- * — a hint that recommends an import which doesn't fix the error is worse
- * than the generic message. (Either is served by fp's scanner-visible
- * `flatMapEitherInstance` — `@impl FlatMap<EitherF>` — added after the Wave 3
- * review; the `flatMapEither<E>()` factory alone was invisible to the
- * scanner.)
+ * FALLBACK table for the TS9225 help text — consulted only when the
+ * provider-declared `@do-instance-module` index (PEP-052 Wave 4,
+ * `getDoInstanceModule`) finds nothing. The index is authoritative when the
+ * provider's declaration files are reachable in the program; this table
+ * covers the case it cannot, in principle: the brand's TYPE may come from a
+ * different package than its instances (`Effect` from `effect`,
+ * `flatMapEffect` from `@typesugar/effect`), so a file can reference the
+ * brand while nothing pulls the provider's `.d.ts` into the program.
+ * Every entry must point at a module that actually exports a
+ * scanner-visible (`@impl`-tagged and `@do-instance-module`-tagged) instance
+ * for the brand — a hint that recommends an import which doesn't fix the
+ * error is worse than the generic message.
  */
 export const KNOWN_DO_INSTANCE_MODULES: Record<string, string> = {
   Effect: "@typesugar/effect/syntax/do",

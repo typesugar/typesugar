@@ -79,7 +79,6 @@ export {
   isInOptedOutScope,
   ResolutionScopeTracker,
   type FileResolutionScope,
-  type ScopedTypeclass,
 } from "./resolution-scope.js";
 
 // Prelude System
