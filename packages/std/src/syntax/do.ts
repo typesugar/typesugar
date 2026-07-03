@@ -17,3 +17,23 @@
  * @syntax-labels parYield
  */
 export const __typesugar_syntax_labels_do = true;
+
+// PEP-052 Wave 3: this marker doubles as the INSTANCE PROVIDER for the std
+// builtins. Do-notation instance lookup is scope-based (an instance must be
+// exported by some module the file imports); since every do-notation file
+// already imports this module for the labels, re-exporting the builtin
+// instances here means the common case needs zero additional imports. The
+// re-exported modules are the runtime-only twins — no `typescript` in the
+// user's bundle.
+export {
+  flatMapArray,
+  flatMapPromise,
+  flatMapIterable,
+  flatMapAsyncIterable,
+} from "../typeclasses/flatmap-instances.js";
+export {
+  parCombinePromise,
+  parCombineArray,
+  parCombineIterable,
+  parCombineAsyncIterable,
+} from "../typeclasses/par-combine-instances.js";

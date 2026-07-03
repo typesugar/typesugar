@@ -83,7 +83,12 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import { hasParCombineInstance, getParCombineBuilderFromRegistry } from "@typesugar/macros";
+import {
+  hasParCombineInstance,
+  getParCombineBuilderFromRegistry,
+  resolveDoNotationInstance,
+  type DoNotationMeta,
+} from "@typesugar/macros";
 import {
   type BindStep,
   type MapStep,
@@ -181,14 +186,27 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Check if ParCombine instance exists in unified registry
-    if (!hasParCombineInstance(typeConstructorName, ctx.sourceFile.fileName)) {
+    // PEP-052 Wave 3: scope-based resolution first — an instance declared in
+    // this file or exported by any imported module (the std builtins come in
+    // through the `@typesugar/std/syntax/do` marker). The global registry
+    // remains as a fallback until Phase 4 deletes it.
+    const scoped = resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName);
+    if (!scoped && !hasParCombineInstance(typeConstructorName, ctx.sourceFile.fileName)) {
       // Fall back to applicative chain if no ParCombine instance
       const result = buildApplicativeChain(ctx, steps, returnExpr);
       return factory.createExpressionStatement(result);
     }
 
-    // Use ParCombine builder from unified registry if available
+    // Emission strategy, in precedence order:
+    // 1. `@do-methods all=… receiver=…` metadata on the scoped instance — the
+    //    generic static-join emission (`Receiver.all([...])` + style-aware
+    //    continuation). Covers Promise and Effect without per-brand builders.
+    // 2. A registered AST builder (Array/Iterable cartesian products etc.).
+    // 3. The generic applicative chain.
+    if (scoped?.doMeta?.all && scoped.doMeta.receiver) {
+      const result = buildStaticAllParCombine(ctx, steps, returnExpr, scoped.doMeta);
+      return factory.createExpressionStatement(result);
+    }
     const parCombineBuilder = getParCombineBuilderFromRegistry(typeConstructorName);
     const result = parCombineBuilder
       ? parCombineBuilder(ctx, steps, returnExpr)
@@ -347,6 +365,97 @@ export function validateIndependence(
  *
  * Map steps are inlined as IIFEs in the yield expression.
  */
+/**
+ * Metadata-driven parallel join (PEP-052 Wave 3): emit
+ * `Receiver.<all>([e1, e2, ...])` followed by a style-aware mapping
+ * continuation, from a scoped instance's `@do-methods all=… receiver=…`
+ * metadata. This is the generic replacement for per-brand AST builders:
+ *
+ * - Promise (`map=then all=all receiver=Promise`, method style):
+ *   `Promise.all([a, b]).then(([a, b]) => yield)`
+ * - Effect (`map=map all=all receiver=Effect`, static style):
+ *   `Effect.map(Effect.all([a, b]), ([a, b]) => yield)`
+ *
+ * Mirrors the shapes of the hand-written Promise builder exactly (single
+ * bind skips the join; pure map steps wrap the yield in IIFEs).
+ */
+function buildStaticAllParCombine(
+  ctx: MacroContext,
+  steps: (BindStep | MapStep)[],
+  returnExpr: ts.Expression,
+  doMeta: DoNotationMeta
+): ts.Expression {
+  const { factory } = ctx;
+  const bindSteps = steps.filter((s): s is BindStep => s.kind === "bind");
+  const mapSteps = steps.filter((s): s is MapStep => s.kind === "map");
+
+  let yieldExpr = returnExpr;
+  for (let i = mapSteps.length - 1; i >= 0; i--) {
+    const step = mapSteps[i];
+    yieldExpr = createIIFE(factory, step.name, yieldExpr, step.expression);
+  }
+
+  if (bindSteps.length === 0) return yieldExpr;
+
+  const continueWith = (source: ts.Expression, param: ts.ParameterDeclaration): ts.Expression => {
+    const arrow = factory.createArrowFunction(
+      undefined,
+      undefined,
+      [param],
+      undefined,
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      yieldExpr
+    );
+    if (doMeta.style === "static" && doMeta.receiver) {
+      return factory.createCallExpression(
+        factory.createPropertyAccessExpression(
+          factory.createIdentifier(doMeta.receiver),
+          factory.createIdentifier(doMeta.map)
+        ),
+        undefined,
+        [source, arrow]
+      );
+    }
+    return factory.createCallExpression(
+      factory.createPropertyAccessExpression(source, factory.createIdentifier(doMeta.map)),
+      undefined,
+      [arrow]
+    );
+  };
+
+  if (bindSteps.length === 1) {
+    const param = factory.createParameterDeclaration(
+      undefined,
+      undefined,
+      factory.createIdentifier(bindSteps[0].name)
+    );
+    return continueWith(bindSteps[0].effect, param);
+  }
+
+  // `Receiver.all([e1, e2, ...])` — single array argument, so built directly
+  // rather than via createStaticCall (whose shape is `Receiver.m(fa, arg)`).
+  const join = factory.createCallExpression(
+    factory.createPropertyAccessExpression(
+      factory.createIdentifier(doMeta.receiver!),
+      factory.createIdentifier(doMeta.all!)
+    ),
+    undefined,
+    [factory.createArrayLiteralExpression(bindSteps.map((s) => s.effect))]
+  );
+
+  const destructuredParam = factory.createParameterDeclaration(
+    undefined,
+    undefined,
+    factory.createArrayBindingPattern(
+      bindSteps.map((s) =>
+        factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
+      )
+    )
+  );
+
+  return continueWith(join, destructuredParam);
+}
+
 function buildApplicativeChain(
   ctx: MacroContext,
   steps: (BindStep | MapStep)[],

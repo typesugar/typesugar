@@ -387,13 +387,22 @@ function findScannedInScope(
 
 /**
  * Whether an instance's declared type-constructor name serves an inferred
- * do-notation brand. Two spellings match brand `B`: `B` itself, and the
- * HKT-tag convention `BF` (`@impl FlatMap<OptionF>` serves inferred brand
- * `Option` — the same `OptionF → Option` convention as the HKT expansion
- * table), so existing fp tags keep working without retagging.
+ * do-notation brand. Three spellings match brand `B`:
+ *
+ * - `B` itself (`@impl FlatMap<Effect>`);
+ * - the HKT-tag convention `BF` (`@impl FlatMap<OptionF>` — the same
+ *   `OptionF → Option` convention as the HKT expansion table), so existing
+ *   fp tags keep working without retagging;
+ * - the phantom-tag convention `_BTag` (std's
+ *   `flatMapArray: FlatMap<_ArrayTag>` type annotations), so std's builtin
+ *   instances are discoverable from their existing annotations WITHOUT
+ *   adding `@impl` JSDoc — which would not be build-neutral: std compiles
+ *   with the typesugar plugin, and the `@impl` attribute macro rewrites the
+ *   annotation and emits a `namespace Array { ... }` companion merge that
+ *   shadows the global.
  */
 export function brandMatchesForType(forTypeName: string, brand: string): boolean {
-  return forTypeName === brand || forTypeName === `${brand}F`;
+  return forTypeName === brand || forTypeName === `${brand}F` || forTypeName === `_${brand}Tag`;
 }
 
 /**

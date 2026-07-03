@@ -61,6 +61,14 @@ export interface DoNotationMeta {
   /** Method for error recovery, when the comprehension form uses one. */
   orElse?: string;
   /**
+   * Static combinator that joins independent effects for `par:` (e.g. "all"
+   * for `Promise.all` / `Effect.all`). Called on {@link receiver}, so setting
+   * it requires `receiver=` even for method-style instances (Promise binds
+   * via `.then` but joins via static `Promise.all`). When absent, `par:`
+   * falls back to a registered AST builder or the generic applicative chain.
+   */
+  all?: string;
+  /**
    * "method" (default): emit receiver calls `fa.bind(f)`.
    * "static": emit `Receiver.bind(fa, f)` — requires {@link receiver}.
    */
@@ -103,6 +111,9 @@ export function parseDoMethodsTag(node: ts.Node): DoNotationMeta | undefined {
           break;
         case "orElse":
           meta.orElse = value;
+          break;
+        case "all":
+          meta.all = value;
           break;
         case "style":
           if (value === "method" || value === "static") meta.style = value;

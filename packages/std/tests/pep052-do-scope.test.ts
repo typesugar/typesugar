@@ -83,6 +83,42 @@ yield: { x + y }
     expect(result.code).toContain("Effect.flatMap(");
   });
 
+  it("one effect/syntax/do import activates labels AND provides the Effect instance (Wave 3)", () => {
+    const code = `
+import "@typesugar/effect/syntax/do";
+import { Effect } from "effect";
+const prog =
+let: {
+  x << Effect.succeed(1);
+  y << Effect.succeed(2);
+}
+yield: { x + y }
+`;
+    const result = transformCode(code, { fileName: "do-scope-effect-marker.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("Effect.flatMap(");
+    expect(result.code).not.toContain("let: {");
+  });
+
+  it("par: over Effect emits Effect.all via @do-methods metadata (Wave 3 — was broken .map/.ap before)", () => {
+    const code = `
+import "@typesugar/effect/syntax/do";
+import { Effect } from "effect";
+declare function fetchA(): import("effect").Effect.Effect<number>;
+declare function fetchB(): import("effect").Effect.Effect<number>;
+par: {
+  a << fetchA();
+  b << fetchB();
+}
+yield: { a + b }
+`;
+    const result = transformCode(code, { fileName: "do-scope-effect-par.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("Effect.all([");
+    expect(result.code).toContain("Effect.map(");
+    expect(result.code).not.toContain(".ap(");
+  });
+
   it("AMBIENT LEAK (current behavior, flipped in Phase 3): Effect resolves without any @typesugar/effect import in the fixture", () => {
     // The fixture imports only "effect" (the runtime library) and the std
     // marker. The FlatMap<Effect> instance is found ONLY because this test

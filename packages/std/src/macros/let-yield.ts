@@ -77,7 +77,13 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import { getFlatMapMethodNames, hasFlatMapInstance } from "@typesugar/macros";
+import {
+  getFlatMapMethodNames,
+  hasFlatMapInstance,
+  resolveDoNotationInstance,
+  DEFAULT_DO_METHODS,
+  type DoNotationMeta,
+} from "@typesugar/macros";
 import {
   type ComprehensionStep,
   type BindStep,
@@ -88,6 +94,7 @@ import {
   inferTypeConstructor,
   createArrowFn,
   createMethodCall,
+  createStaticCall,
   createIIFE,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
@@ -162,9 +169,14 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Look up the FlatMap instance in unified registry
+    // PEP-052 Wave 3: scope-based resolution first — an instance declared in
+    // this file or exported by any imported module (the std builtins come in
+    // through the `@typesugar/std/syntax/do` marker every do-notation file
+    // already imports). The global doNotationRegistry remains as a fallback
+    // until Phase 4 deletes it.
     const sfn = ctx.sourceFile.fileName;
-    if (!hasFlatMapInstance(typeConstructorName, sfn)) {
+    const scoped = resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName);
+    if (!scoped && !hasFlatMapInstance(typeConstructorName, sfn)) {
       ctx.reportError(
         firstBind.effect,
         `No FlatMap instance registered for '${typeConstructorName}'. ` +
@@ -173,8 +185,14 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Determine method names from unified registry
-    const methods = getFlatMapMethodNames(typeConstructorName, sfn);
+    // Method names + emission style: from the scoped instance's @do-methods
+    // metadata when resolved by scope; from the registry otherwise.
+    const doMeta: DoNotationMeta | undefined = scoped
+      ? (scoped.doMeta ?? DEFAULT_DO_METHODS)
+      : undefined;
+    const methods: MethodNames = doMeta
+      ? { bind: doMeta.bind, map: doMeta.map, orElse: doMeta.orElse ?? "orElse" }
+      : getFlatMapMethodNames(typeConstructorName, sfn);
 
     // Handle yield expression or implicit return
     let returnExpr: ts.Expression;
@@ -211,13 +229,14 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
         stepsWithoutLast,
         lastBind.effect,
         methods,
-        typeConstructorName
+        typeConstructorName,
+        doMeta
       );
       return factory.createExpressionStatement(chain);
     }
 
     // Build the chain
-    const result = buildChain(ctx, steps, returnExpr, methods, typeConstructorName);
+    const result = buildChain(ctx, steps, returnExpr, methods, typeConstructorName, doMeta);
 
     return factory.createExpressionStatement(result);
   },
@@ -405,7 +424,8 @@ function buildChain(
   steps: ComprehensionStep[],
   returnExpr: ts.Expression,
   methods: MethodNames,
-  typeConstructor: string
+  typeConstructor: string,
+  doMeta?: DoNotationMeta
 ): ts.Expression {
   const { factory } = ctx;
 
@@ -430,14 +450,24 @@ function buildChain(
 
         let effectExpr = step.effect;
 
-        // Wrap with orElse if present
+        // Wrap with orElse if present (same emission style as bind/map calls)
         if (step.orElse && methods.orElse) {
-          effectExpr = createMethodCall(
-            factory,
-            effectExpr,
-            methods.orElse,
-            createArrowFn(factory, "_", step.orElse)
-          );
+          if (doMeta?.style === "static" && doMeta.receiver) {
+            effectExpr = createStaticCall(
+              factory,
+              doMeta.receiver,
+              methods.orElse,
+              effectExpr,
+              createArrowFn(factory, "_", step.orElse)
+            );
+          } else {
+            effectExpr = createMethodCall(
+              factory,
+              effectExpr,
+              methods.orElse,
+              createArrowFn(factory, "_", step.orElse)
+            );
+          }
         }
 
         // Generate the method call
@@ -447,7 +477,8 @@ function buildChain(
           methodName,
           step.name,
           inner,
-          typeConstructor
+          typeConstructor,
+          doMeta
         );
         break;
       }
@@ -565,8 +596,25 @@ function generateMethodCall(
   methodName: string,
   paramName: string,
   body: ts.Expression,
-  typeConstructor: string
+  typeConstructor: string,
+  doMeta?: DoNotationMeta
 ): ts.Expression {
+  // PEP-052 Wave 3: emission style from the scope-resolved instance's
+  // @do-methods metadata. The brand string-compares below survive only for
+  // the registry-fallback path and are deleted with it in Phase 4.
+  if (doMeta) {
+    if (doMeta.style === "static" && doMeta.receiver) {
+      return createStaticCall(
+        factory,
+        doMeta.receiver,
+        methodName,
+        expr,
+        createArrowFn(factory, paramName, body)
+      );
+    }
+    return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
+  }
+
   // For Array and Promise, use native methods directly
   if (typeConstructor === "Array" || typeConstructor === "Promise") {
     return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));

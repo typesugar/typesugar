@@ -413,6 +413,30 @@ export function createMethodCall(
 }
 
 /**
+ * Create a static call: `Receiver.method(fa, arg)`
+ *
+ * The `@do-methods style=static receiver=X` emission form (PEP-052 Wave 3) —
+ * used by instances like Effect whose combinators are static functions taking
+ * the container first (preserving E/R type inference), not receiver methods.
+ */
+export function createStaticCall(
+  factory: ts.NodeFactory,
+  receiver: string,
+  method: string,
+  fa: ts.Expression,
+  arg: ts.Expression
+): ts.CallExpression {
+  return factory.createCallExpression(
+    factory.createPropertyAccessExpression(
+      factory.createIdentifier(receiver),
+      factory.createIdentifier(method)
+    ),
+    undefined,
+    [fa, arg]
+  );
+}
+
+/**
  * Create an IIFE: `((param) => body)(arg)`
  *
  * Used for pure map steps to inline computations.

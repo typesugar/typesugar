@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/macros.ts"],
+  entry: { index: "src/index.ts", macros: "src/macros.ts", "syntax/do": "src/syntax/do.ts" },
   format: ["cjs", "esm"],
   dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
