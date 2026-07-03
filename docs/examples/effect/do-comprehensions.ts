@@ -2,7 +2,7 @@
 //! let:/yield: desugars to Effect.flatMap/map chains — zero generator overhead
 
 import { Effect } from "effect";
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 
 // ============================================================================
 // Sequential: let:/yield: — desugars to Effect.flatMap chains

@@ -7,6 +7,7 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
+import type { DoNotationMeta } from "@typesugar/macros";
 
 // ============================================================================
 // Comprehension Step Types
@@ -411,6 +412,80 @@ export function createMethodCall(
     [arg]
   );
 }
+
+// ============================================================================
+// In-memory-host instance fallback (PEP-052 Wave 3)
+// ============================================================================
+
+/**
+ * Resolution-free fallback for the std builtin do-notation instances,
+ * mirroring Wave 2's `syntaxModule` text fallback for labels: hosts that
+ * cannot resolve modules (the playground package's in-memory host, virtual
+ * file names) resolve nothing by scope, so when the file TEXTUALLY imports a
+ * do marker, serve the builtin instance metadata directly. Covers only the
+ * four std brands — anything else in a non-resolving host gets the TS9225
+ * "no instance in scope" diagnostic (the docs playground compiles server-side
+ * with real module resolution, so this is a robustness net, not the primary
+ * path).
+ */
+const DO_MARKER_SPECIFIERS = new Set(["@typesugar/std/syntax/do", "@typesugar/effect/syntax/do"]);
+
+const STD_DO_FALLBACK: Record<
+  string,
+  Partial<Record<"FlatMap" | "ParCombine", { exportName: string; doMeta?: DoNotationMeta }>>
+> = {
+  Array: {
+    FlatMap: { exportName: "flatMapArray" },
+    ParCombine: { exportName: "parCombineArray" },
+  },
+  Promise: {
+    FlatMap: {
+      exportName: "flatMapPromise",
+      doMeta: { bind: "then", map: "then", orElse: "catch", style: "method" },
+    },
+    ParCombine: {
+      exportName: "parCombinePromise",
+      doMeta: { bind: "flatMap", map: "then", all: "all", receiver: "Promise", style: "method" },
+    },
+  },
+  Iterable: {
+    FlatMap: { exportName: "flatMapIterable" },
+    ParCombine: { exportName: "parCombineIterable" },
+  },
+  AsyncIterable: {
+    FlatMap: { exportName: "flatMapAsyncIterable" },
+    ParCombine: { exportName: "parCombineAsyncIterable" },
+  },
+};
+
+export function resolveStdDoFallback(
+  sourceFile: ts.SourceFile,
+  tcName: "FlatMap" | "ParCombine",
+  brand: string
+): { exportName: string; doMeta?: DoNotationMeta } | undefined {
+  const entry = STD_DO_FALLBACK[brand]?.[tcName];
+  if (!entry) return undefined;
+  const hasMarkerImport = sourceFile.statements.some(
+    (s) =>
+      ts.isImportDeclaration(s) &&
+      ts.isStringLiteral(s.moduleSpecifier) &&
+      DO_MARKER_SPECIFIERS.has(s.moduleSpecifier.text)
+  );
+  return hasMarkerImport ? entry : undefined;
+}
+
+/**
+ * Modules known to provide do-notation instances for specific brands — used
+ * only in the TS9225 help text so the "no instance in scope" diagnostic can
+ * name the exact import to add.
+ */
+export const KNOWN_DO_INSTANCE_MODULES: Record<string, string> = {
+  Effect: "@typesugar/effect/syntax/do",
+  Option: "@typesugar/fp",
+  Either: "@typesugar/fp",
+  List: "@typesugar/fp",
+  IO: "@typesugar/fp",
+};
 
 /**
  * Create a static call: `Receiver.method(fa, arg)`

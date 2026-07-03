@@ -76,10 +76,9 @@ import {
   type MacroContext,
   defineLabeledBlockMacro,
   globalRegistry,
+  TS9225,
 } from "@typesugar/core";
 import {
-  getFlatMapMethodNames,
-  hasFlatMapInstance,
   resolveDoNotationInstance,
   DEFAULT_DO_METHODS,
   type DoNotationMeta,
@@ -96,6 +95,8 @@ import {
   createMethodCall,
   createStaticCall,
   createIIFE,
+  resolveStdDoFallback,
+  KNOWN_DO_INSTANCE_MODULES,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
 
@@ -169,30 +170,36 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // PEP-052 Wave 3: scope-based resolution first — an instance declared in
-    // this file or exported by any imported module (the std builtins come in
-    // through the `@typesugar/std/syntax/do` marker every do-notation file
-    // already imports). The global doNotationRegistry remains as a fallback
-    // until Phase 4 deletes it.
-    const sfn = ctx.sourceFile.fileName;
-    const scoped = resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName);
-    if (!scoped && !hasFlatMapInstance(typeConstructorName, sfn)) {
-      ctx.reportError(
-        firstBind.effect,
-        `No FlatMap instance registered for '${typeConstructorName}'. ` +
-          "Use @instance decorator or registerFlatMap() to register an instance."
-      );
+    // PEP-052 Wave 3: instance resolution is scope-based — an instance
+    // declared in this file or exported by any imported module (the std
+    // builtins come in through the `@typesugar/std/syntax/do` marker every
+    // do-notation file already imports). No global registry. The static
+    // fallback serves the std builtins in hosts that cannot resolve modules.
+    const scoped =
+      resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName) ??
+      resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
+    if (!scoped) {
+      const knownModule = KNOWN_DO_INSTANCE_MODULES[typeConstructorName];
+      ctx
+        .diagnostic(TS9225)
+        .at(firstBind.effect)
+        .withArgs({ typeclass: "FlatMap", brand: typeConstructorName })
+        .help(
+          knownModule
+            ? `Add \`import "${knownModule}";\` to bring the ${typeConstructorName} instance into scope.`
+            : `Import a module exporting an @impl FlatMap<${typeConstructorName}> instance, or declare one in this file.`
+        )
+        .emit();
       return mainBlock;
     }
 
-    // Method names + emission style: from the scoped instance's @do-methods
-    // metadata when resolved by scope; from the registry otherwise.
-    const doMeta: DoNotationMeta | undefined = scoped
-      ? (scoped.doMeta ?? DEFAULT_DO_METHODS)
-      : undefined;
-    const methods: MethodNames = doMeta
-      ? { bind: doMeta.bind, map: doMeta.map, orElse: doMeta.orElse ?? "orElse" }
-      : getFlatMapMethodNames(typeConstructorName, sfn);
+    // Method names + emission style from the instance's @do-methods metadata.
+    const doMeta: DoNotationMeta = scoped.doMeta ?? DEFAULT_DO_METHODS;
+    const methods: MethodNames = {
+      bind: doMeta.bind,
+      map: doMeta.map,
+      orElse: doMeta.orElse ?? "orElse",
+    };
 
     // Handle yield expression or implicit return
     let returnExpr: ts.Expression;

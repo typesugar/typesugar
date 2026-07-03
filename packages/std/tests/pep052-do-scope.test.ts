@@ -69,7 +69,7 @@ yield: { a + b }
 
   it("Effect comprehension emits Effect.flatMap static calls", () => {
     const code = `
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 import { Effect } from "effect";
 const prog =
 let: {
@@ -119,10 +119,13 @@ yield: { a + b }
     expect(result.code).not.toContain(".ap(");
   });
 
-  it("AMBIENT LEAK (current behavior, flipped in Phase 3): Effect resolves without any @typesugar/effect import in the fixture", () => {
+  it("no ambient leak (Phase 3): Effect does NOT resolve without a providing import in the fixture", () => {
     // The fixture imports only "effect" (the runtime library) and the std
-    // marker. The FlatMap<Effect> instance is found ONLY because this test
-    // process side-effect-imported @typesugar/effect — cross-file leakage.
+    // marker. Before Phase 3, the FlatMap<Effect> instance leaked in from the
+    // global doNotationRegistry (seeded because THIS TEST PROCESS imported
+    // @typesugar/effect — cross-file leakage, the bug PEP-052 exists to fix).
+    // Now: labels are activated (std marker), but no FlatMap<Effect> instance
+    // is in the file's scope → TS9225 naming the exact import to add.
     const code = `
 import "@typesugar/std/syntax/do";
 import { Effect } from "effect";
@@ -134,11 +137,10 @@ let: {
 yield: { x + y }
 `;
     const result = transformCode(code, { fileName: "do-scope-effect-ambient.ts" });
-    // CURRENT: expands via the global doNotationRegistry.
-    // PHASE 3: this fixture (unchanged) must instead leave the comprehension
-    // unexpanded... except the std syntax/do marker is imported, so the label
-    // IS activated — the expected Phase-3 behavior is a "no FlatMap instance
-    // for 'Effect' in scope" diagnostic naming @typesugar/effect/syntax/do.
-    expect(result.code).toContain("Effect.flatMap(");
+    expect(result.code).not.toContain("Effect.flatMap(");
+    const errs = result.diagnostics.filter((d) => d.code === 9225);
+    expect(errs.length).toBeGreaterThanOrEqual(1);
+    expect(errs[0].message).toContain("Effect");
+    expect(errs[0].message).toContain("@typesugar/effect/syntax/do");
   });
 });

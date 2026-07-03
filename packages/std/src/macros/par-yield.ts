@@ -84,7 +84,6 @@ import {
   globalRegistry,
 } from "@typesugar/core";
 import {
-  hasParCombineInstance,
   getParCombineBuilderFromRegistry,
   resolveDoNotationInstance,
   type DoNotationMeta,
@@ -98,6 +97,7 @@ import {
   createArrowFn,
   createMethodCall,
   createIIFE,
+  resolveStdDoFallback,
 } from "./comprehension-utils.js";
 
 // ============================================================================
@@ -186,12 +186,16 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // PEP-052 Wave 3: scope-based resolution first — an instance declared in
-    // this file or exported by any imported module (the std builtins come in
-    // through the `@typesugar/std/syntax/do` marker). The global registry
-    // remains as a fallback until Phase 4 deletes it.
-    const scoped = resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName);
-    if (!scoped && !hasParCombineInstance(typeConstructorName, ctx.sourceFile.fileName)) {
+    // PEP-052 Wave 3: instance resolution is scope-based — an instance
+    // declared in this file or exported by any imported module (the std
+    // builtins come in through the `@typesugar/std/syntax/do` marker). No
+    // global registry; the static fallback serves the std builtins in hosts
+    // that cannot resolve modules. A brand with no ParCombine instance falls
+    // through to the generic applicative chain (same as before the flip).
+    const scoped =
+      resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName) ??
+      resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructorName);
+    if (!scoped) {
       // Fall back to applicative chain if no ParCombine instance
       const result = buildApplicativeChain(ctx, steps, returnExpr);
       return factory.createExpressionStatement(result);
