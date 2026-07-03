@@ -13,7 +13,7 @@ import {
   parCombineArray,
   parCombineIterable,
   getParCombine,
-  getParCombineBuilder,
+  getStdParCombineBuilder,
 } from "../src/typeclasses/par-combine.js";
 
 // ---------------------------------------------------------------------------
@@ -195,14 +195,14 @@ describe("ParCombine registry", () => {
     expect(getParCombine("Unknown")).toBeUndefined();
   });
 
-  it("getParCombineBuilder returns builders for built-in names", () => {
-    expect(getParCombineBuilder("Promise")).toBeDefined();
-    expect(getParCombineBuilder("Array")).toBeDefined();
-    expect(getParCombineBuilder("Iterable")).toBeDefined();
-    expect(getParCombineBuilder("AsyncIterable")).toBeDefined();
+  it("getStdParCombineBuilder returns builders for built-in names", () => {
+    expect(getStdParCombineBuilder("Promise")).toBeDefined();
+    expect(getStdParCombineBuilder("Array")).toBeDefined();
+    expect(getStdParCombineBuilder("Iterable")).toBeDefined();
+    expect(getStdParCombineBuilder("AsyncIterable")).toBeDefined();
   });
 
-  it("getParCombineBuilder returns undefined for unknown names", () => {
-    expect(getParCombineBuilder("NotRegistered")).toBeUndefined();
+  it("getStdParCombineBuilder returns undefined for unknown names", () => {
+    expect(getStdParCombineBuilder("NotRegistered")).toBeUndefined();
   });
 });

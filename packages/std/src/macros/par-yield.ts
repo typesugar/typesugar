@@ -94,6 +94,8 @@ import {
   createArrowFn,
   createMethodCall,
   createIIFE,
+  createStyleAwareCall,
+  createMetadataJoin,
   resolveStdDoFallback,
 } from "./comprehension-utils.js";
 
@@ -196,6 +198,14 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       // Fall back to applicative chain if no ParCombine instance
       const result = buildApplicativeChain(ctx, steps, returnExpr);
       return factory.createExpressionStatement(result);
+    }
+    if (scoped.doMeta?.unrecognized?.length) {
+      ctx.reportWarning(
+        mainBlock,
+        `@do-methods on the ${typeConstructorName} ParCombine instance (${scoped.exportName}) has ` +
+          `unrecognized entries: ${scoped.doMeta.unrecognized.join(" ")} — valid keys are ` +
+          `bind= map= orElse= all= receiver= style=method|static.`
+      );
     }
 
     // Emission strategy, in precedence order:
@@ -359,26 +369,13 @@ export function validateIndependence(
 // ============================================================================
 
 /**
- * Build the applicative combination for standard (non-Promise) types.
- *
- * Given binds [a << fa, b << fb, c << fc] and yield expr:
- *   fa.map(a => b => c => expr).ap(fb).ap(fc)
- *
- * Map steps are inlined as IIFEs in the yield expression.
- */
-/**
  * Metadata-driven parallel join (PEP-052 Wave 3): emit
- * `Receiver.<all>([e1, e2, ...])` followed by a style-aware mapping
- * continuation, from a scoped instance's `@do-methods all=… receiver=…`
- * metadata. This is the generic replacement for per-brand AST builders:
- *
- * - Promise (`map=then all=all receiver=Promise`, method style):
- *   `Promise.all([a, b]).then(([a, b]) => yield)`
- * - Effect (`map=map all=all receiver=Effect`, static style):
- *   `Effect.map(Effect.all([a, b]), ([a, b]) => yield)`
- *
- * Mirrors the shapes of the hand-written Promise builder exactly (single
- * bind skips the join; pure map steps wrap the yield in IIFEs).
+ * `Receiver.<all>([e1, e2, ...])` + a style-aware mapping continuation from a
+ * scoped instance's `@do-methods all=… receiver=…` metadata, via the shared
+ * createMetadataJoin (also used by nested parallel groups in let:/seq:).
+ * Single-bind comprehensions skip the join; pure map steps wrap the yield in
+ * IIFEs — mirroring the hand-written Promise builder, which survives in
+ * par-combine.ts only as the safety net when metadata is unavailable.
  */
 function buildStaticAllParCombine(
   ctx: MacroContext,
@@ -398,65 +395,27 @@ function buildStaticAllParCombine(
 
   if (bindSteps.length === 0) return yieldExpr;
 
-  const continueWith = (source: ts.Expression, param: ts.ParameterDeclaration): ts.Expression => {
-    const arrow = factory.createArrowFunction(
-      undefined,
-      undefined,
-      [param],
-      undefined,
-      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      yieldExpr
-    );
-    if (doMeta.style === "static" && doMeta.receiver) {
-      return factory.createCallExpression(
-        factory.createPropertyAccessExpression(
-          factory.createIdentifier(doMeta.receiver),
-          factory.createIdentifier(doMeta.map)
-        ),
-        undefined,
-        [source, arrow]
-      );
-    }
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(source, factory.createIdentifier(doMeta.map)),
-      undefined,
-      [arrow]
-    );
-  };
-
   if (bindSteps.length === 1) {
-    const param = factory.createParameterDeclaration(
-      undefined,
-      undefined,
-      factory.createIdentifier(bindSteps[0].name)
+    return createStyleAwareCall(
+      factory,
+      doMeta,
+      doMeta.map,
+      bindSteps[0].effect,
+      createArrowFn(factory, bindSteps[0].name, yieldExpr)
     );
-    return continueWith(bindSteps[0].effect, param);
   }
 
-  // `Receiver.all([e1, e2, ...])` — single array argument, so built directly
-  // rather than via createStaticCall (whose shape is `Receiver.m(fa, arg)`).
-  const join = factory.createCallExpression(
-    factory.createPropertyAccessExpression(
-      factory.createIdentifier(doMeta.receiver!),
-      factory.createIdentifier(doMeta.all!)
-    ),
-    undefined,
-    [factory.createArrayLiteralExpression(bindSteps.map((s) => s.effect))]
-  );
-
-  const destructuredParam = factory.createParameterDeclaration(
-    undefined,
-    undefined,
-    factory.createArrayBindingPattern(
-      bindSteps.map((s) =>
-        factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-      )
-    )
-  );
-
-  return continueWith(join, destructuredParam);
+  return createMetadataJoin(factory, doMeta, bindSteps, yieldExpr);
 }
 
+/**
+ * Build the applicative combination for standard (non-Promise) types.
+ *
+ * Given binds [a << fa, b << fb, c << fc] and yield expr:
+ *   fa.map(a => b => c => expr).ap(fb).ap(fc)
+ *
+ * Map steps are inlined as IIFEs in the yield expression.
+ */
 function buildApplicativeChain(
   ctx: MacroContext,
   steps: (BindStep | MapStep)[],

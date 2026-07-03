@@ -13,6 +13,7 @@
  * scope" instead of silently depending on unrelated files' imports.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 
 import "@typesugar/macros";
 import "@typesugar/std/macros";
@@ -119,6 +120,28 @@ yield: { a + b }
     expect(result.code).not.toContain(".ap(");
   });
 
+  it("nested par: inside seq: over Effect joins via Effect.all (review fix — was .map/.ap)", () => {
+    const code = `
+import "@typesugar/effect/syntax/do";
+import { Effect } from "effect";
+declare function fetchA(): import("effect").Effect.Effect<number>;
+declare function fetchB(): import("effect").Effect.Effect<number>;
+declare function load(): import("effect").Effect.Effect<number>;
+seq: {
+  cfg << load();
+  par: {
+    a << fetchA();
+    b << fetchB();
+  }
+}
+yield: { cfg + a + b }
+`;
+    const result = transformCode(code, { fileName: "do-scope-effect-nested-par.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("Effect.all([");
+    expect(result.code).not.toContain(".ap(");
+  });
+
   it("no ambient leak (Phase 3): Effect does NOT resolve without a providing import in the fixture", () => {
     // The fixture imports only "effect" (the runtime library) and the std
     // marker. Before Phase 3, the FlatMap<Effect> instance leaked in from the
@@ -143,4 +166,45 @@ yield: { x + y }
     expect(errs[0].message).toContain("Effect");
     expect(errs[0].message).toContain("@typesugar/effect/syntax/do");
   });
+});
+
+describe("PEP-052 in-memory fallback vs @do-methods tag consistency", () => {
+  // The static in-memory-host fallback table in comprehension-utils.ts
+  // restates the @do-methods JSDoc tags on the instance declarations. This
+  // binds the two encodings so an edit to either side cannot drift silently.
+  const root = new URL(".", import.meta.url).pathname;
+  const EXPECTED: Array<[file: string, exportName: string, tag: string]> = [
+    [
+      `${root}../src/typeclasses/flatmap-instances.ts`,
+      "flatMapPromise",
+      "bind=then map=then orElse=catch",
+    ],
+    [
+      `${root}../src/typeclasses/par-combine-instances.ts`,
+      "parCombinePromise",
+      "map=then all=all receiver=Promise",
+    ],
+    [
+      `${root}../../effect/src/index.ts`,
+      "flatMapEffect",
+      "bind=flatMap map=map orElse=catchAll style=static receiver=Effect",
+    ],
+    [
+      `${root}../../effect/src/index.ts`,
+      "parCombineEffect",
+      "map=map all=all style=static receiver=Effect",
+    ],
+  ];
+
+  for (const [file, exportName, tag] of EXPECTED) {
+    it(`${exportName} carries the @do-methods tag the fallback table assumes`, () => {
+      const src = readFileSync(file, "utf8");
+      const exportIdx = src.indexOf(`export const ${exportName}`);
+      expect(exportIdx).toBeGreaterThan(0);
+      const doc = src.slice(src.lastIndexOf("/**", exportIdx), exportIdx);
+      const m = doc.match(/@do-methods\s+([^\n]+)/);
+      expect(m, `${exportName} must carry a @do-methods tag`).toBeTruthy();
+      expect(m![1].trim()).toBe(tag);
+    });
+  }
 });

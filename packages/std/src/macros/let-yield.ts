@@ -96,10 +96,11 @@ import {
   inferTypeConstructor,
   createArrowFn,
   createMethodCall,
-  createStaticCall,
   createIIFE,
   resolveStdDoFallback,
   KNOWN_DO_INSTANCE_MODULES,
+  createStyleAwareCall,
+  createMetadataJoin,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
 
@@ -198,6 +199,14 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 
     // Method names + emission style from the instance's @do-methods metadata.
     const doMeta: DoNotationMeta = scoped.doMeta ?? DEFAULT_DO_METHODS;
+    if (doMeta.unrecognized?.length) {
+      ctx.reportWarning(
+        mainBlock,
+        `@do-methods on the ${typeConstructorName} FlatMap instance (${scoped.exportName}) has ` +
+          `unrecognized entries: ${doMeta.unrecognized.join(" ")} — valid keys are ` +
+          `bind= map= orElse= all= receiver= style=method|static.`
+      );
+    }
     const methods: MethodNames = {
       bind: doMeta.bind,
       map: doMeta.map,
@@ -431,7 +440,7 @@ function buildChain(
   returnExpr: ts.Expression,
   methods: MethodNames,
   typeConstructor: string,
-  doMeta?: DoNotationMeta
+  doMeta: DoNotationMeta
 ): ts.Expression {
   const { factory } = ctx;
 
@@ -458,33 +467,22 @@ function buildChain(
 
         // Wrap with orElse if present (same emission style as bind/map calls)
         if (step.orElse && methods.orElse) {
-          if (doMeta?.style === "static" && doMeta.receiver) {
-            effectExpr = createStaticCall(
-              factory,
-              doMeta.receiver,
-              methods.orElse,
-              effectExpr,
-              createArrowFn(factory, "_", step.orElse)
-            );
-          } else {
-            effectExpr = createMethodCall(
-              factory,
-              effectExpr,
-              methods.orElse,
-              createArrowFn(factory, "_", step.orElse)
-            );
-          }
+          effectExpr = createStyleAwareCall(
+            factory,
+            doMeta,
+            methods.orElse,
+            effectExpr,
+            createArrowFn(factory, "_", step.orElse)
+          );
         }
 
-        // Generate the method call
-        inner = generateMethodCall(
+        // Generate the bind/map call
+        inner = createStyleAwareCall(
           factory,
-          effectExpr,
+          doMeta,
           methodName,
-          step.name,
-          inner,
-          typeConstructor,
-          doMeta
+          effectExpr,
+          createArrowFn(factory, step.name, inner)
         );
         break;
       }
@@ -528,6 +526,19 @@ function buildChain(
         let bodyWithMaps = inner;
         for (const mapStep of mapSteps.reverse()) {
           bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
+        }
+
+        // PEP-052 Wave 3: join via the scoped ParCombine instance's
+        // `@do-methods all=… receiver=…` metadata when it declares one
+        // (Promise, Effect, third-party static-join monads) — the same
+        // emission as top-level `par:`. The hardcoded Promise branch below
+        // stays only as the safety net when metadata is unavailable.
+        const parScoped =
+          resolveDoNotationInstance(ctx, "ParCombine", typeConstructor) ??
+          resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructor);
+        if (parScoped?.doMeta?.all && parScoped.doMeta.receiver) {
+          inner = createMetadataJoin(factory, parScoped.doMeta, bindSteps, bodyWithMaps);
+          break;
         }
 
         if (typeConstructor === "Promise") {
@@ -587,62 +598,6 @@ function buildChain(
   }
 
   return inner;
-}
-
-/**
- * Generate a method call: expr.method(param => body)
- *
- * For built-in types (Array, Promise), uses native method calls.
- * For Effect, uses Effect.flatMap/Effect.map for proper E/R type inference.
- * For custom types, generates instance.method(expr, param => body).
- */
-function generateMethodCall(
-  factory: ts.NodeFactory,
-  expr: ts.Expression,
-  methodName: string,
-  paramName: string,
-  body: ts.Expression,
-  typeConstructor: string,
-  doMeta?: DoNotationMeta
-): ts.Expression {
-  // PEP-052 Wave 3: emission style from the scope-resolved instance's
-  // @do-methods metadata. The brand string-compares below survive only for
-  // the registry-fallback path and are deleted with it in Phase 4.
-  if (doMeta) {
-    if (doMeta.style === "static" && doMeta.receiver) {
-      return createStaticCall(
-        factory,
-        doMeta.receiver,
-        methodName,
-        expr,
-        createArrowFn(factory, paramName, body)
-      );
-    }
-    return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
-  }
-
-  // For Array and Promise, use native methods directly
-  if (typeConstructor === "Array" || typeConstructor === "Promise") {
-    return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
-  }
-
-  // For Effect, use Effect.flatMap/Effect.map static methods
-  // This preserves proper E (error) and R (requirements) type inference:
-  //   Effect.flatMap(fa, f) infers Effect<B, E1 | E2, R1 | R2>
-  if (typeConstructor === "Effect") {
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("Effect"),
-        factory.createIdentifier(methodName)
-      ),
-      undefined,
-      [expr, createArrowFn(factory, paramName, body)]
-    );
-  }
-
-  // For other types with FlatMap instances, use native method calls
-  // (most types like Option, Either, IO have .map()/.flatMap() methods)
-  return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
 }
 
 // ============================================================================

@@ -118,15 +118,6 @@ export function getStdParCombineBuilder(brand: string): ParCombineBuilder | unde
 }
 
 /**
- * Get the zero-cost builder for a type constructor, if registered.
- *
- * @deprecated Use {@link getStdParCombineBuilder}.
- */
-export function getParCombineBuilder(name: string): ParCombineBuilder | undefined {
-  return getStdParCombineBuilder(name);
-}
-
-/**
  * Register a ParCombine instance for a type constructor.
  * Provide a builder for zero-cost macro expansion, or omit to use runtime dispatch.
  *

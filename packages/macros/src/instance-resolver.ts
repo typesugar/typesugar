@@ -429,15 +429,57 @@ export interface ResolvedDoNotationInstance {
  * `FlatMap<F>`'s type parameter is a phantom tag (`_ArrayTag`), so
  * type-based matching is impossible for these instances.
  */
+// Memoized per (program, file, typeclass, brand): a do-notation-heavy file
+// resolves the same brand once per comprehension (and once per nested
+// parallel group), but the answer cannot change within a program. WeakMap
+// keying invalidates automatically across watch/LSP rebuilds. Misses are
+// cached too (null) — the miss path is the expensive one (full import walk).
+const doNotationResolutionCache = new WeakMap<
+  ts.Program,
+  Map<string, ResolvedDoNotationInstance | null>
+>();
+
 export function resolveDoNotationInstance(
   ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
   tcName: string,
   brand: string,
   scanner: InstanceScanner = defaultScanner
 ): ResolvedDoNotationInstance | undefined {
-  const match = (inst: ScannedInstance): boolean =>
+  // The cache key does not include the scanner — bypass it entirely for
+  // custom scanners (test isolation) so a fresh scanner never receives a
+  // stale default-scanner result.
+  if (scanner !== defaultScanner) {
+    return resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner);
+  }
+  let cache = doNotationResolutionCache.get(ctx.program);
+  if (!cache) {
+    cache = new Map();
+    doNotationResolutionCache.set(ctx.program, cache);
+  }
+  const cacheKey = `${ctx.sourceFile.fileName}::${tcName}:${brand}`;
+  const cached = cache.get(cacheKey);
+  if (cached !== undefined) return cached ?? undefined;
+  const result = resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner);
+  cache.set(cacheKey, result ?? null);
+  return result;
+}
+
+function resolveDoNotationInstanceUncached(
+  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  tcName: string,
+  brand: string,
+  scanner: InstanceScanner
+): ResolvedDoNotationInstance | undefined {
+  // Exact brand spelling wins over the `BF`/`_BTag` conventions, so a
+  // genuine type named e.g. `RateF` can never shadow a `Rate` instance (or
+  // vice versa) just by scan order.
+  const exactMatch = (inst: ScannedInstance): boolean =>
+    inst.typeclassName === tcName && baseTypeName(inst.forTypeString) === brand;
+  const conventionMatch = (inst: ScannedInstance): boolean =>
     inst.typeclassName === tcName && brandMatchesForType(baseTypeName(inst.forTypeString), brand);
-  const hit = findScannedInScope(ctx, match, scanner);
+  const hit =
+    findScannedInScope(ctx, exactMatch, scanner) ??
+    findScannedInScope(ctx, conventionMatch, scanner);
   if (!hit) return undefined;
   return {
     exportName: hit.instance.exportName,

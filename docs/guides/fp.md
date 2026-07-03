@@ -255,7 +255,7 @@ const result = 42 * 2 + 1;
 
 ## Do-Notation
 
-Chain monadic operations cleanly. The label syntax is import-scoped (PEP-052) — activate it with `import "@typesugar/std/syntax/do";` at the top of the file. The `FlatMap` instances for the fp types (Option, Either, List, IO) are resolved from scope: any import from `@typesugar/fp` (which you already have for the types themselves) brings them in — no registration needed:
+Chain monadic operations cleanly. The label syntax is import-scoped (PEP-052) — activate it with `import "@typesugar/std/syntax/do";` at the top of the file. The `FlatMap` instances for the fp types (`Option`, `List`, `IO`) are resolved from scope: any import from `@typesugar/fp` (which you already have for the types themselves) brings them in — no registration needed. (`Either` ships no scanner-visible instance — its `FlatMap` is a per-error-type factory; declare a local `@impl FlatMap<Either>` instance for your fixed error type to use it in `let:` blocks.)
 
 ```typescript
 import "@typesugar/std/syntax/do";

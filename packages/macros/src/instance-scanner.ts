@@ -75,6 +75,13 @@ export interface DoNotationMeta {
   style: "method" | "static";
   /** Static-call receiver identifier (e.g. "Effect") when style is "static". */
   receiver?: string;
+  /**
+   * Entries the parser did not recognize (unknown keys, malformed pairs,
+   * invalid `style=` values). Never affects emission — carried so the
+   * consuming macro can WARN at the use site instead of silently defaulting
+   * a typo like `style=statik` to method-style emission.
+   */
+  unrecognized?: string[];
 }
 
 /** Defaults applied when an instance carries no `@do-methods` tag. */
@@ -96,12 +103,19 @@ export function parseDoMethodsTag(node: ts.Node): DoNotationMeta | undefined {
       typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
     if (!comment) return { ...DEFAULT_DO_METHODS };
     const meta: DoNotationMeta = { ...DEFAULT_DO_METHODS };
+    const unrecognized: string[] = [];
     for (const pair of comment.trim().split(/\s+/)) {
       const eq = pair.indexOf("=");
-      if (eq <= 0) continue;
+      if (eq <= 0) {
+        unrecognized.push(pair);
+        continue;
+      }
       const key = pair.slice(0, eq);
       const value = pair.slice(eq + 1);
-      if (!value) continue;
+      if (!value) {
+        unrecognized.push(pair);
+        continue;
+      }
       switch (key) {
         case "bind":
           meta.bind = value;
@@ -117,12 +131,16 @@ export function parseDoMethodsTag(node: ts.Node): DoNotationMeta | undefined {
           break;
         case "style":
           if (value === "method" || value === "static") meta.style = value;
+          else unrecognized.push(pair);
           break;
         case "receiver":
           meta.receiver = value;
           break;
+        default:
+          unrecognized.push(pair);
       }
     }
+    if (unrecognized.length > 0) meta.unrecognized = unrecognized;
     return meta;
   }
   return undefined;
@@ -290,6 +308,38 @@ export class InstanceScanner {
     if (typeResult) {
       if (doMeta) typeResult.doMeta = doMeta;
       results.push(typeResult);
+      return results;
+    }
+
+    // Strategy 3: call-form initializer `const x = impl("TC<T>", {...})` /
+    // `instance("TC<T>", ...)`. Before PEP-052 Wave 3 these were made
+    // resolvable by the impl() expression macro's registry mirror; the mirror
+    // is gone, so the scanner reads the declaration shape directly. Source
+    // files only — in emitted `.d.ts` the call is erased, so PUBLISHED
+    // call-form instances remain invisible (the documented authoring form is
+    // the `@impl` JSDoc tag, which survives declaration emit).
+    if (varDecl?.initializer && ts.isCallExpression(varDecl.initializer)) {
+      const call = varDecl.initializer;
+      if (
+        ts.isIdentifier(call.expression) &&
+        (call.expression.text === "impl" || call.expression.text === "instance") &&
+        call.arguments.length >= 1 &&
+        ts.isStringLiteralLike(call.arguments[0])
+      ) {
+        const parsed = parseTypeInstantiation(call.arguments[0].text);
+        if (parsed) {
+          const callResult: ScannedInstance = {
+            typeclassName: parsed.base,
+            forTypeString: parsed.args,
+            forType: resolveTypeString(typeChecker, parsed.args),
+            exportName,
+            sourceModule: resolvedPath,
+            detectedVia: "impl-tag",
+          };
+          if (doMeta) callResult.doMeta = doMeta;
+          results.push(callResult);
+        }
+      }
     }
 
     return results;

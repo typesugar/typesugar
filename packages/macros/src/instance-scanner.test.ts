@@ -431,17 +431,46 @@ export const flatMapArray = {};
     expect(DEFAULT_DO_METHODS).toEqual({ bind: "flatMap", map: "map", style: "method" });
   });
 
-  it("ignores unknown keys and malformed pairs (forward compatible)", () => {
+  it("captures unknown keys and malformed pairs as unrecognized (warned at use sites)", () => {
     const sf = ts.createSourceFile(
       "x.ts",
       `/**
- * @do-methods bind=chain frobnicate=yes =bad noequals map=select
+ * @do-methods bind=chain frobnicate=yes =bad noequals map=select style=statik
  */
 const inst = {};`,
       ts.ScriptTarget.Latest,
       true
     );
     const meta = parseDoMethodsTag(sf.statements[0]);
-    expect(meta).toEqual({ bind: "chain", map: "select", style: "method" });
+    expect(meta).toEqual({
+      bind: "chain",
+      map: "select",
+      style: "method",
+      unrecognized: ["frobnicate=yes", "=bad", "noequals", "style=statik"],
+    });
+  });
+});
+
+describe("call-form instance detection (PEP-052 Wave 3 review fix)", () => {
+  it('detects `const x = impl("TC<T>", {...})` initializers in source files', () => {
+    const mod = createTestModule(`
+declare function impl<T>(desc: string, body: T): T;
+/** @do-methods bind=andThen */
+export const flatMapTask = impl("FlatMap<Task>", {
+  map: (fa: any, f: any) => fa.map(f),
+  flatMap: (fa: any, f: any) => fa.andThen(f),
+});
+    `);
+
+    const scanner = new InstanceScanner();
+    const results = scanner.scanModule(mod.typeChecker, mod.moduleSymbol, mod.resolvedPath);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      typeclassName: "FlatMap",
+      forTypeString: "Task",
+      exportName: "flatMapTask",
+    });
+    expect(results[0].doMeta?.bind).toBe("andThen");
   });
 });
