@@ -5,7 +5,7 @@
  *
  * ## Available Macros
  *
- * - `registerStdInstances()` - Register std typeclass instances for summon<>() resolution
+ * - `registerStdInstances()` - Deprecated no-op stub (instances are scope-resolved, PEP-052)
  * - `let:/yield:` - Monadic do-notation for Promise, Array, Option, etc.
  * - `par:/yield:` - Applicative (parallel) comprehensions with Promise.all / .map().ap()
  */
@@ -22,4 +22,4 @@ export * from "./comprehension-utils.js";
 export * from "./let-yield.js";
 export * from "./par-yield.js";
 export * from "./match.js";
-export { registerStdInstances, registerStdInstancesMacro } from "./register-instances.js";
+export { registerStdInstances } from "./register-instances-runtime.js";

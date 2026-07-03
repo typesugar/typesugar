@@ -650,7 +650,7 @@ export * from "./destructure.js";
 
 /**
  * Bounded typeclass - types with minimum and maximum values.
- * Use `registerStdInstances()` macro to enable summon<Bounded<T>>() resolution.
+ * Instances are resolved from scope (PEP-052) for summon<Bounded<T>>().
  */
 export interface Bounded<A> {
   minBound(): A;
@@ -720,7 +720,7 @@ registerInstanceWithMeta(
 
 /**
  * Enum typeclass - types with successors/predecessors, convertible to/from integers.
- * Use `registerStdInstances()` macro to enable summon<Enum<T>>() resolution.
+ * Instances are resolved from scope (PEP-052) for summon<Enum<T>>().
  */
 export interface Enum<A> {
   succ(a: A): A;
@@ -788,7 +788,7 @@ registerInstanceWithMeta(
  * Numeric typeclass - types supporting basic arithmetic operations.
  *
  * This is the Ring abstraction: add, sub, mul with identity elements.
- * Use `registerStdInstances()` macro to enable summon<Numeric<T>>() resolution.
+ * Instances are resolved from scope (PEP-052) for summon<Numeric<T>>().
  *
  * Operators dispatch via @op JSDoc tags:
  * - `a + b` → `Numeric.add(a, b)`
