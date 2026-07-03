@@ -18,6 +18,8 @@ import type { Kind } from "../hkt.js";
 
 /**
  * Foldable typeclass
+ *
+ * @typeclass
  */
 export interface Foldable<F> {
   readonly foldLeft: <A, B>(fa: Kind<F, A>, b: B, f: (b: B, a: A) => B) => B;

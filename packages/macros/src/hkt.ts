@@ -62,13 +62,10 @@ import {
 import type { MacroContext } from "@typesugar/core";
 
 // Import HKT registries from typeclass.ts (single source of truth)
-// Re-export for backward compatibility
-export {
-  hktTypeclassNames,
-  hktExpansionRegistry,
-  registerHKTExpansion,
-  registerHKTTypeclass,
-} from "./typeclass.js";
+// Re-export for backward compatibility.
+// (hktTypeclassNames/registerHKTTypeclass were deleted in PEP-052 Wave 4 —
+// HKT-ness is now derived from @typeclass declarations via the op-index.)
+export { hktExpansionRegistry, registerHKTExpansion } from "./typeclass.js";
 
 // ============================================================================
 // Type Constructor Resolution via TypeChecker (Tier 1 Implicit Resolution)

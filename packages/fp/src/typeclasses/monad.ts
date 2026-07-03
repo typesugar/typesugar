@@ -19,6 +19,8 @@ import type { Kind } from "../hkt.js";
 
 /**
  * FlatMap typeclass - adds flatMap to Apply
+ *
+ * @typeclass
  */
 export interface FlatMap<F> extends Apply<F> {
   readonly flatMap: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
@@ -30,6 +32,8 @@ export interface FlatMap<F> extends Apply<F> {
 
 /**
  * Monad typeclass - combines FlatMap with Applicative
+ *
+ * @typeclass
  */
 export interface Monad<F> extends FlatMap<F>, Applicative<F> {}
 

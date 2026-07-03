@@ -21,6 +21,8 @@ import type { Kind } from "../hkt.js";
 
 /**
  * Traverse typeclass
+ *
+ * @typeclass
  */
 export interface Traverse<F> extends Functor<F>, Foldable<F> {
   readonly traverse: <G>(
