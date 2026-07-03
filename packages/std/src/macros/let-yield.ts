@@ -58,15 +58,18 @@
  * 3. It looks up the FlatMap instance for that type constructor
  * 4. It generates a chain: flatMap for intermediate binds, map for the last
  *
- * ## Registering custom types
+ * ## Supporting custom types
+ *
+ * Declare an instance tagged `@impl FlatMap<MyType>` (JSDoc) in the file, or
+ * export it from a module the file imports — resolution is scope-based
+ * (PEP-052):
  *
  * ```typescript
- * import { registerFlatMap } from "@typesugar/std/typeclasses/flatmap";
- *
- * registerFlatMap("MyType", {
+ * // JSDoc tag on the declaration: @impl FlatMap<MyType>
+ * export const flatMapMyType = {
  *   map: (fa, f) => fa.map(f),
  *   flatMap: (fa, f) => fa.flatMap(f),
- * });
+ * };
  * ```
  */
 
@@ -405,12 +408,8 @@ function extractSteps(
   return steps;
 }
 
-// ============================================================================
-// Method Name Resolution (now uses unified registry)
-// ============================================================================
-
-// Method names are now resolved via getFlatMapMethodNames() from @typesugar/macros
-// which looks up the InstanceMeta in the unified typeclass registry.
+// Method names are resolved from the scoped instance's @do-methods metadata
+// (see resolveDoNotationInstance in @typesugar/macros).
 
 // ============================================================================
 // Chain Building

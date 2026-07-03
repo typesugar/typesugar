@@ -10,11 +10,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries } from "@typesugar/macros";
 import { config } from "@typesugar/core";
 
 beforeEach(() => {
-  clearRegistries();
   config.set({ resolution: { mode: "automatic" } });
 });
 

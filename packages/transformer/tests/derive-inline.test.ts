@@ -9,13 +9,8 @@
  * - All typeclass and derive tests pass
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries } from "@typesugar/macros";
-
-beforeEach(() => {
-  clearRegistries();
-});
 
 // ============================================================================
 // Gate 1: eqPoint.equals(p1, p2) → p1.x === p2.x && p1.y === p2.y

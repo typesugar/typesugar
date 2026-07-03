@@ -79,7 +79,6 @@ export {
   withDerivationContext,
   resolveFieldInstance,
   tryExpandGenericDerive,
-  clearRegistries,
   registerTypeclassMacros,
   instanceVarName,
   companionPath,
@@ -88,20 +87,12 @@ export {
   getTypeclassesForMethod,
   extractOpFromJSDoc,
   registerInstanceWithMeta,
-  getInstanceMeta,
-  getFlatMapMethodNames,
-  registerParCombineBuilder,
-  getParCombineBuilderFromRegistry,
-  hasFlatMapInstance,
-  hasParCombineInstance,
-  parCombineBuilderRegistry,
   getSpecializationMethodsForDerivation,
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
   type InstanceMeta,
   type SyntaxEntry,
-  type ParCombineBuilder,
 } from "./typeclass.js";
 export {
   // Internal: registerInstanceMethodsFromAST is used by @impl macro, not public API

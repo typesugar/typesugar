@@ -231,7 +231,6 @@ export {
   flatMapList,
   flatMapValidated,
   fpFlatMapInstances,
-  registerFpFlatMapInstances,
   traverseArray,
   sequenceArray,
   fmap,

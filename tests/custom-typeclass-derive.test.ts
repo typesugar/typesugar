@@ -12,15 +12,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { transformCode } from "@typesugar/transformer/pipeline";
 import {
-  clearRegistries,
   registerGenericDerivation,
   makePrimitiveChecker,
   resolveFieldInstance,
 } from "@typesugar/macros";
-
-beforeEach(() => {
-  clearRegistries();
-});
 
 // ============================================================================
 // Custom Typeclass: Pretty — a non-builtin typeclass for testing

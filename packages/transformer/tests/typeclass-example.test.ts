@@ -1,12 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries } from "@typesugar/macros";
 import * as fs from "fs";
 import * as path from "path";
-
-beforeEach(() => {
-  clearRegistries();
-});
 
 describe("@typeclass playground example", () => {
   it("transforms without errors and resolves correct instances", () => {

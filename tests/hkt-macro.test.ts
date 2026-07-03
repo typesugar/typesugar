@@ -5,13 +5,8 @@
  * `interface FooF extends TypeFunction` with `this["__kind__"]` substitution.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { transformCode } from "@typesugar/transformer/pipeline";
-import { clearRegistries } from "@typesugar/macros";
-
-beforeEach(() => {
-  clearRegistries();
-});
 
 // ============================================================================
 // @hkt Tier 3: type alias with _ marker

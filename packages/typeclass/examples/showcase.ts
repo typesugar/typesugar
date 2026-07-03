@@ -28,7 +28,6 @@ import {
   summon,
   extend,
   implicit,
-  // clearRegistries — not used in showcase, available for test isolation
 } from "@typesugar/typeclass";
 
 // ============================================================================

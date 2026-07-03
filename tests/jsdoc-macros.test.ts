@@ -11,15 +11,9 @@
  * Registry state is internal to the transformer's module scope.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { transformCode } from "@typesugar/transformer/pipeline";
-import { clearRegistries } from "@typesugar/macros";
-
-beforeEach(() => {
-  // Clear registries for clean test state (in our module scope)
-  clearRegistries();
-});
 
 // ============================================================================
 // @typeclass JSDoc tag

@@ -83,11 +83,8 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import {
-  getParCombineBuilderFromRegistry,
-  resolveDoNotationInstance,
-  type DoNotationMeta,
-} from "@typesugar/macros";
+import { resolveDoNotationInstance, type DoNotationMeta } from "@typesugar/macros";
+import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
 import {
   type BindStep,
   type MapStep,
@@ -205,13 +202,13 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // 1. `@do-methods all=… receiver=…` metadata on the scoped instance — the
     //    generic static-join emission (`Receiver.all([...])` + style-aware
     //    continuation). Covers Promise and Effect without per-brand builders.
-    // 2. A registered AST builder (Array/Iterable cartesian products etc.).
+    // 2. A std-local AST builder (Array/Iterable cartesian products etc.).
     // 3. The generic applicative chain.
     if (scoped?.doMeta?.all && scoped.doMeta.receiver) {
       const result = buildStaticAllParCombine(ctx, steps, returnExpr, scoped.doMeta);
       return factory.createExpressionStatement(result);
     }
-    const parCombineBuilder = getParCombineBuilderFromRegistry(typeConstructorName);
+    const parCombineBuilder = getStdParCombineBuilder(typeConstructorName);
     const result = parCombineBuilder
       ? parCombineBuilder(ctx, steps, returnExpr)
       : buildApplicativeChain(ctx, steps, returnExpr);

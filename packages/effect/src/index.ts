@@ -11,16 +11,15 @@
  * - the `@derive` tokens (`EffectSchema`, `EffectEqual`, `EffectHash`),
  * - the Effect typeclass instances, extension namespaces, testing utilities and
  *   diagnostics, and
- * - the `FlatMap` instance for Effect (registered as a runtime side effect) that
- *   powers @typesugar/std's generic `let:/yield:` do-notation.
+ * - the `FlatMap`/`ParCombine` instances for Effect that power @typesugar/std's
+ *   generic `let:/yield:`/`par:` do-notation (PEP-052: resolved from scope —
+ *   bring them in with `import "@typesugar/effect/syntax/do"`).
  *
  * The macro *definitions* (which import `typescript`) live in the `./macros`
  * entry, loaded by the transformer at build time. See PEP-050.
  *
  * @module
  */
-
-import { registerFlatMap } from "@typesugar/std/typeclasses/flatmap";
 
 // ============================================================================
 // Runtime Placeholders (replaced by the macros at compile time)
@@ -316,7 +315,3 @@ export const parCombineEffect = {
     return getEffectModule().map(combined, f);
   },
 };
-
-// Register the FlatMap instance for Effect as a runtime side effect so the
-// generic let:/yield: do-notation macro (@typesugar/std) can expand for Effect.
-registerFlatMap("Effect", flatMapEffect);

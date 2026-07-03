@@ -1,27 +1,18 @@
 /**
- * Tests for typeclass.ts — Typeclass registry, instance management, and derivation
+ * Tests for typeclass.ts — Typeclass helpers and derivation
  *
  * Covers:
- * - Typeclass registry: register, lookup, clear, standard typeclasses
- * - Instance registry: register, lookup, duplicate detection, update
- * - Derivation context management
  * - HKT typeclass registration
- * - Operator syntax mapping
- * - FlatMap/ParCombine instance management
- * - ParCombine builder registry
+ * - Derivation context management
  * - Coverage hooks
+ *
+ * Instance resolution is scope-based (PEP-052) and tested in
+ * instance-scanner.test.ts / instance-resolver.test.ts and
+ * packages/std/tests/pep052-do-scope.test.ts.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
-  clearRegistries,
-  registerInstanceWithMeta,
-  getInstanceMeta,
-  getFlatMapMethodNames,
-  hasFlatMapInstance,
-  hasParCombineInstance,
-  registerParCombineBuilder,
-  getParCombineBuilderFromRegistry,
   registerHKTTypeclass,
   registerHKTExpansion,
   hktTypeclassNames,
@@ -29,182 +20,6 @@ import {
   withDerivationContext,
   setCoverageHooks,
 } from "./typeclass.js";
-
-// ============================================================================
-// Registry Setup
-// ============================================================================
-
-// ============================================================================
-// Instance Registry
-// ============================================================================
-
-// PEP-052: the general instance registry is deleted; instance *resolution* is
-// scope-based (see instance-resolver). The only surviving registry is the focused
-// do-notation lookup (FlatMap/ParCombine), populated by registerInstanceWithMeta.
-describe("do-notation instance lookup", () => {
-  beforeEach(() => {
-    clearRegistries();
-  });
-
-  describe("registerInstanceWithMeta", () => {
-    it("stores do-notation metadata", () => {
-      registerInstanceWithMeta({
-        typeclassName: "FlatMap",
-        forType: "Promise",
-        instanceName: "flatMapPromise",
-        derived: false,
-        meta: {
-          methodNames: { bind: "then", map: "then", orElse: "catch" },
-        },
-      });
-
-      const meta = getInstanceMeta("FlatMap", "Promise");
-      expect(meta).toBeDefined();
-      expect(meta!.methodNames!.bind).toBe("then");
-      expect(meta!.methodNames!.map).toBe("then");
-      expect(meta!.methodNames!.orElse).toBe("catch");
-    });
-
-    it("updates an existing instance (replace in place)", () => {
-      registerInstanceWithMeta({
-        typeclassName: "FlatMap",
-        forType: "Promise",
-        instanceName: "v1",
-        derived: false,
-        meta: { methodNames: { bind: "then" } },
-      });
-      registerInstanceWithMeta({
-        typeclassName: "FlatMap",
-        forType: "Promise",
-        instanceName: "v2",
-        derived: false,
-        meta: { methodNames: { bind: "chain" } },
-      });
-
-      expect(getInstanceMeta("FlatMap", "Promise")!.methodNames!.bind).toBe("chain");
-    });
-  });
-
-  describe("getInstanceMeta", () => {
-    it("returns undefined for a non-do-notation typeclass", () => {
-      const meta = getInstanceMeta("Show", "UnknownType");
-      expect(meta).toBeUndefined();
-    });
-
-    it("returns undefined when a do-notation instance carries no metadata", () => {
-      registerInstanceWithMeta({
-        typeclassName: "FlatMap",
-        forType: "Array",
-        instanceName: "flatMapArray",
-        derived: false,
-      });
-      expect(hasFlatMapInstance("Array")).toBe(true);
-      expect(getInstanceMeta("FlatMap", "Array")).toBeUndefined();
-    });
-  });
-});
-
-// ============================================================================
-// FlatMap Method Names
-// ============================================================================
-
-describe("getFlatMapMethodNames", () => {
-  beforeEach(() => {
-    clearRegistries();
-  });
-
-  it("returns defaults for unknown type", () => {
-    const names = getFlatMapMethodNames("Array");
-    expect(names.bind).toBe("flatMap");
-    expect(names.map).toBe("map");
-    expect(names.orElse).toBe("orElse");
-  });
-
-  it("returns Promise-specific method names", () => {
-    const names = getFlatMapMethodNames("Promise");
-    expect(names.bind).toBe("then");
-    expect(names.map).toBe("then");
-    expect(names.orElse).toBe("catch");
-  });
-
-  it("returns Effect-specific method names", () => {
-    const names = getFlatMapMethodNames("Effect");
-    expect(names.bind).toBe("flatMap");
-    expect(names.map).toBe("map");
-    expect(names.orElse).toBe("catchAll");
-  });
-
-  it("uses custom method names from metadata", () => {
-    registerInstanceWithMeta({
-      typeclassName: "FlatMap",
-      forType: "Task",
-      instanceName: "flatMapTask",
-      derived: false,
-      meta: {
-        methodNames: { bind: "chain", map: "fmap" },
-      },
-    });
-
-    const names = getFlatMapMethodNames("Task");
-    expect(names.bind).toBe("chain");
-    expect(names.map).toBe("fmap");
-    expect(names.orElse).toBe("orElse"); // falls back to default
-  });
-});
-
-// ============================================================================
-// hasFlatMapInstance / hasParCombineInstance
-// ============================================================================
-
-describe("hasFlatMapInstance / hasParCombineInstance", () => {
-  beforeEach(() => {
-    clearRegistries();
-  });
-
-  it("hasFlatMapInstance returns false when no instance registered", () => {
-    expect(hasFlatMapInstance("Array")).toBe(false);
-  });
-
-  it("hasFlatMapInstance returns true when instance registered", () => {
-    registerInstanceWithMeta({
-      typeclassName: "FlatMap",
-      forType: "Array",
-      instanceName: "flatMapArray",
-      derived: false,
-    });
-    expect(hasFlatMapInstance("Array")).toBe(true);
-  });
-
-  it("hasParCombineInstance returns false when no instance registered", () => {
-    expect(hasParCombineInstance("Promise")).toBe(false);
-  });
-
-  it("hasParCombineInstance returns true when instance registered", () => {
-    registerInstanceWithMeta({
-      typeclassName: "ParCombine",
-      forType: "Promise",
-      instanceName: "parCombinePromise",
-      derived: false,
-    });
-    expect(hasParCombineInstance("Promise")).toBe(true);
-  });
-});
-
-// ============================================================================
-// ParCombine Builder Registry
-// ============================================================================
-
-describe("ParCombine builder registry", () => {
-  it("registers and retrieves a builder", () => {
-    const mockBuilder = (() => {}) as any;
-    registerParCombineBuilder("Promise", mockBuilder);
-    expect(getParCombineBuilderFromRegistry("Promise")).toBe(mockBuilder);
-  });
-
-  it("returns undefined for unregistered builder", () => {
-    expect(getParCombineBuilderFromRegistry("NonexistentType")).toBeUndefined();
-  });
-});
 
 // ============================================================================
 // HKT Registration

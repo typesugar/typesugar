@@ -16,7 +16,6 @@ import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext, globalRegistry } from "@typesugar/core";
 import {
-  clearRegistries,
   makePrimitiveChecker,
   getGenericDerivation,
   hasGenericDerivation,
