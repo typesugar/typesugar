@@ -41,7 +41,10 @@ jobs:
         uses: changesets/action@v1
         with:
           publish: pnpm release
-          version: pnpm version
+          # NOTE: must be `pnpm run version` — bare `pnpm version` invokes the
+          # pnpm BUILTIN version command, not the package script, so changeset
+          # versioning never runs and the action pushes an empty release branch.
+          version: pnpm run version
           title: "chore: version packages"
           commit: "chore: version packages"
         env:
