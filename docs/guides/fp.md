@@ -255,9 +255,11 @@ const result = 42 * 2 + 1;
 
 ## Do-Notation
 
-Chain monadic operations cleanly:
+Chain monadic operations cleanly. The label syntax is import-scoped (PEP-052) — activate it with `import "@typesugar/std/syntax/do";` at the top of the file:
 
 ```typescript
+import "@typesugar/std/syntax/do";
+
 let: {
   user << findUser(42);
   posts << fetchPosts(user.id);

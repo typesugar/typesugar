@@ -39,6 +39,8 @@ import {
   TS9222,
 } from "@typesugar/core";
 
+import { getActivatedLabeledBlock } from "./label-activation.js";
+
 import {
   createMacroErrorExpression as createMacroErrorExpr,
   createMacroErrorStatement as createMacroErrorStmt,
@@ -355,7 +357,11 @@ class MacroTransformer {
               nextStmt &&
               ts.isLabeledStatement(nextStmt) &&
               nextStmt.label.text === decl.initializer.text &&
-              globalRegistry.getLabeledBlock(nextStmt.label.text)
+              ts.isBlock(nextStmt.statement) &&
+              // PEP-052 gate: an unactivated label must not trigger the merge,
+              // or the `const x = let;` statement would be silently dropped
+              // while the labeled block is left unexpanded.
+              getActivatedLabeledBlock(this.ctx, nextStmt.label.text, undefined)
             ) {
               // Hold this declaration — will be merged with the macro expansion
               pendingVarDecl = {
@@ -372,7 +378,12 @@ class MacroTransformer {
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
-        const macro = globalRegistry.getLabeledBlock(labelName);
+        // Only block-shaped labels are dispatch candidates — an ordinary loop
+        // label that collides with a macro label (`all: for (…)`) must never
+        // be hijacked, activated or not.
+        const macro = ts.isBlock(stmt.statement)
+          ? getActivatedLabeledBlock(this.ctx, labelName, stmt)
+          : undefined;
 
         if (macro) {
           if (isInOptedOutScope(this.ctx.sourceFile, stmt, globalResolutionScope, "macros")) {

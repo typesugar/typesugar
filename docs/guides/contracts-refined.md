@@ -25,6 +25,11 @@ function add(a: Positive, b: Positive): number {
 }
 ```
 
+The explicit `@contract` decorator needs no extra activation — importing the
+`contract` symbol is the opt-in. To use bare `requires:`/`ensures:` blocks
+without the decorator, add `import "@typesugar/contracts/syntax";` to the file
+(PEP-052 label-syntax activation; see the [Contracts Guide](/guides/contracts#activation)).
+
 ## What Gets Registered
 
 All built-in refinement types from `@typesugar/type-system`:

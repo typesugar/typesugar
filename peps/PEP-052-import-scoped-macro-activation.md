@@ -1,9 +1,10 @@
 # PEP-052: Import-Scoped Macro Activation (cats-style syntax)
 
-**Status:** In Progress (2026-07-02) — Wave 1 + registry-deletion Phases A–C landed (PR #34);
-Phase E concrete-type method-sugar gating landed; remaining: Phase D (moved to
-[PEP-053](PEP-053-always-on-specialization.md)), HKT method sugar / Part 2 (see
-"Implementation status & deferred work")
+**Status:** In Progress (2026-07-03) — Wave 1 + registry-deletion Phases A–C landed (PR #34);
+Phase E concrete-type method-sugar gating landed; Wave 2 `@syntax-labels` gating for
+labeled-block/trigger-label macros landed; remaining: Phase D (moved to
+[PEP-053](PEP-053-always-on-specialization.md)), HKT method sugar / named-trigger
+de-magicking (see "Implementation status & deferred work")
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")
@@ -469,6 +470,82 @@ welcome.ts`, `docs/examples/core/derive.ts` — claimed `===` rewrites to struct
   brand via the do-notation registry, a different mechanism from the concrete-type path
   just gated) remains untouched, per "Why deleting the registry is gated on the HKT/
   method-sugar work" below — still correctly deferred to Wave 2/Part 2.
+
+- **Wave 2 — `@syntax-labels` gating for labeled-block / trigger-label macros.
+  DONE (2026-07-03).** The two remaining free-standing syntactic triggers from the
+  Part 2 table are now activation-gated, mirroring the operator/method gates:
+  - **Engine:** `FileResolutionScope` gains `activatedLabelSyntax` (keyed by
+    **macro name**, not label text, so one marker covers all of a macro's label
+    aliases — `let:`/`seq:`); `readSyntaxActivationMarkers` reads the new
+    `@syntax-labels <macroName>` JSDoc tag; `activateLabelSyntax` /
+    `isLabelSyntaxActivated` on the tracker.
+  - **Markers shipped:** `@typesugar/std/syntax/do` (activates `letYield` +
+    `parYield` — `let:`/`seq:`/`par:`/`all:`; continuation labels need no gating,
+    they're only consumed after an activated head label) and
+    `@typesugar/contracts/syntax` (activates `contract`'s `requires:`/`ensures:`
+    trigger labels). The explicit `@contract` decorator form stays a named
+    trigger — no marker needed.
+  - **Gates at every dispatch site:** legacy transformer statement dispatch +
+    expression-position (broken-parse `const x = let, {a}`) path +
+    `tryExpandImplicitLabelMacro` (contracts, legacy-only); transformer-core
+    statement dispatch + the `const x = let;` merge peek (which must be gated
+    too, or the held variable statement would be silently dropped).
+  - **Diagnostic:** unactivated block-shaped label matching a registered macro
+    emits **TS9224** (warning) with a "add `import "<syntaxModule>"`" help —
+    critical because unexpanded do-notation is still valid JS (`x << effect()`
+    becomes a bit-shift) and unexpanded `ensures:` is silent dead code. New
+    optional `syntaxModule` field on `LabeledBlockMacro`/`AttributeMacro` feeds
+    the hint. Ordinary loop labels colliding with macro names (`all: for(…)`)
+    are never hijacked and never warned (non-block-shaped).
+  - **Bug found & fixed while wiring:** activation markers were silently
+    dropped for files rewritten by the expression-comprehension preprocessor —
+    the re-parsed `SourceFile` isn't part of the `ts.Program`, so
+    checker-based module resolution returned nothing. `scanImportsForScope`
+    now resolves markers against the program's own copy of the file (imports
+    are never touched by preprocessing, so specifier text matches). This
+    affected ALL marker kinds (operators/methods too) in preprocessed files.
+  - **Review round (same PR, five-lens + verify):** four confirmed issues in
+    the first cut, all fixed before merge:
+    1. _Playground regression:_ transformer-core's `transformCode` default
+       in-memory host can't resolve any module, so checker-based marker reads
+       found nothing and labels went dead in the playground. Fixed by making
+       `syntaxModule` double as a **resolution-free activation fallback** in
+       `scanImportsForScope`: an import specifier exactly matching a
+       registered macro's `syntaxModule` activates it with no module
+       resolution. (Operator/method markers have no registry back-pointer, so
+       the same playground gap for THEM is pre-existing Wave 1 behavior —
+       still open, tracked below.)
+    2. _Preprocessor mangling:_ the string-level comprehension preprocessor
+       committed to do-notation before the AST gate ran; in an unactivated
+       file the gated merge then refused to repair the rewrite, emitting
+       `__letyield_` fragments (invalid JS) with `changed: true`. Fixed by
+       gating the preprocessor itself — the pipeline scans activation (the
+       program exists by then; the scan is idempotent) and skips the rewrite
+       when neither comprehension macro is activated.
+    3. _Loop-label hijack in activated files:_ the block-shape check only
+       gated the hint, not dispatch, so `all: for (…)` in a file that
+       activates do-notation hard-errored. Dispatch now requires
+       `ts.isBlock(stmt.statement)` at every site — a labeled non-block is
+       never a candidate, activated or not.
+    4. _Trigger-label early exit:_ an unactivated candidate `break`-ed the
+       whole body scan, so a later label of a DIFFERENT (activated)
+       trigger-label macro would be skipped. Now `continue`s, hinting at most
+       once per macro.
+       Plus cleanups: the gate + hint logic (three copies) consolidated into
+       `transformer-core/src/label-activation.ts` (both transformers import it;
+       `registry.getLabeledBlock` docs now warn it is the raw, activation-unaware
+       lookup); `scanImportsForScope` iterates the program's copy of the file
+       directly and skips guaranteed-to-fail checker lookups when the file isn't
+       in the program.
+  - **Tests:** `packages/std/tests/pep052-syntax-labels.test.ts` (on/off/hint/
+    loop-label-unactivated/loop-label-activated/opt-out × do-notation +
+    contracts, unmangled expression-position in unactivated files, the
+    in-memory-host `syntaxModule` fallback, and a marker↔macro consistency
+    check binding each `@syntax-labels` tag to a registered macro whose
+    `syntaxModule` points back at the marker). Existing suites that relied
+    on ambient labels fixed by adding the marker import to fixtures (never by
+    weakening the gate); `contract-old.test.ts`'s `/virtual/` fileName moved to
+    a repo-relative one so the fixture's activation import can resolve.
 
 ### Why deleting the registry is gated on the HKT/method-sugar work
 

@@ -46,6 +46,7 @@ export const contractAttribute = defineAttributeMacro({
   // without an explicit decorator. Only active when @typesugar/contracts is
   // loaded (which is what registers this macro).
   triggerLabels: ["requires", "ensures"],
+  syntaxModule: "@typesugar/contracts/syntax",
 
   expand(
     ctx: MacroContext,

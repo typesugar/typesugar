@@ -3,6 +3,7 @@
 
 import { Effect, Context, Layer, pipe } from "effect";
 import { service } from "@typesugar/effect";
+import "@typesugar/std/syntax/do";
 
 // --- @service turns an interface into a Context.Tag + namespace accessors ---
 

@@ -336,6 +336,16 @@ export interface AttributeMacro extends MacroDefinitionBase {
   triggerLabels?: string[];
 
   /**
+   * Module whose import activates this macro's trigger-label syntax in a file
+   * (a module carrying a `@syntax-labels <name>` marker, PEP-052 Part 2).
+   * Feeds the TS9224 "label syntax not activated" hint, and doubles as a
+   * resolution-free activation fallback: an import specifier that exactly
+   * matches this string activates the macro even in hosts that cannot
+   * resolve modules (in-memory/playground hosts, virtual file names).
+   */
+  syntaxModule?: string;
+
+  /**
    * Expand the attribute macro.
    *
    * `target` is typed as `ts.Node` because in practice the framework hands
@@ -509,6 +519,16 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
    * Default: false (no warning — for side-effecting labeled blocks).
    */
   valueProducing?: boolean;
+
+  /**
+   * Module whose import activates this macro's label syntax in a file
+   * (a module carrying a `@syntax-labels <name>` marker, PEP-052 Part 2).
+   * Feeds the TS9224 "label syntax not activated" hint, and doubles as a
+   * resolution-free activation fallback: an import specifier that exactly
+   * matches this string activates the macro even in hosts that cannot
+   * resolve modules (in-memory/playground hosts, virtual file names).
+   */
+  syntaxModule?: string;
 
   /**
    * Expand the labeled block macro

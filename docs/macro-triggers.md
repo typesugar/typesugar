@@ -234,6 +234,8 @@ yield: {
 
 The macro consumes both the main labeled block (`let:`) and any following continuation blocks (`yield:`).
 
+**Activation (PEP-052):** label syntax is import-scoped. A matching label only expands in files that import a module carrying a `@syntax-labels <macroName>` marker — `import "@typesugar/std/syntax/do";` for the `let:`/`seq:`/`par:`/`all:` comprehensions, `import "@typesugar/contracts/syntax";` for the `requires:`/`ensures:` contract trigger labels. Without the import the label is left as plain JavaScript and the transformer warns (TS9224) with a hint naming the `syntaxModule` import to add. Ordinary loop labels that collide with a macro label produce no warning.
+
 **Registration:**
 
 ```typescript
@@ -241,6 +243,7 @@ defineLabeledBlockMacro({
   name: "let",
   label: "let",
   continuationLabels: ["yield", "pure"],
+  syntaxModule: "@typesugar/std/syntax/do", // named in the TS9224 activation hint
   expand(ctx, mainBlock, continuation) {
     // mainBlock is the `let: { ... }` LabeledStatement
     // continuation is the optional `yield: { ... }` LabeledStatement

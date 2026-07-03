@@ -152,6 +152,11 @@
       "types": "./dist/syntax/type-guard.d.ts",
       "import": "./dist/syntax/type-guard.js",
       "require": "./dist/syntax/type-guard.cjs"
+    },
+    "./syntax/do": {
+      "types": "./dist/syntax/do.d.ts",
+      "import": "./dist/syntax/do.js",
+      "require": "./dist/syntax/do.cjs"
     }
   },
   "scripts": {

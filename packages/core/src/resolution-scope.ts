@@ -11,6 +11,7 @@
 
 import * as ts from "typescript";
 import { config, ResolutionMode } from "./config.js";
+import { globalRegistry } from "./registry.js";
 
 /**
  * Information about an imported typeclass or extension.
@@ -59,6 +60,15 @@ export interface FileResolutionScope {
    * when its typeclass is in this set.
    */
   activatedMethodSyntax: Set<string>;
+  /**
+   * Labeled-block / trigger-label macros whose LABEL syntax is activated in
+   * this file, via a side-effect import of a module carrying a
+   * `@syntax-labels <macroName>` marker (PEP-052 Part 2). Keyed by MACRO name
+   * (e.g. "letYield", "contract"), not label text, so one marker activates all
+   * of a macro's label aliases (`let:`/`seq:`). A `let: { ... }` block only
+   * expands when its macro is in this set.
+   */
+  activatedLabelSyntax: Set<string>;
 }
 
 /**
@@ -83,6 +93,7 @@ export class ResolutionScopeTracker {
         hasUseExtension: false,
         activatedOperatorSyntax: new Set(),
         activatedMethodSyntax: new Set(),
+        activatedLabelSyntax: new Set(),
       });
     }
     return this.fileScopes.get(fileName)!;
@@ -135,6 +146,15 @@ export class ResolutionScopeTracker {
   }
 
   /**
+   * Activate label syntax for a labeled-block / trigger-label macro in a file
+   * (PEP-052 Part 2). Keyed by macro name.
+   */
+  activateLabelSyntax(fileName: string, macroName: string): void {
+    const scope = this.getScope(fileName);
+    scope.activatedLabelSyntax.add(macroName);
+  }
+
+  /**
    * Whether a typeclass's operator syntax is activated in a file.
    * Respects file-level opt-out.
    */
@@ -152,6 +172,16 @@ export class ResolutionScopeTracker {
     const scope = this.getScope(fileName);
     if (scope.optedOut) return false;
     return scope.activatedMethodSyntax.has(typeclassName);
+  }
+
+  /**
+   * Whether a labeled-block / trigger-label macro's label syntax is activated
+   * in a file. Respects file-level opt-out.
+   */
+  isLabelSyntaxActivated(fileName: string, macroName: string): boolean {
+    const scope = this.getScope(fileName);
+    if (scope.optedOut) return false;
+    return scope.activatedLabelSyntax.has(macroName);
   }
 
   /** Typeclasses defined in a file (via `@typeclass`) — always activated locally. */
@@ -314,13 +344,16 @@ export const globalResolutionScope = new ResolutionScopeTracker();
  * export {};
  * ```
  *
- * Returns the typeclass names activated for operator and method syntax. Requires
+ * Returns the typeclass names activated for operator and method syntax, plus the
+ * macro names activated for label syntax (`@syntax-labels <macroName>`). Requires
  * a `program` to resolve the module specifier to its source file; without one,
  * no markers are discovered (callers in registry-only paths pass none).
  */
 interface SyntaxMarkers {
   operatorTCs: string[];
   methodTCs: string[];
+  /** Macro names from `@syntax-labels <macroName>` tags (PEP-052 Part 2). */
+  labelMacros: string[];
 }
 
 // Memoize marker results per resolved module SourceFile. Marker modules are
@@ -333,7 +366,7 @@ function readSyntaxActivationMarkers(
   checker: ts.TypeChecker,
   moduleSpecifier: ts.Expression
 ): SyntaxMarkers {
-  const empty: SyntaxMarkers = { operatorTCs: [], methodTCs: [] };
+  const empty: SyntaxMarkers = { operatorTCs: [], methodTCs: [], labelMacros: [] };
 
   // Resolve the imported module via the checker (respects the program's module
   // resolution — works for on-disk and virtual/in-memory hosts alike).
@@ -352,20 +385,28 @@ function readSyntaxActivationMarkers(
   // the generated declaration file.
   const operatorTCs: string[] = [];
   const methodTCs: string[] = [];
+  const labelMacros: string[] = [];
   for (const stmt of moduleFile.statements) {
     for (const tag of ts.getJSDocTags(stmt)) {
       const tagName = tag.tagName.text;
-      if (tagName !== "syntax-operators" && tagName !== "syntax-methods") continue;
-      const tc =
+      if (
+        tagName !== "syntax-operators" &&
+        tagName !== "syntax-methods" &&
+        tagName !== "syntax-labels"
+      ) {
+        continue;
+      }
+      const name =
         typeof tag.comment === "string"
           ? tag.comment.trim()
           : ts.getTextOfJSDocComment(tag.comment)?.trim();
-      if (!tc) continue;
-      if (tagName === "syntax-operators") operatorTCs.push(tc);
-      else methodTCs.push(tc);
+      if (!name) continue;
+      if (tagName === "syntax-operators") operatorTCs.push(name);
+      else if (tagName === "syntax-methods") methodTCs.push(name);
+      else labelMacros.push(name);
     }
   }
-  const result: SyntaxMarkers = { operatorTCs, methodTCs };
+  const result: SyntaxMarkers = { operatorTCs, methodTCs, labelMacros };
   markerCache.set(moduleFile, result);
   return result;
 }
@@ -385,6 +426,35 @@ export function scanImportsForScope(
 
   // Clear existing scope for this file
   tracker.clearScope(fileName);
+
+  // Imports are scanned from the program's copy of the file when available:
+  // `sourceFile` may be a re-parsed copy that is not part of `program` (the
+  // expression-comprehension preprocessor rewrites the text and the pipeline
+  // re-parses it), and checker-based module resolution only works on nodes
+  // that belong to the program. Preprocessing never touches imports, so the
+  // program copy's import list is authoritative either way. When the file is
+  // not in the program at all, checker resolution is guaranteed to fail —
+  // skip it entirely (the syntaxModule text fallback below still applies).
+  const programFile = program?.getSourceFile(fileName);
+  const importScanFile = programFile ?? sourceFile;
+  const checker = programFile ? program!.getTypeChecker() : undefined;
+
+  // Resolution-free activation fallback: a registered macro's `syntaxModule`
+  // names the module whose import activates its label syntax, so an import
+  // specifier that exactly matches it states the user's intent without any
+  // module resolution. This is what keeps label activation working in hosts
+  // that cannot resolve modules (the playground's in-memory host, virtual
+  // file names outside any node_modules tree). Checker-resolved markers
+  // remain the general mechanism (they also cover re-exports and third-party
+  // wrappers); this fallback only adds activations, never removes them.
+  const syntaxModuleIndex = new Map<string, string[]>();
+  for (const macro of globalRegistry.getAll()) {
+    const syntaxModule = (macro as { syntaxModule?: string }).syntaxModule;
+    if (!syntaxModule) continue;
+    const names = syntaxModuleIndex.get(syntaxModule) ?? [];
+    names.push(macro.name);
+    syntaxModuleIndex.set(syntaxModule, names);
+  }
 
   // Known typeclass names (from @typesugar/std and common typeclasses)
   const knownTypeclasses = new Set([
@@ -414,7 +484,7 @@ export function scanImportsForScope(
   ]);
 
   // Scan imports
-  ts.forEachChild(sourceFile, (node) => {
+  ts.forEachChild(importScanFile, (node) => {
     if (ts.isImportDeclaration(node)) {
       const moduleSpecifier = node.moduleSpecifier;
       if (!ts.isStringLiteral(moduleSpecifier)) return;
@@ -425,13 +495,18 @@ export function scanImportsForScope(
       // PEP-052: discover syntax-activation markers on the imported module.
       // This runs for every import — including side-effect imports
       // (`import "@typesugar/std/syntax/eq/ops"`), which have no import clause.
-      if (program) {
-        const { operatorTCs, methodTCs } = readSyntaxActivationMarkers(
-          program.getTypeChecker(),
+      if (checker) {
+        const { operatorTCs, methodTCs, labelMacros } = readSyntaxActivationMarkers(
+          checker,
           moduleSpecifier
         );
         for (const tc of operatorTCs) tracker.activateOperatorSyntax(fileName, tc);
         for (const tc of methodTCs) tracker.activateMethodSyntax(fileName, tc);
+        for (const m of labelMacros) tracker.activateLabelSyntax(fileName, m);
+      }
+      const bySyntaxModule = syntaxModuleIndex.get(moduleName);
+      if (bySyntaxModule) {
+        for (const m of bySyntaxModule) tracker.activateLabelSyntax(fileName, m);
       }
 
       if (!importClause) return;

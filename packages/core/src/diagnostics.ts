@@ -950,6 +950,30 @@ Fix one of:
   seeAlso: "https://typesugar.dev/errors/TS9222",
 };
 
+export const TS9224: DiagnosticDescriptor = {
+  code: 9224,
+  severity: "warning",
+  category: DiagnosticCategory.MacroSyntax,
+  messageTemplate:
+    "'{label}:' matches the {macro} macro, but its label syntax is not activated in this file",
+  explanation: `A labeled block matched a registered labeled-block (or trigger-label) macro,
+but the file never imports a module that activates that macro's label syntax
+(PEP-052). Without activation the label is left as ordinary JavaScript — a
+plain labeled statement — which almost certainly does not do what the block
+was written to do (do-notation binds like \`x << effect()\` become bit-shift
+expressions; contract blocks become dead code).
+
+Activate the syntax with a side-effect import of the macro's syntax module,
+e.g.:
+
+  import "@typesugar/std/syntax/do";        // let:/seq:/par:/all: comprehensions
+  import "@typesugar/contracts/syntax";     // requires:/ensures: contract blocks
+
+If the labeled statement is intentional plain JavaScript, rename the label or
+opt out with \`"use no typesugar macros"\`.`,
+  seeAlso: "https://typesugar.dev/errors/TS9224",
+};
+
 // ============================================================================
 // Error Catalog: HKT Issues (9300-9399)
 // ============================================================================
@@ -1315,6 +1339,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9220, TS9220],
   [9222, TS9222],
   [9223, TS9223],
+  [9224, TS9224],
 
   // HKT Issues (9300-9399)
   [9301, TS9301],

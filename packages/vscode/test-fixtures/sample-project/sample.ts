@@ -1,3 +1,6 @@
+// Activate let:/yield: label syntax in this file (PEP-052)
+import "@typesugar/std/syntax/do";
+
 // Expression macros
 const answer = comptime(() => 6 * 7);
 const pi = comptime(() => Math.PI);

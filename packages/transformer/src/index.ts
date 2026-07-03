@@ -41,6 +41,9 @@ import {
   tryInlineDerivedInstanceCall as tryInlineDerivedInstanceCallShared,
   tryReturnTypeDrivenSpecialize as tryReturnTypeDrivenSpecializeShared,
   eliminateDeadDerivedInstances,
+  // PEP-052 label-activation gate — single shared implementation
+  getActivatedLabeledBlock,
+  emitLabelSyntaxNotActivatedHint,
 } from "@typesugar/transformer-core";
 
 import {
@@ -2330,7 +2333,10 @@ class MacroTransformer {
             secondDecl.name.elements.length >= 1
           ) {
             const labelName = firstDecl.initializer.text;
-            const macro = globalRegistry.getLabeledBlock(labelName);
+            // PEP-052 gate. The head label was consumed as an identifier here,
+            // so there is no LabeledStatement to warn at — anchor the TS9224
+            // hint on the variable statement itself.
+            const macro = getActivatedLabeledBlock(this.ctx, labelName, stmt);
             if (macro) {
               // Extract first bind name from destructuring pattern { a }
               const firstBindName = secondDecl.name.elements[0].name;
@@ -2467,7 +2473,12 @@ class MacroTransformer {
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
-        const macro = globalRegistry.getLabeledBlock(labelName);
+        // Only block-shaped labels are dispatch candidates — an ordinary loop
+        // label that collides with a macro label (`all: for (…)`) must never
+        // be hijacked, activated or not.
+        const macro = ts.isBlock(stmt.statement)
+          ? getActivatedLabeledBlock(this.ctx, labelName, stmt)
+          : undefined;
 
         if (macro) {
           // Check for inline opt-out of macros
@@ -3453,6 +3464,7 @@ class MacroTransformer {
     // qualify (`label: { ... }` or `label: (result) => { ... }`), so ordinary
     // loop/break labels like `requires: for (...)` are never hijacked.
     let macro: AttributeMacro | undefined;
+    const hintedUnactivated = new Set<string>();
     for (const stmt of body.statements) {
       if (!ts.isLabeledStatement(stmt)) continue;
       const isBlockShaped =
@@ -3461,6 +3473,23 @@ class MacroTransformer {
       if (!isBlockShaped) continue;
       const candidate = globalRegistry.getAttributeByTriggerLabel(stmt.label.text);
       if (candidate) {
+        // PEP-052 gate: trigger labels only fire when the file imports a
+        // module carrying a `@syntax-labels <macro.name>` marker. Keep
+        // scanning after an unactivated match — a later label may belong to
+        // a different, activated trigger-label macro — but hint at most once
+        // per macro (a `requires:`/`ensures:` pair is one missing import).
+        if (
+          !globalResolutionScope.isLabelSyntaxActivated(
+            this.ctx.sourceFile.fileName,
+            candidate.name
+          )
+        ) {
+          if (!hintedUnactivated.has(candidate.name)) {
+            hintedUnactivated.add(candidate.name);
+            emitLabelSyntaxNotActivatedHint(this.ctx, stmt, stmt.label.text, candidate);
+          }
+          continue;
+        }
         macro = candidate;
         break;
       }

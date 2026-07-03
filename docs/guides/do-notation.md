@@ -13,9 +13,20 @@ Naming convention:
 - `let:` / `seq:` use the `FlatMap` typeclass (registered in the unified instance registry)
 - `par:` / `all:` use the `ParCombine` typeclass (registered in the unified instance registry)
 
+## Activation
+
+Label syntax is import-scoped (PEP-052) — the comprehension labels only expand in files that import the activation marker:
+
+```typescript
+import "@typesugar/std/syntax/do";
+```
+
+Without this import the labels are left as ordinary JavaScript and the compiler warns (TS9224: `'let:' matches the letYield macro, but its label syntax is not activated in this file`) with a hint naming the import to add. Ordinary loop labels that happen to collide with a macro label (e.g. `all: for (...)`) are never hijacked and produce no warning.
+
 ## Quick Start
 
 ```typescript
+import "@typesugar/std/syntax/do"; // activate let:/seq:/par:/all: label syntax
 import { Option, Some, None } from "@typesugar/fp";
 
 // Sequential: each binding can depend on previous bindings
@@ -399,6 +410,7 @@ Both `FlatMap` and `ParCombine` are now part of the unified typeclass instance r
 Register a `FlatMap` instance for custom monadic types using `registerFlatMap`:
 
 ```typescript
+import "@typesugar/std/syntax/do";
 import { registerFlatMap } from "@typesugar/std";
 
 class Task<T> {
@@ -462,6 +474,7 @@ registerFlatMap(
 Register a `ParCombine` instance for custom parallel combination using `registerParCombine`:
 
 ```typescript
+import "@typesugar/std/syntax/do";
 import { registerParCombine } from "@typesugar/std";
 
 registerParCombine("MyEffect", {

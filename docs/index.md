@@ -144,6 +144,10 @@ If you're into FP, typesugar has you covered:
 - **Design by Contract** — `requires()`, `ensures()`, `@invariant` with compile-time proof elimination
 
 ```typescript
+// Label syntax is opt-in per file, like operator syntax above
+import "@typesugar/std/syntax/do"; // let:/yield: comprehensions
+import "@typesugar/contracts/syntax"; // requires:/ensures: blocks
+
 // HKT with F<A> syntax (the transformer rewrites F<A> to Kind<F, A>)
 interface Functor<F> {
   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;

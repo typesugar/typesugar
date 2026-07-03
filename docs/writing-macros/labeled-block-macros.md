@@ -26,6 +26,40 @@ defineLabeledBlockMacro("myLabel", {
 });
 ```
 
+## Activation (PEP-052)
+
+Label syntax is import-scoped: a labeled block only expands in files that
+import a module carrying a `@syntax-labels <macroName>` JSDoc marker. Ship a
+marker module with your macro and point `syntaxModule` at it — the transformer
+uses it in the TS9224 "label syntax not activated" hint:
+
+```typescript
+// my-pkg/src/syntax.ts — the activation marker
+/**
+ * @syntax-labels myLabel
+ */
+export const __my_pkg_syntax_labels = true;
+```
+
+```typescript
+defineLabeledBlockMacro("myLabel", {
+  syntaxModule: "my-pkg/syntax", // named in the TS9224 hint
+  expand(ctx, block) {
+    /* ... */
+  },
+});
+```
+
+Users opt in per file with a side-effect import:
+
+```typescript
+import "my-pkg/syntax";
+```
+
+The marker tag names the **macro**, not the label, so one marker activates all
+of a macro's label aliases. The JSDoc must sit on a real exported declaration
+(not a bare `export {}`) so it survives `.d.ts` generation.
+
 ## Tutorial: Creating `measure:`
 
 A block that measures execution time:
