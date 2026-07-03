@@ -142,6 +142,27 @@ yield: { cfg + a + b }
     expect(result.code).not.toContain(".ap(");
   });
 
+  it("let: over Either resolves via any fp import (scanner-visible flatMapEitherInstance)", () => {
+    const code = `
+import "@typesugar/std/syntax/do";
+import { Right, type Either } from "@typesugar/fp";
+
+declare function parse(s: string): Either<string, number>;
+declare function validate(n: number): Either<string, number>;
+
+const r =
+let: {
+  x << parse("42");
+  y << validate(x);
+}
+yield: { x + y }
+`;
+    const result = transformCode(code, { fileName: "do-scope-either.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain(".flatMap(");
+    expect(result.code).not.toContain("let: {");
+  });
+
   it("no ambient leak (Phase 3): Effect does NOT resolve without a providing import in the fixture", () => {
     // The fixture imports only "effect" (the runtime library) and the std
     // marker. Before Phase 3, the FlatMap<Effect> instance leaked in from the

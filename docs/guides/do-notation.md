@@ -29,7 +29,7 @@ Instance resolution is scope-based too (no global registry): the `FlatMap`/`ParC
 
 - **Std builtins** (`Array`, `Promise`, `Iterable`, `AsyncIterable`) ride the same marker — `import "@typesugar/std/syntax/do"` activates the labels AND brings their instances into scope, so the common case needs nothing extra.
 - **Effect** — use `import "@typesugar/effect/syntax/do"` instead; one import activates the labels and provides the Effect instances (it re-exports the std builtins too).
-- **fp types** (`Option`, `List`, `IO`) — any import from `@typesugar/fp` brings their instances into scope. (`Either` has no shipped instance — its `FlatMap` is a per-error-type factory; declare a local `@impl FlatMap<Either>` for your error type.)
+- **fp types** (`Option`, `Either`, `List`, `IO`) — any import from `@typesugar/fp` brings their instances into scope.
 - **Custom monads** — see [Custom Types](#custom-types) below.
 
 If a comprehension's type has no instance in scope, the compiler errors (TS9225: `No FlatMap instance for 'X' is in scope`) with a hint naming the import to add.

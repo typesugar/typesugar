@@ -512,14 +512,15 @@ export function resolveStdDoFallback(
  * name the exact import to add. Every entry must point at a module that
  * actually exports a scanner-visible (`@impl`-tagged) instance for the brand
  * — a hint that recommends an import which doesn't fix the error is worse
- * than the generic message. (Notably NOT Either: fp's `flatMapEither` is an
- * untagged factory function the scanner cannot see, and Either was never
- * do-notation-resolvable — declare a local `@impl FlatMap<Either>` instance
- * for a fixed error type instead.)
+ * than the generic message. (Either is served by fp's scanner-visible
+ * `flatMapEitherInstance` — `@impl FlatMap<EitherF>` — added after the Wave 3
+ * review; the `flatMapEither<E>()` factory alone was invisible to the
+ * scanner.)
  */
 export const KNOWN_DO_INSTANCE_MODULES: Record<string, string> = {
   Effect: "@typesugar/effect/syntax/do",
   Option: "@typesugar/fp",
+  Either: "@typesugar/fp",
   List: "@typesugar/fp",
   IO: "@typesugar/fp",
 };

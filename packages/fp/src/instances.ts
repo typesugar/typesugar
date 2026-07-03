@@ -700,6 +700,23 @@ export function flatMapEither<E>() {
 }
 
 /**
+ * FlatMap instance for Either, usable by do-notation scope resolution
+ * (PEP-052). The factory above fixes `E` at the TYPE level, but the returned
+ * dictionary is uniform in `E` at runtime (`map`/`flatMap` only touch the
+ * `Right` branch), so this single scanner-visible const serves every error
+ * type — the factory remains for callers who want `E` pinned in the types.
+ */
+/** @impl FlatMap<EitherF> */
+export const flatMapEitherInstance = flatMapEither<unknown>();
+
+registerInstanceWithMeta({
+  typeclassName: "FlatMap",
+  forType: "EitherF",
+  instanceName: "flatMapEitherInstance",
+  derived: false,
+});
+
+/**
  * FlatMap instance for IO.
  */
 /** @impl FlatMap<IOF> */

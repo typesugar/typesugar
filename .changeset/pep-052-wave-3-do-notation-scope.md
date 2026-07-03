@@ -27,6 +27,10 @@ process-global instance registry is deleted.
   static receiver, `all` join) — replacing the hardcoded Promise/Effect
   special cases in the comprehension macros. Third-party monads get the
   same treatment as std's.
+- NEW: scanner-visible `FlatMap<Either>` instance (`flatMapEitherInstance`)
+  in `@typesugar/fp` — `let:` over Either now works via any fp import (the
+  `flatMapEither<E>()` factory alone was never discoverable, so Either
+  do-notation had silently never expanded).
 - NEW: `ParCombine<Effect>` instance — `par:` over Effect now emits
   `Effect.map(Effect.all([...]), ...)`; previously it fell back to an
   applicative chain emitting `.map(...).ap(...)` calls Effect doesn't have.
