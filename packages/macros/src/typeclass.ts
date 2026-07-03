@@ -666,7 +666,7 @@ interface TypeclassInfo {
    * Named member signatures (member name + raw source text), used by the
    * op-index to flatten inherited members across `extends` clauses.
    */
-  memberEntries?: Array<{ name: string; text: string }>;
+  memberEntries?: Array<{ name: string; node: ts.TypeElement }>;
   /**
    * `extends` heritage references: parent typeclass name + type argument texts.
    * Resolved by the op-index (declaration-name lookup) to inherit members and
@@ -1570,7 +1570,7 @@ export function buildTypeclassInfoFromInterface(
   // Extract methods from the interface (handles both MethodSignature and PropertySignature).
   const methods: TypeclassMethod[] = [];
   const memberTexts: string[] = [];
-  const memberEntries: Array<{ name: string; text: string }> = [];
+  const memberEntries: Array<{ name: string; node: ts.TypeElement }> = [];
 
   for (const member of iface.members) {
     // Capture raw source text of each member for HKT expansion.
@@ -1579,8 +1579,9 @@ export function buildTypeclassInfoFromInterface(
       const text = member.getText(sourceFile);
       memberTexts.push(text);
       if (member.name && ts.isIdentifier(member.name)) {
-        // Strip a trailing separator so joined texts stay parseable.
-        memberEntries.push({ name: member.name.text, text: text.replace(/[;,]\s*$/, "") });
+        // Keep the AST node — heritage flattening substitutes type params via
+        // a scoped visitor and prints once (no string surgery on code text).
+        memberEntries.push({ name: member.name.text, node: member });
       }
     }
 
@@ -1889,11 +1890,12 @@ export const implAttribute = defineAttributeMacro({
       // Tier 1 implicit resolution: if typeName isn't a known type function,
       // try to resolve it via TypeChecker and auto-register
       const { base: resolvedBase } = parseTypeConstructor(typeName);
-      if (!hktExpansionRegistry.has(typeName) && !hktExpansionRegistry.has(resolvedBase)) {
+      const expansions = hktExpansionsFor(ctx.program);
+      if (!expansions.has(typeName) && !expansions.has(resolvedBase)) {
         let resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
         if (resolution) {
           // Auto-register the base type as an HKT expansion
-          registerHKTExpansion(resolution.baseType, resolution.baseType);
+          registerHKTExpansion(ctx.program, resolution.baseType, resolution.baseType);
         } else if (resolvedBase.length > 1 && resolvedBase.endsWith("F")) {
           // `*F` convention (replaces the old hardcoded seed table): `OptionF`
           // names the TypeFunction encoding of `Option`. The encoding interface
@@ -1902,7 +1904,7 @@ export const implAttribute = defineAttributeMacro({
           const strippedBase = resolvedBase.slice(0, -1);
           resolution = resolveTypeConstructorViaTypeChecker(ctx, strippedBase);
           if (resolution) {
-            registerHKTExpansion(resolvedBase, resolution.baseType);
+            registerHKTExpansion(ctx.program, resolvedBase, resolution.baseType);
           }
         }
         if (!resolution) {
@@ -2003,15 +2005,25 @@ export const implAttribute = defineAttributeMacro({
 // ============================================================================
 
 /**
- * Registry mapping HKT type constructor names to their concrete expansions.
- * E.g., "OptionF" → "Option", "ArrayF" → "Array".
+ * HKT type-constructor expansions ("OptionF" → "Option"), keyed PER PROGRAM
+ * (WeakMap — watch/LSP rebuilds invalidate naturally, and one program's
+ * resolutions can never leak into another; same pattern as the op-index).
  *
  * Populated by the `@impl` macro's tier-1 TypeChecker auto-registration (and
  * `registerHKTExpansion` for explicit registrations) — there are no hardcoded
  * seed entries (PEP-052 Wave 4): the `*F` → base-name convention is resolved
  * against the program's declarations instead.
  */
-export const hktExpansionRegistry = new Map<string, string>();
+const hktExpansionByProgram = new WeakMap<ts.Program, Map<string, string>>();
+
+function hktExpansionsFor(program: ts.Program): Map<string, string> {
+  let m = hktExpansionByProgram.get(program);
+  if (!m) {
+    m = new Map();
+    hktExpansionByProgram.set(program, m);
+  }
+  return m;
+}
 
 /**
  * Check if a typeclass uses HKT.
@@ -2031,15 +2043,24 @@ function isHKTTypeclass(program: ts.Program, name: string): boolean {
  * @param hktName - The type constructor name (e.g., "OptionF" or "Option")
  * @param concreteName - The concrete type name (e.g., "Option")
  */
-export function registerHKTExpansion(hktName: string, concreteName: string): void {
-  hktExpansionRegistry.set(hktName, concreteName);
+export function registerHKTExpansion(
+  program: ts.Program,
+  hktName: string,
+  concreteName: string
+): void {
+  hktExpansionsFor(program).set(hktName, concreteName);
 }
 
 /**
  * Get the concrete type for an HKT type constructor.
  */
-function getHKTExpansion(hktName: string): string {
-  return hktExpansionRegistry.get(hktName) ?? hktName;
+function getHKTExpansion(program: ts.Program, hktName: string): string {
+  return hktExpansionsFor(program).get(hktName) ?? hktName;
+}
+
+/** Test-only accessor for the per-program HKT expansion lookup. */
+export function getHKTExpansionForTest(program: ts.Program, hktName: string): string {
+  return getHKTExpansion(program, hktName);
 }
 
 /**
@@ -2067,9 +2088,9 @@ function generateHKTExpandedType(
   const { base, fixedArgs } = parseTypeConstructor(hktParam);
 
   // Resolve the expansion: try the full param first, then the base type
-  let expansion = hktExpansionRegistry.has(hktParam)
-    ? getHKTExpansion(hktParam)
-    : getHKTExpansion(base);
+  let expansion = hktExpansionsFor(ctx.program).has(hktParam)
+    ? getHKTExpansion(ctx.program, hktParam)
+    : getHKTExpansion(ctx.program, base);
 
   // For partial application, the expansion substitution needs to include fixed args.
   // e.g., Kind<F, A> → Either<string, A> instead of Either<A>

@@ -17,7 +17,7 @@ import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { registerHKTExpansion, hktExpansionRegistry } from "./typeclass.js";
+import { registerHKTExpansion, getHKTExpansionForTest } from "./typeclass.js";
 import { withDerivationContext, setCoverageHooks } from "./typeclass.js";
 import { isHktTypeclass, getTypeclassDef } from "./typeclass-index.js";
 
@@ -141,16 +141,18 @@ describe("declaration-derived HKT detection", () => {
 // HKT expansion registry
 // ============================================================================
 
-describe("HKT expansion registry", () => {
-  it("has no hardcoded seed entries (PEP-052 Wave 4)", () => {
-    expect(hktExpansionRegistry.has("OptionF")).toBe(false);
-  });
+describe("HKT expansion registry (per-program, PEP-052 Wave 4)", () => {
+  it("has no hardcoded seed entries and isolates registrations per program", () => {
+    const programA = createTestProgram("export {};", "prog-a.ts");
+    const programB = createTestProgram("export {};", "prog-b.ts");
 
-  it("registerHKTExpansion adds expansion", () => {
-    registerHKTExpansion("TaskF", "Task");
-    expect(hktExpansionRegistry.get("TaskF")).toBe("Task");
-    // cleanup
-    hktExpansionRegistry.delete("TaskF");
+    expect(getHKTExpansionForTest(programA, "OptionF")).toBe("OptionF"); // no seeds
+
+    registerHKTExpansion(programA, "TaskF", "Task");
+    expect(getHKTExpansionForTest(programA, "TaskF")).toBe("Task");
+    // Program-keyed: no cross-program leakage, and no manual cleanup needed —
+    // the WeakMap entry dies with the program.
+    expect(getHKTExpansionForTest(programB, "TaskF")).toBe("TaskF");
   });
 });
 

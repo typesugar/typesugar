@@ -19,7 +19,11 @@ doesn't round-trip through the parser.
 PEP for migration):
 
 - `typeclass.ts` — companion + namespace assignment codegen (`companionCode`,
-  `assignCode`).
+  `assignCode`), and the HKT-expansion `fullSignatureText` contract: typeclass
+  member signatures travel as printed text and are re-parsed by
+  `generateHKTExpandedType`. (The heritage flattening that FEEDS that text is
+  AST-based — a scoped visitor + one printer call — per the Wave 4 review;
+  only the final text hand-off remains string-shaped.)
 - `verify-laws.ts` — law verification + property-test codegen.
 - `auto-derive.ts` — cached derivation output (memory + disk caches store strings;
   changing the cache contract to store AST is the bigger refactor).

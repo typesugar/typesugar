@@ -376,7 +376,7 @@ export {
 // Whether a typeclass is HKT is declaration-derived (PEP-052 Wave 4): see
 // `isHktTypeclass` in typeclass-index.ts. The old hardcoded name table
 // (hktTypeclassNames/registerHKTTypeclass) is gone.
-export { registerHKTExpansion, hktExpansionRegistry } from "./typeclass.js";
+export { registerHKTExpansion } from "./typeclass.js";
 
 // From hkt.ts - type-level utilities only
 export {

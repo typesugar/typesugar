@@ -118,6 +118,9 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
   for (const sourceFile of program.getSourceFiles()) {
     // Default lib files (lib.es*.d.ts) never carry @typeclass — skip the scan cost.
     if (program.isSourceFileDefaultLibrary(sourceFile)) continue;
+    // Cheap text pre-filter: most files (all of @types, most of node_modules)
+    // carry no @typeclass tag — skip the per-statement JSDoc walks entirely.
+    if (!sourceFile.text.includes("@typeclass")) continue;
 
     for (const stmt of sourceFile.statements) {
       if (!ts.isInterfaceDeclaration(stmt)) continue;
@@ -162,21 +165,69 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
   return index;
 }
 
-/** Escape a string for literal use inside a RegExp. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const signaturePrinter = ts.createPrinter({ removeComments: true });
+
+const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * Positionally substitute a parent's type parameter names with the child's
+ * type arguments, as an AST transformation (PEP-052 Wave 4 review fix — the
+ * original regex rewrite had no scope awareness): a `TypeReferenceNode` to a
+ * renamed parameter is updated UNLESS a nested declaration (a member-level
+ * type parameter like `coerce<F>(x: F): F`) shadows the name. Returns the
+ * transformed node; the caller prints it once.
+ */
+function substituteTypeParamsInMember(
+  member: ts.TypeElement,
+  renames: ReadonlyMap<string, string>
+): ts.TypeElement {
+  const result = ts.transform(member, [
+    (context) => {
+      const visit = (node: ts.Node, shadowed: ReadonlySet<string>): ts.Node => {
+        let scope = shadowed;
+        const tps = (node as { typeParameters?: readonly ts.TypeParameterDeclaration[] })
+          .typeParameters;
+        if (tps && tps.length > 0) {
+          const s = new Set(shadowed);
+          for (const tp of tps) s.add(tp.name.text);
+          scope = s;
+        }
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          renames.has(node.typeName.text) &&
+          !scope.has(node.typeName.text)
+        ) {
+          const renamed = context.factory.createIdentifier(renames.get(node.typeName.text)!);
+          const visitedArgs = node.typeArguments
+            ? (node.typeArguments.map((a) => visit(a, scope) as ts.TypeNode) as ts.TypeNode[])
+            : undefined;
+          return context.factory.updateTypeReferenceNode(
+            node,
+            renamed,
+            visitedArgs ? context.factory.createNodeArray(visitedArgs) : undefined
+          );
+        }
+        return ts.visitEachChild(node, (n) => visit(n, scope), context);
+      };
+      return (n: ts.Node) => visit(n, new Set()) as ts.TypeElement;
+    },
+  ]);
+  const transformed = result.transformed[0];
+  result.dispose();
+  return transformed;
 }
 
-/** Positionally substitute a parent's type parameter names with the child's type arguments. */
-function substituteTypeParams(text: string, params: string[], args: string[]): string {
-  const renames = new Map<string, string>();
-  params.forEach((p, i) => {
-    const arg = args[i];
-    if (arg && arg !== p) renames.set(p, arg);
-  });
-  if (renames.size === 0) return text;
-  const pattern = new RegExp(`\\b(${[...renames.keys()].map(escapeRegExp).join("|")})\\b`, "g");
-  return text.replace(pattern, (m) => renames.get(m) ?? m);
+/**
+ * Print a member signature for inclusion in `fullSignatureText`. Printed
+ * against the member's ORIGINAL source file (transformed subtrees are
+ * synthesized and print positionlessly; untouched subtrees fall back to the
+ * original text). A single trailing `;`/`,` is trimmed so the caller can join
+ * uniformly.
+ */
+function printMember(member: ts.TypeElement, sourceFile: ts.SourceFile): string {
+  const text = signaturePrinter.printNode(ts.EmitHint.Unspecified, member, sourceFile).trim();
+  return text.endsWith(";") || text.endsWith(",") ? text.slice(0, -1) : text;
 }
 
 /**
@@ -198,8 +249,17 @@ function substituteTypeParams(text: string, params: string[], args: string[]): s
  * flattened — operator/method-sugar activation semantics are unchanged.
  */
 function finalizeHeritage(index: Map<string, TypeclassOpInfo>): void {
-  type Flat = { members: Array<{ name: string; text: string }>; isHkt: boolean };
+  type FlatMember = { name: string; node: ts.TypeElement; sourceFile: ts.SourceFile };
+  type Flat = { members: FlatMember[]; isHkt: boolean };
   const memo = new Map<string, Flat>();
+
+  function ownMembers(def: NonNullable<TypeclassOpInfo["def"]>): FlatMember[] {
+    return (def.memberEntries ?? []).map((m) => ({
+      name: m.name,
+      node: m.node,
+      sourceFile: m.node.getSourceFile(),
+    }));
+  }
 
   function flatten(name: string, visiting: Set<string>): Flat {
     const cached = memo.get(name);
@@ -208,11 +268,11 @@ function finalizeHeritage(index: Map<string, TypeclassOpInfo>): void {
     const def = index.get(name)?.def;
     // Unknown parent, built-in seed, or cycle: nothing to inherit.
     if (!def?.memberEntries || visiting.has(name)) {
-      return { members: def?.memberEntries ?? [], isHkt: def?.usesKind ?? false };
+      return { members: def ? ownMembers(def) : [], isHkt: def?.usesKind ?? false };
     }
 
     visiting.add(name);
-    const members = [...def.memberEntries];
+    const members = ownMembers(def);
     const seen = new Set(members.map((m) => m.name));
     let isHkt = def.usesKind === true;
 
@@ -221,12 +281,27 @@ function finalizeHeritage(index: Map<string, TypeclassOpInfo>): void {
       if (!parentDef) continue;
       const parentFlat = flatten(h.name, visiting);
       const parentParams = parentDef.typeParams ?? [parentDef.typeParam];
+      // Rename map for this heritage edge, built once. Only identifier
+      // arguments can be applied as an AST rename; a non-identifier argument
+      // (no known occurrence — heritage args are type params like `F`) makes
+      // the substitution unrepresentable as a rename, so those parents'
+      // members are conservatively skipped rather than mangled.
+      const renames = new Map<string, string>();
+      let renamable = true;
+      parentParams.forEach((param, i) => {
+        const arg = h.typeArgs[i];
+        if (!arg || arg === param) return;
+        if (!IDENTIFIER_RE.test(arg)) renamable = false;
+        renames.set(param, arg);
+      });
+      if (!renamable) continue;
       for (const m of parentFlat.members) {
         if (seen.has(m.name)) continue;
         seen.add(m.name);
         members.push({
           name: m.name,
-          text: substituteTypeParams(m.text, parentParams, h.typeArgs),
+          node: renames.size > 0 ? substituteTypeParamsInMember(m.node, renames) : m.node,
+          sourceFile: m.sourceFile,
         });
       }
       // HKT-ness inherits only when the child passes its own type param where
@@ -245,7 +320,9 @@ function finalizeHeritage(index: Map<string, TypeclassOpInfo>): void {
     const flat = flatten(name, new Set());
     info.isHkt = flat.isHkt;
     if (flat.members.length > 0) {
-      info.def.fullSignatureText = `{ ${flat.members.map((m) => m.text).join("; ")} }`;
+      info.def.fullSignatureText = `{ ${flat.members
+        .map((m) => printMember(m.node, m.sourceFile))
+        .join("; ")} }`;
     }
   }
 }

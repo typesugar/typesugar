@@ -14,18 +14,6 @@ import { config, ResolutionMode } from "./config.js";
 import { globalRegistry } from "./registry.js";
 
 /**
- * Information about an imported typeclass or extension.
- */
-export interface ScopedTypeclass {
-  /** The typeclass name (e.g., "Eq", "Ord") */
-  name: string;
-  /** The module it was imported from */
-  module: string;
-  /** Whether this is a re-export (indirect import) */
-  isReexport?: boolean;
-}
-
-/**
  * Resolution scope for a single file.
  */
 export interface FileResolutionScope {
@@ -33,8 +21,6 @@ export interface FileResolutionScope {
   fileName: string;
   /** The resolution mode for this file */
   mode: ResolutionMode;
-  /** Extension methods explicitly imported in this file */
-  importedExtensions: Map<string, ScopedTypeclass>;
   /** Typeclasses defined in this file (via @typeclass) — always in scope */
   definedTypeclasses: Set<string>;
   /** Whether this file has a "use no typesugar" directive */
@@ -83,7 +69,6 @@ export class ResolutionScopeTracker {
       this.fileScopes.set(fileName, {
         fileName,
         mode: config.getResolutionModeForFile(fileName),
-        importedExtensions: new Map(),
         definedTypeclasses: new Set(),
         optedOut: false,
         optedOutFeatures: new Set(),
