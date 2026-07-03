@@ -2930,6 +2930,9 @@ class MacroTransformer {
    * Map of JSDoc tag names to macro names for lookup.
    * JSDoc tags use shortened names (impl vs instance) as the primary form.
    */
+  // NOTE: intentionally diverges from transformer-core's JSDOC_MACRO_TAGS —
+  // see the comment there (macro-helpers.ts). This visitor handles
+  // `derive`/`adt` internally and does not dispatch `operators`/`operator`.
   private static readonly JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
     ["typeclass", "typeclass"],
     ["impl", "impl"],

@@ -321,6 +321,12 @@ export const promiseResultAlgebra: ResultAlgebra = {
 };
 
 // Register built-in algebras
+// DELIBERATE builtin seeding (PEP-052 Wave 4 reviewed and retained): these
+// algebras are AST-building rewrite functions — not declarable as JSDoc
+// metadata — and fp has no macro entry to host its own registration, so
+// relocating the seeds would mean inventing loader plumbing for three lines.
+// `registerResultAlgebra` remains the extension point for third-party result
+// types; the seeds are ordinary calls to it, not a privileged path.
 registerResultAlgebra(optionResultAlgebra);
 registerResultAlgebra(eitherResultAlgebra);
 registerResultAlgebra(promiseResultAlgebra);
@@ -499,6 +505,11 @@ export function getRegisteredInstanceNames(): string[] {
 // Only tryInlineDerivedInstanceCall consults this registry.
 // ---------------------------------------------------------------------------
 
+// DELIBERATE builtin table (PEP-052 Wave 4 reviewed and retained): these
+// intrinsics power derived-instance inlining to native operators
+// (eqNumber.equals → ===). They restate std instances as source strings —
+// a candidate for PEP-053-style source extraction in a follow-up — but they
+// are live and load-bearing, and extraction is its own project.
 const primitiveIntrinsicRegistry = new Map<string, DictMethodMap>();
 
 function registerPrimitiveIntrinsic(

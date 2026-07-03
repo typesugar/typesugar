@@ -603,6 +603,52 @@ welcome.ts`, `docs/examples/core/derive.ts` — claimed `===` rewrites to struct
     exported browser `transform()` and virtual-filename tests, not the
     user-facing docs playground.
 
+- **Wave 4 — de-magicking + cruft. DONE (2026-07-03).** The remaining
+  hardcoded/global surfaces, each either deleted or explicitly marked
+  deliberate:
+  - **Deleted (verified caller-free):** the `InstanceMeta` type and every
+    no-op 1-arg `registerInstanceWithMeta` call (~60 sites — the function only
+    acts when an instance value is passed); the legacy transformer's import
+    pre-scan (`ensureImportedRegistrations` + friends), which existed solely
+    to make those no-op calls; the dead `knownTypeclasses` →
+    `importedTypeclasses` → `isTypeclassInScope` scope chain (zero production
+    callers); the test-only ResultAlgebra API; `register-instances.ts` (its
+    registrations were no-ops since Wave 3, and the Range instances are
+    scanner-visible through their type annotations — deliberately NOT `@impl`
+    tags, which are non-neutral under std's plugin build).
+  - **HKT knowledge is declaration-derived:** `hktTypeclassNames`,
+    the `hktExpansionRegistry` seeds, and `getTypeclassSignatureTemplate` are
+    deleted. fp's typeclass interfaces carry `@typeclass` tags; `isHKTTypeclass`
+    now asks the op-index whether the interface uses its type parameter as
+    `Kind<F,…>` — including through `extends` chains (the op-index flattens
+    heritage with positional type-param substitution and diamond dedup, which
+    is what obsoletes the hand-written signature templates: fp's Monad is an
+    extends-only interface). The `OptionF→Option` seeds became a strip-the-F
+    checker-resolution rule in the `@impl` tier-1 auto-register. Bonus
+    correctness: std's `FlatMap` and effect's interfaces are non-HKT encodings
+    the old name-set misclassified.
+  - **TS9225 hint is provider-declared:** instances carry
+    `@do-instance-module <specifier>` next to `@impl`/`@do-methods`; a cached
+    program-wide index (op-index precedent) serves the hint. The static
+    fallback table survives DEMOTED and documented: full derivation is
+    impossible in principle when the brand's TYPE comes from a different
+    package than its instances (`Effect` from `effect`, the instances from
+    `@typesugar/effect`) and nothing pulls the provider's `.d.ts` into the
+    program.
+  - **Explicitly retained as deliberate (documented in-code):**
+    `resultAlgebraRegistry`'s Option/Either/Promise seeds (algebras are
+    AST-building rewrite functions, not metadata; fp has no macro entry to
+    host relocation; `registerResultAlgebra` is the public extension point);
+    `primitiveIntrinsicRegistry` (live and load-bearing for derived-instance
+    inlining to native operators — prior scoping wrongly called it dead;
+    candidate for PEP-053-style source extraction later); the two
+    intentionally-divergent `JSDOC_MACRO_TAGS` maps (each pipeline's
+    dispatcher special-cases different tags; unifying the maps requires
+    unifying the dispatchers); `BUILTIN_METHOD_RECEIVER_NAMES` (guards JS
+    natives, not typesugar packages); the macro-loader's
+    `KNOWN_MACRO_PACKAGES` (true third-party macro-package discovery needs a
+    `package.json` field design — its own PEP).
+
 ### Why deleting the registry is gated on the HKT/method-sugar work
 
 The instances still served by the global registry (and by the 30 static inlining
