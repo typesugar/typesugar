@@ -10,8 +10,8 @@ Naming convention:
 - `seq:` / `par:` — effects-oriented (sequential vs parallel execution)
 - `let:` / `all:` — binding-oriented (let-bindings vs combine-all)
 
-- `let:` / `seq:` use the `FlatMap` typeclass (registered in the unified instance registry)
-- `par:` / `all:` use the `ParCombine` typeclass (registered in the unified instance registry)
+- `let:` / `seq:` use the `FlatMap` typeclass (resolved from instances in scope)
+- `par:` / `all:` use the `ParCombine` typeclass (resolved from instances in scope)
 
 ## Activation
 
@@ -22,6 +22,17 @@ import "@typesugar/std/syntax/do";
 ```
 
 Without this import the labels are left as ordinary JavaScript and the compiler warns (TS9224: `'let:' matches the letYield macro, but its label syntax is not activated in this file`) with a hint naming the import to add. Ordinary loop labels that happen to collide with a macro label (e.g. `all: for (...)`) are never hijacked and produce no warning.
+
+### Instance Scoping
+
+Instance resolution is scope-based too (no global registry): the `FlatMap`/`ParCombine` instance for a type must be declared in the file or exported by a module the file imports.
+
+- **Std builtins** (`Array`, `Promise`, `Iterable`, `AsyncIterable`) ride the same marker — `import "@typesugar/std/syntax/do"` activates the labels AND brings their instances into scope, so the common case needs nothing extra.
+- **Effect** — use `import "@typesugar/effect/syntax/do"` instead; one import activates the labels and provides the Effect instances (it re-exports the std builtins too).
+- **fp types** (`Option`, `Either`, `List`, `IO`) — any import from `@typesugar/fp` brings their instances into scope.
+- **Custom monads** — see [Custom Types](#custom-types) below.
+
+If a comprehension's type has no instance in scope, the compiler errors (TS9225: `No FlatMap instance for 'X' is in scope`) with a hint naming the import to add.
 
 ## Quick Start
 
@@ -401,17 +412,16 @@ yield: ({ users, events });
 
 **Note:** The result is a `Promise`, not an `AsyncIterable`. The entire stream is materialized into arrays. For element-wise streaming combination, use a zip combinator instead.
 
-## Registering Custom Types
+## Custom Types
 
-Both `FlatMap` and `ParCombine` are now part of the unified typeclass instance registry. The macros use `findInstance()` from `@typesugar/macros` to look up instances.
+Instance resolution is scope-based (PEP-052): declare a `FlatMap` instance with an `@impl` JSDoc tag on a const, and it's usable in any file that has it in scope — declared locally, or exported by a module the file imports. There is no registration call.
 
 ### FlatMap (for let:)
 
-Register a `FlatMap` instance for custom monadic types using `registerFlatMap`:
+Declare an `@impl FlatMap<Type>` instance for custom monadic types:
 
 ```typescript
 import "@typesugar/std/syntax/do";
-import { registerFlatMap } from "@typesugar/std";
 
 class Task<T> {
   constructor(public readonly run: () => Promise<T>) {}
@@ -423,21 +433,16 @@ class Task<T> {
   flatMap<U>(f: (t: T) => Task<U>): Task<U> {
     return new Task(() => this.run().then((t) => f(t).run()));
   }
-
-  ap<U>(this: Task<(t: T) => U>, ta: Task<T>): Task<U> {
-    return new Task(async () => {
-      const [f, a] = await Promise.all([this.run(), ta.run()]);
-      return f(a);
-    });
-  }
 }
 
-registerFlatMap("Task", {
-  map: (ta, f) => ta.map(f),
-  flatMap: (ta, f) => ta.flatMap(f),
-});
+/** @impl FlatMap<Task> */
+export const flatMapTask = {
+  map: (ta: Task<unknown>, f: (a: unknown) => unknown) => ta.map(f),
+  flatMap: (ta: Task<unknown>, f: (a: unknown) => Task<unknown>) => ta.flatMap(f),
+};
 
-// Now works with do-notation
+// Now works with do-notation — in this file, or in any file that
+// imports the module exporting flatMapTask
 let: {
   x << new Task(() => Promise.resolve(10));
   y << new Task(() => Promise.resolve(20));
@@ -447,42 +452,66 @@ yield: {
 }
 ```
 
-#### Custom Method Names
+The instance can also be a non-exported local const — it's then in scope for that file only. To share it, export it and have consumers import the module (a side-effect import works: `import "./task-instances"`).
 
-Some types use different method names (e.g., `Promise` uses `then` instead of `flatMap`). You can specify custom method names:
+The `@impl` type name is matched by brand: for a comprehension over `Task<T>`, the resolver accepts `@impl FlatMap<Task>`, the HKT-tag spelling `@impl FlatMap<TaskF>`, or a phantom-tag type annotation `FlatMap<_TaskTag>`.
+
+#### Custom Method Names: @do-methods
+
+By default the macros emit receiver-method calls `.flatMap(...)` / `.map(...)`. If your type uses different method names or static combinators, add a `@do-methods` JSDoc tag next to `@impl`:
 
 ```typescript
-import { registerFlatMap } from "@typesugar/std";
+/**
+ * @impl FlatMap<MyMonad>
+ * @do-methods bind=chain map=transform
+ */
+export const flatMapMyMonad = {
+  map: (ma: MyMonad<unknown>, f: (a: unknown) => unknown) => ma.transform(f),
+  flatMap: (ma: MyMonad<unknown>, f: (a: unknown) => MyMonad<unknown>) => ma.chain(f),
+};
 
-registerFlatMap(
-  "MyMonad",
-  {
-    map: (ma, f) => ma.transform(f),
-    flatMap: (ma, f) => ma.chain(f),
-  },
-  {
-    methodNames: {
-      bind: "chain", // Use .chain() instead of .flatMap()
-      map: "transform", // Use .transform() instead of .map()
-    },
-  }
-);
+// let: over MyMonad now emits .chain(...) / .transform(...) calls
 ```
+
+`@do-methods` takes whitespace-separated `key=value` pairs:
+
+| Key         | Meaning                                                                                   | Default   |
+| ----------- | ----------------------------------------------------------------------------------------- | --------- |
+| `bind=`     | Method emitted for a monadic bind step (`x << e`)                                         | `flatMap` |
+| `map=`      | Method emitted for the final mapping step                                                 | `map`     |
+| `orElse=`   | Method for error recovery (`\|\|` / `??` fallbacks)                                       | —         |
+| `all=`      | Static combinator that joins independent effects for `par:` (e.g. `all` for `Effect.all`) | —         |
+| `style=`    | `method` (emit `fa.bind(f)`) or `static` (emit `Receiver.bind(fa, f)`)                    | `method`  |
+| `receiver=` | Static-call receiver identifier (e.g. `Effect`); required for `style=static` and `all=`   | —         |
+
+For example, the built-in Effect instance is declared as:
+
+```typescript
+/**
+ * @impl FlatMap<Effect>
+ * @do-methods bind=flatMap map=map orElse=catchAll style=static receiver=Effect
+ */
+export const flatMapEffect = { ... };
+```
+
+so `let:` over Effect emits static calls `Effect.flatMap(fa, f)` (preserving E/R type inference) instead of receiver methods.
 
 ### ParCombine (for par:)
 
-Register a `ParCombine` instance for custom parallel combination using `registerParCombine`:
+Declare an `@impl ParCombine<Type>` instance the same way. `all=` + `receiver=` in `@do-methods` enable the zero-cost parallel join — `par:` then emits a single static `all` call instead of the generic `.map().ap()` applicative chain:
 
 ```typescript
-import "@typesugar/std/syntax/do";
-import { registerParCombine } from "@typesugar/std";
+/**
+ * @impl ParCombine<MyEffect>
+ * @do-methods map=map all=all style=static receiver=MyEffect
+ */
+export const parCombineMyEffect = {
+  all: (effects: unknown[]) => MyEffect.all(effects),
+  map: (combined: unknown, f: (a: unknown) => unknown) => MyEffect.map(combined, f),
+};
 
-registerParCombine("MyEffect", {
-  all: (effects) => MyEffect.all(effects),
-  map: (combined, f) => combined.map(f),
-});
-
-// Now par: works with MyEffect
+// Now par: over MyEffect compiles to:
+// MyEffect.map(MyEffect.all([myEffect1(), myEffect2()]), ([a, b]) => ({ a, b }))
 par: {
   a << myEffect1();
   b << myEffect2();
@@ -490,40 +519,16 @@ par: {
 yield: ({ a, b });
 ```
 
-#### Zero-Cost Builders
-
-For optimal code generation, `ParCombine` instances can provide a custom builder function that generates optimized AST directly. This is how the built-in Promise, Array, and AsyncIterable instances achieve zero-cost abstraction:
-
-```typescript
-import { registerParCombine, registerParCombineBuilder } from "@typesugar/std";
-import type { ParCombineBuilder } from "@typesugar/macros";
-
-// Register the typeclass instance
-registerParCombine("MyEffect", {
-  all: (effects) => MyEffect.all(effects),
-  map: (combined, f) => combined.map(f),
-});
-
-// Optionally register a custom builder for zero-cost code generation
-const myEffectBuilder: ParCombineBuilder = (ctx, bindings, returnExpr) => {
-  // Generate optimized AST directly
-  // ... custom code generation logic ...
-};
-registerParCombineBuilder("MyEffect", myEffectBuilder);
-```
-
-Types with a registered `ParCombine` instance get optimized code generation. Types without one fall back to `.map().ap()` chains.
+This is how the built-in instances achieve zero-cost output: `par:` over Promise emits `Promise.all([...]).then(...)`, and `par:` over Effect emits `Effect.map(Effect.all([...]), ([a, b]) => ...)`. Types without an `all=` combinator fall back to `.map().ap()` chains.
 
 ### How It Works Under the Hood
 
-Both `FlatMap` and `ParCombine` are registered as formal typeclasses in the unified instance registry (`instanceRegistry` from `@typesugar/macros`). The comprehension macros use:
+The comprehension macros infer the type constructor ("brand") of the effect expressions, then resolve the `FlatMap`/`ParCombine` instance from scope:
 
-- `findInstance("FlatMap", "TypeName")` — to check if a `FlatMap` instance exists
-- `findInstance("ParCombine", "TypeName")` — to check if a `ParCombine` instance exists
-- `getFlatMapMethodNames("TypeName")` — to resolve method names (with fallbacks for built-in types)
-- `getParCombineBuilderFromRegistry("TypeName")` — to retrieve zero-cost builders
+1. **Local scope** — top-level `@impl`/`@instance` declarations in the current file (exported or not).
+2. **Imported modules** — exports of every module the file imports (side-effect imports and re-exports included), scanned for `@impl` tags and `FlatMap<...>`-typed annotations.
 
-This unified approach means `FlatMap` and `ParCombine` instances are consistent with all other typeclasses in typesugar.
+The resolved instance's `@do-methods` metadata drives code emission. If no instance is in scope, the macro reports error TS9225 (`No FlatMap instance for 'X' is in scope`) with a hint naming the import to add. There is no process-global registry — resolution is per-file, driven entirely by what the file imports.
 
 ## Before/After Comparison
 
@@ -616,5 +621,5 @@ yield: ({ x, y }); // { x: number; y: string }
 ## See Also
 
 - [FlatMap Typeclass](../reference/typeclasses.md#flatmap) — The typeclass behind do-notation
-- [Effect Integration](./effect-integration.md) — Using do-notation with Effect-TS
+- [Effect Integration](./effect.md#do-notation) — Using do-notation with Effect-TS (`import "@typesugar/effect/syntax/do"`)
 - [Labeled Block Macros](../reference/macro-types.md#labeled-block-macros) — How the macros work

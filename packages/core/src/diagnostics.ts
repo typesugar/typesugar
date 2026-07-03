@@ -974,6 +974,30 @@ opt out with \`"use no typesugar macros"\`.`,
   seeAlso: "https://typesugar.dev/errors/TS9224",
 };
 
+export const TS9225: DiagnosticDescriptor = {
+  code: 9225,
+  severity: "error",
+  category: DiagnosticCategory.MacroSyntax,
+  messageTemplate: "No {typeclass} instance for '{brand}' is in scope",
+  explanation: `A do-notation comprehension (let:/yield:, par:/yield:) inferred its
+type constructor, but no matching instance is visible from this file
+(PEP-052: instance resolution is scope-based — an instance must be declared
+in this file or exported by some module this file imports; there is no
+global registry).
+
+Fix one of:
+1. Import the module that provides the instance, e.g.:
+     import "@typesugar/effect/syntax/do";   // FlatMap/ParCombine for Effect
+   (the std builtins — Array, Promise, Iterable, AsyncIterable — come with
+   the "@typesugar/std/syntax/do" marker you already import for the labels)
+2. Declare an instance in this file:
+     /** @impl FlatMap<MyType> */
+     const flatMapMyType = { map: ..., flatMap: ... };
+3. For a third-party monad, import any module that exports its
+   @impl-annotated instance.`,
+  seeAlso: "https://typesugar.dev/errors/TS9225",
+};
+
 // ============================================================================
 // Error Catalog: HKT Issues (9300-9399)
 // ============================================================================
@@ -1340,6 +1364,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9222, TS9222],
   [9223, TS9223],
   [9224, TS9224],
+  [9225, TS9225],
 
   // HKT Issues (9300-9399)
   [9301, TS9301],

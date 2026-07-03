@@ -121,17 +121,15 @@ interface Hash<A> {
 
 The `FlatMap` typeclass provides sequencing/chaining operations for type constructors. It's the minimal typeclass required for the `let:/yield:` and `par:/yield:` do-notation macros.
 
+Instance resolution is scope-based (PEP-052) — there is no global registry. The built-in instances for Array, Promise, Iterable, and AsyncIterable come with the `import "@typesugar/std/syntax/do"` marker you already add for the label syntax. Custom types declare an `@impl`-tagged instance:
+
 ```typescript
-import { registerFlatMap, getFlatMap } from "@typesugar/std";
-
-// Built-in instances for Array, Promise, Iterable, AsyncIterable
-const arrayFlatMap = getFlatMap("Array");
-
-// Register custom instances
-registerFlatMap("Option", {
+// Declare in the using file, or export it and import the module
+/** @impl FlatMap<Option> */
+export const flatMapOption = {
   map: (fa, f) => fa.map(f),
   flatMap: (fa, f) => fa.flatMap(f),
-});
+};
 ```
 
 ## Do-Notation Macros
@@ -213,15 +211,14 @@ yield: ({ user, config, posts });
 
 ### With Custom Types
 
-Any type with a registered `FlatMap` instance works with both macros:
+Any type with a `FlatMap` instance in scope works with both macros — declared locally with an `@impl` JSDoc tag, or exported by a module the file imports (no registration call):
 
 ```typescript
-import { registerFlatMap } from "@typesugar/std";
-
-registerFlatMap("Option", {
+/** @impl FlatMap<Option> */
+export const flatMapOption = {
   map: (fa, f) => fa.map(f),
   flatMap: (fa, f) => fa.flatMap(f),
-});
+};
 
 // Now Option works with let:/yield:
 let: {
@@ -230,6 +227,8 @@ let: {
 }
 yield: ({ x, y });
 ```
+
+An optional `@do-methods` tag next to `@impl` customizes emission (`bind=` / `map=` / `orElse=` method names, `style=static receiver=X` for static combinators, and `all=` to enable the zero-cost parallel join for `par:`).
 
 ## Extension Methods
 
@@ -364,9 +363,7 @@ rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
 - `hashNumber`, `hashString`, `hashBoolean`, `hashBigInt`, `hashDate` — Primitive Hash instances
 - `makeHash(fn)`, `hashBy(f, H)`, `hashArray(H)` — Hash combinators
 - `FlatMap<F>` — Sequencing for type constructors (map, flatMap)
-- `flatMapArray`, `flatMapPromise`, `flatMapIterable`, `flatMapAsyncIterable` — Built-in instances
-- `registerFlatMap(name, instance)` — Register a custom FlatMap instance
-- `getFlatMap(name)` — Look up a FlatMap instance by name
+- `flatMapArray`, `flatMapPromise`, `flatMapIterable`, `flatMapAsyncIterable` — Built-in instances (exported by the `@typesugar/std/syntax/do` marker; custom instances are declared with `@impl` JSDoc tags and resolved from scope, PEP-052)
 
 ### Macros
 

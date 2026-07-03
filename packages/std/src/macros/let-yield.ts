@@ -58,15 +58,18 @@
  * 3. It looks up the FlatMap instance for that type constructor
  * 4. It generates a chain: flatMap for intermediate binds, map for the last
  *
- * ## Registering custom types
+ * ## Supporting custom types
+ *
+ * Declare an instance tagged `@impl FlatMap<MyType>` (JSDoc) in the file, or
+ * export it from a module the file imports — resolution is scope-based
+ * (PEP-052):
  *
  * ```typescript
- * import { registerFlatMap } from "@typesugar/std/typeclasses/flatmap";
- *
- * registerFlatMap("MyType", {
+ * // JSDoc tag on the declaration: @impl FlatMap<MyType>
+ * export const flatMapMyType = {
  *   map: (fa, f) => fa.map(f),
  *   flatMap: (fa, f) => fa.flatMap(f),
- * });
+ * };
  * ```
  */
 
@@ -76,8 +79,13 @@ import {
   type MacroContext,
   defineLabeledBlockMacro,
   globalRegistry,
+  TS9225,
 } from "@typesugar/core";
-import { getFlatMapMethodNames, hasFlatMapInstance } from "@typesugar/macros";
+import {
+  resolveDoNotationInstance,
+  DEFAULT_DO_METHODS,
+  type DoNotationMeta,
+} from "@typesugar/macros";
 import {
   type ComprehensionStep,
   type BindStep,
@@ -89,6 +97,10 @@ import {
   createArrowFn,
   createMethodCall,
   createIIFE,
+  resolveStdDoFallback,
+  KNOWN_DO_INSTANCE_MODULES,
+  createStyleAwareCall,
+  createMetadataJoin,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
 
@@ -162,19 +174,44 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Look up the FlatMap instance in unified registry
-    const sfn = ctx.sourceFile.fileName;
-    if (!hasFlatMapInstance(typeConstructorName, sfn)) {
-      ctx.reportError(
-        firstBind.effect,
-        `No FlatMap instance registered for '${typeConstructorName}'. ` +
-          "Use @instance decorator or registerFlatMap() to register an instance."
-      );
+    // PEP-052 Wave 3: instance resolution is scope-based — an instance
+    // declared in this file or exported by any imported module (the std
+    // builtins come in through the `@typesugar/std/syntax/do` marker every
+    // do-notation file already imports). No global registry. The static
+    // fallback serves the std builtins in hosts that cannot resolve modules.
+    const scoped =
+      resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName) ??
+      resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
+    if (!scoped) {
+      const knownModule = KNOWN_DO_INSTANCE_MODULES[typeConstructorName];
+      ctx
+        .diagnostic(TS9225)
+        .at(firstBind.effect)
+        .withArgs({ typeclass: "FlatMap", brand: typeConstructorName })
+        .help(
+          knownModule
+            ? `Add \`import "${knownModule}";\` to bring the ${typeConstructorName} instance into scope.`
+            : `Import a module exporting an @impl FlatMap<${typeConstructorName}> instance, or declare one in this file.`
+        )
+        .emit();
       return mainBlock;
     }
 
-    // Determine method names from unified registry
-    const methods = getFlatMapMethodNames(typeConstructorName, sfn);
+    // Method names + emission style from the instance's @do-methods metadata.
+    const doMeta: DoNotationMeta = scoped.doMeta ?? DEFAULT_DO_METHODS;
+    if (doMeta.unrecognized?.length) {
+      ctx.reportWarning(
+        mainBlock,
+        `@do-methods on the ${typeConstructorName} FlatMap instance (${scoped.exportName}) has ` +
+          `unrecognized entries: ${doMeta.unrecognized.join(" ")} — valid keys are ` +
+          `bind= map= orElse= all= receiver= style=method|static.`
+      );
+    }
+    const methods: MethodNames = {
+      bind: doMeta.bind,
+      map: doMeta.map,
+      orElse: doMeta.orElse ?? "orElse",
+    };
 
     // Handle yield expression or implicit return
     let returnExpr: ts.Expression;
@@ -211,13 +248,14 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
         stepsWithoutLast,
         lastBind.effect,
         methods,
-        typeConstructorName
+        typeConstructorName,
+        doMeta
       );
       return factory.createExpressionStatement(chain);
     }
 
     // Build the chain
-    const result = buildChain(ctx, steps, returnExpr, methods, typeConstructorName);
+    const result = buildChain(ctx, steps, returnExpr, methods, typeConstructorName, doMeta);
 
     return factory.createExpressionStatement(result);
   },
@@ -379,12 +417,8 @@ function extractSteps(
   return steps;
 }
 
-// ============================================================================
-// Method Name Resolution (now uses unified registry)
-// ============================================================================
-
-// Method names are now resolved via getFlatMapMethodNames() from @typesugar/macros
-// which looks up the InstanceMeta in the unified typeclass registry.
+// Method names are resolved from the scoped instance's @do-methods metadata
+// (see resolveDoNotationInstance in @typesugar/macros).
 
 // ============================================================================
 // Chain Building
@@ -405,7 +439,8 @@ function buildChain(
   steps: ComprehensionStep[],
   returnExpr: ts.Expression,
   methods: MethodNames,
-  typeConstructor: string
+  typeConstructor: string,
+  doMeta: DoNotationMeta
 ): ts.Expression {
   const { factory } = ctx;
 
@@ -430,24 +465,24 @@ function buildChain(
 
         let effectExpr = step.effect;
 
-        // Wrap with orElse if present
+        // Wrap with orElse if present (same emission style as bind/map calls)
         if (step.orElse && methods.orElse) {
-          effectExpr = createMethodCall(
+          effectExpr = createStyleAwareCall(
             factory,
-            effectExpr,
+            doMeta,
             methods.orElse,
+            effectExpr,
             createArrowFn(factory, "_", step.orElse)
           );
         }
 
-        // Generate the method call
-        inner = generateMethodCall(
+        // Generate the bind/map call
+        inner = createStyleAwareCall(
           factory,
-          effectExpr,
+          doMeta,
           methodName,
-          step.name,
-          inner,
-          typeConstructor
+          effectExpr,
+          createArrowFn(factory, step.name, inner)
         );
         break;
       }
@@ -491,6 +526,19 @@ function buildChain(
         let bodyWithMaps = inner;
         for (const mapStep of mapSteps.reverse()) {
           bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
+        }
+
+        // PEP-052 Wave 3: join via the scoped ParCombine instance's
+        // `@do-methods all=… receiver=…` metadata when it declares one
+        // (Promise, Effect, third-party static-join monads) — the same
+        // emission as top-level `par:`. The hardcoded Promise branch below
+        // stays only as the safety net when metadata is unavailable.
+        const parScoped =
+          resolveDoNotationInstance(ctx, "ParCombine", typeConstructor) ??
+          resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructor);
+        if (parScoped?.doMeta?.all && parScoped.doMeta.receiver) {
+          inner = createMetadataJoin(factory, parScoped.doMeta, bindSteps, bodyWithMaps);
+          break;
         }
 
         if (typeConstructor === "Promise") {
@@ -550,45 +598,6 @@ function buildChain(
   }
 
   return inner;
-}
-
-/**
- * Generate a method call: expr.method(param => body)
- *
- * For built-in types (Array, Promise), uses native method calls.
- * For Effect, uses Effect.flatMap/Effect.map for proper E/R type inference.
- * For custom types, generates instance.method(expr, param => body).
- */
-function generateMethodCall(
-  factory: ts.NodeFactory,
-  expr: ts.Expression,
-  methodName: string,
-  paramName: string,
-  body: ts.Expression,
-  typeConstructor: string
-): ts.Expression {
-  // For Array and Promise, use native methods directly
-  if (typeConstructor === "Array" || typeConstructor === "Promise") {
-    return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
-  }
-
-  // For Effect, use Effect.flatMap/Effect.map static methods
-  // This preserves proper E (error) and R (requirements) type inference:
-  //   Effect.flatMap(fa, f) infers Effect<B, E1 | E2, R1 | R2>
-  if (typeConstructor === "Effect") {
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("Effect"),
-        factory.createIdentifier(methodName)
-      ),
-      undefined,
-      [expr, createArrowFn(factory, paramName, body)]
-    );
-  }
-
-  // For other types with FlatMap instances, use native method calls
-  // (most types like Option, Either, IO have .map()/.flatMap() methods)
-  return createMethodCall(factory, expr, methodName, createArrowFn(factory, paramName, body));
 }
 
 // ============================================================================

@@ -23,6 +23,7 @@ import {
   InstanceScanner,
   instanceScanner as defaultScanner,
   type ScannedInstance,
+  type DoNotationMeta,
 } from "./instance-scanner.js";
 
 // ============================================================================
@@ -338,17 +339,32 @@ export function findInstanceInScopeByName(
   typeName: string,
   scanner: InstanceScanner = defaultScanner
 ): { exportName: string; modulePath?: string } | undefined {
-  const baseName = (s: string): string => {
-    const m = /^[A-Za-z_$][\w$]*/.exec(s.trim());
-    return m ? m[0] : s.trim();
-  };
   const match = (inst: ScannedInstance): boolean =>
-    inst.typeclassName === tcName && baseName(inst.forTypeString) === typeName;
+    inst.typeclassName === tcName && baseTypeName(inst.forTypeString) === typeName;
+  const hit = findScannedInScope(ctx, match, scanner);
+  return hit ? { exportName: hit.instance.exportName, modulePath: hit.modulePath } : undefined;
+}
 
+/** First identifier of a type string: `"Ord<number>"`-style args → `Ord`. */
+function baseTypeName(s: string): string {
+  const m = /^[A-Za-z_$][\w$]*/.exec(s.trim());
+  return m ? m[0] : s.trim();
+}
+
+/**
+ * Shared scope walk: local file (incl. non-exported `@impl` values) first,
+ * then every imported module (re-exports followed by the scanner). Returns
+ * the first scanned instance satisfying `match`.
+ */
+function findScannedInScope(
+  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  match: (inst: ScannedInstance) => boolean,
+  scanner: InstanceScanner = defaultScanner
+): { instance: ScannedInstance; modulePath?: string } | undefined {
   // Local file (includes non-exported @impl/@instance values).
   const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
   const localHit = local.find(match);
-  if (localHit) return { exportName: localHit.exportName };
+  if (localHit) return { instance: localHit };
 
   // Imported modules.
   for (const entry of getImportMap(ctx)) {
@@ -363,10 +379,113 @@ export function findInstanceInScopeByName(
       ctx.program
     );
     const hit = scanned.find(match);
-    if (hit) return { exportName: hit.exportName, modulePath: entry.resolvedPath };
+    if (hit) return { instance: hit, modulePath: entry.resolvedPath };
   }
 
   return undefined;
+}
+
+/**
+ * Whether an instance's declared type-constructor name serves an inferred
+ * do-notation brand. Three spellings match brand `B`:
+ *
+ * - `B` itself (`@impl FlatMap<Effect>`);
+ * - the HKT-tag convention `BF` (`@impl FlatMap<OptionF>` — the same
+ *   `OptionF → Option` convention as the HKT expansion table), so existing
+ *   fp tags keep working without retagging;
+ * - the phantom-tag convention `_BTag` (std's
+ *   `flatMapArray: FlatMap<_ArrayTag>` type annotations), so std's builtin
+ *   instances are discoverable from their existing annotations WITHOUT
+ *   adding `@impl` JSDoc — which would not be build-neutral: std compiles
+ *   with the typesugar plugin, and the `@impl` attribute macro rewrites the
+ *   annotation and emits a `namespace Array { ... }` companion merge that
+ *   shadows the global.
+ */
+export function brandMatchesForType(forTypeName: string, brand: string): boolean {
+  return forTypeName === brand || forTypeName === `${brand}F` || forTypeName === `_${brand}Tag`;
+}
+
+/**
+ * Result of {@link resolveDoNotationInstance}: where the instance lives plus
+ * its do-notation emission metadata (PEP-052 Wave 3).
+ */
+export interface ResolvedDoNotationInstance {
+  exportName: string;
+  /** Resolved file path for an imported instance; undefined for local-file hits. */
+  modulePath?: string;
+  /** `@do-methods` metadata, when the instance declares any. */
+  doMeta?: DoNotationMeta;
+}
+
+/**
+ * Scope-based (registry-free) do-notation instance lookup: find a
+ * `FlatMap`/`ParCombine` instance for an inferred type-constructor brand
+ * (e.g. `"Option"`, `"Effect"`) visible from `ctx.sourceFile` — a local
+ * `@impl`/`@instance` declaration or an export of any imported module
+ * (side-effect imports and re-exports included).
+ *
+ * This is the "HKT-aware" variant PEP-052 calls for: brand-keyed by NAME,
+ * deliberately not `resolveInstance`'s `ts.Type`-assignability matching —
+ * `FlatMap<F>`'s type parameter is a phantom tag (`_ArrayTag`), so
+ * type-based matching is impossible for these instances.
+ */
+// Memoized per (program, file, typeclass, brand): a do-notation-heavy file
+// resolves the same brand once per comprehension (and once per nested
+// parallel group), but the answer cannot change within a program. WeakMap
+// keying invalidates automatically across watch/LSP rebuilds. Misses are
+// cached too (null) — the miss path is the expensive one (full import walk).
+const doNotationResolutionCache = new WeakMap<
+  ts.Program,
+  Map<string, ResolvedDoNotationInstance | null>
+>();
+
+export function resolveDoNotationInstance(
+  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  tcName: string,
+  brand: string,
+  scanner: InstanceScanner = defaultScanner
+): ResolvedDoNotationInstance | undefined {
+  // The cache key does not include the scanner — bypass it entirely for
+  // custom scanners (test isolation) so a fresh scanner never receives a
+  // stale default-scanner result.
+  if (scanner !== defaultScanner) {
+    return resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner);
+  }
+  let cache = doNotationResolutionCache.get(ctx.program);
+  if (!cache) {
+    cache = new Map();
+    doNotationResolutionCache.set(ctx.program, cache);
+  }
+  const cacheKey = `${ctx.sourceFile.fileName}::${tcName}:${brand}`;
+  const cached = cache.get(cacheKey);
+  if (cached !== undefined) return cached ?? undefined;
+  const result = resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner);
+  cache.set(cacheKey, result ?? null);
+  return result;
+}
+
+function resolveDoNotationInstanceUncached(
+  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  tcName: string,
+  brand: string,
+  scanner: InstanceScanner
+): ResolvedDoNotationInstance | undefined {
+  // Exact brand spelling wins over the `BF`/`_BTag` conventions, so a
+  // genuine type named e.g. `RateF` can never shadow a `Rate` instance (or
+  // vice versa) just by scan order.
+  const exactMatch = (inst: ScannedInstance): boolean =>
+    inst.typeclassName === tcName && baseTypeName(inst.forTypeString) === brand;
+  const conventionMatch = (inst: ScannedInstance): boolean =>
+    inst.typeclassName === tcName && brandMatchesForType(baseTypeName(inst.forTypeString), brand);
+  const hit =
+    findScannedInScope(ctx, exactMatch, scanner) ??
+    findScannedInScope(ctx, conventionMatch, scanner);
+  if (!hit) return undefined;
+  return {
+    exportName: hit.instance.exportName,
+    modulePath: hit.modulePath,
+    doMeta: hit.instance.doMeta,
+  };
 }
 
 /**

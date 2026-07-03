@@ -60,6 +60,9 @@ interface _IterableTag {
 // Built-in Instances
 // ============================================================================
 
+/**
+ * @do-methods map=then all=all receiver=Promise
+ */
 export const parCombinePromise: ParCombine<_PromiseTag> = {
   all: (effects) => Promise.all(effects as Promise<unknown>[]),
   map: (combined, f) => (combined as Promise<unknown[]>).then(f as (r: unknown[]) => unknown),

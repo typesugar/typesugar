@@ -11,16 +11,15 @@
  * - the `@derive` tokens (`EffectSchema`, `EffectEqual`, `EffectHash`),
  * - the Effect typeclass instances, extension namespaces, testing utilities and
  *   diagnostics, and
- * - the `FlatMap` instance for Effect (registered as a runtime side effect) that
- *   powers @typesugar/std's generic `let:/yield:` do-notation.
+ * - the `FlatMap`/`ParCombine` instances for Effect that power @typesugar/std's
+ *   generic `let:/yield:`/`par:` do-notation (PEP-052: resolved from scope —
+ *   bring them in with `import "@typesugar/effect/syntax/do"`).
  *
  * The macro *definitions* (which import `typescript`) live in the `./macros`
  * entry, loaded by the transformer at build time. See PEP-050.
  *
  * @module
  */
-
-import { registerFlatMap } from "@typesugar/std/typeclasses/flatmap";
 
 // ============================================================================
 // Runtime Placeholders (replaced by the macros at compile time)
@@ -278,6 +277,16 @@ function getEffectModule(): any {
   return _Effect;
 }
 
+/**
+ * FlatMap instance for Effect (PEP-052 scope resolution — bring it into
+ * scope with `import "@typesugar/effect/syntax/do"`).
+ *
+ * Static-call emission (`Effect.flatMap(fa, f)`, not `fa.flatMap(f)`)
+ * preserves E (error) and R (requirements) type inference.
+ *
+ * @impl FlatMap<Effect>
+ * @do-methods bind=flatMap map=map orElse=catchAll style=static receiver=Effect
+ */
 export const flatMapEffect = {
   map: <A, B>(fa: unknown, f: (a: A) => B): unknown => {
     return getEffectModule().map(fa, f);
@@ -287,6 +296,22 @@ export const flatMapEffect = {
   },
 };
 
-// Register the FlatMap instance for Effect as a runtime side effect so the
-// generic let:/yield: do-notation macro (@typesugar/std) can expand for Effect.
-registerFlatMap("Effect", flatMapEffect);
+/**
+ * ParCombine instance for Effect (PEP-052 Wave 3). Joins independent effects
+ * with `Effect.all` — `par:` blocks emit
+ * `Effect.map(Effect.all([a, b]), ([a, b]) => ...)` via the metadata below.
+ * (Before this instance existed, `par:` over Effect fell back to the
+ * applicative chain and emitted `.map(...).ap(...)` calls Effect doesn't
+ * have.)
+ *
+ * @impl ParCombine<Effect>
+ * @do-methods map=map all=all style=static receiver=Effect
+ */
+export const parCombineEffect = {
+  all: (effects: readonly unknown[]): unknown => {
+    return getEffectModule().all(effects as unknown[]);
+  },
+  map: (combined: unknown, f: (results: unknown[]) => unknown): unknown => {
+    return getEffectModule().map(combined, f);
+  },
+};

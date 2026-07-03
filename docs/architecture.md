@@ -173,6 +173,23 @@ candidates — and produce no warning. The explicit `@contract` decorator form
 needs no marker: importing the `contract` symbol is the opt-in; only the bare
 `requires:`/`ensures:` block form is gated.
 
+The do-notation comprehensions' `FlatMap`/`ParCombine` instance lookup is
+scope-based too (PEP-052 Wave 3 — no process-global registry). The macro
+infers the effect's type-constructor brand, then resolves an instance visible
+from the file: top-level `@impl`/`@instance` declarations in the file itself
+(exported or not), then the exports of every imported module (side-effect
+imports and re-exports included). An instance's declared type matches brand
+`B` under three spellings: `B` itself (`@impl FlatMap<Effect>`), the HKT-tag
+convention `BF` (`@impl FlatMap<OptionF>`), and the phantom-tag convention
+`_BTag` (std's `flatMapArray: FlatMap<_ArrayTag>` annotations). The std
+builtin instances are re-exported by the `@typesugar/std/syntax/do` marker, so
+the label-activation import doubles as the instance provider;
+`@typesugar/effect/syntax/do` does the same for Effect. Optional `@do-methods`
+metadata on the instance drives emission (method names, static-call style,
+and the `all=` parallel join for `par:`). No instance in scope → error TS9225
+("No FlatMap instance for 'X' is in scope") with a hint naming the import to
+add.
+
 ### Import Cleanup
 
 After expansion, the transformer removes import specifiers that resolved to macros (they have no runtime representation). This prevents "module not found" errors for macro-only imports.

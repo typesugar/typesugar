@@ -685,10 +685,8 @@ interface InstanceInfo {
    */
   sourceModule?: string;
   /**
-   * Optional metadata for macro-specific use.
-   * Used by comprehension macros (let:/yield:, par:/yield:) to store:
-   * - methodNames: Override method names (e.g., Promise uses "then" instead of "flatMap")
-   * - builder: Zero-cost AST builder function for par:/yield:
+   * Optional metadata for macro-specific use, e.g.
+   * methodNames: override method names (Promise uses "then" instead of "flatMap").
    */
   meta?: InstanceMeta;
 }
@@ -709,83 +707,9 @@ interface InstanceMeta {
     orElse?: string;
   };
   /**
-   * Zero-cost AST builder for par:/yield: macro.
-   * If provided, generates optimized code instead of generic .map()/.ap() chains.
-   * Stored as a reference to a builder function registered elsewhere.
-   */
-  builderName?: string;
-  /**
    * Arbitrary additional metadata.
    */
   [key: string]: unknown;
-}
-
-/** globalThis backing shares registries across ESM/CJS module instances (the ESM
- * transformer `import`s this module while CJS tests `require` it). */
-const _g = globalThis as any;
-
-/**
- * Focused do-notation instance lookup (PEP-052 Phase B).
- *
- * The `let:`/`yield:`/`par:` comprehension macros resolve FlatMap/ParCombine by the
- * comprehension effect's *type-constructor name* (`Option`, `Array`, `Effect`…) —
- * genuine HKT resolution by brand/name, not the concrete-type matching used for
- * Eq/Ord operators (which is scope-based). This focused map is populated whenever
- * {@link registerInstanceWithMeta} or the `@instance`/`@impl` macro registers a
- * FlatMap or ParCombine instance (via side-effect imports like
- * `import "@typesugar/effect"`). It is the only surviving instance registry — general
- * instance resolution is scope-based (see instance-resolver).
- *
- * Keyed by `"<typeclass>:<typeConstructorName>"`, e.g. `"FlatMap:Option"`. The value
- * is the instance's `meta` (or `undefined` when it has none) — presence of the key,
- * not the value, signals that an instance exists.
- */
-if (!_g.__typesugar_doNotationRegistry)
-  _g.__typesugar_doNotationRegistry = new Map<string, InstanceMeta | undefined>();
-const doNotationRegistry: Map<string, InstanceMeta | undefined> = _g.__typesugar_doNotationRegistry;
-
-/** The typeclasses whose instances the do-notation macros resolve by name. */
-const DO_NOTATION_TYPECLASSES: ReadonlySet<string> = new Set(["FlatMap", "ParCombine"]);
-
-function isDoNotationTypeclass(tcName: string): boolean {
-  return DO_NOTATION_TYPECLASSES.has(tcName);
-}
-
-function doNotationKey(tcName: string, forType: string): string {
-  return `${tcName}:${forType}`;
-}
-
-/**
- * Mirror a FlatMap/ParCombine registration into the focused do-notation lookup.
- * MUST be called at every site that adds an instance to `instanceRegistry`
- * (`registerInstanceWithMeta` and the `@instance`/`@impl` attribute macro) so a
- * user-defined monad is visible to `let:`/`yield:`/`par:` — no-op for other
- * typeclasses.
- */
-function mirrorDoNotationInstance(info: InstanceInfo): void {
-  if (isDoNotationTypeclass(info.typeclassName)) {
-    doNotationRegistry.set(doNotationKey(info.typeclassName, info.forType), info.meta);
-  }
-}
-
-/**
- * Look up a do-notation (FlatMap/ParCombine) instance. `present` reports key presence
- * (independent of whether the instance carries metadata); `meta` is the method-name
- * overrides, if any.
- *
- * NOT scope-gated on the typeclass being imported: the do-notation macros
- * (`let:`/`yield:`/`par:`) self-activate via their own import, and resolve FlatMap/
- * ParCombine by the comprehension effect's type-constructor name — a user never
- * imports `FlatMap` to use `let:`. (`sourceFileName` is accepted for call-site
- * compatibility but not consulted.)
- */
-function lookupDoNotationInstance(
-  tcName: string,
-  forType: string,
-  _sourceFileName?: string
-): { present: boolean; meta: InstanceMeta | undefined } {
-  const key = doNotationKey(tcName, forType);
-  return { present: doNotationRegistry.has(key), meta: doNotationRegistry.get(key) };
 }
 
 // ============================================================================
@@ -1255,15 +1179,6 @@ export function extractOpFromJSDoc(member: ts.Node): string | undefined {
     }
   }
   return undefined;
-}
-
-/**
- * Clear the do-notation instance lookup. Retained for test isolation; typeclass
- * definitions are no longer a mutable registry (PEP-052) so there is nothing else
- * to clear.
- */
-export function clearRegistries(): void {
-  doNotationRegistry.clear();
 }
 
 // ============================================================================
@@ -1969,17 +1884,6 @@ export const implAttribute = defineAttributeMacro({
         }
       }
     }
-
-    // Keep the do-notation lookup in sync so a user-defined @impl/@instance
-    // FlatMap/ParCombine monad is visible to let:/yield:/par: (PEP-052). General
-    // instance resolution is scope-based, so there is no registry to push to.
-    mirrorDoNotationInstance({
-      typeclassName: tcName,
-      forType: typeName,
-      instanceName: varName,
-      companionPath: companionPath(tcName, typeName),
-      derived: false,
-    });
 
     // Notify coverage system that this type has an instance
     notifyPrimitiveRegistered(typeName, tcName);
@@ -3106,16 +3010,13 @@ const monoidString: Monoid<string> = /*#__PURE__*/ {
 }
 
 // ============================================================================
-// Comprehension Typeclass Support (FlatMap, ParCombine)
+// Instance Registration (companion attachment)
 // ============================================================================
-// These functions allow the comprehension macros (let:/yield:, par:/yield:)
-// to use the unified typeclass registry instead of maintaining separate
-// registries for FlatMap and ParCombine instances.
 
 /**
  * Register a typeclass instance with optional metadata.
- * Used by comprehension macros to register FlatMap/ParCombine instances
- * for standard types (Promise, Array, etc.).
+ * Used by std/@derive code paths to attach instance values to their
+ * typeclass companion objects (e.g. `Show.number`).
  *
  * @param info The instance information including optional metadata
  */
@@ -3128,9 +3029,7 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
   }
 
   // PEP-052: general instance resolution is scope-based (no registry). This call
-  // survives only to (1) populate the focused do-notation lookup for FlatMap/ParCombine
-  // and (2) attach the value to its typeclass companion, below.
-  mirrorDoNotationInstance(info);
+  // survives only to attach the value to its typeclass companion, below.
 
   // Attach to typeclass companion if available (populated by @typeclass macro)
   if (instanceValue !== undefined) {
@@ -3141,127 +3040,10 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
   }
 }
 
-/**
- * Get instance metadata for a typeclass+type combination.
- * Returns undefined if no instance is found or if it has no metadata.
- *
- * Only the do-notation typeclasses (FlatMap/ParCombine) carry instance metadata,
- * served from the focused do-notation lookup (PEP-052); other typeclasses have none.
- */
-export function getInstanceMeta(
-  typeclassName: string,
-  forType: string,
-  sourceFileName?: string
-): InstanceMeta | undefined {
-  if (isDoNotationTypeclass(typeclassName)) {
-    return lookupDoNotationInstance(typeclassName, forType, sourceFileName).meta;
-  }
-  return undefined;
-}
-
-/**
- * Get the method names for a FlatMap instance.
- * Falls back to defaults if no custom method names are specified.
- *
- * @param forType The type constructor name (e.g., "Promise", "Array")
- * @returns Method names for bind, map, and orElse operations
- */
-export function getFlatMapMethodNames(
-  forType: string,
-  sourceFileName?: string
-): {
-  bind: string;
-  map: string;
-  orElse?: string;
-} {
-  const meta = lookupDoNotationInstance("FlatMap", forType, sourceFileName).meta;
-  const methodNames = meta?.methodNames;
-
-  // Defaults
-  const defaults = {
-    bind: "flatMap",
-    map: "map",
-    orElse: "orElse",
-  };
-
-  // Special case for Promise (uses .then())
-  if (forType === "Promise") {
-    return { bind: "then", map: "then", orElse: "catch" };
-  }
-
-  // Special case for Effect (static methods)
-  if (forType === "Effect") {
-    return { bind: "flatMap", map: "map", orElse: "catchAll" };
-  }
-
-  if (methodNames) {
-    return {
-      bind: methodNames.bind ?? defaults.bind,
-      map: methodNames.map ?? defaults.map,
-      orElse: methodNames.orElse ?? defaults.orElse,
-    };
-  }
-
-  return defaults;
-}
-
-// ============================================================================
-// ParCombine Builder Registry
-// ============================================================================
-// Builders for zero-cost AST generation are stored separately from instances
-// because they are function values (can't be stored in InstanceInfo which
-// needs to be serializable for caching).
-
-/**
- * Type for a ParCombine builder function.
- * Generates optimized AST for par:/yield: comprehensions.
- */
-export type ParCombineBuilder = (
-  ctx: MacroContext,
-  steps: Array<
-    | { kind: "bind"; name: string; effect: ts.Expression; node: ts.Node }
-    | { kind: "map"; name: string; expression: ts.Expression; node: ts.Node }
-  >,
-  returnExpr: ts.Expression
-) => ts.Expression;
-
-/** Registry mapping type constructor names to ParCombine builders */
-const parCombineBuilderRegistry = new Map<string, ParCombineBuilder>();
-
-/**
- * Register a ParCombine builder for a type constructor.
- * The builder generates optimized AST instead of generic .map()/.ap() chains.
- */
-export function registerParCombineBuilder(forType: string, builder: ParCombineBuilder): void {
-  parCombineBuilderRegistry.set(forType, builder);
-}
-
-/**
- * Get the ParCombine builder for a type constructor.
- */
-export function getParCombineBuilderFromRegistry(forType: string): ParCombineBuilder | undefined {
-  return parCombineBuilderRegistry.get(forType);
-}
-
-/**
- * Check if a FlatMap instance exists for a type.
- * Used by let:/yield: macro to validate type support.
- */
-export function hasFlatMapInstance(forType: string, sourceFileName?: string): boolean {
-  return lookupDoNotationInstance("FlatMap", forType, sourceFileName).present;
-}
-
-/**
- * Check if a ParCombine instance exists for a type.
- * Used by par:/yield: macro to validate type support.
- */
-export function hasParCombineInstance(forType: string, sourceFileName?: string): boolean {
-  return lookupDoNotationInstance("ParCombine", forType, sourceFileName).present;
-}
-
 // FlatMap/ParCombine are not registered as typeclass definitions: the do-notation
-// macros resolve their INSTANCES via the focused do-notation lookup, and neither
-// needs op-index operator/method metadata (PEP-052 Phase C).
+// macros resolve their INSTANCES via scope-based lookup (resolveDoNotationInstance
+// in instance-resolver), and neither needs op-index operator/method metadata
+// (PEP-052 Phase C).
 
 // ============================================================================
 // Register all macros with the global registry
@@ -3493,10 +3275,4 @@ export function tryExpandGenericDerive(
 
 export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, SyntaxEntry };
 
-export {
-  instanceVarName,
-  companionPath,
-  getTypeclassesForMethod,
-  // Comprehension typeclass support (exported via export function declarations above)
-  parCombineBuilderRegistry,
-};
+export { instanceVarName, companionPath, getTypeclassesForMethod };

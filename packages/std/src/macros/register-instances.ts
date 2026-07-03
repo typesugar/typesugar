@@ -47,8 +47,10 @@
  * - Floating<number>
  *
  * **Via this macro (instances in other files):**
- * - FlatMap<Array>, FlatMap<Promise>, FlatMap<Iterable>, FlatMap<AsyncIterable>
  * - Eq<Range>, Ord<Range>
+ *
+ * FlatMap instances are NOT registered here: do-notation instance resolution
+ * is scope-based (PEP-052, resolveDoNotationInstance in @typesugar/macros).
  */
 
 import * as ts from "typescript";
@@ -94,32 +96,6 @@ interface InstanceReg {
  * typeclasses, instances defined in other files).
  */
 const STD_INSTANCES: InstanceReg[] = [
-  // FlatMap instances (HKT) — defined in separate flatmap.ts file
-  {
-    typeclass: "FlatMap",
-    forType: "Array",
-    importPath: "@typesugar/std/typeclasses/flatmap",
-    exportName: "flatMapArray",
-  },
-  {
-    typeclass: "FlatMap",
-    forType: "Promise",
-    importPath: "@typesugar/std/typeclasses/flatmap",
-    exportName: "flatMapPromise",
-  },
-  {
-    typeclass: "FlatMap",
-    forType: "Iterable",
-    importPath: "@typesugar/std/typeclasses/flatmap",
-    exportName: "flatMapIterable",
-  },
-  {
-    typeclass: "FlatMap",
-    forType: "AsyncIterable",
-    importPath: "@typesugar/std/typeclasses/flatmap",
-    exportName: "flatMapAsyncIterable",
-  },
-
   // Data type instances — defined in @typesugar/std/data
   { typeclass: "Eq", forType: "Range", importPath: "@typesugar/std/data", exportName: "eqRange" },
   { typeclass: "Ord", forType: "Range", importPath: "@typesugar/std/data", exportName: "ordRange" },

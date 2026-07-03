@@ -7,6 +7,7 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
+import type { DoNotationMeta } from "@typesugar/macros";
 
 // ============================================================================
 // Comprehension Step Types
@@ -410,6 +411,210 @@ export function createMethodCall(
     undefined,
     [arg]
   );
+}
+
+// ============================================================================
+// In-memory-host instance fallback (PEP-052 Wave 3)
+// ============================================================================
+
+/**
+ * Resolution-free fallback for the std builtin do-notation instances,
+ * mirroring Wave 2's `syntaxModule` text fallback for labels: hosts that
+ * cannot resolve modules (the playground package's in-memory host, virtual
+ * file names) resolve nothing by scope, so when the file TEXTUALLY imports a
+ * do marker, serve the builtin instance metadata directly. Covers only the
+ * four std brands — anything else in a non-resolving host gets the TS9225
+ * "no instance in scope" diagnostic (the docs playground compiles server-side
+ * with real module resolution, so this is a robustness net, not the primary
+ * path).
+ */
+type DoFallbackEntry = { exportName: string; doMeta?: DoNotationMeta };
+type DoFallbackTable = Record<string, Partial<Record<"FlatMap" | "ParCombine", DoFallbackEntry>>>;
+
+// The doMeta literals restate the `@do-methods` JSDoc tags on the instance
+// declarations (flatmap-instances.ts / par-combine-instances.ts /
+// effect's index.ts) — a consistency test in pep052-do-scope.test.ts binds
+// each entry to the parsed tag of its source declaration so they cannot
+// drift silently.
+const STD_BRANDS: DoFallbackTable = {
+  Array: {
+    FlatMap: { exportName: "flatMapArray" },
+    ParCombine: { exportName: "parCombineArray" },
+  },
+  Promise: {
+    FlatMap: {
+      exportName: "flatMapPromise",
+      doMeta: { bind: "then", map: "then", orElse: "catch", style: "method" },
+    },
+    ParCombine: {
+      exportName: "parCombinePromise",
+      doMeta: { bind: "flatMap", map: "then", all: "all", receiver: "Promise", style: "method" },
+    },
+  },
+  Iterable: {
+    FlatMap: { exportName: "flatMapIterable" },
+    ParCombine: { exportName: "parCombineIterable" },
+  },
+  AsyncIterable: {
+    FlatMap: { exportName: "flatMapAsyncIterable" },
+    ParCombine: { exportName: "parCombineAsyncIterable" },
+  },
+};
+
+const EFFECT_BRANDS: DoFallbackTable = {
+  Effect: {
+    FlatMap: {
+      exportName: "flatMapEffect",
+      doMeta: {
+        bind: "flatMap",
+        map: "map",
+        orElse: "catchAll",
+        style: "static",
+        receiver: "Effect",
+      },
+    },
+    ParCombine: {
+      exportName: "parCombineEffect",
+      doMeta: { bind: "flatMap", map: "map", all: "all", style: "static", receiver: "Effect" },
+    },
+  },
+};
+
+// Brands served per marker specifier: a file importing only the std marker
+// must not receive the Effect instance (that would re-create the ambient
+// leak this wave removes) — the effect marker serves both, mirroring its
+// re-export list.
+const DO_FALLBACK_BY_SPECIFIER: ReadonlyMap<string, DoFallbackTable[]> = new Map([
+  ["@typesugar/std/syntax/do", [STD_BRANDS]],
+  ["@typesugar/effect/syntax/do", [STD_BRANDS, EFFECT_BRANDS]],
+]);
+
+export function resolveStdDoFallback(
+  sourceFile: ts.SourceFile,
+  tcName: "FlatMap" | "ParCombine",
+  brand: string
+): DoFallbackEntry | undefined {
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const tables = DO_FALLBACK_BY_SPECIFIER.get(stmt.moduleSpecifier.text);
+    if (!tables) continue;
+    for (const table of tables) {
+      const entry = table[brand]?.[tcName];
+      if (entry) return entry;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Modules known to provide do-notation instances for specific brands — used
+ * only in the TS9225 help text so the "no instance in scope" diagnostic can
+ * name the exact import to add. Every entry must point at a module that
+ * actually exports a scanner-visible (`@impl`-tagged) instance for the brand
+ * — a hint that recommends an import which doesn't fix the error is worse
+ * than the generic message. (Either is served by fp's scanner-visible
+ * `flatMapEitherInstance` — `@impl FlatMap<EitherF>` — added after the Wave 3
+ * review; the `flatMapEither<E>()` factory alone was invisible to the
+ * scanner.)
+ */
+export const KNOWN_DO_INSTANCE_MODULES: Record<string, string> = {
+  Effect: "@typesugar/effect/syntax/do",
+  Option: "@typesugar/fp",
+  Either: "@typesugar/fp",
+  List: "@typesugar/fp",
+  IO: "@typesugar/fp",
+};
+
+/**
+ * Create a static call: `Receiver.method(fa, arg)`
+ *
+ * The `@do-methods style=static receiver=X` emission form (PEP-052 Wave 3) —
+ * used by instances like Effect whose combinators are static functions taking
+ * the container first (preserving E/R type inference), not receiver methods.
+ */
+export function createStaticCall(
+  factory: ts.NodeFactory,
+  receiver: string,
+  method: string,
+  fa: ts.Expression,
+  arg: ts.Expression
+): ts.CallExpression {
+  return factory.createCallExpression(
+    factory.createPropertyAccessExpression(
+      factory.createIdentifier(receiver),
+      factory.createIdentifier(method)
+    ),
+    undefined,
+    [fa, arg]
+  );
+}
+
+/**
+ * Style-aware call from `@do-methods` metadata: `Receiver.method(fa, arg)`
+ * when the instance declares `style=static receiver=R`, `fa.method(arg)`
+ * otherwise. The single dispatch point for do-notation emission style —
+ * every emitter (bind/map chains, orElse wraps, parallel joins) goes through
+ * here so the static-call contract lives in one place.
+ */
+export function createStyleAwareCall(
+  factory: ts.NodeFactory,
+  doMeta: DoNotationMeta,
+  method: string,
+  fa: ts.Expression,
+  arg: ts.Expression
+): ts.CallExpression {
+  if (doMeta.style === "static" && doMeta.receiver) {
+    return createStaticCall(factory, doMeta.receiver, method, fa, arg);
+  }
+  return createMethodCall(factory, fa, method, arg);
+}
+
+/**
+ * Metadata-driven parallel join from `@do-methods all=… receiver=…`:
+ * `Receiver.all([e1, e2, …])` followed by a style-aware mapping continuation
+ * over the destructured results:
+ *
+ * - Promise (`map=then all=all receiver=Promise`, method style):
+ *   `Promise.all([a, b]).then(([a, b]) => body)`
+ * - Effect (`map=map all=all receiver=Effect`, static style):
+ *   `Effect.map(Effect.all([a, b]), ([a, b]) => body)`
+ *
+ * Shared by top-level `par:` emission and nested parallel groups inside
+ * `let:`/`seq:` chains. Callers must ensure `doMeta.all` and
+ * `doMeta.receiver` are set.
+ */
+export function createMetadataJoin(
+  factory: ts.NodeFactory,
+  doMeta: DoNotationMeta,
+  binds: Array<{ name: string; effect: ts.Expression }>,
+  body: ts.Expression
+): ts.Expression {
+  const join = factory.createCallExpression(
+    factory.createPropertyAccessExpression(
+      factory.createIdentifier(doMeta.receiver!),
+      factory.createIdentifier(doMeta.all!)
+    ),
+    undefined,
+    [factory.createArrayLiteralExpression(binds.map((b) => b.effect))]
+  );
+  const destructuredParam = factory.createParameterDeclaration(
+    undefined,
+    undefined,
+    factory.createArrayBindingPattern(
+      binds.map((b) =>
+        factory.createBindingElement(undefined, undefined, factory.createIdentifier(b.name))
+      )
+    )
+  );
+  const arrow = factory.createArrowFunction(
+    undefined,
+    undefined,
+    [destructuredParam],
+    undefined,
+    factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    body
+  );
+  return createStyleAwareCall(factory, doMeta, doMeta.map, join, arrow);
 }
 
 /**

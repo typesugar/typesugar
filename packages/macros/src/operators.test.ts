@@ -12,11 +12,10 @@
  */
 
 import * as ts from "typescript";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import type { MacroContext } from "@typesugar/core";
 
 import { pipeMacro, composeMacro, getOperatorString } from "./operators.js";
-import { clearRegistries } from "./typeclass.js";
 
 // ============================================================================
 // Stub MacroContext
@@ -149,10 +148,6 @@ describe("macro registration metadata", () => {
 // ============================================================================
 
 describe("pipeMacro.expand", () => {
-  beforeEach(() => {
-    clearRegistries();
-  });
-
   it("pipe(x, f) → f(x)", () => {
     const { ctx, errors } = makeStubCtx();
     const args = [ts.factory.createIdentifier("x"), ts.factory.createIdentifier("f")];
@@ -208,10 +203,6 @@ describe("pipeMacro.expand", () => {
 // ============================================================================
 
 describe("composeMacro.expand", () => {
-  beforeEach(() => {
-    clearRegistries();
-  });
-
   it("compose(f) → (x) => f(x)", () => {
     const { ctx, errors } = makeStubCtx();
     const args = [ts.factory.createIdentifier("f")];

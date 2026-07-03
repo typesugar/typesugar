@@ -227,11 +227,11 @@ export type { ZeroCostOption, ZeroCostResult, ZeroCostOk, ZeroCostErr } from "./
 export {
   flatMapOption,
   flatMapEither,
+  flatMapEitherInstance,
   flatMapIO,
   flatMapList,
   flatMapValidated,
   fpFlatMapInstances,
-  registerFpFlatMapInstances,
   traverseArray,
   sequenceArray,
   fmap,

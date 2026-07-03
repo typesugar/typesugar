@@ -134,7 +134,6 @@ import {
 
   // FlatMap & do-notation
   type FlatMap,
-  registerFlatMap,
 } from "@typesugar/std";
 
 // ============================================================================
@@ -667,10 +666,10 @@ assert(applicativeResult.value === 30);
 // Unlike let:, par: accumulates ALL errors from all bindings
 
 // --------------------------------------------------------------------------
-// 12.3 Custom FlatMap Registration
+// 12.3 Custom FlatMap Instances
 // --------------------------------------------------------------------------
 
-// Register a custom monad for use with let:/yield:
+// Define a custom monad for use with let:/yield:
 class Task<T> {
   constructor(public readonly run: () => T) {}
   map<U>(f: (t: T) => U): Task<U> {
@@ -681,10 +680,14 @@ class Task<T> {
   }
 }
 
-registerFlatMap("Task", {
+// An `@impl FlatMap<Task>` instance in scope (declared in this file, or
+// exported by an imported module) makes Task usable in let:/yield: —
+// resolution is scope-based (PEP-052), no registration call needed.
+/** @impl FlatMap<Task> */
+export const flatMapTask = {
   map: (ta: Task<unknown>, f: (a: unknown) => unknown) => ta.map(f),
   flatMap: (ta: Task<unknown>, f: (a: unknown) => Task<unknown>) => ta.flatMap(f),
-});
+};
 
 // Now Task works with let:/yield:
 //   let: { x << new Task(() => 10); y << new Task(() => x * 2) }

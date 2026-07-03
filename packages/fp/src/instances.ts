@@ -700,6 +700,23 @@ export function flatMapEither<E>() {
 }
 
 /**
+ * FlatMap instance for Either, usable by do-notation scope resolution
+ * (PEP-052). The factory above fixes `E` at the TYPE level, but the returned
+ * dictionary is uniform in `E` at runtime (`map`/`flatMap` only touch the
+ * `Right` branch), so this single scanner-visible const serves every error
+ * type — the factory remains for callers who want `E` pinned in the types.
+ */
+/** @impl FlatMap<EitherF> */
+export const flatMapEitherInstance = flatMapEither<unknown>();
+
+registerInstanceWithMeta({
+  typeclassName: "FlatMap",
+  forType: "EitherF",
+  instanceName: "flatMapEitherInstance",
+  derived: false,
+});
+
+/**
  * FlatMap instance for IO.
  */
 /** @impl FlatMap<IOF> */
@@ -750,8 +767,9 @@ export function flatMapValidated<E>() {
 }
 
 /**
- * All FlatMap instances for @typesugar/fp types.
- * Can be used directly or registered with @typesugar/std when available.
+ * All FlatMap instances for @typesugar/fp types, keyed by type-constructor name.
+ * The let:/yield: macro resolves these by scope (PEP-052) — importing
+ * @typesugar/fp brings the @impl-tagged instances above into scope.
  */
 export const fpFlatMapInstances = {
   Option: flatMapOption,
@@ -760,28 +778,6 @@ export const fpFlatMapInstances = {
   List: flatMapList,
   Validated: flatMapValidated<unknown>(),
 } as const;
-
-/**
- * Register all @typesugar/fp FlatMap instances with @typesugar/std.
- * Call this function after importing @typesugar/std to enable let:/yield: syntax.
- *
- * @example
- * ```ts
- * import { registerFlatMap } from "@typesugar/std";
- * import { registerFpFlatMapInstances } from "@typesugar/fp";
- *
- * registerFpFlatMapInstances(registerFlatMap);
- * ```
- */
-export function registerFpFlatMapInstances(
-  registerFlatMap: (name: string, instance: object) => void
-): void {
-  registerFlatMap("Option", flatMapOption);
-  registerFlatMap("Either", flatMapEither<unknown>());
-  registerFlatMap("IO", flatMapIO);
-  registerFlatMap("List", flatMapList);
-  registerFlatMap("Validated", flatMapValidated<unknown>());
-}
 
 // ============================================================================
 // = implicit() Examples

@@ -1,10 +1,13 @@
 # PEP-052: Import-Scoped Macro Activation (cats-style syntax)
 
 **Status:** In Progress (2026-07-03) — Wave 1 + registry-deletion Phases A–C landed (PR #34);
-Phase E concrete-type method-sugar gating landed; Wave 2 `@syntax-labels` gating for
-labeled-block/trigger-label macros landed; remaining: Phase D (moved to
-[PEP-053](PEP-053-always-on-specialization.md)), HKT method sugar / named-trigger
-de-magicking (see "Implementation status & deferred work")
+Phase E concrete-type method-sugar gating landed; Wave 2 `@syntax-labels` gating landed
+(PR #43); Wave 3 scope-based do-notation instance resolution landed — the last
+process-global instance registry (`doNotationRegistry`) is deleted and the
+"No process-global instance/type-rewrite registry" acceptance criterion is met;
+remaining: Phase D (moved to [PEP-053](PEP-053-always-on-specialization.md)),
+named-trigger de-magicking + `Show` tagging + operator/method-marker text fallback
+(see "Implementation status & deferred work")
 **Date:** 2026-06-29
 **Author:** Claude (with Dean Povey)
 **Extends:** [PEP-017](PEP-017-derive-unification.md) ("everything is a typeclass")
@@ -546,6 +549,59 @@ welcome.ts`, `docs/examples/core/derive.ts` — claimed `===` rewrites to struct
     on ambient labels fixed by adding the marker import to fixtures (never by
     weakening the gate); `contract-old.test.ts`'s `/virtual/` fileName moved to
     a repo-relative one so the fixture's activation import can resolve.
+
+- **Wave 3 — scope-based do-notation instance resolution. DONE (2026-07-03).**
+  The "HKT method sugar" deferred work, resolved: for HKT containers there was
+  never a direct `xs.map(f)` rewrite to migrate — the mechanism was the
+  `let:`/`par:` comprehension macros resolving `FlatMap`/`ParCombine` by
+  type-constructor brand through the global `doNotationRegistry`, seeded by
+  import-time side effects anywhere in the program (textbook cross-file
+  leakage: `let:` over Effect worked in file B because file A imported
+  `@typesugar/effect`). Now:
+  - **Resolution rule:** brand `B` resolves iff an instance whose declared
+    constructor brand-matches `B` (`B`, `BF`, or `_BTag` spellings) is a
+    local `@impl` declaration or an export of any imported module
+    (side-effect imports and re-exports included) — `resolveDoNotationInstance`
+    in `@typesugar/macros`, a name/brand-keyed variant of the scope walk
+    (deliberately not `resolveInstance`'s type-assignability matching:
+    `FlatMap<F>`'s parameter is a phantom tag).
+  - **Marker doubles as provider:** `@typesugar/std/syntax/do` re-exports the
+    four std builtin instances (from new runtime-only twins, keeping user
+    bundles `typescript`-free), so the Wave 2 label-activation import already
+    in every do-notation file also provides the instances — zero new imports.
+    New `@typesugar/effect/syntax/do` does the same for Effect (it carries its
+    own `@syntax-labels` tags — the marker reader does not follow re-exports).
+  - **`@do-methods` metadata** on instances replaces the hardcoded
+    Promise/Effect special cases in the macros (method names, static-vs-method
+    call style, receiver, `all` join). std's builtins are detected via their
+    existing `FlatMap<_ArrayTag>` type annotations + the `_BTag` convention,
+    NOT `@impl` JSDoc — std builds with the typesugar plugin and the `@impl`
+    attribute macro's expansion is not build-neutral for global builtins
+    (HKT annotation rewrite + `namespace Array {}` companion merge).
+  - **`par:` over Effect fixed:** new `ParCombine<Effect>` + a generic
+    metadata-driven static-join emission (`Effect.map(Effect.all([...]), …)`)
+    replaces the latent broken `.map(...).ap(...)` applicative fallback; the
+    same emission serves Promise (`Promise.all(...).then(...)`) without its
+    hand-written builder.
+  - **Diagnostics:** TS9225 "No FlatMap instance for 'X' is in scope" names
+    the exact import to add. A static table serves the four std brands in
+    hosts that cannot resolve modules (mirror of Wave 2's text fallback).
+  - **Deletion (neuter-gated):** with `lookupDoNotationInstance` stubbed to
+    always miss, the full suite passed except the registry's own mechanism
+    tests — then `doNotationRegistry`, `parCombineBuilderRegistry`,
+    `registerFlatMap`/`registerParCombine`/`registerParCombineBuilder`,
+    `getFlatMapMethodNames`/`hasFlatMapInstance`/`hasParCombineInstance`/
+    `getInstanceMeta`/`clearRegistries` were deleted (deprecated exports
+    removed outright, pre-1.0; the par builders moved into std as a
+    module-local map consulted after the scope gate). **This deletes the last
+    process-global instance registry — the PEP's first acceptance criterion
+    is met.**
+  - **Correction to Wave 2's review note:** the docs playground compiles
+    SERVER-side (`api/compile.ts`, legacy transformer, real `ts.sys` module
+    resolution), so checker-based marker/instance resolution works there; the
+    in-memory-host fallbacks protect the `@typesugar/playground` package's
+    exported browser `transform()` and virtual-filename tests, not the
+    user-facing docs playground.
 
 ### Why deleting the registry is gated on the HKT/method-sugar work
 

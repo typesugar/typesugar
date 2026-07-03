@@ -33,11 +33,6 @@ import type { MacroContext } from "@typesugar/core";
 import type { BindStep, MapStep } from "../macros/comprehension-utils.js";
 import { createArrowFn, createIIFE } from "../macros/comprehension-utils.js";
 import {
-  registerInstanceWithMeta,
-  registerParCombineBuilder,
-  getParCombineBuilderFromRegistry,
-} from "@typesugar/macros";
-import {
   type ParCombine,
   parCombinePromise,
   parCombineAsyncIterable,
@@ -63,8 +58,11 @@ export {
 } from "./par-combine-instances.js";
 
 // ============================================================================
-// Registry
+// Std-local builder map
 // ============================================================================
+// Maps type-constructor brands to zero-cost AST builders for par:/yield:.
+// Instance *resolution* is scope-based (PEP-052, resolveDoNotationInstance);
+// this map only supplies the optimized emission strategy for std builtins.
 
 export type ParCombineBuilder = (
   ctx: MacroContext,
@@ -90,7 +88,7 @@ function registerBuiltin(
   parCombineRegistry.set(name, { instance, builder });
 }
 
-// Register built-in instances with their zero-cost builders (local registry for backward compat)
+// Register built-in instances with their zero-cost builders
 registerBuiltin("Promise", parCombinePromise as ParCombine<unknown>, buildPromiseAll);
 registerBuiltin(
   "AsyncIterable",
@@ -100,62 +98,31 @@ registerBuiltin(
 registerBuiltin("Array", parCombineArray as ParCombine<unknown>, buildArrayParCombine);
 registerBuiltin("Iterable", parCombineIterable as ParCombine<unknown>, buildIterableParCombine);
 
-// Also register in the unified typeclass registry
-function registerInUnifiedRegistry(name: string): void {
-  registerInstanceWithMeta({
-    typeclassName: "ParCombine",
-    forType: name,
-    instanceName: `parCombine${name}`,
-    derived: false,
-    meta: {
-      builderName: name, // Reference to builder in parCombineBuilderRegistry
-    },
-  });
-}
-
-// Register built-in instances in unified registry
-registerInUnifiedRegistry("Promise");
-registerInUnifiedRegistry("AsyncIterable");
-registerInUnifiedRegistry("Array");
-registerInUnifiedRegistry("Iterable");
-
-// Register builders in the unified builder registry
-registerParCombineBuilder("Promise", buildPromiseAll);
-registerParCombineBuilder("AsyncIterable", buildAsyncIterableAll);
-registerParCombineBuilder("Array", buildArrayParCombine);
-registerParCombineBuilder("Iterable", buildIterableParCombine);
-
 /**
  * Get a ParCombine instance by type constructor name.
  *
- * @deprecated Use hasParCombineInstance(name) from @typesugar/macros for new code.
- * This function is maintained for backward compatibility.
+ * @deprecated Instance resolution is scope-based (PEP-052); prefer an @impl
+ * instance in scope. This function is maintained for backward compatibility.
  */
 export function getParCombine(name: string): ParCombine<unknown> | undefined {
   return parCombineRegistry.get(name)?.instance;
 }
 
 /**
- * Get the zero-cost builder for a type constructor, if registered.
- *
- * @deprecated Use getParCombineBuilderFromRegistry(name) from @typesugar/macros for new code.
- * This function is maintained for backward compatibility.
+ * Get the std-local zero-cost AST builder for a type-constructor brand, if any.
+ * Consumed by the par:/yield: macro to emit optimized code for std builtins
+ * (Promise, AsyncIterable, Array, Iterable) and locally registered types.
  */
-export function getParCombineBuilder(name: string): ParCombineBuilder | undefined {
-  // First check unified registry, fall back to local registry
-  const unifiedBuilder = getParCombineBuilderFromRegistry(name);
-  if (unifiedBuilder) {
-    return unifiedBuilder;
-  }
-  return parCombineRegistry.get(name)?.builder;
+export function getStdParCombineBuilder(brand: string): ParCombineBuilder | undefined {
+  return parCombineRegistry.get(brand)?.builder;
 }
 
 /**
  * Register a ParCombine instance for a type constructor.
  * Provide a builder for zero-cost macro expansion, or omit to use runtime dispatch.
  *
- * @deprecated Use @instance decorator or registerInstanceWithMeta() + registerParCombineBuilder()
- * from @typesugar/macros for new code. This function is maintained for backward compatibility.
+ * @deprecated Declare an @impl ParCombine<F> instance instead — resolution is
+ * scope-based (PEP-052). This function is maintained for backward compatibility.
  */
 export function registerParCombine<F>(
   name: string,
@@ -167,9 +134,6 @@ export function registerParCombine<F>(
     instance: instance as ParCombine<unknown>,
     builder: actualBuilder,
   });
-  // Also register in unified registry
-  registerInUnifiedRegistry(name);
-  registerParCombineBuilder(name, actualBuilder);
 }
 
 // ============================================================================

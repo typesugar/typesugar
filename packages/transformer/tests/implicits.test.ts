@@ -9,13 +9,9 @@
  * - "use no typesugar" opt-out skips implicit resolution
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries, registerInstanceWithMeta } from "@typesugar/macros";
-
-beforeEach(() => {
-  clearRegistries();
-});
+import { registerInstanceWithMeta } from "@typesugar/macros";
 
 function setupOrdTypeclass() {}
 

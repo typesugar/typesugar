@@ -83,7 +83,8 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import { hasParCombineInstance, getParCombineBuilderFromRegistry } from "@typesugar/macros";
+import { resolveDoNotationInstance, type DoNotationMeta } from "@typesugar/macros";
+import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
 import {
   type BindStep,
   type MapStep,
@@ -93,6 +94,9 @@ import {
   createArrowFn,
   createMethodCall,
   createIIFE,
+  createStyleAwareCall,
+  createMetadataJoin,
+  resolveStdDoFallback,
 } from "./comprehension-utils.js";
 
 // ============================================================================
@@ -181,15 +185,40 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Check if ParCombine instance exists in unified registry
-    if (!hasParCombineInstance(typeConstructorName, ctx.sourceFile.fileName)) {
+    // PEP-052 Wave 3: instance resolution is scope-based — an instance
+    // declared in this file or exported by any imported module (the std
+    // builtins come in through the `@typesugar/std/syntax/do` marker). No
+    // global registry; the static fallback serves the std builtins in hosts
+    // that cannot resolve modules. A brand with no ParCombine instance falls
+    // through to the generic applicative chain (same as before the flip).
+    const scoped =
+      resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName) ??
+      resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructorName);
+    if (!scoped) {
       // Fall back to applicative chain if no ParCombine instance
       const result = buildApplicativeChain(ctx, steps, returnExpr);
       return factory.createExpressionStatement(result);
     }
+    if (scoped.doMeta?.unrecognized?.length) {
+      ctx.reportWarning(
+        mainBlock,
+        `@do-methods on the ${typeConstructorName} ParCombine instance (${scoped.exportName}) has ` +
+          `unrecognized entries: ${scoped.doMeta.unrecognized.join(" ")} — valid keys are ` +
+          `bind= map= orElse= all= receiver= style=method|static.`
+      );
+    }
 
-    // Use ParCombine builder from unified registry if available
-    const parCombineBuilder = getParCombineBuilderFromRegistry(typeConstructorName);
+    // Emission strategy, in precedence order:
+    // 1. `@do-methods all=… receiver=…` metadata on the scoped instance — the
+    //    generic static-join emission (`Receiver.all([...])` + style-aware
+    //    continuation). Covers Promise and Effect without per-brand builders.
+    // 2. A std-local AST builder (Array/Iterable cartesian products etc.).
+    // 3. The generic applicative chain.
+    if (scoped?.doMeta?.all && scoped.doMeta.receiver) {
+      const result = buildStaticAllParCombine(ctx, steps, returnExpr, scoped.doMeta);
+      return factory.createExpressionStatement(result);
+    }
+    const parCombineBuilder = getStdParCombineBuilder(typeConstructorName);
     const result = parCombineBuilder
       ? parCombineBuilder(ctx, steps, returnExpr)
       : buildApplicativeChain(ctx, steps, returnExpr);
@@ -338,6 +367,46 @@ export function validateIndependence(
 // ============================================================================
 // Applicative Chain Building (non-Promise)
 // ============================================================================
+
+/**
+ * Metadata-driven parallel join (PEP-052 Wave 3): emit
+ * `Receiver.<all>([e1, e2, ...])` + a style-aware mapping continuation from a
+ * scoped instance's `@do-methods all=… receiver=…` metadata, via the shared
+ * createMetadataJoin (also used by nested parallel groups in let:/seq:).
+ * Single-bind comprehensions skip the join; pure map steps wrap the yield in
+ * IIFEs — mirroring the hand-written Promise builder, which survives in
+ * par-combine.ts only as the safety net when metadata is unavailable.
+ */
+function buildStaticAllParCombine(
+  ctx: MacroContext,
+  steps: (BindStep | MapStep)[],
+  returnExpr: ts.Expression,
+  doMeta: DoNotationMeta
+): ts.Expression {
+  const { factory } = ctx;
+  const bindSteps = steps.filter((s): s is BindStep => s.kind === "bind");
+  const mapSteps = steps.filter((s): s is MapStep => s.kind === "map");
+
+  let yieldExpr = returnExpr;
+  for (let i = mapSteps.length - 1; i >= 0; i--) {
+    const step = mapSteps[i];
+    yieldExpr = createIIFE(factory, step.name, yieldExpr, step.expression);
+  }
+
+  if (bindSteps.length === 0) return yieldExpr;
+
+  if (bindSteps.length === 1) {
+    return createStyleAwareCall(
+      factory,
+      doMeta,
+      doMeta.map,
+      bindSteps[0].effect,
+      createArrowFn(factory, bindSteps[0].name, yieldExpr)
+    );
+  }
+
+  return createMetadataJoin(factory, doMeta, bindSteps, yieldExpr);
+}
 
 /**
  * Build the applicative combination for standard (non-Promise) types.

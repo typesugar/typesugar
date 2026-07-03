@@ -79,7 +79,6 @@ export {
   withDerivationContext,
   resolveFieldInstance,
   tryExpandGenericDerive,
-  clearRegistries,
   registerTypeclassMacros,
   instanceVarName,
   companionPath,
@@ -88,20 +87,12 @@ export {
   getTypeclassesForMethod,
   extractOpFromJSDoc,
   registerInstanceWithMeta,
-  getInstanceMeta,
-  getFlatMapMethodNames,
-  registerParCombineBuilder,
-  getParCombineBuilderFromRegistry,
-  hasFlatMapInstance,
-  hasParCombineInstance,
-  parCombineBuilderRegistry,
   getSpecializationMethodsForDerivation,
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
   type InstanceMeta,
   type SyntaxEntry,
-  type ParCombineBuilder,
 } from "./typeclass.js";
 export {
   // Internal: registerInstanceMethodsFromAST is used by @impl macro, not public API
@@ -246,11 +237,21 @@ export {
 } from "./primitives.js";
 
 // --- Instance Scanner & Resolver (PEP-038 Wave 2A/2B) ---
-export { InstanceScanner, instanceScanner, type ScannedInstance } from "./instance-scanner.js";
+export {
+  InstanceScanner,
+  instanceScanner,
+  parseDoMethodsTag,
+  DEFAULT_DO_METHODS,
+  type ScannedInstance,
+  type DoNotationMeta,
+} from "./instance-scanner.js";
 export {
   resolveInstance,
   clearResolverCache,
   findInstanceInScopeByName,
+  resolveDoNotationInstance,
+  brandMatchesForType,
+  type ResolvedDoNotationInstance,
   type ResolvedInstance,
   type AmbiguousInstances,
   type ResolutionResult,

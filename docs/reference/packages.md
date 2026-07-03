@@ -207,9 +207,11 @@ npm install @typesugar/std
 match(); // Fluent: match(v).case(...).then(...).else(...)
 MatchError; // Runtime error when no pattern matches (extends Error, has .value)
 
-// FlatMap for do-notation
+// FlatMap for do-notation — built-in instances (flatMapArray, flatMapPromise,
+// flatMapIterable, flatMapAsyncIterable) come with the
+// "@typesugar/std/syntax/do" marker import; custom types declare
+// @impl-tagged instances (scope-based resolution, PEP-052)
 FlatMap;
-registerFlatMap();
 
 // Standard typeclasses
 (Eq, Ord, Show, Hash, Semigroup, Monoid);

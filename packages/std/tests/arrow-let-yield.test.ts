@@ -24,7 +24,7 @@ import { transformCode } from "@typesugar/transformer";
 
 const ARROW_FN_SOURCE = `
 import { Effect } from "effect";
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 
 const getUserWithPosts = (userId: string) =>
 let: {
@@ -42,7 +42,7 @@ console.log(typeof getUserWithPosts);
 
 const RETURN_SOURCE = `
 import { Effect } from "effect";
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 
 function compute() {
   return
@@ -56,7 +56,7 @@ function compute() {
 
 const EXPORT_DEFAULT_SOURCE = `
 import { Effect } from "effect";
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 
 export default
 let: {
@@ -68,7 +68,7 @@ yield: { x + y }
 
 const GENERATOR_SOURCE = `
 import { Effect } from "effect";
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 
 function* gen() {
   const r =
@@ -82,7 +82,7 @@ function* gen() {
 
 const TOP_LEVEL_SOURCE = `
 import { Effect } from "effect";
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 
 const prog =
 let: {

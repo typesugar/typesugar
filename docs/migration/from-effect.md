@@ -22,7 +22,7 @@ npm install @typesugar/effect effect
 ```
 
 ```typescript
-import "@typesugar/std/syntax/do"; // activate let:/yield: label syntax
+import "@typesugar/effect/syntax/do"; // activate let:/yield: labels + Effect instances
 import { service, layer, resolveLayer } from "@typesugar/effect";
 import { Effect } from "effect";
 

@@ -1,10 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { clearRegistries } from "@typesugar/macros";
-
-beforeEach(() => {
-  clearRegistries();
-});
 
 describe("implicit resolution should not auto-specialize", () => {
   it("calls showValue with resolved instance, not an inlined specialization", () => {

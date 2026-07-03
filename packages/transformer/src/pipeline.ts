@@ -1355,6 +1355,11 @@ export class TransformationPipeline {
    * idempotent.
    */
   private isComprehensionSyntaxActivated(fileName: string, code: string): boolean {
+    // Cheap text pre-filter: the activation scan (a full import walk, which
+    // the transformer repeats later) is only worth paying for files that can
+    // possibly contain a comprehension label. Everything else skips both the
+    // scan AND the preprocessor.
+    if (!/\b(?:let|seq|par|all)\s*:/.test(code)) return false;
     const letMacro = globalRegistry.getLabeledBlock("let")?.name;
     const parMacro = globalRegistry.getLabeledBlock("par")?.name;
     if (!letMacro && !parMacro) return false;

@@ -28,7 +28,7 @@ import {
   type TypeMacro,
 } from "@typesugar/core";
 
-import { clearRegistries, registerInstanceWithMeta } from "@typesugar/macros";
+import { registerInstanceWithMeta } from "@typesugar/macros";
 
 import {
   tryExpandTaggedTemplate,
@@ -140,14 +140,12 @@ function printNode(node: ts.Node, sf?: ts.SourceFile): string {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  clearRegistries();
   clearTypeRewrites();
   standaloneExtensionRegistry.length = 0;
   globalRegistry.clear();
 });
 
 afterEach(() => {
-  clearRegistries();
   clearTypeRewrites();
   standaloneExtensionRegistry.length = 0;
   globalRegistry.clear();

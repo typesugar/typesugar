@@ -6,15 +6,10 @@
  * declaration so the generated code can reference it.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import * as path from "path";
 import { transformCode, TransformationPipeline } from "@typesugar/transformer/pipeline";
-import { clearRegistries } from "@typesugar/macros";
-
-beforeEach(() => {
-  clearRegistries();
-});
 
 // ============================================================================
 // Helpers

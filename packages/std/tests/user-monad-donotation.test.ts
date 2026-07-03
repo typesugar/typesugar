@@ -1,14 +1,14 @@
 /**
- * Regression test for PEP-052 Phase B: a user-defined monad registered via the
- * `@impl`/`@instance` attribute macro must be visible to the `let:`/`yield:` and
- * `par:`/`yield:` do-notation macros.
+ * Regression test for PEP-052: a user-defined monad declared with an
+ * `@impl FlatMap<T>` instance in the same file must be visible to the
+ * `let:`/`yield:` and `par:`/`yield:` do-notation macros.
  *
- * Do-notation FlatMap/ParCombine detection resolves via the focused
- * `doNotationRegistry`, populated by `mirrorDoNotationInstance` at every instance
- * registration site (`registerInstanceWithMeta` AND the `@instance`/`@impl` attribute
- * macro). If the macro's mirror call is dropped, a user-defined `@impl FlatMap<T>`
- * monad silently stops resolving in do-notation (the std built-ins keep working, so
- * the suite would otherwise stay green).
+ * Do-notation FlatMap/ParCombine detection is scope-based
+ * (`resolveDoNotationInstance` in @typesugar/macros): instances are resolved
+ * from declarations in the current file or from imported modules — there is
+ * no global registry. This test covers the local-file `@impl` scope-resolution
+ * path (the std built-ins keep working via the `@typesugar/std/syntax/do`
+ * marker, so the suite would otherwise stay green if it broke).
  */
 import { describe, it, expect } from "vitest";
 

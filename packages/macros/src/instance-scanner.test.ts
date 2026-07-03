@@ -10,7 +10,12 @@ import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { InstanceScanner, type ScannedInstance } from "./instance-scanner.js";
+import {
+  InstanceScanner,
+  parseDoMethodsTag,
+  DEFAULT_DO_METHODS,
+  type ScannedInstance,
+} from "./instance-scanner.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -367,5 +372,105 @@ export { ordNumber } from "./provider.js";
     // Verify namespace objects are NOT included
     expect(byName.has("Show")).toBe(false);
     expect(byName.has("Eq")).toBe(false);
+  });
+});
+
+describe("@do-methods metadata (PEP-052 Wave 3)", () => {
+  it("parses key=value pairs and attaches doMeta to the scanned instance", () => {
+    const mod = createTestModule(`
+/**
+ * @impl FlatMap<Promise>
+ * @do-methods bind=then map=then orElse=catch
+ */
+export const flatMapPromise = { flatMap: (fa: any, f: any) => fa.then(f) };
+    `);
+
+    const scanner = new InstanceScanner();
+    const results = scanner.scanModule(mod.typeChecker, mod.moduleSymbol, mod.resolvedPath);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].doMeta).toEqual({
+      bind: "then",
+      map: "then",
+      orElse: "catch",
+      style: "method",
+    });
+  });
+
+  it("parses style=static receiver=... for static-call emission", () => {
+    const mod = createTestModule(`
+/**
+ * @impl FlatMap<Effect>
+ * @do-methods bind=flatMap map=map orElse=catchAll style=static receiver=Effect
+ */
+export const flatMapEffect = {};
+    `);
+
+    const scanner = new InstanceScanner();
+    const results = scanner.scanModule(mod.typeChecker, mod.moduleSymbol, mod.resolvedPath);
+
+    expect(results[0].doMeta).toEqual({
+      bind: "flatMap",
+      map: "map",
+      orElse: "catchAll",
+      style: "static",
+      receiver: "Effect",
+    });
+  });
+
+  it("leaves doMeta undefined when the tag is absent (defaults applied by consumers)", () => {
+    const mod = createTestModule(`
+/** @impl FlatMap<Array> */
+export const flatMapArray = {};
+    `);
+
+    const scanner = new InstanceScanner();
+    const results = scanner.scanModule(mod.typeChecker, mod.moduleSymbol, mod.resolvedPath);
+
+    expect(results[0].doMeta).toBeUndefined();
+    expect(DEFAULT_DO_METHODS).toEqual({ bind: "flatMap", map: "map", style: "method" });
+  });
+
+  it("captures unknown keys and malformed pairs as unrecognized (warned at use sites)", () => {
+    const sf = ts.createSourceFile(
+      "x.ts",
+      `/**
+ * @do-methods bind=chain frobnicate=yes =bad noequals map=select style=statik
+ */
+const inst = {};`,
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const meta = parseDoMethodsTag(sf.statements[0]);
+    expect(meta).toEqual({
+      bind: "chain",
+      map: "select",
+      style: "method",
+      unrecognized: ["frobnicate=yes", "=bad", "noequals", "style=statik"],
+    });
+  });
+});
+
+describe("call-form instance detection (PEP-052 Wave 3 review fix)", () => {
+  it('detects `const x = impl("TC<T>", {...})` initializers in source files', () => {
+    const mod = createTestModule(`
+declare function impl<T>(desc: string, body: T): T;
+/** @do-methods bind=andThen */
+export const flatMapTask = impl("FlatMap<Task>", {
+  map: (fa: any, f: any) => fa.map(f),
+  flatMap: (fa: any, f: any) => fa.andThen(f),
+});
+    `);
+
+    const scanner = new InstanceScanner();
+    const results = scanner.scanModule(mod.typeChecker, mod.moduleSymbol, mod.resolvedPath);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      typeclassName: "FlatMap",
+      forTypeString: "Task",
+      exportName: "flatMapTask",
+    });
+    expect(results[0].doMeta?.bind).toBe("andThen");
   });
 });

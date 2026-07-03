@@ -5,7 +5,7 @@
  * to portable JavaScript for consumers that use esbuild/swc.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
 import {
   transformCode,
@@ -17,12 +17,7 @@ import {
   decodeSourceMap,
   findOriginalPosition,
 } from "@typesugar/transformer-core";
-import { clearRegistries } from "@typesugar/macros";
 import type { RawSourceMap } from "@typesugar/core";
-
-beforeEach(() => {
-  clearRegistries();
-});
 
 // ============================================================================
 // transpileExpanded() unit tests

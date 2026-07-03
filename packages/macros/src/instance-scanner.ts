@@ -31,6 +31,119 @@ export interface ScannedInstance {
   sourceModule: string;
   /** How this instance was detected */
   detectedVia: "impl-tag" | "type-annotation";
+  /** Do-notation emission metadata from a `@do-methods` JSDoc tag, if present */
+  doMeta?: DoNotationMeta;
+}
+
+/**
+ * Do-notation emission metadata, declared per instance via a `@do-methods`
+ * JSDoc tag next to `@impl`/`@instance` (PEP-052 Wave 3). Replaces the old
+ * hardcoded Promise/Effect special cases in the comprehension macros:
+ *
+ * ```
+ * // @impl FlatMap<Promise>
+ * // @do-methods bind=then map=then orElse=catch
+ *
+ * // @impl FlatMap<Effect>
+ * // @do-methods bind=flatMap map=map orElse=catchAll style=static receiver=Effect
+ * ```
+ * (shown as line comments so this doc's own JSDoc is not parsed as tags)
+ *
+ * Absent tag ⇒ the defaults ({@link DEFAULT_DO_METHODS}): receiver-method
+ * calls `.flatMap(...)` / `.map(...)`, which cover Array/Iterable/Option and
+ * ordinary user monads.
+ */
+export interface DoNotationMeta {
+  /** Method emitted for a monadic bind step (`x << e`). Default "flatMap". */
+  bind: string;
+  /** Method emitted for the final mapping step. Default "map". */
+  map: string;
+  /** Method for error recovery, when the comprehension form uses one. */
+  orElse?: string;
+  /**
+   * Static combinator that joins independent effects for `par:` (e.g. "all"
+   * for `Promise.all` / `Effect.all`). Called on {@link receiver}, so setting
+   * it requires `receiver=` even for method-style instances (Promise binds
+   * via `.then` but joins via static `Promise.all`). When absent, `par:`
+   * falls back to a registered AST builder or the generic applicative chain.
+   */
+  all?: string;
+  /**
+   * "method" (default): emit receiver calls `fa.bind(f)`.
+   * "static": emit `Receiver.bind(fa, f)` — requires {@link receiver}.
+   */
+  style: "method" | "static";
+  /** Static-call receiver identifier (e.g. "Effect") when style is "static". */
+  receiver?: string;
+  /**
+   * Entries the parser did not recognize (unknown keys, malformed pairs,
+   * invalid `style=` values). Never affects emission — carried so the
+   * consuming macro can WARN at the use site instead of silently defaulting
+   * a typo like `style=statik` to method-style emission.
+   */
+  unrecognized?: string[];
+}
+
+/** Defaults applied when an instance carries no `@do-methods` tag. */
+export const DEFAULT_DO_METHODS: DoNotationMeta = {
+  bind: "flatMap",
+  map: "map",
+  style: "method",
+};
+
+/**
+ * Parse a `@do-methods` JSDoc tag's whitespace-separated `key=value` pairs.
+ * Unknown keys are ignored (forward-compatible). Returns undefined when the
+ * node carries no such tag.
+ */
+export function parseDoMethodsTag(node: ts.Node): DoNotationMeta | undefined {
+  for (const tag of ts.getJSDocTags(node)) {
+    if (tag.tagName.text !== "do-methods") continue;
+    const comment =
+      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+    if (!comment) return { ...DEFAULT_DO_METHODS };
+    const meta: DoNotationMeta = { ...DEFAULT_DO_METHODS };
+    const unrecognized: string[] = [];
+    for (const pair of comment.trim().split(/\s+/)) {
+      const eq = pair.indexOf("=");
+      if (eq <= 0) {
+        unrecognized.push(pair);
+        continue;
+      }
+      const key = pair.slice(0, eq);
+      const value = pair.slice(eq + 1);
+      if (!value) {
+        unrecognized.push(pair);
+        continue;
+      }
+      switch (key) {
+        case "bind":
+          meta.bind = value;
+          break;
+        case "map":
+          meta.map = value;
+          break;
+        case "orElse":
+          meta.orElse = value;
+          break;
+        case "all":
+          meta.all = value;
+          break;
+        case "style":
+          if (value === "method" || value === "static") meta.style = value;
+          else unrecognized.push(pair);
+          break;
+        case "receiver":
+          meta.receiver = value;
+          break;
+        default:
+          unrecognized.push(pair);
+      }
+    }
+    if (unrecognized.length > 0) meta.unrecognized = unrecognized;
+    return meta;
+  }
+  return undefined;
 }
 
 /**
@@ -173,7 +286,9 @@ export class InstanceScanner {
     // resolved from the string alone (R2), borrow forType from the value's own
     // type annotation (`: Eq<Point>`), which the checker resolves reliably.
     const implResult = this.extractFromImplTag(typeChecker, stmtNode, exportName, resolvedPath);
+    const doMeta = parseDoMethodsTag(stmtNode);
     if (implResult) {
+      if (doMeta) implResult.doMeta = doMeta;
       // Only borrow forType from the annotation when it describes the SAME
       // typeclass — otherwise `@impl Foo<X>` on `const v: Bar<Y>` would fabricate
       // a `Foo<Y>` instance that was never declared.
@@ -191,7 +306,40 @@ export class InstanceScanner {
 
     // Strategy 2: Type annotation on variable declaration
     if (typeResult) {
+      if (doMeta) typeResult.doMeta = doMeta;
       results.push(typeResult);
+      return results;
+    }
+
+    // Strategy 3: call-form initializer `const x = impl("TC<T>", {...})` /
+    // `instance("TC<T>", ...)`. Before PEP-052 Wave 3 these were made
+    // resolvable by the impl() expression macro's registry mirror; the mirror
+    // is gone, so the scanner reads the declaration shape directly. Source
+    // files only — in emitted `.d.ts` the call is erased, so PUBLISHED
+    // call-form instances remain invisible (the documented authoring form is
+    // the `@impl` JSDoc tag, which survives declaration emit).
+    if (varDecl?.initializer && ts.isCallExpression(varDecl.initializer)) {
+      const call = varDecl.initializer;
+      if (
+        ts.isIdentifier(call.expression) &&
+        (call.expression.text === "impl" || call.expression.text === "instance") &&
+        call.arguments.length >= 1 &&
+        ts.isStringLiteralLike(call.arguments[0])
+      ) {
+        const parsed = parseTypeInstantiation(call.arguments[0].text);
+        if (parsed) {
+          const callResult: ScannedInstance = {
+            typeclassName: parsed.base,
+            forTypeString: parsed.args,
+            forType: resolveTypeString(typeChecker, parsed.args),
+            exportName,
+            sourceModule: resolvedPath,
+            detectedVia: "impl-tag",
+          };
+          if (doMeta) callResult.doMeta = doMeta;
+          results.push(callResult);
+        }
+      }
     }
 
     return results;

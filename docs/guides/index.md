@@ -106,7 +106,7 @@ When something goes wrong, you should know exactly what happened and how to get 
 
 ```typescript
 // Standard library
-import { clamp, abs, match, registerFlatMap } from "@typesugar/std";
+import { clamp, abs, match } from "@typesugar/std";
 
 // Derive macros
 import { derive, Eq, Ord, Clone, Debug, Json } from "@typesugar/derive";

@@ -27,6 +27,11 @@
       "types": "./dist/macros.d.ts",
       "import": "./dist/macros.js",
       "require": "./dist/macros.cjs"
+    },
+    "./syntax/do": {
+      "types": "./dist/syntax/do.d.ts",
+      "import": "./dist/syntax/do.js",
+      "require": "./dist/syntax/do.cjs"
     }
   },
   "scripts": {
