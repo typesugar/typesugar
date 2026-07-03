@@ -23,8 +23,6 @@ import {
   // Config functions
   setCfgConfig,
   clearDerivationCaches,
-  // Registration functions for AST-based extraction
-  registerInstanceWithMeta,
   type ImplicitScope,
   createRegistrationCall,
   // Instance resolution (PEP-038)
@@ -91,7 +89,6 @@ import {
   // Comment stripping for inlined expressions
   stripCommentsDeep,
   // Type string parsing
-  parseTypeInstantiation,
   stripTypeArguments,
   // Derive diagnostics
   TS9101,
@@ -487,9 +484,6 @@ export class TransformerState {
   /** Disk-backed expansion cache */
   readonly expansionCache: MacroExpansionCache | undefined;
 
-  /** Files that have been scanned for instance/typeclass registrations */
-  readonly scannedFiles: Set<string>;
-
   /** Track which programs have had macro packages loaded */
   private loadedPrograms = new WeakSet<ts.Program>();
 
@@ -499,7 +493,6 @@ export class TransformerState {
       options.cacheDir !== false
         ? new MacroExpansionCache(options.cacheDir ?? ".typesugar-cache")
         : undefined;
-    this.scannedFiles = new Set();
 
     if (options.verbose) {
       console.log("[typesugar] Created TransformerState");
@@ -525,18 +518,6 @@ export class TransformerState {
   }
 
   /**
-   * Invalidate scanned files that match a predicate.
-   * Use this when a source file changes to allow re-scanning.
-   */
-  invalidateScannedFiles(predicate: (fileName: string) => boolean): void {
-    for (const fileName of this.scannedFiles) {
-      if (predicate(fileName)) {
-        this.scannedFiles.delete(fileName);
-      }
-    }
-  }
-
-  /**
    * Save the expansion cache to disk.
    */
   save(): void {
@@ -546,10 +527,9 @@ export class TransformerState {
   /**
    * Get cache statistics.
    */
-  getStats(): { expansionCacheSize: number; scannedFilesCount: number } {
+  getStats(): { expansionCacheSize: number } {
     return {
       expansionCacheSize: this.expansionCache?.size ?? 0,
-      scannedFilesCount: this.scannedFiles.size,
     };
   }
 }
@@ -599,253 +579,6 @@ function isPreprocessedCompWrapperBlock(block: ts.Block): boolean {
   const init = firstDecl.initializer.text;
   if (init !== "let" && init !== "par" && init !== "seq" && init !== "all") return false;
   return ts.isObjectBindingPattern(secondDecl.name);
-}
-
-/**
- * Parse a typeclass instantiation string like "Numeric<Expression<number>>"
- * into { typeclassName, forType }.
- */
-function parseTypeclassInstantiation(
-  text: string
-): { typeclassName: string; forType: string } | null {
-  const parsed = parseTypeInstantiation(text);
-  if (!parsed || !parsed.args) return null;
-  return { typeclassName: parsed.base, forType: parsed.args };
-}
-
-/**
- * Resolve a relative module import to an absolute file path.
- * Probes extensions: .ts, .tsx, .js, .jsx, then /index variants.
- */
-function resolveRelativeImport(modulePath: string, baseDir: string): string | undefined {
-  const extensions = [".ts", ".tsx", ".js", ".jsx", ""];
-
-  // Strip .js/.jsx extension for TypeScript ESM compatibility
-  // (imports like "./foo.js" should resolve to "./foo.ts")
-  let basePath = path.resolve(baseDir, modulePath);
-  if (basePath.endsWith(".js") || basePath.endsWith(".jsx")) {
-    const stripped = basePath.replace(/\.jsx?$/, "");
-    for (const ext of extensions) {
-      const candidate = stripped + ext;
-      if (ts.sys.fileExists(candidate)) {
-        return candidate;
-      }
-    }
-  }
-
-  for (const ext of extensions) {
-    const candidate = basePath + ext;
-    if (ts.sys.fileExists(candidate)) {
-      return candidate;
-    }
-  }
-
-  for (const ext of extensions) {
-    if (ext === "") continue;
-    const indexCandidate = path.join(basePath, "index" + ext);
-    if (ts.sys.fileExists(indexCandidate)) {
-      return indexCandidate;
-    }
-  }
-
-  return undefined;
-}
-
-/**
- * Extract an ops map from an object literal like { ops: { "===": "equals", ... } }
- */
-
-/**
- * Extract and pre-register `instance()` and `typeclass()` calls from imported workspace files.
- *
- * This ensures typeclass instances and syntax mappings are registered BEFORE the transformer
- * processes files that use operator overloading on imported types.
- *
- * @param sourceFile The current file to scan imports from
- * @param program The TypeScript program (provides access to imported source files)
- * @param scannedFiles Set of already-scanned file paths (prevents cycles)
- * @param verbose Enable logging
- */
-function ensureImportedRegistrations(
-  sourceFile: ts.SourceFile,
-  program: ts.Program,
-  scannedFiles: Set<string>,
-  verbose: boolean
-): void {
-  const baseDir = path.dirname(sourceFile.fileName);
-
-  // Collect module paths from both imports and re-exports
-  const modulePaths: string[] = [];
-
-  for (const stmt of sourceFile.statements) {
-    // Handle: import { ... } from "./module.js"
-    if (ts.isImportDeclaration(stmt)) {
-      const moduleSpecifier = stmt.moduleSpecifier;
-      if (ts.isStringLiteral(moduleSpecifier)) {
-        modulePaths.push(moduleSpecifier.text);
-      }
-    }
-
-    // Handle: export * from "./module.js" and export { ... } from "./module.js"
-    if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier) {
-      if (ts.isStringLiteral(stmt.moduleSpecifier)) {
-        modulePaths.push(stmt.moduleSpecifier.text);
-      }
-    }
-  }
-
-  for (const modulePath of modulePaths) {
-    // Only process relative/workspace imports
-    if (!modulePath.startsWith(".") && !modulePath.startsWith("/")) {
-      continue;
-    }
-
-    const resolved = resolveRelativeImport(modulePath, baseDir);
-    if (!resolved) continue;
-
-    // Skip if already scanned (prevents cycles)
-    if (scannedFiles.has(resolved)) continue;
-    scannedFiles.add(resolved);
-
-    // Get the source file from the program (will have preprocessed content via VirtualCompilerHost)
-    const importedSf = program.getSourceFile(resolved);
-    if (!importedSf) continue;
-
-    // OPTIMIZATION: Fast string-based skip for files without registration calls
-    // Most files don't contain registrations, so avoid the expensive AST walk
-    const fileText = importedSf.text;
-    if (!fileText.includes("instance(") && !fileText.includes("registerInstanceWithMeta(")) {
-      // File doesn't have any registration calls — just recurse into imports
-      ensureImportedRegistrations(importedSf, program, scannedFiles, verbose);
-      continue;
-    }
-
-    if (verbose) {
-      console.log(`[typesugar] Pre-scanning registrations in: ${resolved}`);
-    }
-
-    // Walk the AST looking for registration calls
-    const scanNode = (node: ts.Node): void => {
-      if (ts.isCallExpression(node)) {
-        const callee = node.expression;
-        if (ts.isIdentifier(callee)) {
-          const fnName = callee.text;
-
-          // Handle instance("Typeclass<Type>", ...)
-          if (fnName === "instance" && node.arguments.length >= 1) {
-            const descArg = node.arguments[0];
-            if (ts.isStringLiteral(descArg)) {
-              const parsed = parseTypeclassInstantiation(descArg.text);
-              if (parsed) {
-                // Find the enclosing variable declaration to get the instance name
-                let instanceName: string | undefined;
-                let parent: ts.Node | undefined = node.parent;
-                while (parent) {
-                  if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
-                    instanceName = parent.name.text;
-                    break;
-                  }
-                  parent = parent.parent;
-                }
-
-                if (instanceName) {
-                  if (verbose) {
-                    console.log(
-                      `[typesugar] Pre-registered instance: ${parsed.typeclassName}<${parsed.forType}> = ${instanceName}`
-                    );
-                  }
-                  // registerInstanceWithMeta is idempotent (replace-in-place).
-                  registerInstanceWithMeta({
-                    typeclassName: parsed.typeclassName,
-                    forType: parsed.forType,
-                    instanceName,
-                    derived: false,
-                  });
-                }
-              }
-            }
-          }
-
-          // (@op operator syntax is discovered generically by the op-index, which
-          // scans @typeclass interfaces across the program — no pre-registration.)
-
-          // Handle registerInstanceWithMeta({ ... })
-          if (fnName === "registerInstanceWithMeta" && node.arguments.length >= 1) {
-            const arg = node.arguments[0];
-            if (ts.isObjectLiteralExpression(arg)) {
-              const info = extractInstanceInfoFromLiteral(arg);
-              if (info) {
-                if (verbose) {
-                  console.log(
-                    `[typesugar] Pre-registered instance (meta): ${info.typeclassName}<${info.forType}> = ${info.instanceName}`
-                  );
-                }
-                // registerInstanceWithMeta is idempotent (replace-in-place).
-                registerInstanceWithMeta(info);
-              }
-            }
-          }
-
-          // Legacy registerTypeclassSyntax() calls are no longer supported.
-          // Use @op annotations on typeclass method signatures instead.
-        }
-      }
-
-      ts.forEachChild(node, scanNode);
-    };
-
-    scanNode(importedSf);
-
-    // Recurse into this file's imports
-    ensureImportedRegistrations(importedSf, program, scannedFiles, verbose);
-  }
-}
-
-/**
- * Extract InstanceInfo from an object literal expression.
- */
-function extractInstanceInfoFromLiteral(obj: ts.ObjectLiteralExpression): {
-  typeclassName: string;
-  forType: string;
-  instanceName: string;
-  derived: boolean;
-  sourceModule?: string;
-} | null {
-  let typeclassName: string | undefined;
-  let forType: string | undefined;
-  let instanceName: string | undefined;
-  let sourceModule: string | undefined;
-  let derived = false;
-
-  for (const prop of obj.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
-
-    const name = ts.isIdentifier(prop.name)
-      ? prop.name.text
-      : ts.isStringLiteral(prop.name)
-        ? prop.name.text
-        : undefined;
-    if (!name) continue;
-
-    const value = prop.initializer;
-
-    if (name === "typeclassName" && ts.isStringLiteral(value)) {
-      typeclassName = value.text;
-    } else if (name === "forType" && ts.isStringLiteral(value)) {
-      forType = value.text;
-    } else if (name === "instanceName" && ts.isStringLiteral(value)) {
-      instanceName = value.text;
-    } else if (name === "sourceModule" && ts.isStringLiteral(value)) {
-      sourceModule = value.text;
-    } else if (name === "derived") {
-      derived = value.kind === ts.SyntaxKind.TrueKeyword;
-    }
-  }
-
-  if (typeclassName && forType && instanceName) {
-    return { typeclassName, forType, instanceName, derived, sourceModule };
-  }
-  return null;
 }
 
 /**
@@ -1020,13 +753,11 @@ export default function macroTransformerFactory(
   // Reuse state if provided, otherwise create fresh caches
   let hygiene: HygieneContext;
   let expansionCache: MacroExpansionCache | undefined;
-  let scannedFiles: Set<string>;
 
   if (state) {
     // Reuse existing state (watch mode optimization)
     hygiene = state.hygiene;
     expansionCache = state.expansionCache;
-    scannedFiles = state.scannedFiles;
     activeExpansionCache = expansionCache;
 
     // Only load macro packages if not already loaded for this program
@@ -1066,9 +797,6 @@ export default function macroTransformerFactory(
     profiler.start("factory.loadMacroPackages");
     loadMacroPackages(program, verbose);
     profiler.end("factory.loadMacroPackages");
-
-    // Track which files have been scanned for registrations (prevents cycles)
-    scannedFiles = new Set<string>();
   }
 
   // Use the global expansion tracker (or a fresh one per compilation)
@@ -1091,7 +819,6 @@ export default function macroTransformerFactory(
     if (expansionCache) {
       console.log(`[typesugar] Expansion cache: ${expansionCache.size} entries`);
     }
-    console.log(`[typesugar] Scanned files: ${scannedFiles.size}`);
   }
 
   return (context: ts.TransformationContext) => {
@@ -1122,12 +849,6 @@ export default function macroTransformerFactory(
       profiler.start("perFile.discoverOpaqueTypes");
       discoverOpaqueTypesFromImports(sourceFile, program, verbose);
       profiler.end("perFile.discoverOpaqueTypes");
-
-      // Pre-scan imported workspace files for instance() and typeclass() registrations.
-      // This ensures instances are registered before operator rewriting encounters them.
-      profiler.start("perFile.ensureImportedRegistrations");
-      ensureImportedRegistrations(sourceFile, program, scannedFiles, verbose);
-      profiler.end("perFile.ensureImportedRegistrations");
 
       // Check for file-level opt-out
       const fileScope = globalResolutionScope.getScope(sourceFile.fileName);

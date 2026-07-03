@@ -6,8 +6,6 @@
  * representation, often valid code that could recreate the value.
  */
 
-import { registerInstanceWithMeta } from "@typesugar/macros";
-
 // ============================================================================
 // Show
 // ============================================================================
@@ -30,14 +28,6 @@ export interface Show<A> {
 export const showString: Show<string> = {
   show: (s) => JSON.stringify(s),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "string",
-  instanceName: "showString",
-  derived: false,
-});
-
 /**
  * Show for numbers
  */
@@ -45,14 +35,6 @@ registerInstanceWithMeta({
 export const showNumber: Show<number> = {
   show: (n) => String(n),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "number",
-  instanceName: "showNumber",
-  derived: false,
-});
-
 /**
  * Show for booleans
  */
@@ -60,14 +42,6 @@ registerInstanceWithMeta({
 export const showBoolean: Show<boolean> = {
   show: (b) => String(b),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "boolean",
-  instanceName: "showBoolean",
-  derived: false,
-});
-
 /**
  * Show for bigints
  */
@@ -75,14 +49,6 @@ registerInstanceWithMeta({
 export const showBigInt: Show<bigint> = {
   show: (n) => `${n}n`,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "bigint",
-  instanceName: "showBigInt",
-  derived: false,
-});
-
 /**
  * Show for undefined
  */
@@ -90,14 +56,6 @@ registerInstanceWithMeta({
 export const showUndefined: Show<undefined> = {
   show: () => "undefined",
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "undefined",
-  instanceName: "showUndefined",
-  derived: false,
-});
-
 /**
  * Show for null
  */
@@ -105,14 +63,6 @@ registerInstanceWithMeta({
 export const showNull: Show<null> = {
   show: () => "null",
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "null",
-  instanceName: "showNull",
-  derived: false,
-});
-
 /**
  * Show for dates
  */
@@ -120,14 +70,6 @@ registerInstanceWithMeta({
 export const showDate: Show<Date> = {
   show: (d) => `Date(${d.toISOString()})`,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "Date",
-  instanceName: "showDate",
-  derived: false,
-});
-
 /**
  * Show for symbols
  */
@@ -135,14 +77,6 @@ registerInstanceWithMeta({
 export const showSymbol: Show<symbol> = {
   show: (s) => s.toString(),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Show",
-  forType: "symbol",
-  instanceName: "showSymbol",
-  derived: false,
-});
-
 // ============================================================================
 // Combinators
 // ============================================================================

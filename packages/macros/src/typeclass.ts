@@ -684,32 +684,6 @@ interface InstanceInfo {
    * references an instance from another module.
    */
   sourceModule?: string;
-  /**
-   * Optional metadata for macro-specific use, e.g.
-   * methodNames: override method names (Promise uses "then" instead of "flatMap").
-   */
-  meta?: InstanceMeta;
-}
-
-/**
- * Metadata associated with a typeclass instance for macro use.
- * Allows comprehension macros to access type-specific information
- * without maintaining separate registries.
- */
-interface InstanceMeta {
-  /**
-   * Override method names for this instance.
-   * E.g., Promise uses { bind: "then", map: "then", orElse: "catch" }
-   */
-  methodNames?: {
-    bind?: string;
-    map?: string;
-    orElse?: string;
-  };
-  /**
-   * Arbitrary additional metadata.
-   */
-  [key: string]: unknown;
 }
 
 // ============================================================================
@@ -2760,15 +2734,6 @@ export const implMacro = defineExpressionMacro({
 
     const instanceName = varDecl.name.text;
 
-    // registerInstanceWithMeta is idempotent (replaces in place), so no dedup guard
-    // is needed.
-    registerInstanceWithMeta({
-      typeclassName,
-      forType,
-      instanceName,
-      derived: false,
-    });
-
     // Notify coverage system
     notifyPrimitiveRegistered(forType, typeclassName);
 
@@ -3273,6 +3238,6 @@ export function tryExpandGenericDerive(
 // Exports
 // ============================================================================
 
-export type { TypeclassInfo, TypeclassMethod, InstanceInfo, InstanceMeta, SyntaxEntry };
+export type { TypeclassInfo, TypeclassMethod, InstanceInfo, SyntaxEntry };
 
 export { instanceVarName, companionPath, getTypeclassesForMethod };

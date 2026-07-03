@@ -91,7 +91,6 @@ export {
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
-  type InstanceMeta,
   type SyntaxEntry,
 } from "./typeclass.js";
 export {
@@ -111,13 +110,10 @@ export {
   SpecializationCache,
   createHoistedSpecialization,
   getResultAlgebra,
-  hasResultAlgebra,
-  getAllResultAlgebras,
   registerResultAlgebra,
   optionResultAlgebra,
   eitherResultAlgebra,
   promiseResultAlgebra,
-  unsafeResultAlgebra,
   type ResultAlgebra,
   type DictMethodMap,
   type DictMethod,

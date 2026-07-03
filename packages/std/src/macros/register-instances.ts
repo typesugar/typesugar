@@ -171,14 +171,6 @@ export const registerStdInstancesMacro: ExpressionMacro = defineExpressionMacro(
 export { registerStdInstances } from "./register-instances-runtime.js";
 
 /**
- * Get the list of standard instances for programmatic access.
- * Useful for documentation or custom registration logic.
- */
-export function getStdInstanceDefinitions(): readonly InstanceReg[] {
-  return STD_INSTANCES;
-}
-
-/**
  * Register the macro with the global registry when this module is imported.
  */
 export function register(): void {

@@ -20,7 +20,6 @@
  * - `a < b`  → `Ord<A>.compare(a, b) < 0` when A has an Ord instance
  */
 
-import { registerInstanceWithMeta } from "@typesugar/macros";
 import { instance } from "@typesugar/macros/runtime";
 
 // ============================================================================
@@ -300,40 +299,16 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
  */
 /** @impl Eq<string> */
 export const eqString: Eq<string> = eqStrict();
-
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "string",
-  instanceName: "eqString",
-  derived: false,
-});
-
 /**
  * Eq for numbers - enables `n1 === n2` operator rewriting
  */
 /** @impl Eq<number> */
 export const eqNumber: Eq<number> = eqStrict();
-
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "number",
-  instanceName: "eqNumber",
-  derived: false,
-});
-
 /**
  * Eq for booleans - enables `b1 === b2` operator rewriting
  */
 /** @impl Eq<boolean> */
 export const eqBoolean: Eq<boolean> = eqStrict();
-
-registerInstanceWithMeta({
-  typeclassName: "Eq",
-  forType: "boolean",
-  instanceName: "eqBoolean",
-  derived: false,
-});
-
 /**
  * Ord for strings - enables `str1 < str2` operator rewriting
  */
@@ -346,14 +321,6 @@ export const ordString: Ord<string> = {
   greaterThan: (x, y) => x > y,
   greaterThanOrEqual: (x, y) => x >= y,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "string",
-  instanceName: "ordString",
-  derived: false,
-});
-
 /**
  * Ord for numbers - enables `n1 < n2` operator rewriting
  */
@@ -366,14 +333,6 @@ export const ordNumber: Ord<number> = {
   greaterThan: (x, y) => x > y,
   greaterThanOrEqual: (x, y) => x >= y,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "number",
-  instanceName: "ordNumber",
-  derived: false,
-});
-
 /**
  * Ord for booleans (false < true) - enables `b1 < b2` operator rewriting
  */
@@ -386,14 +345,6 @@ export const ordBoolean: Ord<boolean> = {
   greaterThan: (x, y) => x && !y,
   greaterThanOrEqual: (x, y) => x || !y,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "boolean",
-  instanceName: "ordBoolean",
-  derived: false,
-});
-
 /**
  * Ord for dates - enables `d1 < d2` operator rewriting
  */
@@ -410,14 +361,6 @@ export const ordDate: Ord<Date> = {
   greaterThan: (x, y) => x.getTime() > y.getTime(),
   greaterThanOrEqual: (x, y) => x.getTime() >= y.getTime(),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Ord",
-  forType: "Date",
-  instanceName: "ordDate",
-  derived: false,
-});
-
 // ============================================================================
 // Instance Creators
 // ============================================================================

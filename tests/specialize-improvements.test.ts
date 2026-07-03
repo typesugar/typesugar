@@ -17,12 +17,9 @@ import {
   createHoistedSpecialization,
   registerResultAlgebra,
   getResultAlgebra,
-  hasResultAlgebra,
-  getAllResultAlgebras,
   optionResultAlgebra,
   eitherResultAlgebra,
   promiseResultAlgebra,
-  unsafeResultAlgebra,
   type ResultAlgebra,
 } from "@typesugar/macros";
 import { globalHygiene, HygieneContext } from "@typesugar/core";
@@ -414,21 +411,18 @@ describe("Phase 2: Deduplication / Hoisting", () => {
 describe("Phase 3: Result Algebra", () => {
   describe("ResultAlgebra registry", () => {
     it("should have Option algebra registered by default", () => {
-      expect(hasResultAlgebra("Option")).toBe(true);
       const algebra = getResultAlgebra("Option");
       expect(algebra).toBeDefined();
       expect(algebra!.name).toBe("Option");
     });
 
     it("should have Either algebra registered by default", () => {
-      expect(hasResultAlgebra("Either")).toBe(true);
       const algebra = getResultAlgebra("Either");
       expect(algebra).toBeDefined();
       expect(algebra!.name).toBe("Either");
     });
 
     it("should have Promise algebra registered by default", () => {
-      expect(hasResultAlgebra("Promise")).toBe(true);
       const algebra = getResultAlgebra("Promise");
       expect(algebra).toBeDefined();
       expect(algebra!.name).toBe("Promise");
@@ -436,14 +430,6 @@ describe("Phase 3: Result Algebra", () => {
 
     it("should return undefined for unregistered type", () => {
       expect(getResultAlgebra("UnknownType")).toBeUndefined();
-    });
-
-    it("should list all unique algebras", () => {
-      const algebras = getAllResultAlgebras();
-      const names = algebras.map((a) => a.name);
-      expect(names).toContain("Option");
-      expect(names).toContain("Either");
-      expect(names).toContain("Promise");
     });
 
     it("should allow registering custom algebras", () => {
@@ -456,7 +442,6 @@ describe("Phase 3: Result Algebra", () => {
       };
 
       registerResultAlgebra(customAlgebra);
-      expect(hasResultAlgebra("CustomResult")).toBe(true);
       expect(getResultAlgebra("CustomResult")!.name).toBe("CustomResult");
     });
   });
@@ -538,30 +523,6 @@ describe("Phase 3: Result Algebra", () => {
       expect(ts.isCallExpression(result)).toBe(true);
       const call = result as ts.CallExpression;
       expect(ts.isPropertyAccessExpression(call.expression)).toBe(true);
-    });
-  });
-
-  describe("Unsafe algebra rewrite rules", () => {
-    let ctx: MacroContextImpl;
-
-    beforeAll(() => {
-      ctx = createSharedCtx();
-    });
-
-    it("should rewrite ok(value) to value", () => {
-      const value = ts.factory.createNumericLiteral(42);
-      const result = unsafeResultAlgebra.rewriteOk(ctx, value);
-
-      // For Unsafe, ok(v) -> v
-      expect(result).toBe(value);
-    });
-
-    it("should rewrite err(e) to throwing expression", () => {
-      const error = ts.factory.createStringLiteral("error");
-      const result = unsafeResultAlgebra.rewriteErr(ctx, error);
-
-      // For Unsafe, err(e) -> (() => { throw new Error(String(e)); })()
-      expect(ts.isCallExpression(result)).toBe(true);
     });
   });
 });

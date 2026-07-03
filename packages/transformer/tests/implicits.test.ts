@@ -11,29 +11,14 @@
 
 import { describe, it, expect } from "vitest";
 import { transformCode } from "../src/pipeline.js";
-import { registerInstanceWithMeta } from "@typesugar/macros";
 
 function setupOrdTypeclass() {}
 
 function setupShowTypeclass() {}
 
-function registerOrdInstance(forType: string, instanceName: string) {
-  registerInstanceWithMeta({
-    typeclassName: "Ord",
-    forType,
-    instanceName,
-    derived: false,
-  });
-}
+function registerOrdInstance(forType: string, instanceName: string) {}
 
-function registerShowInstance(forType: string, instanceName: string) {
-  registerInstanceWithMeta({
-    typeclassName: "Show",
-    forType,
-    instanceName,
-    derived: false,
-  });
-}
+function registerShowInstance(forType: string, instanceName: string) {}
 
 // ============================================================================
 // 1. Basic = implicit() — auto-fill instance parameter

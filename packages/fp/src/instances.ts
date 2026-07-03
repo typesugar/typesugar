@@ -41,7 +41,6 @@
  * ```
  */
 
-import { registerInstanceWithMeta } from "@typesugar/macros";
 import type { Kind } from "./hkt.js";
 import type { OptionF, ArrayF, PromiseF, EitherF } from "./hkt.js";
 import type { Functor } from "./typeclasses/functor.js";
@@ -254,14 +253,6 @@ export const optionFunctor: OptionFunctor = {
   map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
     (fa as any) !== null ? (f(fa as any) as any) : (null as any),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Functor",
-  forType: "OptionF",
-  instanceName: "optionFunctor",
-  derived: false,
-});
-
 /**
  * Monad instance for Option
  *
@@ -279,14 +270,6 @@ export const optionMonad: OptionMonad = {
       ? ((fab as any)(fa as any) as any)
       : (null as any),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Monad",
-  forType: "OptionF",
-  instanceName: "optionMonad",
-  derived: false,
-});
-
 /**
  * Foldable instance for Option
  */
@@ -297,14 +280,6 @@ export const optionFoldable: OptionFoldable = {
   foldRight: <A, B>(fa: Option<A>, b: B, f: (a: A, b: B) => B): B =>
     (fa as any) !== null ? f(fa as any, b) : b,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Foldable",
-  forType: "OptionF",
-  instanceName: "optionFoldable",
-  derived: false,
-});
-
 /**
  * Traverse instance for Option
  */
@@ -321,14 +296,6 @@ export const optionTraverse: OptionTraverse = {
       return G.pure(null as any);
     },
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Traverse",
-  forType: "OptionF",
-  instanceName: "optionTraverse",
-  derived: false,
-});
-
 /**
  * SemigroupK instance for Option (first Some wins)
  */
@@ -336,14 +303,6 @@ registerInstanceWithMeta({
 export const optionSemigroupK: OptionSemigroupK = {
   combineK: <A>(x: Option<A>, y: Option<A>): Option<A> => ((x as any) !== null ? x : y),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "SemigroupK",
-  forType: "OptionF",
-  instanceName: "optionSemigroupK",
-  derived: false,
-});
-
 /**
  * MonoidK instance for Option
  */
@@ -352,14 +311,6 @@ export const optionMonoidK: OptionMonoidK = {
   ...optionSemigroupK,
   emptyK: <A>(): Option<A> => null as any,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "MonoidK",
-  forType: "OptionF",
-  instanceName: "optionMonoidK",
-  derived: false,
-});
-
 /**
  * Alternative instance for Option
  */
@@ -368,14 +319,6 @@ export const optionAlternative: OptionAlternative = {
   ...optionMonad,
   ...optionMonoidK,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Alternative",
-  forType: "OptionF",
-  instanceName: "optionAlternative",
-  derived: false,
-});
-
 // ============================================================================
 // Array Instances
 // ============================================================================
@@ -387,14 +330,6 @@ registerInstanceWithMeta({
 export const arrayFunctor: ArrayFunctor = {
   map: <A, B>(fa: A[], f: (a: A) => B): B[] => fa.map(f),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Functor",
-  forType: "ArrayF",
-  instanceName: "arrayFunctor",
-  derived: false,
-});
-
 /**
  * Monad instance for Array
  */
@@ -405,14 +340,6 @@ export const arrayMonad: ArrayMonad = {
   pure: <A>(a: A): A[] => [a],
   ap: <A, B>(fab: ((a: A) => B)[], fa: A[]): B[] => fab.flatMap((f) => fa.map(f)),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Monad",
-  forType: "ArrayF",
-  instanceName: "arrayMonad",
-  derived: false,
-});
-
 /**
  * Foldable instance for Array
  */
@@ -422,14 +349,6 @@ export const arrayFoldable: ArrayFoldable = {
   foldRight: <A, B>(fa: A[], b: B, f: (a: A, b: B) => B): B =>
     fa.reduceRight((acc, a) => f(a, acc), b),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Foldable",
-  forType: "ArrayF",
-  instanceName: "arrayFoldable",
-  derived: false,
-});
-
 /**
  * Traverse instance for Array
  */
@@ -449,14 +368,6 @@ export const arrayTraverse: ArrayTraverse = {
         G.pure([] as B[])
       ),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Traverse",
-  forType: "ArrayF",
-  instanceName: "arrayTraverse",
-  derived: false,
-});
-
 /**
  * SemigroupK instance for Array
  */
@@ -464,14 +375,6 @@ registerInstanceWithMeta({
 export const arraySemigroupK: ArraySemigroupK = {
   combineK: <A>(x: A[], y: A[]): A[] => [...x, ...y],
 };
-
-registerInstanceWithMeta({
-  typeclassName: "SemigroupK",
-  forType: "ArrayF",
-  instanceName: "arraySemigroupK",
-  derived: false,
-});
-
 /**
  * MonoidK instance for Array
  */
@@ -480,14 +383,6 @@ export const arrayMonoidK: ArrayMonoidK = {
   ...arraySemigroupK,
   emptyK: <A>(): A[] => [],
 };
-
-registerInstanceWithMeta({
-  typeclassName: "MonoidK",
-  forType: "ArrayF",
-  instanceName: "arrayMonoidK",
-  derived: false,
-});
-
 /**
  * Alternative instance for Array
  */
@@ -496,14 +391,6 @@ export const arrayAlternative: ArrayAlternative = {
   ...arrayMonad,
   ...arrayMonoidK,
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Alternative",
-  forType: "ArrayF",
-  instanceName: "arrayAlternative",
-  derived: false,
-});
-
 // ============================================================================
 // Promise Instances
 // ============================================================================
@@ -515,14 +402,6 @@ registerInstanceWithMeta({
 export const promiseFunctor: PromiseFunctor = {
   map: <A, B>(fa: Promise<A>, f: (a: A) => B): Promise<B> => fa.then(f),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Functor",
-  forType: "PromiseF",
-  instanceName: "promiseFunctor",
-  derived: false,
-});
-
 /**
  * Monad instance for Promise
  */
@@ -534,14 +413,6 @@ export const promiseMonad: PromiseMonad = {
   ap: <A, B>(fab: Promise<(a: A) => B>, fa: Promise<A>): Promise<B> =>
     fab.then((f) => fa.then((a) => f(a))),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "Monad",
-  forType: "PromiseF",
-  instanceName: "promiseMonad",
-  derived: false,
-});
-
 // ============================================================================
 // Either Instances
 // ============================================================================
@@ -678,14 +549,6 @@ export const flatMapOption = {
   flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
     (fa as any) !== null ? f(fa as any) : (null as any),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "FlatMap",
-  forType: "OptionF",
-  instanceName: "flatMapOption",
-  derived: false,
-});
-
 /**
  * Create FlatMap instance for Either with a fixed error type E.
  */
@@ -708,14 +571,6 @@ export function flatMapEither<E>() {
  */
 /** @impl FlatMap<EitherF> */
 export const flatMapEitherInstance = flatMapEither<unknown>();
-
-registerInstanceWithMeta({
-  typeclassName: "FlatMap",
-  forType: "EitherF",
-  instanceName: "flatMapEitherInstance",
-  derived: false,
-});
-
 /**
  * FlatMap instance for IO.
  */
@@ -725,14 +580,6 @@ export const flatMapIO = {
   map: <A, B>(fa: IO<A>, f: (a: A) => B): IO<B> => IONamespace.map(fa, f),
   flatMap: <A, B>(fa: IO<A>, f: (a: A) => IO<B>): IO<B> => IONamespace.flatMap(fa, f),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "FlatMap",
-  forType: "IOF",
-  instanceName: "flatMapIO",
-  derived: false,
-});
-
 /**
  * FlatMap instance for List.
  */
@@ -742,14 +589,6 @@ export const flatMapList = {
   map: <A, B>(fa: List<A>, f: (a: A) => B): List<B> => listMap(fa, f),
   flatMap: <A, B>(fa: List<A>, f: (a: A) => List<B>): List<B> => listFlatMap(fa, f),
 };
-
-registerInstanceWithMeta({
-  typeclassName: "FlatMap",
-  forType: "ListF",
-  instanceName: "flatMapList",
-  derived: false,
-});
-
 /**
  * Create FlatMap instance for Validated with a fixed error type E.
  *

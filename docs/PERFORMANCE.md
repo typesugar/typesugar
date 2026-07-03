@@ -206,7 +206,6 @@ Components preserved across rebuilds:
 
 - `HygieneContext` — identifier conflict tracking
 - `MacroExpansionCache` — macro expansion results
-- `scannedFiles` — files already scanned for registrations
 - `loadedPrograms` — programs with loaded macro packages
 
 ## Strict Mode
