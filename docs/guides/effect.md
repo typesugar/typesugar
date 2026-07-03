@@ -36,7 +36,7 @@ pnpm add @typesugar/effect effect
 ## Quick Start
 
 ```typescript
-import "@typesugar/std/syntax/do"; // activate let:/yield: label syntax in this file
+import "@typesugar/effect/syntax/do"; // activate let:/yield: labels + Effect instances
 import { service, layer, layerMake, compiled, specializeSchema } from "@typesugar/effect";
 import { Effect, Schema } from "effect";
 
@@ -117,7 +117,7 @@ interface HttpClient {
 ### `@layer` — Declarative Dependencies
 
 ```typescript
-import "@typesugar/std/syntax/do";
+import "@typesugar/effect/syntax/do";
 import { layer } from "@typesugar/effect";
 
 @layer(HttpClient)
@@ -446,7 +446,13 @@ Combine multiple test layers with `combineLayers(...)`, and assert call behavior
 
 ## Do-Notation
 
-Enhanced do-notation with proper E/R type inference. Add `import "@typesugar/std/syntax/do";` to the file to activate the label syntax (PEP-052). Error and requirement types accumulate correctly:
+Enhanced do-notation with proper E/R type inference. One import is the whole setup:
+
+```typescript
+import "@typesugar/effect/syntax/do";
+```
+
+This activates the `let:/seq:/par:/all:` label syntax (PEP-052) AND brings the Effect `FlatMap`/`ParCombine` instances into scope — instance resolution is scope-based, so this marker replaces the old global registration. (It re-exports the std builtin instances too, so mixed Effect + Promise files need only this one import.) Error and requirement types accumulate correctly:
 
 ```typescript
 let: {
@@ -456,6 +462,19 @@ let: {
 yield: ({ user, posts });
 
 // Result: Effect<{ user, posts }, NotFound | DbError, UserRepo | PostRepo>
+```
+
+`par:` over Effect joins independent effects with `Effect.all`:
+
+```typescript
+par: {
+  user << getUser(id);
+  config << getConfig();
+}
+yield: ({ user, config });
+
+// Compiles to:
+// Effect.map(Effect.all([getUser(id), getConfig()]), ([user, config]) => ({ user, config }))
 ```
 
 ---

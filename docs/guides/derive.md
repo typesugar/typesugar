@@ -306,7 +306,7 @@ The typesugar transformer rewrites these operators to use the derived typeclass 
 
 ## Using `summon()` to Get Instances
 
-Every derived typeclass instance is registered with the instance registry. Use `summon()` to retrieve it:
+Every derived typeclass instance is attached to the type's companion and resolved from scope (PEP-052 — there is no global instance registry). Use `summon()` to retrieve it:
 
 ```typescript
 @derive(Eq, Clone, Debug)

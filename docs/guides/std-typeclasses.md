@@ -69,17 +69,15 @@ const combined = value1 + value2;
 
 ### FlatMap — Sequencing
 
-Enables `let:/yield:` do-notation for any type.
+Enables `let:/yield:` do-notation for any type. Instance resolution is scope-based (PEP-052): the built-in instances for Array, Promise, Iterable, and AsyncIterable come with the `import "@typesugar/std/syntax/do"` marker, and custom types declare an `@impl`-tagged instance instead of calling a registration function:
 
 ```typescript
-import { registerFlatMap } from "@typesugar/std";
-
-// Built-in for Array, Promise, Iterable
-// Register custom types:
-registerFlatMap("Option", {
+// Declare in this file, or export and import the module
+/** @impl FlatMap<Option> */
+export const flatMapOption = {
   map: (fa, f) => fa.map(f),
   flatMap: (fa, f) => fa.flatMap(f),
-});
+};
 ```
 
 ## Learn More
