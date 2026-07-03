@@ -11,6 +11,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { InstanceScanner } from "./instance-scanner.js";
+import { getDoInstanceModule } from "./do-instance-index.js";
 import {
   resolveInstance,
   clearResolverCache,
@@ -523,5 +524,32 @@ describe("brandMatchesForType", () => {
     expect(brandMatchesForType("Option", "OptionF")).toBe(false);
     expect(brandMatchesForType("OptionFF", "Option")).toBe(false);
     expect(brandMatchesForType("Array", "Option")).toBe(false);
+  });
+});
+
+describe("getDoInstanceModule (PEP-052 Wave 4)", () => {
+  it("finds a provider-declared @do-instance-module tag anywhere in the program", () => {
+    const t = createResolverContext(
+      {
+        // NOT imported by main.ts — reachable in the program via other.ts,
+        // mirroring a provider package whose .d.ts is in the program while
+        // the current file lacks the activation import.
+        "provider.ts": `
+/**
+ * @impl FlatMap<TaskF>
+ * @do-instance-module my-lib/syntax/do
+ */
+export const flatMapTask = {};
+        `,
+        "other.ts": `import "./provider.js"; export {};`,
+        "main.ts": `import "./other.js"; export {};`,
+      },
+      "main.ts"
+    );
+
+    // Exact declared name and the brand convention (TaskF serves Task).
+    expect(getDoInstanceModule(t.program, "TaskF")).toBe("my-lib/syntax/do");
+    expect(getDoInstanceModule(t.program, "Task")).toBe("my-lib/syntax/do");
+    expect(getDoInstanceModule(t.program, "Unknown")).toBeUndefined();
   });
 });

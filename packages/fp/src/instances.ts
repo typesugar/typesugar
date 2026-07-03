@@ -541,7 +541,10 @@ import { map as validatedMap, andThen as validatedFlatMap } from "./data/validat
  * FlatMap instance for Option.
  * Option<A> = A | null (zero-cost representation)
  */
-/** @impl FlatMap<OptionF> */
+/**
+ * @impl FlatMap<OptionF>
+ * @do-instance-module @typesugar/fp
+ */
 export const flatMapOption = {
   _tag: "Option" as const,
   map: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> =>
@@ -569,12 +572,18 @@ export function flatMapEither<E>() {
  * `Right` branch), so this single scanner-visible const serves every error
  * type — the factory remains for callers who want `E` pinned in the types.
  */
-/** @impl FlatMap<EitherF> */
+/**
+ * @impl FlatMap<EitherF>
+ * @do-instance-module @typesugar/fp
+ */
 export const flatMapEitherInstance = flatMapEither<unknown>();
 /**
  * FlatMap instance for IO.
  */
-/** @impl FlatMap<IOF> */
+/**
+ * @impl FlatMap<IOF>
+ * @do-instance-module @typesugar/fp
+ */
 export const flatMapIO = {
   _tag: "IO" as const,
   map: <A, B>(fa: IO<A>, f: (a: A) => B): IO<B> => IONamespace.map(fa, f),
@@ -583,7 +592,10 @@ export const flatMapIO = {
 /**
  * FlatMap instance for List.
  */
-/** @impl FlatMap<ListF> */
+/**
+ * @impl FlatMap<ListF>
+ * @do-instance-module @typesugar/fp
+ */
 export const flatMapList = {
   _tag: "List" as const,
   map: <A, B>(fa: List<A>, f: (a: A) => B): List<B> => listMap(fa, f),

@@ -253,6 +253,7 @@ export {
   type ResolutionResult,
   type ResolutionSource,
 } from "./instance-resolver.js";
+export { getDoInstanceModule } from "./do-instance-index.js";
 export {
   getOpMapForTypeclass,
   getOperatorCandidates,

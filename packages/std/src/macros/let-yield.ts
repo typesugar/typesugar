@@ -83,6 +83,7 @@ import {
 } from "@typesugar/core";
 import {
   resolveDoNotationInstance,
+  getDoInstanceModule,
   DEFAULT_DO_METHODS,
   type DoNotationMeta,
 } from "@typesugar/macros";
@@ -183,7 +184,12 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName) ??
       resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
     if (!scoped) {
-      const knownModule = KNOWN_DO_INSTANCE_MODULES[typeConstructorName];
+      // Provider-declared activation module (program-wide @do-instance-module
+      // index) first; the static table is the fallback for providers whose
+      // declaration files are unreachable in this program.
+      const knownModule =
+        getDoInstanceModule(ctx.program, typeConstructorName) ??
+        KNOWN_DO_INSTANCE_MODULES[typeConstructorName];
       ctx
         .diagnostic(TS9225)
         .at(firstBind.effect)
