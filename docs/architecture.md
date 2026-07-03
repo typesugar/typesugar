@@ -147,6 +147,32 @@ The transformer supports two resolution modes:
 
 Import-scoped resolution tracks the `module` and `exportName` fields on `MacroDefinition`.
 
+### Labeled-Block Macro Dispatch
+
+Labeled-block macros (`let:`/`seq:`, `par:`/`all:`) and attribute-macro trigger
+labels (`requires:`/`ensures:` implicitly applying `@contract`) are gated on
+activation (PEP-052), the same rule as operator and method sugar. When
+`visitStatementContainer()` encounters `label: { ... }`:
+
+1. Look up the label text in the registry (`globalRegistry.getLabeledBlock(label)`).
+2. Check activation: the macro only expands when the current file imports a
+   module carrying a `@syntax-labels <macroName>` marker (e.g.
+   `@typesugar/std/syntax/do` carries `@syntax-labels letYield` and
+   `@syntax-labels parYield`; `@typesugar/contracts/syntax` carries
+   `@syntax-labels contract`). Activation is tracked per-file in the resolution
+   scope (`isLabelSyntaxActivated`).
+3. Activated → the macro consumes the block (plus any continuation labels such
+   as `yield:`) and expands.
+4. Matched but not activated → the statement is left as ordinary JavaScript and
+   the transformer emits warning TS9224 ("label syntax is not activated in this
+   file") with a help hint naming the macro's `syntaxModule` import to add.
+
+Ordinary loop labels that collide with a macro label name (e.g.
+`all: for (...) { ... }`) are never hijacked — only block-shaped labels are
+candidates — and produce no warning. The explicit `@contract` decorator form
+needs no marker: importing the `contract` symbol is the opt-in; only the bare
+`requires:`/`ensures:` block form is gated.
+
 ### Import Cleanup
 
 After expansion, the transformer removes import specifiers that resolved to macros (they have no runtime representation). This prevents "module not found" errors for macro-only imports.

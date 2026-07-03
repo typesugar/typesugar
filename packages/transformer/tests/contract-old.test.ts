@@ -15,7 +15,9 @@ import "@typesugar/macros";
 import "@typesugar/contracts/macros";
 
 function transform(code: string) {
-  return transformCode(code, { fileName: "/virtual/contract-old.ts" });
+  // Repo-relative name (not /virtual/...) so the fixture's activation import
+  // `@typesugar/contracts/syntax` resolves through the workspace node_modules.
+  return transformCode(code, { fileName: "contract-old.ts" });
 }
 
 /** Transpile transformed TS to JS, run __run__, return its result (or throw). */
@@ -40,6 +42,7 @@ function __run__() { return withdraw({ balance: 100 }, 30); }
 
 const IMPLICIT = `
 import { old } from "@typesugar/contracts";
+import "@typesugar/contracts/syntax";
 function withdraw(account: { balance: number }, amount: number): number {
   ensures: { account.balance === old(account.balance) - amount; }
   account.balance -= amount;
@@ -50,6 +53,7 @@ function __run__() { return withdraw({ balance: 100 }, 30); }
 
 const IMPLICIT_VIOLATION = `
 import { old } from "@typesugar/contracts";
+import "@typesugar/contracts/syntax";
 function buggyWithdraw(account: { balance: number }, amount: number): number {
   ensures: { account.balance === old(account.balance) - amount; }
   account.balance -= amount + 1; // off-by-one: violates the postcondition

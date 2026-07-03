@@ -1,6 +1,8 @@
 //! Do-Notation
 //! let:/yield: desugars to flatMap/then chains
 
+import "@typesugar/std/syntax/do";
+
 // let:/yield: is monadic do-notation that works with any FlatMap type.
 // << binds a monadic value, = does pure computation.
 // The macro desugars to flatMap/map chains at compile time.

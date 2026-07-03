@@ -36,6 +36,7 @@ pnpm add @typesugar/effect effect
 ## Quick Start
 
 ```typescript
+import "@typesugar/std/syntax/do"; // activate let:/yield: label syntax in this file
 import { service, layer, layerMake, compiled, specializeSchema } from "@typesugar/effect";
 import { Effect, Schema } from "effect";
 
@@ -116,6 +117,7 @@ interface HttpClient {
 ### `@layer` — Declarative Dependencies
 
 ```typescript
+import "@typesugar/std/syntax/do";
 import { layer } from "@typesugar/effect";
 
 @layer(HttpClient)
@@ -444,7 +446,7 @@ Combine multiple test layers with `combineLayers(...)`, and assert call behavior
 
 ## Do-Notation
 
-Enhanced do-notation with proper E/R type inference. Error and requirement types accumulate correctly:
+Enhanced do-notation with proper E/R type inference. Add `import "@typesugar/std/syntax/do";` to the file to activate the label syntax (PEP-052). Error and requirement types accumulate correctly:
 
 ```typescript
 let: {

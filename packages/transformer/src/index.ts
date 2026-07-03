@@ -95,6 +95,7 @@ import {
   TS9103,
   TS9104,
   TS9222,
+  TS9224,
 } from "@typesugar/core";
 import { profiler } from "./profiling.js";
 
@@ -2027,6 +2028,44 @@ class MacroTransformer {
   }
 
   /**
+   * Look up a labeled-block macro for a label, applying the PEP-052
+   * `@syntax-labels` activation gate: the macro only expands when the current
+   * file imports a module carrying a `@syntax-labels <macro.name>` marker.
+   *
+   * When the macro matches but is NOT activated, emits the TS9224 hint at
+   * `hintNode`. Callers pass `undefined` at peek sites (so the hint fires
+   * once, at the labeled statement's own dispatch) and for labels that are
+   * not block-shaped (ordinary loop labels that happen to collide).
+   */
+  private getActivatedLabeledBlock(
+    labelName: string,
+    hintNode: ts.Node | undefined
+  ): LabeledBlockMacro | undefined {
+    const macro = globalRegistry.getLabeledBlock(labelName);
+    if (!macro) return undefined;
+    const fileName = this.ctx.sourceFile.fileName;
+    if (globalResolutionScope.isLabelSyntaxActivated(fileName, macro.name)) {
+      return macro;
+    }
+    if (
+      hintNode &&
+      !isInOptedOutScope(this.ctx.sourceFile, hintNode, globalResolutionScope, "macros")
+    ) {
+      this.ctx
+        .diagnostic(TS9224)
+        .at(hintNode)
+        .withArgs({ label: labelName, macro: macro.name })
+        .help(
+          macro.syntaxModule
+            ? `Add \`import "${macro.syntaxModule}";\` to activate ${labelName}: blocks in this file.`
+            : `Import a module carrying a \`@syntax-labels ${macro.name}\` marker to activate ${labelName}: blocks in this file.`
+        )
+        .emit();
+    }
+    return undefined;
+  }
+
+  /**
    * Fall back to name-based lookup for macros without module requirement.
    */
   private fallbackNameLookup(
@@ -2330,7 +2369,10 @@ class MacroTransformer {
             secondDecl.name.elements.length >= 1
           ) {
             const labelName = firstDecl.initializer.text;
-            const macro = globalRegistry.getLabeledBlock(labelName);
+            // PEP-052 gate. The head label was consumed as an identifier here,
+            // so there is no LabeledStatement to warn at — anchor the TS9224
+            // hint on the variable statement itself.
+            const macro = this.getActivatedLabeledBlock(labelName, stmt);
             if (macro) {
               // Extract first bind name from destructuring pattern { a }
               const firstBindName = secondDecl.name.elements[0].name;
@@ -2467,7 +2509,10 @@ class MacroTransformer {
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
-        const macro = globalRegistry.getLabeledBlock(labelName);
+        const macro = this.getActivatedLabeledBlock(
+          labelName,
+          ts.isBlock(stmt.statement) ? stmt : undefined
+        );
 
         if (macro) {
           // Check for inline opt-out of macros
@@ -3461,6 +3506,30 @@ class MacroTransformer {
       if (!isBlockShaped) continue;
       const candidate = globalRegistry.getAttributeByTriggerLabel(stmt.label.text);
       if (candidate) {
+        // PEP-052 gate: trigger labels only fire when the file imports a
+        // module carrying a `@syntax-labels <macro.name>` marker.
+        if (
+          !globalResolutionScope.isLabelSyntaxActivated(
+            this.ctx.sourceFile.fileName,
+            candidate.name
+          )
+        ) {
+          if (!isInOptedOutScope(this.ctx.sourceFile, stmt, globalResolutionScope, "macros")) {
+            this.ctx
+              .diagnostic(TS9224)
+              .at(stmt)
+              .withArgs({ label: stmt.label.text, macro: candidate.name })
+              .help(
+                candidate.syntaxModule
+                  ? `Add \`import "${candidate.syntaxModule}";\` to activate ${stmt.label.text}: blocks in this file.`
+                  : `Import a module carrying a \`@syntax-labels ${candidate.name}\` marker to activate ${stmt.label.text}: blocks in this file.`
+              )
+              .emit();
+          }
+          // One hint per function is enough — `requires:` and `ensures:`
+          // resolve to the same macro.
+          break;
+        }
         macro = candidate;
         break;
       }

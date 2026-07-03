@@ -5,6 +5,7 @@ The `@typesugar/contracts` package provides Eiffel/Dafny-style Design by Contrac
 ## Basic Usage
 
 ```typescript
+import "@typesugar/contracts/syntax"; // activate requires:/ensures: block syntax
 import { requires, ensures, invariant, old } from "@typesugar/contracts";
 
 function divide(a: number, b: number): number {
@@ -18,13 +19,24 @@ function divide(a: number, b: number): number {
 }
 ```
 
+### Activation
+
+The bare block form is import-scoped (PEP-052): `requires:`/`ensures:` blocks
+only apply `@contract` in files that import the activation marker,
+`import "@typesugar/contracts/syntax";`. Without it the labels are left as
+ordinary JavaScript and the compiler warns (TS9224) with a hint naming the
+import. The explicit `@contract` decorator needs no marker — importing the
+`contract` symbol is the opt-in.
+
 ### Block form vs. inline form
 
 A function containing `requires:`/`ensures:` labeled blocks is treated as if it
-were decorated with [`@contract`](#block-style) — no decorator is required. The
+were decorated with [`@contract`](#block-style) — no decorator is required
+(in files that import `@typesugar/contracts/syntax`). The
 block form is the recommended way to write postconditions:
 
 ```typescript
+import "@typesugar/contracts/syntax";
 import { old } from "@typesugar/contracts";
 import { Positive } from "@typesugar/type-system";
 
@@ -132,8 +144,9 @@ function increment(counter: { value: number }): void {
 ### Block Style
 
 The `@contract` decorator is an optional explicit marker for `requires:`/`ensures:`
-blocks (functions containing those blocks are auto-detected even without it). The
-`ensures:` block may also be written as an arrow taking the result:
+blocks (functions containing those blocks are auto-detected even without it, in
+files that import `@typesugar/contracts/syntax` — see [Activation](#activation)).
+The `ensures:` block may also be written as an arrow taking the result:
 
 ```typescript
 @contract
@@ -569,13 +582,13 @@ Zero runtime overhead.
 
 ### Construct Reference
 
-| Construct                      | Description                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| `requires:` / `ensures:` block | Pre/postcondition blocks — auto-detected on any function (no decorator needed) |
-| `requires(condition, msg?)`    | Inline precondition shorthand — checked at function entry                      |
-| `old(expr)`                    | Capture pre-call value (inside an `ensures:` block)                            |
-| `@contract`                    | Optional explicit marker for `requires:`/`ensures:` blocks                     |
-| `@invariant(predicate)`        | Class invariant — checked after public methods                                 |
+| Construct                      | Description                                                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `requires:` / `ensures:` block | Pre/postcondition blocks — auto-detected, no decorator needed (requires `import "@typesugar/contracts/syntax";`) |
+| `requires(condition, msg?)`    | Inline precondition shorthand — checked at function entry                                                        |
+| `old(expr)`                    | Capture pre-call value (inside an `ensures:` block)                                                              |
+| `@contract`                    | Optional explicit marker for `requires:`/`ensures:` blocks (no activation import needed)                         |
+| `@invariant(predicate)`        | Class invariant — checked after public methods                                                                   |
 
 ### Prover API
 

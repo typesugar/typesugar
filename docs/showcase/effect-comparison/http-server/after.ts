@@ -12,6 +12,7 @@
  */
 
 import { Effect, Layer, pipe } from "effect";
+import "@typesugar/std/syntax/do";
 import {
   service,
   layer,

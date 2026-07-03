@@ -292,6 +292,7 @@ const c = a + b;  // Compiles to: { x: a.x + b.x, y: a.y + b.y }
 ### Effect-TS Integration
 
 ```typescript
+import "@typesugar/std/syntax/do"; // activate let:/yield: label syntax
 import { service, layer, resolveLayer, EffectSchema } from "@typesugar/effect";
 import { Effect } from "effect";
 

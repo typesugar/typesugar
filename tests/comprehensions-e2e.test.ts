@@ -10,6 +10,12 @@ import { transformCode } from "@typesugar/transformer";
 import "@typesugar/std/macros";
 import { globalRegistry } from "@typesugar/core";
 
+// PEP-052 Wave 2: label syntax is import-scoped — every fixture needs the
+// do-notation activation marker in its own (virtual) file.
+function transform(code: string, options: { fileName: string }) {
+  return transformCode(`import "@typesugar/std/syntax/do";\n${code}`, options);
+}
+
 function errorsOf(result: { diagnostics: { severity: string; message: string }[] }) {
   return result.diagnostics.filter((d) => d.severity === "error");
 }
@@ -38,7 +44,7 @@ describe("comprehension macro registration", () => {
 
 describe("let:/yield: transformation", () => {
   it("transforms single bind to map", () => {
-    const result = transformCode(`let: { x << [1, 2, 3]; } yield: { x * 2 }`, {
+    const result = transform(`let: { x << [1, 2, 3]; } yield: { x * 2 }`, {
       fileName: "let-single.ts",
     });
     expect(errorsOf(result)).toHaveLength(0);
@@ -54,7 +60,7 @@ let: {
 }
 yield: { x + y }
     `.trim();
-    const result = transformCode(code, { fileName: "let-multi.ts" });
+    const result = transform(code, { fileName: "let-multi.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
     expect(result.code).toContain("flatMap");
@@ -69,7 +75,7 @@ seq: {
 }
 yield: { x + y }
     `.trim();
-    const result = transformCode(code, { fileName: "seq-alias.ts" });
+    const result = transform(code, { fileName: "seq-alias.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
     expect(result.code).toContain("flatMap");
@@ -83,7 +89,7 @@ let: {
 }
 yield: { x }
     `.trim();
-    const result = transformCode(code, { fileName: "let-guard.ts" });
+    const result = transform(code, { fileName: "let-guard.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
   });
@@ -96,7 +102,7 @@ let: {
 }
 yield: { doubled }
     `.trim();
-    const result = transformCode(code, { fileName: "let-pure-map.ts" });
+    const result = transform(code, { fileName: "let-pure-map.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
   });
@@ -108,7 +114,7 @@ let: {
   y << [x * 10];
 }
     `.trim();
-    const result = transformCode(code, { fileName: "let-no-yield.ts" });
+    const result = transform(code, { fileName: "let-no-yield.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
   });
@@ -129,7 +135,7 @@ par: {
 }
 yield: { a + b }
     `.trim();
-    const result = transformCode(code, { fileName: "par-basic.ts" });
+    const result = transform(code, { fileName: "par-basic.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
     expect(result.code.includes("Promise.all") || result.code.includes(".ap(")).toBe(true);
@@ -145,7 +151,7 @@ all: {
 }
 yield: { a + b }
     `.trim();
-    const result = transformCode(code, { fileName: "all-alias.ts" });
+    const result = transform(code, { fileName: "all-alias.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
     expect(result.code.includes("Promise.all") || result.code.includes(".ap(")).toBe(true);
@@ -161,7 +167,7 @@ par: {
 }
 yield: { user }
     `.trim();
-    const result = transformCode(code, { fileName: "par-dependent.ts" });
+    const result = transform(code, { fileName: "par-dependent.ts" });
     expect(errorsOf(result).length).toBeGreaterThan(0);
     expect(errorsOf(result).some((e) => e.message.includes("independent"))).toBe(true);
   });
@@ -186,7 +192,7 @@ seq: {
 }
 yield: { config }
     `.trim();
-    const result = transformCode(code, { fileName: "nested-par.ts" });
+    const result = transform(code, { fileName: "nested-par.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
     expect(result.code).toContain("Promise.all");
@@ -212,7 +218,7 @@ seq: {
 }
 yield: { a + b + c + d }
     `.trim();
-    const result = transformCode(code, { fileName: "nested-par-multi.ts" });
+    const result = transform(code, { fileName: "nested-par-multi.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
     expect((result.code.match(/Promise\.all/g) || []).length).toBe(2);
@@ -232,7 +238,7 @@ let: {
 }
 yield: { config }
     `.trim();
-    const result = transformCode(code, { fileName: "nested-all-let.ts" });
+    const result = transform(code, { fileName: "nested-all-let.ts" });
     expect(errorsOf(result)).toHaveLength(0);
     expect(result.changed).toBe(true);
     expect(result.code).toContain("Promise.all");
@@ -245,12 +251,12 @@ yield: { config }
 
 describe("comprehension error reporting", () => {
   it("errors on empty let: block", () => {
-    const result = transformCode(`let: {} yield: { 42 }`, { fileName: "empty-let.ts" });
+    const result = transform(`let: {} yield: { 42 }`, { fileName: "empty-let.ts" });
     expect(errorsOf(result).length).toBeGreaterThan(0);
   });
 
   it("errors on empty par: block", () => {
-    const result = transformCode(`par: {} yield: { 42 }`, { fileName: "empty-par.ts" });
+    const result = transform(`par: {} yield: { 42 }`, { fileName: "empty-par.ts" });
     expect(errorsOf(result).length).toBeGreaterThan(0);
   });
 
@@ -259,7 +265,7 @@ describe("comprehension error reporting", () => {
 declare function fetchA(): Promise<string>;
 par: { a << fetchA(); }
     `.trim();
-    const result = transformCode(code, { fileName: "par-no-yield.ts" });
+    const result = transform(code, { fileName: "par-no-yield.ts" });
     expect(errorsOf(result).length).toBeGreaterThan(0);
   });
 });

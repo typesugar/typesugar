@@ -18,6 +18,8 @@ import "@typesugar/std/macros";
 import { transformCode } from "@typesugar/transformer";
 
 const USER_FLATMAP_SOURCE = `
+import "@typesugar/std/syntax/do";
+
 /** @typeclass */
 interface FlatMap<F> { map(fa: F, f: any): F; }
 

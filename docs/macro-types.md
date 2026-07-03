@@ -163,7 +163,7 @@ continuation: {
 ### Examples
 
 ```typescript
-import "@typesugar/std";
+import "@typesugar/std/syntax/do"; // activate let:/par: label syntax (PEP-052)
 
 // let:/yield: — monadic do-notation (sequential, dependent)
 let: {

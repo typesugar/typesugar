@@ -105,7 +105,8 @@ interface Show<A> {
 }
 
 // ✅ Contract on a function — JSDoc (or just the requires:/ensures: blocks,
-//    which are auto-detected; see the Design by Contract guide)
+//    auto-detected in files that import "@typesugar/contracts/syntax";
+//    see the Design by Contract guide)
 /** @contract */
 function withdraw(account: { balance: number }, amount: number): number {
   requires: {

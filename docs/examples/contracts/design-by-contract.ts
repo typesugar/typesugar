@@ -4,6 +4,7 @@
 import "@typesugar/contracts";
 import { requires, PreconditionError } from "@typesugar/contracts";
 import { comptime } from "typesugar";
+import "@typesugar/contracts/syntax";
 
 const MAX_BALANCE = comptime(() => 1_000_000);
 
