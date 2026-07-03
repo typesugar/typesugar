@@ -11,7 +11,13 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { InstanceScanner } from "./instance-scanner.js";
-import { resolveInstance, clearResolverCache, type ResolutionResult } from "./instance-resolver.js";
+import {
+  resolveInstance,
+  clearResolverCache,
+  resolveDoNotationInstance,
+  brandMatchesForType,
+  type ResolutionResult,
+} from "./instance-resolver.js";
 import type { MacroContext } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
@@ -410,5 +416,112 @@ export const eqNumber = { eq: (a: number, b: number): boolean => a === b };
     const r2 = resolveInstance(ctx, "Eq", getType("number"), scanner);
     expect(r2).toBeDefined();
     expect(r2!.kind).toBe("resolved");
+  });
+});
+
+describe("resolveDoNotationInstance (PEP-052 Wave 3)", () => {
+  it("finds a local @impl FlatMap instance by brand", () => {
+    const t = createResolverContext(
+      {
+        "main.ts": `
+/** @impl FlatMap<Box> */
+const flatMapBox = { flatMap: (fa: any, f: any) => f(fa) };
+export {};
+        `,
+      },
+      "main.ts"
+    );
+
+    const hit = resolveDoNotationInstance(t.ctx, "FlatMap", "Box", t.scanner);
+    expect(hit).toBeDefined();
+    expect(hit!.exportName).toBe("flatMapBox");
+    expect(hit!.modulePath).toBeUndefined();
+  });
+
+  it("finds an imported instance via side-effect import (module scan)", () => {
+    const t = createResolverContext(
+      {
+        "instances.ts": `
+/**
+ * @impl FlatMap<Task>
+ * @do-methods bind=andThen map=map style=static receiver=Task
+ */
+export const flatMapTask = {};
+        `,
+        "main.ts": `
+import "./instances.js";
+export {};
+        `,
+      },
+      "main.ts"
+    );
+
+    const hit = resolveDoNotationInstance(t.ctx, "FlatMap", "Task", t.scanner);
+    expect(hit).toBeDefined();
+    expect(hit!.exportName).toBe("flatMapTask");
+    expect(hit!.modulePath).toContain("instances");
+    expect(hit!.doMeta).toEqual({
+      bind: "andThen",
+      map: "map",
+      style: "static",
+      receiver: "Task",
+    });
+  });
+
+  it("matches the HKT-tag spelling: @impl FlatMap<OptionF> serves brand Option", () => {
+    const t = createResolverContext(
+      {
+        "main.ts": `
+/** @impl FlatMap<OptionF> */
+const flatMapOption = {};
+export {};
+        `,
+      },
+      "main.ts"
+    );
+
+    const hit = resolveDoNotationInstance(t.ctx, "FlatMap", "Option", t.scanner);
+    expect(hit?.exportName).toBe("flatMapOption");
+  });
+
+  it("does not find instances from modules the file never imports", () => {
+    const t = createResolverContext(
+      {
+        "instances.ts": `
+/** @impl FlatMap<Task> */
+export const flatMapTask = {};
+        `,
+        "main.ts": `export {};`,
+      },
+      "main.ts"
+    );
+
+    expect(resolveDoNotationInstance(t.ctx, "FlatMap", "Task", t.scanner)).toBeUndefined();
+  });
+
+  it("filters by typeclass: a ParCombine instance does not satisfy FlatMap", () => {
+    const t = createResolverContext(
+      {
+        "main.ts": `
+/** @impl ParCombine<Task> */
+const parCombineTask = {};
+export {};
+        `,
+      },
+      "main.ts"
+    );
+
+    expect(resolveDoNotationInstance(t.ctx, "FlatMap", "Task", t.scanner)).toBeUndefined();
+    expect(resolveDoNotationInstance(t.ctx, "ParCombine", "Task", t.scanner)).toBeDefined();
+  });
+});
+
+describe("brandMatchesForType", () => {
+  it("matches exact and F-suffixed spellings only", () => {
+    expect(brandMatchesForType("Option", "Option")).toBe(true);
+    expect(brandMatchesForType("OptionF", "Option")).toBe(true);
+    expect(brandMatchesForType("Option", "OptionF")).toBe(false);
+    expect(brandMatchesForType("OptionFF", "Option")).toBe(false);
+    expect(brandMatchesForType("Array", "Option")).toBe(false);
   });
 });

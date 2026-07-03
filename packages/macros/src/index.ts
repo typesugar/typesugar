@@ -246,11 +246,21 @@ export {
 } from "./primitives.js";
 
 // --- Instance Scanner & Resolver (PEP-038 Wave 2A/2B) ---
-export { InstanceScanner, instanceScanner, type ScannedInstance } from "./instance-scanner.js";
+export {
+  InstanceScanner,
+  instanceScanner,
+  parseDoMethodsTag,
+  DEFAULT_DO_METHODS,
+  type ScannedInstance,
+  type DoNotationMeta,
+} from "./instance-scanner.js";
 export {
   resolveInstance,
   clearResolverCache,
   findInstanceInScopeByName,
+  resolveDoNotationInstance,
+  brandMatchesForType,
+  type ResolvedDoNotationInstance,
   type ResolvedInstance,
   type AmbiguousInstances,
   type ResolutionResult,
