@@ -11,6 +11,7 @@
 
 import * as ts from "typescript";
 import { config, ResolutionMode } from "./config.js";
+import { globalRegistry } from "./registry.js";
 
 /**
  * Information about an imported typeclass or extension.
@@ -196,11 +197,6 @@ export class ResolutionScopeTracker {
   /** All typeclasses with method syntax activated in a file. */
   getActivatedMethodSyntax(fileName: string): Set<string> {
     return this.getScope(fileName).activatedMethodSyntax;
-  }
-
-  /** All labeled-block / trigger-label macros activated in a file. */
-  getActivatedLabelSyntax(fileName: string): Set<string> {
-    return this.getScope(fileName).activatedLabelSyntax;
   }
 
   /**
@@ -431,23 +427,33 @@ export function scanImportsForScope(
   // Clear existing scope for this file
   tracker.clearScope(fileName);
 
+  // Imports are scanned from the program's copy of the file when available:
   // `sourceFile` may be a re-parsed copy that is not part of `program` (the
   // expression-comprehension preprocessor rewrites the text and the pipeline
-  // re-parses it). Checker-based module resolution only works on nodes that
-  // belong to the program, so resolve activation markers against the
-  // program's own copy of the file — preprocessing never touches imports, so
-  // specifier text keys match.
-  let programSpecifiers: Map<string, ts.Expression> | undefined;
-  if (program) {
-    const programFile = program.getSourceFile(fileName);
-    if (programFile && programFile !== sourceFile) {
-      programSpecifiers = new Map();
-      for (const s of programFile.statements) {
-        if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier)) {
-          programSpecifiers.set(s.moduleSpecifier.text, s.moduleSpecifier);
-        }
-      }
-    }
+  // re-parses it), and checker-based module resolution only works on nodes
+  // that belong to the program. Preprocessing never touches imports, so the
+  // program copy's import list is authoritative either way. When the file is
+  // not in the program at all, checker resolution is guaranteed to fail —
+  // skip it entirely (the syntaxModule text fallback below still applies).
+  const programFile = program?.getSourceFile(fileName);
+  const importScanFile = programFile ?? sourceFile;
+  const checker = programFile ? program!.getTypeChecker() : undefined;
+
+  // Resolution-free activation fallback: a registered macro's `syntaxModule`
+  // names the module whose import activates its label syntax, so an import
+  // specifier that exactly matches it states the user's intent without any
+  // module resolution. This is what keeps label activation working in hosts
+  // that cannot resolve modules (the playground's in-memory host, virtual
+  // file names outside any node_modules tree). Checker-resolved markers
+  // remain the general mechanism (they also cover re-exports and third-party
+  // wrappers); this fallback only adds activations, never removes them.
+  const syntaxModuleIndex = new Map<string, string[]>();
+  for (const macro of globalRegistry.getAll()) {
+    const syntaxModule = (macro as { syntaxModule?: string }).syntaxModule;
+    if (!syntaxModule) continue;
+    const names = syntaxModuleIndex.get(syntaxModule) ?? [];
+    names.push(macro.name);
+    syntaxModuleIndex.set(syntaxModule, names);
   }
 
   // Known typeclass names (from @typesugar/std and common typeclasses)
@@ -478,7 +484,7 @@ export function scanImportsForScope(
   ]);
 
   // Scan imports
-  ts.forEachChild(sourceFile, (node) => {
+  ts.forEachChild(importScanFile, (node) => {
     if (ts.isImportDeclaration(node)) {
       const moduleSpecifier = node.moduleSpecifier;
       if (!ts.isStringLiteral(moduleSpecifier)) return;
@@ -489,14 +495,18 @@ export function scanImportsForScope(
       // PEP-052: discover syntax-activation markers on the imported module.
       // This runs for every import — including side-effect imports
       // (`import "@typesugar/std/syntax/eq/ops"`), which have no import clause.
-      if (program) {
+      if (checker) {
         const { operatorTCs, methodTCs, labelMacros } = readSyntaxActivationMarkers(
-          program.getTypeChecker(),
-          programSpecifiers?.get(moduleName) ?? moduleSpecifier
+          checker,
+          moduleSpecifier
         );
         for (const tc of operatorTCs) tracker.activateOperatorSyntax(fileName, tc);
         for (const tc of methodTCs) tracker.activateMethodSyntax(fileName, tc);
         for (const m of labelMacros) tracker.activateLabelSyntax(fileName, m);
+      }
+      const bySyntaxModule = syntaxModuleIndex.get(moduleName);
+      if (bySyntaxModule) {
+        for (const m of bySyntaxModule) tracker.activateLabelSyntax(fileName, m);
       }
 
       if (!importClause) return;

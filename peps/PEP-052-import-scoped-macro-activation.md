@@ -504,14 +504,45 @@ welcome.ts`, `docs/examples/core/derive.ts` — claimed `===` rewrites to struct
     now resolves markers against the program's own copy of the file (imports
     are never touched by preprocessing, so specifier text matches). This
     affected ALL marker kinds (operators/methods too) in preprocessed files.
-  - **Known edge (documented, accepted):** the string-level comprehension
-    preprocessor runs before the program exists and cannot see activation; an
-    expression-position comprehension in an unactivated file is still
-    text-rewritten into the wrapper shape, then left unexpanded — but TS9224
-    fires at the merged dispatch, naming the fix. Only affects files that
-    genuinely wrote do-notation without the marker.
+  - **Review round (same PR, five-lens + verify):** four confirmed issues in
+    the first cut, all fixed before merge:
+    1. _Playground regression:_ transformer-core's `transformCode` default
+       in-memory host can't resolve any module, so checker-based marker reads
+       found nothing and labels went dead in the playground. Fixed by making
+       `syntaxModule` double as a **resolution-free activation fallback** in
+       `scanImportsForScope`: an import specifier exactly matching a
+       registered macro's `syntaxModule` activates it with no module
+       resolution. (Operator/method markers have no registry back-pointer, so
+       the same playground gap for THEM is pre-existing Wave 1 behavior —
+       still open, tracked below.)
+    2. _Preprocessor mangling:_ the string-level comprehension preprocessor
+       committed to do-notation before the AST gate ran; in an unactivated
+       file the gated merge then refused to repair the rewrite, emitting
+       `__letyield_` fragments (invalid JS) with `changed: true`. Fixed by
+       gating the preprocessor itself — the pipeline scans activation (the
+       program exists by then; the scan is idempotent) and skips the rewrite
+       when neither comprehension macro is activated.
+    3. _Loop-label hijack in activated files:_ the block-shape check only
+       gated the hint, not dispatch, so `all: for (…)` in a file that
+       activates do-notation hard-errored. Dispatch now requires
+       `ts.isBlock(stmt.statement)` at every site — a labeled non-block is
+       never a candidate, activated or not.
+    4. _Trigger-label early exit:_ an unactivated candidate `break`-ed the
+       whole body scan, so a later label of a DIFFERENT (activated)
+       trigger-label macro would be skipped. Now `continue`s, hinting at most
+       once per macro.
+       Plus cleanups: the gate + hint logic (three copies) consolidated into
+       `transformer-core/src/label-activation.ts` (both transformers import it;
+       `registry.getLabeledBlock` docs now warn it is the raw, activation-unaware
+       lookup); `scanImportsForScope` iterates the program's copy of the file
+       directly and skips guaranteed-to-fail checker lookups when the file isn't
+       in the program.
   - **Tests:** `packages/std/tests/pep052-syntax-labels.test.ts` (on/off/hint/
-    loop-label/opt-out × do-notation + contracts). Existing suites that relied
+    loop-label-unactivated/loop-label-activated/opt-out × do-notation +
+    contracts, unmangled expression-position in unactivated files, the
+    in-memory-host `syntaxModule` fallback, and a marker↔macro consistency
+    check binding each `@syntax-labels` tag to a registered macro whose
+    `syntaxModule` points back at the marker). Existing suites that relied
     on ambient labels fixed by adding the marker import to fixtures (never by
     weakening the gate); `contract-old.test.ts`'s `/virtual/` fileName moved to
     a repo-relative one so the fixture's activation import can resolve.

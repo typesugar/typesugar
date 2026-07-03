@@ -37,9 +37,9 @@ import {
   isRemoveExpression,
   getRemoveComment,
   TS9222,
-  TS9224,
-  type LabeledBlockMacro,
 } from "@typesugar/core";
+
+import { getActivatedLabeledBlock } from "./label-activation.js";
 
 import {
   createMacroErrorExpression as createMacroErrorExpr,
@@ -316,44 +316,6 @@ class MacroTransformer {
     return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
   }
 
-  /**
-   * Look up a labeled-block macro for a label, applying the PEP-052
-   * `@syntax-labels` activation gate: the macro only expands when the current
-   * file imports a module carrying a `@syntax-labels <macro.name>` marker.
-   *
-   * When the macro matches but is NOT activated, emits the TS9224 hint at
-   * `hintNode`. Callers pass `undefined` at peek sites (so the hint fires
-   * once, at the labeled statement's own dispatch) and for labels that are
-   * not block-shaped (ordinary loop labels that happen to collide).
-   */
-  private getActivatedLabeledBlock(
-    labelName: string,
-    hintNode: ts.Node | undefined
-  ): LabeledBlockMacro | undefined {
-    const macro = globalRegistry.getLabeledBlock(labelName);
-    if (!macro) return undefined;
-    const fileName = this.ctx.sourceFile.fileName;
-    if (globalResolutionScope.isLabelSyntaxActivated(fileName, macro.name)) {
-      return macro;
-    }
-    if (
-      hintNode &&
-      !isInOptedOutScope(this.ctx.sourceFile, hintNode, globalResolutionScope, "macros")
-    ) {
-      this.ctx
-        .diagnostic(TS9224)
-        .at(hintNode)
-        .withArgs({ label: labelName, macro: macro.name })
-        .help(
-          macro.syntaxModule
-            ? `Add \`import "${macro.syntaxModule}";\` to activate ${labelName}: blocks in this file.`
-            : `Import a module carrying a \`@syntax-labels ${macro.name}\` marker to activate ${labelName}: blocks in this file.`
-        )
-        .emit();
-    }
-    return undefined;
-  }
-
   private visitStatementContainer(
     node: ts.SourceFile | ts.Block | ts.ModuleBlock
   ): ts.SourceFile | ts.Block | ts.ModuleBlock {
@@ -395,10 +357,11 @@ class MacroTransformer {
               nextStmt &&
               ts.isLabeledStatement(nextStmt) &&
               nextStmt.label.text === decl.initializer.text &&
+              ts.isBlock(nextStmt.statement) &&
               // PEP-052 gate: an unactivated label must not trigger the merge,
               // or the `const x = let;` statement would be silently dropped
               // while the labeled block is left unexpanded.
-              this.getActivatedLabeledBlock(nextStmt.label.text, undefined)
+              getActivatedLabeledBlock(this.ctx, nextStmt.label.text, undefined)
             ) {
               // Hold this declaration — will be merged with the macro expansion
               pendingVarDecl = {
@@ -415,10 +378,12 @@ class MacroTransformer {
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
-        const macro = this.getActivatedLabeledBlock(
-          labelName,
-          ts.isBlock(stmt.statement) ? stmt : undefined
-        );
+        // Only block-shaped labels are dispatch candidates — an ordinary loop
+        // label that collides with a macro label (`all: for (…)`) must never
+        // be hijacked, activated or not.
+        const macro = ts.isBlock(stmt.statement)
+          ? getActivatedLabeledBlock(this.ctx, labelName, stmt)
+          : undefined;
 
         if (macro) {
           if (isInOptedOutScope(this.ctx.sourceFile, stmt, globalResolutionScope, "macros")) {

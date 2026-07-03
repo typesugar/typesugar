@@ -338,8 +338,10 @@ export interface AttributeMacro extends MacroDefinitionBase {
   /**
    * Module whose import activates this macro's trigger-label syntax in a file
    * (a module carrying a `@syntax-labels <name>` marker, PEP-052 Part 2).
-   * Used only for the TS9224 "label syntax not activated" hint — activation
-   * itself is driven by the marker tag, not this field.
+   * Feeds the TS9224 "label syntax not activated" hint, and doubles as a
+   * resolution-free activation fallback: an import specifier that exactly
+   * matches this string activates the macro even in hosts that cannot
+   * resolve modules (in-memory/playground hosts, virtual file names).
    */
   syntaxModule?: string;
 
@@ -521,8 +523,10 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   /**
    * Module whose import activates this macro's label syntax in a file
    * (a module carrying a `@syntax-labels <name>` marker, PEP-052 Part 2).
-   * Used only for the TS9224 "label syntax not activated" hint — activation
-   * itself is driven by the marker tag, not this field.
+   * Feeds the TS9224 "label syntax not activated" hint, and doubles as a
+   * resolution-free activation fallback: an import specifier that exactly
+   * matches this string activates the macro even in hosts that cannot
+   * resolve modules (in-memory/playground hosts, virtual file names).
    */
   syntaxModule?: string;
 

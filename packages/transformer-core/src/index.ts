@@ -66,6 +66,10 @@ export {
 // MacroTransformer class - the core transformation engine
 export { MacroTransformer } from "./transformer.js";
 
+// PEP-052 label-syntax activation gate — the single shared implementation.
+// The legacy @typesugar/transformer delegates here instead of keeping a clone.
+export { getActivatedLabeledBlock, emitLabelSyntaxNotActivatedHint } from "./label-activation.js";
+
 // Browser-compatible transform function
 export { transformCode, type TransformCodeOptions, type TransformCodeResult } from "./transform.js";
 

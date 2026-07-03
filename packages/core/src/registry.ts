@@ -419,6 +419,13 @@ class MacroRegistryImpl implements MacroRegistry {
     return this.typeMacros.get(name);
   }
 
+  /**
+   * Raw registry lookup — NOT activation-aware. Label dispatch must go
+   * through the PEP-052 gate (`getActivatedLabeledBlock` in
+   * `@typesugar/transformer-core`), which wraps this lookup with the
+   * per-file `@syntax-labels` activation check. Calling this directly from a
+   * dispatch site silently bypasses import-scoped activation.
+   */
   getLabeledBlock(label: string): LabeledBlockMacro | undefined {
     return this.labeledBlockMacros.get(label);
   }

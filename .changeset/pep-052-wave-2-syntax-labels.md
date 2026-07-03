@@ -20,11 +20,21 @@ activation), matching the operator/method syntax gates.
   becomes a bit-shift — so the hint matters).
 - NEW: `@syntax-labels <macroName>` activation-marker tag (read alongside
   `@syntax-operators`/`@syntax-methods`) and an optional `syntaxModule` field
-  on `LabeledBlockMacro`/`AttributeMacro` that feeds the TS9224 hint.
+  on `LabeledBlockMacro`/`AttributeMacro` that feeds the TS9224 hint and
+  doubles as a resolution-free activation fallback — an import specifier
+  exactly matching a macro's `syntaxModule` activates it even in hosts that
+  cannot resolve modules (the playground's in-memory host, virtual file
+  names).
+- FIXED: ordinary loop labels colliding with macro label names
+  (`all: for (…)`) were dispatched to the macro (a hard error) when the file
+  had the syntax activated; labeled non-blocks are no longer dispatch
+  candidates at all.
+- FIXED: an expression-position comprehension in a file that never activates
+  do-notation was text-rewritten by the preprocessor and then left mangled
+  (invalid JS) by the gate; the preprocessor is now gated on activation too,
+  leaving such files untouched.
 - FIXED: activation markers (all kinds, operators/methods included) were
   silently dropped in files rewritten by the expression-comprehension
   preprocessor — the re-parsed file isn't part of the `ts.Program`, so
   checker-based marker resolution failed. Markers now resolve against the
   program's own copy of the file.
-- Ordinary loop labels that collide with macro label names (`all: for (…)`)
-  are no longer expansion candidates in unactivated files and never warn.

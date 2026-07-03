@@ -7,7 +7,14 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import { globalExpansionTracker, type ExpansionRecord, type RawSourceMap } from "@typesugar/core";
+import {
+  globalExpansionTracker,
+  globalRegistry,
+  globalResolutionScope,
+  scanImportsForScope,
+  type ExpansionRecord,
+  type RawSourceMap,
+} from "@typesugar/core";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
 import {
@@ -23,7 +30,10 @@ import macroTransformerFactory, {
 } from "./index.js";
 import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
 import MagicString from "magic-string";
-import { preprocessExpressionComprehensions } from "./arrow-comprehension-preprocess.js";
+import {
+  preprocessExpressionComprehensions,
+  type PreprocessResult,
+} from "./arrow-comprehension-preprocess.js";
 
 /**
  * Diagnostic from macro expansion
@@ -855,7 +865,19 @@ export class TransformationPipeline {
     // `return`, and `export default` uses of `let:/yield:` into shapes the
     // `const x = let;`-merge path can handle, and emit TS9223 for `yield:`
     // inside generator functions. See arrow-comprehension-preprocess.ts.
-    const compResult = preprocessExpressionComprehensions(codeForTransform, normalizedFileName);
+    //
+    // PEP-052 gate: the text rewrite commits to do-notation before the AST
+    // gate can run — in a file that never activates the comprehension macros
+    // the gated merge would refuse to repair the rewrite, emitting mangled
+    // synthetic code instead of leaving the source untouched. Scan activation
+    // first (the scan re-runs later in the transformer; it is idempotent) and
+    // skip the rewrite when neither comprehension macro is activated.
+    const compResult: PreprocessResult = this.isComprehensionSyntaxActivated(
+      normalizedFileName,
+      codeForTransform
+    )
+      ? preprocessExpressionComprehensions(codeForTransform, normalizedFileName)
+      : { source: codeForTransform, changed: false, diagnostics: [] };
     let compMap: RawSourceMap | null = null;
     if (compResult.changed) {
       codeForTransform = compResult.source;
@@ -1321,6 +1343,29 @@ export class TransformationPipeline {
    * Allows ts.createProgram to reuse unchanged ASTs.
    */
   private oldProgram: ts.Program | null = null;
+
+  /**
+   * PEP-052: whether either do-notation comprehension macro (`let:`/`par:`)
+   * has its label syntax activated in the file. Used to gate the
+   * expression-comprehension TEXT preprocessor, which otherwise commits to
+   * do-notation before the AST-level activation gate can run. Scans the
+   * program's copy of the file (falling back to a detached parse when the
+   * file is not in the program — the registry `syntaxModule` text fallback
+   * still applies there). The scan re-runs later in the transformer and is
+   * idempotent.
+   */
+  private isComprehensionSyntaxActivated(fileName: string, code: string): boolean {
+    const letMacro = globalRegistry.getLabeledBlock("let")?.name;
+    const parMacro = globalRegistry.getLabeledBlock("par")?.name;
+    if (!letMacro && !parMacro) return false;
+    const scanFile =
+      this.program?.getSourceFile(fileName) ??
+      ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
+    scanImportsForScope(scanFile, globalResolutionScope, this.program ?? undefined);
+    return [letMacro, parMacro].some(
+      (name) => name && globalResolutionScope.isLabelSyntaxActivated(fileName, name)
+    );
+  }
 
   private ensureProgram(): void {
     if (!this.program) {

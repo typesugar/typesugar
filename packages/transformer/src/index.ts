@@ -41,6 +41,9 @@ import {
   tryInlineDerivedInstanceCall as tryInlineDerivedInstanceCallShared,
   tryReturnTypeDrivenSpecialize as tryReturnTypeDrivenSpecializeShared,
   eliminateDeadDerivedInstances,
+  // PEP-052 label-activation gate — single shared implementation
+  getActivatedLabeledBlock,
+  emitLabelSyntaxNotActivatedHint,
 } from "@typesugar/transformer-core";
 
 import {
@@ -95,7 +98,6 @@ import {
   TS9103,
   TS9104,
   TS9222,
-  TS9224,
 } from "@typesugar/core";
 import { profiler } from "./profiling.js";
 
@@ -2028,44 +2030,6 @@ class MacroTransformer {
   }
 
   /**
-   * Look up a labeled-block macro for a label, applying the PEP-052
-   * `@syntax-labels` activation gate: the macro only expands when the current
-   * file imports a module carrying a `@syntax-labels <macro.name>` marker.
-   *
-   * When the macro matches but is NOT activated, emits the TS9224 hint at
-   * `hintNode`. Callers pass `undefined` at peek sites (so the hint fires
-   * once, at the labeled statement's own dispatch) and for labels that are
-   * not block-shaped (ordinary loop labels that happen to collide).
-   */
-  private getActivatedLabeledBlock(
-    labelName: string,
-    hintNode: ts.Node | undefined
-  ): LabeledBlockMacro | undefined {
-    const macro = globalRegistry.getLabeledBlock(labelName);
-    if (!macro) return undefined;
-    const fileName = this.ctx.sourceFile.fileName;
-    if (globalResolutionScope.isLabelSyntaxActivated(fileName, macro.name)) {
-      return macro;
-    }
-    if (
-      hintNode &&
-      !isInOptedOutScope(this.ctx.sourceFile, hintNode, globalResolutionScope, "macros")
-    ) {
-      this.ctx
-        .diagnostic(TS9224)
-        .at(hintNode)
-        .withArgs({ label: labelName, macro: macro.name })
-        .help(
-          macro.syntaxModule
-            ? `Add \`import "${macro.syntaxModule}";\` to activate ${labelName}: blocks in this file.`
-            : `Import a module carrying a \`@syntax-labels ${macro.name}\` marker to activate ${labelName}: blocks in this file.`
-        )
-        .emit();
-    }
-    return undefined;
-  }
-
-  /**
    * Fall back to name-based lookup for macros without module requirement.
    */
   private fallbackNameLookup(
@@ -2372,7 +2336,7 @@ class MacroTransformer {
             // PEP-052 gate. The head label was consumed as an identifier here,
             // so there is no LabeledStatement to warn at — anchor the TS9224
             // hint on the variable statement itself.
-            const macro = this.getActivatedLabeledBlock(labelName, stmt);
+            const macro = getActivatedLabeledBlock(this.ctx, labelName, stmt);
             if (macro) {
               // Extract first bind name from destructuring pattern { a }
               const firstBindName = secondDecl.name.elements[0].name;
@@ -2509,10 +2473,12 @@ class MacroTransformer {
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
-        const macro = this.getActivatedLabeledBlock(
-          labelName,
-          ts.isBlock(stmt.statement) ? stmt : undefined
-        );
+        // Only block-shaped labels are dispatch candidates — an ordinary loop
+        // label that collides with a macro label (`all: for (…)`) must never
+        // be hijacked, activated or not.
+        const macro = ts.isBlock(stmt.statement)
+          ? getActivatedLabeledBlock(this.ctx, labelName, stmt)
+          : undefined;
 
         if (macro) {
           // Check for inline opt-out of macros
@@ -3498,6 +3464,7 @@ class MacroTransformer {
     // qualify (`label: { ... }` or `label: (result) => { ... }`), so ordinary
     // loop/break labels like `requires: for (...)` are never hijacked.
     let macro: AttributeMacro | undefined;
+    const hintedUnactivated = new Set<string>();
     for (const stmt of body.statements) {
       if (!ts.isLabeledStatement(stmt)) continue;
       const isBlockShaped =
@@ -3507,28 +3474,21 @@ class MacroTransformer {
       const candidate = globalRegistry.getAttributeByTriggerLabel(stmt.label.text);
       if (candidate) {
         // PEP-052 gate: trigger labels only fire when the file imports a
-        // module carrying a `@syntax-labels <macro.name>` marker.
+        // module carrying a `@syntax-labels <macro.name>` marker. Keep
+        // scanning after an unactivated match — a later label may belong to
+        // a different, activated trigger-label macro — but hint at most once
+        // per macro (a `requires:`/`ensures:` pair is one missing import).
         if (
           !globalResolutionScope.isLabelSyntaxActivated(
             this.ctx.sourceFile.fileName,
             candidate.name
           )
         ) {
-          if (!isInOptedOutScope(this.ctx.sourceFile, stmt, globalResolutionScope, "macros")) {
-            this.ctx
-              .diagnostic(TS9224)
-              .at(stmt)
-              .withArgs({ label: stmt.label.text, macro: candidate.name })
-              .help(
-                candidate.syntaxModule
-                  ? `Add \`import "${candidate.syntaxModule}";\` to activate ${stmt.label.text}: blocks in this file.`
-                  : `Import a module carrying a \`@syntax-labels ${candidate.name}\` marker to activate ${stmt.label.text}: blocks in this file.`
-              )
-              .emit();
+          if (!hintedUnactivated.has(candidate.name)) {
+            hintedUnactivated.add(candidate.name);
+            emitLabelSyntaxNotActivatedHint(this.ctx, stmt, stmt.label.text, candidate);
           }
-          // One hint per function is enough — `requires:` and `ensures:`
-          // resolve to the same macro.
-          break;
+          continue;
         }
         macro = candidate;
         break;
