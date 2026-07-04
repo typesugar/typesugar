@@ -89,6 +89,8 @@ import {
   shouldStripOpaqueReturnType as shouldStripOpaqueReturnTypeFn,
 } from "./rewriting.js";
 
+import { tryResolveTypeclassMethod as tryResolveTypeclassMethodFn } from "./method-sugar.js";
+
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
 
@@ -839,6 +841,25 @@ class MacroTransformer {
           );
         }
         return result;
+      }
+
+      const methodSugarResult = tryResolveTypeclassMethodFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        node
+      );
+      if (methodSugarResult !== undefined) {
+        if (this.expansionTracker) {
+          const methodName = node.expression.name.text;
+          this.expansionTracker.recordExpansion(
+            methodName,
+            node,
+            this.ctx.sourceFile,
+            "(typeclass method)"
+          );
+        }
+        return methodSugarResult;
       }
 
       const opaqueResult = tryRewriteOpaqueMethodCallFn(
