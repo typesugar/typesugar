@@ -682,10 +682,14 @@ function loadPrimitiveIntrinsicsFromReflection(): void {
         if (typeof fn !== "function") continue;
         const node = parseAsStandaloneExpression(fn.toString());
         if (!node || !ts.isArrowFunction(node)) continue;
-        // Reject destructuring/rest/defaulted params outright rather than
-        // fabricating a placeholder name that could never be substituted —
-        // none of the 16 real primitives use these, but a future rewrite
-        // should degrade safely, not silently drop an argument.
+        // Reject destructuring params outright rather than fabricating a
+        // placeholder name that could never be substituted. NOTE: this only
+        // checks `p.name` is a plain identifier — it does NOT reject rest
+        // params or defaulted params (both still have an identifier name),
+        // and a defaulted param's initializer expression is never scanned by
+        // hasOnlySafeFreeIdentifiers (only node.body is). None of the 16 real
+        // primitives use rest/default params today, so this is a latent gap
+        // for a hypothetical future primitives.ts rewrite, not a live one.
         if (!node.parameters.every((p) => ts.isIdentifier(p.name))) continue;
         const params = node.parameters.map((p) => (p.name as ts.Identifier).text);
         if (!hasOnlySafeFreeIdentifiers(node.body, new Set(params))) continue;
