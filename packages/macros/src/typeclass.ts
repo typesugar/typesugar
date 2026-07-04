@@ -2550,6 +2550,15 @@ export const extendMacro = defineExpressionMacro({
   name: "extend",
   module: "@typesugar/typeclass",
   description: "Call extension methods on a value via typeclass instances",
+  // extend(value).method(args) is a two-call chain; without this, the
+  // transformer would only hand expand() the inner extend(value) call while
+  // the outer .method(args) call/property-access stays in the tree untouched
+  // around whatever expand() returns — and since expand() already produces
+  // the FULL `TC.summon(...).method(...)` call, the surviving outer
+  // `.method(args)` would apply it a second time. `chainable: true` makes the
+  // transformer pass the *whole* `extend(value).method(args)` chain as
+  // `callExpr`, so there is exactly one substitution point.
+  chainable: true,
 
   expand(
     ctx: MacroContext,
@@ -2561,10 +2570,10 @@ export const extendMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    // We need to look at the parent to see what method is being called
-    // extend(value).method(args...)
-    const parent = callExpr.parent;
-    if (!parent || !ts.isPropertyAccessExpression(parent)) {
+    // callExpr is the outermost chain call: extend(value).method(args).
+    // Its `.expression` is the `.method` property access on `extend(value)`.
+    const methodAccess = callExpr.expression;
+    if (!ts.isPropertyAccessExpression(methodAccess)) {
       ctx.reportError(
         callExpr,
         "extend() must be followed by a method call, e.g., extend(value).show()"
@@ -2572,54 +2581,45 @@ export const extendMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    const methodName = parent.name.text;
+    const methodName = methodAccess.name.text;
     const value = args[0];
+    const extraArgs = Array.from(callExpr.arguments);
 
     // Try to determine the type of the value
     const valueType = ctx.typeChecker.getTypeAtLocation(value);
     const typeName = ctx.typeChecker.typeToString(valueType);
 
     // Find which typeclass provides this method (op-index, scope-based; PEP-052).
+    // Multiple typeclasses can declare a method with the same name, so a
+    // candidate is only accepted once it's confirmed to actually have an
+    // instance for `typeName` — otherwise the first (arbitrary-order) match
+    // would blindly win even when it has no instance, generating a
+    // `.summon()` call that fails at runtime instead of trying the next
+    // candidate or falling through to standalone extensions.
     for (const candidate of getTypeclassesDeclaringMethod(ctx.program, methodName)) {
       const tcName = candidate.typeclass;
-      // Found it! Generate the call
-      const grandParent = parent.parent;
-      if (grandParent && ts.isCallExpression(grandParent)) {
-        const extraArgs = Array.from(grandParent.arguments)
-          .map((a) => a.getText())
-          .join(", ");
-        const allArgs = extraArgs ? `${value.getText()}, ${extraArgs}` : value.getText();
-        const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
-        return ctx.parseExpression(code);
-      }
+      if (!hasPrimitiveOrInstance(ctx, typeName, tcName)) continue;
 
-      const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${value.getText()})`;
+      const extraArgsText = extraArgs.map((a) => a.getText()).join(", ");
+      const allArgs = extraArgsText ? `${value.getText()}, ${extraArgsText}` : value.getText();
+      const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
       return ctx.parseExpression(code);
     }
 
     // Check standalone extensions (Scala 3-style concrete type extensions)
     const standaloneExt = findStandaloneExtensionForExtend(methodName, typeName);
     if (standaloneExt) {
-      const grandParent = parent.parent;
-      const extraArgs =
-        grandParent && ts.isCallExpression(grandParent) ? Array.from(grandParent.arguments) : [];
       return buildStandaloneExtensionCall(ctx.factory, standaloneExt, value, extraArgs);
     }
 
     // No match in registries — strip the extend() wrapper and emit
     // value.method(args) so the transformer's implicit extension rewriting
     // (which includes import-scoped resolution) can handle it.
-    const grandParent = parent.parent;
-    if (grandParent && ts.isCallExpression(grandParent)) {
-      const methodCall = ctx.factory.createCallExpression(
-        ctx.factory.createPropertyAccessExpression(value, methodName),
-        undefined,
-        Array.from(grandParent.arguments)
-      );
-      return methodCall;
-    }
-    const propAccess = ctx.factory.createPropertyAccessExpression(value, methodName);
-    return propAccess;
+    return ctx.factory.createCallExpression(
+      ctx.factory.createPropertyAccessExpression(value, methodName),
+      undefined,
+      extraArgs
+    );
   },
 });
 
