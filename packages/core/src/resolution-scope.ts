@@ -11,7 +11,6 @@
 
 import * as ts from "typescript";
 import { config, ResolutionMode } from "./config.js";
-import { globalRegistry } from "./registry.js";
 import { getSyntaxMarkerFallback } from "./syntax-marker-fallback.js";
 
 /**
@@ -332,23 +331,6 @@ export function scanImportsForScope(
   const importScanFile = programFile ?? sourceFile;
   const checker = programFile ? program!.getTypeChecker() : undefined;
 
-  // Resolution-free activation fallback: a registered macro's `syntaxModule`
-  // names the module whose import activates its label syntax, so an import
-  // specifier that exactly matches it states the user's intent without any
-  // module resolution. This is what keeps label activation working in hosts
-  // that cannot resolve modules (the playground's in-memory host, virtual
-  // file names outside any node_modules tree). Checker-resolved markers
-  // remain the general mechanism (they also cover re-exports and third-party
-  // wrappers); this fallback only adds activations, never removes them.
-  const syntaxModuleIndex = new Map<string, string[]>();
-  for (const macro of globalRegistry.getAll()) {
-    const syntaxModule = (macro as { syntaxModule?: string }).syntaxModule;
-    if (!syntaxModule) continue;
-    const names = syntaxModuleIndex.get(syntaxModule) ?? [];
-    names.push(macro.name);
-    syntaxModuleIndex.set(syntaxModule, names);
-  }
-
   // Scan imports
   ts.forEachChild(importScanFile, (node) => {
     if (ts.isImportDeclaration(node)) {
@@ -369,20 +351,19 @@ export function scanImportsForScope(
         for (const tc of methodTCs) tracker.activateMethodSyntax(fileName, tc);
         for (const m of labelMacros) tracker.activateLabelSyntax(fileName, m);
       }
-      const bySyntaxModule = syntaxModuleIndex.get(moduleName);
-      if (bySyntaxModule) {
-        for (const m of bySyntaxModule) tracker.activateLabelSyntax(fileName, m);
-      }
-
-      // PEP-052 Wave 6: resolution-free fallback for operator/method syntax
-      // markers (the labeled-block/do-notation analog above; typeclasses
-      // have no `MacroDefinition`/`syntaxModule` to key off, so this is a
-      // separate, provider-declared registry — see syntax-marker-fallback.ts).
+      // PEP-052 Wave 6 (unified with Wave 2's syntaxModule index in a later
+      // pass): resolution-free fallback for operator/method/label syntax
+      // markers, keyed by exact import specifier — see
+      // syntax-marker-fallback.ts. Populated at macro-registration time
+      // (labels, from each macro's `syntaxModule`) and by provider packages
+      // directly (operators/methods, for typeclasses, which have no
+      // `MacroDefinition`/`syntaxModule` to key off).
       const markerFallback = getSyntaxMarkerFallback(moduleName);
       if (markerFallback) {
         for (const tc of markerFallback.operators ?? [])
           tracker.activateOperatorSyntax(fileName, tc);
         for (const tc of markerFallback.methods ?? []) tracker.activateMethodSyntax(fileName, tc);
+        for (const m of markerFallback.labels ?? []) tracker.activateLabelSyntax(fileName, m);
       }
     }
   });

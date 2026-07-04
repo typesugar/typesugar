@@ -234,6 +234,7 @@ import {
   TypeMacro,
   LabeledBlockMacro,
 } from "./types.js";
+import { registerSyntaxMarkerFallback } from "./syntax-marker-fallback.js";
 
 /**
  * Key for module-scoped macro lookup: "module::exportName"
@@ -381,6 +382,16 @@ class MacroRegistryImpl implements MacroRegistry {
       const exportName = macro.exportName ?? macro.name;
       const key = moduleKey(macro.module, exportName);
       this.moduleScopedMacros.set(key, macro);
+    }
+
+    // PEP-052 Wave 2/6 unification: a macro's `syntaxModule` (attribute or
+    // labeled-block macros only) names the module whose import activates its
+    // label syntax without needing checker-based module resolution. Fold
+    // this into the shared marker-fallback registry (see
+    // syntax-marker-fallback.ts) at registration time instead of rebuilding
+    // a separate index from `globalRegistry.getAll()` on every scan.
+    if ("syntaxModule" in macro && macro.syntaxModule) {
+      registerSyntaxMarkerFallback(macro.syntaxModule, { labels: [macro.name] });
     }
   }
 
