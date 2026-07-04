@@ -321,10 +321,11 @@ describe("primitive intrinsic registry (PEP-052 Wave 7 reflection extraction)", 
     // (e.g. a hardcoded copy that happens to match today) would need to
     // continue matching this test after ANY edit to primitives.ts, which a
     // hand-written copy structurally cannot do.
-    const primitivesMod: Record<
-      string,
-      Record<string, (...args: unknown[]) => unknown>
-    > = await import("./primitives.js");
+    // Loosely typed: primitives.ts's namespace also exports generic HOFs
+    // (showArray, etc.) that don't fit "record of plain functions" — this
+    // test only ever indexes it by the curated REGISTERED_INTRINSIC_NAMES,
+    // whose values genuinely are plain { methodName: (...) => ... } dicts.
+    const primitivesMod: Record<string, unknown> = await import("./primitives.js");
     const printer = ts.createPrinter();
     const printNode = (node: ts.Node) =>
       printer.printNode(
@@ -335,7 +336,7 @@ describe("primitive intrinsic registry (PEP-052 Wave 7 reflection extraction)", 
 
     for (const name of REGISTERED_INTRINSIC_NAMES) {
       const entry = getInstanceOrIntrinsicMethods(name)!;
-      const liveDict = primitivesMod[name];
+      const liveDict = primitivesMod[name] as Record<string, (...args: unknown[]) => unknown>;
       for (const [methodName, method] of entry.methods) {
         const liveFn = liveDict[methodName];
         const reparsed = ts.createSourceFile(
