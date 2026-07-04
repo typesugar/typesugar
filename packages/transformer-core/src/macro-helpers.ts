@@ -8,7 +8,12 @@
 
 import * as ts from "typescript";
 
-import { tryExpandGenericDerive, tryExtractSumType } from "@typesugar/macros";
+import {
+  tryExpandGenericDerive,
+  tryExtractSumType,
+  instanceScanner,
+  companionPath,
+} from "@typesugar/macros";
 
 import {
   MacroContextImpl,
@@ -562,6 +567,24 @@ export function expandDeriveDecorator(
         }
         for (const stmt of genericExpansion.statements) {
           statements.push(setSourceMapRangeDeep(stmt, decorator));
+        }
+        // Same-pass fix (PEP-052/task #30): this always builds a companion at
+        // the `${typeName}.${deriveName}` convention (see tryExpandGenericDerive's
+        // "Build companion namespace directly as AST" comment) — but that
+        // companion is spliced only into the transformer's OUTPUT tree, never
+        // into `ctx.sourceFile.statements`, so operator/method-sugar resolution
+        // (which scans the pre-transform source) can never see it on its own.
+        // Registering it here makes it visible to a LATER use site in the same
+        // file (e.g. `p1 === p2` after `@derive(Eq) class Point`).
+        if (typeInfo.type) {
+          instanceScanner.registerSynthesized(ctx.program, ctx.sourceFile.fileName, {
+            typeclassName: deriveName,
+            forType: typeInfo.type,
+            forTypeString: typeName,
+            exportName: companionPath(deriveName, typeName),
+            sourceModule: ctx.sourceFile.fileName,
+            detectedVia: "derived",
+          });
         }
         continue;
       }

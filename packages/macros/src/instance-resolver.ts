@@ -205,9 +205,13 @@ function resolveFromLocalScope(
   // found — and found independent of declaration order. This is the registry-free
   // replacement for instances the global registry used to provide.
   const scanned = scanner.scanLocalFile(typeChecker, sourceFile, ctx.program);
+  // Also check instances synthesized during THIS transform pass (e.g. a
+  // `@derive(Eq)` companion) — invisible to the scan above, since that reads
+  // the pre-transform source text and the companion doesn't exist there yet.
+  const synthesized = scanner.getSynthesized(ctx.program, sourceFile.fileName);
   const matches = filterMatches(
     typeChecker,
-    scanned,
+    synthesized.length > 0 ? [...scanned, ...synthesized] : scanned,
     tcName,
     forType,
     forTypeString,

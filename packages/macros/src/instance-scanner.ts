@@ -30,7 +30,7 @@ export interface ScannedInstance {
   /** Resolved file path of the source module */
   sourceModule: string;
   /** How this instance was detected */
-  detectedVia: "impl-tag" | "type-annotation";
+  detectedVia: "impl-tag" | "type-annotation" | "derived";
   /** Do-notation emission metadata from a `@do-methods` JSDoc tag, if present */
   doMeta?: DoNotationMeta;
 }
@@ -173,6 +173,56 @@ export class InstanceScanner {
       this.cacheByProgram.set(program, m);
     }
     return m;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Synthesized instances (e.g. @derive companions) — PEP-052 same-pass fix
+  // ---------------------------------------------------------------------------
+  //
+  // `scanLocalFile`/`scanModule` read `sourceFile.statements` — the pristine,
+  // pre-transform parse tree — and cache the result. A `@derive(Eq)` companion
+  // is synthesized by the SAME transform pass and spliced only into the
+  // transformer's *output* tree, never into `sourceFile.statements`, so the
+  // scan-based path can never see it. Kept as a SEPARATE, un-cached side-table
+  // (not merged into `scanLocalFile`'s cached result) because that cache is
+  // populated lazily on first query — if a second `@derive`'d class further
+  // down the same file registered AFTER the first query already cached a
+  // snapshot, a merge-on-scan approach would silently miss it. Querying this
+  // table fresh on every resolve call avoids that staleness at negligible cost
+  // (a small array lookup, no re-scanning).
+
+  private synthesizedByProgram = new WeakMap<ts.Program, Map<string, ScannedInstance[]>>();
+
+  private synthesizedFor(program: ts.Program): Map<string, ScannedInstance[]> {
+    let m = this.synthesizedByProgram.get(program);
+    if (!m) {
+      m = new Map();
+      this.synthesizedByProgram.set(program, m);
+    }
+    return m;
+  }
+
+  /**
+   * Record an instance synthesized during the current transform pass (e.g. a
+   * `@derive(Eq)` companion), so same-file operator/method-sugar resolution
+   * for a LATER use site can find it. Must be called at the point the
+   * companion is generated — before any use site in the same file is visited
+   * (true for the common case: a class cannot be referenced before its own
+   * declaration in the same scope).
+   */
+  registerSynthesized(program: ts.Program, fileName: string, instance: ScannedInstance): void {
+    const cache = this.synthesizedFor(program);
+    const existing = cache.get(fileName);
+    if (existing) {
+      existing.push(instance);
+    } else {
+      cache.set(fileName, [instance]);
+    }
+  }
+
+  /** Instances registered via {@link registerSynthesized} for this file. */
+  getSynthesized(program: ts.Program, fileName: string): readonly ScannedInstance[] {
+    return this.synthesizedFor(program).get(fileName) ?? [];
   }
 
   /**
