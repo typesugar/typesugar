@@ -51,12 +51,25 @@ const syntaxMarkerFallbackRegistry = new Map<string, SyntaxMarkerFallbackEntry>(
  * named typeclasses' operator/method syntax, even when the checker cannot
  * resolve the module. Call this at the same compile-time load point where
  * the declaring package registers its macros (e.g. its `./macros` entry).
+ *
+ * Merges with any existing entry for the same specifier (union of
+ * `operators`/`methods`) rather than replacing it, so two registration calls
+ * for the same specifier — e.g. one adding methods, a later one adding
+ * operators — compose instead of one clobbering the other.
  */
 export function registerSyntaxMarkerFallback(
   specifier: string,
   entry: SyntaxMarkerFallbackEntry
 ): void {
-  syntaxMarkerFallbackRegistry.set(specifier, entry);
+  const existing = syntaxMarkerFallbackRegistry.get(specifier);
+  if (!existing) {
+    syntaxMarkerFallbackRegistry.set(specifier, entry);
+    return;
+  }
+  syntaxMarkerFallbackRegistry.set(specifier, {
+    operators: [...new Set([...(existing.operators ?? []), ...(entry.operators ?? [])])],
+    methods: [...new Set([...(existing.methods ?? []), ...(entry.methods ?? [])])],
+  });
 }
 
 /** Look up the fallback entry for an import specifier, if one is registered. */

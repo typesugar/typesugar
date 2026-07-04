@@ -82,10 +82,15 @@ export {
 } from "./resolution-scope.js";
 
 // Syntax Marker Fallback (PEP-052 Wave 6)
+// `clearSyntaxMarkerFallbackRegistry` is deliberately NOT re-exported here:
+// it is test-only (see its doc comment), and clearing it in a process that
+// already loaded a provider's registrations (std, fp) would permanently
+// deactivate their fallbacks — those registrations run once, at module load,
+// and never rerun. Internal tests import it directly from
+// `./syntax-marker-fallback.js`.
 export {
   registerSyntaxMarkerFallback,
   getSyntaxMarkerFallback,
-  clearSyntaxMarkerFallbackRegistry,
   type SyntaxMarkerFallbackEntry,
 } from "./syntax-marker-fallback.js";
 

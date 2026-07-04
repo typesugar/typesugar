@@ -9,60 +9,68 @@
  * (`@typesugar/playground`'s browser bundle and any virtual-filename
  * pipeline use the same in-memory-host code path, which cannot resolve
  * modules via the checker at all).
+ *
+ * The marker file set is discovered by GLOBBING `src/syntax/` rather than a
+ * hand-maintained list, so a marker file added to (or removed from) that
+ * directory without a matching change to `packages/std/src/macros/index.ts`'s
+ * registration table is caught here automatically — a hardcoded copy of the
+ * same list would silently miss exactly that drift.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import * as path from "node:path";
 import "@typesugar/macros";
 import "@typesugar/std/macros"; // registers the fallback table under test
 import { transformCode as transformCodeInMemory } from "@typesugar/transformer-core";
 
+const here = path.dirname(fileURLToPath(import.meta.url));
+const syntaxDir = path.join(here, "../src/syntax");
+
+function tagOf(file: string, tagName: string): string | undefined {
+  const src = readFileSync(file, "utf8");
+  const m = src.match(new RegExp(`@${tagName}\\s+(\\S+)`));
+  return m?.[1];
+}
+
+/** Discovered from the filesystem: `{path, typeclass, hasOps}` per marker. */
+const STD_SYNTAX_TYPECLASSES: Array<{ path: string; typeclass: string; hasOps: boolean }> = readdirSync(
+  syntaxDir,
+  { withFileTypes: true }
+)
+  .filter((e) => e.isFile() && e.name.endsWith(".ts"))
+  .map((e) => {
+    const markerPath = e.name.replace(/\.ts$/, "");
+    const typeclass = tagOf(path.join(syntaxDir, e.name), "syntax-methods");
+    if (!typeclass) return null; // e.g. do.ts carries @syntax-labels, not a Wave 6 marker
+    const opsFile = path.join(syntaxDir, markerPath, "ops.ts");
+    return { path: markerPath, typeclass, hasOps: existsSync(opsFile) };
+  })
+  .filter((x): x is { path: string; typeclass: string; hasOps: boolean } => x !== null);
+
 describe("PEP-052 Wave 6: std marker fallback ↔ marker file consistency", () => {
-  const here = new URL(".", import.meta.url).pathname;
-  const STD_SYNTAX_TYPECLASSES: Array<[path: string, typeclass: string, hasOps: boolean]> = [
-    ["eq", "Eq", true],
-    ["ord", "Ord", true],
-    ["semigroup", "Semigroup", true],
-    ["monoid", "Monoid", true],
-    ["group", "Group", true],
-    ["numeric", "Numeric", true],
-    ["integral", "Integral", true],
-    ["fractional", "Fractional", true],
-    ["clone", "Clone", false],
-    ["debug", "Debug", false],
-    ["default", "Default", false],
-    ["json", "Json", false],
-    ["type-guard", "TypeGuard", false],
-  ];
+  it("discovered at least one @syntax-methods marker (glob isn't silently empty)", () => {
+    expect(STD_SYNTAX_TYPECLASSES.length).toBeGreaterThan(0);
+  });
 
-  function tagOf(file: string, tagName: string): string {
-    const src = readFileSync(file, "utf8");
-    const m = src.match(new RegExp(`@${tagName}\\s+(\\S+)`));
-    if (!m) throw new Error(`${file} carries no @${tagName} tag`);
-    return m[1];
-  }
-
-  for (const [path, typeclass, hasOps] of STD_SYNTAX_TYPECLASSES) {
-    it(`syntax/${path}.ts's @syntax-methods tag names ${typeclass}`, () => {
-      expect(tagOf(`${here}../src/syntax/${path}.ts`, "syntax-methods")).toBe(typeclass);
+  for (const { path: markerPath, typeclass, hasOps } of STD_SYNTAX_TYPECLASSES) {
+    it(`syntax/${markerPath}.ts is registered as a method fallback for ${typeclass}`, async () => {
+      const { getSyntaxMarkerFallback } = await import("@typesugar/core");
+      const entry = getSyntaxMarkerFallback(`@typesugar/std/syntax/${markerPath}`);
+      expect(entry?.methods).toContain(typeclass);
     });
+
     if (hasOps) {
-      it(`syntax/${path}/ops.ts's @syntax-operators tag names ${typeclass}`, () => {
-        expect(tagOf(`${here}../src/syntax/${path}/ops.ts`, "syntax-operators")).toBe(typeclass);
+      it(`syntax/${markerPath}/ops.ts's @syntax-operators tag names ${typeclass} and is registered`, async () => {
+        const opsTag = tagOf(path.join(syntaxDir, markerPath, "ops.ts"), "syntax-operators");
+        expect(opsTag).toBe(typeclass);
+
+        const { getSyntaxMarkerFallback } = await import("@typesugar/core");
+        const entry = getSyntaxMarkerFallback(`@typesugar/std/syntax/${markerPath}/ops`);
+        expect(entry?.operators).toContain(typeclass);
       });
     }
   }
-
-  it("every marker file has a corresponding fallback registration (no unregistered marker)", async () => {
-    const { getSyntaxMarkerFallback } = await import("@typesugar/core");
-    for (const [path, typeclass, hasOps] of STD_SYNTAX_TYPECLASSES) {
-      const methodEntry = getSyntaxMarkerFallback(`@typesugar/std/syntax/${path}`);
-      expect(methodEntry?.methods).toContain(typeclass);
-      if (hasOps) {
-        const opsEntry = getSyntaxMarkerFallback(`@typesugar/std/syntax/${path}/ops`);
-        expect(opsEntry?.operators).toContain(typeclass);
-      }
-    }
-  });
 });
 
 describe("PEP-052 Wave 6: in-memory-host end-to-end (the host this wave exists for)", () => {
@@ -94,9 +102,11 @@ export const r = p === q;
 
     const result = transformCodeInMemory(code, { fileName: "marker-fallback-eq.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.code).not.toMatch(/[^.]p === q/);
-    // Zero-cost specialization inlines the dictionary call directly.
-    expect(result.code).toContain("p.x === q.x && p.y === q.y");
+    // Zero-cost specialization inlines the dictionary call directly, replacing
+    // the entire `p === q` expression — assert the exact rewritten statement
+    // rather than a substring regex (a `[^.]p === q` negative match cannot
+    // anchor at string offset 0 and would silently pass either way).
+    expect(result.code).toContain("export const r = p.x === q.x && p.y === q.y;");
   });
 
   it("leaves `===` native in the same host without the marker import", () => {
@@ -119,7 +129,6 @@ export const r = p === q;
 
     const result = transformCodeInMemory(code, { fileName: "marker-fallback-eq-off.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.code).toContain("p === q");
-    expect(result.code).not.toContain("p.x === q.x");
+    expect(result.code).toContain("export const r = p === q;");
   });
 });

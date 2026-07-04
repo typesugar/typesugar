@@ -34,8 +34,10 @@ export const r = p === q;
 
     const result = transform(code, { fileName: "playground-marker-fallback-eq.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.code).not.toMatch(/[^.]p === q/);
-    expect(result.code).toContain("p.x === q.x && p.y === q.y");
+    // Zero-cost specialization inlines the dictionary call directly,
+    // replacing the entire `p === q` expression — assert the exact
+    // rewritten statement rather than a substring regex.
+    expect(result.code).toContain("export const r = p.x === q.x && p.y === q.y;");
   });
 
   it("leaves `===` native without the marker import", () => {
@@ -58,7 +60,6 @@ export const r = p === q;
 
     const result = transform(code, { fileName: "playground-marker-fallback-eq-off.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.code).toContain("p === q");
-    expect(result.code).not.toContain("p.x === q.x");
+    expect(result.code).toContain("export const r = p === q;");
   });
 });

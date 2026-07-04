@@ -802,6 +802,39 @@ already on the remaining list; 7-10 come from the retained items.
     KB) since both packages were already transitively bundled through other
     paths. Proven end-to-end with a test against the actual `transform()`
     export using a synthetic, never-on-disk `fileName`.
+  - **5-call Fable review findings — 3 fixed, 2 filed as follow-ups:**
+    (1) fixed: `registerSyntaxMarkerFallback` used `Map.set`, so a second
+    registration for the same specifier silently clobbered the first instead
+    of merging — now unions `operators`/`methods`. (2) fixed:
+    `clearSyntaxMarkerFallbackRegistry` (test-only — clearing it in a
+    process that already loaded std's/fp's registrations permanently
+    deactivates them, since those registrations run once at module load and
+    never rerun) was re-exported from `@typesugar/core`'s public barrel;
+    removed from the barrel, kept as a direct module import for the one
+    internal test that legitimately needs it. (3) fixed: the legacy-pipeline
+    method-sugar test's "off" fixture didn't actually isolate the fallback —
+    a locally `@typeclass`-tagged interface is unconditionally in scope for
+    its own file regardless of any import ("you don't need to import what
+    you define" — pre-existing, verified empirically), so a naive fix of
+    adding the tag to the negative fixture too would have made it
+    self-activate. Restructured both fixtures to declare `Show<A>` in a
+    separate file (included via `extraRootFiles`, consumed via a local
+    `import type`) so the typeclass is program-visible without being
+    file-defined, making the marker import the only remaining variable. Also
+    applied the same tightening to two negative-control regex assertions
+    (`not.toMatch(/[^.]p === q/)` cannot anchor at string offset 0, so it can
+    silently pass either way) — replaced with exact-statement `toContain`
+    checks. Filed, not fixed (design suggestions, not defects): consolidating
+    this registry with Wave 2's `syntaxModule`-keyed index (both are
+    exact-specifier-keyed, purely-additive activation lookups at the same
+    `scanImportsForScope` call site — a candidate for a future wave, not
+    considered when Wave 6 was scoped since the question that WAS asked
+    ("can Wave 6 reuse Wave 2's mechanism?") is different from "should Wave 2
+    migrate onto Wave 6's"); and std's drift-protection test's marker list —
+    now derived by globbing `src/syntax/` instead of a hand-copied table (the
+    registration table in `std/src/macros/index.ts` remains hand-maintained,
+    a smaller, one-directional drift risk than the original two-independent-
+    copies problem).
 
 - **Wave 7 — intrinsic bodies from source.** Replace
   `primitiveIntrinsicRegistry`'s 16 hand-written source strings
