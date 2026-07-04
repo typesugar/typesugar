@@ -832,6 +832,33 @@ export const adtAttribute: AttributeMacro = defineAttributeMacro({
     const adtName = target.name.text;
     const nullMap = extractAdtTag(target);
 
+    // Each union member must be a NAMED type reference (or a literal `null`) —
+    // constructor/type-guard generation below emits references to the
+    // variant BY NAME (`factory.createTypeReferenceNode(variant.name, ...)`,
+    // `variant.declaration.typeParameters`, etc.), which requires a real,
+    // resolvable interface/type-alias declaration to exist. An inline
+    // object-literal member (`{ kind: "circle"; radius: number }`) has no
+    // such name, so it's rejected here with a diagnostic that says exactly
+    // that — rather than falling through to extractVariants silently
+    // dropping it and reporting a misleading "found 0 variants" (which reads
+    // as if the union itself were too small, not that its member SHAPE is
+    // unsupported).
+    for (const member of target.type.types) {
+      if (
+        !ts.isTypeReferenceNode(member) &&
+        member.kind !== ts.SyntaxKind.NullKeyword &&
+        member.kind !== ts.SyntaxKind.LiteralType
+      ) {
+        ctx.reportError(
+          member,
+          `@adt requires each variant to be a named interface or type alias reference ` +
+            `(e.g. "Circle | Square", not an inline object literal). Extract ` +
+            `"${member.getText()}" into its own named interface first.`
+        );
+        return target;
+      }
+    }
+
     // 1. Extract variant information
     const variants = extractVariants(ctx, target.type, nullMap);
     if (variants.length < 2) {

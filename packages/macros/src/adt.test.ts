@@ -511,6 +511,26 @@ type SingleVariant = Only;
 `;
     expect(() => runAdtMacro(source)).not.toThrow();
   });
+
+  it("rejects an inline object-literal union member with a clear diagnostic (not a misleading '0 variants' count)", () => {
+    // Constructor/type-guard generation emits references to each variant BY
+    // NAME (factory.createTypeReferenceNode(variant.name, ...), etc.), which
+    // requires a real, resolvable interface/type-alias declaration — an
+    // inline object literal has none. Before this fix, this silently fell
+    // through to extractVariants dropping the member and reporting
+    // "@adt requires at least 2 variants, found 0", which reads as if the
+    // union itself were too small rather than that its member shape is
+    // unsupported.
+    const source = `
+/** @adt */
+type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
+`;
+    expect(() => runAdtMacro(source)).not.toThrow();
+    // No TypeRewriteEntry should be registered when the macro correctly
+    // bails out on unsupported input.
+    const { entry } = runAdtMacro(source);
+    expect(entry).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
