@@ -790,17 +790,23 @@ export default function macroTransformerFactory(
 
       const ctx = createMacroContext(program, sourceFile, context, hygiene);
 
+      // Load macro packages based on this file's imports, BEFORE scanning for
+      // activation scope below. This is important for the language service
+      // where the initial program may not include all files that will be
+      // transformed: loading a package can have module-load side effects
+      // (e.g. a provider's `registerSyntaxMarkerFallback` call, PEP-052
+      // Wave 6) that scanImportsForScope's lookups depend on being already
+      // registered. Safe to run first — loadPackage is idempotent (deduped
+      // via a loadedPackages Set) and nothing here needs
+      // scanImportsForScope's result.
+      profiler.start("perFile.loadMacroPackagesFromFile");
+      loadMacroPackagesFromFile(sourceFile, verbose);
+      profiler.end("perFile.loadMacroPackagesFromFile");
+
       // Scan for imports and opt-out directives
       profiler.start("perFile.scanImportsForScope");
       scanImportsForScope(sourceFile, globalResolutionScope, program);
       profiler.end("perFile.scanImportsForScope");
-
-      // Load macro packages based on this file's imports.
-      // This is important for the language service where the initial program
-      // may not include all files that will be transformed.
-      profiler.start("perFile.loadMacroPackagesFromFile");
-      loadMacroPackagesFromFile(sourceFile, verbose);
-      profiler.end("perFile.loadMacroPackagesFromFile");
 
       // Discover @opaque types from imported .d.ts files (external libraries).
       // This auto-registers TypeRewriteEntry entries for opaque types that
