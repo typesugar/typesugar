@@ -514,6 +514,20 @@ export function getInstanceOrIntrinsicMethods(dictName: string): DictMethodMap |
   return instanceMethodRegistry.get(dictName) ?? primitiveIntrinsicRegistry.get(dictName);
 }
 
+/**
+ * Look up instance methods from the primitive intrinsic registry only —
+ * i.e. NOT the per-file `@impl`-derived registry. Callers that inline by
+ * bare identifier name (`eqNumber.eq(a, b)`) need to distinguish this
+ * source: a well-known intrinsic name like `eqNumber` has no corresponding
+ * user declaration in a correct program (it's a synthetic reference the
+ * transformer itself injects), so a caller can safely treat any resolvable
+ * user declaration for that identifier as shadowing — see
+ * `tryInlineDerivedInstanceCall` in transformer-core/specialization.ts.
+ */
+export function getPrimitiveIntrinsicMethods(dictName: string): DictMethodMap | undefined {
+  return primitiveIntrinsicRegistry.get(dictName);
+}
+
 // ============================================================================
 // Built-in instance registrations — REMOVED (PEP-053 Wave 4)
 // ============================================================================

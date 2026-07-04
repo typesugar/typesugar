@@ -99,6 +99,7 @@ export {
   extractMethodsFromObjectLiteral,
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
+  getPrimitiveIntrinsicMethods,
   isRegisteredInstance,
   getRegisteredInstanceNames,
   classifyInlineFailure,

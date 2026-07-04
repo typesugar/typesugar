@@ -133,6 +133,31 @@ console.log(eqOuter.equals(a, b));
 });
 
 // ============================================================================
+// Identifier shadowing: a user's own local variable named after a primitive
+// intrinsic (e.g. `eqNumber`) must not be mistaken for the real intrinsic —
+// bare-name matching alone can't tell them apart.
+// ============================================================================
+
+describe("Primitive-intrinsic identifier shadowing", () => {
+  it("does not inline a user's own local eqNumber over the real primitive intrinsic", () => {
+    const code = `
+function useShadowedEqNumber() {
+  const eqNumber = { equals: (a: number, b: number) => false };
+  return eqNumber.equals(1, 1);
+}
+    `.trim();
+
+    const result = transformCode(code, { fileName: "derive-inline-shadowed-primitive.ts" });
+
+    // The user's own eqNumber.equals(1, 1) must stay untouched — inlining
+    // the REAL intrinsic here would silently replace `false` with `1 === 1`.
+    expect(result.code).toContain("eqNumber.equals(1, 1)");
+    expect(result.code).not.toContain("1 === 1");
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  });
+});
+
+// ============================================================================
 // Gate 3: Dictionary DCE — removed when all uses are inlined
 // ============================================================================
 

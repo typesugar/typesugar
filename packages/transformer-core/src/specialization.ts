@@ -11,7 +11,7 @@ import * as ts from "typescript";
 import {
   isRegisteredInstance,
   getInstanceMethods,
-  getInstanceOrIntrinsicMethods,
+  getPrimitiveIntrinsicMethods,
   SpecializationCache,
   createHoistedSpecialization,
   classifyInlineFailureDetailed,
@@ -742,6 +742,41 @@ export function tryReturnTypeDrivenSpecialize(
 const MAX_RECURSIVE_INLINE_DEPTH = 10;
 
 /**
+ * Resolve a call's dict name to its methods, guarding the primitive-intrinsic
+ * path against identifier shadowing.
+ *
+ * `instanceName`/`instName` at the two call sites below is matched by bare
+ * identifier text alone (`eqNumber`, `ordString`, ...) with no scope check —
+ * fine for the per-file `@impl` registry (`getInstanceMethods`), since that
+ * registry is populated per-compilation from actually-scanned declarations.
+ * But a well-known primitive-intrinsic name has no corresponding user
+ * declaration in a correct program: it's either a synthetic identifier the
+ * transformer injected itself, or a cloned/position-stripped node from an
+ * already-inlined method template — neither resolves via the checker. If
+ * `identifier` DOES resolve to a real declaration, it's the user's own local
+ * variable shadowing the well-known name (e.g. `const eqNumber = {...}`), not
+ * a reference to the actual intrinsic — inlining the intrinsic body there
+ * would silently discard the user's own implementation.
+ */
+function resolveInstanceOrIntrinsicMethodsSafely(
+  ctx: MacroContextImpl,
+  identifier: ts.Identifier,
+  dictName: string
+): DictMethodMap | undefined {
+  const registered = getInstanceMethods(dictName);
+  if (registered) return registered;
+
+  const primitive = getPrimitiveIntrinsicMethods(dictName);
+  if (!primitive) return undefined;
+
+  const symbol = ctx.typeChecker.getSymbolAtLocation(identifier);
+  if (symbol && (symbol.getDeclarations()?.length ?? 0) > 0) {
+    return undefined;
+  }
+  return primitive;
+}
+
+/**
  * Try to inline a direct method call on a known typeclass instance.
  *
  * Handles patterns like:
@@ -762,7 +797,11 @@ export function tryInlineDerivedInstanceCall(
   const instanceName = node.expression.expression.text;
   const methodName = node.expression.name.text;
 
-  let methodMap = getInstanceOrIntrinsicMethods(instanceName);
+  let methodMap = resolveInstanceOrIntrinsicMethodsSafely(
+    ctx,
+    node.expression.expression,
+    instanceName
+  );
 
   if (!methodMap) {
     methodMap = tryExtractInstanceFromSource(ctx, node.expression.expression);
@@ -811,7 +850,11 @@ function recursivelyInlineInstanceCalls(
       const instName = n.expression.expression.text;
       const methName = n.expression.name.text;
 
-      const methodMap = getInstanceOrIntrinsicMethods(instName);
+      const methodMap = resolveInstanceOrIntrinsicMethodsSafely(
+        ctx,
+        n.expression.expression,
+        instName
+      );
       if (methodMap) {
         const method = methodMap.methods.get(methName);
         if (method) {
