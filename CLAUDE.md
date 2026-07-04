@@ -27,8 +27,17 @@ PEP for migration):
 - `verify-laws.ts` — law verification + property-test codegen.
 - `auto-derive.ts` — cached derivation output (memory + disk caches store strings;
   changing the cache contract to store AST is the bigger refactor).
-- `specialize.ts` — legacy string-source `method.source` path (replaced where
-  possible by AST-based `registerInstanceMethodsFromAST`).
+- `specialize.ts` — `parseAsStandaloneExpression`/`loadPrimitiveIntrinsicsFromReflection`
+  (PEP-052 Wave 7): the 16 primitive-typeclass intrinsics (`eqNumber.equals` →
+  `===`, etc.) are populated by reflecting `primitives.ts`'s REAL, live exports
+  via `Function.prototype.toString()` and re-parsing the result — a narrower,
+  self-auditing variant of string→AST parsing (not hand-typed strings, and
+  registration is rejected outright for anything that doesn't parse cleanly
+  as a self-contained arrow function referencing only its own params/locals
+  — see the free-identifier safety check in the same file). Not a migration
+  target: there is no other way to recover an AST from an already-compiled
+  function value, and the alternative (hand-typed duplicate strings) is what
+  this replaced after it was found to have drifted for 6 of 16 entries.
 - `quote.ts` and `syntax-macro.ts` — these ARE the quasi-quote / user-defined
   syntax-macro primitives. String→AST parsing is their documented purpose; they
   are not migration targets.
@@ -36,3 +45,10 @@ PEP for migration):
 The original `builtinDerivations` + `convertToCompanionAssignment` legacy exception
 was removed in 2026-05 after they were confirmed to be dead code (orphaned by
 PEP-038 Wave 2F's GenericDerivation migration).
+
+`specialize.ts`'s ORIGINAL exception entry — the legacy string-source
+`method.source` fallback path in `inlineMethod`, fed by 16 hand-written
+primitive-intrinsic source strings — was removed in 2026-07 (PEP-052 Wave 7).
+Nothing produces a `.source`-shaped `DictMethod` anymore; `specialize.ts`
+remains on this list only for the new, narrower reflection-based exception
+described above.

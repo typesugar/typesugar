@@ -280,6 +280,75 @@ const cmp = ordNumber.compare(3, 5);
     expect(result.code).toContain("<");
     expect(result.code).toContain(">");
   });
+
+  // PEP-052 Wave 7: these bodies come from reflecting primitives.ts's real
+  // exports (not a hand-written copy). NOTE: the pre-Wave-7 hand-written
+  // registry already used JSON.stringify for showString (primitives.ts was
+  // the one with the bug — see specialize.test.ts's dedicated reflection
+  // test for a check that actually distinguishes the two); this test's real
+  // purpose is covering an intrinsic the hand-written registry never had a
+  // dedicated inlining test for.
+  it("inlines showString.show to JSON.stringify", () => {
+    const code = `
+const result = showString.show('he said "hi"');
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-show-string.ts" });
+
+    expect(result.code).not.toContain("showString.show");
+    expect(result.code).toContain("JSON.stringify");
+  });
+
+  it("inlines ordBoolean.compare", () => {
+    const code = `
+const cmp = ordBoolean.compare(true, false);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-ord-boolean.ts" });
+
+    expect(result.code).not.toContain("ordBoolean.compare");
+  });
+
+  it("registers hashString.hash safely (self-contained djb2 loop, no external references) but leaves the call as-is (its `for` loop is too complex to inline, an orthogonal gate from the free-identifier safety check)", () => {
+    const code = `
+const h = hashString.hash("abc");
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-hash-string.ts" });
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain('hashString.hash("abc")');
+  });
+
+  // hashNumber/hashBigint's REAL bodies (primitives.ts) fall back to
+  // `hashString.hash(...)` for non-trivial inputs — a reference that's
+  // correctly bound when the function actually runs (closed over its own
+  // module) but would be an unbound free identifier if inlined verbatim at
+  // this call site. The registration-time free-identifier safety check in
+  // specialize.ts rejects both for exactly this reason: earlier drafts of
+  // this wave inlined them anyway, generating `hashString.hash(...)` with no
+  // `hashString` in scope — a real ReferenceError bug caught by review.
+  it("leaves hashNumber.hash as a real call (its real body calls hashString.hash, an identifier not in scope at this call site)", () => {
+    const code = `
+const h = hashNumber.hash(42);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-hash-number.ts" });
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("hashNumber.hash(42)");
+  });
+
+  it("leaves hashBigint.hash as a real call (same reason: its real body calls hashString.hash)", () => {
+    const code = `
+const h = hashBigint.hash(42n);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-hash-bigint.ts" });
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("hashBigint.hash(42n)");
+  });
 });
 
 // ============================================================================

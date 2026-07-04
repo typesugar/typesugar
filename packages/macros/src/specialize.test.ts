@@ -12,6 +12,7 @@
 
 import * as ts from "typescript";
 import { describe, it, expect, beforeEach } from "vitest";
+import { stripPositions } from "@typesugar/core";
 import {
   SpecializationCache,
   registerResultAlgebra,
@@ -256,6 +257,119 @@ describe("instance method registry", () => {
     // or undefined for unknown ones
     const result = getInstanceOrIntrinsicMethods("nonexistent_xyz_456");
     expect(result).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// Primitive intrinsic registry — extracted from primitives.ts via reflection
+// (PEP-052 Wave 7). See specialize.ts's "Primitive Typeclass Intrinsics"
+// section for the mechanism: Function.prototype.toString() on the REAL
+// primitives.ts exports, parsed back into an AST node — not a hand-written
+// string, so there's nothing left to independently drift.
+// ============================================================================
+
+describe("primitive intrinsic registry (PEP-052 Wave 7 reflection extraction)", () => {
+  // hashNumber/hashBigint's REAL bodies (primitives.ts) fall back to
+  // `hashString.hash(...)` — a reference correctly bound when the function
+  // actually runs (closed over its own module) but which would be an unbound
+  // free identifier if inlined verbatim at a user's call site. The
+  // registration-time free-identifier safety check rejects both; they are
+  // deliberately NOT in this list. (An earlier draft of this wave inlined
+  // them anyway, generating broken code with no `hashString` in scope — a
+  // real bug caught by review.)
+  const REGISTERED_INTRINSIC_NAMES = [
+    "eqNumber",
+    "eqString",
+    "eqBoolean",
+    "eqBigint",
+    "ordNumber",
+    "ordString",
+    "ordBoolean",
+    "ordBigint",
+    "showNumber",
+    "showString",
+    "showBoolean",
+    "showBigint",
+    "hashBoolean",
+    "hashString",
+  ];
+
+  for (const name of REGISTERED_INTRINSIC_NAMES) {
+    it(`${name} is registered with a real AST node (not a source string)`, () => {
+      const entry = getInstanceOrIntrinsicMethods(name);
+      expect(entry).toBeDefined();
+      expect(entry!.methods.size).toBeGreaterThan(0);
+      for (const method of entry!.methods.values()) {
+        expect(method.node).toBeDefined();
+        expect(ts.isArrowFunction(method.node!)).toBe(true);
+        expect(method.params.length).toBeGreaterThan(0);
+      }
+    });
+  }
+
+  it("rejects hashNumber/hashBigint at registration (their real bodies reference hashString, unbound at inline sites)", () => {
+    expect(getInstanceOrIntrinsicMethods("hashNumber")).toBeUndefined();
+    expect(getInstanceOrIntrinsicMethods("hashBigint")).toBeUndefined();
+  });
+
+  it("registry content is a direct function of primitives.ts's CURRENT live state, not a fixed/stale copy", async () => {
+    // Genuinely proves reflection (not just "the final content happens to be
+    // right"): re-derive each registered method's expected AST, independently
+    // of specialize.ts's own loader, straight from primitives.ts's live
+    // functions — then assert the registry's printed node is byte-identical.
+    // Anything that could satisfy this without actually reflecting primitives.ts
+    // (e.g. a hardcoded copy that happens to match today) would need to
+    // continue matching this test after ANY edit to primitives.ts, which a
+    // hand-written copy structurally cannot do.
+    // Loosely typed: primitives.ts's namespace also exports generic HOFs
+    // (showArray, etc.) that don't fit "record of plain functions" — this
+    // test only ever indexes it by the curated REGISTERED_INTRINSIC_NAMES,
+    // whose values genuinely are plain { methodName: (...) => ... } dicts.
+    const primitivesMod: Record<string, unknown> = await import("./primitives.js");
+    const printer = ts.createPrinter();
+    const printNode = (node: ts.Node) =>
+      printer.printNode(
+        ts.EmitHint.Expression,
+        node,
+        ts.createSourceFile("t.ts", "", ts.ScriptTarget.Latest)
+      );
+
+    for (const name of REGISTERED_INTRINSIC_NAMES) {
+      const entry = getInstanceOrIntrinsicMethods(name)!;
+      const liveDict = primitivesMod[name] as Record<string, (...args: unknown[]) => unknown>;
+      for (const [methodName, method] of entry.methods) {
+        const liveFn = liveDict[methodName];
+        const reparsed = ts.createSourceFile(
+          "t.ts",
+          `(${liveFn.toString()})`,
+          ts.ScriptTarget.Latest,
+          true
+        );
+        const liveExpr = (reparsed.statements[0] as ts.ExpressionStatement).expression;
+        const liveNode = ts.isParenthesizedExpression(liveExpr) ? liveExpr.expression : liveExpr;
+        expect(printNode(method.node!)).toBe(printNode(stripPositions(liveNode)));
+      }
+    }
+  });
+
+  it("showString/ordString reflect the FIXED bodies (JSON.stringify / non-locale compare) — the actual bugs this wave found and fixed in primitives.ts", () => {
+    const printer = ts.createPrinter();
+    const printNode = (node: ts.Node) =>
+      printer.printNode(
+        ts.EmitHint.Expression,
+        node,
+        ts.createSourceFile("t.ts", "", ts.ScriptTarget.Latest)
+      );
+
+    const showText = printNode(
+      getInstanceOrIntrinsicMethods("showString")!.methods.get("show")!.node!
+    );
+    expect(showText).toContain("JSON.stringify");
+
+    const compareText = printNode(
+      getInstanceOrIntrinsicMethods("ordString")!.methods.get("compare")!.node!
+    );
+    expect(compareText).not.toContain("localeCompare");
   });
 });
 

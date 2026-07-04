@@ -38,7 +38,7 @@ export const showNumber = {
 
 /** @impl("Show<string>") */
 export const showString = {
-  show: (a: string): string => `"${a}"`,
+  show: (a: string): string => JSON.stringify(a),
 };
 
 /** @impl("Show<boolean>") */
@@ -139,7 +139,7 @@ export const ordNumber = {
 
 /** @impl("Ord<string>") */
 export const ordString = {
-  compare: (a: string, b: string): number => a.localeCompare(b),
+  compare: (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0),
 };
 
 /** @impl("Ord<boolean>") */
