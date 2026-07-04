@@ -25,6 +25,19 @@ import { type RawSourceMap } from "@typesugar/core";
 import { transformCode, type TransformDiagnostic } from "@typesugar/transformer-core";
 import { BrowserTransformCache, hashContent } from "./cache.js";
 
+// PEP-052 Wave 6 Phase D: this bundle's `transformCode` call runs against
+// browser-typed input with no real module resolution (no filesystem, no
+// node_modules) — exactly the host `registerSyntaxMarkerFallback` exists for.
+// Neither std's nor fp's compile-time registration ever runs otherwise: this
+// package never imports `@typesugar/std/macros`/`@typesugar/fp` for anything
+// but runtime VALUES (see `runtime-entry.ts`, a separate iframe-sandbox
+// bundle), so without these side-effect imports here, a playground snippet
+// importing e.g. `@typesugar/std/syntax/eq/ops` could never activate Eq
+// operator syntax — the checker can't resolve the module, and no fallback
+// entry would exist to catch it.
+import "@typesugar/std/macros";
+import "@typesugar/fp";
+
 export interface TransformResult {
   original: string;
   code: string;
