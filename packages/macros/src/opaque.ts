@@ -18,7 +18,9 @@
  * 4. Registers a {@link TypeRewriteEntry} with methods, constructors, accessors
  *
  * @see PEP-012 — Type Macros
- * @see PEP-011 — Diagnostic Suppression Rules
+ * @see PEP-011 — SFINAE Diagnostic Resolution (the mechanism it describes is
+ *      renamed to "diagnostic suppression rules" by PEP-054; PEP-011 keeps
+ *      its historical title)
  */
 
 import ts from "typescript";

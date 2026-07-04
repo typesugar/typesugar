@@ -1,5 +1,5 @@
 /**
- * Tests for TypeRewriteAssignment SFINAE rule (PEP-011 Wave 5)
+ * Tests for TypeRewriteAssignment diagnostic suppression rule (PEP-011 Wave 5)
  *
  * Verifies that TS2322/TS2345/TS2355 are suppressed when a type registered
  * in the `typeRewriteRegistry` is involved in an assignment and the other
@@ -11,9 +11,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import {
-  registerSfinaeRule,
-  clearSfinaeRules,
-  evaluateSfinae,
+  registerDiagnosticSuppressionRule,
+  clearDiagnosticSuppressionRules,
+  evaluateDiagnosticSuppression,
   filterDiagnostics,
   registerTypeRewrite,
   clearTypeRewrites,
@@ -145,9 +145,9 @@ function registerMockOpaqueTypes(): void {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("TypeRewriteAssignment SFINAE Rule", () => {
+describe("TypeRewriteAssignment diagnostic suppression rule", () => {
   beforeEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
     clearTypeRewrites();
   });
 
@@ -166,7 +166,7 @@ describe("TypeRewriteAssignment SFINAE Rule", () => {
   describe("underlying → opaque suppression (TS2322)", () => {
     it("suppresses TS2322 for const o: Option<number> = nullableValue", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -180,12 +180,12 @@ const o: Option<number> = nullableValue;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2322 for string → Email assignment", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -198,12 +198,12 @@ const email: Email = "user@test.com";
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2322 for null → Option<string> assignment", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -216,14 +216,14 @@ const o: Option<string> = null;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
 
   describe("opaque → underlying suppression (TS2322)", () => {
     it("suppresses TS2322 for Option<number> → number | null assignment", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -237,12 +237,12 @@ const n: number | null = opt;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2322 for Email → string assignment", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -256,14 +256,14 @@ const s: string = email;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
 
   describe("function argument suppression (TS2345)", () => {
     it("suppresses TS2345 when passing number | null to an Option<number> parameter", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -278,12 +278,12 @@ processOption(nullableNum);
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2345 when passing an Option to a number | null parameter", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -298,12 +298,12 @@ processNullable(opt);
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2345 when passing a string literal to an Email parameter", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -317,14 +317,14 @@ sendEmail("user@test.com");
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
 
   describe("no false positives", () => {
     it("does NOT suppress TS2322 for unrelated types (string to number)", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -335,12 +335,12 @@ sendEmail("user@test.com");
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress TS2322 when no registry entries exist", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       // Intentionally NOT registering any type rewrites
 
       const { checker, diagnostics } = createProgram({
@@ -354,12 +354,12 @@ const o: Option<number> = nullableValue;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress TS2322 for wrong underlying type (number to Email)", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -372,12 +372,12 @@ const email: Email = 42;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress TS2345 for wrong underlying type in function args", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { checker, diagnostics } = createProgram({
@@ -391,14 +391,14 @@ processOption("not a number or null");
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
   });
 
   describe("filterDiagnostics integration", () => {
     it("filters TS2322 from diagnostics array for valid opaque assignment", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { program, checker, diagnostics } = createProgram({
@@ -424,7 +424,7 @@ const o: Option<number> = nullableValue;
 
     it("preserves non-assignment diagnostics", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
       registerMockOpaqueTypes();
 
       const { program, checker, diagnostics } = createProgram({
@@ -452,7 +452,7 @@ const bad = undeclaredVariable;
   describe("custom matchesUnderlying callback", () => {
     it("uses the matchesUnderlying callback when provided", () => {
       const rule = createTypeRewriteAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       registerTypeRewrite({
         typeName: "Percentage",
@@ -473,7 +473,7 @@ const pct: Percentage = 0.5;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
 
@@ -481,8 +481,8 @@ const pct: Percentage = 0.5;
     it("both rules can be active without interference", async () => {
       const { createNewtypeAssignmentRule } = await import("@typesugar/macros");
 
-      registerSfinaeRule(createNewtypeAssignmentRule());
-      registerSfinaeRule(createTypeRewriteAssignmentRule());
+      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
+      registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
       registerMockOpaqueTypes();
 
       // Newtype case (handled by NewtypeAssignment)
@@ -499,9 +499,9 @@ const id: UserId = 42;
 
       const newtypeDiags = getAssignmentDiagnostics(newtypeResult.diagnostics, "/test.ts");
       expect(newtypeDiags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(newtypeDiags[0], newtypeResult.checker, newtypeDiags[0].file!)).toBe(
-        true
-      );
+      expect(
+        evaluateDiagnosticSuppression(newtypeDiags[0], newtypeResult.checker, newtypeDiags[0].file!)
+      ).toBe(true);
 
       // Opaque type case (handled by TypeRewriteAssignment)
       const opaqueResult = createProgram({
@@ -512,7 +512,9 @@ const email: Email = "user@test.com";
 
       const opaqueDiags = getAssignmentDiagnostics(opaqueResult.diagnostics, "/test.ts");
       expect(opaqueDiags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(opaqueDiags[0], opaqueResult.checker, opaqueDiags[0].file!)).toBe(true);
+      expect(
+        evaluateDiagnosticSuppression(opaqueDiags[0], opaqueResult.checker, opaqueDiags[0].file!)
+      ).toBe(true);
     });
   });
 });

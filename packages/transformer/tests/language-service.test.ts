@@ -798,7 +798,7 @@ describe("Diagnostic Suppression Language Service Integration (PEP-011 Wave 2)",
       expect(diagnostics.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("allows custom diagnostic suppression rules to suppress specific diagnostics", () => {
+    it("allows custom rules to suppress specific diagnostics", () => {
       clearDiagnosticSuppressionRules();
 
       // Register a custom rule that suppresses TS2322 for testing

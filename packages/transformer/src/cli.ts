@@ -227,7 +227,7 @@ OPTIONS:
                          (e.g. spurious TS2304) and is degraded gracefully if the
                          checker hits synthetic node positions. Off by default.
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
-  --show-suppressed-diagnostics          Show suppressed diagnostics (audit mode)
+  --show-suppressed-diagnostics  Show suppressed diagnostics (audit mode)
   -h, --help             Show this help message
 
 EXPAND OPTIONS:

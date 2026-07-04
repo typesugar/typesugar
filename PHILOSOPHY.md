@@ -610,7 +610,7 @@ SFINAE is not blanket diagnostic suppression. Each suppression is justified by a
 3. **Opaque type boundaries** -- Source matches the opaque type's underlying representation → TS2322/TS2345 suppressed
 4. **Macro-generated code** -- Diagnostic position doesn't map to original source → suppressed
 
-If no rule matches, the error stands. The system is auditable: `--show-sfinae` prints every suppressed diagnostic with its justification.
+If no rule matches, the error stands. The system is auditable: `--show-suppressed-diagnostics` prints every suppressed diagnostic with its justification.
 
 ### Why not just fix the types?
 

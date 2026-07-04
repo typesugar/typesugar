@@ -8,7 +8,8 @@
  * 1. Creates a TypeScript LanguageService with a custom LanguageServiceHost
  * 2. Intercepts getScriptSnapshot to serve transformed (macro-expanded) code
  * 3. Maps all positions bidirectionally between original and transformed coordinates
- * 4. Applies diagnostic suppression rules to suppress diagnostics in macro-generated code
+ * 4. Applies diagnostic suppression rules to macro-generated code whose
+ *    positions can't be mapped back to the original source
  *
  * Usage: typesugar-lsp --stdio
  */

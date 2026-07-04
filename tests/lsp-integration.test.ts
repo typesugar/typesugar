@@ -3,7 +3,7 @@
  *
  * Spawns the typesugar LSP server and verifies basic protocol compliance:
  * 1. Initialize handshake succeeds and reports expected capabilities
- * 2. textDocument/didOpen + diagnostics work for files with SFINAE-suppressed errors
+ * 2. textDocument/didOpen + diagnostics work for files with diagnostic-suppressed errors
  */
 
 import { describe, it, expect, afterEach } from "vitest";
