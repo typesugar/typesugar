@@ -878,15 +878,9 @@ importers:
       '@typesugar/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@typesugar/fp':
-        specifier: workspace:*
-        version: link:../fp
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
-      '@typesugar/std':
-        specifier: workspace:*
-        version: link:../std
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)

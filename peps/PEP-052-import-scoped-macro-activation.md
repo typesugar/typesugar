@@ -711,11 +711,24 @@ already on the remaining list; 7-10 come from the retained items.
     `import "@typesugar/fp/syntax/show";` (its entire contract IS the side
     effect). std's identical markers are protected by `"sideEffects": true`;
     fp's flag never mattered until this wave shipped its first marker. Flipped
-    to match std. Also added `@typesugar/fp`/`@typesugar/std` as devDependencies
-    of `@typesugar/transformer` (the new test imports both; they were only
-    resolving via the root workspace's hoisted node_modules — the same latent
-    fragility the pre-existing `pep052-method-sugar-companion.test.ts` in the
-    same package already had for `@typesugar/std`, fixed while here).
+    to match std.
+  - **Attempted fix, reverted:** the new test resolves `@typesugar/fp` only
+    via the root workspace's hoisted `node_modules` (not a declared dependency
+    of `@typesugar/transformer` — the same pre-existing pattern
+    `pep052-method-sugar-companion.test.ts` already relies on for
+    `@typesugar/std`). Declaring `@typesugar/fp`/`@typesugar/std` as direct
+    devDependencies of `@typesugar/transformer` to close that gap **broke the
+    CI build**: both packages devDepend on `unplugin-typesugar`, which itself
+    depends on `@typesugar/transformer` — a genuine cycle
+    (`transformer → fp → unplugin-typesugar → transformer`) that confused the
+    workspace build's topological ordering (`unplugin-typesugar` built before
+    `transformer`'s own dist existed). `@typesugar/contracts` and
+    `@typesugar/macros` are already safe devDependencies of `transformer`
+    precisely because neither pulls in `unplugin-typesugar`. Reverted; the
+    hoisting-only resolution remains untouched, pre-existing behavior — not
+    actually broken (CI's build step always runs before tests), just not as
+    explicit as it could be. Left for a future, non-cyclic fix (if one
+    exists) rather than reintroduced.
   - **Two review findings confirmed real but OUT OF SCOPE — tracked, not
     fixed here:** (1) `extend()`'s method dispatch (`getTypeclassesDeclaringMethod`,
     unscoped by design) commits to the FIRST typeclass declaring the called

@@ -1,7 +1,6 @@
 ---
 "@typesugar/fp": minor
 "@typesugar/macros": patch
-"@typesugar/transformer": patch
 ---
 
 PEP-052 Wave 5: `Show` method-sugar activation, and a latent
