@@ -746,13 +746,95 @@ already on the remaining list; 7-10 come from the retained items.
     Same gap already existed for Eq/Ord's method sugar over primitives; no
     prior test exercised that combination. Both filed as follow-ups.
 
-- **Wave 6 — operator/method marker text fallback.** Parity with what labels
-  (Wave 2) and do-instances (Wave 3) already have: a resolution-free fallback
-  for `@syntax-operators`/`@syntax-methods` markers so operator activation
-  works in hosts that cannot resolve modules (the browser
-  `@typesugar/playground.transform()` surface). The mechanism exists
-  (`syntaxModule`-style text matching keyed by specifier); operators need a
-  marker-module → typeclass table analog. Small.
+- **Wave 6 — operator/method marker text fallback. DONE (2026-07-04).** Parity
+  with what labels (Wave 2, keyed by a macro's `syntaxModule` field) and
+  do-instances (Wave 3, `DO_FALLBACK_BY_SPECIFIER`) already have: a
+  resolution-free fallback for `@syntax-operators`/`@syntax-methods` markers,
+  so operator/method syntax activates even in hosts where
+  `readSyntaxActivationMarkers`'s checker-based module resolution cannot run
+  at all — the browser `@typesugar/playground.transform()` surface (no
+  filesystem, no real `node_modules`, a synthetic `fileName`).
+  - **New mechanism, not a reuse of Wave 2/3's:** typeclasses are not
+    `MacroDefinition`s and have no `syntaxModule` field to key off, so a
+    standalone registry (`packages/core/src/syntax-marker-fallback.ts`,
+    `registerSyntaxMarkerFallback`/`getSyntaxMarkerFallback`) was added and
+    wired into `scanImportsForScope` (`resolution-scope.ts`) as a purely
+    additive step — it can only add activations the checker-based scan
+    missed, never remove or override one it found.
+  - **Provider-declared, not a central table:** deliberately avoided
+    repeating Wave 5's review finding against `KNOWN_DO_INSTANCE_MODULES`
+    (std hardcoding fp/effect module paths). Each provider registers its OWN
+    specifiers at its OWN compile-time load point: std's 21 specifiers (13
+    method + 8 operator markers) register in `packages/std/src/macros/index.ts`
+    from a small data table cross-checked against the marker files'
+    `@syntax-methods`/`@syntax-operators` JSDoc tags by a drift-protection
+    test (`pep052-marker-fallback.test.ts`); fp's one specifier
+    (`@typesugar/fp/syntax/show`) registers in `packages/fp/src/index.ts`
+    (fp's root `.` entry, since fp ships no `./macros` compile-time entry —
+    it has no macro _definitions_, only this one marker).
+  - **Phase C, two false leads confirmed as pre-existing scanner/index
+    requirements, not Wave 6 defects** (same "verify before fixing"
+    discipline as Wave 5's Show bug hunt): (1) the legacy pipeline's
+    method-sugar tier (`tryResolveTypeclassMethod`, legacy-transformer-only —
+    `transformer-core` implements only the operator tier) additionally gates
+    on `getMethodCandidates`/`buildIndex` (`@typesugar/macros/typeclass-index.ts`),
+    which only recognizes a typeclass name that is either seeded in
+    `STANDARD_TYPECLASS_DEFS` or a source `interface` carrying its own
+    `@typeclass` tag — a locally-declared `Show<A>` needs that tag even
+    though Wave 6's fallback correctly activates the syntax gate; without it,
+    `tryResolveTypeclassMethod` bails before ever reaching instance
+    resolution. (2) unrelated to Wave 6: an `@impl` instance for a
+    non-keyword type (e.g. `Show<Money>`) still needs an explicit type
+    annotation on the instance declaration for `forType` to resolve at all
+    (`resolveTypeString` only handles primitive keywords) — the same
+    limitation Wave 5 fixed for keywords but did not (and could not) extend
+    to arbitrary class names.
+  - **Phase D — closed the actual motivating gap, not just the mechanism:**
+    `@typesugar/playground`'s `transform()` (`src/index.ts`) — the real
+    in-memory host this wave exists for — never imported `@typesugar/std` or
+    `@typesugar/fp` for anything but runtime _values_ (a separate
+    iframe-sandbox bundle, `runtime-entry.ts`), so neither package's Wave 6
+    registrations ever ran there; a playground snippet importing
+    `@typesugar/std/syntax/eq/ops` could not have activated operator syntax
+    even after Phases A-C landed. Fixed with two side-effect imports
+    (`@typesugar/std/macros`, `@typesugar/fp`) in `index.ts`; verified via the
+    built browser bundle that this added negligible size (186.53 KB → 186.59
+    KB) since both packages were already transitively bundled through other
+    paths. Proven end-to-end with a test against the actual `transform()`
+    export using a synthetic, never-on-disk `fileName`.
+  - **5-call Fable review findings — 3 fixed, 2 filed as follow-ups:**
+    (1) fixed: `registerSyntaxMarkerFallback` used `Map.set`, so a second
+    registration for the same specifier silently clobbered the first instead
+    of merging — now unions `operators`/`methods`. (2) fixed:
+    `clearSyntaxMarkerFallbackRegistry` (test-only — clearing it in a
+    process that already loaded std's/fp's registrations permanently
+    deactivates them, since those registrations run once at module load and
+    never rerun) was re-exported from `@typesugar/core`'s public barrel;
+    removed from the barrel, kept as a direct module import for the one
+    internal test that legitimately needs it. (3) fixed: the legacy-pipeline
+    method-sugar test's "off" fixture didn't actually isolate the fallback —
+    a locally `@typeclass`-tagged interface is unconditionally in scope for
+    its own file regardless of any import ("you don't need to import what
+    you define" — pre-existing, verified empirically), so a naive fix of
+    adding the tag to the negative fixture too would have made it
+    self-activate. Restructured both fixtures to declare `Show<A>` in a
+    separate file (included via `extraRootFiles`, consumed via a local
+    `import type`) so the typeclass is program-visible without being
+    file-defined, making the marker import the only remaining variable. Also
+    applied the same tightening to two negative-control regex assertions
+    (`not.toMatch(/[^.]p === q/)` cannot anchor at string offset 0, so it can
+    silently pass either way) — replaced with exact-statement `toContain`
+    checks. Filed, not fixed (design suggestions, not defects): consolidating
+    this registry with Wave 2's `syntaxModule`-keyed index (both are
+    exact-specifier-keyed, purely-additive activation lookups at the same
+    `scanImportsForScope` call site — a candidate for a future wave, not
+    considered when Wave 6 was scoped since the question that WAS asked
+    ("can Wave 6 reuse Wave 2's mechanism?") is different from "should Wave 2
+    migrate onto Wave 6's"); and std's drift-protection test's marker list —
+    now derived by globbing `src/syntax/` instead of a hand-copied table (the
+    registration table in `std/src/macros/index.ts` remains hand-maintained,
+    a smaller, one-directional drift risk than the original two-independent-
+    copies problem).
 
 - **Wave 7 — intrinsic bodies from source.** Replace
   `primitiveIntrinsicRegistry`'s 16 hand-written source strings

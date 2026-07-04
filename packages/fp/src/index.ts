@@ -23,6 +23,17 @@
  * ```
  */
 
+import { registerSyntaxMarkerFallback } from "@typesugar/core";
+
+// PEP-052 Wave 6: resolution-free fallback for fp's `@syntax-methods Show`
+// marker, so it activates in hosts that cannot resolve modules via the
+// checker (mirrors std's registrations in `std/src/macros/index.ts`). fp has
+// no dedicated `./macros` compile-time entry (it ships no macro
+// *definitions* — the transformer's speculative loader falls back to this
+// root `.` entry for `@typesugar/fp`), so this small, `typescript`-free call
+// lives here instead.
+registerSyntaxMarkerFallback("@typesugar/fp/syntax/show", { methods: ["Show"] });
+
 // ============================================================================
 // HKT Foundation
 // ============================================================================

@@ -10,6 +10,8 @@
  * - `par:/yield:` - Applicative (parallel) comprehensions with Promise.all / .map().ap()
  */
 
+import { registerSyntaxMarkerFallback } from "@typesugar/core";
+
 // Side-effect import: register the ParCombine builders/instances used by the
 // par:/yield: macro. This compile-time registration lives in `par-combine.ts`
 // (which imports `typescript`); loading it here ensures it runs when the
@@ -23,3 +25,37 @@ export * from "./let-yield.js";
 export * from "./par-yield.js";
 export * from "./match.js";
 export { registerStdInstances } from "./register-instances-runtime.js";
+
+// ============================================================================
+// PEP-052 Wave 6: resolution-free fallback for std's syntax-activation
+// markers, so operator/method syntax activates even in hosts that cannot
+// resolve modules via the checker (the `@typesugar/playground` in-memory
+// host, virtual file names). Checker-based marker discovery
+// (`readSyntaxActivationMarkers`) remains the general mechanism and always
+// takes precedence when it works; this only fills the gap. One row per
+// `packages/std/src/syntax/*.ts` marker file — kept in exact sync with those
+// files' own `@syntax-methods`/`@syntax-operators` JSDoc tags by
+// `pep052-marker-fallback.test.ts`'s drift-protection test.
+const STD_SYNTAX_TYPECLASSES: ReadonlyArray<{ path: string; typeclass: string; hasOps: boolean }> =
+  [
+    { path: "eq", typeclass: "Eq", hasOps: true },
+    { path: "ord", typeclass: "Ord", hasOps: true },
+    { path: "semigroup", typeclass: "Semigroup", hasOps: true },
+    { path: "monoid", typeclass: "Monoid", hasOps: true },
+    { path: "group", typeclass: "Group", hasOps: true },
+    { path: "numeric", typeclass: "Numeric", hasOps: true },
+    { path: "integral", typeclass: "Integral", hasOps: true },
+    { path: "fractional", typeclass: "Fractional", hasOps: true },
+    { path: "clone", typeclass: "Clone", hasOps: false },
+    { path: "debug", typeclass: "Debug", hasOps: false },
+    { path: "default", typeclass: "Default", hasOps: false },
+    { path: "json", typeclass: "Json", hasOps: false },
+    { path: "type-guard", typeclass: "TypeGuard", hasOps: false },
+  ];
+
+for (const { path, typeclass, hasOps } of STD_SYNTAX_TYPECLASSES) {
+  registerSyntaxMarkerFallback(`@typesugar/std/syntax/${path}`, { methods: [typeclass] });
+  if (hasOps) {
+    registerSyntaxMarkerFallback(`@typesugar/std/syntax/${path}/ops`, { operators: [typeclass] });
+  }
+}

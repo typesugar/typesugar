@@ -13,6 +13,10 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { ResolutionScopeTracker, scanImportsForScope } from "./resolution-scope.js";
+import {
+  registerSyntaxMarkerFallback,
+  clearSyntaxMarkerFallbackRegistry,
+} from "./syntax-marker-fallback.js";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -138,5 +142,99 @@ describe("scanImportsForScope — PEP-052 activation markers", () => {
 
     expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Eq")).toBe(false);
     expect(tracker.isMethodSyntaxActivated(entryFile.fileName, "Eq")).toBe(false);
+  });
+});
+
+describe("scanImportsForScope — PEP-052 Wave 6 operator/method marker fallback", () => {
+  afterEach(() => {
+    clearSyntaxMarkerFallbackRegistry();
+  });
+
+  it("activates operator (and, by implication, method) syntax with NO program at all — the in-memory-host case the fallback exists for", () => {
+    registerSyntaxMarkerFallback("@typesugar/std/syntax/eq/ops", { operators: ["Eq"] });
+
+    const { entryFile } = createProject(
+      {
+        "consumer.ts": `import "@typesugar/std/syntax/eq/ops";\nexport const x = 1;\n`,
+      },
+      "consumer.ts"
+    );
+
+    const tracker = new ResolutionScopeTracker();
+    scanImportsForScope(entryFile, tracker); // no program — checker path can't run at all
+
+    expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Eq")).toBe(true);
+    expect(tracker.isMethodSyntaxActivated(entryFile.fileName, "Eq")).toBe(true);
+  });
+
+  it("activates method-only syntax with no program when only registered as a method fallback", () => {
+    registerSyntaxMarkerFallback("@typesugar/std/syntax/eq", { methods: ["Eq"] });
+
+    const { entryFile } = createProject(
+      {
+        "consumer.ts": `import "@typesugar/std/syntax/eq";\nexport const x = 1;\n`,
+      },
+      "consumer.ts"
+    );
+
+    const tracker = new ResolutionScopeTracker();
+    scanImportsForScope(entryFile, tracker);
+
+    expect(tracker.isMethodSyntaxActivated(entryFile.fileName, "Eq")).toBe(true);
+    expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Eq")).toBe(false);
+  });
+
+  it("activates nothing for an unregistered specifier (no false positives)", () => {
+    registerSyntaxMarkerFallback("@typesugar/std/syntax/eq/ops", { operators: ["Eq"] });
+
+    const { entryFile } = createProject(
+      {
+        "consumer.ts": `import "@typesugar/std/syntax/ord/ops";\nexport const x = 1;\n`,
+      },
+      "consumer.ts"
+    );
+
+    const tracker = new ResolutionScopeTracker();
+    scanImportsForScope(entryFile, tracker);
+
+    expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Eq")).toBe(false);
+    expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Ord")).toBe(false);
+  });
+
+  it("is purely additive: coexists with, and never overrides, checker-based discovery in the same scan", () => {
+    // The fallback registers a DIFFERENT typeclass (Ord) than the real marker
+    // file (Eq) — proving the checker-based result for Eq survives untouched
+    // alongside the fallback-only activation for Ord.
+    registerSyntaxMarkerFallback("@typesugar/std/syntax/ord/ops", { operators: ["Ord"] });
+
+    const { program, entryFile } = createProject(
+      {
+        "eq-ops.ts": EQ_OPS_MARKER,
+        "consumer.ts": `import "./eq-ops";\nimport "@typesugar/std/syntax/ord/ops";\nexport const x = 1;\n`,
+      },
+      "consumer.ts"
+    );
+
+    const tracker = new ResolutionScopeTracker();
+    scanImportsForScope(entryFile, tracker, program);
+
+    expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Eq")).toBe(true); // checker-found
+    expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Ord")).toBe(true); // fallback-found
+  });
+
+  it("respects file-level opt-out even when only the fallback would have activated", () => {
+    registerSyntaxMarkerFallback("@typesugar/std/syntax/eq/ops", { operators: ["Eq"] });
+
+    const { entryFile } = createProject(
+      {
+        "consumer.ts": `"use no typesugar";\nimport "@typesugar/std/syntax/eq/ops";\nexport const x = 1;\n`,
+      },
+      "consumer.ts"
+    );
+
+    const tracker = new ResolutionScopeTracker();
+    scanImportsForScope(entryFile, tracker);
+
+    expect(tracker.isOperatorSyntaxActivated(entryFile.fileName, "Eq")).toBe(false);
   });
 });
