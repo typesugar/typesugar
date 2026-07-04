@@ -21,6 +21,9 @@ import {
   isInOptedOutScope,
   getSuggestionsForSymbol,
   formatSuggestionsMessage,
+  TS9101,
+  TS9103,
+  TS9104,
 } from "@typesugar/core";
 
 import { safeGetNodeText, isPrimitiveType, type VisitFn } from "./transformer-utils.js";
@@ -29,24 +32,32 @@ import { safeGetNodeText, isPrimitiveType, type VisitFn } from "./transformer-ut
 // JSDoc macro tags
 // ---------------------------------------------------------------------------
 
-// NOTE: this map intentionally DIVERGES from the legacy transformer's private
-// copy (transformer/src/index.ts JSDOC_MACRO_TAGS): each pipeline's dispatcher
-// special-cases different tags — the legacy visitor handles `derive`/`adt`
-// internally (this dispatcher would mis-report them as unknown attribute
-// macros), while this pipeline dispatches `operators`/`operator` through the
-// registry (the legacy one does not). Unifying the maps requires unifying the
-// dispatchers — tracked as part of the transformer-core absorption work, not
-// a drive-by.
+// PEP-052 Wave 8: unified with the legacy transformer's private copy
+// (transformer/src/index.ts JSDOC_MACRO_TAGS) — both dispatchers now handle
+// `derive`/`deriving` the same way (see tryExpandJSDocMacros below and
+// tryExpandAttributeMacros in transformer.ts): PEP-032 deleted the standalone
+// `derive` ATTRIBUTE macro from the registry, so both dispatchers special-case
+// it directly rather than looking it up via globalRegistry.getAttribute.
+// `adt` needs no special case — it's a real, registered attribute macro
+// (packages/macros/src/adt.ts) and only needed to be recognized as a
+// macro-triggering tag at all. `operators`/`operator` were already dead
+// entries before this wave (verified: no attribute macro named either exists
+// — real operator/method syntax activation is the separate Wave 6 mechanism,
+// `@syntax-operators` markers read via readSyntaxActivationMarkers, not this
+// dispatcher) — kept for parity/no silent removal, but they still just
+// produce "unknown macro tag" like before.
 export const JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
   ["typeclass", "typeclass"],
   ["impl", "impl"],
   ["instance", "instance"],
+  ["derive", "derive"],
   ["deriving", "deriving"],
   ["operators", "operators"],
   ["operator", "operator"],
   ["extension", "extension"],
   ["reflect", "reflect"],
   ["hkt", "hkt"],
+  ["adt", "adt"],
 ]);
 
 export function isJSDocMacroTargetNode(
@@ -115,6 +126,25 @@ export function tryExpandJSDocMacros(
   for (const tag of tags) {
     const macroName = JSDOC_MACRO_TAGS.get(tag.tagName.text);
     if (!macroName) continue;
+
+    // @derive/@deriving are handled directly (PEP-032 deleted the standalone
+    // `derive` attribute macro; individual derives are registered under
+    // globalRegistry.getDerive instead — see expandDeriveDecorator).
+    if (macroName === "derive" || macroName === "deriving") {
+      const args = parseJSDocMacroArgs(ctx, tag, macroName);
+      if (
+        ts.isInterfaceDeclaration(currentNode) ||
+        ts.isClassDeclaration(currentNode) ||
+        ts.isTypeAliasDeclaration(currentNode)
+      ) {
+        const syntheticDecorator = createSyntheticDecorator(ctx, tag, macroName, args);
+        const derives = expandDeriveDecorator(ctx, verbose, syntheticDecorator, currentNode, args);
+        if (derives) {
+          results.push(...derives);
+        }
+      }
+      continue;
+    }
 
     const macro = globalRegistry.getAttribute(macroName);
     if (!macro) {
@@ -203,9 +233,14 @@ export function parseJSDocMacroArgs(
       if (!trimmed) return [];
       return [ctx.factory.createStringLiteral(trimmed)];
 
+    case "derive":
     case "deriving": {
+      // @derive Eq, Clone or @deriving (Show, Eq, Ord) — optional wrapping
+      // parens are stripped so both forms parse the same.
       if (!trimmed) return [];
-      const tcNames = trimmed
+      const inner =
+        trimmed.startsWith("(") && trimmed.endsWith(")") ? trimmed.slice(1, -1) : trimmed;
+      const tcNames = inner
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
@@ -415,6 +450,22 @@ export function sortDeriveArgsByDependency(args: ts.Expression[]): ts.Expression
 // Derive decorator expansion
 // ---------------------------------------------------------------------------
 
+/**
+ * Recursively set the source map range on a node and all its descendants.
+ * Used for macro-generated statements whose leaf nodes lack real positions
+ * (synthetic/derived AST), so the printer's source map maps them back to
+ * the originating decorator instead of leaving them unmapped.
+ */
+function setSourceMapRangeDeep<T extends ts.Node>(node: T, original: ts.Node): T {
+  const range = ts.getSourceMapRange(original);
+  function visit(n: ts.Node): void {
+    ts.setSourceMapRange(n, range);
+    ts.forEachChild(n, visit);
+  }
+  visit(node);
+  return node;
+}
+
 export function expandDeriveDecorator(
   ctx: MacroContextImpl,
   verbose: boolean,
@@ -447,6 +498,7 @@ export function expandDeriveDecorator(
 
     const deriveName = arg.text;
 
+    // 1. Check for a registered derive macro (code-gen derives)
     const deriveMacro = globalRegistry.getDerive(deriveName);
     if (deriveMacro) {
       if (verbose) {
@@ -455,14 +507,51 @@ export function expandDeriveDecorator(
 
       try {
         const result = ctx.hygiene.withScope(() => deriveMacro.expand(ctx, node, typeInfo));
-        statements.push(...result);
+        for (const stmt of result) {
+          statements.push(setSourceMapRangeDeep(stmt, decorator));
+        }
       } catch (error) {
         ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
       }
       continue;
     }
 
-    // Check for a GenericDerivation strategy (unified path for all typeclasses)
+    // Diagnostic checks for typeclass derivation (applies to both builtin and generic paths)
+
+    // Check for empty types (no fields to derive from)
+    if (typeInfo.fields.length === 0 && !ts.isTypeAliasDeclaration(node)) {
+      ctx.diagnostic(TS9104).at(arg).withArgs({ typeclass: deriveName, type: typeName }).emit();
+      continue;
+    }
+
+    // Check for non-derivable field types (functions)
+    if (["Eq", "Ord", "Hash", "Clone"].includes(deriveName)) {
+      for (const field of typeInfo.fields) {
+        if (field.typeString.includes("=>") || field.typeString.startsWith("(")) {
+          ctx
+            .diagnostic(TS9101)
+            .at(arg)
+            .withArgs({
+              typeclass: deriveName,
+              type: typeName,
+              field: field.name,
+              fieldType: field.typeString,
+            })
+            .emit();
+        }
+      }
+    }
+
+    // Check for union without discriminant
+    if (ts.isTypeAliasDeclaration(node)) {
+      const sumCheck = tryExtractSumType(ctx, node);
+      if (!sumCheck && ts.isUnionTypeNode(node.type)) {
+        ctx.diagnostic(TS9103).at(arg).withArgs({ typeclass: deriveName, type: typeName }).emit();
+        continue;
+      }
+    }
+
+    // 2. Check for a GenericDerivation strategy (unified path for all typeclasses)
     try {
       const genericExpansion = tryExpandGenericDerive(ctx, deriveName, typeName, node);
       if (genericExpansion) {
@@ -471,7 +560,9 @@ export function expandDeriveDecorator(
             `[typesugar] Auto-deriving via GenericDerivation: ${deriveName} for ${typeName}`
           );
         }
-        statements.push(...genericExpansion.statements);
+        for (const stmt of genericExpansion.statements) {
+          statements.push(setSourceMapRangeDeep(stmt, decorator));
+        }
         continue;
       }
     } catch (error) {
@@ -479,6 +570,7 @@ export function expandDeriveDecorator(
       continue;
     }
 
+    // 3. Check for a "{Name}TC" derive macro (typeclass derive convention)
     const tcDeriveMacro = globalRegistry.getDerive(`${deriveName}TC`);
     if (tcDeriveMacro) {
       if (verbose) {
@@ -486,13 +578,16 @@ export function expandDeriveDecorator(
       }
       try {
         const result = ctx.hygiene.withScope(() => tcDeriveMacro.expand(ctx, node, typeInfo));
-        statements.push(...result);
+        for (const stmt of result) {
+          statements.push(setSourceMapRangeDeep(stmt, decorator));
+        }
       } catch (error) {
         ctx.reportError(arg, `Typeclass derive macro expansion failed: ${error}`);
       }
       continue;
     }
 
+    // 4. Nothing found — provide import suggestions
     const suggestions = getSuggestionsForSymbol(deriveName);
     const suggestionMsg = formatSuggestionsMessage(suggestions);
     const message = suggestionMsg
@@ -557,6 +652,17 @@ export function extractTypeInfo(
     if (!declarations || declarations.length === 0) continue;
 
     const decl = declarations[0];
+
+    // Skip method declarations and accessors — only derive for data fields
+    if (
+      ts.isMethodDeclaration(decl) ||
+      ts.isMethodSignature(decl) ||
+      ts.isGetAccessorDeclaration(decl) ||
+      ts.isSetAccessorDeclaration(decl)
+    ) {
+      continue;
+    }
+
     let propType: ts.Type;
     let propTypeString: string;
     try {

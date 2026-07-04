@@ -13,9 +13,7 @@ import {
   getOperatorString,
   isKindAnnotation,
   transformHKTDeclaration,
-  tryExpandGenericDerive,
   companionPath,
-  tryExtractSumType,
   hasImplicitParams,
   transformImplicitsCall,
   buildImplicitScopeFromDecl,
@@ -42,6 +40,12 @@ import {
   // PEP-052 label-activation gate — single shared implementation
   getActivatedLabeledBlock,
   emitLabelSyntaxNotActivatedHint,
+  // JSDoc macro dispatch + derive expansion — single shared implementation (PEP-052 Wave 8)
+  hasJSDocMacroTags as hasJSDocMacroTagsShared,
+  tryExpandJSDocMacros as tryExpandJSDocMacrosShared,
+  parseDecorator as parseDecoratorShared,
+  sortDecoratorsByDependency as sortDecoratorsByDependencyShared,
+  expandDeriveDecorator as expandDeriveDecoratorShared,
 } from "@typesugar/transformer-core";
 
 import {
@@ -55,9 +59,7 @@ import {
   ExpressionMacro,
   AttributeMacro,
   MacroDefinition,
-  DeriveTypeInfo,
   DeriveFieldInfo,
-  DeriveVariantInfo,
   LabeledBlockMacro,
   TaggedTemplateMacroDef,
   TypeMacro,
@@ -65,9 +67,6 @@ import {
   globalResolutionScope,
   scanImportsForScope,
   isInOptedOutScope,
-  // Import suggestions
-  getSuggestionsForSymbol,
-  formatSuggestionsMessage,
   // Source map utilities
   preserveSourceMap,
   // Hygiene system
@@ -90,10 +89,6 @@ import {
   stripCommentsDeep,
   // Type string parsing
   stripTypeArguments,
-  // Derive diagnostics
-  TS9101,
-  TS9103,
-  TS9104,
   TS9222,
 } from "@typesugar/core";
 import { profiler } from "./profiling.js";
@@ -124,7 +119,6 @@ const BUILTIN_METHOD_RECEIVER_NAMES: ReadonlySet<string> = new Set([
   "AsyncGenerator",
 ]);
 
-const nodePrinter = ts.createPrinter();
 // Printer that strips all comments — used to reparse macro-generated expressions
 // without inheriting stray comments from the original source file
 const commentFreePrinter = ts.createPrinter({ removeComments: true });
@@ -386,23 +380,6 @@ function buildInlineTernaryStatic(
         factory.createCallExpression(onNone, undefined, [])
       );
     }
-  }
-}
-
-/**
- * Safely get the text content of a node.
- * Unlike node.getText(), this works on synthetic nodes that don't have source positions.
- */
-function safeGetNodeText(node: ts.Node, sourceFile?: ts.SourceFile): string {
-  if (ts.isIdentifier(node)) {
-    return node.text;
-  }
-  try {
-    return node.getText();
-  } catch {
-    // Fallback for synthetic nodes
-    const sf = sourceFile ?? ts.createSourceFile("temp.ts", "", ts.ScriptTarget.Latest);
-    return nodePrinter.printNode(ts.EmitHint.Unspecified, node, sf);
   }
 }
 
@@ -707,24 +684,6 @@ function createCommentReplacement(
   const empty = factory.createEmptyStatement();
   ts.addSyntheticLeadingComment(empty, ts.SyntaxKind.SingleLineCommentTrivia, comment);
   return empty;
-}
-
-function isPrimitiveType(type: ts.Type): boolean {
-  const flags = type.flags;
-  return !!(
-    flags & ts.TypeFlags.Number ||
-    flags & ts.TypeFlags.String ||
-    flags & ts.TypeFlags.Boolean ||
-    flags & ts.TypeFlags.BigInt ||
-    flags & ts.TypeFlags.Null ||
-    flags & ts.TypeFlags.Undefined ||
-    flags & ts.TypeFlags.Void ||
-    flags & ts.TypeFlags.Never ||
-    flags & ts.TypeFlags.NumberLiteral ||
-    flags & ts.TypeFlags.StringLiteral ||
-    flags & ts.TypeFlags.BooleanLiteral ||
-    flags & ts.TypeFlags.BigIntLiteral
-  );
 }
 
 /**
@@ -2794,8 +2753,9 @@ class MacroTransformer {
 
     // JSDoc-triggered macros: @typeclass, @impl, @deriving
     // This allows preprocessor-free syntax for typeclass features
-    if (this.hasJSDocMacroTags(node)) {
-      const result = this.tryExpandJSDocMacros(node);
+    // PEP-052 Wave 8: single shared implementation in @typesugar/transformer-core.
+    if (hasJSDocMacroTagsShared(node)) {
+      const result = tryExpandJSDocMacrosShared(this.ctx, this.verbose, node);
       if (result !== undefined) {
         return result;
       }
@@ -2923,249 +2883,14 @@ class MacroTransformer {
   }
 
   // ---------------------------------------------------------------------------
-  // JSDoc macro tag handling
+  // JSDoc macro tag handling — single shared implementation (PEP-052 Wave 8).
+  // JSDOC_MACRO_TAGS, isJSDocMacroTargetNode, hasJSDocMacroTags,
+  // tryExpandJSDocMacros, parseJSDocMacroArgs, and createSyntheticDecorator
+  // all moved to @typesugar/transformer-core's macro-helpers.ts; this
+  // package delegates to them (imported above as *Shared) instead of keeping
+  // a clone. See the call site in `visit()` and `tryExpandAttributeMacros`
+  // below.
   // ---------------------------------------------------------------------------
-
-  /**
-   * Map of JSDoc tag names to macro names for lookup.
-   * JSDoc tags use shortened names (impl vs instance) as the primary form.
-   */
-  // NOTE: intentionally diverges from transformer-core's JSDOC_MACRO_TAGS —
-  // see the comment there (macro-helpers.ts). This visitor handles
-  // `derive`/`adt` internally and does not dispatch `operators`/`operator`.
-  private static readonly JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
-    ["typeclass", "typeclass"],
-    ["impl", "impl"],
-    ["instance", "instance"],
-    ["derive", "derive"],
-    ["deriving", "deriving"],
-    ["extension", "extension"],
-    ["reflect", "reflect"],
-    ["hkt", "hkt"],
-    ["adt", "adt"],
-  ]);
-
-  /**
-   * Node types that can have JSDoc macro tags.
-   * These are all ts.Declaration subtypes.
-   */
-  private isJSDocMacroTargetNode(
-    node: ts.Node
-  ): node is
-    | ts.InterfaceDeclaration
-    | ts.ClassDeclaration
-    | ts.TypeAliasDeclaration
-    | ts.VariableStatement
-    | ts.VariableDeclaration {
-    return (
-      ts.isInterfaceDeclaration(node) ||
-      ts.isClassDeclaration(node) ||
-      ts.isTypeAliasDeclaration(node) ||
-      ts.isVariableStatement(node) ||
-      ts.isVariableDeclaration(node)
-    );
-  }
-
-  /**
-   * Check if a node has JSDoc tags that should trigger macro expansion.
-   *
-   * Only fires on:
-   * - InterfaceDeclaration (@typeclass, @deriving)
-   * - TypeAliasDeclaration (@deriving)
-   * - VariableStatement / VariableDeclaration (@impl)
-   */
-  private hasJSDocMacroTags(node: ts.Node): boolean {
-    // Only check node types that can have our macro tags
-    if (!this.isJSDocMacroTargetNode(node)) {
-      return false;
-    }
-
-    const tags = ts.getJSDocTags(node);
-    for (const tag of tags) {
-      if (MacroTransformer.JSDOC_MACRO_TAGS.has(tag.tagName.text)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Expand macros triggered by JSDoc tags.
-   *
-   * This synthesizes the equivalent of decorator-triggered expansion
-   * but reads macro intent from JSDoc instead.
-   */
-  private tryExpandJSDocMacros(node: ts.Node): ts.Node | ts.Node[] | undefined {
-    // Check for opt-out
-    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
-      return undefined;
-    }
-
-    // Narrow the node type - only declarations can have JSDoc macro tags
-    if (!this.isJSDocMacroTargetNode(node)) {
-      return undefined;
-    }
-
-    const tags = ts.getJSDocTags(node);
-    const results: ts.Node[] = [];
-
-    // For VariableStatement, we need to get the declaration inside
-    let targetDecl: ts.Declaration;
-    if (ts.isVariableStatement(node)) {
-      if (node.declarationList.declarations.length === 0) {
-        return undefined;
-      }
-      targetDecl = node.declarationList.declarations[0];
-    } else {
-      targetDecl = node;
-    }
-
-    let currentNode: ts.Declaration = targetDecl;
-
-    for (const tag of tags) {
-      const macroName = MacroTransformer.JSDOC_MACRO_TAGS.get(tag.tagName.text);
-      if (!macroName) continue;
-
-      // Handle @derive/@deriving JSDoc directly through the transformer's derive handler
-      // (the macro-system derive attribute was removed in PEP-032; the transformer owns derive processing)
-      if (macroName === "deriving" || macroName === "derive") {
-        const args = this.parseJSDocMacroArgs(tag, macroName);
-        if (
-          ts.isInterfaceDeclaration(currentNode) ||
-          ts.isClassDeclaration(currentNode) ||
-          ts.isTypeAliasDeclaration(currentNode)
-        ) {
-          const syntheticDecorator = this.createSyntheticDecorator(tag, macroName, args);
-          const derives = this.expandDeriveDecorator(syntheticDecorator, currentNode, args);
-          if (derives) {
-            results.push(...derives);
-          }
-        }
-        continue;
-      }
-
-      const macro = globalRegistry.getAttribute(macroName);
-      if (!macro) {
-        this.ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
-        continue;
-      }
-
-      // Synthesize arguments from JSDoc comment
-      const args = this.parseJSDocMacroArgs(tag, macroName);
-
-      // Create a synthetic decorator for the macro's expand function
-      const syntheticDecorator = this.createSyntheticDecorator(tag, macroName, args);
-
-      try {
-        if (this.verbose) {
-          console.log(`[typesugar] Expanding JSDoc macro: @${tag.tagName.text}`);
-        }
-
-        const expanded = macro.expand(this.ctx, syntheticDecorator, currentNode, args);
-
-        if (expanded === undefined) continue;
-
-        if (Array.isArray(expanded)) {
-          // Multiple nodes returned - first is the updated target, rest are additional
-          if (expanded.length > 0) {
-            currentNode = expanded[0] as ts.Declaration;
-            results.push(...expanded.slice(1));
-          }
-        } else {
-          currentNode = expanded as ts.Declaration;
-        }
-      } catch (err) {
-        const macroTag = tag.tagName.text;
-        const errMsg = err instanceof Error ? err.message : String(err);
-        this.ctx.reportError(
-          tag,
-          `@${macroTag} macro failed (this may be transient — try saving again)`
-        );
-        if (this.verbose) {
-          console.error(
-            `[typesugar] @${macroTag} expand threw: ${err instanceof Error ? err.stack : errMsg}`
-          );
-        }
-      }
-    }
-
-    // Check if we expanded anything
-    const wasExpanded = currentNode !== targetDecl || results.length > 0;
-    if (!wasExpanded) {
-      return undefined;
-    }
-
-    // For VariableStatement, we need to return the updated statement with results
-    let returnNodes: ts.Node | ts.Node[];
-    if (ts.isVariableStatement(node)) {
-      // Create updated VariableStatement with the modified declaration
-      const factory = this.ctx.factory;
-      const updatedDecl = currentNode as ts.VariableDeclaration;
-      const updatedDeclList = factory.updateVariableDeclarationList(node.declarationList, [
-        updatedDecl,
-        ...node.declarationList.declarations.slice(1),
-      ]);
-      const updatedStmt = factory.updateVariableStatement(node, node.modifiers, updatedDeclList);
-      returnNodes = results.length > 0 ? [updatedStmt, ...results] : updatedStmt;
-    } else {
-      // For other declaration types, return directly
-      returnNodes = results.length > 0 ? [currentNode, ...results] : currentNode;
-    }
-
-    return returnNodes;
-  }
-
-  /**
-   * Parse JSDoc tag comment into macro arguments.
-   *
-   * Each macro tag has its own argument format:
-   * - @typeclass: no args, or optional JSON config
-   * - @impl Eq<Point>: string argument for typeclass instance
-   * - @impl (bare): infer from type annotation
-   * - @deriving Show, Eq, Ord: comma-separated list of typeclass names
-   */
-  private parseJSDocMacroArgs(tag: ts.JSDocTag, macroName: string): ts.Expression[] {
-    const comment =
-      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-
-    const trimmed = comment?.trim() ?? "";
-
-    switch (macroName) {
-      case "typeclass":
-        // No args or optional JSON config
-        if (!trimmed) return [];
-        try {
-          // Try to parse as JSON for config options
-          JSON.parse(trimmed);
-          return [this.ctx.factory.createStringLiteral(trimmed)];
-        } catch {
-          return [];
-        }
-
-      case "impl":
-      case "instance":
-        // @impl Eq<Point> or bare @impl
-        if (!trimmed) return [];
-        return [this.ctx.factory.createStringLiteral(trimmed)];
-
-      case "derive":
-      case "deriving": {
-        // @derive(Eq, Clone, Debug) or @deriving Show, Eq, Ord
-        if (!trimmed) return [];
-        // Strip optional parentheses: "(Eq, Clone, Debug)" → "Eq, Clone, Debug"
-        const inner =
-          trimmed.startsWith("(") && trimmed.endsWith(")") ? trimmed.slice(1, -1) : trimmed;
-        const tcNames = inner
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-        return tcNames.map((name) => this.ctx.factory.createIdentifier(name));
-      }
-
-      default:
-        return [];
-    }
-  }
 
   /**
    * Implicitly apply a trigger-label attribute macro (e.g. @contract) to a
@@ -3252,37 +2977,6 @@ class MacroTransformer {
       visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
     }
     return preserveSourceMap(visited, node);
-  }
-
-  /**
-   * Create a synthetic decorator node for use with attribute macro expand().
-   * The decorator's position info is borrowed from the JSDoc tag.
-   */
-  private createSyntheticDecorator(
-    tag: ts.JSDocTag,
-    macroName: string,
-    args: ts.Expression[]
-  ): ts.Decorator {
-    const factory = this.ctx.factory;
-
-    // Build the decorator expression: @macroName or @macroName(args...)
-    let expression: ts.Expression;
-    if (args.length === 0) {
-      expression = factory.createIdentifier(macroName);
-    } else {
-      expression = factory.createCallExpression(
-        factory.createIdentifier(macroName),
-        undefined,
-        args
-      );
-    }
-
-    // Create the decorator node
-    const decorator = factory.createDecorator(expression);
-
-    // Copy position info from the tag for error reporting
-    // Note: This is a best-effort - synthetic nodes may not have valid positions
-    return ts.setTextRange(decorator, tag);
   }
 
   // ---------------------------------------------------------------------------
@@ -3508,7 +3202,7 @@ class MacroTransformer {
       return undefined;
     }
 
-    const sortedDecorators = this.sortDecoratorsByDependency(decorators);
+    const sortedDecorators = sortDecoratorsByDependencyShared(decorators);
 
     let currentNode: ts.Node = node;
     const extraStatements: ts.Statement[] = [];
@@ -3516,7 +3210,7 @@ class MacroTransformer {
     let wasTransformed = false;
 
     for (const decorator of sortedDecorators) {
-      const { macroName, args, identNode } = this.parseDecorator(decorator);
+      const { macroName, args, identNode } = parseDecoratorShared(decorator);
 
       // Check for derive-specific opt-out
       if (
@@ -3530,7 +3224,7 @@ class MacroTransformer {
       if (macroName === "derive") {
         // @derive(Eq, Clone, ...) is always handled specially - no need to check
         // for a "derive" attribute macro since individual derives are registered
-        const derives = this.expandDeriveDecorator(decorator, node, args);
+        const derives = expandDeriveDecoratorShared(this.ctx, this.verbose, decorator, node, args);
         if (derives) {
           extraStatements.push(...derives);
           wasTransformed = true;
@@ -3600,532 +3294,12 @@ class MacroTransformer {
     return mappedNode;
   }
 
-  private parseDecorator(decorator: ts.Decorator): {
-    macroName: string;
-    args: ts.Expression[];
-    identNode: ts.Node | undefined;
-  } {
-    const expr = decorator.expression;
-
-    if (ts.isIdentifier(expr)) {
-      return { macroName: expr.text, args: [], identNode: expr };
-    }
-
-    if (ts.isCallExpression(expr)) {
-      if (ts.isIdentifier(expr.expression)) {
-        return {
-          macroName: expr.expression.text,
-          args: Array.from(expr.arguments),
-          identNode: expr.expression,
-        };
-      }
-    }
-
-    return { macroName: "", args: [], identNode: undefined };
-  }
-
-  /**
-   * Topologically sort decorators based on their macros' `expandAfter` declarations.
-   * Decorators whose macros declare `expandAfter: ["X"]` are moved after the
-   * decorator for macro "X". Uses Kahn's algorithm. Falls back to original
-   * order on cycles or when no dependencies exist.
-   */
-  private sortDecoratorsByDependency(decorators: readonly ts.Decorator[]): ts.Decorator[] {
-    const parsed = decorators.map((d) => ({
-      decorator: d,
-      ...this.parseDecorator(d),
-    }));
-
-    const nameToIndex = new Map<string, number>();
-    for (let i = 0; i < parsed.length; i++) {
-      const name = parsed[i].macroName;
-      if (name) nameToIndex.set(name, i);
-    }
-
-    let hasDeps = false;
-    for (const p of parsed) {
-      if (!p.macroName) continue;
-      const macro =
-        globalRegistry.getAttribute(p.macroName) ?? globalRegistry.getDerive(p.macroName);
-      if (macro?.expandAfter && macro.expandAfter.length > 0) {
-        hasDeps = true;
-        break;
-      }
-    }
-    if (!hasDeps) return [...decorators];
-
-    const n = parsed.length;
-    const inDegree = new Array<number>(n).fill(0);
-    const adj: number[][] = [];
-    for (let i = 0; i < n; i++) adj.push([]);
-
-    for (let i = 0; i < n; i++) {
-      const name = parsed[i].macroName;
-      if (!name) continue;
-      const macro = globalRegistry.getAttribute(name) ?? globalRegistry.getDerive(name);
-      if (!macro?.expandAfter) continue;
-      for (const dep of macro.expandAfter) {
-        const depIdx = nameToIndex.get(dep);
-        if (depIdx !== undefined) {
-          adj[depIdx].push(i);
-          inDegree[i]++;
-        }
-      }
-    }
-
-    const queue: number[] = [];
-    for (let i = 0; i < n; i++) {
-      if (inDegree[i] === 0) queue.push(i);
-    }
-
-    const sorted: ts.Decorator[] = [];
-    while (queue.length > 0) {
-      queue.sort((a, b) => a - b);
-      const idx = queue.shift()!;
-      sorted.push(parsed[idx].decorator);
-      for (const next of adj[idx]) {
-        inDegree[next]--;
-        if (inDegree[next] === 0) queue.push(next);
-      }
-    }
-
-    if (sorted.length < n) {
-      return [...decorators];
-    }
-
-    return sorted;
-  }
-
-  /**
-   * Known dependency relationships between builtin typeclasses.
-   * If Ord depends on Eq, then Eq must be derived before Ord.
-   */
-  private static readonly BUILTIN_DERIVE_DEPS: Record<string, string[]> = {
-    Ord: ["Eq"],
-    Monoid: ["Semigroup"],
-  };
-
-  /**
-   * Sort derive arguments by dependency order using Kahn's algorithm.
-   * Respects both registered derive macro `expandAfter` declarations
-   * and builtin typeclass dependency relationships.
-   */
-  private sortDeriveArgsByDependency(args: ts.Expression[]): ts.Expression[] {
-    const identArgs = args.filter(ts.isIdentifier);
-    if (identArgs.length < 2) return [...args];
-
-    const nameToIndex = new Map<string, number>();
-    for (let i = 0; i < args.length; i++) {
-      const a = args[i];
-      if (ts.isIdentifier(a)) nameToIndex.set(a.text, i);
-    }
-
-    let hasDeps = false;
-    const n = args.length;
-    const inDegree = new Array<number>(n).fill(0);
-    const adj: number[][] = [];
-    for (let i = 0; i < n; i++) adj.push([]);
-
-    for (let i = 0; i < n; i++) {
-      const a = args[i];
-      if (!ts.isIdentifier(a)) continue;
-      const name = a.text;
-
-      const deps: string[] = [];
-
-      // Check registered derive macro expandAfter
-      const deriveMacro = globalRegistry.getDerive(name);
-      if (deriveMacro?.expandAfter) {
-        deps.push(...deriveMacro.expandAfter);
-      }
-
-      // Check {Name}TC convention macro
-      const tcMacro = globalRegistry.getDerive(`${name}TC`);
-      if (tcMacro?.expandAfter) {
-        deps.push(...tcMacro.expandAfter);
-      }
-
-      // Check builtin typeclass dependencies
-      const builtinDeps = MacroTransformer.BUILTIN_DERIVE_DEPS[name];
-      if (builtinDeps) {
-        deps.push(...builtinDeps);
-      }
-
-      for (const dep of deps) {
-        const depIdx = nameToIndex.get(dep);
-        if (depIdx !== undefined) {
-          adj[depIdx].push(i);
-          inDegree[i]++;
-          hasDeps = true;
-        }
-      }
-    }
-
-    if (!hasDeps) return [...args];
-
-    const queue: number[] = [];
-    for (let i = 0; i < n; i++) {
-      if (inDegree[i] === 0) queue.push(i);
-    }
-
-    const sorted: ts.Expression[] = [];
-    while (queue.length > 0) {
-      queue.sort((a, b) => a - b);
-      const idx = queue.shift()!;
-      sorted.push(args[idx]);
-      for (const next of adj[idx]) {
-        inDegree[next]--;
-        if (inDegree[next] === 0) queue.push(next);
-      }
-    }
-
-    if (sorted.length < n) {
-      return [...args];
-    }
-
-    return sorted;
-  }
-
-  /**
-   * Recursively set the source map range on a node and all its descendants.
-   * Used for macro-generated statements (from parseStatements()) whose leaf
-   * nodes have pos: -1 from stripPositions(). This makes generateASTSourceMap()
-   * map the generated code back to the originating decorator.
-   */
-  private setSourceMapRangeDeep<T extends ts.Node>(node: T, original: ts.Node): T {
-    const range = ts.getSourceMapRange(original);
-    function visit(n: ts.Node): void {
-      ts.setSourceMapRange(n, range);
-      ts.forEachChild(n, visit);
-    }
-    visit(node);
-    return node;
-  }
-
-  private expandDeriveDecorator(
-    decorator: ts.Decorator,
-    node: ts.Node,
-    args: ts.Expression[]
-  ): ts.Statement[] | undefined {
-    if (
-      !ts.isInterfaceDeclaration(node) &&
-      !ts.isClassDeclaration(node) &&
-      !ts.isTypeAliasDeclaration(node)
-    ) {
-      this.ctx.reportError(
-        decorator,
-        "@derive can only be applied to interfaces, classes, or type aliases"
-      );
-      return undefined;
-    }
-
-    const sortedArgs = this.sortDeriveArgsByDependency(args);
-    const statements: ts.Statement[] = [];
-    const typeInfo = this.extractTypeInfo(node);
-    const typeName = node.name?.text ?? "Anonymous";
-
-    for (const arg of sortedArgs) {
-      if (!ts.isIdentifier(arg)) {
-        this.ctx.reportError(arg, "derive arguments must be identifiers");
-        continue;
-      }
-
-      const deriveName = arg.text;
-
-      // 1. Check for a registered derive macro (code-gen derives)
-      const deriveMacro = globalRegistry.getDerive(deriveName);
-      if (deriveMacro) {
-        if (this.verbose) {
-          console.log(`[typesugar] Expanding derive macro: ${deriveName}`);
-        }
-
-        try {
-          // Wrap expansion in a hygiene scope so generated names are isolated
-          const result = this.ctx.hygiene.withScope(() =>
-            deriveMacro.expand(this.ctx, node, typeInfo)
-          );
-          for (const stmt of result) {
-            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
-          }
-        } catch (error) {
-          this.ctx.reportError(arg, `Derive macro expansion failed: ${error}`);
-        }
-        continue;
-      }
-
-      // Diagnostic checks for typeclass derivation (applies to both builtin and generic paths)
-
-      // Check for empty types (no fields to derive from)
-      if (typeInfo.fields.length === 0 && !ts.isTypeAliasDeclaration(node)) {
-        this.ctx
-          .diagnostic(TS9104)
-          .at(arg)
-          .withArgs({ typeclass: deriveName, type: typeName })
-          .emit();
-        continue;
-      }
-
-      // Check for non-derivable field types (functions)
-      if (["Eq", "Ord", "Hash", "Clone"].includes(deriveName)) {
-        for (const field of typeInfo.fields) {
-          if (field.typeString.includes("=>") || field.typeString.startsWith("(")) {
-            this.ctx
-              .diagnostic(TS9101)
-              .at(arg)
-              .withArgs({
-                typeclass: deriveName,
-                type: typeName,
-                field: field.name,
-                fieldType: field.typeString,
-              })
-              .emit();
-          }
-        }
-      }
-
-      // Check for union without discriminant
-      if (ts.isTypeAliasDeclaration(node)) {
-        const sumCheck = tryExtractSumType(this.ctx, node);
-        if (!sumCheck && ts.isUnionTypeNode(node.type)) {
-          this.ctx
-            .diagnostic(TS9103)
-            .at(arg)
-            .withArgs({ typeclass: deriveName, type: typeName })
-            .emit();
-          continue;
-        }
-      }
-
-      // 2. Check for a GenericDerivation strategy (unified path for all typeclasses)
-      try {
-        const genericExpansion = tryExpandGenericDerive(this.ctx, deriveName, typeName, node);
-        if (genericExpansion) {
-          if (this.verbose) {
-            console.log(
-              `[typesugar] Auto-deriving via GenericDerivation: ${deriveName} for ${typeName}`
-            );
-          }
-          for (const stmt of genericExpansion.statements) {
-            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
-          }
-          continue;
-        }
-      } catch (error) {
-        this.ctx.reportError(arg, `GenericDerivation failed for ${deriveName}: ${error}`);
-        continue;
-      }
-
-      // 4. Check for a "{Name}TC" derive macro (typeclass derive convention)
-      const tcDeriveMacro = globalRegistry.getDerive(`${deriveName}TC`);
-      if (tcDeriveMacro) {
-        if (this.verbose) {
-          console.log(`[typesugar] Expanding typeclass derive macro: ${deriveName}TC`);
-        }
-        try {
-          // Wrap expansion in a hygiene scope so generated names are isolated
-          const result = this.ctx.hygiene.withScope(() =>
-            tcDeriveMacro.expand(this.ctx, node, typeInfo)
-          );
-          for (const stmt of result) {
-            statements.push(this.setSourceMapRangeDeep(stmt, decorator));
-          }
-        } catch (error) {
-          this.ctx.reportError(arg, `Typeclass derive macro expansion failed: ${error}`);
-        }
-        continue;
-      }
-
-      // 4. Nothing found — provide import suggestions
-      const suggestions = getSuggestionsForSymbol(deriveName);
-      const suggestionMsg = formatSuggestionsMessage(suggestions);
-      const message = suggestionMsg
-        ? `Unknown derive: '${deriveName}'. Not a registered derive macro, ` +
-          `typeclass with auto-derivation, or typeclass derive macro ` +
-          `('${deriveName}TC').\n\n${suggestionMsg}`
-        : `Unknown derive: '${deriveName}'. Not a registered derive macro, ` +
-          `typeclass with auto-derivation, or typeclass derive macro ` +
-          `('${deriveName}TC').`;
-      this.ctx.reportError(arg, message);
-    }
-
-    return statements.length > 0 ? statements : undefined;
-  }
-
-  private extractTypeInfo(
-    node: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
-  ): DeriveTypeInfo {
-    const name = node.name?.text ?? "Anonymous";
-    const typeParameters = node.typeParameters ? Array.from(node.typeParameters) : [];
-
-    let type: ts.Type;
-    try {
-      type = this.ctx.typeChecker.getTypeAtLocation(node);
-    } catch {
-      return {
-        name,
-        fields: [],
-        typeParameters,
-        type: undefined as unknown as ts.Type,
-        kind: "product",
-      };
-    }
-
-    // Check for sum type (discriminated union)
-    if (ts.isTypeAliasDeclaration(node)) {
-      const sumInfo = tryExtractSumType(this.ctx, node);
-      if (sumInfo) {
-        return this.extractSumTypeInfo(node, name, typeParameters, type, sumInfo);
-      }
-    }
-
-    // Check for primitive type alias
-    if (ts.isTypeAliasDeclaration(node) && isPrimitiveType(type)) {
-      return { name, fields: [], typeParameters, type, kind: "primitive" };
-    }
-
-    // Product type (interface, class, or non-union type alias)
-    const fields: DeriveFieldInfo[] = [];
-    let properties: ts.Symbol[];
-    try {
-      properties = this.ctx.typeChecker.getPropertiesOfType(type);
-    } catch {
-      return { name, fields: [], typeParameters, type, kind: "product" };
-    }
-
-    let isRecursive = false;
-    for (const prop of properties) {
-      const declarations = prop.getDeclarations();
-      if (!declarations || declarations.length === 0) continue;
-
-      const decl = declarations[0];
-
-      // Skip method declarations and accessors — only derive for data fields
-      if (
-        ts.isMethodDeclaration(decl) ||
-        ts.isMethodSignature(decl) ||
-        ts.isGetAccessorDeclaration(decl) ||
-        ts.isSetAccessorDeclaration(decl)
-      ) {
-        continue;
-      }
-
-      let propType: ts.Type;
-      let propTypeString: string;
-      try {
-        propType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-        propTypeString = this.ctx.typeChecker.typeToString(propType);
-      } catch {
-        propType = type;
-        propTypeString = "unknown";
-      }
-
-      if (propTypeString === name || propTypeString.includes(`${name}<`)) {
-        isRecursive = true;
-      }
-
-      const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-      const readonly =
-        ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
-          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
-          : false;
-
-      fields.push({
-        name: prop.name,
-        typeString: propTypeString,
-        type: propType,
-        optional,
-        readonly,
-        symbol: prop,
-      });
-    }
-
-    return { name, fields, typeParameters, type, kind: "product", isRecursive };
-  }
-
-  private extractSumTypeInfo(
-    node: ts.TypeAliasDeclaration,
-    name: string,
-    typeParameters: ts.TypeParameterDeclaration[],
-    type: ts.Type,
-    sumInfo: { discriminant: string; variants: Array<{ tag: string; typeName: string }> }
-  ): DeriveTypeInfo {
-    const variants: DeriveVariantInfo[] = [];
-    let isRecursive = false;
-
-    if (ts.isUnionTypeNode(node.type)) {
-      for (const member of node.type.types) {
-        if (!ts.isTypeReferenceNode(member)) continue;
-
-        const memberTypeName = ts.isIdentifier(member.typeName)
-          ? member.typeName.text
-          : safeGetNodeText(member.typeName, this.ctx.sourceFile);
-        const variantInfo = sumInfo.variants.find((v) => v.typeName === memberTypeName);
-        if (!variantInfo) continue;
-
-        const memberType = this.ctx.typeChecker.getTypeFromTypeNode(member);
-        const fields: DeriveFieldInfo[] = [];
-
-        try {
-          const props = this.ctx.typeChecker.getPropertiesOfType(memberType);
-          for (const prop of props) {
-            if (prop.name === sumInfo.discriminant) continue;
-
-            const declarations = prop.getDeclarations();
-            if (!declarations || declarations.length === 0) continue;
-
-            const decl = declarations[0];
-            let propType: ts.Type;
-            let propTypeString: string;
-            try {
-              propType = this.ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl);
-              propTypeString = this.ctx.typeChecker.typeToString(propType);
-            } catch {
-              propType = memberType;
-              propTypeString = "unknown";
-            }
-
-            if (propTypeString === name || propTypeString.includes(`${name}<`)) {
-              isRecursive = true;
-            }
-
-            const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-            const readonly =
-              ts.isPropertyDeclaration(decl) || ts.isPropertySignature(decl)
-                ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
-                : false;
-
-            fields.push({
-              name: prop.name,
-              typeString: propTypeString,
-              type: propType,
-              optional,
-              readonly,
-              symbol: prop,
-            });
-          }
-        } catch {
-          // Skip variant if we can't get its properties
-        }
-
-        variants.push({
-          tag: variantInfo.tag,
-          typeName: variantInfo.typeName,
-          fields,
-        });
-      }
-    }
-
-    return {
-      name,
-      fields: [],
-      typeParameters,
-      type,
-      kind: "sum",
-      variants,
-      discriminant: sumInfo.discriminant,
-      isRecursive,
-    };
-  }
+  // parseDecorator, sortDecoratorsByDependency, BUILTIN_DERIVE_DEPS,
+  // sortDeriveArgsByDependency, expandDeriveDecorator, extractTypeInfo, and
+  // extractSumTypeInfo all moved to @typesugar/transformer-core's
+  // macro-helpers.ts (PEP-052 Wave 8) — this package delegates to them
+  // (imported above as *Shared) instead of keeping a clone. See the call
+  // sites in tryExpandAttributeMacros above.
 
   private tryExpandTaggedTemplate(node: ts.TaggedTemplateExpression): ts.Expression | undefined {
     // Check for inline opt-out

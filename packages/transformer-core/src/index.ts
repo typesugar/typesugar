@@ -91,3 +91,20 @@ export {
   scanForDerivedInstanceDeclarations,
   checkForValueRef,
 } from "./specialization.js";
+
+// JSDoc macro dispatch + derive expansion — the single shared implementation
+// (PEP-052 Wave 8). The legacy @typesugar/transformer delegates here instead
+// of keeping a clone.
+export {
+  JSDOC_MACRO_TAGS,
+  isJSDocMacroTargetNode,
+  hasJSDocMacroTags,
+  tryExpandJSDocMacros,
+  parseJSDocMacroArgs,
+  createSyntheticDecorator,
+  parseDecorator,
+  sortDecoratorsByDependency,
+  sortDeriveArgsByDependency,
+  expandDeriveDecorator,
+  extractTypeInfo,
+} from "./macro-helpers.js";

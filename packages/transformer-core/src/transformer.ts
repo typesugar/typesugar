@@ -72,6 +72,7 @@ import {
   tryExpandJSDocMacros as tryExpandJSDocMacrosFn,
   parseDecorator,
   sortDecoratorsByDependency,
+  expandDeriveDecorator,
 } from "./macro-helpers.js";
 
 import {
@@ -1150,6 +1151,22 @@ class MacroTransformer {
       ) {
         remainingDecorators.push(decorator);
         continue;
+      }
+
+      // @derive(Eq, Clone, ...) is always handled specially — no attribute
+      // macro named "derive" exists to look up (PEP-032 deleted it);
+      // individual derives are registered under globalRegistry.getDerive.
+      // Uses the pristine `node`, not `currentNode` — an earlier decorator
+      // in this same loop may have already replaced `currentNode` with a
+      // transformed node whose shape extractTypeInfo's checker-backed
+      // lookups (getTypeAtLocation, getPropertiesOfType) don't expect.
+      if (macroName === "derive") {
+        const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
+        if (derives) {
+          extraStatements.push(...derives);
+          wasTransformed = true;
+          continue;
+        }
       }
 
       const macro = (
