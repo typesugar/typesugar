@@ -3,8 +3,8 @@
  *
  * Covers registration, lookup by name/symbol/module, the full
  * TypeRewriteEntry interface, and backward compatibility with the
- * PEP-011 SFINAE consumer (which uses only typeName, underlyingTypeText,
- * matchesUnderlying).
+ * PEP-011 diagnostic suppression consumer (which uses only typeName,
+ * underlyingTypeText, matchesUnderlying).
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -298,10 +298,10 @@ describe("TypeRewriteRegistry", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Backward compatibility with PEP-011 SFINAE consumer
+  // Backward compatibility with PEP-011 diagnostic suppression consumer
   // -------------------------------------------------------------------------
 
-  describe("backward compatibility (PEP-011 SFINAE)", () => {
+  describe("backward compatibility (PEP-011 diagnostic suppression)", () => {
     it("works with entries that only have typeName and underlyingTypeText", () => {
       registerTypeRewrite(legacyEntry());
 

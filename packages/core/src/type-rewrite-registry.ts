@@ -5,7 +5,7 @@
  * PEP-012's `@opaque` macro at transformer init time; consulted by:
  *
  * - The transformer (for method/constructor/accessor erasure)
- * - PEP-011's SFINAE Rule 2 (for implicit conversion diagnostics)
+ * - PEP-011's TypeRewriteAssignment diagnostic suppression rule (for implicit conversion diagnostics)
  * - The language service plugin (for completions and quick info)
  *
  * @example
@@ -24,7 +24,7 @@
  * });
  * ```
  *
- * @see PEP-011 Wave 5 — TypeRewriteAssignment SFINAE rule
+ * @see PEP-011 Wave 5 — TypeRewriteAssignment diagnostic suppression rule (renamed by PEP-054)
  * @see PEP-012 — Type Macros (@opaque)
  */
 
@@ -105,7 +105,7 @@ export interface TypeRewriteEntry {
    * string from `checker.typeToString()`) matches the underlying
    * representation.
    *
-   * When not provided, the SFINAE rule falls back to structural
+   * When not provided, the diagnostic suppression rule falls back to structural
    * assignability checking via the type checker.
    */
   readonly matchesUnderlying?: (typeText: string) => boolean;
@@ -155,7 +155,7 @@ export interface TypeRewriteEntry {
 // ---------------------------------------------------------------------------
 
 // Module-level singleton registry. Populated by @opaque macro at transformer init,
-// consulted by SFINAE rules and the transformer during compilation.
+// consulted by diagnostic suppression rules and the transformer during compilation.
 // For test isolation, use clearTypeRewrites() or the test helpers in test-helpers.ts.
 const byName = new Map<string, TypeRewriteEntry>();
 const byModule = new Map<string, TypeRewriteEntry[]>();
@@ -164,7 +164,7 @@ const byModule = new Map<string, TypeRewriteEntry[]>();
  * Register an opaque type's underlying representation.
  *
  * Called by `@opaque` macro processing (PEP-012) during transformer init.
- * The SFINAE rule consults this registry to decide whether to suppress
+ * The diagnostic suppression rule consults this registry to decide whether to suppress
  * assignment errors involving the registered type.
  *
  * @param entry - The type rewrite entry to register

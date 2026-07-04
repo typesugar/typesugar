@@ -109,7 +109,9 @@ Individual rule constructors (`createMacroGeneratedRule`,
 
 Not in scope: `packages/core/src/type-rewrite-registry.ts` and its tests —
 a correctly-named, separate mechanism that some suppression rules consume;
-untouched.
+its own API/symbols are untouched (Wave 2 did fix a few stale doc-comment
+mentions of "SFINAE rule" describing the _other_, renamed mechanism that
+consumes this registry — not a rename of anything in this file itself).
 
 ### User-facing CLI/env surface (breaking, pre-1.0 — no deprecated alias, matching PEP-053/Wave-3/4 precedent)
 
@@ -171,19 +173,43 @@ at draft time — re-verify at implementation time in case anything shifted.)
 - [x] Full workspace build (`pnpm build`, sequential — see PEP-052 Wave 4/5's
       note on why a full build catches what per-package filters miss) +
       full test suite.
-- [x] `git grep -i sfinae` across the whole repo (excluding this PEP and any
-      other historical PEP text that references the old name as a past
-      decision) returns nothing.
+- [x] `git grep -i sfinae` across the whole repo, excluding `peps/` (historical
+      PEP text) and the following intentional, documented exceptions, returns
+      nothing else: `packages/core/src/diagnostic-suppression.ts`'s own `@see
+    PEP-054` backreference; the `@see PEP-011` citations in
+      `packages/macros/src/adt.ts`/`opaque.ts` (PEP-011 keeps its historical
+      title, so the citation must keep citing it); `PHILOSOPHY.md`'s one
+      explanatory paragraph on why the mechanism was originally named after
+      C++'s SFINAE and why PEP-054 renamed it (kept deliberately, for the same
+      reason this PEP's own Context section explains the old name before
+      renaming it); and this PEP's own changeset
+      (`.changeset/pep-054-diagnostic-suppression-rename.md`), which
+      necessarily names the old symbols it renames. `.changeset/pep-034-language-service-parity.md`
+      is an older, already-shipped changeset describing what PEP-034 shipped
+      under the name valid at the time — left untouched, same as any other
+      historical record. (`type-rewrite-registry.ts`'s own API/symbols stay
+      unrenamed per the Scope section above, but its stale doc-comment
+      mentions of the _other_, renamed mechanism were fixed, so it is not an
+      exception to this grep.)
 - [x] Changeset noting the breaking CLI flag/env var rename.
 
 **Gate:** full suite green, full workspace build clean, zero remaining
-"sfinae" occurrences in code/docs outside historical PEP records.
+"sfinae" occurrences in code/docs outside `peps/` and the intentional
+exceptions listed above.
 
 ## Acceptance criteria
 
 - No symbol, file, CLI flag, env var, or doc prose in the codebase uses
-  "SFINAE" terminology (other than this PEP and other historical PEP text
-  describing past decisions).
+  "SFINAE" terminology, other than: historical PEP text (`peps/`, plus the
+  already-shipped `.changeset/pep-034-language-service-parity.md`); this
+  PEP's own `@see` backreference, Context-section explanation of the old
+  name, and changeset (which necessarily names the old symbols it renames);
+  the `@see PEP-011` citations in `adt.ts`/`opaque.ts` (PEP-011 keeps its
+  historical title); and `PHILOSOPHY.md`'s one paragraph explaining why the
+  mechanism was originally named after C++'s SFINAE. `type-rewrite-registry.ts`'s
+  own symbols are deliberately not renamed (it's a separate, correctly-named
+  mechanism), but its doc comments no longer use "SFINAE" to describe the
+  mechanism this PEP renamed.
 - `DiagnosticSuppressionRule` and its family read correctly on their own,
   without requiring the reader to know C++ template metaprogramming to
   understand what they do.
