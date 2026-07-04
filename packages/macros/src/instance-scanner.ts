@@ -468,19 +468,30 @@ export class InstanceScanner {
 // Type Resolution Helper
 // ============================================================================
 
-const KEYWORD_MAP: Record<string, ts.SyntaxKind> = {
-  number: ts.SyntaxKind.NumberKeyword,
-  string: ts.SyntaxKind.StringKeyword,
-  boolean: ts.SyntaxKind.BooleanKeyword,
-  bigint: ts.SyntaxKind.BigIntKeyword,
-  symbol: ts.SyntaxKind.SymbolKeyword,
-  undefined: ts.SyntaxKind.UndefinedKeyword,
-  null: ts.SyntaxKind.NullKeyword,
-  void: ts.SyntaxKind.VoidKeyword,
-  never: ts.SyntaxKind.NeverKeyword,
-  any: ts.SyntaxKind.AnyKeyword,
-  unknown: ts.SyntaxKind.UnknownKeyword,
-  object: ts.SyntaxKind.ObjectKeyword,
+/**
+ * Every primitive keyword type string this scanner resolves, with the
+ * `SyntaxKind` for the synthetic-node fallback AND the `ts.TypeChecker`
+ * internal getter name for the fast/safe path — one row per keyword, so a
+ * keyword lacking a getter (an omission, not a deliberate gap: every keyword
+ * below has one) is visible at a glance rather than split across two tables
+ * that must be kept in sync by hand (PEP-052 Wave 5 review fix — the first
+ * cut's split `KEYWORD_MAP`/`intrinsicGetters` tables let `object` silently
+ * fall through to the unsafe fallback for a full review round before being
+ * noticed).
+ */
+const KEYWORD_TYPES: Record<string, { kind: ts.SyntaxKind; getter: string }> = {
+  number: { kind: ts.SyntaxKind.NumberKeyword, getter: "getNumberType" },
+  string: { kind: ts.SyntaxKind.StringKeyword, getter: "getStringType" },
+  boolean: { kind: ts.SyntaxKind.BooleanKeyword, getter: "getBooleanType" },
+  bigint: { kind: ts.SyntaxKind.BigIntKeyword, getter: "getBigIntType" },
+  symbol: { kind: ts.SyntaxKind.SymbolKeyword, getter: "getESSymbolType" },
+  undefined: { kind: ts.SyntaxKind.UndefinedKeyword, getter: "getUndefinedType" },
+  null: { kind: ts.SyntaxKind.NullKeyword, getter: "getNullType" },
+  void: { kind: ts.SyntaxKind.VoidKeyword, getter: "getVoidType" },
+  never: { kind: ts.SyntaxKind.NeverKeyword, getter: "getNeverType" },
+  any: { kind: ts.SyntaxKind.AnyKeyword, getter: "getAnyType" },
+  unknown: { kind: ts.SyntaxKind.UnknownKeyword, getter: "getUnknownType" },
+  object: { kind: ts.SyntaxKind.ObjectKeyword, getter: "getNonPrimitiveType" },
 };
 
 /**
@@ -489,35 +500,37 @@ const KEYWORD_MAP: Record<string, ts.SyntaxKind> = {
  */
 function resolveTypeString(typeChecker: ts.TypeChecker, typeString: string): ts.Type | undefined {
   const trimmed = typeString.trim();
-  const keyword = KEYWORD_MAP[trimmed];
-  if (keyword !== undefined) {
-    // Use TypeChecker's internal intrinsic type getters when available.
-    // Synthetic keyword nodes created via ts.factory aren't bound to a
-    // source file and may resolve to `any` with some TypeChecker instances.
+  const entry = KEYWORD_TYPES[trimmed];
+  if (entry) {
+    // Prefer the TypeChecker's internal intrinsic type getter: synthetic
+    // keyword nodes created via ts.factory aren't bound to a source file and
+    // may resolve to `any` with some TypeChecker instances (see the guard
+    // below).
     const tc = typeChecker as any;
-    const intrinsicGetters: Record<number, string> = {
-      [ts.SyntaxKind.NumberKeyword]: "getNumberType",
-      [ts.SyntaxKind.StringKeyword]: "getStringType",
-      [ts.SyntaxKind.BooleanKeyword]: "getBooleanType",
-      [ts.SyntaxKind.BigIntKeyword]: "getBigIntType",
-      [ts.SyntaxKind.UndefinedKeyword]: "getUndefinedType",
-      [ts.SyntaxKind.NullKeyword]: "getNullType",
-      [ts.SyntaxKind.VoidKeyword]: "getVoidType",
-      [ts.SyntaxKind.NeverKeyword]: "getNeverType",
-      [ts.SyntaxKind.AnyKeyword]: "getAnyType",
-    };
-    const getter = intrinsicGetters[keyword];
-    if (getter && typeof tc[getter] === "function") {
+    if (typeof tc[entry.getter] === "function") {
       try {
-        return tc[getter]();
+        return tc[entry.getter]();
       } catch {
         /* fall through */
       }
     }
-    // Fallback: try synthetic node (works in some TS host configurations)
+    // Fallback: try synthetic node (works in some TS host configurations).
+    // GUARD (found via `symbol`/`unknown`/`object` all silently resolving to
+    // `any` on an unbound synthetic node before the intrinsic getters above
+    // were added): `any` is bidirectionally assignable to/from every type, so
+    // a keyword that isn't itself `any` resolving to `any` here would make
+    // `isTypeMatch` treat this instance as matching ANY other instance's
+    // type — a false "ambiguous instance" report between unrelated types
+    // (e.g. `Show<symbol>` masquerading as a second `Show<number>`). Prefer
+    // "can't resolve this type string" (undefined) over a silently-wrong
+    // match.
     try {
-      const node = ts.factory.createKeywordTypeNode(keyword as ts.KeywordTypeSyntaxKind);
-      return typeChecker.getTypeFromTypeNode(node);
+      const node = ts.factory.createKeywordTypeNode(entry.kind as ts.KeywordTypeSyntaxKind);
+      const resolved = typeChecker.getTypeFromTypeNode(node);
+      if (entry.kind !== ts.SyntaxKind.AnyKeyword && resolved.flags & ts.TypeFlags.Any) {
+        return undefined;
+      }
+      return resolved;
     } catch {
       return undefined;
     }

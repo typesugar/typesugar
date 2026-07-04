@@ -96,5 +96,5 @@
     "dist",
     "src"
   ],
-  "sideEffects": false
+  "sideEffects": true
 }

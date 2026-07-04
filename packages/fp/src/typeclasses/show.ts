@@ -11,7 +11,9 @@
 // ============================================================================
 
 /**
- * Show typeclass
+ * Show typeclass.
+ *
+ * @typeclass
  */
 export interface Show<A> {
   readonly show: (a: A) => string;
