@@ -16,6 +16,13 @@
 import { comptime, staticAssert, pipe, summon, implicit } from "typesugar";
 import { derive, Eq, Clone, Debug } from "typesugar";
 import { typeInfo, fieldNames } from "typesugar";
+// Import-scoped activation (PEP-052): @derive(Eq)'s structural equality only
+// rewrites `.equals()`/`.notEquals()` method calls in files that explicitly
+// opt in to Eq method syntax. (The `===`/`/ops` operator tier does not
+// currently rewrite for a companion @derive'd in this same file — only for
+// instances imported from elsewhere — so this demo uses method sugar, the
+// form that's known-working today.)
+import "@typesugar/std/syntax/eq";
 import { Some, None, Left, Right, isLeft, isRight } from "@typesugar/fp";
 import { map as mapEither, fold as foldEither, getOrElse as getOrElseEither } from "@typesugar/fp/data/either";
 import type { Option, Either } from "@typesugar/fp";
@@ -307,31 +314,32 @@ function main() {
   const p2 = new Money(1999, "USD");
   const p3 = new Money(3499, "USD");
   console.log(`\n--- Derived Eq ---`);
-  console.log(`p1 === p2 (same values): ${p1 === p2}`);    // @derive(Eq) rewrites to structural
-  console.log(`p1 === p3 (different): ${p1 === p3}`);
+  console.log(`p1.equals(p2) (same values): ${p1.equals(p2)}`); // @derive(Eq) rewrites to structural
+  console.log(`p1.equals(p3) (different): ${p1.equals(p3)}`);
 
   // --- Option usage ---
-  // NOTE: Option dot-syntax (.map, .getOrElse, .fold) does NOT work at runtime.
-  // The @opaque rewrite macro that should transform these to null-checks is broken.
-  // Workaround: use manual null checks since Some(x) === x and None === null.
+  // Option<A> is an @opaque type — at runtime Some(x) is just x and None is
+  // just null, but at the TYPE level it's a nominal interface, not `A | null`.
+  // That means a plain `!= null` check can never narrow it down to `A` (this
+  // file previously did that and it silently produced 3 type errors — the
+  // opaque macro correctly erases .map()/.getOrElse()/.fold() calls; those
+  // are the only type-safe way to work with the value).
   console.log("\n--- Option Handling ---");
   const discount: Option<Money> = Some(new Money(500, "USD"));
   const noDiscount: Option<Money> = None;
 
-  // Manual null-check instead of discount.map(f).getOrElse(g)
-  const finalPrice = discount != null
-    ? new Money(sum.cents - discount.cents, sum.currency)
-    : sum;
+  const finalPrice = discount
+    .map((d) => new Money(sum.cents - d.cents, sum.currency))
+    .getOrElse(() => sum);
   console.log(`With discount: ${formatMoney(finalPrice)}`);
 
-  const noDiscountPrice = noDiscount != null
-    ? new Money(sum.cents - noDiscount.cents, sum.currency)
-    : sum;
+  const noDiscountPrice = noDiscount
+    .map((d) => new Money(sum.cents - d.cents, sum.currency))
+    .getOrElse(() => sum);
   console.log(`Without discount: ${formatMoney(noDiscountPrice)}`);
 
-  // Manual fold
   const coupon: Option<string> = Some("SAVE20");
-  const couponMsg = coupon != null ? `Coupon: ${coupon}` : "No coupon";
+  const couponMsg = coupon.fold(() => "No coupon", (code) => `Coupon: ${code}`);
   console.log(`Coupon: ${couponMsg}`);
 
   // --- Order validation (Either) ---
@@ -355,10 +363,9 @@ function main() {
       Some("Express shipping please")
     );
     console.log(`Order total: ${formatMoney(order.total())}`);
-    // Manual null check for Option instead of .map().getOrElse()
-    const pmtLabel = order.payment != null ? paymentLabel(order.payment) : "None";
+    const pmtLabel = order.payment.map(paymentLabel).getOrElse(() => "None");
     console.log(`Payment: ${pmtLabel}`);
-    const notes = order.notes != null ? order.notes : "No notes";
+    const notes = order.notes.getOrElse(() => "No notes");
     console.log(`Notes: ${notes}`);
   }
 
