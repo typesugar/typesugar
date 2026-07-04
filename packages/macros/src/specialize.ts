@@ -550,20 +550,109 @@ export function getInstanceOrIntrinsicMethods(dictName: string): DictMethodMap |
 //
 // Single source of truth, automatically: since these are the actual
 // primitives.ts functions (not a copy), there is nothing left to drift.
-// Safe-by-construction: if a method's reflected text ever fails to parse as
-// an arrow function (e.g. a future primitives.ts rewrite switches to
-// `function` syntax handled differently, or the build ever minifies this
-// package — it doesn't today), it's simply skipped — that call just isn't
-// inlined, falling through to an ordinary (correct) function call. Only the
-// optimization is lost, never correctness.
+//
+// Safe-by-construction, with an explicit guard for the one way this can go
+// wrong: a primitive's real body may call ANOTHER primitives.ts export as a
+// module-scope helper (e.g. hashNumber/hashBigint both fall back to
+// hashString.hash for non-trivial inputs) — a reference that's correctly
+// bound when the function actually RUNS (closed over its own module), but
+// would be an unbound free identifier if its text were inlined verbatim at
+// a user's call site. `hasOnlySafeFreeIdentifiers` below rejects any body
+// referencing anything other than its own parameters or a small allowlist
+// of real JS globals, so such methods are simply never registered — the
+// call falls through to an ordinary (correct) function call instead of
+// generating a ReferenceError. Every other skip path (parse failure, parse
+// errors, non-arrow node, non-identifier params) degrades the same way:
+// only the inlining optimization is lost, never correctness.
+//
+// A second, distinct environment hazard: @typesugar/playground's
+// runtime-entry.ts (the sandboxed-iframe bundle used to EVALUATE already-
+// transformed code, separate from browser.ts which TRANSFORMS it) stubs
+// `typescript` out entirely via an esbuild plugin — that stub doesn't even
+// export `createSourceFile`, so calling it there throws immediately at this
+// module's top-level load. `loadPrimitiveIntrinsicsFromReflection`'s
+// top-level try/catch exists for exactly this: an environment where parsing
+// isn't available at all degrades to "no intrinsics registered," not a
+// crash that takes down every other export this package provides.
 
 const PRIMITIVE_INTRINSIC_NAME = /^(eq|ord|show|hash)(Number|String|Boolean|Bigint)$/;
 
+const SAFE_GLOBALS = new Set([
+  "JSON",
+  "String",
+  "Number",
+  "Math",
+  "Array",
+  "Boolean",
+  "Object",
+  "RegExp",
+  "isNaN",
+  "isFinite",
+  "parseInt",
+  "parseFloat",
+  "undefined",
+  "NaN",
+  "Infinity",
+]);
+
+/**
+ * Names bound ANYWHERE within the body — `let`/`const`/`var` declarations,
+ * catch clause bindings, nested function parameters. Not full lexical-scope
+ * analysis (no shadowing/TDZ precision) — deliberately coarse, since this
+ * only ever runs over the 16 small, non-nested, self-contained primitives in
+ * primitives.ts, not arbitrary user code. Good enough to distinguish a
+ * method's own locals (e.g. hashString's `let hash`/`for (let i …)`) from a
+ * genuine free reference to something outside it.
+ */
+function collectLocallyDeclaredNames(body: ts.Node, names: Set<string>): void {
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      names.add(node.name.text);
+    } else if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+      names.add(node.name.text);
+    } else if (
+      ts.isCatchClause(node) &&
+      node.variableDeclaration &&
+      ts.isIdentifier(node.variableDeclaration.name)
+    ) {
+      names.add(node.variableDeclaration.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+}
+
+function hasOnlySafeFreeIdentifiers(body: ts.Node, paramNames: ReadonlySet<string>): boolean {
+  const boundNames = new Set(paramNames);
+  collectLocallyDeclaredNames(body, boundNames);
+
+  let safe = true;
+  const visit = (node: ts.Node): void => {
+    if (!safe) return;
+    if (ts.isPropertyAccessExpression(node)) {
+      visit(node.expression); // `.name` is a member, not a free reference
+      return;
+    }
+    if (ts.isIdentifier(node)) {
+      if (!boundNames.has(node.text) && !SAFE_GLOBALS.has(node.text)) safe = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+  return safe;
+}
+
 function parseAsStandaloneExpression(text: string): ts.Expression | undefined {
-  // Wrap in parens: `(a, b) => a === b` alone parses as a labeled statement,
-  // not an expression statement, unless it's an unambiguous expression
-  // position — parenthesizing forces the parser's hand.
+  // Arrow functions parse fine as a bare ExpressionStatement, so the paren
+  // wrap isn't load-bearing for them — but a `function` expression or
+  // method-shorthand form at statement-start position is NOT unambiguous
+  // (`function`/an identifier there starts a declaration), so wrapping is
+  // kept as cheap defense-in-depth for any reflected text that isn't an
+  // arrow (the `ts.isArrowFunction` check below rejects those anyway).
   const sourceFile = ts.createSourceFile("intrinsic.ts", `(${text})`, ts.ScriptTarget.Latest, true);
+  const diagnostics = (sourceFile as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics;
+  if (diagnostics && diagnostics.length > 0) return undefined;
   const [stmt] = sourceFile.statements;
   if (!stmt || !ts.isExpressionStatement(stmt)) return undefined;
   const expr = stmt.expression;
@@ -571,24 +660,46 @@ function parseAsStandaloneExpression(text: string): ts.Expression | undefined {
 }
 
 function loadPrimitiveIntrinsicsFromReflection(): void {
-  for (const [dictName, dict] of Object.entries(primitives)) {
-    const match = dictName.match(PRIMITIVE_INTRINSIC_NAME);
-    if (!match || typeof dict !== "object" || dict === null) continue;
+  // `ts.createSourceFile` isn't available everywhere this package's compiled
+  // output loads: @typesugar/playground's runtime-entry.ts (the sandboxed
+  // iframe bundle used to EVALUATE already-transformed code, as opposed to
+  // the separate browser.ts bundle that TRANSFORMS it) stubs `typescript`
+  // out entirely via an esbuild plugin, since that sandbox never needs real
+  // macro expansion — its stub doesn't even export `createSourceFile`, so
+  // calling it throws immediately. A single top-level try/catch around the
+  // whole load — rather than the environment failing the same way on every
+  // one of the 16×N iterations — is enough: if parsing isn't available at
+  // all, nothing gets registered, calls fall through to real (correct)
+  // function calls, and every OTHER export from this module still loads
+  // normally instead of the whole package failing to import.
+  try {
+    for (const [dictName, dict] of Object.entries(primitives)) {
+      const match = dictName.match(PRIMITIVE_INTRINSIC_NAME);
+      if (!match || typeof dict !== "object" || dict === null) continue;
 
-    const methods = new Map<string, DictMethod>();
-    for (const [methodName, fn] of Object.entries(dict)) {
-      if (typeof fn !== "function") continue;
-      const node = parseAsStandaloneExpression(fn.toString());
-      if (!node || !ts.isArrowFunction(node)) continue;
-      const params = node.parameters.map((p, i) =>
-        ts.isIdentifier(p.name) ? p.name.text : `__param${i}`
-      );
-      methods.set(methodName, { node, params });
-    }
+      const methods = new Map<string, DictMethod>();
+      for (const [methodName, fn] of Object.entries(dict)) {
+        if (typeof fn !== "function") continue;
+        const node = parseAsStandaloneExpression(fn.toString());
+        if (!node || !ts.isArrowFunction(node)) continue;
+        // Reject destructuring/rest/defaulted params outright rather than
+        // fabricating a placeholder name that could never be substituted —
+        // none of the 16 real primitives use these, but a future rewrite
+        // should degrade safely, not silently drop an argument.
+        if (!node.parameters.every((p) => ts.isIdentifier(p.name))) continue;
+        const params = node.parameters.map((p) => (p.name as ts.Identifier).text);
+        if (!hasOnlySafeFreeIdentifiers(node.body, new Set(params))) continue;
 
-    if (methods.size > 0) {
-      primitiveIntrinsicRegistry.set(dictName, { brand: match[2].toLowerCase(), methods });
+        methods.set(methodName, { node: stripPositions(node), params });
+      }
+
+      if (methods.size > 0) {
+        primitiveIntrinsicRegistry.set(dictName, { brand: match[2].toLowerCase(), methods });
+      }
     }
+  } catch {
+    // See comment above: an environment without a working `typescript`
+    // parser degrades to "no intrinsic inlining," not a load-time crash.
   }
 }
 

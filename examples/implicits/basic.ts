@@ -30,7 +30,7 @@ const showNumber: Show<number> = {
 
 @instance
 const showString: Show<string> = {
-  show: (a) => `"${a}"`,
+  show: (a) => JSON.stringify(a),
 };
 
 @instance

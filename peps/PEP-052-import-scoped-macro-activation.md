@@ -861,57 +861,112 @@ already on the remaining list; 7-10 come from the retained items.
     correctness-over-inlining tradeoff.
   - **Extraction mechanism — two false starts before landing on the right
     one, both caught by running the full build before finishing (the
-    established discipline paid off twice in one wave):**
-    1. First attempt: read `primitives.ts`'s source text off disk via
-       `fs.readFileSync` at `@typesugar/macros` module-load time (parsing it
-       with `ts.createSourceFile`, reusing `extractMethodsFromObjectLiteral`
-       from PEP-053's instance-extraction pipeline). Broke
-       `@typesugar/playground`'s browser-target IIFE build
-       (`runtime-entry.ts`, injected into a sandboxed iframe with no Node
-       APIs) — `@typesugar/macros` was previously 100% environment-agnostic
-       (only `typescript` + `@typesugar/core`), and this introduced
-       `node:fs`/`node:path`/`node:url`, which esbuild can't resolve for a
-       browser platform target. Reverted.
-    2. Landed on: `specialize.ts` does an ordinary `import * as primitives
+    established discipline paid off twice in one wave):** 1. First attempt: read `primitives.ts`'s source text off disk via
+    `fs.readFileSync` at `@typesugar/macros` module-load time (parsing it
+    with `ts.createSourceFile`, reusing `extractMethodsFromObjectLiteral`
+    from PEP-053's instance-extraction pipeline). Broke
+    `@typesugar/playground`'s browser-target IIFE build
+    (`runtime-entry.ts`, injected into a sandboxed iframe with no Node
+    APIs) — `@typesugar/macros` was previously 100% environment-agnostic
+    (only `typescript` + `@typesugar/core`), and this introduced
+    `node:fs`/`node:path`/`node:url`, which esbuild can't resolve for a
+    browser platform target. Reverted. 2. Landed on: `specialize.ts` does an ordinary `import * as primitives
 from "./primitives.js"` (browser-safe — primitives.ts itself has zero
-       Node dependencies) and reflects each method's source via
-       `Function.prototype.toString()` — a standard JS capability, not a
-       Node API, so it works identically in Node and the browser bundle.
-       That reflected text is parsed into a real AST node
-       (`DictMethod.node`), giving the same shape as before with zero
-       filesystem access and zero possibility of drift (it's the live
-       value, not a copy). `DictMethod.source` and `inlineMethod`'s
-       `ctx.parseExpression` fallback (the CLAUDE.md-flagged exception) are
-       deleted outright — nothing populates `.source` anymore.
-    - A path-resolution sub-bug surfaced during the first (reverted)
-      attempt, worth recording since it's a general gotcha: this package
-      builds to both CJS and ESM (tsup); esbuild's CJS output replaces
-      `import.meta` with a plain `{}` (so `import.meta.url` silently becomes
-      `undefined`, no throw), and — verified empirically on this Node
-      version — the inverse check (`typeof __dirname !== "undefined"`) is
-      NOT a safe CJS-vs-ESM discriminator either, since some Node runtimes
-      expose a non-file-specific, empty-string `__dirname` inside plain ESM
-      modules too. Moot once the reflection approach removed the need for
-      any dirname resolution at all, but left here for whoever hits this
-      next.
+    Node dependencies) and reflects each method's source via
+    `Function.prototype.toString()` — a standard JS capability, not a
+    Node API, so it works identically in Node and the browser bundle.
+    That reflected text is parsed into a real AST node
+    (`DictMethod.node`), giving the same shape as before with zero
+    filesystem access and zero possibility of drift (it's the live
+    value, not a copy). `DictMethod.source` and `inlineMethod`'s
+    `ctx.parseExpression` fallback (the CLAUDE.md-flagged exception) are
+    deleted outright — nothing populates `.source` anymore. - A path-resolution sub-bug surfaced during the first (reverted)
+    attempt, worth recording since it's a general gotcha: this package
+    builds to both CJS and ESM (tsup); esbuild's CJS output replaces
+    `import.meta` with a plain `{}` (so `import.meta.url` silently becomes
+    `undefined`, no throw), and — verified empirically on this Node
+    version — the inverse check (`typeof __dirname !== "undefined"`) is
+    NOT a safe CJS-vs-ESM discriminator either, since some Node runtimes
+    expose a non-file-specific, empty-string `__dirname` inside plain ESM
+    modules too. Moot once the reflection approach removed the need for
+    any dirname resolution at all, but left here for whoever hits this
+    next.
   - **Gate:** `derive-inline.test.ts`'s existing byte-parity tests
     (`eqNumber.equals`, `ordNumber.compare`) pass unchanged. Extended with
-    new tests for previously-uncovered primitives: `showString.show` now
-    inlines to `JSON.stringify` (proving the bug fix reaches the compiler,
-    not just the runtime library), `ordBoolean.compare` inlines, and
-    `hashNumber.hash` is verified to correctly NOT inline anymore (its real,
-    multi-branch body is intentionally too complex to inline — the
-    specializer already refuses loops/multiple-return bodies by design).
-    New unit tests in `specialize.test.ts` assert all 16 entries produce a
-    real AST `.node` and that the registry's content tracks
-    `primitives.ts`'s current (fixed) bodies, not stale text.
-  - This retires the CLAUDE.md exception for `specialize.ts`'s
-    `method.source` path outright (nothing produces `.source` anymore).
+    new tests for previously-uncovered primitives (`showString.show`,
+    `ordBoolean.compare`, `hashString.hash`, and negative tests for
+    `hashNumber`/`hashBigint` — see below). New unit tests in
+    `specialize.test.ts` assert every registered entry produces a real AST
+    `.node`, and — genuinely proving reflection rather than just checking
+    final content that could coincidentally match a stale copy — re-derive
+    each method's expected AST independently from `primitives.ts`'s live
+    functions and assert byte-identical printed output against the registry.
+  - **5-call Fable review found 2 real blockers before merge — both
+    reproduced empirically, not just reasoned about, and both fixed:**
+    1. **Broken generated code, not just a missed optimization.**
+       `hashNumber`/`hashBigint`'s real bodies call `hashString.hash(...)` —
+       a `primitives.ts` module-scope reference, correctly bound when the
+       function actually runs (closed over its own module) but an UNBOUND
+       free identifier if inlined verbatim at a user's call site. The first
+       cut of the reflection loader had no check for this: `hashBigint.hash`
+       inlined to a real ReferenceError-throwing IIFE referencing
+       `hashString` with nothing in scope to bind it (`hashNumber` escaped
+       only by luck — its shape happened to fail the specializer's separate
+       flatten-classifier, not because anything guarded against the free
+       reference). **Fix:** a registration-time free-identifier safety
+       check (`hasOnlySafeFreeIdentifiers`) walks each reflected body and
+       rejects any reference that isn't the method's own parameter, a
+       locally-declared name (`let`/`const`/`for`-loop bindings — needed so
+       `hashString`'s OWN self-contained djb2 loop still registers), or a
+       small allowlist of real JS globals (`JSON`, `Math`, etc.). With the
+       guard, `hashNumber`/`hashBigint` are correctly never registered
+       (their calls fall through to the real, correct function);
+       `hashString` registers safely (self-contained) but its `for` loop is
+       separately rejected by the specializer's existing complexity gate —
+       registration-safety and inlining-complexity are orthogonal checks,
+       confirmed by testing each independently.
+    2. **A load-time crash in the exact browser bundle Phase 1's fs-based
+       attempt was reverted to avoid.** `@typesugar/playground`'s
+       `runtime-entry.ts` (the sandboxed-iframe bundle that EVALUATES
+       already-transformed code, distinct from `browser.ts` which
+       TRANSFORMS it) stubs `typescript` out entirely via an esbuild plugin
+       — real macro `expand()` isn't needed there, only runtime values are.
+       That stub doesn't export `createSourceFile` at all, so calling it
+       threw immediately at this module's top-level load — not a build
+       failure CI would catch, but a RUNTIME failure only surfacing when a
+       user actually opened the playground page, breaking every other
+       runtime value the sandbox provides (verified: executing the built
+       `runtime.global.js` directly threw and never set
+       `globalThis.__typesugar_modules` at all). The "safe-by-construction"
+       framing in the code's own comments was aspirational, not yet
+       implemented, when review found this. **Fix:** wrapped the whole
+       registration loop in a single top-level try/catch — an environment
+       without a working parser degrades to "no intrinsics registered," not
+       a crash that takes the rest of the package's exports down with it.
+       Re-verified by executing the built bundle directly (not just running
+       `tsup`): loads cleanly, all 18 runtime modules register.
+  - Retires the ORIGINAL CLAUDE.md exception for `specialize.ts` — the
+    `method.source`/`ctx.parseExpression` fallback fed by 16 hand-written
+    strings is gone outright, nothing produces `.source` anymore. Per
+    review, though, the reflection mechanism itself (`fn.toString()` +
+    re-parse) IS a new, narrower string→AST parse site — framing this as
+    fully eliminating string-based codegen would have been an overstatement;
+    CLAUDE.md now carries a distinct, accurately-scoped exception entry for
+    it instead (guarded by the free-identifier check above, not open-ended).
     `typeclass.ts`'s `getSpecializationMethodsForDerivation` is a separate,
     apparently-orphaned string-codegen mechanism (parametrized per-`@derive`
     site, not a duplicate of any fixed declaration — reflection doesn't
     apply to it) — out of scope for this wave, noted as a possible future
-    cleanup, not acted on.
+    cleanup, not acted on. Also fixed in passing: `examples/implicits/basic.ts`
+    had its own local, unrelated `showString` example with the same stale
+    unescaped-template-literal bug primitives.ts had — updated for
+    consistency. A genuinely separate, pre-existing hazard surfaced during
+    this same review (not introduced by Wave 7, not fixed here — filed as a
+    follow-up): intrinsic/derived-instance inlining matches purely by bare
+    identifier text with no scope/symbol check, so a user's own
+    identically-named local variable (exactly what that example file does)
+    could in principle be misidentified — the same risk existed with the
+    old hand-written registry.
 
 - **Wave 8 — JSDoc dispatcher unification.** The two `JSDOC_MACRO_TAGS` maps
   can only merge when their dispatchers do. Scope narrowly to the JSDoc
