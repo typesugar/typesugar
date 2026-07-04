@@ -1048,6 +1048,29 @@ from "./primitives.js"` (browser-safe — primitives.ts itself has zero
     text with no scope/symbol check (pre-existing since before this PEP,
     unrelated to this wave, surfaced incidentally while writing test
     fixtures).
+  - **Fable-review findings (session's usage limit hit mid-gate; re-run with
+    the session's default model instead — findings still cross-validated
+    across 5 independent angles):** one real, concrete bug caught and fixed
+    before merge — the new `derive` special-case added to
+    transformer-core's DECORATOR dispatcher (`tryExpandAttributeMacros` in
+    `transformer.ts`) passed `currentNode` (possibly already rewritten by an
+    earlier decorator in the same `@foo @derive(Eq) class X` stack) to
+    `expandDeriveDecorator` instead of the pristine `node` — the exact
+    argument legacy always passed, and the exact argument the JSDoc-path
+    call site (added in the same commit) correctly used. Fixed to match.
+    Also removed 4 dead `*Shared` import aliases in
+    `packages/transformer/src/index.ts` left over from the deletion (their
+    only use was internal to the transformer-core functions they're for).
+    One accepted, deliberate, minor consequence of true unification (not a
+    bug): the now-single `JSDOC_MACRO_TAGS` map includes `operators`/
+    `operator` entries transformer-core always had but legacy never did —
+    legacy will now recognize (and warn "unknown JSDoc macro tag" on) a bare
+    `/** @operators */`/`/** @operator */` JSDoc comment it previously
+    silently ignored outright. Both entries are already dead (no attribute
+    macro is registered under either name in any pipeline), so this is a
+    new warning for an already-nonfunctional tag, not a behavior regression
+    — the alternative (two different maps again) would defeat the wave's
+    entire purpose.
 
 - **Wave 9 — macro-package discovery via `package.json` (needs a PEP first).**
   Replace the macro-loader's `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER`

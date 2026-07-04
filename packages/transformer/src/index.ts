@@ -41,12 +41,8 @@ import {
   getActivatedLabeledBlock,
   emitLabelSyntaxNotActivatedHint,
   // JSDoc macro dispatch + derive expansion — single shared implementation (PEP-052 Wave 8)
-  JSDOC_MACRO_TAGS as JSDOC_MACRO_TAGS_SHARED,
-  isJSDocMacroTargetNode as isJSDocMacroTargetNodeShared,
   hasJSDocMacroTags as hasJSDocMacroTagsShared,
   tryExpandJSDocMacros as tryExpandJSDocMacrosShared,
-  parseJSDocMacroArgs as parseJSDocMacroArgsShared,
-  createSyntheticDecorator as createSyntheticDecoratorShared,
   parseDecorator as parseDecoratorShared,
   sortDecoratorsByDependency as sortDecoratorsByDependencyShared,
   expandDeriveDecorator as expandDeriveDecoratorShared,

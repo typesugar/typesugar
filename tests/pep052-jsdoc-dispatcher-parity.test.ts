@@ -172,8 +172,15 @@ interface HasFunction { x: number; callback: () => void; }
     const legacy = transformCode(code, { fileName: "parity-ts9101-legacy.ts" });
     const core = transformCodeInMemory(code, { fileName: "parity-ts9101-core.ts" });
 
-    expect(errorsOf(legacy.diagnostics).some((d) => d.code === 9101)).toBe(true);
-    expect(errorsOf(core.diagnostics).some((d) => d.code === 9101)).toBe(true);
+    // Check the message names the actual offending field, not just the code
+    // — proves it fired for THIS field, not coincidentally for an unrelated
+    // reason that happens to share the diagnostic code.
+    expect(
+      errorsOf(legacy.diagnostics).some((d) => d.code === 9101 && d.message.includes("callback"))
+    ).toBe(true);
+    expect(
+      errorsOf(core.diagnostics).some((d) => d.code === 9101 && d.message.includes("callback"))
+    ).toBe(true);
   });
 
   it("both pipelines report TS9103 for a union without a discriminant", () => {
@@ -198,8 +205,12 @@ interface EmptyType {}
     const legacy = transformCode(code, { fileName: "parity-ts9104-legacy.ts" });
     const core = transformCodeInMemory(code, { fileName: "parity-ts9104-core.ts" });
 
-    expect(errorsOf(legacy.diagnostics).some((d) => d.code === 9104)).toBe(true);
-    expect(errorsOf(core.diagnostics).some((d) => d.code === 9104)).toBe(true);
+    expect(
+      errorsOf(legacy.diagnostics).some((d) => d.code === 9104 && d.message.includes("EmptyType"))
+    ).toBe(true);
+    expect(
+      errorsOf(core.diagnostics).some((d) => d.code === 9104 && d.message.includes("EmptyType"))
+    ).toBe(true);
   });
 
   it("both pipelines report TS9104 for a class with only methods (methods aren't derivable fields)", () => {
@@ -216,11 +227,26 @@ class HasOnlyMethods { getValue() { return 1; } get computed() { return 2; } }
     const legacy = transformCode(code, { fileName: "parity-ts9104-methods-legacy.ts" });
     const core = transformCodeInMemory(code, { fileName: "parity-ts9104-methods-core.ts" });
 
-    expect(errorsOf(legacy.diagnostics).some((d) => d.code === 9104)).toBe(true);
-    expect(errorsOf(core.diagnostics).some((d) => d.code === 9104)).toBe(true);
+    expect(
+      errorsOf(legacy.diagnostics).some(
+        (d) => d.code === 9104 && d.message.includes("HasOnlyMethods")
+      )
+    ).toBe(true);
+    expect(
+      errorsOf(core.diagnostics).some(
+        (d) => d.code === 9104 && d.message.includes("HasOnlyMethods")
+      )
+    ).toBe(true);
   });
 
-  it("neither pipeline reports TS9103 for a single-member union", () => {
+  // NOTE: mirrors tests/diagnostics.test.ts's "TS9103 does not fire for
+  // single-member union" fixture verbatim (pre-existing, not introduced by
+  // this wave) — despite the name, `{ value: number }` isn't syntactically a
+  // union at all (no `|`), so this actually tests that TS9103's
+  // union-specific check is correctly skipped for an ordinary product type,
+  // not a true single-variant-union boundary (TypeScript has no such
+  // construct — a union always has ≥2 members once you write a `|`).
+  it("neither pipeline reports TS9103 for an ordinary (non-union) product type", () => {
     const code = `
 /** @deriving Eq */
 type Wrapper = { value: number };
