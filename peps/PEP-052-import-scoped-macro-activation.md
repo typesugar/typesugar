@@ -836,14 +836,82 @@ already on the remaining list; 7-10 come from the retained items.
     a smaller, one-directional drift risk than the original two-independent-
     copies problem).
 
-- **Wave 7 — intrinsic bodies from source.** Replace
+- **Wave 7 — intrinsic bodies from source. DONE (2026-07-04).** Replaced
   `primitiveIntrinsicRegistry`'s 16 hand-written source strings
-  (`eqNumber` → `"a === b"`) with bodies extracted from std's actual
-  instance declarations using PEP-053's source-based instance-extraction
-  machinery (`registerInstanceMethodsFromAST` precedent). Gate: byte-parity
-  on `derive-inline.test.ts`'s inlining output ("recursively inlines
-  eqNumber.equals to ===") — the same neuter-then-delete discipline as
-  Wave 3. This also retires a CLAUDE.md string-codegen exception. Medium.
+  (`eqNumber` → `"a === b"`) — an independently-maintained copy of
+  `packages/macros/src/primitives.ts`'s real instances that had drifted for
+  6 of 16 entries — with a mechanism that reflects the REAL, live
+  `primitives.ts` values, so nothing can drift again.
+  - **Divergence audit before touching any extraction code:** compared all
+    16 hand-written bodies against `primitives.ts`'s real ones. 2 were
+    genuine bugs in `primitives.ts`, fixed directly: `showString.show` used
+    an unescaped template literal (`` `"${a}"` ``) instead of
+    `JSON.stringify(a)` — broken for any string containing a quote or
+    backslash; `ordString.compare` used `.localeCompare(b)`, which is
+    locale/ICU-dependent and non-deterministic across environments, instead
+    of a plain lexicographic comparison. The other 4 divergent entries
+    (`ordBoolean`, `hashNumber`, `hashString`, `hashBigint`) were judged
+    case-by-case rather than blindly reconciled in one direction:
+    `ordBoolean`'s two forms are behaviorally identical (verified for all 4
+    boolean input pairs); `hashNumber`/`hashString`/`hashBigint`'s real
+    `primitives.ts` bodies are objectively more correct (NaN/Infinity
+    handling, guaranteed-unsigned hash) than the registry's crude stand-ins
+    (`a | 0`, a signed djb2 variant, a lossy bitmask) — kept as-is,
+    accepting that these 3 no longer INLINE (see below) as a deliberate
+    correctness-over-inlining tradeoff.
+  - **Extraction mechanism — two false starts before landing on the right
+    one, both caught by running the full build before finishing (the
+    established discipline paid off twice in one wave):**
+    1. First attempt: read `primitives.ts`'s source text off disk via
+       `fs.readFileSync` at `@typesugar/macros` module-load time (parsing it
+       with `ts.createSourceFile`, reusing `extractMethodsFromObjectLiteral`
+       from PEP-053's instance-extraction pipeline). Broke
+       `@typesugar/playground`'s browser-target IIFE build
+       (`runtime-entry.ts`, injected into a sandboxed iframe with no Node
+       APIs) — `@typesugar/macros` was previously 100% environment-agnostic
+       (only `typescript` + `@typesugar/core`), and this introduced
+       `node:fs`/`node:path`/`node:url`, which esbuild can't resolve for a
+       browser platform target. Reverted.
+    2. Landed on: `specialize.ts` does an ordinary `import * as primitives
+from "./primitives.js"` (browser-safe — primitives.ts itself has zero
+       Node dependencies) and reflects each method's source via
+       `Function.prototype.toString()` — a standard JS capability, not a
+       Node API, so it works identically in Node and the browser bundle.
+       That reflected text is parsed into a real AST node
+       (`DictMethod.node`), giving the same shape as before with zero
+       filesystem access and zero possibility of drift (it's the live
+       value, not a copy). `DictMethod.source` and `inlineMethod`'s
+       `ctx.parseExpression` fallback (the CLAUDE.md-flagged exception) are
+       deleted outright — nothing populates `.source` anymore.
+    - A path-resolution sub-bug surfaced during the first (reverted)
+      attempt, worth recording since it's a general gotcha: this package
+      builds to both CJS and ESM (tsup); esbuild's CJS output replaces
+      `import.meta` with a plain `{}` (so `import.meta.url` silently becomes
+      `undefined`, no throw), and — verified empirically on this Node
+      version — the inverse check (`typeof __dirname !== "undefined"`) is
+      NOT a safe CJS-vs-ESM discriminator either, since some Node runtimes
+      expose a non-file-specific, empty-string `__dirname` inside plain ESM
+      modules too. Moot once the reflection approach removed the need for
+      any dirname resolution at all, but left here for whoever hits this
+      next.
+  - **Gate:** `derive-inline.test.ts`'s existing byte-parity tests
+    (`eqNumber.equals`, `ordNumber.compare`) pass unchanged. Extended with
+    new tests for previously-uncovered primitives: `showString.show` now
+    inlines to `JSON.stringify` (proving the bug fix reaches the compiler,
+    not just the runtime library), `ordBoolean.compare` inlines, and
+    `hashNumber.hash` is verified to correctly NOT inline anymore (its real,
+    multi-branch body is intentionally too complex to inline — the
+    specializer already refuses loops/multiple-return bodies by design).
+    New unit tests in `specialize.test.ts` assert all 16 entries produce a
+    real AST `.node` and that the registry's content tracks
+    `primitives.ts`'s current (fixed) bodies, not stale text.
+  - This retires the CLAUDE.md exception for `specialize.ts`'s
+    `method.source` path outright (nothing produces `.source` anymore).
+    `typeclass.ts`'s `getSpecializationMethodsForDerivation` is a separate,
+    apparently-orphaned string-codegen mechanism (parametrized per-`@derive`
+    site, not a duplicate of any fixed declaration — reflection doesn't
+    apply to it) — out of scope for this wave, noted as a possible future
+    cleanup, not acted on.
 
 - **Wave 8 — JSDoc dispatcher unification.** The two `JSDOC_MACRO_TAGS` maps
   can only merge when their dispatchers do. Scope narrowly to the JSDoc

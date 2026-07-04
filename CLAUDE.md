@@ -27,8 +27,6 @@ PEP for migration):
 - `verify-laws.ts` — law verification + property-test codegen.
 - `auto-derive.ts` — cached derivation output (memory + disk caches store strings;
   changing the cache contract to store AST is the bigger refactor).
-- `specialize.ts` — legacy string-source `method.source` path (replaced where
-  possible by AST-based `registerInstanceMethodsFromAST`).
 - `quote.ts` and `syntax-macro.ts` — these ARE the quasi-quote / user-defined
   syntax-macro primitives. String→AST parsing is their documented purpose; they
   are not migration targets.
@@ -36,3 +34,9 @@ PEP for migration):
 The original `builtinDerivations` + `convertToCompanionAssignment` legacy exception
 was removed in 2026-05 after they were confirmed to be dead code (orphaned by
 PEP-038 Wave 2F's GenericDerivation migration).
+
+`specialize.ts`'s legacy string-source `method.source` path was removed in
+2026-07 (PEP-052 Wave 7): the 16 hand-written primitive-intrinsic source
+strings are gone, replaced by reflecting `primitives.ts`'s real, live exports
+via `Function.prototype.toString()` and parsing the result into a genuine AST
+node — nothing in the file produces a `.source`-shaped `DictMethod` anymore.

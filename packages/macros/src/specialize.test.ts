@@ -260,6 +260,74 @@ describe("instance method registry", () => {
 });
 
 // ============================================================================
+// Primitive intrinsic registry — extracted from primitives.ts via reflection
+// (PEP-052 Wave 7). See specialize.ts's "Primitive Typeclass Intrinsics"
+// section for the mechanism: Function.prototype.toString() on the REAL
+// primitives.ts exports, parsed back into an AST node — not a hand-written
+// string, so there's nothing left to independently drift.
+// ============================================================================
+
+describe("primitive intrinsic registry (PEP-052 Wave 7 reflection extraction)", () => {
+  const ALL_INTRINSIC_NAMES = [
+    "eqNumber",
+    "eqString",
+    "eqBoolean",
+    "eqBigint",
+    "ordNumber",
+    "ordString",
+    "ordBoolean",
+    "ordBigint",
+    "showNumber",
+    "showString",
+    "showBoolean",
+    "showBigint",
+    "hashNumber",
+    "hashString",
+    "hashBoolean",
+    "hashBigint",
+  ];
+
+  for (const name of ALL_INTRINSIC_NAMES) {
+    it(`${name} is registered with a real AST node (not a source string)`, () => {
+      const entry = getInstanceOrIntrinsicMethods(name);
+      expect(entry).toBeDefined();
+      expect(entry!.methods.size).toBeGreaterThan(0);
+      for (const method of entry!.methods.values()) {
+        expect(method.node).toBeDefined();
+        expect(ts.isArrowFunction(method.node!)).toBe(true);
+        expect(method.params.length).toBeGreaterThan(0);
+      }
+    });
+  }
+
+  it("reflects primitives.ts's actual current body, not a stale hand-written copy", async () => {
+    // ordString and showString were bugs in primitives.ts fixed alongside
+    // this wave (locale-dependent compare, unescaped string interpolation).
+    // The registry must reflect the FIXED bodies, proving it derives from
+    // the live primitives.ts export rather than any prior hand-written text.
+    const primitivesMod = await import("./primitives.js");
+    expect(primitivesMod.ordString.compare.toString()).not.toContain("localeCompare");
+    expect(primitivesMod.showString.show.toString()).toContain("JSON.stringify");
+
+    const ordStringEntry = getInstanceOrIntrinsicMethods("ordString")!;
+    const showStringEntry = getInstanceOrIntrinsicMethods("showString")!;
+    const printer = ts.createPrinter();
+    const compareText = printer.printNode(
+      ts.EmitHint.Expression,
+      ordStringEntry.methods.get("compare")!.node!,
+      ts.createSourceFile("t.ts", "", ts.ScriptTarget.Latest)
+    );
+    const showText = printer.printNode(
+      ts.EmitHint.Expression,
+      showStringEntry.methods.get("show")!.node!,
+      ts.createSourceFile("t.ts", "", ts.ScriptTarget.Latest)
+    );
+    expect(compareText).not.toContain("localeCompare");
+    expect(showText).toContain("JSON.stringify");
+  });
+});
+
+// ============================================================================
 // Inline Failure Classification
 // ============================================================================
 

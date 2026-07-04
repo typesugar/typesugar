@@ -280,6 +280,43 @@ const cmp = ordNumber.compare(3, 5);
     expect(result.code).toContain("<");
     expect(result.code).toContain(">");
   });
+
+  // PEP-052 Wave 7: these bodies come from reflecting primitives.ts's real
+  // exports (not a hand-written copy) — proving the fix to primitives.ts's
+  // showString bug (unescaped template literal → JSON.stringify) actually
+  // reaches the compiler's inlining path, and covering entries the pre-Wave-7
+  // hand-written registry never had a dedicated inlining test for.
+  it("inlines showString.show to JSON.stringify, with proper escaping", () => {
+    const code = `
+const result = showString.show('he said "hi"');
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-show-string.ts" });
+
+    expect(result.code).not.toContain("showString.show");
+    expect(result.code).toContain("JSON.stringify");
+  });
+
+  it("inlines ordBoolean.compare", () => {
+    const code = `
+const cmp = ordBoolean.compare(true, false);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-ord-boolean.ts" });
+
+    expect(result.code).not.toContain("ordBoolean.compare");
+  });
+
+  it("leaves hashNumber.hash as a real call (its actual body has multiple branches — NaN/Infinity handling — too complex to inline, unlike the old crude `a | 0` stand-in)", () => {
+    const code = `
+const h = hashNumber.hash(42);
+    `.trim();
+
+    const result = transformCode(code, { fileName: "intrinsic-hash-number.ts" });
+
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("hashNumber.hash(42)");
+  });
 });
 
 // ============================================================================

@@ -46,8 +46,9 @@
 
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
-import { MacroContextImpl, stripPositions, stripCommentsDeep } from "@typesugar/core";
+import { stripPositions, stripCommentsDeep } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
+import * as primitives from "./primitives.js";
 
 // ============================================================================
 // Specialization Deduplication Cache
@@ -347,9 +348,7 @@ export interface DictMethodMap {
 }
 
 export interface DictMethod {
-  /** The implementation as source code (for inlining) - used as fallback */
-  source?: string;
-  /** The implementation as an AST node (preferred for direct substitution) */
+  /** The implementation as an AST node — how inlining substitutes the call. */
   node?: ts.Expression;
   /** Parameter names for the method */
   params: string[];
@@ -505,24 +504,7 @@ export function getRegisteredInstanceNames(): string[] {
 // Only tryInlineDerivedInstanceCall consults this registry.
 // ---------------------------------------------------------------------------
 
-// DELIBERATE builtin table (PEP-052 Wave 4 reviewed and retained): these
-// intrinsics power derived-instance inlining to native operators
-// (eqNumber.equals → ===). They restate std instances as source strings —
-// a candidate for PEP-053-style source extraction in a follow-up — but they
-// are live and load-bearing, and extraction is its own project.
 const primitiveIntrinsicRegistry = new Map<string, DictMethodMap>();
-
-function registerPrimitiveIntrinsic(
-  dictName: string,
-  brand: string,
-  methods: Record<string, { source: string; params: string[] }>
-): void {
-  const methodMap = new Map<string, DictMethod>();
-  for (const [name, { source, params }] of Object.entries(methods)) {
-    methodMap.set(name, { source, params });
-  }
-  primitiveIntrinsicRegistry.set(dictName, { brand, methods: methodMap });
-}
 
 /**
  * Look up instance methods from either the main registry or primitive intrinsics.
@@ -544,104 +526,87 @@ export function getInstanceOrIntrinsicMethods(dictName: string): DictMethodMap |
 // dictionary passing at cross-module call sites (always correct).
 
 // ============================================================================
-// Primitive Typeclass Intrinsics — inline to native operators
+// Primitive Typeclass Intrinsics — inline to native operators (PEP-052 Wave 7)
 // ============================================================================
+//
+// eqNumber.equals(a, b) → a === b, ordNumber.compare(a, b) → a < b ? -1 : …,
+// etc. These used to be hand-written source strings restating primitives.ts's
+// real instances — an independently-maintained copy that had drifted for 6 of
+// 16 entries (e.g. showString's escaping, ordString's locale-dependence — both
+// fixed in primitives.ts directly rather than perpetuated here).
+//
+// Rather than hand-typing them a second time OR re-reading primitives.ts's
+// source text from disk (tried and reverted — this package's specialize.ts
+// gets bundled into @typesugar/playground's browser-target IIFE build via
+// runtime-entry.ts, where Node's fs/path/url modules don't exist; a
+// filesystem read here broke that build), this imports the REAL, live
+// primitives.ts values — an ordinary import, works in any environment — and
+// reflects each method's own source text via `Function.prototype.toString()`,
+// which is standard JS, not a Node API. That text is parsed into a real AST
+// node (DictMethod.node), so the registry still holds the same shape
+// extractMethodsFromObjectLiteral produces for real user/std/fp/effect
+// instances (instance-extraction.ts) — just derived from a live value's
+// reflection instead of a call site's Program/TypeChecker.
+//
+// Single source of truth, automatically: since these are the actual
+// primitives.ts functions (not a copy), there is nothing left to drift.
+// Safe-by-construction: if a method's reflected text ever fails to parse as
+// an arrow function (e.g. a future primitives.ts rewrite switches to
+// `function` syntax handled differently, or the build ever minifies this
+// package — it doesn't today), it's simply skipped — that call just isn't
+// inlined, falling through to an ordinary (correct) function call. Only the
+// optimization is lost, never correctness.
 
-// Eq primitives: eqNumber.equals(a, b) → a === b
-registerPrimitiveIntrinsic("eqNumber", "number", {
-  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
-  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
-});
-registerPrimitiveIntrinsic("eqString", "string", {
-  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
-  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
-});
-registerPrimitiveIntrinsic("eqBoolean", "boolean", {
-  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
-  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
-});
-registerPrimitiveIntrinsic("eqBigint", "bigint", {
-  equals: { source: "(a, b) => a === b", params: ["a", "b"] },
-  notEquals: { source: "(a, b) => a !== b", params: ["a", "b"] },
-});
+const PRIMITIVE_INTRINSIC_NAME = /^(eq|ord|show|hash)(Number|String|Boolean|Bigint)$/;
 
-// Ord primitives: ordNumber.compare(a, b) → a < b ? -1 : a > b ? 1 : 0
-registerPrimitiveIntrinsic("ordNumber", "number", {
-  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
-});
-registerPrimitiveIntrinsic("ordString", "string", {
-  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
-});
-registerPrimitiveIntrinsic("ordBoolean", "boolean", {
-  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
-});
-registerPrimitiveIntrinsic("ordBigint", "bigint", {
-  compare: { source: "(a, b) => a < b ? -1 : a > b ? 1 : 0", params: ["a", "b"] },
-});
+function parseAsStandaloneExpression(text: string): ts.Expression | undefined {
+  // Wrap in parens: `(a, b) => a === b` alone parses as a labeled statement,
+  // not an expression statement, unless it's an unambiguous expression
+  // position — parenthesizing forces the parser's hand.
+  const sourceFile = ts.createSourceFile("intrinsic.ts", `(${text})`, ts.ScriptTarget.Latest, true);
+  const [stmt] = sourceFile.statements;
+  if (!stmt || !ts.isExpressionStatement(stmt)) return undefined;
+  const expr = stmt.expression;
+  return ts.isParenthesizedExpression(expr) ? expr.expression : expr;
+}
 
-// Show primitives: showNumber.show(a) → String(a)
-registerPrimitiveIntrinsic("showNumber", "number", {
-  show: { source: "(a) => String(a)", params: ["a"] },
-});
-registerPrimitiveIntrinsic("showString", "string", {
-  show: { source: "(a) => JSON.stringify(a)", params: ["a"] },
-});
-registerPrimitiveIntrinsic("showBoolean", "boolean", {
-  show: { source: "(a) => String(a)", params: ["a"] },
-});
-registerPrimitiveIntrinsic("showBigint", "bigint", {
-  show: { source: "(a) => String(a)", params: ["a"] },
-});
+function loadPrimitiveIntrinsicsFromReflection(): void {
+  for (const [dictName, dict] of Object.entries(primitives)) {
+    const match = dictName.match(PRIMITIVE_INTRINSIC_NAME);
+    if (!match || typeof dict !== "object" || dict === null) continue;
 
-// Hash primitives: hashNumber.hash(a) → (a | 0)
-registerPrimitiveIntrinsic("hashNumber", "number", {
-  hash: { source: "(a) => (a | 0)", params: ["a"] },
-});
-registerPrimitiveIntrinsic("hashString", "string", {
-  hash: {
-    source: "(a) => Array.from(a).reduce((h, c) => ((h << 5) + h) ^ c.charCodeAt(0), 0)",
-    params: ["a"],
-  },
-});
-registerPrimitiveIntrinsic("hashBoolean", "boolean", {
-  hash: { source: "(a) => (a ? 1 : 0)", params: ["a"] },
-});
-registerPrimitiveIntrinsic("hashBigint", "bigint", {
-  hash: { source: "(a) => Number(a & 0xFFFFFFFFn)", params: ["a"] },
-});
+    const methods = new Map<string, DictMethod>();
+    for (const [methodName, fn] of Object.entries(dict)) {
+      if (typeof fn !== "function") continue;
+      const node = parseAsStandaloneExpression(fn.toString());
+      if (!node || !ts.isArrowFunction(node)) continue;
+      const params = node.parameters.map((p, i) =>
+        ts.isIdentifier(p.name) ? p.name.text : `__param${i}`
+      );
+      methods.set(methodName, { node, params });
+    }
+
+    if (methods.size > 0) {
+      primitiveIntrinsicRegistry.set(dictName, { brand: match[2].toLowerCase(), methods });
+    }
+  }
+}
+
+loadPrimitiveIntrinsicsFromReflection();
 
 /**
  * Inline a dictionary method call with its concrete implementation.
  *
  * For a method like `(fa, f) => fa.map(f)` called with args `[myArr, myFn]`,
  * produces `myArr.map(myFn)`.
- *
- * Prefers using the AST node when available, falling back to source string parsing.
  */
 export function inlineMethod(
   ctx: MacroContext,
   method: DictMethod,
   callArgs: ts.Expression[]
 ): ts.Expression | undefined {
-  const ctxImpl = ctx as MacroContextImpl;
-
-  // Prefer AST node if available
-  if (method.node) {
-    return inlineFromNode(ctx, method.node, method.params, callArgs);
-  }
-
-  // Fall back to parsing source string
-  if (method.source) {
-    try {
-      const methodExpr = ctxImpl.parseExpression(method.source);
-      return inlineFromNode(ctx, methodExpr, method.params, callArgs);
-    } catch {
-      // Parse failed — skip inlining
-      return undefined;
-    }
-  }
-
-  return undefined;
+  if (!method.node) return undefined;
+  return inlineFromNode(ctx, method.node, method.params, callArgs);
 }
 
 /**
