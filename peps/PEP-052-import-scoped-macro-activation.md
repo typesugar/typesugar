@@ -1072,19 +1072,31 @@ from "./primitives.js"` (browser-safe — primitives.ts itself has zero
     — the alternative (two different maps again) would defeat the wave's
     entire purpose.
 
-- **Wave 9 — macro-package discovery via `package.json` (needs a PEP first).**
-  Replace the macro-loader's `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER`
-  lists and the `@typesugar/*`-prefix speculative loading with a declared
-  manifest field (e.g. `"typesugar": { "macros": "./macros" }`), making
-  third-party macro packages first-class. This changes what code the
-  compiler executes at build time, so it needs its own PEP (discovery
-  semantics, workspace-vs-registry resolution, security posture) — the wave
-  here is: draft that PEP, land the field + loader support behind the
-  existing lists, then delete the lists once std/fp/effect/contracts declare
-  the field. **Unblocks the ResultAlgebra relocation:** once fp can declare
-  a macro entry, the Option/Either algebra seeds move from
-  `@typesugar/macros` into fp (Promise's into std/macros), and the seeds
-  comment in `specialize.ts` comes out. Large.
+- **Wave 9 — macro-package discovery via `package.json`. PEP DRAFTED
+  (2026-07-04), implementation not started.** Replace the macro-loader's
+  `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` lists and the
+  `@typesugar/*`-prefix speculative loading with a declared manifest field
+  (e.g. `"typesugar": { "macros": "./macros" }`), making third-party macro
+  packages first-class. This changes what code the compiler executes at
+  build time, so it needed its own PEP (discovery semantics,
+  workspace-vs-registry resolution, security posture) before implementation
+  — that PEP is [PEP-055](PEP-055-macro-package-discovery.md), drafted and
+  opened for review (not merged; a separate ask from the "execute the
+  remaining waves" merge delegation, matching how PEP-054 was handled).
+  PEP-055's own research found the "workspace-vs-registry resolution"
+  question dissolves (Node module resolution already erases the
+  distinction) but surfaced a real, more significant one: honoring the
+  manifest field unconditionally for any package name would be a materially
+  larger supply-chain surface than today's `@typesugar/`-prefix gate — its
+  recommended design keeps today's trust boundary as the default and
+  requires explicit consumer-side opt-in (a `typesugar.config.ts`
+  allowlist) to widen it, rather than widening it for everyone by default.
+  Once PEP-055 is reviewed/accepted, the wave here is: land the field +
+  loader support behind the existing lists, then delete the lists once
+  std/fp/effect/contracts declare the field. **Unblocks the ResultAlgebra
+  relocation:** once fp can declare a macro entry, the Option/Either algebra
+  seeds move from `@typesugar/macros` into fp (Promise's into std/macros),
+  and the seeds comment in `specialize.ts` comes out. Large.
 
 - **Wave 10 (optional) — checker-derived native detection.** Even
   `BUILTIN_METHOD_RECEIVER_NAMES` is derivable in principle: rather than a
