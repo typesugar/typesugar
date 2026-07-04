@@ -201,46 +201,103 @@ circumstances. A design that honors `typesugar.macros` unconditionally for
 _any_ package name would mean: **any transitive dependency, of any package, at
 any scope, that ships this one field gets its code executed at compile time**
 — merely by existing somewhere in `node_modules` and being imported anywhere
-in the program, with zero action from the consuming project. That is a
-materially larger supply-chain surface than today's implicit
-`@typesugar/`-npm-scope speed bump (weak, but real — scope squatting is
-possible but requires deliberately claiming the `@typesugar` org, which npm
-scope ownership already gates).
+in the program, with zero action from the consuming project. Adding a package
+to your own `package.json` implies some trust, but the actual risk here is
+**transitive**: you didn't choose, and likely don't know about, everything in
+your dependency tree. That's a real risk for ordinary runtime dependencies too
+— but there, the malicious code only runs if something you wrote actually
+calls into it. Here, the code runs automatically the moment the package is
+merely present in the import graph, at compile time, on your (or CI's)
+machine, with whatever ambient access that environment has. That is a
+materially larger blast radius, and it's exactly the class of incident
+(`event-stream`, and more recently several build-plugin compromises) that has
+pushed the ecosystem toward requiring **explicit, one-time consent** for
+build-time code execution rather than either extreme (silent allow, or a
+hand-maintained allowlist nobody keeps up to date).
 
-**Recommendation: keep today's trust boundary as the default; only widen it
-on explicit, consumer-side opt-in.**
+**Recommendation: auto-trust `@typesugar/*`; require one-time, CLI-driven
+approval for everything else — modeled on pnpm's `approve-builds`.**
 
-- `@typesugar/*`-scoped packages: `typesugar.macros` is honored automatically,
-  exactly like today's `KNOWN_MACRO_PACKAGES`/prefix-fallback behavior. No
-  config change required for existing or new official packages — this PEP is
-  invisible to that case except that it's now declarative instead of a
-  hardcoded list a maintainer edits by hand.
-- **Any other scope/name**: the field is only honored if the consuming
-  project explicitly lists the package in `typesugar.config.ts`, e.g.:
+- **`@typesugar/*`-scoped packages are auto-trusted, unconditionally, with no
+  config and no approval step.** This is a deliberate choice, not an
+  oversight: by the time a project is using `typesugar` at all, it has
+  already extended unconditional code-execution trust to this publishing org
+  via the compiler itself (`@typesugar/transformer`) and via
+  `@typesugar/macros`, which loads unconditionally today and continues to
+  regardless of this PEP. Gating one more `@typesugar/*` package (e.g.
+  `@typesugar/std`) behind an approval step adds no real protection against
+  the actual threat (a compromised publish to the org) — that same
+  compromise could just as easily backdoor the compiler package, which has
+  no gate and structurally can't have one. The approval step earns its keep
+  exactly at the boundary this PEP draws: packages the project has not
+  already, unavoidably, chosen to trust by picking this tool. (Tradeoff worth
+  naming: a compromised `@typesugar` publish token could ship a malicious
+  macro with zero friction under this design. That exposure already exists
+  today via the compiler itself — this PEP does not add to it.)
+- **Everything else requires one-time, explicit approval, enforced by the
+  CLI, not by a hand-typed list.** The first time the loader discovers a
+  non-`@typesugar/*` package declaring `typesugar.macros` that hasn't been
+  approved, **the build fails** with a diagnostic naming the package(s) and
+  pointing at:
+
+  ```
+  $ typesugar approve-macros
+  ```
+
+  which lists exactly what's new, prompts for confirmation (a
+  `--yes`/non-interactive flag exists for scripted use, but the default
+  requires a human), and writes the approval into `typesugar.config.ts`'s
+  existing `security.allowedMacroPackages` field — the mechanism
+  `docs/SECURITY-REVIEW.md` already sketched and deliberately deferred
+  (tracked as GitHub issue #14; that sketch already supports scope-wildcard
+  entries like `"@my-org/*"`, so an organization that wants to trust its own
+  internal scope wholesale can write that once by hand — `approve-macros`
+  just writes exact names, it doesn't need to invent wildcard support
+  itself):
 
   ```typescript
+  // typesugar.config.ts
   export default {
-    macroPackages: ["my-org-macros", "@another-scope/typesugar-plugin"],
+    security: {
+      // Written by `typesugar approve-macros` — safe to hand-edit, but
+      // review each entry as carefully as a new production dependency.
+      allowedMacroPackages: ["my-org-macros", "@another-scope/typesugar-plugin"],
+    },
   };
   ```
 
-  This is precisely the `allowedMacroPackages` mechanism
-  `docs/SECURITY-REVIEW.md` already sketched and deliberately deferred
-  (tracked as GitHub issue #14) — this PEP is the concrete trigger for
-  building it, rather than another round of deferral, because without it
-  Wave 9's stated goal ("first-class third-party macro packages") is
-  unreachable safely.
+  This file is meant to be **committed to version control**, mirroring
+  pnpm's `pnpm-workspace.yaml` `onlyBuiltDependencies` /
+  `ignoredBuiltDependencies` model for lifecycle-script approval: once
+  approved locally by one contributor, every other clone (and CI) reads the
+  same committed decision — no repeated friction on every build, and a PR
+  that introduces a new macro-package dependency shows the trust decision
+  explicitly in its diff, for reviewers to scrutinize alongside the
+  dependency change itself.
 
+- **Friction is paid once per package, not once per build** — directly
+  answering the "keep it low-friction" goal: after approval, subsequent
+  builds (local or CI) proceed silently as long as no _new_, unapproved
+  package appears. If a dependency update introduces a macro package that
+  wasn't there before (a new transitive dependency, or an existing dependency
+  gaining a macro entry it didn't have), the build fails again — a human must
+  explicitly approve the new addition. An update to an _already-approved_
+  package's _version_ does not require re-approval in this design (matching
+  pnpm's precedent, and its accepted tradeoff): this catches new untrusted
+  packages entering the graph, not a compromised update to a package already
+  trusted. Pinning approval to a content hash of the macro entry (to also
+  catch the "already-trusted package ships a malicious update" case) is a
+  strictly stronger variant worth considering, called out as an open question
+  below rather than specified here.
 - This does **not** solve the underlying "how do we know a package's claimed
   identity is real" problem (issue #14's deeper ask — deriving trust from the
   module-resolution graph rather than a self-declared field) — that remains
-  future work. What this PEP's opt-in gate buys is _consent_: a third-party
-  macro package can only run at build time if the person building the
-  project named it, not merely because some transitive dependency happened to
-  ship the field. That is the same bar `postinstall` scripts, Babel plugins,
-  and bundler plugins already clear via explicit `package.json`
-  dependency+config declarations — this brings macro packages to parity with
-  that norm, not below it.
+  future work. What this design buys is _consent_: a third-party macro
+  package can only run at build time if a human explicitly approved it, not
+  merely because some transitive dependency happened to ship the field. That
+  is the same bar `postinstall` scripts, Babel plugins, and bundler plugins
+  already clear via explicit dependency+approval steps — this brings macro
+  packages to parity with that norm, not below it.
 
 ### What does NOT change
 
@@ -270,12 +327,14 @@ on explicit, consumer-side opt-in.**
 
 ## Migration plan (the actual PEP-052 Wave 9 execution, once this PEP lands)
 
-1. **Phase A** — add `typesugar.macros` manifest reading + the security-gated
-   discovery algorithm above to `macro-loader.ts`, running **behind** the
-   existing `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` lists (i.e. additive:
-   a package matches if it's in the old lists OR declares the new field).
-   Zero behavior change for any existing package at this point — purely new,
-   inert capability.
+1. **Phase A** — add `typesugar.macros` manifest reading, the auto-trust/
+   approval-gated discovery algorithm above, and the `typesugar approve-macros`
+   CLI command + `security.allowedMacroPackages` config read/write to
+   `macro-loader.ts`, running **behind** the existing
+   `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` lists (i.e. additive: a package
+   matches if it's in the old lists OR declares the new field). Zero behavior
+   change for any existing package at this point — purely new, inert
+   capability.
 2. **Phase B** — `@typesugar/std`, `@typesugar/effect`, `@typesugar/contracts`,
    `@typesugar/mapper` each add the `typesugar.macros` field to their
    `package.json` (pointing at their existing `./macros` subpath — no source
@@ -307,15 +366,20 @@ matching the discipline established across PEP-052's waves.
 ## Acceptance criteria
 
 - `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` deleted from `macro-loader.ts`.
-- A package with no `@typesugar/` npm scope, declaring `typesugar.macros` and
-  listed in a consuming project's `typesugar.config.ts` `macroPackages`
-  allowlist, has its macros discovered and registered — demonstrated with a
-  real (test-fixture) third-party-shaped package, not just an `@typesugar/*`
-  one.
-- A package with no `@typesugar/` npm scope, declaring `typesugar.macros`
-  but **not** listed in `macroPackages`, is confirmed NOT loaded (the
-  opt-in gate is real, not decorative) — a negative test, not just the
-  absence of one.
+- `@typesugar/*`-scoped packages declaring `typesugar.macros` are discovered
+  and registered automatically, with no config entry required — demonstrated
+  by the existing official packages (Phase B) continuing to work with zero
+  `security.allowedMacroPackages` entries for themselves.
+- A package with no `@typesugar/` npm scope, declaring `typesugar.macros`,
+  causes the build to **fail** with an actionable diagnostic the first time
+  it's encountered — demonstrated with a real (test-fixture)
+  third-party-shaped package, not just an `@typesugar/*` one.
+- Running `typesugar approve-macros` against that failing build lists the
+  package, writes it to `typesugar.config.ts`'s `security.allowedMacroPackages`,
+  and the same build then succeeds with the package's macros registered.
+- A subsequent build with an _unrelated_ new, unapproved macro package
+  introduced (simulating a dependency update) fails again, confirming
+  approval is scoped per-package, not a one-time global bypass.
 - `@typesugar/fp` has its own `./macros` entry; `optionResultAlgebra`/
   `eitherResultAlgebra` live there, `promiseResultAlgebra` lives in
   `@typesugar/std`'s; `specialize.ts` has zero built-in `ResultAlgebra` seeds.
@@ -323,19 +387,18 @@ matching the discipline established across PEP-052's waves.
 
 ## Open questions (for Dean's review)
 
-1. **Is the recommended default-safe posture (auto-trust `@typesugar/*`,
-   explicit opt-in for everything else) the right call, or should even
-   `@typesugar/*` packages require listing?** The recommendation above treats
-   npm-scope ownership as a meaningful (if weak) trust signal worth
-   preserving as the zero-config default, matching today's behavior exactly.
-   An alternative, stricter design would require every macro package —
-   including official ones — to be listed in `macroPackages`, trading a
-   config line for a stronger "nothing runs without explicit consent"
-   guarantee.
-2. **Should `typesugar.config.ts`'s `macroPackages` allowlist support
-   wildcards/scope-level entries** (e.g. `"@my-org/*"`) for organizations
-   that want to trust their own internal scope wholesale, or should every
-   package be named individually?
+1. **Should approval be pinned to a content hash of the macro entry, not just
+   the package name?** As designed, re-publishing an already-approved
+   package with a malicious `./macros` update would NOT trigger a new
+   approval prompt (matching pnpm `approve-builds`'s accepted tradeoff — it
+   also approves by name, not by content). A hash-pinned variant would catch
+   "trusted package, compromised update" at the cost of a fresh prompt on
+   every macro-affecting release of an approved package, even benign ones.
+2. **Should `typesugar approve-macros` require a specific reviewer/CI
+   signal** (e.g. refuse to run in a detected-CI environment, forcing
+   approval to always happen locally and be committed, never generated
+   on-the-fly in a pipeline) — or is a `--yes` flag for scripted/CI use
+   acceptable as designed?
 3. **Naming**: is `typesugar.macros` the right manifest key, or should it
    nest under something more explicit like `typesugar.exports.macros` to
    leave room for future `typesugar.*` manifest fields (e.g. a future
