@@ -27,7 +27,7 @@ const result = findUser(42)
 Some(42); // Option<number> containing 42
 None; // Empty Option<never>
 
-// Implicit conversion via SFINAE — no fromNullable() needed
+// Implicit conversion via a diagnostic suppression rule — no fromNullable() needed
 const nullable: number | null = getFromDb();
 const opt: Option<number> = nullable; // Just works
 ```
@@ -173,7 +173,7 @@ export interface Option<A> {
 - **TypeScript sees**: Interface with methods (IDE completions, type inference)
 - **Runtime**: `A | null` (zero allocations)
 - **Transformer**: Rewrites `x.map(f)` → `map(x, f)`
-- **SFINAE**: `Option<T>` and `T | null` are implicitly convertible
+- **Diagnostic suppression**: `Option<T>` and `T | null` are implicitly convertible
 
 ### Publishing @opaque Types in Libraries
 
