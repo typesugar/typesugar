@@ -19,6 +19,101 @@ interface TransformResult {
   preprocessed?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Server compilation — same /api/compile endpoint the full /playground page
+// uses (Playground.vue), so embedded snippets get the real compiler (real
+// node_modules, real macro registrations) instead of the client-side
+// transformer-core-only bundle. That bundle diverges from the real compiler
+// in ways that are invisible until you actually run the output — e.g. it has
+// no method-sugar dispatcher at all, and (independently, fixed via task #30 /
+// the InstanceScanner same-pass registration) it used to be unable to see a
+// same-file `@derive` companion. Mirrors Playground.vue's compileCodeOnServer.
+// ---------------------------------------------------------------------------
+
+interface ServerCompileResult {
+  code: string;
+  diagnostics: TransformResult["diagnostics"];
+  changed: boolean;
+  cached?: boolean;
+  compileTimeMs?: number;
+}
+
+const compileCache = new Map<string, ServerCompileResult>();
+const COMPILE_CACHE_MAX_SIZE = 50;
+
+function fnv1aHash(str: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 16777619) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function getCacheKey(code: string, fileName: string): string {
+  return fnv1aHash(code + "\0" + fileName);
+}
+
+function getFromCompileCache(key: string): ServerCompileResult | undefined {
+  const entry = compileCache.get(key);
+  if (!entry) return undefined;
+  compileCache.delete(key);
+  compileCache.set(key, entry);
+  return entry;
+}
+
+function setInCompileCache(key: string, value: ServerCompileResult): void {
+  if (compileCache.has(key)) {
+    compileCache.delete(key);
+  }
+  compileCache.set(key, value);
+  if (compileCache.size > COMPILE_CACHE_MAX_SIZE) {
+    const oldest = compileCache.keys().next().value;
+    if (oldest) compileCache.delete(oldest);
+  }
+}
+
+const COMPILE_TIMEOUT_MS = 10000;
+
+async function compileCodeOnServer(
+  code: string,
+  fileNameArg: string
+): Promise<ServerCompileResult | null> {
+  const cacheKey = getCacheKey(code, fileNameArg);
+  const cached = getFromCompileCache(cacheKey);
+  if (cached) return { ...cached, cached: true };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), COMPILE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch("/api/compile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, fileName: fileNameArg }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn(`[PlaygroundEmbed] Server compile failed: ${response.status}`);
+      return null;
+    }
+
+    const result = (await response.json()) as ServerCompileResult;
+    setInCompileCache(cacheKey, result);
+    return result;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      console.warn("[PlaygroundEmbed] Server compile timed out");
+    } else {
+      console.warn("[PlaygroundEmbed] Server compile error:", err);
+    }
+    return null;
+  }
+}
+
 const props = withDefaults(
   defineProps<{
     code: string;
@@ -40,9 +135,6 @@ const outputContainer = ref<HTMLElement | null>(null);
 const inputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 const outputEditor = shallowRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 const monaco = shallowRef<typeof Monaco | null>(null);
-const playground = shallowRef<{
-  transform: (code: string, options: { fileName: string; verbose?: boolean }) => TransformResult;
-} | null>(null);
 
 const isLoading = ref(true);
 const transformError = ref<string | null>(null);
@@ -104,34 +196,38 @@ function registerTypesugarThemes(monacoInstance: typeof Monaco) {
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-function doTransform() {
-  if (!playground.value || !inputEditor.value) return;
+async function doTransform() {
+  if (!inputEditor.value) return;
 
   const code = inputEditor.value.getValue();
   transformError.value = null;
 
   try {
-    const result = playground.value.transform(code, {
-      fileName: fileName.value,
-      verbose: false,
-    });
-
-    if (result.diagnostics) {
-      result.diagnostics = result.diagnostics.map((d) => {
-        const model = inputEditor.value?.getModel();
-        if (model && typeof d.start === "number") {
-          const pos = model.getPositionAt(d.start);
-          return { ...d, line: pos.lineNumber, column: pos.column };
-        }
-        return d;
-      });
+    const result = await compileCodeOnServer(code, fileName.value);
+    if (!result) {
+      transformError.value = "Server compile failed or timed out.";
+      return;
     }
 
-    lastResult.value = result;
+    const diagnostics = result.diagnostics.map((d) => {
+      const model = inputEditor.value?.getModel();
+      if (model && typeof d.start === "number") {
+        const pos = model.getPositionAt(d.start);
+        return { ...d, line: pos.lineNumber, column: pos.column };
+      }
+      return d;
+    });
+
+    lastResult.value = {
+      original: code,
+      code: result.code,
+      changed: result.changed,
+      diagnostics,
+    };
     outputEditor.value?.setValue(result.code);
 
-    if (result.diagnostics.length > 0) {
-      transformError.value = result.diagnostics.map((d) => d.message).join("; ");
+    if (diagnostics.length > 0) {
+      transformError.value = diagnostics.map((d) => d.message).join("; ");
     }
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
@@ -145,19 +241,6 @@ function scheduleTransform() {
     clearTimeout(debounceTimer);
   }
   debounceTimer = setTimeout(doTransform, 300);
-}
-
-async function loadPlayground() {
-  try {
-    const ts = await import("typescript");
-    (window as Record<string, unknown>).ts = ts;
-
-    const playgroundModule = await import("@typesugar/playground");
-    playground.value = playgroundModule;
-  } catch (e) {
-    console.error("Failed to load playground:", e);
-    transformError.value = `Failed to load playground: ${e}`;
-  }
 }
 
 function openInPlayground() {
@@ -184,7 +267,6 @@ async function initMonaco() {
     monaco.value = monacoInstance;
 
     registerTypesugarThemes(monacoInstance);
-    await loadPlayground();
 
     const isDark = document.documentElement.classList.contains("dark");
     const theme = isDark ? "typesugar-dark" : "typesugar-light";
