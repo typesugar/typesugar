@@ -81,6 +81,14 @@ export {
   type FileResolutionScope,
 } from "./resolution-scope.js";
 
+// Syntax Marker Fallback (PEP-052 Wave 6)
+export {
+  registerSyntaxMarkerFallback,
+  getSyntaxMarkerFallback,
+  clearSyntaxMarkerFallbackRegistry,
+  type SyntaxMarkerFallbackEntry,
+} from "./syntax-marker-fallback.js";
+
 // Prelude System
 export {
   DEFAULT_PRELUDE,

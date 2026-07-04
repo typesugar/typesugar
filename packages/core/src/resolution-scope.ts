@@ -12,6 +12,7 @@
 import * as ts from "typescript";
 import { config, ResolutionMode } from "./config.js";
 import { globalRegistry } from "./registry.js";
+import { getSyntaxMarkerFallback } from "./syntax-marker-fallback.js";
 
 /**
  * Resolution scope for a single file.
@@ -371,6 +372,17 @@ export function scanImportsForScope(
       const bySyntaxModule = syntaxModuleIndex.get(moduleName);
       if (bySyntaxModule) {
         for (const m of bySyntaxModule) tracker.activateLabelSyntax(fileName, m);
+      }
+
+      // PEP-052 Wave 6: resolution-free fallback for operator/method syntax
+      // markers (the labeled-block/do-notation analog above; typeclasses
+      // have no `MacroDefinition`/`syntaxModule` to key off, so this is a
+      // separate, provider-declared registry — see syntax-marker-fallback.ts).
+      const markerFallback = getSyntaxMarkerFallback(moduleName);
+      if (markerFallback) {
+        for (const tc of markerFallback.operators ?? [])
+          tracker.activateOperatorSyntax(fileName, tc);
+        for (const tc of markerFallback.methods ?? []) tracker.activateMethodSyntax(fileName, tc);
       }
     }
   });
