@@ -34,10 +34,19 @@ interface Show<A> {
 <summary><strong>Try it</strong></summary>
 
 <PlaygroundEmbed
-  code="// Typeclasses define shared behavior
-// Open in full playground to see typeclass syntax"
+  code="import { summon } from &quot;typesugar&quot;;
+/** @typeclass */
+interface Show&lt;A&gt; {
+  show(a: A): string;
+}
+/** @impl Show&lt;number&gt; */
+const showNumber: Show&lt;number&gt; = {
+  show: (n) =&gt; String(n),
+};
+const showN = summon&lt;Show&lt;number&gt;&gt;();
+console.log(showN.show(42));"
   mode=".ts"
-  height="100px"
+  height="220px"
   title="Typeclass basics"
 />
 
@@ -350,6 +359,51 @@ const p3 = p1 + p2;
 // Compiles to:
 const p3 = Point.Numeric.add(p1, p2);
 ```
+
+<details>
+<summary><strong>Try it: std's Eq/Ord operator syntax (PEP-052 import-scoped activation)</strong></summary>
+
+<PlaygroundEmbed
+  code="import &quot;@typesugar/std/syntax/eq/ops&quot;;
+import &quot;@typesugar/std/syntax/ord/ops&quot;;
+import type { Eq, Ord } from &quot;@typesugar/std/typeclasses&quot;;
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+function distSq(p: Point): number {
+  return p.x * p.x + p.y * p.y;
+}
+/** @impl Eq&lt;Point&gt; */
+const eqPoint: Eq&lt;Point&gt; = {
+  equals: (a, b) =&gt; a.x === b.x && a.y === b.y,
+  notEquals: (a, b) =&gt; !(a.x === b.x && a.y === b.y),
+};
+/** @impl Ord&lt;Point&gt; */
+const ordPoint: Ord&lt;Point&gt; = {
+  ...eqPoint,
+  compare: (a, b) =&gt; (distSq(a) &lt; distSq(b) ? -1 : distSq(a) &gt; distSq(b) ? 1 : 0),
+  lessThan: (a, b) =&gt; distSq(a) &lt; distSq(b),
+  lessThanOrEqual: (a, b) =&gt; distSq(a) &lt;= distSq(b),
+  greaterThan: (a, b) =&gt; distSq(a) &gt; distSq(b),
+  greaterThanOrEqual: (a, b) =&gt; distSq(a) &gt;= distSq(b),
+};
+const near1 = new Point(1, 2);
+const near2 = new Point(1, 2);
+const far = new Point(3, 4);
+console.log(&quot;near1 === near2:&quot;, near1 === near2);
+console.log(&quot;near1 === far:&quot;, near1 === far);
+console.log(&quot;near1 &lt; far:&quot;, near1 &lt; far);"
+  mode=".ts"
+  height="500px"
+  title="Eq/Ord operator syntax"
+/>
+
+The `@typesugar/std/syntax/eq/ops` and `.../ord/ops` imports are exactly the
+markers from [Extension Methods](#extension-methods) above, at the operator
+tier — this is the same import-scoped activation mechanism, just louder.
+Without them, `===` and `<` stay native.
+
+</details>
 
 ### Supported Operators
 
