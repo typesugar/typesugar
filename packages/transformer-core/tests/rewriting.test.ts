@@ -89,6 +89,66 @@ function makeProgram(source: string, fileName = "test.ts"): Fixture {
   };
 }
 
+/** Like makeProgram, but builds a real multi-file ts.Program (for cross-module resolution). */
+function makeMultiFileProgram(files: Record<string, string>, mainFile: string): Fixture {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rewriting-multi-test-"));
+  const filePaths: Record<string, string> = {};
+  for (const [name, content] of Object.entries(files)) {
+    const filePath = path.join(tmpDir, name);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content);
+    filePaths[name] = filePath;
+  }
+
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2020,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    noEmit: true,
+  };
+
+  const host = ts.createCompilerHost(options);
+  const origGetSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (fn, lang, onErr, shouldCreate) => {
+    const sf = origGetSourceFile(fn, lang, onErr, shouldCreate);
+    if (sf && Object.values(filePaths).includes(fn)) {
+      return ts.createSourceFile(fn, sf.text, lang, true);
+    }
+    return sf;
+  };
+  const program = ts.createProgram(Object.values(filePaths), options, host);
+  const sourceFile = program.getSourceFile(filePaths[mainFile])!;
+
+  return {
+    program,
+    sourceFile,
+    cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }),
+  };
+}
+
+/** Like withContext, but for a multi-file program. */
+function withMultiFileContext<T>(
+  files: Record<string, string>,
+  mainFile: string,
+  cb: (ctx: ReturnType<typeof createMacroContext>, sf: ts.SourceFile, visit: VisitFn) => T
+): T {
+  const { program, sourceFile, cleanup } = makeMultiFileProgram(files, mainFile);
+  let result: T;
+  try {
+    const factory: ts.TransformerFactory<ts.SourceFile> = (transformCtx) => {
+      const ctx = createMacroContext(program, sourceFile, transformCtx);
+      const visit: VisitFn = (n) => n;
+      result = cb(ctx, sourceFile, visit);
+      return (sf) => sf;
+    };
+    ts.transform(sourceFile, [factory]);
+  } finally {
+    cleanup();
+  }
+  return result!;
+}
+
 /** Run a callback inside a transformation context, returning the result + diagnostics. */
 function withContext<T>(
   source: string,
@@ -748,6 +808,43 @@ describe("tryRewriteExtensionMethod", () => {
     );
     expect(result).toBeUndefined();
   });
+
+  it("normalizes a literal receiver type (e.g. numeric literal 5) to its base type for extension lookup", () => {
+    // A receiver the checker types as a NumberLiteral (not widened to `number`)
+    // -- typeToString on it returns the literal text ("5"), which would never
+    // match an extension registered for "number" without normalizing by
+    // TypeFlags first. Ported from the legacy pipeline's equivalent guard.
+    standaloneExtensionRegistry.push({
+      methodName: "clamp",
+      forType: "number",
+    });
+
+    const { result } = withContext(
+      `(5).clamp(0, 10);`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[0] as ts.ExpressionStatement).expression as ts.CallExpression;
+        // Confirm the fixture actually exercises a literal type, not `number`.
+        const receiverType = ctx.typeChecker.getTypeAtLocation(
+          (expr.expression as ts.PropertyAccessExpression).expression
+        );
+        expect(!!(receiverType.flags & ts.TypeFlags.NumberLiteral)).toBe(true);
+        return tryRewriteExtensionMethod(
+          ctx,
+          false,
+          visit,
+          () => undefined,
+          () => undefined,
+          expr
+        );
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeDefined();
+    const call = result as ts.CallExpression;
+    expect(ts.isIdentifier(call.expression)).toBe(true);
+    expect((call.expression as ts.Identifier).text).toBe("clamp");
+    expect(call.arguments).toHaveLength(3);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1045,5 +1142,98 @@ describe("tryRewriteTypeclassOperator", () => {
       "consumer.ts"
     );
     expect(result).toBeUndefined();
+  });
+
+  it("schedules an import for a cross-module (module-scan) instance, ported from legacy", () => {
+    // Numeric, Point, and the numericPoint instance all live in point.ts (a
+    // type-annotated `const numericPoint: Numeric<Point>` -- required since
+    // instance-scanner's JSDoc-only @impl form can only resolve primitive
+    // forTypes by name; a real interface needs the checker-backed type
+    // annotation path). consumer.ts imports only `Point` by name -- never
+    // `numericPoint` -- which is exactly what makes resolveInstance return
+    // source: "module-scan" rather than "explicit-import" or "local-scope".
+    // Operator-syntax activation for Numeric comes from the `@syntax-operators`
+    // marker on `point.ts`'s own `__activateNumericOps` export, discovered by
+    // scanning every import (including this one) for such a marker -- the
+    // same mechanism `@typesugar/std/syntax/eq/ops` uses in production.
+    //
+    // Legacy scheduled an import for this cross-module case
+    // (scheduleInstanceImport); the core copy previously assumed the binding
+    // was already in scope, which is only true for explicit-import/
+    // local-scope, not module-scan.
+    const result = withMultiFileContext(
+      {
+        "point.ts": [
+          "/** @typeclass */",
+          "export interface Numeric<A> {",
+          "  /** @op + */",
+          "  add(a: A, b: A): A;",
+          "}",
+          "export interface Point { x: number; y: number; }",
+          "export const numericPoint: Numeric<Point> = { add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) };",
+          "/** @syntax-operators Numeric */",
+          "export const __activateNumericOps = true;",
+        ].join("\n"),
+        "consumer.ts": [
+          'import { Point } from "./point.js";',
+          "",
+          "declare const a: Point;",
+          "declare const b: Point;",
+          "a + b;",
+        ].join("\n"),
+      },
+      "consumer.ts",
+      (ctx, sf, visit) => {
+        scanImportsForScope(sf, globalResolutionScope, ctx.program);
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.BinaryExpression;
+        const rewritten = tryRewriteTypeclassOperator(ctx, false, visit, expr);
+        const pendingImports = ctx.fileBindingCache.getPendingImports();
+        return { rewritten, pendingImports };
+      }
+    );
+
+    expect(result.rewritten).toBeDefined();
+    const call = result.rewritten as ts.CallExpression;
+    const pa = call.expression as ts.PropertyAccessExpression;
+    expect((pa.expression as ts.Identifier).text).toBe("numericPoint");
+
+    expect(result.pendingImports.length).toBeGreaterThan(0);
+    const printed = result.pendingImports.map((d) => printNode(d)).join("\n");
+    expect(printed).toContain("numericPoint");
+    expect(printed).toContain("./point.js");
+  });
+
+  it("strips comments from operands in the emitted call (ported from legacy)", () => {
+    const source = [
+      "/** @typeclass */",
+      "interface Numeric<A> {",
+      "  /** @op + */",
+      "  add(a: A, b: A): A;",
+      "}",
+      "interface Point { x: number; y: number; }",
+      "/** @impl Numeric<Point> */",
+      "const numericPoint: Numeric<Point> = { add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) };",
+      "declare const a: Point;",
+      "declare const b: Point;",
+      "a /* left comment */ + /* right comment */ b;",
+    ].join("\n");
+
+    const { result } = withContext(
+      source,
+      (ctx, sf, visit) => {
+        scanImportsForScope(sf, globalResolutionScope, ctx.program);
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.BinaryExpression;
+        return tryRewriteTypeclassOperator(ctx, false, visit, expr);
+      },
+      "consumer.ts"
+    );
+
+    expect(result).toBeDefined();
+    const printed = printNode(result as ts.Expression);
+    expect(printed).not.toContain("comment");
   });
 });
