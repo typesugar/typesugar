@@ -34,19 +34,17 @@ function tagOf(file: string, tagName: string): string | undefined {
 }
 
 /** Discovered from the filesystem: `{path, typeclass, hasOps}` per marker. */
-const STD_SYNTAX_TYPECLASSES: Array<{ path: string; typeclass: string; hasOps: boolean }> = readdirSync(
-  syntaxDir,
-  { withFileTypes: true }
-)
-  .filter((e) => e.isFile() && e.name.endsWith(".ts"))
-  .map((e) => {
-    const markerPath = e.name.replace(/\.ts$/, "");
-    const typeclass = tagOf(path.join(syntaxDir, e.name), "syntax-methods");
-    if (!typeclass) return null; // e.g. do.ts carries @syntax-labels, not a Wave 6 marker
-    const opsFile = path.join(syntaxDir, markerPath, "ops.ts");
-    return { path: markerPath, typeclass, hasOps: existsSync(opsFile) };
-  })
-  .filter((x): x is { path: string; typeclass: string; hasOps: boolean } => x !== null);
+const STD_SYNTAX_TYPECLASSES: Array<{ path: string; typeclass: string; hasOps: boolean }> =
+  readdirSync(syntaxDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".ts"))
+    .map((e) => {
+      const markerPath = e.name.replace(/\.ts$/, "");
+      const typeclass = tagOf(path.join(syntaxDir, e.name), "syntax-methods");
+      if (!typeclass) return null; // e.g. do.ts carries @syntax-labels, not a Wave 6 marker
+      const opsFile = path.join(syntaxDir, markerPath, "ops.ts");
+      return { path: markerPath, typeclass, hasOps: existsSync(opsFile) };
+    })
+    .filter((x): x is { path: string; typeclass: string; hasOps: boolean } => x !== null);
 
 describe("PEP-052 Wave 6: std marker fallback ↔ marker file consistency", () => {
   it("discovered at least one @syntax-methods marker (glob isn't silently empty)", () => {

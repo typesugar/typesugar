@@ -771,7 +771,7 @@ already on the remaining list; 7-10 come from the retained items.
     test (`pep052-marker-fallback.test.ts`); fp's one specifier
     (`@typesugar/fp/syntax/show`) registers in `packages/fp/src/index.ts`
     (fp's root `.` entry, since fp ships no `./macros` compile-time entry —
-    it has no macro *definitions*, only this one marker).
+    it has no macro _definitions_, only this one marker).
   - **Phase C, two false leads confirmed as pre-existing scanner/index
     requirements, not Wave 6 defects** (same "verify before fixing"
     discipline as Wave 5's Show bug hunt): (1) the legacy pipeline's
@@ -792,7 +792,7 @@ already on the remaining list; 7-10 come from the retained items.
   - **Phase D — closed the actual motivating gap, not just the mechanism:**
     `@typesugar/playground`'s `transform()` (`src/index.ts`) — the real
     in-memory host this wave exists for — never imported `@typesugar/std` or
-    `@typesugar/fp` for anything but runtime *values* (a separate
+    `@typesugar/fp` for anything but runtime _values_ (a separate
     iframe-sandbox bundle, `runtime-entry.ts`), so neither package's Wave 6
     registrations ever ran there; a playground snippet importing
     `@typesugar/std/syntax/eq/ops` could not have activated operator syntax
