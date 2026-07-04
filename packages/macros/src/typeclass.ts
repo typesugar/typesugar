@@ -731,7 +731,7 @@ interface SyntaxEntry {
  * at the call site by checking which one has an instance for the receiver type.
  */
 function getTypeclassesForMethod(methodName: string): SyntaxEntry[] | undefined {
-  // Registry-free (PEP-052): the SFINAE diagnostic filter that calls this runs at
+  // Registry-free (PEP-052): the diagnostic suppression filter that calls this runs at
   // check-time (`noEmit`), where no transformer has populated user typeclasses — so
   // the static standard definitions are the authoritative method→typeclass source.
   const entries: SyntaxEntry[] = [];

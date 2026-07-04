@@ -8,7 +8,7 @@
  * 1. Creates a TypeScript LanguageService with a custom LanguageServiceHost
  * 2. Intercepts getScriptSnapshot to serve transformed (macro-expanded) code
  * 3. Maps all positions bidirectionally between original and transformed coordinates
- * 4. Applies SFINAE rules to suppress diagnostics in macro-generated code
+ * 4. Applies diagnostic suppression rules to suppress diagnostics in macro-generated code
  *
  * Usage: typesugar-lsp --stdio
  */
@@ -55,8 +55,12 @@ import {
   IdentityPositionMapper,
   type PositionMapper,
 } from "@typesugar/transformer/position-mapper";
-import { filterDiagnostics, getSfinaeRules, type PositionMapFn } from "@typesugar/core";
-import { registerAllSfinaeRules } from "@typesugar/macros";
+import {
+  filterDiagnostics,
+  getDiagnosticSuppressionRules,
+  type PositionMapFn,
+} from "@typesugar/core";
+import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 import {
   mapTextSpanToOriginal,
   offsetToPosition,
@@ -394,10 +398,10 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
 }
 
 // ---------------------------------------------------------------------------
-// SFINAE registration
+// Diagnostic suppression registration
 // ---------------------------------------------------------------------------
 
-function registerSfinaeRules(): void {
+function registerDiagnosticSuppressionRules(): void {
   const positionMapFn: PositionMapFn = (
     fileName: string,
     transformedPos: number
@@ -406,7 +410,7 @@ function registerSfinaeRules(): void {
     return mapper.toOriginal(transformedPos);
   };
 
-  registerAllSfinaeRules({ positionMapFn });
+  registerAllDiagnosticSuppressionRules({ positionMapFn });
 }
 
 // ---------------------------------------------------------------------------
@@ -526,10 +530,10 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
     `getDiagnosticsForFile ${path.basename(normalizedFileName)}: ${allTsDiags.length} raw TS diags`
   );
 
-  // Apply SFINAE filtering
+  // Apply diagnostic suppression filtering
   const program = languageService.getProgram();
   let filtered: readonly ts.Diagnostic[];
-  if (program && getSfinaeRules().length > 0) {
+  if (program && getDiagnosticSuppressionRules().length > 0) {
     const checker = program.getTypeChecker();
     filtered = filterDiagnostics(allTsDiags, checker, (fn) => program.getSourceFile(fn));
   } else {
@@ -537,7 +541,7 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
   }
 
   const suppressedCount = allTsDiags.length - filtered.length;
-  log(`  After SFINAE: ${filtered.length} (suppressed ${suppressedCount})`);
+  log(`  After diagnostic suppression: ${filtered.length} (suppressed ${suppressedCount})`);
   if (suppressedCount > 0) {
     for (const diag of allTsDiags) {
       if (!filtered.includes(diag)) {
@@ -853,8 +857,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   const host = createLanguageServiceHost(compilerOptions);
   languageService = ts.createLanguageService(host, ts.createDocumentRegistry());
 
-  // Register SFINAE rules
-  registerSfinaeRules();
+  // Register diagnostic suppression rules
+  registerDiagnosticSuppressionRules();
 
   log("Language service initialized");
 

@@ -1,25 +1,28 @@
 /**
- * Tests for unified SFINAE registration (PEP-034 Wave 1B)
+ * Tests for unified diagnostic suppression registration (PEP-034 Wave 1B)
  *
  * Verifies:
- * 1. registerAllSfinaeRules() registers the expected set of rules
+ * 1. registerAllDiagnosticSuppressionRules() registers the expected set of rules
  * 2. Calling it twice doesn't duplicate rules
  * 3. Without positionMapFn, MacroGenerated is omitted
  * 4. With positionMapFn, MacroGenerated is included
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { clearSfinaeRules, getSfinaeRules } from "@typesugar/core";
-import { registerAllSfinaeRules, ALL_SFINAE_RULE_NAMES } from "./sfinae-registration.js";
+import { clearDiagnosticSuppressionRules, getDiagnosticSuppressionRules } from "@typesugar/core";
+import {
+  registerAllDiagnosticSuppressionRules,
+  ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES,
+} from "./diagnostic-suppression-registration.js";
 
-describe("registerAllSfinaeRules", () => {
+describe("registerAllDiagnosticSuppressionRules", () => {
   beforeEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
   });
 
   it("registers all non-positional rules when called without options", () => {
-    const registered = registerAllSfinaeRules();
-    const rules = getSfinaeRules();
+    const registered = registerAllDiagnosticSuppressionRules();
+    const rules = getDiagnosticSuppressionRules();
     const ruleNames = rules.map((r) => r.name);
 
     expect(registered).toEqual([
@@ -35,8 +38,8 @@ describe("registerAllSfinaeRules", () => {
 
   it("registers MacroGenerated when positionMapFn is provided", () => {
     const dummyMapFn = (_fileName: string, _pos: number): number | null => null;
-    const registered = registerAllSfinaeRules({ positionMapFn: dummyMapFn });
-    const rules = getSfinaeRules();
+    const registered = registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
+    const rules = getDiagnosticSuppressionRules();
     const ruleNames = rules.map((r) => r.name);
 
     expect(registered).toContain("MacroGenerated");
@@ -45,17 +48,17 @@ describe("registerAllSfinaeRules", () => {
   });
 
   it("returns empty array on duplicate registration", () => {
-    registerAllSfinaeRules();
-    const second = registerAllSfinaeRules();
+    registerAllDiagnosticSuppressionRules();
+    const second = registerAllDiagnosticSuppressionRules();
     expect(second).toEqual([]);
     // Rules should still be there, just not re-registered
-    expect(getSfinaeRules()).toHaveLength(6);
+    expect(getDiagnosticSuppressionRules()).toHaveLength(6);
   });
 
-  it("ALL_SFINAE_RULE_NAMES contains every rule", () => {
+  it("ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES contains every rule", () => {
     const dummyMapFn = (_fileName: string, _pos: number): number | null => null;
-    registerAllSfinaeRules({ positionMapFn: dummyMapFn });
-    const ruleNames = getSfinaeRules().map((r) => r.name);
-    expect(ruleNames).toEqual([...ALL_SFINAE_RULE_NAMES]);
+    registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
+    const ruleNames = getDiagnosticSuppressionRules().map((r) => r.name);
+    expect(ruleNames).toEqual([...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES]);
   });
 });
