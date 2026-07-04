@@ -968,15 +968,86 @@ from "./primitives.js"` (browser-safe — primitives.ts itself has zero
     could in principle be misidentified — the same risk existed with the
     old hand-written registry.
 
-- **Wave 8 — JSDoc dispatcher unification.** The two `JSDOC_MACRO_TAGS` maps
-  can only merge when their dispatchers do. Scope narrowly to the JSDoc
-  dispatch path (not the whole legacy-transformer absorption): teach
-  transformer-core's dispatcher the legacy visitor's `derive`/`adt`
-  special-cases (they bypass the attribute-macro registry by design — the
-  derive attribute was deleted in PEP-032), then port the legacy transformer
-  to consume the shared dispatcher, then delete its private map. Gate: the
-  jsdoc-macros + derive suites on both pipelines. Medium; a stepping stone
-  for the larger absorption.
+- **Wave 8 — JSDoc dispatcher unification. DONE (2026-07-04).** The two
+  `JSDOC_MACRO_TAGS` maps could only merge once their dispatchers did.
+  - **Phase B — teach transformer-core's dispatchers `derive`/`deriving`:**
+    both of transformer-core's dispatchers (the free-function JSDoc one in
+    `macro-helpers.ts`, and the decorator one, `tryExpandAttributeMacros`, a
+    private method in `transformer.ts`) were missing the special case that
+    routes `derive`/`deriving` around the ordinary attribute-macro registry
+    lookup (PEP-032 deleted the standalone `derive` attribute macro; real
+    derives are registered under `globalRegistry.getDerive` instead).
+    Verified empirically by executing real code through both pipelines, not
+    just reading source: `/** @deriving Eq */` silently emitted "unknown
+    JSDoc macro tag" in transformer-core, and a real `@derive(Eq)`
+    _decorator_ was silently left untouched — the decorator dispatcher isn't
+    gated by `JSDOC_MACRO_TAGS` at all, so it had the identical bug via a
+    completely separate code path the PEP's "JSDoc dispatch path" framing
+    didn't originally call out. Fixed both. `adt` needed no special case —
+    it's a real, registered attribute macro; it only needed a
+    `JSDOC_MACRO_TAGS` entry to be recognized as a tag at all.
+  - **New dual-pipeline test gate** (`tests/pep052-jsdoc-dispatcher-parity.test.ts`)
+    — the "jsdoc-macros + derive suites on both pipelines" the PEP called for
+    didn't exist before this wave; no file ran the same derive/adt fixtures
+    through both `@typesugar/transformer` and `@typesugar/transformer-core`.
+    Built following the `pep052-syntax-labels.test.ts` (Wave 2) dual-`transformCode`
+    pattern.
+  - **Phase C — port the legacy transformer onto the shared dispatcher,
+    delete its private copy.** ~875 lines of near-duplicate dispatcher logic
+    in `packages/transformer/src/index.ts` were expected to be a mechanical
+    port onto transformer-core's already-existing `macro-helpers.ts`
+    functions. Most of it was — `JSDOC_MACRO_TAGS`, `isJSDocMacroTargetNode`,
+    `hasJSDocMacroTags`, `tryExpandJSDocMacros`, `parseJSDocMacroArgs`,
+    `createSyntheticDecorator`, `parseDecorator`, `sortDecoratorsByDependency`,
+    and `sortDeriveArgsByDependency` were verified byte-equivalent (or
+    equivalent modulo `this.ctx`/`this.verbose` → explicit parameters) and
+    deleted outright in favor of the shared versions.
+    - **`expandDeriveDecorator` was NOT equivalent — a real parity gap found
+      before deleting anything, not after.** Legacy's version had two things
+      transformer-core's completely lacked: the `TS9101`/`TS9103`/`TS9104`
+      diagnostic checks (empty-type, non-derivable-field-type,
+      union-without-discriminant — all tested in `tests/diagnostics.test.ts`,
+      legacy-only) and `setSourceMapRangeDeep` source-map preservation for
+      derive-generated statements. Deleting legacy's version outright would
+      have silently regressed real, tested behavior. **Fixed by upgrading
+      transformer-core's shared `expandDeriveDecorator` first** — porting in
+      both the diagnostics and the source-map wrapping — verified against
+      the same fixtures `tests/diagnostics.test.ts` uses (now also covered by
+      the new parity suite) before legacy was allowed to delegate to it.
+    - **`extractTypeInfo` had its own, separate parity gap**, found the same
+      way: transformer-core's version was missing legacy's method/accessor
+      skip check (`ts.isMethodDeclaration`/`isMethodSignature`/
+      `isGetAccessorDeclaration`/`isSetAccessorDeclaration`), so it would
+      have incorrectly counted a class's methods as derivable data fields
+      instead of correctly reporting "no fields" (TS9104) for a
+      methods-only class. Fixed and covered by a dedicated parity test.
+    - `extractSumTypeInfo` and `sortDeriveArgsByDependency` were verified
+      byte-equivalent as originally expected — no gap.
+    - Net effect: ~880 lines deleted from `packages/transformer/src/index.ts`
+      (including now-dead local helpers `safeGetNodeText`/`isPrimitiveType`/
+      `nodePrinter`, whose only callers were the deleted methods), ~147 lines
+      added to `transformer-core/src/macro-helpers.ts` (the diagnostic +
+      source-map + method-skip upgrades) — a net reduction, and
+      transformer-core itself is now strictly more correct than before this
+      wave, independent of the legacy port.
+  - **Lesson for future "should be mechanical" ports:** the research that
+    scoped this wave (correctly) identified the functions as near-identical
+    by comparing signatures and call-site counts, but two of eight ported
+    functions had real, load-bearing behavioral differences invisible at
+    that level of comparison — only reading full function bodies side by
+    side surfaced them. Both gaps were caught before any deletion happened,
+    each backed by a passing existing test (`tests/diagnostics.test.ts`) or
+    an empirical repro, not just static comparison.
+  - Confirmed pre-existing, unrelated, filed as follow-ups (not fixed in
+    this wave): transformer-core's `@adt` attribute macro reports "0
+    variants found" for a real, valid union type under its own decorator
+    dispatch — a bug in `@adt`'s own variant-extraction logic (`adt.ts`),
+    not in dispatch routing; the code path this wave touches was completely
+    unaffected by this wave's diff, confirmed empirically. Also filed:
+    derived-instance/intrinsic inlining resolves purely by bare identifier
+    text with no scope/symbol check (pre-existing since before this PEP,
+    unrelated to this wave, surfaced incidentally while writing test
+    fixtures).
 
 - **Wave 9 — macro-package discovery via `package.json` (needs a PEP first).**
   Replace the macro-loader's `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER`
