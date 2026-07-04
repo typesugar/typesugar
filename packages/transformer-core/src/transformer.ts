@@ -843,25 +843,6 @@ class MacroTransformer {
         return result;
       }
 
-      const methodSugarResult = tryResolveTypeclassMethodFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (methodSugarResult !== undefined) {
-        if (this.expansionTracker) {
-          const methodName = node.expression.name.text;
-          this.expansionTracker.recordExpansion(
-            methodName,
-            node,
-            this.ctx.sourceFile,
-            "(typeclass method)"
-          );
-        }
-        return methodSugarResult;
-      }
-
       const opaqueResult = tryRewriteOpaqueMethodCallFn(
         this.ctx,
         this.verbose,
@@ -878,6 +859,31 @@ class MacroTransformer {
           );
         }
         return opaqueResult;
+      }
+
+      // Typeclass instance-method sugar runs LAST, after extension methods and
+      // @opaque type-rewrite erasure -- mirrors the legacy pipeline's
+      // precedence (type-rewrite registry, then native/extension methods, then
+      // method sugar as the final fallback).
+      const methodSugarResult = tryResolveTypeclassMethodFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        this.resolveMacroFromSymbol.bind(this),
+        this.resolveExtensionFromImports.bind(this),
+        node
+      );
+      if (methodSugarResult !== undefined) {
+        if (this.expansionTracker) {
+          const methodName = node.expression.name.text;
+          this.expansionTracker.recordExpansion(
+            methodName,
+            node,
+            this.ctx.sourceFile,
+            "(typeclass method)"
+          );
+        }
+        return methodSugarResult;
       }
     }
 

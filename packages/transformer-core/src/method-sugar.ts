@@ -23,6 +23,11 @@ import {
   stripTypeArguments,
 } from "@typesugar/core";
 
+import {
+  buildInstanceReferenceExpression,
+  type ResolveMacroFn,
+  type ResolveExtensionFn,
+} from "./rewriting.js";
 import type { VisitFn } from "./transformer-utils.js";
 
 // Built-in container/global types whose native methods (map/filter/then/...) must
@@ -81,15 +86,33 @@ interface MethodSugarInstance {
  * TS compile error if the type has no such method, same as without typesugar).
  *
  * Called from the same call-expression dispatch site as
- * `tryRewriteExtensionMethod` (both rewrite `receiver.method(args)`), as a
- * fallback once extension-method resolution has been exhausted.
+ * `tryRewriteExtensionMethod` and `tryRewriteOpaqueMethodCall` (all three
+ * rewrite `receiver.method(args)`), as the LAST resort once both have been
+ * exhausted -- mirroring the legacy pipeline's precedence, where the type
+ * rewrite registry (opaque erasure) and a native/extension method both took
+ * priority over typeclass method sugar. Since this function is a sibling
+ * dispatcher rather than nested inside `tryRewriteExtensionMethod` the way
+ * legacy nested it, it independently re-checks the guards legacy's shared
+ * call chain applied before ever reaching method-sugar resolution: an
+ * opted-out scope, an expression-macro receiver, an unreliable receiver type,
+ * and a receiver that already has a *native* property/method of this name
+ * (unless an extension forces the rewrite, e.g. an interface augmentation
+ * with no real implementation).
  */
 export function tryResolveTypeclassMethod(
   ctx: MacroContextImpl,
   verbose: boolean,
   visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
+  resolveExtensionFromImports: ResolveExtensionFn,
   node: ts.CallExpression
 ): ts.Expression | undefined {
+  // Skip synthetic nodes (from macro-generated code) -- the type checker can
+  // throw on nodes whose symbols lack initialized links.
+  if (node.pos === -1 || node.end === -1) {
+    return undefined;
+  }
+
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }
@@ -97,6 +120,43 @@ export function tryResolveTypeclassMethod(
   const propAccess = node.expression as ts.PropertyAccessExpression;
   const methodName = propAccess.name.text;
   const receiver = propAccess.expression;
+
+  // A call receiver that is itself an expression-macro invocation
+  // (`someMacro(...).method(...)`) is never typeclass method sugar.
+  if (ts.isCallExpression(receiver) && ts.isIdentifier(receiver.expression)) {
+    const calleeName = receiver.expression.text;
+    const calleeMacro = resolveMacroFromSymbol(receiver.expression, calleeName, "expression");
+    if (calleeMacro) {
+      return undefined;
+    }
+  }
+
+  const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  if (!ctx.isTypeReliable(receiverType)) {
+    return undefined;
+  }
+
+  // If the receiver's type NATIVELY declares this method, leave the call alone
+  // -- unless an in-scope extension forces the rewrite (e.g. the interface was
+  // augmented to satisfy the type checker but has no real implementation).
+  // Mirrors the equivalent guard in `tryRewriteExtensionMethod`; recomputed
+  // here rather than shared because this function runs as an independent
+  // sibling dispatcher, not nested inside that one.
+  const existingProp = receiverType.getProperty(methodName);
+  let forceRewrite = false;
+  if (existingProp) {
+    const potentialExt = resolveExtensionFromImports(node, methodName, receiverType);
+    if (potentialExt) {
+      const receiverText = ts.isIdentifier(receiver) ? receiver.text : null;
+      const isSameObject = receiverText && potentialExt.qualifier === receiverText;
+      if (!isSameObject) {
+        forceRewrite = true;
+      }
+    }
+  }
+  if (existingProp && !forceRewrite) {
+    return undefined;
+  }
 
   const sfn = ctx.sourceFile.fileName;
   const activatedMethods = globalResolutionScope.getActivatedMethodSyntax(sfn);
@@ -108,7 +168,6 @@ export function tryResolveTypeclassMethod(
   const candidates = getMethodCandidates(ctx.program, activatedForMethods, methodName);
   if (candidates.length === 0) return undefined;
 
-  const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
   const typeName = ctx.typeChecker.typeToString(receiverType);
   const baseTypeName = stripTypeArguments(typeName);
 
@@ -152,18 +211,16 @@ export function tryResolveTypeclassMethod(
   // Ensure the companion's base type / instance is imported if it comes from
   // another module (e.g. import `Point` for `Point.Eq`). Uses the shared
   // reference-hygiene mechanism (ctx.ensureImport) instead of reimplementing
-  // per-transformer pending-import tracking.
-  const importName = matched.companionPath ? matched.companionPath.split(".")[0] : instName;
+  // per-transformer pending-import tracking -- and, importantly, uses the
+  // identifier IT RETURNS (which may be a conflict-safe alias) rather than a
+  // fresh, possibly-wrong bare identifier.
+  let importedIdentifier: ts.Identifier | undefined;
   if (matched.sourceModule) {
-    ctx.ensureImport(importName, matched.sourceModule);
+    const importName = matched.companionPath ? matched.companionPath.split(".")[0] : instName;
+    importedIdentifier = ctx.ensureImport(importName, matched.sourceModule);
   }
 
-  const instanceRef = instName.includes(".")
-    ? factory.createPropertyAccessExpression(
-        factory.createIdentifier(instName.split(".")[0]),
-        instName.split(".")[1]
-      )
-    : factory.createIdentifier(instName);
+  const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, methodName);
 
   // The receiver becomes the first argument; existing args follow.
@@ -302,6 +359,10 @@ function deriveDecoratorNames(
  * file that resolves to the type's declaration module and reuses its specifier --
  * so the companion namespace value (e.g. `Point`) is imported even when only an
  * unrelated binding from that module (or `import type`) was present.
+ *
+ * Safe to scan `ctx.sourceFile.statements` directly here (unlike a resolution
+ * mechanism that must consult same-pass synthesized state): this only reads
+ * pre-existing user `import` declarations, which are never synthesized mid-pass.
  */
 function moduleSpecifierForType(ctx: MacroContextImpl, receiverType: ts.Type): string | undefined {
   const sym = receiverType.getSymbol() ?? receiverType.aliasSymbol;

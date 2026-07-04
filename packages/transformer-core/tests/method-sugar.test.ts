@@ -25,6 +25,7 @@ import {
 
 import { instanceScanner } from "@typesugar/macros";
 import { tryResolveTypeclassMethod } from "../src/method-sugar.js";
+import type { ResolveMacroFn, ResolveExtensionFn } from "../src/rewriting.js";
 import type { VisitFn } from "../src/transformer-utils.js";
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,48 @@ function lastExpressionStatement(sf: ts.SourceFile): ts.CallExpression {
   return (stmts[stmts.length - 1] as ts.ExpressionStatement).expression as ts.CallExpression;
 }
 
+// None of these fixtures have an expression-macro receiver or a native/extension
+// method to prioritize over typeclass method sugar, so these stubs always report
+// "no macro" / "no extension" — matching an ordinary call site.
+const noResolveMacroFromSymbol: ResolveMacroFn = () => undefined;
+const noResolveExtensionFromImports: ResolveExtensionFn = () => undefined;
+
+// The class below deliberately carries NO `@derive`/`@deriving` decorator or
+// JSDoc tag. `resolveMethodSugarInstance`'s Stage 2 fallback
+// (`typeDerivesTypeclass`) only fires when such a decorator/tag is present, so
+// omitting it isolates Stage 1 (`resolveInstance` + its `getSynthesized`
+// same-pass side-table) — otherwise Stage 2 would independently derive the
+// identical "Point.Eq" companion path and the test would pass whether or not
+// the getSynthesized wiring actually works (verified empirically: an earlier
+// draft of this test kept `@derive(Eq)` on the class and still passed with
+// `registerSynthesized` commented out, because Stage 2 papered over it).
+const SYNTHESIZED_DERIVE_SOURCE = [
+  "/** @typeclass */",
+  "interface Eq<A> {",
+  "  equals(a: A, b: A): boolean;",
+  "}",
+  "class Point { constructor(public x: number, public y: number) {} }",
+  "declare const p: Point;",
+  "declare const q: Point;",
+  "p.equals(q);",
+].join("\n");
+
+function registerSynthesizedPointEq(ctx: ReturnType<typeof createMacroContext>, sf: ts.SourceFile) {
+  // Register the synthesized companion the same way expandDeriveDecorator does
+  // during @derive expansion, BEFORE the method-sugar call site is visited —
+  // simulating "the pass already generated Point.Eq this same pass".
+  const classDecl = sf.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s))!;
+  const pointType = ctx.typeChecker.getTypeAtLocation(classDecl);
+  instanceScanner.registerSynthesized(ctx.program, sf.fileName, {
+    typeclassName: "Eq",
+    forType: pointType,
+    forTypeString: "Point",
+    exportName: "Point.Eq",
+    sourceModule: sf.fileName,
+    detectedVia: "derived",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Registry hygiene
 // ---------------------------------------------------------------------------
@@ -153,7 +196,14 @@ describe("tryResolveTypeclassMethod", () => {
     const call = withContext(source, "consumer.ts", (ctx, sf, visit) => {
       scanImportsForScope(sf, globalResolutionScope, ctx.program);
       const node = lastExpressionStatement(sf);
-      return tryResolveTypeclassMethod(ctx, false, visit, node);
+      return tryResolveTypeclassMethod(
+        ctx,
+        false,
+        visit,
+        noResolveMacroFromSymbol,
+        noResolveExtensionFromImports,
+        node
+      );
     });
 
     expect(call).toBeDefined();
@@ -194,53 +244,19 @@ describe("tryResolveTypeclassMethod", () => {
       (ctx, sf, visit) => {
         scanImportsForScope(sf, globalResolutionScope, ctx.program);
         const node = lastExpressionStatement(sf);
-        return tryResolveTypeclassMethod(ctx, false, visit, node);
+        return tryResolveTypeclassMethod(
+          ctx,
+          false,
+          visit,
+          noResolveMacroFromSymbol,
+          noResolveExtensionFromImports,
+          node
+        );
       }
     );
 
     expect(call).toBeUndefined();
   });
-
-  // The class below deliberately carries NO `@derive`/`@deriving` decorator or
-  // JSDoc tag. `resolveMethodSugarInstance`'s Stage 2 fallback
-  // (`typeDerivesTypeclass`) only fires when such a decorator/tag is present, so
-  // omitting it isolates Stage 1 (`resolveInstance` + its `getSynthesized`
-  // same-pass side-table) — otherwise Stage 2 would independently derive the
-  // identical "Point.Eq" companion path and the test would pass whether or not
-  // the getSynthesized wiring actually works (verified empirically: an earlier
-  // draft of this test kept `@derive(Eq)` on the class and still passed with
-  // `registerSynthesized` commented out, because Stage 2 papered over it).
-  const SYNTHESIZED_DERIVE_SOURCE = [
-    "/** @typeclass */",
-    "interface Eq<A> {",
-    "  equals(a: A, b: A): boolean;",
-    "}",
-    "class Point { constructor(public x: number, public y: number) {} }",
-    "declare const p: Point;",
-    "declare const q: Point;",
-    "p.equals(q);",
-  ].join("\n");
-
-  function registerSynthesizedPointEq(
-    ctx: ReturnType<typeof createMacroContext>,
-    sf: ts.SourceFile
-  ) {
-    // Register the synthesized companion the same way expandDeriveDecorator does
-    // during @derive expansion, BEFORE the method-sugar call site is visited —
-    // simulating "the pass already generated Point.Eq this same pass".
-    const classDecl = sf.statements.find((s): s is ts.ClassDeclaration =>
-      ts.isClassDeclaration(s)
-    )!;
-    const pointType = ctx.typeChecker.getTypeAtLocation(classDecl);
-    instanceScanner.registerSynthesized(ctx.program, sf.fileName, {
-      typeclassName: "Eq",
-      forType: pointType,
-      forTypeString: "Point",
-      exportName: "Point.Eq",
-      sourceModule: sf.fileName,
-      detectedVia: "derived",
-    });
-  }
 
   it("resolves a same-file @derive companion synthesized during the same pass", () => {
     // The bug PEP-056 exists to fix: InstanceScanner.scanLocalFile sees the
@@ -253,7 +269,14 @@ describe("tryResolveTypeclassMethod", () => {
       scanImportsForScope(sf, globalResolutionScope, ctx.program);
       registerSynthesizedPointEq(ctx, sf);
       const node = lastExpressionStatement(sf);
-      return tryResolveTypeclassMethod(ctx, false, visit, node);
+      return tryResolveTypeclassMethod(
+        ctx,
+        false,
+        visit,
+        noResolveMacroFromSymbol,
+        noResolveExtensionFromImports,
+        node
+      );
     });
 
     expect(call).toBeDefined();
@@ -272,39 +295,130 @@ describe("tryResolveTypeclassMethod", () => {
       scanImportsForScope(sf, globalResolutionScope, ctx.program);
       // Deliberately NOT calling registerSynthesizedPointEq here.
       const node = lastExpressionStatement(sf);
-      return tryResolveTypeclassMethod(ctx, false, visit, node);
+      return tryResolveTypeclassMethod(
+        ctx,
+        false,
+        visit,
+        noResolveMacroFromSymbol,
+        noResolveExtensionFromImports,
+        node
+      );
     });
 
     expect(call).toBeUndefined();
   });
 
-  it("never rewrites a built-in receiver's native method (e.g. Array.map)", () => {
+  it("never rewrites a built-in receiver's native method, even when a matching instance genuinely resolves (e.g. Array.equals)", () => {
+    // Uses a method name ("equals") that does NOT collide with Array's real
+    // members, and registers a real @impl instance FOR number[], so `inst` is
+    // truthy and the BUILTIN_METHOD_RECEIVER_NAMES guard is the thing actually
+    // preventing the rewrite — not "no instance resolved" (which would make
+    // this test pass for the wrong reason regardless of whether the guard
+    // exists at all).
     const source = [
       "/** @typeclass */",
-      "interface Functor<F> {",
-      "  map(fa: F, f: (a: unknown) => unknown): F;",
+      "interface Eq<A> {",
+      "  equals(a: A, b: A): boolean;",
       "}",
+      "/** @impl Eq<number[]> */",
+      "const eqArray: Eq<number[]> = { equals: (a, b) => a.length === b.length };",
       "declare const arr: number[];",
-      "arr.map((x) => x);",
+      "declare const other: number[];",
+      "arr.equals(other);",
     ].join("\n");
 
     const call = withContext(source, "consumer.ts", (ctx, sf, visit) => {
       scanImportsForScope(sf, globalResolutionScope, ctx.program);
       const node = lastExpressionStatement(sf);
-      return tryResolveTypeclassMethod(ctx, false, visit, node);
+      return tryResolveTypeclassMethod(
+        ctx,
+        false,
+        visit,
+        noResolveMacroFromSymbol,
+        noResolveExtensionFromImports,
+        node
+      );
     });
 
     expect(call).toBeUndefined();
   });
 
-  it("returns undefined for synthetic call expressions with no property access", () => {
+  it("never rewrites a receiver that natively has a method of the same name (dropped-guard regression)", () => {
+    // Point has a REAL `equals` method of its own. Even though Eq is activated
+    // and an instance resolves for Point, the native method must win — this is
+    // the guard legacy applied via `existingProp && !forceRewrite` before ever
+    // reaching typeclass-method resolution (index.ts:3518-3520), which a
+    // sibling-dispatcher port could easily drop since it no longer shares that
+    // early-return with the extension-method dispatcher.
+    const source = [
+      "/** @typeclass */",
+      "interface Eq<A> {",
+      "  equals(a: A, b: A): boolean;",
+      "}",
+      "class Point {",
+      "  constructor(public x: number, public y: number) {}",
+      "  equals(other: Point): boolean { return this.x === other.x && this.y === other.y; }",
+      "}",
+      "/** @impl Eq<Point> */",
+      "const eqPoint: Eq<Point> = { equals: (a, b) => a.x === b.x && a.y === b.y };",
+      "declare const p: Point;",
+      "declare const q: Point;",
+      "p.equals(q);",
+    ].join("\n");
+
+    const call = withContext(source, "consumer.ts", (ctx, sf, visit) => {
+      scanImportsForScope(sf, globalResolutionScope, ctx.program);
+      const node = lastExpressionStatement(sf);
+      return tryResolveTypeclassMethod(
+        ctx,
+        false,
+        visit,
+        noResolveMacroFromSymbol,
+        noResolveExtensionFromImports,
+        node
+      );
+    });
+
+    expect(call).toBeUndefined();
+  });
+
+  it("returns undefined for a synthetic call expression (pos = -1), with real activation in scope", () => {
+    // Unlike a fixture with no activation at all (which would return undefined
+    // before ever reaching the synthetic-node guard), this program genuinely
+    // activates Eq method syntax and resolves an instance for Point — so
+    // without the `node.pos === -1` guard, the function would proceed to call
+    // `ctx.typeChecker.getTypeAtLocation(receiver)` on a node with no real
+    // position, which can throw on macro-generated/synthetic identifiers.
+    const source = [
+      "/** @typeclass */",
+      "interface Eq<A> {",
+      "  equals(a: A, b: A): boolean;",
+      "}",
+      "interface Point { x: number; y: number; }",
+      "/** @impl Eq<Point> */",
+      "const eqPoint: Eq<Point> = { equals: (a, b) => a.x === b.x && a.y === b.y };",
+      "declare const p: Point;",
+      "declare const q: Point;",
+      "p.equals(q);",
+    ].join("\n");
+
     const synthetic = ts.factory.createCallExpression(
       ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("p"), "equals"),
       undefined,
       [ts.factory.createIdentifier("q")]
     );
-    const call = withContext(`const _ = 1;`, "consumer.ts", (ctx, _sf, visit) => {
-      return tryResolveTypeclassMethod(ctx, false, visit, synthetic);
+    expect(synthetic.pos).toBe(-1);
+
+    const call = withContext(source, "consumer.ts", (ctx, sf, visit) => {
+      scanImportsForScope(sf, globalResolutionScope, ctx.program);
+      return tryResolveTypeclassMethod(
+        ctx,
+        false,
+        visit,
+        noResolveMacroFromSymbol,
+        noResolveExtensionFromImports,
+        synthetic
+      );
     });
     expect(call).toBeUndefined();
   });
