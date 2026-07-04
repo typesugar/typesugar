@@ -24,8 +24,10 @@ import {
   isSfinaeAuditEnabled,
   extractTypeArgumentsContent,
   splitTopLevelTypeArgs,
+  globalResolutionScope,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
+import { getInstanceOrIntrinsicMethods } from "./specialize.js";
 
 /**
  * Create the ExtensionMethodCall SFINAE rule.
@@ -101,9 +103,82 @@ export function createExtensionMethodCallRule(): SfinaeRule {
         return true;
       }
 
+      // 4. Typeclass instance method over a PRIMITIVE via a built-in intrinsic
+      // (Wave 7): e.g. `n.equals(m)` for `n: number` is rewritten to
+      // `Eq.summon<number>("number").equals(n, m)` using the reflected
+      // `eqNumber` intrinsic — there's no user declaration to inspect the
+      // way there is for @derive'd classes, so this checks the intrinsic
+      // registry and import-scoped method-syntax activation instead.
+      if (
+        resolvePrimitiveTypeclassMethod(propertyName, typeName, receiverType, checker, sourceFile)
+      ) {
+        return true;
+      }
+
       return false;
     },
   };
+}
+
+const PRIMITIVE_TYPE_NAMES = new Set(["number", "string", "boolean", "bigint"]);
+
+function normalizePrimitiveTypeName(typeName: string): string | undefined {
+  const lower = typeName.toLowerCase();
+  return PRIMITIVE_TYPE_NAMES.has(lower) ? lower : undefined;
+}
+
+/**
+ * Check whether `methodName` is a typeclass method with a registered
+ * built-in intrinsic instance (PEP-052 Wave 7: eq/ord/show/hash over
+ * number/string/boolean/bigint, reflected from primitives.ts) for a
+ * PRIMITIVE receiver type — i.e. the transformer will rewrite
+ * `recv.methodName(...)` to `TC.summon<Type>("Type").methodName(recv, ...)`.
+ *
+ * Unlike `resolveTypeclassInstanceMethod` (@derive'd classes, decided purely
+ * from a source annotation on the receiver's own declaration), a primitive
+ * has no user-authored declaration to inspect. So this checks two
+ * independent conditions instead: an intrinsic instance actually exists for
+ * `tcName<typeName>` (naming convention `${tc}${Type}`, e.g. "eqNumber"),
+ * AND method syntax for that typeclass is activated in this file (PEP-052's
+ * import-scoped activation gate — `globalResolutionScope` is populated by
+ * the transform pass that always runs before SFINAE filtering, both in the
+ * CLI's `program.emit()` and the language service's `getTransformResult()`).
+ * Without the activation check, a stray `(5).equals(6)` with no
+ * `@typesugar/std/syntax/eq` import would be wrongly suppressed instead of
+ * flagged as the real error it is.
+ */
+function resolvePrimitiveTypeclassMethod(
+  methodName: string,
+  typeName: string,
+  receiverType: ts.Type,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): boolean {
+  const candidates = getTypeclassesForMethod(methodName);
+  if (!candidates) return false;
+
+  let primitiveName = normalizePrimitiveTypeName(typeName);
+  if (!primitiveName) {
+    // Widen literal types: 42 → number, "hello" → string
+    try {
+      const baseType = checker.getBaseTypeOfLiteralType(receiverType);
+      primitiveName = normalizePrimitiveTypeName(checker.typeToString(baseType));
+    } catch (e) {
+      if (isSfinaeAuditEnabled()) {
+        console.error(`[SFINAE] resolvePrimitiveTypeclassMethod: ${e}`);
+      }
+    }
+  }
+  if (!primitiveName) return false;
+  const capitalized = primitiveName[0].toUpperCase() + primitiveName.slice(1);
+
+  for (const candidate of candidates) {
+    const tcName = candidate.typeclass;
+    if (!globalResolutionScope.isMethodSyntaxActivated(sourceFile.fileName, tcName)) continue;
+    const dictName = `${tcName.toLowerCase()}${capitalized}`;
+    if (getInstanceOrIntrinsicMethods(dictName)) return true;
+  }
+  return false;
 }
 
 /**

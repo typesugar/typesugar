@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
 import { createMacroCallChainRule, createExtensionMethodCallRule } from "./sfinae-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
+import { globalResolutionScope } from "@typesugar/core";
 
 /**
  * Build an in-memory Program for `code` and return its semantic diagnostics.
@@ -90,6 +91,72 @@ describe("ExtensionMethodCall SFINAE rule — typeclass instance method sugar (P
       `const r = p.equals(p);`,
     ].join("\n");
     const { sf, checker, diags } = ts2339(code);
+    const equalsDiag = diags.find((d) =>
+      (typeof d.messageText === "string" ? d.messageText : d.messageText.messageText).includes(
+        "'equals'"
+      )
+    );
+    expect(equalsDiag).toBeDefined();
+    expect(rule.shouldSuppress(equalsDiag!, checker, sf)).toBe(false);
+  });
+});
+
+describe("ExtensionMethodCall SFINAE rule — typeclass method sugar over primitives (PEP-052)", () => {
+  const rule = createExtensionMethodCallRule();
+
+  beforeAll(() => {
+    registerTypeclassMacros();
+  });
+
+  function ts2339(code: string, fileName: string) {
+    const fs2339Code = code;
+    const sf = ts.createSourceFile(fileName, fs2339Code, ts.ScriptTarget.Latest, true);
+    const host: ts.CompilerHost = {
+      getSourceFile: (fn) => (fn === fileName ? sf : undefined),
+      getDefaultLibFileName: () => "lib.d.ts",
+      writeFile: () => {},
+      getCurrentDirectory: () => "",
+      getCanonicalFileName: (fn) => fn,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+      fileExists: (fn) => fn === fileName,
+      readFile: (fn) => (fn === fileName ? fs2339Code : undefined),
+    };
+    const program = ts.createProgram([fileName], { noLib: true, noResolve: true }, host);
+    const diags = program
+      .getSemanticDiagnostics(sf)
+      .filter(
+        (d) =>
+          d.code === 2339 &&
+          /Property '([^']+)' does not exist/.test(
+            typeof d.messageText === "string" ? d.messageText : d.messageText.messageText
+          )
+      );
+    return { sf, checker: program.getTypeChecker(), diags };
+  }
+
+  it("suppresses TS2339 for `.equals` on a number when Eq method syntax is activated", () => {
+    const fileName = "primitive-eq-on.ts";
+    globalResolutionScope.activateMethodSyntax(fileName, "Eq");
+
+    const code = `declare const n: number;\nconst r = n.equals(5);`;
+    const { sf, checker, diags } = ts2339(code, fileName);
+    const equalsDiag = diags.find((d) =>
+      (typeof d.messageText === "string" ? d.messageText : d.messageText.messageText).includes(
+        "'equals'"
+      )
+    );
+    expect(equalsDiag).toBeDefined();
+    expect(rule.shouldSuppress(equalsDiag!, checker, sf)).toBe(true);
+  });
+
+  it("does NOT suppress `.equals` on a number without the Eq syntax-activation import", () => {
+    const fileName = "primitive-eq-off.ts";
+    // Deliberately not calling activateMethodSyntax — mirrors a file that
+    // never imported @typesugar/std/syntax/eq.
+
+    const code = `declare const n: number;\nconst r = n.equals(5);`;
+    const { sf, checker, diags } = ts2339(code, fileName);
     const equalsDiag = diags.find((d) =>
       (typeof d.messageText === "string" ? d.messageText : d.messageText.messageText).includes(
         "'equals'"
