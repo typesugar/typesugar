@@ -746,13 +746,62 @@ already on the remaining list; 7-10 come from the retained items.
     Same gap already existed for Eq/Ord's method sugar over primitives; no
     prior test exercised that combination. Both filed as follow-ups.
 
-- **Wave 6 — operator/method marker text fallback.** Parity with what labels
-  (Wave 2) and do-instances (Wave 3) already have: a resolution-free fallback
-  for `@syntax-operators`/`@syntax-methods` markers so operator activation
-  works in hosts that cannot resolve modules (the browser
-  `@typesugar/playground.transform()` surface). The mechanism exists
-  (`syntaxModule`-style text matching keyed by specifier); operators need a
-  marker-module → typeclass table analog. Small.
+- **Wave 6 — operator/method marker text fallback. DONE (2026-07-04).** Parity
+  with what labels (Wave 2, keyed by a macro's `syntaxModule` field) and
+  do-instances (Wave 3, `DO_FALLBACK_BY_SPECIFIER`) already have: a
+  resolution-free fallback for `@syntax-operators`/`@syntax-methods` markers,
+  so operator/method syntax activates even in hosts where
+  `readSyntaxActivationMarkers`'s checker-based module resolution cannot run
+  at all — the browser `@typesugar/playground.transform()` surface (no
+  filesystem, no real `node_modules`, a synthetic `fileName`).
+  - **New mechanism, not a reuse of Wave 2/3's:** typeclasses are not
+    `MacroDefinition`s and have no `syntaxModule` field to key off, so a
+    standalone registry (`packages/core/src/syntax-marker-fallback.ts`,
+    `registerSyntaxMarkerFallback`/`getSyntaxMarkerFallback`) was added and
+    wired into `scanImportsForScope` (`resolution-scope.ts`) as a purely
+    additive step — it can only add activations the checker-based scan
+    missed, never remove or override one it found.
+  - **Provider-declared, not a central table:** deliberately avoided
+    repeating Wave 5's review finding against `KNOWN_DO_INSTANCE_MODULES`
+    (std hardcoding fp/effect module paths). Each provider registers its OWN
+    specifiers at its OWN compile-time load point: std's 21 specifiers (13
+    method + 8 operator markers) register in `packages/std/src/macros/index.ts`
+    from a small data table cross-checked against the marker files'
+    `@syntax-methods`/`@syntax-operators` JSDoc tags by a drift-protection
+    test (`pep052-marker-fallback.test.ts`); fp's one specifier
+    (`@typesugar/fp/syntax/show`) registers in `packages/fp/src/index.ts`
+    (fp's root `.` entry, since fp ships no `./macros` compile-time entry —
+    it has no macro *definitions*, only this one marker).
+  - **Phase C, two false leads confirmed as pre-existing scanner/index
+    requirements, not Wave 6 defects** (same "verify before fixing"
+    discipline as Wave 5's Show bug hunt): (1) the legacy pipeline's
+    method-sugar tier (`tryResolveTypeclassMethod`, legacy-transformer-only —
+    `transformer-core` implements only the operator tier) additionally gates
+    on `getMethodCandidates`/`buildIndex` (`@typesugar/macros/typeclass-index.ts`),
+    which only recognizes a typeclass name that is either seeded in
+    `STANDARD_TYPECLASS_DEFS` or a source `interface` carrying its own
+    `@typeclass` tag — a locally-declared `Show<A>` needs that tag even
+    though Wave 6's fallback correctly activates the syntax gate; without it,
+    `tryResolveTypeclassMethod` bails before ever reaching instance
+    resolution. (2) unrelated to Wave 6: an `@impl` instance for a
+    non-keyword type (e.g. `Show<Money>`) still needs an explicit type
+    annotation on the instance declaration for `forType` to resolve at all
+    (`resolveTypeString` only handles primitive keywords) — the same
+    limitation Wave 5 fixed for keywords but did not (and could not) extend
+    to arbitrary class names.
+  - **Phase D — closed the actual motivating gap, not just the mechanism:**
+    `@typesugar/playground`'s `transform()` (`src/index.ts`) — the real
+    in-memory host this wave exists for — never imported `@typesugar/std` or
+    `@typesugar/fp` for anything but runtime *values* (a separate
+    iframe-sandbox bundle, `runtime-entry.ts`), so neither package's Wave 6
+    registrations ever ran there; a playground snippet importing
+    `@typesugar/std/syntax/eq/ops` could not have activated operator syntax
+    even after Phases A-C landed. Fixed with two side-effect imports
+    (`@typesugar/std/macros`, `@typesugar/fp`) in `index.ts`; verified via the
+    built browser bundle that this added negligible size (186.53 KB → 186.59
+    KB) since both packages were already transitively bundled through other
+    paths. Proven end-to-end with a test against the actual `transform()`
+    export using a synthetic, never-on-disk `fileName`.
 
 - **Wave 7 — intrinsic bodies from source.** Replace
   `primitiveIntrinsicRegistry`'s 16 hand-written source strings
