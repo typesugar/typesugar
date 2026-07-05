@@ -402,16 +402,23 @@ export function resolveSymbolToMacro(
     return fallbackNameLookupWithImports(sourceFile, macroName, kind);
   }
 
-  // Track whether we found any module declarations
-  let foundModuleDecl = false;
+  // Track whether we found any declaration outside the reference's own file --
+  // an explicit cross-file import (whether or not its module specifier
+  // resolves to a recognized @typesugar/* package path) is import-worthy;
+  // only a symbol whose declarations are ALL in the SAME file as the
+  // reference is a true local shadow.
+  let foundExternalDecl = false;
 
   for (const decl of declarations) {
     const declSourceFile = decl.getSourceFile();
     const fileName = declSourceFile.fileName;
 
+    if (declSourceFile !== sourceFile) {
+      foundExternalDecl = true;
+    }
+
     const moduleSpecifier = resolveModuleSpecifier(fileName);
     if (moduleSpecifier) {
-      foundModuleDecl = true;
       const exportName = resolved.name;
       const macro = globalRegistry.getByModuleExport(moduleSpecifier, exportName);
       if (macro && macro.kind === kind) {
@@ -426,10 +433,11 @@ export function resolveSymbolToMacro(
     }
   }
 
-  // If all declarations are local (not from modules), this is a local symbol
-  // that happens to share a name with a macro - do NOT fall back to import lookup.
-  // This prevents `Show.summon(...)` from matching the global `summon` macro.
-  if (!foundModuleDecl) {
+  // If all declarations are in THIS file (not imported from elsewhere), this
+  // is a local symbol that happens to share a name with a macro - do NOT fall
+  // back to import lookup. This prevents `Show.summon(...)` from matching the
+  // global `summon` macro when `Show` is a local companion object.
+  if (!foundExternalDecl) {
     return undefined;
   }
 
