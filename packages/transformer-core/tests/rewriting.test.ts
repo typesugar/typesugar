@@ -37,6 +37,7 @@ import {
   tryRewriteOpaqueMethodCall,
   tryEraseOpaqueConstructorCall,
   tryEraseOpaqueConstantRef,
+  tryEraseOpaqueAccessor,
   tryStripOpaqueTypeAnnotation,
   tryStripOpaqueParamAnnotation,
   shouldStripOpaqueReturnType,
@@ -624,7 +625,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\nx.map((n: number) => n + 1);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "consumer.ts"
     );
@@ -642,7 +643,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
         const stmt = sf.statements[0] as ts.ExpressionStatement;
         const asExpr = stmt.expression as ts.AsExpression;
         const call = asExpr.expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, call);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, call);
       },
       "consumer.ts"
     );
@@ -658,7 +659,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare function map(o: unknown, f: (n: number) => number): unknown;\nmap(null, (n) => n + 1);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "consumer.ts"
     );
@@ -671,7 +672,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\n(x as any).bogus();`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "consumer.ts"
     );
@@ -685,9 +686,160 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\nx.map((n: number) => n + 1);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "typesugar/fp/data/option.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("schedules a cross-module import for the standalone erasure function (PEP-056 Wave 4 parity gap #1)", () => {
+    // Legacy's tryResolveFromTypeRewriteRegistry calls scheduleTypeRewriteImport
+    // whenever the erased-to function lives in another module. The transformer-core
+    // port never scheduled anything, so `x.map(f)` erased to a bare `mapOption(x, f)`
+    // reference with no import -- broken output for a real cross-module @opaque type.
+    registerTypeRewrite({
+      typeName: "Box",
+      sourceModule: "./lib.js",
+      underlyingTypeText: "{ value: number }",
+      methods: new Map([["unwrap", "unwrapBox"]]),
+    });
+
+    const result = withMultiFileContext(
+      {
+        "lib.ts": [
+          "export type Box = { value: number };",
+          "export function unwrapBox(b: Box): number { return b.value; }",
+        ].join("\n"),
+        "consumer.ts": [
+          'import { Box } from "./lib.js";',
+          "declare const b: Box;",
+          "b.unwrap();",
+        ].join("\n"),
+      },
+      "consumer.ts",
+      (ctx, sf, visit) => {
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.CallExpression;
+        const rewritten = tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
+        const pendingImports = ctx.fileBindingCache.getPendingImports();
+        return { rewritten, pendingImports };
+      }
+    );
+
+    expect(result.rewritten).toBeDefined();
+    expect(ts.isCallExpression(result.rewritten!)).toBe(true);
+    const call = result.rewritten as ts.CallExpression;
+    expect((call.expression as ts.Identifier).text).toBe("unwrapBox");
+
+    expect(result.pendingImports.length).toBeGreaterThan(0);
+    const printed = result.pendingImports.map((d) => printNode(d)).join("\n");
+    expect(printed).toContain("unwrapBox");
+    expect(printed).toContain("./lib.js");
+  });
+
+  it("respects the 'extensions' opt-out scope, matching legacy's shared guard", () => {
+    // Legacy's tryRewriteExtensionMethod checks isInOptedOutScope(...,"extensions")
+    // once, shared by BOTH the type-rewrite-registry path and the standalone
+    // extension path (PEP-056 Wave 4 parity audit gap #4) -- an opted-out file
+    // must skip the @opaque method-call rewrite too, not just extensions.
+    registerOptionWithMethods();
+    const { result } = withContext(
+      `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\nx.map((n: number) => n + 1);`,
+      (ctx, sf, visit) => {
+        // Opt out using the real sourceFile.fileName (an absolute tmpdir path,
+        // not the literal `fileName` passed to withContext below).
+        globalResolutionScope.addOptedOutFeature(sf.fileName, "extensions");
+        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
+      },
+      "opted-out-consumer.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tryEraseOpaqueAccessor (PEP-056 Wave 4 -- ported from legacy; core previously
+// had method/constructor/constant-ref erasure but no accessor erasure at all)
+// ---------------------------------------------------------------------------
+
+describe("tryEraseOpaqueAccessor", () => {
+  function registerMoneyWithAccessors(): void {
+    registerTypeRewrite({
+      typeName: "Money",
+      sourceModule: "@typesugar/fp/data/money",
+      underlyingTypeText: "number",
+      accessors: new Map([
+        ["value", { kind: "identity" }],
+        ["zero", { kind: "custom", value: "ZERO_MONEY" }],
+      ]),
+      transparent: true,
+    });
+  }
+
+  it("erases an identity accessor to the receiver", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.value;`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[2] as ts.ExpressionStatement)
+          .expression as ts.PropertyAccessExpression;
+        return tryEraseOpaqueAccessor(ctx, false, visit, expr);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeDefined();
+    expect(ts.isIdentifier(result!)).toBe(true);
+    expect((result as ts.Identifier).text).toBe("m");
+  });
+
+  it("erases a custom accessor to its configured expression", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.zero;`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[2] as ts.ExpressionStatement)
+          .expression as ts.PropertyAccessExpression;
+        return tryEraseOpaqueAccessor(ctx, false, visit, expr);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeDefined();
+    expect(ts.isIdentifier(result!)).toBe(true);
+    expect((result as ts.Identifier).text).toBe("ZERO_MONEY");
+  });
+
+  it("returns undefined for an unregistered property name", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\n(m as any).bogus;`,
+      (ctx, sf, visit) => {
+        const stmt = sf.statements[2] as ts.ExpressionStatement;
+        const expr = (stmt.expression as ts.AsExpression | ts.PropertyAccessExpression) as
+          | ts.PropertyAccessExpression
+          | ts.AsExpression;
+        const propAccess = ts.isPropertyAccessExpression(expr)
+          ? expr
+          : (expr.expression as ts.PropertyAccessExpression);
+        return tryEraseOpaqueAccessor(ctx, false, visit, propAccess);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("skips erasure inside the transparent defining module", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.value;`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[2] as ts.ExpressionStatement)
+          .expression as ts.PropertyAccessExpression;
+        return tryEraseOpaqueAccessor(ctx, false, visit, expr);
+      },
+      "typesugar/fp/data/money.ts"
     );
     expect(result).toBeUndefined();
   });

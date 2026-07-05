@@ -197,14 +197,22 @@ export function tryExpandTypeMacro(
 // Extension method rewriting
 // ---------------------------------------------------------------------------
 
-export function tryRewriteExtensionMethod(
+/**
+ * Shared guards for both the type-rewrite-registry path
+ * (`tryRewriteOpaqueMethodCall`, checked first) and the standalone-extension
+ * path (`tryRewriteExtensionMethod`, checked second): an opted-out file or a
+ * macro-producing receiver call must skip both. Legacy's `tryRewriteExtensionMethod`
+ * checked these once, internally, before trying its type-rewrite-registry
+ * sub-step then its extension fallback in the SAME function body; the split
+ * into two top-level dispatch functions here means each must run this guard
+ * on its own turn, but factoring it out keeps a change to either guard from
+ * silently applying to only one of the two paths.
+ */
+function checkMethodCallDispatchGuards(
   ctx: MacroContextImpl,
-  verbose: boolean,
-  visit: VisitFn,
   resolveMacroFromSymbol: ResolveMacroFn,
-  resolveExtensionFromImports: ResolveExtensionFn,
   node: ts.CallExpression
-): ts.Expression | undefined {
+): { propAccess: ts.PropertyAccessExpression; methodName: string; receiver: ts.Expression } | undefined {
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }
@@ -220,6 +228,21 @@ export function tryRewriteExtensionMethod(
       return undefined;
     }
   }
+
+  return { propAccess, methodName, receiver };
+}
+
+export function tryRewriteExtensionMethod(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  node: ts.CallExpression
+): ts.Expression | undefined {
+  const guarded = checkMethodCallDispatchGuards(ctx, resolveMacroFromSymbol, node);
+  if (!guarded) return undefined;
+  const { methodName, receiver } = guarded;
 
   const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
 
@@ -592,13 +615,14 @@ export function tryRewriteOpaqueMethodCall(
   ctx: MacroContextImpl,
   verbose: boolean,
   visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
   node: ts.CallExpression
 ): ts.Expression | undefined {
   if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
 
-  const propAccess = node.expression;
-  const methodName = propAccess.name.text;
-  const receiver = propAccess.expression;
+  const guarded = checkMethodCallDispatchGuards(ctx, resolveMacroFromSymbol, node);
+  if (!guarded) return undefined;
+  const { methodName, receiver } = guarded;
 
   let receiverType: ts.Type;
   try {
@@ -641,12 +665,20 @@ export function tryRewriteOpaqueMethodCall(
     if (result) return preserveSourceMap(result, node);
   }
 
+  // Schedule an import if the standalone function comes from another module --
+  // uses the shared reference-hygiene mechanism (ctx.ensureImport) and the
+  // identifier IT RETURNS (which may be a conflict-safe alias), matching the
+  // pattern already used by method-sugar.ts / tryRewriteTypeclassOperator.
+  const resolvedFnName = entry.sourceModule
+    ? ctx.ensureImport(standaloneFnName, entry.sourceModule).text
+    : standaloneFnName;
+
   if (verbose) {
-    console.log(`[typesugar] Type rewrite: ${typeName}.${methodName}() → ${standaloneFnName}(...)`);
+    console.log(`[typesugar] Type rewrite: ${typeName}.${methodName}() → ${resolvedFnName}(...)`);
   }
 
   const ext: StandaloneExtensionInfo = {
-    methodName: standaloneFnName,
+    methodName: resolvedFnName,
     forType: entry.typeName,
   };
 
@@ -664,6 +696,68 @@ export function tryRewriteOpaqueMethodCall(
     ctx.reportError(node, `Type rewrite method erasure failed: ${error}`);
     return undefined;
   }
+}
+
+/**
+ * Erase a registered @opaque type's accessor property access (e.g. `money.value`)
+ * to either the receiver itself (an identity accessor, the common case for a
+ * newtype-shaped wrapper) or a custom expression (PEP-056 Wave 4 -- ported from
+ * legacy's `tryEraseAccessor`; core previously had no accessor-erasure dispatch
+ * at all, only method/constructor/constant-ref erasure).
+ *
+ * Dispatched on a bare (non-call) PropertyAccessExpression -- distinct from
+ * `tryRewriteOpaqueMethodCall`, which requires the property access to be the
+ * callee of a CallExpression.
+ */
+export function tryEraseOpaqueAccessor(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.PropertyAccessExpression
+): ts.Expression | undefined {
+  const propName = node.name.text;
+  const receiver = node.expression;
+
+  let receiverType: ts.Type;
+  try {
+    receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  } catch {
+    return undefined;
+  }
+  if (!ctx.isTypeReliable(receiverType)) return undefined;
+
+  const typeName = resolveTypeRewriteName(ctx.typeChecker, receiverType);
+  if (!typeName) return undefined;
+  const entry = findTypeRewrite(typeName)!;
+  if (!entry.accessors) return undefined;
+
+  const accessor = entry.accessors.get(propName);
+  if (!accessor) return undefined;
+
+  // Transparent scope: skip erasure inside the defining module
+  if (entry.transparent && entry.sourceModule) {
+    if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
+      return undefined;
+    }
+  }
+
+  if (accessor.kind === "identity") {
+    if (verbose) {
+      console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} -> receiver`);
+    }
+    const visited = ts.visitNode(receiver, visit) as ts.Expression;
+    return preserveSourceMap(visited, node);
+  }
+
+  if (accessor.kind === "custom" && accessor.value) {
+    if (verbose) {
+      console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} -> ${accessor.value}`);
+    }
+    const custom = ctx.factory.createIdentifier(accessor.value);
+    return preserveSourceMap(custom, node);
+  }
+
+  return undefined;
 }
 
 function isNullLiteral(node: ts.Expression): boolean {

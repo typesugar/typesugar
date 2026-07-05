@@ -39,12 +39,14 @@ import {
   TS9222,
 } from "@typesugar/core";
 
-import { getActivatedLabeledBlock } from "./label-activation.js";
+import { getActivatedLabeledBlock, emitLabelSyntaxNotActivatedHint } from "./label-activation.js";
 
 import {
   createMacroErrorExpression as createMacroErrorExpr,
   createMacroErrorStatement as createMacroErrorStmt,
   updateNodeDecorators,
+  tryExtractCompReturnExpr,
+  isPreprocessedCompWrapperBlock,
 } from "./transformer-utils.js";
 
 import {
@@ -84,12 +86,15 @@ import {
   tryRewriteOpaqueMethodCall as tryRewriteOpaqueMethodCallFn,
   tryEraseOpaqueConstructorCall as tryEraseOpaqueConstructorCallFn,
   tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
+  tryEraseOpaqueAccessor as tryEraseOpaqueAccessorFn,
   tryStripOpaqueTypeAnnotation as tryStripOpaqueTypeAnnotationFn,
   tryStripOpaqueParamAnnotation as tryStripOpaqueParamAnnotationFn,
   shouldStripOpaqueReturnType as shouldStripOpaqueReturnTypeFn,
 } from "./rewriting.js";
 
 import { tryResolveTypeclassMethod as tryResolveTypeclassMethodFn } from "./method-sugar.js";
+
+import { emitExtensionRegistrations as emitExtensionRegistrationsFn } from "./extension-registration.js";
 
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
@@ -300,6 +305,31 @@ class MacroTransformer {
       return this.visitStatementContainer(node);
     }
 
+    // Simplify arrow bodies of the shape
+    //   (params) => { const __letyield_N = EXPR; return __letyield_N; }
+    // to
+    //   (params) => EXPR
+    // This cleans up the block produced by `arrow-comprehension-preprocess.ts`
+    // after the const-x-equals-let merge has expanded the comprehension.
+    if (ts.isArrowFunction(node) && ts.isBlock(node.body)) {
+      const visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+      if (visited && ts.isArrowFunction(visited) && ts.isBlock(visited.body)) {
+        const simplified = tryExtractCompReturnExpr(visited.body);
+        if (simplified) {
+          return this.ctx.factory.updateArrowFunction(
+            visited,
+            visited.modifiers,
+            visited.typeParameters,
+            visited.parameters,
+            visited.type,
+            visited.equalsGreaterThanToken,
+            simplified
+          );
+        }
+      }
+      return visited;
+    }
+
     if (
       (ts.isFunctionDeclaration(node) ||
         ts.isArrowFunction(node) ||
@@ -340,7 +370,190 @@ class MacroTransformer {
       | undefined;
 
     for (let i = 0; i < statements.length; i++) {
+      // ---------------------------------------------------------------
+      // Expression-position comprehension wrapper: flatten the Block
+      // emitted by `arrow-comprehension-preprocess.ts`.
+      //
+      // The preprocessor wraps `(x) => let:/yield:` (and the return/await/
+      // export-default variants) in a double `{ { ... } }` block so the
+      // parser's error-recovery consumes the stray `}` from the user's
+      // `let:` block without closing the enclosing function body. Here we
+      // splice the inner Block's statements into the outer statement list
+      // so the existing `const x = let;` merge (below) sees the broken
+      // VariableStatement, its bind siblings, and the trailing
+      // `LabeledStatement` continuation all at the same level.
+      //
+      // We only flatten when the Block's first statement matches the
+      // broken pattern *and* names a `__letyield_` synthetic tag, so
+      // ordinary user-written blocks are never rewritten.
+      // ---------------------------------------------------------------
+      {
+        const outer = statements[i];
+        if (ts.isBlock(outer) && outer.statements.length >= 2 && isPreprocessedCompWrapperBlock(outer)) {
+          statements.splice(i, 1, ...outer.statements);
+          modified = true;
+        }
+      }
+
       const stmt = statements[i];
+
+      // ---------------------------------------------------------------
+      // Expression-level do-notation: const x = let: { ... } yield: { ... }
+      //
+      // When TS parses `const x =\nlet: { a << e1; b << e2; }\nyield: { a + b }`,
+      // it produces these fragments (because `let` is consumed as identifier initializer):
+      //   [i]   VariableStatement: decls=[x=let, {a}]  (destructuring captures 1st bind name)
+      //   [i+1] ExpressionStatement: << e1              (1st bind effect)
+      //   [i+2] ExpressionStatement: b << e2            (subsequent binds/maps)
+      //   ...
+      //   [i+n] LabeledStatement: yield: { a + b }      (continuation)
+      //
+      // We detect this pattern, reconstruct a synthetic let: block + yield: continuation,
+      // pass them to the macro, and wrap the result in `const x = <expr>`.
+      // ---------------------------------------------------------------
+      if (ts.isVariableStatement(stmt)) {
+        const decls = stmt.declarationList.declarations;
+        if (decls.length === 2) {
+          const firstDecl = decls[0];
+          const secondDecl = decls[1];
+          if (
+            firstDecl.initializer &&
+            ts.isIdentifier(firstDecl.initializer) &&
+            (firstDecl.initializer.text === "let" || firstDecl.initializer.text === "seq") &&
+            ts.isObjectBindingPattern(secondDecl.name) &&
+            secondDecl.name.elements.length >= 1
+          ) {
+            const labelName = firstDecl.initializer.text;
+            // PEP-052 gate. The head label was consumed as an identifier here,
+            // so there is no LabeledStatement to warn at — anchor the TS9224
+            // hint on the variable statement itself.
+            const macro = getActivatedLabeledBlock(this.ctx, labelName, stmt);
+            if (macro) {
+              // Extract first bind name from destructuring pattern { a }
+              const firstBindName = secondDecl.name.elements[0].name;
+              if (ts.isIdentifier(firstBindName)) {
+                // Consume fragment statements: << e1, b << e2, if(...), etc.
+                // until we hit a yield:/pure:/return: LabeledStatement or end of block
+                const fragmentStmts: ts.Statement[] = [];
+                let j = i + 1;
+
+                // First fragment: ExpressionStatement with << e1 (the first bind's effect)
+                let firstBindEffect: ts.Expression | undefined;
+                if (j < statements.length && ts.isExpressionStatement(statements[j])) {
+                  const expr = (statements[j] as ts.ExpressionStatement).expression;
+                  if (
+                    ts.isBinaryExpression(expr) &&
+                    expr.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken
+                  ) {
+                    // The left side is empty/invalid identifier (from the destructuring split)
+                    firstBindEffect = expr.right;
+                    j++;
+                  }
+                }
+
+                if (firstBindEffect) {
+                  // Collect remaining bind/map/guard statements
+                  while (j < statements.length) {
+                    const frag = statements[j];
+                    // Stop at yield:/pure:/return: continuation
+                    if (ts.isLabeledStatement(frag) && macro.continuationLabels?.includes(frag.label.text)) {
+                      break;
+                    }
+                    // Accept ExpressionStatements (binds, maps) and IfStatements (guards)
+                    if (ts.isExpressionStatement(frag) || ts.isIfStatement(frag)) {
+                      fragmentStmts.push(frag);
+                      j++;
+                      continue;
+                    }
+                    break; // Unknown statement type — stop consuming
+                  }
+
+                  // Check for yield:/pure:/return: continuation
+                  let continuation: ts.LabeledStatement | undefined;
+                  if (
+                    j < statements.length &&
+                    ts.isLabeledStatement(statements[j]) &&
+                    macro.continuationLabels?.includes((statements[j] as ts.LabeledStatement).label.text)
+                  ) {
+                    continuation = statements[j] as ts.LabeledStatement;
+                    j++;
+                  }
+
+                  // Reconstruct a synthetic `let: { a << e1; b << e2; ... }` labeled statement
+                  const factory = this.ctx.factory;
+
+                  // Build the first bind: `a << e1;`
+                  const firstBindStmt = factory.createExpressionStatement(
+                    factory.createBinaryExpression(
+                      factory.createIdentifier(firstBindName.text),
+                      factory.createToken(ts.SyntaxKind.LessThanLessThanToken),
+                      firstBindEffect
+                    )
+                  );
+
+                  // Combine: first bind + remaining fragments
+                  const blockStatements = [firstBindStmt, ...fragmentStmts];
+                  const syntheticBlock = factory.createBlock(blockStatements);
+                  const syntheticLabel = factory.createLabeledStatement(
+                    factory.createIdentifier(labelName),
+                    syntheticBlock
+                  );
+
+                  if (this.verbose) {
+                    console.log(
+                      `[typesugar] Reconstructed expression-level ${labelName}:/yield: for const ${firstDecl.name.getText(this.ctx.sourceFile)}`
+                    );
+                  }
+
+                  try {
+                    const result = this.ctx.hygiene.withScope(() =>
+                      macro.expand(this.ctx, syntheticLabel, continuation)
+                    );
+                    let expanded = Array.isArray(result) ? result : [result];
+
+                    // Wrap in variable declaration: const x = <expanded expr>
+                    if (expanded.length === 1 && ts.isExpressionStatement(expanded[0])) {
+                      const expr = expanded[0].expression;
+                      const newDecl = factory.createVariableDeclaration(
+                        firstDecl.name,
+                        undefined,
+                        undefined,
+                        expr
+                      );
+                      const newDeclList = factory.createVariableDeclarationList(
+                        [newDecl],
+                        stmt.declarationList.flags
+                      );
+                      expanded = [factory.createVariableStatement(stmt.modifiers, newDeclList)];
+                    }
+
+                    for (const s of expanded) {
+                      const visited = ts.visitNode(s, this.visit.bind(this));
+                      if (visited) {
+                        if (Array.isArray(visited)) {
+                          newStatements.push(...(visited as ts.Node[]).filter(ts.isStatement));
+                        } else {
+                          newStatements.push(visited as ts.Statement);
+                        }
+                      }
+                    }
+
+                    // Advance past all consumed statements
+                    i = j - 1;
+                    modified = true;
+                    continue;
+                  } catch (error) {
+                    this.ctx.reportError(
+                      stmt,
+                      `Expression-level ${labelName}:/yield: expansion failed: ${error}`
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
 
       // Check for `const x = let;` pattern: a variable declaration whose
       // initializer is the identifier `let` or `seq` (the labeled block labels).
@@ -533,7 +746,18 @@ class MacroTransformer {
             }
             modified = true;
           } else {
-            newStatements.push(visited);
+            // Collapse synthesized `{ const __letyield_N = EXPR; return __letyield_N; }`
+            // Block statements (from `arrow-comprehension-preprocess.ts`'s
+            // `return`-pattern rewrite) back into a single `return EXPR;`.
+            let out: ts.Statement = visited;
+            if (ts.isBlock(out)) {
+              const ret = tryExtractCompReturnExpr(out);
+              if (ret) {
+                out = this.ctx.factory.createReturnStatement(ret);
+                modified = true;
+              }
+            }
+            newStatements.push(out);
           }
         }
       }
@@ -605,6 +829,21 @@ class MacroTransformer {
         this.inlinedInstanceNames,
         this.verbose
       );
+    }
+
+    // PEP-027: for a "use extension" source file, append registration calls
+    // for each exported function so the compiled dist self-registers its
+    // extensions at module load time.
+    if (ts.isSourceFile(node) && globalResolutionScope.hasUseExtension(node.fileName)) {
+      const regCalls = emitExtensionRegistrationsFn(this.ctx.factory, cleanedStatements);
+      if (regCalls.length > 0) {
+        cleanedStatements = [...cleanedStatements, ...regCalls];
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Emitted ${regCalls.length} extension registration call(s) for ${node.fileName}`
+          );
+        }
+      }
     }
 
     const factory = this.ctx.factory;
@@ -722,24 +961,6 @@ class MacroTransformer {
         return result;
       }
 
-      const ctorResult = tryEraseOpaqueConstructorCallFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (ctorResult !== undefined) {
-        if (this.expansionTracker) {
-          this.expansionTracker.recordExpansion(
-            "opaque-ctor",
-            node,
-            this.ctx.sourceFile,
-            "(constructor erasure)"
-          );
-        }
-        return ctorResult;
-      }
-
       const implicitsResult = this.tryTransformImplicitsCall(node);
       if (implicitsResult !== undefined) {
         return implicitsResult;
@@ -774,6 +995,17 @@ class MacroTransformer {
 
     if (this.hasDecorators(node)) {
       const result = this.tryExpandAttributeMacros(node as ts.HasDecorators);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
+    // Implicitly apply trigger-label attribute macros (e.g. @contract) to
+    // functions/methods that contain matching labeled blocks (requires:/ensures:)
+    // without an explicit decorator. Must run before descending into the body
+    // so the macro can hoist/reposition (e.g. old() snapshots) the labeled blocks.
+    if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
+      const result = this.tryExpandImplicitLabelMacro(node);
       if (result !== undefined) {
         return result;
       }
@@ -822,6 +1054,28 @@ class MacroTransformer {
     }
 
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      // @opaque type-rewrite registry is checked FIRST, before native/extension
+      // methods -- mirrors legacy's tryRewriteExtensionMethod, which checks
+      // its type-rewrite registry before falling back to standalone extensions.
+      const opaqueResult = tryRewriteOpaqueMethodCallFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        this.resolveMacroFromSymbol.bind(this),
+        node
+      );
+      if (opaqueResult !== undefined) {
+        if (this.expansionTracker) {
+          this.expansionTracker.recordExpansion(
+            "opaque-method",
+            node,
+            this.ctx.sourceFile,
+            "(type rewrite)"
+          );
+        }
+        return opaqueResult;
+      }
+
       const result = tryRewriteExtensionMethodFn(
         this.ctx,
         this.verbose,
@@ -841,24 +1095,6 @@ class MacroTransformer {
           );
         }
         return result;
-      }
-
-      const opaqueResult = tryRewriteOpaqueMethodCallFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (opaqueResult !== undefined) {
-        if (this.expansionTracker) {
-          this.expansionTracker.recordExpansion(
-            "opaque-method",
-            node,
-            this.ctx.sourceFile,
-            "(type rewrite)"
-          );
-        }
-        return opaqueResult;
       }
 
       // Typeclass instance-method sugar runs LAST, after extension methods and
@@ -884,6 +1120,31 @@ class MacroTransformer {
           );
         }
         return methodSugarResult;
+      }
+    }
+
+    // @opaque constructor call erasure -- `Some(x)` -> `x`, `None()` -> `null`.
+    // Dispatched here (after decorators/labels/JSDoc/tagged-templates/type-refs/
+    // extension-method rewriting), matching legacy's position -- NOT earlier,
+    // alongside auto-specialize/derived-inline/return-type-specialize, so that
+    // those checks get first crack at an identifier-callee call expression.
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const ctorResult = tryEraseOpaqueConstructorCallFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        node
+      );
+      if (ctorResult !== undefined) {
+        if (this.expansionTracker) {
+          this.expansionTracker.recordExpansion(
+            "opaque-ctor",
+            node,
+            this.ctx.sourceFile,
+            "(constructor erasure)"
+          );
+        }
+        return ctorResult;
       }
     }
 
@@ -923,6 +1184,34 @@ class MacroTransformer {
           );
         }
         return opaqueRef;
+      }
+    }
+
+    // Accessor erasure -- `x.value` -> `x` (non-call property access). Skip when
+    // the property access is the callee of a call expression (that's a method
+    // call, handled by tryRewriteExtensionMethodFn/tryRewriteOpaqueMethodCallFn
+    // above). node.parent may be undefined on synthetic nodes.
+    if (ts.isPropertyAccessExpression(node)) {
+      const isCallCallee =
+        node.parent != null && ts.isCallExpression(node.parent) && node.parent.expression === node;
+      if (!isCallCallee) {
+        const accessorResult = tryEraseOpaqueAccessorFn(
+          this.ctx,
+          this.verbose,
+          this.visit.bind(this),
+          node
+        );
+        if (accessorResult !== undefined) {
+          if (this.expansionTracker) {
+            this.expansionTracker.recordExpansion(
+              node.name.text,
+              node,
+              this.ctx.sourceFile,
+              "(accessor erasure)"
+            );
+          }
+          return accessorResult;
+        }
       }
     }
 
@@ -1277,6 +1566,107 @@ class MacroTransformer {
     }
 
     return mappedNode;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Implicit trigger-label attribute macros (e.g. @contract's requires:/ensures:)
+  // (kept here due to decorator synthesis + visit interaction, same as above)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Implicitly apply a trigger-label attribute macro (e.g. @contract) to a
+   * function/method whose body contains a matching top-level labeled block
+   * (e.g. `requires:` / `ensures:`), as if it were explicitly decorated.
+   *
+   * This makes the documented contract-block form work without an explicit
+   * `@contract` decorator. It only fires when a package registering a macro
+   * with matching `triggerLabels` is loaded (e.g. @typesugar/contracts), so
+   * ordinary labeled statements are unaffected unless that package is imported.
+   */
+  private tryExpandImplicitLabelMacro(
+    node: ts.FunctionDeclaration | ts.MethodDeclaration
+  ): ts.Node | ts.Node[] | undefined {
+    const body = node.body;
+    if (!body) return undefined;
+
+    // Find the first top-level labeled statement whose label is a trigger
+    // label of a registered attribute macro. Only contract-block-shaped bodies
+    // qualify (`label: { ... }` or `label: (result) => { ... }`), so ordinary
+    // loop/break labels like `requires: for (...)` are never hijacked.
+    let macro: AttributeMacro | undefined;
+    const hintedUnactivated = new Set<string>();
+    for (const stmt of body.statements) {
+      if (!ts.isLabeledStatement(stmt)) continue;
+      const isBlockShaped =
+        ts.isBlock(stmt.statement) ||
+        (ts.isExpressionStatement(stmt.statement) && ts.isArrowFunction(stmt.statement.expression));
+      if (!isBlockShaped) continue;
+      const candidate = globalRegistry.getAttributeByTriggerLabel(stmt.label.text);
+      if (candidate) {
+        // PEP-052 gate: trigger labels only fire when the file imports a
+        // module carrying a `@syntax-labels <macro.name>` marker. Keep
+        // scanning after an unactivated match — a later label may belong to
+        // a different, activated trigger-label macro — but hint at most once
+        // per macro (a `requires:`/`ensures:` pair is one missing import).
+        if (
+          !globalResolutionScope.isLabelSyntaxActivated(
+            this.ctx.sourceFile.fileName,
+            candidate.name
+          )
+        ) {
+          if (!hintedUnactivated.has(candidate.name)) {
+            hintedUnactivated.add(candidate.name);
+            emitLabelSyntaxNotActivatedHint(this.ctx, stmt, stmt.label.text, candidate);
+          }
+          continue;
+        }
+        macro = candidate;
+        break;
+      }
+    }
+    if (!macro) return undefined;
+
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
+      return undefined;
+    }
+
+    if (this.verbose) {
+      console.log(`[typesugar] Implicitly applying @${macro.name} via trigger label`);
+    }
+
+    const factory = this.ctx.factory;
+    const decorator = factory.createDecorator(factory.createIdentifier(macro.name));
+
+    let currentNode: ts.Node;
+    try {
+      currentNode = this.ctx.hygiene.withScope(() =>
+        macro.expand(this.ctx, decorator, node as ts.Declaration, [])
+      ) as ts.Node;
+      if (Array.isArray(currentNode)) {
+        currentNode = currentNode[0];
+      }
+    } catch (error) {
+      this.ctx.reportError(node, `Implicit @${macro.name} expansion failed: ${error}`);
+      return undefined;
+    }
+
+    let visited: ts.Node;
+    try {
+      visited = ts.visitNode(currentNode, this.visit.bind(this)) as ts.Node;
+    } catch (error) {
+      this.ctx.reportError(node, `Visiting implicit @${macro.name} result failed: ${error}`);
+      visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    }
+    const mapped = preserveSourceMap(visited, node);
+
+    if (this.expansionTracker) {
+      const expandedText = this.printNodeSafe(mapped);
+      if (expandedText) {
+        this.expansionTracker.recordExpansion(macro.name, node, this.ctx.sourceFile, expandedText);
+      }
+    }
+
+    return mapped;
   }
 }
 
