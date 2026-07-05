@@ -197,14 +197,22 @@ export function tryExpandTypeMacro(
 // Extension method rewriting
 // ---------------------------------------------------------------------------
 
-export function tryRewriteExtensionMethod(
+/**
+ * Shared guards for both the type-rewrite-registry path
+ * (`tryRewriteOpaqueMethodCall`, checked first) and the standalone-extension
+ * path (`tryRewriteExtensionMethod`, checked second): an opted-out file or a
+ * macro-producing receiver call must skip both. Legacy's `tryRewriteExtensionMethod`
+ * checked these once, internally, before trying its type-rewrite-registry
+ * sub-step then its extension fallback in the SAME function body; the split
+ * into two top-level dispatch functions here means each must run this guard
+ * on its own turn, but factoring it out keeps a change to either guard from
+ * silently applying to only one of the two paths.
+ */
+function checkMethodCallDispatchGuards(
   ctx: MacroContextImpl,
-  verbose: boolean,
-  visit: VisitFn,
   resolveMacroFromSymbol: ResolveMacroFn,
-  resolveExtensionFromImports: ResolveExtensionFn,
   node: ts.CallExpression
-): ts.Expression | undefined {
+): { propAccess: ts.PropertyAccessExpression; methodName: string; receiver: ts.Expression } | undefined {
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }
@@ -220,6 +228,21 @@ export function tryRewriteExtensionMethod(
       return undefined;
     }
   }
+
+  return { propAccess, methodName, receiver };
+}
+
+export function tryRewriteExtensionMethod(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  node: ts.CallExpression
+): ts.Expression | undefined {
+  const guarded = checkMethodCallDispatchGuards(ctx, resolveMacroFromSymbol, node);
+  if (!guarded) return undefined;
+  const { methodName, receiver } = guarded;
 
   const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
 
@@ -597,25 +620,9 @@ export function tryRewriteOpaqueMethodCall(
 ): ts.Expression | undefined {
   if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
 
-  // Same guards legacy's tryRewriteExtensionMethod applies once, shared by
-  // both the type-rewrite-registry path (checked first) and the standalone-
-  // extension path (checked second, in tryRewriteExtensionMethod below) --
-  // an opted-out file or a macro-producing receiver call must skip both.
-  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
-    return undefined;
-  }
-
-  const propAccess = node.expression;
-  const methodName = propAccess.name.text;
-  const receiver = propAccess.expression;
-
-  if (ts.isCallExpression(receiver) && ts.isIdentifier(receiver.expression)) {
-    const calleeName = receiver.expression.text;
-    const calleeMacro = resolveMacroFromSymbol(receiver.expression, calleeName, "expression");
-    if (calleeMacro) {
-      return undefined;
-    }
-  }
+  const guarded = checkMethodCallDispatchGuards(ctx, resolveMacroFromSymbol, node);
+  if (!guarded) return undefined;
+  const { methodName, receiver } = guarded;
 
   let receiverType: ts.Type;
   try {
@@ -658,10 +665,6 @@ export function tryRewriteOpaqueMethodCall(
     if (result) return preserveSourceMap(result, node);
   }
 
-  if (verbose) {
-    console.log(`[typesugar] Type rewrite: ${typeName}.${methodName}() → ${standaloneFnName}(...)`);
-  }
-
   // Schedule an import if the standalone function comes from another module --
   // uses the shared reference-hygiene mechanism (ctx.ensureImport) and the
   // identifier IT RETURNS (which may be a conflict-safe alias), matching the
@@ -669,6 +672,10 @@ export function tryRewriteOpaqueMethodCall(
   const resolvedFnName = entry.sourceModule
     ? ctx.ensureImport(standaloneFnName, entry.sourceModule).text
     : standaloneFnName;
+
+  if (verbose) {
+    console.log(`[typesugar] Type rewrite: ${typeName}.${methodName}() → ${resolvedFnName}(...)`);
+  }
 
   const ext: StandaloneExtensionInfo = {
     methodName: resolvedFnName,
