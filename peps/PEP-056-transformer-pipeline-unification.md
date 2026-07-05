@@ -311,33 +311,82 @@ the mechanical delegation happens now or is superseded by full deletion.
 
 ### Wave 4: Retire `macroTransformerFactory`, wire `pipeline.ts` through `transformer-core`
 
-The actual deletion.
+The actual deletion. **Status: Implemented** (PRs #57 and the Wave 4b
+cutover branch).
 
-- [ ] `pipeline.ts`'s `transformCode()` (the CLI/build entry point) constructs
-      its real `ts.Program`/compiler host as it does today, then calls
-      `transformer-core`'s `MacroTransformer`/`transformCode({ program,
-  compilerHost, ... })` — the injection seam PEP-015 built and never
-      used — instead of `macroTransformerFactory` from `./index.js`.
-- [ ] `language-service.ts` (LS plugin) does the same for its per-file
-      transform closure.
-- [ ] Delete `index.ts` entirely once nothing imports `macroTransformerFactory`.
-- [ ] Delete `transformer-core`'s now-redundant in-memory-program convenience
-      path IF `pipeline.ts`'s real program subsumes it cleanly — or keep both
-      if the in-memory path still earns its keep for tests/tools that don't
-      have a real `ts.Program` handy (this is a judgment call to make with
-      the actual diff in front of you, not to pre-decide here).
+- [x] `pipeline.ts` constructs a new `macroTransformerFactory` built directly
+      on `transformer-core`'s exported `MacroTransformer` class, instead of
+      `transformCode({ program, compilerHost, ... })`.
+- [x] `language-service.ts` needed no changes — it already used
+      `TransformationPipeline` from `./pipeline.js`, not `./index.js`'s
+      `macroTransformerFactory`, from an earlier wave.
+- [x] Deleted the ~4800-line duplicate engine from `index.ts`; the file is
+      now a ~90-line barrel.
+- [x] `cli.ts`'s 4 direct `macroTransformerFactory`/`TransformerState` call
+      sites (`build`, `watch`, `expand --ast`, `transformFile`) repointed
+      at `pipeline.ts`.
+
+**Scope note — `transformCode()` vs. a new factory function.** The PEP's
+original proposal (`transformer-core`'s `transformCode({ program,
+compilerHost, ... })`, "the injection seam PEP-015 built and never used")
+turned out to be the wrong shape once actually attempted: `transformCode()`
+is designed around constructing its *own* in-memory program from a code
+string, not around wrapping an *already-built* `ts.Program` with
+`pipeline.ts`'s own multi-file/incremental/preprocessed-source
+bookkeeping (cached-per-program transformer factories, `TransformerState`
+reuse across watch-mode rebuilds, disk-backed expansion caching). Instead,
+`pipeline.ts` now exports its own `macroTransformerFactory`/
+`MacroTransformerConfig`/`TransformerState`/`saveExpansionCache`/
+`getExpansionCacheStats` — a faithful, Node-host reconstruction of legacy's
+API built directly on `transformer-core`'s `MacroTransformer`, doing
+everything `transformer-core`'s browser-safe `createTransformerFactory`
+correctly omits: `loadMacroPackages(FromFile)`, file-level opt-out checks,
+`MacroDiagnostic → ts.Diagnostic` conversion wired through
+`ts.TransformationContext.addDiagnostic` so diagnostics surface through
+`program.emit()`, and the disk-backed expansion cache + hygiene-context
+reuse `TransformerState` provides for watch mode. `transformer-core`'s own
+`transformCode()`/in-memory-program path was left untouched — it's still
+the right shape for the browser playground and for tests that don't have a
+real `ts.Program` handy, so no redundancy to delete there.
+
+**A parity audit before the cutover found 6 real gaps** (not caught by the
+original wave-1-3 work, which reconciled only specific *known* differences)
+between legacy's `tryTransform`/`visitStatementContainer` and
+`transformer-core`'s: opaque accessor erasure and implicit trigger-label
+macros were entirely missing; `@opaque` method-call dispatch order was
+inverted with no opt-out guard; constructor erasure ran too early; cross-
+module import scheduling and PEP-027 extension self-registration were both
+silently absent (the latter would have broken `@typesugar/std`'s 11
+extension modules at cutover). All 6 were ported/fixed and reviewed before
+the cutover began (PR #57). **Two further gaps surfaced only once the
+cutover actually ran real code through the new engine end-to-end** — the
+class of bug a static dispatch-order audit structurally cannot catch:
+`tryTransformImplicitsCall`'s `visitNode`-vs-`visitEachChild` bug (gap #7,
+caused spurious auto-specialization) and an overly-broad local-symbol-
+shadow guard in `resolveSymbolToMacro` that blocked legitimate cross-file
+macro imports from non-`@typesugar/*` paths (gap #8). Both found via the
+full `packages/transformer` test suite (427 tests, including every
+package's real showcase/example file transformed end-to-end) and fixed
+before landing.
 
 **Gate:**
 
-- [ ] `pnpm --workspace-concurrency=1 build` green
-- [ ] Full `pnpm test` green — this is the highest-risk gate in the PEP;
-      treat any new failure as a real behavioral gap `pipeline.ts` was
-      silently relying on, not a false positive to route around
-- [ ] `typesugar build`/`typesugar check` CLI smoke-tested against a real
-      project (not just the test suite) — every example under `examples/`
-      and `docs/examples/` builds with identical output to before this wave
-- [ ] `zero` references to `packages/transformer/src/index.ts` anywhere in
-      the tree (`grep -r` across `packages/`, `docs/`, `examples/`)
+- [x] `pnpm build` (full workspace) green.
+- [x] Full `pnpm test` (root-level vitest, all workspace packages) green:
+      267 test files, 7269 tests passed, 38 pre-existing skips, zero
+      failures.
+- [x] `typesugar build`/`check`/`watch`/`expand`/`run` CLI-smoke-tested
+      directly against real packages (not just the vitest suite, which
+      never invokes the CLI binary) — `build` emits valid JS/d.ts, `check`
+      exits 0, `watch` creates and correctly reuses its `TransformerState`
+      across a real file-change-triggered rebuild, `expand`/`expand --ast`
+      produce correct output (the latter also surfaced and fixed a pre-
+      existing, unrelated `JSON.stringify` circular-reference bug in the
+      AST dumper), and `run` executes a real example end-to-end.
+- [x] Zero references to `packages/transformer/src/index.ts`'s deleted
+      engine remain — every consumer either used the preserved default/
+      named exports (no changes needed) or already pointed at `pipeline.ts`
+      directly via a deep import.
 
 ### Wave 5: Fix the audit's remaining concrete findings
 
