@@ -1206,6 +1206,17 @@ describe("tryRewriteTypeclassOperator", () => {
   });
 
   it("strips comments from operands in the emitted call (ported from legacy)", () => {
+    // NOTE: `printNode`'s printer uses `removeComments: true`, which would mask
+    // this behavior regardless of whether stripCommentsDeep actually ran (the
+    // printer's own comment removal, not the function under test, would be
+    // what hides the comments). This test builds its own printer with
+    // `removeComments: false` and prints against the REAL source file (not an
+    // empty synthetic one), so leading/trailing comments would genuinely
+    // surface via position-based lookup if stripCommentsDeep did NOT reset the
+    // operand nodes' positions to -1. The sanity-check assertion on the
+    // ORIGINAL (pre-rewrite) expression proves this printer setup can in fact
+    // show comments when they're present, so the negative result on the
+    // rewritten call is meaningful.
     const source = [
       "/** @typeclass */",
       "interface Numeric<A> {",
@@ -1227,13 +1238,22 @@ describe("tryRewriteTypeclassOperator", () => {
         const stmts = sf.statements;
         const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
           .expression as ts.BinaryExpression;
-        return tryRewriteTypeclassOperator(ctx, false, visit, expr);
+
+        const printerWithComments = ts.createPrinter({ removeComments: false });
+        const printWithComments = (node: ts.Node) =>
+          printerWithComments.printNode(ts.EmitHint.Unspecified, node, sf);
+
+        // Sanity check: the ORIGINAL expression's operands still have their
+        // real source positions, so this printer setup surfaces the comments.
+        expect(printWithComments(expr)).toContain("comment");
+
+        const rewritten = tryRewriteTypeclassOperator(ctx, false, visit, expr);
+        return { rewritten, printed: rewritten && printWithComments(rewritten) };
       },
       "consumer.ts"
     );
 
-    expect(result).toBeDefined();
-    const printed = printNode(result as ts.Expression);
-    expect(printed).not.toContain("comment");
+    expect(result.rewritten).toBeDefined();
+    expect(result.printed).not.toContain("comment");
   });
 });

@@ -254,16 +254,16 @@ export function tryRewriteExtensionMethod(
 
   const typeName = ctx.typeChecker.typeToString(receiverType);
 
-  // Normalize literal types to their base type for extension lookup, using
-  // TypeFlags (not string matching): NumberLiteral (95), StringLiteral
-  // ("hello"), BooleanLiteral (true/false) map to "number"/"string"/"boolean"
-  // for extension registry lookup -- otherwise a receiver the checker types as
-  // a literal (e.g. `(5).clamp(...)`) would never match a "number" extension,
-  // since `typeToString` on it returns the literal text ("5"), not "number".
-  let normalizedType = typeName;
-  if (receiverType.flags & ts.TypeFlags.NumberLiteral) normalizedType = "number";
-  else if (receiverType.flags & ts.TypeFlags.StringLiteral) normalizedType = "string";
-  else if (receiverType.flags & ts.TypeFlags.BooleanLiteral) normalizedType = "boolean";
+  // Normalize literal types to their base type for extension lookup --
+  // otherwise a receiver the checker types as a literal (e.g. `(5).clamp(...)`)
+  // would never match a "number" extension, since `typeToString` on it returns
+  // the literal text ("5"), not "number". `getBaseTypeOfLiteralType` is a
+  // no-op for non-literal types, so this is safe to call unconditionally --
+  // the same idiom already used for this exact purpose in
+  // `@typesugar/macros`'s sfinae-rules.ts/implicits.ts.
+  const normalizedType = ctx.typeChecker.typeToString(
+    ctx.typeChecker.getBaseTypeOfLiteralType(receiverType)
+  );
 
   let standaloneExt = findStandaloneExtension(methodName, normalizedType);
   if (!standaloneExt && normalizedType !== typeName) {

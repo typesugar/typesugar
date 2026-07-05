@@ -41,6 +41,14 @@ PEP for migration):
 - `quote.ts` and `syntax-macro.ts` — these ARE the quasi-quote / user-defined
   syntax-macro primitives. String→AST parsing is their documented purpose; they
   are not migration targets.
+- `transformer-core/src/transformer.ts` — `MacroTransformer`'s expression-macro
+  expansion cache (`getCachedExpression`/`cacheExpression`): entries are stored
+  as printed text and re-parsed via `ctx.parseExpression()` on a cache hit.
+  Same category as `auto-derive.ts` (cache contract stores strings; changing
+  it to store AST is the bigger refactor) — and the print/reparse round-trip
+  is why a cache hit must NOT be re-visited (PEP-056 Wave 2): `parseExpression`
+  strips positions, making the reparsed node synthetic, and the visitor skips
+  macro expansion on synthetic nodes by design.
 
 The original `builtinDerivations` + `convertToCompanionAssignment` legacy exception
 was removed in 2026-05 after they were confirmed to be dead code (orphaned by
