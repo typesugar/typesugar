@@ -38,6 +38,7 @@ import {
   type MethodInlinePattern,
   extractTypeArgumentsContent,
   stripTypeArguments,
+  stripCommentsDeep,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -253,7 +254,21 @@ export function tryRewriteExtensionMethod(
 
   const typeName = ctx.typeChecker.typeToString(receiverType);
 
-  let standaloneExt = findStandaloneExtension(methodName, typeName);
+  // Normalize literal types to their base type for extension lookup --
+  // otherwise a receiver the checker types as a literal (e.g. `(5).clamp(...)`)
+  // would never match a "number" extension, since `typeToString` on it returns
+  // the literal text ("5"), not "number". `getBaseTypeOfLiteralType` is a
+  // no-op for non-literal types, so this is safe to call unconditionally --
+  // the same idiom already used for this exact purpose in
+  // `@typesugar/macros`'s sfinae-rules.ts/implicits.ts.
+  const normalizedType = ctx.typeChecker.typeToString(
+    ctx.typeChecker.getBaseTypeOfLiteralType(receiverType)
+  );
+
+  let standaloneExt = findStandaloneExtension(methodName, normalizedType);
+  if (!standaloneExt && normalizedType !== typeName) {
+    standaloneExt = findStandaloneExtension(methodName, typeName);
+  }
   if (!standaloneExt) {
     const baseTypeName = stripTypeArguments(typeName);
     if (baseTypeName !== typeName) {
@@ -452,12 +467,22 @@ export function tryRewriteTypeclassOperator(
   const right = ts.visitNode(node.right, visit) as ts.Expression;
 
   // Emit instanceRef.method(left, right). The export name may be a companion path
-  // (e.g. "Point.Eq"). Instances are expected to be imported by name or local;
-  // module-scan results assume the binding is in scope (matches prior behavior).
+  // (e.g. "Point.Eq"). If the instance was resolved via a cross-module scan
+  // (not local scope), ensure its base name is actually imported -- otherwise
+  // the emitted reference can be dangling. Uses the identifier ensureImport
+  // returns (which may be a conflict-safe alias) rather than a fresh one.
   const instName = matched.resolved.exportName;
-  const instanceRef = buildInstanceReferenceExpression(factory, instName);
+  let importedIdentifier: ts.Identifier | undefined;
+  if (matched.resolved.importSpecifier && matched.resolved.source !== "local-scope") {
+    const importName = instName.includes(".") ? instName.split(".")[0] : instName;
+    importedIdentifier = ctx.ensureImport(importName, matched.resolved.importSpecifier);
+  }
+  const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
-  const rewritten = factory.createCallExpression(methodAccess, undefined, [left, right]);
+  const rewritten = factory.createCallExpression(methodAccess, undefined, [
+    stripCommentsDeep(left),
+    stripCommentsDeep(right),
+  ]);
   return preserveSourceMap(rewritten, node);
 }
 
