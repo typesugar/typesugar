@@ -335,17 +335,20 @@ export function resolveInstanceInScopeByName(
  * lives: `modulePath` is the resolved file path for an imported instance, or
  * undefined when it was found in the local file. Source-based specialization
  * uses this to walk from a companion path (`Point.Numeric`) back to the
- * generating instance declaration (PEP-053 Wave 2 gap 6).
+ * generating instance declaration (PEP-053 Wave 2 gap 6) — passing
+ * `includeNonExportedImports: true`, since the underlying instance need not
+ * itself be exported for the companion path to be valid, ordinary TypeScript.
  */
 export function findInstanceInScopeByName(
   ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
   tcName: string,
   typeName: string,
-  scanner: InstanceScanner = defaultScanner
+  scanner: InstanceScanner = defaultScanner,
+  includeNonExportedImports = false
 ): { exportName: string; modulePath?: string } | undefined {
   const match = (inst: ScannedInstance): boolean =>
     inst.typeclassName === tcName && baseTypeName(inst.forTypeString) === typeName;
-  const hit = findScannedInScope(ctx, match, scanner);
+  const hit = findScannedInScope(ctx, match, scanner, includeNonExportedImports);
   return hit ? { exportName: hit.instance.exportName, modulePath: hit.modulePath } : undefined;
 }
 
@@ -359,15 +362,37 @@ function baseTypeName(s: string): string {
  * Shared scope walk: local file (incl. non-exported `@impl` values) first,
  * then every imported module (re-exports followed by the scanner). Returns
  * the first scanned instance satisfying `match`.
+ *
+ * `includeNonExportedImports` additionally scans each imported module's
+ * non-exported top-level declarations (via `scanLocalFile`, which is already
+ * sourceFile-agnostic) when the exports-only scan misses. Opt-in and off by
+ * default: `resolveInstanceInScopeByName` (the `@derive` transitive-derivation
+ * "does this type already have an instance" check) and do-notation resolution
+ * both rely on the existing exports-only semantics for imported modules, so
+ * widening visibility there would be an unrelated behavior change. Only
+ * `findInstanceInScopeByName`'s companion-path caller
+ * (`resolveCompanionInstanceExpression`) opts in: `Point.Numeric` is ordinary,
+ * valid TypeScript reachable from any importer regardless of whether the
+ * underlying `numericPoint` const is itself exported, so the value it
+ * resolves to must be discoverable the same way a same-file non-exported
+ * instance already is (PEP-053 Wave 2 gap 6).
  */
 function findScannedInScope(
   ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
   match: (inst: ScannedInstance) => boolean,
-  scanner: InstanceScanner = defaultScanner
+  scanner: InstanceScanner = defaultScanner,
+  includeNonExportedImports = false
 ): { instance: ScannedInstance; modulePath?: string } | undefined {
-  // Local file (includes non-exported @impl/@instance values).
+  // Local file (includes non-exported @impl/@instance values). Also check
+  // instances synthesized during THIS transform pass (e.g. a `@derive(Eq)`
+  // companion) — invisible to the scan above, since that reads the
+  // pre-transform source text and the companion doesn't exist there yet.
+  // See "same-pass state visibility" in CLAUDE.md: a scan of
+  // sourceFile.statements is fixed at pass start and can never see what the
+  // pass itself is in the middle of generating.
   const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
-  const localHit = local.find(match);
+  const synthesized = scanner.getSynthesized(ctx.program, ctx.sourceFile.fileName);
+  const localHit = local.find(match) ?? synthesized.find(match);
   if (localHit) return { instance: localHit };
 
   // Imported modules.
@@ -382,7 +407,12 @@ function findScannedInScope(
       entry.resolvedPath,
       ctx.program
     );
-    const hit = scanned.find(match);
+    let hit = scanned.find(match);
+    if (!hit && includeNonExportedImports) {
+      hit = scanner
+        .scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program)
+        .find(match);
+    }
     if (hit) return { instance: hit, modulePath: entry.resolvedPath };
   }
 

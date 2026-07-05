@@ -566,7 +566,7 @@ function resolveCompanionInstanceExpression(
   const tcName = expr.name.text;
   if (!PASCAL_CASE.test(typeName) || !PASCAL_CASE.test(tcName)) return undefined;
 
-  const hit = findInstanceInScopeByName(ctx, tcName, typeName);
+  const hit = findInstanceInScopeByName(ctx, tcName, typeName, undefined, true);
   if (!hit) return undefined;
 
   const file = hit.modulePath ? ctx.program.getSourceFile(hit.modulePath) : ctx.sourceFile;
@@ -654,7 +654,7 @@ export function tryExtractInstanceFromSource(
     }
 
     if (methods.size > 0) {
-      registerInstanceMethodsFromAST(argName, brand, methods);
+      registerInstanceMethodsFromAST(argName, brand, methods, ctx.program);
       return { brand, methods };
     }
   } catch {

@@ -1957,7 +1957,7 @@ export const implAttribute = defineAttributeMacro({
     if (objLiteral) {
       const methods = extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene);
       if (methods.size > 0) {
-        registerInstanceMethodsFromAST(varName, typeName, methods);
+        registerInstanceMethodsFromAST(varName, typeName, methods, ctx.program);
       }
     }
 
@@ -2728,7 +2728,7 @@ export const implMacro = defineExpressionMacro({
     if (ts.isObjectLiteralExpression(objectLiteralArg)) {
       const methods = extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene);
       if (methods.size > 0) {
-        registerInstanceMethodsFromAST(instanceName, forType, methods);
+        registerInstanceMethodsFromAST(instanceName, forType, methods, ctx.program);
       }
     }
 

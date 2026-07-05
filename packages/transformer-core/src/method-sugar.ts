@@ -18,6 +18,7 @@ import {
   MacroContextImpl,
   globalResolutionScope,
   isInOptedOutScope,
+  isSyntheticNode,
   preserveSourceMap,
   stripCommentsDeep,
   stripTypeArguments,
@@ -109,7 +110,7 @@ export function tryResolveTypeclassMethod(
 ): ts.Expression | undefined {
   // Skip synthetic nodes (from macro-generated code) -- the type checker can
   // throw on nodes whose symbols lack initialized links.
-  if (node.pos === -1 || node.end === -1) {
+  if (isSyntheticNode(node)) {
     return undefined;
   }
 

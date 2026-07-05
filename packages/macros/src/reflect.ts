@@ -29,17 +29,17 @@
 
 import * as ts from "typescript";
 import { defineExpressionMacro, defineAttributeMacro, globalRegistry } from "@typesugar/core";
-import { MacroContext, AttributeTarget } from "@typesugar/core";
+import { MacroContext, AttributeTarget, isSyntheticNode } from "@typesugar/core";
 
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 const dummySource = ts.createSourceFile("__dummy__.ts", "", ts.ScriptTarget.Latest);
 
 /**
  * Safely get the text of a node, handling synthetic nodes that lack source
- * file position information (pos === -1).
+ * file position information.
  */
 function safeGetText(node: ts.Node): string {
-  if (node.pos >= 0 && node.end >= 0) {
+  if (!isSyntheticNode(node)) {
     try {
       return node.getText();
     } catch {

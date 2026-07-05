@@ -30,6 +30,7 @@ import {
   MacroContextImpl,
   globalResolutionScope,
   isInOptedOutScope,
+  isSyntheticNode,
   preserveSourceMap,
   stripCommentsDeep,
   extractTypeArgumentsContent,
@@ -304,10 +305,10 @@ export function tryAutoSpecialize(
     return undefined;
   }
 
-  const isSyntheticNode = node.pos === -1 || node.end === -1;
-  let suppressWarnings = isSyntheticNode;
+  const nodeIsSynthetic = isSyntheticNode(node);
+  let suppressWarnings = nodeIsSynthetic;
 
-  if (!isSyntheticNode) {
+  if (!nodeIsSynthetic) {
     try {
       const sourceText = node.getSourceFile().text;
       const nodeStart = node.getStart();
@@ -351,8 +352,8 @@ export function tryAutoSpecialize(
 
     let methods = tryExtractInstanceFromSource(ctx, arg);
 
-    if (!methods && isRegisteredInstance(argName)) {
-      methods = getInstanceMethods(argName);
+    if (!methods && isRegisteredInstance(argName, ctx.program)) {
+      methods = getInstanceMethods(argName, ctx.program);
     }
 
     if (methods) {
@@ -763,7 +764,7 @@ function resolveInstanceOrIntrinsicMethodsSafely(
   identifier: ts.Identifier,
   dictName: string
 ): DictMethodMap | undefined {
-  const registered = getInstanceMethods(dictName);
+  const registered = getInstanceMethods(dictName, ctx.program);
   if (registered) return registered;
 
   const primitive = getPrimitiveIntrinsicMethods(dictName);

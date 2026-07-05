@@ -23,7 +23,7 @@
 
 import * as ts from "typescript";
 import * as nodePath from "path";
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
   registerInstanceMethodsFromAST,
@@ -40,7 +40,8 @@ import {
 function registerTestInstance(
   dictName: string,
   brand: string,
-  specs: Record<string, { params: string[]; body: ts.Expression }>
+  specs: Record<string, { params: string[]; body: ts.Expression }>,
+  program?: ts.Program
 ): void {
   const methods = new Map<string, DictMethod>();
   for (const [name, info] of Object.entries(specs)) {
@@ -56,7 +57,7 @@ function registerTestInstance(
     );
     methods.set(name, { node: arrow, params: info.params });
   }
-  registerInstanceMethodsFromAST(dictName, brand, methods);
+  registerInstanceMethodsFromAST(dictName, brand, methods, program);
 }
 
 import {
@@ -774,22 +775,26 @@ myEq(eqNumber, 1, 2);
     // Call an imported (unresolvable) function with a registered instance arg.
     // Use a manually-registered instance so getInstanceMethods finds it,
     // but the function body itself cannot be resolved.
-    registerTestInstance("__test_eq_TS9602", "TS9602Brand", {
-      eq: {
-        params: ["a", "b"],
-        body: ts.factory.createBinaryExpression(
-          ts.factory.createIdentifier("a"),
-          ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-          ts.factory.createIdentifier("b")
-        ),
-      },
-    });
-
     const src = `
 declare const externFn: (dict: any, a: number) => boolean;
 externFn(__test_eq_TS9602, 1);
 `;
     const { program, sourceFile } = createProgramFromSource(src);
+    registerTestInstance(
+      "__test_eq_TS9602",
+      "TS9602Brand",
+      {
+        eq: {
+          params: ["a", "b"],
+          body: ts.factory.createBinaryExpression(
+            ts.factory.createIdentifier("a"),
+            ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+            ts.factory.createIdentifier("b")
+          ),
+        },
+      },
+      program
+    );
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
     const cache = new SpecializationCache();
 
@@ -917,22 +922,30 @@ fn(1);`
 // ===========================================================================
 
 describe("tryInlineDerivedInstanceCall", () => {
-  beforeEach(() => {
-    // Re-register so each test starts from a known state.
-    registerTestInstance("__test_inc_inst", "TestInc", {
-      inc: {
-        params: ["a"],
-        body: ts.factory.createBinaryExpression(
-          ts.factory.createIdentifier("a"),
-          ts.factory.createToken(ts.SyntaxKind.PlusToken),
-          ts.factory.createNumericLiteral(1)
-        ),
+  // Registry lookups are partitioned per ts.Program, so each test registers
+  // `__test_inc_inst` against its own program right after creating it, rather
+  // than sharing one `beforeEach` registration across every test's program.
+  function registerTestIncInst(program: ts.Program): void {
+    registerTestInstance(
+      "__test_inc_inst",
+      "TestInc",
+      {
+        inc: {
+          params: ["a"],
+          body: ts.factory.createBinaryExpression(
+            ts.factory.createIdentifier("a"),
+            ts.factory.createToken(ts.SyntaxKind.PlusToken),
+            ts.factory.createNumericLiteral(1)
+          ),
+        },
       },
-    });
-  });
+      program
+    );
+  }
 
   it("inlines a known instance method call", () => {
     const { program, sourceFile } = createProgramFromSource(`__test_inc_inst.inc(5);`);
+    registerTestIncInst(program);
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
     const call = findFirstCall(sourceFile)!;
     const result = tryInlineDerivedInstanceCall(ctx, call, undefined);
@@ -951,6 +964,7 @@ describe("tryInlineDerivedInstanceCall", () => {
 
   it("returns undefined when the method is not defined on the instance", () => {
     const { program, sourceFile } = createProgramFromSource(`__test_inc_inst.nonexistent(1);`);
+    registerTestIncInst(program);
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
     const call = findFirstCall(sourceFile)!;
     expect(tryInlineDerivedInstanceCall(ctx, call, undefined)).toBeUndefined();
@@ -958,6 +972,7 @@ describe("tryInlineDerivedInstanceCall", () => {
 
   it("records the inlined use on the DCE tracker", () => {
     const { program, sourceFile } = createProgramFromSource(`__test_inc_inst.inc(5);`);
+    registerTestIncInst(program);
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
     const tracker = new DerivedInstanceDCETracker();
     const call = findFirstCall(sourceFile)!;

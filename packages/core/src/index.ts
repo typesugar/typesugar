@@ -182,6 +182,7 @@ export {
 export {
   hasExportModifier,
   stripDecorator,
+  isSyntheticNode,
   stripPositions,
   stripCommentsDeep,
   cloneNodeDeep,

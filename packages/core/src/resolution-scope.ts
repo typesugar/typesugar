@@ -12,6 +12,7 @@
 import * as ts from "typescript";
 import { config, ResolutionMode } from "./config.js";
 import { getSyntaxMarkerFallback } from "./syntax-marker-fallback.js";
+import { isSyntheticNode } from "./ast-utils.js";
 
 /**
  * Resolution scope for a single file.
@@ -439,8 +440,8 @@ export function hasInlineOptOut(
   node: ts.Node,
   feature?: string
 ): boolean {
-  // Synthetic nodes (pos === -1) have no source position — no comment to check
-  if (node.pos === -1) return false;
+  // Synthetic nodes have no source position — no comment to check
+  if (isSyntheticNode(node)) return false;
 
   const nodeStart = node.getStart(sourceFile);
   const lineStarts = sourceFile.getLineStarts();

@@ -60,3 +60,65 @@ primitive-intrinsic source strings — was removed in 2026-07 (PEP-052 Wave 7).
 Nothing produces a `.source`-shaped `DictMethod` anymore; `specialize.ts`
 remains on this list only for the new, narrower reflection-based exception
 described above.
+
+**The exception list above must be exhaustive, not illustrative.** If you
+add a `parseStatements`/`parseExpression` call anywhere in this repo,
+either it's already covered by name and file above, or you add it to this
+list in the same commit with the same justification structure the existing
+entries use (why AST construction wasn't feasible here, not just "it was
+easier"). A string-codegen call site with no corresponding CLAUDE.md entry
+is a bug in this file, not a passable gap — flag it in review rather than
+assuming an old omission means the rule doesn't apply to your package.
+
+## Resolving things a macro just generated
+
+When a macro synthesizes a new declaration, instance, or binding during a
+transform pass (a `@derive` companion, a generated constructor, a
+registered extension method), anything that later needs to _discover_ that
+synthesized thing — a scanner, a resolver, a lookup table — must consult
+**live, same-pass state**, not a scan of the pre-transform source text.
+`sourceFile.statements` is fixed at the start of a pass; a scan over it
+can never see what the pass itself is in the middle of generating,
+regardless of visit order.
+
+Two shapes exist in this codebase; only one is safe against this bug:
+
+- **Live keyed registry, read within the same pass** (`@extension`'s
+  `standaloneExtensionRegistry`, `@opaque`/`@adt`'s `registerTypeRewrite`,
+  `InstanceScanner`'s `registerSynthesized` side-table) — correct. Only
+  constraint is the ordinary declare-before-use one any single top-down
+  pass has.
+- **Scan of a snapshot bound once at pass start**
+  (`InstanceScanner.scanLocalFile` before its `getSynthesized` companion
+  was added) — unsafe by construction for anything synthesized mid-pass.
+
+If you add a new resolution/discovery mechanism, or add a new _consumer_ of
+an existing one (see: `findInstanceInScopeByName`, which didn't get the
+`getSynthesized` fix its sibling `resolveFromLocalScope` did, in the same
+file, and shipped that way for a release), explicitly check which shape
+you're building on and say so in a comment. Silence on this point reads as
+"the author didn't think about it," because in every instance found so far,
+that's exactly what it was.
+
+## Calling the type checker on macro-generated nodes
+
+A synthesized AST node (`pos`/`end` of `-1`, never part of the `Program`
+the checker was built from) is outside the checker's supported contract —
+`getTypeAtLocation`, `getSymbolAtLocation`, and diagnostic-span code can
+all throw on it. This is a real, load-bearing constraint in this codebase,
+not a hypothetical: `cli.ts` catches it by name (`"start < 0"`) at three
+separate checker entry points.
+
+Use `isSyntheticNode(node)` (`@typesugar/core`) to skip before calling the
+checker on a node that might be macro-generated, rather than a fresh
+`node.pos === -1` check. If you're adding a new checker call site inside
+macro-expansion code, assume the node in front of you might be synthetic
+until proven otherwise (real user source has a real position; a synthetic
+replacement never does) — check first, don't discover it via a thrown
+exception in production.
+
+When you do catch a checker failure and choose to degrade rather than
+propagate, **the user needs to see that something was skipped** — a
+one-line warning survives the failure even if the rest of the diagnostic
+pass doesn't. A caught exception with no visible trace is a worse outcome
+than the exception itself.

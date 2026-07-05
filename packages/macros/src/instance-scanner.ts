@@ -341,14 +341,19 @@ export class InstanceScanner {
       if (doMeta) implResult.doMeta = doMeta;
       // Only borrow forType from the annotation when it describes the SAME
       // typeclass — otherwise `@impl Foo<X>` on `const v: Bar<Y>` would fabricate
-      // a `Foo<Y>` instance that was never declared.
+      // a `Foo<Y>` instance that was never declared. `forTypeString` is NOT
+      // borrowed: it's the tag's own declared type name (e.g. "Point" in
+      // `@impl Numeric<Point>`), which name-based scope lookups
+      // (`findScannedInScope`'s `baseTypeName(inst.forTypeString) === typeName`
+      // match) key on directly — overwriting it with the annotation's often
+      // *wider* bound (e.g. `Numeric<any>`) would silently break that match
+      // even though the tag unambiguously names "Point".
       if (
         !implResult.forType &&
         typeResult?.forType &&
         typeResult.typeclassName === implResult.typeclassName
       ) {
         implResult.forType = typeResult.forType;
-        implResult.forTypeString = typeResult.forTypeString;
       }
       results.push(implResult);
       return results; // @impl tag takes precedence

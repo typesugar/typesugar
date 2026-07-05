@@ -393,39 +393,119 @@ before landing.
 Small, independent fixes surfaced by the same audit, worth landing alongside
 the consolidation rather than filed and forgotten:
 
-- [ ] `findInstanceInScopeByName`/`findScannedInScope`
+- [x] `findInstanceInScopeByName`/`findScannedInScope`
       (`packages/macros/src/instance-resolver.ts`) doesn't consult
       `InstanceScanner.getSynthesized` the way its sibling
       `resolveFromLocalScope` now does — same-pass `@derive` companions are
       invisible to the auto-specialization companion-path walker
       (`Point.Numeric` → generating declaration). One-line fix, mirrors the
       already-fixed sibling exactly.
-- [ ] `instanceMethodRegistry` (`packages/macros/src/specialize.ts`) is a
+- [x] `instanceMethodRegistry` (`packages/macros/src/specialize.ts`) is a
       bare process-lifetime `Map` — the only instance-resolution mechanism in
       the codebase that isn't `WeakMap<ts.Program>`-partitioned. Give it the
       same partitioning every other mechanism already has. Low correctness
       risk today (miss just falls back to a real call) but worth closing the
       one real exception to "no process-global registry."
-- [ ] Centralize the synthetic-node guard. At least eight call sites across
+
+      Implemented as `WeakMap<ts.Program, Map<string, DictMethodMap>>` with a
+      new `program?: ts.Program` parameter on all five exported functions
+      (`registerInstanceMethodsFromAST`, `getInstanceMethods`,
+      `isRegisteredInstance`, `getRegisteredInstanceNames`,
+      `getInstanceOrIntrinsicMethods`), threaded through every call site that
+      has `ctx.program` in scope (`typeclass.ts` ×2, `instance-extraction.ts`,
+      `transformer-core/specialization.ts`'s live paths). One call site
+      (`diagnostic-suppression-rules.ts`'s `resolvePrimitiveTypeclassMethod`,
+      reached only via the bare `ts.TypeChecker`/`ts.SourceFile` of the public
+      `DiagnosticSuppressionRule` interface) has no program to pass — rather
+      than break that cross-package interface for a low-severity gap, `program`
+      is optional everywhere and omitting it falls back to one shared legacy
+      bucket, preserving that path's exact pre-partitioning behavior. Two
+      dead-code exports (`scanForDerivedInstanceDeclarations`, `checkForValueRef`
+      in `transformer-core/specialization.ts` — exported but never called from
+      any production path; `eliminateDeadDerivedInstances` uses its own
+      tracking, not these) likewise keep the no-program default rather than
+      being threaded for callers that don't exist.
+
+      Partitioning the registry per-`Program` exposed a real, pre-existing bug
+      that a bare shared `Map` had been silently masking via cross-test
+      pollution: `packages/transformer/tests/pep053-source-extraction.test.ts`'s
+      "specializes companion access through a real companion const" test only
+      ever passed in a full-file run (an earlier test's registration leaked
+      into it); it failed standalone even on pre-Wave-5 `main`. Root-caused to
+      two independent gaps, both fixed:
+
+      1. `instance-scanner.ts`'s cross-module `scanModule` only scans a
+         module's exported symbols (`getExportsOfModule`), so it can't see a
+         non-exported `@impl` const reachable only via an exported companion
+         object (`export const Point = { Numeric: numericPoint }` where
+         `numericPoint` itself isn't exported) — even though referencing it via
+         `Point.Numeric` is ordinary, valid TypeScript regardless of the
+         underlying const's export status. Fixed by giving
+         `findScannedInScope`/`findInstanceInScopeByName` an opt-in
+         `includeNonExportedImports` parameter that additionally runs
+         `scanLocalFile` (already sourceFile-agnostic) against the imported
+         module when the exports-only scan misses. Off by default — the
+         `@derive` transitive-derivation planner and do-notation resolution,
+         the other two consumers of the same shared scope walk, keep their
+         existing exports-only semantics for imported modules; only the
+         companion-path caller in `instance-extraction.ts` opts in.
+      2. `instance-scanner.ts`'s `scanDeclaration` "borrow forType from the
+         type annotation" fallback (for when an `@impl` tag's type argument,
+         e.g. `Point`, isn't itself a resolvable `ts.Type`) was also
+         overwriting `forTypeString` — the tag's own declared type NAME, which
+         `findScannedInScope`'s name-based matching keys on directly — with
+         the annotation's own (often wider) bound, e.g. turning
+         `@impl Numeric<Point>` on `const x: Numeric<any>` into a scanned
+         instance for `"any"` instead of `"Point"`. The doc comment already
+         said "only borrow forType"; the code borrowed both. Fixed to match
+         the stated intent.
+- [x] Centralize the synthetic-node guard. At least eight call sites across
       three packages independently reimplement `node.pos === -1 ||
   node.end === -1` with their own copy of the same explanatory comment.
       Add one `isSyntheticNode(node)` helper to `@typesugar/core`, replace
       every site, and use it as the thing new code is expected to reach for
       (see CLAUDE.md addition below).
-- [ ] Make the non-verbose CLI path fail loudly. `cli.ts`'s three
+
+      Landed in `packages/core/src/ast-utils.ts` (re-exported from the
+      package index) rather than a new dedicated `synthetic-node.ts` file —
+      it sits directly beside `stripPositions`, which sets the exact
+      `pos`/`end === -1` convention this helper reads, so co-locating reads
+      better than a same-purpose one-function file. Replaced all five simple
+      `pos === -1 || end === -1` (and inverted `pos >= 0 && end >= 0`) sites:
+      `transformer-core/specialization.ts`, `method-sugar.ts`, `rewriting.ts`,
+      `core/resolution-scope.ts`, `macros/syntax-macro.ts`, `macros/reflect.ts`.
+      `transformer-core/transformer.ts`'s main visitor keeps its own
+      `node.pos === -1` check as-is: it's ANDed with extra
+      source-file/block/module-block exclusions and isn't the same shape the
+      audit flagged. Drive-by: removed an unused `getInstanceMethods` import
+      discovered in `rewriting.ts` while touching its import block.
+- [x] Make the non-verbose CLI path fail loudly. `cli.ts`'s three
       checker-crash `try/catch` blocks (`getPreEmitDiagnostics` ×2, the
-      SFINAE filter) currently only log the failure when `--verbose` is
-      passed for two of the three — meaning a default build can silently
-      drop or leave unfiltered a whole diagnostics pass. At minimum, always
-      print one line (not the full stack) when this happens, regardless of
-      verbosity.
+      diagnostic-suppression filter) currently only log the failure when
+      `--verbose` is passed for two of the three — meaning a default build
+      can silently drop or leave unfiltered a whole diagnostics pass. At
+      minimum, always print one line (not the full stack) when this happens,
+      regardless of verbosity.
+
+      Both `--verbose`-gated blocks now `console.error` unconditionally,
+      matching the third block (the `--strict` typecheck path), which already
+      printed unconditionally.
+- [x] Applied all three CLAUDE.md additions proposed below (previously
+      "proposed, not yet applied") — the exception-list-exhaustiveness
+      tightening, "Resolving things a macro just generated," and "Calling the
+      type checker on macro-generated nodes."
 
 **Gate:**
 
-- [ ] Full test suite green
-- [ ] A test specifically proving the `findInstanceInScopeByName` fix
-      (same-file `@derive` + generic-function specialization call),
-      structured like the existing operator-sugar regression test
+- [x] Full test suite green
+- [x] A test specifically proving the `findInstanceInScopeByName` fix
+      (`packages/macros/src/instance-resolver.test.ts`'s
+      `findInstanceInScopeByName (PEP-056 Wave 5)` describe block: a positive
+      case registering a synthesized `Point.Numeric` via
+      `scanner.registerSynthesized` and confirming it resolves, plus a
+      negative control omitting registration), structured like the existing
+      operator-sugar regression test. Verified to genuinely fail without the
+      fix via temporary revert-and-rerun.
 
 ### Wave 6 (separate, larger, not blocking Waves 1-5): Audit and re-scope the AST-purity exception list
 
@@ -444,10 +524,9 @@ make this PEP's gates harder to reason about.
 
 ## CLAUDE.md additions
 
-Two new principles this audit surfaced, proposed for the "Code generation:
-prefer AST over string manipulation" section and a new section after it.
-**Not applied yet — this is a proposed diff for review alongside the rest of
-the PEP, not a decision already made.**
+Two new principles this audit surfaced, added to the "Code generation:
+prefer AST over string manipulation" section and two new sections after it.
+**Applied in Wave 5.**
 
 ### 1. Tighten the existing AST-over-strings section
 
@@ -527,14 +606,18 @@ Add, after the current exception list:
 | `packages/transformer-core/src/rewriting.ts`            | Absorbs the four remaining duplicated dispatchers                                |
 | `packages/transformer-core/src/dts-opaque-discovery.ts` | Moved from `packages/transformer/src/`                                           |
 | `packages/core/src/profiling.ts`                        | Moved from `packages/transformer/src/`                                           |
-| `packages/core/src/synthetic-node.ts`                   | New — `isSyntheticNode()` helper                                                 |
+| `packages/core/src/ast-utils.ts`                        | New `isSyntheticNode()` helper, beside `stripPositions`                         |
 | `packages/transformer/src/index.ts`                     | **Deleted**                                                                      |
 | `packages/transformer/src/pipeline.ts`                  | Calls `transformer-core`'s `MacroTransformer` with an injected real `ts.Program` |
 | `packages/transformer/src/language-service.ts`          | Same change, LS closure                                                          |
-| `packages/macros/src/instance-resolver.ts`              | `findInstanceInScopeByName` gains the `getSynthesized` check                     |
-| `packages/macros/src/specialize.ts`                     | `instanceMethodRegistry` gains `WeakMap<Program>` partitioning                   |
+| `packages/macros/src/instance-resolver.ts`              | `findInstanceInScopeByName`/`findScannedInScope` gain the `getSynthesized` check and an opt-in `includeNonExportedImports` cross-module scan |
+| `packages/macros/src/instance-scanner.ts`                | `scanDeclaration`'s type-annotation "borrow" fix (no longer clobbers `forTypeString`) |
+| `packages/macros/src/specialize.ts`                     | `instanceMethodRegistry`/`primitiveIntrinsicRegistry` access gains `WeakMap<Program>` partitioning, with a legacy no-program fallback |
+| `packages/macros/src/typeclass.ts`, `instance-extraction.ts` | Thread `ctx.program` through to the partitioned registry |
+| `packages/transformer-core/src/specialization.ts`, `method-sugar.ts`, `rewriting.ts` | Thread `ctx.program` through / adopt `isSyntheticNode` |
+| `packages/core/src/resolution-scope.ts`, `packages/macros/src/syntax-macro.ts`, `reflect.ts` | Adopt `isSyntheticNode` |
 | `packages/transformer/src/cli.ts`                       | Checker-crash paths always emit one line regardless of `--verbose`               |
-| `CLAUDE.md`                                             | Three additions above (proposed, not yet applied)                                |
+| `CLAUDE.md`                                             | Three additions above, applied                                                  |
 
 ## Consequences
 

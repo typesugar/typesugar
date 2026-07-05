@@ -114,6 +114,22 @@ export function stripDecorator(
 }
 
 // =============================================================================
+// isSyntheticNode — Detect synthetic (position-less) AST nodes
+// =============================================================================
+
+/**
+ * Whether a node is synthetic — generated or cloned by the transformer rather
+ * than parsed from source text. Synthetic nodes have no valid source
+ * position (`pos`/`end` are `-1`, the convention `stripPositions` and
+ * `ts.setTextRange`-based node construction both rely on), so operations that
+ * need real source text or trivia (comment scanning, `getText()`,
+ * position-based diagnostics) must skip them or fall back to the printer.
+ */
+export function isSyntheticNode(node: ts.Node): boolean {
+  return node.pos === -1 || node.end === -1;
+}
+
+// =============================================================================
 // stripPositions — Mark AST nodes as synthetic
 // =============================================================================
 

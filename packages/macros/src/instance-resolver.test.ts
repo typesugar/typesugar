@@ -17,6 +17,7 @@ import {
   clearResolverCache,
   resolveDoNotationInstance,
   brandMatchesForType,
+  findInstanceInScopeByName,
   type ResolutionResult,
 } from "./instance-resolver.js";
 import type { MacroContext } from "@typesugar/core";
@@ -417,6 +418,55 @@ export const eqNumber = { eq: (a: number, b: number): boolean => a === b };
     const r2 = resolveInstance(ctx, "Eq", getType("number"), scanner);
     expect(r2).toBeDefined();
     expect(r2!.kind).toBe("resolved");
+  });
+});
+
+describe("findInstanceInScopeByName (PEP-056 Wave 5)", () => {
+  // The bug this wave exists to fix: findScannedInScope's local-file step only
+  // called scanner.scanLocalFile (the pre-transform parse tree), unlike its
+  // sibling resolveFromLocalScope, which also consults
+  // scanner.getSynthesized(...) for instances registered during THIS transform
+  // pass. A same-file `@derive(Numeric)` companion (e.g. `Point.Numeric`,
+  // synthesized by expandDeriveDecorator mid-pass) was therefore invisible to
+  // the companion-path walker in instance-extraction.ts's
+  // resolveCompanionInstanceExpression, which calls findInstanceInScopeByName.
+  const SOURCE = `class Point { constructor(public x: number, public y: number) {} }`;
+
+  function registerSynthesizedPointNumeric(
+    scanner: InstanceScanner,
+    program: ts.Program,
+    sourceFile: ts.SourceFile
+  ): void {
+    const classDecl = sourceFile.statements.find((s): s is ts.ClassDeclaration =>
+      ts.isClassDeclaration(s)
+    )!;
+    const pointType = program.getTypeChecker().getTypeAtLocation(classDecl);
+    scanner.registerSynthesized(program, sourceFile.fileName, {
+      typeclassName: "Numeric",
+      forType: pointType,
+      forTypeString: "Point",
+      exportName: "Point.Numeric",
+      sourceModule: sourceFile.fileName,
+      detectedVia: "derived",
+    });
+  }
+
+  it("resolves a same-file @derive companion synthesized during the same pass", () => {
+    const { ctx, program, scanner } = createResolverContext({ "main.ts": SOURCE }, "main.ts");
+    registerSynthesizedPointNumeric(scanner, program, ctx.sourceFile);
+
+    const hit = findInstanceInScopeByName(ctx, "Numeric", "Point", scanner);
+    expect(hit).toBeDefined();
+    expect(hit!.exportName).toBe("Point.Numeric");
+    expect(hit!.modulePath).toBeUndefined();
+  });
+
+  it("does NOT resolve the companion when it isn't registered as synthesized (proves the positive case above actually depends on getSynthesized)", () => {
+    const { ctx, scanner } = createResolverContext({ "main.ts": SOURCE }, "main.ts");
+    // Deliberately NOT calling registerSynthesizedPointNumeric here.
+
+    const hit = findInstanceInScopeByName(ctx, "Numeric", "Point", scanner);
+    expect(hit).toBeUndefined();
   });
 });
 
