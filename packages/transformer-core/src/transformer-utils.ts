@@ -160,3 +160,50 @@ export function updateNodeDecorators(
 
   return node;
 }
+
+/**
+ * If `body` is a Block of the form `{ const __letyield_N = EXPR; return __letyield_N; }`
+ * (ignoring EmptyStatements), return `EXPR` so the caller can collapse an arrow body
+ * produced by `arrow-comprehension-preprocess.ts` back into an expression body.
+ * Returns `undefined` when the shape doesn't match.
+ */
+export function tryExtractCompReturnExpr(body: ts.Block): ts.Expression | undefined {
+  const stmts = body.statements.filter((s) => !ts.isEmptyStatement(s));
+  if (stmts.length !== 2) return undefined;
+  const [decl, ret] = stmts;
+  if (!ts.isVariableStatement(decl)) return undefined;
+  if (decl.declarationList.declarations.length !== 1) return undefined;
+  const d = decl.declarationList.declarations[0];
+  if (!ts.isIdentifier(d.name)) return undefined;
+  if (!d.name.text.startsWith("__letyield_")) return undefined;
+  if (!d.initializer) return undefined;
+  if (!ts.isReturnStatement(ret)) return undefined;
+  if (!ret.expression || !ts.isIdentifier(ret.expression)) return undefined;
+  if (ret.expression.text !== d.name.text) return undefined;
+  return d.initializer;
+}
+
+/**
+ * Detect a Block that was synthesized by `arrow-comprehension-preprocess.ts`
+ * to wrap an expression-position `let:/yield:` comprehension.
+ *
+ * The preprocessor emits two nested `{ { ... } }` so TS's error-recovery for
+ * `const __letyield_N = let: {...}` consumes the stray `}` from the user's
+ * labeled block without closing the enclosing arrow/function body. The inner
+ * Block always begins with the broken two-decl VariableStatement whose first
+ * declaration is `__letyield_N = let|par|seq|all`.
+ */
+export function isPreprocessedCompWrapperBlock(block: ts.Block): boolean {
+  const first = block.statements[0];
+  if (!first || !ts.isVariableStatement(first)) return false;
+  const decls = first.declarationList.declarations;
+  if (decls.length !== 2) return false;
+  const firstDecl = decls[0];
+  const secondDecl = decls[1];
+  if (!ts.isIdentifier(firstDecl.name)) return false;
+  if (!firstDecl.name.text.startsWith("__letyield_")) return false;
+  if (!firstDecl.initializer || !ts.isIdentifier(firstDecl.initializer)) return false;
+  const init = firstDecl.initializer.text;
+  if (init !== "let" && init !== "par" && init !== "seq" && init !== "all") return false;
+  return ts.isObjectBindingPattern(secondDecl.name);
+}
