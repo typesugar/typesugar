@@ -24,7 +24,6 @@ import macroTransformerFactory, {
 } from "./index.js";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
-import { profiler, PROFILING_ENABLED } from "./profiling.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
 import {
   TransformationPipeline,
@@ -37,6 +36,8 @@ import {
   filterDiagnostics,
   getDiagnosticSuppressionRules,
   setDiagnosticSuppressionAuditMode,
+  profiler,
+  PROFILING_ENABLED,
 } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 

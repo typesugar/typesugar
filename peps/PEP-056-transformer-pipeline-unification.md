@@ -270,20 +270,44 @@ the mechanical delegation happens now or is superseded by full deletion.
 
 ### Wave 3: Move the two misplaced Node-agnostic files
 
-- [ ] Move `dts-opaque-discovery.ts` to `transformer-core`, using its
-      existing injectable `readFile`/`fileExists` rather than `ts.sys`
-      directly.
-- [ ] Move `profiling.ts` to `@typesugar/core` (shared by both pipelines,
+- [x] Move `dts-opaque-discovery.ts` to `transformer-core`, using injectable
+      `readFile`/`fileExists` rather than `ts.sys` directly. Correction to the
+      checkbox as originally worded: `transformer-core` did not already have
+      an injectable file-access mechanism for this — added a small
+      `DtsFileAccess` interface (`fileExists`/`readFile`) that
+      `discoverOpaqueTypesFromImports` accepts, defaulting to `ts.sys` when
+      present (Node callers) and a browser-safe no-op otherwise. Only the one
+      disk-fallback path in `resolveRelativeDts` needed this — files already
+      loaded into `program` resolve the same way regardless of environment.
+      `path` (also Node-only in principle) needed no change: the playground
+      already has a browser shim for it (`packages/playground/src/browser-shims/path.ts`).
+- [x] Move `profiling.ts` to `@typesugar/core` (shared by both pipelines,
       not just one) — no-op profiler when unused, so this costs
-      `transformer-core`/the playground nothing.
-- [ ] `@typesugar/transformer` re-exports both from their new home for
-      backward-compat import paths, marked `@deprecated`.
+      `transformer-core`/the playground nothing. Fixed one real Node
+      assumption while moving it: `PROFILING_ENABLED` read `process.env`
+      unconditionally, which throws in a browser bundle where `process`
+      doesn't exist — now guarded with `typeof process !== "undefined"`.
+- [x] `@typesugar/transformer` re-exports both from their new home for
+      backward-compat import paths, marked `@deprecated`. All three internal
+      consumers (`index.ts`, `cli.ts`, `pipeline.ts`) updated to import from
+      the new locations directly rather than through their own package's
+      deprecated shim.
 
 **Gate:**
 
-- [ ] Full build + test green
-- [ ] Playground bundle size does not regress meaningfully (profiling is a
-      no-op path when unused; confirm tree-shaking actually elides it)
+- [x] Full build + test green (`pnpm --workspace-concurrency=1 build` +
+      `pnpm test`, 7245 passed).
+- [x] Playground bundle size does not regress meaningfully: `browser.js`
+      206→213 KB, `runtime.global.js` 574→577 KB across this wave — a few KB
+      from the two moved files actually being included (mostly
+      `dts-opaque-discovery.ts`, since nothing in the playground's transform
+      path currently calls `discoverOpaqueTypesFromImports`, so most of it
+      isn't reachable code but the barrel re-export still pulls the module
+      in), not a meaningful regression. `profiling.ts` is confirmed a no-op
+      at runtime when `PROFILING_ENABLED` is false (every method short-circuits
+      immediately), which was the actual "costs nothing" claim this gate cares
+      about — module inclusion size and runtime no-op-ness are different
+      properties, and only the latter was the gate's real concern.
 
 ### Wave 4: Retire `macroTransformerFactory`, wire `pipeline.ts` through `transformer-core`
 
@@ -292,7 +316,7 @@ The actual deletion.
 - [ ] `pipeline.ts`'s `transformCode()` (the CLI/build entry point) constructs
       its real `ts.Program`/compiler host as it does today, then calls
       `transformer-core`'s `MacroTransformer`/`transformCode({ program,
-    compilerHost, ... })` — the injection seam PEP-015 built and never
+  compilerHost, ... })` — the injection seam PEP-015 built and never
       used — instead of `macroTransformerFactory` from `./index.js`.
 - [ ] `language-service.ts` (LS plugin) does the same for its per-file
       transform closure.
@@ -335,7 +359,7 @@ the consolidation rather than filed and forgotten:
       one real exception to "no process-global registry."
 - [ ] Centralize the synthetic-node guard. At least eight call sites across
       three packages independently reimplement `node.pos === -1 ||
-    node.end === -1` with their own copy of the same explanatory comment.
+  node.end === -1` with their own copy of the same explanatory comment.
       Add one `isSyntheticNode(node)` helper to `@typesugar/core`, replace
       every site, and use it as the thing new code is expected to reach for
       (see CLAUDE.md addition below).

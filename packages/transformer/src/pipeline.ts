@@ -14,6 +14,9 @@ import {
   scanImportsForScope,
   type ExpansionRecord,
   type RawSourceMap,
+  profiler,
+  PROFILING_ENABLED,
+  type FileTimings,
 } from "@typesugar/core";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
@@ -28,7 +31,6 @@ import macroTransformerFactory, {
   saveExpansionCache,
   getExpansionCacheStats,
 } from "./index.js";
-import { profiler, PROFILING_ENABLED, type FileTimings } from "./profiling.js";
 import MagicString from "magic-string";
 import {
   preprocessExpressionComprehensions,

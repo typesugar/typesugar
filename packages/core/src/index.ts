@@ -269,3 +269,12 @@ export {
   type AccessorRewrite,
   type MethodInlinePattern,
 } from "./type-rewrite-registry.js";
+
+// Performance profiling (moved from @typesugar/transformer in PEP-056 Wave 3 --
+// shared by both the CLI/legacy pipeline and transformer-core, not just one)
+export {
+  profiler,
+  PROFILING_ENABLED,
+  type FileTimings,
+  type AggregatedStats,
+} from "./profiling.js";

@@ -108,3 +108,12 @@ export {
   expandDeriveDecorator,
   extractTypeInfo,
 } from "./macro-helpers.js";
+
+// Consumer-side @opaque type discovery from published .d.ts files (PEP-056
+// Wave 3, moved from @typesugar/transformer — it only ever needed ts.Program
+// + injectable file access, no genuine Node dependency).
+export {
+  discoverOpaqueTypesFromImports,
+  resetDtsDiscovery,
+  type DtsFileAccess,
+} from "./dts-opaque-discovery.js";
