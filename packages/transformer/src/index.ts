@@ -7,7 +7,7 @@
 import * as ts from "typescript";
 import * as path from "path";
 import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
-import { discoverOpaqueTypesFromImports } from "./dts-opaque-discovery.js";
+import { discoverOpaqueTypesFromImports } from "@typesugar/transformer-core";
 
 import {
   getOperatorString,
@@ -90,8 +90,8 @@ import {
   // Type string parsing
   stripTypeArguments,
   TS9222,
+  profiler,
 } from "@typesugar/core";
-import { profiler } from "./profiling.js";
 
 // Printer for safe text extraction from nodes (works on synthetic nodes too)
 // Built-in container/global types whose native methods (map/filter/then/…) must

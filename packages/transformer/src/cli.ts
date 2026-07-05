@@ -24,7 +24,6 @@ import macroTransformerFactory, {
 } from "./index.js";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
-import { profiler, PROFILING_ENABLED } from "./profiling.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
 import {
   TransformationPipeline,
@@ -33,7 +32,13 @@ import {
   formatExpansions,
   transpileExpanded,
 } from "./pipeline.js";
-import { filterDiagnostics, getSfinaeRules, setSfinaeAuditMode } from "@typesugar/core";
+import {
+  filterDiagnostics,
+  getSfinaeRules,
+  setSfinaeAuditMode,
+  profiler,
+  PROFILING_ENABLED,
+} from "@typesugar/core";
 import { registerAllSfinaeRules } from "@typesugar/macros";
 
 type Command =
