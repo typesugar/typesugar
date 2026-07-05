@@ -212,7 +212,9 @@ function checkMethodCallDispatchGuards(
   ctx: MacroContextImpl,
   resolveMacroFromSymbol: ResolveMacroFn,
   node: ts.CallExpression
-): { propAccess: ts.PropertyAccessExpression; methodName: string; receiver: ts.Expression } | undefined {
+):
+  | { propAccess: ts.PropertyAccessExpression; methodName: string; receiver: ts.Expression }
+  | undefined {
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }

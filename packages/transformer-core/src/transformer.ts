@@ -398,7 +398,11 @@ class MacroTransformer {
       // ---------------------------------------------------------------
       {
         const outer = statements[i];
-        if (ts.isBlock(outer) && outer.statements.length >= 2 && isPreprocessedCompWrapperBlock(outer)) {
+        if (
+          ts.isBlock(outer) &&
+          outer.statements.length >= 2 &&
+          isPreprocessedCompWrapperBlock(outer)
+        ) {
           statements.splice(i, 1, ...outer.statements);
           modified = true;
         }
@@ -465,7 +469,10 @@ class MacroTransformer {
                   while (j < statements.length) {
                     const frag = statements[j];
                     // Stop at yield:/pure:/return: continuation
-                    if (ts.isLabeledStatement(frag) && macro.continuationLabels?.includes(frag.label.text)) {
+                    if (
+                      ts.isLabeledStatement(frag) &&
+                      macro.continuationLabels?.includes(frag.label.text)
+                    ) {
                       break;
                     }
                     // Accept ExpressionStatements (binds, maps) and IfStatements (guards)
@@ -482,7 +489,9 @@ class MacroTransformer {
                   if (
                     j < statements.length &&
                     ts.isLabeledStatement(statements[j]) &&
-                    macro.continuationLabels?.includes((statements[j] as ts.LabeledStatement).label.text)
+                    macro.continuationLabels?.includes(
+                      (statements[j] as ts.LabeledStatement).label.text
+                    )
                   ) {
                     continuation = statements[j] as ts.LabeledStatement;
                     j++;

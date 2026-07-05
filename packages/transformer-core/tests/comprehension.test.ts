@@ -38,7 +38,11 @@ function registerTestDoMacro(): void {
       continuationLabels: ["yield", "pure", "return"],
       valueProducing: true,
       syntaxModule: SYNTAX_MODULE,
-      expand(ctx: MacroContext, mainBlock: ts.LabeledStatement, continuation?: ts.LabeledStatement) {
+      expand(
+        ctx: MacroContext,
+        mainBlock: ts.LabeledStatement,
+        continuation?: ts.LabeledStatement
+      ) {
         const printer = ts.createPrinter({ removeComments: true });
         const mainText = printer.printNode(
           ts.EmitHint.Unspecified,
@@ -49,10 +53,11 @@ function registerTestDoMacro(): void {
           ? printer.printNode(ts.EmitHint.Unspecified, continuation.statement, ctx.sourceFile)
           : "";
         return ctx.factory.createExpressionStatement(
-          ctx.factory.createCallExpression(ctx.factory.createIdentifier("__testDoResult"), undefined, [
-            ctx.factory.createStringLiteral(mainText),
-            ctx.factory.createStringLiteral(contText),
-          ])
+          ctx.factory.createCallExpression(
+            ctx.factory.createIdentifier("__testDoResult"),
+            undefined,
+            [ctx.factory.createStringLiteral(mainText), ctx.factory.createStringLiteral(contText)]
+          )
         );
       },
     })
@@ -136,7 +141,9 @@ describe("statement-position do-notation: let: { ... } yield: { ... } (no assign
   it("still dispatches via the plain labeled-block path (pre-existing, not part of this gap)", () => {
     const result = transformCode(
       ACTIVATE +
-        ["let: {", "  a << e1();", "}", "yield: { a }", "declare function e1(): number;"].join("\n"),
+        ["let: {", "  a << e1();", "}", "yield: { a }", "declare function e1(): number;"].join(
+          "\n"
+        ),
       { fileName: "comp-statement-position.ts" }
     );
 

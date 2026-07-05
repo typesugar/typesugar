@@ -817,7 +817,7 @@ describe("tryEraseOpaqueAccessor", () => {
       `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\n(m as any).bogus;`,
       (ctx, sf, visit) => {
         const stmt = sf.statements[2] as ts.ExpressionStatement;
-        const expr = (stmt.expression as ts.AsExpression | ts.PropertyAccessExpression) as
+        const expr = stmt.expression as ts.AsExpression | ts.PropertyAccessExpression as
           | ts.PropertyAccessExpression
           | ts.AsExpression;
         const propAccess = ts.isPropertyAccessExpression(expr)
