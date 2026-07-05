@@ -577,13 +577,13 @@ Scoping makes the system predictable: you opt in to features by importing them, 
 
 ---
 
-## SFINAE: Substitution Failure Is Not An Error
+## Diagnostic Suppression Rules
 
 typesugar's macro system rewrites code at compile time, but TypeScript's type checker runs on the original source. This creates a gap: the type checker reports errors that the transformer will resolve. These are phantom errors -- valid from TypeScript's perspective, invalid from typesugar's.
 
-C++ templates solved the same class of problem with SFINAE: when template argument substitution produces an invalid type, the compiler silently removes that candidate instead of reporting an error. The substitution "failed," but it's not an error -- it's information that guides resolution.
+(This mechanism was originally named after C++'s SFINAE -- "Substitution Failure Is Not An Error" -- on the loose analogy that both let something that looks like an error through. The names describe different things, though: SFINAE is a template _overload-resolution_ rule, while this is _diagnostic suppression driven by a deferred-macro-expansion check_ -- using a compiler error as a trigger to look up whether a macro will resolve it, then hiding the diagnostic if so. PEP-054 renamed it for that reason; the mechanism is unchanged.)
 
-typesugar applies the same principle. When TypeScript reports an error at a site where the macro system has a valid rewrite, the error is suppressed:
+typesugar applies a simple principle: when TypeScript reports an error at a site where the macro system has a valid rewrite, the error is suppressed:
 
 ```typescript
 import { clamp } from "@typesugar/std";
@@ -603,7 +603,7 @@ const id: UserId = 42;
 
 ### What makes this principled
 
-SFINAE is not blanket diagnostic suppression. Each suppression is justified by a specific rewrite rule:
+This isn't blanket diagnostic suppression. Each suppression is justified by a specific rewrite rule:
 
 1. **Extension methods** -- A function with matching first parameter is in scope → TS2339 suppressed
 2. **Newtype assignment** -- Source matches the newtype's base type → TS2322/TS2345 suppressed
@@ -616,7 +616,7 @@ If no rule matches, the error stands. The system is auditable: `--show-suppresse
 
 For some cases, we can. Global augmentations (`interface Number { clamp(): number }`) make TypeScript happy about extension methods on concrete types. Type macros (`@opaque`) make TypeScript happy about methods on FP types.
 
-But there will always be edges where the type checker and the transformer disagree. SFINAE is the general safety net that bridges those edges without ad-hoc workarounds.
+But there will always be edges where the type checker and the transformer disagree. Diagnostic suppression rules are the general safety net that bridges those edges without ad-hoc workarounds.
 
 ---
 
@@ -671,7 +671,7 @@ Outside the defining file, `Option<A>` is opaque -- you interact through its met
 
 ### Implicit conversions
 
-Assignment between an `@opaque` type and its underlying representation is free, handled by SFINAE:
+Assignment between an `@opaque` type and its underlying representation is free, handled by a diagnostic suppression rule:
 
 ```typescript
 const nullable: number | null = fetchValue();
@@ -757,7 +757,7 @@ typesugar exists to prove that TypeScript developers don't have to choose betwee
 - **Abstract code becomes concrete** -- Generics resolve, dictionaries inline, method bodies are substituted at call sites. The abstraction exists at author-time and is gone at runtime.
 - **Type information drives code generation** -- The compiler reads your types and generates optimal code from their structure. Reflection replaces boilerplate.
 - **The type system does more work** -- Native encodings over complex tricks. If TypeScript already handles it, don't build machinery around it.
-- **Types have two faces** -- Type macros let types appear rich to the type checker (with methods, constraints, APIs) while erasing to cheap representations at runtime. SFINAE handles the seams.
+- **Types have two faces** -- Type macros let types appear rich to the type checker (with methods, constraints, APIs) while erasing to cheap representations at runtime. Diagnostic suppression rules handle the seams.
 - **What runs is what you'd write by hand** -- If you had infinite patience and perfect knowledge of every type in your program.
 
 Zero-cost abstractions aren't a feature. They're the philosophy.

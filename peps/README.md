@@ -61,6 +61,6 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [051](PEP-051-readme-guide-consolidation.md)            | README → Guide Consolidation (one set of docs)            | Done                                                                         |
 | [052](PEP-052-import-scoped-macro-activation.md)        | Import-Scoped Macro Activation (cats-style syntax)        | In Progress                                                                  |
 | [053](PEP-053-always-on-specialization.md)              | Always-On Specialization (no explicit `specialize` API)   | Implemented                                                                  |
-| [054](PEP-054-diagnostic-suppression-rules-naming.md)   | Rename "SFINAE Rules" to "Diagnostic Suppression Rules"   | Draft                                                                        |
+| [054](PEP-054-diagnostic-suppression-rules-naming.md)   | Rename "SFINAE Rules" to "Diagnostic Suppression Rules"   | Implemented                                                                  |
 | [055](PEP-055-macro-package-discovery.md)               | Macro-Package Discovery via `package.json`                | Draft                                                                        |
 | [056](PEP-056-transformer-pipeline-unification.md)      | Transformer Pipeline Unification — One Engine, Not Two    | Draft                                                                        |

@@ -407,7 +407,7 @@ Within the defining module, the type is "transparent" — implementations can us
 
 ### Implicit Conversions
 
-SFINAE (PEP-011) allows implicit conversion between an `@opaque` type and its underlying representation:
+Diagnostic suppression (PEP-011) allows implicit conversion between an `@opaque` type and its underlying representation:
 
 ```typescript
 const nullable: number | null = getFromDatabase();
