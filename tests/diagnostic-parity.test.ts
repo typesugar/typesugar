@@ -1,25 +1,28 @@
 /**
  * Diagnostic Parity Test Suite (PEP-034 Wave 3)
  *
- * Ensures that the unified SFINAE registration (registerAllSfinaeRules)
+ * Ensures that the unified diagnostic suppression registration (registerAllDiagnosticSuppressionRules)
  * correctly suppresses diagnostics for all rule categories. Since Wave 1
  * unified the registration, both IDE paths (LSP server and TS plugin) call
  * the same function — so verifying the single pipeline is sufficient.
  *
- * Test cases exercise every built-in SFINAE rule.
+ * Test cases exercise every built-in diagnostic suppression rule.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import {
-  clearSfinaeRules,
+  clearDiagnosticSuppressionRules,
   filterDiagnostics,
   registerStandaloneExtensionEntry,
   standaloneExtensionRegistry,
   registerTypeRewrite,
   clearTypeRewrites,
 } from "@typesugar/core";
-import { registerAllSfinaeRules, ALL_SFINAE_RULE_NAMES } from "@typesugar/macros";
+import {
+  registerAllDiagnosticSuppressionRules,
+  ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES,
+} from "@typesugar/macros";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,26 +89,26 @@ function diagnosticCodes(diagnostics: readonly ts.Diagnostic[]): number[] {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Diagnostic Parity — unified SFINAE pipeline", () => {
+describe("Diagnostic Parity — unified diagnostic suppression pipeline", () => {
   beforeEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
     clearTypeRewrites();
     standaloneExtensionRegistry.length = 0;
   });
 
-  it("registerAllSfinaeRules registers all expected rules", () => {
+  it("registerAllDiagnosticSuppressionRules registers all expected rules", () => {
     const dummyMapFn = () => null;
-    registerAllSfinaeRules({ positionMapFn: dummyMapFn });
+    registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
 
     // This is the Wave 3B completeness test — every rule name must be present
-    const expected = [...ALL_SFINAE_RULE_NAMES];
-    // Note: we can't easily reflect on create*Rule exports, but ALL_SFINAE_RULE_NAMES
+    const expected = [...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES];
+    // Note: we can't easily reflect on create*Rule exports, but ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES
     // is maintained alongside the registration function in the same file.
     expect(expected).toHaveLength(7);
   });
 
   it("OperatorOverload: suppresses TS2365 for non-primitive operands", () => {
-    registerAllSfinaeRules();
+    registerAllDiagnosticSuppressionRules();
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
@@ -128,7 +131,7 @@ const c = a + b;
   });
 
   it("ExtensionMethodCall: suppresses TS2339 for registered extensions", () => {
-    registerAllSfinaeRules();
+    registerAllDiagnosticSuppressionRules();
 
     // Register a standalone extension for number.clamp
     registerStandaloneExtensionEntry({
@@ -154,7 +157,7 @@ const y = x.clamp(0, 10);
   });
 
   it("NewtypeAssignment: suppresses TS2322 for branded newtypes", () => {
-    registerAllSfinaeRules();
+    registerAllDiagnosticSuppressionRules();
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
@@ -178,7 +181,7 @@ const n: number = id;
   });
 
   it("TypeRewriteAssignment: suppresses TS2322/TS2345 for @opaque types", () => {
-    registerAllSfinaeRules();
+    registerAllDiagnosticSuppressionRules();
 
     // Register a type rewrite for EmailAddress → string
     registerTypeRewrite("EmailAddress", {
@@ -209,7 +212,7 @@ const s: string = email;
   });
 
   it("MacroDecorator: suppresses TS1206 for typesugar decorators", () => {
-    registerAllSfinaeRules();
+    registerAllDiagnosticSuppressionRules();
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
@@ -236,7 +239,7 @@ interface Point {
       // Simulate: positions 0-50 are original, 50+ are generated
       return pos < 50 ? pos : null;
     };
-    registerAllSfinaeRules({ positionMapFn });
+    registerAllDiagnosticSuppressionRules({ positionMapFn });
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
@@ -256,16 +259,16 @@ const y: number = "hello";
   });
 });
 
-describe("SFINAE rule completeness (Wave 3B)", () => {
+describe("diagnostic suppression rule completeness (Wave 3B)", () => {
   beforeEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
   });
 
-  it("ALL_SFINAE_RULE_NAMES matches all create*Rule exports", () => {
+  it("ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES matches all create*Rule exports", () => {
     // This test verifies that every rule creator function has a corresponding
-    // entry in ALL_SFINAE_RULE_NAMES. If a new create*Rule is added to
-    // sfinae-rules.ts but not added to registerAllSfinaeRules, this test
-    // should be updated to catch the drift.
+    // entry in ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES. If a new create*Rule is added to
+    // diagnostic-suppression-rules.ts but not added to registerAllDiagnosticSuppressionRules,
+    // this test should be updated to catch the drift.
     const expectedNames = new Set([
       "MacroGenerated", // from @typesugar/core
       "ExtensionMethodCall", // from @typesugar/macros
@@ -276,19 +279,19 @@ describe("SFINAE rule completeness (Wave 3B)", () => {
       "TypeRewriteAssignment", // from @typesugar/macros
     ]);
 
-    const actualNames = new Set(ALL_SFINAE_RULE_NAMES);
+    const actualNames = new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES);
     expect(actualNames).toEqual(expectedNames);
   });
 
-  it("registerAllSfinaeRules with positionMapFn registers exactly 7 rules", () => {
+  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 7 rules", () => {
     const dummyMapFn = () => null;
-    const registered = registerAllSfinaeRules({ positionMapFn: dummyMapFn });
+    const registered = registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
     expect(registered).toHaveLength(7);
-    expect(new Set(registered)).toEqual(new Set(ALL_SFINAE_RULE_NAMES));
+    expect(new Set(registered)).toEqual(new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES));
   });
 
-  it("registerAllSfinaeRules without positionMapFn registers exactly 6 rules", () => {
-    const registered = registerAllSfinaeRules();
+  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 6 rules", () => {
+    const registered = registerAllDiagnosticSuppressionRules();
     expect(registered).toHaveLength(6);
     expect(registered).not.toContain("MacroGenerated");
   });

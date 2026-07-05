@@ -1,5 +1,5 @@
 /**
- * Built-in SFINAE Rules
+ * Built-in diagnostic suppression rules
  *
  * Rule 4 (MacroGenerated): Suppresses diagnostics in macro-generated code
  * whose source positions cannot be mapped back to the original source.
@@ -9,7 +9,7 @@
  */
 
 import type * as ts from "typescript";
-import type { SfinaeRule } from "./sfinae.js";
+import type { DiagnosticSuppressionRule } from "./diagnostic-suppression.js";
 
 /**
  * Callback that maps a transformed-code position back to the original source.
@@ -19,7 +19,7 @@ import type { SfinaeRule } from "./sfinae.js";
 export type PositionMapFn = (fileName: string, transformedPos: number) => number | null;
 
 /**
- * Create a MacroGenerated SFINAE rule.
+ * Create a MacroGenerated diagnostic suppression rule.
  *
  * This rule suppresses any diagnostic whose source position cannot be mapped
  * back to the original source via the position mapper. Such positions exist
@@ -41,7 +41,7 @@ const MACRO_GENERATED_SUPPRESS_CODES = [
   6196, // declared but never used
 ];
 
-export function createMacroGeneratedRule(mapToOriginal: PositionMapFn): SfinaeRule {
+export function createMacroGeneratedRule(mapToOriginal: PositionMapFn): DiagnosticSuppressionRule {
   return {
     name: "MacroGenerated",
     errorCodes: MACRO_GENERATED_SUPPRESS_CODES,

@@ -1,21 +1,21 @@
 /**
- * End-to-end tests for CLI pipeline SFINAE integration (PEP-011 Wave 6)
+ * End-to-end tests for CLI pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)
  *
  * Verifies that `filterDiagnostics()` is applied consistently between
  * the CLI build path and the IDE (language service) path, and that
- * `--show-sfinae` / `TYPESUGAR_SHOW_SFINAE=1` enables audit output.
+ * `--show-suppressed-diagnostics` / `TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS=1` enables audit output.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import {
-  registerSfinaeRule,
-  clearSfinaeRules,
+  registerDiagnosticSuppressionRule,
+  clearDiagnosticSuppressionRules,
   filterDiagnostics,
-  getSfinaeRules,
-  setSfinaeAuditMode,
-  getSfinaeAuditLog,
-  clearSfinaeAuditLog,
+  getDiagnosticSuppressionRules,
+  setDiagnosticSuppressionAuditMode,
+  getDiagnosticSuppressionAuditLog,
+  clearDiagnosticSuppressionAuditLog,
   registerStandaloneExtensionEntry,
   standaloneExtensionRegistry,
   registerTypeRewrite,
@@ -90,7 +90,7 @@ function getDiagnosticsForFile(
 /**
  * Simulate the CLI pipeline's diagnostic filtering:
  * 1. Collect raw diagnostics from ts.getPreEmitDiagnostics()
- * 2. Filter through SFINAE rules (same as cli.ts build())
+ * 2. Filter through diagnostic suppression rules (same as cli.ts build())
  * 3. Return filtered diagnostics
  */
 function simulateCliBuild(
@@ -104,7 +104,7 @@ function simulateCliBuild(
   const { program, checker, diagnostics: rawDiagnostics } = createProgram(files, mainFile);
 
   const filteredDiagnostics =
-    getSfinaeRules().length > 0
+    getDiagnosticSuppressionRules().length > 0
       ? filterDiagnostics(rawDiagnostics, checker, (fn) => program.getSourceFile(fn))
       : [...rawDiagnostics];
 
@@ -115,30 +115,30 @@ function simulateCliBuild(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
+describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () => {
   beforeEach(() => {
-    clearSfinaeRules();
-    clearSfinaeAuditLog();
-    setSfinaeAuditMode(undefined);
+    clearDiagnosticSuppressionRules();
+    clearDiagnosticSuppressionAuditLog();
+    setDiagnosticSuppressionAuditMode(undefined);
     standaloneExtensionRegistry.length = 0;
     clearTypeRewrites();
   });
 
   afterEach(() => {
-    clearSfinaeRules();
-    clearSfinaeAuditLog();
-    setSfinaeAuditMode(undefined);
+    clearDiagnosticSuppressionRules();
+    clearDiagnosticSuppressionAuditLog();
+    setDiagnosticSuppressionAuditMode(undefined);
     standaloneExtensionRegistry.length = 0;
     clearTypeRewrites();
   });
 
   describe("rule registration", () => {
-    it("registers all built-in SFINAE rules for CLI", () => {
-      registerSfinaeRule(createExtensionMethodCallRule());
-      registerSfinaeRule(createNewtypeAssignmentRule());
-      registerSfinaeRule(createTypeRewriteAssignmentRule());
+    it("registers all built-in diagnostic suppression rules for CLI", () => {
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
+      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
+      registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
 
-      const rules = getSfinaeRules();
+      const rules = getDiagnosticSuppressionRules();
       expect(rules).toHaveLength(3);
       expect(rules.map((r) => r.name)).toEqual([
         "ExtensionMethodCall",
@@ -149,27 +149,27 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
 
     it("does not duplicate rules on repeated registration", () => {
       const register = () => {
-        if (!getSfinaeRules().some((r) => r.name === "ExtensionMethodCall")) {
-          registerSfinaeRule(createExtensionMethodCallRule());
+        if (!getDiagnosticSuppressionRules().some((r) => r.name === "ExtensionMethodCall")) {
+          registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
         }
-        if (!getSfinaeRules().some((r) => r.name === "NewtypeAssignment")) {
-          registerSfinaeRule(createNewtypeAssignmentRule());
+        if (!getDiagnosticSuppressionRules().some((r) => r.name === "NewtypeAssignment")) {
+          registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
         }
-        if (!getSfinaeRules().some((r) => r.name === "TypeRewriteAssignment")) {
-          registerSfinaeRule(createTypeRewriteAssignmentRule());
+        if (!getDiagnosticSuppressionRules().some((r) => r.name === "TypeRewriteAssignment")) {
+          registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
         }
       };
 
       register();
       register();
       register();
-      expect(getSfinaeRules()).toHaveLength(3);
+      expect(getDiagnosticSuppressionRules()).toHaveLength(3);
     });
   });
 
   describe("extension method suppression in CLI", () => {
     it("suppresses TS2339 when extension method is registered", () => {
-      registerSfinaeRule(createExtensionMethodCallRule());
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
       registerStandaloneExtensionEntry({
         methodName: "clamp",
         forType: "number",
@@ -193,7 +193,7 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
     });
 
     it("does NOT suppress TS2339 for unregistered methods", () => {
-      registerSfinaeRule(createExtensionMethodCallRule());
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
 
       const result = simulateCliBuild({
         "/test.ts": `
@@ -210,7 +210,7 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
 
   describe("newtype assignment suppression in CLI", () => {
     it("suppresses TS2322 for Newtype assignment", () => {
-      registerSfinaeRule(createNewtypeAssignmentRule());
+      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
 
       const result = simulateCliBuild({
         "/test.ts": `
@@ -236,7 +236,7 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
 
   describe("type rewrite suppression in CLI", () => {
     it("suppresses TS2322 when type rewrite registry entry matches", () => {
-      registerSfinaeRule(createTypeRewriteAssignmentRule());
+      registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
       registerTypeRewrite({
         typeName: "Opaque",
         underlyingTypeText: "number",
@@ -264,11 +264,11 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
     });
   });
 
-  describe("combined rules — all SFINAE-suppressible errors clean", () => {
+  describe("combined rules — all diagnostic-suppressible errors clean", () => {
     it("produces clean output when all rules are registered", () => {
-      registerSfinaeRule(createExtensionMethodCallRule());
-      registerSfinaeRule(createNewtypeAssignmentRule());
-      registerSfinaeRule(createTypeRewriteAssignmentRule());
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
+      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
+      registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
 
       registerStandaloneExtensionEntry({
         methodName: "clamp",
@@ -289,7 +289,7 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
         `,
       });
 
-      // All SFINAE-suppressible errors should be filtered out
+      // All diagnostic-suppressible errors should be filtered out
       const errors = result.filteredDiagnostics.filter(
         (d) => d.category === ts.DiagnosticCategory.Error && d.file?.fileName === "/test.ts"
       );
@@ -297,10 +297,10 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
     });
   });
 
-  describe("audit mode (--show-sfinae)", () => {
+  describe("audit mode (--show-suppressed-diagnostics)", () => {
     it("logs suppressed diagnostics when audit mode is enabled", () => {
-      setSfinaeAuditMode(true);
-      registerSfinaeRule(createExtensionMethodCallRule());
+      setDiagnosticSuppressionAuditMode(true);
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
       registerStandaloneExtensionEntry({
         methodName: "clamp",
         forType: "number",
@@ -312,15 +312,15 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
         `,
       });
 
-      const auditLog = getSfinaeAuditLog();
+      const auditLog = getDiagnosticSuppressionAuditLog();
       expect(auditLog.length).toBeGreaterThan(0);
       expect(auditLog[0].ruleName).toBe("ExtensionMethodCall");
       expect(auditLog[0].errorCode).toBe(2339);
     });
 
     it("does not log when audit mode is disabled", () => {
-      setSfinaeAuditMode(false);
-      registerSfinaeRule(createExtensionMethodCallRule());
+      setDiagnosticSuppressionAuditMode(false);
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
       registerStandaloneExtensionEntry({
         methodName: "clamp",
         forType: "number",
@@ -332,18 +332,18 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
         `,
       });
 
-      const auditLog = getSfinaeAuditLog();
+      const auditLog = getDiagnosticSuppressionAuditLog();
       expect(auditLog).toHaveLength(0);
     });
 
-    it("respects env var TYPESUGAR_SHOW_SFINAE=1", () => {
-      // setSfinaeAuditMode(undefined) reverts to env-var detection
-      setSfinaeAuditMode(undefined);
-      const originalEnv = process.env.TYPESUGAR_SHOW_SFINAE;
-      process.env.TYPESUGAR_SHOW_SFINAE = "1";
+    it("respects env var TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS=1", () => {
+      // setDiagnosticSuppressionAuditMode(undefined) reverts to env-var detection
+      setDiagnosticSuppressionAuditMode(undefined);
+      const originalEnv = process.env.TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS;
+      process.env.TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS = "1";
 
       try {
-        registerSfinaeRule(createExtensionMethodCallRule());
+        registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
         registerStandaloneExtensionEntry({
           methodName: "clamp",
           forType: "number",
@@ -355,13 +355,13 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
           `,
         });
 
-        const auditLog = getSfinaeAuditLog();
+        const auditLog = getDiagnosticSuppressionAuditLog();
         expect(auditLog.length).toBeGreaterThan(0);
       } finally {
         if (originalEnv === undefined) {
-          delete process.env.TYPESUGAR_SHOW_SFINAE;
+          delete process.env.TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS;
         } else {
-          process.env.TYPESUGAR_SHOW_SFINAE = originalEnv;
+          process.env.TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS = originalEnv;
         }
       }
     });
@@ -369,9 +369,9 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
 
   describe("real errors are not suppressed", () => {
     it("preserves genuine type errors", () => {
-      registerSfinaeRule(createExtensionMethodCallRule());
-      registerSfinaeRule(createNewtypeAssignmentRule());
-      registerSfinaeRule(createTypeRewriteAssignmentRule());
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
+      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
+      registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
 
       const result = simulateCliBuild({
         "/test.ts": `
@@ -387,7 +387,7 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
     });
 
     it("does not suppress TS2339 for non-extension properties", () => {
-      registerSfinaeRule(createExtensionMethodCallRule());
+      registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
 
       const result = simulateCliBuild({
         "/test.ts": `
@@ -416,13 +416,13 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
   });
 
   // =========================================================================
-  // PEP-033: New SFINAE rules
+  // PEP-033: New diagnostic suppression rules
   // =========================================================================
 
   describe("MacroDecorator rule (TS1206)", () => {
     beforeEach(() => {
-      clearSfinaeRules();
-      registerSfinaeRule(createMacroDecoratorRule());
+      clearDiagnosticSuppressionRules();
+      registerDiagnosticSuppressionRule(createMacroDecoratorRule());
     });
 
     it("suppresses TS1206 on @derive decorator on interface", () => {
@@ -470,8 +470,8 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
 
   describe("OperatorOverload rule (TS2365)", () => {
     beforeEach(() => {
-      clearSfinaeRules();
-      registerSfinaeRule(createOperatorOverloadRule());
+      clearDiagnosticSuppressionRules();
+      registerDiagnosticSuppressionRule(createOperatorOverloadRule());
     });
 
     it("suppresses TS2365 when operand is a class type", () => {
@@ -514,8 +514,8 @@ describe("CLI Pipeline SFINAE Integration (PEP-011 Wave 6)", () => {
 
   describe("MacroCallChain rule (TS2339/TS2304)", () => {
     beforeEach(() => {
-      clearSfinaeRules();
-      registerSfinaeRule(createMacroCallChainRule());
+      clearDiagnosticSuppressionRules();
+      registerDiagnosticSuppressionRule(createMacroCallChainRule());
     });
 
     it("suppresses TS2339 on match().case() fluent chain", () => {

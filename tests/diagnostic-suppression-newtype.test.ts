@@ -1,5 +1,5 @@
 /**
- * Tests for NewtypeAssignment SFINAE rule (PEP-011 Wave 4)
+ * Tests for NewtypeAssignment diagnostic suppression rule (PEP-011 Wave 4)
  *
  * Verifies that TS2322 ("Type 'X' is not assignable to type 'Y'") and
  * TS2345 ("Argument of type 'X' is not assignable to parameter of type 'Y'")
@@ -10,9 +10,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import {
-  registerSfinaeRule,
-  clearSfinaeRules,
-  evaluateSfinae,
+  registerDiagnosticSuppressionRule,
+  clearDiagnosticSuppressionRules,
+  evaluateDiagnosticSuppression,
   filterDiagnostics,
 } from "@typesugar/core";
 import { createNewtypeAssignmentRule } from "@typesugar/macros";
@@ -100,9 +100,9 @@ function getAssignmentDiagnostics(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("NewtypeAssignment SFINAE Rule", () => {
+describe("NewtypeAssignment diagnostic suppression rule", () => {
   beforeEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
   });
 
   describe("rule creation", () => {
@@ -116,7 +116,7 @@ describe("NewtypeAssignment SFINAE Rule", () => {
   describe("Base → Newtype suppression (TS2322)", () => {
     it("suppresses TS2322 for const id: UserId = 42", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -128,12 +128,12 @@ const id: UserId = 42;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2322 for string newtype: const email: Email = 'user@test.com'", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -145,12 +145,12 @@ const email: Email = "user@test.com";
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2322 when assigning a number variable to Newtype<number>", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -163,14 +163,14 @@ const id: UserId = raw;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
 
   describe("Newtype → Base suppression (TS2322)", () => {
     it("suppresses TS2322 when assigning Newtype to its base type", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -185,7 +185,7 @@ const raw: number = id;
       const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       if (assignDiags.length > 0) {
         const sourceFile = assignDiags[0].file!;
-        expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+        expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
       }
     });
   });
@@ -193,7 +193,7 @@ const raw: number = id;
   describe("function argument suppression (TS2345)", () => {
     it("suppresses TS2345 when passing a number literal to a UserId parameter", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -206,12 +206,12 @@ getUser(42);
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2345 when passing a string to an Email parameter", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -224,14 +224,14 @@ sendEmail("user@test.com");
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
 
   describe("no false positives", () => {
     it("does NOT suppress TS2322 for unrelated types (string to number)", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const x: number = "hello";`,
@@ -241,12 +241,12 @@ sendEmail("user@test.com");
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress TS2322 for wrong base type (string to Newtype<number>)", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -258,12 +258,12 @@ const id: UserId = "not a number";
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress when mixing different Newtype brands with same base", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -280,20 +280,20 @@ const seconds: Seconds = meters;
       // The target (Seconds) has type Newtype<number, "Seconds"> — its base
       // is number too. The rule checks if source is assignable to target's
       // base: Meters (number & {__brand: "Meters"}) IS assignable to number.
-      // So the rule WILL suppress this — which is correct for SFINAE because
-      // at runtime both are just numbers. The brand discrimination is a
+      // So the rule WILL suppress this — which is correct because at
+      // runtime both are just numbers. The brand discrimination is a
       // type-level concern that wrap()/unwrap() handles.
       const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       if (assignDiags.length > 0) {
         const sourceFile = assignDiags[0].file!;
         // This SHOULD suppress — at runtime Meters and Seconds are both numbers
-        expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+        expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
       }
     });
 
     it("does NOT suppress TS2345 for wrong base type in function args", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -306,14 +306,14 @@ getUser("not a number");
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
   });
 
   describe("filterDiagnostics integration", () => {
     it("filters TS2322 from diagnostics array for valid newtype assignment", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { program, checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -333,7 +333,7 @@ const id: UserId = 42;
 
     it("preserves non-assignment diagnostics", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { program, checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -355,7 +355,7 @@ const bad = undeclaredVariable;
   describe("multi-constituent base newtypes", () => {
     it("suppresses TS2322 for a newtype whose base is an intersection (Base1 & Base2)", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -373,12 +373,12 @@ const tagged: Tagged = obj;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
 
     it("does NOT suppress when source satisfies only one constituent of a multi-base newtype", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -396,12 +396,12 @@ const tagged: Tagged = partial;
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
     });
 
     it("suppresses TS2345 for multi-base newtype in function argument position", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -420,14 +420,14 @@ process(obj);
       expect(assignDiags.length).toBeGreaterThan(0);
 
       const sourceFile = assignDiags[0].file!;
-      expect(evaluateSfinae(assignDiags[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
 
   describe("wrap()/unwrap() compatibility", () => {
-    it("SFINAE suppresses the TS2345 from wrap<UserId>(42) since the base type matches", () => {
+    it("diagnostic suppression rule suppresses the TS2345 from wrap<UserId>(42) since the base type matches", () => {
       const rule = createNewtypeAssignmentRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { program, checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
@@ -442,7 +442,7 @@ const raw = unwrap(id);
 
       // wrap<UserId>(42) produces TS2345 because TS can't simplify the
       // conditional type UnwrapNewtype<UserId> in this standalone context.
-      // The transformer would erase wrap() entirely, but our SFINAE rule
+      // The transformer would erase wrap() entirely, but our diagnostic suppression rule
       // should suppress this too since it's number → Newtype<number, ...>.
       const fileDiags = getDiagnosticsForFile(diagnostics, "/test.ts");
       const ts2345 = fileDiags.filter((d) => d.code === 2345);

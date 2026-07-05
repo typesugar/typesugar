@@ -1,5 +1,5 @@
 /**
- * Tests for ExtensionMethodCall SFINAE rule (PEP-011 Wave 3)
+ * Tests for ExtensionMethodCall diagnostic suppression rule (PEP-011 Wave 3)
  *
  * Verifies that TS2339 ("Property 'X' does not exist on type 'Y'") is
  * suppressed when an extension method is resolvable, and NOT suppressed
@@ -9,9 +9,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import {
-  registerSfinaeRule,
-  clearSfinaeRules,
-  evaluateSfinae,
+  registerDiagnosticSuppressionRule,
+  clearDiagnosticSuppressionRules,
+  evaluateDiagnosticSuppression,
   filterDiagnostics,
   registerStandaloneExtensionEntry,
   standaloneExtensionRegistry,
@@ -92,9 +92,9 @@ function getTS2339Diagnostics(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("ExtensionMethodCall SFINAE Rule", () => {
+describe("ExtensionMethodCall diagnostic suppression rule", () => {
   beforeEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
     standaloneExtensionRegistry.length = 0;
   });
 
@@ -116,7 +116,7 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const result = (42).clamp(0, 100);`,
@@ -128,7 +128,7 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
 
       const sourceFile = ts2339[0].file!;
       // The rule should suppress this diagnostic
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2339 for extensions registered without qualifier", () => {
@@ -139,7 +139,7 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const result = (42).clamp(0, 100);`,
@@ -149,7 +149,7 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
     it("does NOT suppress TS2339 for unregistered methods (no false positives)", () => {
@@ -161,7 +161,7 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const result = (42).nonExistent();`,
@@ -171,7 +171,7 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress TS2339 for wrong type", () => {
@@ -183,7 +183,7 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const result = (42).clamp(0, 100);`,
@@ -193,14 +193,14 @@ describe("ExtensionMethodCall SFINAE Rule", () => {
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(false);
     });
   });
 
   describe("import-scoped resolution", () => {
     it("suppresses TS2339 when a matching function is imported", () => {
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/ext.ts": `export function clamp(n: number, min: number, max: number): number {
@@ -214,12 +214,12 @@ const result = (42).clamp(0, 100);`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
     it("suppresses TS2339 when a namespace with matching method is imported", () => {
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/ext.ts": `export namespace NumberExt {
@@ -235,12 +235,12 @@ const result = (42).clamp(0, 100);`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
     it("does NOT suppress when imported function's first param doesn't match", () => {
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/ext.ts": `export function clamp(s: string, min: number, max: number): string {
@@ -255,12 +255,12 @@ const result = (42).clamp(0, 100);`,
 
       const sourceFile = ts2339[0].file!;
       // number is not assignable to string, so should NOT suppress
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress when no matching import exists", () => {
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/ext.ts": `export function otherFunc(n: number): number { return n; }`,
@@ -272,7 +272,7 @@ const result = (42).clamp(0, 100);`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(false);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(false);
     });
   });
 
@@ -285,7 +285,7 @@ const result = (42).clamp(0, 100);`,
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { program, checker, diagnostics } = createProgram({
         "/test.ts": `const result = (42).clamp(0, 100);`,
@@ -310,7 +310,7 @@ const result = (42).clamp(0, 100);`,
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { program, checker, diagnostics } = createProgram({
         // Two errors: TS2339 for .clamp and TS2304/other for undeclaredVar
@@ -332,7 +332,7 @@ const bad: string = undeclaredVar;`,
   describe("edge cases", () => {
     it("handles non-TS2339 diagnostic codes gracefully", () => {
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const x: string = 42;`, // TS2322, not TS2339
@@ -343,9 +343,9 @@ const bad: string = undeclaredVar;`,
 
       if (ts2322.length > 0) {
         const sourceFile = ts2322[0].file!;
-        // TS2322 is not in the rule's errorCodes, so evaluateSfinae should
+        // TS2322 is not in the rule's errorCodes, so evaluateDiagnosticSuppression should
         // never even call shouldSuppress — and definitely not suppress
-        expect(evaluateSfinae(ts2322[0], checker, sourceFile)).toBe(false);
+        expect(evaluateDiagnosticSuppression(ts2322[0], checker, sourceFile)).toBe(false);
       }
     });
 
@@ -357,7 +357,7 @@ const bad: string = undeclaredVar;`,
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const result = "hello".capitalize();`,
@@ -368,7 +368,7 @@ const bad: string = undeclaredVar;`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
     it("handles method calls with no arguments", () => {
@@ -379,7 +379,7 @@ const bad: string = undeclaredVar;`,
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         "/test.ts": `const result = (42).isEven();`,
@@ -389,7 +389,7 @@ const bad: string = undeclaredVar;`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
     it("handles property access without call (still suppresses)", () => {
@@ -400,7 +400,7 @@ const bad: string = undeclaredVar;`,
       });
 
       const rule = createExtensionMethodCallRule();
-      registerSfinaeRule(rule);
+      registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
         // Property access without call — still TS2339
@@ -411,7 +411,7 @@ const bad: string = undeclaredVar;`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateSfinae(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
   });
 });

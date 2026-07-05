@@ -13,13 +13,13 @@ import * as ts from "typescript";
 import init from "../src/language-service.js";
 import { TransformationPipeline, transformCode } from "../src/pipeline.js";
 import {
-  getSfinaeRules,
-  clearSfinaeRules,
-  getSfinaeAuditLog,
-  clearSfinaeAuditLog,
-  setSfinaeAuditMode,
-  registerSfinaeRule,
-  type SfinaeRule,
+  getDiagnosticSuppressionRules,
+  clearDiagnosticSuppressionRules,
+  getDiagnosticSuppressionAuditLog,
+  clearDiagnosticSuppressionAuditLog,
+  setDiagnosticSuppressionAuditMode,
+  registerDiagnosticSuppressionRule,
+  type DiagnosticSuppressionRule,
 } from "@typesugar/core";
 
 // HKT syntax (`F<_>`) is rewritten by the kept transformer path — a real
@@ -718,19 +718,19 @@ describe("Macro Diagnostic Injection (PEP-005 Wave 4)", () => {
 });
 
 // =============================================================================
-// PEP-011 Wave 2: SFINAE Language Service Integration Tests
+// PEP-011 Wave 2: Diagnostic Suppression Language Service Integration Tests
 // =============================================================================
 
-describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
+describe("Diagnostic Suppression Language Service Integration (PEP-011 Wave 2)", () => {
   afterEach(() => {
-    clearSfinaeRules();
-    clearSfinaeAuditLog();
-    setSfinaeAuditMode(undefined);
+    clearDiagnosticSuppressionRules();
+    clearDiagnosticSuppressionAuditLog();
+    setDiagnosticSuppressionAuditMode(undefined);
   });
 
   describe("MacroGenerated rule registration", () => {
     it("registers MacroGenerated rule during plugin create", () => {
-      clearSfinaeRules();
+      clearDiagnosticSuppressionRules();
 
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const x = 1;");
@@ -739,12 +739,12 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
       const info = createMockPluginInfo(files);
       plugin.create(info);
 
-      const rules = getSfinaeRules();
+      const rules = getDiagnosticSuppressionRules();
       expect(rules.some((r) => r.name === "MacroGenerated")).toBe(true);
     });
 
     it("does not register duplicate MacroGenerated rules on second create", () => {
-      clearSfinaeRules();
+      clearDiagnosticSuppressionRules();
 
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const x = 1;");
@@ -758,14 +758,14 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
       const info2 = createMockPluginInfo(files);
       plugin.create(info2);
 
-      const macroRules = getSfinaeRules().filter((r) => r.name === "MacroGenerated");
+      const macroRules = getDiagnosticSuppressionRules().filter((r) => r.name === "MacroGenerated");
       expect(macroRules).toHaveLength(1);
     });
   });
 
-  describe("SFINAE filtering in getSemanticDiagnostics", () => {
-    it("still returns real type errors (not suppressed by SFINAE)", () => {
-      clearSfinaeRules();
+  describe("diagnostic suppression filtering in getSemanticDiagnostics", () => {
+    it("still returns real type errors (not falsely suppressed)", () => {
+      clearDiagnosticSuppressionRules();
 
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const x: string = 123;");
@@ -783,7 +783,7 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
     });
 
     it("preserves diagnostics with valid original positions", () => {
-      clearSfinaeRules();
+      clearDiagnosticSuppressionRules();
 
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const x: string = 42;\nconst y: number = 'hello';");
@@ -794,16 +794,16 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
 
       const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
 
-      // Both type errors should survive SFINAE filtering
+      // Both type errors should survive diagnostic suppression filtering
       expect(diagnostics.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("allows custom SFINAE rules to suppress specific diagnostics", () => {
-      clearSfinaeRules();
+    it("allows custom rules to suppress specific diagnostics", () => {
+      clearDiagnosticSuppressionRules();
 
       // Register a custom rule that suppresses TS2322 for testing
       const suppressedCodes: number[] = [];
-      const testRule: SfinaeRule = {
+      const testRule: DiagnosticSuppressionRule = {
         name: "TestSuppressor",
         errorCodes: [2322],
         shouldSuppress(diagnostic) {
@@ -820,7 +820,7 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
       const proxy = plugin.create(info);
 
       // Register AFTER create so MacroGenerated is also registered
-      registerSfinaeRule(testRule);
+      registerDiagnosticSuppressionRule(testRule);
 
       const diagnostics = proxy.getSemanticDiagnostics("/test/index.ts");
 
@@ -831,9 +831,9 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
     });
   });
 
-  describe("SFINAE filtering in getSuggestionDiagnostics", () => {
+  describe("diagnostic suppression filtering in getSuggestionDiagnostics", () => {
     it("returns suggestion diagnostics for clean files", () => {
-      clearSfinaeRules();
+      clearDiagnosticSuppressionRules();
 
       const files = new Map<string, string>();
       files.set("/test/index.ts", "const x = 1;");
@@ -849,13 +849,13 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
   });
 
   describe("audit mode", () => {
-    it("populates audit log when SFINAE audit mode is enabled", () => {
-      clearSfinaeRules();
-      clearSfinaeAuditLog();
-      setSfinaeAuditMode(true);
+    it("populates audit log when diagnostic suppression audit mode is enabled", () => {
+      clearDiagnosticSuppressionRules();
+      clearDiagnosticSuppressionAuditLog();
+      setDiagnosticSuppressionAuditMode(true);
 
       // Register a rule that always suppresses TS2322
-      registerSfinaeRule({
+      registerDiagnosticSuppressionRule({
         name: "TestAuditRule",
         errorCodes: [2322],
         shouldSuppress() {
@@ -872,7 +872,7 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
 
       proxy.getSemanticDiagnostics("/test/index.ts");
 
-      const auditLog = getSfinaeAuditLog();
+      const auditLog = getDiagnosticSuppressionAuditLog();
       expect(auditLog.length).toBeGreaterThan(0);
 
       const entry = auditLog.find((e) => e.ruleName === "TestAuditRule");
@@ -881,11 +881,11 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
     });
 
     it("does not populate audit log when audit mode is disabled", () => {
-      clearSfinaeRules();
-      clearSfinaeAuditLog();
-      setSfinaeAuditMode(false);
+      clearDiagnosticSuppressionRules();
+      clearDiagnosticSuppressionAuditLog();
+      setDiagnosticSuppressionAuditMode(false);
 
-      registerSfinaeRule({
+      registerDiagnosticSuppressionRule({
         name: "TestAuditRule",
         errorCodes: [2322],
         shouldSuppress() {
@@ -902,14 +902,14 @@ describe("SFINAE Language Service Integration (PEP-011 Wave 2)", () => {
 
       proxy.getSemanticDiagnostics("/test/index.ts");
 
-      const auditLog = getSfinaeAuditLog();
+      const auditLog = getDiagnosticSuppressionAuditLog();
       expect(auditLog).toHaveLength(0);
     });
   });
 
   describe("extension method completions still work", () => {
-    it("provides completions for object properties after SFINAE integration", () => {
-      clearSfinaeRules();
+    it("provides completions for object properties after diagnostic suppression integration", () => {
+      clearDiagnosticSuppressionRules();
 
       const source = `
 const obj = { name: "test", value: 42 };

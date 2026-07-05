@@ -29,8 +29,8 @@ import "./extension.js"; // Standalone extension methods for concrete types
 import "./opaque.js"; // @opaque type macro (PEP-012)
 import "./adt.js"; // @adt macro for algebraic data types (PEP-014)
 
-// --- SFINAE rules ---
-// NOTE: sfinae-rules.ts is NOT imported as a side-effect module.
+// --- Diagnostic suppression rules ---
+// NOTE: diagnostic-suppression-rules.ts is NOT imported as a side-effect module.
 // Rules are registered explicitly during transformer/language-service init.
 // See createExtensionMethodCallRule() export below.
 
@@ -352,7 +352,7 @@ export { opaqueAttribute } from "./opaque.js";
 // --- ADT macro (PEP-014) ---
 export { adtAttribute } from "./adt.js";
 
-// --- SFINAE Rules ---
+// --- Diagnostic Suppression Rules ---
 export {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
@@ -360,14 +360,14 @@ export {
   createNewtypeAssignmentRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
-} from "./sfinae-rules.js";
+} from "./diagnostic-suppression-rules.js";
 
-// --- Unified SFINAE Registration (PEP-034) ---
+// --- Unified Diagnostic Suppression Registration (PEP-034) ---
 export {
-  registerAllSfinaeRules,
-  ALL_SFINAE_RULE_NAMES,
-  type SfinaeRegistrationOptions,
-} from "./sfinae-registration.js";
+  registerAllDiagnosticSuppressionRules,
+  ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES,
+  type DiagnosticSuppressionRegistrationOptions,
+} from "./diagnostic-suppression-registration.js";
 
 // --- Higher-Kinded Types (part of typeclass system) ---
 // HKT enables typeclasses parameterized by type constructors (F<_>).
