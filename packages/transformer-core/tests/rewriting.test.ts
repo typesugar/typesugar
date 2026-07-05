@@ -693,6 +693,52 @@ describe("tryRewriteOpaqueMethodCall", () => {
     expect(result).toBeUndefined();
   });
 
+  it("schedules a cross-module import for the standalone erasure function (PEP-056 Wave 4 parity gap #1)", () => {
+    // Legacy's tryResolveFromTypeRewriteRegistry calls scheduleTypeRewriteImport
+    // whenever the erased-to function lives in another module. The transformer-core
+    // port never scheduled anything, so `x.map(f)` erased to a bare `mapOption(x, f)`
+    // reference with no import -- broken output for a real cross-module @opaque type.
+    registerTypeRewrite({
+      typeName: "Box",
+      sourceModule: "./lib.js",
+      underlyingTypeText: "{ value: number }",
+      methods: new Map([["unwrap", "unwrapBox"]]),
+    });
+
+    const result = withMultiFileContext(
+      {
+        "lib.ts": [
+          "export type Box = { value: number };",
+          "export function unwrapBox(b: Box): number { return b.value; }",
+        ].join("\n"),
+        "consumer.ts": [
+          'import { Box } from "./lib.js";',
+          "declare const b: Box;",
+          "b.unwrap();",
+        ].join("\n"),
+      },
+      "consumer.ts",
+      (ctx, sf, visit) => {
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.CallExpression;
+        const rewritten = tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
+        const pendingImports = ctx.fileBindingCache.getPendingImports();
+        return { rewritten, pendingImports };
+      }
+    );
+
+    expect(result.rewritten).toBeDefined();
+    expect(ts.isCallExpression(result.rewritten!)).toBe(true);
+    const call = result.rewritten as ts.CallExpression;
+    expect((call.expression as ts.Identifier).text).toBe("unwrapBox");
+
+    expect(result.pendingImports.length).toBeGreaterThan(0);
+    const printed = result.pendingImports.map((d) => printNode(d)).join("\n");
+    expect(printed).toContain("unwrapBox");
+    expect(printed).toContain("./lib.js");
+  });
+
   it("respects the 'extensions' opt-out scope, matching legacy's shared guard", () => {
     // Legacy's tryRewriteExtensionMethod checks isInOptedOutScope(...,"extensions")
     // once, shared by BOTH the type-rewrite-registry path and the standalone

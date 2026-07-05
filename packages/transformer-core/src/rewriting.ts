@@ -662,8 +662,16 @@ export function tryRewriteOpaqueMethodCall(
     console.log(`[typesugar] Type rewrite: ${typeName}.${methodName}() → ${standaloneFnName}(...)`);
   }
 
+  // Schedule an import if the standalone function comes from another module --
+  // uses the shared reference-hygiene mechanism (ctx.ensureImport) and the
+  // identifier IT RETURNS (which may be a conflict-safe alias), matching the
+  // pattern already used by method-sugar.ts / tryRewriteTypeclassOperator.
+  const resolvedFnName = entry.sourceModule
+    ? ctx.ensureImport(standaloneFnName, entry.sourceModule).text
+    : standaloneFnName;
+
   const ext: StandaloneExtensionInfo = {
-    methodName: standaloneFnName,
+    methodName: resolvedFnName,
     forType: entry.typeName,
   };
 

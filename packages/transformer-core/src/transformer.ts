@@ -92,6 +92,8 @@ import {
 
 import { tryResolveTypeclassMethod as tryResolveTypeclassMethodFn } from "./method-sugar.js";
 
+import { emitExtensionRegistrations as emitExtensionRegistrationsFn } from "./extension-registration.js";
+
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
 
@@ -606,6 +608,21 @@ class MacroTransformer {
         this.inlinedInstanceNames,
         this.verbose
       );
+    }
+
+    // PEP-027: for a "use extension" source file, append registration calls
+    // for each exported function so the compiled dist self-registers its
+    // extensions at module load time.
+    if (ts.isSourceFile(node) && globalResolutionScope.hasUseExtension(node.fileName)) {
+      const regCalls = emitExtensionRegistrationsFn(this.ctx.factory, cleanedStatements);
+      if (regCalls.length > 0) {
+        cleanedStatements = [...cleanedStatements, ...regCalls];
+        if (this.verbose) {
+          console.log(
+            `[typesugar] Emitted ${regCalls.length} extension registration call(s) for ${node.fileName}`
+          );
+        }
+      }
     }
 
     const factory = this.ctx.factory;
