@@ -17,11 +17,6 @@
 import * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
-import macroTransformerFactory, {
-  saveExpansionCache,
-  getExpansionCacheStats,
-  TransformerState,
-} from "./index.js";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
@@ -31,6 +26,10 @@ import {
   transformCode,
   formatExpansions,
   transpileExpanded,
+  macroTransformerFactory,
+  saveExpansionCache,
+  getExpansionCacheStats,
+  TransformerState,
 } from "./pipeline.js";
 import {
   filterDiagnostics,
@@ -784,7 +783,14 @@ function expand(options: CliOptions): void {
     const ast = JSON.stringify(
       transformedSourceFile,
       (key, value) => {
-        if (key === "parent" || key === "pos" || key === "end" || key === "flags") {
+        if (
+          key === "parent" ||
+          key === "pos" ||
+          key === "end" ||
+          key === "flags" ||
+          key === "symbol" ||
+          key === "emitNode"
+        ) {
           return undefined;
         }
         if (typeof value === "object" && value !== null && "kind" in value) {
