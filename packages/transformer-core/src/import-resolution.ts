@@ -388,6 +388,15 @@ export function resolveSymbolToMacro(
   macroName: string,
   kind: MacroDefinition["kind"]
 ): MacroDefinition | undefined {
+  // Whether the REFERENCE ITSELF was brought into scope via an explicit
+  // import (an alias symbol) -- computed before following the alias, since
+  // that's the one signal that reliably means "the user wrote an import
+  // statement for this name," regardless of which file(s) the aliased
+  // target's own declarations happen to live in (a plain relative-path
+  // import from an in-repo module is exactly as import-worthy as one from
+  // a recognized @typesugar/* package).
+  const wasImported = (symbol.flags & ts.SymbolFlags.Alias) !== 0;
+
   let resolved = symbol;
   if (resolved.flags & ts.SymbolFlags.Alias) {
     try {
@@ -402,7 +411,8 @@ export function resolveSymbolToMacro(
     return fallbackNameLookupWithImports(sourceFile, macroName, kind);
   }
 
-  // Track whether we found any module declarations
+  // Track whether we found any declaration resolving to a recognized
+  // @typesugar/* package path.
   let foundModuleDecl = false;
 
   for (const decl of declarations) {
@@ -426,10 +436,18 @@ export function resolveSymbolToMacro(
     }
   }
 
-  // If all declarations are local (not from modules), this is a local symbol
-  // that happens to share a name with a macro - do NOT fall back to import lookup.
-  // This prevents `Show.summon(...)` from matching the global `summon` macro.
-  if (!foundModuleDecl) {
+  // Fall back to name-based lookup only when either (a) some declaration
+  // resolves to a recognized package path, or (b) the reference itself was
+  // an explicit import -- even one from a plain relative-path module that
+  // isn't a recognized @typesugar/* package (e.g. a project's own in-repo
+  // macro helper file). A symbol that is NEITHER aliased NOR from a
+  // recognized module is a true local/ambient/merged declaration that
+  // happens to share a name with a macro - do NOT fall back to import
+  // lookup. This prevents `Show.summon(...)` from matching the global
+  // `summon` macro when `Show` is a local companion object, and also
+  // covers declarations merged/split across multiple files with no import
+  // connecting them to the reference site at all.
+  if (!foundModuleDecl && !wasImported) {
     return undefined;
   }
 

@@ -635,6 +635,33 @@ describe("resolveSymbolToMacro", () => {
     ).toBeUndefined();
   });
 
+  it("returns undefined for a global symbol declared in a different (non-imported) ambient file", () => {
+    // A global function declared entirely in ANOTHER script file (no import/
+    // export anywhere — both files are global scripts, merged into one
+    // global scope by the compiler) should NOT be resolved as a macro, even
+    // though its declaration lives in a "different file" than the reference.
+    // Regression test for PEP-056 Wave 4b's parity-audit finding: the
+    // foundExternalDecl rewrite must key off "was this reference itself an
+    // import" (wasImported), not "is the declaration in a different file",
+    // or split/merged ambient declarations across files would false-match.
+    const macro = defineExpressionMacro({
+      name: "ir_ambient_split",
+      expand: () => ts.factory.createNumericLiteral(0),
+    });
+    globalRegistry.register(macro);
+
+    const { typeChecker, files } = buildProgram({
+      "/other-ambient.ts": `function ir_ambient_split() {}\n`,
+      "/main.ts": `ir_ambient_split();\n`,
+    });
+    const main = files.get("/main.ts")!;
+    const ident = getIdentifier(main, "ir_ambient_split");
+    const sym = typeChecker.getSymbolAtLocation(ident)!;
+    expect(
+      resolveSymbolToMacro(typeChecker, main, sym, "ir_ambient_split", "expression")
+    ).toBeUndefined();
+  });
+
   it("resolves a node_modules @typesugar/* import via module-scoped lookup", () => {
     const macro = defineExpressionMacro({
       name: "ir_pkg",
