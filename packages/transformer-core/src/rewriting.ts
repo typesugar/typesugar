@@ -666,6 +666,68 @@ export function tryRewriteOpaqueMethodCall(
   }
 }
 
+/**
+ * Erase a registered @opaque type's accessor property access (e.g. `money.value`)
+ * to either the receiver itself (an identity accessor, the common case for a
+ * newtype-shaped wrapper) or a custom expression (PEP-056 Wave 4 -- ported from
+ * legacy's `tryEraseAccessor`; core previously had no accessor-erasure dispatch
+ * at all, only method/constructor/constant-ref erasure).
+ *
+ * Dispatched on a bare (non-call) PropertyAccessExpression -- distinct from
+ * `tryRewriteOpaqueMethodCall`, which requires the property access to be the
+ * callee of a CallExpression.
+ */
+export function tryEraseOpaqueAccessor(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.PropertyAccessExpression
+): ts.Expression | undefined {
+  const propName = node.name.text;
+  const receiver = node.expression;
+
+  let receiverType: ts.Type;
+  try {
+    receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  } catch {
+    return undefined;
+  }
+  if (!ctx.isTypeReliable(receiverType)) return undefined;
+
+  const typeName = resolveTypeRewriteName(ctx.typeChecker, receiverType);
+  if (!typeName) return undefined;
+  const entry = findTypeRewrite(typeName)!;
+  if (!entry.accessors) return undefined;
+
+  const accessor = entry.accessors.get(propName);
+  if (!accessor) return undefined;
+
+  // Transparent scope: skip erasure inside the defining module
+  if (entry.transparent && entry.sourceModule) {
+    if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
+      return undefined;
+    }
+  }
+
+  if (accessor.kind === "identity") {
+    if (verbose) {
+      console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} -> receiver`);
+    }
+    const visited = ts.visitNode(receiver, visit) as ts.Expression;
+    return preserveSourceMap(visited, node);
+  }
+
+  if (accessor.kind === "custom" && accessor.value) {
+    if (verbose) {
+      console.log(`[typesugar] Accessor erasure: ${typeName}.${propName} -> ${accessor.value}`);
+    }
+    const custom = ctx.factory.createIdentifier(accessor.value);
+    return preserveSourceMap(custom, node);
+  }
+
+  return undefined;
+}
+
 function isNullLiteral(node: ts.Expression): boolean {
   return node.kind === ts.SyntaxKind.NullKeyword;
 }

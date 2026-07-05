@@ -84,6 +84,7 @@ import {
   tryRewriteOpaqueMethodCall as tryRewriteOpaqueMethodCallFn,
   tryEraseOpaqueConstructorCall as tryEraseOpaqueConstructorCallFn,
   tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
+  tryEraseOpaqueAccessor as tryEraseOpaqueAccessorFn,
   tryStripOpaqueTypeAnnotation as tryStripOpaqueTypeAnnotationFn,
   tryStripOpaqueParamAnnotation as tryStripOpaqueParamAnnotationFn,
   shouldStripOpaqueReturnType as shouldStripOpaqueReturnTypeFn,
@@ -923,6 +924,34 @@ class MacroTransformer {
           );
         }
         return opaqueRef;
+      }
+    }
+
+    // Accessor erasure -- `x.value` -> `x` (non-call property access). Skip when
+    // the property access is the callee of a call expression (that's a method
+    // call, handled by tryRewriteExtensionMethodFn/tryRewriteOpaqueMethodCallFn
+    // above). node.parent may be undefined on synthetic nodes.
+    if (ts.isPropertyAccessExpression(node)) {
+      const isCallCallee =
+        node.parent != null && ts.isCallExpression(node.parent) && node.parent.expression === node;
+      if (!isCallCallee) {
+        const accessorResult = tryEraseOpaqueAccessorFn(
+          this.ctx,
+          this.verbose,
+          this.visit.bind(this),
+          node
+        );
+        if (accessorResult !== undefined) {
+          if (this.expansionTracker) {
+            this.expansionTracker.recordExpansion(
+              node.name.text,
+              node,
+              this.ctx.sourceFile,
+              "(accessor erasure)"
+            );
+          }
+          return accessorResult;
+        }
       }
     }
 

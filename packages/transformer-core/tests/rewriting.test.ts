@@ -37,6 +37,7 @@ import {
   tryRewriteOpaqueMethodCall,
   tryEraseOpaqueConstructorCall,
   tryEraseOpaqueConstantRef,
+  tryEraseOpaqueAccessor,
   tryStripOpaqueTypeAnnotation,
   tryStripOpaqueParamAnnotation,
   shouldStripOpaqueReturnType,
@@ -688,6 +689,91 @@ describe("tryRewriteOpaqueMethodCall", () => {
         return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
       },
       "typesugar/fp/data/option.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tryEraseOpaqueAccessor (PEP-056 Wave 4 -- ported from legacy; core previously
+// had method/constructor/constant-ref erasure but no accessor erasure at all)
+// ---------------------------------------------------------------------------
+
+describe("tryEraseOpaqueAccessor", () => {
+  function registerMoneyWithAccessors(): void {
+    registerTypeRewrite({
+      typeName: "Money",
+      sourceModule: "@typesugar/fp/data/money",
+      underlyingTypeText: "number",
+      accessors: new Map([
+        ["value", { kind: "identity" }],
+        ["zero", { kind: "custom", value: "ZERO_MONEY" }],
+      ]),
+      transparent: true,
+    });
+  }
+
+  it("erases an identity accessor to the receiver", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.value;`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[2] as ts.ExpressionStatement)
+          .expression as ts.PropertyAccessExpression;
+        return tryEraseOpaqueAccessor(ctx, false, visit, expr);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeDefined();
+    expect(ts.isIdentifier(result!)).toBe(true);
+    expect((result as ts.Identifier).text).toBe("m");
+  });
+
+  it("erases a custom accessor to its configured expression", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.zero;`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[2] as ts.ExpressionStatement)
+          .expression as ts.PropertyAccessExpression;
+        return tryEraseOpaqueAccessor(ctx, false, visit, expr);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeDefined();
+    expect(ts.isIdentifier(result!)).toBe(true);
+    expect((result as ts.Identifier).text).toBe("ZERO_MONEY");
+  });
+
+  it("returns undefined for an unregistered property name", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\n(m as any).bogus;`,
+      (ctx, sf, visit) => {
+        const stmt = sf.statements[2] as ts.ExpressionStatement;
+        const expr = (stmt.expression as ts.AsExpression | ts.PropertyAccessExpression) as
+          | ts.PropertyAccessExpression
+          | ts.AsExpression;
+        const propAccess = ts.isPropertyAccessExpression(expr)
+          ? expr
+          : (expr.expression as ts.PropertyAccessExpression);
+        return tryEraseOpaqueAccessor(ctx, false, visit, propAccess);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("skips erasure inside the transparent defining module", () => {
+    registerMoneyWithAccessors();
+    const { result } = withContext(
+      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.value;`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[2] as ts.ExpressionStatement)
+          .expression as ts.PropertyAccessExpression;
+        return tryEraseOpaqueAccessor(ctx, false, visit, expr);
+      },
+      "typesugar/fp/data/money.ts"
     );
     expect(result).toBeUndefined();
   });
