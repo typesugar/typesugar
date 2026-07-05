@@ -1,5 +1,5 @@
 /**
- * Test utilities for SFINAE and Type Rewrite registries.
+ * Test utilities for Diagnostic Suppression and Type Rewrite registries.
  *
  * These helpers save and restore global registry state, ensuring test
  * isolation when running tests that register rules or type rewrites.
@@ -16,37 +16,40 @@
  * ```
  */
 
-import { clearSfinaeRules, clearSfinaeAuditLog } from "./sfinae.js";
+import {
+  clearDiagnosticSuppressionRules,
+  clearDiagnosticSuppressionAuditLog,
+} from "./diagnostic-suppression.js";
 import { clearTypeRewrites } from "./type-rewrite-registry.js";
 
 /**
- * Create an isolated scope for SFINAE and type rewrite registries.
+ * Create an isolated scope for diagnostic suppression and type rewrite registries.
  * Call the returned function in afterEach to restore clean state.
  *
  * This is preferred over manual clear calls because it's harder to forget
  * and documents the intent clearly.
  */
 export function withIsolatedRegistries(): () => void {
-  clearSfinaeRules();
-  clearSfinaeAuditLog();
+  clearDiagnosticSuppressionRules();
+  clearDiagnosticSuppressionAuditLog();
   clearTypeRewrites();
 
   return () => {
-    clearSfinaeRules();
-    clearSfinaeAuditLog();
+    clearDiagnosticSuppressionRules();
+    clearDiagnosticSuppressionAuditLog();
     clearTypeRewrites();
   };
 }
 
 /**
- * Create an isolated scope for just the SFINAE rule registry.
+ * Create an isolated scope for just the diagnostic suppression rule registry.
  */
-export function withIsolatedSfinaeRules(): () => void {
-  clearSfinaeRules();
-  clearSfinaeAuditLog();
+export function withIsolatedDiagnosticSuppressionRules(): () => void {
+  clearDiagnosticSuppressionRules();
+  clearDiagnosticSuppressionAuditLog();
   return () => {
-    clearSfinaeRules();
-    clearSfinaeAuditLog();
+    clearDiagnosticSuppressionRules();
+    clearDiagnosticSuppressionAuditLog();
   };
 }
 

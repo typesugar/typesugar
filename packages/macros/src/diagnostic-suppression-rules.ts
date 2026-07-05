@@ -1,5 +1,5 @@
 /**
- * Built-in SFINAE Rules for @typesugar/macros
+ * Built-in diagnostic suppression rules for @typesugar/macros
  *
  * Rule 1 (ExtensionMethodCall): Suppresses TS2339 ("Property 'X' does not exist
  * on type 'Y'") when an extension method named 'X' is resolvable for type 'Y'
@@ -17,11 +17,11 @@
  */
 
 import ts from "typescript";
-import type { SfinaeRule } from "@typesugar/core";
+import type { DiagnosticSuppressionRule } from "@typesugar/core";
 import {
   findStandaloneExtension,
   findTypeRewrite,
-  isSfinaeAuditEnabled,
+  isDiagnosticSuppressionAuditEnabled,
   extractTypeArgumentsContent,
   splitTopLevelTypeArgs,
   globalResolutionScope,
@@ -30,7 +30,7 @@ import { getTypeclassesForMethod } from "./typeclass.js";
 import { getInstanceOrIntrinsicMethods } from "./specialize.js";
 
 /**
- * Create the ExtensionMethodCall SFINAE rule.
+ * Create the ExtensionMethodCall diagnostic suppression rule.
  *
  * Suppresses TS2339 when the "missing" property is actually an extension method
  * that the transformer will rewrite at emit time. Checks both:
@@ -38,7 +38,7 @@ import { getInstanceOrIntrinsicMethods } from "./specialize.js";
  * - Import-scoped resolution (any imported function whose name matches and whose
  *   first parameter accepts the receiver type)
  */
-export function createExtensionMethodCallRule(): SfinaeRule {
+export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
   return {
     name: "ExtensionMethodCall",
     errorCodes: [2339],
@@ -75,8 +75,8 @@ export function createExtensionMethodCallRule(): SfinaeRule {
       try {
         receiverType = checker.getTypeAtLocation(receiver);
       } catch (e) {
-        if (isSfinaeAuditEnabled()) {
-          console.error(`[SFINAE] ExtensionMethodCall: ${e}`);
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] ExtensionMethodCall: ${e}`);
         }
         return false;
       }
@@ -141,7 +141,7 @@ function normalizePrimitiveTypeName(typeName: string): string | undefined {
  * `tcName<typeName>` (naming convention `${tc}${Type}`, e.g. "eqNumber"),
  * AND method syntax for that typeclass is activated in this file (PEP-052's
  * import-scoped activation gate — `globalResolutionScope` is populated by
- * the transform pass that always runs before SFINAE filtering, both in the
+ * the transform pass that always runs before diagnostic suppression filtering, both in the
  * CLI's `program.emit()` and the language service's `getTransformResult()`).
  * Without the activation check, a stray `(5).equals(6)` with no
  * `@typesugar/std/syntax/eq` import would be wrongly suppressed instead of
@@ -164,8 +164,8 @@ function resolvePrimitiveTypeclassMethod(
       const baseType = checker.getBaseTypeOfLiteralType(receiverType);
       primitiveName = normalizePrimitiveTypeName(checker.typeToString(baseType));
     } catch (e) {
-      if (isSfinaeAuditEnabled()) {
-        console.error(`[SFINAE] resolvePrimitiveTypeclassMethod: ${e}`);
+      if (isDiagnosticSuppressionAuditEnabled()) {
+        console.error(`[DiagnosticSuppression] resolvePrimitiveTypeclassMethod: ${e}`);
       }
     }
   }
@@ -281,8 +281,8 @@ function findInRegistry(
       return true;
     }
   } catch (e) {
-    if (isSfinaeAuditEnabled()) {
-      console.error(`[SFINAE] findInRegistry: ${e}`);
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] findInRegistry: ${e}`);
     }
   }
 
@@ -418,8 +418,8 @@ function checkImportedSymbol(
   try {
     symbol = checker.getSymbolAtLocation(ident);
   } catch (e) {
-    if (isSfinaeAuditEnabled()) {
-      console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
     }
     return false;
   }
@@ -429,8 +429,8 @@ function checkImportedSymbol(
   try {
     identType = checker.getTypeOfSymbolAtLocation(symbol, ident);
   } catch (e) {
-    if (isSfinaeAuditEnabled()) {
-      console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
     }
     return false;
   }
@@ -447,8 +447,8 @@ function checkImportedSymbol(
           return true;
         }
       } catch (e) {
-        if (isSfinaeAuditEnabled()) {
-          console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
         }
         continue;
       }
@@ -463,8 +463,8 @@ function checkImportedSymbol(
   try {
     propType = checker.getTypeOfSymbolAtLocation(prop, ident);
   } catch (e) {
-    if (isSfinaeAuditEnabled()) {
-      console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
     }
     return false;
   }
@@ -479,8 +479,8 @@ function checkImportedSymbol(
         return true;
       }
     } catch (e) {
-      if (isSfinaeAuditEnabled()) {
-        console.error(`[SFINAE] checkImportedSymbol: ${e}`);
+      if (isDiagnosticSuppressionAuditEnabled()) {
+        console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
       }
       continue;
     }
@@ -502,7 +502,7 @@ function checkImportedSymbol(
 const BRAND_PROP_PATTERN = /__brand/;
 
 /**
- * Create the NewtypeAssignment SFINAE rule.
+ * Create the NewtypeAssignment diagnostic suppression rule.
  *
  * Suppresses TS2322 ("Type 'X' is not assignable to type 'Y'") and TS2345
  * ("Argument of type 'X' is not assignable to parameter of type 'Y'") when
@@ -513,7 +513,7 @@ const BRAND_PROP_PATTERN = /__brand/;
  * only in the type system and is erased by the transformer. So assignments
  * like `const id: UserId = 42` are safe (where `type UserId = Newtype<number, "UserId">`).
  */
-export function createNewtypeAssignmentRule(): SfinaeRule {
+export function createNewtypeAssignmentRule(): DiagnosticSuppressionRule {
   return {
     name: "NewtypeAssignment",
     errorCodes: [2322, 2345],
@@ -584,8 +584,8 @@ function extractAssignmentTypes(
         const sourceType = checker.getTypeAtLocation(current.initializer);
         return { sourceType, targetType };
       } catch (e) {
-        if (isSfinaeAuditEnabled()) {
-          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] extractAssignmentTypes: ${e}`);
         }
         return undefined;
       }
@@ -600,8 +600,8 @@ function extractAssignmentTypes(
           return { sourceType, targetType };
         }
       } catch (e) {
-        if (isSfinaeAuditEnabled()) {
-          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] extractAssignmentTypes: ${e}`);
         }
         return undefined;
       }
@@ -617,8 +617,8 @@ function extractAssignmentTypes(
         const sourceType = checker.getTypeAtLocation(current.right);
         return { sourceType, targetType };
       } catch (e) {
-        if (isSfinaeAuditEnabled()) {
-          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] extractAssignmentTypes: ${e}`);
         }
         return undefined;
       }
@@ -640,8 +640,8 @@ function extractAssignmentTypes(
           return { sourceType, targetType };
         }
       } catch (e) {
-        if (isSfinaeAuditEnabled()) {
-          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] extractAssignmentTypes: ${e}`);
         }
         return undefined;
       }
@@ -656,8 +656,8 @@ function extractAssignmentTypes(
           return { sourceType, targetType: contextualType };
         }
       } catch (e) {
-        if (isSfinaeAuditEnabled()) {
-          console.error(`[SFINAE] extractAssignmentTypes: ${e}`);
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] extractAssignmentTypes: ${e}`);
         }
         return undefined;
       }
@@ -699,8 +699,8 @@ function matchCallArgument(
     const argType = checker.getTypeAtLocation(call.arguments[argIndex]);
     return { sourceType: argType, targetType: paramType };
   } catch (e) {
-    if (isSfinaeAuditEnabled()) {
-      console.error(`[SFINAE] matchCallArgument: ${e}`);
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] matchCallArgument: ${e}`);
     }
     return undefined;
   }
@@ -768,7 +768,7 @@ function extractNewtypeBaseTypes(type: ts.Type): ts.Type[] {
 // ===========================================================================
 
 /**
- * Create the TypeRewriteAssignment SFINAE rule.
+ * Create the TypeRewriteAssignment diagnostic suppression rule.
  *
  * Suppresses TS2322, TS2345, and TS2355 when one side of an assignment is a
  * type registered in the `typeRewriteRegistry` (populated by `@opaque` in
@@ -782,7 +782,7 @@ function extractNewtypeBaseTypes(type: ts.Type): ts.Type[] {
  * @see PEP-011 Wave 5
  * @see PEP-012 — Type Macros (`@opaque`)
  */
-export function createTypeRewriteAssignmentRule(): SfinaeRule {
+export function createTypeRewriteAssignmentRule(): DiagnosticSuppressionRule {
   return {
     name: "TypeRewriteAssignment",
     errorCodes: [2322, 2345, 2355],
@@ -865,8 +865,8 @@ function collectTypeTextVariants(
       variants.push(baseName);
     }
   } catch (e) {
-    if (isSfinaeAuditEnabled()) {
-      console.error(`[SFINAE] collectTypeTextVariants: ${e}`);
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] collectTypeTextVariants: ${e}`);
     }
   }
 
@@ -1003,13 +1003,13 @@ const MACRO_DECORATOR_NAMES = new Set([
 ]);
 
 /**
- * Create the MacroDecorator SFINAE rule.
+ * Create the MacroDecorator diagnostic suppression rule.
  *
  * Suppresses TS1206 ("Decorators are not valid here") when the decorator is a
  * known typesugar macro. TypeScript doesn't allow decorators on interfaces or
  * type aliases, but the typesugar transformer handles them at compile time.
  */
-export function createMacroDecoratorRule(): SfinaeRule {
+export function createMacroDecoratorRule(): DiagnosticSuppressionRule {
   return {
     name: "MacroDecorator",
     errorCodes: [1206],
@@ -1061,7 +1061,7 @@ export function createMacroDecoratorRule(): SfinaeRule {
 const MACRO_FLUENT_NAMES = new Set(["match"]);
 
 /**
- * Create the MacroCallChain SFINAE rule.
+ * Create the MacroCallChain diagnostic suppression rule.
  *
  * Suppresses TS2339 ("Property does not exist on type 'never'"), TS2304
  * ("Cannot find name"), and TS18004 ("No value exists in scope for the
@@ -1074,7 +1074,7 @@ const MACRO_FLUENT_NAMES = new Set(["match"]);
  * property with no value in scope, but the transformer binds it (`const r = _x.r`)
  * before the `.then(...)` expression that uses it.
  */
-export function createMacroCallChainRule(): SfinaeRule {
+export function createMacroCallChainRule(): DiagnosticSuppressionRule {
   return {
     name: "MacroCallChain",
     errorCodes: [2339, 2304, 18004],
@@ -1149,14 +1149,14 @@ function isRootedInMacroCall(call: ts.CallExpression): boolean {
 // ===========================================================================
 
 /**
- * Create the OperatorOverload SFINAE rule.
+ * Create the OperatorOverload diagnostic suppression rule.
  *
  * Suppresses TS2365 ("Operator 'X' cannot be applied to types 'A' and 'B'")
  * when at least one operand is a non-primitive type. The typesugar transformer
  * rewrites operators on custom types via @typeclass @op annotations — these
  * errors are artifacts of the pre-transform source.
  */
-export function createOperatorOverloadRule(): SfinaeRule {
+export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
   return {
     name: "OperatorOverload",
     errorCodes: [2365],
@@ -1225,8 +1225,8 @@ function checkReturnTypeRewrite(node: ts.Node, checker: ts.TypeChecker): boolean
     const stripped = returnText.replace(/<.*>$/, "");
     if (stripped !== returnText && findTypeRewrite(stripped)) return true;
   } catch (e) {
-    if (isSfinaeAuditEnabled()) {
-      console.error(`[SFINAE] checkReturnTypeRewrite: ${e}`);
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] checkReturnTypeRewrite: ${e}`);
     }
     return false;
   }

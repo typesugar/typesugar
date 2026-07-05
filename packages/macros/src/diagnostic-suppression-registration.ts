@@ -1,15 +1,15 @@
 /**
- * Unified SFINAE rule registration.
+ * Unified diagnostic suppression rule registration.
  *
  * All consumers (LSP server, language service plugin, CLI) must call
- * `registerAllSfinaeRules()` instead of registering rules individually.
+ * `registerAllDiagnosticSuppressionRules()` instead of registering rules individually.
  * This single entry point prevents drift between IDE paths.
  *
  * @see PEP-034 Wave 1
  */
 
 import {
-  registerSfinaeRuleOnce,
+  registerDiagnosticSuppressionRuleOnce,
   createMacroGeneratedRule,
   type PositionMapFn,
 } from "@typesugar/core";
@@ -20,45 +20,47 @@ import {
   createNewtypeAssignmentRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
-} from "./sfinae-rules.js";
+} from "./diagnostic-suppression-rules.js";
 
-export interface SfinaeRegistrationOptions {
+export interface DiagnosticSuppressionRegistrationOptions {
   /** Required for MacroGeneratedRule — maps transformed positions back to original */
   positionMapFn?: PositionMapFn;
 }
 
 /**
- * Register all built-in SFINAE rules.
+ * Register all built-in diagnostic suppression rules.
  *
- * Uses `registerSfinaeRuleOnce` so it's safe to call multiple times —
+ * Uses `registerDiagnosticSuppressionRuleOnce` so it's safe to call multiple times —
  * duplicate registrations are silently ignored.
  *
  * @returns The names of all rules that were newly registered (not already present).
  */
-export function registerAllSfinaeRules(options?: SfinaeRegistrationOptions): string[] {
+export function registerAllDiagnosticSuppressionRules(
+  options?: DiagnosticSuppressionRegistrationOptions
+): string[] {
   const registered: string[] = [];
 
   if (options?.positionMapFn) {
-    if (registerSfinaeRuleOnce(createMacroGeneratedRule(options.positionMapFn))) {
+    if (registerDiagnosticSuppressionRuleOnce(createMacroGeneratedRule(options.positionMapFn))) {
       registered.push("MacroGenerated");
     }
   }
-  if (registerSfinaeRuleOnce(createExtensionMethodCallRule())) {
+  if (registerDiagnosticSuppressionRuleOnce(createExtensionMethodCallRule())) {
     registered.push("ExtensionMethodCall");
   }
-  if (registerSfinaeRuleOnce(createMacroCallChainRule())) {
+  if (registerDiagnosticSuppressionRuleOnce(createMacroCallChainRule())) {
     registered.push("MacroCallChain");
   }
-  if (registerSfinaeRuleOnce(createMacroDecoratorRule())) {
+  if (registerDiagnosticSuppressionRuleOnce(createMacroDecoratorRule())) {
     registered.push("MacroDecorator");
   }
-  if (registerSfinaeRuleOnce(createNewtypeAssignmentRule())) {
+  if (registerDiagnosticSuppressionRuleOnce(createNewtypeAssignmentRule())) {
     registered.push("NewtypeAssignment");
   }
-  if (registerSfinaeRuleOnce(createOperatorOverloadRule())) {
+  if (registerDiagnosticSuppressionRuleOnce(createOperatorOverloadRule())) {
     registered.push("OperatorOverload");
   }
-  if (registerSfinaeRuleOnce(createTypeRewriteAssignmentRule())) {
+  if (registerDiagnosticSuppressionRuleOnce(createTypeRewriteAssignmentRule())) {
     registered.push("TypeRewriteAssignment");
   }
 
@@ -66,10 +68,10 @@ export function registerAllSfinaeRules(options?: SfinaeRegistrationOptions): str
 }
 
 /**
- * The complete set of SFINAE rule names registered by `registerAllSfinaeRules`.
+ * The complete set of diagnostic suppression rule names registered by `registerAllDiagnosticSuppressionRules`.
  * Useful for tests that verify completeness.
  */
-export const ALL_SFINAE_RULE_NAMES = [
+export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "MacroGenerated",
   "ExtensionMethodCall",
   "MacroCallChain",

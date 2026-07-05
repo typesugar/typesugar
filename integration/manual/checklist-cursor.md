@@ -24,7 +24,7 @@
 ### src/macros.ts
 
 - [ ] Line 17 (`staticAssert(false, "macro error test")`) — squiggly on the call
-- [ ] No false squigglies on the @derive or comptime lines (SFINAE suppression)
+- [ ] No false squigglies on the @derive or comptime lines (diagnostic suppression)
 
 ## Category 2: Completions
 

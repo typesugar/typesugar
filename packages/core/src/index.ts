@@ -234,25 +234,25 @@ export {
   type PipelineStep,
 } from "./pipeline.js";
 
-// SFINAE Diagnostic Resolution
+// Diagnostic Suppression Rules
 export {
-  registerSfinaeRule,
-  registerSfinaeRuleOnce,
-  clearSfinaeRules,
-  getSfinaeRules,
-  getSfinaeAuditLog,
-  clearSfinaeAuditLog,
-  evaluateSfinae,
+  registerDiagnosticSuppressionRule,
+  registerDiagnosticSuppressionRuleOnce,
+  clearDiagnosticSuppressionRules,
+  getDiagnosticSuppressionRules,
+  getDiagnosticSuppressionAuditLog,
+  clearDiagnosticSuppressionAuditLog,
+  evaluateDiagnosticSuppression,
   filterDiagnostics,
-  isSfinaeAuditEnabled,
-  setSfinaeAuditMode,
-  type SfinaeRule,
-  type SfinaeAuditEntry,
-  type SfinaeEvalResult,
-} from "./sfinae.js";
+  isDiagnosticSuppressionAuditEnabled,
+  setDiagnosticSuppressionAuditMode,
+  type DiagnosticSuppressionRule,
+  type DiagnosticSuppressionAuditEntry,
+  type DiagnosticSuppressionEvalResult,
+} from "./diagnostic-suppression.js";
 
-// Built-in SFINAE Rules
-export { createMacroGeneratedRule, type PositionMapFn } from "./sfinae-rules.js";
+// Built-in diagnostic suppression rules
+export { createMacroGeneratedRule, type PositionMapFn } from "./diagnostic-suppression-rules.js";
 
 // Type Rewrite Registry (populated by @opaque in PEP-012)
 export {

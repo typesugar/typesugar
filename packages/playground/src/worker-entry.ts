@@ -163,8 +163,8 @@ function serializeDiagnostic(d: ts.Diagnostic): SerializedDiagnostic {
 }
 
 // TS error codes that are almost always false positives from macro expansions
-// in the playground context. The VS Code extension uses full SFINAE rules for
-// these; here we use a simpler code-based filter.
+// in the playground context. The VS Code extension uses full diagnostic
+// suppression rules for these; here we use a simpler code-based filter.
 const SUPPRESSED_CODES = new Set([
   2304, // Cannot find name 'x' — match/do-notation bindings
   2552, // Cannot find name 'x'. Did you mean 'y'? — same

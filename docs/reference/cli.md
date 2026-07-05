@@ -94,7 +94,7 @@ typesugar check [options]
   `check`.
 
 > **`check` vs `build`:** `check` type-checks and emits nothing; `build` emits to
-> `dist/`. Both report the same diagnostics (after typesugar's SFINAE filtering
+> `dist/`. Both report the same diagnostics (after typesugar's diagnostic suppression filtering
 > removes the phantom errors valid pre-expansion source produces) and both exit
 > non-zero when errors are found — so a green `build` means "compiled, no errors
 > detected." typesugar's published `.d.ts` files type-check cleanly, so

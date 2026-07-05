@@ -30,11 +30,11 @@ import {
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 import {
   filterDiagnostics,
-  getSfinaeRules,
-  isSfinaeAuditEnabled,
+  getDiagnosticSuppressionRules,
+  isDiagnosticSuppressionAuditEnabled,
   type PositionMapFn,
 } from "@typesugar/core";
-import { registerAllSfinaeRules } from "@typesugar/macros";
+import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 import {
   mapTextSpanToOriginal,
   computeMacroCodeActions,
@@ -292,10 +292,10 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     // ---------------------------------------------------------------------------
-    // Register SFINAE rules
+    // Register diagnostic suppression rules
     // ---------------------------------------------------------------------------
 
-    // Register all built-in SFINAE rules via the unified registration function
+    // Register all built-in diagnostic suppression rules via the unified registration function
     // (PEP-034 Wave 1). This prevents drift between IDE paths.
     {
       const positionMapFn: PositionMapFn = (
@@ -306,14 +306,14 @@ function init(modules: { typescript: typeof ts }) {
         return mapper.toOriginal(transformedPos);
       };
 
-      const registered = registerAllSfinaeRules({ positionMapFn });
+      const registered = registerAllDiagnosticSuppressionRules({ positionMapFn });
       for (const name of registered) {
-        log(`Registered ${name} SFINAE rule`);
+        log(`Registered ${name} diagnostic suppression rule`);
       }
     }
 
-    if (isSfinaeAuditEnabled()) {
-      log("SFINAE audit mode enabled (TYPESUGAR_SHOW_SFINAE=1)");
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      log("Diagnostic suppression audit mode enabled (TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS=1)");
     }
 
     // ---------------------------------------------------------------------------
@@ -429,31 +429,33 @@ function init(modules: { typescript: typeof ts }) {
       // Get TypeScript's own diagnostics (positions in transformed code)
       const diagnostics = oldLS.getSemanticDiagnostics(fileName);
 
-      // Apply SFINAE filtering before position mapping — this runs all
+      // Apply diagnostic suppression filtering before position mapping — this runs all
       // registered rules (including MacroGenerated) to suppress diagnostics
       // that typesugar's rewrite system handles.
       const program = oldLS.getProgram();
-      let sfinaeFiltered: readonly ts.Diagnostic[];
-      if (program && getSfinaeRules().length > 0) {
+      let suppressionFiltered: readonly ts.Diagnostic[];
+      if (program && getDiagnosticSuppressionRules().length > 0) {
         const checker = program.getTypeChecker();
-        sfinaeFiltered = filterDiagnostics(diagnostics, checker, (fn) => program.getSourceFile(fn));
+        suppressionFiltered = filterDiagnostics(diagnostics, checker, (fn) =>
+          program.getSourceFile(fn)
+        );
       } else {
-        sfinaeFiltered = diagnostics;
+        suppressionFiltered = diagnostics;
       }
 
       // Map remaining diagnostics back to original positions
-      const mapped = mapDiagnostics(sfinaeFiltered, fileName);
+      const mapped = mapDiagnostics(suppressionFiltered, fileName);
 
       // Convert raw macro diagnostics to ts.Diagnostic[] now that the program is available
       const rawDiags = rawMacroDiagnosticCache.get(normalizedFileName) ?? [];
       const macroDiags = convertMacroDiagnostics(rawDiags, normalizedFileName);
       const combined = [...mapped, ...macroDiags];
 
-      if (combined.length > 0 || sfinaeFiltered.length < diagnostics.length) {
-        const suppressedCount = diagnostics.length - sfinaeFiltered.length;
+      if (combined.length > 0 || suppressionFiltered.length < diagnostics.length) {
+        const suppressedCount = diagnostics.length - suppressionFiltered.length;
         log(
           `Semantic diagnostics for ${path.basename(fileName)}: ` +
-            `${diagnostics.length} TS raw → ${sfinaeFiltered.length} after SFINAE (${suppressedCount} suppressed) → ` +
+            `${diagnostics.length} TS raw → ${suppressionFiltered.length} after diagnostic suppression (${suppressedCount} suppressed) → ` +
             `${mapped.length} mapped + ${macroDiags.length} macro = ${combined.length} total`
         );
       }
@@ -468,19 +470,19 @@ function init(modules: { typescript: typeof ts }) {
     proxy.getSuggestionDiagnostics = (fileName: string): ts.DiagnosticWithLocation[] => {
       const diagnostics = oldLS.getSuggestionDiagnostics(fileName);
 
-      // Apply SFINAE filtering to suggestion diagnostics
+      // Apply diagnostic suppression filtering to suggestion diagnostics
       const program = oldLS.getProgram();
-      let sfinaeFiltered: readonly ts.DiagnosticWithLocation[];
-      if (program && getSfinaeRules().length > 0) {
+      let suppressionFiltered: readonly ts.DiagnosticWithLocation[];
+      if (program && getDiagnosticSuppressionRules().length > 0) {
         const checker = program.getTypeChecker();
-        sfinaeFiltered = filterDiagnostics(diagnostics, checker, (fn) =>
+        suppressionFiltered = filterDiagnostics(diagnostics, checker, (fn) =>
           program.getSourceFile(fn)
         ) as ts.DiagnosticWithLocation[];
       } else {
-        sfinaeFiltered = diagnostics;
+        suppressionFiltered = diagnostics;
       }
 
-      return mapDiagnostics(sfinaeFiltered, fileName);
+      return mapDiagnostics(suppressionFiltered, fileName);
     };
 
     // ---------------------------------------------------------------------------

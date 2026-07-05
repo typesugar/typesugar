@@ -1,11 +1,11 @@
 /**
- * Integration tests for SFINAE × @opaque type rewrite (PEP-012 Wave 6)
+ * Integration tests for diagnostic suppression × @opaque type rewrite (PEP-012 Wave 6)
  *
- * Verifies that PEP-011's TypeRewriteAssignment SFINAE rule works correctly
+ * Verifies that PEP-011's TypeRewriteAssignment diagnostic suppression rule works correctly
  * with full PEP-012 `@opaque` registry entries — entries that include
  * `sourceModule`, `methods`, `constructors`, `accessors`, and `transparent`,
  * not just the minimal `typeName`/`underlyingTypeText`/`matchesUnderlying`
- * used by the mock-based tests in sfinae-type-rewrite.test.ts.
+ * used by the mock-based tests in diagnostic-suppression-type-rewrite.test.ts.
  *
  * The rule should care only about `typeName`, `underlyingTypeText`, and
  * `matchesUnderlying`; the additional fields must not interfere.
@@ -14,9 +14,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import {
-  registerSfinaeRule,
-  clearSfinaeRules,
-  evaluateSfinae,
+  registerDiagnosticSuppressionRule,
+  clearDiagnosticSuppressionRules,
+  evaluateDiagnosticSuppression,
   filterDiagnostics,
   registerTypeRewrite,
   clearTypeRewrites,
@@ -153,16 +153,16 @@ function registerFullOpaqueTypes(): void {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("SFINAE × @opaque integration (PEP-012 Wave 6)", () => {
+describe("diagnostic suppression × @opaque integration (PEP-012 Wave 6)", () => {
   beforeEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
     clearTypeRewrites();
-    registerSfinaeRule(createTypeRewriteAssignmentRule());
+    registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
     registerFullOpaqueTypes();
   });
 
   afterEach(() => {
-    clearSfinaeRules();
+    clearDiagnosticSuppressionRules();
     clearTypeRewrites();
   });
 
@@ -181,7 +181,7 @@ const o: Option<number> = nullableValue;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("suppresses for Option<string> = null", () => {
@@ -193,7 +193,7 @@ const o: Option<string> = null;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("suppresses for Email = string literal", () => {
@@ -205,7 +205,7 @@ const email: Email = "user@example.com";
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
   });
 
@@ -224,7 +224,7 @@ const raw: number | null = opt;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("suppresses for string = Email", () => {
@@ -237,7 +237,7 @@ const s: string = email;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
   });
 
@@ -257,7 +257,7 @@ takesOption(nullable);
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("suppresses when passing Option<number> to number | null parameter", () => {
@@ -271,7 +271,7 @@ takesNullable(opt);
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("suppresses when passing string to Email parameter", () => {
@@ -284,7 +284,7 @@ sendEmail("user@example.com");
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("suppresses when passing Email to string parameter", () => {
@@ -298,7 +298,7 @@ logMessage(email);
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
   });
 
@@ -313,17 +313,17 @@ logMessage(email);
 // Source: nullable from database
 declare function getFromDatabase(): number | null;
 
-// Assign nullable → Option (SFINAE suppresses TS2322)
+// Assign nullable → Option (diagnostic suppression rule suppresses TS2322)
 const opt: Option<number> = getFromDatabase();
 
-// Pass Option to nullable consumer (SFINAE suppresses TS2345)
+// Pass Option to nullable consumer (diagnostic suppression rule suppresses TS2345)
 function takesNullable(n: number | null): void {}
 takesNullable(opt);
 
-// Assign Option → nullable (SFINAE suppresses TS2322)
+// Assign Option → nullable (diagnostic suppression rule suppresses TS2322)
 const raw: number | null = opt;
 
-// Pass nullable to Option consumer (SFINAE suppresses TS2345)
+// Pass nullable to Option consumer (diagnostic suppression rule suppresses TS2345)
 function takesOption(o: Option<number>): void {}
 declare const nullable: number | null;
 takesOption(nullable);
@@ -334,7 +334,7 @@ takesOption(nullable);
       expect(diags.length).toBeGreaterThan(0);
 
       for (const d of diags) {
-        expect(evaluateSfinae(d, checker, d.file!)).toBe(true);
+        expect(evaluateDiagnosticSuppression(d, checker, d.file!)).toBe(true);
       }
 
       // filterDiagnostics should remove ALL assignment errors
@@ -359,7 +359,7 @@ const o: Option<number> = true;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(false);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(false);
     });
 
     it("does NOT suppress for number → Email", () => {
@@ -371,7 +371,7 @@ const email: Email = 42;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(false);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(false);
     });
 
     it("does NOT suppress for wrong type in function arg (string → Option<number>)", () => {
@@ -384,7 +384,7 @@ takesOption("hello");
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(false);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(false);
     });
   });
 
@@ -392,7 +392,7 @@ takesOption("hello");
   // Full entries with methods/constructors/accessors don't break rule
   // -----------------------------------------------------------------------
 
-  describe("full entry fields don't interfere with SFINAE", () => {
+  describe("full entry fields don't interfere with diagnostic suppression", () => {
     it("works when entry has populated methods map", () => {
       const entry = fullOptionEntry();
       expect(entry.methods!.size).toBeGreaterThan(0);
@@ -406,7 +406,7 @@ const o: Option<number> = nullable;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("works when entry has populated constructors map", () => {
@@ -422,7 +422,7 @@ const raw: number | null = opt;
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("works when entry has populated accessors map", () => {
@@ -439,7 +439,7 @@ takesNullable(opt);
 
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(diags[0], checker, diags[0].file!)).toBe(true);
+      expect(evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!)).toBe(true);
     });
 
     it("works when entry has transparent flag set", () => {
@@ -457,7 +457,7 @@ const email: Email = "test@example.com";
       const diags = getAssignmentDiagnostics(diagnostics, "/test.ts");
       expect(diags.length).toBeGreaterThanOrEqual(2);
       for (const d of diags) {
-        expect(evaluateSfinae(d, checker, d.file!)).toBe(true);
+        expect(evaluateDiagnosticSuppression(d, checker, d.file!)).toBe(true);
       }
     });
   });
@@ -469,7 +469,7 @@ const email: Email = "test@example.com";
   describe("coexistence with NewtypeAssignment", () => {
     it("both rules work simultaneously with full entries", async () => {
       const { createNewtypeAssignmentRule } = await import("@typesugar/macros");
-      registerSfinaeRule(createNewtypeAssignmentRule());
+      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
 
       // Newtype case
       const newtypeResult = createProgram({
@@ -485,9 +485,9 @@ const id: UserId = 42;
 
       const newtypeDiags = getAssignmentDiagnostics(newtypeResult.diagnostics, "/test.ts");
       expect(newtypeDiags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(newtypeDiags[0], newtypeResult.checker, newtypeDiags[0].file!)).toBe(
-        true
-      );
+      expect(
+        evaluateDiagnosticSuppression(newtypeDiags[0], newtypeResult.checker, newtypeDiags[0].file!)
+      ).toBe(true);
 
       // @opaque case with full entries
       const opaqueResult = createProgram({
@@ -499,7 +499,9 @@ const o: Option<number> = nullable;
 
       const opaqueDiags = getAssignmentDiagnostics(opaqueResult.diagnostics, "/test.ts");
       expect(opaqueDiags.length).toBeGreaterThan(0);
-      expect(evaluateSfinae(opaqueDiags[0], opaqueResult.checker, opaqueDiags[0].file!)).toBe(true);
+      expect(
+        evaluateDiagnosticSuppression(opaqueDiags[0], opaqueResult.checker, opaqueDiags[0].file!)
+      ).toBe(true);
     });
   });
 });

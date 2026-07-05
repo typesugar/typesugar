@@ -34,12 +34,12 @@ import {
 } from "./pipeline.js";
 import {
   filterDiagnostics,
-  getSfinaeRules,
-  setSfinaeAuditMode,
+  getDiagnosticSuppressionRules,
+  setDiagnosticSuppressionAuditMode,
   profiler,
   PROFILING_ENABLED,
 } from "@typesugar/core";
-import { registerAllSfinaeRules } from "@typesugar/macros";
+import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 
 type Command =
   | "build"
@@ -68,8 +68,8 @@ interface CliOptions {
   cache?: boolean | string;
   /** Enable strict mode — typecheck expanded output */
   strict?: boolean | "incremental";
-  /** Show SFINAE-suppressed diagnostics for debugging */
-  showSfinae?: boolean;
+  /** Show suppressed diagnostics for debugging */
+  showSuppressedDiagnostics?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -145,7 +145,7 @@ function parseArgs(args: string[]): CliOptions {
   let js = false;
   let cache: boolean | string | undefined;
   let strict: boolean | "incremental" = false;
-  let showSfinae = false;
+  let showSuppressedDiagnostics = false;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -174,8 +174,8 @@ function parseArgs(args: string[]): CliOptions {
       strict = "incremental";
     } else if (arg === "--strict") {
       strict = true;
-    } else if (arg === "--show-sfinae") {
-      showSfinae = true;
+    } else if (arg === "--show-suppressed-diagnostics") {
+      showSuppressedDiagnostics = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -184,7 +184,18 @@ function parseArgs(args: string[]): CliOptions {
     }
   }
 
-  return { command, project, verbose, file, diff, ast, js, cache, strict, showSfinae };
+  return {
+    command,
+    project,
+    verbose,
+    file,
+    diff,
+    ast,
+    js,
+    cache,
+    strict,
+    showSuppressedDiagnostics,
+  };
 }
 
 function printHelp(): void {
@@ -217,7 +228,7 @@ OPTIONS:
                          (e.g. spurious TS2304) and is degraded gracefully if the
                          checker hits synthetic node positions. Off by default.
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
-  --show-sfinae          Show SFINAE-suppressed diagnostics (audit mode)
+  --show-suppressed-diagnostics  Show suppressed diagnostics (audit mode)
   -h, --help             Show this help message
 
 EXPAND OPTIONS:
@@ -306,14 +317,14 @@ function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
 }
 
 /**
- * Register built-in SFINAE rules for the CLI pipeline.
+ * Register built-in diagnostic suppression rules for the CLI pipeline.
  *
  * Uses the unified registration function (PEP-034) to ensure consistent
  * diagnostic filtering between `typesugar build` and the editor.
  * No positionMapFn is provided since CLI doesn't need MacroGenerated rule.
  */
-function registerCliSfinaeRules(): void {
-  registerAllSfinaeRules();
+function registerCliDiagnosticSuppressionRules(): void {
+  registerAllDiagnosticSuppressionRules();
 }
 
 function build(options: CliOptions): void {
@@ -322,13 +333,13 @@ function build(options: CliOptions): void {
     /* ignore - fallback available */
   });
 
-  // Enable SFINAE audit mode if requested via --show-sfinae flag or env var
-  if (options.showSfinae) {
-    setSfinaeAuditMode(true);
+  // Enable diagnostic suppression audit mode if requested via --show-suppressed-diagnostics flag or env var
+  if (options.showSuppressedDiagnostics) {
+    setDiagnosticSuppressionAuditMode(true);
   }
 
-  // Register built-in SFINAE rules (same as language service for consistency)
-  registerCliSfinaeRules();
+  // Register built-in diagnostic suppression rules (same as language service for consistency)
+  registerCliDiagnosticSuppressionRules();
 
   profiler.start("cli.build.total");
 
@@ -586,12 +597,12 @@ function build(options: CliOptions): void {
 
   const rawDiagnostics = [...preEmitDiagnostics, ...emitResult.diagnostics, ...strictDiagnostics];
 
-  // Filter diagnostics through SFINAE rules (suppress phantom errors from
+  // Filter diagnostics through diagnostic suppression rules (suppress phantom errors from
   // typesugar rewrites — extension methods, newtype assignment, opaque types).
   // getTypeChecker() after emit may trigger deferred callbacks that crash on
   // synthetic nodes — catch and fall back to unfiltered diagnostics.
   let allDiagnostics: readonly ts.Diagnostic[] = rawDiagnostics;
-  if (getSfinaeRules().length > 0) {
+  if (getDiagnosticSuppressionRules().length > 0) {
     try {
       const checker = program.getTypeChecker();
       allDiagnostics = filterDiagnostics(rawDiagnostics, checker, (fn) =>
@@ -601,7 +612,7 @@ function build(options: CliOptions): void {
       if (e instanceof Error && e.message.includes("start < 0")) {
         if (options.verbose) {
           console.log(
-            `🧊 Warning: SFINAE filtering skipped — checker crashed on synthetic node positions`
+            `🧊 Warning: diagnostic suppression filtering skipped — checker crashed on synthetic node positions`
           );
         }
       } else {
@@ -651,10 +662,10 @@ function build(options: CliOptions): void {
 }
 
 function watch(options: CliOptions): void {
-  if (options.showSfinae) {
-    setSfinaeAuditMode(true);
+  if (options.showSuppressedDiagnostics) {
+    setDiagnosticSuppressionAuditMode(true);
   }
-  registerCliSfinaeRules();
+  registerCliDiagnosticSuppressionRules();
 
   const configPath = ts.findConfigFile(
     path.dirname(path.resolve(options.project)),
@@ -672,7 +683,7 @@ function watch(options: CliOptions): void {
     verbose: options.verbose,
   });
 
-  // Track the current program for SFINAE filtering in watch mode
+  // Track the current program for diagnostic suppression filtering in watch mode
   let currentProgram: ts.Program | undefined;
 
   const host = ts.createWatchCompilerHost(
@@ -681,8 +692,8 @@ function watch(options: CliOptions): void {
     ts.sys,
     ts.createEmitAndSemanticDiagnosticsBuilderProgram,
     (diagnostic) => {
-      // Filter through SFINAE rules before reporting
-      if (currentProgram && getSfinaeRules().length > 0) {
+      // Filter through diagnostic suppression rules before reporting
+      if (currentProgram && getDiagnosticSuppressionRules().length > 0) {
         const program = currentProgram;
         const checker = program.getTypeChecker();
         const filtered = filterDiagnostics([diagnostic], checker, (fn) =>

@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
-import { createMacroCallChainRule, createExtensionMethodCallRule } from "./sfinae-rules.js";
+import {
+  createMacroCallChainRule,
+  createExtensionMethodCallRule,
+} from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
 
@@ -27,7 +30,7 @@ function diagnose(code: string) {
   return { sf, checker: program.getTypeChecker(), diags: program.getSemanticDiagnostics(sf) };
 }
 
-describe("ExtensionMethodCall SFINAE rule — typeclass instance method sugar (PEP-033 N3)", () => {
+describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance method sugar (PEP-033 N3)", () => {
   const rule = createExtensionMethodCallRule();
 
   beforeAll(() => {
@@ -101,7 +104,7 @@ describe("ExtensionMethodCall SFINAE rule — typeclass instance method sugar (P
   });
 });
 
-describe("ExtensionMethodCall SFINAE rule — typeclass method sugar over primitives (PEP-052)", () => {
+describe("ExtensionMethodCall diagnostic suppression rule — typeclass method sugar over primitives (PEP-052)", () => {
   const rule = createExtensionMethodCallRule();
 
   beforeAll(() => {
@@ -167,7 +170,7 @@ describe("ExtensionMethodCall SFINAE rule — typeclass method sugar over primit
   });
 });
 
-describe("MacroCallChain SFINAE rule — TS18004 (PEP-033 N2)", () => {
+describe("MacroCallChain diagnostic suppression rule — TS18004 (PEP-033 N2)", () => {
   const rule = createMacroCallChainRule();
 
   it("includes 18004 in its error codes", () => {

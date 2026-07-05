@@ -52,7 +52,7 @@ error TS1206: Decorators are not valid here.
 
 This is a **semantic** check, not a parse error: the decorator still attaches to
 the declaration and the transformer can read and act on it. TypeSugar suppresses
-TS1206 for its known macros via a SFINAE rule, so:
+TS1206 for its known macros via a diagnostic suppression rule, so:
 
 - `typesugar check` reports **0** errors.
 - The TypeSugar language-service plugin keeps your editor clean.

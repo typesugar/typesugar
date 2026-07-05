@@ -1,28 +1,29 @@
 /**
- * SFINAE (Substitution Failure Is Not An Error) Diagnostic Resolution
+ * Diagnostic Suppression Rules
  *
  * Provides a principled mechanism for suppressing TypeScript diagnostics that
  * are invalid from typesugar's perspective because the transformer will resolve
  * them at emit time.
  *
- * Each SfinaeRule encodes a specific rewrite category (extension methods,
+ * Each DiagnosticSuppressionRule encodes a specific rewrite category (extension methods,
  * newtype assignment, opaque type boundaries, macro-generated code) and
  * evaluates whether a given diagnostic should be suppressed.
  *
  * @see PEP-011 for the full design document
+ * @see PEP-054 for the rename from "SFINAE rules" to "diagnostic suppression rules"
  */
 
 import type * as ts from "typescript";
 
 /**
- * A SFINAE rule that can evaluate whether a TypeScript diagnostic should
+ * A diagnostic suppression rule that can evaluate whether a TypeScript diagnostic should
  * be suppressed because typesugar's rewrite system handles the case.
  *
  * Rules are registered at transformer initialization and evaluated in order
  * for each diagnostic. The first rule that returns `true` from
  * `shouldSuppress` wins.
  */
-export interface SfinaeRule {
+export interface DiagnosticSuppressionRule {
   /** Human-readable name for audit output */
   readonly name: string;
 
@@ -43,7 +44,7 @@ export interface SfinaeRule {
 /**
  * Audit log entry recording a suppressed diagnostic and which rule suppressed it.
  */
-export interface SfinaeAuditEntry {
+export interface DiagnosticSuppressionAuditEntry {
   /** The TypeScript error code (e.g., 2339) */
   errorCode: number;
   /** File where the diagnostic occurred */
@@ -54,73 +55,73 @@ export interface SfinaeAuditEntry {
   column: number;
   /** The original diagnostic message text */
   messageText: string;
-  /** The SFINAE rule that suppressed this diagnostic */
+  /** The diagnostic suppression rule that suppressed this diagnostic */
   ruleName: string;
 }
 
 /**
- * Result of evaluating SFINAE rules against a diagnostic.
+ * Result of evaluating diagnostic suppression rules against a diagnostic.
  */
-export interface SfinaeEvalResult {
+export interface DiagnosticSuppressionEvalResult {
   /** Whether the diagnostic was suppressed */
   suppressed: boolean;
   /** The rule that suppressed it, if any */
-  rule?: SfinaeRule;
+  rule?: DiagnosticSuppressionRule;
 }
 
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
-const sfinaeRules: SfinaeRule[] = [];
-const auditLog: SfinaeAuditEntry[] = [];
+const diagnosticSuppressionRules: DiagnosticSuppressionRule[] = [];
+const auditLog: DiagnosticSuppressionAuditEntry[] = [];
 
 /**
- * Register a SFINAE rule. Rules are evaluated in registration order;
+ * Register a diagnostic suppression rule. Rules are evaluated in registration order;
  * the first match wins.
  */
-export function registerSfinaeRule(rule: SfinaeRule): void {
-  sfinaeRules.push(rule);
+export function registerDiagnosticSuppressionRule(rule: DiagnosticSuppressionRule): void {
+  diagnosticSuppressionRules.push(rule);
 }
 
 /**
- * Remove all registered SFINAE rules. Intended for testing only.
+ * Remove all registered diagnostic suppression rules. Intended for testing only.
  */
-export function clearSfinaeRules(): void {
-  sfinaeRules.length = 0;
+export function clearDiagnosticSuppressionRules(): void {
+  diagnosticSuppressionRules.length = 0;
   auditLog.length = 0;
 }
 
 /**
- * Register a SFINAE rule, skipping if a rule with the same name is already registered.
+ * Register a diagnostic suppression rule, skipping if a rule with the same name is already registered.
  * Returns `true` if the rule was registered, `false` if it was already present.
  */
-export function registerSfinaeRuleOnce(rule: SfinaeRule): boolean {
-  if (sfinaeRules.some((r) => r.name === rule.name)) {
+export function registerDiagnosticSuppressionRuleOnce(rule: DiagnosticSuppressionRule): boolean {
+  if (diagnosticSuppressionRules.some((r) => r.name === rule.name)) {
     return false;
   }
-  sfinaeRules.push(rule);
+  diagnosticSuppressionRules.push(rule);
   return true;
 }
 
 /**
- * Get a snapshot of currently registered SFINAE rules.
+ * Get a snapshot of currently registered diagnostic suppression rules.
  */
-export function getSfinaeRules(): readonly SfinaeRule[] {
-  return sfinaeRules;
+export function getDiagnosticSuppressionRules(): readonly DiagnosticSuppressionRule[] {
+  return diagnosticSuppressionRules;
 }
 
 /**
- * Get the SFINAE audit log (populated when audit mode is enabled).
+ * Get the diagnostic suppression audit log (populated when audit mode is enabled).
  */
-export function getSfinaeAuditLog(): readonly SfinaeAuditEntry[] {
+export function getDiagnosticSuppressionAuditLog(): readonly DiagnosticSuppressionAuditEntry[] {
   return auditLog;
 }
 
 /**
  * Clear the audit log without clearing rules.
  */
-export function clearSfinaeAuditLog(): void {
+export function clearDiagnosticSuppressionAuditLog(): void {
   auditLog.length = 0;
 }
 
@@ -131,26 +132,26 @@ export function clearSfinaeAuditLog(): void {
 let auditModeOverride: boolean | undefined;
 
 /**
- * Check whether SFINAE audit mode is enabled.
+ * Check whether diagnostic suppression audit mode is enabled.
  *
  * Enabled by:
- * - `TYPESUGAR_SHOW_SFINAE=1` environment variable
- * - `--show-sfinae` CLI flag (sets the env var)
- * - Programmatic override via `setSfinaeAuditMode()`
+ * - `TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS=1` environment variable
+ * - `--show-suppressed-diagnostics` CLI flag (sets the env var)
+ * - Programmatic override via `setDiagnosticSuppressionAuditMode()`
  */
-export function isSfinaeAuditEnabled(): boolean {
+export function isDiagnosticSuppressionAuditEnabled(): boolean {
   if (auditModeOverride !== undefined) return auditModeOverride;
   if (typeof process !== "undefined" && process.env) {
-    return process.env.TYPESUGAR_SHOW_SFINAE === "1";
+    return process.env.TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS === "1";
   }
   return false;
 }
 
 /**
- * Programmatically enable or disable SFINAE audit mode.
+ * Programmatically enable or disable diagnostic suppression audit mode.
  * Pass `undefined` to revert to environment-variable detection.
  */
-export function setSfinaeAuditMode(enabled: boolean | undefined): void {
+export function setDiagnosticSuppressionAuditMode(enabled: boolean | undefined): void {
   auditModeOverride = enabled;
 }
 
@@ -167,7 +168,7 @@ function flattenDiagnosticMessage(messageText: string | ts.DiagnosticMessageChai
 }
 
 /**
- * Evaluate all registered SFINAE rules against a single diagnostic.
+ * Evaluate all registered diagnostic suppression rules against a single diagnostic.
  *
  * Returns `true` if the diagnostic should be suppressed (i.e., a rule
  * matched and declared that typesugar's rewrite system handles this case).
@@ -175,14 +176,14 @@ function flattenDiagnosticMessage(messageText: string | ts.DiagnosticMessageChai
  * When audit mode is enabled, suppressed diagnostics are logged to the
  * audit log and printed to stderr.
  */
-export function evaluateSfinae(
+export function evaluateDiagnosticSuppression(
   diagnostic: ts.Diagnostic,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile
 ): boolean {
   const errorCode = diagnostic.code;
 
-  for (const rule of sfinaeRules) {
+  for (const rule of diagnosticSuppressionRules) {
     // Skip rules that don't handle this error code (empty = wildcard)
     if (rule.errorCodes.length > 0 && !rule.errorCodes.includes(errorCode)) {
       continue;
@@ -192,18 +193,18 @@ export function evaluateSfinae(
     try {
       suppressed = rule.shouldSuppress(diagnostic, checker, sourceFile);
     } catch (e) {
-      if (isSfinaeAuditEnabled()) {
-        console.error(`[SFINAE] Rule "${rule.name}" threw during evaluation: ${e}`);
+      if (isDiagnosticSuppressionAuditEnabled()) {
+        console.error(`[DiagnosticSuppression] Rule "${rule.name}" threw during evaluation: ${e}`);
       }
       continue;
     }
 
     if (suppressed) {
-      if (isSfinaeAuditEnabled()) {
+      if (isDiagnosticSuppressionAuditEnabled()) {
         const { line, column } = resolvePosition(diagnostic, sourceFile);
         const messageText = flattenDiagnosticMessage(diagnostic.messageText);
 
-        const entry: SfinaeAuditEntry = {
+        const entry: DiagnosticSuppressionAuditEntry = {
           errorCode,
           fileName: sourceFile.fileName,
           line,
@@ -224,7 +225,7 @@ export function evaluateSfinae(
 }
 
 /**
- * Filter an array of diagnostics through the SFINAE rule registry.
+ * Filter an array of diagnostics through the diagnostic suppression rule registry.
  *
  * This is the main entry point for bulk filtering in both the language
  * service plugin and the CLI build pipeline.
@@ -234,13 +235,13 @@ export function filterDiagnostics(
   checker: ts.TypeChecker,
   getSourceFile: (fileName: string) => ts.SourceFile | undefined
 ): ts.Diagnostic[] {
-  if (sfinaeRules.length === 0) return [...diagnostics];
+  if (diagnosticSuppressionRules.length === 0) return [...diagnostics];
 
   return diagnostics.filter((diag) => {
     if (!diag.file) return true;
     const sf = getSourceFile(diag.file.fileName);
     if (!sf) return true;
-    return !evaluateSfinae(diag, checker, sf);
+    return !evaluateDiagnosticSuppression(diag, checker, sf);
   });
 }
 
@@ -259,10 +260,10 @@ function resolvePosition(
   return { line: 0, column: 0 };
 }
 
-function printAuditEntry(entry: SfinaeAuditEntry): void {
+function printAuditEntry(entry: DiagnosticSuppressionAuditEntry): void {
   const loc = `${entry.fileName}:${entry.line}:${entry.column}`;
   const lines = [
-    `[SFINAE] Suppressed TS${entry.errorCode} at ${loc}`,
+    `[DiagnosticSuppression] Suppressed TS${entry.errorCode} at ${loc}`,
     `  "${entry.messageText}"`,
     `  Rule: ${entry.ruleName}`,
   ];
