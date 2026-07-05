@@ -723,24 +723,6 @@ class MacroTransformer {
         return result;
       }
 
-      const ctorResult = tryEraseOpaqueConstructorCallFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (ctorResult !== undefined) {
-        if (this.expansionTracker) {
-          this.expansionTracker.recordExpansion(
-            "opaque-ctor",
-            node,
-            this.ctx.sourceFile,
-            "(constructor erasure)"
-          );
-        }
-        return ctorResult;
-      }
-
       const implicitsResult = this.tryTransformImplicitsCall(node);
       if (implicitsResult !== undefined) {
         return implicitsResult;
@@ -834,6 +816,28 @@ class MacroTransformer {
     }
 
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      // @opaque type-rewrite registry is checked FIRST, before native/extension
+      // methods -- mirrors legacy's tryRewriteExtensionMethod, which checks
+      // its type-rewrite registry before falling back to standalone extensions.
+      const opaqueResult = tryRewriteOpaqueMethodCallFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        this.resolveMacroFromSymbol.bind(this),
+        node
+      );
+      if (opaqueResult !== undefined) {
+        if (this.expansionTracker) {
+          this.expansionTracker.recordExpansion(
+            "opaque-method",
+            node,
+            this.ctx.sourceFile,
+            "(type rewrite)"
+          );
+        }
+        return opaqueResult;
+      }
+
       const result = tryRewriteExtensionMethodFn(
         this.ctx,
         this.verbose,
@@ -853,24 +857,6 @@ class MacroTransformer {
           );
         }
         return result;
-      }
-
-      const opaqueResult = tryRewriteOpaqueMethodCallFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (opaqueResult !== undefined) {
-        if (this.expansionTracker) {
-          this.expansionTracker.recordExpansion(
-            "opaque-method",
-            node,
-            this.ctx.sourceFile,
-            "(type rewrite)"
-          );
-        }
-        return opaqueResult;
       }
 
       // Typeclass instance-method sugar runs LAST, after extension methods and
@@ -896,6 +882,31 @@ class MacroTransformer {
           );
         }
         return methodSugarResult;
+      }
+    }
+
+    // @opaque constructor call erasure -- `Some(x)` -> `x`, `None()` -> `null`.
+    // Dispatched here (after decorators/labels/JSDoc/tagged-templates/type-refs/
+    // extension-method rewriting), matching legacy's position -- NOT earlier,
+    // alongside auto-specialize/derived-inline/return-type-specialize, so that
+    // those checks get first crack at an identifier-callee call expression.
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const ctorResult = tryEraseOpaqueConstructorCallFn(
+        this.ctx,
+        this.verbose,
+        this.visit.bind(this),
+        node
+      );
+      if (ctorResult !== undefined) {
+        if (this.expansionTracker) {
+          this.expansionTracker.recordExpansion(
+            "opaque-ctor",
+            node,
+            this.ctx.sourceFile,
+            "(constructor erasure)"
+          );
+        }
+        return ctorResult;
       }
     }
 

@@ -592,13 +592,30 @@ export function tryRewriteOpaqueMethodCall(
   ctx: MacroContextImpl,
   verbose: boolean,
   visit: VisitFn,
+  resolveMacroFromSymbol: ResolveMacroFn,
   node: ts.CallExpression
 ): ts.Expression | undefined {
   if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
 
+  // Same guards legacy's tryRewriteExtensionMethod applies once, shared by
+  // both the type-rewrite-registry path (checked first) and the standalone-
+  // extension path (checked second, in tryRewriteExtensionMethod below) --
+  // an opted-out file or a macro-producing receiver call must skip both.
+  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
+    return undefined;
+  }
+
   const propAccess = node.expression;
   const methodName = propAccess.name.text;
   const receiver = propAccess.expression;
+
+  if (ts.isCallExpression(receiver) && ts.isIdentifier(receiver.expression)) {
+    const calleeName = receiver.expression.text;
+    const calleeMacro = resolveMacroFromSymbol(receiver.expression, calleeName, "expression");
+    if (calleeMacro) {
+      return undefined;
+    }
+  }
 
   let receiverType: ts.Type;
   try {

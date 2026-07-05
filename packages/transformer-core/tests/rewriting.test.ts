@@ -625,7 +625,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\nx.map((n: number) => n + 1);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "consumer.ts"
     );
@@ -643,7 +643,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
         const stmt = sf.statements[0] as ts.ExpressionStatement;
         const asExpr = stmt.expression as ts.AsExpression;
         const call = asExpr.expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, call);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, call);
       },
       "consumer.ts"
     );
@@ -659,7 +659,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare function map(o: unknown, f: (n: number) => number): unknown;\nmap(null, (n) => n + 1);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "consumer.ts"
     );
@@ -672,7 +672,7 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\n(x as any).bogus();`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "consumer.ts"
     );
@@ -686,9 +686,29 @@ describe("tryRewriteOpaqueMethodCall", () => {
       `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\nx.map((n: number) => n + 1);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryRewriteOpaqueMethodCall(ctx, false, visit, expr);
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
       },
       "typesugar/fp/data/option.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("respects the 'extensions' opt-out scope, matching legacy's shared guard", () => {
+    // Legacy's tryRewriteExtensionMethod checks isInOptedOutScope(...,"extensions")
+    // once, shared by BOTH the type-rewrite-registry path and the standalone
+    // extension path (PEP-056 Wave 4 parity audit gap #4) -- an opted-out file
+    // must skip the @opaque method-call rewrite too, not just extensions.
+    registerOptionWithMethods();
+    const { result } = withContext(
+      `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\nx.map((n: number) => n + 1);`,
+      (ctx, sf, visit) => {
+        // Opt out using the real sourceFile.fileName (an absolute tmpdir path,
+        // not the literal `fileName` passed to withContext below).
+        globalResolutionScope.addOptedOutFeature(sf.fileName, "extensions");
+        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
+      },
+      "opted-out-consumer.ts"
     );
     expect(result).toBeUndefined();
   });
