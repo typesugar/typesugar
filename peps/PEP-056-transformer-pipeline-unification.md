@@ -470,15 +470,23 @@ the consolidation rather than filed and forgotten:
       package index) rather than a new dedicated `synthetic-node.ts` file —
       it sits directly beside `stripPositions`, which sets the exact
       `pos`/`end === -1` convention this helper reads, so co-locating reads
-      better than a same-purpose one-function file. Replaced all five simple
-      `pos === -1 || end === -1` (and inverted `pos >= 0 && end >= 0`) sites:
-      `transformer-core/specialization.ts`, `method-sugar.ts`, `rewriting.ts`,
-      `core/resolution-scope.ts`, `macros/syntax-macro.ts`, `macros/reflect.ts`.
-      `transformer-core/transformer.ts`'s main visitor keeps its own
-      `node.pos === -1` check as-is: it's ANDed with extra
-      source-file/block/module-block exclusions and isn't the same shape the
-      audit flagged. Drive-by: removed an unused `getInstanceMethods` import
-      discovered in `rewriting.ts` while touching its import block.
+      better than a same-purpose one-function file. Replaced eight sites in
+      total — five caught by the initial audit pass
+      (`transformer-core/specialization.ts`, `method-sugar.ts`,
+      `rewriting.ts`, `core/resolution-scope.ts`, `macros/syntax-macro.ts`,
+      `macros/reflect.ts` — six files, since one held two of the five) plus
+      three more the Wave 5 code review's cross-file tracer angle caught
+      that had drifted to a `pos < 0 || end < 0` spelling instead of the
+      `=== -1` form the initial grep matched on
+      (`transformer-core/transformer.ts`'s `tryExpandExpressionMacro`,
+      `core/source-map.ts`'s `ExpansionTracker.recordExpansion`,
+      `macros/typeclass.ts`'s `getNodeText`) — confirming the audit's "at
+      least eight" undercounted by exactly the amount a `=== -1`-only grep
+      would miss. `transformer-core/transformer.ts`'s MAIN VISITOR keeps its
+      own separate `node.pos === -1` check as-is: it's ANDed with extra
+      source-file/block/module-block exclusions and isn't the same shape.
+      Drive-by: removed an unused `getInstanceMethods` import discovered in
+      `rewriting.ts` while touching its import block.
 - [x] Make the non-verbose CLI path fail loudly. `cli.ts`'s three
       checker-crash `try/catch` blocks (`getPreEmitDiagnostics` ×2, the
       diagnostic-suppression filter) currently only log the failure when

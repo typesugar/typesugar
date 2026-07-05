@@ -31,6 +31,7 @@ import {
   AttributeMacro,
   globalResolutionScope,
   isInOptedOutScope,
+  isSyntheticNode,
   preserveSourceMap,
   ExpansionTracker,
   MacroExpansionCache,
@@ -1261,8 +1262,7 @@ class MacroTransformer {
 
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
     // Skip synthetic nodes (created by macro expansion) to avoid re-expansion loops.
-    // Synthetic nodes have negative or unset positions.
-    if (node.pos < 0 || node.end < 0) {
+    if (isSyntheticNode(node)) {
       return undefined;
     }
 
