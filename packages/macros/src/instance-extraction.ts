@@ -566,7 +566,7 @@ function resolveCompanionInstanceExpression(
   const tcName = expr.name.text;
   if (!PASCAL_CASE.test(typeName) || !PASCAL_CASE.test(tcName)) return undefined;
 
-  const hit = findInstanceInScopeByName(ctx, tcName, typeName, undefined, true);
+  const hit = findInstanceInScopeByName(ctx, tcName, typeName);
   if (!hit) return undefined;
 
   const file = hit.modulePath ? ctx.program.getSourceFile(hit.modulePath) : ctx.sourceFile;

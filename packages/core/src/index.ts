@@ -178,6 +178,8 @@ export {
   type ExpansionRecord,
 } from "./source-map.js";
 
+export { getOrCreateWeak } from "./weak-cache.js";
+
 // AST Utilities
 export {
   hasExportModifier,

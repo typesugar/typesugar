@@ -419,12 +419,7 @@ the consolidation rather than filed and forgotten:
       `DiagnosticSuppressionRule` interface) has no program to pass — rather
       than break that cross-package interface for a low-severity gap, `program`
       is optional everywhere and omitting it falls back to one shared legacy
-      bucket, preserving that path's exact pre-partitioning behavior. Two
-      dead-code exports (`scanForDerivedInstanceDeclarations`, `checkForValueRef`
-      in `transformer-core/specialization.ts` — exported but never called from
-      any production path; `eliminateDeadDerivedInstances` uses its own
-      tracking, not these) likewise keep the no-program default rather than
-      being threaded for callers that don't exist.
+      bucket, preserving that path's exact pre-partitioning behavior.
 
       Partitioning the registry per-`Program` exposed a real, pre-existing bug
       that a bare shared `Map` had been silently masking via cross-test
@@ -440,15 +435,22 @@ the consolidation rather than filed and forgotten:
          object (`export const Point = { Numeric: numericPoint }` where
          `numericPoint` itself isn't exported) — even though referencing it via
          `Point.Numeric` is ordinary, valid TypeScript regardless of the
-         underlying const's export status. Fixed by giving
-         `findScannedInScope`/`findInstanceInScopeByName` an opt-in
-         `includeNonExportedImports` parameter that additionally runs
-         `scanLocalFile` (already sourceFile-agnostic) against the imported
-         module when the exports-only scan misses. Off by default — the
-         `@derive` transitive-derivation planner and do-notation resolution,
-         the other two consumers of the same shared scope walk, keep their
-         existing exports-only semantics for imported modules; only the
-         companion-path caller in `instance-extraction.ts` opts in.
+         underlying const's export status. `findScannedInScope`'s
+         imported-module scan now unconditionally also runs `scanLocalFile`
+         (already sourceFile-agnostic) against the imported module when the
+         exports-only scan misses — this was initially landed as an opt-in
+         `includeNonExportedImports` flag (only `instance-extraction.ts`'s
+         companion-path caller set it), but a follow-up cleanup pass removed
+         the flag entirely: nothing in the codebase actually needs the
+         narrower, exports-only variant for imported modules (confirmed no
+         test anywhere pins that behavior for the `@derive`
+         transitive-derivation planner or do-notation resolution, the other
+         two consumers of the same shared scope walk), and a two-visibility-
+         semantics split selected by a rarely-set boolean was exactly the kind
+         of foot-gun code review flagged it as. All three callers now get one
+         consistent scope-visibility rule: an instance is in scope whether
+         it's local or imported, exported or not — matching what the local
+         file's own half of this function already did unconditionally.
       2. `instance-scanner.ts`'s `scanDeclaration` "borrow forType from the
          type annotation" fallback (for when an `@impl` tag's type argument,
          e.g. `Point`, isn't itself a resolvable `ts.Type`) was also
@@ -459,6 +461,50 @@ the consolidation rather than filed and forgotten:
          instance for `"any"` instead of `"Point"`. The doc comment already
          said "only borrow forType"; the code borrowed both. Fixed to match
          the stated intent.
+
+      Three further cleanup passes, done in response to review feedback that
+      leaving these unresolved was itself creating the dual-code-path
+      inconsistency the review kept flagging:
+
+      - **Deleted the entire dead DCE-tracker mechanism** rather than thread a
+        `program` parameter through code nothing calls. Three separate
+        finder-agent angles (Altitude, Simplification, cross-file tracer)
+        independently flagged `scanForDerivedInstanceDeclarations`/
+        `checkForValueRef`'s no-program `isRegisteredInstance` calls as a live
+        bug; grep across the entire repo confirmed `new
+        DerivedInstanceDCETracker(` appears only in the test file, never in
+        `transformer.ts`/`pipeline.ts`/anywhere in production — every real
+        call site (`tryInlineDerivedInstanceCallFn(this.ctx, node, undefined)`
+        ×2) always passes `undefined` for the tracker. The mechanism was fully
+        superseded by `eliminateDeadDerivedInstances`, which does the same
+        job (find derived-instance decls + registration calls with no
+        remaining external references) via its own self-contained
+        `inlinedInstanceNames: Set<string>` scan, never touching the registry
+        at all. Deleted `DerivedInstanceDCETracker`,
+        `scanForDerivedInstanceDeclarations`, `checkForValueRef`, and the now-
+        always-`undefined` `dceTracker` parameter on
+        `tryInlineDerivedInstanceCall` (177 lines removed from
+        `specialization.ts`; matching removals from `transformer.ts`'s two
+        call sites, `index.ts`'s exports, and 149 lines of tests exercising
+        only the dead half — `eliminateDeadDerivedInstances`'s own tests are
+        untouched, that mechanism is real).
+      - **Documented, not partitioned, `primitiveIntrinsicRegistry`** — added a
+        comment explaining why this sibling registry deliberately stays a
+        bare `Map` (populated once at module load by reflecting `primitives.ts`'s
+        fixed exports; the same 16 entries are correct for every `ts.Program`
+        that will ever exist, so partitioning would add WeakMap indirection
+        for identical content in every partition) so it reads as a considered
+        choice next to the now-partitioned `instanceMethodRegistry`, not an
+        oversight.
+      - **Consolidated the WeakMap-per-`ts.Program` get-or-create pattern**,
+        independently hand-rolled four times (`specialize.ts`'s
+        `instanceRegistryFor`, `instance-resolver.ts`'s `importMapCacheFor`,
+        `instance-scanner.ts`'s `cacheFor` and `synthesizedFor`), into one
+        shared `getOrCreateWeak<K extends object, V>(map, key, create)`
+        helper in a new `packages/core/src/weak-cache.ts`. Each call site
+        keeps its own `WeakMap` instance and (where it has one) its own
+        fallback value for the no-key case; only the get-or-create step is
+        now centralized.
 - [x] Centralize the synthetic-node guard. At least eight call sites across
       three packages independently reimplement `node.pos === -1 ||
   node.end === -1` with their own copy of the same explanatory comment.
@@ -618,12 +664,16 @@ Add, after the current exception list:
 | `packages/transformer/src/index.ts`                     | **Deleted**                                                                      |
 | `packages/transformer/src/pipeline.ts`                  | Calls `transformer-core`'s `MacroTransformer` with an injected real `ts.Program` |
 | `packages/transformer/src/language-service.ts`          | Same change, LS closure                                                          |
-| `packages/macros/src/instance-resolver.ts`              | `findInstanceInScopeByName`/`findScannedInScope` gain the `getSynthesized` check and an opt-in `includeNonExportedImports` cross-module scan |
-| `packages/macros/src/instance-scanner.ts`                | `scanDeclaration`'s type-annotation "borrow" fix (no longer clobbers `forTypeString`) |
-| `packages/macros/src/specialize.ts`                     | `instanceMethodRegistry`/`primitiveIntrinsicRegistry` access gains `WeakMap<Program>` partitioning, with a legacy no-program fallback |
+| `packages/macros/src/instance-resolver.ts`              | `findInstanceInScopeByName`/`findScannedInScope` gain the `getSynthesized` check; cross-module scan now unconditionally also checks non-exported declarations (no flag) |
+| `packages/macros/src/instance-scanner.ts`                | `scanDeclaration`'s type-annotation "borrow" fix (no longer clobbers `forTypeString`); `cacheFor`/`synthesizedFor` use the shared `getOrCreateWeak` |
+| `packages/macros/src/specialize.ts`                     | `instanceMethodRegistry` access gains `WeakMap<Program>` partitioning (shared `getOrCreateWeak`), with a legacy no-program fallback; `primitiveIntrinsicRegistry` documented as deliberately unpartitioned |
 | `packages/macros/src/typeclass.ts`, `instance-extraction.ts` | Thread `ctx.program` through to the partitioned registry |
-| `packages/transformer-core/src/specialization.ts`, `method-sugar.ts`, `rewriting.ts` | Thread `ctx.program` through / adopt `isSyntheticNode` |
-| `packages/core/src/resolution-scope.ts`, `packages/macros/src/syntax-macro.ts`, `reflect.ts` | Adopt `isSyntheticNode` |
+| `packages/transformer-core/src/specialization.ts`        | Thread `ctx.program` through; **deleted** the dead `DerivedInstanceDCETracker`/`scanForDerivedInstanceDeclarations`/`checkForValueRef` (zero production callers, superseded by `eliminateDeadDerivedInstances`) |
+| `packages/transformer-core/src/method-sugar.ts`, `rewriting.ts` | Adopt `isSyntheticNode` |
+| `packages/transformer-core/src/transformer.ts`           | Adopt `isSyntheticNode` in `tryExpandExpressionMacro`; drop the removed `dceTracker` arg from both `tryInlineDerivedInstanceCallFn` call sites |
+| `packages/transformer-core/src/index.ts`                 | Drop the three deleted DCE-tracker exports |
+| `packages/core/src/resolution-scope.ts`, `source-map.ts`, `packages/macros/src/syntax-macro.ts`, `reflect.ts`, `typeclass.ts` | Adopt `isSyntheticNode` |
+| `packages/core/src/weak-cache.ts`                        | New — shared `getOrCreateWeak()` helper, replacing 4 independent hand-rolled copies |
 | `packages/transformer/src/cli.ts`                       | Checker-crash paths always emit one line regardless of `--verbose`               |
 | `CLAUDE.md`                                             | Three additions above, applied                                                  |
 

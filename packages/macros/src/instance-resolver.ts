@@ -19,6 +19,7 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
+import { getOrCreateWeak } from "@typesugar/core";
 import {
   InstanceScanner,
   instanceScanner as defaultScanner,
@@ -68,12 +69,7 @@ interface ImportMapEntry {
 const importMapCache = new WeakMap<ts.Program, Map<string, ImportMapEntry[]>>();
 
 function importMapCacheFor(program: ts.Program): Map<string, ImportMapEntry[]> {
-  let m = importMapCache.get(program);
-  if (!m) {
-    m = new Map();
-    importMapCache.set(program, m);
-  }
-  return m;
+  return getOrCreateWeak(importMapCache, program, () => new Map());
 }
 
 function getImportMap(
@@ -335,20 +331,20 @@ export function resolveInstanceInScopeByName(
  * lives: `modulePath` is the resolved file path for an imported instance, or
  * undefined when it was found in the local file. Source-based specialization
  * uses this to walk from a companion path (`Point.Numeric`) back to the
- * generating instance declaration (PEP-053 Wave 2 gap 6) — passing
- * `includeNonExportedImports: true`, since the underlying instance need not
- * itself be exported for the companion path to be valid, ordinary TypeScript.
+ * generating instance declaration (PEP-053 Wave 2 gap 6) — the underlying
+ * instance need not itself be exported for the companion path to be valid,
+ * ordinary TypeScript, and {@link findScannedInScope} treats non-exported
+ * imported-module instances as in scope unconditionally.
  */
 export function findInstanceInScopeByName(
   ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
   tcName: string,
   typeName: string,
-  scanner: InstanceScanner = defaultScanner,
-  includeNonExportedImports = false
+  scanner: InstanceScanner = defaultScanner
 ): { exportName: string; modulePath?: string } | undefined {
   const match = (inst: ScannedInstance): boolean =>
     inst.typeclassName === tcName && baseTypeName(inst.forTypeString) === typeName;
-  const hit = findScannedInScope(ctx, match, scanner, includeNonExportedImports);
+  const hit = findScannedInScope(ctx, match, scanner);
   return hit ? { exportName: hit.instance.exportName, modulePath: hit.modulePath } : undefined;
 }
 
@@ -360,28 +356,28 @@ function baseTypeName(s: string): string {
 
 /**
  * Shared scope walk: local file (incl. non-exported `@impl` values) first,
- * then every imported module (re-exports followed by the scanner). Returns
- * the first scanned instance satisfying `match`.
+ * then every imported module (re-exports followed by the scanner, PLUS each
+ * module's own non-exported top-level declarations). Returns the first
+ * scanned instance satisfying `match`.
  *
- * `includeNonExportedImports` additionally scans each imported module's
- * non-exported top-level declarations (via `scanLocalFile`, which is already
- * sourceFile-agnostic) when the exports-only scan misses. Opt-in and off by
- * default: `resolveInstanceInScopeByName` (the `@derive` transitive-derivation
- * "does this type already have an instance" check) and do-notation resolution
- * both rely on the existing exports-only semantics for imported modules, so
- * widening visibility there would be an unrelated behavior change. Only
- * `findInstanceInScopeByName`'s companion-path caller
- * (`resolveCompanionInstanceExpression`) opts in: `Point.Numeric` is ordinary,
- * valid TypeScript reachable from any importer regardless of whether the
- * underlying `numericPoint` const is itself exported, so the value it
- * resolves to must be discoverable the same way a same-file non-exported
- * instance already is (PEP-053 Wave 2 gap 6).
+ * Non-exported visibility is unconditional for imported modules, matching
+ * the local file's own treatment just above (which has never gated
+ * non-exported instances behind a flag): a value need not be exported for a
+ * reference to it to be ordinary, valid TypeScript — `export const Point = {
+ * Numeric: numericPoint }` makes `Point.Numeric` reachable from any importer
+ * regardless of whether `numericPoint` itself carries the `export` keyword,
+ * exactly as a same-file non-exported `@impl` const is already in scope for
+ * its own file. All three callers of this shared walk (companion-path
+ * resolution, the `@derive` transitive-derivation "does this type already
+ * have an instance" check, and do-notation resolution) get the same
+ * consistent scope-visibility semantics rather than two different ones
+ * selected by a flag only one of them knew to set (PEP-053 Wave 2 gap 6,
+ * widened in PEP-056 Wave 5 cleanup).
  */
 function findScannedInScope(
   ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
   match: (inst: ScannedInstance) => boolean,
-  scanner: InstanceScanner = defaultScanner,
-  includeNonExportedImports = false
+  scanner: InstanceScanner = defaultScanner
 ): { instance: ScannedInstance; modulePath?: string } | undefined {
   // Local file (includes non-exported @impl/@instance values). Also check
   // instances synthesized during THIS transform pass (e.g. a `@derive(Eq)`
@@ -407,12 +403,9 @@ function findScannedInScope(
       entry.resolvedPath,
       ctx.program
     );
-    let hit = scanned.find(match);
-    if (!hit && includeNonExportedImports) {
-      hit = scanner
-        .scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program)
-        .find(match);
-    }
+    const hit =
+      scanned.find(match) ??
+      scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program).find(match);
     if (hit) return { instance: hit, modulePath: entry.resolvedPath };
   }
 

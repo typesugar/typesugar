@@ -13,7 +13,7 @@
  */
 
 import * as ts from "typescript";
-import { parseTypeInstantiation } from "@typesugar/core";
+import { parseTypeInstantiation, getOrCreateWeak } from "@typesugar/core";
 
 /**
  * Result of scanning a module export for typeclass instance information.
@@ -167,12 +167,7 @@ export class InstanceScanner {
 
   private cacheFor(program?: ts.Program): Map<string, ScannedInstance[]> {
     if (!program) return this.fallbackCache;
-    let m = this.cacheByProgram.get(program);
-    if (!m) {
-      m = new Map();
-      this.cacheByProgram.set(program, m);
-    }
-    return m;
+    return getOrCreateWeak(this.cacheByProgram, program, () => new Map());
   }
 
   // ---------------------------------------------------------------------------
@@ -194,12 +189,7 @@ export class InstanceScanner {
   private synthesizedByProgram = new WeakMap<ts.Program, Map<string, ScannedInstance[]>>();
 
   private synthesizedFor(program: ts.Program): Map<string, ScannedInstance[]> {
-    let m = this.synthesizedByProgram.get(program);
-    if (!m) {
-      m = new Map();
-      this.synthesizedByProgram.set(program, m);
-    }
-    return m;
+    return getOrCreateWeak(this.synthesizedByProgram, program, () => new Map());
   }
 
   /**

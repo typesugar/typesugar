@@ -980,7 +980,7 @@ class MacroTransformer {
         return autoSpecResult;
       }
 
-      const derivedInlineResult = tryInlineDerivedInstanceCallFn(this.ctx, node, undefined);
+      const derivedInlineResult = tryInlineDerivedInstanceCallFn(this.ctx, node);
       if (derivedInlineResult !== undefined) {
         if (
           ts.isPropertyAccessExpression(node.expression) &&
@@ -1166,7 +1166,7 @@ class MacroTransformer {
       );
       if (result !== undefined) {
         if (ts.isCallExpression(result)) {
-          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, undefined);
+          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result);
           if (inlined !== undefined) {
             if (
               ts.isPropertyAccessExpression(result.expression) &&

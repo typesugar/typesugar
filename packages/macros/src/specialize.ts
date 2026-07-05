@@ -46,7 +46,7 @@
 
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
-import { stripPositions, stripCommentsDeep } from "@typesugar/core";
+import { stripPositions, stripCommentsDeep, getOrCreateWeak } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 import * as primitives from "./primitives.js";
 
@@ -373,12 +373,7 @@ const legacyInstanceMethodRegistry = new Map<string, DictMethodMap>();
 
 function instanceRegistryFor(program?: ts.Program): Map<string, DictMethodMap> {
   if (!program) return legacyInstanceMethodRegistry;
-  let m = instanceMethodRegistryByProgram.get(program);
-  if (!m) {
-    m = new Map();
-    instanceMethodRegistryByProgram.set(program, m);
-  }
-  return m;
+  return getOrCreateWeak(instanceMethodRegistryByProgram, program, () => new Map());
 }
 
 /**
@@ -527,6 +522,16 @@ export function getRegisteredInstanceNames(program?: ts.Program): string[] {
 // Primitive intrinsic registry — separate from instanceMethodRegistry so
 // tryAutoSpecialize doesn't pick up primitives as specializable instances.
 // Only tryInlineDerivedInstanceCall consults this registry.
+//
+// Deliberately NOT WeakMap<ts.Program>-partitioned like instanceMethodRegistry
+// above: this registry's contents aren't per-compilation state at all — it's
+// populated exactly once, at module load, by reflecting primitives.ts's fixed,
+// unchanging exports (loadPrimitiveIntrinsicsFromReflection, below). The same
+// 16 entries are correct for every ts.Program that will ever exist in this
+// process, so partitioning would only add WeakMap indirection for identical
+// content in every partition — a real registry needing per-Program isolation
+// looks like instanceMethodRegistry; a process-lifetime reflection cache of
+// immutable source looks like this one, and the two shouldn't be conflated.
 // ---------------------------------------------------------------------------
 
 const primitiveIntrinsicRegistry = new Map<string, DictMethodMap>();
