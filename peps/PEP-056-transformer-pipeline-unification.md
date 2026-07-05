@@ -70,15 +70,15 @@ transform, never reimplementing it.
 
 ### Node-dependency analysis
 
-| File (current)             | Lines | Genuinely Node-only?                                  | Disposition                                                    |
-| --------------------------- | ----- | ------------------------------------------------------- | ---------------------------------------------------------------- |
-| `macro-loader.ts`           | 269   | Yes — `createRequire`, dynamic package resolution       | Stays. This is the actual reason a Node host package must exist. |
-| `cache.ts`                  | ?     | Yes — `fs`, `crypto` disk cache                          | Stays, as a wrapper around `transformer-core`'s `transformCode`.  |
-| `pipeline.ts`                | 2,276 | Partial — real `ts.Program`/`ts.sys`, incremental builds | Stays, but calls `transformer-core`'s `MacroTransformer` instead of `macroTransformerFactory`. `transformer-core`'s `transformCode` already accepts an injected `program`/`compilerHost` (added in PEP-015 Wave 3) — this is exactly the seam to use. |
-| `cli.ts` / `language-service.ts` | 1,226 / 1,405 | Yes — process/CLI, TS Language Service plugin host | Stay as Node hosting surfaces, unchanged in shape, just calling a different transform entry point underneath. |
-| `dts-opaque-discovery.ts`   | ?     | No — reads `.d.ts` files reachable via `ts.Program`, which `transformer-core` can already do via injectable `readFile` | Move to `transformer-core`. |
-| `profiling.ts`              | ?     | No — pure timing utility, no Node API             | Move to `transformer-core` (or `@typesugar/core`) so both pipelines get the same profiler instead of the CLI-only one today. |
-| `index.ts` (`macroTransformerFactory`, all rewriting/dispatch) | 4,869 | **No** — every dispatch function audited has either a `transformer-core` equivalent already or is portable to one | Delete. Replaced by direct use of `transformer-core`'s `MacroTransformer`. |
+| File (current)                                                 | Lines         | Genuinely Node-only?                                                                                                   | Disposition                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `macro-loader.ts`                                              | 269           | Yes — `createRequire`, dynamic package resolution                                                                      | Stays. This is the actual reason a Node host package must exist.                                                                                                                                                                                      |
+| `cache.ts`                                                     | ?             | Yes — `fs`, `crypto` disk cache                                                                                        | Stays, as a wrapper around `transformer-core`'s `transformCode`.                                                                                                                                                                                      |
+| `pipeline.ts`                                                  | 2,276         | Partial — real `ts.Program`/`ts.sys`, incremental builds                                                               | Stays, but calls `transformer-core`'s `MacroTransformer` instead of `macroTransformerFactory`. `transformer-core`'s `transformCode` already accepts an injected `program`/`compilerHost` (added in PEP-015 Wave 3) — this is exactly the seam to use. |
+| `cli.ts` / `language-service.ts`                               | 1,226 / 1,405 | Yes — process/CLI, TS Language Service plugin host                                                                     | Stay as Node hosting surfaces, unchanged in shape, just calling a different transform entry point underneath.                                                                                                                                         |
+| `dts-opaque-discovery.ts`                                      | ?             | No — reads `.d.ts` files reachable via `ts.Program`, which `transformer-core` can already do via injectable `readFile` | Move to `transformer-core`.                                                                                                                                                                                                                           |
+| `profiling.ts`                                                 | ?             | No — pure timing utility, no Node API                                                                                  | Move to `transformer-core` (or `@typesugar/core`) so both pipelines get the same profiler instead of the CLI-only one today.                                                                                                                          |
+| `index.ts` (`macroTransformerFactory`, all rewriting/dispatch) | 4,869         | **No** — every dispatch function audited has either a `transformer-core` equivalent already or is portable to one      | Delete. Replaced by direct use of `transformer-core`'s `MacroTransformer`.                                                                                                                                                                            |
 
 The upshot: nothing in the actual rewriting/dispatch logic requires Node. The
 only load-bearing Node dependency in the whole legacy package is
@@ -221,7 +221,7 @@ The actual deletion.
 - [ ] `pipeline.ts`'s `transformCode()` (the CLI/build entry point) constructs
       its real `ts.Program`/compiler host as it does today, then calls
       `transformer-core`'s `MacroTransformer`/`transformCode({ program,
-      compilerHost, ... })` — the injection seam PEP-015 built and never
+    compilerHost, ... })` — the injection seam PEP-015 built and never
       used — instead of `macroTransformerFactory` from `./index.js`.
 - [ ] `language-service.ts` (LS plugin) does the same for its per-file
       transform closure.
@@ -264,7 +264,7 @@ the consolidation rather than filed and forgotten:
       one real exception to "no process-global registry."
 - [ ] Centralize the synthetic-node guard. At least eight call sites across
       three packages independently reimplement `node.pos === -1 ||
-      node.end === -1` with their own copy of the same explanatory comment.
+    node.end === -1` with their own copy of the same explanatory comment.
       Add one `isSyntheticNode(node)` helper to `@typesugar/core`, replace
       every site, and use it as the thing new code is expected to reach for
       (see CLAUDE.md addition below).
@@ -324,7 +324,7 @@ Add, after the current exception list:
 >
 > When a macro synthesizes a new declaration, instance, or binding during a
 > transform pass (a `@derive` companion, a generated constructor, a
-> registered extension method), anything that later needs to *discover* that
+> registered extension method), anything that later needs to _discover_ that
 > synthesized thing — a scanner, a resolver, a lookup table — must consult
 > **live, same-pass state**, not a scan of the pre-transform source text.
 > `sourceFile.statements` is fixed at the start of a pass; a scan over it
@@ -342,7 +342,7 @@ Add, after the current exception list:
 >   (`InstanceScanner.scanLocalFile` before its `getSynthesized` companion
 >   was added) — unsafe by construction for anything synthesized mid-pass.
 >
-> If you add a new resolution/discovery mechanism, or add a new *consumer* of
+> If you add a new resolution/discovery mechanism, or add a new _consumer_ of
 > an existing one (see: `findInstanceInScopeByName`, which didn't get the
 > `getSynthesized` fix its sibling `resolveFromLocalScope` did, in the same
 > file, and shipped that way for a release), explicitly check which shape
@@ -377,20 +377,20 @@ Add, after the current exception list:
 
 ## Files Changed
 
-| File / Package                                    | Change                                                              |
-| --------------------------------------------------- | ---------------------------------------------------------------------- |
-| `packages/transformer-core/src/method-sugar.ts`    | New — ported method-sugar dispatch                                    |
-| `packages/transformer-core/src/rewriting.ts`       | Absorbs the four remaining duplicated dispatchers                    |
-| `packages/transformer-core/src/dts-opaque-discovery.ts` | Moved from `packages/transformer/src/`                           |
-| `packages/core/src/profiling.ts`                   | Moved from `packages/transformer/src/`                                |
-| `packages/core/src/synthetic-node.ts`              | New — `isSyntheticNode()` helper                                       |
-| `packages/transformer/src/index.ts`                | **Deleted**                                                            |
-| `packages/transformer/src/pipeline.ts`              | Calls `transformer-core`'s `MacroTransformer` with an injected real `ts.Program` |
-| `packages/transformer/src/language-service.ts`     | Same change, LS closure                                                |
-| `packages/macros/src/instance-resolver.ts`         | `findInstanceInScopeByName` gains the `getSynthesized` check          |
-| `packages/macros/src/specialize.ts`                | `instanceMethodRegistry` gains `WeakMap<Program>` partitioning         |
-| `packages/transformer/src/cli.ts`                  | Checker-crash paths always emit one line regardless of `--verbose`    |
-| `CLAUDE.md`                                        | Three additions above (proposed, not yet applied)                    |
+| File / Package                                          | Change                                                                           |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `packages/transformer-core/src/method-sugar.ts`         | New — ported method-sugar dispatch                                               |
+| `packages/transformer-core/src/rewriting.ts`            | Absorbs the four remaining duplicated dispatchers                                |
+| `packages/transformer-core/src/dts-opaque-discovery.ts` | Moved from `packages/transformer/src/`                                           |
+| `packages/core/src/profiling.ts`                        | Moved from `packages/transformer/src/`                                           |
+| `packages/core/src/synthetic-node.ts`                   | New — `isSyntheticNode()` helper                                                 |
+| `packages/transformer/src/index.ts`                     | **Deleted**                                                                      |
+| `packages/transformer/src/pipeline.ts`                  | Calls `transformer-core`'s `MacroTransformer` with an injected real `ts.Program` |
+| `packages/transformer/src/language-service.ts`          | Same change, LS closure                                                          |
+| `packages/macros/src/instance-resolver.ts`              | `findInstanceInScopeByName` gains the `getSynthesized` check                     |
+| `packages/macros/src/specialize.ts`                     | `instanceMethodRegistry` gains `WeakMap<Program>` partitioning                   |
+| `packages/transformer/src/cli.ts`                       | Checker-crash paths always emit one line regardless of `--verbose`               |
+| `CLAUDE.md`                                             | Three additions above (proposed, not yet applied)                                |
 
 ## Consequences
 
