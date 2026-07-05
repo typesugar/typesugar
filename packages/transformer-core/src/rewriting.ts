@@ -455,15 +455,34 @@ export function tryRewriteTypeclassOperator(
   // (e.g. "Point.Eq"). Instances are expected to be imported by name or local;
   // module-scan results assume the binding is in scope (matches prior behavior).
   const instName = matched.resolved.exportName;
-  const instanceRef = instName.includes(".")
-    ? factory.createPropertyAccessExpression(
-        factory.createIdentifier(instName.split(".")[0]),
-        instName.split(".")[1]
-      )
-    : factory.createIdentifier(instName);
+  const instanceRef = buildInstanceReferenceExpression(factory, instName);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
   const rewritten = factory.createCallExpression(methodAccess, undefined, [left, right]);
   return preserveSourceMap(rewritten, node);
+}
+
+/**
+ * Build the reference expression for a resolved companion/instance export name --
+ * a dotted companion path (`"Point.Eq"`) becomes a property access on its base
+ * (`Point.Eq`); a bare name (`"eqPoint"`) becomes a plain identifier.
+ *
+ * `baseIdentifier`, if provided, is used for the base of a dotted path (or as
+ * the whole reference for a bare name) instead of a fresh identifier -- callers
+ * that already resolved a hygienic (possibly aliased) identifier via
+ * `ctx.ensureImport`/`ctx.safeRef` should pass it here so the emitted reference
+ * matches whatever was actually imported.
+ */
+export function buildInstanceReferenceExpression(
+  factory: ts.NodeFactory,
+  instName: string,
+  baseIdentifier?: ts.Identifier
+): ts.Expression {
+  const dotIndex = instName.indexOf(".");
+  if (dotIndex === -1) {
+    return baseIdentifier ?? factory.createIdentifier(instName);
+  }
+  const base = baseIdentifier ?? factory.createIdentifier(instName.slice(0, dotIndex));
+  return factory.createPropertyAccessExpression(base, instName.slice(dotIndex + 1));
 }
 
 // ---------------------------------------------------------------------------
