@@ -22,7 +22,6 @@ import {
   getTypeRewrite,
   type TypeRewriteEntry,
   type ConstructorRewrite,
-  type AccessorRewrite,
   hasExportModifier,
 } from "@typesugar/core";
 

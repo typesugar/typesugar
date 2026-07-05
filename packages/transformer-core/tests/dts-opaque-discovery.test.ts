@@ -6,7 +6,7 @@
  * derives and registers TypeRewriteEntry entries.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as ts from "typescript";
 import { clearTypeRewrites, getTypeRewrite, registerTypeRewrite } from "@typesugar/core";
 import { discoverOpaqueTypesFromImports, resetDtsDiscovery } from "../src/dts-opaque-discovery.js";
@@ -219,5 +219,98 @@ export function baz(): void;
     discoverOpaqueTypesFromImports(sourceFile, program);
 
     expect(getTypeRewrite("Foo")).toBeUndefined();
+  });
+
+  describe("DtsFileAccess injection (PEP-056 Wave 3)", () => {
+    // Re-export targets of a dependency's .d.ts are usually NOT loaded into the
+    // consumer's program (module resolution only follows the entry import),
+    // so `program.getSourceFile(resolved)` returns undefined for them and
+    // `resolveRelativeDts` must fall back to reading the re-exported file off
+    // disk -- this is the exact path `DtsFileAccess` was added to make
+    // injectable/browser-safe instead of reaching for `ts.sys` directly.
+
+    /** Entry .d.ts that only re-exports from a sub-module NOT in the program. */
+    function createReExportingProgram(): ts.Program {
+      const sourceFileName = "/test/source.ts";
+      const entryDtsFileName = "/test/node_modules/my-lib/index.d.ts";
+      const files: Record<string, string> = {
+        [sourceFileName]: `import { Option } from "my-lib";`,
+        [entryDtsFileName]: `export type { Option } from "./data/option.js";`,
+        // Deliberately NOT registering "./data/option.d.ts" in `files` --
+        // program.getSourceFile() must return undefined for it, forcing the
+        // disk-fallback path.
+      };
+
+      const compilerHost: ts.CompilerHost = {
+        getSourceFile(fileName, languageVersion) {
+          const content = files[fileName];
+          return content !== undefined
+            ? ts.createSourceFile(fileName, content, languageVersion, true)
+            : undefined;
+        },
+        getDefaultLibFileName: () => "/lib.d.ts",
+        writeFile: () => {},
+        getCurrentDirectory: () => "/test",
+        getCanonicalFileName: (f: string) => f,
+        useCaseSensitiveFileNames: () => true,
+        getNewLine: () => "\n",
+        fileExists: (f: string) => f in files,
+        readFile: (f: string) => files[f],
+        resolveModuleNames(moduleNames) {
+          return moduleNames.map((name) =>
+            name === "my-lib"
+              ? {
+                  resolvedFileName: entryDtsFileName,
+                  isExternalLibraryImport: true,
+                  extension: ts.Extension.Dts,
+                }
+              : undefined
+          );
+        },
+      };
+
+      const options: ts.CompilerOptions = {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ES2022,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: true,
+        noEmit: true,
+      };
+
+      return ts.createProgram([sourceFileName], options, compilerHost);
+    }
+
+    it("uses an injected fileAccess to read a re-exported .d.ts not already in the program", () => {
+      const program = createReExportingProgram();
+      const sourceFile = program.getSourceFile("/test/source.ts")!;
+      const subDtsPath = "/test/node_modules/my-lib/data/option.d.ts";
+      const subDtsContent = `
+/** @opaque A | null */
+export type Option<A> = A | null;
+export function Some<A>(value: A): Option<A>;
+`;
+
+      const fileExists = vi.fn((p: string) => p === subDtsPath);
+      const readFile = vi.fn((p: string) => (p === subDtsPath ? subDtsContent : undefined));
+
+      discoverOpaqueTypesFromImports(sourceFile, program, false, { fileExists, readFile });
+
+      expect(fileExists).toHaveBeenCalledWith(subDtsPath);
+      expect(readFile).toHaveBeenCalledWith(subDtsPath);
+      expect(getTypeRewrite("Option")).toBeDefined();
+      expect(getTypeRewrite("Option")!.constructors?.get("Some")).toEqual({ kind: "identity" });
+    });
+
+    it("registers nothing (but does not throw) when the injected fileAccess can't find the re-exported file", () => {
+      const program = createReExportingProgram();
+      const sourceFile = program.getSourceFile("/test/source.ts")!;
+
+      const fileAccess = { fileExists: () => false, readFile: () => undefined };
+
+      expect(() =>
+        discoverOpaqueTypesFromImports(sourceFile, program, false, fileAccess)
+      ).not.toThrow();
+      expect(getTypeRewrite("Option")).toBeUndefined();
+    });
   });
 });
