@@ -12,12 +12,18 @@ import {
   globalRegistry,
   globalResolutionScope,
   scanImportsForScope,
+  createMacroContext,
+  HygieneContext,
+  MacroExpansionCache,
   type ExpansionRecord,
   type RawSourceMap,
   profiler,
   PROFILING_ENABLED,
   type FileTimings,
 } from "@typesugar/core";
+import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
+import { MacroTransformer, discoverOpaqueTypesFromImports } from "@typesugar/transformer-core";
+import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
 import {
@@ -26,16 +32,319 @@ import {
   type PositionMapper,
 } from "./position-mapper.js";
 import { TransformCache, hashContent, DiskTransformCache, initHasher } from "./cache.js";
-import macroTransformerFactory, {
-  type MacroTransformerConfig,
-  saveExpansionCache,
-  getExpansionCacheStats,
-} from "./index.js";
 import MagicString from "magic-string";
 import {
   preprocessExpressionComprehensions,
   type PreprocessResult,
 } from "./arrow-comprehension-preprocess.js";
+
+// ---------------------------------------------------------------------------
+// Node-host macro transformer factory (PEP-056 Wave 4)
+//
+// This is the single source of truth for standing up transformer-core's
+// shared MacroTransformer class in a real Node.js/ts.Program environment --
+// package loading from disk, .d.ts @opaque discovery, file-level opt-out,
+// and TS-diagnostic-pipeline wiring, none of which belong in transformer-core
+// itself (browser-compatible, zero Node deps). Replaces legacy
+// `@typesugar/transformer`'s now-deleted `macroTransformerFactory`, which
+// wrapped a private, duplicate copy of the same dispatch engine.
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for the Node-host macro transformer factory.
+ */
+export interface MacroTransformerConfig {
+  /** Enable verbose logging */
+  verbose?: boolean;
+
+  /** Custom macro module paths to load */
+  macroModules?: string[];
+
+  /** Conditional compilation configuration (for cfg/cfgAttr macros) */
+  cfgConfig?: Record<string, unknown>;
+
+  /** Enable expansion tracking for source maps and diagnostics */
+  trackExpansions?: boolean;
+
+  /**
+   * Directory for the disk-backed macro expansion cache.
+   * Set to `false` to disable caching entirely.
+   * Defaults to `.typesugar-cache`.
+   */
+  cacheDir?: string | false;
+}
+
+/**
+ * The most recently created expansion cache.
+ * Used by saveExpansionCache() to persist cache at cleanup time.
+ */
+let activeExpansionCache: MacroExpansionCache | undefined;
+
+/**
+ * Save the macro expansion cache to disk.
+ * Call this at cleanup time (buildEnd, CLI exit, etc.) to persist
+ * expansion results for future builds.
+ */
+export function saveExpansionCache(): void {
+  if (activeExpansionCache) {
+    activeExpansionCache.save();
+  }
+}
+
+/**
+ * Get statistics about the expansion cache for diagnostics.
+ */
+export function getExpansionCacheStats(): string | undefined {
+  return activeExpansionCache?.getStatsString();
+}
+
+/**
+ * Holds state that can be reused across multiple factory invocations.
+ *
+ * In watch mode, creating a new factory on each rebuild discards all caches.
+ * By passing a TransformerState to subsequent factory calls, expensive setup
+ * work is preserved: hygiene context (alias generation), expansion cache
+ * (disk-backed), and macro packages already loaded per program.
+ */
+export class TransformerState {
+  /** Shared hygiene context for alias management */
+  readonly hygiene: HygieneContext;
+
+  /** Disk-backed expansion cache */
+  readonly expansionCache: MacroExpansionCache | undefined;
+
+  /** Track which programs have had macro packages loaded */
+  private loadedPrograms = new WeakSet<ts.Program>();
+
+  constructor(options: { cacheDir?: string | false; verbose?: boolean } = {}) {
+    this.hygiene = new HygieneContext();
+    this.expansionCache =
+      options.cacheDir !== false
+        ? new MacroExpansionCache(options.cacheDir ?? ".typesugar-cache")
+        : undefined;
+
+    if (options.verbose) {
+      console.log("[typesugar] Created TransformerState");
+      if (this.expansionCache) {
+        console.log("[typesugar] Expansion cache loaded: " + this.expansionCache.size + " entries");
+      }
+    }
+  }
+
+  /** Check if macro packages have been loaded for this program. */
+  hasLoadedMacroPackages(program: ts.Program): boolean {
+    return this.loadedPrograms.has(program);
+  }
+
+  /** Mark that macro packages have been loaded for this program. */
+  markMacroPackagesLoaded(program: ts.Program): void {
+    this.loadedPrograms.add(program);
+  }
+
+  /** Save the expansion cache to disk. */
+  save(): void {
+    this.expansionCache?.save();
+  }
+
+  /** Get cache statistics. */
+  getStats(): { expansionCacheSize: number } {
+    return { expansionCacheSize: this.expansionCache?.size ?? 0 };
+  }
+}
+
+/**
+ * Safety net: clamp any negative source positions to 0.
+ *
+ * Synthetic nodes created by macro expansion have pos = -1 (set by
+ * stripPositions). This is fine for the printer, but TypeScript's emitter
+ * crashes in createTextSpan when it encounters negative positions during
+ * program.emit(). Walking the tree once after transformation prevents that.
+ */
+function clampSyntheticPositions<T extends ts.Node>(node: T): T {
+  if ((node as unknown as { pos: number }).pos < 0) {
+    (node as unknown as { pos: number }).pos = 0;
+  }
+  if ((node as unknown as { end: number }).end < 0) {
+    (node as unknown as { end: number }).end = 0;
+  }
+  ts.forEachChild(node, clampSyntheticPositions);
+  return node;
+}
+
+/**
+ * Create the TypeScript transformer factory backed by transformer-core's
+ * shared MacroTransformer class. This is the entry point called by ts-patch,
+ * unplugin-typesugar, and cli.ts's build/watch/expand/run commands.
+ *
+ * @param program - The TypeScript program to transform
+ * @param config - Configuration options
+ * @param state - Optional reusable state for watch mode (caches, hygiene context)
+ */
+export function macroTransformerFactory(
+  program: ts.Program,
+  config?: MacroTransformerConfig,
+  state?: TransformerState
+): ts.TransformerFactory<ts.SourceFile> {
+  const verbose = config?.verbose ?? false;
+  const trackExpansions = config?.trackExpansions ?? false;
+
+  if (config?.cfgConfig) {
+    setCfgConfig(config.cfgConfig);
+  }
+
+  let hygiene: HygieneContext;
+  let expansionCache: MacroExpansionCache | undefined;
+
+  if (state) {
+    hygiene = state.hygiene;
+    expansionCache = state.expansionCache;
+    activeExpansionCache = expansionCache;
+
+    if (!state.hasLoadedMacroPackages(program)) {
+      loadMacroPackages(program, verbose);
+      state.markMacroPackagesLoaded(program);
+    }
+
+    if (verbose) {
+      console.log("[typesugar] Reusing TransformerState from previous build");
+    }
+  } else {
+    clearDerivationCaches();
+
+    hygiene = new HygieneContext();
+
+    const cacheDir = config?.cacheDir;
+    expansionCache =
+      cacheDir !== false ? new MacroExpansionCache(cacheDir ?? ".typesugar-cache") : undefined;
+    activeExpansionCache = expansionCache;
+
+    loadMacroPackages(program, verbose);
+  }
+
+  const expansionTracker = trackExpansions ? globalExpansionTracker : undefined;
+
+  if (verbose) {
+    console.log(
+      state
+        ? "[typesugar] Initializing transformer (reusing state)"
+        : "[typesugar] Initializing transformer (fresh state)"
+    );
+    console.log(
+      `[typesugar] Registered macros: ${globalRegistry
+        .getAll()
+        .map((m) => m.name)
+        .join(", ")}`
+    );
+  }
+
+  return (context: ts.TransformationContext) => {
+    return (sourceFile: ts.SourceFile) => {
+      if (verbose) {
+        console.log(`[typesugar] Processing: ${sourceFile.fileName}`);
+      }
+
+      // Load macro packages based on this file's imports, BEFORE scanning for
+      // activation scope below -- a provider's registerSyntaxMarkerFallback
+      // side effect must be registered before scanImportsForScope's lookups
+      // depend on it. Safe to run first: loadPackage is idempotent.
+      loadMacroPackagesFromFile(sourceFile, verbose);
+
+      // Scan for imports and opt-out directives
+      scanImportsForScope(sourceFile, globalResolutionScope, program);
+
+      // Discover @opaque types from imported .d.ts files (external libraries).
+      discoverOpaqueTypesFromImports(sourceFile, program, verbose);
+
+      // Check for file-level opt-out
+      const fileScope = globalResolutionScope.getScope(sourceFile.fileName);
+      if (fileScope.optedOut) {
+        if (verbose) {
+          console.log(`[typesugar] Skipping: ${sourceFile.fileName} (opted out)`);
+        }
+        return sourceFile;
+      }
+
+      const ctx = createMacroContext(program, sourceFile, context, hygiene);
+      const transformer = new MacroTransformer(ctx, verbose, expansionTracker, expansionCache);
+
+      const result = ts.visitNode(sourceFile, transformer.visit.bind(transformer));
+
+      // Report diagnostics through the TS diagnostic pipeline
+      const macroDiagnostics = ctx.getDiagnostics();
+      for (const diag of macroDiagnostics) {
+        // Safely get start position - synthetic nodes throw on getStart
+        let start = 0;
+        let length = 0;
+        if (diag.node) {
+          if (diag.node.pos >= 0 && diag.node.end > diag.node.pos) {
+            start = diag.node.pos;
+            length = diag.node.end - diag.node.pos;
+            try {
+              const nodeSourceFile = diag.node.getSourceFile?.();
+              if (nodeSourceFile) {
+                const textStart = diag.node.getStart(nodeSourceFile);
+                if (textStart >= start && textStart < diag.node.end) {
+                  start = textStart;
+                  length = diag.node.end - textStart;
+                }
+              }
+            } catch {
+              // Keep the pos/end values if getStart fails
+            }
+          } else {
+            try {
+              start = diag.node.getStart(sourceFile);
+              length = diag.node.getWidth(sourceFile);
+            } catch {
+              // Keep zero values
+            }
+          }
+        }
+
+        const errorCode =
+          diag.code ??
+          (() => {
+            const m = diag.message.match(/\[TS(\d{4})\]/);
+            return m ? parseInt(m[1], 10) : 9999;
+          })();
+
+        const tsDiag: ts.Diagnostic & { __typesugarSuggestion?: string } = {
+          file: sourceFile,
+          start,
+          length,
+          messageText: `[typesugar] ${diag.message}`,
+          category:
+            diag.severity === "error" ? ts.DiagnosticCategory.Error : ts.DiagnosticCategory.Warning,
+          code: errorCode,
+          source: "typesugar",
+        };
+        if (diag.suggestion) {
+          tsDiag.__typesugarSuggestion = diag.suggestion;
+        }
+
+        const ctxWithDiag = context as ts.TransformationContext & {
+          addDiagnostic?: (diag: ts.Diagnostic) => void;
+        };
+        if (ctxWithDiag.addDiagnostic) {
+          ctxWithDiag.addDiagnostic(tsDiag);
+        }
+
+        if (verbose) {
+          const prefix = diag.severity === "error" ? "ERROR" : "WARNING";
+          const loc = diag.node
+            ? ` at ${sourceFile.fileName}:${sourceFile.getLineAndCharacterOfPosition(start).line + 1}`
+            : "";
+          console.log(`[typesugar ${prefix}]${loc} ${diag.message}`);
+        }
+      }
+
+      // Safety net: clamp negative positions so program.emit() doesn't crash
+      clampSyntheticPositions(result as ts.SourceFile);
+
+      return result as ts.SourceFile;
+    };
+  };
+}
 
 /**
  * Diagnostic from macro expansion

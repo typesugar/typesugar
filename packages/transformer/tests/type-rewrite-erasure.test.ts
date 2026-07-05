@@ -54,8 +54,11 @@ const result = Some(5).map(n => n * 2);
 
     const result = transformCode(code, { fileName: "type-rewrite-basic.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // Some(5) is also erased by constructor erasure (Wave 4), so expect map(5, ...)
-    expect(result.code).toContain("map(5,");
+    // Some(5) is also erased by constructor erasure (Wave 4), so expect map(5, ...).
+    // The fixture's own `declare function map(...)` collides by name with the
+    // imported standalone function, so ctx.ensureImport aliases it (conflict-safe
+    // reference hygiene) rather than emitting a duplicate-identifier import.
+    expect(result.code).toContain("__map_ts0__(5,");
     expect(result.code).not.toMatch(/\.map\(/);
   });
 
@@ -76,8 +79,10 @@ const result = Some(5).map(n => n * 2).filter(n => n > 5);
 
     const result = transformCode(code, { fileName: "type-rewrite-chain.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // Some(5) erased to 5 (Wave 4), methods erased to function calls (Wave 3)
-    expect(result.code).toContain("filter(map(5,");
+    // Some(5) erased to 5 (Wave 4), methods erased to function calls (Wave 3).
+    // Both `map` and `filter` collide with the fixture's own `declare function`s,
+    // so ctx.ensureImport aliases both.
+    expect(result.code).toContain("__filter_ts0__(__map_ts1__(5,");
     expect(result.code).not.toMatch(/\.map\(/);
     expect(result.code).not.toMatch(/\.filter\(/);
   });
@@ -129,7 +134,9 @@ const result = opt.map(n => n + 1);
 
     const result = transformCode(code, { fileName: "type-rewrite-generic.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("map(opt");
+    // `map` collides with the fixture's own `declare function map`, so
+    // ctx.ensureImport aliases it.
+    expect(result.code).toContain("__map_ts0__(opt");
     expect(result.code).not.toMatch(/\.map\(/);
   });
 
@@ -228,7 +235,9 @@ const sum = xs.foldLeft(0, (acc, n) => acc + n);
 
     const result = transformCode(code, { fileName: "type-rewrite-multi-args.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("foldLeft(xs, 0,");
+    // `foldLeft` collides with the fixture's own `declare function foldLeft`,
+    // so ctx.ensureImport aliases it.
+    expect(result.code).toContain("__foldLeft_ts0__(xs, 0,");
     expect(result.code).not.toMatch(/\.foldLeft\(/);
   });
 
@@ -251,7 +260,9 @@ const value = io.run();
 
     const result = transformCode(code, { fileName: "type-rewrite-renamed.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("unsafeRunSync(io)");
+    // `unsafeRunSync` collides with the fixture's own `declare function
+    // unsafeRunSync`, so ctx.ensureImport aliases it.
+    expect(result.code).toContain("__unsafeRunSync_ts0__(io)");
     expect(result.code).not.toMatch(/\.run\(/);
   });
 });
@@ -379,8 +390,10 @@ const result = opt.map(n => n + 1);
     `.trim();
 
     const result = transformCode(code, { fileName: "accessor-not-method.ts" });
-    // .map() is a method call, should be rewritten via method erasure not accessor erasure
-    expect(result.code).toContain("map(opt");
+    // .map() is a method call, should be rewritten via method erasure not accessor
+    // erasure. `map` collides with the fixture's own `declare function map`, so
+    // ctx.ensureImport aliases it.
+    expect(result.code).toContain("__map_ts0__(opt");
   });
 });
 
@@ -410,7 +423,9 @@ const result = Some(5).map(f).getOrElse(() => 0);
     // Some(5) should be erased to 5
     // .map(f) on that should become map(5, f)
     // .getOrElse(() => 0) should become getOrElse(map(5, f), () => 0)
-    expect(result.code).toContain("getOrElse(map(5,");
+    // Both `map` and `getOrElse` collide with the fixture's own `declare
+    // function`s, so ctx.ensureImport aliases both.
+    expect(result.code).toContain("__getOrElse_ts0__(__map_ts1__(5,");
     expect(result.code).not.toContain("Some(");
     expect(result.code).not.toMatch(/\.map\(/);
     expect(result.code).not.toMatch(/\.getOrElse\(/);
@@ -456,8 +471,10 @@ const result = Some(10).map(n => n * 2).filter(n => n > 5).getOrElse(() => 0);
     const result = transformCode(code, { fileName: "e2e-complex.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    // Some(10) → 10, then chained method erasure
-    expect(result.code).toContain("getOrElse(filter(map(10,");
+    // Some(10) → 10, then chained method erasure. `map`/`filter`/`getOrElse`
+    // all collide with the fixture's own `declare function`s, so
+    // ctx.ensureImport aliases all three.
+    expect(result.code).toContain("__getOrElse_ts0__(__filter_ts1__(__map_ts2__(10,");
     expect(result.code).not.toContain("Some(");
     expect(result.code).not.toMatch(/\.map\(/);
     expect(result.code).not.toMatch(/\.filter\(/);
@@ -519,8 +536,12 @@ describe("PEP-030 Wave 1: type identity normalization", () => {
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     // The method call should be rewritten even though the type comes from
-    // another module (where typeToString might emit import("./option-def").Option)
-    expect(result.code).toContain("map(");
+    // another module (where typeToString might emit import("./option-def").Option).
+    // The file already imports `map` from "./option-def" (a different module
+    // than the registered sourceModule), so ctx.ensureImport aliases the
+    // type-rewrite import rather than emitting a same-name import from two
+    // different modules (which would be a duplicate-identifier error).
+    expect(result.code).toContain("__map_ts0__(");
     expect(result.code).not.toMatch(/\.map\(/);
   });
 
@@ -587,7 +608,9 @@ const result = opt.map(n => n + 1);
 
     const result = transformCode(code, { fileName: "type-identity-symbol.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("map(opt");
+    // `map` collides with the fixture's own `declare function map`, so
+    // ctx.ensureImport aliases it.
+    expect(result.code).toContain("__map_ts0__(opt");
     expect(result.code).not.toMatch(/\.map\(/);
   });
 });

@@ -196,8 +196,10 @@ const result = Some(5).map(n => n * 2);
 `;
     const result = transformCode(code, { fileName: consumerFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // In consumer file: .map() SHOULD be rewritten, Some(5) SHOULD be erased
-    expect(result.code).toContain("map(5,");
+    // In consumer file: .map() SHOULD be rewritten, Some(5) SHOULD be erased.
+    // `map` collides with the fixture's own `declare function map`, so
+    // ctx.ensureImport aliases it.
+    expect(result.code).toContain("__map_ts0__(5,");
     expect(result.code).not.toMatch(/\.map\(/);
   });
 
@@ -257,7 +259,9 @@ const result = Some(10).map(n => n * 2).filter(n => n > 5).getOrElse(() => 0);
 `;
     const result = transformCode(code, { fileName: consumerFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("getOrElse(filter(map(10,");
+    // `map`/`filter`/`getOrElse` all collide with the fixture's own `declare
+    // function`s, so ctx.ensureImport aliases all three.
+    expect(result.code).toContain("__getOrElse_ts0__(__filter_ts1__(__map_ts2__(10,");
     expect(result.code).not.toContain("Some(");
     expect(result.code).not.toMatch(/\.map\(/);
     expect(result.code).not.toMatch(/\.filter\(/);
@@ -295,8 +299,9 @@ const result = Some(5).map(n => n * 2);
 `;
     const result = transformCode(code, { fileName: otherFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // Should rewrite — not the defining file
-    expect(result.code).toContain("map(5,");
+    // Should rewrite — not the defining file. `map` collides with the
+    // fixture's own `declare function map`, so ctx.ensureImport aliases it.
+    expect(result.code).toContain("__map_ts0__(5,");
     expect(result.code).not.toMatch(/\.map\(/);
   });
 });
@@ -326,8 +331,10 @@ const value = io.run();
 
     const result = transformCode(code, { fileName: definingFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // transparent: false → rewriting happens even in defining file
-    expect(result.code).toContain("unsafeRunSync(io)");
+    // transparent: false → rewriting happens even in defining file.
+    // `unsafeRunSync` collides with the fixture's own `declare function
+    // unsafeRunSync`, so ctx.ensureImport aliases it.
+    expect(result.code).toContain("__unsafeRunSync_ts0__(io)");
     expect(result.code).not.toMatch(/\.run\(/);
   });
 });
