@@ -39,7 +39,7 @@ import {
   TS9222,
 } from "@typesugar/core";
 
-import { getActivatedLabeledBlock } from "./label-activation.js";
+import { getActivatedLabeledBlock, emitLabelSyntaxNotActivatedHint } from "./label-activation.js";
 
 import {
   createMacroErrorExpression as createMacroErrorExpr,
@@ -780,6 +780,17 @@ class MacroTransformer {
       }
     }
 
+    // Implicitly apply trigger-label attribute macros (e.g. @contract) to
+    // functions/methods that contain matching labeled blocks (requires:/ensures:)
+    // without an explicit decorator. Must run before descending into the body
+    // so the macro can hoist/reposition (e.g. old() snapshots) the labeled blocks.
+    if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
+      const result = this.tryExpandImplicitLabelMacro(node);
+      if (result !== undefined) {
+        return result;
+      }
+    }
+
     if (hasJSDocMacroTagsFn(node)) {
       const result = tryExpandJSDocMacrosFn(this.ctx, this.verbose, node);
       if (result !== undefined) {
@@ -1306,6 +1317,107 @@ class MacroTransformer {
     }
 
     return mappedNode;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Implicit trigger-label attribute macros (e.g. @contract's requires:/ensures:)
+  // (kept here due to decorator synthesis + visit interaction, same as above)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Implicitly apply a trigger-label attribute macro (e.g. @contract) to a
+   * function/method whose body contains a matching top-level labeled block
+   * (e.g. `requires:` / `ensures:`), as if it were explicitly decorated.
+   *
+   * This makes the documented contract-block form work without an explicit
+   * `@contract` decorator. It only fires when a package registering a macro
+   * with matching `triggerLabels` is loaded (e.g. @typesugar/contracts), so
+   * ordinary labeled statements are unaffected unless that package is imported.
+   */
+  private tryExpandImplicitLabelMacro(
+    node: ts.FunctionDeclaration | ts.MethodDeclaration
+  ): ts.Node | ts.Node[] | undefined {
+    const body = node.body;
+    if (!body) return undefined;
+
+    // Find the first top-level labeled statement whose label is a trigger
+    // label of a registered attribute macro. Only contract-block-shaped bodies
+    // qualify (`label: { ... }` or `label: (result) => { ... }`), so ordinary
+    // loop/break labels like `requires: for (...)` are never hijacked.
+    let macro: AttributeMacro | undefined;
+    const hintedUnactivated = new Set<string>();
+    for (const stmt of body.statements) {
+      if (!ts.isLabeledStatement(stmt)) continue;
+      const isBlockShaped =
+        ts.isBlock(stmt.statement) ||
+        (ts.isExpressionStatement(stmt.statement) && ts.isArrowFunction(stmt.statement.expression));
+      if (!isBlockShaped) continue;
+      const candidate = globalRegistry.getAttributeByTriggerLabel(stmt.label.text);
+      if (candidate) {
+        // PEP-052 gate: trigger labels only fire when the file imports a
+        // module carrying a `@syntax-labels <macro.name>` marker. Keep
+        // scanning after an unactivated match — a later label may belong to
+        // a different, activated trigger-label macro — but hint at most once
+        // per macro (a `requires:`/`ensures:` pair is one missing import).
+        if (
+          !globalResolutionScope.isLabelSyntaxActivated(
+            this.ctx.sourceFile.fileName,
+            candidate.name
+          )
+        ) {
+          if (!hintedUnactivated.has(candidate.name)) {
+            hintedUnactivated.add(candidate.name);
+            emitLabelSyntaxNotActivatedHint(this.ctx, stmt, stmt.label.text, candidate);
+          }
+          continue;
+        }
+        macro = candidate;
+        break;
+      }
+    }
+    if (!macro) return undefined;
+
+    if (isInOptedOutScope(this.ctx.sourceFile, node, globalResolutionScope, "macros")) {
+      return undefined;
+    }
+
+    if (this.verbose) {
+      console.log(`[typesugar] Implicitly applying @${macro.name} via trigger label`);
+    }
+
+    const factory = this.ctx.factory;
+    const decorator = factory.createDecorator(factory.createIdentifier(macro.name));
+
+    let currentNode: ts.Node;
+    try {
+      currentNode = this.ctx.hygiene.withScope(() =>
+        macro.expand(this.ctx, decorator, node as ts.Declaration, [])
+      ) as ts.Node;
+      if (Array.isArray(currentNode)) {
+        currentNode = currentNode[0];
+      }
+    } catch (error) {
+      this.ctx.reportError(node, `Implicit @${macro.name} expansion failed: ${error}`);
+      return undefined;
+    }
+
+    let visited: ts.Node;
+    try {
+      visited = ts.visitNode(currentNode, this.visit.bind(this)) as ts.Node;
+    } catch (error) {
+      this.ctx.reportError(node, `Visiting implicit @${macro.name} result failed: ${error}`);
+      visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    }
+    const mapped = preserveSourceMap(visited, node);
+
+    if (this.expansionTracker) {
+      const expandedText = this.printNodeSafe(mapped);
+      if (expandedText) {
+        this.expansionTracker.recordExpansion(macro.name, node, this.ctx.sourceFile, expandedText);
+      }
+    }
+
+    return mapped;
   }
 }
 
