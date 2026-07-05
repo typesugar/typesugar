@@ -46,7 +46,7 @@
 
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
-import { stripPositions, stripCommentsDeep } from "@typesugar/core";
+import { stripPositions, stripCommentsDeep, getOrCreateWeak } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 import * as primitives from "./primitives.js";
 
@@ -357,8 +357,24 @@ export interface DictMethod {
 /**
  * Registry of known typeclass instances and their method implementations.
  * This is the compile-time knowledge base that enables specialization.
+ *
+ * Keyed per `ts.Program` (like `instance-resolver.ts`'s `importMapCache`) so
+ * watch/LSP rebuilds — which produce a fresh program — invalidate
+ * automatically and never serve a stale entry from an old compilation.
+ * Callers that can't supply a program (e.g. `diagnostic-suppression-rules.ts`,
+ * which only has a bare `ts.TypeChecker`/`ts.SourceFile` via the
+ * `DiagnosticSuppressionRule` interface) fall back to one shared bucket,
+ * preserving the exact pre-partitioning behavior for that path rather than
+ * forcing a public cross-package interface change for a low-severity gap
+ * (PEP-056 Wave 5 item 2).
  */
-const instanceMethodRegistry = new Map<string, DictMethodMap>();
+const instanceMethodRegistryByProgram = new WeakMap<ts.Program, Map<string, DictMethodMap>>();
+const legacyInstanceMethodRegistry = new Map<string, DictMethodMap>();
+
+function instanceRegistryFor(program?: ts.Program): Map<string, DictMethodMap> {
+  if (!program) return legacyInstanceMethodRegistry;
+  return getOrCreateWeak(instanceMethodRegistryByProgram, program, () => new Map());
+}
 
 /**
  * Register a typeclass instance's methods for specialization using AST nodes.
@@ -369,9 +385,10 @@ const instanceMethodRegistry = new Map<string, DictMethodMap>();
 export function registerInstanceMethodsFromAST(
   dictName: string,
   brand: string,
-  methods: Map<string, DictMethod>
+  methods: Map<string, DictMethod>,
+  program?: ts.Program
 ): void {
-  instanceMethodRegistry.set(dictName, { brand, methods });
+  instanceRegistryFor(program).set(dictName, { brand, methods });
 }
 
 /**
@@ -480,28 +497,41 @@ export function extractMethodsFromObjectLiteral(
 /**
  * Get the method map for a known dictionary.
  */
-export function getInstanceMethods(dictName: string): DictMethodMap | undefined {
-  return instanceMethodRegistry.get(dictName);
+export function getInstanceMethods(
+  dictName: string,
+  program?: ts.Program
+): DictMethodMap | undefined {
+  return instanceRegistryFor(program).get(dictName);
 }
 
 /**
  * Check if a name is a registered instance dictionary.
  */
-export function isRegisteredInstance(name: string): boolean {
-  return instanceMethodRegistry.has(name);
+export function isRegisteredInstance(name: string, program?: ts.Program): boolean {
+  return instanceRegistryFor(program).has(name);
 }
 
 /**
  * Get all registered instance dictionary names.
  */
-export function getRegisteredInstanceNames(): string[] {
-  return Array.from(instanceMethodRegistry.keys());
+export function getRegisteredInstanceNames(program?: ts.Program): string[] {
+  return Array.from(instanceRegistryFor(program).keys());
 }
 
 // ---------------------------------------------------------------------------
 // Primitive intrinsic registry — separate from instanceMethodRegistry so
 // tryAutoSpecialize doesn't pick up primitives as specializable instances.
 // Only tryInlineDerivedInstanceCall consults this registry.
+//
+// Deliberately NOT WeakMap<ts.Program>-partitioned like instanceMethodRegistry
+// above: this registry's contents aren't per-compilation state at all — it's
+// populated exactly once, at module load, by reflecting primitives.ts's fixed,
+// unchanging exports (loadPrimitiveIntrinsicsFromReflection, below). The same
+// 16 entries are correct for every ts.Program that will ever exist in this
+// process, so partitioning would only add WeakMap indirection for identical
+// content in every partition — a real registry needing per-Program isolation
+// looks like instanceMethodRegistry; a process-lifetime reflection cache of
+// immutable source looks like this one, and the two shouldn't be conflated.
 // ---------------------------------------------------------------------------
 
 const primitiveIntrinsicRegistry = new Map<string, DictMethodMap>();
@@ -510,8 +540,11 @@ const primitiveIntrinsicRegistry = new Map<string, DictMethodMap>();
  * Look up instance methods from either the main registry or primitive intrinsics.
  * Used by tryInlineDerivedInstanceCall which should inline both derived and primitive calls.
  */
-export function getInstanceOrIntrinsicMethods(dictName: string): DictMethodMap | undefined {
-  return instanceMethodRegistry.get(dictName) ?? primitiveIntrinsicRegistry.get(dictName);
+export function getInstanceOrIntrinsicMethods(
+  dictName: string,
+  program?: ts.Program
+): DictMethodMap | undefined {
+  return instanceRegistryFor(program).get(dictName) ?? primitiveIntrinsicRegistry.get(dictName);
 }
 
 /**

@@ -31,7 +31,7 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, ExpressionMacro } from "@typesugar/core";
-import { getDummySourceFile, getPrinter } from "@typesugar/core";
+import { getDummySourceFile, getPrinter, isSyntheticNode } from "@typesugar/core";
 
 // =============================================================================
 // Pattern Types
@@ -199,8 +199,8 @@ export function nodeToText(node: ts.Node, ctx: MacroContext): string {
   const printer = getPrinter();
 
   // For nodes from a real source file, getText() works.
-  // For synthetic nodes (pos === -1), we must use the printer.
-  if (node.pos >= 0 && node.end >= 0) {
+  // For synthetic nodes, we must use the printer.
+  if (!isSyntheticNode(node)) {
     try {
       const text = node.getText(ctx.sourceFile);
       if (text) return text;

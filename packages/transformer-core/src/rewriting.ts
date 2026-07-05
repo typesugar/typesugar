@@ -10,7 +10,6 @@ import * as ts from "typescript";
 
 import {
   getOperatorString,
-  getInstanceMethods,
   isKindAnnotation,
   transformHKTDeclaration,
   getOperatorCandidates,
@@ -31,6 +30,7 @@ import {
   TypeMacro,
   globalResolutionScope,
   isInOptedOutScope,
+  isSyntheticNode,
   preserveSourceMap,
   findTypeRewrite,
   getAllTypeRewrites,
@@ -212,7 +212,9 @@ function checkMethodCallDispatchGuards(
   ctx: MacroContextImpl,
   resolveMacroFromSymbol: ResolveMacroFn,
   node: ts.CallExpression
-): { propAccess: ts.PropertyAccessExpression; methodName: string; receiver: ts.Expression } | undefined {
+):
+  | { propAccess: ts.PropertyAccessExpression; methodName: string; receiver: ts.Expression }
+  | undefined {
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }
@@ -407,7 +409,7 @@ export function tryRewriteTypeclassOperator(
   node: ts.BinaryExpression
 ): ts.Expression | undefined {
   // Skip synthetic nodes (from macro-generated code) — the checker can crash.
-  if (node.pos === -1 || node.end === -1) return undefined;
+  if (isSyntheticNode(node)) return undefined;
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
     return undefined;
   }

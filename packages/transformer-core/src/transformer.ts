@@ -31,6 +31,7 @@ import {
   AttributeMacro,
   globalResolutionScope,
   isInOptedOutScope,
+  isSyntheticNode,
   preserveSourceMap,
   ExpansionTracker,
   MacroExpansionCache,
@@ -397,7 +398,11 @@ class MacroTransformer {
       // ---------------------------------------------------------------
       {
         const outer = statements[i];
-        if (ts.isBlock(outer) && outer.statements.length >= 2 && isPreprocessedCompWrapperBlock(outer)) {
+        if (
+          ts.isBlock(outer) &&
+          outer.statements.length >= 2 &&
+          isPreprocessedCompWrapperBlock(outer)
+        ) {
           statements.splice(i, 1, ...outer.statements);
           modified = true;
         }
@@ -464,7 +469,10 @@ class MacroTransformer {
                   while (j < statements.length) {
                     const frag = statements[j];
                     // Stop at yield:/pure:/return: continuation
-                    if (ts.isLabeledStatement(frag) && macro.continuationLabels?.includes(frag.label.text)) {
+                    if (
+                      ts.isLabeledStatement(frag) &&
+                      macro.continuationLabels?.includes(frag.label.text)
+                    ) {
                       break;
                     }
                     // Accept ExpressionStatements (binds, maps) and IfStatements (guards)
@@ -481,7 +489,9 @@ class MacroTransformer {
                   if (
                     j < statements.length &&
                     ts.isLabeledStatement(statements[j]) &&
-                    macro.continuationLabels?.includes((statements[j] as ts.LabeledStatement).label.text)
+                    macro.continuationLabels?.includes(
+                      (statements[j] as ts.LabeledStatement).label.text
+                    )
                   ) {
                     continuation = statements[j] as ts.LabeledStatement;
                     j++;
@@ -979,7 +989,7 @@ class MacroTransformer {
         return autoSpecResult;
       }
 
-      const derivedInlineResult = tryInlineDerivedInstanceCallFn(this.ctx, node, undefined);
+      const derivedInlineResult = tryInlineDerivedInstanceCallFn(this.ctx, node);
       if (derivedInlineResult !== undefined) {
         if (
           ts.isPropertyAccessExpression(node.expression) &&
@@ -1165,7 +1175,7 @@ class MacroTransformer {
       );
       if (result !== undefined) {
         if (ts.isCallExpression(result)) {
-          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, undefined);
+          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result);
           if (inlined !== undefined) {
             if (
               ts.isPropertyAccessExpression(result.expression) &&
@@ -1261,8 +1271,7 @@ class MacroTransformer {
 
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
     // Skip synthetic nodes (created by macro expansion) to avoid re-expansion loops.
-    // Synthetic nodes have negative or unset positions.
-    if (node.pos < 0 || node.end < 0) {
+    if (isSyntheticNode(node)) {
       return undefined;
     }
 

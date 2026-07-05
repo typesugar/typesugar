@@ -577,11 +577,9 @@ function build(options: CliOptions): void {
     preEmitDiagnostics = ts.getPreEmitDiagnostics(program);
   } catch (e: unknown) {
     if (e instanceof Error && e.message.includes("start < 0")) {
-      if (options.verbose) {
-        console.error(
-          "🧊 Warning: pre-emit diagnostics skipped — checker crashed on synthetic node positions."
-        );
-      }
+      console.error(
+        "🧊 Warning: pre-emit diagnostics skipped — checker crashed on synthetic node positions."
+      );
     } else {
       throw e;
     }
@@ -609,11 +607,9 @@ function build(options: CliOptions): void {
       );
     } catch (e: unknown) {
       if (e instanceof Error && e.message.includes("start < 0")) {
-        if (options.verbose) {
-          console.log(
-            `🧊 Warning: diagnostic suppression filtering skipped — checker crashed on synthetic node positions`
-          );
-        }
+        console.error(
+          `🧊 Warning: diagnostic suppression filtering skipped — checker crashed on synthetic node positions`
+        );
       } else {
         throw e;
       }

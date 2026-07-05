@@ -87,9 +87,6 @@ export {
   rewriteResultCalls,
   getTypeName,
   getContextualTypeForCall,
-  DerivedInstanceDCETracker,
-  scanForDerivedInstanceDeclarations,
-  checkForValueRef,
 } from "./specialization.js";
 
 // JSDoc macro dispatch + derive expansion — the single shared implementation

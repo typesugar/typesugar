@@ -44,14 +44,14 @@ describe("emitExtensionRegistrations", () => {
   });
 
   it("skips non-exported functions", () => {
-    const statements = parseStatements("function head(self: Array<number>): number { return self[0]; }");
+    const statements = parseStatements(
+      "function head(self: Array<number>): number { return self[0]; }"
+    );
     expect(emitExtensionRegistrations(ts.factory, statements)).toHaveLength(0);
   });
 
   it("skips exported functions whose first param type is a bare type parameter of the function itself", () => {
-    const statements = parseStatements(
-      "export function identity<T>(self: T): T { return self; }"
-    );
+    const statements = parseStatements("export function identity<T>(self: T): T { return self; }");
     expect(emitExtensionRegistrations(ts.factory, statements)).toHaveLength(0);
   });
 

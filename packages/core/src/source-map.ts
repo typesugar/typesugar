@@ -6,6 +6,7 @@
 
 import * as ts from "typescript";
 import MagicString from "magic-string";
+import { isSyntheticNode } from "./ast-utils.js";
 
 /**
  * Standard source map v3 format (VLQ-encoded)
@@ -70,7 +71,7 @@ export class ExpansionTracker {
     fromCache: boolean = false
   ): void {
     // Skip synthetic nodes (created by preprocessor) that have no real position
-    if (originalNode.pos < 0 || originalNode.end < 0) return;
+    if (isSyntheticNode(originalNode)) return;
 
     let start: number;
     let end: number;

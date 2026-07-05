@@ -654,7 +654,7 @@ export function tryExtractInstanceFromSource(
     }
 
     if (methods.size > 0) {
-      registerInstanceMethodsFromAST(argName, brand, methods);
+      registerInstanceMethodsFromAST(argName, brand, methods, ctx.program);
       return { brand, methods };
     }
   } catch {

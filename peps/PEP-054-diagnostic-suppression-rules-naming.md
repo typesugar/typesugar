@@ -176,7 +176,7 @@ at draft time — re-verify at implementation time in case anything shifted.)
 - [x] `git grep -i sfinae` across the whole repo, excluding `peps/` (historical
       PEP text) and the following intentional, documented exceptions, returns
       nothing else: `packages/core/src/diagnostic-suppression.ts`'s own `@see
-    PEP-054` backreference; the `@see PEP-011` citations in
+PEP-054` backreference; the `@see PEP-011` citations in
       `packages/macros/src/adt.ts`/`opaque.ts` (PEP-011 keeps its historical
       title, so the citation must keep citing it); `PHILOSOPHY.md`'s one
       explanatory paragraph on why the mechanism was originally named after

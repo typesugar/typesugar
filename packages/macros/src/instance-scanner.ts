@@ -13,7 +13,7 @@
  */
 
 import * as ts from "typescript";
-import { parseTypeInstantiation } from "@typesugar/core";
+import { parseTypeInstantiation, getOrCreateWeak } from "@typesugar/core";
 
 /**
  * Result of scanning a module export for typeclass instance information.
@@ -167,12 +167,7 @@ export class InstanceScanner {
 
   private cacheFor(program?: ts.Program): Map<string, ScannedInstance[]> {
     if (!program) return this.fallbackCache;
-    let m = this.cacheByProgram.get(program);
-    if (!m) {
-      m = new Map();
-      this.cacheByProgram.set(program, m);
-    }
-    return m;
+    return getOrCreateWeak(this.cacheByProgram, program, () => new Map());
   }
 
   // ---------------------------------------------------------------------------
@@ -194,12 +189,7 @@ export class InstanceScanner {
   private synthesizedByProgram = new WeakMap<ts.Program, Map<string, ScannedInstance[]>>();
 
   private synthesizedFor(program: ts.Program): Map<string, ScannedInstance[]> {
-    let m = this.synthesizedByProgram.get(program);
-    if (!m) {
-      m = new Map();
-      this.synthesizedByProgram.set(program, m);
-    }
-    return m;
+    return getOrCreateWeak(this.synthesizedByProgram, program, () => new Map());
   }
 
   /**
@@ -341,14 +331,19 @@ export class InstanceScanner {
       if (doMeta) implResult.doMeta = doMeta;
       // Only borrow forType from the annotation when it describes the SAME
       // typeclass — otherwise `@impl Foo<X>` on `const v: Bar<Y>` would fabricate
-      // a `Foo<Y>` instance that was never declared.
+      // a `Foo<Y>` instance that was never declared. `forTypeString` is NOT
+      // borrowed: it's the tag's own declared type name (e.g. "Point" in
+      // `@impl Numeric<Point>`), which name-based scope lookups
+      // (`findScannedInScope`'s `baseTypeName(inst.forTypeString) === typeName`
+      // match) key on directly — overwriting it with the annotation's often
+      // *wider* bound (e.g. `Numeric<any>`) would silently break that match
+      // even though the tag unambiguously names "Point".
       if (
         !implResult.forType &&
         typeResult?.forType &&
         typeResult.typeclassName === implResult.typeclassName
       ) {
         implResult.forType = typeResult.forType;
-        implResult.forTypeString = typeResult.forTypeString;
       }
       results.push(implResult);
       return results; // @impl tag takes precedence

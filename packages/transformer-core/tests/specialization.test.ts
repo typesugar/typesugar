@@ -17,13 +17,12 @@
  *     - boundary: zero-param function returns undefined
  * - Return-type-driven specialization (`tryReturnTypeDrivenSpecialize`)
  * - Derived instance inlining (`tryInlineDerivedInstanceCall`)
- * - DCE tracker (`DerivedInstanceDCETracker`, `scanForDerivedInstanceDeclarations`,
- *   `eliminateDeadDerivedInstances`)
+ * - Post-pass DCE for derived instances (`eliminateDeadDerivedInstances`)
  */
 
 import * as ts from "typescript";
 import * as nodePath from "path";
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
   registerInstanceMethodsFromAST,
@@ -40,7 +39,8 @@ import {
 function registerTestInstance(
   dictName: string,
   brand: string,
-  specs: Record<string, { params: string[]; body: ts.Expression }>
+  specs: Record<string, { params: string[]; body: ts.Expression }>,
+  program?: ts.Program
 ): void {
   const methods = new Map<string, DictMethod>();
   for (const [name, info] of Object.entries(specs)) {
@@ -56,7 +56,7 @@ function registerTestInstance(
     );
     methods.set(name, { node: arrow, params: info.params });
   }
-  registerInstanceMethodsFromAST(dictName, brand, methods);
+  registerInstanceMethodsFromAST(dictName, brand, methods, program);
 }
 
 import {
@@ -72,9 +72,6 @@ import {
   tryInlineDerivedInstanceCall,
   getTypeName,
   getContextualTypeForCall,
-  DerivedInstanceDCETracker,
-  scanForDerivedInstanceDeclarations,
-  checkForValueRef,
   eliminateDeadDerivedInstances,
 } from "../src/specialization.js";
 
@@ -774,22 +771,26 @@ myEq(eqNumber, 1, 2);
     // Call an imported (unresolvable) function with a registered instance arg.
     // Use a manually-registered instance so getInstanceMethods finds it,
     // but the function body itself cannot be resolved.
-    registerTestInstance("__test_eq_TS9602", "TS9602Brand", {
-      eq: {
-        params: ["a", "b"],
-        body: ts.factory.createBinaryExpression(
-          ts.factory.createIdentifier("a"),
-          ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-          ts.factory.createIdentifier("b")
-        ),
-      },
-    });
-
     const src = `
 declare const externFn: (dict: any, a: number) => boolean;
 externFn(__test_eq_TS9602, 1);
 `;
     const { program, sourceFile } = createProgramFromSource(src);
+    registerTestInstance(
+      "__test_eq_TS9602",
+      "TS9602Brand",
+      {
+        eq: {
+          params: ["a", "b"],
+          body: ts.factory.createBinaryExpression(
+            ts.factory.createIdentifier("a"),
+            ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+            ts.factory.createIdentifier("b")
+          ),
+        },
+      },
+      program
+    );
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
     const cache = new SpecializationCache();
 
@@ -917,25 +918,33 @@ fn(1);`
 // ===========================================================================
 
 describe("tryInlineDerivedInstanceCall", () => {
-  beforeEach(() => {
-    // Re-register so each test starts from a known state.
-    registerTestInstance("__test_inc_inst", "TestInc", {
-      inc: {
-        params: ["a"],
-        body: ts.factory.createBinaryExpression(
-          ts.factory.createIdentifier("a"),
-          ts.factory.createToken(ts.SyntaxKind.PlusToken),
-          ts.factory.createNumericLiteral(1)
-        ),
+  // Registry lookups are partitioned per ts.Program, so each test registers
+  // `__test_inc_inst` against its own program right after creating it, rather
+  // than sharing one `beforeEach` registration across every test's program.
+  function registerTestIncInst(program: ts.Program): void {
+    registerTestInstance(
+      "__test_inc_inst",
+      "TestInc",
+      {
+        inc: {
+          params: ["a"],
+          body: ts.factory.createBinaryExpression(
+            ts.factory.createIdentifier("a"),
+            ts.factory.createToken(ts.SyntaxKind.PlusToken),
+            ts.factory.createNumericLiteral(1)
+          ),
+        },
       },
-    });
-  });
+      program
+    );
+  }
 
   it("inlines a known instance method call", () => {
     const { program, sourceFile } = createProgramFromSource(`__test_inc_inst.inc(5);`);
+    registerTestIncInst(program);
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
     const call = findFirstCall(sourceFile)!;
-    const result = tryInlineDerivedInstanceCall(ctx, call, undefined);
+    const result = tryInlineDerivedInstanceCall(ctx, call);
     expect(result).toBeDefined();
     expect(printNode(result!)).toContain("5 + 1");
   });
@@ -946,150 +955,15 @@ describe("tryInlineDerivedInstanceCall", () => {
     const call = findAllCalls(sourceFile).find(
       (c) => ts.isIdentifier(c.expression) && c.expression.text === "f"
     )!;
-    expect(tryInlineDerivedInstanceCall(ctx, call, undefined)).toBeUndefined();
+    expect(tryInlineDerivedInstanceCall(ctx, call)).toBeUndefined();
   });
 
   it("returns undefined when the method is not defined on the instance", () => {
     const { program, sourceFile } = createProgramFromSource(`__test_inc_inst.nonexistent(1);`);
+    registerTestIncInst(program);
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
     const call = findFirstCall(sourceFile)!;
-    expect(tryInlineDerivedInstanceCall(ctx, call, undefined)).toBeUndefined();
-  });
-
-  it("records the inlined use on the DCE tracker", () => {
-    const { program, sourceFile } = createProgramFromSource(`__test_inc_inst.inc(5);`);
-    const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
-    const tracker = new DerivedInstanceDCETracker();
-    const call = findFirstCall(sourceFile)!;
-    tryInlineDerivedInstanceCall(ctx, call, tracker);
-    expect(tracker.canEliminate("__test_inc_inst")).toBe(true);
-  });
-});
-
-// ===========================================================================
-// DerivedInstanceDCETracker
-// ===========================================================================
-
-describe("DerivedInstanceDCETracker", () => {
-  it("canEliminate requires at least one inlined use and no value refs", () => {
-    const tracker = new DerivedInstanceDCETracker();
-    expect(tracker.canEliminate("foo")).toBe(false);
-
-    tracker.recordInlinedUse("foo");
-    expect(tracker.canEliminate("foo")).toBe(true);
-
-    tracker.recordValueRef("foo");
-    expect(tracker.canEliminate("foo")).toBe(false);
-  });
-
-  it("getEliminatedNames returns inlined-only instances", () => {
-    const tracker = new DerivedInstanceDCETracker();
-    tracker.recordInlinedUse("a");
-    tracker.recordInlinedUse("b");
-    tracker.recordValueRef("b");
-    expect(tracker.getEliminatedNames()).toEqual(["a"]);
-  });
-
-  it("getStatementsToRemove returns tracked decl + reg call when eliminable", () => {
-    const tracker = new DerivedInstanceDCETracker();
-    // Register a fake instance so isRegisteredInstance("__test_dce_inst") returns true
-    registerTestInstance("__test_dce_inst", "TestDCE", {
-      foo: { params: [], body: ts.factory.createNumericLiteral(0) },
-    });
-
-    const declStmt = ts.factory.createVariableStatement(
-      undefined,
-      ts.factory.createVariableDeclarationList(
-        [
-          ts.factory.createVariableDeclaration(
-            ts.factory.createIdentifier("__test_dce_inst"),
-            undefined,
-            undefined,
-            ts.factory.createObjectLiteralExpression([])
-          ),
-        ],
-        ts.NodeFlags.Const
-      )
-    );
-    const regStmt = ts.factory.createExpressionStatement(
-      ts.factory.createCallExpression(
-        ts.factory.createPropertyAccessExpression(
-          ts.factory.createIdentifier("Foo"),
-          ts.factory.createIdentifier("registerInstance")
-        ),
-        undefined,
-        [ts.factory.createStringLiteral("TestDCE"), ts.factory.createIdentifier("__test_dce_inst")]
-      )
-    );
-
-    tracker.trackDeclaration("__test_dce_inst", declStmt);
-    tracker.trackRegistrationCall("__test_dce_inst", regStmt);
-    tracker.recordInlinedUse("__test_dce_inst");
-
-    const toRemove = tracker.getStatementsToRemove();
-    expect(toRemove.has(declStmt)).toBe(true);
-    expect(toRemove.has(regStmt)).toBe(true);
-  });
-});
-
-describe("scanForDerivedInstanceDeclarations", () => {
-  it("tracks declarations for registered instances", () => {
-    registerTestInstance("__test_scan_inst", "TestScan", {
-      foo: { params: [], body: ts.factory.createNumericLiteral(0) },
-    });
-
-    const { sourceFile } = createProgramFromSource(`const __test_scan_inst = { foo: () => 0 };`);
-    const tracker = new DerivedInstanceDCETracker();
-    scanForDerivedInstanceDeclarations(sourceFile.statements[0], tracker);
-    // Tracking is silent; verify via getStatementsToRemove after recording an inlined use.
-    tracker.recordInlinedUse("__test_scan_inst");
-    const toRemove = tracker.getStatementsToRemove();
-    expect(toRemove.size).toBe(1);
-  });
-
-  it("tracks Foo.registerInstance(..., inst) calls", () => {
-    registerTestInstance("__test_scan_reg", "TestScanReg", {
-      foo: { params: [], body: ts.factory.createNumericLiteral(0) },
-    });
-
-    const { sourceFile } = createProgramFromSource(
-      `const __test_scan_reg = { foo: () => 0 };
-Foo.registerInstance("Test", __test_scan_reg);`
-    );
-    const tracker = new DerivedInstanceDCETracker();
-    for (const stmt of sourceFile.statements) {
-      scanForDerivedInstanceDeclarations(stmt, tracker);
-    }
-    tracker.recordInlinedUse("__test_scan_reg");
-    const toRemove = tracker.getStatementsToRemove();
-    // Both the decl and the registration call should be slated for removal.
-    expect(toRemove.size).toBe(2);
-  });
-});
-
-describe("checkForValueRef", () => {
-  it("records a value ref when an instance is passed as an argument", () => {
-    registerTestInstance("__test_value_ref", "TestValRef", {
-      foo: { params: [], body: ts.factory.createNumericLiteral(0) },
-    });
-    const { sourceFile } = createProgramFromSource(
-      `const __test_value_ref = { foo: () => 0 };
-function takeIt(x: any) {}
-takeIt(__test_value_ref);`
-    );
-    const tracker = new DerivedInstanceDCETracker();
-
-    // Walk and run checkForValueRef on every identifier reference.
-    const visit = (node: ts.Node): void => {
-      if (ts.isIdentifier(node) && node.text === "__test_value_ref") {
-        checkForValueRef(node, tracker);
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-
-    tracker.recordInlinedUse("__test_value_ref");
-    expect(tracker.canEliminate("__test_value_ref")).toBe(false);
+    expect(tryInlineDerivedInstanceCall(ctx, call)).toBeUndefined();
   });
 });
 
