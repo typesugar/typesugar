@@ -58,12 +58,22 @@ export function rewriteHKTTypeReferences(
   const roots = findRootTargets(targets);
   const s = new MagicString(source);
 
-  for (const root of roots) {
-    const start = root.getStart(sourceFile);
-    const end = root.getEnd();
-    const replacement = computeReplacementText(root, sourceFile, targets);
-    s.overwrite(start, end, replacement);
-  }
+  // `ts.visitEachChild` requires a real `ts.TransformationContext` — obtained
+  // the same way `packages/macros/src/hkt.test.ts`'s `withMacroContext` does,
+  // via a throwaway `ts.transform` pass, rather than the internal
+  // (unexported-in-typings) `ts.nullTransformationContext`.
+  ts.transform(sourceFile, [
+    (context) => {
+      for (const root of roots) {
+        const start = root.getStart(sourceFile);
+        const end = root.getEnd();
+        const replacementNode = buildReplacementNode(root, targets, context);
+        const replacement = printer.printNode(ts.EmitHint.Unspecified, replacementNode, sourceFile);
+        s.overwrite(start, end, replacement);
+      }
+      return (sf) => sf;
+    },
+  ]);
 
   if (!hasKindImport(sourceFile)) {
     injectKindImport(s, sourceFile);
@@ -174,83 +184,64 @@ function findRootTargets(targets: Set<ts.TypeReferenceNode>): ts.TypeReferenceNo
 }
 
 // ---------------------------------------------------------------------------
-// Replacement text generation
+// Replacement node construction
 // ---------------------------------------------------------------------------
+//
+// PEP-057 follow-up: this used to reconstruct replacement text by hand —
+// `node.getText(sourceFile)` slices stitched together with a manual
+// `` `Kind<${name}, ${args.join(", ")}>` `` template. Since real
+// `ts.TypeNode`s are already in hand at this point (this file's whole job is
+// to find `TypeReferenceNode`s, not to patch unparseable input — that's
+// `arrow-comprehension-preprocess.ts`'s job, a genuine exception since no
+// valid tree exists there to build from), the replacement is built with
+// `ts.factory` + `ts.visitEachChild` instead, reusing the real matched
+// argument nodes rather than re-deriving their text (the `TransformationContext`
+// `visitEachChild` requires comes from a throwaway `ts.transform` pass — see
+// `rewriteHKTTypeReferences` below — the same pattern this repo's own
+// `packages/macros/src/hkt.test.ts` uses to get a real context outside the
+// main compile pipeline). The outer `MagicString` patch (splicing the
+// printed replacement into the original file's text) is still required —
+// this runs before `ts.Program` creation specifically so the checker never
+// sees the invalid `F<A>` syntax, and the result must be source text to feed
+// into the normal `ts.createProgram` file-read path.
+
+const printer = ts.createPrinter({ removeComments: true });
 
 /**
- * Compute the full replacement text for a rewrite target, recursively
- * handling any nested targets in its type arguments.
+ * Build the `Kind<F, ...args>` replacement node for a rewrite target,
+ * recursively rewriting any nested targets within its type arguments.
  */
-function computeReplacementText(
+function buildReplacementNode(
   target: ts.TypeReferenceNode,
-  sourceFile: ts.SourceFile,
-  allTargets: Set<ts.TypeReferenceNode>
-): string {
+  allTargets: Set<ts.TypeReferenceNode>,
+  context: ts.TransformationContext
+): ts.TypeReferenceNode {
   const name = (target.typeName as ts.Identifier).text;
-  const args = target.typeArguments!.map((arg) => reconstructNodeText(arg, sourceFile, allTargets));
-  return `Kind<${name}, ${args.join(", ")}>`;
+  const args = target.typeArguments!.map((arg) => rewriteNestedTargets(arg, allTargets, context));
+  return ts.factory.createTypeReferenceNode(ts.factory.createIdentifier("Kind"), [
+    ts.factory.createTypeReferenceNode(ts.factory.createIdentifier(name), undefined),
+    ...args,
+  ]);
 }
 
 /**
- * Reconstruct the text of a node, applying HKT rewrites to any targets within it.
+ * Walk a node's descendants, replacing any nested rewrite target with its
+ * `Kind<...>` form and reusing every other real node as-is (no text
+ * reconstruction) — the standard `ts.factory`/`visitEachChild` visitor shape.
  */
-function reconstructNodeText(
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-  allTargets: Set<ts.TypeReferenceNode>
-): string {
+function rewriteNestedTargets<T extends ts.Node>(
+  node: T,
+  allTargets: Set<ts.TypeReferenceNode>,
+  context: ts.TransformationContext
+): T {
   if (ts.isTypeReferenceNode(node) && allTargets.has(node)) {
-    return computeReplacementText(node, sourceFile, allTargets);
+    return buildReplacementNode(node, allTargets, context) as unknown as T;
   }
-
-  const descendantTargets = findDescendantTargets(node, allTargets);
-
-  if (descendantTargets.length === 0) {
-    return node.getText(sourceFile);
-  }
-
-  // Node contains targets but isn't one itself — reconstruct text with
-  // substitutions applied right-to-left to preserve position validity.
-  const nodeStart = node.getStart(sourceFile);
-  const nodeText = sourceFile.text.slice(nodeStart, node.getEnd());
-
-  descendantTargets.sort((a, b) => b.getStart(sourceFile) - a.getStart(sourceFile));
-
-  let result = nodeText;
-  for (const desc of descendantTargets) {
-    const relStart = desc.getStart(sourceFile) - nodeStart;
-    const relEnd = desc.getEnd() - nodeStart;
-    const replacement = computeReplacementText(desc, sourceFile, allTargets);
-    result = result.slice(0, relStart) + replacement + result.slice(relEnd);
-  }
-
-  return result;
-}
-
-/**
- * Find descendant targets within a node that are "root-level" relative
- * to the node — i.e., not nested inside another descendant target.
- */
-function findDescendantTargets(
-  node: ts.Node,
-  allTargets: Set<ts.TypeReferenceNode>
-): ts.TypeReferenceNode[] {
-  const descendants: ts.TypeReferenceNode[] = [];
-
-  function walk(n: ts.Node): void {
-    if (n === node) {
-      ts.forEachChild(n, walk);
-      return;
-    }
-    if (ts.isTypeReferenceNode(n) && allTargets.has(n)) {
-      descendants.push(n);
-      return; // nested targets are handled by computeReplacementText
-    }
-    ts.forEachChild(n, walk);
-  }
-
-  walk(node);
-  return descendants;
+  return ts.visitEachChild(
+    node,
+    (child) => rewriteNestedTargets(child, allTargets, context),
+    context
+  );
 }
 
 // ---------------------------------------------------------------------------

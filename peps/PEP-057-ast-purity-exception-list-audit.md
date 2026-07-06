@@ -512,13 +512,78 @@ already-documented exception (`transformer-core/transformer.ts`,
 `schema.ts`/`mapTypeToSchema` entry) — **zero unaccounted-for sites**. The
 rule the previous PEP wrote and the tree now agree.
 
-**Known, deliberately out-of-scope observation:** the repo-wide grep also
-surfaced a few raw `ts.createSourceFile(...)` calls that don't go through
-the `ctx.parseStatements`/`ctx.parseExpression` MacroContext wrapper this
-PEP's gate specifically re-greps for — e.g. `packages/macros/src/hkt.ts`
-(`resolveBuiltinTypeConstructor`, building `declare const __x: ${base}<any>;`
-to resolve built-in generic symbols like `Array`/`Map`/`Set` via the
-checker). This is a type-resolution probe, not output codegen, and wasn't
-part of Wave 4's original audit findings — flagged here for Dean's
-awareness as a possible future follow-up, not migrated or documented as an
-exception in this pass, since it's outside what this PEP scoped and gated on.
+## Follow-up pass: raw `ts.createSourceFile` sites outside the ctx.parse* gate
+
+The repo-wide grep above only catches `ctx.parseStatements`/`ctx.parseExpression`
+(the `MacroContext` wrapper methods) by construction — it can't see a raw
+`ts.createSourceFile(...)` call that builds-then-reparses text through a
+different mechanism entirely. A follow-up pass (same session, after the PR
+above was opened) checked every remaining raw `ts.createSourceFile` call
+site in non-test source by hand. Four were real findings, not noise:
+
+1. **`packages/macros/src/hkt.ts`'s `resolveTypeConstructorViaTypeCheckerUncached`**
+   — **migrated, not a hard case.** Built `` declare const __x: ${base}<any>; ``,
+   reparsed it, and only ever checked that the parse produced *some*
+   `TypeReferenceNode` before calling `checker.resolveName(base, ...)` with
+   the same `base` string regardless of what the parse found — the parsed
+   tree was never consulted for content. Deleted the reparse entirely;
+   `checker.resolveName` takes a plain string. Added direct test coverage
+   (`resolveTypeConstructorViaTypeChecker` had none before — only indirect
+   coverage via the unrelated `@hkt`/`_`-marker expansion tests).
+
+2. **`packages/transformer/src/arrow-comprehension-preprocess.ts`** —
+   **genuine exception, added to CLAUDE.md.** The file's own doc comment
+   already called itself "a deliberate exception to the CLAUDE.md rule" —
+   it just was never actually added to CLAUDE.md's list. A `let:/yield:`
+   comprehension in expression position produces an error-recovered AST too
+   fragile to patch with `ts.factory.update*`, so the fix has to happen on
+   raw source text (via `MagicString`) before the real parse. This is
+   textbook "a file claims an exception for itself that isn't in CLAUDE.md's
+   list, which is exactly the bug CLAUDE.md itself warns about."
+
+3. **`packages/transformer/src/hkt-rewriter.ts`** — **migrated.** Rewrites
+   `F<A>` → `Kind<F, A>` before `ts.Program` creation (must run pre-checker,
+   since the checker itself throws TS2315 on `F<A>`). The outer
+   `MagicString`-patch-before-Program mechanism is unavoidable for the same
+   reason as #2 — but the *replacement text* itself was being hand-built via
+   `` `Kind<${name}, ${args.join(", ")}>` `` string concatenation over
+   `node.getText()` slices. Rebuilt via `ts.factory.createTypeReferenceNode` +
+   `ts.visitEachChild` (context obtained via a throwaway `ts.transform`
+   pass, matching the pattern `packages/macros/src/hkt.test.ts` already uses
+   for the same need), reusing the real matched type-argument nodes and
+   printing only the small replacement node — not the whole file. Added 3
+   new tests exercising nested targets (`F<G<A>>`), targets nested inside a
+   non-target generic (`Array<F<A>>`), and multi-argument targets.
+
+4. **`packages/transformer/src/dts-transform.ts`** — **migrated, with one
+   narrow new exception.** Post-compile `.d.ts` rewriter erasing
+   `@opaque`-tagged interfaces into type aliases. Migrated the whole
+   declaration shape to `ts.factory.createTypeAliasDeclaration`, reusing the
+   real interface's name/type-parameters/modifiers directly instead of
+   hand-formatting `` `${exportKw}${declareKw}type ${name}${typeParams} = ${underlyingType};` ``.
+   The one irreducible holdout: the `@opaque` JSDoc tag's *value* (e.g.
+   `A | null`) is free-form type syntax a human wrote inside a comment, with
+   no attached tree anywhere upstream — same category as `typeclass.ts`'s
+   `fullSignatureText` and `effect/schema.ts`'s `mapTypeToSchema`. Documented
+   as a new, narrowly-scoped CLAUDE.md exception
+   (`parseOpaqueTypeExpression` only). **Caught a real bug in the process**:
+   the first version of this migration didn't strip positions off the
+   type node parsed from the JSDoc tag's temporary wrapper source file,
+   which made the printer slice the *actual* `.d.ts` file's text using
+   position offsets that were only valid against the temporary wrapper —
+   silently splicing in unrelated bytes from wherever those offsets landed
+   in the real file. Caught by the existing `dts-transform.test.ts`
+   multi-interface test failing with visibly garbled output; fixed with
+   `stripPositions` (`@typesugar/core`), the same fix `ctx.parseExpression`
+   itself already applies for the identical reason.
+
+CLAUDE.md now has two new documented exceptions from this pass
+(`arrow-comprehension-preprocess.ts`, `dts-transform.ts`'s
+`parseOpaqueTypeExpression`) and a new second list category ("pre-`Program`
+source-text rewrites") distinguishing this mechanism from the
+`ctx.parseStatements`/`ctx.parseExpression` list, with its own "must be
+exhaustive" restatement so this class of gap doesn't silently recur.
+
+Full `pnpm build` + full `vitest run` re-verified green after this pass:
+7315 passed (8 new), 38 skipped (unchanged, pre-existing), 0 failures,
+271/272 files. `npx prettier --check .` clean.

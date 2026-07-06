@@ -78,4 +78,38 @@ describe("rewriteHKTTypeReferences (.ts)", () => {
     expect(result.changed).toBe(true);
     expect(result.code).toContain("Kind<F, A>");
   });
+
+  it("rewrites a target nested inside another target's type argument", () => {
+    // F<G<A>> — both F and G are type parameters of the enclosing scope, so
+    // the outer F<...> is a root target whose own type argument is itself a
+    // target (G<A>). This exercises the recursive rewriteNestedTargets path.
+    const source = "type Compose<F, G, A> = F<G<A>>;";
+
+    const result = rewriteHKTTypeReferences(source, "compose.ts");
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("Kind<F, Kind<G, A>>");
+  });
+
+  it("rewrites a target nested inside a non-target generic (Array<F<A>>)", () => {
+    // Array<F<A>> — Array itself isn't a target (not a type parameter in
+    // scope), but its type argument contains one. Exercises visitEachChild
+    // recursing through an intermediate non-target node to find + replace
+    // the nested target, while leaving Array's own shape untouched.
+    const source = "type Wrap<F, A> = Array<F<A>>;";
+
+    const result = rewriteHKTTypeReferences(source, "wrap.ts");
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("Array<Kind<F, A>>");
+  });
+
+  it("preserves multiple sibling type arguments on the rewritten target", () => {
+    const source = "type Bimap<F, A, B> = F<A, B>;";
+
+    const result = rewriteHKTTypeReferences(source, "bimap.ts");
+
+    expect(result.changed).toBe(true);
+    expect(result.code).toContain("Kind<F, A, B>");
+  });
 });
