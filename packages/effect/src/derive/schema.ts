@@ -38,9 +38,18 @@ import {
   type DeriveFieldInfo,
   defineDeriveMacro,
 } from "@typesugar/core";
+import { call, exportedConst, ident, member } from "./codegen-common.js";
 
 /**
  * Map TypeScript primitive types to Effect Schema constructors.
+ *
+ * NOTE (CLAUDE.md exception): this function is the one string→AST holdout in
+ * this file. It recurses over `field.typeString` — the type textualized by
+ * `typeChecker.typeToString` upstream — and returns a schema-source string
+ * that the macro re-parses with `ctx.parseExpression`. See the matching entry
+ * in the repo CLAUDE.md exception list. Everything ELSE in this file (the
+ * `Schema.Struct`/`Schema.Union` calls, the exported const, and the `Encoded`
+ * type alias) is built with `ts.factory.create*` and must stay that way.
  */
 function mapTypeToSchema(typeString: string, optional: boolean): string {
   const type = typeString.trim();
@@ -182,15 +191,36 @@ function splitGenericArgs(inner: string): [string, string] {
 }
 
 /**
- * Generate field definitions for Schema.Struct.
+ * Build the per-field property assignment `<name>: <schema-expression>`.
+ *
+ * The schema expression itself is produced by `mapTypeToSchema` (string) and
+ * lifted to AST via `ctx.parseExpression` — the documented CLAUDE.md
+ * exception. The property assignment that wraps it is AST-built.
  */
-function generateFieldSchemas(fields: DeriveFieldInfo[]): string {
-  return fields
-    .map((field) => {
-      const schema = mapTypeToSchema(field.typeString, field.optional);
-      return `  ${field.name}: ${schema}`;
-    })
-    .join(",\n");
+function fieldSchemaProperty(ctx: MacroContext, field: DeriveFieldInfo): ts.PropertyAssignment {
+  const schemaExpr = ctx.parseExpression(mapTypeToSchema(field.typeString, field.optional));
+  return ts.factory.createPropertyAssignment(field.name, schemaExpr);
+}
+
+/**
+ * Build `export type <name>Encoded = Schema.Schema.Encoded<typeof <schemaName>>;`.
+ */
+function encodedTypeAlias(typeName: string, schemaName: string): ts.TypeAliasDeclaration {
+  const encodedRef = ts.factory.createTypeReferenceNode(
+    // Schema.Schema.Encoded — a doubly-qualified entity name.
+    ts.factory.createQualifiedName(
+      ts.factory.createQualifiedName(ident("Schema"), "Schema"),
+      "Encoded"
+    ),
+    [ts.factory.createTypeQueryNode(ident(schemaName))]
+  );
+
+  return ts.factory.createTypeAliasDeclaration(
+    [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+    ident(`${typeName}Encoded`),
+    undefined,
+    encodedRef
+  );
 }
 
 /**
@@ -205,7 +235,7 @@ export const EffectSchemaDerive: DeriveMacro = defineDeriveMacro({
 
   expand(
     ctx: MacroContext,
-    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind, fields, variants, discriminant } = typeInfo;
@@ -214,18 +244,16 @@ export const EffectSchemaDerive: DeriveMacro = defineDeriveMacro({
       return generateSumTypeSchema(ctx, name, discriminant, variants);
     }
 
-    // Product type (struct)
-    const fieldSchemas = generateFieldSchemas(fields);
+    // Product type (struct).
     const schemaName = `${name}Schema`;
+    const struct = call(member("Schema", "Struct"), [
+      ts.factory.createObjectLiteralExpression(
+        fields.map((f) => fieldSchemaProperty(ctx, f)),
+        true
+      ),
+    ]);
 
-    const code = `
-export const ${schemaName} = Schema.Struct({
-${fieldSchemas}
-});
-export type ${name}Encoded = Schema.Schema.Encoded<typeof ${schemaName}>;
-`;
-
-    return ctx.parseStatements(code);
+    return [exportedConst(schemaName, undefined, struct), encodedTypeAlias(name, schemaName)];
   },
 });
 
@@ -240,29 +268,24 @@ function generateSumTypeSchema(
 ): ts.Statement[] {
   const schemaName = `${typeName}Schema`;
 
-  // Generate variant schemas
-  const variantSchemas = variants.map((variant) => {
-    const fields = [
-      `  ${discriminant}: Schema.Literal("${variant.tag}")`,
-      ...variant.fields.map((f) => {
-        const schema = mapTypeToSchema(f.typeString, f.optional);
-        return `  ${f.name}: ${schema}`;
-      }),
-    ].join(",\n");
-
-    return `Schema.Struct({
-${fields}
-})`;
+  // Each variant becomes a Schema.Struct tagged with a discriminant literal.
+  const variantStructs = variants.map((variant) => {
+    const discriminantProp = ts.factory.createPropertyAssignment(
+      discriminant,
+      call(member("Schema", "Literal"), [ts.factory.createStringLiteral(variant.tag)])
+    );
+    const properties = [
+      discriminantProp,
+      ...variant.fields.map((f) => fieldSchemaProperty(ctx, f)),
+    ];
+    return call(member("Schema", "Struct"), [
+      ts.factory.createObjectLiteralExpression(properties, true),
+    ]);
   });
 
-  const code = `
-export const ${schemaName} = Schema.Union(
-${variantSchemas.map((s) => `  ${s}`).join(",\n")}
-);
-export type ${typeName}Encoded = Schema.Schema.Encoded<typeof ${schemaName}>;
-`;
+  const union = call(member("Schema", "Union"), variantStructs);
 
-  return ctx.parseStatements(code);
+  return [exportedConst(schemaName, undefined, union), encodedTypeAlias(typeName, schemaName)];
 }
 
 /**

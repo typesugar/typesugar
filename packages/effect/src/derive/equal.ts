@@ -14,10 +14,11 @@
  *
  * // Generates:
  * export const UserEqual: Equal.Equal<User> = {
- *   [Equal.symbol]: (self: User, that: User) =>
- *     Equal.equals(self.id, that.id) &&
- *     Equal.equals(self.name, that.name) &&
- *     Equal.equals(self.age, that.age),
+ *   [Equal.symbol](self: User, that: User): boolean {
+ *     return Equal.equals(self.id, that.id) &&
+ *       Equal.equals(self.name, that.name) &&
+ *       Equal.equals(self.age, that.age);
+ *   }
  * };
  * ```
  *
@@ -32,21 +33,55 @@ import {
   type DeriveFieldInfo,
   defineDeriveMacro,
 } from "@typesugar/core";
+import {
+  call,
+  discriminantSwitch,
+  exportedSymbolInstance,
+  ident,
+  member,
+  param,
+  propOf,
+  qualifiedTypeRef,
+  ret,
+  typeRef,
+} from "./codegen-common.js";
 
 /**
- * Generate equality checks for fields.
+ * Build the `&&`-chained equality expression for a product's fields:
+ * `Equal.equals(self.a, that.a) && Equal.equals(self.b, that.b) && ...`.
+ *
+ * Returns a `ts.Expression` (an empty field set yields the `true` literal),
+ * composed directly into the surrounding AST.
  */
-function generateFieldEqualities(fields: DeriveFieldInfo[]): string {
+function fieldEqualityChain(fields: DeriveFieldInfo[]): ts.Expression {
   if (fields.length === 0) {
-    return "true";
+    return ts.factory.createTrue();
   }
 
-  return fields
-    .map((field) => {
-      // Use Equal.equals for structural equality
-      return `Equal.equals(self.${field.name}, that.${field.name})`;
-    })
-    .join(" &&\n    ");
+  const checks = fields.map((field) =>
+    call(member("Equal", "equals"), [
+      propOf(ident("self"), field.name),
+      propOf(ident("that"), field.name),
+    ])
+  );
+
+  return checks
+    .slice(1)
+    .reduce<ts.Expression>(
+      (acc, check) =>
+        ts.factory.createBinaryExpression(acc, ts.SyntaxKind.AmpersandAmpersandToken, check),
+      checks[0]
+    );
+}
+
+/** `[Equal.symbol](self: <name>, that: <name>): boolean` — shared method header for an Equal instance. */
+function equalMethod(typeName: string, body: ts.Statement[]) {
+  return {
+    symbolExpr: member("Equal", "symbol"),
+    params: [param("self", typeRef(typeName)), param("that", typeRef(typeName))],
+    returnType: ts.factory.createKeywordTypeNode(ts.SyntaxKind.BooleanKeyword),
+    body,
+  };
 }
 
 /**
@@ -60,29 +95,24 @@ export const EffectEqualDerive: DeriveMacro = defineDeriveMacro({
   description: "Generate an Effect Equal instance for structural equality",
 
   expand(
-    ctx: MacroContext,
-    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    _ctx: MacroContext,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind, fields, variants, discriminant } = typeInfo;
 
     if (kind === "sum" && variants && discriminant) {
-      return generateSumTypeEqual(ctx, name, discriminant, variants);
+      return generateSumTypeEqual(name, discriminant, variants);
     }
 
-    // Product type
-    const fieldEqualities = generateFieldEqualities(fields);
-    const equalName = `${name}Equal`;
-
-    const code = `
-export const ${equalName}: Equal.Equal<${name}> = {
-  [Equal.symbol](self: ${name}, that: ${name}): boolean {
-    return ${fieldEqualities};
-  }
-};
-`;
-
-    return ctx.parseStatements(code);
+    // Product type.
+    return [
+      exportedSymbolInstance(
+        `${name}Equal`,
+        qualifiedTypeRef("Equal", "Equal", [typeRef(name)]),
+        equalMethod(name, [ret(fieldEqualityChain(fields))])
+      ),
+    ];
   },
 });
 
@@ -90,36 +120,37 @@ export const ${equalName}: Equal.Equal<${name}> = {
  * Generate Equal for sum types (discriminated unions).
  */
 function generateSumTypeEqual(
-  ctx: MacroContext,
   typeName: string,
   discriminant: string,
   variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>
 ): ts.Statement[] {
-  const equalName = `${typeName}Equal`;
+  // Fast-path guard: different discriminants can never be equal.
+  const guard = ts.factory.createIfStatement(
+    ts.factory.createBinaryExpression(
+      propOf(ident("self"), discriminant),
+      ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      propOf(ident("that"), discriminant)
+    ),
+    ret(ts.factory.createFalse())
+  );
 
-  // Generate cases for each variant
-  const cases = variants
-    .map((variant) => {
-      const fieldEqualities = generateFieldEqualities(variant.fields);
-      return `      case "${variant.tag}":
-        return ${fieldEqualities || "true"};`;
-    })
-    .join("\n");
+  const cases = variants.map((variant) => ({
+    tag: variant.tag,
+    statements: [ret(fieldEqualityChain(variant.fields))],
+  }));
 
-  const code = `
-export const ${equalName}: Equal.Equal<${typeName}> = {
-  [Equal.symbol](self: ${typeName}, that: ${typeName}): boolean {
-    if (self.${discriminant} !== that.${discriminant}) return false;
-    switch (self.${discriminant}) {
-${cases}
-      default:
-        return false;
-    }
-  }
-};
-`;
+  const body = [
+    guard,
+    discriminantSwitch(propOf(ident("self"), discriminant), cases, [ret(ts.factory.createFalse())]),
+  ];
 
-  return ctx.parseStatements(code);
+  return [
+    exportedSymbolInstance(
+      `${typeName}Equal`,
+      qualifiedTypeRef("Equal", "Equal", [typeRef(typeName)]),
+      equalMethod(typeName, body)
+    ),
+  ];
 }
 
 /**

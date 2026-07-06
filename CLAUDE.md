@@ -50,6 +50,34 @@ PEP for migration):
   strips positions, making the reparsed node synthetic, and the visitor skips
   macro expansion on synthetic nodes by design.
 
+- `packages/effect/src/derive/schema.ts` — `mapTypeToSchema` (and its helper
+  `splitGenericArgs`), and ONLY those. The `EffectSchema` derive turns each
+  field's type into a `Schema.*` constructor expression. Everything else in
+  the file is AST-built (`ts.factory.create*`): the `Schema.Struct(...)` /
+  `Schema.Union(...)` calls, the exported-const wrapper, and the
+  `type XEncoded = Schema.Schema.Encoded<typeof XSchema>` alias. The per-field
+  schema expression is the holdout: `mapTypeToSchema` recurses over
+  `field.typeString` — the type textualized by `typeChecker.typeToString` in
+  transformer-core's `extractTypeInfo` — and returns a schema-source string
+  that `schema.ts` re-parses with `ctx.parseExpression` at its two
+  property-building call sites (the product struct and each sum variant
+  struct). This is on the list because the INPUT is itself a string with no
+  syntax tree attached: `DeriveFieldInfo` carries only `typeString: string`
+  and `type: ts.Type` (a checker type, not a `ts.TypeNode`), so there is no
+  written type node to recurse over structurally — `extractTypeInfo` sees the
+  declaration's `ts.TypeNode` but discards it before `schema.ts` runs. The
+  clean fix is upstream, not in this file: have `extractTypeInfo`
+  (`packages/transformer-core/src/macro-helpers.ts`) carry the real
+  `ts.TypeNode` on `DeriveFieldInfo` so `mapTypeToSchema` can recurse over
+  `ts.TypeNode` kinds instead of regex/substring-parsing text; until that
+  field exists, reconstructing the schema from `typeString` (or re-deriving
+  it from `field.type` via the checker, as
+  `packages/sql/src/derive-typeclasses.ts` does — itself a larger rewrite that
+  drops several cases `mapTypeToSchema` handles today, e.g. `Record`/`Map`/
+  `Option`/literal unions) is the only option available to this file. Narrowly
+  scoped to `mapTypeToSchema`/`splitGenericArgs`; the surrounding declaration
+  codegen is not an exception and must stay AST-based.
+
 The original `builtinDerivations` + `convertToCompanionAssignment` legacy exception
 was removed in 2026-05 after they were confirmed to be dead code (orphaned by
 PEP-038 Wave 2F's GenericDerivation migration).

@@ -2381,6 +2381,28 @@ export function tryExtractSumType(
 // 3. Compile error — no silent runtime fallback
 // ============================================================================
 
+/**
+ * Build an identifier/property-access expression from a (possibly dotted)
+ * resolved export name, e.g. `"Point.Numeric"` → `Point.Numeric`.
+ *
+ * `ResolvedInstance.exportName` is either a bare identifier — `sym.getName()`
+ * from a scanned `@impl`/`@instance` export — or the two-segment
+ * `TypeName.TcName` form produced by the `@derive` companion's namespace-merge
+ * convention (`namespace ${typeName} { export const ${tcName} = ...; }`, see
+ * `assignCode` below). Neither form ever contains array indices, generic
+ * arguments, or more than one dot in practice, but building a left-to-right
+ * property-access chain over all dot-separated segments handles any dotted
+ * depth uniformly without special-casing the 2-segment case.
+ */
+function createDottedIdentifierExpression(factory: ts.NodeFactory, dotted: string): ts.Expression {
+  const parts = dotted.split(".");
+  let expr: ts.Expression = factory.createIdentifier(parts[0]);
+  for (let i = 1; i < parts.length; i++) {
+    expr = factory.createPropertyAccessExpression(expr, parts[i]);
+  }
+  return expr;
+}
+
 export const summonMacro = defineExpressionMacro({
   name: "summon",
   module: "@typesugar/typeclass",
@@ -2457,7 +2479,7 @@ export const summonMacro = defineExpressionMacro({
       const forType = ctx.typeChecker.getTypeFromTypeNode(innerType);
       const scopeResult = resolveInstance(ctx, tcName, forType);
       if (scopeResult && scopeResult.kind === "resolved") {
-        return ctx.parseExpression(scopeResult.exportName);
+        return createDottedIdentifierExpression(ctx.factory, scopeResult.exportName);
       }
     } catch {
       // checker may throw on unusual type nodes — fall through to auto-derivation
@@ -2601,10 +2623,27 @@ export const extendMacro = defineExpressionMacro({
       const tcName = candidate.typeclass;
       if (!hasPrimitiveOrInstance(ctx, typeName, tcName)) continue;
 
-      const extraArgsText = extraArgs.map((a) => a.getText()).join(", ");
-      const allArgs = extraArgsText ? `${value.getText()}, ${extraArgsText}` : value.getText();
-      const code = `${tcName}.summon<${typeName}>("${typeName}").${methodName}(${allArgs})`;
-      return ctx.parseExpression(code);
+      // Build `TC.summon<TypeName>("TypeName").method(value, ...extraArgs)`
+      // directly as AST rather than as a template string reparsed via
+      // ctx.parseExpression(): `value`/`extraArgs` are already real AST
+      // nodes (from `callExpr`), so reusing them here — instead of the old
+      // `.getText()`-then-reparse — also preserves anything a text
+      // round-trip through the parser would drop (comments, exact source
+      // formatting) and avoids synthesizing positionless nodes for them.
+      const factory = ctx.factory;
+      const typeArgNode =
+        ctx.typeChecker.typeToTypeNode(valueType, undefined, ts.NodeBuilderFlags.None) ??
+        factory.createTypeReferenceNode(typeName, undefined);
+      const summonCall = factory.createCallExpression(
+        factory.createPropertyAccessExpression(factory.createIdentifier(tcName), "summon"),
+        [typeArgNode],
+        [factory.createStringLiteral(typeName)]
+      );
+      return factory.createCallExpression(
+        factory.createPropertyAccessExpression(summonCall, methodName),
+        undefined,
+        [value, ...extraArgs]
+      );
     }
 
     // Check standalone extensions (Scala 3-style concrete type extensions)

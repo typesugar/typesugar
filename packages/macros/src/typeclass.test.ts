@@ -10,6 +10,12 @@
  * Instance resolution is scope-based (PEP-052) and tested in
  * instance-scanner.test.ts / instance-resolver.test.ts and
  * packages/std/tests/pep052-do-scope.test.ts.
+ *
+ * `summonMacro`/`extendMacro` expand()-output coverage (PEP-057 AST-purity
+ * migration off `ctx.parseExpression`) lives in the "summonMacro" /
+ * "extendMacro" describe blocks below — the only direct expand()-level tests
+ * for these two macros; `pep052-extend-macro.test.ts` (transformer package)
+ * covers `extendMacro` end-to-end through the full pipeline instead.
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -19,7 +25,10 @@ import * as path from "path";
 import * as os from "os";
 import { registerHKTExpansion, getHKTExpansionForTest } from "./typeclass.js";
 import { withDerivationContext, setCoverageHooks } from "./typeclass.js";
+import { summonMacro, extendMacro } from "./typeclass.js";
 import { isHktTypeclass, getTypeclassDef } from "./typeclass-index.js";
+import { instanceScanner } from "./instance-scanner.js";
+import type { MacroContext } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -202,5 +211,167 @@ describe("setCoverageHooks", () => {
     const registerFn = (_typeName: string, _tcName: string) => {};
     const validateFn = () => true;
     expect(() => setCoverageHooks(registerFn, validateFn)).not.toThrow();
+  });
+});
+
+// ============================================================================
+// summonMacro / extendMacro — expand() output (PEP-057 AST-purity migration)
+// ============================================================================
+// Both macros used to build their replacement expression as a template
+// string and reparse it via ctx.parseExpression(). These tests pin the
+// expand()-level output directly, as AST, so a future change can't silently
+// regress back to string-shaped codegen.
+
+function getUserSourceFile(program: ts.Program, fileName: string): ts.SourceFile {
+  const sourceFile = program.getSourceFiles().find((sf) => sf.fileName.endsWith(fileName));
+  if (!sourceFile) throw new Error(`source file not found: ${fileName}`);
+  return sourceFile;
+}
+
+function makeMacroContext(program: ts.Program, sourceFile: ts.SourceFile): MacroContext {
+  return {
+    program,
+    typeChecker: program.getTypeChecker(),
+    sourceFile,
+    factory: ts.factory,
+  } as unknown as MacroContext;
+}
+
+function findCallExpression(
+  root: ts.Node,
+  predicate: (node: ts.CallExpression) => boolean
+): ts.CallExpression {
+  let found: ts.CallExpression | undefined;
+  const visit = (node: ts.Node) => {
+    if (found) return;
+    if (ts.isCallExpression(node) && predicate(node)) {
+      found = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  if (!found) throw new Error("no matching call expression found");
+  return found;
+}
+
+describe("summonMacro.expand()", () => {
+  it("resolves a plain (non-dotted) exported instance to a bare identifier", () => {
+    const source = `
+interface Point { x: number; y: number; }
+
+/** @impl("Show<Point>") */
+export const showPoint: Show<Point> = {
+  show: (p: Point) => "Point",
+};
+
+export const r = summon<Show<Point>>();
+`.trim();
+
+    const program = createTestProgram(source, "summon-basic.ts");
+    const sourceFile = getUserSourceFile(program, "summon-basic.ts");
+    const ctx = makeMacroContext(program, sourceFile);
+
+    const callExpr = findCallExpression(
+      sourceFile,
+      (n) => ts.isIdentifier(n.expression) && n.expression.text === "summon"
+    );
+
+    const result = summonMacro.expand(ctx, callExpr, []);
+    expect(ts.isIdentifier(result)).toBe(true);
+    expect((result as ts.Identifier).text).toBe("showPoint");
+  });
+
+  it("resolves a dotted companion export (e.g. a @derive'd `Point.Numeric`) to a property-access chain", () => {
+    // Simulates a same-pass `@derive` companion synthesized via
+    // InstanceScanner.registerSynthesized (see instance-resolver.test.ts's
+    // "findInstanceInScopeByName (PEP-056 Wave 5)" suite) — the exportName
+    // convention produced by typeclass.ts's own `namespace ${typeName} {
+    // export const ${tcName} = ...; }` companion codegen (assignCode).
+    const source = `
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+
+export const r = summon<Numeric<Point>>();
+`.trim();
+
+    const program = createTestProgram(source, "summon-dotted.ts");
+    const sourceFile = getUserSourceFile(program, "summon-dotted.ts");
+    const typeChecker = program.getTypeChecker();
+
+    const classDecl = sourceFile.statements.find((s): s is ts.ClassDeclaration =>
+      ts.isClassDeclaration(s)
+    )!;
+    const pointType = typeChecker.getTypeAtLocation(classDecl);
+    instanceScanner.registerSynthesized(program, sourceFile.fileName, {
+      typeclassName: "Numeric",
+      forType: pointType,
+      forTypeString: "Point",
+      exportName: "Point.Numeric",
+      sourceModule: sourceFile.fileName,
+      detectedVia: "derived",
+    });
+
+    const ctx = makeMacroContext(program, sourceFile);
+    const callExpr = findCallExpression(
+      sourceFile,
+      (n) => ts.isIdentifier(n.expression) && n.expression.text === "summon"
+    );
+
+    const result = summonMacro.expand(ctx, callExpr, []);
+    expect(ts.isPropertyAccessExpression(result)).toBe(true);
+    const pae = result as ts.PropertyAccessExpression;
+    expect(ts.isIdentifier(pae.expression) && pae.expression.text).toBe("Point");
+    expect(pae.name.text).toBe("Numeric");
+
+    const printed = ts.createPrinter().printNode(ts.EmitHint.Expression, result, sourceFile);
+    expect(printed).toBe("Point.Numeric");
+  });
+});
+
+describe("extendMacro.expand()", () => {
+  it('builds `TC.summon<Type>("Type").method(value, ...extraArgs)` as AST, reusing the real argument nodes', () => {
+    const source = `
+/** @typeclass */
+interface Greet<A> {
+  greet(a: A): string;
+}
+
+declare const n: number;
+export const r = extend(n).greet();
+`.trim();
+
+    const program = createTestProgram(source, "extend-basic.ts");
+    const sourceFile = getUserSourceFile(program, "extend-basic.ts");
+    const ctx = makeMacroContext(program, sourceFile);
+
+    // The outer chain call: extend(n).greet() — this is what the transformer
+    // passes as `callExpr` for a `chainable: true` macro.
+    const outerCall = findCallExpression(
+      sourceFile,
+      (n) =>
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === "greet" &&
+        ts.isCallExpression(n.expression.expression) &&
+        ts.isIdentifier(n.expression.expression.expression) &&
+        n.expression.expression.expression.text === "extend"
+    );
+    const innerCall = (outerCall.expression as ts.PropertyAccessExpression)
+      .expression as ts.CallExpression;
+    // The transformer passes the INNER extend(...) call's arguments as `args`
+    // (see transformer-core's tryExpandChainMacro: `Array.from(rootCall.arguments)`).
+    const args = Array.from(innerCall.arguments);
+
+    const result = extendMacro.expand(ctx, outerCall, args);
+
+    // Reuses the real `n` argument node directly rather than stringifying
+    // and reparsing it.
+    expect(ts.isCallExpression(result)).toBe(true);
+    const call = result as ts.CallExpression;
+    expect(call.arguments[0]).toBe(args[0]);
+
+    const printed = ts.createPrinter().printNode(ts.EmitHint.Expression, result, sourceFile);
+    expect(printed).toBe('Greet.summon<number>("number").greet(n)');
   });
 });
