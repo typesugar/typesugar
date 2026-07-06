@@ -1,6 +1,6 @@
 # PEP-056: Transformer Pipeline Unification — One Engine, Not Two
 
-**Status:** Draft
+**Status:** Implemented (Waves 1–5)
 **Date:** 2026-07-05
 **Author:** Claude (Sonnet 5), for Dean's review
 

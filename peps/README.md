@@ -63,4 +63,5 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [053](PEP-053-always-on-specialization.md)              | Always-On Specialization (no explicit `specialize` API)   | Implemented                                                                  |
 | [054](PEP-054-diagnostic-suppression-rules-naming.md)   | Rename "SFINAE Rules" to "Diagnostic Suppression Rules"   | Implemented                                                                  |
 | [055](PEP-055-macro-package-discovery.md)               | Macro-Package Discovery via `package.json`                | Draft                                                                        |
-| [056](PEP-056-transformer-pipeline-unification.md)      | Transformer Pipeline Unification — One Engine, Not Two    | Draft                                                                        |
+| [056](PEP-056-transformer-pipeline-unification.md)      | Transformer Pipeline Unification — One Engine, Not Two    | Implemented (Waves 1–5)                                                      |
+| [057](PEP-057-ast-purity-exception-list-audit.md)       | AST-Purity Exception List Audit — Closing the Gap         | Draft                                                                        |
