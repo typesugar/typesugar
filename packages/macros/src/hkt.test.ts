@@ -48,6 +48,7 @@ import {
   isKindApplication,
   transformHKTDeclaration,
   hktAttribute,
+  resolveTypeConstructorViaTypeChecker,
   type KindParamInfo,
 } from "./hkt.js";
 
@@ -757,6 +758,63 @@ describe("hktAttribute.expand — error cases", () => {
       expect(errors.length).toBeGreaterThan(0);
       expect(errors[0]).toContain("can only be applied to interfaces or type aliases");
       expect(result).toBe(fn);
+    });
+  });
+});
+
+// ============================================================================
+// resolveTypeConstructorViaTypeChecker — built-in generic resolution
+// ============================================================================
+
+describe("resolveTypeConstructorViaTypeChecker", () => {
+  it("resolves a user-declared generic interface", () => {
+    const src = `interface Box<A> { value: A; }`;
+    withMacroContext(src, (ctx) => {
+      const result = resolveTypeConstructorViaTypeChecker(ctx, "Box");
+      expect(result).toEqual({
+        baseType: "Box",
+        fixedArgs: [],
+        arity: 1,
+        holeName: "A",
+      });
+    });
+  });
+
+  it("resolves the built-in `Array` generic with no local declaration in scope", () => {
+    const src = `type X = number;`;
+    withMacroContext(src, (ctx) => {
+      const result = resolveTypeConstructorViaTypeChecker(ctx, "Array");
+      expect(result).toBeDefined();
+      expect(result!.baseType).toBe("Array");
+      expect(result!.arity).toBe(1);
+      expect(result!.holeName).toBeDefined();
+    });
+  });
+
+  it("resolves the built-in `Map` generic with partial application (fixedArgs)", () => {
+    const src = `type X = number;`;
+    withMacroContext(src, (ctx) => {
+      const result = resolveTypeConstructorViaTypeChecker(ctx, "Map<string>");
+      expect(result).toBeDefined();
+      expect(result!.baseType).toBe("Map");
+      expect(result!.fixedArgs).toEqual(["string"]);
+      expect(result!.arity).toBe(2);
+    });
+  });
+
+  it("returns undefined for a name that isn't a known type", () => {
+    const src = `type X = number;`;
+    withMacroContext(src, (ctx) => {
+      const result = resolveTypeConstructorViaTypeChecker(ctx, "TotallyMadeUpTypeName");
+      expect(result).toBeUndefined();
+    });
+  });
+
+  it("returns undefined for a non-generic built-in like `string`", () => {
+    const src = `type X = number;`;
+    withMacroContext(src, (ctx) => {
+      const result = resolveTypeConstructorViaTypeChecker(ctx, "string");
+      expect(result).toBeUndefined();
     });
   });
 });
