@@ -29,7 +29,13 @@ export default macroTransformerFactory;
 export { MacroTransformer } from "@typesugar/transformer-core";
 
 // Lazy macro loading utilities
-export { loadMacroPackages, loadMacroPackage, resetLoadedPackages } from "./macro-loader.js";
+export {
+  loadMacroPackages,
+  loadMacroPackage,
+  resetLoadedPackages,
+  classifyManifestPackages,
+  UnapprovedMacroPackagesError,
+} from "./macro-loader.js";
 
 // Re-export unified pipeline components
 export {

@@ -3,6 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import { config, defineConfig, type TypesugarConfig } from "@typesugar/core";
@@ -101,6 +104,18 @@ describe("config.get and config.set", () => {
     config.set({ features: { experimental: true, legacy: false } });
     expect(config.get("features.experimental")).toBe(true);
     expect(config.get("features.legacy")).toBe(false);
+  });
+
+  it("should set and get security.allowedMacroPackages (PEP-055)", () => {
+    expect(config.get("security.allowedMacroPackages")).toBeUndefined();
+    config.set({ security: { allowedMacroPackages: ["my-org-macros"] } });
+    expect(config.get("security.allowedMacroPackages")).toEqual(["my-org-macros"]);
+  });
+
+  it("should merge security config across multiple set() calls", () => {
+    config.set({ security: { allowedMacroPackages: ["pkg-a"] } });
+    config.set({ security: { allowedMacroPackages: ["pkg-a", "pkg-b"] } });
+    expect(config.get("security.allowedMacroPackages")).toEqual(["pkg-a", "pkg-b"]);
   });
 });
 
@@ -471,5 +486,56 @@ describe("edge cases", () => {
     // Runtime mutation is possible but not recommended
     expect(all.debug).toBe(true);
     expect(all.contracts?.mode).toBe("full");
+  });
+});
+
+// ============================================================================
+// File-based config loading (cosmiconfig) — regression coverage
+//
+// This path had zero test coverage before PEP-055: `cosmiconfigSync`'s
+// explorer throws at CONSTRUCTION TIME if its searchPlaces list contains an
+// extension with no sync-compatible loader (`.mjs` has none — loading ESM
+// requires an async `import()`). Since the old searchPlaces list included
+// `.typesugarrc.mjs`/`typesugar.config.mjs`, the explorer never
+// successfully constructed for ANY project, and the surrounding `catch {}`
+// silently discarded the error — so `typesugar.config.ts` (or any other
+// config file) was NEVER actually read by any project, ever. Found while
+// wiring PEP-055's `approve-macros` config read-back.
+// ============================================================================
+
+describe("config file loading (cosmiconfig)", () => {
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-config-file-"));
+    originalCwd = process.cwd();
+    config.reset();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    config.reset();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("finds and reads a typesugar.config.ts file from the project root", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "typesugar.config.ts"),
+      `export default { security: { allowedMacroPackages: ["my-org-macros"] } };\n`
+    );
+    process.chdir(tmpDir);
+
+    expect(config.getConfigFilePath()).toBe(
+      path.join(fs.realpathSync(tmpDir), "typesugar.config.ts")
+    );
+    expect(config.get("security.allowedMacroPackages")).toEqual(["my-org-macros"]);
+  });
+
+  it("does not throw and falls back to defaults when no config file exists", () => {
+    process.chdir(tmpDir);
+
+    expect(config.getConfigFilePath()).toBeUndefined();
+    expect(config.get("debug")).toBe(false);
   });
 });
