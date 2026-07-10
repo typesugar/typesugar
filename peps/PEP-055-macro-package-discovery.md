@@ -1,11 +1,13 @@
 # PEP-055: Macro-Package Discovery via `package.json`
 
-**Status:** In Progress (2026-07-10) — design accepted (all three open
-questions below resolved with this PEP's own recommended defaults); Phase A
+**Status:** In Progress (2026-07-11) — design accepted (all three open
+questions below resolved with this PEP's own recommended defaults). Phase A
 (manifest discovery + trust gate + `typesugar approve-macros` CLI, additive,
-zero behavior change for existing packages) implemented in Wave 1. Phases
-B–E (official packages declaring the field, deleting the old hardcoded
-lists, the `ResultAlgebra` relocation, the docs sweep) not yet started.
+zero behavior change for existing packages) implemented in Wave 1. Phase B
+(official packages declaring the field — 15 packages plus 4 facades, scope
+corrected during implementation, see Wave 2 notes) implemented in Wave 2.
+Phases C–E (deleting the old hardcoded lists, the `ResultAlgebra`
+relocation, the docs sweep) not yet started.
 **Date:** 2026-07-04
 **Author:** Claude (with Dean Povey)
 **Relates to:** [PEP-050](PEP-050-shipping-typesugar-libraries.md) (the `./macros` subpath split this builds on), [PEP-052](PEP-052-import-scoped-macro-activation.md) (Wave 9 names this as its prerequisite), [PEP-049](PEP-049-cruft-cleanup.md) (prior finding that a self-declared field can't be an allowlist)
@@ -340,12 +342,21 @@ approval for everything else — modeled on pnpm's `approve-builds`.**
    matches if it's in the old lists OR declares the new field). Zero behavior
    change for any existing package at this point — purely new, inert
    capability.
-2. **Phase B** — `@typesugar/std`, `@typesugar/effect`, `@typesugar/contracts`,
-   `@typesugar/mapper` each add the `typesugar.macros` field to their
-   `package.json` (pointing at their existing `./macros` subpath — no source
-   changes needed, they already have one). The four facade packages
+2. **Phase B** — every `@typesugar/*` package with an existing, real
+   `./macros` export subpath adds the `typesugar.macros` field to its
+   `package.json` (pointing at that existing subpath — no source changes
+   needed). **Corrected during implementation** (see Wave 2 notes below):
+   this is fifteen packages, not the four originally named here
+   (`std`/`effect`/`contracts`/`mapper` plus `codec`/`erased`/`fusion`/
+   `graph`/`strings`/`testing`/`type-system`/`sql`/`parser`/`units`/
+   `validate`) — anything currently reachable only via the
+   `@typesugar/*`-prefix fallback Phase C deletes. `@typesugar/macros`
+   itself (macros live at its package root, not a `./macros` subpath)
+   declares `typesugar.macros: "."`. The four facade packages
    (`@typesugar/derive`/`reflect`/`typeclass`, `typesugar`) add the
-   cross-package-reference form pointing at `@typesugar/macros/macros`.
+   cross-package-reference form pointing at `@typesugar/macros` (its real
+   root target, not the `@typesugar/macros/macros` subpath this section
+   originally assumed existed).
 3. **Phase C** — delete `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` and the
    `@typesugar/`-prefix fallback entirely; the manifest field is now the only
    discovery path. Gate: full workspace build + full test suite green with
@@ -492,3 +503,61 @@ succeeds; a second, unrelated unapproved package still fails (approval is
 scoped per-package, not a global bypass). The remaining acceptance
 criteria (deleting the old lists, the `fp`/`std` `ResultAlgebra`
 relocation) are Phase C/D, not this wave.
+
+## Wave 2 (Phase B) implementation notes (2026-07-11)
+
+**Scope correction, found while implementing, not anticipated by the
+original Phase B text above:** the PEP's Phase B step 2 named exactly four
+packages (`std`/`effect`/`contracts`/`mapper`) as needing the field. A full
+audit of `packages/*/package.json` for existing `./macros` export subpaths
+found **fifteen**, not four — `codec`, `erased`, `fusion`, `graph`,
+`strings`, `testing`, `type-system`, `sql`, `parser`, and `units`/`validate`
+all already have a real, macro-registration-backed `./macros` subpath
+(confirmed by grepping each for `globalRegistry.register`/
+`defineAttributeMacro`/`MacroDefinition` markers) and were being discovered
+today purely through the `@typesugar/*`-prefix speculative-load fallback
+that Phase C is scoped to delete. Had Phase B landed only the four named
+packages, Phase C's fallback deletion would have silently broken macro
+registration for the other eleven — a real regression, not a hypothetical
+one. All fifteen now declare `typesugar.macros: "./macros"`.
+
+`@typesugar/macros` itself (the actual provider all four facades delegate
+to) also needed the field — its macros live at its package **root**, not a
+`./macros` subpath (`KNOWN_MACRO_PACKAGES` listed it directly, not via
+`FACADE_TO_PROVIDER`). The design's `resolveManifestTarget` only handled
+`"./macros"`-style relative subpaths and bare cross-package specifiers;
+added a `"."` case (matching Node/npm's own `exports` map convention for
+"package root") resolving to the package's own name, so
+`@typesugar/macros` declares `typesugar.macros: "."`. The four facades
+(`@typesugar/derive`/`reflect`/`typeclass`, `typesugar`) declare
+`typesugar.macros: "@typesugar/macros"` — the PEP's own design text
+illustrated this as `"@typesugar/macros/macros"`, assuming a `./macros`
+subpath on the provider that doesn't actually exist; using the real root
+target instead of inventing an unneeded new subpath.
+
+**Second real gap found**: the bare `typesugar` facade package (published
+unscoped on npm, not `@typesugar/typesugar`) isn't covered by the
+`@typesugar/*`-prefix auto-trust check — under the old
+`FACADE_TO_PROVIDER` list it was explicitly, unconditionally trusted, but
+the new manifest-based `isTrusted` would have treated it as an
+unapproved third-party package requiring explicit `approve-macros`
+consent, purely because of its unscoped name. Fixed by adding a small,
+explicit `AUTO_TRUSTED_UNSCOPED_PACKAGES` set (today just `"typesugar"`)
+alongside the `@typesugar/*` prefix check in `isTrusted` — first-party
+trust shouldn't hinge on npm scoping convention alone.
+
+Both gaps were caught by a new "manifest discovery against the real
+workspace packages" test block in `macro-loader.test.ts` that exercises
+the actual, real (non-mocked) workspace-linked `node_modules` rather than
+synthetic fixtures — worth remembering as a pattern: fixture-only tests
+would not have caught either bug, since both are specific to the _real_
+package.json shapes already in this repo, which no fixture happened to
+reproduce.
+
+Full workspace `pnpm build` + full `vitest run` (7294 passed, up 4 from
+Wave 1's baseline, 38 pre-existing skips, 0 failures) + `npx prettier
+--check .` all green after this wave. This wave is purely additive (same
+guarantee as Phase A) — the old lists are untouched, so existing behavior
+is unchanged; only new packages are now _also_ reachable via the manifest
+path. Phase C (deleting the old lists) is the next wave, now unblocked for
+all fifteen-plus-facades packages, not just the original four.

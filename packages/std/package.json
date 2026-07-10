@@ -159,6 +159,9 @@
       "require": "./dist/syntax/do.cjs"
     }
   },
+  "typesugar": {
+    "macros": "./macros"
+  },
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",

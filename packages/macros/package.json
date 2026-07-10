@@ -29,6 +29,9 @@
       "require": "./dist/runtime-stubs.cjs"
     }
   },
+  "typesugar": {
+    "macros": "."
+  },
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",
