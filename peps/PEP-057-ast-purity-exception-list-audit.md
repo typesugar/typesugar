@@ -512,7 +512,7 @@ already-documented exception (`transformer-core/transformer.ts`,
 `schema.ts`/`mapTypeToSchema` entry) — **zero unaccounted-for sites**. The
 rule the previous PEP wrote and the tree now agree.
 
-## Follow-up pass: raw `ts.createSourceFile` sites outside the ctx.parse* gate
+## Follow-up pass: raw `ts.createSourceFile` sites outside the ctx.parse\* gate
 
 The repo-wide grep above only catches `ctx.parseStatements`/`ctx.parseExpression`
 (the `MacroContext` wrapper methods) by construction — it can't see a raw
@@ -522,8 +522,8 @@ above was opened) checked every remaining raw `ts.createSourceFile` call
 site in non-test source by hand. Four were real findings, not noise:
 
 1. **`packages/macros/src/hkt.ts`'s `resolveTypeConstructorViaTypeCheckerUncached`**
-   — **migrated, not a hard case.** Built `` declare const __x: ${base}<any>; ``,
-   reparsed it, and only ever checked that the parse produced *some*
+   — **migrated, not a hard case.** Built `declare const __x: ${base}<any>;`,
+   reparsed it, and only ever checked that the parse produced _some_
    `TypeReferenceNode` before calling `checker.resolveName(base, ...)` with
    the same `base` string regardless of what the parse found — the parsed
    tree was never consulted for content. Deleted the reparse entirely;
@@ -545,7 +545,7 @@ site in non-test source by hand. Four were real findings, not noise:
    `F<A>` → `Kind<F, A>` before `ts.Program` creation (must run pre-checker,
    since the checker itself throws TS2315 on `F<A>`). The outer
    `MagicString`-patch-before-Program mechanism is unavoidable for the same
-   reason as #2 — but the *replacement text* itself was being hand-built via
+   reason as #2 — but the _replacement text_ itself was being hand-built via
    `` `Kind<${name}, ${args.join(", ")}>` `` string concatenation over
    `node.getText()` slices. Rebuilt via `ts.factory.createTypeReferenceNode` +
    `ts.visitEachChild` (context obtained via a throwaway `ts.transform`
@@ -561,7 +561,7 @@ site in non-test source by hand. Four were real findings, not noise:
    declaration shape to `ts.factory.createTypeAliasDeclaration`, reusing the
    real interface's name/type-parameters/modifiers directly instead of
    hand-formatting `` `${exportKw}${declareKw}type ${name}${typeParams} = ${underlyingType};` ``.
-   The one irreducible holdout: the `@opaque` JSDoc tag's *value* (e.g.
+   The one irreducible holdout: the `@opaque` JSDoc tag's _value_ (e.g.
    `A | null`) is free-form type syntax a human wrote inside a comment, with
    no attached tree anywhere upstream — same category as `typeclass.ts`'s
    `fullSignatureText` and `effect/schema.ts`'s `mapTypeToSchema`. Documented
@@ -569,7 +569,7 @@ site in non-test source by hand. Four were real findings, not noise:
    (`parseOpaqueTypeExpression` only). **Caught a real bug in the process**:
    the first version of this migration didn't strip positions off the
    type node parsed from the JSDoc tag's temporary wrapper source file,
-   which made the printer slice the *actual* `.d.ts` file's text using
+   which made the printer slice the _actual_ `.d.ts` file's text using
    position offsets that were only valid against the temporary wrapper —
    silently splicing in unrelated bytes from wherever those offsets landed
    in the real file. Caught by the existing `dts-transform.test.ts`
