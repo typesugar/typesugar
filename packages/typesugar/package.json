@@ -57,6 +57,9 @@
       "require": "./dist/rollup.cjs"
     }
   },
+  "typesugar": {
+    "macros": "@typesugar/macros"
+  },
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",

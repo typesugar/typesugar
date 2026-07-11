@@ -168,13 +168,18 @@ function resolvePackageJson(
 
 /**
  * Resolve a `typesugar.macros` manifest value to a require()-able specifier.
- * `"./macros"` → `"${pkg}/macros"` (relative to the declaring package's own
- * root, through its own exports map). A bare specifier (no leading dot) is a
- * facade cross-package reference (e.g. `"@typesugar/macros/macros"`) and is
- * used as-is. Anything starting with `".."` is rejected — there's no
+ * `"."` → `pkg` itself (the package's own root entry — the convention a
+ * package whose macros live at its package root, not a dedicated `./macros`
+ * subpath, uses; e.g. `@typesugar/macros`, matching Node/npm's own `"."`
+ * convention for "package root" in an `exports` map). `"./macros"` →
+ * `"${pkg}/macros"` (relative to the declaring package's own root, through
+ * its own exports map). A bare specifier with no leading dot is a facade
+ * cross-package reference (e.g. `"@typesugar/macros"`, `"@typesugar/macros/macros"`)
+ * and is used as-is. Anything starting with `".."` is rejected — there's no
  * legitimate case for a manifest pointing outside its own package.
  */
 function resolveManifestTarget(pkg: string, field: string): string | undefined {
+  if (field === ".") return pkg;
   if (field.startsWith("..")) return undefined;
   if (field.startsWith("./")) return `${pkg}/${field.slice(2)}`;
   if (field.startsWith(".")) return undefined;
@@ -182,12 +187,21 @@ function resolveManifestTarget(pkg: string, field: string): string | undefined {
 }
 
 /**
+ * Packages auto-trusted alongside the `@typesugar/*` scope despite not
+ * being scoped themselves — today just the bare `typesugar` facade
+ * package (published unscoped on npm), which is exactly as first-party as
+ * `@typesugar/std` and was already unconditionally trusted under the old
+ * `FACADE_TO_PROVIDER` list.
+ */
+const AUTO_TRUSTED_UNSCOPED_PACKAGES = new Set(["typesugar"]);
+
+/**
  * Check whether `pkg` is allowed to register macros outside the
  * auto-trusted `@typesugar/*` scope, per `security.allowedMacroPackages`
  * (exact names, or `"@scope/*"` wildcard entries).
  */
 function isTrusted(pkg: string): boolean {
-  if (pkg.startsWith("@typesugar/")) return true;
+  if (pkg.startsWith("@typesugar/") || AUTO_TRUSTED_UNSCOPED_PACKAGES.has(pkg)) return true;
 
   const allowed = config.get<string[]>("security.allowedMacroPackages") ?? [];
   for (const entry of allowed) {

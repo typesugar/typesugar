@@ -28,6 +28,9 @@
       "require": "./dist/macros.cjs"
     }
   },
+  "typesugar": {
+    "macros": "./macros"
+  },
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",

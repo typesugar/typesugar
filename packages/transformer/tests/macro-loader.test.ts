@@ -97,6 +97,12 @@ describe("macro-loader manifest discovery (PEP-055)", () => {
     writeFixturePackage(nodeModules, "@my-scope/wildcard-pkg", {
       typesugar: { macros: "./macros" },
     });
+    writeFixturePackage(
+      nodeModules,
+      "typesugar",
+      { typesugar: { macros: "." } },
+      { "index.js": "module.exports.__typesugar_macros__ = [];" }
+    );
 
     fs.writeFileSync(path.join(tmpDir, "entry.js"), "");
     __setRequireForTesting(createRequire(path.join(tmpDir, "entry.js")));
@@ -114,6 +120,12 @@ describe("macro-loader manifest discovery (PEP-055)", () => {
   it("auto-trusts @typesugar/* packages declaring the manifest field", () => {
     const { toLoad, blocked } = classifyManifestPackages(["@typesugar/fixture-trusted"]);
     expect(toLoad.get("@typesugar/fixture-trusted")).toBe("@typesugar/fixture-trusted/macros");
+    expect(blocked).toEqual([]);
+  });
+
+  it('auto-trusts the bare unscoped "typesugar" package (self-referencing ".")', () => {
+    const { toLoad, blocked } = classifyManifestPackages(["typesugar"]);
+    expect(toLoad.get("typesugar")).toBe("typesugar");
     expect(blocked).toEqual([]);
   });
 
@@ -176,5 +188,63 @@ describe("macro-loader manifest discovery (PEP-055)", () => {
   it("loadMacroPackages does not throw when nothing declares the manifest field", () => {
     const program = createProgramFromImports(["no-manifest-pkg"]);
     expect(() => loadMacroPackages(program)).not.toThrow();
+  });
+});
+
+describe("manifest discovery against the real workspace packages (PEP-055 Phase B)", () => {
+  // No __setRequireForTesting override here — these resolve through the
+  // real, workspace-linked node_modules, exercising the actual
+  // typesugar.macros fields Phase B added to each package's package.json.
+  beforeEach(() => {
+    resetLoadedPackages();
+  });
+
+  afterEach(() => {
+    resetLoadedPackages();
+  });
+
+  it('resolves @typesugar/macros\' own root-level manifest entry (".")', () => {
+    const { toLoad, blocked } = classifyManifestPackages(["@typesugar/macros"]);
+    expect(toLoad.get("@typesugar/macros")).toBe("@typesugar/macros");
+    expect(blocked).toEqual([]);
+  });
+
+  it("resolves each ./macros-subpath package's manifest entry", () => {
+    const packages = [
+      "@typesugar/codec",
+      "@typesugar/contracts",
+      "@typesugar/effect",
+      "@typesugar/erased",
+      "@typesugar/fusion",
+      "@typesugar/graph",
+      "@typesugar/mapper",
+      "@typesugar/strings",
+      "@typesugar/testing",
+      "@typesugar/type-system",
+      "@typesugar/sql",
+      "@typesugar/parser",
+      "@typesugar/std",
+      "@typesugar/units",
+      "@typesugar/validate",
+    ];
+    const { toLoad, blocked } = classifyManifestPackages(packages);
+    expect(blocked).toEqual([]);
+    for (const pkg of packages) {
+      expect(toLoad.get(pkg)).toBe(`${pkg}/macros`);
+    }
+  });
+
+  it("resolves each facade's cross-package reference to @typesugar/macros", () => {
+    const facades = [
+      "@typesugar/derive",
+      "@typesugar/reflect",
+      "@typesugar/typeclass",
+      "typesugar",
+    ];
+    const { toLoad, blocked } = classifyManifestPackages(facades);
+    expect(blocked).toEqual([]);
+    for (const pkg of facades) {
+      expect(toLoad.get(pkg)).toBe("@typesugar/macros");
+    }
   });
 });
