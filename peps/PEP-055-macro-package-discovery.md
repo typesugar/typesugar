@@ -1,17 +1,17 @@
 # PEP-055: Macro-Package Discovery via `package.json`
 
-**Status:** In Progress (2026-07-11) — design accepted (all three open
-questions below resolved with this PEP's own recommended defaults). Phase A
-(manifest discovery + trust gate + `typesugar approve-macros` CLI, additive,
-zero behavior change for existing packages) implemented in Wave 1. Phase B
-(official packages declaring the field — 15 packages plus 4 facades, scope
-corrected during implementation, see Wave 2 notes) implemented in Wave 2.
+**Status:** Implemented (2026-07-11) — all five phases landed across five
+waves. Phase A (manifest discovery + trust gate + `typesugar approve-macros`
+CLI) in Wave 1; Phase B (official packages declaring the field — 15
+packages plus 4 facades, scope corrected during implementation) in Wave 2;
 Phase C (old `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER`/prefix-fallback
-deleted — the manifest field is now the ONLY discovery path) implemented
-in Wave 3. Phase D (the `ResultAlgebra` relocation — `@typesugar/fp`/
-`@typesugar/std` now own their built-in algebras, `specialize.ts` is
-genuinely unseeded) implemented in Wave 4. Phase E (the docs sweep) not
-yet started — the only remaining wave.
+deleted — the manifest field is the ONLY discovery path) in Wave 3; Phase D
+(the `ResultAlgebra` relocation — `@typesugar/fp`/`@typesugar/std` now own
+their built-in algebras, `specialize.ts` is genuinely unseeded) in Wave 4;
+Phase E (docs sweep — `docs/SECURITY.md`/`SECURITY-REVIEW.md` updated,
+`docs/guides/authoring-libraries.md` documents third-party macro-package
+discovery for the first time) in Wave 5. See each wave's implementation
+notes below for what was found and corrected along the way.
 **Date:** 2026-07-04
 **Author:** Claude (with Dean Povey)
 **Relates to:** [PEP-050](PEP-050-shipping-typesugar-libraries.md) (the `./macros` subpath split this builds on), [PEP-052](PEP-052-import-scoped-macro-activation.md) (Wave 9 names this as its prerequisite), [PEP-049](PEP-049-cruft-cleanup.md) (prior finding that a self-declared field can't be an allowlist)
@@ -680,3 +680,49 @@ log output and a clean compile.
 Phase E (the docs sweep — `docs/SECURITY.md` subsection + a third-party
 macro-package-author guide page, and flipping this PEP's status to
 Implemented) is the only remaining wave.
+
+## Wave 5 (Phase E) implementation notes (2026-07-11)
+
+Docs sweep. Rather than a brand-new page, extended the existing
+`docs/guides/authoring-libraries.md` — its "Case 1 — Shipping macros"
+section already documented the `./macros` isolation pattern (PEP-050) but
+said nothing about how a macro package gets **discovered**, and in fact
+described the old, pre-PEP-055 loader behavior ("prefers `your-pkg/macros`
+and falls back to the package root") as if it applied generally, when in
+reality only `@typesugar/*`-prefixed packages were ever attempted at all.
+Added a "Getting discovered" section explaining the `typesugar.macros`
+field, the `@typesugar/*` auto-trust vs. third-party `approve-macros`
+consent split, and a checklist item reminding third-party authors to
+mention the one-time consent step in their own README. Also added a
+cross-referencing note to `docs/guides/library-manifest.md` — that guide's
+`typeclasses`/`instances`/`extensions` manifest system reads a sibling
+`package.json#typesugar` key for a _different_ purpose (pure data,
+declared instances, no macro-time code, no consent gate needed), and the
+two are easy to conflate since they share the same top-level key name.
+
+`docs/SECURITY.md`: updated "What this means concretely"'s "a transitive
+dependency can register a macro" bullet to note the new, real (if partial)
+mitigation, added a new "What _is_ enforced" bullet for the
+`approve-macros` consent gate, and rewrote the F1 "Known limitations"
+bullet to be precise about what PEP-055 actually closes (whether the
+compiler's own loader attempts to `require()` a dependency's macro-time
+code at all) versus what it doesn't (identity verification behind the
+self-declared package name; `globalRegistry.register()` called directly
+by a package already imported for an unrelated reason). Getting this
+distinction right mattered — the temptation is to describe PEP-055 as
+"fixing" F1 outright, which it does not; it adds a real, narrower control
+one layer upstream of the actual registration API, and a security doc
+overclaiming what's fixed is worse than not updating it at all.
+
+`docs/SECURITY-REVIEW.md`: updated F1's status line (both the summary
+table and the full finding) from "documented limitation" to "partially
+mitigated," with the same precise "closes X, does not close Y" framing,
+and struck through the original "introduce a macro allowlist" recommendation
+as shipped (`security.allowedMacroPackages`, written by `approve-macros`)
+rather than leaving it as an open ask now that it's done.
+
+No code changes this wave — docs only. `npx prettier --check .` clean.
+
+**This PEP is now Implemented.** All five phases (A–E) have landed across
+five waves (PRs #61–#65). PEP-052 Wave 9, which named this PEP as its
+prerequisite, is unblocked in full.

@@ -14,14 +14,14 @@
 >
 > Status summary:
 >
-> | Finding                             | Original | Now                                                                                                |
-> | ----------------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
-> | F1 Unrestricted macro registration  | CRITICAL | Documented limitation — [#14](https://github.com/typesugar/typesugar/issues/14), see `SECURITY.md` |
-> | F2 Path traversal in include macros | CRITICAL | **Resolved** — boundary check + red-team tests                                                     |
-> | F3 Comptime `node:vm` escape        | HIGH     | Partially mitigated — [#15](https://github.com/typesugar/typesugar/issues/15)                      |
-> | F4 Capabilities advisory            | HIGH     | Partially addressed — [#16](https://github.com/typesugar/typesugar/issues/16)                      |
-> | F5 No macro output validation       | HIGH     | Open (detection exists) — [#17](https://github.com/typesugar/typesugar/issues/17)                  |
-> | F6–F8                               | MEDIUM   | Unchanged (see each finding)                                                                       |
+> | Finding                             | Original | Now                                                                                                                                                                              |
+> | ----------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | F1 Unrestricted macro registration  | CRITICAL | Partially mitigated (PEP-055 discovery consent gate) — [#14](https://github.com/typesugar/typesugar/issues/14) tracks the remaining identity-verification gap, see `SECURITY.md` |
+> | F2 Path traversal in include macros | CRITICAL | **Resolved** — boundary check + red-team tests                                                                                                                                   |
+> | F3 Comptime `node:vm` escape        | HIGH     | Partially mitigated — [#15](https://github.com/typesugar/typesugar/issues/15)                                                                                                    |
+> | F4 Capabilities advisory            | HIGH     | Partially addressed — [#16](https://github.com/typesugar/typesugar/issues/16)                                                                                                    |
+> | F5 No macro output validation       | HIGH     | Open (detection exists) — [#17](https://github.com/typesugar/typesugar/issues/17)                                                                                                |
+> | F6–F8                               | MEDIUM   | Unchanged (see each finding)                                                                                                                                                     |
 >
 > Detection: `typesugar expand <file> [--diff]` — the review's highest-ROI item —
 > **shipped** (`packages/transformer/src/cli.ts`).
@@ -83,17 +83,38 @@ This review identifies 8 vulnerabilities across 3 severity tiers and proposes a 
 
 ## Findings
 
-### F1: Unrestricted Macro Registration (CRITICAL → documented limitation)
+### F1: Unrestricted Macro Registration (CRITICAL → partially mitigated)
 
-> **Status (2026-06-21):** Reclassified to a **documented known limitation** and
-> tracked in [#14](https://github.com/typesugar/typesugar/issues/14). The
-> proposed `macros.allow` allowlist was **deliberately not shipped**: the registry
-> keys on the macro's _self-declared_ `module` field
-> (`packages/core/src/registry.ts`), which a hostile package can set to any
-> allowlisted value — so the gate would be trivially bypassable (security
-> theater) and off-by-default. The honest trust-model statement is published in
-> [`SECURITY.md`](./SECURITY.md); a real control requires deriving the registering
-> package's identity from the module-resolution graph (future work, #14).
+> **Status (2026-07-11):** **Partially mitigated by PEP-055**, tracked in
+> [#14](https://github.com/typesugar/typesugar/issues/14) for the remaining
+> gap. The original recommendation below (a `typesugar.config.ts` allowlist)
+> deliberately was **not** shipped as a gate on `globalRegistry.register()`
+> itself — the registry still keys on a macro's _self-declared_ `module`
+> field (`packages/core/src/registry.ts`), which a hostile package can set
+> to any value it likes, so a gate built directly on that field would still
+> be trivially bypassable. Instead, PEP-055 gates a layer upstream of it:
+> **whether the compiler ever `require()`s a dependency's macro-time code
+> at all.** A package now declares where that code lives via a
+> self-declared `typesugar.macros` field in its own `package.json` (also
+> spoofable in principle — but as a _routing instruction_, not an _identity
+> claim_: setting it to a lie just makes discovery fail, it doesn't grant
+> registration rights). `@typesugar/*`-scoped packages are auto-trusted
+> (already-unavoidable trust the moment you depend on the compiler itself);
+> anything else fails the build until a human runs `typesugar
+approve-macros`, which writes a committed, reviewable decision into
+> `typesugar.config.ts`. This closes the "accidental transitive import"
+> case this finding originally worried about (nothing merely _present_ in
+> `node_modules` gets its macro code executed anymore, without a compiled
+> project explicitly importing it — the manifest field is what determines
+> whether the _loader_ attempts the `require()` in the first place) but
+> does **not** solve the deeper identity-verification problem the original
+> recommendation couldn't either: approving a name once doesn't
+> cryptographically pin future installs of that name, and it doesn't
+> constrain a package that registers via `globalRegistry.register()` as a
+> side effect of being imported for an unrelated (non-macro) reason. The
+> honest trust-model statement, including this residual gap, is published
+> in [`SECURITY.md`](./SECURITY.md); the identity-verification piece
+> remains future work (#14).
 
 **Location:** `packages/core/src/registry.ts`
 
@@ -118,7 +139,7 @@ globalRegistry.register({
 
 **The name-collision check (`kindMap.has(key)`) prevents overriding built-in macros** — but doesn't prevent registering macros with names that match user functions.
 
-**Recommendation:** Introduce a macro allowlist in `typesugar.config.ts`. Only macros from explicitly trusted packages should be loaded. See [Proposed: Macro Allowlist](#proposed-macro-allowlist).
+**Recommendation:** ~~Introduce a macro allowlist in `typesugar.config.ts`. Only macros from explicitly trusted packages should be loaded.~~ **Shipped as `security.allowedMacroPackages`, written by `typesugar approve-macros`** (PEP-055) — see the Status callout above for exactly what this does and does not cover.
 
 ---
 

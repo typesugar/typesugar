@@ -1072,34 +1072,33 @@ from "./primitives.js"` (browser-safe — primitives.ts itself has zero
     — the alternative (two different maps again) would defeat the wave's
     entire purpose.
 
-- **Wave 9 — macro-package discovery via `package.json`. IN PROGRESS
-  (2026-07-10): PEP-055 accepted, Wave 1 / Phase A landed.** Replace the
-  macro-loader's `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` lists and the
+- **Wave 9 — macro-package discovery via `package.json`. DONE (2026-07-11):
+  PEP-055 fully implemented, all five phases.** Replaced the macro-loader's
+  `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` lists and the
   `@typesugar/*`-prefix speculative loading with a declared manifest field
-  (e.g. `"typesugar": { "macros": "./macros" }`), making third-party macro
-  packages first-class. This changes what code the compiler executes at
+  (`"typesugar": { "macros": "./macros" }`), making third-party macro
+  packages first-class. This changed what code the compiler executes at
   build time, so it needed its own PEP (discovery semantics,
   workspace-vs-registry resolution, security posture) before implementation
-  — that PEP is [PEP-055](PEP-055-macro-package-discovery.md). Its three
-  open questions are resolved (all three on the PEP's own recommended
-  defaults), and Phase A (manifest discovery + trust gate + `typesugar
-approve-macros`, additive to the existing lists, zero behavior change for
-  existing packages) is implemented. PEP-055's own research found the
-  "workspace-vs-registry resolution" question dissolves (Node module
-  resolution already erases the distinction) but surfaced a real, more
-  significant one: honoring the manifest field unconditionally for any
-  package name would be a materially larger supply-chain surface than
-  today's `@typesugar/`-prefix gate — its recommended design keeps today's
-  trust boundary as the default and requires explicit consumer-side opt-in
-  (a `typesugar.config.ts` allowlist, written by `typesugar approve-macros`)
-  to widen it, rather than widening it for everyone by default. Remaining:
-  Phase B (std/fp/effect/contracts/the four facades actually declare the
-  field), Phase C (delete the old lists, gated on B), Phase D (the
-  ResultAlgebra relocation — see below), Phase E (docs sweep). **Unblocks
-  the ResultAlgebra relocation:** once fp can declare a macro entry, the
-  Option/Either algebra seeds move from `@typesugar/macros` into fp
-  (Promise's into std/macros), and the seeds comment in `specialize.ts`
-  comes out. Large.
+  — that PEP is [PEP-055](PEP-055-macro-package-discovery.md), now
+  Implemented. PEP-055's own research found the "workspace-vs-registry
+  resolution" question dissolves (Node module resolution already erases
+  the distinction) but surfaced a real, more significant one: honoring the
+  manifest field unconditionally for any package name would be a
+  materially larger supply-chain surface than the old `@typesugar/`-prefix
+  gate — the shipped design keeps that trust boundary as the default and
+  requires explicit consumer-side opt-in (a `typesugar.config.ts`
+  allowlist, written by `typesugar approve-macros`) to widen it, rather
+  than widening it for everyone by default. All five phases landed: A
+  (discovery + trust gate + CLI), B (all 15 macro-bearing packages + 4
+  facades declare the field — 11 more than originally scoped, found via
+  audit), C (old lists + prefix fallback deleted — the manifest field is
+  now the only discovery path), D (the ResultAlgebra relocation — see
+  below), E (docs sweep, `docs/SECURITY.md`/`SECURITY-REVIEW.md` updated).
+  **Unblocked the ResultAlgebra relocation:** `fp` now has its own macro
+  entry; the Option/Either algebra seeds moved from `@typesugar/macros`
+  into `fp` (Promise's into `std/macros`), and the seeds comment in
+  `specialize.ts` is gone — the registry is genuinely unseeded now.
 
 - **Wave 10 (optional) — checker-derived native detection.** Even
   `BUILTIN_METHOD_RECEIVER_NAMES` is derivable in principle: rather than a
