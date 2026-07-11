@@ -4,7 +4,8 @@
  *
  * Covers:
  * - SpecializationCache: key computation, name generation, caching, hoisting
- * - Result algebras: registration, lookup, built-in algebras
+ * - Result algebra registry: registration, lookup (built-in algebras
+ *   themselves now live with their owning packages — see PEP-055 Phase D)
  * - Instance method registry: AST registration, lookup
  * - Inline failure classification: all failure reasons
  * - getInlineFailureHelp: help text for each reason
@@ -17,9 +18,6 @@ import {
   SpecializationCache,
   registerResultAlgebra,
   getResultAlgebra,
-  optionResultAlgebra,
-  eitherResultAlgebra,
-  promiseResultAlgebra,
   registerInstanceMethodsFromAST,
   getInstanceMethods,
   isRegisteredInstance,
@@ -145,47 +143,40 @@ describe("SpecializationCache", () => {
 // Result Algebras
 // ============================================================================
 
-describe("Result algebras", () => {
-  describe("built-in algebras exist", () => {
-    it("optionResultAlgebra targets Option", () => {
-      expect(optionResultAlgebra.name).toBe("Option");
-      expect(optionResultAlgebra.targetTypes).toContain("Option");
-      expect(optionResultAlgebra.preservesError).toBe(false);
+// The built-in Option/Either/Promise algebras no longer live in this
+// package (PEP-055 Phase D relocation): `optionResultAlgebra`/
+// `eitherResultAlgebra` are tested in `packages/fp/src/macros.test.ts`,
+// `promiseResultAlgebra` in `packages/std/tests/result-algebra.test.ts`.
+// This file only tests the registry mechanism itself, which stays here.
+describe("Result algebra registry", () => {
+  it("registerResultAlgebra adds an algebra findable by registerResultAlgebra/getResultAlgebra", () => {
+    registerResultAlgebra({
+      name: "TestAlgebra",
+      targetTypes: ["TestType"],
+      rewriteOk: (_ctx, value) => value,
+      rewriteErr: (_ctx, error) => error,
+      preservesError: true,
     });
 
-    it("eitherResultAlgebra targets Either", () => {
-      expect(eitherResultAlgebra.name).toBe("Either");
-      expect(eitherResultAlgebra.targetTypes).toContain("Either");
-      expect(eitherResultAlgebra.preservesError).toBe(true);
-    });
-
-    it("promiseResultAlgebra targets Promise", () => {
-      expect(promiseResultAlgebra.name).toBe("Promise");
-      expect(promiseResultAlgebra.targetTypes).toContain("Promise");
-      expect(promiseResultAlgebra.preservesError).toBe(true);
-    });
+    const algebra = getResultAlgebra("TestType");
+    expect(algebra!.name).toBe("TestAlgebra");
   });
 
-  describe("registration and lookup", () => {
-    it("getResultAlgebra finds built-in algebras by target type", () => {
-      // Built-in algebras are registered at module load
-      expect(getResultAlgebra("Option")).toBeDefined();
-      expect(getResultAlgebra("Either")).toBeDefined();
-      expect(getResultAlgebra("Promise")).toBeDefined();
+  it("getResultAlgebra returns undefined for an unregistered type", () => {
+    expect(getResultAlgebra("SomeUnregisteredType")).toBeUndefined();
+  });
+
+  it("registerResultAlgebra can target multiple type names at once", () => {
+    registerResultAlgebra({
+      name: "MultiTarget",
+      targetTypes: ["TypeA", "TypeB"],
+      rewriteOk: (_ctx, value) => value,
+      rewriteErr: (_ctx, error) => error,
+      preservesError: false,
     });
 
-    it("registerResultAlgebra adds custom algebra", () => {
-      registerResultAlgebra({
-        name: "TestAlgebra",
-        targetTypes: ["TestType"],
-        rewriteOk: (_ctx, value) => value,
-        rewriteErr: (_ctx, error) => error,
-        preservesError: true,
-      });
-
-      const algebra = getResultAlgebra("TestType");
-      expect(algebra!.name).toBe("TestAlgebra");
-    });
+    expect(getResultAlgebra("TypeA")!.name).toBe("MultiTarget");
+    expect(getResultAlgebra("TypeB")!.name).toBe("MultiTarget");
   });
 });
 
