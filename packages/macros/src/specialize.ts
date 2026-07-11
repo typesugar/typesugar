@@ -254,83 +254,13 @@ export function getResultAlgebra(typeName: string): ResultAlgebra | undefined {
   return resultAlgebraRegistry.get(typeName);
 }
 
-// ============================================================================
-// Built-in Result Algebras
-// ============================================================================
-
-/**
- * Option algebra: ok(v) -> v, err(e) -> null
- *
- * Specializes Result<E, T> to T | null (Option<T>).
- * Error information is discarded.
- */
-export const optionResultAlgebra: ResultAlgebra = {
-  name: "Option",
-  targetTypes: ["Option"],
-  rewriteOk: (_ctx, value) => value,
-  rewriteErr: (ctx, _error) => ctx.factory.createNull(),
-  preservesError: false,
-};
-
-/**
- * Either algebra: ok(v) -> { _tag: "Right", right: v }, err(e) -> { _tag: "Left", left: e }
- *
- * Specializes Result<E, T> to Either<E, T>.
- * Both success and error values are preserved with discriminated union tags.
- */
-export const eitherResultAlgebra: ResultAlgebra = {
-  name: "Either",
-  targetTypes: ["Either"],
-  rewriteOk: (ctx, value) =>
-    ctx.factory.createObjectLiteralExpression([
-      ctx.factory.createPropertyAssignment("_tag", ctx.factory.createStringLiteral("Right")),
-      ctx.factory.createPropertyAssignment("right", value),
-    ]),
-  rewriteErr: (ctx, error) =>
-    ctx.factory.createObjectLiteralExpression([
-      ctx.factory.createPropertyAssignment("_tag", ctx.factory.createStringLiteral("Left")),
-      ctx.factory.createPropertyAssignment("left", error),
-    ]),
-  preservesError: true,
-};
-
-/**
- * Promise algebra: ok(v) -> Promise.resolve(v), err(e) -> Promise.reject(e)
- *
- * Specializes Result<E, T> to Promise<T>.
- * Useful for async error handling.
- */
-export const promiseResultAlgebra: ResultAlgebra = {
-  name: "Promise",
-  targetTypes: ["Promise"],
-  rewriteOk: (ctx, value) =>
-    ctx.factory.createCallExpression(
-      ctx.factory.createPropertyAccessExpression(
-        ctx.factory.createIdentifier("Promise"),
-        "resolve"
-      ),
-      undefined,
-      [value]
-    ),
-  rewriteErr: (ctx, error) =>
-    ctx.factory.createCallExpression(
-      ctx.factory.createPropertyAccessExpression(ctx.factory.createIdentifier("Promise"), "reject"),
-      undefined,
-      [error]
-    ),
-  preservesError: true,
-};
-
-// Register built-in algebras
-// DELIBERATE builtin seeding (PEP-052 Wave 4 reviewed and retained): these
-// algebras are AST-building rewrite functions — not declarable as JSDoc
-// metadata — and fp has no macro entry to host its own registration, so
-// relocating the seeds would mean inventing loader plumbing for three lines.
-// `registerResultAlgebra` remains the extension point for third-party result
-// types; the seeds are ordinary calls to it, not a privileged path.
-registerResultAlgebra(optionResultAlgebra);
-registerResultAlgebra(eitherResultAlgebra);
-registerResultAlgebra(promiseResultAlgebra);
+// Built-in Result algebras (Option, Either, Promise) are registered by
+// their owning packages' own `./macros` entries, not seeded here — PEP-055
+// Phase D relocation. `optionResultAlgebra`/`eitherResultAlgebra` live in
+// `@typesugar/fp/macros` (`packages/fp/src/macros.ts`); `promiseResultAlgebra`
+// lives in `@typesugar/std/macros` (`packages/std/src/macros/index.ts`).
+// `registerResultAlgebra` remains the extension point for third-party
+// result types — this file no longer calls it itself.
 
 // ============================================================================
 // Specialization Registry

@@ -8,8 +8,10 @@ zero behavior change for existing packages) implemented in Wave 1. Phase B
 corrected during implementation, see Wave 2 notes) implemented in Wave 2.
 Phase C (old `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER`/prefix-fallback
 deleted — the manifest field is now the ONLY discovery path) implemented
-in Wave 3. Phases D–E (the `ResultAlgebra` relocation, the docs sweep) not
-yet started.
+in Wave 3. Phase D (the `ResultAlgebra` relocation — `@typesugar/fp`/
+`@typesugar/std` now own their built-in algebras, `specialize.ts` is
+genuinely unseeded) implemented in Wave 4. Phase E (the docs sweep) not
+yet started — the only remaining wave.
 **Date:** 2026-07-04
 **Author:** Claude (with Dean Povey)
 **Relates to:** [PEP-050](PEP-050-shipping-typesugar-libraries.md) (the `./macros` subpath split this builds on), [PEP-052](PEP-052-import-scoped-macro-activation.md) (Wave 9 names this as its prerequisite), [PEP-049](PEP-049-cruft-cleanup.md) (prior finding that a self-declared field can't be an allowlist)
@@ -615,3 +617,66 @@ build + full test suite green with the deletion in place." Phase D (the
 `ResultAlgebra` relocation, now genuinely unblocked — `@typesugar/fp` can
 finally declare its own `./macros` entry and be discovered) and Phase E
 (docs sweep) remain.
+
+## Wave 4 (Phase D) implementation notes (2026-07-11)
+
+Relocated the three built-in `ResultAlgebra` seeds out of
+`packages/macros/src/specialize.ts`, exactly as designed:
+`optionResultAlgebra`/`eitherResultAlgebra` now live in a new
+`packages/fp/src/macros.ts` (fp's first `./macros` entry — added the
+export subpath + `typesugar.macros: "./macros"` field to its
+`package.json`); `promiseResultAlgebra` now lives in
+`packages/std/src/macros/index.ts` (std's existing macro entry).
+`specialize.ts` keeps only the `ResultAlgebra` type, the registry, and
+`registerResultAlgebra`/`getResultAlgebra` — genuinely unseeded, as the
+PEP's Motivation section said it would once this landed. The seed comment
+`specialize.ts` carried since PEP-052 Wave 4 ("fp has no macro entry to
+host its own registration, so relocating the seeds would mean inventing
+loader plumbing for three lines") is gone — Phases A–C are exactly that
+loader plumbing, already landed, already unconditional.
+
+**Behavioral note, not a regression**: `optionResultAlgebra`/
+`eitherResultAlgebra` now only register when a project actually imports
+something from `@typesugar/fp` (previously they registered unconditionally
+for any typesugar project, since they were seeded in `@typesugar/macros`,
+which always loads). This sounds like a narrowing but isn't one in
+practice: using the `Option`/`Either` return-type-driven specialization
+requires the function's return type to be annotated `Option<T>`/
+`Either<E, T>`, and those types are only defined in `@typesugar/fp` — so
+anything that could exercise these algebras has necessarily already
+imported `@typesugar/fp`, which triggers its `./macros` entry through the
+normal per-file discovery scan. `promiseResultAlgebra` has no such gap:
+`@typesugar/std` always loads first whenever any `@typesugar/*` package is
+imported (the guarantee Wave 3 preserved), so it registers unconditionally
+exactly as before.
+
+**Test relocation, not just source relocation**: three existing test files
+imported the built-in algebras directly from `@typesugar/macros`
+(`packages/macros/src/specialize.test.ts`, `tests/specialize-improvements.test.ts`,
+`packages/transformer-core/tests/specialization.test.ts`). Updated all
+three — `specialize.test.ts`'s built-in-algebra-specific assertions moved
+to new colocated tests (`packages/fp/src/macros.test.ts`,
+`packages/std/tests/result-algebra.test.ts`, matching each package's own
+existing test convention), keeping only the registry-mechanism tests
+(register/lookup/multi-target) where the registry itself still lives.
+`specialize-improvements.test.ts` (a root-level integration test) now
+imports the algebras from their new homes and still exercises the full
+round trip. `transformer-core/tests/specialization.test.ts` had a single
+"smoke test... so vitest reports coverage" assertion on `optionResultAlgebra`
+with no real behavioral content; removed rather than given a new
+`@typesugar/fp` devDependency transformer-core has no other reason to
+carry (`transformer-core` is meant to stay dependency-light — pulling in a
+domain library like `fp` just to keep one dead coverage assertion alive
+would be the wrong tradeoff).
+
+Verified: full workspace `pnpm build` + full `vitest run` — 272/273 test
+files (7302 tests, up 8 from Wave 3 — the two new colocated test files — 38
+pre-existing skips, 0 failures). `npx prettier --check .` clean. Manual
+smoke test against the real built CLI binary: verbose `typesugar check`
+against a throwaway project importing `@typesugar/fp`'s `ZeroCostOptionOps`
+confirms `[typesugar] Loaded macro package: @typesugar/fp/macros` in the
+log output and a clean compile.
+
+Phase E (the docs sweep — `docs/SECURITY.md` subsection + a third-party
+macro-package-author guide page, and flipping this PEP's status to
+Implemented) is the only remaining wave.

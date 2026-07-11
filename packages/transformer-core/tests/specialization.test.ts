@@ -27,7 +27,6 @@ import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
   registerInstanceMethodsFromAST,
   SpecializationCache,
-  optionResultAlgebra,
   type DictMethod,
 } from "@typesugar/macros";
 
@@ -1030,12 +1029,7 @@ const ref = eqPoint;`
   });
 });
 
-// Smoke test: the optionResultAlgebra import is used so vitest reports actual coverage.
 describe("module wiring", () => {
-  it("imports a built-in result algebra", () => {
-    expect(optionResultAlgebra.name).toBe("Option");
-  });
-
   it("imports registerInstanceMethodsFromAST", () => {
     expect(typeof registerInstanceMethodsFromAST).toBe("function");
   });

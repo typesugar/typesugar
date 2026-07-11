@@ -17,11 +17,11 @@ import {
   createHoistedSpecialization,
   registerResultAlgebra,
   getResultAlgebra,
-  optionResultAlgebra,
-  eitherResultAlgebra,
-  promiseResultAlgebra,
   type ResultAlgebra,
 } from "@typesugar/macros";
+// Built-in Result algebras live with their owning packages (PEP-055 Phase D):
+import { optionResultAlgebra, eitherResultAlgebra } from "@typesugar/fp/macros";
+import { promiseResultAlgebra } from "@typesugar/std/macros";
 import { globalHygiene, HygieneContext } from "@typesugar/core";
 
 // Shared program and transform context — ts.createProgram() is expensive (~1-2s),

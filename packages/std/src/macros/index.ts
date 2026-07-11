@@ -11,6 +11,7 @@
  */
 
 import { registerSyntaxMarkerFallback } from "@typesugar/core";
+import { registerResultAlgebra, type ResultAlgebra } from "@typesugar/macros";
 
 // Side-effect import: register the ParCombine builders/instances used by the
 // par:/yield: macro. This compile-time registration lives in `par-combine.ts`
@@ -19,6 +20,38 @@ import { registerSyntaxMarkerFallback } from "@typesugar/core";
 // instances are re-exported separately from the `typescript`-free
 // `typeclasses/par-combine-instances.ts` by the `.` entry.
 import "../typeclasses/par-combine.js";
+
+/**
+ * Promise algebra: ok(v) -> Promise.resolve(v), err(e) -> Promise.reject(e)
+ *
+ * Specializes Result<E, T> to Promise<T>. Useful for async error handling.
+ * Relocated here from `@typesugar/macros`'s `specialize.ts` (PEP-055 Phase
+ * D) — `std` always loads first whenever any `@typesugar/*` package is
+ * imported (see `macro-loader.ts`), so this registers unconditionally for
+ * any typesugar project, same guarantee the old builtin seed made.
+ */
+export const promiseResultAlgebra: ResultAlgebra = {
+  name: "Promise",
+  targetTypes: ["Promise"],
+  rewriteOk: (ctx, value) =>
+    ctx.factory.createCallExpression(
+      ctx.factory.createPropertyAccessExpression(
+        ctx.factory.createIdentifier("Promise"),
+        "resolve"
+      ),
+      undefined,
+      [value]
+    ),
+  rewriteErr: (ctx, error) =>
+    ctx.factory.createCallExpression(
+      ctx.factory.createPropertyAccessExpression(ctx.factory.createIdentifier("Promise"), "reject"),
+      undefined,
+      [error]
+    ),
+  preservesError: true,
+};
+
+registerResultAlgebra(promiseResultAlgebra);
 
 export * from "./comprehension-utils.js";
 export * from "./let-yield.js";

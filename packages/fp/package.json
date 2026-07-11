@@ -58,11 +58,19 @@
       "import": "./dist/zero-cost/index.js",
       "require": "./dist/zero-cost/index.cjs"
     },
+    "./macros": {
+      "types": "./dist/macros.d.ts",
+      "import": "./dist/macros.js",
+      "require": "./dist/macros.cjs"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",
       "require": "./dist/*.cjs"
     }
+  },
+  "typesugar": {
+    "macros": "./macros"
   },
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json",
