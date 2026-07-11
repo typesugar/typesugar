@@ -138,6 +138,34 @@ Everything baked into the published packages must be fixed before 0.2.0.
 produces a building config; `grep -rn "typesugar\.dev" packages/` empty;
 new tests green.
 
+**Wave 2 implementation notes (2026-07-11):** two findings beyond the
+audit, both release-blocking, both fixed in this wave:
+
+- **`typesugar create` was broken for every real npm consumer.**
+  `templates/` lived at the monorepo root while the published
+  `@typesugar/transformer` ships only `dist`/`src`/`language-service` —
+  `findTemplatesDir()`'s candidate paths only ever resolved inside this
+  repo, so `npx typesugar create app` from a registry install would have
+  failed with "templates not found" (and W3's smoke test would have caught
+  it the hard way). Fixed by `git mv templates packages/transformer/templates`,
+  adding `"templates"` to the transformer's `files` array, and collapsing
+  `findTemplatesDir()` to the single `dist/../templates` candidate that
+  resolves identically in a published install and the monorepo (the old
+  `process.cwd()/templates` fallback was also removed — it could scaffold
+  from an unrelated `templates/` dir in the user's own project). Verified
+  via `npm pack --dry-run` (23 template files included) and a scaffold
+  from the built dist in a temp dir.
+- **`@typesugar/specialize@0.1.1` is published on npm but no longer exists
+  in the repo** — its source was removed by PEP-053 (specialization became
+  automatic), orphaning the published facade. The local `packages/specialize/`
+  directory was untracked build debris (dist + node_modules only) and was
+  deleted. The npm package needs `npm deprecate` in Wave 3 (added there).
+
+Also: the diagnostics catalog is **~62 codes (TS9001–TS9803)**, not the
+~25 the audit estimated, plus `@typesugar/effect`'s own `EFFECT0xx` codes
+(`packages/effect/src/diagnostics.ts`) — Wave 4's scope note updated. All
+of both files' `seeAlso` URLs were part of this wave's domain sweep.
+
 ## Wave 3 — The release: 0.2.0 to npm + VS Code Marketplace (M, ops)
 
 1. **Pre-flight (manual, Dean):** `NPM_TOKEN` valid with publish rights on
@@ -155,7 +183,12 @@ new tests green.
    resolves.
 5. **Codify** as `scripts/release-smoke.mjs` + a `workflow_dispatch`
    workflow (W9's backbone).
-6. Stretch (don't block): Open VSX publish (`ovsx`) — Cursor/Windsurf
+6. **Deprecate `@typesugar/specialize` on npm** (manual, needs npm auth):
+   `npm deprecate @typesugar/specialize@"*" "The explicit specialize API
+was removed in PEP-053 — specialization is automatic and always on.
+Remove this dependency."` — the package's source was deleted from the
+   repo but 0.1.1 remains published (found in Wave 2).
+7. Stretch (don't block): Open VSX publish (`ovsx`) — Cursor/Windsurf
    users are disproportionately the AI-assistant audience.
 
 **Acceptance:** all public packages freshly published with provenance;
@@ -164,7 +197,10 @@ workflow green end-to-end on a subsequent trivial changeset.
 
 ## Wave 4 — Error catalog completion (M) — foundation for the AI waves
 
-Every diagnostic code in `packages/core/src/diagnostics.ts` (~25) gets a
+Every diagnostic code in `packages/core/src/diagnostics.ts` (~62,
+TS9001–TS9803 — Wave 2 found the audit's ~25 undercounted; also include
+`@typesugar/effect`'s `EFFECT0xx` codes from
+`packages/effect/src/diagnostics.ts`) gets a
 real page at `docs/errors/TS<code>.md`. The descriptors are already
 documentation-grade (code, severity, category, messageTemplate, long-form
 explanation, seeAlso) — this is generation, not stub-writing.

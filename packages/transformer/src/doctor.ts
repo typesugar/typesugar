@@ -267,7 +267,7 @@ function checkTsPatch(cwd: string): DiagnosticCheck {
   }
 }
 
-function checkTsPatchActive(cwd: string): DiagnosticCheck {
+export function checkTsPatchActive(cwd: string): DiagnosticCheck {
   const tsPath = path.join(cwd, "node_modules", "typescript", "lib", "typescript.js");
 
   if (!fs.existsSync(tsPath)) {
@@ -279,8 +279,17 @@ function checkTsPatchActive(cwd: string): DiagnosticCheck {
   }
 
   try {
-    const content = fs.readFileSync(tsPath, "utf-8");
-    const isPatched = content.includes("ts-patch") || content.includes("tsp");
+    // ts-patch prepends a `/// tsp-module:` header block to every module it
+    // patches (see ts-patch's patch-detail.ts: tspHeaderBlockStart). Check
+    // for that definitive marker in the file head instead of grepping the
+    // whole ~8MB file for a fuzzy substring — the old check matched the
+    // bare string "tsp" anywhere, which false-positives on identifiers
+    // like "tspan" in unpatched builds.
+    const fd = fs.openSync(tsPath, "r");
+    const head = Buffer.alloc(4096);
+    const bytesRead = fs.readSync(fd, head, 0, head.length, 0);
+    fs.closeSync(fd);
+    const isPatched = head.toString("utf-8", 0, bytesRead).includes("/// tsp-module:");
 
     if (!isPatched) {
       return {

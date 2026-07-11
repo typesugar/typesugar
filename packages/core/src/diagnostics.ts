@@ -285,7 +285,7 @@ Solutions:
 - Add @deriving({typeclass}) JSDoc tag to the type definition
 - Provide an explicit @impl implementation (JSDoc: /** @impl Typeclass<Type> */)
 - Check that all fields have the required instances`,
-  seeAlso: "https://typesugar.dev/errors/TS9001",
+  seeAlso: "https://typesugar.org/errors/TS9001",
 };
 
 export const TS9002: DiagnosticDescriptor = {
@@ -309,7 +309,7 @@ Incorrect:
 
   @impl  // ✗ Missing type annotation
   const showPoint = { ... };`,
-  seeAlso: "https://typesugar.dev/errors/TS9002",
+  seeAlso: "https://typesugar.org/errors/TS9002",
 };
 
 export const TS9003: DiagnosticDescriptor = {
@@ -332,7 +332,7 @@ Legacy decorator syntax:
 Incorrect:
   /** @impl */
   const showPoint = { ... };  // Missing type in JSDoc or annotation`,
-  seeAlso: "https://typesugar.dev/errors/TS9003",
+  seeAlso: "https://typesugar.org/errors/TS9003",
 };
 
 export const TS9004: DiagnosticDescriptor = {
@@ -350,7 +350,7 @@ Correct forms:
 Incorrect:
   /** @impl Point */         — not a typeclass reference
   /** @impl Show */          — missing the type argument`,
-  seeAlso: "https://typesugar.dev/errors/TS9004",
+  seeAlso: "https://typesugar.org/errors/TS9004",
 };
 
 export const TS9005: DiagnosticDescriptor = {
@@ -367,7 +367,7 @@ Correct:
 Incorrect:
   summon()               — missing type argument
   summon<Point>()        — Point is not a typeclass`,
-  seeAlso: "https://typesugar.dev/errors/TS9005",
+  seeAlso: "https://typesugar.org/errors/TS9005",
 };
 
 export const TS9006: DiagnosticDescriptor = {
@@ -383,7 +383,7 @@ the first registered instance, but this may not be the intended behavior.
 To fix:
 1. Remove duplicate @instance declarations
 2. Or use explicit instance selection with summon()`,
-  seeAlso: "https://typesugar.dev/errors/TS9006",
+  seeAlso: "https://typesugar.org/errors/TS9006",
 };
 
 export const TS9007: DiagnosticDescriptor = {
@@ -398,7 +398,7 @@ Common typeclasses: Show, Eq, Ord, Clone, Hash, Default, Json
 If you're using a custom typeclass, ensure it's decorated with @typeclass:
   @typeclass
   interface MyTypeclass<A> { ... }`,
-  seeAlso: "https://typesugar.dev/errors/TS9007",
+  seeAlso: "https://typesugar.org/errors/TS9007",
 };
 
 export const TS9008: DiagnosticDescriptor = {
@@ -416,7 +416,7 @@ Incorrect:
   summon<Point>()       // Point is not a typeclass
   summon<Show>()        // Missing the type argument
   summon<string>()      // Primitive, not a typeclass`,
-  seeAlso: "https://typesugar.dev/errors/TS9008",
+  seeAlso: "https://typesugar.org/errors/TS9008",
 };
 
 // Coherence Checking (9050-9059)
@@ -438,7 +438,7 @@ The error shows both instance locations. To fix:
 - Remove one of the instances
 - Use a newtype wrapper if you need different behaviors
 - Configure instance priority in typesugar.config.ts`,
-  seeAlso: "https://typesugar.dev/errors/TS9050",
+  seeAlso: "https://typesugar.org/errors/TS9050",
 };
 
 export const TS9051: DiagnosticDescriptor = {
@@ -458,7 +458,7 @@ The warning shows both instances:
 To silence this warning:
 - Remove the local instance if you want the imported one
 - Add a comment \`// @ts-expect-error TS9051\` if shadowing is intentional`,
-  seeAlso: "https://typesugar.dev/errors/TS9051",
+  seeAlso: "https://typesugar.org/errors/TS9051",
 };
 
 export const TS9052: DiagnosticDescriptor = {
@@ -480,7 +480,7 @@ To fix:
 - Make one instance more specific (higher priority)
 - Remove one of the instances
 - Use explicit \`summon<TC>(moduleName)\` to disambiguate`,
-  seeAlso: "https://typesugar.dev/errors/TS9052",
+  seeAlso: "https://typesugar.org/errors/TS9052",
 };
 
 // ============================================================================
@@ -503,7 +503,7 @@ typesugar typeclasses must be imported to be used:
 Common typeclasses:
 - Eq, Ord, Show, Clone, Debug, Hash, Default — from @typesugar/std
 - Functor, Monad, Applicative — from @typesugar/fp`,
-  seeAlso: "https://typesugar.dev/errors/TS9060",
+  seeAlso: "https://typesugar.org/errors/TS9060",
 };
 
 export const TS9061: DiagnosticDescriptor = {
@@ -522,7 +522,7 @@ Common macros:
 - match — pattern matching
 - derive — auto-derive instances
 - cfg — conditional compilation`,
-  seeAlso: "https://typesugar.dev/errors/TS9061",
+  seeAlso: "https://typesugar.org/errors/TS9061",
 };
 
 export const TS9062: DiagnosticDescriptor = {
@@ -541,7 +541,7 @@ Extension methods require an import:
   import { ArrayExt } from "@typesugar/std";   // for array methods
 
 Or if it's a typeclass method, ensure the typeclass is in scope.`,
-  seeAlso: "https://typesugar.dev/errors/TS9062",
+  seeAlso: "https://typesugar.org/errors/TS9062",
 };
 
 export const TS9063: DiagnosticDescriptor = {
@@ -555,7 +555,7 @@ Suggested import:
   import { {symbol} } from "{module}";
 
 This is a suggestion, not an error. The symbol is available but not imported.`,
-  seeAlso: "https://typesugar.dev/errors/TS9063",
+  seeAlso: "https://typesugar.org/errors/TS9063",
 };
 
 // ============================================================================
@@ -577,7 +577,7 @@ Solutions:
 1. Add @derive({typeclass}) to {fieldType}
 2. Provide a manual @instance {typeclass}<{fieldType}>
 3. If {fieldType} is external, create a newtype wrapper`,
-  seeAlso: "https://typesugar.dev/errors/TS9101",
+  seeAlso: "https://typesugar.org/errors/TS9101",
 };
 
 export const TS9102: DiagnosticDescriptor = {
@@ -594,7 +594,7 @@ It cannot be applied to:
 - function declarations
 - variable declarations
 - other kinds of declarations`,
-  seeAlso: "https://typesugar.dev/errors/TS9102",
+  seeAlso: "https://typesugar.org/errors/TS9102",
 };
 
 export const TS9103: DiagnosticDescriptor = {
@@ -613,7 +613,7 @@ Example of correct usage:
                 Common discriminant field "kind"
 
 Without a discriminant, the runtime cannot determine which variant to use.`,
-  seeAlso: "https://typesugar.dev/errors/TS9103",
+  seeAlso: "https://typesugar.org/errors/TS9103",
 };
 
 export const TS9104: DiagnosticDescriptor = {
@@ -630,7 +630,7 @@ Solutions:
 1. Add fields to the type
 2. Provide a manual @instance implementation
 3. Use a singleton pattern if the type is intentionally empty`,
-  seeAlso: "https://typesugar.dev/errors/TS9104",
+  seeAlso: "https://typesugar.org/errors/TS9104",
 };
 
 export const TS9105: DiagnosticDescriptor = {
@@ -645,7 +645,7 @@ needing its own builder.
 For sum types, consider:
 1. Deriving Builder for each variant type separately
 2. Using smart constructors instead of builders`,
-  seeAlso: "https://typesugar.dev/errors/TS9105",
+  seeAlso: "https://typesugar.org/errors/TS9105",
 };
 
 // ============================================================================
@@ -660,7 +660,7 @@ export const TS9201: DiagnosticDescriptor = {
   explanation: `The macro was called with the wrong number of arguments.
 
 Check the macro documentation for the correct signature.`,
-  seeAlso: "https://typesugar.dev/errors/TS9201",
+  seeAlso: "https://typesugar.org/errors/TS9201",
 };
 
 export const TS9202: DiagnosticDescriptor = {
@@ -672,7 +672,7 @@ export const TS9202: DiagnosticDescriptor = {
 
 Macros have specific requirements for their arguments that are
 checked at compile time.`,
-  seeAlso: "https://typesugar.dev/errors/TS9202",
+  seeAlso: "https://typesugar.org/errors/TS9202",
 };
 
 export const TS9203: DiagnosticDescriptor = {
@@ -683,7 +683,7 @@ export const TS9203: DiagnosticDescriptor = {
   explanation: `This decorator/attribute macro has restrictions on what it can decorate.
 
 Check the macro documentation for valid targets.`,
-  seeAlso: "https://typesugar.dev/errors/TS9203",
+  seeAlso: "https://typesugar.org/errors/TS9203",
 };
 
 export const TS9204: DiagnosticDescriptor = {
@@ -694,7 +694,7 @@ export const TS9204: DiagnosticDescriptor = {
   explanation: `The macro requires type arguments to be provided.
 
 Example: typeInfo<User>() instead of typeInfo()`,
-  seeAlso: "https://typesugar.dev/errors/TS9204",
+  seeAlso: "https://typesugar.org/errors/TS9204",
 };
 
 export const TS9205: DiagnosticDescriptor = {
@@ -711,7 +711,7 @@ Correct:
 Incorrect:
   const path = "./template.txt";
   includeStr(path)  // Variable, not a literal`,
-  seeAlso: "https://typesugar.dev/errors/TS9205",
+  seeAlso: "https://typesugar.org/errors/TS9205",
 };
 
 export const TS9206: DiagnosticDescriptor = {
@@ -728,7 +728,7 @@ Correct:
 Incorrect:
   @tailrec
   const factorial = (n: number) => { ... }`,
-  seeAlso: "https://typesugar.dev/errors/TS9206",
+  seeAlso: "https://typesugar.org/errors/TS9206",
 };
 
 export const TS9207: DiagnosticDescriptor = {
@@ -741,7 +741,7 @@ export const TS9207: DiagnosticDescriptor = {
 Incorrect:
   @tailrec
   declare function factorial(n: number): number;  // No body`,
-  seeAlso: "https://typesugar.dev/errors/TS9207",
+  seeAlso: "https://typesugar.org/errors/TS9207",
 };
 
 export const TS9208: DiagnosticDescriptor = {
@@ -752,7 +752,7 @@ export const TS9208: DiagnosticDescriptor = {
   explanation: `The macro received an argument of an unexpected type.
 
 Check the macro documentation for the correct argument types.`,
-  seeAlso: "https://typesugar.dev/errors/TS9208",
+  seeAlso: "https://typesugar.org/errors/TS9208",
 };
 
 export const TS9209: DiagnosticDescriptor = {
@@ -767,7 +767,7 @@ Compile-time evaluation requires:
 - Simple arithmetic and string operations
 - Pure functions without side effects
 - No references to runtime values`,
-  seeAlso: "https://typesugar.dev/errors/TS9209",
+  seeAlso: "https://typesugar.org/errors/TS9209",
 };
 
 export const TS9210: DiagnosticDescriptor = {
@@ -781,7 +781,7 @@ Check that:
 1. The macro is imported from the correct package
 2. The macro name is spelled correctly
 3. The macro package is installed`,
-  seeAlso: "https://typesugar.dev/errors/TS9210",
+  seeAlso: "https://typesugar.org/errors/TS9210",
 };
 
 export const TS9211: DiagnosticDescriptor = {
@@ -790,7 +790,7 @@ export const TS9211: DiagnosticDescriptor = {
   category: DiagnosticCategory.MacroSyntax,
   messageTemplate: "{macro} expects exactly {expected} argument(s)",
   explanation: `This macro has strict argument count requirements.`,
-  seeAlso: "https://typesugar.dev/errors/TS9211",
+  seeAlso: "https://typesugar.org/errors/TS9211",
 };
 
 export const TS9212: DiagnosticDescriptor = {
@@ -804,7 +804,7 @@ Check that:
 1. The file path is correct and relative to the source file
 2. The file exists and is readable
 3. The path uses forward slashes (/) on all platforms`,
-  seeAlso: "https://typesugar.dev/errors/TS9212",
+  seeAlso: "https://typesugar.org/errors/TS9212",
 };
 
 export const TS9213: DiagnosticDescriptor = {
@@ -817,7 +817,7 @@ export const TS9213: DiagnosticDescriptor = {
 Check that:
 1. The file contains valid JSON syntax
 2. The file is not truncated or corrupted`,
-  seeAlso: "https://typesugar.dev/errors/TS9213",
+  seeAlso: "https://typesugar.org/errors/TS9213",
 };
 
 export const TS9214: DiagnosticDescriptor = {
@@ -828,7 +828,7 @@ export const TS9214: DiagnosticDescriptor = {
   explanation: `The macro's expand function threw an error or returned an invalid result.
 
 This might be a bug in the macro implementation.`,
-  seeAlso: "https://typesugar.dev/errors/TS9214",
+  seeAlso: "https://typesugar.org/errors/TS9214",
 };
 
 export const TS9215: DiagnosticDescriptor = {
@@ -844,7 +844,7 @@ Correct:
     @operator("+")
     add(other: Vector): Vector { ... }
   }`,
-  seeAlso: "https://typesugar.dev/errors/TS9215",
+  seeAlso: "https://typesugar.org/errors/TS9215",
 };
 
 export const TS9216: DiagnosticDescriptor = {
@@ -853,7 +853,7 @@ export const TS9216: DiagnosticDescriptor = {
   category: DiagnosticCategory.MacroSyntax,
   messageTemplate: "{macro} requires at least {min} argument(s)",
   explanation: `This macro requires a minimum number of arguments.`,
-  seeAlso: "https://typesugar.dev/errors/TS9216",
+  seeAlso: "https://typesugar.org/errors/TS9216",
 };
 
 export const TS9217: DiagnosticDescriptor = {
@@ -865,7 +865,7 @@ export const TS9217: DiagnosticDescriptor = {
 
 The condition evaluated to false at compile time, or compileError()
 was reached unconditionally.`,
-  seeAlso: "https://typesugar.dev/errors/TS9217",
+  seeAlso: "https://typesugar.org/errors/TS9217",
 };
 
 export const TS9218: DiagnosticDescriptor = {
@@ -876,7 +876,7 @@ export const TS9218: DiagnosticDescriptor = {
   explanation: `A compileWarning() was triggered.
 
 This is an advisory message from the compile-time code.`,
-  seeAlso: "https://typesugar.dev/errors/TS9218",
+  seeAlso: "https://typesugar.org/errors/TS9218",
 };
 
 export const TS9219: DiagnosticDescriptor = {
@@ -892,7 +892,7 @@ Correct:
 
 Incorrect:
   staticAssert(fetchData().length > 0, "...")  // Runtime call`,
-  seeAlso: "https://typesugar.dev/errors/TS9219",
+  seeAlso: "https://typesugar.org/errors/TS9219",
 };
 
 export const TS9220: DiagnosticDescriptor = {
@@ -906,7 +906,7 @@ A tail-recursive call must be:
 1. The last expression before returning
 2. Not wrapped in other operations (like x + recurse(...))
 3. Actually present (the function must call itself)`,
-  seeAlso: "https://typesugar.dev/errors/TS9220",
+  seeAlso: "https://typesugar.org/errors/TS9220",
 };
 
 export const TS9223: DiagnosticDescriptor = {
@@ -927,7 +927,7 @@ Use \`pure:\` or \`return:\` as the continuation instead:
     pure: { x + 1 }   // or  return: { x + 1 }
     yield result
   }`,
-  seeAlso: "https://typesugar.dev/errors/TS9223",
+  seeAlso: "https://typesugar.org/errors/TS9223",
 };
 
 export const TS9222: DiagnosticDescriptor = {
@@ -947,7 +947,7 @@ Fix one of:
 1. Assign to a variable:        const result = let: { ... } yield: { ... }
 2. Pass to a consumer:           await Effect.runPromise(let: { ... } yield: { ... })
 3. Prefix with \`void\` to silence: void (let: { ... } yield: { ... })`,
-  seeAlso: "https://typesugar.dev/errors/TS9222",
+  seeAlso: "https://typesugar.org/errors/TS9222",
 };
 
 export const TS9224: DiagnosticDescriptor = {
@@ -971,7 +971,7 @@ e.g.:
 
 If the labeled statement is intentional plain JavaScript, rename the label or
 opt out with \`"use no typesugar macros"\`.`,
-  seeAlso: "https://typesugar.dev/errors/TS9224",
+  seeAlso: "https://typesugar.org/errors/TS9224",
 };
 
 export const TS9225: DiagnosticDescriptor = {
@@ -995,7 +995,7 @@ Fix one of:
      const flatMapMyType = { map: ..., flatMap: ... };
 3. For a third-party monad, import any module that exports its
    @impl-annotated instance.`,
-  seeAlso: "https://typesugar.dev/errors/TS9225",
+  seeAlso: "https://typesugar.org/errors/TS9225",
 };
 
 // ============================================================================
@@ -1019,7 +1019,7 @@ Incorrect:
 
 If Kind<F, A> always resolves to the same type regardless of A,
 the HKT encoding is phantom/unsound.`,
-  seeAlso: "https://typesugar.dev/errors/TS9301",
+  seeAlso: "https://typesugar.org/errors/TS9301",
 };
 
 export const TS9302: DiagnosticDescriptor = {
@@ -1029,7 +1029,7 @@ export const TS9302: DiagnosticDescriptor = {
   messageTemplate: "@hkt can only be applied to interfaces or type aliases",
   explanation: `The @hkt decorator marks a type as a higher-kinded type constructor.
 It can only be applied to interface or type alias declarations.`,
-  seeAlso: "https://typesugar.dev/errors/TS9302",
+  seeAlso: "https://typesugar.org/errors/TS9302",
 };
 
 export const TS9303: DiagnosticDescriptor = {
@@ -1049,7 +1049,7 @@ Correct:
 Incorrect:
   /** @hkt */
   type ArrayF = Array<number>;  // No _ placeholder`,
-  seeAlso: "https://typesugar.dev/errors/TS9303",
+  seeAlso: "https://typesugar.org/errors/TS9303",
 };
 
 export const TS9304: DiagnosticDescriptor = {
@@ -1071,7 +1071,7 @@ Incorrect:
 For multi-arity type constructors, fix all but one parameter:
   /** @hkt */
   type MapF<K> = Map<K, _>;   // Fix K, vary the value type`,
-  seeAlso: "https://typesugar.dev/errors/TS9304",
+  seeAlso: "https://typesugar.org/errors/TS9304",
 };
 
 export const TS9305: DiagnosticDescriptor = {
@@ -1092,7 +1092,7 @@ Valid:
 Invalid:
   /** @impl Functor<number> */      // number is not a type constructor
   /** @impl Functor<UnknownType> */ // Type not found in scope`,
-  seeAlso: "https://typesugar.dev/errors/TS9305",
+  seeAlso: "https://typesugar.org/errors/TS9305",
 };
 
 // ============================================================================
@@ -1112,7 +1112,7 @@ Extension methods come from:
 3. Import-scoped extension namespaces
 
 Check that the required typeclass or extension is imported and registered.`,
-  seeAlso: "https://typesugar.dev/errors/TS9401",
+  seeAlso: "https://typesugar.org/errors/TS9401",
 };
 
 export const TS9402: DiagnosticDescriptor = {
@@ -1126,7 +1126,7 @@ Usage:
   registerExtensions("number", NumberOps);
 
 This makes all functions in NumberOps available as methods on number.`,
-  seeAlso: "https://typesugar.dev/errors/TS9402",
+  seeAlso: "https://typesugar.org/errors/TS9402",
 };
 
 export const TS9403: DiagnosticDescriptor = {
@@ -1140,7 +1140,7 @@ Usage:
   registerExtension("string", capitalize);
 
 This makes capitalize() available as a method on string.`,
-  seeAlso: "https://typesugar.dev/errors/TS9403",
+  seeAlso: "https://typesugar.org/errors/TS9403",
 };
 
 // ============================================================================
@@ -1158,7 +1158,7 @@ This could be:
 1. A runtime error in the evaluated code
 2. An operation not supported in compile-time context
 3. A dependency on runtime values`,
-  seeAlso: "https://typesugar.dev/errors/TS9501",
+  seeAlso: "https://typesugar.org/errors/TS9501",
 };
 
 export const TS9502: DiagnosticDescriptor = {
@@ -1174,7 +1174,7 @@ Correct:
 Incorrect:
   comptime(fibonacci, 10)  // Too many args
   comptime()               // Missing arg`,
-  seeAlso: "https://typesugar.dev/errors/TS9502",
+  seeAlso: "https://typesugar.org/errors/TS9502",
 };
 
 // ============================================================================
@@ -1190,7 +1190,7 @@ export const TS9701: DiagnosticDescriptor = {
 
 The symbol exists but isn't imported. Add the suggested import
 to resolve this error.`,
-  seeAlso: "https://typesugar.dev/errors/TS9701",
+  seeAlso: "https://typesugar.org/errors/TS9701",
 };
 
 export const TS9702: DiagnosticDescriptor = {
@@ -1204,7 +1204,7 @@ the typeclass is explicitly imported and used.
 To enable automatic rewriting:
 1. Import the typeclass: import { Eq } from "@typesugar/std"
 2. Or switch to automatic mode in typesugar.config.json`,
-  seeAlso: "https://typesugar.dev/errors/TS9702",
+  seeAlso: "https://typesugar.org/errors/TS9702",
 };
 
 export const TS9703: DiagnosticDescriptor = {
@@ -1217,7 +1217,7 @@ export const TS9703: DiagnosticDescriptor = {
 Solutions:
 1. Use explicit imports to disambiguate
 2. Alias one of the imports: import { x as y } from "..."`,
-  seeAlso: "https://typesugar.dev/errors/TS9703",
+  seeAlso: "https://typesugar.org/errors/TS9703",
 };
 
 // ============================================================================
@@ -1235,7 +1235,7 @@ export const TS9800: DiagnosticDescriptor = {
 - Comma operator (,)
 
 Use method calls or alternative patterns for these operations.`,
-  seeAlso: "https://typesugar.dev/errors/TS9800",
+  seeAlso: "https://typesugar.org/errors/TS9800",
 };
 
 export const TS9801: DiagnosticDescriptor = {
@@ -1252,7 +1252,7 @@ Correct:
 Incorrect:
   @operator("+")
   add(a: Vector, b: Vector): Vector { ... }  // Too many params`,
-  seeAlso: "https://typesugar.dev/errors/TS9801",
+  seeAlso: "https://typesugar.org/errors/TS9801",
 };
 
 export const TS9802: DiagnosticDescriptor = {
@@ -1268,7 +1268,7 @@ They cannot be registered with @operator because @operator is for standard JavaS
 To overload an operator for your own type:
 - Annotate a typeclass method with @op (e.g. /** @op + */ add(b: A): A)
 - Provide an @instance so the transformer can resolve the operator to that method`,
-  seeAlso: "https://typesugar.dev/errors/TS9802",
+  seeAlso: "https://typesugar.org/errors/TS9802",
 };
 
 export const TS9803: DiagnosticDescriptor = {
@@ -1285,7 +1285,7 @@ The expression will be left as-is, which may cause a type or runtime error.
 To overload an operator, annotate a typeclass method with @op and provide an @instance:
   /** @op + */
   add(b: A): A { ... }`,
-  seeAlso: "https://typesugar.dev/errors/TS9803",
+  seeAlso: "https://typesugar.org/errors/TS9803",
 };
 
 // ============================================================================

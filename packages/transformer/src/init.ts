@@ -322,11 +322,11 @@ export default {
 `;
 }
 
-function patchBundlerConfig(
+export function patchBundlerConfig(
   cwd: string,
   bundler: DetectedStack["bundler"],
   configFile?: string
-): { created: boolean; patched: boolean; file?: string } {
+): { created: boolean; patched: boolean; alreadyConfigured?: boolean; file?: string } {
   if (bundler === "none" || bundler === "next") {
     return { created: false, patched: false };
   }
@@ -355,11 +355,79 @@ function patchBundlerConfig(
   const fullPath = path.join(cwd, configFile);
   const content = fs.readFileSync(fullPath, "utf-8");
 
-  if (content.includes("unplugin-typesugar") || content.includes("typesugar")) {
+  if (content.includes("unplugin-typesugar")) {
+    return { created: false, patched: false, alreadyConfigured: true, file: configFile };
+  }
+
+  // esbuild "configs" are arbitrary build scripts — patching one textually
+  // is too risky, so those stay hint-only.
+  if (bundler === "esbuild") {
     return { created: false, patched: false, file: configFile };
   }
 
-  return { created: false, patched: false, file: configFile };
+  const patched = injectPluginIntoConfig(content, bundler);
+  if (patched === undefined) {
+    return { created: false, patched: false, file: configFile };
+  }
+
+  fs.writeFileSync(fullPath, patched);
+  return { created: false, patched: true, file: configFile };
+}
+
+/**
+ * Textually inject the typesugar unplugin into an existing bundler config:
+ * add the import/require after the last single-line import/require, and
+ * insert `typesugar()` as the first element of the first `plugins: [...]`
+ * array. Returns undefined when the config has no recognizable plugins
+ * array — the caller then falls back to the "add it manually" hint, which
+ * becomes the exception rather than the silent default.
+ *
+ * Deliberately textual, not AST-based: this runs inside a USER's project
+ * against a config file we don't control, and the edit is two anchored
+ * insertions into real, human-authored source — the same "patch one small
+ * region, leave the rest byte-for-byte untouched" reasoning as
+ * config-writer.ts (see CLAUDE.md). A parse-and-reprint would destroy the
+ * user's comments and formatting.
+ */
+export function injectPluginIntoConfig(
+  content: string,
+  bundler: "vite" | "webpack" | "rollup"
+): string | undefined {
+  const pluginsMatch = /\bplugins\s*:\s*\[/.exec(content);
+  if (!pluginsMatch) return undefined;
+
+  // CJS configs (module.exports, no ESM imports) need a require; unplugin's
+  // CJS entry exposes the factory on `.default`.
+  const isCjs = /\bmodule\.exports\b/.test(content) && !/^\s*import\b/m.test(content);
+  const importLine = isCjs
+    ? `const typesugar = require("unplugin-typesugar/${bundler}").default;`
+    : `import typesugar from "unplugin-typesugar/${bundler}";`;
+
+  // 1. Insert typesugar() as the first plugins element (no separator needed
+  //    before a closing bracket — trailing comma is valid otherwise).
+  const insertPos = pluginsMatch.index + pluginsMatch[0].length;
+  const separator = /^\s*\]/.test(content.slice(insertPos)) ? "" : ", ";
+  let result = content.slice(0, insertPos) + "typesugar()" + separator + content.slice(insertPos);
+
+  // 2. Insert the import after the last SINGLE-LINE import/require (a
+  //    multi-line import's opening line is not a safe anchor; if only those
+  //    exist, prepend at the very top, which is always safe).
+  const lines = result.split("\n");
+  const anchorRe = isCjs
+    ? /^\s*(?:const|let|var)\s+.*=\s*require\(.*\);?\s*$/
+    : /^\s*import\b.*(?:from\s*["'][^"']+["']|["'][^"']+["'])\s*;?\s*$/;
+  let lastAnchor = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (anchorRe.test(lines[i])) lastAnchor = i;
+  }
+  if (lastAnchor >= 0) {
+    lines.splice(lastAnchor + 1, 0, importLine);
+  } else {
+    lines.unshift(importLine);
+  }
+  result = lines.join("\n");
+
+  return result;
 }
 
 function createExampleFile(cwd: string): void {
@@ -523,10 +591,21 @@ export async function runInit(verbose: boolean): Promise<void> {
     success('Added "prepare" script for ts-patch');
   }
 
+  if (stack.bundler === "next") {
+    warn("Next.js is not yet supported by `typesugar init` — no plugin was configured.");
+    log("  The transformer must be wired manually through a custom webpack config;");
+    log("  see https://typesugar.org/getting-started/environments/webpack for the");
+    log("  building blocks. Track Next.js support in the typesugar issue tracker.");
+  }
+
   const bundlerResult = patchBundlerConfig(cwd, stack.bundler, stack.configFile);
   if (bundlerResult.created) {
     success(`Created ${bundlerResult.file} with typesugar plugin`);
-  } else if (bundlerResult.file && !bundlerResult.patched) {
+  } else if (bundlerResult.patched) {
+    success(`Patched ${bundlerResult.file}: added unplugin-typesugar to plugins`);
+  } else if (bundlerResult.alreadyConfigured) {
+    success(`${bundlerResult.file} already configured with unplugin-typesugar`);
+  } else if (bundlerResult.file) {
     warn(`${bundlerResult.file} exists - add unplugin-typesugar manually`);
     log(`\n  Example for ${stack.bundler}:`);
     log(`  import typesugar from "unplugin-typesugar/${stack.bundler}";`);

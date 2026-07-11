@@ -109,7 +109,8 @@
   "files": [
     "dist",
     "src",
-    "language-service"
+    "language-service",
+    "templates"
   ],
   "sideEffects": false
 }

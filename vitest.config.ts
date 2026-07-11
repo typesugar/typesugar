@@ -49,7 +49,7 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
-      "templates/**",
+      "**/templates/**", // scaffolding templates (now shipped inside @typesugar/transformer) — example code, not suite tests
       "sandbox/**",
       "packages/vscode/test/integration/**", // VSCode integration tests use @vscode/test-electron
       "packages/vscode/out/**", // Compiled VS Code integration test artifacts
