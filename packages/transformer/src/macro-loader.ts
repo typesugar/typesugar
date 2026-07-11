@@ -64,40 +64,19 @@ export class UnapprovedMacroPackagesError extends Error {
   }
 }
 
-/**
- * Facade packages that re-export from @typesugar/macros.
- * When an import from one of these is found, we load @typesugar/macros
- * (which contains the actual macro implementations) instead.
- */
-const FACADE_TO_PROVIDER: Record<string, string> = {
-  "@typesugar/derive": "@typesugar/macros",
-  "@typesugar/reflect": "@typesugar/macros",
-  "@typesugar/typeclass": "@typesugar/macros",
-  typesugar: "@typesugar/macros",
-};
-
-/**
- * Packages known to export macros. When an import from one of these is
- * detected in the program, we require() it to trigger registration.
- */
-const KNOWN_MACRO_PACKAGES = new Set([
-  "@typesugar/macros",
-  "@typesugar/mapper",
-  "@typesugar/contracts",
-  ...Object.keys(FACADE_TO_PROVIDER),
-]);
-
 // ============================================================================
 // Manifest-based discovery (PEP-055)
 //
-// Replaces the closed KNOWN_MACRO_PACKAGES/FACADE_TO_PROVIDER lists above
-// with a self-declared `typesugar.macros` field in a package's own
-// package.json — but runs strictly ADDITIVE to those lists in this wave
-// (Phase A): a package matches if it's in the old lists OR declares the
-// new field. @typesugar/* packages are auto-trusted; anything else must be
-// listed in `security.allowedMacroPackages` (exact name or "@scope/*"
-// wildcard) or the scan reports it as blocked and the caller fails the
-// build via UnapprovedMacroPackagesError.
+// A package is a macro provider if (and only if) it declares a
+// `typesugar.macros` field in its own package.json. Replaces the old
+// KNOWN_MACRO_PACKAGES/FACADE_TO_PROVIDER hardcoded lists and the
+// @typesugar/*-prefix speculative-load fallback (deleted in Phase C/Wave 3
+// — see peps/PEP-055-macro-package-discovery.md for the full design and
+// migration history). @typesugar/* packages (and the unscoped `typesugar`
+// facade — see AUTO_TRUSTED_UNSCOPED_PACKAGES) are auto-trusted; anything
+// else must be listed in `security.allowedMacroPackages` (exact name or
+// "@scope/*" wildcard) or the scan reports it as blocked and the caller
+// fails the build via UnapprovedMacroPackagesError.
 // ============================================================================
 
 interface ManifestFieldInfo {
@@ -267,6 +246,42 @@ export function classifyManifestPackages(candidates: Iterable<string>): {
 }
 
 /**
+ * Discover and load macro packages from a set of candidate base package
+ * names (drawn from a program's or a single file's imports). Shared by
+ * `loadMacroPackages`/`loadMacroPackagesFromFile` so the "always load
+ * @typesugar/std first" ordering guarantee and the discovery mechanism
+ * itself stay in one place.
+ *
+ * `hasTypesugarImport` is computed from the RAW candidate set, not the
+ * (possibly narrower) set of packages that actually declare a
+ * `typesugar.macros` field — preserving std's "load first for any
+ * @typesugar/* import" guarantee even for @typesugar/* packages that carry
+ * no macros of their own (e.g. a pure runtime library), matching the old
+ * prefix-fallback's behavior for this specific ordering rule.
+ */
+function loadDiscoveredPackages(
+  candidates: Set<string>,
+  verbose?: boolean
+): { loaded: Set<string>; blocked: string[] } {
+  const { toLoad, blocked } = classifyManifestPackages(candidates);
+
+  const hasTypesugarImport = [...candidates].some(
+    (pkg) => pkg.startsWith("@typesugar/") || AUTO_TRUSTED_UNSCOPED_PACKAGES.has(pkg)
+  );
+  if (hasTypesugarImport) {
+    loadPackage("@typesugar/std", verbose);
+  }
+
+  const loaded = new Set<string>();
+  for (const [pkg, target] of toLoad) {
+    tryLoadModule(pkg, target, verbose);
+    loaded.add(pkg);
+  }
+
+  return { loaded, blocked };
+}
+
+/**
  * Scan a program's source files for imports from macro packages,
  * then lazily load those packages to register their macros.
  *
@@ -275,66 +290,14 @@ export function classifyManifestPackages(candidates: Iterable<string>): {
  */
 export function loadMacroPackages(program: ts.Program, verbose?: boolean): void {
   const importedModules = collectImportedModules(program);
-
-  const toLoad = new Set<string>();
-
-  for (const mod of importedModules) {
-    // Map facade packages to their actual provider
-    const provider = FACADE_TO_PROVIDER[mod];
-    if (provider) {
-      toLoad.add(provider);
-      continue;
-    }
-
-    // Known macro packages
-    if (KNOWN_MACRO_PACKAGES.has(mod)) {
-      toLoad.add(mod);
-      continue;
-    }
-
-    // Unknown @typesugar/* packages — speculatively try loading.
-    // If the package exports macros (via __typesugar_macros__ or
-    // side-effect registration), they'll be picked up.
-    if (mod.startsWith("@typesugar/")) {
-      toLoad.add(mod);
-    }
-  }
-
-  // PEP-055: manifest-based discovery, additive to the lists above. Checks
-  // EVERY imported package (not just @typesugar/*-prefixed ones) for a
-  // self-declared `typesugar.macros` field.
-  const { toLoad: manifestToLoad, blocked } = classifyManifestPackages(importedModules);
-  const manifestTargets = new Map<string, string>();
-  for (const [pkg, target] of manifestToLoad) {
-    if (!toLoad.has(pkg)) {
-      toLoad.add(pkg);
-      manifestTargets.set(pkg, target);
-    }
-  }
-
-  // Always load @typesugar/std first if ANY @typesugar/* package is used.
-  // This ensures core typeclass definitions (Numeric, Eq, Ord, etc.) and their
-  // Op<> syntax mappings are registered before domain-specific instances.
-  const hasTypesugarImport = [...toLoad].some((pkg) => pkg.startsWith("@typesugar/"));
-  if (hasTypesugarImport) {
-    loadPackage("@typesugar/std", verbose);
-  }
-
-  for (const pkg of toLoad) {
-    const manifestTarget = manifestTargets.get(pkg);
-    if (manifestTarget) {
-      tryLoadModule(pkg, manifestTarget, verbose);
-    } else {
-      loadPackage(pkg, verbose);
-    }
-  }
+  const { loaded, blocked } = loadDiscoveredPackages(importedModules, verbose);
 
   if (verbose) {
     const all = globalRegistry.getAll();
     console.log(`[typesugar] Total registered macros: ${all.length}`);
-    if (all.length === 0 && toLoad.size > 0) {
+    if (all.length === 0 && loaded.size > 0) {
       console.warn(
-        `[typesugar] WARNING: ${toLoad.size} macro package(s) loaded but 0 macros registered. ` +
+        `[typesugar] WARNING: ${loaded.size} macro package(s) loaded but 0 macros registered. ` +
           `This may indicate an ESM/CJS dual-instance issue.`
       );
     }
@@ -359,52 +322,19 @@ export function loadMacroPackage(packageName: string, verbose?: boolean): boolea
  * even when the initial program doesn't include all files.
  */
 export function loadMacroPackagesFromFile(sourceFile: ts.SourceFile, verbose?: boolean): void {
-  const toLoad = new Set<string>();
-  const allBasePkgs = new Set<string>();
+  const basePkgs = new Set<string>();
 
   for (const stmt of sourceFile.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
       const mod = stmt.moduleSpecifier.text;
       if (!mod.startsWith(".") && !mod.startsWith("/")) {
         const basePkg = getBasePackageName(mod);
-        if (basePkg) {
-          allBasePkgs.add(basePkg);
-          // Map facade packages to their actual provider
-          const provider = FACADE_TO_PROVIDER[basePkg];
-          if (provider) {
-            toLoad.add(provider);
-          } else if (KNOWN_MACRO_PACKAGES.has(basePkg) || basePkg.startsWith("@typesugar/")) {
-            toLoad.add(basePkg);
-          }
-        }
+        if (basePkg) basePkgs.add(basePkg);
       }
     }
   }
 
-  // PEP-055: manifest-based discovery, additive to the lists above.
-  const { toLoad: manifestToLoad, blocked } = classifyManifestPackages(allBasePkgs);
-  const manifestTargets = new Map<string, string>();
-  for (const [pkg, target] of manifestToLoad) {
-    if (!toLoad.has(pkg)) {
-      toLoad.add(pkg);
-      manifestTargets.set(pkg, target);
-    }
-  }
-
-  // Always load @typesugar/std first if ANY @typesugar/* package is used
-  const hasTypesugarImport = [...toLoad].some((pkg) => pkg.startsWith("@typesugar/"));
-  if (hasTypesugarImport) {
-    loadPackage("@typesugar/std", verbose);
-  }
-
-  for (const pkg of toLoad) {
-    const manifestTarget = manifestTargets.get(pkg);
-    if (manifestTarget) {
-      tryLoadModule(pkg, manifestTarget, verbose);
-    } else {
-      loadPackage(pkg, verbose);
-    }
-  }
+  const { blocked } = loadDiscoveredPackages(basePkgs, verbose);
 
   if (blocked.length > 0) {
     throw new UnapprovedMacroPackagesError(blocked);

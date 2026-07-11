@@ -6,8 +6,10 @@ questions below resolved with this PEP's own recommended defaults). Phase A
 zero behavior change for existing packages) implemented in Wave 1. Phase B
 (official packages declaring the field — 15 packages plus 4 facades, scope
 corrected during implementation, see Wave 2 notes) implemented in Wave 2.
-Phases C–E (deleting the old hardcoded lists, the `ResultAlgebra`
-relocation, the docs sweep) not yet started.
+Phase C (old `KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER`/prefix-fallback
+deleted — the manifest field is now the ONLY discovery path) implemented
+in Wave 3. Phases D–E (the `ResultAlgebra` relocation, the docs sweep) not
+yet started.
 **Date:** 2026-07-04
 **Author:** Claude (with Dean Povey)
 **Relates to:** [PEP-050](PEP-050-shipping-typesugar-libraries.md) (the `./macros` subpath split this builds on), [PEP-052](PEP-052-import-scoped-macro-activation.md) (Wave 9 names this as its prerequisite), [PEP-049](PEP-049-cruft-cleanup.md) (prior finding that a self-declared field can't be an allowlist)
@@ -561,3 +563,55 @@ guarantee as Phase A) — the old lists are untouched, so existing behavior
 is unchanged; only new packages are now _also_ reachable via the manifest
 path. Phase C (deleting the old lists) is the next wave, now unblocked for
 all fifteen-plus-facades packages, not just the original four.
+
+## Wave 3 (Phase C) implementation notes (2026-07-11)
+
+Deleted `KNOWN_MACRO_PACKAGES`, `FACADE_TO_PROVIDER`, and the
+`@typesugar/*`-prefix speculative-load fallback from `macro-loader.ts`
+entirely. `loadMacroPackages`/`loadMacroPackagesFromFile` now discover
+macro packages purely through `classifyManifestPackages` — the manifest
+field is the only discovery path, exactly as designed.
+
+One design refinement made during the deletion, not a bug: the "always
+load `@typesugar/std` first when any `@typesugar/*` package is imported"
+ordering guarantee (core typeclass/`Op<>` registrations need to exist
+before domain-specific instances) previously fired off the OLD `toLoad`
+set, which — because of the prefix fallback — included every
+`@typesugar/*`-prefixed import regardless of whether that package
+actually had any macros. Deleting the fallback would have silently
+narrowed this trigger to only packages that declare `typesugar.macros`,
+which is a real behavior change for an `@typesugar/*` package with zero
+macros of its own (e.g. a pure runtime library) imported without any
+other `@typesugar/*` import: previously std still loaded first, after the
+deletion it wouldn't have. Fixed by computing the "any `@typesugar/*`
+import" check from the RAW candidate import set (via a new shared
+`loadDiscoveredPackages` helper both loader functions call), not from the
+narrower "packages with a manifest field" set — preserving the exact old
+guarantee independent of the discovery-mechanism change.
+
+**Verification, beyond the standard build+test gate**: a verbose
+`typesugar check` run against a throwaway project importing
+`@typesugar/codec` — a package that was in neither `KNOWN_MACRO_PACKAGES`
+nor `FACADE_TO_PROVIDER` and, before Wave 2, was discovered _only_ through
+the now-deleted prefix fallback — confirmed
+`[typesugar] Loaded macro package: @typesugar/codec/macros` in the log
+output, with all 53 macros (across every workspace package) registering
+correctly and `@typesugar/std` loading first as expected. This is exactly
+the regression Wave 2's scope correction (auditing all fifteen packages,
+not the four the PEP originally named) was for — had Wave 2 landed
+narrowly, this exact test would have failed once Phase C's fallback was
+gone.
+
+Full workspace `pnpm build` + full `vitest run` — 270/271 test files
+(7294 tests, 38 pre-existing skips), **identical counts to Wave 2**,
+confirming zero regressions from removing the fallback across the entire
+workspace (every package's showcase-transform test, every PEP-052/053
+macro-activation test, etc. all still pass with no `@typesugar/*`-prefix
+safety net). `npx prettier --check .` clean.
+
+This closes out the acceptance-criteria bullet "`KNOWN_MACRO_PACKAGES`/
+`FACADE_TO_PROVIDER` deleted from `macro-loader.ts`" and "full workspace
+build + full test suite green with the deletion in place." Phase D (the
+`ResultAlgebra` relocation, now genuinely unblocked — `@typesugar/fp` can
+finally declare its own `./macros` entry and be discovered) and Phase E
+(docs sweep) remain.
