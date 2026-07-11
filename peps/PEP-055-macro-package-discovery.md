@@ -1,6 +1,11 @@
 # PEP-055: Macro-Package Discovery via `package.json`
 
-**Status:** Draft (2026-07-04) — proposal only, no code changes
+**Status:** In Progress (2026-07-10) — design accepted (all three open
+questions below resolved with this PEP's own recommended defaults); Phase A
+(manifest discovery + trust gate + `typesugar approve-macros` CLI, additive,
+zero behavior change for existing packages) implemented in Wave 1. Phases
+B–E (official packages declaring the field, deleting the old hardcoded
+lists, the `ResultAlgebra` relocation, the docs sweep) not yet started.
 **Date:** 2026-07-04
 **Author:** Claude (with Dean Povey)
 **Relates to:** [PEP-050](PEP-050-shipping-typesugar-libraries.md) (the `./macros` subpath split this builds on), [PEP-052](PEP-052-import-scoped-macro-activation.md) (Wave 9 names this as its prerequisite), [PEP-049](PEP-049-cruft-cleanup.md) (prior finding that a self-declared field can't be an allowlist)
@@ -387,6 +392,9 @@ matching the discipline established across PEP-052's waves.
 
 ## Open questions (for Dean's review)
 
+**Resolved 2026-07-10 — all three settled on this PEP's own recommended
+default, no design changes:**
+
 1. **Should approval be pinned to a content hash of the macro entry, not just
    the package name?** As designed, re-publishing an already-approved
    package with a malicious `./macros` update would NOT trigger a new
@@ -394,13 +402,93 @@ matching the discipline established across PEP-052's waves.
    also approves by name, not by content). A hash-pinned variant would catch
    "trusted package, compromised update" at the cost of a fresh prompt on
    every macro-affecting release of an approved package, even benign ones.
+   **Resolved: name only**, matching pnpm's precedent.
 2. **Should `typesugar approve-macros` require a specific reviewer/CI
    signal** (e.g. refuse to run in a detected-CI environment, forcing
    approval to always happen locally and be committed, never generated
    on-the-fly in a pipeline) — or is a `--yes` flag for scripted/CI use
-   acceptable as designed?
+   acceptable as designed? **Resolved: `--yes` is allowed in CI**, as
+   designed.
 3. **Naming**: is `typesugar.macros` the right manifest key, or should it
    nest under something more explicit like `typesugar.exports.macros` to
    leave room for future `typesugar.*` manifest fields (e.g. a future
    `"provides"`/`"requires"` ordering hint, noted as out-of-scope above but
-   plausible future work under the same namespace)?
+   plausible future work under the same namespace)? **Resolved: flat
+   `typesugar.macros`**, as designed.
+
+## Wave 1 (Phase A) implementation notes (2026-07-10)
+
+Implemented as designed, additive to the existing
+`KNOWN_MACRO_PACKAGES`/`FACADE_TO_PROVIDER` lists — see
+`packages/transformer/src/macro-loader.ts` (`classifyManifestPackages`,
+`UnapprovedMacroPackagesError`), `packages/transformer/src/config-writer.ts`,
+`packages/transformer/src/approve-macros.ts`, and the `security` field added
+to `TypesugarConfig` in `packages/core/src/config.ts`.
+
+Two real, pre-existing bugs found and fixed along the way, unrelated to
+this PEP's own design but directly blocking it — both in
+`packages/core/src/config.ts`'s file-based config loading, which turned
+out to have never actually worked for any real project, ever:
+
+1. `loadConfigFromFiles` passed `.typesugarrc.mjs`/`typesugar.config.mjs`
+   in `cosmiconfigSync`'s `searchPlaces`. `cosmiconfigSync`'s explorer
+   validates every searchPlaces entry has a sync-compatible loader **at
+   construction time** — `.mjs` (ESM) has none, since loading it requires
+   an async `import()` — so the explorer threw immediately, on every
+   single call, for every project, `.mjs` config or not. Fixed by dropping
+   the two `.mjs` entries.
+2. Deeper, and the actual reason bug #1's fix alone still didn't work
+   against the real CLI binary: `loadConfigFromFiles` used a bare
+   `require("cosmiconfig")` guarded by a "does an ambient `require` exist"
+   check. `@typesugar/core` builds to both CJS and ESM; the ESM build
+   (`dist/index.js` — what any `"type": "module"` consumer, including this
+   repo's own CLI, actually loads) has no ambient `require` at all, so
+   that bare call always threw `Dynamic require of "cosmiconfig" is not
+supported`. The obvious fix — `createRequire(import.meta.url)`, the
+   same pattern `macro-loader.ts` already uses — doesn't work here: unlike
+   `macro-loader.ts` (Node-only), `@typesugar/core` also ships as a
+   **browser** bundle (`packages/playground` bundles this package's ESM
+   output directly, `platform: 'browser'`), and a static
+   `import { createRequire } from "module"` makes esbuild hard-fail the
+   browser build resolving `"module"` at bundle time, regardless of
+   whether that code path ever runs. Fixed with
+   `process.getBuiltinModule("module")` (Node 22.3+) instead: a plain
+   runtime property access on `process`, invisible to bundler static
+   analysis (nothing to resolve at build time), that still yields a
+   correctly-scoped `createRequire` in real Node ESM. Guarded the same way
+   this package's other Node/browser isomorphic code already is
+   (`profiling.ts`'s `typeof process !== "undefined"` check); returns
+   `undefined` for a browser or an older Node, falling back to this
+   function's pre-existing "cosmiconfig not available" empty-config
+   behavior — a graceful degradation, not a regression. Still needed
+   `packages/core/tsup.config.ts` to gain `shims: true` (already set on
+   `packages/transformer`'s tsup config, not on core's): without it,
+   tsup's CJS output replaces `import.meta.url` with an empty object
+   literal instead of a working polyfill, breaking `createRequire` for CJS
+   consumers.
+
+Both bugs were silently swallowed by the same outer `catch {}` in
+`loadConfigFromFiles`, and both had zero prior test coverage (confirmed
+during Wave 1 research: no existing test exercised the cosmiconfig
+file-loading branch at all) — `vitest`'s own module loader happens to
+give `require` a truthy value regardless, which is why nothing in the test
+suite had ever caught bug #2, and why it only surfaced when this wave's
+`approve-macros` smoke test ran the REAL built CLI binary rather than
+vitest-imported source. Regression-tested in `tests/config.test.ts`'s new
+"config file loading (cosmiconfig)" block, which exercises the real
+file-read path (not just `config.set()`, which is all the suite tested
+before).
+
+Phase A's acceptance criteria bullets satisfied by this wave, verified both
+via the automated test suite AND a manual smoke test against the real
+built CLI binary (`node packages/transformer/dist/cli.js`, a throwaway
+fixture package, and a real `typesugar.config.ts` round trip): the
+manifest field is discovered and auto-trusted for `@typesugar/*` packages
+with no config entry required; a non-`@typesugar/*`-scoped package
+declaring the field fails `typesugar build` with an actionable diagnostic
+(not a raw stack trace) pointing at `approve-macros`; running `typesugar
+approve-macros --yes` writes the approval and a subsequent build/scan
+succeeds; a second, unrelated unapproved package still fails (approval is
+scoped per-package, not a global bypass). The remaining acceptance
+criteria (deleting the old lists, the `fp`/`std` `ResultAlgebra`
+relocation) are Phase C/D, not this wave.

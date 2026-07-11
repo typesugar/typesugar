@@ -70,6 +70,28 @@ easier"). A string-codegen call site with no corresponding CLAUDE.md entry
 is a bug in this file, not a passable gap — flag it in review rather than
 assuming an old omission means the rule doesn't apply to your package.
 
+**Patching a real, human-authored file outside the macro pipeline** (a
+different mechanism than the `ctx.parseStatements`/`ctx.parseExpression`
+list above — no `MacroContext` is involved, and this doesn't run as part of
+transforming a project's own source — but the same underlying rule):
+
+- `packages/transformer/src/config-writer.ts` — the `typesugar
+approve-macros` (PEP-055) CLI command's `typesugar.config.ts` writer. When
+  no config file exists yet, the file is pure AST codegen (`ts.factory` +
+  the printer, no exception needed). When a config file already exists,
+  though, this parses it with `ts.createSourceFile`, builds the
+  `security.allowedMacroPackages` replacement content with `ts.factory`,
+  and splices ONLY that printed node into the ORIGINAL file's text via
+  `MagicString` — rather than reprinting the whole file from a rebuilt
+  AST — because the file is something a human wrote and may have their own
+  comments/formatting elsewhere in it that a full reprint would discard.
+  Same reasoning `hkt-rewriter.ts` and `dts-transform.ts`'s
+  `parseOpaqueTypeExpression` already use for the analogous "patch one
+  small region of real source, leave the rest untouched" problem. Falls
+  back to printing a snippet for the user to add by hand (writes nothing)
+  for any config-file shape it doesn't recognize — see the file for the
+  exact cases.
+
 ## Resolving things a macro just generated
 
 When a macro synthesizes a new declaration, instance, or binding during a

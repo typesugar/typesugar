@@ -12,6 +12,7 @@
  *   typesugar init [--verbose]
  *   typesugar doctor [--verbose]
  *   typesugar create <template> [name]
+ *   typesugar approve-macros [--project tsconfig.json] [--yes]
  */
 
 import * as ts from "typescript";
@@ -20,6 +21,8 @@ import * as fs from "fs";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
+import { UnapprovedMacroPackagesError } from "./macro-loader.js";
+import { readTsConfig } from "./tsconfig-utils.js";
 import {
   TransformationPipeline,
   createPipeline,
@@ -49,7 +52,8 @@ type Command =
   | "init"
   | "doctor"
   | "create"
-  | "preprocess";
+  | "preprocess"
+  | "approve-macros";
 
 interface CliOptions {
   command: Command;
@@ -69,6 +73,8 @@ interface CliOptions {
   strict?: boolean | "incremental";
   /** Show suppressed diagnostics for debugging */
   showSuppressedDiagnostics?: boolean;
+  /** approve-macros: skip the confirmation prompt (for CI use) */
+  yes?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -83,11 +89,12 @@ function parseArgs(args: string[]): CliOptions {
     "doctor",
     "create",
     "preprocess",
+    "approve-macros",
   ];
 
   if (!validCommands.includes(command)) {
     console.error(
-      `Unknown command: ${command}\nUsage: typesugar <build|watch|check|expand|init|doctor|create|preprocess> [options]`
+      `Unknown command: ${command}\nUsage: typesugar <build|watch|check|expand|init|doctor|create|preprocess|approve-macros> [options]`
     );
     process.exit(1);
   }
@@ -134,6 +141,29 @@ function parseArgs(args: string[]): CliOptions {
       outDir,
       inPlace,
     };
+  }
+
+  // For approve-macros, only --project/--yes/--verbose are meaningful.
+  if (command === "approve-macros") {
+    let project = "tsconfig.json";
+    let verbose = false;
+    let yes = false;
+
+    for (let i = 1; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === "--project" || arg === "-p") {
+        project = args[++i] ?? "tsconfig.json";
+      } else if (arg === "--verbose" || arg === "-v") {
+        verbose = true;
+      } else if (arg === "--yes" || arg === "-y") {
+        yes = true;
+      } else if (arg === "--help" || arg === "-h") {
+        printHelp();
+        process.exit(0);
+      }
+    }
+
+    return { command, project, verbose, yes };
   }
 
   let project = "tsconfig.json";
@@ -216,6 +246,7 @@ COMMANDS:
   doctor             Diagnose configuration issues
   create [template]  Create a new project from a template
   preprocess <files|dirs>  Preprocess files (HKT syntax only, no macro expansion)
+  approve-macros     Review and approve third-party macro packages (PEP-055)
 
 OPTIONS:
   -p, --project <path>   Path to tsconfig.json (default: tsconfig.json)
@@ -229,6 +260,9 @@ OPTIONS:
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
   --show-suppressed-diagnostics  Show suppressed diagnostics (audit mode)
   -h, --help             Show this help message
+
+APPROVE-MACROS OPTIONS:
+  -y, --yes              Skip the confirmation prompt (for CI use)
 
 EXPAND OPTIONS:
   --diff                 Show unified diff between original and expanded
@@ -264,32 +298,9 @@ EXAMPLES:
   typesugar preprocess src/ --outDir .typesugar
   typesugar preprocess src/index.ts src/types.ts --outDir dist
   typesugar preprocess src/ --inPlace
+  typesugar approve-macros
+  typesugar approve-macros --yes
 `);
-}
-
-function readTsConfig(configPath: string): ts.ParsedCommandLine {
-  const absolutePath = path.resolve(configPath);
-  const configFile = ts.readConfigFile(absolutePath, ts.sys.readFile);
-
-  if (configFile.error) {
-    const message = ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n");
-    console.error(`Error reading ${configPath}: ${message}`);
-    process.exit(1);
-  }
-
-  const parsed = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    path.dirname(absolutePath)
-  );
-
-  if (parsed.errors.length > 0) {
-    const messages = parsed.errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
-    console.error(`Config errors:\n${messages.join("\n")}`);
-    process.exit(1);
-  }
-
-  return parsed;
 }
 
 function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
@@ -1235,10 +1246,23 @@ async function main(): Promise<void> {
     case "preprocess":
       preprocessCommand(options);
       break;
+    case "approve-macros": {
+      const { runApproveMacros } = await import("./approve-macros.js");
+      await runApproveMacros({
+        project: options.project,
+        yes: options.yes ?? false,
+        verbose: options.verbose,
+      });
+      break;
+    }
   }
 }
 
 main().catch((err) => {
+  if (err instanceof UnapprovedMacroPackagesError) {
+    console.error(err.message);
+    process.exit(1);
+  }
   console.error(err);
   process.exit(1);
 });

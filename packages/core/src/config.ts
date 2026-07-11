@@ -62,6 +62,19 @@ export interface ResolutionConfig {
 }
 
 /**
+ * Security-related configuration (PEP-055).
+ */
+export interface SecurityConfig {
+  /**
+   * Package names (or "@scope/*" wildcard entries) allowed to register
+   * macros outside the auto-trusted `@typesugar/*` scope. Written by
+   * `typesugar approve-macros`; safe to hand-edit, but review each entry
+   * as carefully as a new production dependency.
+   */
+  allowedMacroPackages?: string[];
+}
+
+/**
  * Full typesugar configuration schema.
  */
 export interface TypesugarConfig {
@@ -73,6 +86,8 @@ export interface TypesugarConfig {
   resolution?: ResolutionConfig;
   /** Feature flags */
   features?: Record<string, boolean>;
+  /** Security configuration (macro-package trust, etc.) */
+  security?: SecurityConfig;
   /** Custom user configuration */
   [key: string]: unknown;
 }
@@ -209,13 +224,57 @@ function deepMerge(
 const MODULE_NAME = "typesugar";
 
 /**
- * Load configuration from files when cosmiconfig is available.
- * Uses dynamic import to avoid adding cosmiconfig as a required dependency.
+ * Get a working `require()` for loading `cosmiconfig`, or `undefined` if
+ * none is available (browser, or a Node too old to have
+ * `process.getBuiltinModule`).
+ *
+ * `@typesugar/core` builds to (and is consumed as) BOTH a browser bundle
+ * (via `packages/playground`, which bundles this package's ESM output
+ * directly with `platform: 'browser'`) and Node CJS/ESM — so this can NOT
+ * be a static `import { createRequire } from "module"` at the top of the
+ * file: esbuild resolves static import specifiers at BUNDLE time
+ * regardless of whether the code path ever runs, and "module" doesn't
+ * exist for a browser target, hard-failing the playground build. A plain
+ * `require("module")` doesn't work either — tsup rewrites bare `require()`
+ * calls in ESM output through a runtime shim that itself depends on an
+ * ambient `require` existing, which real Node ESM (`dist/index.js`, what
+ * any `"type": "module"` consumer — including this repo's own CLI —
+ * actually loads) doesn't have.
+ *
+ * `process.getBuiltinModule(id)` (Node 22.3+) sidesteps both problems: it's
+ * a plain runtime property access on `process`, invisible to bundler
+ * static analysis (nothing to resolve at build time), and works
+ * correctly in real Node ESM without needing an ambient `require` at all.
+ * Guarded the same way `profiling.ts`'s `typeof process !== "undefined"`
+ * check already is for this package's other Node/browser isomorphic code;
+ * gracefully returns `undefined` for a browser or an older Node, exactly
+ * matching this function's pre-existing "cosmiconfig not available, use
+ * empty config" fallback.
+ *
+ * Found because file-based config loading (of ANY config file, `.ts`
+ * included) had never actually round-tripped in real Node ESM — only
+ * appeared to work under `vitest`, since vite-node's own module loader
+ * gives `require` a truthy value regardless, unlike a real Node ESM
+ * process — surfaced by PEP-055's `approve-macros` re-reading a config
+ * file it had just written.
  */
+function getNodeRequire(): NodeRequire | undefined {
+  const proc = globalThis as unknown as {
+    process?: { getBuiltinModule?: (id: string) => unknown };
+  };
+  const moduleBuiltin = proc.process?.getBuiltinModule?.("module") as
+    | typeof import("module")
+    | undefined;
+  if (!moduleBuiltin) return undefined;
+  return moduleBuiltin.createRequire(import.meta.url);
+}
+
 function loadConfigFromFiles(): TypesugarConfig {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { cosmiconfigSync } = require("cosmiconfig") as {
+    const nodeRequire = getNodeRequire();
+    if (!nodeRequire) return {};
+
+    const { cosmiconfigSync } = nodeRequire("cosmiconfig") as {
       cosmiconfigSync: (
         name: string,
         options: { searchPlaces: string[] }
@@ -224,6 +283,16 @@ function loadConfigFromFiles(): TypesugarConfig {
       };
     };
     const explorer = cosmiconfigSync(MODULE_NAME, {
+      // NOTE: no `.mjs` entries. `cosmiconfigSync`'s ExplorerSync validates
+      // every searchPlaces entry has a sync-compatible loader AT
+      // CONSTRUCTION TIME — `.mjs` (ESM) has none (loading it requires an
+      // async `import()`), so including it here throws immediately and
+      // silently discards ALL file-based config for EVERY project, not
+      // just ones that happen to use `.mjs` (the one `catch` below this
+      // swallows the error). Found while wiring PEP-055's `approve-macros`
+      // config read-back: `security.allowedMacroPackages` never round-
+      // tripped through any config file, even `.ts` ones, because the
+      // explorer itself never got past its constructor.
       searchPlaces: [
         "package.json",
         `.${MODULE_NAME}rc`,
@@ -232,11 +301,9 @@ function loadConfigFromFiles(): TypesugarConfig {
         `.${MODULE_NAME}rc.yml`,
         `.${MODULE_NAME}rc.js`,
         `.${MODULE_NAME}rc.cjs`,
-        `.${MODULE_NAME}rc.mjs`,
         `.${MODULE_NAME}rc.ts`,
         `${MODULE_NAME}.config.js`,
         `${MODULE_NAME}.config.cjs`,
-        `${MODULE_NAME}.config.mjs`,
         `${MODULE_NAME}.config.ts`,
       ],
     });

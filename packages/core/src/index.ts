@@ -29,7 +29,13 @@ export {
 } from "./safety.js";
 
 // Configuration System
-export { config, defineConfig, type TypesugarConfig, type ContractsConfig } from "./config.js";
+export {
+  config,
+  defineConfig,
+  type TypesugarConfig,
+  type ContractsConfig,
+  type SecurityConfig,
+} from "./config.js";
 
 // Re-export commonly used types for convenience
 export type {
