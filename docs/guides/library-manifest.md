@@ -171,6 +171,18 @@ Example using `package.json`:
 }
 ```
 
+> **Not the same thing as macro discovery.** The `package.json#typesugar`
+> field is also where a package declares `typesugar.macros` (a sibling key,
+> not a conflicting one — the two can coexist in the same object) to tell
+> the compiler where its **macro-time** code lives, a separate mechanism
+> with a separate purpose (and, for non-`@typesugar/*` packages, a consent
+> step). This manifest is pure data — no code runs to produce it, so it
+> needs no such gate. See
+> [PEP-055](../../peps/PEP-055-macro-package-discovery.md) and the
+> ["Getting discovered"](./authoring-libraries.md#getting-discovered)
+> section of the authoring guide if you're shipping macros, not just
+> instances.
+
 ## Priority and Conflicts
 
 Library instances have lower priority than local instances:

@@ -5,7 +5,10 @@ for consumers **standalone** (plain `tsc`, no setup) _and_ offers extra ergonomi
 (dot-syntax, operator overloading, compile-time macros) when the consumer runs the
 typesugar transformer.
 
-> Reference PEP: [PEP-050](../../peps/PEP-050-shipping-typesugar-libraries.md).
+> Reference PEPs: [PEP-050](../../peps/PEP-050-shipping-typesugar-libraries.md)
+> (this split), [PEP-055](../../peps/PEP-055-macro-package-discovery.md) (how a
+> `./macros` entry gets **discovered** — required reading if you're shipping
+> macros from outside the `@typesugar/` npm scope).
 > Worked examples in this repo: **`@typesugar/fp`** (runtime library with zero-cost
 > `@opaque` types) and **`@typesugar/strings`** (a macro package).
 
@@ -35,11 +38,45 @@ their code (e.g. `regex\`...\``→`new RegExp("...")`). Macros import `typescrip
    `typescript` is multi-MB and must not reach the app bundle.
 2. **Register on import.** The transformer loads your `./macros` entry for its side
    effects; call `globalRegistry.register(...)` at module scope.
-3. **Keep `typescript`/`@typesugar/core` as peer/dev deps**, not runtime deps.
-4. **Emit references to runtime symbols, don't inline them.** If your macro needs a
+3. **Declare `typesugar.macros` in your `package.json`** so the compiler can
+   actually **find** that entry ([PEP-055](../../peps/PEP-055-macro-package-discovery.md)):
+   ```jsonc
+   { "typesugar": { "macros": "./macros" } }
+   ```
+   Without this field your `./macros` entry exists but is never `require()`'d —
+   nothing discovers it. See "Getting discovered" below for what happens next,
+   which differs depending on whether you publish under the `@typesugar/` scope.
+4. **Keep `typescript`/`@typesugar/core` as peer/dev deps**, not runtime deps.
+5. **Emit references to runtime symbols, don't inline them.** If your macro needs a
    helper at runtime, put the helper in the `.` runtime entry and have the macro emit
    an import to it (use `ctx.ensureImport(symbol, "your-pkg")`, or emit a bare
    identifier the consumer imports).
+
+### Getting discovered
+
+The compiler only ever `require()`s a package's `./macros` entry if that
+package's own `package.json` declares `typesugar.macros` — there is no other
+discovery path (no name list to get added to, no prefix convention to match).
+What happens after it's declared depends on your package's npm scope:
+
+- **Published under `@typesugar/`**: auto-discovered, unconditionally, the
+  moment a consumer imports anything from your package. No action required on
+  the consumer's part. (This scope is reserved for the typesugar project's own
+  packages.)
+- **Published under any other name or scope** (the common case for a
+  third-party macro package): the first time a consumer's build encounters
+  your package declaring `typesugar.macros`, the build **fails** with a
+  diagnostic naming your package and pointing at
+  `typesugar approve-macros`. Running that command once lists what's new,
+  prompts for confirmation, and writes the approval into the consumer's own
+  `typesugar.config.ts` (committed to their repo, so every subsequent build —
+  local or CI — proceeds without re-prompting). This is by design, not a bug
+  to work around: compiling code that imports your package means running your
+  package's code at build time, and typesugar requires the consumer to
+  explicitly consent to that for anything outside its own first-party scope —
+  see [`docs/SECURITY.md`](../SECURITY.md) for the full rationale. Mention this
+  one-time step in your own package's README so consumers aren't surprised by
+  it.
 
 ### Worked example: `@typesugar/strings`
 
@@ -69,14 +106,22 @@ src/macros.ts   →  the `./macros` entry: regexMacro/htmlMacro/fmtMacro/rawMacr
       "require": "./dist/macros.cjs",
     },
   },
+  // Required for the compiler to find the ./macros entry above — see
+  // "Getting discovered" (PEP-055).
+  "typesugar": {
+    "macros": "./macros",
+  },
 }
 ```
 
 `tsup.config.ts`: `entry: ["src/index.ts", "src/macros.ts"]`.
 
-The transformer's macro-loader prefers `your-pkg/macros` and falls back to the package
-root, so the split is transparent. Verify with `node scripts/check-runtime-purity.mjs`
-— it fails if a runtime `.` entry imports `typescript`.
+The transformer's macro-loader `require()`s exactly the specifier your
+`typesugar.macros` field names — `"./macros"` resolves to `your-pkg/macros`
+through your own `exports` map, so the split above is what actually gets
+loaded, no guessing involved. Verify with
+`node scripts/check-runtime-purity.mjs` — it fails if a runtime `.` entry
+imports `typescript`.
 
 ---
 
@@ -150,6 +195,10 @@ and document that dot-syntax requires the transformer.
 
 - [ ] Macros (if any) live in `./macros`; the `.` entry never imports `typescript`
       (run `scripts/check-runtime-purity.mjs`).
+- [ ] `package.json` declares `typesugar.macros` pointing at that entry — without
+      it, the compiler never discovers your macros at all (PEP-055).
+- [ ] If publishing outside the `@typesugar/` scope, your README mentions the
+      one-time `typesugar approve-macros` step consumers will hit.
 - [ ] `typescript`/`@typesugar/core` are peer/dev deps, not runtime deps.
 - [ ] Declarations are emitted per-module (`tsc --emitDeclarationOnly`), not bundled.
 - [ ] Relative imports in source use `.js` extensions (NodeNext-safe `.d.ts`).

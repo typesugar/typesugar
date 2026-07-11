@@ -1,6 +1,6 @@
 # Security & Trust Model
 
-**Last updated:** 2026-06-21
+**Last updated:** 2026-07-11
 
 This document states typesugar's trust model in plain terms. It is the
 authoritative statement of what typesugar does and does **not** protect against.
@@ -29,10 +29,19 @@ helper" still means "it runs code during your build."
 
 - **A transitive dependency can register a macro.** Any package imported during
   compilation — however deep in the tree — can call `globalRegistry.register()`
-  and have its macro participate in rewriting your code. There is currently no
-  authentication or allowlisting that can stop this (see "Known limitations"
-  below). A malicious or compromised dependency is in your build's trust
-  boundary the moment it is imported at compile time.
+  and have its macro participate in rewriting your code. A malicious or
+  compromised dependency is in your build's trust boundary the moment it is
+  imported at compile time. **Partial mitigation since PEP-055** (see "What
+  _is_ enforced" below): the compiler only proactively `require()`s a
+  dependency's macro-time code if that dependency declares
+  `typesugar.macros` in its own `package.json` — for anything outside the
+  `@typesugar/` npm scope, that now requires one-time, explicit,
+  committed-to-your-repo approval. This narrows, but does not close, the
+  gap: it gates the compiler's own discovery path, not the
+  `globalRegistry.register()` API itself — a package your build already
+  imports for an unrelated reason can still call it directly as a side
+  effect of being loaded, same as always. See "Known limitations" (F1)
+  below for exactly what remains unenforced.
 - **Macros see your source.** A macro has access to the TypeScript program,
   including the text and paths of your source files.
 - **`comptime` and `include*` touch the filesystem.** These read files at build
@@ -56,20 +65,45 @@ These are real, tested boundaries — not advisory guidance:
 - **You can see what macros did.** `typesugar expand <file> [--diff]` prints the
   post-expansion output. No macro can hide its rewrite from this — the expanded
   code is the ground truth. Use it to audit what a dependency's macros produce.
+- **Non-first-party macro packages require explicit, committed consent
+  (PEP-055).** A package declares where its macro-time code lives via a
+  `typesugar.macros` field in its own `package.json` — the compiler will not
+  `require()` that code otherwise. Packages published under the `@typesugar/`
+  scope are auto-trusted (this repo's own publishing org, already
+  unconditionally trusted the moment you depend on `@typesugar/transformer`
+  at all). Anything else fails the build the first time it's encountered,
+  with a diagnostic pointing at `typesugar approve-macros` — that command
+  lists exactly what's new, prompts for confirmation, and writes the
+  decision to `typesugar.config.ts`'s `security.allowedMacroPackages`
+  (meant to be committed, so the trust decision shows up in your PR diffs
+  for reviewers to scrutinize alongside the dependency itself, the same way
+  pnpm's `approve-builds` mechanism works for lifecycle scripts). See the
+  ["Getting discovered"](./guides/authoring-libraries.md#getting-discovered)
+  section of the library-authoring guide for the package-author side of this.
 
 ## Known limitations (not yet enforced)
 
 These are documented honestly rather than papered over with controls that would
 imply a guarantee typesugar cannot currently keep:
 
-- **No macro-registration allowlist (F1).** There is no reliable way today to
-  restrict _which_ packages may register macros. The registry keys on a macro's
-  self-declared `module` field, which a hostile package can simply set to any
-  value it likes — so an allowlist built on it would be trivially bypassable
-  ("security theater"). A real control requires deriving the registering
-  package's identity from the module-resolution graph; that is tracked as future
-  work, not shipped. Until then, the build-script trust model above is your
-  boundary.
+- **No identity verification behind the PEP-055 consent gate (F1, revised).**
+  The `typesugar approve-macros` gate above controls whether the compiler
+  attempts to load a package's macro-time code at all — a real, tested
+  boundary (see above) — but it is still consent to a **self-declared name**,
+  not a cryptographic or otherwise verified identity claim. Approving
+  `my-org-macros` once does not re-verify that every future install of that
+  exact name is the same publisher; a supply-chain compromise or a
+  typosquatted package that gets approved by mistake is not caught by this
+  mechanism. It also does not constrain `globalRegistry.register()` itself —
+  a package your build already imports for an unrelated (non-macro) reason
+  can still call it directly at module scope; the registry keys on a macro's
+  self-declared `module` field for its own internal bookkeeping, which a
+  hostile package can set to any value it likes. A real fix for that
+  narrower piece requires deriving the registering package's identity from
+  the module-resolution graph; that remains tracked as future work (see
+  `SECURITY-REVIEW.md`, issue #14), not shipped. Until then: review what
+  you approve as carefully as a new production dependency, the same
+  build-script trust model described above.
 - **The `comptime` sandbox is not an isolation boundary (F3).** It uses Node's
   `vm` module, which is [explicitly not a security
   mechanism](https://nodejs.org/api/vm.html#vm_vm_createcontext_contextobject_options).
@@ -81,6 +115,9 @@ imply a guarantee typesugar cannot currently keep:
 ## If you only do three things
 
 1. Pin and review your dependencies — especially anything that ships macros.
+   Review a `typesugar approve-macros` prompt with the same scrutiny you'd
+   give a new production dependency before approving it — it's the exact
+   same grant.
 2. Run `typesugar expand` on code paths you care about to see what was generated.
 3. Keep untrusted code out of your build; if you must build it, do so in an
    isolated environment (a container/CI runner you can throw away), the same way
