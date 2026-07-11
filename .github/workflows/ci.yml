@@ -177,10 +177,10 @@ jobs:
           path: packages
 
       - name: VS Code Unit Tests
-        run: pnpm --filter @typesugar/vscode test:unit
+        run: pnpm --filter typesugar-vscode test:unit
 
       - name: VS Code Integration Tests
-        run: xvfb-run -a pnpm --filter @typesugar/vscode test:integration
+        run: xvfb-run -a pnpm --filter typesugar-vscode test:integration
 
       - name: TS Plugin Tests
         run: pnpm --filter @typesugar/ts-plugin test
@@ -214,7 +214,7 @@ jobs:
           path: packages
 
       - name: Publish (dry run)
-        run: pnpm -r --filter '!@typesugar/vscode' publish --dry-run --no-git-checks
+        run: pnpm -r --filter '!typesugar-vscode' publish --dry-run --no-git-checks
 
 # NOTE: Deploy to Vercel moved to .github/workflows/deploy.yml so that
 # documentation-only changes (which this workflow path-ignores) still deploy.

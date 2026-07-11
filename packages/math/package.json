@@ -4,6 +4,9 @@
   "description": "🧊 Comprehensive math types and typeclasses for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

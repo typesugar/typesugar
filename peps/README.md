@@ -40,7 +40,7 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [030](PEP-030-transformer-robustness.md)                | Transformer & Macro Robustness                            | Implemented                                                                  |
 | [031](PEP-031-standalone-lsp-and-zed-extension.md)      | Standalone LSP Server & Zed Extension                     | Implemented (scope reduced by [047](PEP-047-remove-sts.md))                  |
 | [032](PEP-032-macro-expansion-import-emission.md)       | Self-Contained Macro Expansions via Companion Objects     | Implemented                                                                  |
-| [033](PEP-033-production-readiness.md)                  | Production Readiness — CLI, Macro Registration, Docs      | In Progress                                                                  |
+| [033](PEP-033-production-readiness.md)                  | Production Readiness — CLI, Macro Registration, Docs      | Done (all waves + N1–N6 resolved 2026-06-28)                                 |
 | [034](PEP-034-language-service-parity.md)               | Language Service Parity — Unified SFINAE & IDE Infra      | Implemented                                                                  |
 | [035](PEP-035-emit-pipeline-architecture.md)            | Emit Pipeline Architecture                                | Implemented                                                                  |
 | [036](PEP-036-source-map-red-team.md)                   | Source Map Red Team — Error Positioning Accuracy          | Done                                                                         |
@@ -65,3 +65,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [055](PEP-055-macro-package-discovery.md)               | Macro-Package Discovery via `package.json`                | Implemented                                                                  |
 | [056](PEP-056-transformer-pipeline-unification.md)      | Transformer Pipeline Unification — One Engine, Not Two    | Implemented (Waves 1–5)                                                      |
 | [057](PEP-057-ast-purity-exception-list-audit.md)       | AST-Purity Exception List Audit — Closing the Gap         | Draft                                                                        |
+| [058](PEP-058-production-release-readiness.md)          | Production Release Readiness — Pipeline, AI, Onboarding   | In Progress (Wave 1)                                                         |

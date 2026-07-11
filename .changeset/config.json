@@ -7,13 +7,9 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": [
-    "@typesugar/strings",
-    "@typesugar/erased",
-    "@typesugar/lsp-server",
-    "@typesugar/math",
-    "@typesugar/units",
-    "@typesugar/parser",
-    "@typesugar/codec"
-  ]
+  "ignore": [],
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  }
 }

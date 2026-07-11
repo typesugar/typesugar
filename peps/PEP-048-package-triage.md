@@ -114,6 +114,23 @@ assumed. Adjustments made before execution:
   stays released** — `@typesugar/graph` (published Wedge, PEP-046) runtime-depends
   on its `HashSet`/`HashMap`. All frozen packages still get README-demotion +
   a status banner regardless.
+
+  > **Superseded (2026-07-11, PEP-058 Wave 1):** the changeset-`ignore`
+  > mechanism is retired entirely — the `ignore` list turned out to make the
+  > changesets config fail validation (every private dependent of an ignored
+  > package must itself be ignored, which the config never satisfied), and
+  > that validation failure silently blocked EVERY release from ~2026-04
+  > onward. It also broke dependency coherence in principle: the ignored
+  > packages are public and published (the Zed extension npm-installs
+  > `@typesugar/lsp-server`), so version-freezing them would have pinned
+  > stale `@typesugar/core@^0.1.x` ranges forever while everything else
+  > moved on — and queued changesets were already referencing
+  > `lsp-server`/`lsp-common`/`playground` in practice. The freeze's actual
+  > intent — no feature investment, excluded from README claims, status
+  > banners — is fully preserved without version-freezing; frozen packages
+  > simply receive mechanical version bumps alongside the rest of the
+  > workspace from now on.
+
 - **Remove set unblocking:** `playground` is the only non-test consumer of a
   Remove-set package (`symbolic`); its import/dep/bundle entries are removed.
   `hlist` and `prettier-plugin` have only test/example/docs consumers.
