@@ -50,6 +50,100 @@ PEP for migration):
   strips positions, making the reparsed node synthetic, and the visitor skips
   macro expansion on synthetic nodes by design.
 
+- `packages/effect/src/derive/schema.ts` — `mapTypeToSchema` (and its helper
+  `splitGenericArgs`), and ONLY those. The `EffectSchema` derive turns each
+  field's type into a `Schema.*` constructor expression. Everything else in
+  the file is AST-built (`ts.factory.create*`): the `Schema.Struct(...)` /
+  `Schema.Union(...)` calls, the exported-const wrapper, and the
+  `type XEncoded = Schema.Schema.Encoded<typeof XSchema>` alias. The per-field
+  schema expression is the holdout: `mapTypeToSchema` recurses over
+  `field.typeString` — the type textualized by `typeChecker.typeToString` in
+  transformer-core's `extractTypeInfo` — and returns a schema-source string
+  that `schema.ts` re-parses with `ctx.parseExpression` at its two
+  property-building call sites (the product struct and each sum variant
+  struct). This is on the list because the INPUT is itself a string with no
+  syntax tree attached: `DeriveFieldInfo` carries only `typeString: string`
+  and `type: ts.Type` (a checker type, not a `ts.TypeNode`), so there is no
+  written type node to recurse over structurally — `extractTypeInfo` sees the
+  declaration's `ts.TypeNode` but discards it before `schema.ts` runs. The
+  clean fix is upstream, not in this file: have `extractTypeInfo`
+  (`packages/transformer-core/src/macro-helpers.ts`) carry the real
+  `ts.TypeNode` on `DeriveFieldInfo` so `mapTypeToSchema` can recurse over
+  `ts.TypeNode` kinds instead of regex/substring-parsing text; until that
+  field exists, reconstructing the schema from `typeString` (or re-deriving
+  it from `field.type` via the checker, as
+  `packages/sql/src/derive-typeclasses.ts` does — itself a larger rewrite that
+  drops several cases `mapTypeToSchema` handles today, e.g. `Record`/`Map`/
+  `Option`/literal unions) is the only option available to this file. Narrowly
+  scoped to `mapTypeToSchema`/`splitGenericArgs`; the surrounding declaration
+  codegen is not an exception and must stay AST-based.
+
+- `packages/transformer/src/dts-transform.ts` — `parseOpaqueTypeExpression`,
+  and ONLY that. `transformDtsContent` turns each `@opaque`-tagged interface
+  in a compiled `.d.ts` file into a type alias exposing the underlying
+  runtime representation. The interface's name, type parameters (including
+  constraints/defaults), and export/declare modifiers are all reused
+  directly from the real parsed `ts.InterfaceDeclaration` via
+  `ts.factory.createTypeAliasDeclaration`, then printed — no template
+  strings. The one holdout is the `@opaque` JSDoc tag's VALUE itself (e.g.
+  `A | null`): it's free-form TypeScript type syntax a human wrote inside a
+  comment, which the checker never parses as type syntax, so there is no
+  syntax tree attached to it anywhere upstream — same category as
+  `typeclass.ts`'s `fullSignatureText` contract and `effect/schema.ts`'s
+  `mapTypeToSchema` above. `parseOpaqueTypeExpression` wraps it as
+  `type __T = ${text};` in a throwaway source file and extracts the parsed
+  `ts.TypeNode`, then strips its positions (`stripPositions` from
+  `@typesugar/core`) before splicing it into the real declaration — the
+  position-stripping step is load-bearing, not optional: without it the
+  printer uses the node's real-but-wrong-file `pos`/`end` (offsets into the
+  temporary wrapper text) as if they applied to the real `.d.ts` file's
+  text, silently splicing in random unrelated bytes from whatever the real
+  file happens to have at those numeric offsets (caught by
+  `dts-transform.test.ts`'s multi-interface test during PEP-057's follow-up
+  pass — the exact bug `ctx.parseExpression`'s own `stripPositions` call in
+  `core/src/context.ts` already guards against for the same reason).
+  Narrowly scoped to `parseOpaqueTypeExpression`; everything else in the
+  file is AST-built.
+
+**Pre-`Program` source-text rewrites** (a different mechanism than the
+`ctx.parseStatements`/`ctx.parseExpression` list above, but the same
+underlying rule — a raw `ts.createSourceFile` + `MagicString` text patch
+applied to the file's own source before a real `ts.Program`/checker exists,
+rather than AST construction):
+
+- `packages/transformer/src/arrow-comprehension-preprocess.ts` — when a
+  `let:/yield:` comprehension (`par:`/`seq:`/`all:` too) appears in
+  expression position with a newline before it (arrow body, bare `return`,
+  or `export default`), TypeScript's own parser produces an error-recovered
+  AST that is too fragile to patch with `ts.factory.update*` — the
+  comprehension's label gets parsed as a bare identifier, the following
+  block as an unrelated `ObjectBindingPattern`, and subsequent statements as
+  error-recovered `BinaryExpression`s. There is no valid AST to build
+  factory nodes alongside at this point — the fix has to happen on the
+  TEXT, before the real parse, so that TS's normal ASI path produces a
+  shape the transformer's existing merge logic can handle. Detection uses a
+  real AST walk (`ts.forEachChild`) over the first (broken) parse plus a
+  scanner-based brace-balancer (`ts.createScanner`, template-literal aware)
+  to find exact span boundaries — not regex-based text search beyond a
+  cheap `hasPotentialComprehension` prefilter — and the inserted text is a
+  handful of fixed wrapper tokens (`{ { const __tag = `, `; return __tag; } }`)
+  with only a synthesized identifier substituted in, not reconstructed
+  program logic. `transformCode` reparses the rewritten source afterward
+  through the normal pipeline.
+- `packages/transformer/src/hkt-rewriter.ts` — rewrites `F<A>` → `Kind<F, A>`
+  (where `F` is a type parameter) in `VirtualCompilerHost`, before
+  `ts.Program` creation, specifically so the type checker never sees the
+  invalid `F<A>` syntax (which throws TS2315). Since this must run before a
+  checker/Program exists, and the output must be a source-text string (fed
+  straight into the normal `ts.createProgram` file-read path, not spliced
+  into an already-built tree), a `MagicString` patch of the original file
+  text is the only way to keep the rest of the file's positions/source-maps
+  intact. As of PEP-057's follow-up pass, the _replacement text itself_ is
+  built from real `ts.factory.createTypeReferenceNode`/printer output
+  (reusing the actual matched type-argument nodes), not manual template-
+  string interpolation — only the outer "patch this one span of the
+  original file" mechanism remains textual, because it has to.
+
 The original `builtinDerivations` + `convertToCompanionAssignment` legacy exception
 was removed in 2026-05 after they were confirmed to be dead code (orphaned by
 PEP-038 Wave 2F's GenericDerivation migration).
@@ -61,14 +155,21 @@ Nothing produces a `.source`-shaped `DictMethod` anymore; `specialize.ts`
 remains on this list only for the new, narrower reflection-based exception
 described above.
 
-**The exception list above must be exhaustive, not illustrative.** If you
-add a `parseStatements`/`parseExpression` call anywhere in this repo,
-either it's already covered by name and file above, or you add it to this
-list in the same commit with the same justification structure the existing
-entries use (why AST construction wasn't feasible here, not just "it was
-easier"). A string-codegen call site with no corresponding CLAUDE.md entry
-is a bug in this file, not a passable gap — flag it in review rather than
-assuming an old omission means the rule doesn't apply to your package.
+**Both exception lists above must be exhaustive, not illustrative.** If you
+add a `parseStatements`/`parseExpression` call, or a raw `ts.createSourceFile`
+used to build-then-reparse/patch generated text (the pre-`Program`
+source-rewrite category above), anywhere in this repo, either it's already
+covered by name and file above, or you add it to the matching list in the
+same commit with the same justification structure the existing entries use
+(why AST construction wasn't feasible here, not just "it was easier"). A
+string-codegen call site with no corresponding CLAUDE.md entry is a bug in
+this file, not a passable gap — flag it in review rather than assuming an
+old omission means the rule doesn't apply to your package. (PEP-057's
+follow-up pass found exactly this: `arrow-comprehension-preprocess.ts`
+already had its own in-file comment calling itself "a deliberate exception
+to the CLAUDE.md rule" — but the entry above was still missing until that
+pass added it. An exception a file claims for itself isn't real until it's
+also in this list.)
 
 **Patching a real, human-authored file outside the macro pipeline** (a
 different mechanism than the `ctx.parseStatements`/`ctx.parseExpression`

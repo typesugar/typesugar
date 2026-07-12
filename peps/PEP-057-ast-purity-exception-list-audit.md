@@ -1,6 +1,6 @@
 # PEP-057: AST-Purity Exception List Audit — Closing the Gap Between the Rule and the Tree
 
-**Status:** Draft
+**Status:** Implemented (Waves 1–6)
 **Date:** 2026-07-06
 **Author:** Claude (Sonnet 5), for Dean's review
 
@@ -286,9 +286,9 @@ moderate before the two genuine DOCUMENT-EXCEPTION candidates.
 
 ### Wave 1: Already-tested, straightforward — prove the pattern
 
-- [ ] `packages/codec/src/macros.ts` (1 site) — real test coverage exists;
+- [x] `packages/codec/src/macros.ts` (1 site) — real test coverage exists;
       use this as the template migration other waves can be checked against.
-- [ ] `packages/testing/src/macro.ts` line 490 (`testCasesAttribute`) —
+- [x] `packages/testing/src/macro.ts` line 490 (`testCasesAttribute`) —
       highest-priority fix in the file (regex-on-AST-text is actively wrong,
       not just non-compliant); add an `.expand()`-level test as part of this
       wave, since none exists today.
@@ -299,15 +299,15 @@ full workspace suite green.
 
 ### Wave 2: Untested straightforward sites — sql, contracts, typeclass.ts
 
-- [ ] `packages/sql/src/derive-typeclasses.ts` (2 sites + the dead
+- [x] `packages/sql/src/derive-typeclasses.ts` (2 sites + the dead
       `getMetaInstanceForType` sibling) — add a macro-expansion fixture test
       first (none exists), then migrate.
-- [ ] `packages/contracts/src/macros/laws.ts` (2 sites) — migrate alongside
+- [x] `packages/contracts/src/macros/laws.ts` (2 sites) — migrate alongside
       or ahead of `verify-laws.ts`'s identical-shape sites (out of this
       PEP's direct scope but flagged as the same category — worth doing
       together if `verify-laws.ts` is ever revisited, otherwise name
       `laws.ts` explicitly in CLAUDE.md as sharing that entry).
-- [ ] `packages/macros/src/typeclass.ts` lines 2460 (straightforward) and
+- [x] `packages/macros/src/typeclass.ts` lines 2460 (straightforward) and
       2607 (moderate) — add coverage for `summonMacro`/`extendMacro`'s
       expansion output if the existing typeclass test suite doesn't already
       assert on it precisely.
@@ -316,16 +316,16 @@ full workspace suite green.
 
 ### Wave 3: `effect` derive macros — hash.ts, equal.ts fully; schema.ts's outer shape
 
-- [ ] `packages/effect/src/derive/hash.ts` (2 sites) and `equal.ts`
+- [x] `packages/effect/src/derive/hash.ts` (2 sites) and `equal.ts`
       (2 sites) — migrate fully; factor the shared switch/instance-object
       scaffold into one `derive/codegen-common.ts` helper used by both
       (and left ready for `schema.ts` to adopt where applicable) rather
       than duplicating the fix three times.
-- [ ] `packages/effect/src/derive/schema.ts`'s outer declaration shape
+- [x] `packages/effect/src/derive/schema.ts`'s outer declaration shape
       (product + sum) — migrate the `Schema.Struct`/`Schema.Union`/
       `Encoded`-alias wrapping.
-- [ ] Add `.expand()`-level tests for all three macros — none exist today.
-- [ ] Resolve `mapTypeToSchema`'s feasibility question: does
+- [x] Add `.expand()`-level tests for all three macros — none exist today.
+- [x] Resolve `mapTypeToSchema`'s feasibility question: does
       `DeriveFieldInfo` (or whatever produces `field.typeString`) have
       access to a real `ts.TypeNode` at the point `schema.ts` runs? If yes,
       migrate `mapTypeToSchema` too, in this wave. If no, this is the
@@ -341,12 +341,12 @@ either way; full workspace suite green.
 
 ### Wave 4: `parser` — the large one
 
-- [ ] `packages/parser/src/codegen.ts`'s nine `emit*` functions — migrate to
+- [x] `packages/parser/src/codegen.ts`'s nine `emit*` functions — migrate to
       direct AST construction. Budget this as its own wave: 9 recursive
       functions, not a small diff.
-- [ ] `packages/parser/src/macros.ts` line 96 — update the single call site
+- [x] `packages/parser/src/macros.ts` line 96 — update the single call site
       once `codegen.ts` returns a `ts.Expression` instead of a string.
-- [ ] Add a macro-expansion-level test (`grammar` tag through the actual
+- [x] Add a macro-expansion-level test (`grammar` tag through the actual
       compile-time transform path) — today's `codegen.test.ts` only
       exercises the generator function directly via `new Function(...)`
       eval, not the real splice point.
@@ -357,11 +357,11 @@ still passes against migrated output); full workspace suite green.
 
 ### Wave 5: `testing/macro.ts`'s remaining six macros
 
-- [ ] `assertMacro` (line 210), `ArbitraryDerive` (line 359, already has
+- [x] `assertMacro` (line 210), `ArbitraryDerive` (line 359, already has
       partial coverage — extend it), `forAllMacro` (line 709),
       `assertTypeMacro` (line 948) — migrate; add `.expand()`-level tests
       for the four that currently have none.
-- [ ] `mockAttribute`/`mockExpressionMacro` (lines 1224, 1327) — the one
+- [x] `mockAttribute`/`mockExpressionMacro` (lines 1224, 1327) — the one
       real complexity in this PEP's testing-package scope: switch
       `typeChecker.typeToString()` to `typeChecker.typeToTypeNode()` so
       generic type arguments are built from real type nodes instead of
@@ -372,13 +372,13 @@ still passes against migrated output); full workspace suite green.
 
 ### Wave 6: Update CLAUDE.md and close the loop
 
-- [ ] Update CLAUDE.md's exception list: remove `laws.ts` from being an
+- [x] Update CLAUDE.md's exception list: remove `laws.ts` from being an
       implicit sibling-gap (either it's migrated by Wave 2 and needs no
       entry, or it's explicitly named); add `mapTypeToSchema`'s entry if
       Wave 3 determined it's a genuine exception; re-grep the whole repo
       for `parseStatements`/`parseExpression` one final time to confirm
       zero undocumented call sites remain.
-- [ ] Update this PEP's status to Done, with a final tally of
+- [x] Update this PEP's status to Done, with a final tally of
       migrated-vs-documented-exception counts.
 
 **Gate:** a repo-wide grep for `parseStatements`/`parseExpression` call
@@ -434,3 +434,156 @@ finally agree.
    question not yet answered** (does `DeriveFieldInfo` carry a real
    `ts.TypeNode`?) — Wave 3 could stall on this if the answer is no and a
    bigger upstream refactor is required to unblock it cleanly.
+
+## Implementation status & final tally
+
+All six waves landed in a single pass (branch `pep-057-ast-purity-audit`),
+executed as seven independent parallel workstreams (one per package/file
+group, since none of them shared a file) rather than strictly sequential
+PRs — the wave numbering above is preserved for traceability but all landed
+together.
+
+**21 string-then-reparse call sites migrated to direct `ts.factory.create*`
+construction**, across 8 files in 7 packages:
+
+- `packages/codec/src/macros.ts` — 1 site (reused the existing
+  `jsValueToExpression` utility from `@typesugar/core` instead of
+  hand-rolling a new object-literal builder).
+- `packages/testing/src/macro.ts` — 7 sites (all seven macros:
+  `assertMacro`, `ArbitraryDerive`, `testCasesAttribute`, `forAllMacro`,
+  `assertTypeMacro`, `mockAttribute`, `mockExpressionMacro`).
+  `testCasesAttribute`'s regex-on-AST-text bug is gone — real statement
+  nodes are spliced directly. `mockAttribute`/`mockExpressionMacro` now use
+  `typeChecker.typeToTypeNode()` instead of `typeToString()`.
+- `packages/sql/src/derive-typeclasses.ts` — 2 sites
+  (`getGetInstanceForType`/`getPutInstanceForType`) plus the dead sibling
+  `getMetaInstanceForType`, migrated for consistency (confirmed genuinely
+  unreferenced via repo-wide grep).
+- `packages/contracts/src/macros/laws.ts` — 2 sites
+  (`expandCompileTime`/`expandPropertyTest`) — migrated in full rather than
+  folded into the sibling `verify-laws.ts` exception.
+- `packages/macros/src/typeclass.ts` — 2 sites (`summonMacro`, `extendMacro`)
+  — the pre-existing `companionCode`/`assignCode`/`fullSignatureText`
+  exception entry is untouched and still accurate. `extendMacro` now reuses
+  the real receiver/argument AST nodes instead of `.getText()`-then-reparse,
+  a correctness improvement over the prior behavior.
+- `packages/effect/src/derive/{hash,equal,schema}.ts` — 6 sites. Shared
+  scaffold factored into a new `packages/effect/src/derive/codegen-common.ts`.
+  `schema.ts`'s outer declaration shape (the `Schema.Struct`/`Schema.Union`
+  calls and `Encoded` type alias) is fully AST-built.
+- `packages/parser/src/codegen.ts` (9 `emit*` functions) +
+  `packages/parser/src/macros.ts` (1 call site) — the largest single
+  workstream. `codegen.ts` now imports `typescript`, so its runtime
+  re-export was dropped from `packages/parser/src/index.ts` (the `.` entry)
+  to preserve PEP-050's runtime-purity guarantee; `generateParserCode` is
+  now only reachable via the build-time `./macros` entry.
+
+**1 new genuine CLAUDE.md exception added** (not a deferral — a concrete,
+investigated finding): `packages/effect/src/derive/schema.ts`'s
+`mapTypeToSchema`/`splitGenericArgs`. Confirmed `DeriveFieldInfo` carries
+only `typeString: string` and a checker `ts.Type` — no `ts.TypeNode` — so
+there is no tree to recurse over structurally without an upstream change to
+`extractTypeInfo` in `transformer-core/src/macro-helpers.ts`. Everything
+else in `schema.ts` is AST-built; the exception is scoped to those two
+functions only.
+
+**`laws.ts`** needed no CLAUDE.md naming after all — it was migrated
+outright in this pass rather than left as an implicit sibling gap next to
+`verify-laws.ts`'s documented exception.
+
+**Test coverage added:** every migrated macro gained (or extended) a
+genuine `.expand()`-level regression test — `packages/testing` went from 44
+to 54 tests (6 newly-covered macros), `packages/sql` gained a net-new
+`derive-typeclasses.test.ts` (6 tests, none existed before),
+`packages/contracts` gained `laws.test.ts` (11 tests), `packages/effect`
+gained `derive-codegen.test.ts` (10 tests), `packages/parser` gained a
+macro-expansion-level fixture test exercising the real compile-time
+transform path (previously untested), and `packages/macros/src/typeclass.ts`
+gained direct `.expand()` coverage for `summonMacro`/`extendMacro`.
+
+**Verification:** full `pnpm build` clean across all packages; full
+workspace `vitest run` green — 7307 passed, 38 skipped (pre-existing,
+unrelated), 0 failures, 271/272 test files passed. Final repo-wide grep for
+`ctx.parseStatements`/`ctx.parseExpression` call sites, cross-checked by
+hand against CLAUDE.md's exception list: every remaining hit resolves to an
+already-documented exception (`transformer-core/transformer.ts`,
+`verify-laws.ts`, `auto-derive.ts`, `quote.ts`, `syntax-macro.ts`,
+`typeclass.ts`'s `companionCode`/`assignCode`, and the new
+`schema.ts`/`mapTypeToSchema` entry) — **zero unaccounted-for sites**. The
+rule the previous PEP wrote and the tree now agree.
+
+## Follow-up pass: raw `ts.createSourceFile` sites outside the ctx.parse\* gate
+
+The repo-wide grep above only catches `ctx.parseStatements`/`ctx.parseExpression`
+(the `MacroContext` wrapper methods) by construction — it can't see a raw
+`ts.createSourceFile(...)` call that builds-then-reparses text through a
+different mechanism entirely. A follow-up pass (same session, after the PR
+above was opened) checked every remaining raw `ts.createSourceFile` call
+site in non-test source by hand. Four were real findings, not noise:
+
+1. **`packages/macros/src/hkt.ts`'s `resolveTypeConstructorViaTypeCheckerUncached`**
+   — **migrated, not a hard case.** Built `declare const __x: ${base}<any>;`,
+   reparsed it, and only ever checked that the parse produced _some_
+   `TypeReferenceNode` before calling `checker.resolveName(base, ...)` with
+   the same `base` string regardless of what the parse found — the parsed
+   tree was never consulted for content. Deleted the reparse entirely;
+   `checker.resolveName` takes a plain string. Added direct test coverage
+   (`resolveTypeConstructorViaTypeChecker` had none before — only indirect
+   coverage via the unrelated `@hkt`/`_`-marker expansion tests).
+
+2. **`packages/transformer/src/arrow-comprehension-preprocess.ts`** —
+   **genuine exception, added to CLAUDE.md.** The file's own doc comment
+   already called itself "a deliberate exception to the CLAUDE.md rule" —
+   it just was never actually added to CLAUDE.md's list. A `let:/yield:`
+   comprehension in expression position produces an error-recovered AST too
+   fragile to patch with `ts.factory.update*`, so the fix has to happen on
+   raw source text (via `MagicString`) before the real parse. This is
+   textbook "a file claims an exception for itself that isn't in CLAUDE.md's
+   list, which is exactly the bug CLAUDE.md itself warns about."
+
+3. **`packages/transformer/src/hkt-rewriter.ts`** — **migrated.** Rewrites
+   `F<A>` → `Kind<F, A>` before `ts.Program` creation (must run pre-checker,
+   since the checker itself throws TS2315 on `F<A>`). The outer
+   `MagicString`-patch-before-Program mechanism is unavoidable for the same
+   reason as #2 — but the _replacement text_ itself was being hand-built via
+   `` `Kind<${name}, ${args.join(", ")}>` `` string concatenation over
+   `node.getText()` slices. Rebuilt via `ts.factory.createTypeReferenceNode` +
+   `ts.visitEachChild` (context obtained via a throwaway `ts.transform`
+   pass, matching the pattern `packages/macros/src/hkt.test.ts` already uses
+   for the same need), reusing the real matched type-argument nodes and
+   printing only the small replacement node — not the whole file. Added 3
+   new tests exercising nested targets (`F<G<A>>`), targets nested inside a
+   non-target generic (`Array<F<A>>`), and multi-argument targets.
+
+4. **`packages/transformer/src/dts-transform.ts`** — **migrated, with one
+   narrow new exception.** Post-compile `.d.ts` rewriter erasing
+   `@opaque`-tagged interfaces into type aliases. Migrated the whole
+   declaration shape to `ts.factory.createTypeAliasDeclaration`, reusing the
+   real interface's name/type-parameters/modifiers directly instead of
+   hand-formatting `` `${exportKw}${declareKw}type ${name}${typeParams} = ${underlyingType};` ``.
+   The one irreducible holdout: the `@opaque` JSDoc tag's _value_ (e.g.
+   `A | null`) is free-form type syntax a human wrote inside a comment, with
+   no attached tree anywhere upstream — same category as `typeclass.ts`'s
+   `fullSignatureText` and `effect/schema.ts`'s `mapTypeToSchema`. Documented
+   as a new, narrowly-scoped CLAUDE.md exception
+   (`parseOpaqueTypeExpression` only). **Caught a real bug in the process**:
+   the first version of this migration didn't strip positions off the
+   type node parsed from the JSDoc tag's temporary wrapper source file,
+   which made the printer slice the _actual_ `.d.ts` file's text using
+   position offsets that were only valid against the temporary wrapper —
+   silently splicing in unrelated bytes from wherever those offsets landed
+   in the real file. Caught by the existing `dts-transform.test.ts`
+   multi-interface test failing with visibly garbled output; fixed with
+   `stripPositions` (`@typesugar/core`), the same fix `ctx.parseExpression`
+   itself already applies for the identical reason.
+
+CLAUDE.md now has two new documented exceptions from this pass
+(`arrow-comprehension-preprocess.ts`, `dts-transform.ts`'s
+`parseOpaqueTypeExpression`) and a new second list category ("pre-`Program`
+source-text rewrites") distinguishing this mechanism from the
+`ctx.parseStatements`/`ctx.parseExpression` list, with its own "must be
+exhaustive" restatement so this class of gap doesn't silently recur.
+
+Full `pnpm build` + full `vitest run` re-verified green after this pass:
+7315 passed (8 new), 38 skipped (unchanged, pre-existing), 0 failures,
+271/272 files. `npx prettier --check .` clean.

@@ -64,4 +64,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [054](PEP-054-diagnostic-suppression-rules-naming.md)   | Rename "SFINAE Rules" to "Diagnostic Suppression Rules"   | Implemented                                                                  |
 | [055](PEP-055-macro-package-discovery.md)               | Macro-Package Discovery via `package.json`                | Implemented                                                                  |
 | [056](PEP-056-transformer-pipeline-unification.md)      | Transformer Pipeline Unification — One Engine, Not Two    | Implemented (Waves 1–5)                                                      |
-| [057](PEP-057-ast-purity-exception-list-audit.md)       | AST-Purity Exception List Audit — Closing the Gap         | Draft                                                                        |
+| [057](PEP-057-ast-purity-exception-list-audit.md)       | AST-Purity Exception List Audit — Closing the Gap         | Implemented (Waves 1–6)                                                      |

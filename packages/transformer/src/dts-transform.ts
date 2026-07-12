@@ -30,7 +30,7 @@
 import ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
-import { hasExportModifier } from "@typesugar/core";
+import { stripPositions } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
 // Core transform
@@ -111,16 +111,6 @@ function getJsDocRange(
   return undefined;
 }
 
-/**
- * Check if a node has a `declare` modifier.
- */
-function hasDeclareModifier(node: ts.Node): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword) === true
-  );
-}
-
 export interface DtsTransformResult {
   /** The transformed .d.ts content */
   content: string;
@@ -128,6 +118,43 @@ export interface DtsTransformResult {
   transformedCount: number;
   /** Names of the transformed types */
   transformedTypes: string[];
+}
+
+const printer = ts.createPrinter({ removeComments: true });
+
+/**
+ * Parse a free-text type expression (the `@opaque` JSDoc tag's value) into a
+ * real `ts.TypeNode`.
+ *
+ * PEP-057 exception (documented in CLAUDE.md): the `@opaque` tag's value is
+ * free-form TypeScript type syntax written inside a JSDoc comment — there is
+ * no attached syntax tree for it (JSDoc comment text isn't parsed as TS type
+ * syntax by the checker), so recovering a `ts.TypeNode` from it requires one
+ * parse. Same category as `typeclass.ts`'s `fullSignatureText` contract and
+ * `effect/schema.ts`'s `mapTypeToSchema` — a genuinely textual input with no
+ * tree to build from, not a case where AST construction was "more work."
+ * Everything else in this function (the interface's name, type parameters —
+ * including constraints/defaults — and export/declare modifiers) is reused
+ * directly from the real parsed `ts.InterfaceDeclaration` node, not
+ * reconstructed from text.
+ */
+function parseOpaqueTypeExpression(text: string): ts.TypeNode | undefined {
+  const wrapper = ts.createSourceFile(
+    "__opaque_type__.ts",
+    `type __T = ${text};`,
+    ts.ScriptTarget.Latest,
+    true
+  );
+  for (const stmt of wrapper.statements) {
+    // Strip positions — this node's pos/end are offsets into the temporary
+    // wrapper source above, not into the real .d.ts file it gets spliced
+    // into. Leaving them real would make the printer slice the WRONG file's
+    // text for this subtree (see stripPositions' own callers in
+    // core/src/context.ts's parseExpression/parseStatements for the same
+    // fix in the analogous ctx.parseExpression case).
+    if (ts.isTypeAliasDeclaration(stmt)) return stripPositions(stmt.type);
+  }
+  return undefined;
 }
 
 /**
@@ -163,17 +190,23 @@ export function transformDtsContent(fileName: string, content: string): DtsTrans
   for (const stmt of sourceFile.statements) {
     if (!ts.isInterfaceDeclaration(stmt)) continue;
 
-    const underlyingType = extractOpaqueTag(stmt, sourceFile);
-    if (!underlyingType) continue;
+    const underlyingTypeText = extractOpaqueTag(stmt, sourceFile);
+    if (!underlyingTypeText) continue;
 
-    const name = stmt.name.text;
-    const typeParams = stmt.typeParameters
-      ? `<${stmt.typeParameters.map((p) => p.getText(sourceFile)).join(", ")}>`
-      : "";
-    const exportKw = hasExportModifier(stmt) ? "export " : "";
-    const declareKw = hasDeclareModifier(stmt) ? "declare " : "";
+    const underlyingTypeNode = parseOpaqueTypeExpression(underlyingTypeText);
+    if (!underlyingTypeNode) continue; // malformed @opaque annotation — leave the interface as-is
 
-    const alias = `${exportKw}${declareKw}type ${name}${typeParams} = ${underlyingType};`;
+    // Reuse the real name/type-parameters/modifiers nodes directly rather
+    // than reconstructing them from text (constraints/defaults on type
+    // parameters, e.g. `A extends object`, come along for free this way).
+    const aliasDecl = ts.factory.createTypeAliasDeclaration(
+      ts.getModifiers(stmt),
+      stmt.name,
+      stmt.typeParameters,
+      underlyingTypeNode
+    );
+
+    const alias = printer.printNode(ts.EmitHint.Unspecified, aliasDecl, sourceFile);
 
     // Replace from the node start (after leading trivia/JSDoc) to the node end.
     // getStart(sourceFile) gives the position after leading trivia (JSDoc comments),
@@ -183,7 +216,7 @@ export function transformDtsContent(fileName: string, content: string): DtsTrans
       end: stmt.getEnd(),
       text: alias,
     });
-    transformedTypes.push(name);
+    transformedTypes.push(stmt.name.text);
   }
 
   if (replacements.length === 0) {

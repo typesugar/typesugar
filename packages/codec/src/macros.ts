@@ -12,7 +12,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import { defineAttributeMacro, globalRegistry, jsValueToExpression } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 
 function simplifyTypeForSchema(typeStr: string): string {
@@ -177,7 +177,7 @@ export function collectFieldMeta(
 }
 
 // -------------------------------------------------------------------------
-// Serialisation helper — turn a FieldDecoratorMeta into a JS source fragment
+// Serialisation helper — turn a FieldDescriptor into a plain JSON-safe value
 // -------------------------------------------------------------------------
 
 interface FieldDescriptor {
@@ -190,19 +190,20 @@ interface FieldDescriptor {
   hasDefaultValue?: boolean;
 }
 
-function fieldToSource(f: FieldDescriptor): string {
-  const parts: string[] = [`name: ${JSON.stringify(f.name)}`, `type: ${JSON.stringify(f.type)}`];
-  if (f.since !== undefined) parts.push(`since: ${f.since}`);
-  if (f.removed !== undefined) parts.push(`removed: ${f.removed}`);
-  if (f.renamed) {
-    parts.push(
-      `renamed: { version: ${f.renamed.version}, oldName: ${JSON.stringify(f.renamed.oldName)} }`
-    );
-  }
-  if (f.hasDefaultValue) {
-    parts.push(`defaultValue: ${JSON.stringify(f.defaultValue)}`);
-  }
-  return `{ ${parts.join(", ")} }`;
+/**
+ * Reduce a FieldDescriptor down to the plain JSON-safe shape that should
+ * appear in the generated schema (dropping the internal `hasDefaultValue`
+ * discriminator, which only controls whether `defaultValue` is emitted).
+ * The result is handed to `jsValueToExpression` to build AST directly —
+ * no string building / `ctx.parseExpression()` round-trip.
+ */
+function fieldToPlainObject(f: FieldDescriptor): Record<string, unknown> {
+  const obj: Record<string, unknown> = { name: f.name, type: f.type };
+  if (f.since !== undefined) obj.since = f.since;
+  if (f.removed !== undefined) obj.removed = f.removed;
+  if (f.renamed) obj.renamed = f.renamed;
+  if (f.hasDefaultValue) obj.defaultValue = f.defaultValue;
+  return obj;
 }
 
 // -------------------------------------------------------------------------
@@ -269,19 +270,19 @@ export const codecMacro = defineAttributeMacro({
     }
 
     const schemaName = `${name}Schema`;
-    const fieldProps = fields.map(fieldToSource);
-    const defineSchemaCall = `defineSchema(${JSON.stringify(name)}, { version: ${schemaVersion}, fields: [${fieldProps.join(", ")}] })`;
+    const schemaOptions: Record<string, unknown> = {
+      version: schemaVersion,
+      fields: fields.map(fieldToPlainObject),
+    };
+    const defineSchemaCall = ctx.factory.createCallExpression(
+      ctx.factory.createIdentifier("defineSchema"),
+      undefined,
+      [ctx.factory.createStringLiteral(name), jsValueToExpression(ctx, schemaOptions, target)]
+    );
     const stmt = ctx.factory.createVariableStatement(
       undefined,
       ctx.factory.createVariableDeclarationList(
-        [
-          ctx.factory.createVariableDeclaration(
-            schemaName,
-            undefined,
-            undefined,
-            ctx.parseExpression(defineSchemaCall)
-          ),
-        ],
+        [ctx.factory.createVariableDeclaration(schemaName, undefined, undefined, defineSchemaCall)],
         ts.NodeFlags.Const
       )
     );

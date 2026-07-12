@@ -14,14 +14,12 @@
  *
  * // Generates:
  * export const UserHash: Hash.Hash<User> = {
- *   [Hash.symbol]: (self: User) =>
- *     Hash.combine(
+ *   [Hash.symbol](self: User): number {
+ *     return Hash.combine(
  *       Hash.hash(self.id),
- *       Hash.combine(
- *         Hash.hash(self.name),
- *         Hash.hash(self.age)
- *       )
- *     ),
+ *       Hash.combine(Hash.hash(self.name), Hash.hash(self.age))
+ *     );
+ *   }
  * };
  * ```
  *
@@ -36,29 +34,49 @@ import {
   type DeriveFieldInfo,
   defineDeriveMacro,
 } from "@typesugar/core";
+import {
+  call,
+  discriminantSwitch,
+  exportedSymbolInstance,
+  ident,
+  member,
+  param,
+  propOf,
+  qualifiedTypeRef,
+  ret,
+  typeRef,
+} from "./codegen-common.js";
 
 /**
- * Generate hash combination for fields.
+ * Build the combine-chain expression that hashes every field of a product:
+ * `Hash.combine(Hash.hash(self.a), Hash.combine(Hash.hash(self.b), ...))`.
+ *
+ * Returns a `ts.Expression` (never a code string) so callers compose it
+ * directly into the surrounding AST.
  */
-function generateFieldHashes(fields: DeriveFieldInfo[]): string {
+function fieldHashChain(fields: DeriveFieldInfo[]): ts.Expression {
   if (fields.length === 0) {
-    return "0";
+    return ts.factory.createNumericLiteral(0);
   }
 
-  if (fields.length === 1) {
-    return `Hash.hash(self.${fields[0].name})`;
-  }
+  const hashes = fields.map((f) => call(member("Hash", "hash"), [propOf(ident("self"), f.name)]));
 
-  // Build nested Hash.combine calls
-  // Hash.combine(hash1, Hash.combine(hash2, hash3))
-  const hashes = fields.map((f) => `Hash.hash(self.${f.name})`);
-
+  // Fold right into nested Hash.combine(hash_i, <rest>).
   let result = hashes[hashes.length - 1];
   for (let i = hashes.length - 2; i >= 0; i--) {
-    result = `Hash.combine(${hashes[i]}, ${result})`;
+    result = call(member("Hash", "combine"), [hashes[i], result]);
   }
-
   return result;
+}
+
+/** `[Hash.symbol](self: <name>): number` — the shared method header for a Hash instance. */
+function hashMethod(typeName: string, body: ts.Statement[]) {
+  return {
+    symbolExpr: member("Hash", "symbol"),
+    params: [param("self", typeRef(typeName))],
+    returnType: ts.factory.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword),
+    body,
+  };
 }
 
 /**
@@ -72,29 +90,24 @@ export const EffectHashDerive: DeriveMacro = defineDeriveMacro({
   description: "Generate an Effect Hash instance for hashing",
 
   expand(
-    ctx: MacroContext,
-    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    _ctx: MacroContext,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
     const { name, kind, fields, variants, discriminant } = typeInfo;
 
     if (kind === "sum" && variants && discriminant) {
-      return generateSumTypeHash(ctx, name, discriminant, variants);
+      return generateSumTypeHash(name, discriminant, variants);
     }
 
-    // Product type
-    const fieldHashes = generateFieldHashes(fields);
-    const hashName = `${name}Hash`;
-
-    const code = `
-export const ${hashName}: Hash.Hash<${name}> = {
-  [Hash.symbol](self: ${name}): number {
-    return ${fieldHashes};
-  }
-};
-`;
-
-    return ctx.parseStatements(code);
+    // Product type.
+    return [
+      exportedSymbolInstance(
+        `${name}Hash`,
+        qualifiedTypeRef("Hash", "Hash", [typeRef(name)]),
+        hashMethod(name, [ret(fieldHashChain(fields))])
+      ),
+    ];
   },
 });
 
@@ -102,38 +115,33 @@ export const ${hashName}: Hash.Hash<${name}> = {
  * Generate Hash for sum types (discriminated unions).
  */
 function generateSumTypeHash(
-  ctx: MacroContext,
   typeName: string,
   discriminant: string,
   variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>
 ): ts.Statement[] {
-  const hashName = `${typeName}Hash`;
+  const cases = variants.map((variant) => {
+    // Seed each variant with a unique base hash derived from its tag.
+    const baseHash = call(member("Hash", "hash"), [ts.factory.createStringLiteral(variant.tag)]);
+    const combined =
+      variant.fields.length > 0
+        ? call(member("Hash", "combine"), [baseHash, fieldHashChain(variant.fields)])
+        : baseHash;
+    return { tag: variant.tag, statements: [ret(combined)] };
+  });
 
-  // Assign a unique base hash to each variant tag
-  const cases = variants
-    .map((variant, index) => {
-      const baseHash = `Hash.hash("${variant.tag}")`;
-      const fieldHashes = generateFieldHashes(variant.fields);
-      const combinedHash =
-        variant.fields.length > 0 ? `Hash.combine(${baseHash}, ${fieldHashes})` : baseHash;
-      return `      case "${variant.tag}":
-        return ${combinedHash};`;
-    })
-    .join("\n");
+  const body = [
+    discriminantSwitch(propOf(ident("self"), discriminant), cases, [
+      ret(ts.factory.createNumericLiteral(0)),
+    ]),
+  ];
 
-  const code = `
-export const ${hashName}: Hash.Hash<${typeName}> = {
-  [Hash.symbol](self: ${typeName}): number {
-    switch (self.${discriminant}) {
-${cases}
-      default:
-        return 0;
-    }
-  }
-};
-`;
-
-  return ctx.parseStatements(code);
+  return [
+    exportedSymbolInstance(
+      `${typeName}Hash`,
+      qualifiedTypeRef("Hash", "Hash", [typeRef(typeName)]),
+      hashMethod(typeName, body)
+    ),
+  ];
 }
 
 /**

@@ -90,10 +90,10 @@ export const grammarMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
       );
     }
 
-    // Phase 2: generate inline recursive-descent parser code
+    // Phase 2: generate the inline recursive-descent parser as a real AST
+    // expression (PEP-057 — no string codegen / re-parse round-trip).
     resetVarCounter();
-    const code = generateParserCode(rules);
-    return ctx.parseExpression(code);
+    return generateParserCode(factory, rules);
   },
   validate(ctx: MacroContext, node: ts.TaggedTemplateExpression): boolean {
     const template = node.template;

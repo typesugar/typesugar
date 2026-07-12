@@ -73,9 +73,16 @@ export interface Either<E, A> {
     expect(result.transformedCount).toBe(2);
     expect(result.transformedTypes).toEqual(["Option", "Either"]);
     expect(result.content).toContain("export type Option<A> = A | null;");
-    expect(result.content).toContain(
-      "export type Either<E, A> = { _tag: 'Left'; left: E } | { _tag: 'Right'; right: A };"
-    );
+    // The union/object-literal shape now goes through the printer (real AST,
+    // not verbatim JSDoc text), which normalizes quotes to double and
+    // multi-line-formats object type literals — check semantic content
+    // rather than one exact formatted string.
+    expect(result.content).toContain("export type Either<E, A> =");
+    expect(result.content).toContain('_tag: "Left"');
+    expect(result.content).toContain("left: E;");
+    expect(result.content).toContain('_tag: "Right"');
+    expect(result.content).toContain("right: A;");
+    expect(result.content).not.toContain("interface Either");
   });
 
   it("ignores interfaces without @opaque", () => {

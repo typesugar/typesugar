@@ -1,17 +1,34 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import * as ts from "typescript";
 import { parseGrammarDef, buildParser } from "../grammar.js";
 import { generateParserCode, resetVarCounter } from "../codegen.js";
 import type { Grammar } from "../types.js";
+
+// ---------------------------------------------------------------------------
+// Helper: print a generated parser expression to source text
+// ---------------------------------------------------------------------------
+
+/**
+ * `generateParserCode` now returns a `ts.Expression` (PEP-057 — AST codegen).
+ * Print it so the existing eval-based coverage still exercises the generated
+ * parser's runtime behavior via `new Function(...)`.
+ */
+function printParser(source: string): string {
+  const rules = parseGrammarDef(source);
+  resetVarCounter();
+  const expr = generateParserCode(ts.factory, rules);
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const sf = ts.createSourceFile("out.ts", "", ts.ScriptTarget.Latest);
+  return printer.printNode(ts.EmitHint.Unspecified, expr, sf);
+}
 
 // ---------------------------------------------------------------------------
 // Helper: compile a grammar string into a working parser via codegen
 // ---------------------------------------------------------------------------
 
 function compileGrammar(source: string): Grammar<unknown> {
-  const rules = parseGrammarDef(source);
-  resetVarCounter();
-  const code = generateParserCode(rules);
-  // Evaluate the generated code to get a parser object
+  const code = printParser(source);
+  // Evaluate the printed code to get a parser object
   const parser = new Function(`return ${code}`)();
   return parser;
 }
@@ -375,23 +392,21 @@ describe("codegen: Grammar interface", () => {
 
 describe("codegen: output structure", () => {
   it("generates a self-contained IIFE string", () => {
-    const rules = parseGrammarDef(`rule = "x"`);
-    resetVarCounter();
-    const code = generateParserCode(rules);
-    expect(code).toContain("(function()");
+    // Printed AST uses `function ()` with a space (TS printer style), unlike the
+    // former hand-built `function()`; the IIFE shape is otherwise identical.
+    const code = printParser(`rule = "x"`);
+    expect(code).toContain("(function () {");
     expect(code).toContain("use strict");
     expect(code).toContain("$rule");
     expect(code).toContain("})()");
   });
 
   it("generates no references to external runtime", () => {
-    const rules = parseGrammarDef(`
+    const code = printParser(`
       ident  = letter (letter | digit)*
       letter = 'a'..'z' | 'A'..'Z'
       digit  = '0'..'9'
     `);
-    resetVarCounter();
-    const code = generateParserCode(rules);
     // Should NOT reference parseGrammarDef, buildParser, or any imports
     expect(code).not.toContain("parseGrammarDef");
     expect(code).not.toContain("buildParser");

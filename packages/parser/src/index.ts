@@ -47,8 +47,10 @@ export {
 // Grammar DSL
 export { parseGrammarDef, buildParser } from "./grammar.js";
 
-// Compile-time codegen (Phase 2)
-export { generateParserCode, resetVarCounter } from "./codegen.js";
+// Compile-time codegen (Phase 2) is intentionally NOT re-exported here. Since
+// PEP-057, `codegen.ts` builds parser AST via `ts.factory` and therefore imports
+// `typescript`; per PEP-050 the runtime `.` entry must stay typescript-free, so
+// `generateParserCode` lives only on the build-time `./macros` path (macros.ts).
 
 // Runtime `grammar` tagged-template fallback.
 // The macro *definition* lives in the `./macros` entry (build-time only).

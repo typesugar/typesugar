@@ -181,24 +181,14 @@ function resolveTypeConstructorViaTypeCheckerUncached(
   }
 
   // Also try resolving from the checker's global scope for built-in types
+  // like Array, Map, Set, Promise. `checker.resolveName` takes a plain
+  // string name — no AST/parsing needed. (PEP-057: this used to build
+  // `declare const __x: ${base}<any>;` and reparse it purely to confirm the
+  // shape looked like a type reference before calling resolveName with the
+  // same `base` string either way — the parse result was never actually
+  // consulted, so it was pure overhead, not a real AST-purity exception.)
   if (!symbol) {
-    // For built-in types like Array, Map, Set, Promise
-    try {
-      const tempCode = `declare const __x: ${base}<any>;`;
-      const tempSf = ts.createSourceFile("__resolve.ts", tempCode, ts.ScriptTarget.Latest, true);
-      for (const stmt of tempSf.statements) {
-        if (ts.isVariableStatement(stmt)) {
-          const decl = stmt.declarationList.declarations[0];
-          if (decl?.type && ts.isTypeReferenceNode(decl.type)) {
-            // Try to resolve via the real checker using the original source file
-            // Built-in types like Array are globally available
-            symbol = checker.resolveName(base, sourceFile, ts.SymbolFlags.Type, false);
-          }
-        }
-      }
-    } catch {
-      // Fall through
-    }
+    symbol = checker.resolveName(base, sourceFile, ts.SymbolFlags.Type, false);
   }
 
   if (!symbol) return undefined;

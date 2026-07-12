@@ -63,19 +63,33 @@ import type { MacroContext, DeriveTypeInfo, DeriveFieldInfo } from "@typesugar/c
 // ============================================================================
 
 /**
- * Map from TypeScript type strings to Get instance expressions.
+ * Build a `Namespace.member` property access expression, e.g. `Get.string`.
  */
-function getGetInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
+function namespaceMember(namespace: string, member: string): ts.Expression {
+  return ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier(namespace), member);
+}
+
+/**
+ * Build a `Namespace.member(arg)` call expression, e.g. `Get.nullable(Get.string)`.
+ */
+function namespaceCall(namespace: string, member: string, arg: ts.Expression): ts.Expression {
+  return ts.factory.createCallExpression(namespaceMember(namespace, member), undefined, [arg]);
+}
+
+/**
+ * Map from TypeScript types to Get instance expressions.
+ */
+function getGetInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): ts.Expression | null {
   // Handle primitives
-  if (type.flags & ts.TypeFlags.String) return "Get.string";
-  if (type.flags & ts.TypeFlags.Number) return "Get.number";
-  if (type.flags & ts.TypeFlags.Boolean) return "Get.boolean";
-  if (type.flags & ts.TypeFlags.BigInt) return "Get.bigint";
+  if (type.flags & ts.TypeFlags.String) return namespaceMember("Get", "string");
+  if (type.flags & ts.TypeFlags.Number) return namespaceMember("Get", "number");
+  if (type.flags & ts.TypeFlags.Boolean) return namespaceMember("Get", "boolean");
+  if (type.flags & ts.TypeFlags.BigInt) return namespaceMember("Get", "bigint");
 
   // Handle Date, Buffer
   const typeStr = typeChecker.typeToString(type);
-  if (typeStr === "Date") return "Get.date";
-  if (typeStr === "Buffer") return "Get.buffer";
+  if (typeStr === "Date") return namespaceMember("Get", "date");
+  if (typeStr === "Buffer") return namespaceMember("Get", "buffer");
 
   // Handle nullable/optional unions
   if (type.isUnion()) {
@@ -87,8 +101,8 @@ function getGetInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): stri
       if (innerGet) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
         const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
-        if (hasNull) return `Get.nullable(${innerGet})`;
-        if (hasUndefined) return `Get.optional(${innerGet})`;
+        if (hasNull) return namespaceCall("Get", "nullable", innerGet);
+        if (hasUndefined) return namespaceCall("Get", "optional", innerGet);
       }
     }
   }
@@ -98,7 +112,7 @@ function getGetInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): stri
     const typeArgs = (type as ts.TypeReference).typeArguments;
     if (typeArgs && typeArgs.length === 1) {
       const elementGet = getGetInstanceForType(typeChecker, typeArgs[0]);
-      if (elementGet) return `Get.array(${elementGet})`;
+      if (elementGet) return namespaceCall("Get", "array", elementGet);
     }
   }
 
@@ -106,19 +120,19 @@ function getGetInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): stri
 }
 
 /**
- * Map from TypeScript type strings to Put instance expressions.
+ * Map from TypeScript types to Put instance expressions.
  */
-function getPutInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
+function getPutInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): ts.Expression | null {
   // Handle primitives
-  if (type.flags & ts.TypeFlags.String) return "Put.string";
-  if (type.flags & ts.TypeFlags.Number) return "Put.number";
-  if (type.flags & ts.TypeFlags.Boolean) return "Put.boolean";
-  if (type.flags & ts.TypeFlags.BigInt) return "Put.bigint";
+  if (type.flags & ts.TypeFlags.String) return namespaceMember("Put", "string");
+  if (type.flags & ts.TypeFlags.Number) return namespaceMember("Put", "number");
+  if (type.flags & ts.TypeFlags.Boolean) return namespaceMember("Put", "boolean");
+  if (type.flags & ts.TypeFlags.BigInt) return namespaceMember("Put", "bigint");
 
   // Handle Date, Buffer
   const typeStr = typeChecker.typeToString(type);
-  if (typeStr === "Date") return "Put.date";
-  if (typeStr === "Buffer") return "Put.buffer";
+  if (typeStr === "Date") return namespaceMember("Put", "date");
+  if (typeStr === "Buffer") return namespaceMember("Put", "buffer");
 
   // Handle nullable/optional unions
   if (type.isUnion()) {
@@ -130,8 +144,8 @@ function getPutInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): stri
       if (innerPut) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
         const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
-        if (hasNull) return `Put.nullable(${innerPut})`;
-        if (hasUndefined) return `Put.optional(${innerPut})`;
+        if (hasNull) return namespaceCall("Put", "nullable", innerPut);
+        if (hasUndefined) return namespaceCall("Put", "optional", innerPut);
       }
     }
   }
@@ -141,7 +155,7 @@ function getPutInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): stri
     const typeArgs = (type as ts.TypeReference).typeArguments;
     if (typeArgs && typeArgs.length === 1) {
       const elementPut = getPutInstanceForType(typeChecker, typeArgs[0]);
-      if (elementPut) return `Put.array(${elementPut})`;
+      if (elementPut) return namespaceCall("Put", "array", elementPut);
     }
   }
 
@@ -149,19 +163,19 @@ function getPutInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): stri
 }
 
 /**
- * Map from TypeScript type strings to Meta instance expressions.
+ * Map from TypeScript types to Meta instance expressions.
  */
-function getMetaInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): string | null {
+function getMetaInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): ts.Expression | null {
   // Handle primitives
-  if (type.flags & ts.TypeFlags.String) return "Meta.string";
-  if (type.flags & ts.TypeFlags.Number) return "Meta.number";
-  if (type.flags & ts.TypeFlags.Boolean) return "Meta.boolean";
-  if (type.flags & ts.TypeFlags.BigInt) return "Meta.bigint";
+  if (type.flags & ts.TypeFlags.String) return namespaceMember("Meta", "string");
+  if (type.flags & ts.TypeFlags.Number) return namespaceMember("Meta", "number");
+  if (type.flags & ts.TypeFlags.Boolean) return namespaceMember("Meta", "boolean");
+  if (type.flags & ts.TypeFlags.BigInt) return namespaceMember("Meta", "bigint");
 
   // Handle Date, Buffer
   const typeStr = typeChecker.typeToString(type);
-  if (typeStr === "Date") return "Meta.date";
-  if (typeStr === "Buffer") return "Meta.buffer";
+  if (typeStr === "Date") return namespaceMember("Meta", "date");
+  if (typeStr === "Buffer") return namespaceMember("Meta", "buffer");
 
   // Handle nullable/optional unions
   if (type.isUnion()) {
@@ -173,8 +187,8 @@ function getMetaInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): str
       if (innerMeta) {
         const hasNull = type.types.some((t) => t.flags & ts.TypeFlags.Null);
         const hasUndefined = type.types.some((t) => t.flags & ts.TypeFlags.Undefined);
-        if (hasNull) return `Meta.nullable(${innerMeta})`;
-        if (hasUndefined) return `Meta.optional(${innerMeta})`;
+        if (hasNull) return namespaceCall("Meta", "nullable", innerMeta);
+        if (hasUndefined) return namespaceCall("Meta", "optional", innerMeta);
       }
     }
   }
@@ -184,7 +198,7 @@ function getMetaInstanceForType(typeChecker: ts.TypeChecker, type: ts.Type): str
     const typeArgs = (type as ts.TypeReference).typeArguments;
     if (typeArgs && typeArgs.length === 1) {
       const elementMeta = getMetaInstanceForType(typeChecker, typeArgs[0]);
-      if (elementMeta) return `Meta.array(${elementMeta})`;
+      if (elementMeta) return namespaceCall("Meta", "array", elementMeta);
     }
   }
 
@@ -253,7 +267,7 @@ export const deriveReadMacro = defineDeriveMacro({
     const mappings: Array<{
       field: string;
       column: string;
-      getExpr: string;
+      getExpr: ts.Expression;
       nullable: boolean;
     }> = [];
 
@@ -297,7 +311,7 @@ export const deriveReadMacro = defineDeriveMacro({
         factory.createObjectLiteralExpression([
           factory.createPropertyAssignment("field", factory.createStringLiteral(m.field)),
           factory.createPropertyAssignment("column", factory.createStringLiteral(m.column)),
-          factory.createPropertyAssignment("get", ctx.parseExpression(m.getExpr)),
+          factory.createPropertyAssignment("get", m.getExpr),
           factory.createPropertyAssignment(
             "nullable",
             m.nullable ? factory.createTrue() : factory.createFalse()
@@ -388,7 +402,7 @@ export const deriveWriteMacro = defineDeriveMacro({
     const mappings: Array<{
       field: string;
       column: string;
-      putExpr: string;
+      putExpr: ts.Expression;
     }> = [];
 
     for (const field of fields) {
@@ -433,7 +447,7 @@ export const deriveWriteMacro = defineDeriveMacro({
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createCallExpression(
-            factory.createPropertyAccessExpression(ctx.parseExpression(m.putExpr), "put"),
+            factory.createPropertyAccessExpression(m.putExpr, "put"),
             undefined,
             [factory.createPropertyAccessExpression(factory.createIdentifier("value"), m.field)]
           )

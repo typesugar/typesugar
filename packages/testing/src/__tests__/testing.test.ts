@@ -29,6 +29,9 @@ import {
   assertSnapshotMacro,
   typeAssertMacro,
   forAllMacro,
+  assertTypeMacro,
+  mockAttribute,
+  mockExpressionMacro,
 } from "../macro.js";
 
 // Import runtime placeholders for fallback behavior testing
@@ -98,6 +101,21 @@ function printNode(node: ts.Node, sourceFile?: ts.SourceFile): string {
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
   const sf = sourceFile ?? ts.createSourceFile("out.ts", "", ts.ScriptTarget.Latest, false);
   return printer.printNode(ts.EmitHint.Unspecified, node, sf);
+}
+
+/** Depth-first search for the first node matching `pred`. */
+function findFirst(sf: ts.SourceFile, pred: (n: ts.Node) => boolean): ts.Node | undefined {
+  let found: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (pred(n)) {
+      found = n;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
 }
 
 // ============================================================================
@@ -605,6 +623,223 @@ describe("assertSnapshot macro expansion", () => {
   it("should have correct metadata", () => {
     expect(assertSnapshotMacro.name).toBe("assertSnapshot");
     expect(assertSnapshotMacro.module).toBe("@typesugar/testing");
+  });
+});
+
+// ============================================================================
+// Expansion tests for the AST-constructed macros (PEP-057)
+//
+// Each of these calls the macro's `expand()` directly and asserts on the
+// meaningfully-shaped generated output — the migration from string-templating
+// to `ts.factory` codegen must be semantically equivalent. Spliced real nodes
+// are printed against the original source file so their text is preserved.
+// ============================================================================
+
+describe("assert macro expansion (power-assert diagram)", () => {
+  it("builds a power-assert IIFE capturing sub-expressions", () => {
+    const ctx = createTestContext("assert(user.age > 18);");
+    const callExpr = findFirst(ctx.sourceFile, ts.isCallExpression) as ts.CallExpression;
+    expect(callExpr).toBeDefined();
+
+    const result = assertMacro.expand(ctx, callExpr, callExpr.arguments);
+    const code = printNode(result, ctx.sourceFile);
+
+    // The guarded condition is the real user expression.
+    expect(code).toContain("const __pa_result__ = user.age > 18;");
+    expect(code).toContain("if (!__pa_result__)");
+    // The captured sub-expressions include the whole expr and its parts.
+    expect(code).toContain("__pa_vals__");
+    expect(code).toContain("user.age > 18");
+    expect(code).toContain("user.age");
+    // The failure path renders a diagram and throws.
+    expect(code).toContain("Power Assert Failed");
+    expect(code).toContain("assert(");
+    expect(code).toContain("throw new Error(__pa_d__)");
+  });
+
+  it("threads a custom message into __pa_msg__", () => {
+    const ctx = createTestContext('assert(x === y, "values differ");');
+    const callExpr = findFirst(ctx.sourceFile, ts.isCallExpression) as ts.CallExpression;
+    const result = assertMacro.expand(ctx, callExpr, callExpr.arguments);
+    const code = printNode(result, ctx.sourceFile);
+    expect(code).toContain('let __pa_msg__: any = "values differ"');
+  });
+});
+
+describe("@testCases attribute expansion", () => {
+  it("expands one function into N it() calls with destructured params", () => {
+    const ctx = createTestContext(
+      [
+        "const cases = [{ a: 1, b: 2, expected: 3 }, { a: 5, b: 5, expected: 10 }];",
+        "function checkAdd(a, b, expected) { expect(a + b).toBe(expected); }",
+      ].join("\n")
+    );
+    const fnDecl = findFirst(ctx.sourceFile, ts.isFunctionDeclaration) as ts.FunctionDeclaration;
+    const casesArr = findFirst(
+      ctx.sourceFile,
+      ts.isArrayLiteralExpression
+    ) as ts.ArrayLiteralExpression;
+    const decorator = ts.factory.createDecorator(ts.factory.createIdentifier("testCases"));
+
+    const result = testCasesAttribute.expand(ctx, decorator, fnDecl, [casesArr]);
+    expect(Array.isArray(result)).toBe(true);
+    const stmts = result as ts.Node[];
+    expect(stmts.length).toBe(2);
+
+    const code = stmts.map((s) => printNode(s, ctx.sourceFile)).join("\n");
+    expect(code).toContain('it("checkAdd (case #1: a=1, b=2, expected=3)"');
+    expect(code).toContain('it("checkAdd (case #2: a=5, b=5, expected=10)"');
+    // Params are destructured from the case object via real initializer nodes.
+    expect(code).toContain("const a = 1;");
+    expect(code).toContain("const expected = 3;");
+    // The original function body is spliced in directly (no brace-stripping).
+    expect(code).toContain("expect(a + b).toBe(expected)");
+  });
+});
+
+describe("forAll macro expansion", () => {
+  it("builds a bounded loop that runs the property and reports failures", () => {
+    const ctx = createTestContext("forAll(gen, prop);");
+    const callExpr = findFirst(ctx.sourceFile, ts.isCallExpression) as ts.CallExpression;
+    const result = forAllMacro.expand(ctx, callExpr, callExpr.arguments);
+    const code = printNode(result, ctx.sourceFile);
+
+    // Default count is 100; generator is invoked with the loop index.
+    expect(code).toContain("< 100;");
+    expect(code).toContain("gen(");
+    // Property is parenthesized-called with the generated value.
+    expect(code).toContain("(prop)(");
+    expect(code).toContain("instanceof Error");
+    expect(code).toContain("Property failed after");
+    expect(code).toContain("JSON.stringify");
+    expect(code).toContain("throw new Error");
+  });
+
+  it("uses an explicit count argument when provided", () => {
+    const ctx = createTestContext("forAll(gen, 25, prop);");
+    const callExpr = findFirst(ctx.sourceFile, ts.isCallExpression) as ts.CallExpression;
+    const result = forAllMacro.expand(ctx, callExpr, callExpr.arguments);
+    const code = printNode(result, ctx.sourceFile);
+    expect(code).toContain("< 25;");
+  });
+});
+
+describe("assertType macro expansion", () => {
+  it("emits field metadata and per-field validation from the type", () => {
+    const ctx = createTestContext(
+      [
+        "interface User { id: number; name: string; email?: string; }",
+        "declare function assertType<T>(v: any): void;",
+        "declare const u: any;",
+        "assertType<User>(u);",
+      ].join("\n")
+    );
+    const callExpr = findFirst(
+      ctx.sourceFile,
+      (n) => ts.isCallExpression(n) && !!n.typeArguments
+    ) as ts.CallExpression;
+    expect(callExpr).toBeDefined();
+
+    const result = assertTypeMacro.expand(ctx, callExpr, callExpr.arguments);
+    const code = printNode(result, ctx.sourceFile);
+
+    // typeName baked into a string literal (not a spliced statement).
+    expect(code).toContain("Type assertion failed for 'User'");
+    // Field metadata derived from the checker.
+    expect(code).toContain('name: "id"');
+    expect(code).toContain('type: "number"');
+    expect(code).toContain('name: "name"');
+    expect(code).toContain('type: "string"');
+    // email is optional.
+    expect(code).toContain('name: "email"');
+    expect(code).toContain("optional: true");
+    // Runtime validation shape.
+    expect(code).toContain("Array.isArray");
+    expect(code).toContain("Field '");
+  });
+
+  it("appends a custom message via string concatenation when given", () => {
+    const ctx = createTestContext(
+      [
+        "interface P { x: number; }",
+        "declare function assertType<T>(v: any, m?: string): void;",
+        "declare const p: any;",
+        'assertType<P>(p, "bad");',
+      ].join("\n")
+    );
+    const callExpr = findFirst(
+      ctx.sourceFile,
+      (n) => ts.isCallExpression(n) && !!n.typeArguments
+    ) as ts.CallExpression;
+    const result = assertTypeMacro.expand(ctx, callExpr, callExpr.arguments);
+    const code = printNode(result, ctx.sourceFile);
+    expect(code).toContain('"bad" !== undefined');
+    expect(code).toContain('": " + "bad"');
+  });
+});
+
+describe("@mock attribute expansion", () => {
+  it("generates a call-tracking mock with typeToTypeNode signatures", () => {
+    const ctx = createTestContext(
+      "interface UserService { getUser(id: string): number; ping(): void; }"
+    );
+    const iface = findFirst(ctx.sourceFile, ts.isInterfaceDeclaration) as ts.InterfaceDeclaration;
+    const decorator = ts.factory.createDecorator(ts.factory.createIdentifier("mock"));
+
+    const result = mockAttribute.expand(ctx, decorator, iface, []);
+    expect(Array.isArray(result)).toBe(true);
+    const stmts = result as ts.Node[];
+    // First node is the untouched original declaration.
+    expect(stmts[0]).toBe(iface);
+
+    const code = printNode(stmts[1], ctx.sourceFile);
+    expect(code).toContain("mockUserService");
+    expect(code).toContain("MockOf<UserService>");
+    expect(code).toContain("createMockFn<");
+    expect(code).toContain("_calls");
+    expect(code).toContain("_reset");
+    expect(code).toContain("getUser");
+    expect(code).toContain("ping");
+    // typeToTypeNode produced a real function type, not a stringified blob.
+    expect(code).toMatch(/id:\s*string/);
+  });
+
+  it("honors a custom mock name argument", () => {
+    const ctx = createTestContext("interface Svc { call(): void; }");
+    const iface = findFirst(ctx.sourceFile, ts.isInterfaceDeclaration) as ts.InterfaceDeclaration;
+    const decorator = ts.factory.createDecorator(ts.factory.createIdentifier("mock"));
+    const result = mockAttribute.expand(ctx, decorator, iface, [
+      ts.factory.createStringLiteral("myMock"),
+    ]);
+    const stmts = result as ts.Node[];
+    const code = printNode(stmts[1], ctx.sourceFile);
+    expect(code).toContain("const myMock: MockOf<Svc>");
+  });
+});
+
+describe("mock<T>() expression expansion", () => {
+  it("builds a mock IIFE from the type argument", () => {
+    const ctx = createTestContext(
+      [
+        "interface UserService { getUser(id: string): number; }",
+        "declare function mock<T>(): any;",
+        "const m = mock<UserService>();",
+      ].join("\n")
+    );
+    const callExpr = findFirst(
+      ctx.sourceFile,
+      (n) => ts.isCallExpression(n) && !!n.typeArguments
+    ) as ts.CallExpression;
+    expect(callExpr).toBeDefined();
+
+    const result = mockExpressionMacro.expand(ctx, callExpr, callExpr.arguments);
+    const code = printNode(result, ctx.sourceFile);
+
+    expect(code).toContain("createMockFn<");
+    expect(code).toContain("MockOf<UserService>");
+    expect(code).toContain("getUser");
+    expect(code).toContain("_reset");
+    expect(code).toMatch(/id:\s*string/);
   });
 });
 
