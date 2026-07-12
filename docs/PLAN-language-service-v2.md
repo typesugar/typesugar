@@ -1,5 +1,20 @@
 # Plan: Transform-First Language Service Plugin
 
+<!-- historical-doc -->
+
+::: warning HISTORICAL DOCUMENT
+This is internal design material, kept for history. It predates
+[PEP-047](https://github.com/typesugar/typesugar/blob/main/peps/PEP-047-remove-sts.md)
+(removal of the `.sts` extension),
+[PEP-052](https://github.com/typesugar/typesugar/blob/main/peps/PEP-052-import-scoped-macro-activation.md)
+(scope-based resolution — there is no global instance registry) and/or
+[PEP-053](https://github.com/typesugar/typesugar/blob/main/peps/PEP-053-always-on-specialization.md)
+(specialization is automatic; there is no `specialize()` API), so parts of it
+describe a model the shipped compiler **no longer implements**.
+
+For how typesugar actually works today, see the [guides](/guides/).
+:::
+
 > Note: PEP-047 removed the `.sts`/`.stsx` extension and its custom surface syntax (`|>`, `::`, `| pattern =>`, the lexical HKT `F<_>` form). References to that syntax below are historical; the only remaining transform-time rewrite is HKT type applications (`F<A>` → `Kind<F, A>`) in plain `.ts` files.
 
 ## Current State

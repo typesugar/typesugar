@@ -43,6 +43,6 @@ src/
 
 ## Documentation
 
-- [Getting Started](https://typesugar.dev/getting-started)
-- [Comptime Guide](https://typesugar.dev/guides/comptime)
-- [Derive Guide](https://typesugar.dev/guides/derive)
+- [Getting Started](https://typesugar.org/getting-started)
+- [Comptime Guide](https://typesugar.org/guides/comptime)
+- [Derive Guide](https://typesugar.org/guides/derive)

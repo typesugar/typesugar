@@ -628,6 +628,6 @@ The fluent API uses compile-time macros, so your editor's TypeScript language se
 
 ## Learn More
 
-- [PEP-008: Pattern Matching](../PEP-008-pattern-matching.md) — Full spec with compilation details
+- [PEP-008: Pattern Matching](https://github.com/typesugar/typesugar/blob/main/peps/PEP-008-pattern-matching.md) — Full spec with compilation details
 - [API Reference](/reference/packages#std)
 - [Package README](https://github.com/typesugar/typesugar/tree/main/packages/std)

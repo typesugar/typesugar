@@ -1,5 +1,20 @@
 # Plan: Type Erasure / Existential Containers (Boost.TypeErasure-Style)
 
+<!-- historical-doc -->
+
+::: warning HISTORICAL DOCUMENT
+This is internal design material, kept for history. It predates
+[PEP-047](https://github.com/typesugar/typesugar/blob/main/peps/PEP-047-remove-sts.md)
+(removal of the `.sts` extension),
+[PEP-052](https://github.com/typesugar/typesugar/blob/main/peps/PEP-052-import-scoped-macro-activation.md)
+(scope-based resolution — there is no global instance registry) and/or
+[PEP-053](https://github.com/typesugar/typesugar/blob/main/peps/PEP-053-always-on-specialization.md)
+(specialization is automatic; there is no `specialize()` API), so parts of it
+describe a model the shipped compiler **no longer implements**.
+
+For how typesugar actually works today, see the [guides](/guides/).
+:::
+
 > **Plan doc.** Phase 1 shipped as `@typesugar/erased`, now **Frozen**
 > ([PEP-048](../../peps/PEP-048-package-triage.md)). Phase 2 unstarted. Retained
 > for design history.

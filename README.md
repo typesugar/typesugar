@@ -363,7 +363,7 @@ error[TS9001]: No instance found for `Eq<Color>`
      + @derive(Eq)
      + interface Color { r: number; g: number; b: number }
 
-For more information, see: https://typesugar.dev/errors/TS9001
+For more information, see: https://typesugar.org/errors/TS9001
 ```
 
 Every error has a code (TS9001-TS9999), an explanation (`npx typesugar --explain TS9001`), and machine-applicable fixes that your IDE can apply automatically.

@@ -70,7 +70,11 @@ export const sidebar: DefaultTheme.SidebarItem[] = [
         collapsed: false,
         items: [
           { text: "Extension Methods", link: "/guides/extension-methods" },
-          { text: "Pattern Matching", link: "/guides/match" },
+          // The comprehensive guide (fluent API, pattern catalogue,
+          // exhaustiveness, extractors). `/guides/match` is the object-form
+          // quickstart and is cross-linked from within it.
+          { text: "Pattern Matching", link: "/guides/pattern-matching" },
+          { text: "Pattern Matching (object form)", link: "/guides/match" },
           { text: "Do-Notation", link: "/guides/do-notation" },
           { text: "Standard Typeclasses", link: "/guides/std-typeclasses" },
         ],

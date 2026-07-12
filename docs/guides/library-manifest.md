@@ -8,7 +8,7 @@ without requiring code transformation in the library itself.
 
 ```json
 {
-  "$schema": "https://typesugar.dev/schemas/manifest.v1.json",
+  "$schema": "https://typesugar.org/schemas/manifest.v1.json",
   "version": 1,
   "name": "@my-org/my-library",
 
@@ -178,7 +178,7 @@ Example using `package.json`:
 > with a separate purpose (and, for non-`@typesugar/*` packages, a consent
 > step). This manifest is pure data — no code runs to produce it, so it
 > needs no such gate. See
-> [PEP-055](../../peps/PEP-055-macro-package-discovery.md) and the
+> [PEP-055](https://github.com/typesugar/typesugar/blob/main/peps/PEP-055-macro-package-discovery.md) and the
 > ["Getting discovered"](./authoring-libraries.md#getting-discovered)
 > section of the authoring guide if you're shipping macros, not just
 > instances.
@@ -247,7 +247,7 @@ typesugar manifest check
 
 ```json
 {
-  "$schema": "https://typesugar.dev/schemas/manifest.v1.json",
+  "$schema": "https://typesugar.org/schemas/manifest.v1.json",
   "version": 1,
   "name": "@typesugar/dates",
 
