@@ -134,6 +134,7 @@ export const sidebar: DefaultTheme.SidebarItem[] = [
         collapsed: true,
         items: [
           { text: "Overview", link: "/guides/developer-experience" },
+          { text: "AI Assistants", link: "/guides/ai-assistants" },
           { text: "Type Safety (build/IDE/CI)", link: "/guides/type-safety" },
           { text: "JSDoc vs Decorators", link: "/guides/jsdoc-vs-decorators" },
           { text: "Error Messages", link: "/guides/error-messages" },
