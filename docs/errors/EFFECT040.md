@@ -16,9 +16,9 @@ Effect type could be simplified
 The Effect type {current} can be expressed more simply as {suggested}.
 
 Common simplifications:
-- Effect<A, never, never> → Effect.Effect<A>
-- Effect<A, E, never> → Effect.Effect<A, E>
-- Effect<void, never, R> → Effect.Effect<void, never, R>
+- Effect&lt;A, never, never&gt; → Effect.Effect&lt;A&gt;
+- Effect&lt;A, E, never&gt; → Effect.Effect&lt;A, E&gt;
+- Effect&lt;void, never, R&gt; → Effect.Effect&lt;void, never, R&gt;
 
 Simpler types improve readability and IDE performance.
 

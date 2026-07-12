@@ -27,11 +27,11 @@ Sources of unhandled errors:
 To fix:
 1. Add handlers for the unhandled types:
    .pipe(
-     Effect.catchTag("{unhandledExample}", (e) => ...),
+     Effect.catchTag("{unhandledExample}", (e) =&gt; ...),
    )
 
 2. Or use Effect.catchAll to handle everything:
-   .pipe(Effect.catchAll((e) => ...))
+   .pipe(Effect.catchAll((e) =&gt; ...))
 
 3. Or explicitly let errors propagate (if intentional).
 
