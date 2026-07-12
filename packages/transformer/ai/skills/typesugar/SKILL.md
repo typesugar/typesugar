@@ -110,8 +110,14 @@ Prefer the CLI over hand-editing configs — it detects the stack and patches
 `tsconfig.json`, the bundler config, and the `prepare` script:
 
 ```bash
-npx typesugar init      # existing project
-npx typesugar create app my-app   # new project from a template
+# Existing project. You are an agent: pass --yes, or init will ask questions
+# you cannot answer. --persona picks the package set (app-developer is the
+# safe default; end-user is right when the project merely CONSUMES a
+# typesugar-powered library).
+npx typesugar init --yes --persona app-developer
+
+# New project from a template (pass both args — it prompts otherwise).
+npx typesugar create app my-app
 ```
 
 Then verify with `npx typesugar doctor` — do not declare success until it is
