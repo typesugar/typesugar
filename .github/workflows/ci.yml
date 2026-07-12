@@ -148,6 +148,9 @@ jobs:
       - name: Test skip policy
         run: pnpm run check:skips
 
+      - name: Error catalog up to date
+        run: node scripts/generate-error-docs.mjs --check
+
       - name: Runtime purity (no `typescript` in runtime entries)
         run: pnpm run check:runtime-purity
 
