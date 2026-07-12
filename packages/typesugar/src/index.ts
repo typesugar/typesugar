@@ -84,6 +84,7 @@ export {
   instance,
   deriving,
   summon,
+  summonAll,
   extend,
   implicit,
   // Extension method decorator

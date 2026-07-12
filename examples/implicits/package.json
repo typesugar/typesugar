@@ -1,0 +1,16 @@
+{
+  "name": "typesugar-example-implicits",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Scala 3-style implicit parameter resolution with automatic propagation",
+  "type": "module",
+  "scripts": {
+    "check": "typesugar check",
+    "expand": "typesugar expand basic.ts --diff"
+  },
+  "dependencies": {
+    "typesugar": "workspace:*",
+    "ts-patch": "^3.3.0",
+    "typescript": "^5.8.3"
+  }
+}

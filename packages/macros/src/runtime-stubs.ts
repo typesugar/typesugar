@@ -162,6 +162,18 @@ export function summon<T>(): T {
 }
 
 /**
+ * Resolve several typeclass instances at once, as a tuple.
+ *
+ * @example
+ * ```typescript
+ * const [showPoint, eqPoint] = summonAll<[Show<Point>, Eq<Point>]>();
+ * ```
+ */
+export function summonAll<T extends readonly unknown[]>(): T {
+  throw new Error("summonAll() must be processed by the typesugar transformer at compile time");
+}
+
+/**
  * Call extension methods on a value via typeclass instances or standalone extensions.
  * Scala 3-like extension method syntax.
  *

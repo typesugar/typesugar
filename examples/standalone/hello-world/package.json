@@ -1,0 +1,25 @@
+{
+  "name": "typesugar-hello-world",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The smallest real typesugar app — copy this directory anywhere and run it",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "typesugar check",
+    "expand": "typesugar expand src/main.ts --diff",
+    "doctor": "typesugar doctor",
+    "prepare": "ts-patch install -s"
+  },
+  "dependencies": {
+    "typesugar": "^0.2.0",
+    "@typesugar/std": "^0.2.0"
+  },
+  "devDependencies": {
+    "unplugin-typesugar": "^0.2.0",
+    "ts-patch": "^3.3.0",
+    "typescript": "^5.8.3",
+    "vite": "^5.4.0"
+  }
+}

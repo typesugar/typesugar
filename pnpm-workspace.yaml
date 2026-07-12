@@ -2,3 +2,7 @@ packages:
   - "packages/*"
   - "examples/*"
   - "examples/dry-runs/*"
+  # NOT examples/standalone/* — those install typesugar from the REGISTRY
+  # (published semver, not workspace:*) so they can be copied out of this
+  # repo and run as-is. Including them here would rewrite their deps to
+  # workspace links and defeat the point. See examples/standalone/README.md.
