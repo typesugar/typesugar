@@ -1,6 +1,6 @@
 # PEP-058: Production Release Readiness — Pipeline, AI Affordances, Onboarding
 
-**Status:** In Progress (2026-07-11) — Wave 1 (pipeline repair) in flight
+**Status:** In Progress (2026-07-12) — Waves 1, 2, 4, 5, 6, 7, 8 implemented (PRs #66-#72, stacked, awaiting merge). Wave 3 (the 0.2.0 release) is blocked on credentials only Dean can supply; Wave 9 follows it.
 **Date:** 2026-07-11
 **Author:** Claude (with Dean Povey)
 **Depends on:** [PEP-033](PEP-033-production-readiness.md) (Done — functional correctness), [PEP-048](PEP-048-package-triage.md) (package triage), [PEP-050](PEP-050-shipping-typesugar-libraries.md) (shipping libraries), [PEP-051](PEP-051-readme-guide-consolidation.md) (docs consolidation)
@@ -168,9 +168,45 @@ of both files' `seeAlso` URLs were part of this wave's domain sweep.
 
 ## Wave 3 — The release: 0.2.0 to npm + VS Code Marketplace (M, ops)
 
-1. **Pre-flight (manual, Dean):** `NPM_TOKEN` valid with publish rights on
-   the `@typesugar` scope + `typesugar`/`unplugin-typesugar`; the
-   `typesugar` Marketplace publisher exists and `VSCE_PAT` is set.
+**This is the only wave that cannot be done without Dean** — it needs
+credentials no CI run can mint.
+
+### Pre-flight checklist (manual, Dean — do this first)
+
+**npm** (blocks the whole wave):
+
+- [ ] `NPM_TOKEN` exists as a repo secret and is an **automation** token
+      (classic tokens with 2FA-on-publish will fail in CI).
+- [ ] It has publish rights on: the `@typesugar` scope, `typesugar`,
+      `unplugin-typesugar`.
+- [ ] Confirm with: `npm whoami` and
+      `npm access list packages <your-user>`.
+
+**VS Code Marketplace** (blocks only step 5; the npm release can ship
+without it):
+
+- [ ] A publisher named **`typesugar`** exists at
+      <https://marketplace.visualstudio.com/manage> — this is what
+      `packages/vscode/package.json`'s `"publisher": "typesugar"` refers
+      to. If it doesn't exist, create it (needs a Microsoft account).
+- [ ] An **Azure DevOps Personal Access Token** with
+      _Marketplace → Manage_ scope, generated from the same account at
+      <https://dev.azure.com> → User settings → Personal access tokens.
+      (The PAT is NOT a Marketplace setting — this is the step people get
+      stuck on.)
+- [ ] That PAT is stored as the repo secret **`VSCE_PAT`**.
+- [ ] Verify locally before trusting CI:
+      `cd packages/vscode && npx vsce verify-pat typesugar`.
+
+If the Marketplace side isn't ready, **ship npm anyway** — comment out the
+"Publish VS Code Extension" step in `release.yml` and land the extension
+in a follow-up. Editor support already works through the tsconfig
+`plugins` (ts-plugin) path; the Marketplace listing is discoverability,
+not function.
+
+### The release
+
+1. **Pre-flight** — the checklist above.
 2. **Merge the Version Packages PR** from W1 (facade → 0.2.0; keep
    independent versioning — no `fixed` groups mid-recovery).
 3. Merge triggers `release.yml`: `changeset publish` (with provenance),
@@ -354,7 +390,58 @@ this PEP → Done.
 | fixed/lockstep versioning                                             | Policy change mid-pipeline-recovery adds risk; revisit at 1.0.                                                     |
 | Compile-checking every docs snippet in CI                             | High-effort infra; W7 fixes high-traffic pages and sets the convention.                                            |
 
-## Implementation status
+## Implementation status (2026-07-12)
 
-- **Wave 1 — in flight** (this PR).
-- Waves 2–9 — not started.
+| Wave                       | PR  | Status                            |
+| -------------------------- | --- | --------------------------------- |
+| 1 — Pipeline repair        | #66 | Done, awaiting merge              |
+| 2 — Onboarding + src fixes | #67 | Done, awaiting merge              |
+| 3 — **The 0.2.0 release**  | —   | **Blocked on Dean** (credentials) |
+| 4 — Error catalog          | #68 | Done, awaiting merge              |
+| 5 — llms.txt               | #69 | Done, awaiting merge              |
+| 6 — Consumer AI context    | #70 | Done, awaiting merge              |
+| 7 — Docs polish            | #71 | Done, awaiting merge              |
+| 8 — Examples               | #72 | Done, awaiting merge              |
+| 9 — Release verification   | —   | Blocked on Wave 3                 |
+
+PRs are stacked (#66 → #67 → #68 → #69 → #70 → #71 → #72); each is
+independently green (full build + full vitest + prettier + docs build).
+
+### Bugs found while implementing — none of these were in the audit
+
+The audit found what was _missing_. Building the fixes found what was
+_broken_. Each of these was shipped, user-facing, and would have been hit
+on day one:
+
+1. **`typesugar create` was broken for every npm consumer** (W2). The
+   `templates/` directory lived at the monorepo root and was never
+   included in any package's `files` — a registry install of the CLI had
+   no templates at all. Moved into `@typesugar/transformer`.
+2. **`summonAll` was unusable** (W8). A registered macro declaring
+   `module: "typesugar"`, documented as public API in
+   `docs/reference/packages.md` — with no runtime stub and no facade
+   export, so `import { summonAll } from "typesugar"` didn't type-check.
+   Its only consumer (`examples/implicits`) had been broken by this.
+3. **The error-catalog pages broke the VitePress build** (W5). VitePress
+   compiles markdown as Vue templates, so a bare `Effect<A, never>` in
+   explanation prose parses as an unclosed element. **And CI could not
+   have caught it**: `ci.yml` path-ignored `docs/**/*.md` and the docs
+   build ran only in `deploy.yml`, post-merge. Both fixed.
+4. **`init` silently no-oped on every brownfield project** (W2) — the
+   audit found the discarded-result bug, but the fix revealed it had
+   _never_ patched an existing bundler config, only created new ones.
+5. **The 633-line pattern-matching guide was orphaned** (W7) — nav pointed
+   at the 72-line quickstart, so the real guide was absent from the site
+   nav _and_ from the AI corpus.
+6. **The scaffolding template READMEs still said `typesugar.dev`** (W7) —
+   they'd moved under `packages/` after W2's verification grep ran, so
+   every project made by `typesugar create` shipped with dead links.
+7. **My own hello-world example was wrong** (W8) — `a === b` was not being
+   rewritten (operator sugar is import-scoped, PEP-052), so it would have
+   printed `false` while the comment claimed `true`. Caught only by
+   expanding it with the real transformer.
+
+The through-line: **verify against the real built artifact, not the
+workspace.** Every one of these was invisible to the test suite and
+visible immediately in `npm pack` / the built CLI / the docs build. That
+is why `scripts/release-smoke.mjs` (W8) exists and why W9 is a real wave.
