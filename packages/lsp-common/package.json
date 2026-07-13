@@ -9,6 +9,9 @@
     "directory": "packages/lsp-common"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

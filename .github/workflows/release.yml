@@ -51,13 +51,51 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Publish with npm provenance attestations (PEP-058 Wave 1) —
+          # id-token: write is granted above, which is all npm needs to
+          # mint the attestation from GitHub Actions OIDC.
+          NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish VS Code Extension
         if: steps.changesets.outputs.published == 'true'
         run: |
           cd packages/vscode
+          PUBLISHER=$(node -p "require('./package.json').publisher")
+
+          # Pick whichever secret actually holds a working PAT.
+          #
+          # This repo has BOTH `VSCE_PAT` and `VCSE_PAT` (a transposed typo).
+          # The Release Preflight (PEP-058) proved VSCE_PAT is invalid/expired
+          # and VCSE_PAT is the live one — so reading VSCE_PAT alone, as this
+          # step used to, would fail the publish with a dead token. Rather than
+          # hard-code the typo, verify and select; this keeps working after the
+          # secrets are cleaned up, in either direction.
+          PAT=""
+          for CANDIDATE in "$PAT_PRIMARY" "$PAT_ALT"; do
+            if [ -n "$CANDIDATE" ] && VSCE_PAT="$CANDIDATE" npx --yes @vscode/vsce verify-pat "$PUBLISHER" >/dev/null 2>&1; then
+              PAT="$CANDIDATE"
+              break
+            fi
+          done
+          if [ -z "$PAT" ]; then
+            echo "::warning::No valid VS Code Marketplace PAT (checked VSCE_PAT and VCSE_PAT). Skipping the extension publish — the npm release above is unaffected."
+            exit 0
+          fi
+          export VSCE_PAT="$PAT"
+
+          # Skip when the Marketplace already has this version (a changesets
+          # publish that didn't touch the extension must not fail the job on
+          # vsce's "version already exists" error).
+          LOCAL_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHER_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
+          MARKETPLACE_VERSION=$(npx vsce show "$PUBLISHER_ID" --json 2>/dev/null | node -p "try { JSON.parse(require('fs').readFileSync(0, 'utf-8')).versions[0].version } catch { '' }" || echo "")
+          if [ "$MARKETPLACE_VERSION" = "$LOCAL_VERSION" ]; then
+            echo "Marketplace already at $LOCAL_VERSION — skipping vsce publish."
+            exit 0
+          fi
           pnpm run prepackage
           pnpm run package
           npx vsce publish --no-dependencies --packagePath *.vsix
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          PAT_PRIMARY: ${{ secrets.VSCE_PAT }}
+          PAT_ALT: ${{ secrets.VCSE_PAT }}

@@ -9,6 +9,9 @@
     "directory": "packages/ts-plugin"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "commonjs",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

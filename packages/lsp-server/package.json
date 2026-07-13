@@ -13,6 +13,9 @@
     "url": "https://github.com/typesugar/typesugar/issues"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "./dist/server.cjs",
   "module": "./dist/server.js",

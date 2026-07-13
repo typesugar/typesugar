@@ -54,5 +54,8 @@
     "dist",
     "src"
   ],
-  "sideEffects": false
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  }
 }
