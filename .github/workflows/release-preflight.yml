@@ -1,0 +1,96 @@
+name: Release Preflight
+
+# Validates the release CREDENTIALS without publishing anything (PEP-058
+# Wave 3). Run this before merging the "Version Packages" PR.
+#
+# The credentials are the one part of a release that no amount of local testing
+# can check: they only exist inside a workflow. A bad token surfaces at the very
+# last step of a real publish — after the version commit and git tags have
+# already landed — which is the worst place to find out.
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    name: Validate release credentials
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # provenance uses this; check it is grantable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # --- npm ---------------------------------------------------------------
+      - name: npm — token is present
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN secret is empty or missing."
+            exit 1
+          fi
+          echo "NPM_TOKEN is set (${#NODE_AUTH_TOKEN} chars)."
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: npm — token authenticates
+        run: |
+          # NOT `echo "$(npm whoami)"` — that swallows the failure: whoami
+          # exits non-zero, prints nothing, and `echo` still returns 0, so a
+          # dead token reads as a pass. Run it bare so `set -e` sees the exit
+          # code. (This check had exactly that hole on its first run.)
+          set -e
+          WHO=$(npm whoami)
+          if [ -z "$WHO" ]; then
+            echo "::error::npm whoami returned nothing — NPM_TOKEN is not authenticating."
+            exit 1
+          fi
+          echo "Authenticated to npm as: $WHO"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: npm — token can actually publish
+        run: |
+          set -e
+          # `npm access get status <pkg>` succeeds UNAUTHENTICATED for a public
+          # package, so it proves nothing. `npm access list packages` requires a
+          # real authenticated identity and reports what this token may write.
+          echo "Packages this token can write:"
+          npm access list packages | head -40
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # --- VS Code Marketplace ----------------------------------------------
+      # NOTE: `release.yml` reads `secrets.VSCE_PAT`. A typo'd duplicate
+      # (`VCSE_PAT`) also exists in this repo; this job reports on BOTH so it is
+      # unambiguous which one actually carries a working token.
+      - name: vsce — which PAT secret is valid?
+        run: |
+          PUBLISHER=$(node -p "require('./packages/vscode/package.json').publisher")
+          echo "Extension publisher: $PUBLISHER"
+          echo ""
+
+          check() {
+            local NAME="$1" TOKEN="$2"
+            if [ -z "$TOKEN" ]; then
+              echo "  $NAME: (not set)"
+              return
+            fi
+            if VSCE_PAT="$TOKEN" npx --yes @vscode/vsce verify-pat "$PUBLISHER" >/dev/null 2>&1; then
+              echo "  $NAME: ✓ VALID for publisher '$PUBLISHER'"
+            else
+              echo "  $NAME: ✗ invalid / expired / wrong publisher / missing Marketplace:Manage scope"
+            fi
+          }
+
+          check "VSCE_PAT (used by release.yml)" "${{ secrets.VSCE_PAT }}"
+          check "VCSE_PAT (typo duplicate)     " "${{ secrets.VCSE_PAT }}"
+
+          echo ""
+          echo "If VSCE_PAT is invalid but VCSE_PAT is valid, copy the working"
+          echo "token into VSCE_PAT (or delete the duplicate) before releasing."
+          echo "The extension publish is NOT required for the npm release — if"
+          echo "it can't be fixed now, drop that step from release.yml and ship."
