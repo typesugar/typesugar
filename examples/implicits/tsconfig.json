@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "plugins": [
+      {
+        "name": "typesugar/language-service"
+      },
+      {
+        "transform": "@typesugar/transformer",
+        "type": "program"
+      }
+    ]
+  },
+  "include": ["*.ts"]
+}

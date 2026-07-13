@@ -1,0 +1,26 @@
+name: Release Smoke Test
+
+# Verifies the PUBLISHED packages from a consumer's point of view — installs
+# from the real npm registry into a temp dir, with no workspace links. Run it
+# after a release (PEP-058 Wave 3), or any time to check that `latest` is sane.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version / dist-tag to test (e.g. "latest", "0.2.0")'
+        required: false
+        default: "latest"
+
+jobs:
+  smoke:
+    name: Smoke test published packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Release smoke test
+        run: node scripts/release-smoke.mjs --version "${{ inputs.version || 'latest' }}"

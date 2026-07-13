@@ -403,6 +403,7 @@ export {
   instance,
   deriving,
   summon,
+  summonAll,
   extend,
   // Extension method decorator
   extension,
