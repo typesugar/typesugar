@@ -7,6 +7,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import { findAiDir, scaffoldAiContext } from "./ai-context.js";
 
 const AVAILABLE_TEMPLATES = ["app", "library", "macro-plugin"] as const;
 type TemplateName = (typeof AVAILABLE_TEMPLATES)[number];
@@ -224,6 +225,15 @@ export async function runCreate(args: string[]): Promise<void> {
 
   // Update package.json with project name
   updatePackageJson(targetDir, projectName);
+
+  // AI-assistant context (PEP-058 Wave 6). Scaffolded from the SAME shipped
+  // assets `typesugar init` uses, rather than duplicated into each template —
+  // one source, so it can't drift per-template.
+  const aiDir = findAiDir();
+  if (aiDir) {
+    scaffoldAiContext(targetDir, aiDir, /* installSkill */ true);
+    console.log("  Added AGENTS.md + .claude/skills/typesugar/ (AI assistant context)");
+  }
 
   console.log("\nProject created successfully!");
   printNextSteps(options);

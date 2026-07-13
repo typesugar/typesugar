@@ -110,7 +110,8 @@
     "dist",
     "src",
     "language-service",
-    "templates"
+    "templates",
+    "ai"
   ],
   "sideEffects": false
 }

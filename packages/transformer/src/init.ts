@@ -7,6 +7,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import { findAiDir, scaffoldAiContext } from "./ai-context.js";
 
 interface PackageJson {
   name?: string;
@@ -510,7 +511,49 @@ function getPackagesForPersona(
   }
 }
 
-export async function runInit(verbose: boolean): Promise<void> {
+/**
+ * Scaffold AI-assistant context into the project (PEP-058 Wave 6).
+ *
+ * `aiMode` is the CLI's `--ai` / `--no-ai`; `undefined` means "ask".
+ */
+async function scaffoldAiContextStep(cwd: string, aiMode: boolean | undefined): Promise<void> {
+  const aiDir = findAiDir();
+  if (!aiDir) return; // package installed without its ai/ assets — nothing to do
+
+  let wanted = aiMode;
+  if (wanted === undefined) {
+    header("AI assistant context");
+    log("typesugar can write an AGENTS.md describing how macros work in this");
+    log("project, so Claude Code / Cursor / Copilot don't break your build by");
+    log("'cleaning up' macro imports or hand-writing generated code.");
+    log("");
+    wanted = await confirm("Add AI assistant context (AGENTS.md)?", true);
+  }
+  if (!wanted) return;
+
+  // Install the Claude Code skill when the project already uses Claude Code,
+  // or when --ai was passed explicitly (an opt-in for everything).
+  const installSkill = aiMode === true || fs.existsSync(path.join(cwd, ".claude"));
+
+  const result = scaffoldAiContext(cwd, aiDir, installSkill);
+
+  if (result.agentsMd === "created") success("Created AGENTS.md");
+  else if (result.agentsMd === "updated") success("Updated the typesugar section of AGENTS.md");
+  else info("AGENTS.md already up to date");
+
+  if (result.claudePointer === "created") {
+    success("Created CLAUDE.md (points at AGENTS.md)");
+  } else if (result.claudePointer === "exists") {
+    info("CLAUDE.md exists — add this line so Claude Code picks up the context:");
+    log(`    ${COLORS.cyan}See @AGENTS.md for typesugar usage rules.${COLORS.reset}`);
+  }
+
+  if (result.skill === "installed") {
+    success("Installed the typesugar skill (.claude/skills/typesugar/)");
+  }
+}
+
+export async function runInit(verbose: boolean, aiMode?: boolean): Promise<void> {
   const cwd = process.cwd();
 
   header("🧊 typesugar init");
@@ -616,6 +659,12 @@ export async function runInit(verbose: boolean): Promise<void> {
     createExampleFile(cwd);
     success("Created src/typesugar-example.ts");
   }
+
+  // AI-assistant context (PEP-058 Wave 6). Offered to every persona — the
+  // end-user persona (someone consuming a typesugar-powered library) is
+  // exactly who benefits most from their assistant knowing not to "clean up"
+  // a macro import.
+  await scaffoldAiContextStep(cwd, aiMode);
 
   header("Running ts-patch install...");
   try {

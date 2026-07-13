@@ -9,6 +9,7 @@ export default defineConfig([
       init: "src/init.ts",
       doctor: "src/doctor.ts",
       create: "src/create.ts",
+      "ai-context": "src/ai-context.ts",
       "language-service": "src/language-service.ts",
       pipeline: "src/pipeline.ts",
       "virtual-host": "src/virtual-host.ts",

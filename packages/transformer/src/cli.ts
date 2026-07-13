@@ -75,6 +75,8 @@ interface CliOptions {
   showSuppressedDiagnostics?: boolean;
   /** approve-macros: skip the confirmation prompt (for CI use) */
   yes?: boolean;
+  /** init: scaffold AI-assistant context (AGENTS.md). undefined = ask. */
+  ai?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -175,6 +177,7 @@ function parseArgs(args: string[]): CliOptions {
   let cache: boolean | string | undefined;
   let strict: boolean | "incremental" = false;
   let showSuppressedDiagnostics = false;
+  let ai: boolean | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -205,6 +208,10 @@ function parseArgs(args: string[]): CliOptions {
       strict = true;
     } else if (arg === "--show-suppressed-diagnostics") {
       showSuppressedDiagnostics = true;
+    } else if (arg === "--ai") {
+      ai = true;
+    } else if (arg === "--no-ai") {
+      ai = false;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -224,6 +231,7 @@ function parseArgs(args: string[]): CliOptions {
     cache,
     strict,
     showSuppressedDiagnostics,
+    ai,
   };
 }
 
@@ -263,6 +271,11 @@ OPTIONS:
 
 APPROVE-MACROS OPTIONS:
   -y, --yes              Skip the confirmation prompt (for CI use)
+
+INIT OPTIONS:
+  --ai                   Write AI-assistant context (AGENTS.md) without asking,
+                         and install the Claude Code skill
+  --no-ai                Skip AI-assistant context entirely
 
 EXPAND OPTIONS:
   --diff                 Show unified diff between original and expanded
@@ -1230,7 +1243,7 @@ async function main(): Promise<void> {
       break;
     case "init": {
       const { runInit } = await import("./init.js");
-      await runInit(options.verbose);
+      await runInit(options.verbose, options.ai);
       break;
     }
     case "doctor": {
