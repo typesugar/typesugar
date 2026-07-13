@@ -33,22 +33,19 @@ function prompt(question: string): Promise<string> {
 }
 
 function findTemplatesDir(): string | null {
-  // Check common locations for templates
-  const candidates = [
-    // When running from installed package
-    path.join(__dirname, "..", "..", "..", "templates"),
-    // When running from monorepo root
-    path.join(__dirname, "..", "..", "..", "..", "templates"),
-    // When running from packages/transformer
-    path.join(__dirname, "..", "templates"),
-    // Relative to cwd (for development)
-    path.join(process.cwd(), "templates"),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
-      return candidate;
-    }
+  // Templates ship INSIDE this package (PEP-058 Wave 2): they live at
+  // packages/transformer/templates/ and are listed in the package.json
+  // "files" array, so dist/../templates resolves identically for a
+  // published npm install and the monorepo checkout. (They previously
+  // lived at the monorepo root, which made `typesugar create` work only
+  // inside this repo — the published CLI had no templates at all.)
+  //
+  // Deliberately NO process.cwd() fallback: a user's project may contain
+  // its own unrelated templates/ directory, and scaffolding from that
+  // would silently copy garbage.
+  const candidate = path.join(__dirname, "..", "templates");
+  if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+    return candidate;
   }
 
   return null;
@@ -109,7 +106,7 @@ function printNextSteps(options: CreateOptions): void {
   }
 
   console.log("\nFor more info:");
-  console.log("  https://typesugar.dev/getting-started");
+  console.log("  https://typesugar.org/getting-started");
 }
 
 function parseCreateArgs(args: string[]): {
