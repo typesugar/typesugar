@@ -1,6 +1,6 @@
 {
   "name": "typesugar-example-dry-run-data-pipeline",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "scripts": {
     "check": "typesugar check",

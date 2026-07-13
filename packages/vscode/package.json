@@ -1,6 +1,6 @@
 {
   "name": "typesugar-vscode",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "🧊 IDE support for typesugar — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "private": true,

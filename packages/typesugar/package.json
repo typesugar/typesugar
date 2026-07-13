@@ -1,6 +1,6 @@
 {
   "name": "typesugar",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "🧊 TypeScript compile-time macros - Scala 3-style metaprogramming for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

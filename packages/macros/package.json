@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/macros",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "🧊 Built-in macro implementations for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/contracts",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "🧊 Design by Contract macros for typesugar — requires/ensures/invariant with configurable stripping and compile-time proofs",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
