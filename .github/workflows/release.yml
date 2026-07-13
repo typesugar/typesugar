@@ -60,6 +60,29 @@ jobs:
         if: steps.changesets.outputs.published == 'true'
         run: |
           cd packages/vscode
+          PUBLISHER=$(node -p "require('./package.json').publisher")
+
+          # Pick whichever secret actually holds a working PAT.
+          #
+          # This repo has BOTH `VSCE_PAT` and `VCSE_PAT` (a transposed typo).
+          # The Release Preflight (PEP-058) proved VSCE_PAT is invalid/expired
+          # and VCSE_PAT is the live one — so reading VSCE_PAT alone, as this
+          # step used to, would fail the publish with a dead token. Rather than
+          # hard-code the typo, verify and select; this keeps working after the
+          # secrets are cleaned up, in either direction.
+          PAT=""
+          for CANDIDATE in "$PAT_PRIMARY" "$PAT_ALT"; do
+            if [ -n "$CANDIDATE" ] && VSCE_PAT="$CANDIDATE" npx --yes @vscode/vsce verify-pat "$PUBLISHER" >/dev/null 2>&1; then
+              PAT="$CANDIDATE"
+              break
+            fi
+          done
+          if [ -z "$PAT" ]; then
+            echo "::warning::No valid VS Code Marketplace PAT (checked VSCE_PAT and VCSE_PAT). Skipping the extension publish — the npm release above is unaffected."
+            exit 0
+          fi
+          export VSCE_PAT="$PAT"
+
           # Skip when the Marketplace already has this version (a changesets
           # publish that didn't touch the extension must not fail the job on
           # vsce's "version already exists" error).
@@ -74,4 +97,5 @@ jobs:
           pnpm run package
           npx vsce publish --no-dependencies --packagePath *.vsix
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          PAT_PRIMARY: ${{ secrets.VSCE_PAT }}
+          PAT_ALT: ${{ secrets.VCSE_PAT }}
