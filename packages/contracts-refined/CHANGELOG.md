@@ -1,5 +1,15 @@
 # @typesugar/contracts-refined
 
+## 0.1.2
+
+### Patch Changes
+
+- ab72bde: PEP-058 Wave 1: declare `engines.node >=20` on all published packages and enable npm provenance attestations in the release pipeline.
+- Updated dependencies [d8f810b]
+- Updated dependencies [ab72bde]
+  - @typesugar/contracts@0.2.0
+  - @typesugar/type-system@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes

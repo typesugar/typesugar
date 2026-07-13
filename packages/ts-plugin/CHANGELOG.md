@@ -1,5 +1,26 @@
 # @typesugar/ts-plugin
 
+## 0.1.2
+
+### Patch Changes
+
+- ab72bde: PEP-058 Wave 1: declare `engines.node >=20` on all published packages and enable npm provenance attestations in the release pipeline.
+- Updated dependencies [4f6ad83]
+- Updated dependencies [b6a5211]
+- Updated dependencies [d8f810b]
+- Updated dependencies [63bf193]
+- Updated dependencies [98adbea]
+- Updated dependencies [e274769]
+- Updated dependencies [053978c]
+- Updated dependencies [8aaf40f]
+- Updated dependencies [855eb1f]
+- Updated dependencies [c56886c]
+- Updated dependencies [ab72bde]
+- Updated dependencies [4b78011]
+- Updated dependencies [a252187]
+- Updated dependencies [076e677]
+  - @typesugar/transformer@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

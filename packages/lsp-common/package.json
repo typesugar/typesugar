@@ -1,6 +1,6 @@
 {
   "name": "@typesugar/lsp-common",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared IDE infrastructure for typesugar LSP server and TS plugin",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {

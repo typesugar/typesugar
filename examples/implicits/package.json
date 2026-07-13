@@ -1,6 +1,6 @@
 {
   "name": "typesugar-example-implicits",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "Scala 3-style implicit parameter resolution with automatic propagation",
   "type": "module",

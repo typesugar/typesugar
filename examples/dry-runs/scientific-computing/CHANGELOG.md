@@ -1,4 +1,4 @@
-# typesugar-example-basic
+# typesugar-example-dry-run-scientific-computing
 
 ## 0.0.2
 
@@ -11,18 +11,4 @@
 - Updated dependencies [076e677]
 - Updated dependencies [2fb4b62]
   - typesugar@0.2.0
-
-## 0.0.1
-
-### Patch Changes
-
-- Updated dependencies [e2cbd69]
-- Updated dependencies
-  - typesugar@0.1.1
-
-## 0.0.1-rc.0
-
-### Patch Changes
-
-- Updated dependencies
-  - typesugar@0.1.1-rc.0
+  - @typesugar/units@0.1.2
