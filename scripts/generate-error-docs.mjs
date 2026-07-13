@@ -77,6 +77,29 @@ function titleCase(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * Escape `<` / `>` that appear in PROSE, leaving fenced blocks and code spans
+ * alone.
+ *
+ * VitePress compiles each markdown page as a Vue template, so a bare
+ * `Effect<A, never, never>` or `Functor<Option>` in an explanation is parsed
+ * as an unclosed HTML element and hard-fails the docs build. Inside code
+ * fences and code spans the markdown renderer emits escaped entities before
+ * Vue ever sees them, so those regions must be left byte-exact — escaping
+ * there would surface literal `&lt;` in the rendered code.
+ */
+function escapeAnglesOutsideCode(text) {
+  // Alternate between code regions (fenced blocks, then inline spans) and
+  // prose; only prose gets escaped.
+  const parts = text.split(/(```[\s\S]*?```|`[^`\n]*`)/g);
+  return parts
+    .map((part, i) =>
+      // Odd indices are the captured code regions — pass through untouched.
+      i % 2 === 1 ? part : part.replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    )
+    .join("");
+}
+
 /** Render the generated region for one descriptor. */
 function renderGenerated(id, d) {
   const lines = [];
@@ -94,7 +117,7 @@ function renderGenerated(id, d) {
   lines.push("");
   lines.push("## Explanation");
   lines.push("");
-  lines.push(d.explanation.trim());
+  lines.push(escapeAnglesOutsideCode(d.explanation.trim()));
   lines.push("");
   lines.push(GEN_END);
   return lines.join("\n");

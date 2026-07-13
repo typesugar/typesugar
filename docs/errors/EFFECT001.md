@@ -15,7 +15,7 @@ No layer provides `{service}`
 
 The Effect requires a service that is not provided by any registered layer.
 
-Effect<{successType}, {errorType}, {requirements}> needs:
+Effect&lt;{successType}, {errorType}, {requirements}&gt; needs:
 - {service} (no layer found)
 
 To fix:

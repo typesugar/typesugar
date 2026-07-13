@@ -6,17 +6,27 @@ on:
     paths-ignore:
       - "*.md"
       - "peps/**"
-      - "docs/**/*.md"
       - "LICENSE"
       - ".vscode/**"
+      # NOTE: docs/**/*.md is deliberately NOT ignored (PEP-058 Wave 5). The
+      # docs site is a shipped artifact and VitePress compiles each page as a
+      # Vue template, so a markdown page can hard-fail the build (e.g. a bare
+      # `Effect<A, never>` in prose parses as an unclosed element). That used
+      # to surface only in deploy.yml, after merge. The lint job now runs
+      # `pnpm docs:build`, which is worth the extra CI time on docs-only PRs.
   pull_request:
     branches: [main]
     paths-ignore:
       - "*.md"
       - "peps/**"
-      - "docs/**/*.md"
       - "LICENSE"
       - ".vscode/**"
+      # NOTE: docs/**/*.md is deliberately NOT ignored (PEP-058 Wave 5). The
+      # docs site is a shipped artifact and VitePress compiles each page as a
+      # Vue template, so a markdown page can hard-fail the build (e.g. a bare
+      # `Effect<A, never>` in prose parses as an unclosed element). That used
+      # to surface only in deploy.yml, after merge. The lint job now runs
+      # `pnpm docs:build`, which is worth the extra CI time on docs-only PRs.
   workflow_dispatch:
 
 jobs:
@@ -150,6 +160,15 @@ jobs:
 
       - name: Error catalog up to date
         run: node scripts/generate-error-docs.mjs --check
+
+      # The docs build previously ran ONLY in deploy.yml (post-merge), so a
+      # page that breaks VitePress reached production before anyone noticed.
+      # It also produces llms.txt / llms-full.txt (PEP-058 Wave 5).
+      - name: Docs build
+        run: pnpm docs:build
+
+      - name: llms.txt output
+        run: node scripts/check-llms-output.mjs
 
       - name: Runtime purity (no `typescript` in runtime entries)
         run: pnpm run check:runtime-purity
