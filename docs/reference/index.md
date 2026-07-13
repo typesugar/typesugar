@@ -2,6 +2,18 @@
 
 API and configuration reference for typesugar.
 
+::: tip Why there is no generated API reference
+This reference is **hand-written on purpose**, not for lack of a typedoc run.
+The public surface of a macro system is mostly _syntax_ — `/** @derive(Eq) */`,
+`comptime(...)`, `match(...)` — plus the shapes macros generate, none of which
+a signature generator can see. Pointing typedoc at the workspace would bury the
+small user-facing surface under transformer internals that are not API.
+
+The full rationale, the trigger conditions for revisiting, and the design for
+the scoped version we _would_ generate are in
+[PLAN-api-reference](../plans/PLAN-api-reference.md).
+:::
+
 ## Core APIs
 
 | Reference                             | Description                             |

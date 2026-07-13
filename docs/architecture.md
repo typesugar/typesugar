@@ -420,7 +420,7 @@ When the transformer encounters `value.method(args)`, it resolves the method thr
 
 ### Operator Overloading
 
-Standard JavaScript operators (`+`, `-`, `*`, `/`, `===`, etc.) are overloaded through the typeclass system via `@op` JSDoc tags on typeclass method signatures — there is no wrapper function or lexical preprocessor. (The earlier `.sts` preprocessor and its custom-operator dispatch machinery were removed in [PEP-047](peps/PEP-047-remove-sts.md).)
+Standard JavaScript operators (`+`, `-`, `*`, `/`, `===`, etc.) are overloaded through the typeclass system via `@op` JSDoc tags on typeclass method signatures — there is no wrapper function or lexical preprocessor. (The earlier `.sts` preprocessor and its custom-operator dispatch machinery were removed in [PEP-047](https://github.com/typesugar/typesugar/blob/main/peps/PEP-047-remove-sts.md).)
 
 Resolution is import-scoped (PEP-052): a typeclass's operator syntax only fires
 in files that activated it. When the transformer encounters a binary expression

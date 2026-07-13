@@ -5,8 +5,8 @@ for consumers **standalone** (plain `tsc`, no setup) _and_ offers extra ergonomi
 (dot-syntax, operator overloading, compile-time macros) when the consumer runs the
 typesugar transformer.
 
-> Reference PEPs: [PEP-050](../../peps/PEP-050-shipping-typesugar-libraries.md)
-> (this split), [PEP-055](../../peps/PEP-055-macro-package-discovery.md) (how a
+> Reference PEPs: [PEP-050](https://github.com/typesugar/typesugar/blob/main/peps/PEP-050-shipping-typesugar-libraries.md)
+> (this split), [PEP-055](https://github.com/typesugar/typesugar/blob/main/peps/PEP-055-macro-package-discovery.md) (how a
 > `./macros` entry gets **discovered** — required reading if you're shipping
 > macros from outside the `@typesugar/` npm scope).
 > Worked examples in this repo: **`@typesugar/fp`** (runtime library with zero-cost
@@ -39,7 +39,7 @@ their code (e.g. `regex\`...\``→`new RegExp("...")`). Macros import `typescrip
 2. **Register on import.** The transformer loads your `./macros` entry for its side
    effects; call `globalRegistry.register(...)` at module scope.
 3. **Declare `typesugar.macros` in your `package.json`** so the compiler can
-   actually **find** that entry ([PEP-055](../../peps/PEP-055-macro-package-discovery.md)):
+   actually **find** that entry ([PEP-055](https://github.com/typesugar/typesugar/blob/main/peps/PEP-055-macro-package-discovery.md)):
    ```jsonc
    { "typesugar": { "macros": "./macros" } }
    ```

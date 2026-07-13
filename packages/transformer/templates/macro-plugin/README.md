@@ -82,6 +82,6 @@ npm publish
 
 ## See Also
 
-- [Writing Macros Guide](https://typesugar.dev/writing-macros/)
-- [Testing Macros](https://typesugar.dev/writing-macros/testing-macros)
-- [Publishing Macros](https://typesugar.dev/writing-macros/publishing-macros)
+- [Writing Macros Guide](https://typesugar.org/writing-macros/)
+- [Testing Macros](https://typesugar.org/writing-macros/testing-macros)
+- [Publishing Macros](https://typesugar.org/writing-macros/publishing-macros)

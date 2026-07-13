@@ -24,7 +24,7 @@ error[TS9001]: No instance found for `Eq<Color>`
      + @derive(Eq)
      + interface Color { r: number; g: number; b: number }
 
-For more information, see: https://typesugar.dev/errors/TS9001
+For more information, see: https://typesugar.org/errors/TS9001
 ```
 
 Every error has:
@@ -265,7 +265,7 @@ Solutions:
 - Provide an explicit @instance implementation
 - Check that all fields have the required instances
 
-See also: https://typesugar.dev/errors/TS9001
+See also: https://typesugar.org/errors/TS9001
 ```
 
 ## Resolution Traces
