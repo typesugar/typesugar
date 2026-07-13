@@ -20,6 +20,17 @@ interface CreateOptions {
 }
 
 function prompt(question: string): Promise<string> {
+  // Fail fast rather than hang (PEP-058 Wave 10). `create` only asks when an
+  // argument is missing, so the fix is to say which one.
+  if (!process.stdin.isTTY) {
+    console.error(
+      "typesugar create needs a terminal to ask questions, but stdin is not a TTY.\n" +
+        "Pass the arguments instead:\n" +
+        "  npx typesugar create <app|library|macro-plugin> <project-name>"
+    );
+    process.exit(1);
+  }
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,

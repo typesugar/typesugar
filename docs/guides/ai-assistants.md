@@ -16,6 +16,19 @@ npx typesugar init --ai     # write it, no prompt, and install the Claude Code s
 npx typesugar init --no-ai  # skip entirely
 ```
 
+### Letting an assistant run `init` for you
+
+`init` is an interactive wizard, so an agent (or a CI job) needs `--yes`:
+
+```bash
+npx typesugar init --yes                          # accept every default
+npx typesugar init --yes --persona end-user --ai  # or answer up front
+```
+
+Without `--yes` and without a terminal, `init` now **fails immediately** with a
+message telling you to add it — rather than hanging on a question nobody is
+there to answer.
+
 | File                        | Purpose                                                                      |
 | --------------------------- | ---------------------------------------------------------------------------- |
 | `AGENTS.md`                 | The context itself — read natively by Cursor, Copilot, Codex, Zed and others |

@@ -62,7 +62,45 @@ function header(message: string): void {
   console.log(`\n${COLORS.bright}${COLORS.cyan}${message}${COLORS.reset}\n`);
 }
 
+/**
+ * Non-interactive mode (PEP-058 Wave 10).
+ *
+ * When set, every prompt resolves to its default instead of blocking. This is
+ * what makes `init` usable from CI and from an AI coding assistant — which
+ * matters, because a tool whose whole pitch includes "your agent can set this
+ * up for you" must not deadlock the moment there is no TTY.
+ */
+let nonInteractive = false;
+
+export function setNonInteractive(value: boolean): void {
+  nonInteractive = value;
+}
+
+/**
+ * Refuse to prompt when nobody can answer.
+ *
+ * Without this, `typesugar init` in a pipe/CI/agent context hangs forever on
+ * the first question — the worst possible failure mode, because it looks like
+ * a slow install rather than a wrong invocation.
+ */
+function requireInteractive(): void {
+  if (!process.stdin.isTTY) {
+    error("typesugar init needs a terminal to ask questions, but stdin is not a TTY.");
+    log("");
+    log("  Run it non-interactively instead:");
+    log(`    ${COLORS.cyan}npx typesugar init --yes${COLORS.reset}`);
+    log("");
+    log("  Options:");
+    log("    --yes, -y            accept the defaults for every question");
+    log("    --persona <name>     end-user | app-developer | extension-author");
+    log("    --ai / --no-ai       write (or skip) AI-assistant context");
+    process.exit(1);
+  }
+}
+
 async function prompt(question: string): Promise<string> {
+  requireInteractive();
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -77,6 +115,13 @@ async function prompt(question: string): Promise<string> {
 }
 
 async function confirm(question: string, defaultYes = true): Promise<boolean> {
+  if (nonInteractive) {
+    log(
+      `${COLORS.cyan}?${COLORS.reset} ${question} ${COLORS.dim}→ ${defaultYes ? "yes" : "no"}${COLORS.reset}`
+    );
+    return defaultYes;
+  }
+
   const hint = defaultYes ? "[Y/n]" : "[y/N]";
   const answer = await prompt(`${question} ${COLORS.dim}${hint}${COLORS.reset}`);
   if (answer === "") return defaultYes;
@@ -85,8 +130,20 @@ async function confirm(question: string, defaultYes = true): Promise<boolean> {
 
 async function select<T extends string>(
   question: string,
-  options: { value: T; label: string }[]
+  options: { value: T; label: string }[],
+  defaultValue?: T
 ): Promise<T> {
+  if (nonInteractive) {
+    const chosen = defaultValue ?? options[0].value;
+    const label = options.find((o) => o.value === chosen)?.label ?? chosen;
+    // Print the VALUE, not just the label — this line ends up in a CI log, and
+    // `app-developer` is what a reader can act on; the prose label is not.
+    log(
+      `${COLORS.cyan}?${COLORS.reset} ${question} ${COLORS.dim}→ ${chosen} (${label})${COLORS.reset}`
+    );
+    return chosen;
+  }
+
   log(`${COLORS.cyan}?${COLORS.reset} ${question}`);
   options.forEach((opt, i) => {
     log(`  ${COLORS.dim}${i + 1}.${COLORS.reset} ${opt.label}`);
@@ -553,8 +610,20 @@ async function scaffoldAiContextStep(cwd: string, aiMode: boolean | undefined): 
   }
 }
 
-export async function runInit(verbose: boolean, aiMode?: boolean): Promise<void> {
+export interface InitOptions {
+  /** Accept every default without prompting (CI / AI-agent friendly). */
+  yes?: boolean;
+  /** Skip the persona question by answering it up front. */
+  persona?: Persona;
+  /** Write (true) or skip (false) AI-assistant context. undefined = ask. */
+  ai?: boolean;
+}
+
+export async function runInit(verbose: boolean, options: InitOptions = {}): Promise<void> {
   const cwd = process.cwd();
+  const aiMode = options.ai;
+
+  setNonInteractive(options.yes === true);
 
   header("🧊 typesugar init");
 
@@ -573,20 +642,27 @@ export async function runInit(verbose: boolean, aiMode?: boolean): Promise<void>
 
   log("");
 
-  const persona = await select<Persona>("What describes you best?", [
-    {
-      value: "end-user",
-      label: "I'm using a library built with typesugar",
-    },
-    {
-      value: "app-developer",
-      label: "I want to use typesugar in my app/library",
-    },
-    {
-      value: "extension-author",
-      label: "I want to write custom macros or extensions",
-    },
-  ]);
+  const persona = await select<Persona>(
+    "What describes you best?",
+    [
+      {
+        value: "end-user",
+        label: "I'm using a library built with typesugar",
+      },
+      {
+        value: "app-developer",
+        label: "I want to use typesugar in my app/library",
+      },
+      {
+        value: "extension-author",
+        label: "I want to write custom macros or extensions",
+      },
+    ],
+    // Non-interactive default: `app-developer` — the middle option, and the
+    // only one that is never *wrong*. `end-user` would under-install (no macro
+    // packages), `extension-author` would over-install.
+    options.persona ?? "app-developer"
+  );
 
   const packages = getPackagesForPersona(persona, stack.bundler);
 

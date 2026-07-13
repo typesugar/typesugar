@@ -77,6 +77,8 @@ interface CliOptions {
   yes?: boolean;
   /** init: scaffold AI-assistant context (AGENTS.md). undefined = ask. */
   ai?: boolean;
+  /** init: answer the persona question up front. */
+  persona?: "end-user" | "app-developer" | "extension-author";
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -178,6 +180,8 @@ function parseArgs(args: string[]): CliOptions {
   let strict: boolean | "incremental" = false;
   let showSuppressedDiagnostics = false;
   let ai: boolean | undefined;
+  let yes = false;
+  let persona: CliOptions["persona"];
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -212,6 +216,16 @@ function parseArgs(args: string[]): CliOptions {
       ai = true;
     } else if (arg === "--no-ai") {
       ai = false;
+    } else if (arg === "--yes" || arg === "-y") {
+      yes = true;
+    } else if (arg === "--persona") {
+      const value = args[++i];
+      const valid = ["end-user", "app-developer", "extension-author"] as const;
+      if (!valid.includes(value as (typeof valid)[number])) {
+        console.error(`Invalid --persona: ${value}\nExpected one of: ${valid.join(", ")}`);
+        process.exit(1);
+      }
+      persona = value as CliOptions["persona"];
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -232,6 +246,8 @@ function parseArgs(args: string[]): CliOptions {
     strict,
     showSuppressedDiagnostics,
     ai,
+    yes,
+    persona,
   };
 }
 
@@ -273,6 +289,10 @@ APPROVE-MACROS OPTIONS:
   -y, --yes              Skip the confirmation prompt (for CI use)
 
 INIT OPTIONS:
+  -y, --yes              Non-interactive: accept the default for every question
+                         (required in CI, or when an AI assistant runs init)
+  --persona <name>       end-user | app-developer | extension-author
+                         (default with --yes: app-developer)
   --ai                   Write AI-assistant context (AGENTS.md) without asking,
                          and install the Claude Code skill
   --no-ai                Skip AI-assistant context entirely
@@ -304,6 +324,8 @@ EXAMPLES:
   typesugar run examples/showcase.ts
   typesugar run examples/showcase.ts --cache   # Cache for repeated runs
   typesugar init
+  typesugar init --yes                         # non-interactive (CI / AI agent)
+  typesugar init --yes --persona end-user --ai
   typesugar doctor
   typesugar create app my-app
   typesugar create library my-lib
@@ -1243,7 +1265,11 @@ async function main(): Promise<void> {
       break;
     case "init": {
       const { runInit } = await import("./init.js");
-      await runInit(options.verbose, options.ai);
+      await runInit(options.verbose, {
+        yes: options.yes,
+        persona: options.persona,
+        ai: options.ai,
+      });
       break;
     }
     case "doctor": {
