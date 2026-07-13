@@ -38,27 +38,28 @@ jobs:
 
       - name: npm — token authenticates
         run: |
-          echo "Authenticated to npm as: $(npm whoami)"
+          # NOT `echo "$(npm whoami)"` — that swallows the failure: whoami
+          # exits non-zero, prints nothing, and `echo` still returns 0, so a
+          # dead token reads as a pass. Run it bare so `set -e` sees the exit
+          # code. (This check had exactly that hole on its first run.)
+          set -e
+          WHO=$(npm whoami)
+          if [ -z "$WHO" ]; then
+            echo "::error::npm whoami returned nothing — NPM_TOKEN is not authenticating."
+            exit 1
+          fi
+          echo "Authenticated to npm as: $WHO"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: npm — token can publish the packages we ship
+      - name: npm — token can actually publish
         run: |
-          FAILED=0
-          # A token that can *read* is not necessarily a token that can
-          # *publish*. `npm access get status` fails for a package the token
-          # has no rights on, which is exactly what we want to learn now.
-          for PKG in typesugar unplugin-typesugar @typesugar/core @typesugar/std; do
-            if npm access get status "$PKG" >/dev/null 2>&1; then
-              echo "  ✓ $PKG"
-            else
-              echo "  ✗ $PKG — token lacks publish rights (or package is new)"
-              FAILED=1
-            fi
-          done
-          if [ "$FAILED" = "1" ]; then
-            echo "::warning::Some packages are not writable by this token. New packages are expected to fail this check; EXISTING ones must not."
-          fi
+          set -e
+          # `npm access get status <pkg>` succeeds UNAUTHENTICATED for a public
+          # package, so it proves nothing. `npm access list packages` requires a
+          # real authenticated identity and reports what this token may write.
+          echo "Packages this token can write:"
+          npm access list packages | head -40
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
