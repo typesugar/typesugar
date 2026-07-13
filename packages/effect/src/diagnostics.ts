@@ -87,7 +87,7 @@ To fix:
    Effect.provideService(program, {service}, impl)
 
 If the service is from a library, ensure you import its layer.`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT001",
+  seeAlso: "https://typesugar.org/errors/EFFECT001",
 };
 
 /**
@@ -112,7 +112,7 @@ Mismatched signatures:
 {mismatchedSignatures}
 
 Ensure the layer implementation matches the @service interface exactly.`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT002",
+  seeAlso: "https://typesugar.org/errors/EFFECT002",
 };
 
 /**
@@ -133,7 +133,7 @@ The first registered layer will be used. To resolve:
 1. Remove duplicate layer definitions
 2. Use explicit Layer.provide() instead of resolveLayer()
 3. Rename one layer to provide a different service`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT003",
+  seeAlso: "https://typesugar.org/errors/EFFECT003",
 };
 
 // ============================================================================
@@ -172,7 +172,7 @@ To fix:
    .pipe(Effect.catchAll((e) => ...))
 
 3. Or explicitly let errors propagate (if intentional).`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT010",
+  seeAlso: "https://typesugar.org/errors/EFFECT010",
 };
 
 /**
@@ -195,7 +195,7 @@ This could indicate:
 1. Dead code that should be removed
 2. An earlier handler already caught this error
 3. The error was eliminated by a previous operation`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT011",
+  seeAlso: "https://typesugar.org/errors/EFFECT011",
 };
 
 // ============================================================================
@@ -223,7 +223,7 @@ To fix:
 1. Identify the unnecessary dependency in the cycle
 2. Extract shared functionality into a separate layer
 3. Use Layer.passthrough for optional dependencies`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT020",
+  seeAlso: "https://typesugar.org/errors/EFFECT020",
 };
 
 /**
@@ -246,7 +246,7 @@ This could indicate:
 3. Future-proofing — intentionally included for later use
 
 If intentional, add a comment explaining why.`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT021",
+  seeAlso: "https://typesugar.org/errors/EFFECT021",
 };
 
 // ============================================================================
@@ -279,7 +279,7 @@ To fix:
 1. Update the Schema to match the type
 2. Or use @derive(EffectSchema) to auto-generate
 3. Or use Schema.from(existingSchema).pipe(...) for migrations`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT030",
+  seeAlso: "https://typesugar.org/errors/EFFECT030",
 };
 
 // ============================================================================
@@ -305,7 +305,7 @@ Common simplifications:
 - Effect<void, never, R> → Effect.Effect<void, never, R>
 
 Simpler types improve readability and IDE performance.`,
-  seeAlso: "https://typesugar.org/effect/errors/EFFECT040",
+  seeAlso: "https://typesugar.org/errors/EFFECT040",
 };
 
 // ============================================================================
