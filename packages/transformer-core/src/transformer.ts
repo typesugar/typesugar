@@ -118,6 +118,28 @@ class MacroTransformer {
 
   private inlinedInstanceNames = new Set<string>();
 
+  /**
+   * Decorators whose attribute macro already threw. They stay on the node
+   * (so the error is visible) but are never re-expanded when the node is
+   * re-visited -- otherwise the re-visit throws again, unboundedly
+   * (deep-review core #13).
+   */
+  private failedDecorators = new WeakSet<ts.Decorator>();
+
+  /**
+   * Function/method nodes (and their implicit trigger-label results) that
+   * the implicit trigger-label macro has already been applied to, so a
+   * result that still carries its trigger label is not re-expanded forever.
+   */
+  private implicitLabelApplied = new WeakSet<ts.Node>();
+
+  /**
+   * Arguments visited ahead of derived-instance inlining (see
+   * `withPreVisitedArgs`), consumed once by `visit` so the normal descent
+   * does not expand them a second time.
+   */
+  private preVisitedArgs = new Map<ts.Node, ts.Node>();
+
   constructor(
     private ctx: MacroContextImpl,
     private verbose: boolean,
@@ -129,8 +151,23 @@ class MacroTransformer {
   // Expansion cache helpers
   // ---------------------------------------------------------------------------
 
+  /**
+   * Expression-macro caching is OPT-IN: only macros that declare
+   * `cacheable: true` (pure functions of their call-site text) are cached.
+   * It used to be default-on, which served type-, file- and config-dependent
+   * expansions (`fieldNames<User>()`, `includeStr`, `cfg`) across files and
+   * across builds.
+   */
   private isMacroCacheable(macro: MacroDefinition): boolean {
-    return macro.cacheable !== false;
+    return macro.cacheable === true;
+  }
+
+  /** Snapshot of same-pass side-effect counters, taken before an expansion. */
+  private sideEffectSnapshot(): { diagnostics: number; pendingImports: number } {
+    return {
+      diagnostics: this.ctx.getDiagnostics().length,
+      pendingImports: this.ctx.fileBindingCache.getPendingImports().length,
+    };
   }
 
   private computeCallSiteCacheKey(
@@ -142,7 +179,12 @@ class MacroTransformer {
     try {
       const sourceText = node.getText(this.ctx.sourceFile);
       const argTexts = args.map((a) => a.getText(this.ctx.sourceFile));
-      return this.expansionCache.computeKey(macroName, sourceText, argTexts);
+      return this.expansionCache.computeKey(
+        macroName,
+        sourceText,
+        argTexts,
+        this.ctx.sourceFile.fileName
+      );
     } catch {
       return undefined;
     }
@@ -301,6 +343,12 @@ class MacroTransformer {
   // ---------------------------------------------------------------------------
 
   visit(node: ts.Node): ts.Node | ts.Node[] {
+    const preVisited = this.preVisitedArgs.get(node);
+    if (preVisited !== undefined) {
+      this.preVisitedArgs.delete(node);
+      return preVisited;
+    }
+
     // Skip synthetic subtrees (pos === -1) entirely.  These come from macro
     // expansion output (e.g. assert IIFE, derive companions).  The type checker
     // crashes on their unbound symbols, and they don't contain further macros.
@@ -314,30 +362,22 @@ class MacroTransformer {
       return this.visitStatementContainer(node);
     }
 
-    // Simplify arrow bodies of the shape
-    //   (params) => { const __letyield_N = EXPR; return __letyield_N; }
-    // to
-    //   (params) => EXPR
-    // This cleans up the block produced by `arrow-comprehension-preprocess.ts`
-    // after the const-x-equals-let merge has expanded the comprehension.
+    // Block-bodied arrows go through the same implicit-scope / tryTransform
+    // dispatch as every other function-like node (they used to return early
+    // here, skipping both); the comprehension-body simplification below is
+    // applied to the RESULT of that normal visit.
     if (ts.isArrowFunction(node) && ts.isBlock(node.body)) {
-      const visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
-      if (visited && ts.isArrowFunction(visited) && ts.isBlock(visited.body)) {
-        const simplified = tryExtractCompReturnExpr(visited.body);
-        if (simplified) {
-          return this.ctx.factory.updateArrowFunction(
-            visited,
-            visited.modifiers,
-            visited.typeParameters,
-            visited.parameters,
-            visited.type,
-            visited.equalsGreaterThanToken,
-            simplified
-          );
-        }
-      }
-      return visited;
+      return this.simplifyComprehensionArrow(this.visitDispatch(node));
     }
+
+    return this.visitDispatch(node);
+  }
+
+  private visitDispatch(node: ts.Node): ts.Node | ts.Node[] {
+    // contracts #6: requires:/ensures: trigger labels are only applied to
+    // function and method declarations. Elsewhere they would silently run as
+    // a plain labeled block, so say so.
+    this.reportUnsupportedTriggerLabels(node);
 
     if (
       (ts.isFunctionDeclaration(node) ||
@@ -356,6 +396,71 @@ class MacroTransformer {
     }
 
     return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+  }
+
+  /**
+   * Simplify arrow bodies of the shape
+   *   (params) => { const __letyield_N = EXPR; return __letyield_N; }
+   * to
+   *   (params) => EXPR
+   * This cleans up the block produced by `arrow-comprehension-preprocess.ts`
+   * after the const-x-equals-let merge has expanded the comprehension.
+   */
+  private simplifyComprehensionArrow(visited: ts.Node | ts.Node[]): ts.Node | ts.Node[] {
+    if (!Array.isArray(visited) && ts.isArrowFunction(visited) && ts.isBlock(visited.body)) {
+      const simplified = tryExtractCompReturnExpr(visited.body);
+      if (simplified) {
+        return this.ctx.factory.updateArrowFunction(
+          visited,
+          visited.modifiers,
+          visited.typeParameters,
+          visited.parameters,
+          visited.type,
+          visited.equalsGreaterThanToken,
+          simplified
+        );
+      }
+    }
+    return visited;
+  }
+
+  /**
+   * Report an error for a top-level, block-shaped trigger label (e.g. a
+   * contract's `requires:` / `ensures:`) in a function-like node that the
+   * implicit trigger-label dispatch does not support (arrow functions,
+   * function expressions, constructors, accessors). Only fires when the
+   * label's macro is activated for this file, so ordinary labels in files
+   * that never imported the macro package stay untouched.
+   */
+  private reportUnsupportedTriggerLabels(node: ts.Node): void {
+    let what: string | undefined;
+    if (ts.isArrowFunction(node)) what = "arrow function";
+    else if (ts.isFunctionExpression(node)) what = "function expression";
+    else if (ts.isConstructorDeclaration(node)) what = "constructor";
+    else if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
+      what = "accessor";
+    if (!what) return;
+    const body = (node as ts.FunctionLikeDeclaration).body;
+    if (!body || !ts.isBlock(body) || isSyntheticNode(node)) return;
+
+    for (const stmt of body.statements) {
+      if (!ts.isLabeledStatement(stmt)) continue;
+      const isBlockShaped =
+        ts.isBlock(stmt.statement) ||
+        (ts.isExpressionStatement(stmt.statement) && ts.isArrowFunction(stmt.statement.expression));
+      if (!isBlockShaped) continue;
+      const macro = globalRegistry.getAttributeByTriggerLabel(stmt.label.text);
+      if (!macro) continue;
+      if (!globalResolutionScope.isLabelSyntaxActivated(this.ctx.sourceFile.fileName, macro.name)) {
+        continue;
+      }
+      this.ctx.reportError(
+        stmt,
+        `\`${stmt.label.text}:\` (@${macro.name}) is only supported directly inside a function ` +
+          `declaration or method; in this ${what} it is NOT applied and its conditions are not ` +
+          `checked. Move the logic into a function declaration or method.`
+      );
+    }
   }
 
   private visitStatementContainer(
@@ -681,8 +786,8 @@ class MacroTransformer {
                 .at(stmt)
                 .withArgs({ label: labelName })
                 .help(
-                  `Assign to a variable (const result = ${labelName}: { ... } yield: { ... }) ` +
-                    `or prefix with \`void\` to silence.`
+                  `At module top level assign it (const result = ${labelName}: { ... } yield: { ... }), ` +
+                    `or return it from an arrow function (\`=>\` then ${labelName}: on the next line).`
                 )
                 .emit();
             }
@@ -984,20 +1089,35 @@ class MacroTransformer {
         return implicitsResult;
       }
 
+      // These three rewrites build a new call from the ORIGINAL argument
+      // nodes and are not otherwise re-visited, so macros inside those
+      // arguments must be expanded here (deep-review core #7).
       const autoSpecResult = tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, node);
       if (autoSpecResult !== undefined) {
-        return autoSpecResult;
+        return this.visitRewrittenCall(autoSpecResult, node);
       }
 
-      const derivedInlineResult = tryInlineDerivedInstanceCallFn(this.ctx, node);
+      // Derived-instance inlining strips source positions IN PLACE on the
+      // argument nodes it substitutes (stripPositions/stripCommentsDeep), so
+      // after it runs the user's argument nodes look synthetic and macros
+      // inside them would never expand. Visit the arguments FIRST and inline
+      // from a call carrying the visited arguments (deep-review core #7).
+      // The visited arguments are memoised so that, if inlining does not
+      // fire, the later normal descent reuses them instead of expanding the
+      // same macros twice.
+      const inlineInput = this.withPreVisitedArgs(node);
+      const derivedInlineResult = tryInlineDerivedInstanceCallFn(this.ctx, inlineInput);
       if (derivedInlineResult !== undefined) {
+        this.forgetPreVisitedArgs(node);
         if (
           ts.isPropertyAccessExpression(node.expression) &&
           ts.isIdentifier(node.expression.expression)
         ) {
           this.inlinedInstanceNames.add(node.expression.expression.text);
         }
-        return derivedInlineResult;
+        return inlineInput === node
+          ? derivedInlineResult
+          : preserveSourceMap(derivedInlineResult, node);
       }
 
       const returnTypeResult = tryReturnTypeDrivenSpecializeFn(
@@ -1007,7 +1127,7 @@ class MacroTransformer {
         node
       );
       if (returnTypeResult !== undefined) {
-        return returnTypeResult;
+        return this.visitRewrittenCall(returnTypeResult, node);
       }
     }
 
@@ -1029,10 +1149,26 @@ class MacroTransformer {
       }
     }
 
-    if (hasJSDocMacroTagsFn(node)) {
+    if (hasJSDocMacroTagsFn(node) && !this.isJSDocExpanded(node)) {
       const result = tryExpandJSDocMacrosFn(this.ctx, this.verbose, node);
       if (result !== undefined) {
-        return result;
+        // Descend into the (possibly rewritten) target so macros inside a
+        // `/** @derive */` class body or `/** @impl */` initializer expand,
+        // as the decorator path does (deep-review core #12). visitEachChild,
+        // not visit: the target still carries its JSDoc tags, so a full
+        // visit would re-enter this branch.
+        const [head, ...rest] = Array.isArray(result) ? result : [result];
+        // A declaration inside an expanded `/** @impl */ const x = ...`
+        // statement inherits the statement's JSDoc tags; mark everything
+        // this expansion covered so the descent does not expand it again.
+        this.markJSDocExpanded(node);
+        this.markJSDocExpanded(head);
+        const visitedHead = ts.visitEachChild(
+          head,
+          this.visit.bind(this),
+          this.ctx.transformContext
+        );
+        return rest.length > 0 ? [visitedHead, ...rest] : visitedHead;
       }
     }
 
@@ -1248,6 +1384,73 @@ class MacroTransformer {
     return undefined;
   }
 
+  private jsdocExpanded = new WeakSet<ts.Node>();
+
+  private markJSDocExpanded(node: ts.Node): void {
+    this.jsdocExpanded.add(node);
+    this.jsdocExpanded.add(ts.getOriginalNode(node));
+    if (ts.isVariableStatement(node)) {
+      for (const d of node.declarationList.declarations) {
+        this.jsdocExpanded.add(d);
+        this.jsdocExpanded.add(ts.getOriginalNode(d));
+      }
+    }
+  }
+
+  private isJSDocExpanded(node: ts.Node): boolean {
+    return this.jsdocExpanded.has(node) || this.jsdocExpanded.has(ts.getOriginalNode(node));
+  }
+
+  /**
+   * For an `ident.method(args)` call (the only shape derived-instance
+   * inlining handles), visit the arguments now and return a call carrying
+   * them; the original call when nothing changed. Changed arguments are
+   * memoised in `preVisitedArgs` for the normal descent.
+   */
+  private withPreVisitedArgs(node: ts.CallExpression): ts.CallExpression {
+    if (
+      !ts.isPropertyAccessExpression(node.expression) ||
+      !ts.isIdentifier(node.expression.expression) ||
+      node.arguments.length === 0
+    ) {
+      return node;
+    }
+    let changed = false;
+    const visitedArgs = node.arguments.map((a) => {
+      const v = ts.visitNode(a, this.visit.bind(this)) as ts.Expression;
+      if (v !== a) {
+        changed = true;
+        this.preVisitedArgs.set(a, v);
+      }
+      return v;
+    });
+    if (!changed) return node;
+    return this.ctx.factory.updateCallExpression(
+      node,
+      node.expression,
+      node.typeArguments,
+      visitedArgs
+    );
+  }
+
+  private forgetPreVisitedArgs(node: ts.CallExpression): void {
+    for (const a of node.arguments) this.preVisitedArgs.delete(a);
+  }
+
+  /**
+   * Visit the result of a call rewrite (inlining / specialisation) so that
+   * macros in the reused argument nodes are expanded. Synthetic wrapper
+   * nodes are descended into by `visit` without re-running `tryTransform`
+   * on them, so this cannot re-trigger the rewrite itself.
+   */
+  private visitRewrittenCall<T extends ts.Node>(result: T, original: ts.Node): T {
+    if ((result as ts.Node) === original) {
+      return ts.visitEachChild(result, this.visit.bind(this), this.ctx.transformContext);
+    }
+    const visited = ts.visitNode(result, this.visit.bind(this));
+    return (visited ?? result) as T;
+  }
+
   private hasDecorators(node: ts.Node): node is ts.HasDecorators {
     if (ts.canHaveDecorators(node) && ts.getDecorators(node) !== undefined) {
       return true;
@@ -1339,6 +1542,7 @@ class MacroTransformer {
     }
 
     try {
+      const before = cacheKey ? this.sideEffectSnapshot() : undefined;
       const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, node.arguments));
 
       if (this.expansionTracker) {
@@ -1357,8 +1561,21 @@ class MacroTransformer {
       // fully expanded. On a cache hit, the stored (printed) text is re-parsed
       // with synthetic positions, and synthetic nodes skip macro expansion in
       // the visitor -- so a cache hit must not need re-visiting either.
-      if (cacheKey) {
-        this.cacheExpression(cacheKey, visited);
+      //
+      // A cache hit replays only the printed text, never side effects, so do
+      // not store an expansion that (a) reported a diagnostic, (b) queued an
+      // import, or (c) had its subtree rewritten while visiting -- a nested
+      // macro / extension / implicit rewrite in the arguments may depend on
+      // types or state that the call-site text does not capture.
+      if (cacheKey && before) {
+        const after = this.sideEffectSnapshot();
+        const pure =
+          visited === result &&
+          after.diagnostics === before.diagnostics &&
+          after.pendingImports === before.pendingImports;
+        if (pure) {
+          this.cacheExpression(cacheKey, visited);
+        }
       }
 
       return preserveSourceMap(visited, node);
@@ -1484,6 +1701,10 @@ class MacroTransformer {
     let wasTransformed = false;
 
     for (const decorator of sortedDecorators) {
+      if (this.failedDecorators.has(decorator)) {
+        remainingDecorators.push(decorator);
+        continue;
+      }
       const { macroName, args, identNode } = parseDecorator(decorator);
 
       if (
@@ -1555,6 +1776,7 @@ class MacroTransformer {
               `typesugar: attribute macro '${macroName}' failed: ${error}`
             )
           );
+          this.failedDecorators.add(decorator);
           remainingDecorators.push(decorator);
           wasTransformed = true;
         }
@@ -1605,6 +1827,12 @@ class MacroTransformer {
   ): ts.Node | ts.Node[] | undefined {
     const body = node.body;
     if (!body) return undefined;
+    if (
+      this.implicitLabelApplied.has(node) ||
+      this.implicitLabelApplied.has(ts.getOriginalNode(node))
+    ) {
+      return undefined;
+    }
 
     // Find the first top-level labeled statement whose label is a trigger
     // label of a registered attribute macro. Only contract-block-shaped bodies
@@ -1666,6 +1894,9 @@ class MacroTransformer {
       this.ctx.reportError(node, `Implicit @${macro.name} expansion failed: ${error}`);
       return undefined;
     }
+
+    this.implicitLabelApplied.add(node);
+    this.implicitLabelApplied.add(currentNode);
 
     let visited: ts.Node;
     try {

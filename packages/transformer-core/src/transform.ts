@@ -270,8 +270,17 @@ export function transformCode(
     result.dispose();
 
     const expansionCount = globalExpansionTracker.count;
-    const changed = expansionCount > 0;
-    const sourceMap = changed ? globalExpansionTracker.generateSourceMap(code, fileName) : null;
+    // Instance inlining, specialisation, implicit filling, operator rewrites,
+    // import cleanup and DCE never record a tracked expansion, so also compare
+    // against the unmodified file printed the same way (deep-review core #22).
+    // The source map is still built from tracked expansions only, so it is
+    // null (identity mapping) when nothing was tracked.
+    const changed =
+      expansionCount > 0 ||
+      transformedCode !==
+        ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(sourceFile);
+    const sourceMap =
+      expansionCount > 0 ? globalExpansionTracker.generateSourceMap(code, fileName) : null;
     const mapper = sourceMap
       ? createPositionMapper(sourceMap, code, transformedCode)
       : new IdentityPositionMapper();

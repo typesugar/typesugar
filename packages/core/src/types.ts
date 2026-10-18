@@ -280,9 +280,15 @@ export interface MacroDefinitionBase {
   expandAfter?: string[];
 
   /**
-   * Whether the macro's result can be cached based on input text.
-   * Set to false for macros that depend on external state (files, env, etc.).
-   * Defaults to true.
+   * Opt in to the expression-macro expansion cache (default: not cached).
+   *
+   * Set `true` only when the expansion is a pure function of the call-site
+   * TEXT: no type-checker queries, no files/env/config, no `ensureImport`,
+   * `generateUniqueName` or registry writes. The cache key is the macro name,
+   * the call text and the source file path, so anything else the expansion
+   * depends on would be served stale. As a backstop the transformer still
+   * skips storing an expansion that reported a diagnostic, queued an import,
+   * or whose arguments were rewritten by a nested expansion.
    */
   cacheable?: boolean;
 }

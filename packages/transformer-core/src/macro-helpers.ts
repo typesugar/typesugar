@@ -640,7 +640,14 @@ export function extractTypeInfo(
   let type: ts.Type;
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
-  } catch {
+  } catch (e) {
+    // Degrading to zero fields changes generated output (e.g. an Eq that
+    // compares nothing), so the user must see it (CLAUDE.md rule 3).
+    ctx.reportWarning(
+      node,
+      `could not resolve the type of '${name}' (${e instanceof Error ? e.message : String(e)}); ` +
+        `derived code will see no fields`
+    );
     return {
       name,
       fields: [],
@@ -665,7 +672,12 @@ export function extractTypeInfo(
   let properties: ts.Symbol[];
   try {
     properties = ctx.typeChecker.getPropertiesOfType(type);
-  } catch {
+  } catch (e) {
+    ctx.reportWarning(
+      node,
+      `could not list the properties of '${name}' (${e instanceof Error ? e.message : String(e)}); ` +
+        `derived code will see no fields`
+    );
     return { name, fields: [], typeParameters, type, kind: "product" };
   }
 

@@ -373,9 +373,29 @@ describe("recordMacroImport + cleanupMacroImports", () => {
     >();
     recordMacroImport(tracked, sym);
 
-    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    // Simulate the post-expansion statements: the `Foo()` call was expanded
+    // away. (A surviving `Foo` reference keeps the import -- see below.)
+    const expanded = main.statements.filter(ts.isImportDeclaration);
+    const cleaned = cleanupMacroImports(ts.factory, tracked, expanded, false);
     // The import statement should be entirely removed
     expect(cleaned.some((s) => ts.isImportDeclaration(s))).toBe(false);
+  });
+
+  it("keeps a macro specifier whose name is still referenced (deep-review core #11)", () => {
+    const { typeChecker, files } = buildProgram({
+      "/main.ts": `import { Foo } from "./mod";\nFoo();\n`,
+      "/mod.ts": `export function Foo() {}\n`,
+    });
+    const main = files.get("/main.ts")!;
+    const sym = typeChecker.getSymbolAtLocation(getIdentifier(main, "Foo"))!;
+    const tracked = new Map<
+      ts.ImportDeclaration,
+      Set<ts.ImportSpecifier | "namespace" | "default">
+    >();
+    recordMacroImport(tracked, sym);
+    // `Foo()` survived (e.g. opted out), so the import must stay.
+    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    expect(cleaned.filter(ts.isImportDeclaration)).toHaveLength(1);
   });
 
   it("trims macro specifiers but keeps non-macro ones", () => {
@@ -418,7 +438,8 @@ describe("recordMacroImport + cleanupMacroImports", () => {
       Set<ts.ImportSpecifier | "namespace" | "default">
     >();
     recordMacroImport(tracked, sym);
-    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    const expanded = main.statements.filter(ts.isImportDeclaration);
+    const cleaned = cleanupMacroImports(ts.factory, tracked, expanded, false);
     expect(cleaned.some((s) => ts.isImportDeclaration(s))).toBe(false);
   });
 
@@ -436,7 +457,8 @@ describe("recordMacroImport + cleanupMacroImports", () => {
       Set<ts.ImportSpecifier | "namespace" | "default">
     >();
     recordMacroImport(tracked, sym);
-    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    const expanded = main.statements.filter(ts.isImportDeclaration);
+    const cleaned = cleanupMacroImports(ts.factory, tracked, expanded, false);
     expect(cleaned.some((s) => ts.isImportDeclaration(s))).toBe(false);
   });
 
