@@ -31,7 +31,12 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, type MacroContext } from "@typesugar/core";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  isSyntheticNode,
+  type MacroContext,
+} from "@typesugar/core";
 
 // ============================================================================
 // Chain Parsing
@@ -332,6 +337,48 @@ function parseArms(
 // Pattern Analysis
 // ============================================================================
 
+/** `NaN` never equals itself — literal checks on it must use `Number.isNaN`. */
+function isNaNLiteral(node: ts.Expression): boolean {
+  return ts.isIdentifier(node) && node.text === "NaN";
+}
+
+/**
+ * The runtime test for a literal pattern: `accessor === lit`, or
+ * `Number.isNaN(accessor)` for `NaN`.
+ */
+function literalCheck(
+  f: ts.NodeFactory,
+  accessor: ts.Expression,
+  lit: ts.Expression
+): ts.Expression {
+  if (isNaNLiteral(lit)) {
+    return f.createCallExpression(
+      f.createPropertyAccessExpression(f.createIdentifier("Number"), "isNaN"),
+      undefined,
+      [accessor]
+    );
+  }
+  return f.createBinaryExpression(accessor, ts.SyntaxKind.EqualsEqualsEqualsToken, lit);
+}
+
+/** Does a pattern bind any names (so it can't appear inside an `.or()`)? */
+function patternHasBindings(p: PatternInfo): boolean {
+  switch (p.kind) {
+    case "variable":
+      return true;
+    case "array":
+      return p.elements.some((e) => patternHasBindings(e.pattern));
+    case "object":
+      return p.properties.some((pr) => patternHasBindings(pr.pattern));
+    case "type-constructor":
+      return patternHasBindings(p.binding);
+    case "extractor":
+      return p.bindings.some(patternHasBindings);
+    default:
+      return false;
+  }
+}
+
 function analyzePattern(pattern: ts.Expression): PatternInfo {
   // Literals
   if (ts.isNumericLiteral(pattern)) {
@@ -346,16 +393,22 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
   if (pattern.kind === ts.SyntaxKind.NullKeyword) {
     return { kind: "literal", node: pattern };
   }
-  if (ts.isPrefixUnaryExpression(pattern) && ts.isNumericLiteral(pattern.operand)) {
+  if (
+    ts.isPrefixUnaryExpression(pattern) &&
+    (ts.isNumericLiteral(pattern.operand) ||
+      (ts.isIdentifier(pattern.operand) && pattern.operand.text === "Infinity"))
+  ) {
     return { kind: "literal", node: pattern };
   }
 
-  // Identifiers: wildcard, undefined literal, zero-arg extractors, variable binding
+  // Identifiers: wildcard, undefined/NaN/Infinity literals, zero-arg extractors, variable binding
   if (ts.isIdentifier(pattern)) {
     if (pattern.text === "_") {
       return { kind: "wildcard" };
     }
-    if (pattern.text === "undefined") {
+    // Global value identifiers are literals, never bindings — `.case(NaN)`
+    // must not become `const NaN = _v` (deep review #16).
+    if (pattern.text === "undefined" || pattern.text === "NaN" || pattern.text === "Infinity") {
       return { kind: "literal", node: pattern };
     }
     const zeroArgDef = KNOWN_EXTRACTORS[pattern.text];
@@ -502,6 +555,11 @@ export interface ScrutineeAnalysis {
   literalMembers?: Set<string>;
   discriminantField?: string;
   variantValues?: Set<string>;
+  /**
+   * `"null"` / `"undefined"` keys for nullish members of a discriminated union
+   * (`Shape | null`). For literal unions they are folded into `literalMembers`.
+   */
+  nullishMembers?: Set<string>;
 }
 
 function getLiteralValueFromType(type: ts.Type): string | undefined {
@@ -513,17 +571,32 @@ function getLiteralValueFromType(type: ts.Type): string | undefined {
   return undefined;
 }
 
+function nullishKeyOfType(type: ts.Type): string | undefined {
+  if (type.flags & ts.TypeFlags.Null) return "null";
+  if (type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return "undefined";
+  return undefined;
+}
+
 export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): ScrutineeAnalysis {
   if (type.flags & ts.TypeFlags.Boolean) {
     return { kind: "boolean", literalMembers: new Set(["true", "false"]) };
   }
 
   if (type.isUnion()) {
-    const members = type.types;
+    // Nullish members (`| null`, `| undefined`) are enumerable values too —
+    // split them off so `"a" | "b" | undefined` stays a literal union and
+    // `Shape | null` stays a discriminated union (deep review #13).
+    const nullish = new Set<string>();
+    const members: ts.Type[] = [];
+    for (const t of type.types) {
+      const nk = nullishKeyOfType(t);
+      if (nk) nullish.add(nk);
+      else members.push(t);
+    }
 
     const allBoolLiterals =
       members.every((t) => t.flags & ts.TypeFlags.BooleanLiteral) && members.length === 2;
-    if (allBoolLiterals) {
+    if (allBoolLiterals && nullish.size === 0) {
       return { kind: "boolean", literalMembers: new Set(["true", "false"]) };
     }
 
@@ -534,15 +607,17 @@ export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): Sc
         const v = getLiteralValueFromType(t);
         if (v !== undefined) litMembers.add(v);
       }
+      for (const nk of nullish) litMembers.add(nk);
       return { kind: "literal-union", literalMembers: litMembers };
     }
 
-    const disc = findDiscriminant(checker, members);
+    const disc = members.length >= 2 ? findDiscriminant(checker, members) : undefined;
     if (disc) {
       return {
         kind: "discriminated-union",
         discriminantField: disc.field,
         variantValues: disc.values,
+        nullishMembers: nullish.size > 0 ? nullish : undefined,
       };
     }
 
@@ -604,6 +679,54 @@ function findDiscriminant(
   return undefined;
 }
 
+/**
+ * Type of the scrutinee, or undefined when the checker can't (or mustn't) be
+ * asked. A macro-generated scrutinee is skipped before calling the checker
+ * (CLAUDE.md: synthetic nodes are outside the checker's contract); a checker
+ * that throws on real source is reported ONCE per scrutinee as a warning, so
+ * the user sees that exhaustiveness/optimizations were skipped (deep review
+ * #32) instead of the analysis silently disappearing.
+ */
+const scrutineeTypeCache = new WeakMap<ts.Node, { type?: ts.Type }>();
+
+function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): ts.Type | undefined {
+  const cached = scrutineeTypeCache.get(scrutinee);
+  if (cached) return cached.type;
+  let type: ts.Type | undefined;
+  if (!isSyntheticNode(scrutinee)) {
+    try {
+      type = ctx.getTypeOf(scrutinee);
+    } catch (e) {
+      ctx.reportWarning(
+        scrutinee,
+        `match: could not determine the scrutinee's type (${e instanceof Error ? e.message : String(e)}); ` +
+          `exhaustiveness checking and type-driven optimizations were skipped for this match.`
+      );
+    }
+  }
+  scrutineeTypeCache.set(scrutinee, { type });
+  return type;
+}
+
+/** Scrutinee analysis, or undefined for any/unknown/unavailable types. */
+function getScrutineeAnalysis(
+  ctx: MacroContext,
+  scrutinee: ts.Expression
+): ScrutineeAnalysis | undefined {
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+  try {
+    return analyzeScrutineeType(ctx.typeChecker, type);
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: type analysis of the scrutinee failed (${e instanceof Error ? e.message : String(e)}); ` +
+        `exhaustiveness checking and type-driven optimizations were skipped for this match.`
+    );
+    return undefined;
+  }
+}
+
 // ============================================================================
 // Wave 5: Exhaustiveness Checking
 // ============================================================================
@@ -612,18 +735,78 @@ function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
   if (pattern.kind !== "literal") return undefined;
   const node = pattern.node;
   if (ts.isStringLiteral(node)) return JSON.stringify(node.text);
-  if (ts.isNumericLiteral(node)) return node.text;
+  if (ts.isNumericLiteral(node)) return String(Number(node.text));
   if (node.kind === ts.SyntaxKind.TrueKeyword) return "true";
   if (node.kind === ts.SyntaxKind.FalseKeyword) return "false";
   if (node.kind === ts.SyntaxKind.NullKeyword) return "null";
-  if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) {
-    return "-" + node.operand.text;
+  if (ts.isIdentifier(node)) return node.text; // undefined | NaN | Infinity
+  if (ts.isPrefixUnaryExpression(node)) {
+    if (ts.isNumericLiteral(node.operand)) return String(-Number(node.operand.text));
+    if (ts.isIdentifier(node.operand)) return "-" + node.operand.text;
   }
   return undefined;
 }
 
 function patternCoversAll(pattern: PatternInfo): boolean {
   return pattern.kind === "wildcard" || pattern.kind === "variable";
+}
+
+/**
+ * Literal keys (in `getLiteralValueFromType` form) a pattern covers
+ * COMPLETELY, given the scrutinee's enumerable members. Literals cover
+ * themselves; an unconstrained `String(s)` / `Number(n)` / `Boolean(b)`
+ * covers every member of that primitive kind (deep review #13).
+ */
+function coveredLiteralKeys(pattern: PatternInfo, members: Set<string>): string[] {
+  const key = getPatternLiteralKey(pattern);
+  if (key !== undefined) return [key];
+  if (pattern.kind === "type-constructor" && patternCoversAll(pattern.binding)) {
+    const all = [...members];
+    switch (pattern.constructorName) {
+      case "String":
+        return all.filter((m) => m.startsWith('"'));
+      case "Boolean":
+        return all.filter((m) => m === "true" || m === "false");
+      case "Number":
+        return all.filter(
+          (m) =>
+            !m.startsWith('"') && m !== "true" && m !== "false" && m !== "null" && m !== "undefined"
+        );
+    }
+  }
+  return [];
+}
+
+/**
+ * Discriminant value a pattern covers COMPLETELY for a discriminated union:
+ * `{ kind: "a" }` (other props only bind), `Some(x)`, or a nullish literal.
+ * `{ kind: "a", extra: 1 }` covers nothing — it only matches part of "a".
+ */
+function coveredVariantKey(pattern: PatternInfo, discriminantField: string): string | undefined {
+  if (pattern.kind === "object") {
+    let key: string | undefined;
+    for (const prop of pattern.properties) {
+      if (prop.isRest) continue;
+      if (prop.key === discriminantField && prop.pattern.kind === "literal") {
+        key = getPatternLiteralKey(prop.pattern);
+      } else if (!patternCoversAll(prop.pattern)) {
+        return undefined;
+      }
+    }
+    return key;
+  }
+  if (pattern.kind === "extractor" && pattern.def.kind === "sum-variant") {
+    if (pattern.def.discriminantField !== discriminantField) return undefined;
+    if (!pattern.bindings.every(patternCoversAll)) return undefined;
+    const discValue = pattern.def.discriminantValue;
+    if (discValue === undefined) return undefined;
+    return typeof discValue === "boolean" ? String(discValue) : JSON.stringify(discValue);
+  }
+  if (pattern.kind === "literal") {
+    const key = getPatternLiteralKey(pattern);
+    if (key === "null" || key === "undefined") return key;
+  }
+  return undefined;
 }
 
 function checkExhaustiveness(
@@ -644,15 +827,7 @@ function checkExhaustiveness(
     }
   }
 
-  let analysis: ScrutineeAnalysis | undefined;
-  try {
-    const type = ctx.getTypeOf(scrutinee);
-    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return;
-    analysis = analyzeScrutineeType(ctx.typeChecker, type);
-  } catch {
-    return;
-  }
-
+  const analysis = getScrutineeAnalysis(ctx, scrutinee);
   if (!analysis) return;
 
   switch (analysis.kind) {
@@ -662,12 +837,10 @@ function checkExhaustiveness(
       const covered = new Set<string>();
       for (const arm of arms) {
         if (arm.guard) continue;
-        const pattern = analyzePattern(arm.pattern);
-        const key = getPatternLiteralKey(pattern);
-        if (key !== undefined) covered.add(key);
-        for (const alt of arm.alternatives) {
-          const altKey = getPatternLiteralKey(analyzePattern(alt));
-          if (altKey !== undefined) covered.add(altKey);
+        for (const pat of [arm.pattern, ...arm.alternatives]) {
+          for (const k of coveredLiteralKeys(analyzePattern(pat), analysis.literalMembers)) {
+            covered.add(k);
+          }
         }
       }
 
@@ -687,28 +860,14 @@ function checkExhaustiveness(
 
       for (const arm of arms) {
         if (arm.guard) continue;
-        const pattern = analyzePattern(arm.pattern);
-
-        if (pattern.kind === "object") {
-          for (const prop of pattern.properties) {
-            if (prop.key === analysis.discriminantField && prop.pattern.kind === "literal") {
-              const key = getPatternLiteralKey(prop.pattern);
-              if (key !== undefined) covered.add(key);
-            }
-          }
-        }
-
-        if (pattern.kind === "extractor" && pattern.def.kind === "sum-variant") {
-          const discValue = pattern.def.discriminantValue;
-          if (discValue !== undefined) {
-            covered.add(
-              typeof discValue === "boolean" ? String(discValue) : JSON.stringify(discValue)
-            );
-          }
+        for (const pat of [arm.pattern, ...arm.alternatives]) {
+          const key = coveredVariantKey(analyzePattern(pat), analysis.discriminantField);
+          if (key !== undefined) covered.add(key);
         }
       }
 
-      const missing = [...analysis.variantValues].filter((m) => !covered.has(m));
+      const expected = [...analysis.variantValues, ...(analysis.nullishMembers ?? [])];
+      const missing = expected.filter((m) => !covered.has(m));
       if (missing.length > 0) {
         ctx.reportError(
           chainExpr,
@@ -792,15 +951,7 @@ function checkDeadArms(
   scrutinee: ts.Expression,
   arms: CaseArm[]
 ): void {
-  let analysis: ScrutineeAnalysis | undefined;
-  try {
-    const type = ctx.getTypeOf(scrutinee);
-    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return;
-    analysis = analyzeScrutineeType(ctx.typeChecker, type);
-  } catch {
-    return;
-  }
-
+  const analysis = getScrutineeAnalysis(ctx, scrutinee);
   if (!analysis || analysis.kind === "unknown" || analysis.kind === "non-enumerable") return;
 
   if (
@@ -829,13 +980,12 @@ function checkDeadArms(
 const SWITCH_THRESHOLD = 7;
 
 export function isAllPureLiteralArms(arms: CaseArm[]): boolean {
-  return arms.every(
-    (arm) =>
-      arm.alternatives.length === 0 &&
-      !arm.guard &&
-      !arm.asPattern &&
-      analyzePattern(arm.pattern).kind === "literal"
-  );
+  return arms.every((arm) => {
+    if (arm.alternatives.length > 0 || arm.guard || arm.asPattern) return false;
+    const pattern = analyzePattern(arm.pattern);
+    // `case NaN:` never matches (switch uses ===) — keep NaN on the if-chain path.
+    return pattern.kind === "literal" && !isNaNLiteral(pattern.node);
+  });
 }
 
 function scrutineeShortName(ctx: MacroContext, scrutinee: ts.Expression): ts.Identifier {
@@ -843,8 +993,90 @@ function scrutineeShortName(ctx: MacroContext, scrutinee: ts.Expression): ts.Ide
   return ctx.tryShortName(preferred);
 }
 
+// ============================================================================
+// IIFE wrapper (await / yield aware)
+// ============================================================================
+
+/**
+ * Does `node` contain an `await`/`yield` that belongs to the ENCLOSING
+ * function (i.e. not inside a nested function/class body)? Such expressions
+ * change meaning — or become a SyntaxError — when moved into an arrow IIFE.
+ */
+function containsOwnKeyword(node: ts.Node, kind: "await" | "yield"): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (
+      kind === "await" &&
+      (ts.isAwaitExpression(n) || (ts.isForOfStatement(n) && n.awaitModifier))
+    ) {
+      found = true;
+      return;
+    }
+    if (kind === "yield" && ts.isYieldExpression(n)) {
+      found = true;
+      return;
+    }
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return;
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/**
+ * Wrap match statements in an IIFE: `(() => { ... })()`, or
+ * `await (async () => { ... })()` when any moved expression (scrutinee,
+ * guards, results, else) awaits (deep review #4). A `yield` cannot be moved
+ * into an arrow at all, so it is reported as an error.
+ */
+function wrapInIIFE(
+  ctx: MacroContext,
+  chainExpr: ts.Expression,
+  statements: ts.Statement[],
+  moved: readonly (ts.Node | undefined)[]
+): ts.Expression {
+  const f = ctx.factory;
+  const present = moved.filter((n): n is ts.Node => n !== undefined);
+  if (present.some((n) => containsOwnKeyword(n, "yield"))) {
+    ctx.reportError(
+      chainExpr,
+      "match: `yield` inside a match arm, guard, else or scrutinee is not supported — the match " +
+        "compiles to an arrow IIFE, which cannot yield. Compute the value with `yield` before the match."
+    );
+  }
+  const isAsync = present.some((n) => containsOwnKeyword(n, "await"));
+  const arrow = f.createArrowFunction(
+    isAsync ? [f.createToken(ts.SyntaxKind.AsyncKeyword)] : undefined,
+    undefined,
+    [],
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    f.createBlock(statements, true)
+  );
+  const call = f.createCallExpression(f.createParenthesizedExpression(arrow), undefined, []);
+  return isAsync ? f.createAwaitExpression(call) : call;
+}
+
+/** Every expression a match moves into its generated function body. */
+function movedExpressions(
+  scrutinee: ts.Expression,
+  arms: CaseArm[],
+  elseResult: ts.Expression | undefined
+): (ts.Node | undefined)[] {
+  return [scrutinee, elseResult, ...arms.flatMap((a) => [a.guard, a.result])];
+}
+
+function createMatchErrorThrow(ctx: MacroContext, value: ts.Expression): ts.Statement {
+  const f = ctx.factory;
+  return f.createThrowStatement(
+    f.createNewExpression(ctx.ensureImport("MatchError", "@typesugar/std"), undefined, [value])
+  );
+}
+
 function generateSwitchIIFE(
   ctx: MacroContext,
+  chainExpr: ts.Expression,
   scrutinee: ts.Expression,
   arms: CaseArm[],
   elseResult: ts.Expression | undefined
@@ -864,13 +1096,7 @@ function generateSwitchIIFE(
     clauses.push(f.createDefaultClause([f.createReturnStatement(elseResult)]));
   } else {
     clauses.push(
-      f.createDefaultClause([
-        f.createThrowStatement(
-          f.createNewExpression(ctx.ensureImport("MatchError", "@typesugar/std"), undefined, [
-            f.createIdentifier(scrutineeName.text),
-          ])
-        ),
-      ])
+      f.createDefaultClause([createMatchErrorThrow(ctx, f.createIdentifier(scrutineeName.text))])
     );
   }
 
@@ -890,17 +1116,7 @@ function generateSwitchIIFE(
     switchStmt,
   ];
 
-  const arrowBody = f.createBlock(stmts, true);
-  const arrow = f.createArrowFunction(
-    undefined,
-    undefined,
-    [],
-    undefined,
-    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    arrowBody
-  );
-  const paren = f.createParenthesizedExpression(arrow);
-  return f.createCallExpression(paren, undefined, []);
+  return wrapInIIFE(ctx, chainExpr, stmts, movedExpressions(scrutinee, arms, elseResult));
 }
 
 // ============================================================================
@@ -908,17 +1124,18 @@ function generateSwitchIIFE(
 // ============================================================================
 
 interface DiscriminantArmInfo {
+  /** Key (getPatternLiteralKey form) of the discriminant value, for grouping. */
+  discriminantKey: string;
   discriminantValue: ts.Expression;
-  additionalProps: ObjectPropertyPattern[];
   arm: CaseArm;
-  objectPattern: PatternInfo & { kind: "object" };
+  /** The arm's object pattern with the discriminant property removed / neutralised. */
+  residualPattern: PatternInfo & { kind: "object" };
 }
 
 interface DiscriminantMatch {
   discriminantKey: string;
   arms: DiscriminantArmInfo[];
   catchAllArm?: CaseArm;
-  hasMixedProps: boolean;
 }
 
 /**
@@ -926,10 +1143,15 @@ interface DiscriminantMatch {
  *
  * Returns the analysis if:
  * - All non-catch-all arms are object patterns
- * - Each has exactly one literal property (the discriminant)
+ * - Each has exactly one top-level literal property (the discriminant)
  * - The literal property key is the same across all arms
- * - No arm uses OR alternatives
+ * - No arm uses OR alternatives, and no discriminant is `NaN`
  * - A trailing wildcard/variable arm is allowed as catch-all
+ *
+ * Extra properties may be any pattern (nested literals, arrays, extractors,
+ * guards): each arm is still tested in full inside its case clause, and a
+ * non-matching arm FALLS THROUGH to the next arm with the same discriminant
+ * and then to the catch-all/else after the switch (deep review #1-#3).
  */
 function analyzeDiscriminantPattern(arms: CaseArm[]): DiscriminantMatch | undefined {
   if (arms.length < 2) return undefined;
@@ -956,22 +1178,18 @@ function analyzeDiscriminantPattern(arms: CaseArm[]): DiscriminantMatch | undefi
     if (pattern.kind !== "object") return undefined;
 
     let discProp: ObjectPropertyPattern | undefined;
-    const additionalProps: ObjectPropertyPattern[] = [];
-
     for (const p of pattern.properties) {
-      if (p.isRest) {
-        additionalProps.push(p);
-        continue;
-      }
-      if (p.pattern.kind === "literal") {
+      if (!p.isRest && p.pattern.kind === "literal") {
         if (discProp) return undefined;
         discProp = p;
-      } else {
-        additionalProps.push(p);
       }
     }
 
     if (!discProp) return undefined;
+    const lit = (discProp.pattern as PatternInfo & { kind: "literal" }).node;
+    if (isNaNLiteral(lit)) return undefined;
+    const litKey = getPatternLiteralKey(discProp.pattern);
+    if (litKey === undefined) return undefined;
 
     if (discriminantKey === undefined) {
       discriminantKey = discProp.key;
@@ -979,159 +1197,103 @@ function analyzeDiscriminantPattern(arms: CaseArm[]): DiscriminantMatch | undefi
       return undefined;
     }
 
+    // The case label already tests the discriminant. Drop it from the
+    // residual pattern — unless a rest binding needs it in its exclude list,
+    // in which case keep it as a wildcard (binds nothing, tests only `in`).
+    const hasRest = pattern.properties.some((p) => p.isRest);
+    const residualProps = hasRest
+      ? pattern.properties.map((p) =>
+          p === discProp ? { ...p, pattern: { kind: "wildcard" } as PatternInfo } : p
+        )
+      : pattern.properties.filter((p) => p !== discProp);
+
     discArms.push({
-      discriminantValue: (discProp.pattern as PatternInfo & { kind: "literal" }).node,
-      additionalProps,
+      discriminantKey: litKey,
+      discriminantValue: lit,
       arm,
-      objectPattern: pattern as PatternInfo & { kind: "object" },
+      residualPattern: { kind: "object", properties: residualProps, hasRest: pattern.hasRest },
     });
   }
 
   if (!discriminantKey || discArms.length < 2) return undefined;
 
-  return {
-    discriminantKey,
-    arms: discArms,
-    catchAllArm,
-    hasMixedProps: discArms.some((a) => a.additionalProps.length > 0),
-  };
+  return { discriminantKey, arms: discArms, catchAllArm };
 }
 
 /**
- * Build the body statements for a single case clause in a discriminant switch.
- * Handles additional property bindings, AS patterns, and guards.
- */
-function buildDiscriminantCaseBody(
-  ctx: MacroContext,
-  f: ts.NodeFactory,
-  discArm: DiscriminantArmInfo,
-  scrutineeRef: () => ts.Identifier
-): ts.Statement[] {
-  const stmts: ts.Statement[] = [];
-
-  for (const prop of discArm.additionalProps) {
-    if (prop.isRest) continue;
-    const propAccess = f.createPropertyAccessExpression(scrutineeRef(), prop.key);
-    if (prop.pattern.kind === "variable") {
-      stmts.push(
-        f.createVariableStatement(
-          undefined,
-          f.createVariableDeclarationList(
-            [
-              f.createVariableDeclaration(
-                f.createIdentifier(prop.pattern.name),
-                undefined,
-                undefined,
-                propAccess
-              ),
-            ],
-            ts.NodeFlags.Const
-          )
-        )
-      );
-    } else if (prop.pattern.kind !== "literal" && prop.pattern.kind !== "wildcard") {
-      stmts.push(...collectBindings(f, prop.pattern, propAccess));
-    }
-  }
-
-  if (discArm.arm.asPattern) {
-    stmts.push(...generateAsBindings(f, discArm.arm.asPattern, scrutineeRef()));
-  }
-
-  if (discArm.arm.guard) {
-    stmts.push(f.createIfStatement(discArm.arm.guard, f.createReturnStatement(discArm.arm.result)));
-    stmts.push(f.createBreakStatement());
-  } else {
-    stmts.push(f.createReturnStatement(discArm.arm.result));
-  }
-
-  return stmts;
-}
-
-/**
- * Generate a switch-based IIFE for discriminant pattern matching.
+ * Generate a switch-based IIFE for discriminant pattern matching:
  *
- * When the scrutinee type might be null/undefined, wraps the switch in
- * a `typeof === "object" && != null` guard. When the type is known to be
- * a discriminated union (all members are objects), emits a bare switch
- * with the fallback as the default clause.
+ * ```
+ * const _s = scrutinee;
+ * if (typeof _s === "object" && _s !== null) {   // only when _s may be non-object
+ *   switch (_s.kind) {
+ *     case "circle": {
+ *       { if (<residual test>) { <bindings>; if (guard) return r1; } }   // arm 1
+ *       { <bindings>; return r2; }                                       // arm 2, same tag
+ *       break;
+ *     }
+ *     ...
+ *   }
+ * }
+ * <catch-all arm> ; return else / throw MatchError
+ * ```
+ *
+ * Every arm body is its own block (no `const` collisions between arms, #1);
+ * an arm whose guard or residual test fails falls through to the next arm
+ * with the same tag and then to the code after the switch (#2, #3).
  */
 function generateDiscriminantSwitchIIFE(
   ctx: MacroContext,
+  chainExpr: ts.Expression,
   scrutinee: ts.Expression,
   dm: DiscriminantMatch,
+  arms: CaseArm[],
   elseResult: ts.Expression | undefined
 ): ts.Expression {
   const f = ctx.factory;
   const scrutineeName = scrutineeShortName(ctx, scrutinee);
   const scrutineeRef = () => f.createIdentifier(scrutineeName.text);
 
-  let needsNullGuard = true;
-  try {
-    const type = ctx.getTypeOf(scrutinee);
-    if (!(type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))) {
-      const analysis = analyzeScrutineeType(ctx.typeChecker, type);
-      if (analysis.kind === "discriminated-union") {
-        needsNullGuard = false;
-      }
-    }
-  } catch {
-    // keep guard for safety
+  const analysis = getScrutineeAnalysis(ctx, scrutinee);
+  const needsNullGuard = !(
+    analysis?.kind === "discriminated-union" && analysis.nullishMembers === undefined
+  );
+
+  // Group arms by discriminant value, preserving source order. Arms with
+  // different tags are mutually exclusive, so grouping keeps first-match.
+  const groups = new Map<string, DiscriminantArmInfo[]>();
+  for (const discArm of dm.arms) {
+    const g = groups.get(discArm.discriminantKey);
+    if (g) g.push(discArm);
+    else groups.set(discArm.discriminantKey, [discArm]);
   }
 
   const caseClauses: ts.CaseOrDefaultClause[] = [];
-  for (const discArm of dm.arms) {
-    caseClauses.push(
-      f.createCaseClause(
-        discArm.discriminantValue,
-        buildDiscriminantCaseBody(ctx, f, discArm, scrutineeRef)
-      )
-    );
+  for (const group of groups.values()) {
+    const body: ts.Statement[] = [];
+    for (const discArm of group) {
+      const armStmts = generateArmStatements(
+        ctx,
+        f,
+        discArm.residualPattern,
+        scrutineeRef(),
+        discArm.arm.guard,
+        discArm.arm.result,
+        discArm.arm.asPattern,
+        true
+      );
+      // Each arm in its own block so same-named bindings can't collide (#1).
+      if (armStmts.length === 1 && ts.isBlock(armStmts[0])) body.push(armStmts[0]);
+      else body.push(f.createBlock(armStmts, true));
+    }
+    body.push(f.createBreakStatement());
+    caseClauses.push(f.createCaseClause(group[0].discriminantValue, [f.createBlock(body, true)]));
   }
 
-  const fallbackStmts: ts.Statement[] = [];
-  if (dm.catchAllArm) {
-    const pat = analyzePattern(dm.catchAllArm.pattern);
-    if (pat.kind === "variable") {
-      fallbackStmts.push(
-        f.createVariableStatement(
-          undefined,
-          f.createVariableDeclarationList(
-            [
-              f.createVariableDeclaration(
-                f.createIdentifier(pat.name),
-                undefined,
-                undefined,
-                scrutineeRef()
-              ),
-            ],
-            ts.NodeFlags.Const
-          )
-        )
-      );
-    }
-    if (dm.catchAllArm.asPattern) {
-      fallbackStmts.push(...generateAsBindings(f, dm.catchAllArm.asPattern, scrutineeRef()));
-    }
-    if (dm.catchAllArm.guard) {
-      fallbackStmts.push(
-        f.createIfStatement(dm.catchAllArm.guard, f.createReturnStatement(dm.catchAllArm.result))
-      );
-      fallbackStmts.push(f.createBreakStatement());
-    } else {
-      fallbackStmts.push(f.createReturnStatement(dm.catchAllArm.result));
-    }
-  } else if (elseResult !== undefined) {
-    fallbackStmts.push(f.createReturnStatement(elseResult));
-  } else {
-    fallbackStmts.push(
-      f.createThrowStatement(
-        f.createNewExpression(ctx.ensureImport("MatchError", "@typesugar/std"), undefined, [
-          scrutineeRef(),
-        ])
-      )
-    );
-  }
+  const switchStmt = f.createSwitchStatement(
+    f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
+    f.createCaseBlock(caseClauses)
+  );
 
   const stmts: ts.Statement[] = [
     f.createVariableStatement(
@@ -1144,59 +1306,50 @@ function generateDiscriminantSwitchIIFE(
   ];
 
   if (needsNullGuard) {
-    // Use early-return guard instead of wrapping the switch in an if block.
-    // Wrapping in if { switch } breaks TypeScript's discriminated union narrowing
-    // because TS can't narrow through the typeof guard into the switch cases.
-    const notObjectGuard = f.createBinaryExpression(
+    const isObject = f.createBinaryExpression(
       f.createBinaryExpression(
         f.createTypeOfExpression(scrutineeRef()),
-        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+        ts.SyntaxKind.EqualsEqualsEqualsToken,
         f.createStringLiteral("object")
       ),
-      ts.SyntaxKind.BarBarToken,
-      f.createBinaryExpression(scrutineeRef(), ts.SyntaxKind.EqualsEqualsToken, f.createNull())
+      ts.SyntaxKind.AmpersandAmpersandToken,
+      f.createBinaryExpression(
+        scrutineeRef(),
+        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+        f.createNull()
+      )
     );
-    // Early return: if not an object or null, go to fallback
-    const fallbackExpr =
-      elseResult ??
-      f.createCallExpression(
-        f.createPropertyAccessExpression(
-          f.createNewExpression(ctx.ensureImport("MatchError", "@typesugar/std"), undefined, [
-            scrutineeRef(),
-          ]),
-          "throw"
-        ),
-        undefined,
-        []
-      );
-    stmts.push(f.createIfStatement(notObjectGuard, f.createBlock(fallbackStmts, true)));
-    // Now the switch is at top level — TS can narrow discriminated unions
-    caseClauses.push(f.createDefaultClause(fallbackStmts));
-    const switchStmt = f.createSwitchStatement(
-      f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
-      f.createCaseBlock(caseClauses)
-    );
-    stmts.push(switchStmt);
+    stmts.push(f.createIfStatement(isObject, f.createBlock([switchStmt], true)));
   } else {
-    caseClauses.push(f.createDefaultClause(fallbackStmts));
-    const switchStmt = f.createSwitchStatement(
-      f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
-      f.createCaseBlock(caseClauses)
-    );
     stmts.push(switchStmt);
   }
 
-  const arrowBody = f.createBlock(stmts, true);
-  const arrow = f.createArrowFunction(
-    undefined,
-    undefined,
-    [],
-    undefined,
-    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    arrowBody
-  );
-  const paren = f.createParenthesizedExpression(arrow);
-  return f.createCallExpression(paren, undefined, []);
+  // Fallback (reached by unmatched tags, failed guards/residual tests, and
+  // non-objects): catch-all arm, then else / MatchError.
+  if (dm.catchAllArm) {
+    const pat = analyzePattern(dm.catchAllArm.pattern);
+    stmts.push(
+      ...generateArmStatements(
+        ctx,
+        f,
+        pat,
+        scrutineeRef(),
+        dm.catchAllArm.guard,
+        dm.catchAllArm.result,
+        dm.catchAllArm.asPattern
+      )
+    );
+  }
+  const catchAllAlwaysReturns = dm.catchAllArm !== undefined && !dm.catchAllArm.guard;
+  if (!catchAllAlwaysReturns) {
+    stmts.push(
+      elseResult !== undefined
+        ? f.createReturnStatement(elseResult)
+        : createMatchErrorThrow(ctx, scrutineeRef())
+    );
+  }
+
+  return wrapInIIFE(ctx, chainExpr, stmts, movedExpressions(scrutinee, arms, elseResult));
 }
 
 // ============================================================================
@@ -1204,8 +1357,41 @@ function generateDiscriminantSwitchIIFE(
 // ============================================================================
 
 /**
+ * A scrutinee expression that can be dropped without losing side effects:
+ * identifiers, `this`, literals and plain property-access chains of those.
+ */
+function isSideEffectFree(expr: ts.Expression): boolean {
+  if (ts.isParenthesizedExpression(expr)) return isSideEffectFree(expr.expression);
+  if (ts.isIdentifier(expr)) return true;
+  if (expr.kind === ts.SyntaxKind.ThisKeyword) return true;
+  if (
+    ts.isStringLiteral(expr) ||
+    ts.isNumericLiteral(expr) ||
+    ts.isNoSubstitutionTemplateLiteral(expr) ||
+    expr.kind === ts.SyntaxKind.TrueKeyword ||
+    expr.kind === ts.SyntaxKind.FalseKeyword ||
+    expr.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return true;
+  }
+  if (ts.isPropertyAccessExpression(expr) && !expr.questionDotToken) {
+    return isSideEffectFree(expr.expression);
+  }
+  if (ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr) || ts.isNonNullExpression(expr)) {
+    return isSideEffectFree(expr.expression);
+  }
+  return false;
+}
+
+/**
  * If the scrutinee is a single literal type, we can emit only the matching
  * arm's result directly — no IIFE, no branching, no checks.
+ *
+ * Only when that is provably equivalent (deep review #5): the scrutinee has
+ * no side effects (it is dropped), every arm up to and including the chosen
+ * one is a plain literal or `_` (no bindings, no `.as()`, no `.or()`, no
+ * guard, no type-constructor/extractor tests), and the chosen arm is the
+ * literal equal to the scrutinee's single value or a `_`.
  */
 function tryDirectEmit(
   ctx: MacroContext,
@@ -1213,25 +1399,20 @@ function tryDirectEmit(
   arms: CaseArm[],
   elseResult: ts.Expression | undefined
 ): ts.Expression | undefined {
-  let analysis: ScrutineeAnalysis | undefined;
-  try {
-    const type = ctx.getTypeOf(scrutinee);
-    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
-    analysis = analyzeScrutineeType(ctx.typeChecker, type);
-  } catch {
-    return undefined;
-  }
-
+  if (!isSideEffectFree(scrutinee)) return undefined;
+  const analysis = getScrutineeAnalysis(ctx, scrutinee);
   if (!analysis) return undefined;
 
   if (analysis.kind === "literal-union" && analysis.literalMembers?.size === 1) {
     const singleValue = [...analysis.literalMembers][0];
     for (const arm of arms) {
-      if (arm.guard) return undefined; // guarded arms need runtime evaluation
+      if (arm.guard || arm.asPattern || arm.alternatives.length > 0) return undefined;
       const pattern = analyzePattern(arm.pattern);
+      if (pattern.kind === "wildcard") return arm.result;
+      if (pattern.kind !== "literal") return undefined;
       const key = getPatternLiteralKey(pattern);
+      if (key === undefined || key === "NaN") return undefined;
       if (key === singleValue) return arm.result;
-      if (patternCoversAll(pattern)) return arm.result;
     }
     if (elseResult !== undefined) return elseResult;
   }
@@ -1250,15 +1431,7 @@ function findFullyCoveredArmIndex(
   scrutinee: ts.Expression,
   arms: CaseArm[]
 ): number {
-  let analysis: ScrutineeAnalysis | undefined;
-  try {
-    const type = ctx.getTypeOf(scrutinee);
-    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return -1;
-    analysis = analyzeScrutineeType(ctx.typeChecker, type);
-  } catch {
-    return -1;
-  }
-
+  const analysis = getScrutineeAnalysis(ctx, scrutinee);
   if (!analysis) return -1;
 
   if (
@@ -1327,6 +1500,23 @@ export function expandFluentMatch(
     return chainExpr;
   }
 
+  // `.or()` alternatives can't bind names: only one alternative matches, so
+  // the others' bindings would be undefined (deep review #15). Bind the whole
+  // value with `.as()` instead.
+  for (const arm of arms) {
+    if (arm.alternatives.length === 0) continue;
+    for (const pat of [arm.pattern, ...arm.alternatives]) {
+      if (patternHasBindings(analyzePattern(pat))) {
+        ctx.reportError(
+          pat,
+          "match: variable bindings are not supported inside .or() alternatives — use " +
+            "literals/_ in each alternative and bind the matched value with .as(name)"
+        );
+        return chainExpr;
+      }
+    }
+  }
+
   // Wave 5: Exhaustiveness check (type-driven, gracefully degrades)
   checkExhaustiveness(ctx, chainExpr, scrutinee, arms, elseResult !== undefined);
 
@@ -1353,16 +1543,16 @@ export function expandFluentMatch(
 
   // Wave 5: Switch optimization for 7+ pure literal arms
   if (arms.length >= SWITCH_THRESHOLD && isAllPureLiteralArms(arms)) {
-    return generateSwitchIIFE(ctx, scrutinee, arms, elseResult);
+    return generateSwitchIIFE(ctx, chainExpr, scrutinee, arms, elseResult);
   }
 
   // PEP-019 Wave 3: Discriminant switch for object patterns sharing a discriminant key
   const discMatch = analyzeDiscriminantPattern(arms);
   if (discMatch) {
-    return generateDiscriminantSwitchIIFE(ctx, scrutinee, discMatch, elseResult);
+    return generateDiscriminantSwitchIIFE(ctx, chainExpr, scrutinee, discMatch, arms, elseResult);
   }
 
-  return generateIIFE(ctx, scrutinee, arms, elseResult);
+  return generateIIFE(ctx, chainExpr, scrutinee, arms, elseResult);
 }
 
 function generateTernary(
@@ -1373,11 +1563,7 @@ function generateTernary(
   elseResult: ts.Expression
 ): ts.Expression {
   const f = ctx.factory;
-  const condition = f.createBinaryExpression(
-    scrutinee,
-    ts.SyntaxKind.EqualsEqualsEqualsToken,
-    literalNode
-  );
+  const condition = literalCheck(f, scrutinee, literalNode);
   return f.createConditionalExpression(
     condition,
     f.createToken(ts.SyntaxKind.QuestionToken),
@@ -1609,11 +1795,7 @@ function buildCondition(
 ): ts.Expression | undefined {
   switch (pattern.kind) {
     case "literal":
-      return f.createBinaryExpression(
-        accessor,
-        ts.SyntaxKind.EqualsEqualsEqualsToken,
-        pattern.node
-      );
+      return literalCheck(f, accessor, pattern.node);
 
     case "wildcard":
     case "variable":
@@ -1660,11 +1842,7 @@ function buildCondition(
         const elem = nonRestElements[i];
         if (elem.pattern.kind === "literal") {
           parts.push(
-            f.createBinaryExpression(
-              f.createElementAccessExpression(accessor, i),
-              ts.SyntaxKind.EqualsEqualsEqualsToken,
-              elem.pattern.node
-            )
+            literalCheck(f, f.createElementAccessExpression(accessor, i), elem.pattern.node)
           );
         } else if (elem.pattern.kind !== "wildcard" && elem.pattern.kind !== "variable") {
           const nested = buildCondition(
@@ -1710,11 +1888,7 @@ function buildCondition(
 
         if (prop.pattern.kind === "literal") {
           parts.push(
-            f.createBinaryExpression(
-              f.createPropertyAccessExpression(accessor, prop.key),
-              ts.SyntaxKind.EqualsEqualsEqualsToken,
-              prop.pattern.node
-            )
+            literalCheck(f, f.createPropertyAccessExpression(accessor, prop.key), prop.pattern.node)
           );
         } else if (prop.pattern.kind !== "wildcard" && prop.pattern.kind !== "variable") {
           const nested = buildCondition(
@@ -1726,48 +1900,22 @@ function buildCondition(
         }
       }
 
+      if (parts.length === 0) return undefined;
       return parts.reduce((a, b) =>
         f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
       );
     }
 
     case "type-constructor": {
-      const { constructorName } = pattern;
-
-      if (constructorName in TYPEOF_MAP) {
-        return f.createBinaryExpression(
-          f.createTypeOfExpression(accessor),
-          ts.SyntaxKind.EqualsEqualsEqualsToken,
-          f.createStringLiteral(TYPEOF_MAP[constructorName])
-        );
-      }
-
-      if (constructorName === "Object") {
-        return f.createBinaryExpression(
-          f.createBinaryExpression(
-            f.createTypeOfExpression(accessor),
-            ts.SyntaxKind.EqualsEqualsEqualsToken,
-            f.createStringLiteral("object")
-          ),
-          ts.SyntaxKind.AmpersandAmpersandToken,
-          f.createBinaryExpression(accessor, ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
-        );
-      }
-
-      if (constructorName === "Array") {
-        return f.createCallExpression(
-          f.createPropertyAccessExpression(f.createIdentifier("Array"), "isArray"),
-          undefined,
-          [accessor]
-        );
-      }
-
-      // Default: instanceof check for user-defined or other built-in classes
-      return f.createBinaryExpression(
-        accessor,
-        ts.SyntaxKind.InstanceOfKeyword,
-        f.createIdentifier(constructorName)
-      );
+      // Constructor test AND the inner pattern's own test — `Array([x, y])`
+      // must check the length, `Number(5)` the value (deep review #14).
+      const ctorCheck = buildTypeConstructorCheck(f, pattern.constructorName, accessor);
+      const inner = patternCoversAll(pattern.binding)
+        ? undefined
+        : buildCondition(f, pattern.binding, accessor);
+      return inner
+        ? f.createBinaryExpression(ctorCheck, ts.SyntaxKind.AmpersandAmpersandToken, inner)
+        : ctorCheck;
     }
 
     case "extractor": {
@@ -1787,8 +1935,20 @@ function buildCondition(
             : f.createStringLiteral(discValue as string)
         );
 
+        // `null._tag` throws: guard nullish scrutinees (`Option | null`, #14)
+        // unless the type proves the scrutinee is an object.
+        const parts: ts.Expression[] = skipObjectGuard
+          ? [discCheck]
+          : [
+              f.createBinaryExpression(
+                accessor,
+                ts.SyntaxKind.ExclamationEqualsToken,
+                f.createNull()
+              ),
+              discCheck,
+            ];
+
         // Recurse into nested patterns on payload fields
-        const nestedParts: ts.Expression[] = [];
         const payloadFields = def.payloadFields ?? [];
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
@@ -1799,20 +1959,40 @@ function buildCondition(
             binding,
             f.createPropertyAccessExpression(accessor, field)
           );
-          if (nested) nestedParts.push(nested);
+          if (nested) parts.push(nested);
         }
 
-        if (nestedParts.length === 0) return discCheck;
-        return [discCheck, ...nestedParts].reduce((a, b) =>
+        return parts.reduce((a, b) =>
           f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
         );
       }
 
       if (def.kind === "product") {
-        // Inlined structural check: verify all required fields exist
+        // Inlined structural check: verify all required fields exist. `in`
+        // throws on primitives, so test for an object first (#14).
         const fields = def.productFields ?? [];
-        const checks: ts.Expression[] = fields.map((field) =>
-          f.createBinaryExpression(f.createStringLiteral(field), ts.SyntaxKind.InKeyword, accessor)
+        const checks: ts.Expression[] = skipObjectGuard
+          ? []
+          : [
+              f.createBinaryExpression(
+                f.createTypeOfExpression(accessor),
+                ts.SyntaxKind.EqualsEqualsEqualsToken,
+                f.createStringLiteral("object")
+              ),
+              f.createBinaryExpression(
+                accessor,
+                ts.SyntaxKind.ExclamationEqualsEqualsToken,
+                f.createNull()
+              ),
+            ];
+        checks.push(
+          ...fields.map((field) =>
+            f.createBinaryExpression(
+              f.createStringLiteral(field),
+              ts.SyntaxKind.InKeyword,
+              accessor
+            )
+          )
         );
 
         // Recurse into nested patterns
@@ -1846,6 +2026,48 @@ function buildCondition(
     case "unsupported":
       return undefined;
   }
+}
+
+/** `typeof`/`instanceof`/`Array.isArray` test for a type-constructor pattern. */
+function buildTypeConstructorCheck(
+  f: ts.NodeFactory,
+  constructorName: string,
+  accessor: ts.Expression
+): ts.Expression {
+  if (constructorName in TYPEOF_MAP) {
+    return f.createBinaryExpression(
+      f.createTypeOfExpression(accessor),
+      ts.SyntaxKind.EqualsEqualsEqualsToken,
+      f.createStringLiteral(TYPEOF_MAP[constructorName])
+    );
+  }
+
+  if (constructorName === "Object") {
+    return f.createBinaryExpression(
+      f.createBinaryExpression(
+        f.createTypeOfExpression(accessor),
+        ts.SyntaxKind.EqualsEqualsEqualsToken,
+        f.createStringLiteral("object")
+      ),
+      ts.SyntaxKind.AmpersandAmpersandToken,
+      f.createBinaryExpression(accessor, ts.SyntaxKind.ExclamationEqualsToken, f.createNull())
+    );
+  }
+
+  if (constructorName === "Array") {
+    return f.createCallExpression(
+      f.createPropertyAccessExpression(f.createIdentifier("Array"), "isArray"),
+      undefined,
+      [accessor]
+    );
+  }
+
+  // Default: instanceof check for user-defined or other built-in classes
+  return f.createBinaryExpression(
+    accessor,
+    ts.SyntaxKind.InstanceOfKeyword,
+    f.createIdentifier(constructorName)
+  );
 }
 
 // ============================================================================
@@ -1922,18 +2144,28 @@ function generateOrArmStatements(
     }
   }
 
+  // `.as()` bindings are emitted before the guard so the guard and result
+  // can see them (deep review #15). Bindings INSIDE alternatives are
+  // rejected up front in expandFluentMatch.
+  const body: ts.Statement[] = arm.asPattern
+    ? generateAsBindings(f, arm.asPattern, scrutineeRef)
+    : [];
+  body.push(
+    arm.guard
+      ? f.createIfStatement(arm.guard, f.createReturnStatement(arm.result))
+      : f.createReturnStatement(arm.result)
+  );
+  const bodyStmt = body.length === 1 ? body[0] : f.createBlock(body, true);
+
   if (hasUnconditional || conditions.length === 0) {
-    if (arm.guard) {
-      return [f.createIfStatement(arm.guard, f.createReturnStatement(arm.result))];
-    }
-    return [f.createReturnStatement(arm.result)];
+    return [bodyStmt];
   }
 
   const combined = conditions.reduce((a, b) =>
     f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b)
   );
 
-  if (arm.guard) {
+  if (arm.guard && !arm.asPattern) {
     const check = f.createBinaryExpression(
       f.createParenthesizedExpression(combined),
       ts.SyntaxKind.AmpersandAmpersandToken,
@@ -1942,7 +2174,7 @@ function generateOrArmStatements(
     return [f.createIfStatement(check, f.createReturnStatement(arm.result))];
   }
 
-  return [f.createIfStatement(combined, f.createReturnStatement(arm.result))];
+  return [f.createIfStatement(combined, bodyStmt)];
 }
 
 // ============================================================================
@@ -1973,11 +2205,20 @@ function generateRegexArmStatements(
 ): ts.Statement[] {
   const regexResultId = ctx.tryShortName("_r");
 
-  // const __r = __m.match(/regex/);
-  const matchCall = f.createCallExpression(
-    f.createPropertyAccessExpression(scrutineeRef, "match"),
-    undefined,
-    [pattern.node]
+  // const __r = typeof __m === "string" ? __m.match(/regex/) : null;
+  // (non-strings have no .match — deep review #14)
+  const matchCall = f.createConditionalExpression(
+    f.createBinaryExpression(
+      f.createTypeOfExpression(scrutineeRef),
+      ts.SyntaxKind.EqualsEqualsEqualsToken,
+      f.createStringLiteral("string")
+    ),
+    f.createToken(ts.SyntaxKind.QuestionToken),
+    f.createCallExpression(f.createPropertyAccessExpression(scrutineeRef, "match"), undefined, [
+      pattern.node,
+    ]),
+    f.createToken(ts.SyntaxKind.ColonToken),
+    f.createNull()
   );
   const regexDecl = f.createVariableStatement(
     undefined,
@@ -2131,11 +2372,7 @@ function generateArmStatements(
 
   switch (pattern.kind) {
     case "literal": {
-      const condition = f.createBinaryExpression(
-        scrutineeRef,
-        ts.SyntaxKind.EqualsEqualsEqualsToken,
-        pattern.node
-      );
+      const condition = literalCheck(f, scrutineeRef, pattern.node);
       if (asBindings.length > 0) {
         const bodyStatements: ts.Statement[] = [...asBindings];
         if (guard) {
@@ -2261,37 +2498,34 @@ function generateArmStatements(
  * When true, per-arm `typeof === "object" && != null` guards can be skipped.
  */
 function isGuaranteedObject(ctx: MacroContext, scrutinee: ts.Expression): boolean {
-  try {
-    const type = ctx.getTypeOf(scrutinee);
-    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
 
-    const checkSingleType = (t: ts.Type): boolean => {
-      if (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return false;
-      if (
-        t.flags &
-        (ts.TypeFlags.String |
-          ts.TypeFlags.Number |
-          ts.TypeFlags.BigInt |
-          ts.TypeFlags.Boolean |
-          ts.TypeFlags.StringLiteral |
-          ts.TypeFlags.NumberLiteral |
-          ts.TypeFlags.BigIntLiteral |
-          ts.TypeFlags.BooleanLiteral)
-      )
-        return false;
-      if (t.flags & ts.TypeFlags.Object) return true;
-      if (t.isUnion()) return t.types.every(checkSingleType);
-      if (t.isIntersection()) return t.types.some(checkSingleType);
+  const checkSingleType = (t: ts.Type): boolean => {
+    if (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return false;
+    if (
+      t.flags &
+      (ts.TypeFlags.String |
+        ts.TypeFlags.Number |
+        ts.TypeFlags.BigInt |
+        ts.TypeFlags.Boolean |
+        ts.TypeFlags.StringLiteral |
+        ts.TypeFlags.NumberLiteral |
+        ts.TypeFlags.BigIntLiteral |
+        ts.TypeFlags.BooleanLiteral)
+    )
       return false;
-    };
-    return checkSingleType(type);
-  } catch {
+    if (t.flags & ts.TypeFlags.Object) return true;
+    if (t.isUnion()) return t.types.every(checkSingleType);
+    if (t.isIntersection()) return t.types.some(checkSingleType);
     return false;
-  }
+  };
+  return checkSingleType(type);
 }
 
 function generateIIFE(
   ctx: MacroContext,
+  chainExpr: ts.Expression,
   scrutinee: ts.Expression,
   arms: CaseArm[],
   elseResult: ts.Expression | undefined
@@ -2370,36 +2604,106 @@ function generateIIFE(
   if (elseResult !== undefined) {
     statements.push(f.createReturnStatement(elseResult));
   } else {
-    statements.push(
-      f.createThrowStatement(
-        f.createNewExpression(ctx.ensureImport("MatchError", "@typesugar/std"), undefined, [
-          f.createIdentifier(scrutineeName.text),
-        ])
-      )
-    );
+    statements.push(createMatchErrorThrow(ctx, f.createIdentifier(scrutineeName.text)));
   }
 
-  // (() => { ... })()
-  const arrowBody = f.createBlock(statements, true);
-  const arrow = f.createArrowFunction(
-    undefined,
-    undefined,
-    [],
-    undefined,
-    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    arrowBody
-  );
-  const paren = f.createParenthesizedExpression(arrow);
-  return f.createCallExpression(paren, undefined, []);
+  // (() => { ... })()  — or `await (async () => { ... })()` when arms await
+  return wrapInIIFE(ctx, chainExpr, statements, movedExpressions(scrutinee, arms, elseResult));
 }
 
 // ============================================================================
 // Macro Registration
 // ============================================================================
 
+/** Discriminant names tried (in order) when the handler form names none. */
+const OBJECT_HANDLER_DISCRIMINANTS = [
+  "kind",
+  "_tag",
+  "type",
+  "ok",
+  "status",
+  "tag",
+  "variant",
+  "action",
+  "event",
+  "case",
+  "state",
+  "name",
+  "nodeType",
+];
+
+/**
+ * Leave the dispatch to the runtime `match(value, handlers)` (match-runtime.ts).
+ * Used whenever the macro can't produce code that provably agrees with it:
+ * `any`/`unknown` values, mixed primitive/object or nullable unions, objects
+ * with no recognisable discriminant, or a type the checker can't give us.
+ * The callee is a fresh synthetic import, which the visitor never re-expands.
+ */
+function deferToRuntimeMatch(ctx: MacroContext, callExpr: ts.CallExpression): ts.Expression {
+  return ctx.factory.createCallExpression(
+    ctx.ensureImport("match", "@typesugar/std"),
+    undefined,
+    callExpr.arguments
+  );
+}
+
+function handlerKeyText(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+  // JS normalises numeric keys (`{ 1.0: f }` has key "1"); so does the runtime.
+  if (ts.isNumericLiteral(name)) return String(Number(name.text));
+  return undefined;
+}
+
+/**
+ * The literal(s) a handler key stands for, given the type of the value being
+ * dispatched on: `"1"` is the string `"1"` for a `"1" | "2"` union and the
+ * number `1` for `number`; `true` is the boolean for a boolean tag
+ * (deep review #6 — the old code guessed from the key text alone).
+ */
+function literalsForHandlerKey(f: ts.NodeFactory, key: string, tagType: ts.Type): ts.Expression[] {
+  const parts = tagType.isUnion() ? tagType.types : [tagType];
+  let wantString = false;
+  let wantNumber = false;
+  let wantBool = false;
+  const numericKey = key !== "" && String(Number(key)) === key;
+  for (const t of parts) {
+    if (t.isStringLiteral()) {
+      if (t.value === key) wantString = true;
+    } else if (t.flags & (ts.TypeFlags.String | ts.TypeFlags.TemplateLiteral)) {
+      wantString = true;
+    } else if (t.isNumberLiteral()) {
+      if (String(t.value) === key) wantNumber = true;
+    } else if (t.flags & (ts.TypeFlags.Number | ts.TypeFlags.Enum)) {
+      if (numericKey) wantNumber = true;
+    } else if (t.flags & ts.TypeFlags.BooleanLiteral) {
+      if ((t as { intrinsicName?: string }).intrinsicName === key) wantBool = true;
+    } else if (t.flags & ts.TypeFlags.Boolean) {
+      if (key === "true" || key === "false") wantBool = true;
+    }
+  }
+  const out: ts.Expression[] = [];
+  if (wantString) out.push(f.createStringLiteral(key));
+  if (wantNumber) {
+    const n = Number(key);
+    out.push(
+      n < 0 || Object.is(n, -0)
+        ? f.createPrefixUnaryExpression(
+            ts.SyntaxKind.MinusToken,
+            f.createNumericLiteral(String(-n))
+          )
+        : f.createNumericLiteral(key)
+    );
+  }
+  if (wantBool) out.push(key === "true" ? f.createTrue() : f.createFalse());
+  return out;
+}
+
 /**
  * Expand the object-handler form: match(value, { kind1: handler, kind2: handler, _: fallback })
- * Generates a simple ternary chain or IIFE with discriminant lookup.
+ * Generates a ternary chain inside an IIFE taking the value as a parameter.
+ *
+ * Semantics follow the runtime `match(value, handlers)`; whenever the macro
+ * can't prove agreement it defers to that runtime (see deferToRuntimeMatch).
  */
 function expandObjectHandlerMatch(
   ctx: MacroContext,
@@ -2410,194 +2714,192 @@ function expandObjectHandlerMatch(
 ): ts.Expression {
   const f = ctx.factory;
 
-  // Common discriminant names to try (compile-time inference from handler keys)
-  const discriminantNames = explicitDiscriminant
-    ? [explicitDiscriminant]
-    : [
-        "kind",
-        "_tag",
-        "type",
-        "ok",
-        "status",
-        "tag",
-        "variant",
-        "action",
-        "event",
-        "case",
-        "state",
-        "name",
-        "nodeType",
-      ];
-
-  // Collect handler entries: { key: string, handler: ts.Expression, isWildcard: boolean }
-  const entries: Array<{ keys: string[]; handler: ts.Expression; isWildcard: boolean }> = [];
+  // Collect handler entries. Every entry shape is either understood or
+  // rejected — a silently dropped handler changes behaviour (#6).
+  const entries: Array<{ keys: string[]; handler: ts.Expression; node: ts.Node }> = [];
   let wildcardHandler: ts.Expression | undefined;
 
   for (const prop of handlers.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
-    const name =
-      prop.name && ts.isIdentifier(prop.name)
-        ? prop.name.text
-        : prop.name && ts.isStringLiteral(prop.name)
-          ? prop.name.text
-          : prop.name && ts.isNumericLiteral(prop.name)
-            ? prop.name.text
-            : undefined;
-    if (!name) continue;
+    let handler: ts.Expression | undefined;
+    if (ts.isPropertyAssignment(prop)) {
+      handler = prop.initializer;
+    } else if (ts.isMethodDeclaration(prop) && prop.body) {
+      // `circle(c) { return c.r; }` → `function (c) { return c.r; }`
+      handler = f.createFunctionExpression(
+        ts.getModifiers(prop)?.filter((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+        prop.asteriskToken,
+        undefined,
+        prop.typeParameters,
+        prop.parameters,
+        prop.type,
+        prop.body
+      );
+    } else if (ts.isShorthandPropertyAssignment(prop)) {
+      handler = prop.name;
+    }
+    const name = prop.name ? handlerKeyText(prop.name) : undefined;
+    if (handler === undefined || name === undefined) {
+      ctx.reportError(
+        prop,
+        "match(value, handlers): each handler must be `key: fn`, `key(arg) { ... }` or a " +
+          "shorthand `key` with an identifier, string or numeric key (spreads, accessors and " +
+          "computed keys are not supported)"
+      );
+      return callExpr;
+    }
 
     if (name === "_") {
-      wildcardHandler = prop.initializer;
+      wildcardHandler = handler;
     } else {
       // Handle OR patterns: "a|b" splits into ["a", "b"]
       const keys = name.includes("|") ? name.split("|").filter(Boolean) : [name];
-      entries.push({ keys, handler: prop.initializer, isWildcard: false });
+      entries.push({ keys, handler, node: prop });
     }
   }
 
-  // Check if all handlers are for literal/primitive values (no object destructuring needed)
-  // Use type checker to determine if value is a primitive type
-  const checker = ctx.typeChecker;
-  const valueType = checker?.getTypeAtLocation?.(value);
-  const isPrimitive =
-    valueType &&
-    ((valueType.flags & ts.TypeFlags.StringLike) !== 0 ||
-      (valueType.flags & ts.TypeFlags.NumberLike) !== 0 ||
-      (valueType.flags & ts.TypeFlags.BooleanLike) !== 0 ||
-      ((valueType.flags & ts.TypeFlags.Union) !== 0 &&
-        (valueType as ts.UnionType).types?.every(
-          (t) =>
-            (t.flags &
-              (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike)) !==
-            0
-        )));
+  // Decide how to dispatch from the value's type (CLAUDE.md rule 3: never ask
+  // the checker about a synthetic node; warn when degrading after a failure).
+  if (isSyntheticNode(value)) return deferToRuntimeMatch(ctx, callExpr);
+  let valueType: ts.Type;
+  try {
+    valueType = ctx.getTypeOf(value);
+  } catch (e) {
+    ctx.reportWarning(
+      value,
+      `match(value, handlers): could not determine the value's type (${e instanceof Error ? e.message : String(e)}); ` +
+        `falling back to runtime dispatch.`
+    );
+    return deferToRuntimeMatch(ctx, callExpr);
+  }
+  if (valueType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+    return deferToRuntimeMatch(ctx, callExpr);
+  }
 
-  // Generate IIFE: ((_m) => { ... })(value)
+  const members = valueType.isUnion() ? valueType.types : [valueType];
+  const PRIMITIVE = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike;
+  const isPrimitive = members.every((t) => (t.flags & PRIMITIVE) !== 0);
+  const isObject = members.every(
+    (t) => (t.flags & ts.TypeFlags.Object) !== 0 || t.isIntersection()
+  );
+
   const paramName = f.createUniqueName("_m");
-  const paramDecl = f.createParameterDeclaration(undefined, undefined, paramName);
-
-  const statements: ts.Statement[] = [];
+  let tagExpr: ts.Expression;
+  let tagType: ts.Type;
 
   if (isPrimitive) {
-    // Primitive: direct comparison — _m === "ok" ? handler(_m) : ...
-    let result: ts.Expression = wildcardHandler
-      ? f.createCallExpression(wildcardHandler, undefined, [paramName])
-      : f.createCallExpression(
-          f.createPropertyAccessExpression(
-            ctx.ensureImport("MatchError", "@typesugar/std"),
-            "throw"
-          ),
-          undefined,
-          [paramName]
-        );
-
-    // Build ternary chain from last to first
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const { keys, handler } = entries[i];
-      const conditions = keys.map((k) =>
-        f.createBinaryExpression(
-          paramName,
-          f.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-          /^\d+$/.test(k) ? f.createNumericLiteral(k) : f.createStringLiteral(k)
-        )
-      );
-      const condition =
-        conditions.length === 1
-          ? conditions[0]
-          : conditions.reduce((a, b) =>
-              f.createBinaryExpression(a, f.createToken(ts.SyntaxKind.BarBarToken), b)
-            );
-      result = f.createConditionalExpression(
-        condition,
-        undefined,
-        f.createCallExpression(handler, undefined, [paramName]),
-        undefined,
-        result
-      );
-    }
-
-    statements.push(f.createReturnStatement(result));
-  } else {
-    // Object: discriminant-based matching
-    // Try to infer discriminant at compile time from type
-    let discriminant = explicitDiscriminant;
-    if (!discriminant && valueType) {
-      for (const name of discriminantNames) {
-        const prop = valueType.getProperty?.(name);
-        if (prop) {
+    tagExpr = paramName;
+    tagType = valueType;
+  } else if (isObject) {
+    let discProp: ts.Symbol | undefined;
+    let discriminant: string | undefined;
+    try {
+      for (const name of explicitDiscriminant
+        ? [explicitDiscriminant]
+        : OBJECT_HANDLER_DISCRIMINANTS) {
+        const sym = ctx.typeChecker.getPropertyOfType(valueType, name);
+        if (sym) {
+          discProp = sym;
           discriminant = name;
           break;
         }
       }
-    }
-    if (!discriminant) discriminant = "kind"; // fallback
-
-    const tagExpr = f.createPropertyAccessExpression(paramName, discriminant);
-
-    // Build ternary chain: _m.kind === "circle" ? handler(_m) : ...
-    let result: ts.Expression = wildcardHandler
-      ? f.createCallExpression(wildcardHandler, undefined, [paramName])
-      : f.createCallExpression(
-          f.createParenthesizedExpression(
-            f.createArrowFunction(
-              undefined,
-              undefined,
-              [],
-              undefined,
-              f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-              f.createBlock(
-                [
-                  f.createThrowStatement(
-                    f.createNewExpression(f.createIdentifier("Error"), undefined, [
-                      f.createTemplateExpression(
-                        f.createTemplateHead("Non-exhaustive match: no handler for '"),
-                        [f.createTemplateSpan(tagExpr, f.createTemplateTail("'"))]
-                      ),
-                    ])
-                  ),
-                ],
-                true
-              )
-            )
-          ),
-          undefined,
-          []
-        );
-
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const { keys, handler } = entries[i];
-      const conditions = keys.map((k) =>
-        f.createBinaryExpression(
-          tagExpr,
-          f.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-          /^\d+$/.test(k) ? f.createNumericLiteral(k) : f.createStringLiteral(k)
-        )
+    } catch (e) {
+      ctx.reportWarning(
+        value,
+        `match(value, handlers): could not inspect the value's properties (${e instanceof Error ? e.message : String(e)}); ` +
+          `falling back to runtime dispatch.`
       );
-      const condition =
-        conditions.length === 1
-          ? conditions[0]
-          : conditions.reduce((a, b) =>
-              f.createBinaryExpression(a, f.createToken(ts.SyntaxKind.BarBarToken), b)
-            );
-      result = f.createConditionalExpression(
-        condition,
-        undefined,
-        f.createCallExpression(handler, undefined, [paramName]),
-        undefined,
-        result
-      );
+      return deferToRuntimeMatch(ctx, callExpr);
     }
-
-    statements.push(f.createReturnStatement(result));
+    if (!discProp || !discriminant) return deferToRuntimeMatch(ctx, callExpr);
+    tagExpr = f.createPropertyAccessExpression(paramName, discriminant);
+    tagType = ctx.typeChecker.getTypeOfSymbol(discProp);
+  } else {
+    // Mixed primitive/object or nullable unions: the runtime switches between
+    // literal and discriminant dispatch per value — let it.
+    return deferToRuntimeMatch(ctx, callExpr);
   }
 
-  const arrowBody = f.createBlock(statements, true);
+  const callHandler = (h: ts.Expression) =>
+    f.createCallExpression(
+      ts.isArrowFunction(h) || ts.isFunctionExpression(h) ? f.createParenthesizedExpression(h) : h,
+      undefined,
+      [paramName]
+    );
+
+  let result: ts.Expression;
+  if (wildcardHandler) {
+    result = callHandler(wildcardHandler);
+  } else if (isPrimitive) {
+    result = f.createCallExpression(
+      f.createPropertyAccessExpression(ctx.ensureImport("MatchError", "@typesugar/std"), "throw"),
+      undefined,
+      [paramName]
+    );
+  } else {
+    result = f.createCallExpression(
+      f.createParenthesizedExpression(
+        f.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          f.createBlock(
+            [
+              f.createThrowStatement(
+                f.createNewExpression(f.createIdentifier("Error"), undefined, [
+                  f.createTemplateExpression(
+                    f.createTemplateHead("Non-exhaustive match: no handler for '"),
+                    [f.createTemplateSpan(tagExpr, f.createTemplateTail("'"))]
+                  ),
+                ])
+              ),
+            ],
+            true
+          )
+        )
+      ),
+      undefined,
+      []
+    );
+  }
+
+  // Build ternary chain from last to first
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const { keys, handler, node } = entries[i];
+    const conditions = keys.flatMap((k) =>
+      literalsForHandlerKey(f, k, tagType).map((lit) =>
+        f.createBinaryExpression(tagExpr, ts.SyntaxKind.EqualsEqualsEqualsToken, lit)
+      )
+    );
+    if (conditions.length === 0) {
+      ctx.reportWarning(
+        node,
+        `match(value, handlers): handler key '${keys.join("|")}' can never match a value of type ` +
+          `'${ctx.typeChecker.typeToString(tagType)}'`
+      );
+      continue;
+    }
+    const condition = conditions.reduce((a, b) =>
+      f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b)
+    );
+    result = f.createConditionalExpression(
+      condition,
+      f.createToken(ts.SyntaxKind.QuestionToken),
+      callHandler(handler),
+      f.createToken(ts.SyntaxKind.ColonToken),
+      result
+    );
+  }
+
   const arrow = f.createArrowFunction(
     undefined,
     undefined,
-    [paramDecl],
+    [f.createParameterDeclaration(undefined, undefined, paramName)],
     undefined,
     f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    arrowBody
+    f.createBlock([f.createReturnStatement(result)], true)
   );
   return f.createCallExpression(f.createParenthesizedExpression(arrow), undefined, [value]);
 }

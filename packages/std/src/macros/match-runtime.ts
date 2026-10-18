@@ -25,15 +25,17 @@ const DISCRIMINANT_NAMES = [
   "nodeType",
 ];
 
+const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+
 function inferDiscriminant(
   value: Record<string, unknown>,
-  handlers: Record<string, unknown>
+  handlers: Record<string, any>
 ): string | undefined {
   for (const name of DISCRIMINANT_NAMES) {
     if (name in value) {
       const tag = value[name];
       if (typeof tag === "string" || typeof tag === "number" || typeof tag === "boolean") {
-        if (String(tag) in handlers || "_" in handlers) return name;
+        if (findHandler(handlers, String(tag))) return name;
       }
     }
   }
@@ -45,6 +47,23 @@ function inferDiscriminant(
     }
   }
   return undefined;
+}
+
+/**
+ * Find the handler for a tag: an exact own key, then an `"a|b"` OR key, then
+ * `_`. Own properties only — `match("toString", { _: ... })` must not pick up
+ * `Object.prototype.toString` (deep review #17).
+ */
+function findHandler(
+  handlers: Record<string, any>,
+  tag: string
+): ((v: unknown) => unknown) | undefined {
+  if (tag !== "_" && hasOwn(handlers, tag)) return handlers[tag];
+  for (const handlerKey of Object.keys(handlers)) {
+    if (handlerKey === "_" || !handlerKey.includes("|")) continue;
+    if (handlerKey.split("|").filter(Boolean).includes(tag)) return handlers[handlerKey];
+  }
+  return hasOwn(handlers, "_") ? handlers._ : undefined;
 }
 
 /**
@@ -88,19 +107,13 @@ export function match(value: any, handlers?: Record<string, any>, discriminant?:
     const key = discriminant ?? inferDiscriminant(value, handlers);
     if (!key) throw new Error("Non-exhaustive match: cannot infer discriminant property");
     const tag = String(value[key]);
-    // Handle OR patterns: "a|b" splits on pipe
-    for (const [handlerKey, handler] of Object.entries(handlers)) {
-      if (handlerKey === "_") continue;
-      const variants = handlerKey.split("|").filter(Boolean);
-      if (variants.includes(tag)) return handler(value);
-    }
-    const fallback = handlers._;
-    if (fallback) return fallback(value);
+    const handler = findHandler(handlers, tag);
+    if (handler) return handler(value);
     throw new Error(`Non-exhaustive match: no handler for '${tag}'`);
   }
 
   // Primitive value: literal dispatch
-  const handler = handlers[value] ?? handlers._;
+  const handler = findHandler(handlers, String(value));
   if (!handler) throw new Error(`Non-exhaustive match: no handler for '${String(value)}'`);
   return handler(value);
 }

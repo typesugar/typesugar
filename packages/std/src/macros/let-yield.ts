@@ -102,8 +102,30 @@ import {
   KNOWN_DO_INSTANCE_MODULES,
   createStyleAwareCall,
   createMetadataJoin,
+  createTupleBindingPattern,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
+import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
+
+/**
+ * Brands whose comprehensions can FILTER (`if (cond) {}` guards): the ones
+ * with a known empty value. All three std collection brands accept an array
+ * literal as both `pure` (`[x]`) and `empty` (`[]`) — `flatMapIterable` /
+ * `flatMapAsyncIterable` `yield*` over any iterable. Every other brand
+ * rejects guards: the old `cond ? inner : undefined` put `undefined` INTO
+ * the result instead of filtering (deep review #7).
+ */
+const GUARD_CAPABLE_BRANDS = new Set(["Array", "Iterable", "AsyncIterable"]);
+
+/**
+ * std instances whose `@do-methods` name THEMSELVES as the static receiver
+ * (`style=static receiver=flatMapIterable`): plain Iterables/AsyncIterables
+ * have no `.flatMap`/`.map` methods, so the comprehension calls the instance
+ * (deep review #10). The receiver is imported from the do marker the file
+ * already imports for the labels.
+ */
+const STD_SELF_RECEIVER_INSTANCES = new Set(["flatMapIterable", "flatMapAsyncIterable"]);
+const STD_DO_MODULE = "@typesugar/std/syntax/do";
 
 /**
  * Method names for FlatMap operations.
@@ -162,9 +184,30 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    // Infer the type constructor from the first bind step
-    const firstBind = steps.find((s): s is BindStep => s.kind === "bind")!;
-    const typeConstructorName = inferTypeConstructor(firstBind.effect, typeChecker, ctx.sourceFile);
+    // Infer the type constructor from the first bind step (possibly inside a
+    // leading parallel group).
+    const firstBind = steps
+      .flatMap((s): BindStep[] =>
+        s.kind === "bind"
+          ? [s]
+          : s.kind === "parallel-group"
+            ? s.steps.filter((p): p is BindStep => p.kind === "bind")
+            : []
+      )
+      .at(0);
+    if (!firstBind) {
+      ctx.reportError(
+        mainBlock,
+        `${label}: block must contain at least one \`name << expression\` binding`
+      );
+      return mainBlock;
+    }
+    const typeConstructorName = inferTypeConstructor(
+      firstBind.effect,
+      typeChecker,
+      ctx.sourceFile,
+      ctx
+    );
 
     if (!typeConstructorName) {
       ctx.reportError(
@@ -204,7 +247,29 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     }
 
     // Method names + emission style from the instance's @do-methods metadata.
-    const doMeta: DoNotationMeta = scoped.doMeta ?? DEFAULT_DO_METHODS;
+    let doMeta: DoNotationMeta = scoped.doMeta ?? DEFAULT_DO_METHODS;
+    if (
+      doMeta.style === "static" &&
+      doMeta.receiver === scoped.exportName &&
+      STD_SELF_RECEIVER_INSTANCES.has(scoped.exportName)
+    ) {
+      const receiverId = ctx.ensureImport(scoped.exportName, STD_DO_MODULE);
+      doMeta = { ...doMeta, receiver: receiverId.text };
+    }
+
+    // Guards need an empty value to filter with (deep review #7).
+    if (!GUARD_CAPABLE_BRANDS.has(typeConstructorName)) {
+      const guard = steps.find((s): s is GuardStep => s.kind === "guard");
+      if (guard) {
+        ctx.reportError(
+          guard.node,
+          `${label}: guards (\`if (cond) {}\`) need a type with an empty value to filter with; ` +
+            `they are supported for Array, Iterable and AsyncIterable, not ${typeConstructorName}. ` +
+            `Filter inside a bind instead (e.g. \`x << (cond ? some(v) : none)\`).`
+        );
+        return mainBlock;
+      }
+    }
     if (doMeta.unrecognized?.length) {
       ctx.reportWarning(
         mainBlock,
@@ -243,19 +308,33 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
         return mainBlock;
       }
 
-      // Remove the last bind from steps and use its expression as the tail
-      const stepsWithoutLast = steps.slice(0, steps.lastIndexOf(lastBind));
+      // The last bind's effect IS the result. Anything after it (a guard, a
+      // pure map, a parallel group) would be meaningless — and used to be
+      // silently dropped (deep review #8) — so require an explicit yield:.
+      const lastIdx = steps.lastIndexOf(lastBind);
+      if (lastIdx !== steps.length - 1) {
+        ctx.reportError(
+          steps[lastIdx + 1].node,
+          `${label}: without a yield: block the result is the last \`name << expr\` binding, ` +
+            `so nothing may follow it — add a yield: { ... } block.`
+        );
+        return mainBlock;
+      }
+      const tail = applyOrElse(ctx, lastBind, methods, doMeta);
+      const stepsWithoutLast = steps.slice(0, lastIdx);
       if (stepsWithoutLast.length === 0) {
         // Only one bind step — just return the expression directly
-        return factory.createExpressionStatement(lastBind.effect);
+        return factory.createExpressionStatement(tail);
       }
+      // The tail is already an effect: every bind before it must flatten.
       const chain = buildChain(
         ctx,
         stepsWithoutLast,
-        lastBind.effect,
+        tail,
         methods,
         typeConstructorName,
-        doMeta
+        doMeta,
+        true
       );
       return factory.createExpressionStatement(chain);
     }
@@ -430,15 +509,39 @@ function extractSteps(
 // Chain Building
 // ============================================================================
 
+/** `effect.orElse(_ => fallback)` (style-aware) when the bind has a fallback. */
+function applyOrElse(
+  ctx: MacroContext,
+  step: BindStep,
+  methods: MethodNames,
+  doMeta: DoNotationMeta
+): ts.Expression {
+  if (!step.orElse || !methods.orElse) return step.effect;
+  return createStyleAwareCall(
+    ctx.factory,
+    doMeta,
+    methods.orElse,
+    step.effect,
+    createArrowFn(ctx.factory, "_", step.orElse)
+  );
+}
+
 /**
  * Build the comprehension chain from steps and a return expression.
  *
- * Handles:
- * - bind steps → `.flatMap(name => ...)` or `.then(name => ...)` for intermediates,
- *                `.map(name => ...)` for the last bind
- * - map steps → inlined as IIFEs `((name) => inner)(expr)`
- * - guard steps → ternary `cond ? inner : undefined`
- * - orElse → wraps the bind expression with `.orElse(() => fallback)`
+ * Built inside-out, tracking whether the expression built so far is a plain
+ * VALUE (the yield, possibly wrapped in pure-map IIFEs) or an EFFECT (after
+ * any bind / guard / parallel group). A bind whose continuation is an effect
+ * uses the bind method (`flatMap`/`then`); one whose continuation is a value
+ * uses `map`. This is what keeps `let:` without `yield:` and binds after a
+ * guard or a nested `par:` from nesting `F<F<A>>` (deep review #8, #9).
+ *
+ * - bind steps → `fa.flatMap(x => effect)` / `fa.map(x => value)`
+ * - map steps → `((name) => inner)(expr)`
+ * - guard steps (Array/Iterable/AsyncIterable only) → `cond ? effect : []`,
+ *   lifting a value continuation with `[value]` first (deep review #7)
+ * - parallel groups → the ParCombine join (metadata `all=`, the std builder,
+ *   or `.map().ap()`), continued with bind/map like a single bind
  */
 function buildChain(
   ctx: MacroContext,
@@ -446,7 +549,8 @@ function buildChain(
   returnExpr: ts.Expression,
   methods: MethodNames,
   typeConstructor: string,
-  doMeta: DoNotationMeta
+  doMeta: DoNotationMeta,
+  returnIsEffect = false
 ): ts.Expression {
   const { factory } = ctx;
 
@@ -454,9 +558,8 @@ function buildChain(
     return returnExpr;
   }
 
-  // Build from inside out: start with the return expression and wrap
-  // each step around it, going from the last step to the first.
   let inner: ts.Expression = returnExpr;
+  let innerIsEffect = returnIsEffect;
 
   // Process steps from last to first
   for (let i = steps.length - 1; i >= 0; i--) {
@@ -464,140 +567,124 @@ function buildChain(
 
     switch (step.kind) {
       case "bind": {
-        // Determine method: last bind before return uses map, others use flatMap
-        const remainingBinds = steps.slice(i + 1).filter((s) => s.kind === "bind");
-        const isLastBind = remainingBinds.length === 0;
-        const methodName = isLastBind ? methods.map : methods.bind;
-
-        let effectExpr = step.effect;
-
-        // Wrap with orElse if present (same emission style as bind/map calls)
-        if (step.orElse && methods.orElse) {
-          effectExpr = createStyleAwareCall(
-            factory,
-            doMeta,
-            methods.orElse,
-            effectExpr,
-            createArrowFn(factory, "_", step.orElse)
-          );
-        }
-
-        // Generate the bind/map call
         inner = createStyleAwareCall(
           factory,
           doMeta,
-          methodName,
-          effectExpr,
+          innerIsEffect ? methods.bind : methods.map,
+          applyOrElse(ctx, step, methods, doMeta),
           createArrowFn(factory, step.name, inner)
         );
+        innerIsEffect = true;
         break;
       }
 
       case "map": {
         // Pure map step: wrap inner in an IIFE that binds the computed value.
-        // ((name) => inner)(expr)
         inner = createIIFE(factory, step.name, inner, step.expression);
         break;
       }
 
       case "guard": {
-        // Guard step: emit a ternary `cond ? inner : undefined`
-        // The short-circuit happens at runtime; undefined propagates as empty/failure
+        // Only reached for GUARD_CAPABLE_BRANDS (checked in expand): an array
+        // literal is both `pure` and `empty` for them.
+        const effect = innerIsEffect ? inner : factory.createArrayLiteralExpression([inner]);
         inner = factory.createConditionalExpression(
           step.condition,
           factory.createToken(ts.SyntaxKind.QuestionToken),
-          inner,
+          effect,
           factory.createToken(ts.SyntaxKind.ColonToken),
-          factory.createIdentifier("undefined")
+          factory.createArrayLiteralExpression([])
         );
+        innerIsEffect = true;
         break;
       }
 
       case "parallel-group": {
-        // Nested parallel group: execute all bindings in parallel, then continue.
-        // For Promise: Promise.all([e1, e2, ...]).then(([a, b, ...]) => inner)
-        // For other types: e1.map(a => b => ... => inner).ap(e2).ap(...)
-
         const bindSteps = step.steps.filter((s): s is BindStep => s.kind === "bind");
         const mapSteps = step.steps.filter((s): s is MapStep => s.kind === "map");
 
         if (bindSteps.length === 0) {
-          for (const mapStep of mapSteps.reverse()) {
+          for (const mapStep of [...mapSteps].reverse()) {
             inner = createIIFE(factory, mapStep.name, inner, mapStep.expression);
           }
           break;
         }
 
-        // Apply map steps (IIFEs) first
-        let bodyWithMaps = inner;
-        for (const mapStep of mapSteps.reverse()) {
-          bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
-        }
+        const continueMethod = innerIsEffect ? methods.bind : methods.map;
 
-        // PEP-052 Wave 3: join via the scoped ParCombine instance's
-        // `@do-methods all=… receiver=…` metadata when it declares one
-        // (Promise, Effect, third-party static-join monads) — the same
-        // emission as top-level `par:`. The hardcoded Promise branch below
-        // stays only as the safety net when metadata is unavailable.
+        // 1. `@do-methods all=… receiver=…` join (Promise, Effect, …):
+        //    `R.all([e1, e2])` continued with the FlatMap instance's
+        //    bind/map, over the destructured results.
         const parScoped =
           resolveDoNotationInstance(ctx, "ParCombine", typeConstructor) ??
           resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructor);
         if (parScoped?.doMeta?.all && parScoped.doMeta.receiver) {
-          inner = createMetadataJoin(factory, parScoped.doMeta, bindSteps, bodyWithMaps);
+          let bodyWithMaps = inner;
+          for (const mapStep of [...mapSteps].reverse()) {
+            bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
+          }
+          inner = createMetadataJoin(factory, parScoped.doMeta, bindSteps, bodyWithMaps, {
+            meta: doMeta,
+            method: continueMethod,
+          });
+          innerIsEffect = true;
           break;
         }
 
-        if (typeConstructor === "Promise") {
-          // Promise.all([e1, e2, ...]).then(([a, b, ...]) => bodyWithMaps)
-          const promiseAll = factory.createCallExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("Promise"),
-              factory.createIdentifier("all")
-            ),
-            undefined,
-            [factory.createArrayLiteralExpression(bindSteps.map((s) => s.effect))]
-          );
-
-          const destructParam = factory.createParameterDeclaration(
-            undefined,
-            undefined,
-            factory.createArrayBindingPattern(
-              bindSteps.map((s) =>
-                factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-              )
-            )
-          );
-
-          const thenCallback = factory.createArrowFunction(
-            undefined,
-            undefined,
-            [destructParam],
-            undefined,
-            factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-            bodyWithMaps
-          );
-
-          inner = createMethodCall(factory, promiseAll, "then", thenCallback);
+        // 2./3. Otherwise combine the group into F<[names...]> — with the std
+        //    builder (Array/Iterable cartesian product, AsyncIterable
+        //    collection) or the generic `.map().ap()` chain — and continue
+        //    from that tuple like a single bind.
+        const names = [
+          ...bindSteps.map((s) => s.name).filter((n) => n !== "_"),
+          ...mapSteps.map((s) => s.name),
+        ];
+        const tuple = factory.createArrayLiteralExpression(
+          names.map((n) => factory.createIdentifier(n))
+        );
+        const builder = getStdParCombineBuilder(typeConstructor);
+        let joined: ts.Expression;
+        if (builder) {
+          joined = builder(ctx, step.steps, tuple);
         } else {
-          // Applicative: e1.map(a => b => ... => bodyWithMaps).ap(e2).ap(...)
-          let curriedBody = bodyWithMaps;
-          for (let j = bindSteps.length - 1; j > 0; j--) {
-            curriedBody = createArrowFn(factory, bindSteps[j].name, curriedBody);
+          let tupleWithMaps: ts.Expression = tuple;
+          for (const mapStep of [...mapSteps].reverse()) {
+            tupleWithMaps = createIIFE(factory, mapStep.name, tupleWithMaps, mapStep.expression);
           }
-
-          let chain: ts.Expression = createMethodCall(
+          let curried: ts.Expression = tupleWithMaps;
+          for (let j = bindSteps.length - 1; j > 0; j--) {
+            curried = createArrowFn(factory, bindSteps[j].name, curried);
+          }
+          joined = createMethodCall(
             factory,
             bindSteps[0].effect,
             "map",
-            createArrowFn(factory, bindSteps[0].name, curriedBody)
+            createArrowFn(factory, bindSteps[0].name, curried)
           );
-
           for (let j = 1; j < bindSteps.length; j++) {
-            chain = createMethodCall(factory, chain, "ap", bindSteps[j].effect);
+            joined = createMethodCall(factory, joined, "ap", bindSteps[j].effect);
           }
-
-          inner = chain;
         }
+        const tupleParam = factory.createParameterDeclaration(
+          undefined,
+          undefined,
+          createTupleBindingPattern(factory, names)
+        );
+        inner = createStyleAwareCall(
+          factory,
+          doMeta,
+          continueMethod,
+          joined,
+          factory.createArrowFunction(
+            undefined,
+            undefined,
+            [tupleParam],
+            undefined,
+            factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+            inner
+          )
+        );
+        innerIsEffect = true;
         break;
       }
     }

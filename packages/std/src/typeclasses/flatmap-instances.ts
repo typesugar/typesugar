@@ -130,6 +130,11 @@ export const flatMapPromise: FlatMap<_PromiseTag> = {
  *
  * Uses generator functions for lazy evaluation.
  * Elements are produced on demand, not eagerly.
+ *
+ * Plain iterables (Set, Map, generators) have no `.flatMap`/`.map` methods,
+ * so do-notation calls this instance statically (it imports it itself).
+ *
+ * @do-methods bind=flatMap map=map style=static receiver=flatMapIterable
  */
 export const flatMapIterable: FlatMap<_IterableTag> = {
   map: <A, B>(fa: unknown, f: (a: A) => B): unknown => iterableMap(fa as Iterable<A>, f),
@@ -142,6 +147,11 @@ export const flatMapIterable: FlatMap<_IterableTag> = {
  *
  * Uses async generator functions for lazy async evaluation.
  * Useful for streaming data processing.
+ *
+ * AsyncIterables have no `.flatMap`/`.map` methods, so do-notation calls
+ * this instance statically (it imports it itself).
+ *
+ * @do-methods bind=flatMap map=map style=static receiver=flatMapAsyncIterable
  */
 export const flatMapAsyncIterable: FlatMap<_AsyncIterableTag> = {
   map: <A, B>(fa: unknown, f: (a: A) => B): unknown => asyncIterableMap(fa as AsyncIterable<A>, f),

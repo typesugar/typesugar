@@ -97,7 +97,7 @@ yield: ({ user, posts });
 
 ### Guards with `if`
 
-Filter values with `if` statements:
+Filter values with `if` statements. Guards need an empty value to filter with, so they work for `Array`, `Iterable` and `AsyncIterable` comprehensions; on any other type (Promise, Option, Effect, …) a guard is a compile error:
 
 ```typescript
 let: {
@@ -111,11 +111,11 @@ yield: {
 // Result: [2, 4]
 ```
 
-Guards emit a ternary that short-circuits on false:
+A guard turns the bind before it into a `flatMap` that returns an empty array when the condition is false:
 
 ```typescript
 // Compiles to:
-[1, 2, 3, 4, 5].map((x) => (x % 2 === 0 ? x : undefined));
+[1, 2, 3, 4, 5].flatMap((x) => (x % 2 === 0 ? [x] : []));
 ```
 
 ### Fallback with `||` and `??`
@@ -185,15 +185,21 @@ Some(10).flatMap((x) => ((doubled) => Some(doubled).map((y) => y))(x * 2));
 
 ### Implicit Yield
 
-Omit `yield:` to return the last binding directly:
+Omit `yield:` to return the last binding's effect directly:
 
 ```typescript
 let: {
   a << Some(10);
   b << Some(20);
 }
-// No yield: — returns Some(20)
+// No yield: — compiles to Some(10).flatMap((a) => Some(20)), i.e. Some(20)
 ```
+
+Nothing may follow the last binding in this form — a guard, pure map or `par:` group after it is a compile error asking for an explicit `yield:` block.
+
+### Using the Result
+
+A comprehension is a statement-level label, so where its value can go is limited. At module top level, assign it with `const result =` (optionally on its own line before `let:`); an arrow function body (`const f = () =>` followed by a newline and `let:`) also works. In those expression positions the first statement of the block must be a plain `name << expr` binding — a leading or nested `par:` group is only supported when the comprehension is a statement on its own.
 
 ### Object Literals in Yield
 
@@ -354,7 +360,7 @@ yield: ({ user, config });
 
 ## Nesting: `par:` / `all:` Inside `let:` / `seq:`
 
-You can nest `par:` / `all:` blocks inside `let:` / `seq:` for mixed sequential and parallel flows. Bindings from the inner block are in scope for the outer block:
+You can nest `par:` / `all:` blocks inside `let:` / `seq:` for mixed sequential and parallel flows. Bindings from the inner block are in scope for the rest of the outer block. The group is joined with the type's `ParCombine` (`Promise.all`, `Effect.all`, the Array/Iterable cartesian product, or `.map().ap()`), then continued like a single bind — with `flatMap` when more bindings follow, so the result is never nested:
 
 ```typescript
 seq: {
@@ -378,12 +384,14 @@ For object literal returns, use parentheses: `yield: { ({ a, b }) }`.
 
 Built-in `FlatMap` instances:
 
-| Type            | Method Used  |
-| --------------- | ------------ |
-| `Array`         | `.flatMap()` |
-| `Promise`       | `.then()`    |
-| `Iterable`      | `.flatMap()` |
-| `AsyncIterable` | `.flatMap()` |
+| Type            | Method Used                                                      |
+| --------------- | ---------------------------------------------------------------- |
+| `Array`         | `.flatMap()` / `.map()`                                          |
+| `Promise`       | `.then()`                                                        |
+| `Iterable`      | `flatMapIterable.flatMap(fa, f)` (static; imported for you)      |
+| `AsyncIterable` | `flatMapAsyncIterable.flatMap(fa, f)` (static; imported for you) |
+
+Plain iterables (`Set`, `Map`, generators) and async iterables have no `.flatMap` method, so the comprehension calls the std instance directly; the result is a lazy iterable.
 
 ### par: (ParCombine typeclass)
 
