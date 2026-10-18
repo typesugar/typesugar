@@ -36,6 +36,7 @@ export {
   type ContractsConfig,
   type SecurityConfig,
 } from "./config.js";
+export { ConfigConditionError, evaluateConfigCondition } from "./config-condition.js";
 
 // Re-export commonly used types for convenience
 export type {

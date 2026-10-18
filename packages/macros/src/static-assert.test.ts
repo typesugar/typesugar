@@ -245,6 +245,16 @@ describe("staticAssertMacro — falsy conditions emit TS9217", () => {
     });
   });
 
+  it("NaN (0/0) is falsy → error diagnostic (review macros-other #21)", () => {
+    withStaticAssert(`0 / 0, "must not be NaN"`, ({ ctx, callExpr, diagnostics }) => {
+      staticAssertMacro.expand(ctx, callExpr, callExpr.arguments);
+      const diags = diagnostics();
+      expect(diags).toHaveLength(1);
+      expect(diags[0].severity).toBe("error");
+      expect(diags[0].message).toContain("must not be NaN");
+    });
+  });
+
   it("numeric `0` is falsy → error diagnostic", () => {
     withStaticAssert(`0, "n must be nonzero"`, ({ ctx, callExpr, diagnostics }) => {
       staticAssertMacro.expand(ctx, callExpr, callExpr.arguments);

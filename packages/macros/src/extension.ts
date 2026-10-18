@@ -71,7 +71,7 @@ export {
 export const extensionAttribute: AttributeMacro = defineAttributeMacro({
   name: "extension",
   module: "typesugar",
-  cacheable: true,
+  cacheable: false, // registers into a live registry (side effect); a cache hit would skip it
   description: "Mark a function as an extension method (first param becomes receiver)",
   validTargets: ["function", "property"],
 
@@ -317,6 +317,7 @@ export function createRegistrationCall(
 
 export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
   name: "registerExtensions",
+  cacheable: false, // registers into a live registry (side effect); a cache hit would skip it
   description:
     "Register all methods of a namespace object as extension methods for a concrete type",
 
@@ -384,6 +385,7 @@ export const registerExtensionsMacro: ExpressionMacro = defineExpressionMacro({
 
 export const registerExtensionMacro: ExpressionMacro = defineExpressionMacro({
   name: "registerExtension",
+  cacheable: false, // registers into a live registry (side effect); a cache hit would skip it
   description: "Register a single function as an extension method for a concrete type",
 
   expand(

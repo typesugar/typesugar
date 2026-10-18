@@ -238,7 +238,8 @@ describe("macro metadata", () => {
     expect(extensionAttribute.kind).toBe("attribute");
     expect(extensionAttribute.name).toBe("extension");
     expect(extensionAttribute.module).toBe("typesugar");
-    expect(extensionAttribute.cacheable).toBe(true);
+    // registers into a live registry; a cache hit would skip the registration (review #2)
+    expect(extensionAttribute.cacheable).toBe(false);
     expect(extensionAttribute.validTargets).toEqual(["function", "property"]);
   });
 

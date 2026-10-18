@@ -39,7 +39,13 @@ import "./adt.js"; // @adt macro for algebraic data types (PEP-014)
 // registration of typeInfo macro. Import it separately when needed.
 
 // Re-export for programmatic use
-export { comptimeMacro, jsToComptimeValue, type ComptimePermissions } from "./comptime.js";
+export {
+  comptimeMacro,
+  jsToComptimeValue,
+  setComptimeEvaluationEnabled,
+  isComptimeEvaluationEnabled,
+  type ComptimePermissions,
+} from "./comptime.js";
 export {
   // Derive markers for use in @derive() decorators
   // Eq, Ord, Hash, Show are frozen objects carrying primitive instances
@@ -178,6 +184,7 @@ export {
   hashProduct,
   deriveShowViaGeneric,
   deriveEqViaGeneric,
+  genericDeriveMacro,
 } from "./generic.js";
 
 // --- Scala 3-style typeclass derivation via Mirror/Generic ---
@@ -431,9 +438,16 @@ export {
   validator,
   // Conditional compilation
   cfg,
+  cfgAttr,
+  type CfgBranch,
   // File include stubs
   includeStr,
   includeJson,
+  includeBytes,
+  includeText,
+  // Compile-time diagnostics
+  compileError,
+  compileWarning,
   // Static assert
   staticAssert,
   // Tail recursion
