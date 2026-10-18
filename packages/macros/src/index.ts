@@ -87,7 +87,6 @@ export {
   getTypeclassesForMethod,
   extractOpFromJSDoc,
   registerInstanceWithMeta,
-  getSpecializationMethodsForDerivation,
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
@@ -106,6 +105,9 @@ export {
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
   inlineMethod,
+  collectMethodFreeNames,
+  forEachMethodFreeReference,
+  methodDependsOnReceiver,
   flattenReturnsToExpression,
   analyzeForFlattening,
   SpecializationCache,
@@ -226,6 +228,8 @@ export {
   monoidString,
   monoidArray,
   // Grouped exports (Eq, Ord, Hash, Show are now on the derive markers in derive.ts)
+  Semigroup,
+  Monoid,
   Semigroup as SemigroupPrimitives,
   Monoid as MonoidPrimitives,
 } from "./primitives.js";

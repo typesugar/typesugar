@@ -556,8 +556,8 @@ describe("SpecializationCache integration", () => {
     );
   });
 
-  it("computeKey sorts brands so order does not matter", () => {
-    expect(SpecializationCache.computeKey("f", ["B", "A"])).toBe(
+  it("computeKey is order-sensitive: swapped dictionaries are a different specialization (tc#9)", () => {
+    expect(SpecializationCache.computeKey("f", ["B", "A"])).not.toBe(
       SpecializationCache.computeKey("f", ["A", "B"])
     );
   });
