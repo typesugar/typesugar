@@ -122,8 +122,13 @@ export function trimIndent(s: string): string {
   return ls.map((l) => l.slice(minIndent)).join("\n");
 }
 
+/**
+ * Remove leading horizontal whitespace followed by `marginChar` from every line.
+ * `marginChar` is matched literally (it may be any string, including regex
+ * metacharacters); blank lines are kept.
+ */
 export function stripMargin(s: string, marginChar: string = "|"): string {
-  const re = new RegExp(`^\\s*\\${marginChar}`, "gm");
+  const re = new RegExp(`^[^\\S\\r\\n]*${escapeRegex(marginChar)}`, "gm");
   return s.replace(re, "");
 }
 
@@ -421,27 +426,44 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, "&#039;");
 }
 
+const HTML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#039;": "'",
+  "&#39;": "'",
+};
+
+/** Inverse of `escapeHtml`. Decodes in one pass, so `&amp;lt;` becomes `&lt;`, not `<`. */
 export function unescapeHtml(s: string): string {
-  return s
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#039;/g, "'");
+  return s.replace(/&(?:amp|lt|gt|quot|#0?39);/g, (m) => HTML_ENTITIES[m]);
 }
 
 export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Base64 of the string's UTF-8 bytes (same output as Node's
+ * `Buffer.from(s, "utf8").toString("base64")`, in every environment).
+ */
 export function toBase64(s: string): string {
-  if (typeof btoa !== "undefined") return btoa(s);
-  return Buffer.from(s).toString("base64");
+  const bytes = new TextEncoder().encode(s);
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
+/** Decode base64 to bytes and read them as UTF-8 (inverse of `toBase64`). */
 export function fromBase64(s: string): string {
-  if (typeof atob !== "undefined") return atob(s);
-  return Buffer.from(s, "base64").toString();
+  const binary = atob(s);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
 }
 
 // ============================================================================

@@ -73,7 +73,8 @@ export function drop<A>(arr: readonly A[], n: number): A[] {
 }
 
 export function takeRight<A>(arr: readonly A[], n: number): A[] {
-  return arr.slice(-n);
+  // slice(-0) is slice(0), i.e. the whole array.
+  return n <= 0 ? [] : arr.slice(-n);
 }
 
 export function dropRight<A>(arr: readonly A[], n: number): A[] {
@@ -107,12 +108,18 @@ export function span<A>(arr: readonly A[], pred: (a: A) => boolean): [A[], A[]] 
 // ============================================================================
 // Grouping (Lodash/Kotlin/Scala groupBy, Haskell group, Ruby each_slice/each_cons)
 // ============================================================================
+//
+// The record-building helpers here (groupBy, keyBy, countBy, associate,
+// zipObject) return prototype-less objects (`Object.create(null)`), so any key
+// — including "constructor", "toString" and "__proto__" — is stored as plain
+// data. The result has no inherited methods: use `Object.hasOwn(r, k)` or
+// `k in r`, not `r.hasOwnProperty(k)`.
 
 export function groupBy<A, K extends string | number | symbol>(
   arr: readonly A[],
   fn: (a: A) => K
 ): Record<K, A[]> {
-  const result = {} as Record<K, A[]>;
+  const result = Object.create(null) as Record<K, A[]>;
   for (const x of arr) {
     const key = fn(x);
     (result[key] ??= []).push(x);
@@ -124,7 +131,7 @@ export function keyBy<A, K extends string | number | symbol>(
   arr: readonly A[],
   fn: (a: A) => K
 ): Record<K, A> {
-  const result = {} as Record<K, A>;
+  const result = Object.create(null) as Record<K, A>;
   for (const x of arr) result[fn(x)] = x;
   return result;
 }
@@ -133,7 +140,7 @@ export function countBy<A, K extends string | number | symbol>(
   arr: readonly A[],
   fn: (a: A) => K
 ): Record<K, number> {
-  const result = {} as Record<K, number>;
+  const result = Object.create(null) as Record<K, number>;
   for (const x of arr) {
     const key = fn(x);
     result[key] = (result[key] ?? 0) + 1;
@@ -543,7 +550,7 @@ export function associate<A, K extends string | number | symbol, V>(
   arr: readonly A[],
   fn: (a: A) => [K, V]
 ): Record<K, V> {
-  const result = {} as Record<K, V>;
+  const result = Object.create(null) as Record<K, V>;
   for (const x of arr) {
     const [k, v] = fn(x);
     result[k] = v;
@@ -563,7 +570,7 @@ export function zipObject<K extends string | number | symbol, V>(
   keys: readonly K[],
   values: readonly V[]
 ): Record<K, V> {
-  const result = {} as Record<K, V>;
+  const result = Object.create(null) as Record<K, V>;
   for (let i = 0; i < keys.length; i++) {
     result[keys[i]] = values[i];
   }

@@ -19,8 +19,13 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
-import { resolveInstance } from "@typesugar/macros";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  isSyntheticNode,
+  MacroContext,
+} from "@typesugar/core";
+import { resolveInstance, type ResolvedInstance } from "@typesugar/macros";
 
 /**
  * Maps capability names to their corresponding typeclass info.
@@ -93,6 +98,28 @@ const CAPABILITY_TO_TYPECLASS: Record<
     ],
   },
 };
+
+/**
+ * An expression that refers to a resolved instance from the call site: the
+ * local binding for an explicit import, an ensured import for an instance found
+ * by scanning an imported module, or the (possibly dotted) name for a local one.
+ *
+ * Mirrors `buildInstanceReference` in @typesugar/macros' instance-resolver,
+ * which that package does not export.
+ */
+function instanceReference(ctx: MacroContext, resolved: ResolvedInstance): ts.Expression {
+  const f = ctx.factory;
+  if (resolved.source === "explicit-import" && resolved.localName && !resolved.typeOnlyImport) {
+    return f.createIdentifier(resolved.localName);
+  }
+  if (resolved.source !== "local-scope" && resolved.importSpecifier) {
+    return ctx.ensureImport(resolved.exportName, resolved.importSpecifier);
+  }
+  const parts = resolved.exportName.split(".");
+  let expr: ts.Expression = f.createIdentifier(parts[0]);
+  for (let i = 1; i < parts.length; i++) expr = f.createPropertyAccessExpression(expr, parts[i]);
+  return expr;
+}
 
 /**
  * Extract capability names from a tuple type like `[Show, Eq]` or `[ShowCapability, EqCapability]`.
@@ -184,9 +211,22 @@ export const erasedMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    // Infer the concrete type of the value
+    // Infer the concrete type of the value. A macro-generated argument has no
+    // position, and the checker can throw on it (CLAUDE.md): report instead.
+    if (isSyntheticNode(valueExpr)) {
+      ctx.reportError(
+        callExpr,
+        "erased(): cannot infer the type of a macro-generated argument; " +
+          "use eraseWith(value, vtable) instead"
+      );
+      return callExpr;
+    }
     const valueType = typeChecker.getTypeAtLocation(valueExpr);
-    const typeName = getBaseTypeName(valueType, typeChecker);
+    // `erased<[Eq]>(42)` sees the literal type `42`; instances are declared for
+    // `number`, so fall back to the literal's base type when the exact type has
+    // no instance.
+    const baseType = typeChecker.getBaseTypeOfLiteralType(valueType);
+    const typeName = getBaseTypeName(baseType, typeChecker);
 
     // Build vtable properties
     const vtableProperties: ts.PropertyAssignment[] = [];
@@ -204,12 +244,15 @@ export const erasedMacro = defineExpressionMacro({
       }
 
       // Resolve the typeclass instance from scope (PEP-052: registry-free).
-      const resolved = resolveInstance(ctx, mapping.typeclass, valueType);
+      let resolved = resolveInstance(ctx, mapping.typeclass, valueType);
+      if ((!resolved || resolved.kind !== "resolved") && baseType !== valueType) {
+        resolved = resolveInstance(ctx, mapping.typeclass, baseType);
+      }
       if (!resolved || resolved.kind !== "resolved") {
         missingInstances.push(`${mapping.typeclass}<${typeName}>`);
         continue;
       }
-      const instanceName = resolved.exportName;
+      const resolvedInstance = resolved;
 
       // Generate vtable method entries
       for (const method of mapping.methods) {
@@ -254,7 +297,7 @@ export const erasedMacro = defineExpressionMacro({
 
         const instanceCall = factory.createCallExpression(
           factory.createPropertyAccessExpression(
-            factory.createIdentifier(instanceName),
+            instanceReference(ctx, resolvedInstance),
             factory.createIdentifier(method.tcMethod)
           ),
           undefined,
@@ -292,10 +335,13 @@ export const erasedMacro = defineExpressionMacro({
     // Generate: eraseWith(value, { show: ..., equals: ... })
     const vtableObj = factory.createObjectLiteralExpression(vtableProperties, true);
 
-    return factory.createCallExpression(factory.createIdentifier("eraseWith"), undefined, [
-      valueExpr,
-      vtableObj,
-    ]);
+    // ensureImport: the user typically imports only `erased`, so `eraseWith`
+    // must be brought into scope (aliased if a local binding has that name).
+    return factory.createCallExpression(
+      ctx.ensureImport("eraseWith", "@typesugar/erased"),
+      undefined,
+      [valueExpr, vtableObj]
+    );
   },
 });
 
