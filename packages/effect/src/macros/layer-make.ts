@@ -36,8 +36,14 @@
  */
 
 import * as ts from "typescript";
-import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
-import type { LayerInfo } from "./layer.js";
+import {
+  type ExpressionMacro,
+  type MacroContext,
+  defineExpressionMacro,
+  isSyntheticNode,
+} from "@typesugar/core";
+import { getLayer, type LayerInfo } from "./layer.js";
+import { EFFECT001, EFFECT020, reportEffectDiagnostic } from "../diagnostics.js";
 import {
   resolveGraph,
   generateLayerComposition,
@@ -105,6 +111,59 @@ function extractLayerInfoFromType(
   }
 
   return null;
+}
+
+/**
+ * Look up an `@layer`-decorated const in the layer registry — the same
+ * registry `resolveLayer<R>()` reads.
+ *
+ * The checker cannot answer this: `@layer(Database) const databaseLive = {...}`
+ * is rewritten to `Layer.succeed(DatabaseTag, {...})` during THIS pass, so the
+ * Program still sees the undecorated initializer (an object literal, or an
+ * `Effect` for an `Effect.gen` body — whose type arguments the type-based
+ * path would misread as `Layer<ROut, E, RIn>`). The registry is therefore
+ * consulted FIRST.
+ *
+ * SHAPE (CLAUDE.md "Resolving things a macro just generated"): live keyed
+ * registry, written by `@layer` as it expands and read here in the same pass
+ * — safe within a file (declare-before-use). For an imported layer it relies
+ * on the declaring file having been transformed earlier in this process,
+ * exactly like `resolveLayer<R>()`; the entry is keyed by the declaration's
+ * own file, so a same-named layer in another file never matches.
+ */
+function lookupRegisteredLayer(
+  ctx: MacroContext,
+  expr: ts.Expression,
+  exprName: string
+): LayerInfo | null {
+  if (!ts.isIdentifier(expr)) return null;
+
+  let declName = expr.text;
+  let declFile = ctx.sourceFile.fileName;
+  // CLAUDE.md rule 3: never ask the checker about a macro-generated node.
+  if (!isSyntheticNode(expr)) {
+    try {
+      let symbol = ctx.typeChecker.getSymbolAtLocation(expr);
+      if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+        symbol = ctx.typeChecker.getAliasedSymbol(symbol);
+      }
+      const decl = symbol?.declarations?.find(ts.isVariableDeclaration);
+      if (decl && ts.isIdentifier(decl.name)) {
+        declName = decl.name.text;
+        declFile = decl.getSourceFile().fileName;
+      }
+    } catch (e) {
+      ctx.reportWarning(
+        expr,
+        `layerMake: the type checker failed resolving '${exprName}' ` +
+          `(${e instanceof Error ? e.message : String(e)}); looking it up as a layer of this file.`
+      );
+    }
+  }
+
+  const registered = getLayer(declName, declFile);
+  // Keyed by the argument's own name: composition looks the expression up by it.
+  return registered ? { ...registered, name: exprName } : null;
 }
 
 /**
@@ -193,7 +252,8 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
 
     for (const layerArg of layerArgs) {
       const name = getLayerExprName(layerArg);
-      const info = extractLayerInfoFromType(ctx, layerArg, name);
+      const info =
+        lookupRegisteredLayer(ctx, layerArg, name) ?? extractLayerInfoFromType(ctx, layerArg, name);
 
       if (info) {
         providedLayers.push(info);
@@ -202,7 +262,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
         ctx.reportWarning(
           layerArg,
           `Could not determine what service '${name}' provides. ` +
-            `Ensure it has type Layer<Service, E, Requirements>.`
+            `Ensure it has type Layer<Service, E, Requirements> or is an @layer(Service) const.`
         );
       }
     }
@@ -236,22 +296,15 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
       const resolution = resolveGraph(targetServices, findLayersForService, providedLayers);
 
       if (resolution.missing.length > 0) {
-        const missingList = resolution.missing
-          .map((m) => {
-            // Find which provided layer requires this missing service
-            const requiredBy = providedLayers
-              .filter((l) => l.requires.includes(m))
-              .map((l) => l.name);
-            const suffix = requiredBy.length > 0 ? ` (required by ${requiredBy.join(", ")})` : "";
-            return `  - ${m}${suffix}`;
-          })
-          .join("\n");
-
-        ctx.reportError(
-          callExpr,
-          `Missing layers for:\n${missingList}\n` +
-            `Add the missing layers to layerMake<R>() arguments.`
-        );
+        for (const m of resolution.missing) {
+          // Which provided layers require this missing service
+          const requiredBy = providedLayers
+            .filter((l) => l.requires.includes(m))
+            .map((l) => l.name);
+          const diag = reportEffectDiagnostic(ctx, EFFECT001).at(callExpr).withArgs({ service: m });
+          if (requiredBy.length > 0) diag.note(`required by ${requiredBy.join(", ")}`);
+          diag.help(`Add a layer providing ${m} to the layerMake<R>() arguments.`).emit();
+        }
         return emptyLayer(ctx);
       }
 
@@ -269,7 +322,10 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
       return generateLayerComposition(ctx, resolution, layerExprMap);
     } catch (e) {
       if (e instanceof CircularDependencyError) {
-        ctx.reportError(callExpr, `Circular layer dependency: ${e.cycle.join(" → ")}`);
+        reportEffectDiagnostic(ctx, EFFECT020)
+          .at(callExpr)
+          .note(`Dependency cycle: ${e.cycle.join(" → ")}`)
+          .emit();
         return emptyLayer(ctx);
       }
       ctx.reportError(

@@ -591,3 +591,115 @@ describe("runtime instances (#26, #27)", () => {
     expect(Effect.runSync(all as Effect.Effect<number[]>)).toEqual([1, 2]);
   });
 });
+
+// ============================================================================
+// Docs review 2026-10 (guides-a #6, authoring #11): layerMake<R>() over
+// @layer-decorated consts — the guide/README Quick Start shape
+// ============================================================================
+
+describe("layerMake<R>() over @layer consts (docs review guides-a #6)", () => {
+  const quickStart = (call: string) => `
+import { Effect } from "effect";
+import { service, layer, layerMake, resolveLayer } from "@typesugar/effect";
+
+@service
+interface Database {
+  query(sql: string): Effect.Effect<string>;
+}
+
+@service
+interface UserRepo {
+  findById(id: string): Effect.Effect<string>;
+}
+
+@layer(Database)
+const databaseLive = {
+  query: (sql: string) => Effect.succeed("rows for " + sql),
+};
+
+@layer(UserRepo, { requires: [Database] })
+const userRepoLive = Effect.gen(function* () {
+  const db = yield* DatabaseTag;
+  return { findById: (id: string) => db.query("SELECT " + id) };
+});
+
+export const appLayer = ${call};
+export const prog = Effect.flatMap(UserRepoTag, (r) => r.findById("42"));
+`;
+
+  it("recognises what each @layer const provides and wires the dependency", () => {
+    layerRegistry.clear();
+    try {
+      const e = expand(quickStart("layerMake<UserRepo | Database>(userRepoLive, databaseLive)"));
+      expect(e.errors).toEqual([]);
+      expect(e.warnings.join("\n")).not.toMatch(/Could not determine/);
+      expect(e.code).toMatch(/const userRepoLive = Layer\.effect\(UserRepoTag/);
+      expect(e.code).not.toMatch(/appLayer = Layer\.empty/);
+      const m = run(e.code);
+      expect(Effect.runSync(Effect.provide(m.prog, m.appLayer))).toBe("rows for SELECT 42");
+    } finally {
+      layerRegistry.clear();
+    }
+  });
+
+  it("matches resolveLayer<R>() over the same consts", () => {
+    layerRegistry.clear();
+    try {
+      const e = expand(quickStart("resolveLayer<UserRepo>()"));
+      expect(e.errors).toEqual([]);
+      const m = run(e.code);
+      expect(Effect.runSync(Effect.provide(m.prog, m.appLayer))).toBe("rows for SELECT 42");
+    } finally {
+      layerRegistry.clear();
+    }
+  });
+
+  it("reports EFFECT001 per missing service (layerMake)", () => {
+    layerRegistry.clear();
+    try {
+      const e = expand(quickStart("layerMake<UserRepo>(userRepoLive)"));
+      expect(e.errors).toHaveLength(1);
+      expect(e.errors[0]).toMatch(/\[EFFECT001\] No layer provides `Database`/);
+      expect(e.errors[0]).toMatch(/required by userRepoLive/);
+    } finally {
+      layerRegistry.clear();
+    }
+  });
+
+  it("reports EFFECT001 per missing service (resolveLayer)", () => {
+    layerRegistry.clear();
+    try {
+      const e = expand(
+        quickStart("resolveLayer<UserRepo>()").replace(
+          /@layer\(Database\)\nconst databaseLive = \{\n.*\n\};/,
+          ""
+        )
+      );
+      expect(e.errors).toHaveLength(1);
+      expect(e.errors[0]).toMatch(/\[EFFECT001\] No layer provides `Database`/);
+      expect(e.errors[0]).toMatch(/@layer\(Database\)/);
+    } finally {
+      layerRegistry.clear();
+    }
+  });
+
+  it("reports EFFECT020 for a layer cycle", () => {
+    layerRegistry.clear();
+    try {
+      const src = quickStart("resolveLayer<UserRepo>()").replace(
+        "@layer(Database)\n",
+        "@layer(Database, { requires: [UserRepo] })\n"
+      );
+      const e = expand(src);
+      expect(e.errors).toHaveLength(1);
+      expect(e.errors[0]).toMatch(/\[EFFECT020\] Circular layer dependency detected/);
+      expect(e.errors[0]).toMatch(/UserRepo → Database → UserRepo|Database → UserRepo → Database/);
+      const e2 = expand(
+        src.replace("resolveLayer<UserRepo>()", "layerMake<UserRepo>(userRepoLive, databaseLive)")
+      );
+      expect(e2.errors.join("\n")).toMatch(/\[EFFECT020\]/);
+    } finally {
+      layerRegistry.clear();
+    }
+  });
+});

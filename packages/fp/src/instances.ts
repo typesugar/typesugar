@@ -547,6 +547,7 @@ import { map as validatedMap, andThen as validatedFlatMap } from "./data/validat
  */
 /**
  * @impl FlatMap<OptionF>
+ * @do-methods bind=flatMap map=map style=static receiver=flatMapOption
  * @do-instance-module @typesugar/fp
  */
 export const flatMapOption = {
@@ -578,6 +579,7 @@ export function flatMapEither<E>() {
  */
 /**
  * @impl FlatMap<EitherF>
+ * @do-methods bind=flatMap map=map style=static receiver=flatMapEitherInstance
  * @do-instance-module @typesugar/fp
  */
 export const flatMapEitherInstance = flatMapEither<unknown>();
@@ -586,6 +588,7 @@ export const flatMapEitherInstance = flatMapEither<unknown>();
  */
 /**
  * @impl FlatMap<IOF>
+ * @do-methods bind=flatMap map=map style=static receiver=flatMapIO
  * @do-instance-module @typesugar/fp
  */
 export const flatMapIO = {
@@ -598,6 +601,7 @@ export const flatMapIO = {
  */
 /**
  * @impl FlatMap<ListF>
+ * @do-methods bind=flatMap map=map style=static receiver=flatMapList
  * @do-instance-module @typesugar/fp
  */
 export const flatMapList = {
