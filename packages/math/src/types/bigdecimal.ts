@@ -13,6 +13,7 @@
  */
 
 import type { Numeric, Ord } from "@typesugar/std";
+import { parseDecimalString } from "./decimal-string.js";
 
 /**
  * Arbitrary precision decimal number.
@@ -51,40 +52,9 @@ export function bigDecimal(value: bigint | number | string, scale?: number): Big
  * Parse a BigDecimal from a string like "123.456" or "-0.001" or "1e-5".
  */
 export function fromString(s: string): BigDecimal {
-  s = s.trim();
-
-  // Handle scientific notation
-  const eIndex = s.toLowerCase().indexOf("e");
-  if (eIndex !== -1) {
-    const mantissa = s.slice(0, eIndex);
-    const exponent = parseInt(s.slice(eIndex + 1), 10);
-    const base = fromString(mantissa);
-    // Adjust scale by exponent
-    return { unscaled: base.unscaled, scale: base.scale - exponent };
-  }
-
-  const negative = s.startsWith("-");
-  if (negative || s.startsWith("+")) {
-    s = s.slice(1);
-  }
-
-  const dotIndex = s.indexOf(".");
-  let unscaled: bigint;
-  let scale: number;
-
-  if (dotIndex === -1) {
-    // No decimal point
-    unscaled = BigInt(s);
-    scale = 0;
-  } else {
-    // Remove the dot and calculate scale
-    const intPart = s.slice(0, dotIndex);
-    const fracPart = s.slice(dotIndex + 1);
-    unscaled = BigInt(intPart + fracPart);
-    scale = fracPart.length;
-  }
-
-  return { unscaled: negative ? -unscaled : unscaled, scale };
+  // Strict exact parse (MU-19): `BigInt()` alone accepted "", "0x10", a second
+  // sign, etc., and "1e" produced scale NaN.
+  return parseDecimalString(s, "BigDecimal");
 }
 
 /**
@@ -105,6 +75,10 @@ function fromNumber(n: number): BigDecimal {
  * Convert a BigDecimal to a JavaScript number.
  * May lose precision for large values.
  */
+function digitCount(x: bigint): number {
+  return (x < 0n ? -x : x).toString().length;
+}
+
 export function toNumber(bd: BigDecimal): number {
   if (bd.scale === 0) {
     return Number(bd.unscaled);
@@ -313,7 +287,9 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
 
   div: (a, b) => {
     if (b.unscaled === 0n) throw new RangeError("BigDecimal division by zero");
-    const extraScale = 20;
+    // At least 20 significant digits in the quotient (MU-16): a fixed 20 extra
+    // places relative to the dividend gave 0 for divisors with > 20 digits.
+    const extraScale = Math.max(20, 21 + digitCount(b.unscaled) - digitCount(a.unscaled));
     const scaled = a.unscaled * 10n ** BigInt(extraScale);
     return normalize({
       unscaled: scaled / b.unscaled,
@@ -322,18 +298,20 @@ export const numericBigDecimal: Numeric<BigDecimal> = {
   },
 
   pow: (a, b) => {
-    const n = Number(b.unscaled / 10n ** BigInt(b.scale));
-    const intN = Math.round(n);
-    if (intN === 0) return { unscaled: 1n, scale: 0 };
-    let result: BigDecimal = { unscaled: 1n, scale: 0 };
-    const base = intN > 0 ? a : numericBigDecimal.div({ unscaled: 1n, scale: 0 } as BigDecimal, a);
-    for (let i = 0; i < Math.abs(intN); i++) {
-      result = normalize({
-        unscaled: result.unscaled * base.unscaled,
-        scale: result.scale + base.scale,
-      });
+    // Normalize first so "1e1" (scale -1) and "2.0" (scale 1) are read as the
+    // integers they are; reject genuinely fractional exponents instead of
+    // silently truncating them (MU-16).
+    const nb = normalize(b);
+    if (nb.scale > 0) {
+      throw new RangeError(`BigDecimal.pow: exponent must be an integer, got ${toString(b)}`);
     }
-    return result;
+    const n = Number(nb.unscaled * 10n ** BigInt(-nb.scale));
+    if (!Number.isSafeInteger(n)) {
+      throw new RangeError(`BigDecimal.pow: exponent out of range: ${toString(b)}`);
+    }
+    if (n === 0) return { unscaled: 1n, scale: 0 };
+    const positive = pow(a, Math.abs(n));
+    return n > 0 ? positive : numericBigDecimal.div({ unscaled: 1n, scale: 0 }, positive);
   },
 
   negate: (a) => ({ unscaled: -a.unscaled, scale: a.scale }),
@@ -466,11 +444,11 @@ export function pow(bd: BigDecimal, exp: number): BigDecimal {
   let e = exp;
 
   while (e > 0) {
-    if (e & 1) {
+    if (e % 2 === 1) {
       result = numericBigDecimal.mul(result, base);
     }
-    base = numericBigDecimal.mul(base, base);
-    e >>>= 1;
+    e = Math.floor(e / 2); // not `>>>= 1`, which truncates exponents >= 2^32
+    if (e > 0) base = numericBigDecimal.mul(base, base);
   }
 
   return normalize(result);

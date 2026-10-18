@@ -144,11 +144,9 @@ describe("Rational Number Edge Cases", () => {
       expect(product.num).toBe(10n ** 100n);
     });
 
-    it("rat() with number truncates", () => {
-      const r = rat(5.9, 2.1);
-      // 5.9 truncates to 5, 2.1 truncates to 2
-      expect(r.num).toBe(5n);
-      expect(r.den).toBe(2n);
+    it("rat() rejects non-integer numbers instead of truncating", () => {
+      // Silently truncating 5.9/2.1 to 5/2 was review finding MU-19.
+      expect(() => rat(5.9, 2.1)).toThrow(RangeError);
     });
   });
 

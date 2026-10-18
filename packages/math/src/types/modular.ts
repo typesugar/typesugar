@@ -40,12 +40,17 @@ export interface Mod<N extends number> {
  * The value is automatically normalized to [0, modulus).
  */
 export function mod<N extends number>(value: number, modulus: N): Mod<N> {
-  if (modulus <= 0) {
-    throw new RangeError(`Modulus must be positive, got ${modulus}`);
+  if (!Number.isSafeInteger(modulus) || modulus <= 0) {
+    throw new RangeError(`Modulus must be a positive safe integer, got ${modulus}`);
   }
-  // Normalize to [0, modulus)
-  const normalized = ((value % modulus) + modulus) % modulus;
-  return { value: normalized, modulus };
+  if (!Number.isInteger(value)) {
+    throw new RangeError(`Mod value must be an integer, got ${value}`);
+  }
+  // Normalize to [0, modulus). `((v % m) + m) % m` can exceed 2^53 (and so
+  // round) for m near 2^53; adding m only to a negative remainder stays below m.
+  let normalized = value % modulus;
+  if (normalized < 0) normalized += modulus;
+  return { value: normalized + 0, modulus }; // + 0 folds -0
 }
 
 /**
@@ -70,7 +75,12 @@ export function one<N extends number>(modulus: N): Mod<N> {
  * Modular addition.
  */
 export function modAdd<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> {
-  return mod(a.value + b.value, a.modulus);
+  const sum = a.value + b.value;
+  if (Number.isSafeInteger(sum)) return mod(sum, a.modulus);
+  return {
+    value: Number((BigInt(a.value) + BigInt(b.value)) % BigInt(a.modulus)),
+    modulus: a.modulus,
+  };
 }
 
 /**
@@ -84,7 +94,16 @@ export function modSub<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> {
  * Modular multiplication.
  */
 export function modMul<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> {
-  return mod(a.value * b.value, a.modulus);
+  const product = a.value * b.value;
+  if (Number.isSafeInteger(product)) return mod(product, a.modulus);
+  // Above 2^53 the float product is already rounded before `%` (MU-7: with
+  // 1e9+7, 999999999² mod p came out 63 instead of 64). Exact via BigInt.
+  return { value: mulMod(a.value, b.value, a.modulus), modulus: a.modulus };
+}
+
+/** `(a · b) mod m` exactly, for non-negative safe integers. */
+function mulMod(a: number, b: number, m: number): number {
+  return Number((BigInt(a) * BigInt(b)) % BigInt(m));
 }
 
 /**
@@ -109,6 +128,9 @@ export function modPow<N extends number>(a: Mod<N>, exp: number): Mod<N> {
     return modPow(inv, -exp);
   }
 
+  if (!Number.isSafeInteger(exp)) {
+    throw new RangeError(`Mod exponent must be a safe integer, got ${exp}`);
+  }
   if (exp === 0) return one(a.modulus);
   if (exp === 1) return a;
 
@@ -117,11 +139,11 @@ export function modPow<N extends number>(a: Mod<N>, exp: number): Mod<N> {
   let e = exp;
 
   while (e > 0) {
-    if (e & 1) {
+    if (e % 2 === 1) {
       result = modMul(result, base);
     }
-    base = modMul(base, base);
-    e >>>= 1;
+    e = Math.floor(e / 2); // not `>>>= 1`, which truncates exponents >= 2^32 (MU-7)
+    if (e > 0) base = modMul(base, base);
   }
 
   return result;
@@ -136,11 +158,19 @@ export function modPow<N extends number>(a: Mod<N>, exp: number): Mod<N> {
  * Returns [gcd, x, y] such that gcd = a*x + b*y
  */
 function extendedGcd(a: number, b: number): [number, number, number] {
-  if (b === 0) {
-    return [a, 1, 0];
+  // Iterative, in BigInt: `Math.floor(a / b)` on floats can be off by one
+  // near 2^53, and the recursive form's intermediates can leave the safe
+  // range (MU-7). |x| <= b and |y| <= a, so the results fit back in numbers.
+  let [oldR, r] = [BigInt(a), BigInt(b)];
+  let [oldS, sCoef] = [1n, 0n];
+  let [oldT, t] = [0n, 1n];
+  while (r !== 0n) {
+    const q = oldR / r;
+    [oldR, r] = [r, oldR - q * r];
+    [oldS, sCoef] = [sCoef, oldS - q * sCoef];
+    [oldT, t] = [t, oldT - q * t];
   }
-  const [g, x, y] = extendedGcd(b, a % b);
-  return [g, y, x - Math.floor(a / b) * y];
+  return [Number(oldR), Number(oldS), Number(oldT)];
 }
 
 /**
@@ -369,8 +399,16 @@ export function crt(r1: number, m1: number, r2: number, m2: number): number {
     throw new RangeError(`CRT requires coprime moduli, got ${m1} and ${m2}`);
   }
 
+  // Exact in BigInt: `m1 * ((x * (r2 - r1)) % m2)` overflows 2^53 for
+  // moduli around 1e8 and up (MU-7).
   const [, x] = extendedGcd(m1, m2);
-  const M = m1 * m2;
-  const result = (r1 + m1 * ((x * (r2 - r1)) % m2)) % M;
-  return ((result % M) + M) % M;
+  const B1 = BigInt(m1);
+  const B2 = BigInt(m2);
+  const M = B1 * B2;
+  const t = (((BigInt(x) * (BigInt(r2) - BigInt(r1))) % B2) + B2) % B2;
+  const result = (((BigInt(r1) + B1 * t) % M) + M) % M;
+  if (result > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError(`CRT result ${result} exceeds Number.MAX_SAFE_INTEGER`);
+  }
+  return Number(result);
 }

@@ -82,7 +82,7 @@ import {
   kilopascals,
   atmospheres,
 } from "./types.js";
-import { UNIT_ALIASES } from "./unit-aliases.js";
+import { UNIT_ALIASES, lookupUnitAlias } from "./unit-aliases.js";
 
 // Map from constructor name to runtime function
 const CONSTRUCTORS_BY_NAME: Record<
@@ -154,7 +154,14 @@ for (const [alias, fnName] of Object.entries(UNIT_ALIASES)) {
  */
 export function units(
   strings: TemplateStringsArray
-): Unit<Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>> {
+  // The dimension depends on the literal's text, which TypeScript cannot see
+  // through a TemplateStringsArray, so it is statically unknown here. Since
+  // `Unit<D>` now checks `D` structurally (MU-2), the wide
+  // `Unit<Dimensions<DimExp, …>>` would be assignable to NO specific
+  // `Unit<Length>` etc.; `any` keeps `const d: Unit<Length> = units\`5 m\``
+  // compiling, at the cost of no dimension checking on this fallback's result.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Unit<any> {
   const text = strings[0].trim();
   const match = text.match(/^(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(.+)?$/i);
 
@@ -170,7 +177,10 @@ export function units(
     return new Unit(value);
   }
 
-  const constructor = UNIT_CONSTRUCTORS[unitStr];
+  // Own-key lookup only: `UNIT_CONSTRUCTORS[unitStr]` would also resolve
+  // inherited Object.prototype members such as "toString" (MU-21).
+  const fnName = lookupUnitAlias(unitStr);
+  const constructor = fnName !== undefined ? UNIT_CONSTRUCTORS[unitStr] : undefined;
   if (!constructor) {
     throw new Error(`Unknown unit: ${unitStr}`);
   }

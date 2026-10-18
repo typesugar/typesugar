@@ -30,15 +30,11 @@ import type { Money } from "./money.js";
 import type { CurrencyDef } from "./currencies.js";
 
 import { rational, fromNumber as rationalFromNumber } from "./rational.js";
-import {
-  bigDecimal,
-  toNumber as bigDecimalToNumber,
-  round as bigDecimalRound,
-} from "./bigdecimal.js";
-import { fixed, fixedToNumber, fixedRound } from "./fixed-decimal.js";
-import { money, moneyFromMajor, moneyToMajor } from "./money.js";
+import { bigDecimal } from "./bigdecimal.js";
+import { fixed, fixedRound } from "./fixed-decimal.js";
+import { money, moneyFromMajor } from "./money.js";
 import { currencyScaleFactor } from "./currencies.js";
-import { type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
+import { roundBigInt, roundDiv, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
 
 // ============================================================================
 // Rational Conversions
@@ -49,6 +45,7 @@ import { type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
  *
  * @param r - Rational to convert
  * @param scale - Number of decimal places
+ * @param mode - Rounding mode (default HALF_EVEN)
  * @returns BigDecimal approximation
  *
  * @example
@@ -56,43 +53,58 @@ import { type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
  * rationalToBigDecimal(rational(1n, 3n), 6);  // 0.333333
  * ```
  */
-export function rationalToBigDecimal(r: Rational, scale: number): BigDecimal {
-  // r = num/den
-  // We want: unscaled / 10^scale = num/den
-  // So: unscaled = num * 10^scale / den
-  const scaleFactor = 10n ** BigInt(scale);
-  const unscaled = (r.num * scaleFactor) / r.den;
-  return bigDecimal(unscaled, scale);
+export function rationalToBigDecimal(
+  r: Rational,
+  scale: number,
+  mode: RoundingMode = DEFAULT_ROUNDING_MODE
+): BigDecimal {
+  // unscaled / 10^scale ≈ num/den, rounded once under `mode` (MU-11: this
+  // used to truncate).
+  return bigDecimal(roundRationalToScale(r, scale, mode), scale);
 }
 
 /**
- * Convert Rational to FixedDecimal.
+ * Convert a Rational to a FixedDecimal with rounding.
+ *
+ * @param r - The rational to convert
+ * @param scale - Target decimal places
+ * @param mode - Rounding mode
+ * @returns FixedDecimal approximation
  */
 export function rationalToFixed<N extends number>(
   r: Rational,
   scale: N,
   mode: RoundingMode = DEFAULT_ROUNDING_MODE
 ): FixedDecimal<N> {
-  // Use bigint division with extra precision for rounding
-  const extraScale = scale + 10;
-  const extraFactor = 10n ** BigInt(extraScale);
-  const scaled = (r.num * extraFactor) / r.den;
-  // Round back to target scale
-  return fixed(scaled, scale, mode);
+  // Exact: round num·10^scale / den once (MU-5: the old guard-digit version
+  // passed an already-over-scaled bigint to `fixed()`, which returns bigints
+  // unchanged, so the result was 10^10 too large).
+  return roundRationalToScale(r, scale, mode) as FixedDecimal<N>;
 }
 
 /**
- * Convert Rational to Money.
+ * Convert a Rational to Money with rounding.
+ *
+ * @param r - The rational to convert (in major units)
+ * @param currency - Target currency
+ * @param mode - Rounding mode
+ * @returns Money value
  */
 export function rationalToMoney<C extends CurrencyDef>(
   r: Rational,
   currency: C,
   mode: RoundingMode = DEFAULT_ROUNDING_MODE
 ): Money<C> {
-  const scaleFactor = currencyScaleFactor(currency);
-  // minor units = num * scaleFactor / den
-  const minorUnits = (r.num * scaleFactor) / r.den;
-  return money(minorUnits, currency);
+  // minor units = num · 10^minorUnits / den, rounded under `mode` (MU-11:
+  // `mode` was ignored and the division truncated).
+  return money(roundRationalToScale(r, currency.minorUnits, mode), currency);
+}
+
+/** `round(num · 10^scale / den)` exactly, under `mode`. */
+function roundRationalToScale(r: Rational, scale: number, mode: RoundingMode): bigint {
+  const n = scale >= 0 ? r.num * 10n ** BigInt(scale) : r.num;
+  const d = scale >= 0 ? r.den : r.den * 10n ** BigInt(-scale);
+  return roundDiv(n, d, mode);
 }
 
 // ============================================================================
@@ -108,7 +120,8 @@ export function rationalToMoney<C extends CurrencyDef>(
  * ```
  */
 export function bigDecimalToRational(bd: BigDecimal): Rational {
-  // bd = unscaled / 10^scale
+  // bd = unscaled / 10^scale (a negative scale means trailing zeros)
+  if (bd.scale < 0) return rational(bd.unscaled * 10n ** BigInt(-bd.scale), 1n);
   const den = 10n ** BigInt(bd.scale);
   // Simplify by finding GCD
   return rational(bd.unscaled, den);
@@ -122,34 +135,26 @@ export function bigDecimalToFixed<N extends number>(
   scale: N,
   mode: RoundingMode = DEFAULT_ROUNDING_MODE
 ): FixedDecimal<N> {
-  // First round to target scale
-  const rounded = bigDecimalRound(bd, scale, mode === "HALF_EVEN" ? "round" : "round");
-
-  // Then convert to fixed
-  if (rounded.scale === scale) {
-    return rounded.unscaled as FixedDecimal<N>;
-  }
-
-  // Adjust scale
-  if (rounded.scale < scale) {
-    const factor = 10n ** BigInt(scale - rounded.scale);
-    return (rounded.unscaled * factor) as FixedDecimal<N>;
-  } else {
-    const factor = 10n ** BigInt(rounded.scale - scale);
-    return (rounded.unscaled / factor) as FixedDecimal<N>;
-  }
+  // Exact rescale with the requested mode (MU-11: `mode` was mapped to
+  // "round" whatever it was).
+  return roundBigInt(bd.unscaled, scale, bd.scale, mode) as FixedDecimal<N>;
 }
 
 /**
- * Convert BigDecimal to Money.
+ * Convert a BigDecimal to Money with rounding.
+ *
+ * @param bd - The BigDecimal to convert (in major units)
+ * @param currency - Target currency
+ * @param mode - Rounding mode
+ * @returns Money value
  */
 export function bigDecimalToMoney<C extends CurrencyDef>(
   bd: BigDecimal,
   currency: C,
   mode: RoundingMode = DEFAULT_ROUNDING_MODE
 ): Money<C> {
-  const majorUnits = bigDecimalToNumber(bd);
-  return moneyFromMajor(majorUnits, currency, mode);
+  // Exact rescale; no JS-number round-trip (MU-11).
+  return roundBigInt(bd.unscaled, currency.minorUnits, bd.scale, mode) as Money<C>;
 }
 
 // ============================================================================
