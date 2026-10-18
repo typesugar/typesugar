@@ -32,9 +32,9 @@ import {
   isInOptedOutScope,
   isSyntheticNode,
   preserveSourceMap,
-  findTypeRewrite,
   getAllTypeRewrites,
   type TypeRewriteEntry,
+  type ConstructorRewrite,
   type MethodInlinePattern,
   extractTypeArgumentsContent,
   stripTypeArguments,
@@ -300,6 +300,17 @@ export function tryRewriteExtensionMethod(
       standaloneExt = findStandaloneExtension(methodName, baseTypeName);
     }
   }
+  // Registry shape (CLAUDE.md): `standaloneExtensionRegistry` is a live keyed
+  // registry, so a same-file `@extension` registered earlier in THIS pass is
+  // visible here -- but it is process-global and not keyed by file, so an
+  // entry may equally come from another file, an earlier program (watch mode,
+  // LSP) or a compiled dist's self-registration. The rewrite emits a bare
+  // `method(recv, ...)` / `Qualifier.method(recv, ...)` and injects no import,
+  // so it is only correct when that callee is actually bound, and callable, at
+  // this call site. Otherwise fall through to the import-scoped resolver below.
+  if (standaloneExt && !isExtensionCalleeBound(ctx, node, standaloneExt)) {
+    standaloneExt = undefined;
+  }
 
   if (!standaloneExt) {
     standaloneExt = resolveExtensionFromImports(node, methodName, receiverType);
@@ -337,6 +348,41 @@ export function tryRewriteExtensionMethod(
   } catch (error) {
     ctx.reportError(node, `Extension method rewrite failed: ${error}`);
     return undefined;
+  }
+}
+
+/**
+ * Is the callee a standalone-extension rewrite would emit bound at `node`, to
+ * something callable? Bare form: `methodName` must resolve to a value with a
+ * call signature; qualified form: `qualifier` must resolve to a value with a
+ * `methodName` property.
+ */
+function isExtensionCalleeBound(
+  ctx: MacroContextImpl,
+  node: ts.CallExpression,
+  ext: StandaloneExtensionInfo
+): boolean {
+  const rootName = ext.qualifier ?? ext.methodName;
+  const checker = ctx.typeChecker;
+  try {
+    // A synthesized call has no scope of its own; fall back to the file's
+    // top-level scope (CLAUDE.md: don't hand a synthetic node to the checker).
+    const location: ts.Node = isProgramNode(node) ? node : ctx.sourceFile;
+    const sym = checker
+      .getSymbolsInScope(location, ts.SymbolFlags.Value)
+      .find((s) => s.getName() === rootName);
+    if (!sym) return false;
+    const type = checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), location);
+    if (ext.qualifier) {
+      return type.getProperty(ext.methodName) !== undefined || ctx.isTypeReliable(type) === false;
+    }
+    return type.getCallSignatures().length > 0 || ctx.isTypeReliable(type) === false;
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped extension method '${ext.methodName}' rewrite: could not check that '${rootName}' is in scope (${error}).`
+    );
+    return false;
   }
 }
 
@@ -539,31 +585,237 @@ export function buildInstanceReferenceExpression(
 // @opaque type rewrite — method, constructor, and accessor erasure (PEP-012)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Declaration identity for @opaque / @adt registry entries
+// ---------------------------------------------------------------------------
+//
+// Registry shape (CLAUDE.md "Resolving things a macro just generated"): the
+// type-rewrite registry is a LIVE KEYED REGISTRY read within the same pass --
+// same-project `@opaque`/`@adt` entries are registered when the defining file
+// is transformed, `.d.ts` entries by `discoverOpaqueTypesFromImports` before a
+// consuming file's visitor pass. It is process-global, though, so an entry may
+// have been registered by a DIFFERENT file (or program). That is why every
+// lookup below first resolves the reference's symbol through the checker
+// (following import aliases) and only accepts an entry whose declaring
+// file/module is where that symbol is declared -- never a bare-name match. A
+// same-named but unrelated `function Some`, `enum { None }`, `const None` or
+// `class Option` therefore never matches, regardless of which files were
+// transformed earlier in the process.
+
+function normalizeSlashes(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+/** Strip a TS/JS (including `.d.ts`) extension from a normalized path. */
+function stripScriptExtension(p: string): string {
+  return p.replace(/\.d\.[cm]?ts$/, "").replace(/\.[cm]?[jt]sx?$/, "");
+}
+
+/** Directories a package's published/sources files usually live under. */
+const PACKAGE_CODE_DIRS = ["src", "dist", "lib", "build", "esm", "cjs"];
+
 /**
- * Resolve the type rewrite registry key for a TypeScript type.
+ * Is `fileName` (where a resolved symbol is declared) the file/module that
+ * `entry` describes?
  *
- * `typeToString` output is presentation-dependent — it can emit qualified names
- * like `import("./foo").MyType` depending on the compilation context. This
- * helper tries multiple strategies to find the registered name:
+ * Uses {@link TypeRewriteEntry.declarationFile} when present (exact). Otherwise
+ * falls back to `sourceModule`, compared as a MODULE, never by bare name:
  *
- * 1. Direct `typeToString` result (fast path, covers the common case)
- * 2. `type.symbol?.name` / `type.aliasSymbol?.name` (works for cross-module types)
- * 3. Strip `import(...)` prefix from the `typeToString` output
+ * - an absolute path compares exactly;
+ * - a package subpath `@scope/pkg/sub` (what `@opaque`/`@adt` derive from
+ *   `.../packages/<pkg>/src/<sub>.ts`) matches `<pkg>/<dir>/<sub>` or
+ *   `@scope/pkg/<dir>/<sub>` for a usual code dir (src, dist, ...) -- i.e. the
+ *   package's source or its published `.d.ts`;
+ * - anything else (including a relative "./lib.js") matches as a path suffix
+ *   (the legacy {@link isWithinSourceModule} rule).
  */
-function resolveTypeRewriteName(typeChecker: ts.TypeChecker, type: ts.Type): string | undefined {
-  // Fast path: direct string match (preserves existing behavior)
-  const typeStr = typeChecker.typeToString(type);
-  if (findTypeRewrite(typeStr)) return typeStr;
+export function typeRewriteEntryCoversFile(fileName: string, entry: TypeRewriteEntry): boolean {
+  const file = stripScriptExtension(normalizeSlashes(fileName));
+  if (entry.declarationFile) {
+    return stripScriptExtension(normalizeSlashes(entry.declarationFile)) === file;
+  }
+  if (!entry.sourceModule) return false;
+  const mod = normalizeSlashes(entry.sourceModule);
+  if (isAbsolutePath(mod)) return stripScriptExtension(mod) === file;
 
-  // Try the symbol name — avoids presentation-dependent formatting
-  const symbolName = type.symbol?.name ?? type.aliasSymbol?.name;
-  if (symbolName && symbolName !== typeStr && findTypeRewrite(symbolName)) return symbolName;
+  const sub = /^((?:@[^/]+\/)?([^/.][^/]*))\/(.+)$/.exec(mod);
+  if (sub) {
+    const [, fullPkg, pkgDir, rest] = sub;
+    const subPath = stripScriptExtension(rest);
+    for (const root of new Set([pkgDir, fullPkg])) {
+      for (const dir of PACKAGE_CODE_DIRS) {
+        const tail = `/${root}/${dir}/${subPath}`;
+        if (file.endsWith(tail) || file.endsWith(`${tail}/index`)) return true;
+      }
+    }
+  }
 
-  // Strip import("...").TypeName prefix that typeToString sometimes emits
-  const importMatch = typeStr.match(/^import\([^)]+\)\.(.+)$/);
-  if (importMatch && findTypeRewrite(importMatch[1])) return importMatch[1];
+  // A relative specifier ("./lib.js") can only be compared as a path suffix.
+  const modulePath = stripScriptExtension(mod.replace(/^@/, "").replace(/^(\.\.?\/)+/, ""));
+  return (
+    file === modulePath ||
+    file.endsWith("/" + modulePath) ||
+    file.endsWith("/" + modulePath + "/index")
+  );
+}
 
+/** Does any declaration of `sym` live in a file belonging to `entry`? */
+function symbolDeclaredByEntry(sym: ts.Symbol, entry: TypeRewriteEntry): boolean {
+  for (const decl of sym.declarations ?? []) {
+    if (typeRewriteEntryCoversFile(decl.getSourceFile().fileName, entry)) return true;
+  }
+  return false;
+}
+
+/** Is the file being transformed the entry's own defining module (transparent scope)? */
+function isInDefiningModule(ctx: MacroContextImpl, entry: TypeRewriteEntry): boolean {
+  const fileName = ctx.sourceFile.fileName;
+  if (entry.declarationFile) {
+    return (
+      stripScriptExtension(normalizeSlashes(entry.declarationFile)) ===
+      stripScriptExtension(normalizeSlashes(fileName))
+    );
+  }
+  return !!entry.sourceModule && isWithinSourceModule(fileName, entry.sourceModule);
+}
+
+function skipAlias(checker: ts.TypeChecker, sym: ts.Symbol): ts.Symbol {
+  if (sym.flags & ts.SymbolFlags.Alias) {
+    const target = checker.getAliasedSymbol(sym);
+    if (target) return target;
+  }
+  return sym;
+}
+
+/** A node that is part of the parsed program (safe to hand to the checker). */
+function isProgramNode(node: ts.Node): boolean {
+  return !isSyntheticNode(node) && node.parent !== undefined;
+}
+
+/**
+ * Resolve the symbol an identifier refers to, through import aliases.
+ *
+ * Real (parsed) nodes go to the checker directly. A macro-synthesized node is
+ * outside the checker's contract (CLAUDE.md), so it is resolved by name
+ * against the current file's top-level scope instead (imports + top-level
+ * declarations) -- what generated code referencing `Some`/`None` binds to.
+ * A checker failure is surfaced as a warning and treated as "no match".
+ */
+function resolveReferencedSymbol(
+  ctx: MacroContextImpl,
+  node: ts.Identifier,
+  meaning: ts.SymbolFlags
+): ts.Symbol | undefined {
+  const checker = ctx.typeChecker;
+  try {
+    let sym: ts.Symbol | undefined;
+    if (isProgramNode(node)) {
+      sym =
+        ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
+          ? checker.getShorthandAssignmentValueSymbol(node.parent)
+          : checker.getSymbolAtLocation(node);
+    } else {
+      const original = ts.getOriginalNode(node);
+      if (original !== node && ts.isIdentifier(original) && isProgramNode(original)) {
+        sym = checker.getSymbolAtLocation(original);
+      } else {
+        sym = checker
+          .getSymbolsInScope(ctx.sourceFile, meaning)
+          .find((s) => s.getName() === node.text);
+      }
+    }
+    return sym ? skipAlias(checker, sym) : undefined;
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped @opaque erasure of '${node.text}': its declaration could not be resolved (${error}).`
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Find the registry entry describing `type` -- matched by the type's own
+ * (alias) symbol AND its declaring file, not by `typeToString` text alone.
+ * Two unrelated types that share a name (the user's `class Option` and
+ * `@typesugar/fp`'s `Option`) resolve to different entries, or none.
+ */
+function resolveTypeRewriteEntry(
+  type: ts.Type
+): { entry: TypeRewriteEntry; typeName: string } | undefined {
+  const all = getAllTypeRewrites();
+  if (all.length === 0) return undefined;
+  for (const sym of [type.aliasSymbol, type.getSymbol()]) {
+    if (!sym) continue;
+    const name = sym.getName();
+    // Latest registration first, matching getTypeRewrite's precedence.
+    for (let i = all.length - 1; i >= 0; i--) {
+      const entry = all[i];
+      if (entry.typeName === name && symbolDeclaredByEntry(sym, entry)) {
+        return { entry, typeName: name };
+      }
+    }
+  }
   return undefined;
+}
+
+/**
+ * Find the entry + rewrite rule for a constructor/constant reference
+ * (`Some` in `Some(x)`, `None`). Cheap name pre-filter first (no checker call
+ * unless some entry has a constructor of that name), then resolve the
+ * identifier's symbol and require it to be declared by that entry.
+ */
+function resolveConstructorRewrite(
+  ctx: MacroContextImpl,
+  ident: ts.Identifier
+): { entry: TypeRewriteEntry; ctor: ConstructorRewrite } | undefined {
+  const name = ident.text;
+  const candidates = getAllTypeRewrites().filter((e) => e.constructors?.has(name));
+  if (candidates.length === 0) return undefined;
+
+  const sym = resolveReferencedSymbol(ctx, ident, ts.SymbolFlags.Value);
+  // Renamed imports (`import { Other as Some }`) resolve to a different name.
+  if (!sym || sym.getName() !== name) return undefined;
+
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const entry = candidates[i];
+    if (symbolDeclaredByEntry(sym, entry)) {
+      return { entry, ctor: entry.constructors!.get(name)! };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Is this identifier a value REFERENCE (something `None` -> `null` could
+ * replace)? Declaration names, property names/keys, enum members, labels,
+ * import/export specifiers, shorthand properties and type positions are not.
+ */
+function isValueReferencePosition(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  if (!parent) return true; // synthetic expression node
+  if ((parent as { name?: ts.Node }).name === node) {
+    // `x.None`, `{ None: 1 }`, `enum E { None }`, `function None() {}`, `const None`,
+    // `class C { None() {} }`, `{ None }` (can't be replaced by a literal), ...
+    return false;
+  }
+  if ((parent as { propertyName?: ts.Node }).propertyName === node) return false;
+  if ((parent as { label?: ts.Node }).label === node) return false;
+  if (
+    ts.isImportSpecifier(parent) ||
+    ts.isExportSpecifier(parent) ||
+    ts.isImportClause(parent) ||
+    ts.isNamespaceImport(parent) ||
+    ts.isImportEqualsDeclaration(parent) ||
+    ts.isQualifiedName(parent) ||
+    ts.isTypeReferenceNode(parent) ||
+    ts.isTypeQueryNode(parent) ||
+    ts.isExpressionWithTypeArguments(parent) ||
+    ts.isMetaProperty(parent)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function buildConstantExpression(factory: ts.NodeFactory, value: string): ts.Expression {
@@ -626,23 +878,30 @@ export function tryRewriteOpaqueMethodCall(
   if (!guarded) return undefined;
   const { methodName, receiver } = guarded;
 
+  if (getAllTypeRewrites().length === 0) return undefined;
+  // The checker can't type a macro-synthesized receiver (CLAUDE.md).
+  if (!isProgramNode(receiver)) return undefined;
+
   let receiverType: ts.Type;
   try {
     receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
-  } catch {
-    // TypeChecker may throw on unresolvable receiver expressions — skip type rewrite
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped @opaque method erasure of '.${methodName}()': the receiver type could not be resolved (${error}).`
+    );
     return undefined;
   }
   if (!ctx.isTypeReliable(receiverType)) return undefined;
 
-  const typeName = resolveTypeRewriteName(ctx.typeChecker, receiverType);
-  if (!typeName) return undefined;
-  const entry = findTypeRewrite(typeName)!;
+  // Matched by the receiver type's declaration, not its name (see
+  // resolveTypeRewriteEntry): an unrelated `class Option` is never rewritten.
+  const resolvedEntry = resolveTypeRewriteEntry(receiverType);
+  if (!resolvedEntry) return undefined;
+  const { entry, typeName } = resolvedEntry;
 
-  if (entry.transparent && entry.sourceModule) {
-    if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
-      return undefined;
-    }
+  if (entry.transparent && isInDefiningModule(ctx, entry)) {
+    return undefined;
   }
 
   const methods = entry.methods;
@@ -657,6 +916,7 @@ export function tryRewriteOpaqueMethodCall(
     const visitedArgs = node.arguments.map((a) => ts.visitNode(a, visit) as ts.Expression);
     const result = buildOpaqueInlineExpression(
       ctx.factory,
+      (prefix) => ctx.generateUniqueName(prefix),
       inlinePattern,
       visitedReceiver,
       visitedArgs,
@@ -720,27 +980,33 @@ export function tryEraseOpaqueAccessor(
   const propName = node.name.text;
   const receiver = node.expression;
 
+  // Cheap pre-filter: no checker call unless some entry has this accessor.
+  if (!getAllTypeRewrites().some((e) => e.accessors?.has(propName))) return undefined;
+  if (!isProgramNode(receiver)) return undefined;
+
   let receiverType: ts.Type;
   try {
     receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
-  } catch {
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped @opaque accessor erasure of '.${propName}': the receiver type could not be resolved (${error}).`
+    );
     return undefined;
   }
   if (!ctx.isTypeReliable(receiverType)) return undefined;
 
-  const typeName = resolveTypeRewriteName(ctx.typeChecker, receiverType);
-  if (!typeName) return undefined;
-  const entry = findTypeRewrite(typeName)!;
+  const resolvedEntry = resolveTypeRewriteEntry(receiverType);
+  if (!resolvedEntry) return undefined;
+  const { entry, typeName } = resolvedEntry;
   if (!entry.accessors) return undefined;
 
   const accessor = entry.accessors.get(propName);
   if (!accessor) return undefined;
 
   // Transparent scope: skip erasure inside the defining module
-  if (entry.transparent && entry.sourceModule) {
-    if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
-      return undefined;
-    }
+  if (entry.transparent && isInDefiningModule(ctx, entry)) {
+    return undefined;
   }
 
   if (accessor.kind === "identity") {
@@ -779,13 +1045,39 @@ function isSimpleExpression(node: ts.Expression): boolean {
 }
 
 /**
+ * Can this argument be moved into a conditional branch without changing
+ * behavior? Evaluating it has no side effects and its value can't change in
+ * between: literals, plain identifiers and function expressions (creating a
+ * closure is unobservable). Anything else must be evaluated once, eagerly,
+ * as in the original method call.
+ */
+function isTriviallyEvaluable(node: ts.Expression): boolean {
+  if (ts.isParenthesizedExpression(node)) return isTriviallyEvaluable(node.expression);
+  return (
+    isSimpleExpression(node) ||
+    ts.isNoSubstitutionTemplateLiteral(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isFunctionExpression(node)
+  );
+}
+
+/**
  * Build an inlined expression for an @opaque method call.
  * When the receiver is a literal `null`, constant-folds the result.
- * When the receiver is complex (not a simple identifier/literal), wraps in
- * an IIFE to avoid evaluating the receiver multiple times.
+ *
+ * The receiver must be evaluated once, before the arguments, and every
+ * argument exactly once (eagerly), as in the original `recv.method(args)`.
+ * So when the receiver is complex or any argument is not trivially
+ * evaluable, the ternary is wrapped in an IIFE whose parameters -- fresh
+ * hygienic names from `uniqueName`, never a fixed `_opt` that a user
+ * reference inside an argument could resolve to -- bind the receiver and
+ * those arguments, in source order:
+ *
+ *   `getOpt().map(mk())` -> `((o, a) => o != null ? a(o) : null)(getOpt(), mk())`
  */
 function buildOpaqueInlineExpression(
   factory: ts.NodeFactory,
+  uniqueName: (prefix: string) => ts.Identifier,
   pattern: MethodInlinePattern,
   receiver: ts.Expression,
   args: ts.Expression[],
@@ -793,14 +1085,16 @@ function buildOpaqueInlineExpression(
   typeName: string,
   methodName: string
 ): ts.Expression | undefined {
-  if (isNullLiteral(receiver)) {
+  const argsTrivial = args.every(isTriviallyEvaluable);
+
+  if (argsTrivial && isNullLiteral(receiver)) {
     if (verbose) {
       console.log(`[typesugar] Opaque inline (constant-folded null): ${typeName}.${methodName}()`);
     }
     return constantFoldNull(factory, pattern, args);
   }
 
-  if (isKnownNonNullLiteral(receiver)) {
+  if (argsTrivial && isKnownNonNullLiteral(receiver)) {
     if (verbose) {
       console.log(
         `[typesugar] Opaque inline (constant-folded non-null): ${typeName}.${methodName}()`
@@ -813,35 +1107,49 @@ function buildOpaqueInlineExpression(
     console.log(`[typesugar] Opaque inline (inlined): ${typeName}.${methodName}()`);
   }
 
-  if (isSimpleExpression(receiver)) {
+  if (argsTrivial && isSimpleExpression(receiver)) {
     return buildInlineTernary(factory, pattern, receiver, args);
   }
 
-  // Complex receiver: wrap in IIFE to evaluate once
-  // ((_opt) => _opt != null ? fn(_opt) : null)(receiver)
-  const param = factory.createParameterDeclaration(
-    undefined,
-    undefined,
-    factory.createIdentifier("_opt"),
-    undefined,
-    undefined,
-    undefined
-  );
-  const optRef = factory.createIdentifier("_opt");
-  const body = buildInlineTernary(factory, pattern, optRef, args);
+  // Bind the receiver (unless it's a literal) and every non-trivial argument.
+  const params: ts.ParameterDeclaration[] = [];
+  const callArgs: ts.Expression[] = [];
+  const bind = (expr: ts.Expression, prefix: string): ts.Expression => {
+    const name = uniqueName(prefix);
+    params.push(
+      factory.createParameterDeclaration(
+        undefined,
+        undefined,
+        name,
+        undefined,
+        undefined,
+        undefined
+      )
+    );
+    callArgs.push(expr);
+    return factory.createIdentifier(name.text);
+  };
+
+  const receiverRef =
+    isNullLiteral(receiver) || isKnownNonNullLiteral(receiver) ? receiver : bind(receiver, "opt");
+  const argRefs = args.map((a, i) => (isTriviallyEvaluable(a) ? a : bind(a, `optArg${i}`)));
+
+  const body = buildInlineTernary(factory, pattern, receiverRef, argRefs);
   if (!body) return undefined;
 
   const arrow = factory.createArrowFunction(
     undefined,
     undefined,
-    [param],
+    params,
     undefined,
     factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     body
   );
-  return factory.createCallExpression(factory.createParenthesizedExpression(arrow), undefined, [
-    receiver,
-  ]);
+  return factory.createCallExpression(
+    factory.createParenthesizedExpression(arrow),
+    undefined,
+    callArgs
+  );
 }
 
 function isKnownNonNullLiteral(node: ts.Expression): boolean {
@@ -1006,16 +1314,14 @@ export function tryEraseOpaqueConstructorCall(
 
   const ctorName = node.expression.text;
 
-  for (const entry of getAllTypeRewrites()) {
-    if (!entry.constructors) continue;
+  // Resolved by the callee's symbol, not its name: only a call to the
+  // registered entry's own constructor is erased (see resolveConstructorRewrite).
+  const resolved = resolveConstructorRewrite(ctx, node.expression);
+  if (resolved) {
+    const { entry, ctor } = resolved;
 
-    const ctor = entry.constructors.get(ctorName);
-    if (!ctor) continue;
-
-    if (entry.transparent && entry.sourceModule) {
-      if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
-        return undefined;
-      }
+    if (entry.transparent && isInDefiningModule(ctx, entry)) {
+      return undefined;
     }
 
     if (ctor.kind === "identity") {
@@ -1046,7 +1352,11 @@ export function tryEraseOpaqueConstructorCall(
       );
     }
 
-    if (ctor.kind === "custom" && ctor.value) {
+    // A "custom" rewrite whose expression is the constructor's own name (what
+    // `@adt` registers for object-building variants) would turn `Circle(5)`
+    // into the bare function `Circle`, dropping the arguments -- the call
+    // already IS the runtime representation, so leave it as-is.
+    if (ctor.kind === "custom" && ctor.value && ctor.value !== ctorName) {
       if (verbose) {
         console.log(`[typesugar] Constructor erasure: ${ctorName}(...) → ${ctor.value}`);
       }
@@ -1067,42 +1377,21 @@ export function tryEraseOpaqueConstantRef(
 ): ts.Expression | undefined {
   const name = node.text;
 
-  if (
-    node.parent &&
-    ((ts.isVariableDeclaration(node.parent) && node.parent.name === node) ||
-      (ts.isFunctionDeclaration(node.parent) && node.parent.name === node) ||
-      (ts.isParameter(node.parent) && node.parent.name === node) ||
-      (ts.isPropertyDeclaration(node.parent) && node.parent.name === node) ||
-      ts.isImportSpecifier(node.parent) ||
-      ts.isExportSpecifier(node.parent))
-  ) {
+  if (!isValueReferencePosition(node)) return undefined;
+
+  const resolved = resolveConstructorRewrite(ctx, node);
+  if (!resolved || resolved.ctor.kind !== "constant") return undefined;
+  const { entry, ctor } = resolved;
+
+  if (entry.transparent && isInDefiningModule(ctx, entry)) {
     return undefined;
   }
 
-  if (node.parent && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
-    return undefined;
+  if (verbose) {
+    console.log(`[typesugar] Constant constructor ref erasure: ${name} → ${ctor.value}`);
   }
 
-  for (const entry of getAllTypeRewrites()) {
-    if (!entry.constructors) continue;
-
-    const ctor = entry.constructors.get(name);
-    if (!ctor || ctor.kind !== "constant") continue;
-
-    if (entry.transparent && entry.sourceModule) {
-      if (isWithinSourceModule(ctx.sourceFile.fileName, entry.sourceModule)) {
-        return undefined;
-      }
-    }
-
-    if (verbose) {
-      console.log(`[typesugar] Constant constructor ref erasure: ${name} → ${ctor.value}`);
-    }
-
-    return preserveSourceMap(buildConstantExpression(ctx.factory, ctor.value ?? "undefined"), node);
-  }
-
-  return undefined;
+  return preserveSourceMap(buildConstantExpression(ctx.factory, ctor.value ?? "undefined"), node);
 }
 
 // ---------------------------------------------------------------------------
@@ -1111,35 +1400,57 @@ export function tryEraseOpaqueConstantRef(
 
 /**
  * Extract an opaque type rewrite entry from a TypeNode (e.g., `Option<Money>`).
- * Returns the entry if the type name is registered in the type rewrite registry.
+ * Returns the entry whose declaration the type reference resolves to (through
+ * import aliases) -- not merely one that shares its name.
  */
-function getOpaqueEntryFromTypeNode(typeNode: ts.TypeNode): TypeRewriteEntry | undefined {
+function getOpaqueEntryFromTypeNode(
+  ctx: MacroContextImpl,
+  typeNode: ts.TypeNode
+): TypeRewriteEntry | undefined {
   if (!ts.isTypeReferenceNode(typeNode)) return undefined;
 
-  const typeName = ts.isIdentifier(typeNode.typeName)
-    ? typeNode.typeName.text
+  const nameNode = ts.isIdentifier(typeNode.typeName)
+    ? typeNode.typeName
     : ts.isQualifiedName(typeNode.typeName)
-      ? typeNode.typeName.right.text
+      ? typeNode.typeName.right
       : undefined;
+  if (!nameNode) return undefined;
 
-  if (!typeName) return undefined;
-  return findTypeRewrite(typeName);
+  const typeName = nameNode.text;
+  const candidates = getAllTypeRewrites().filter((e) => e.typeName === typeName);
+  if (candidates.length === 0) return undefined;
+
+  const sym = resolveReferencedSymbol(ctx, nameNode, ts.SymbolFlags.Type);
+  if (!sym) return undefined;
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    if (symbolDeclaredByEntry(sym, candidates[i])) return candidates[i];
+  }
+  return undefined;
 }
 
 /**
  * Check if an initializer expression would be erased by opaque constructor
- * erasure for the given type rewrite entry.
+ * erasure for the given type rewrite entry -- the same symbol-resolved check
+ * `tryEraseOpaqueConstructorCall`/`tryEraseOpaqueConstantRef` apply, so the
+ * annotation is stripped exactly when the initializer really is erased.
  */
-function wouldBeOpaqueErased(init: ts.Expression, entry: TypeRewriteEntry): boolean {
+function wouldBeOpaqueErased(
+  ctx: MacroContextImpl,
+  init: ts.Expression,
+  entry: TypeRewriteEntry
+): boolean {
   if (!entry.constructors) return false;
 
   if (ts.isCallExpression(init) && ts.isIdentifier(init.expression)) {
-    return entry.constructors.has(init.expression.text);
+    const resolved = resolveConstructorRewrite(ctx, init.expression);
+    if (!resolved || resolved.entry !== entry) return false;
+    const { ctor } = resolved;
+    return !(ctor.kind === "custom" && ctor.value === init.expression.text);
   }
 
   if (ts.isIdentifier(init)) {
-    const ctor = entry.constructors.get(init.text);
-    return ctor !== undefined && ctor.kind === "constant";
+    const resolved = resolveConstructorRewrite(ctx, init);
+    return resolved !== undefined && resolved.entry === entry && resolved.ctor.kind === "constant";
   }
 
   return false;
@@ -1161,15 +1472,13 @@ export function tryStripOpaqueTypeAnnotation(
 ): ts.VariableDeclaration | undefined {
   if (!node.type || !node.initializer) return undefined;
 
-  const opaqueEntry = getOpaqueEntryFromTypeNode(node.type);
+  const opaqueEntry = getOpaqueEntryFromTypeNode(ctx, node.type);
   if (!opaqueEntry) return undefined;
 
   // For same-project opaque types (transparent), skip stripping inside
   // the defining module where the implementation uses the raw representation.
-  if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
-    if (isWithinSourceModule(ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
-      return undefined;
-    }
+  if (opaqueEntry.transparent && isInDefiningModule(ctx, opaqueEntry)) {
+    return undefined;
   }
 
   // For library-imported opaque types (non-transparent), the published .d.ts
@@ -1177,7 +1486,7 @@ export function tryStripOpaqueTypeAnnotation(
   // is valid after constructor erasure — keep it.
   if (!opaqueEntry.transparent) return undefined;
 
-  if (!wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
+  if (!wouldBeOpaqueErased(ctx, node.initializer, opaqueEntry)) return undefined;
 
   if (verbose) {
     console.log(
@@ -1215,19 +1524,17 @@ export function tryStripOpaqueParamAnnotation(
 ): ts.ParameterDeclaration | undefined {
   if (!node.type || !node.initializer) return undefined;
 
-  const opaqueEntry = getOpaqueEntryFromTypeNode(node.type);
+  const opaqueEntry = getOpaqueEntryFromTypeNode(ctx, node.type);
   if (!opaqueEntry) return undefined;
 
-  if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
-    if (isWithinSourceModule(ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
-      return undefined;
-    }
+  if (opaqueEntry.transparent && isInDefiningModule(ctx, opaqueEntry)) {
+    return undefined;
   }
 
   // Library-imported opaque types have erased type aliases — annotation is valid
   if (!opaqueEntry.transparent) return undefined;
 
-  if (!wouldBeOpaqueErased(node.initializer, opaqueEntry)) return undefined;
+  if (!wouldBeOpaqueErased(ctx, node.initializer, opaqueEntry)) return undefined;
 
   if (verbose) {
     console.log(
@@ -1267,13 +1574,11 @@ export function shouldStripOpaqueReturnType(
 ): boolean {
   if (!returnType) return false;
 
-  const opaqueEntry = getOpaqueEntryFromTypeNode(returnType);
+  const opaqueEntry = getOpaqueEntryFromTypeNode(ctx, returnType);
   if (!opaqueEntry) return false;
 
-  if (opaqueEntry.transparent && opaqueEntry.sourceModule) {
-    if (isWithinSourceModule(ctx.sourceFile.fileName, opaqueEntry.sourceModule)) {
-      return false;
-    }
+  if (opaqueEntry.transparent && isInDefiningModule(ctx, opaqueEntry)) {
+    return false;
   }
 
   // Library-imported opaque types have erased type aliases — annotation is valid

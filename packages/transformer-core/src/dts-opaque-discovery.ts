@@ -19,11 +19,12 @@ import * as ts from "typescript";
 import * as path from "path";
 import {
   registerTypeRewrite,
-  getTypeRewrite,
+  getAllTypeRewrites,
   type TypeRewriteEntry,
   type ConstructorRewrite,
   hasExportModifier,
 } from "@typesugar/core";
+import { typeRewriteEntryCoversFile } from "./rewriting.js";
 
 // ---------------------------------------------------------------------------
 // State — tracks which .d.ts files have already been scanned
@@ -295,8 +296,19 @@ function scanDtsForOpaqueTypes(
 
   // Phase 2: For each opaque type, derive methods and constructors
   for (const opaque of opaqueTypes) {
-    // Skip if already registered (e.g., from same-project @opaque macro)
-    if (getTypeRewrite(opaque.name)) continue;
+    // Skip if an entry for THIS declaration is already registered (by an
+    // earlier scan, or a same-project `@opaque` whose module covers this .d.ts).
+    // A same-named entry for a DIFFERENT declaration (a user's own `@opaque
+    // Option`, another library's `Option`) is a different type: the registry
+    // keeps both side by side and the transformer picks by resolved
+    // declaration, so it must not shadow this one.
+    if (
+      getAllTypeRewrites().some(
+        (e) => e.typeName === opaque.name && typeRewriteEntryCoversFile(dtsFile.fileName, e)
+      )
+    ) {
+      continue;
+    }
 
     const methods = new Map<string, string>();
     const constructors = new Map<string, ConstructorRewrite>();
@@ -326,6 +338,9 @@ function scanDtsForOpaqueTypes(
       typeName: opaque.name,
       underlyingTypeText: opaque.underlying,
       sourceModule: moduleSpecifier,
+      // Identity for erasure: only symbols declared in this .d.ts are erased
+      // (rewriting.ts resolves each candidate reference through its aliases).
+      declarationFile: dtsFile.fileName,
       methods: methods.size > 0 ? methods : undefined,
       constructors: constructors.size > 0 ? constructors : undefined,
       // Consumer should rewrite — not transparent

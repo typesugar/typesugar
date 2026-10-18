@@ -15,6 +15,7 @@ import * as ts from "typescript";
 import { resolveInstance, getMethodCandidates, companionPath } from "@typesugar/macros";
 
 import {
+  KNOWN_GLOBALS,
   MacroContextImpl,
   globalResolutionScope,
   isInOptedOutScope,
@@ -67,6 +68,11 @@ interface MethodSugarInstance {
   instanceName?: string;
   sourceModule?: string;
   forType: string;
+  /**
+   * For a derived companion: the file declaring the receiver's type (and so
+   * the `<Type>` companion value), when that is not the current file.
+   */
+  declaringFile?: string;
 }
 
 /**
@@ -215,9 +221,41 @@ export function tryResolveTypeclassMethod(
   // per-transformer pending-import tracking -- and, importantly, uses the
   // identifier IT RETURNS (which may be a conflict-safe alias) rather than a
   // fresh, possibly-wrong bare identifier.
+  const importName = matched.companionPath ? matched.companionPath.split(".")[0] : instName;
+
+  // A derived companion lives next to the receiver's type. If that type comes
+  // from a module this file doesn't import at all (e.g. only reached through
+  // `makePoint()`'s return type), there is no specifier to reuse: emitting a
+  // bare `Point.Eq` would be a ReferenceError at runtime, so report it instead.
+  if (matched.declaringFile && !matched.sourceModule) {
+    ctx.reportError(
+      node,
+      `typesugar cannot rewrite '.${methodName}()' to '${instName}.${methodName}(...)': ` +
+        `'${importName}' is declared in '${matched.declaringFile}', which this file does not import. ` +
+        `Import '${importName}' from that module, or call '${instName}.${methodName}(...)' directly.`
+    );
+    return undefined;
+  }
+
+  // `ctx.ensureImport` returns a bare identifier WITHOUT registering an import
+  // for any name in KNOWN_GLOBALS (File, Request, Response, Worker, Map, ...),
+  // so a user companion with such a name would silently bind to the runtime
+  // global. Only proceed when this file itself already binds the name to the
+  // right declaration (an import of it, or a local declaration).
+  if (matched.sourceModule && KNOWN_GLOBALS.has(importName)) {
+    if (!fileBindsName(ctx, node, importName, matched.declaringFile)) {
+      ctx.reportError(
+        node,
+        `typesugar cannot rewrite '.${methodName}()' to '${instName}.${methodName}(...)': ` +
+          `'${importName}' would resolve to the global '${importName}', not the one from ` +
+          `'${matched.sourceModule}'. Import '${importName}' from '${matched.sourceModule}' explicitly.`
+      );
+      return undefined;
+    }
+  }
+
   let importedIdentifier: ts.Identifier | undefined;
   if (matched.sourceModule) {
-    const importName = matched.companionPath ? matched.companionPath.split(".")[0] : instName;
     importedIdentifier = ctx.ensureImport(importName, matched.sourceModule);
   }
 
@@ -285,10 +323,13 @@ function resolveMethodSugarInstance(
 
   // 2. Derived companion: the receiver's type is declared with `@derive(TC)`.
   if (typeDerivesTypeclass(ctx, receiverType, typeclass)) {
+    const declFile = declaringFileOf(receiverType);
     return {
       companionPath: companionPath(typeclass, baseTypeName),
       sourceModule: moduleSpecifierForType(ctx, receiverType),
       forType: guardName,
+      declaringFile:
+        declFile && declFile.fileName !== ctx.sourceFile.fileName ? declFile.fileName : undefined,
     };
   }
 
@@ -366,8 +407,7 @@ function deriveDecoratorNames(
  * pre-existing user `import` declarations, which are never synthesized mid-pass.
  */
 function moduleSpecifierForType(ctx: MacroContextImpl, receiverType: ts.Type): string | undefined {
-  const sym = receiverType.getSymbol() ?? receiverType.aliasSymbol;
-  const declFile = sym?.getDeclarations()?.[0]?.getSourceFile();
+  const declFile = declaringFileOf(receiverType);
   if (!declFile || declFile.fileName === ctx.sourceFile.fileName) return undefined;
 
   const checker = ctx.typeChecker;
@@ -380,4 +420,47 @@ function moduleSpecifierForType(ctx: MacroContextImpl, receiverType: ts.Type): s
     }
   }
   return undefined;
+}
+
+/** The source file declaring the receiver type's symbol, if any. */
+function declaringFileOf(receiverType: ts.Type): ts.SourceFile | undefined {
+  const sym = receiverType.getSymbol() ?? receiverType.aliasSymbol;
+  return sym?.getDeclarations()?.[0]?.getSourceFile();
+}
+
+/**
+ * Does the current file itself bind `name` at `location` -- through an import
+ * or a local declaration, not a lib/ambient global -- and (when
+ * `expectedFile` is given) does that binding resolve to a declaration in
+ * `expectedFile`?
+ */
+function fileBindsName(
+  ctx: MacroContextImpl,
+  location: ts.Node,
+  name: string,
+  expectedFile: string | undefined
+): boolean {
+  const checker = ctx.typeChecker;
+  try {
+    const at = isSyntheticNode(location) ? ctx.sourceFile : location;
+    const sym = checker
+      .getSymbolsInScope(at, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
+      .find((s) => s.getName() === name);
+    if (!sym) return false;
+    const boundHere = (sym.getDeclarations() ?? []).some(
+      (d) => d.getSourceFile().fileName === ctx.sourceFile.fileName
+    );
+    if (!boundHere) return false;
+    if (!expectedFile) return true;
+    const target = sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+    return (target.getDeclarations() ?? []).some(
+      (d) => d.getSourceFile().fileName === expectedFile
+    );
+  } catch (error) {
+    ctx.reportWarning(
+      location,
+      `typesugar could not check which '${name}' is in scope (${error}); skipping method sugar.`
+    );
+    return false;
+  }
 }
