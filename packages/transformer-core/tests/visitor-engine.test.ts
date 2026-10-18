@@ -450,7 +450,7 @@ describe("#17 bare line opt-out", () => {
   // `it.fails`: this documents the open bug. The fix belongs in
   // packages/core/src/resolution-scope.ts (`hasInlineOptOut`, other owner);
   // when it lands this test starts failing -- flip it to `it`.
-  it.fails("leaves a call on a `// @ts-no-typesugar` line unexpanded", () => {
+  it("leaves a call on a `// @ts-no-typesugar` line unexpanded", () => {
     const r = run(
       {
         "/main.ts": `

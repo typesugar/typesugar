@@ -592,10 +592,18 @@ If no instance is found, you get a compile error.
 
 ## Coherence
 
-typesugar enforces coherence: only one instance per type per typeclass. Defining multiple instances for the same type is a compile error.
+Keep to one instance per type per typeclass.
+
+> **Not enforced in 1.0.** typesugar does not check coherence yet: two
+> `@instance` declarations for the same (typeclass, type) pair both compile with
+> no diagnostic, and which one a call site resolves to is unspecified. The
+> diagnostics reserved for this (TS9050, TS9051, TS9006) are defined but not
+> emitted, and `CoherenceChecker` in `@typesugar/core` is an experimental API that
+> nothing calls. Until checking lands, avoid duplicate instances yourself, and use
+> a newtype wrapper when you need a second behaviour for the same type.
 
 ```typescript
-// Error: Duplicate instance for Show<number>
+// Avoid: a second Show<number> compiles today, and resolution between the two is unspecified
 @instance
 const ShowNumber2: Show<number> = {
   show: (n) => `num(${n})`,
@@ -609,7 +617,7 @@ const ShowNumber2: Show<number> = {
 | Zero-cost         | Yes (via specialize) | Partial  | No       | Yes      |
 | HKT               | Yes                  | Yes      | Yes      | No       |
 | Orphan instances  | Allowed              | Allowed  | Allowed  | No       |
-| Coherence         | Enforced             | Optional | Enforced | Enforced |
+| Coherence         | Not checked (1.0)    | Optional | Enforced | Enforced |
 | Extension methods | Yes                  | Yes      | No       | Yes      |
 
 ## Best Practices

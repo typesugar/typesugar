@@ -647,22 +647,28 @@ pipeline("myMacro", "my-module")
   .build(); // registers as ExpressionMacro
 ```
 
-### Capability Restrictions (`src/core/capabilities.ts`)
+### Capability Restrictions (`src/core/capabilities.ts`) — experimental, not enforced
 
-Declarative permissions for macros to limit what they can access:
+> **Not wired in 1.0.** Macro definitions have no `capabilities` field and the
+> transformer never wraps `ctx` in `createRestrictedContext()`, so none of the
+> restrictions below apply to any macro today. `needsFileSystem` is not read
+> anywhere: there is no file-system restriction even in the proxy. See
+> SECURITY-REVIEW.md F4.
+
+Intended design: declarative permissions for macros to limit what they can access:
 
 ```typescript
 const caps: MacroCapabilities = {
   needsTypeChecker: true,
-  needsFileSystem: false, // blocks fs access
-  needsProjectIndex: false, // blocks program-wide queries
+  needsFileSystem: false, // not enforced: nothing reads this flag
+  needsProjectIndex: false, // blocks program-wide queries (when the proxy is applied)
   canEmitDiagnostics: true,
   maxTimeout: 5000,
 };
 const restricted = createRestrictedContext(ctx, caps, "myMacro");
 ```
 
-`createRestrictedContext()` wraps `MacroContext` in a Proxy that throws on unauthorized access.
+`createRestrictedContext()` wraps `MacroContext` in a Proxy that throws on unauthorized access, but only when a caller applies it, and no caller does yet.
 
 ### Expansion Tracking (`src/core/source-map.ts`)
 

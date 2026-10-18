@@ -38,8 +38,11 @@
  *
  * `FileBindingCache.safeRef()` provides three-tier resolution:
  * - Tier 0: Known JS globals (Error, Array, JSON, etc.) — always safe, O(1)
- * - Tier 1: File import map — check if name is imported from the same module
- * - Tier 2: Local declarations — check if name is declared at file level
+ * - Tier 1: File import map — reuse only a plain value import of the same
+ *   export from the same module (type-only/default/namespace imports conflict)
+ * - Tier 2: Bindings — any declaration, parameter or local ANYWHERE in the file
+ *   (not just top level) is a conflict, since the emitted reference may land
+ *   inside that scope
  *
  * If a conflict is detected, an aliased import is generated instead.
  *
@@ -61,8 +64,12 @@ import * as ts from "typescript";
 // =============================================================================
 
 /**
- * Known JavaScript/TypeScript global identifiers that cannot be shadowed by imports.
- * These are always safe to reference without aliasing.
+ * Known JavaScript/TypeScript global identifiers.
+ *
+ * `safeRef` returns these bare only when the file does not rebind the name
+ * (imports and local bindings CAN shadow them: `import { Map } from
+ * "immutable"`, `Request` from undici, a local `File`). `ensureImport` never
+ * short-circuits on them, since it is always asked for a module's export.
  */
 export const KNOWN_GLOBALS = new Set([
   // Built-in constructors
@@ -195,11 +202,45 @@ export interface PendingAliasEntry {
 // =============================================================================
 
 /**
+ * How a local name is bound by an import in the file.
+ *
+ * Only a non-type `named` import whose imported name equals the local name
+ * (`import { Eq } from "m"`) is a usable VALUE binding of the export `Eq`
+ * from `m`. A type-only import is erased by every emitter, a default import
+ * is a different export, and `import { X as Eq }` binds a different export —
+ * reusing any of them bare would leave a dangling or wrong reference (deep
+ * review core #15).
+ */
+export type ImportBindingKind = "named" | "type" | "default" | "namespace" | "import-equals";
+
+/** One import-bound local name. */
+export interface ImportBinding {
+  /** Module specifier (empty for `import X = A.B` namespace aliases). */
+  module: string;
+  kind: ImportBindingKind;
+  /** The export's name, for `named`/`type` imports (`Foo` in `{ Foo as Bar }`). */
+  importedName?: string;
+}
+
+/**
  * Per-file cache of bindings for reference hygiene.
  *
  * Built lazily from source file imports and declarations, then shared across
  * all macro expansions in that file. Enables O(1) conflict detection without
  * TypeChecker involvement.
+ *
+ * Resolution shape (CLAUDE.md "Resolving things a macro just generated"):
+ * the import/declaration tables are a scan of the pre-transform source,
+ * which is correct here because they describe the USER's bindings; names this
+ * pass itself binds (pending plain imports) are tracked in the live
+ * `claimedNames` side-table, consulted by every later `ensureImport`/`safeRef`
+ * in the same pass.
+ *
+ * `localDecls` deliberately holds every binding ANYWHERE in the file
+ * (parameters, block locals, catch/loop variables, nested functions and
+ * classes), not just top-level ones: an emitted bare reference can land in any
+ * nested scope, and a same-named binding there would capture it (deep review
+ * core #14). Over-aliasing is harmless; under-aliasing is a runtime bug.
  *
  * @example
  * ```typescript
@@ -215,14 +256,29 @@ export interface PendingAliasEntry {
  * ```
  */
 export class FileBindingCache {
-  /** localName -> moduleSpecifier for all named imports in the file */
+  /** localName -> moduleSpecifier for every import-bound name in the file (any kind) */
   readonly importMap: Map<string, string>;
 
-  /** Names declared at file top level (const, let, var, function, class, interface, type) */
+  /** localName -> how it is imported (see {@link ImportBindingKind}) */
+  readonly importBindings: Map<string, ImportBinding>;
+
+  /**
+   * Every non-import binding name anywhere in the file: declarations at any
+   * depth, parameters, binding-pattern elements, catch clauses, nested
+   * function/class names, namespaces, interfaces and type aliases.
+   */
   readonly localDecls: Set<string>;
 
   /** Pending aliased imports to inject (deduped by symbol+module) */
   private pendingAliases = new Map<string, PendingAliasEntry>();
+
+  /**
+   * Names bound by pending PLAIN (non-aliased) imports this pass registered:
+   * name -> `${symbol}\0${from}` key. Live same-pass state, so a second module
+   * wanting the same bare name is aliased instead of binding it twice
+   * (deep review core #26).
+   */
+  private claimedNames = new Map<string, string>();
 
   /** Counter for generating unique alias names */
   private aliasCounter = 0;
@@ -249,16 +305,23 @@ export class FileBindingCache {
   constructor(sourceFile: ts.SourceFile, verbose = false) {
     this.verbose = verbose;
     this.importMap = new Map();
+    this.importBindings = new Map();
     this.localDecls = new Set();
 
     const start = verbose ? performance.now() : 0;
 
-    // Single pass over statements to collect imports and declarations
     for (const stmt of sourceFile.statements) {
       if (ts.isImportDeclaration(stmt)) {
         this.collectImportBindings(stmt);
+      } else if (ts.isImportEqualsDeclaration(stmt)) {
+        const ref = stmt.moduleReference;
+        const module =
+          ts.isExternalModuleReference(ref) && ts.isStringLiteral(ref.expression)
+            ? ref.expression.text
+            : "";
+        this.recordImport(stmt.name.text, { module, kind: "import-equals" });
       } else {
-        this.collectDeclarationBindings(stmt);
+        this.collectAllBindings(stmt);
       }
     }
 
@@ -268,6 +331,11 @@ export class FileBindingCache {
         `[typesugar:hygiene] ${sourceFile.fileName}: cache built (${this.importMap.size} imports, ${this.localDecls.size} local decls, ${elapsed}ms)`
       );
     }
+  }
+
+  private recordImport(localName: string, binding: ImportBinding): void {
+    this.importMap.set(localName, binding.module);
+    this.importBindings.set(localName, binding);
   }
 
   /**
@@ -280,73 +348,72 @@ export class FileBindingCache {
     const moduleName = moduleSpecifier.text;
     const importClause = node.importClause;
     if (!importClause) return;
+    const clauseTypeOnly = importClause.isTypeOnly;
 
     // Default import: import Foo from "module"
     if (importClause.name) {
-      this.importMap.set(importClause.name.text, moduleName);
+      this.recordImport(importClause.name.text, {
+        module: moduleName,
+        kind: clauseTypeOnly ? "type" : "default",
+        importedName: "default",
+      });
     }
 
-    // Named imports: import { Foo, Bar as Baz } from "module"
     if (importClause.namedBindings) {
       if (ts.isNamedImports(importClause.namedBindings)) {
+        // Named imports: import { Foo, Bar as Baz, type Qux } from "module"
         for (const element of importClause.namedBindings.elements) {
-          const localName = element.name.text;
-          this.importMap.set(localName, moduleName);
+          this.recordImport(element.name.text, {
+            module: moduleName,
+            kind: clauseTypeOnly || element.isTypeOnly ? "type" : "named",
+            importedName: (element.propertyName ?? element.name).text,
+          });
         }
+      } else {
+        // Namespace import: import * as ns from "module" — binds `ns`.
+        this.recordImport(importClause.namedBindings.name.text, {
+          module: moduleName,
+          kind: clauseTypeOnly ? "type" : "namespace",
+        });
       }
-      // Namespace import: import * as ns from "module"
-      // We don't add individual names — the user accesses via ns.Foo
-      // This means ns.Foo won't conflict with a local `Foo`
     }
   }
 
   /**
-   * Collect declaration bindings from a top-level statement.
+   * Collect every binding name in a (non-import) statement, at any depth.
    */
-  private collectDeclarationBindings(stmt: ts.Statement): void {
-    // Variable declarations: const x = ..., let y = ..., var z = ...
-    if (ts.isVariableStatement(stmt)) {
-      for (const decl of stmt.declarationList.declarations) {
-        this.collectBindingName(decl.name);
+  private collectAllBindings(root: ts.Node): void {
+    const visit = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) {
+        // BindingElement names are collected by collectBindingName via their
+        // parent pattern; also adding them here is harmless (Set).
+        this.collectBindingName(node.name);
+      } else if (
+        (ts.isFunctionDeclaration(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isClassExpression(node)) &&
+        node.name
+      ) {
+        this.localDecls.add(node.name.text);
+      } else if (
+        ts.isInterfaceDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node) ||
+        ts.isEnumDeclaration(node) ||
+        ts.isImportEqualsDeclaration(node)
+      ) {
+        this.localDecls.add(node.name.text);
+      } else if (ts.isModuleDeclaration(node) && ts.isIdentifier(node.name)) {
+        this.localDecls.add(node.name.text);
+      } else if (ts.isImportClause(node) && node.name) {
+        // Imports nested inside `declare module "x" { ... }` blocks.
+        this.localDecls.add(node.name.text);
+      } else if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node)) {
+        this.localDecls.add(node.name.text);
       }
-      return;
-    }
-
-    // Function declarations: function foo() {}
-    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      this.localDecls.add(stmt.name.text);
-      return;
-    }
-
-    // Class declarations: class Foo {}
-    if (ts.isClassDeclaration(stmt) && stmt.name) {
-      this.localDecls.add(stmt.name.text);
-      return;
-    }
-
-    // Interface declarations: interface Foo {}
-    if (ts.isInterfaceDeclaration(stmt)) {
-      this.localDecls.add(stmt.name.text);
-      return;
-    }
-
-    // Type alias declarations: type Foo = ...
-    if (ts.isTypeAliasDeclaration(stmt)) {
-      this.localDecls.add(stmt.name.text);
-      return;
-    }
-
-    // Enum declarations: enum Foo {}
-    if (ts.isEnumDeclaration(stmt)) {
-      this.localDecls.add(stmt.name.text);
-      return;
-    }
-
-    // Module declarations: namespace Foo {}
-    if (ts.isModuleDeclaration(stmt) && ts.isIdentifier(stmt.name)) {
-      this.localDecls.add(stmt.name.text);
-      return;
-    }
+      ts.forEachChild(node, visit);
+    };
+    visit(root);
   }
 
   /**
@@ -369,6 +436,24 @@ export class FileBindingCache {
   }
 
   /**
+   * Whether `symbol` is already imported as a plain VALUE named import of the
+   * export `symbol` from `from` (the only form a bare reference may reuse).
+   */
+  private isReusableImport(symbol: string, from: string): boolean {
+    const b = this.importBindings.get(symbol);
+    return b !== undefined && b.kind === "named" && b.module === from && b.importedName === symbol;
+  }
+
+  /**
+   * Whether `name` is bound anywhere in the file — by an import of any form, a
+   * declaration/parameter at any depth, or a plain import this pass already
+   * registered. Used by `MacroContext.tryShortName` (deep review core #44).
+   */
+  isNameBound(name: string): boolean {
+    return this.importMap.has(name) || this.localDecls.has(name) || this.claimedNames.has(name);
+  }
+
+  /**
    * Get a safe reference to an external symbol.
    *
    * Uses three-tier resolution:
@@ -381,8 +466,10 @@ export class FileBindingCache {
    * @returns An identifier — either bare (fast path) or aliased (conflict path)
    */
   safeRef(symbol: string, from: string): ts.Identifier {
-    // Tier 0: Known globals cannot be shadowed by imports
-    if (KNOWN_GLOBALS.has(symbol)) {
+    // Tier 0: a known global name the file does not rebind anywhere. Global
+    // names ARE routinely shadowed (`import { Map } from "immutable"`, a local
+    // `Request`), and then the bare name is not the global (deep review core #27).
+    if (KNOWN_GLOBALS.has(symbol) && !this.isNameBound(symbol)) {
       this.stats.tier0++;
       // Cache globals by symbol only (module doesn't matter)
       let cached = this.identifierCache.get(symbol);
@@ -397,10 +484,9 @@ export class FileBindingCache {
     const cacheKey = `${symbol}\0${from}`;
 
     // Tier 1: Check if the name is imported
-    const importedFrom = this.importMap.get(symbol);
-    if (importedFrom !== undefined) {
+    if (this.importMap.has(symbol)) {
       this.stats.tier1++;
-      if (importedFrom === from) {
+      if (this.isReusableImport(symbol, from)) {
         // Same module — no conflict, use cache
         let cached = this.identifierCache.get(cacheKey);
         if (!cached) {
@@ -414,8 +500,10 @@ export class FileBindingCache {
       return this.getOrCreateAlias(symbol, from);
     }
 
-    // Tier 2: Check if the name is declared locally
-    if (this.localDecls.has(symbol)) {
+    // Tier 2: Check if the name is bound anywhere in the file, or claimed by
+    // a pending plain import of a DIFFERENT (symbol, from) this pass.
+    const claimedBy = this.claimedNames.get(symbol);
+    if (this.localDecls.has(symbol) || (claimedBy !== undefined && claimedBy !== cacheKey)) {
       this.stats.tier2++;
       this.stats.conflicts++;
       return this.getOrCreateAlias(symbol, from);
@@ -442,30 +530,44 @@ export class FileBindingCache {
    * macros (which return an expression, not statements) have no way to inject an
    * import statement, so they need this to register a pending import.
    *
-   * - Known global → bare identifier (no import needed).
-   * - Already imported by name from the same module → bare identifier (reuse).
-   * - Conflict (imported from a different module, or declared locally) → aliased import.
+   * - Known global names get no special treatment: the caller wants the
+   *   MODULE's export (e.g. a companion named `File`), so it is imported.
+   * - Already imported as a plain value named import of `symbol` from the same
+   *   module → bare identifier (reuse).
+   * - Name already bound (an import of another module or kind — `import type`,
+   *   default, namespace, `import =` — a declaration or parameter anywhere in
+   *   the file, or a plain import of another module registered earlier this
+   *   pass) → aliased import.
    * - Otherwise → registers a plain pending import (`import { symbol } from "from"`).
    */
   ensureImport(symbol: string, from: string): ts.Identifier {
-    if (KNOWN_GLOBALS.has(symbol)) return this.safeRef(symbol, from);
+    // No KNOWN_GLOBALS fast path: `ensureImport` is always asked for a MODULE's
+    // export. A user companion named `File`/`Request`/`Worker` must be imported,
+    // not silently resolved to the runtime global (deep review core #27).
 
-    const importedFrom = this.importMap.get(symbol);
-    if (importedFrom === from) {
-      // Already imported by name from the same module — reuse it bare.
+    if (this.isReusableImport(symbol, from)) {
+      // Already imported as a value, by name, from the same module — reuse it bare.
       return this.safeRef(symbol, from);
     }
-    if (importedFrom !== undefined || this.localDecls.has(symbol)) {
-      // Conflict: different module or local declaration — alias it
+    const key = `${symbol}\0${from}`;
+    const claimedBy = this.claimedNames.get(symbol);
+    if (
+      this.importMap.has(symbol) ||
+      this.localDecls.has(symbol) ||
+      (claimedBy !== undefined && claimedBy !== key)
+    ) {
+      // Conflict: the name is already bound — by an import of another
+      // module/kind/export, a declaration or parameter anywhere in the file,
+      // or a plain import of a different module this pass registered. Alias it
       // (getOrCreateAlias also records the pending import).
       this.stats.conflicts++;
       return this.getOrCreateAlias(symbol, from);
     }
 
-    // Not in scope — register a plain (non-aliased) pending import.
-    const key = `${symbol}\0${from}`;
+    // Not bound anywhere — register a plain (non-aliased) pending import.
     if (!this.pendingAliases.has(key)) {
       this.pendingAliases.set(key, { symbol, from, alias: symbol });
+      this.claimedNames.set(symbol, key);
     }
     let cached = this.identifierCache.get(key);
     if (!cached) {
@@ -659,6 +761,19 @@ export class HygieneContext {
 
     // No scope — generate a globally unique name
     return `__typesugar_${name}_${this.globalCounter++}__`;
+  }
+
+  /**
+   * Mint a name that is fresh on EVERY call (never memoised), unlike
+   * {@link mangleName}. Inside a scope it shares the scope's counter, outside
+   * one the global counter, so it never collides with a mangled name either.
+   * This is what `MacroContext.generateUniqueName` uses (deep review core #28).
+   */
+  freshName(prefix: string): string {
+    if (this.currentScope) {
+      return `__typesugar_${prefix}_s${this.currentScope.id}_${this.currentScope.counter++}__`;
+    }
+    return `__typesugar_${prefix}_${this.globalCounter++}__`;
   }
 
   /**

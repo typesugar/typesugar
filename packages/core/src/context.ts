@@ -5,7 +5,13 @@
 import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
 import { HygieneContext, globalHygiene, FileBindingCache } from "./hygiene.js";
-import { stripPositions } from "./ast-utils.js";
+import {
+  stripPositions,
+  isSyntheticNode,
+  hasSourceText,
+  numberToExpression,
+  bigintToExpression,
+} from "./ast-utils.js";
 import {
   DiagnosticBuilder,
   type DiagnosticDescriptor,
@@ -14,7 +20,6 @@ import {
 
 export class MacroContextImpl implements MacroContext {
   private diagnostics: MacroDiagnostic[] = [];
-  private uniqueNameCounter = 0;
   private scope: Map<string, ComptimeValue> = new Map();
   private _emittedShortNames: Set<string> = new Set();
 
@@ -133,11 +138,17 @@ export class MacroContextImpl implements MacroContext {
       throw new Error(`Failed to parse expression: ${code}`);
     }
 
-    // Extract the expression from the variable declaration
-    const statement = tempSource.statements[0];
-    if (ts.isVariableStatement(statement)) {
-      const declaration = statement.declarationList.declarations[0];
-      if (declaration.initializer) {
+    // Extract the expression from the variable declaration. Require exactly
+    // one statement with exactly one declarator: otherwise `a, b` (two
+    // declarators) or `x; sideEffect()` (two statements) would silently lose
+    // everything after the first part (deep review core #29). Trailing empty
+    // statements (`expr;`) are fine.
+    const nonEmpty = tempSource.statements.filter((st) => !ts.isEmptyStatement(st));
+    const statement = nonEmpty[0];
+    if (nonEmpty.length === 1 && ts.isVariableStatement(statement)) {
+      const decls = statement.declarationList.declarations;
+      const declaration = decls[0];
+      if (decls.length === 1 && declaration.initializer) {
         // Strip positions so the printer generates fresh text instead of
         // extracting from the wrong source file
         return stripPositions(declaration.initializer);
@@ -155,6 +166,16 @@ export class MacroContextImpl implements MacroContext {
       true,
       ts.ScriptKind.TS
     );
+    // The parser recovers from errors; returning its recovery would emit
+    // broken JS with no diagnostic pointing at the macro. Throw instead — the
+    // transformer's expansion catch turns it into a visible macro error
+    // (deep review core #29).
+    const diags = (tempSource as unknown as { parseDiagnostics?: ts.Diagnostic[] })
+      .parseDiagnostics;
+    if (diags && diags.length > 0) {
+      const first = ts.flattenDiagnosticMessageText(diags[0].messageText, "\n");
+      throw new Error(`Failed to parse statements (${first}): ${code}`);
+    }
     // Strip positions so the printer generates fresh text instead of
     // extracting from the wrong source file
     return Array.from(tempSource.statements).map((stmt) => stripPositions(stmt));
@@ -202,15 +223,18 @@ export class MacroContextImpl implements MacroContext {
   assertTypeReliable(node: ts.Node, purpose: string): ts.Type | null {
     const type = this.typeChecker.getTypeAtLocation(node);
     if (!this.isTypeReliable(type)) {
-      let nodeText: string;
-      try {
-        nodeText = node.getText();
-      } catch {
-        nodeText = this.printer.printNode(ts.EmitHint.Expression, node, this.sourceFile);
-      }
+      const nodeText = hasSourceText(node)
+        ? node.getText(this.sourceFile)
+        : this.printer.printNode(ts.EmitHint.Expression, node, this.sourceFile);
+      // A macro-generated node has no type in the Program the checker was
+      // built from, so "fix upstream type errors" would send the user hunting
+      // for errors that don't exist (deep review core #48).
+      const synthetic = isSyntheticNode(node) || !ts.getParseTreeNode(node);
       this.reportWarning(
         node,
-        `typesugar skipped ${purpose} because the type of '${nodeText}' could not be resolved. Fix upstream type errors first.`
+        synthetic
+          ? `typesugar skipped ${purpose} because '${nodeText}' is macro-generated code the type checker cannot see.`
+          : `typesugar skipped ${purpose} because the type of '${nodeText}' could not be resolved. Fix upstream type errors first.`
       );
       return null;
     }
@@ -600,11 +624,16 @@ export class MacroContextImpl implements MacroContext {
 
     // Arrow functions - return as function value for later evaluation
     if (ts.isArrowFunction(node)) {
+      // Lexical scope: capture the bindings visible where the arrow is
+      // DEFINED, not whatever `this.scope` holds when it is later called
+      // (deep review core #45).
+      const definitionScope = new Map(this.scope);
       return {
         kind: "function",
         fn: (...args: ComptimeValue[]) => {
-          // Bind parameters to arguments
-          const savedScope = new Map(this.scope);
+          // Bind parameters to arguments, on top of the definition scope
+          const savedScope = this.scope;
+          this.scope = new Map(definitionScope);
           node.parameters.forEach((param, i) => {
             if (ts.isIdentifier(param.name)) {
               this.scope.set(
@@ -871,7 +900,7 @@ export class MacroContextImpl implements MacroContext {
       case "boolean":
         return value.value;
       case "number":
-        return value.value !== 0;
+        return value.value !== 0 && !Number.isNaN(value.value);
       case "bigint":
         return value.value !== 0n;
       case "string":
@@ -897,18 +926,18 @@ export class MacroContextImpl implements MacroContext {
       case "boolean":
         return String(value.value);
       case "bigint":
-        return `${value.value}n`;
+        return String(value.value); // JS: `${5n}` === "5"
       case "null":
         return "null";
       case "undefined":
         return "undefined";
       case "array":
-        return `[${value.elements.map((e) => this.comptimeToString(e)).join(", ")}]`;
+        // JS `String([1, [2, 3], null])` → "1,2,3," (null/undefined → "")
+        return value.elements
+          .map((e) => (e.kind === "null" || e.kind === "undefined" ? "" : this.comptimeToString(e)))
+          .join(",");
       case "object":
-        const entries = Array.from(value.properties.entries())
-          .map(([k, v]) => `${k}: ${this.comptimeToString(v)}`)
-          .join(", ");
-        return `{ ${entries} }`;
+        return "[object Object]";
       case "function":
         return "[Function]";
       case "type":
@@ -923,13 +952,11 @@ export class MacroContextImpl implements MacroContext {
   // -------------------------------------------------------------------------
 
   generateUniqueName(prefix: string): ts.Identifier {
-    // Delegate to the hygiene context when inside a scope for proper
-    // scoped name mangling; fall back to the simple counter otherwise.
-    if (this.hygiene.isInScope()) {
-      return this.hygiene.createIdentifier(prefix);
-    }
-    const name = `__typesugar_${prefix}_${this.uniqueNameCounter++}__`;
-    return this.factory.createIdentifier(name);
+    // Always fresh, from the hygiene context's counters (one source of fresh
+    // names, so it can't collide with mangled names), never memoised: two
+    // calls with the same prefix in one expansion must not return the same
+    // name (deep review core #28).
+    return this.factory.createIdentifier(this.hygiene.freshName(prefix));
   }
 
   tryShortName(preferred: string): ts.Identifier {
@@ -940,41 +967,16 @@ export class MacroContextImpl implements MacroContext {
     return this.generateUniqueName(preferred);
   }
 
+  /**
+   * Whether `name` is bound anywhere in the file (imports of every form, and
+   * declarations/parameters/locals at ANY depth — the file binding cache's
+   * conservative all-bindings set), or was already handed out as a short name.
+   * Checking only top-level statements let a temp shadow a user parameter or
+   * local inside a match arm (deep review core #44).
+   */
   private nameConflictsWithScope(name: string): boolean {
     if (this._emittedShortNames.has(name)) return true;
-
-    for (const stmt of this.sourceFile.statements) {
-      if (ts.isVariableStatement(stmt)) {
-        for (const decl of stmt.declarationList.declarations) {
-          if (ts.isIdentifier(decl.name) && decl.name.text === name) return true;
-        }
-      } else if (ts.isFunctionDeclaration(stmt) && stmt.name?.text === name) {
-        return true;
-      } else if (ts.isClassDeclaration(stmt) && stmt.name?.text === name) {
-        return true;
-      } else if (ts.isImportDeclaration(stmt) && stmt.importClause) {
-        const clause = stmt.importClause;
-        if (clause.name?.text === name) return true;
-        if (clause.namedBindings) {
-          if (ts.isNamespaceImport(clause.namedBindings)) {
-            if (clause.namedBindings.name.text === name) return true;
-          } else if (ts.isNamedImports(clause.namedBindings)) {
-            for (const spec of clause.namedBindings.elements) {
-              const localName = spec.name.text;
-              if (localName === name) return true;
-            }
-          }
-        }
-      } else if (ts.isEnumDeclaration(stmt) && stmt.name.text === name) {
-        return true;
-      } else if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === name) {
-        return true;
-      } else if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === name) {
-        return true;
-      }
-    }
-
-    return false;
+    return this.fileBindingCache.isNameBound(name);
   }
 
   // -------------------------------------------------------------------------
@@ -996,13 +998,14 @@ export class MacroContextImpl implements MacroContext {
   comptimeValueToExpression(value: ComptimeValue): ts.Expression {
     switch (value.kind) {
       case "number":
-        return this.createNumericLiteral(value.value);
+        // Negatives/-0/NaN/Infinity are not numeric literals (deep review core #31).
+        return numberToExpression(this.factory, value.value);
       case "string":
         return this.createStringLiteral(value.value);
       case "boolean":
         return this.createBooleanLiteral(value.value);
       case "bigint":
-        return this.factory.createBigIntLiteral(value.value.toString());
+        return bigintToExpression(this.factory, value.value);
       case "null":
         return this.factory.createNull();
       case "undefined":
