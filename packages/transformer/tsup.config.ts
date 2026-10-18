@@ -18,6 +18,7 @@ export default defineConfig([
       cache: "src/cache.ts",
       profiling: "src/profiling.ts",
       "dts-transform": "src/dts-transform.ts",
+      "dts-transform-cli": "src/dts-transform-cli.ts",
       "dts-opaque-discovery": "src/dts-opaque-discovery.ts",
     },
     format: ["cjs", "esm"],

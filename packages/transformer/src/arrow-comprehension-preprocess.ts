@@ -22,10 +22,14 @@
  * in and the existing `const x = let;`-merge path in the transformer handles
  * the inner `const __letyield_N = let: {...} yield: {...}` pattern.
  *
- * Three patterns are handled:
+ * Patterns handled:
  *   1. Arrow body:     (x) =>              let: {...} yield: {...}
- *   2. return + comp:  return              let: {...} yield: {...}
+ *   2. return + comp:  return              let: {...} yield: {...}  (same line or next)
  *   3. export default: export default      let: {...} yield: {...}
+ *
+ * Shapes the downstream merge would mis-compile (a `par:`/`all:` block in
+ * expression position, `const x = let:` inside a function body) are reported
+ * as TS9226 errors instead of being rewritten.
  *
  * Arrow and return wrap with a double `{ { … } }` Block; the inner Block absorbs
  * the stray `}` from the user's `let:` block so the trailing `yield:` parses as
@@ -138,7 +142,11 @@ export function preprocessExpressionComprehensions(
     // Pattern A: arrow body is a bare `let|par|seq|all` Identifier.
     if (ts.isArrowFunction(node) && isBrokenCompIdentifier(node.body)) {
       const span = findLabeledBlockSpan(source, node.body.end);
-      if (span) {
+      if (span && isParallelShape(node.body, span.end)) {
+        diagnostics.push(
+          unsupportedShape(node.body, sourceFile, node.body.text, "with a `par:`/`all:` block")
+        );
+      } else if (span) {
         const tag = nextTag();
         rewrites.push({
           kind: "arrow",
@@ -172,6 +180,62 @@ export function preprocessExpressionComprehensions(
       }
     }
 
+    // Pattern B2: `return let: {...} yield: {...}` on ONE line -- parsed as
+    // `return let` (the label as an identifier expression). Same rewrite as
+    // Pattern B.
+    if (ts.isReturnStatement(node) && isBrokenCompIdentifier(node.expression)) {
+      const span = findLabeledBlockSpan(source, node.expression.end);
+      if (span && isParallelShape(node.expression, span.end)) {
+        diagnostics.push(
+          unsupportedShape(
+            node.expression,
+            sourceFile,
+            node.expression.text,
+            "with a `par:`/`all:` block"
+          )
+        );
+      } else if (span) {
+        rewrites.push({
+          kind: "return",
+          returnStart: node.getStart(sourceFile),
+          labelStart: node.expression.getStart(sourceFile),
+          wrapEnd: span.end,
+          tag: nextTag(),
+        });
+      }
+    }
+
+    // Pattern D: `const r = let|par|seq|all: {...} <cont>: {...}`. At module
+    // level with a plain first bind this is handled downstream by the
+    // transformer's `const x = let;` merge. Shapes that merge mangles into
+    // wrong code are reported as errors instead (no rewrite):
+    //   - inside a function body (the parser's stray `}` closes the function);
+    //   - `const r = par:|all: {...}`;
+    //   - a leading or nested `par:`/`all:` inside the block.
+    // Text-shuffling workarounds were tried and break on what FOLLOWS the
+    // declaration, so an explicit diagnostic is the conservative choice.
+    if (
+      ts.isVariableStatement(node) &&
+      node.declarationList.declarations.length >= 1 &&
+      isBrokenCompIdentifier(node.declarationList.declarations[0].initializer)
+    ) {
+      const init = node.declarationList.declarations[0].initializer as ts.Identifier;
+      const span = findLabeledBlockSpan(source, init.end);
+      if (span) {
+        const label = init.text;
+        const reason = !ts.isSourceFile(node.parent)
+          ? "inside a function or block body"
+          : label === "par" || label === "all"
+            ? `with a top-level \`${label}:\` block`
+            : containsParallelLabel(source, init.end, span.end)
+              ? "with a leading or nested `par:`/`all:` block"
+              : undefined;
+        if (reason) {
+          diagnostics.push(unsupportedShape(init, sourceFile, label, reason));
+        }
+      }
+    }
+
     // Pattern B: bare `return;` (no expression, ASI-inserted) immediately followed in
     // the enclosing block by a LabeledStatement whose label is a main-comp label.
     if (ts.isReturnStatement(node) && node.expression === undefined) {
@@ -200,6 +264,13 @@ export function preprocessExpressionComprehensions(
     }
 
     ts.forEachChild(node, visit);
+  }
+
+  /** A `par:`/`all:` comprehension, or one containing such a block. */
+  function isParallelShape(label: ts.Identifier, end: number): boolean {
+    return (
+      label.text === "par" || label.text === "all" || containsParallelLabel(source, label.end, end)
+    );
   }
 
   visit(sourceFile);
@@ -312,6 +383,57 @@ type Rewrite =
       wrapEnd: number;
       tag: string;
     };
+
+/** Error for an expression-position comprehension shape that would be mis-compiled. */
+function unsupportedShape(
+  at: ts.Node,
+  sourceFile: ts.SourceFile,
+  label: string,
+  reason: string
+): PreprocessDiagnostic {
+  return {
+    code: 9226,
+    start: at.getStart(sourceFile),
+    length: label.length,
+    message:
+      `\`${label}:\` comprehension in expression position ${reason} is not supported ` +
+      `and would compile to wrong code. Use it in statement position, as a module-level ` +
+      `\`const x = let: {...}\` with plain binds, as an arrow body, or after \`return\`.`,
+    severity: "error",
+  };
+}
+
+/**
+ * Does `source[start..end]` contain a `par:` / `all:` label (an identifier
+ * token followed by `:` and `{`)? Token-based, so strings/comments/template
+ * text never match.
+ */
+function containsParallelLabel(source: string, start: number, end: number): boolean {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    /*skipTrivia*/ true,
+    ts.LanguageVariant.Standard,
+    source
+  );
+  scanner.setTextPos(start);
+  let prevIsParallel = false;
+  let prevColon = false;
+  while (scanner.getTextPos() < end) {
+    const tok = scanner.scan();
+    if (tok === ts.SyntaxKind.EndOfFileToken) break;
+    if (tok === ts.SyntaxKind.TemplateHead) {
+      if (!consumeTemplateSubstitutions(scanner)) break;
+      prevIsParallel = prevColon = false;
+      continue;
+    }
+    if (prevColon && tok === ts.SyntaxKind.OpenBraceToken) return true;
+    prevColon = prevIsParallel && tok === ts.SyntaxKind.ColonToken;
+    prevIsParallel =
+      tok === ts.SyntaxKind.Identifier &&
+      (scanner.getTokenValue() === "par" || scanner.getTokenValue() === "all");
+  }
+  return false;
+}
 
 function hasPotentialComprehension(source: string): boolean {
   // Cheap prefilter — if no `let:|par:|seq:|all:` substring appears, nothing to do.

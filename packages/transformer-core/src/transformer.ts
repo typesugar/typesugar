@@ -38,6 +38,7 @@ import {
   isRemoveExpression,
   getRemoveComment,
   TS9222,
+  withStandaloneExtensionFile,
 } from "@typesugar/core";
 
 import { getActivatedLabeledBlock, emitLabelSyntaxNotActivatedHint } from "./label-activation.js";
@@ -96,6 +97,11 @@ import {
 import { tryResolveTypeclassMethod as tryResolveTypeclassMethodFn } from "./method-sugar.js";
 
 import { emitExtensionRegistrations as emitExtensionRegistrationsFn } from "./extension-registration.js";
+
+/** A directive-prologue statement (`"use strict";`, `"use client";`). */
+function isDirectiveStatement(s: ts.Statement): boolean {
+  return ts.isExpressionStatement(s) && ts.isStringLiteral(s.expression);
+}
 
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
@@ -334,7 +340,8 @@ class MacroTransformer {
       node,
       macroName,
       kind,
-      (symbol) => this.recordMacroImport(symbol)
+      (symbol) => this.recordMacroImport(symbol),
+      this.ctx.program
     );
   }
 
@@ -358,7 +365,12 @@ class MacroTransformer {
       return ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
     }
 
-    if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) {
+    if (ts.isSourceFile(node)) {
+      // Extensions registered during this pass are keyed to this file, and the
+      // file's entries from an earlier pass (watch/LSP re-transform) are dropped.
+      return withStandaloneExtensionFile(node.fileName, () => this.visitStatementContainer(node));
+    }
+    if (ts.isBlock(node) || ts.isModuleBlock(node)) {
       return this.visitStatementContainer(node);
     }
 
@@ -900,9 +912,21 @@ class MacroTransformer {
       const hoistedDecls = this.specCache.getHoistedDeclarations();
 
       if (pendingImports.length > 0 || hoistedDecls.length > 0) {
+        // Insert after the leading directive prologue ("use client", "use strict":
+        // a directive that is no longer first is ignored) and the leading imports.
         let insertIndex = 0;
-        for (let i = 0; i < cleanedStatements.length; i++) {
-          if (ts.isImportDeclaration(cleanedStatements[i])) {
+        while (
+          insertIndex < cleanedStatements.length &&
+          isDirectiveStatement(cleanedStatements[insertIndex])
+        ) {
+          insertIndex++;
+        }
+        for (let i = insertIndex; i < cleanedStatements.length; i++) {
+          if (
+            ts.isImportDeclaration(cleanedStatements[i]) ||
+            // placeholder carrying a removed macro import's comments
+            cleanedStatements[i].kind === ts.SyntaxKind.NotEmittedStatement
+          ) {
             insertIndex = i + 1;
           } else {
             break;
@@ -934,7 +958,19 @@ class MacroTransformer {
     } else {
       const hoistedDecls = this.specCache.getHoistedDeclarations();
       if (hoistedDecls.length > 0) {
-        cleanedStatements = [...hoistedDecls, ...cleanedStatements];
+        // Keep a function body's own "use strict" prologue first.
+        let prologueEnd = 0;
+        while (
+          prologueEnd < cleanedStatements.length &&
+          isDirectiveStatement(cleanedStatements[prologueEnd])
+        ) {
+          prologueEnd++;
+        }
+        cleanedStatements = [
+          ...cleanedStatements.slice(0, prologueEnd),
+          ...hoistedDecls,
+          ...cleanedStatements.slice(prologueEnd),
+        ];
 
         if (this.verbose) {
           console.log(
@@ -1097,10 +1133,10 @@ class MacroTransformer {
         return this.visitRewrittenCall(autoSpecResult, node);
       }
 
-      // Derived-instance inlining strips source positions IN PLACE on the
-      // argument nodes it substitutes (stripPositions/stripCommentsDeep), so
-      // after it runs the user's argument nodes look synthetic and macros
-      // inside them would never expand. Visit the arguments FIRST and inline
+      // Derived-instance inlining substitutes synthetic (position-free) copies
+      // of the argument nodes (cloneWithoutComments), and the visitor skips
+      // macro expansion on synthetic nodes, so macros inside the arguments
+      // would never expand in the inlined result. Visit the arguments FIRST and inline
       // from a call carrying the visited arguments (deep-review core #7).
       // The visited arguments are memoised so that, if inlining does not
       // fire, the later normal descent reuses them instead of expanding the
@@ -1311,7 +1347,7 @@ class MacroTransformer {
       );
       if (result !== undefined) {
         if (ts.isCallExpression(result)) {
-          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result);
+          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, node);
           if (inlined !== undefined) {
             if (
               ts.isPropertyAccessExpression(result.expression) &&
@@ -1458,7 +1494,10 @@ class MacroTransformer {
     if (
       ts.isInterfaceDeclaration(node) ||
       ts.isTypeAliasDeclaration(node) ||
-      ts.isFunctionDeclaration(node)
+      ts.isFunctionDeclaration(node) ||
+      // `@layer(Svc) const x = ...`: TS parses the decorator into the
+      // VariableStatement's modifiers (with a grammar error typesugar owns).
+      ts.isVariableStatement(node)
     ) {
       const modifiers = node.modifiers;
       if (modifiers) {
@@ -1671,12 +1710,14 @@ class MacroTransformer {
       if (
         ts.isFunctionDeclaration(node) ||
         ts.isInterfaceDeclaration(node) ||
-        ts.isTypeAliasDeclaration(node)
+        ts.isTypeAliasDeclaration(node) ||
+        ts.isVariableStatement(node)
       ) {
         const nodeWithModifiers = node as
           | ts.FunctionDeclaration
           | ts.InterfaceDeclaration
-          | ts.TypeAliasDeclaration;
+          | ts.TypeAliasDeclaration
+          | ts.VariableStatement;
         if (nodeWithModifiers.modifiers) {
           const modifierDecorators = nodeWithModifiers.modifiers.filter(
             (m): m is ts.Decorator => m.kind === ts.SyntaxKind.Decorator
@@ -1695,8 +1736,22 @@ class MacroTransformer {
 
     const sortedDecorators = sortDecoratorsByDependency(decorators);
 
-    let currentNode: ts.Node = node;
+    // A decorated `const`: the macro's target is its (single) declaration, as
+    // for the JSDoc form (tryExpandJSDocMacros); the statement is rebuilt below.
+    const asNode = node as ts.Node;
+    const varStmt = ts.isVariableStatement(asNode) ? asNode : undefined;
+    if (varStmt && varStmt.declarationList.declarations.length !== 1) {
+      this.ctx.reportError(
+        decorators[0],
+        "typesugar: a decorator on a variable statement needs exactly one declaration " +
+          "(write `@macro const x = ...;`, one per statement)"
+      );
+      return undefined;
+    }
+
+    let currentNode: ts.Node = varStmt ? varStmt.declarationList.declarations[0] : node;
     const extraStatements: ts.Statement[] = [];
+    const attributeExtras = new Set<ts.Statement>();
     const remainingDecorators: ts.Decorator[] = [];
     let wasTransformed = false;
 
@@ -1750,7 +1805,11 @@ class MacroTransformer {
           if (Array.isArray(result)) {
             if (result.length > 0) {
               currentNode = result[0];
-              extraStatements.push(...result.slice(1).filter(ts.isStatement));
+              // Visited below like result[0], so macros inside them expand.
+              for (const extra of result.slice(1).filter(ts.isStatement)) {
+                extraStatements.push(extra);
+                attributeExtras.add(extra);
+              }
             }
           } else {
             currentNode = result;
@@ -1787,7 +1846,24 @@ class MacroTransformer {
 
     if (!wasTransformed) return undefined;
 
-    if (remainingDecorators.length !== decorators.length) {
+    if (varStmt) {
+      const f = this.ctx.factory;
+      const otherModifiers = (varStmt.modifiers ?? []).filter((m) => !ts.isDecorator(m));
+      if (ts.isVariableDeclaration(currentNode)) {
+        currentNode = f.updateVariableStatement(
+          varStmt,
+          [...remainingDecorators, ...otherModifiers],
+          f.updateVariableDeclarationList(varStmt.declarationList, [currentNode])
+        );
+      } else if (!ts.isStatement(currentNode)) {
+        this.ctx.reportError(
+          decorators[0],
+          `typesugar: attribute macro on a const returned a ${ts.SyntaxKind[currentNode.kind]}, ` +
+            "expected a VariableDeclaration or a statement"
+        );
+        return undefined;
+      }
+    } else if (remainingDecorators.length !== decorators.length) {
       currentNode = updateNodeDecorators(this.ctx.factory, currentNode, remainingDecorators);
     }
 
@@ -1801,7 +1877,23 @@ class MacroTransformer {
     const mappedNode = preserveSourceMap(visited, node);
 
     if (extraStatements.length > 0) {
-      return [mappedNode, ...extraStatements];
+      const visitedExtras: ts.Statement[] = [];
+      for (const stmt of extraStatements) {
+        if (!attributeExtras.has(stmt)) {
+          visitedExtras.push(stmt);
+          continue;
+        }
+        try {
+          const v = this.visit(stmt);
+          for (const n of Array.isArray(v) ? v : [v]) {
+            if (ts.isStatement(n)) visitedExtras.push(n);
+          }
+        } catch (error) {
+          this.ctx.reportError(node, `Visiting attribute macro result failed: ${error}`);
+          visitedExtras.push(stmt);
+        }
+      }
+      return [mappedNode, ...visitedExtras];
     }
 
     return mappedNode;

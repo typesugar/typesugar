@@ -69,6 +69,23 @@ function hashContent(content: string): string {
  */
 export class VirtualCompilerHost implements ts.CompilerHost {
   private preprocessedFiles = new Map<string, PreprocessedFile>();
+  /**
+   * Full-text overrides served INSTEAD of the (HKT-preprocessed) file, set
+   * by the pipeline when a later text rewrite (expression-position
+   * comprehensions) must also be what the type checker sees -- otherwise
+   * macros would inspect a detached SourceFile with no type information.
+   */
+  private contentOverrides = new Map<string, string>();
+
+  /** Serve `code` for `fileName` (or stop, with `undefined`). */
+  setContentOverride(fileName: string, code: string | undefined): void {
+    if (code === undefined) this.contentOverrides.delete(fileName);
+    else this.contentOverrides.set(fileName, code);
+  }
+
+  getContentOverride(fileName: string): string | undefined {
+    return this.contentOverrides.get(fileName);
+  }
   private baseHost: ts.CompilerHost;
   private customReadFile: (fileName: string) => string | undefined;
   private customFileExists: (fileName: string) => boolean;
@@ -139,33 +156,19 @@ export class VirtualCompilerHost implements ts.CompilerHost {
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ): ts.SourceFile | undefined {
-    // Check if we have preprocessed content
-    const preprocessed = this.getPreprocessedFile(fileName);
+    const languageVersion =
+      typeof languageVersionOrOptions === "number"
+        ? languageVersionOrOptions
+        : languageVersionOrOptions.languageVersion;
 
-    if (preprocessed) {
-      // Create source file from preprocessed content
-      const languageVersion =
-        typeof languageVersionOrOptions === "number"
-          ? languageVersionOrOptions
-          : languageVersionOrOptions.languageVersion;
+    // Override > HKT-preprocessed > custom reader content.
+    const text =
+      this.contentOverrides.get(fileName) ??
+      this.getPreprocessedFile(fileName)?.code ??
+      this.customReadFile(fileName);
 
-      return ts.createSourceFile(
-        fileName,
-        preprocessed.code,
-        languageVersion,
-        true // setParentNodes
-      );
-    }
-
-    // For virtual files served by customReadFile that don't need preprocessing,
-    // the base host can't find them on disk. Create from customReadFile content.
-    const customContent = this.customReadFile(fileName);
-    if (customContent !== undefined) {
-      const languageVersion =
-        typeof languageVersionOrOptions === "number"
-          ? languageVersionOrOptions
-          : languageVersionOrOptions.languageVersion;
-      return ts.createSourceFile(fileName, customContent, languageVersion, true);
+    if (text !== undefined) {
+      return this.cachedSourceFile(fileName, text, languageVersion, shouldCreateNewSourceFile);
     }
 
     // Fall back to base host for real filesystem files
@@ -175,6 +178,29 @@ export class VirtualCompilerHost implements ts.CompilerHost {
       onError,
       shouldCreateNewSourceFile
     );
+  }
+
+  /**
+   * SourceFiles are reused while their text is unchanged. ts.createProgram's
+   * `oldProgram` structural reuse only kicks in when the host hands back the
+   * SAME SourceFile object for an unchanged file; creating a fresh one every
+   * time re-parses (and re-binds) the whole project -- lib.d.ts included --
+   * on every Program rebuild (which now happens on each invalidate()).
+   */
+  private sourceFileCache = new Map<string, { text: string; sf: ts.SourceFile }>();
+
+  private cachedSourceFile(
+    fileName: string,
+    text: string,
+    languageVersion: ts.ScriptTarget,
+    shouldCreateNewSourceFile?: boolean
+  ): ts.SourceFile {
+    const key = `${languageVersion}:${fileName}`;
+    const hit = this.sourceFileCache.get(key);
+    if (hit && hit.text === text && !shouldCreateNewSourceFile) return hit.sf;
+    const sf = ts.createSourceFile(fileName, text, languageVersion, true);
+    this.sourceFileCache.set(key, { text, sf });
+    return sf;
   }
 
   getDefaultLibFileName(options: ts.CompilerOptions): string {
@@ -202,6 +228,8 @@ export class VirtualCompilerHost implements ts.CompilerHost {
   }
 
   readFile(fileName: string): string | undefined {
+    const override = this.contentOverrides.get(fileName);
+    if (override !== undefined) return override;
     // Return preprocessed content if available
     const preprocessed = this.getPreprocessedFile(fileName);
     if (preprocessed) {
@@ -368,6 +396,7 @@ export class VirtualCompilerHost implements ts.CompilerHost {
    */
   invalidate(fileName: string): void {
     this.preprocessedFiles.delete(fileName);
+    this.contentOverrides.delete(fileName);
   }
 
   /**
@@ -375,6 +404,7 @@ export class VirtualCompilerHost implements ts.CompilerHost {
    */
   invalidateAll(): void {
     this.preprocessedFiles.clear();
+    this.contentOverrides.clear();
   }
 
   /**

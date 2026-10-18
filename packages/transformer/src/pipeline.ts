@@ -20,6 +20,7 @@ import {
   profiler,
   PROFILING_ENABLED,
   type FileTimings,
+  config,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
 import { MacroTransformer, discoverOpaqueTypesFromImports } from "@typesugar/transformer-core";
@@ -31,8 +32,13 @@ import {
   IdentityPositionMapper,
   type PositionMapper,
 } from "./position-mapper.js";
-import { TransformCache, hashContent, DiskTransformCache, initHasher } from "./cache.js";
-import MagicString from "magic-string";
+import {
+  TransformCache,
+  hashContent,
+  DiskTransformCache,
+  initHasher,
+  computeCacheConfigKey,
+} from "./cache.js";
 import {
   preprocessExpressionComprehensions,
   type PreprocessResult,
@@ -72,6 +78,73 @@ export interface MacroTransformerConfig {
    * Defaults to `.typesugar-cache`.
    */
   cacheDir?: string | false;
+
+  /**
+   * Called with every macro diagnostic (error or warning) the transformer
+   * reports, as a fully-formed `ts.Diagnostic`.
+   *
+   * This is the diagnostics side channel: TypeScript DISCARDS diagnostics a
+   * `before` transformer pushes via `context.addDiagnostic` during
+   * `program.emit()` (they never reach `emitResult.diagnostics`), so a host
+   * that drives emit itself (the CLI's build/watch) must collect them here
+   * and merge them into its own error count. `ts.transform()` callers get
+   * them in `result.diagnostics` as well.
+   */
+  onDiagnostic?: (diagnostic: ts.Diagnostic) => void;
+}
+
+/**
+ * The third argument ts-patch passes to a `type: "program"` transformer
+ * factory (`factory(program, pluginConfig, extras)`) -- see ts-patch's
+ * `resources/module-patch.js`. Diagnostics added via `addDiagnostic` are
+ * merged by ts-patch into `program.emit()`'s result, so patched `tsc`
+ * reports them and exits non-zero.
+ */
+export interface TsPatchTransformerExtras {
+  ts?: typeof ts;
+  library?: string;
+  addDiagnostic: (diagnostic: ts.Diagnostic) => number | void;
+  removeDiagnostic?: (index: number) => void;
+  diagnostics?: readonly ts.Diagnostic[];
+}
+
+/**
+ * Duck-typed (not `instanceof`): tsup builds each entry point with
+ * `splitting: false`, so `@typesugar/transformer` and
+ * `@typesugar/transformer/pipeline` each carry their OWN copy of the
+ * `TransformerState` class, and a state built from one would fail an
+ * `instanceof` check in the other.
+ */
+function isTransformerState(value: unknown): value is TransformerState {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as TransformerState).hasLoadedMacroPackages === "function" &&
+    typeof (value as TransformerState).markMacroPackagesLoaded === "function"
+  );
+}
+
+function isTsPatchExtras(value: unknown): value is TsPatchTransformerExtras {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as TsPatchTransformerExtras).addDiagnostic === "function"
+  );
+}
+
+/**
+ * Where the macro expansion cache for this configuration lives: a
+ * subdirectory of `cacheDir` keyed on typesugar version, compiler options and
+ * cfg config (review finding #3), so a cache written under one configuration
+ * is never read under another.
+ */
+function expansionCacheDir(
+  cacheDir: string | undefined,
+  compilerOptions: ts.CompilerOptions | undefined,
+  cfgConfig: Record<string, unknown> | undefined
+): string {
+  const key = computeCacheConfigKey({ compilerOptions, cfgConfig, kind: "macro-expansions" });
+  return path.join(cacheDir ?? ".typesugar-cache", `expansions-${key}`);
 }
 
 /**
@@ -116,11 +189,28 @@ export class TransformerState {
   /** Track which programs have had macro packages loaded */
   private loadedPrograms = new WeakSet<ts.Program>();
 
-  constructor(options: { cacheDir?: string | false; verbose?: boolean } = {}) {
+  /**
+   * Macro diagnostics collected by every factory built with this state (the
+   * diagnostics side channel -- see `MacroTransformerConfig.onDiagnostic`).
+   * Drain with `takeDiagnostics()` after each emit.
+   */
+  private collectedDiagnostics: ts.Diagnostic[] = [];
+
+  constructor(
+    options: {
+      cacheDir?: string | false;
+      verbose?: boolean;
+      /** Compiler options / cfg config the cache entries depend on (part of the key). */
+      compilerOptions?: ts.CompilerOptions;
+      cfgConfig?: Record<string, unknown>;
+    } = {}
+  ) {
     this.hygiene = new HygieneContext();
     this.expansionCache =
       options.cacheDir !== false
-        ? new MacroExpansionCache(options.cacheDir ?? ".typesugar-cache")
+        ? new MacroExpansionCache(
+            expansionCacheDir(options.cacheDir, options.compilerOptions, options.cfgConfig)
+          )
         : undefined;
 
     if (options.verbose) {
@@ -139,6 +229,18 @@ export class TransformerState {
   /** Mark that macro packages have been loaded for this program. */
   markMacroPackagesLoaded(program: ts.Program): void {
     this.loadedPrograms.add(program);
+  }
+
+  /** Record a macro diagnostic (called by the transformer factory). */
+  recordDiagnostic(diagnostic: ts.Diagnostic): void {
+    this.collectedDiagnostics.push(diagnostic);
+  }
+
+  /** Return and clear the macro diagnostics collected since the last call. */
+  takeDiagnostics(): ts.Diagnostic[] {
+    const out = this.collectedDiagnostics;
+    this.collectedDiagnostics = [];
+    return out;
   }
 
   /** Save the expansion cache to disk. */
@@ -167,8 +269,35 @@ function clampSyntheticPositions<T extends ts.Node>(node: T): T {
   if ((node as unknown as { end: number }).end < 0) {
     (node as unknown as { end: number }).end = 0;
   }
+  // NOTE: forEachChild stops at the first child for which the callback
+  // returns a truthy value, and this returns `node` -- so only the first
+  // child at each level is visited. Visiting every child (clamping every
+  // synthetic node to 0) makes the printer read source text/comments for
+  // them and corrupts output; the existing behaviour is kept deliberately.
   ts.forEachChild(node, clampSyntheticPositions);
   return node;
+}
+
+/**
+ * Detach scratch-file `=>` tokens from synthetic arrow functions.
+ *
+ * A macro that parsed a code template (`ctx.parseStatements`) gets nodes back
+ * via `stripPositions`, which uses visitEachChild without a token visitor and
+ * so never reaches an arrow's `equalsGreaterThanToken`: the token keeps its
+ * offset in the scratch file. The printer then emits the CURRENT file's
+ * comments found at that offset between `)` and `=>` -- a syntax error
+ * ("Line terminator not permitted before arrow"). This is the AST-level
+ * replacement for the old line-regex `stripLeakedArrowComments` pass over
+ * printed output (review finding #5), which corrupted string/template
+ * literals.
+ */
+function detachScratchArrowTokens(node: ts.Node): void {
+  if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
+    ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
+  }
+  ts.forEachChild(node, (child) => {
+    detachScratchArrowTokens(child);
+  });
 }
 
 /**
@@ -176,15 +305,29 @@ function clampSyntheticPositions<T extends ts.Node>(node: T): T {
  * shared MacroTransformer class. This is the entry point called by ts-patch,
  * unplugin-typesugar, and cli.ts's build/watch/expand/run commands.
  *
+ * The signature is ts-patch-compatible: ts-patch (`type: "program"`) calls
+ * `factory(program, pluginConfig, extras)` with its own extras object as the
+ * third argument, so that argument is EITHER a reusable `TransformerState`
+ * OR ts-patch's extras (whose `addDiagnostic` then receives every macro
+ * diagnostic, so patched `tsc` fails on macro errors).
+ *
  * @param program - The TypeScript program to transform
- * @param config - Configuration options
- * @param state - Optional reusable state for watch mode (caches, hygiene context)
+ * @param config - Configuration options (for ts-patch: the plugin entry's options)
+ * @param stateOrExtras - Reusable state for watch mode (caches, hygiene
+ *   context, diagnostics collector), or ts-patch's extras object
  */
 export function macroTransformerFactory(
   program: ts.Program,
   config?: MacroTransformerConfig,
-  state?: TransformerState
+  stateOrExtras?: TransformerState | TsPatchTransformerExtras
 ): ts.TransformerFactory<ts.SourceFile> {
+  const state = isTransformerState(stateOrExtras) ? stateOrExtras : undefined;
+  const tsPatchExtras = !state && isTsPatchExtras(stateOrExtras) ? stateOrExtras : undefined;
+  const reportDiagnostic = (diag: ts.Diagnostic): void => {
+    state?.recordDiagnostic(diag);
+    config?.onDiagnostic?.(diag);
+    tsPatchExtras?.addDiagnostic(diag);
+  };
   const verbose = config?.verbose ?? false;
   const trackExpansions = config?.trackExpansions ?? false;
 
@@ -201,6 +344,11 @@ export function macroTransformerFactory(
     activeExpansionCache = expansionCache;
 
     if (!state.hasLoadedMacroPackages(program)) {
+      // A new program (e.g. a watch rebuild reusing this state): derivation
+      // results cached for the previous program may describe types that have
+      // since been edited, so they must not survive into this one
+      // (macros-typeclass review #6).
+      clearDerivationCaches();
       loadMacroPackages(program, verbose);
       state.markMacroPackagesLoaded(program);
     }
@@ -215,7 +363,11 @@ export function macroTransformerFactory(
 
     const cacheDir = config?.cacheDir;
     expansionCache =
-      cacheDir !== false ? new MacroExpansionCache(cacheDir ?? ".typesugar-cache") : undefined;
+      cacheDir !== false
+        ? new MacroExpansionCache(
+            expansionCacheDir(cacheDir, program.getCompilerOptions(), config?.cfgConfig)
+          )
+        : undefined;
     activeExpansionCache = expansionCache;
 
     loadMacroPackages(program, verbose);
@@ -328,6 +480,8 @@ export function macroTransformerFactory(
         if (ctxWithDiag.addDiagnostic) {
           ctxWithDiag.addDiagnostic(tsDiag);
         }
+        // Side channel: program.emit() drops context.addDiagnostic output.
+        reportDiagnostic(tsDiag);
 
         if (verbose) {
           const prefix = diag.severity === "error" ? "ERROR" : "WARNING";
@@ -337,6 +491,8 @@ export function macroTransformerFactory(
           console.log(`[typesugar ${prefix}]${loc} ${diag.message}`);
         }
       }
+
+      detachScratchArrowTokens(result as ts.SourceFile);
 
       // Safety net: clamp negative positions so program.emit() doesn't crash
       clampSyntheticPositions(result as ts.SourceFile);
@@ -409,6 +565,11 @@ export interface PipelineOptions {
   /** Enable disk-backed transform cache (defaults to false) */
   diskCache?: boolean | string;
   /**
+   * Directory for the macro EXPANSION cache, forwarded to the transformer
+   * factory (overrides `transformerConfig.cacheDir`). `false` disables it.
+   */
+  cacheDir?: string | false;
+  /**
    * Enable strict mode — typecheck expanded output for macro bugs.
    *
    * - `true`: Full typecheck of all files on every build
@@ -446,143 +607,6 @@ export interface PipelineOptions {
    * don't support the full TypeScript language (namespaces, const enums, etc.).
    */
   emitJs?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Diff-based source map fallback
-// ---------------------------------------------------------------------------
-
-/**
- * Generate a source map by diffing original and transformed code line-by-line.
- * Used as a fallback when no expansion-based source map is available (e.g.,
- * AST-level changes like import removal, operator overloading rewrites).
- *
- * Uses greedy LCS with bounded lookahead to match lines, then builds
- * a MagicString-based source map from the matches.
- */
-function generateDiffSourceMap(
-  original: string,
-  transformed: string,
-  fileName: string
-): RawSourceMap | null {
-  if (original === transformed) return null;
-
-  const origLines = original.split("\n");
-  const transLines = transformed.split("\n");
-
-  // Build a map from line content → array of original line indices (for fast lookup)
-  const origLineIndex = new Map<string, number[]>();
-  for (let i = 0; i < origLines.length; i++) {
-    const line = origLines[i];
-    const arr = origLineIndex.get(line);
-    if (arr) arr.push(i);
-    else origLineIndex.set(line, [i]);
-  }
-
-  // Greedy LCS: for each transformed line, find the best matching original line
-  // Constraint: matches must be monotonically increasing in original line index
-  const LOOKAHEAD = 50;
-  const matches: Array<[number, number]> = []; // [origLine, transLine] pairs
-  let lastOrigLine = -1;
-
-  for (let ti = 0; ti < transLines.length; ti++) {
-    const candidates = origLineIndex.get(transLines[ti]);
-    if (!candidates) continue;
-
-    // Find the first candidate after lastOrigLine, within lookahead
-    let best = -1;
-    for (const oi of candidates) {
-      if (oi > lastOrigLine && oi <= lastOrigLine + LOOKAHEAD) {
-        best = oi;
-        break;
-      }
-    }
-    // If no candidate within lookahead, take the first one after lastOrigLine
-    if (best === -1) {
-      for (const oi of candidates) {
-        if (oi > lastOrigLine) {
-          best = oi;
-          break;
-        }
-      }
-    }
-    if (best !== -1) {
-      matches.push([best, ti]);
-      lastOrigLine = best;
-    }
-  }
-
-  if (matches.length === 0) return null;
-
-  // Build source map using MagicString: start with original, overwrite to produce transformed
-  const s = new MagicString(original);
-
-  // Walk through matches to build the transformed output via MagicString mutations
-  // We need to map original ranges → transformed ranges
-  let origOffset = 0;
-  let transOffset = 0;
-  let lastOrigEnd = 0;
-
-  // Compute line start offsets
-  const origStarts = [0];
-  for (let i = 0; i < origLines.length; i++) {
-    origStarts.push(origStarts[i] + origLines[i].length + 1);
-  }
-  const transStarts = [0];
-  for (let i = 0; i < transLines.length; i++) {
-    transStarts.push(transStarts[i] + transLines[i].length + 1);
-  }
-
-  // Process regions between matches (and before first / after last match)
-  let prevOrigLine = -1;
-  let prevTransLine = -1;
-
-  for (const [origLine, transLine] of matches) {
-    // Handle the gap between previous match and this match
-    const gapOrigStart = prevOrigLine === -1 ? 0 : origStarts[prevOrigLine + 1];
-    const gapOrigEnd = origStarts[origLine];
-    const gapTransStart = prevTransLine === -1 ? 0 : transStarts[prevTransLine + 1];
-    const gapTransEnd = transStarts[transLine];
-
-    if (gapOrigEnd > gapOrigStart) {
-      const gapTransText = transformed.substring(gapTransStart, gapTransEnd);
-      // Overwrite the original gap region with the transformed gap content
-      if (gapOrigEnd <= original.length) {
-        try {
-          s.overwrite(gapOrigStart, gapOrigEnd, gapTransText);
-        } catch {
-          // MagicString throws on overlapping/invalid ranges — skip
-        }
-      }
-    }
-
-    prevOrigLine = origLine;
-    prevTransLine = transLine;
-  }
-
-  // Handle trailing content after last match
-  if (matches.length > 0) {
-    const [lastOrig, lastTrans] = matches[matches.length - 1];
-    const tailOrigStart = origStarts[lastOrig + 1];
-    const tailTransStart = transStarts[lastTrans + 1];
-
-    if (tailOrigStart < original.length) {
-      const tailTransText = transformed.substring(tailTransStart);
-      try {
-        s.overwrite(tailOrigStart, original.length, tailTransText);
-      } catch {
-        // Skip on error
-      }
-    }
-  }
-
-  const map = s.generateMap({
-    hires: true,
-    source: fileName,
-    includeContent: true,
-  });
-
-  return { ...map, version: 3 } as RawSourceMap;
 }
 
 /**
@@ -921,63 +945,25 @@ function vlqEncode(value: number): string {
  * console.log(result.code);
  * ```
  */
-/**
- * Defensive no-op safety net for a legacy companion-const pattern
- * (`const X: Record<string, any> = {};`).
- *
- * Derive no longer emits this — PEP-033 N1 removed it because a companion `const`
- * cannot declaration-merge with the generated `namespace X` (it caused TS2451 at the
- * type level and duplicate decls); the namespace alone now provides the runtime value.
- * This pass is retained only to neutralize any such pattern from external/legacy input:
- * `ts.transpileModule` would emit `var X;` for the namespace, which redeclares a
- * block-scoped `const`; rewriting `const`→`var` keeps that legal. Matches nothing for
- * current derive output.
- */
-const COMPANION_CONST_RE = /^(export )?const (\w+): Record<string, any> = \{\};/gm;
-
-/**
- * Apply the const→var fix for companion declarations, returning the fixed code
- * and a source map tracking the substitution (so downstream source maps compose
- * correctly even on the companion lines).
- */
-function fixCompanionConsts(
-  code: string,
-  fileName: string
-): { code: string; map: RawSourceMap | null } {
-  const re = new RegExp(COMPANION_CONST_RE.source, "gm");
-  const matches: RegExpExecArray[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(code)) !== null) {
-    matches.push(match);
-  }
-  if (matches.length === 0) {
-    return { code, map: null };
-  }
-
-  const s = new MagicString(code);
-  for (const m of matches) {
-    const exportPrefix = m[1] ?? "";
-    const name = m[2];
-    s.overwrite(m.index, m.index + m[0].length, `${exportPrefix}var ${name} = {};`);
-  }
-
-  return {
-    code: s.toString(),
-    map: s.generateMap({ source: fileName, hires: true }) as unknown as RawSourceMap,
-  };
-}
-
 export function transpileExpanded(
   code: string,
   fileName: string,
   compilerOptions: ts.CompilerOptions,
   options?: { sourceMap?: boolean; jsx?: ts.JsxEmit }
-): { outputText: string; sourceMapText?: string; fixMap?: RawSourceMap | null } {
+): {
+  outputText: string;
+  sourceMapText?: string;
+  /**
+   * @deprecated Always null. The legacy companion-const regex rewrite this
+   * described (`const X: Record<string, any> = {}` → `var X = {}`) was
+   * removed: derive has not emitted that pattern since PEP-033, and a
+   * line-regex rewrite of code is what CLAUDE.md forbids (review #20).
+   */
+  fixMap?: RawSourceMap | null;
+} {
   const emitSourceMap = options?.sourceMap ?? true;
 
-  const fixed = fixCompanionConsts(code, fileName);
-
-  const result = ts.transpileModule(fixed.code, {
+  const result = ts.transpileModule(code, {
     compilerOptions: {
       ...compilerOptions,
       module: ts.ModuleKind.ESNext,
@@ -993,7 +979,7 @@ export function transpileExpanded(
   return {
     outputText: result.outputText,
     sourceMapText: result.sourceMapText ?? undefined,
-    fixMap: fixed.map,
+    fixMap: null,
   };
 }
 
@@ -1022,6 +1008,10 @@ export class TransformationPipeline {
   private fileNames: string[];
   /** Content hash cache for dependency validation */
   private contentHashes = new Map<string, string>();
+  /** Side pipeline for files outside this pipeline's Program. */
+  private outOfProject: TransformationPipeline | undefined;
+  /** True for such a side pipeline (it never spawns further ones). */
+  private isOutOfProjectPipeline = false;
   /** Cached transformer factory - reused across all file transforms */
   private cachedTransformerFactory: ts.TransformerFactory<ts.SourceFile> | null = null;
   /** Cache for incremental strict typechecking */
@@ -1042,6 +1032,11 @@ export class TransformationPipeline {
       trackExpansions: true, // Always track — needed for CodeLens, inlay hints, expand preview
       ...options.transformerConfig,
     };
+    // `cacheDir` (top-level) wins over transformerConfig.cacheDir; `false`
+    // disables the macro expansion cache entirely.
+    if (options.cacheDir !== undefined) {
+      this.transformerConfig.cacheDir = options.cacheDir;
+    }
     this.customReadFile = options.readFile ?? ts.sys.readFile;
     this.fileNames = fileNames;
 
@@ -1052,7 +1047,17 @@ export class TransformationPipeline {
     if (options.diskCache) {
       const cacheDir =
         typeof options.diskCache === "string" ? options.diskCache : ".typesugar-cache/transforms";
-      this.diskCache = new DiskTransformCache(cacheDir);
+      // Key on everything besides file contents that changes the output
+      // (review finding #3/#15): typesugar version, compiler options, cfg
+      // config. Kind "expanded-ts": this cache stores expanded TypeScript,
+      // never emitted JS, so a host storing JS must use another kind.
+      this.diskCache = new DiskTransformCache(cacheDir, {
+        configKey: computeCacheConfigKey({
+          compilerOptions,
+          cfgConfig: this.transformerConfig.cfgConfig,
+          kind: "expanded-ts",
+        }),
+      });
       if (this.verbose) {
         console.log(`[typesugar] Disk cache enabled at ${cacheDir}`);
       }
@@ -1143,7 +1148,9 @@ export class TransformationPipeline {
             ? createPositionMapper(sourceMap, original, diskCached.code)
             : new IdentityPositionMapper(),
           changed,
-          diagnostics: [],
+          // Replay the diagnostics recorded with the entry -- a cache hit
+          // must not silently drop a macro error (review finding #15).
+          diagnostics: (diskCached.diagnostics ?? []) as TransformDiagnostic[],
           dependencies,
         };
 
@@ -1164,6 +1171,17 @@ export class TransformationPipeline {
 
     // Ensure program exists (lazy creation)
     this.ensureProgram();
+
+    // The file changed since the Program was built (no invalidate() call):
+    // rebuild, or the transformer would see the old AST and types.
+    const programText = this.program?.getSourceFile(normalizedFileName)?.text;
+    if (
+      programText !== undefined &&
+      programText !== (this.host.getPreprocessedFile(normalizedFileName)?.code ?? original)
+    ) {
+      this.resetProgram();
+      this.ensureProgram();
+    }
 
     // Get preprocessed content from host
     const preprocessStart = PROFILING_ENABLED ? performance.now() : 0;
@@ -1194,14 +1212,83 @@ export class TransformationPipeline {
       codeForTransform = compResult.source;
       compMap = compResult.sourceMap ?? null;
     }
-    const compDiagnostics: TransformDiagnostic[] = compResult.diagnostics.map((d) => ({
-      file: normalizedFileName,
-      start: d.start,
-      length: d.length,
-      message: d.message,
-      severity: d.severity,
-      code: d.code,
-    }));
+    // Comprehension-preprocessor diagnostics are positioned in the
+    // HKT-preprocessed text: map them back through the HKT map only.
+    const hktMapper =
+      preprocessed && preprocessMap
+        ? createPositionMapper(preprocessMap, original, preprocessed.code)
+        : null;
+    const compDiagnostics: TransformDiagnostic[] = compResult.diagnostics.map((d) =>
+      mapDiagnosticToOriginal(
+        {
+          file: normalizedFileName,
+          start: d.start,
+          length: d.length,
+          message: d.message,
+          severity: d.severity,
+          code: d.code,
+        },
+        hktMapper
+      )
+    );
+
+    // The comprehension rewrite must also be what the CHECKER sees: macros
+    // (e.g. do-notation inferring a bind's type constructor) query types of
+    // the rewritten nodes. Serve it through the host and rebuild once.
+    const currentProgramText = this.program?.getSourceFile(normalizedFileName)?.text;
+    if (compResult.changed) {
+      if (currentProgramText !== undefined && currentProgramText !== codeForTransform) {
+        this.host.setContentOverride(normalizedFileName, codeForTransform);
+        this.resetProgram();
+        this.ensureProgram();
+      }
+    } else if (this.host.getContentOverride(normalizedFileName) !== undefined) {
+      this.host.setContentOverride(normalizedFileName, undefined);
+      this.resetProgram();
+      this.ensureProgram();
+    }
+
+    // A file outside the Program (not in tsconfig's file list and not
+    // imported by it -- a test file next to the project, a bundler handing
+    // us some dist/*.js). Running macros on a detached SourceFile makes every
+    // checker call throw (CLAUDE.md "Calling the type checker on
+    // macro-generated nodes"), so either give it a Program of its own or
+    // leave it untouched.
+    if (!this.program?.getSourceFile(normalizedFileName)) {
+      const isJs = /\.[cm]?jsx?$/.test(normalizedFileName);
+      if (!this.isOutOfProjectPipeline && !(isJs && !this.compilerOptions.allowJs)) {
+        // One side pipeline for all such files (its roots grow as they
+        // arrive): real types, without growing -- and rebuilding -- the
+        // project's own Program for every stray file.
+        if (!this.outOfProject) {
+          this.outOfProject = new TransformationPipeline(this.compilerOptions, [], {
+            ...this.options,
+            readFile: this.customReadFile,
+            // One manifest per cache dir: only the main pipeline writes it.
+            diskCache: false,
+          });
+          this.outOfProject.isOutOfProjectPipeline = true;
+        }
+        this.outOfProject.addRootFile(normalizedFileName);
+        profiler.end("transform");
+        return this.outOfProject.transform(normalizedFileName);
+      }
+      if (this.verbose) {
+        console.log(
+          `[typesugar] Skipping ${normalizedFileName}: not part of the TypeScript program`
+        );
+      }
+      profiler.end("transform");
+      return {
+        original,
+        code: original,
+        sourceMap: null,
+        mapper: new IdentityPositionMapper(),
+        changed: false,
+        diagnostics: [],
+        dependencies: new Set(),
+      };
+    }
 
     // Get or create source file
     const sourceFile = this.getSourceFile(normalizedFileName, codeForTransform);
@@ -1218,10 +1305,21 @@ export class TransformationPipeline {
     const {
       code: transformed,
       map: transformMap,
-      diagnostics,
+      diagnostics: rawMacroDiagnostics,
       printMs,
       expansions,
     } = this.runMacroTransformer(sourceFile, codeForTransform);
+
+    // Macro diagnostics are positioned in `codeForTransform` (after the HKT
+    // and comprehension rewrites, which shift text: +6 chars per `F<A>`,
+    // more for an injected import). Map them back to the ORIGINAL source
+    // (review finding #12).
+    const preMap = compMap ? composeSourceMapChain([compMap, preprocessMap]) : preprocessMap;
+    const preMapper =
+      preMap && codeForTransform !== original
+        ? createPositionMapper(preMap, original, codeForTransform)
+        : null;
+    const diagnostics = rawMacroDiagnostics.map((d) => mapDiagnosticToOriginal(d, preMapper));
     const transformerMs = PROFILING_ENABLED ? performance.now() - transformerStart : 0;
 
     // Compose source maps
@@ -1306,9 +1404,17 @@ export class TransformationPipeline {
     const normalizedFileName = path.normalize(fileName);
     this.host.invalidate(normalizedFileName);
     this.contentHashes.delete(normalizedFileName);
+    this.outOfProject?.invalidate(normalizedFileName);
 
     // Invalidate this file and all files that depend on it
     this.cache.invalidate(normalizedFileName);
+
+    // The ts.Program (and the transformer factory, which captures it) holds
+    // the PRE-edit SourceFile; keeping it would serve the old AST to the
+    // macro transformer (and old types to the checker). Rebuild lazily,
+    // passing the old program for structural reuse of unchanged files
+    // (review finding #4).
+    this.resetProgram();
 
     // Also invalidate disk cache for this file
     if (this.diskCache) {
@@ -1325,10 +1431,27 @@ export class TransformationPipeline {
     }
   }
 
+  /** Add a root file to this pipeline's Program (rebuilt lazily). */
+  addRootFile(fileName: string): void {
+    const normalized = path.normalize(fileName);
+    if (this.fileNames.includes(normalized)) return;
+    this.fileNames = [...this.fileNames, normalized];
+    this.resetProgram();
+  }
+
+  /**
+   * Files whose cached transform depends (transitively) on `fileName` -- the
+   * ones a host must re-request after `fileName` changes (e.g. Vite HMR).
+   */
+  getDependents(fileName: string): Set<string> {
+    return this.cache.getTransitiveDependents(path.normalize(fileName));
+  }
+
   /**
    * Full invalidation (e.g., tsconfig change)
    */
   invalidateAll(): void {
+    this.outOfProject = undefined;
     this.host.invalidateAll();
     this.cache.clear();
     this.contentHashes.clear();
@@ -1634,15 +1757,13 @@ export class TransformationPipeline {
     if (fileName.includes("node_modules")) return false;
     if (fileName.endsWith(".d.ts")) return false;
 
-    // Skip build infrastructure packages (they don't use typesugar macros)
-    if (
-      /packages[\\/](transformer|core|macros|preprocessor|ts-plugin)[\\/]src[\\/]/.test(fileName)
-    ) {
-      return false;
-    }
+    if (/\.d\.[cm]?ts$/.test(fileName)) return false;
 
-    // Transform TS/TSX/JS/JSX and STS/STSX files
-    return /\.[tj]sx?$/.test(fileName);
+    // Transform TS/TSX/JS/JSX, including the .mts/.cts/.mjs/.cjs module
+    // variants. (A former path regex excluding `packages/{core,macros,...}/src`
+    // -- meant for typesugar's own monorepo -- also excluded USER files at
+    // such paths; tooling review #11.)
+    return /\.[cm]?[tj]sx?$/.test(fileName);
   }
 
   // ---------------------------------------------------------------------------
@@ -1671,16 +1792,30 @@ export class TransformationPipeline {
     // possibly contain a comprehension label. Everything else skips both the
     // scan AND the preprocessor.
     if (!/\b(?:let|seq|par|all)\s*:/.test(code)) return false;
-    const letMacro = globalRegistry.getLabeledBlock("let")?.name;
-    const parMacro = globalRegistry.getLabeledBlock("par")?.name;
-    if (!letMacro && !parMacro) return false;
     const scanFile =
       this.program?.getSourceFile(fileName) ??
       ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
+    // The comprehension macros live in a macro package (@typesugar/std)
+    // that is normally loaded lazily by the transformer factory / per-file
+    // import scan -- AFTER this gate on the first file, which then saw an
+    // empty registry and skipped the rewrite (review finding #9). Load
+    // packages first; both calls are idempotent.
+    this.ensureTransformerFactory();
+    loadMacroPackagesFromFile(scanFile, this.verbose);
+    const letMacro = globalRegistry.getLabeledBlock("let")?.name;
+    const parMacro = globalRegistry.getLabeledBlock("par")?.name;
+    if (!letMacro && !parMacro) return false;
     scanImportsForScope(scanFile, globalResolutionScope, this.program ?? undefined);
     return [letMacro, parMacro].some(
       (name) => name && globalResolutionScope.isLabelSyntaxActivated(fileName, name)
     );
+  }
+
+  /** Drop the Program (and the factory bound to it); rebuilt lazily. */
+  private resetProgram(): void {
+    if (this.program) this.oldProgram = this.program;
+    this.program = null;
+    this.cachedTransformerFactory = null;
   }
 
   private ensureProgram(): void {
@@ -1708,14 +1843,35 @@ export class TransformationPipeline {
     }
   }
 
+  /**
+   * The transformer factory for the current program (created once per
+   * program; creating it loads the program's macro packages).
+   */
+  private ensureTransformerFactory(): ts.TransformerFactory<ts.SourceFile> {
+    this.ensureProgram();
+    if (!this.cachedTransformerFactory) {
+      profiler.start("macroTransformerFactory");
+      this.cachedTransformerFactory = macroTransformerFactory(
+        this.program!,
+        this.transformerConfig
+      );
+      const factoryMs = profiler.end("macroTransformerFactory");
+      if (PROFILING_ENABLED && factoryMs > 100) {
+        console.log(`[profiler] macroTransformerFactory: ${factoryMs.toFixed(1)}ms`);
+      }
+    }
+    return this.cachedTransformerFactory;
+  }
+
   private getSourceFile(fileName: string, code: string): ts.SourceFile | undefined {
     // First try to get from program (for type information)
     const programSourceFile = this.program?.getSourceFile(fileName);
 
     if (programSourceFile) {
-      // If preprocessed, create a new source file with the preprocessed content
-      // but keep the connection to the program for type checking
-      if (code !== this.customReadFile(fileName)) {
+      // The program's copy already holds the preprocessed text (the host
+      // serves it). Only if the text still differs is a detached copy made --
+      // which has NO type information, so prefer the program's.
+      if (code !== programSourceFile.text) {
         return ts.createSourceFile(
           fileName,
           code,
@@ -1768,21 +1924,10 @@ export class TransformationPipeline {
     globalExpansionTracker.clear();
 
     try {
-      // Use cached transformer factory - only create once per program
-      if (!this.cachedTransformerFactory) {
-        profiler.start("macroTransformerFactory");
-        this.cachedTransformerFactory = macroTransformerFactory(
-          this.program!,
-          this.transformerConfig
-        );
-        const factoryMs = profiler.end("macroTransformerFactory");
-        if (PROFILING_ENABLED && factoryMs > 100) {
-          console.log(`[profiler] macroTransformerFactory: ${factoryMs.toFixed(1)}ms`);
-        }
-      }
+      const factory = this.ensureTransformerFactory();
 
       profiler.start("ts.transform");
-      const result = ts.transform(sourceFile, [this.cachedTransformerFactory]);
+      const result = ts.transform(sourceFile, [factory]);
       profiler.end("ts.transform");
 
       if (result.transformed.length === 0) {
@@ -1863,8 +2008,6 @@ export class TransformationPipeline {
         return result;
       });
 
-      result.dispose();
-
       profiler.start("printFile");
       const printStart = PROFILING_ENABLED ? performance.now() : 0;
 
@@ -1878,13 +2021,7 @@ export class TransformationPipeline {
       // constructor erasure) was silently lost. The AST printer + blank line
       // restoration is correct by default with no opt-in tracking required.
       const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-      let transformed = printer.printFile(transformedSourceFile);
-
-      // TypeScript's printer can attach stray comments from the original source
-      // to macro-generated nodes when real-position and synthetic nodes are mixed.
-      // Clean up comments that leaked into arrow function signatures (between the
-      // closing paren/return-type and the => token).
-      transformed = stripLeakedArrowComments(transformed);
+      const transformed = printer.printFile(transformedSourceFile);
 
       // Generate source map by walking the transformed AST.
       const map = generateASTSourceMap(
@@ -1896,6 +2033,11 @@ export class TransformationPipeline {
 
       const printMs = PROFILING_ENABLED ? performance.now() - printStart : 0;
       profiler.end("printFile");
+
+      // Dispose only AFTER printing: dispose() clears the emit nodes (emit
+      // flags, comment/source-map ranges) macros attached to nodes, which the
+      // printer needs.
+      result.dispose();
 
       // Capture expansion records before clearing
       const expansions = globalExpansionTracker.getExpansionsForFile(sourceFile.fileName);
@@ -1934,11 +2076,20 @@ export class TransformationPipeline {
 
   private checkCache(fileName: string, contentHash: string): TransformResult | null {
     // Check if cache is valid with dependency validation
+    // Dependency hashes are re-read from the file system/reader rather than
+    // taken from `contentHashes`: an edited dependency that nobody reported
+    // via invalidate() (an editor buffer, a file outside the watcher) must
+    // still invalidate its dependents (review findings #7/#17).
     const isValid = this.cache.isTransformedValid(fileName, contentHash, (dep) =>
-      this.getContentHash(dep)
+      this.getContentHash(dep, true)
     );
 
-    if (!isValid) return null;
+    if (!isValid) {
+      // A stale entry means something this file's output depends on
+      // changed; the Program still holds the old ASTs/types for it.
+      if (this.cache.getTransformed(fileName)) this.resetProgram();
+      return null;
+    }
 
     const entry = this.cache.getTransformed(fileName);
     return entry?.result ?? null;
@@ -1957,7 +2108,7 @@ export class TransformationPipeline {
     result.js = transpiled.outputText.replace(/\n\/\/# sourceMappingURL=.*$/m, "");
     if (transpiled.sourceMapText) {
       const transpileMap = JSON.parse(transpiled.sourceMapText) as RawSourceMap;
-      result.jsSourceMap = composeSourceMapChain([transpileMap, transpiled.fixMap, upstreamMap]);
+      result.jsSourceMap = composeSourceMapChain([transpileMap, upstreamMap]);
     }
   }
 
@@ -1996,14 +2147,15 @@ export class TransformationPipeline {
         Array.from(dependencies),
         depHashRecord,
         result.code,
-        result.sourceMap
+        result.sourceMap,
+        result.diagnostics
       );
     }
   }
 
-  private getContentHash(fileName: string): string | undefined {
+  private getContentHash(fileName: string, fresh = false): string | undefined {
     // Check cache first
-    const cached = this.contentHashes.get(fileName);
+    const cached = fresh ? undefined : this.contentHashes.get(fileName);
     if (cached) return cached;
 
     // Compute and cache
@@ -2016,84 +2168,54 @@ export class TransformationPipeline {
   }
 
   /**
-   * Extract dependencies from a source file
+   * The project files this file's output depends on: everything it imports,
+   * re-exports (`export ... from`), `import()`s anywhere in the file, or
+   * `import x = require()`s, resolved with the program's own module
+   * resolution (so NodeNext `./a.js` finds `a.ts`), plus -- transitively --
+   * their dependencies, since a re-exported or imported type can change the
+   * expansion. External (node_modules) and declaration files are excluded.
+   * (Review finding #7.)
    */
   private extractDependencies(sourceFile: ts.SourceFile, containingFile: string): Set<string> {
     const dependencies = new Set<string>();
-    const baseDir = path.dirname(containingFile);
-
-    // Collect import declarations
-    for (const statement of sourceFile.statements) {
-      if (ts.isImportDeclaration(statement)) {
-        const moduleSpecifier = statement.moduleSpecifier;
-        if (ts.isStringLiteral(moduleSpecifier)) {
-          const modulePath = moduleSpecifier.text;
-
-          // Skip external modules (node_modules)
-          if (!modulePath.startsWith(".") && !modulePath.startsWith("/")) {
-            continue;
-          }
-
-          // Resolve relative path
-          const resolved = this.resolveModulePath(modulePath, baseDir);
-          if (resolved) {
-            dependencies.add(resolved);
-          }
-        }
-      }
-
-      // Also check dynamic imports
-      if (ts.isExpressionStatement(statement)) {
-        this.collectDynamicImports(statement, baseDir, dependencies);
+    const queue: Array<{ sf: ts.SourceFile; file: string }> = [
+      { sf: sourceFile, file: containingFile },
+    ];
+    const seen = new Set<string>([containingFile]);
+    while (queue.length > 0) {
+      const { sf, file } = queue.shift()!;
+      for (const spec of collectModuleSpecifiers(sf)) {
+        const resolved = this.resolveDependency(spec, file);
+        if (!resolved || seen.has(resolved)) continue;
+        seen.add(resolved);
+        dependencies.add(resolved);
+        const depSf =
+          this.program?.getSourceFile(resolved) ??
+          (() => {
+            const text = this.customReadFile(resolved);
+            return text === undefined
+              ? undefined
+              : ts.createSourceFile(resolved, text, ts.ScriptTarget.Latest, false);
+          })();
+        if (depSf) queue.push({ sf: depSf, file: resolved });
       }
     }
-
     return dependencies;
   }
 
-  /**
-   * Resolve a module path to an absolute file path
-   */
-  private resolveModulePath(modulePath: string, baseDir: string): string | undefined {
-    // Try common extensions
-    const extensions = [".ts", ".tsx", ".js", ".jsx", ""];
-    const basePath = path.resolve(baseDir, modulePath);
-
-    for (const ext of extensions) {
-      const candidate = basePath + ext;
-      if (this.options.fileExists?.(candidate) ?? ts.sys.fileExists(candidate)) {
-        return candidate;
-      }
-
-      // Try index file
-      const indexCandidate = path.join(basePath, "index" + ext);
-      if (this.options.fileExists?.(indexCandidate) ?? ts.sys.fileExists(indexCandidate)) {
-        return indexCandidate;
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Collect dynamic imports from an expression
-   */
-  private collectDynamicImports(node: ts.Node, baseDir: string, dependencies: Set<string>): void {
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      const arg = node.arguments[0];
-      if (arg && ts.isStringLiteral(arg)) {
-        const modulePath = arg.text;
-        if (modulePath.startsWith(".") || modulePath.startsWith("/")) {
-          const resolved = this.resolveModulePath(modulePath, baseDir);
-          if (resolved) {
-            dependencies.add(resolved);
-          }
-        }
-      }
-    }
-
-    // Recurse
-    ts.forEachChild(node, (child) => this.collectDynamicImports(child, baseDir, dependencies));
+  /** Resolve a module specifier to a project source file, or undefined. */
+  private resolveDependency(spec: string, containingFile: string): string | undefined {
+    const resolved = this.host.resolveModuleNames(
+      [spec],
+      containingFile,
+      undefined,
+      undefined,
+      this.compilerOptions
+    )[0];
+    if (!resolved || resolved.isExternalLibraryImport) return undefined;
+    const file = path.normalize(resolved.resolvedFileName);
+    if (/\.d\.[cm]?ts$/.test(file) || file.includes("node_modules")) return undefined;
+    return file;
   }
 
   private createEmptyResult(fileName: string): TransformResult {
@@ -2117,79 +2239,62 @@ export class TransformationPipeline {
 }
 
 /**
- * Remove comments that TypeScript's printer incorrectly placed inside
- * macro-generated expressions.
- *
- * When `printFile` processes a mix of real-position and synthetic AST nodes,
- * it can attach stray comments from the original source to generated code.
- * This manifests as comments appearing mid-expression:
- *   - `p1.x === //! stray comment\n p2.x`  (inline comment before operand)
- *   - `a.y\n// stray comment\n+ b.y`       (comment lines before operator)
- *   - `): Point\n// stray comment\n=> ({`   (comment lines before arrow)
+ * Every module specifier a file depends on: import/export-from declarations,
+ * `import x = require("...")`, and `import("...")`/`require("...")` calls
+ * anywhere in the file.
  */
-function stripLeakedArrowComments(code: string): string {
-  const lines = code.split("\n");
-  const result: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const trimmed = lines[i].trimEnd();
-
-    // Pattern A: code + binary-operator + //comment, next line has the operand
-    // e.g. `p1.x === //! stray comment` followed by ` p2.x && ...`
-    const inlineMatch = trimmed.match(/^(.+\S)\s+(\/\/.*)$/);
-    if (inlineMatch) {
-      const before = inlineMatch[1].trimEnd();
-      if (/[+\-*/%<>=!&|^~]$|===$|!==$|&&$|\|\|$/.test(before)) {
-        if (i + 1 < lines.length) {
-          const next = lines[i + 1].trimStart();
-          if (/^[a-zA-Z_$\d(\[{'"` ]/.test(next)) {
-            result.push(before + " " + next);
-            i += 2;
-            continue;
-          }
-        }
-        result.push(before);
-        i++;
-        continue;
-      }
+function collectModuleSpecifiers(sf: ts.SourceFile): string[] {
+  const specs: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      specs.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      ts.isStringLiteral(node.moduleReference.expression)
+    ) {
+      specs.push(node.moduleReference.expression.text);
+    } else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
+      node.arguments.length > 0 &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      specs.push(node.arguments[0].text);
     }
-
-    // Pattern B: expression line, then comment line(s), then operator/arrow line
-    // e.g. `a.y` / `// comment` / `+ b.y`  or  `): Point` / `// comment` / `=> {`
-    const nextReal = findNextNonCommentLine(lines, i + 1);
-    if (nextReal !== null && nextReal.idx > i + 1) {
-      const nextContent = nextReal.line.trimStart();
-      if (/^[+\-*/%<>=!&|^?]|^=>|^&&|\|\|/.test(nextContent)) {
-        result.push(trimmed + " " + nextContent);
-        i = nextReal.idx + 1;
-        continue;
-      }
-    }
-
-    result.push(lines[i]);
-    i++;
-  }
-  return result.join("\n");
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return specs;
 }
 
-function findNextNonCommentLine(
-  lines: string[],
-  start: number
-): { idx: number; line: string } | null {
-  for (let i = start; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (t === "" || t.startsWith("//") || t.startsWith("/*") || t.endsWith("*/")) {
-      continue;
-    }
-    // Distinguish JSDoc continuation `* text` from operator `* expr`:
-    // JSDoc continuation lines are indented with leading whitespace before the `*`.
-    // Operator lines like `* b.y)` appear at the same indent level as surrounding code.
-    if (t.startsWith("*") && /^\s+\*/.test(lines[i])) {
-      continue;
-    }
-    return { idx: i, line: lines[i] };
+/**
+ * Map a diagnostic (and its suggestion span) from preprocessed-text offsets
+ * back to original-source offsets. Positions the map can't resolve are kept.
+ */
+function mapDiagnosticToOriginal(
+  d: TransformDiagnostic,
+  mapper: PositionMapper | null
+): TransformDiagnostic {
+  if (!mapper) return d;
+  const mapSpan = (start: number, length: number): { start: number; length: number } => {
+    const s = mapper.toOriginal(start);
+    if (s === null) return { start, length };
+    const e = mapper.toOriginal(start + length);
+    return { start: s, length: e !== null && e >= s ? e - s : length };
+  };
+  const span = mapSpan(d.start, d.length);
+  const out: TransformDiagnostic = { ...d, start: span.start, length: span.length };
+  if (d.suggestion) {
+    const sug = mapSpan(d.suggestion.start, d.suggestion.length);
+    out.suggestion = { ...d.suggestion, start: sug.start, length: sug.length };
   }
-  return null;
+  return out;
 }
 
 /**
@@ -2211,6 +2316,21 @@ export function createPipeline(
     ts.sys,
     path.dirname(tsconfigPath)
   );
+
+  // Surface tsconfig problems (unknown options, bad `extends`, invalid
+  // values) instead of silently building with a half-parsed config.
+  const configErrors = parsed.errors.filter((d) => d.category === ts.DiagnosticCategory.Error);
+  if (configErrors.length > 0) {
+    throw new Error(
+      `Error in ${tsconfigPath}:\n` +
+        configErrors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n")).join("\n")
+    );
+  }
+
+  // Load the project's typesugar config (typesugar.config.*, package.json
+  // "typesugar") searching from the tsconfig's directory, not process.cwd():
+  // a bundler/IDE host's cwd is often not the project.
+  config.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
 
   return new TransformationPipeline(parsed.options, parsed.fileNames, options);
 }
@@ -2543,6 +2663,10 @@ export function formatExpansions(result: TransformResult, contextLines: number =
  * original source together, re-inserting blank lines from the original
  * whenever the surrounding content lines match up. Lines that were
  * replaced by macro expansion (no match in original) pass through as-is.
+ *
+ * @deprecated Unused by the pipeline (blank-line restoration was removed in
+ * PEP-032 Wave 10); kept only because it is part of the public export list.
+ * Will be removed.
  */
 export function restoreBlankLines(original: string, printed: string): string {
   const origLines = original.split("\n");
