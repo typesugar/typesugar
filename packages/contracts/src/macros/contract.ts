@@ -26,6 +26,7 @@ import * as ts from "typescript";
 import {
   defineAttributeMacro,
   globalRegistry,
+  isSyntheticNode,
   MacroContext,
   type AttributeTarget,
 } from "@typesugar/core";
@@ -44,7 +45,9 @@ export const contractAttribute = defineAttributeMacro({
   // Functions/methods containing `requires:`/`ensures:` labeled blocks are
   // treated as if decorated with @contract, so the documented block form works
   // without an explicit decorator. Only active when @typesugar/contracts is
-  // loaded (which is what registers this macro).
+  // loaded (which is what registers this macro). The labels in arrow
+  // functions, function expressions, constructors and accessors are reported
+  // as errors by the transformer (they are not contract targets).
   triggerLabels: ["requires", "ensures"],
   syntaxModule: "@typesugar/contracts/syntax",
 
@@ -63,111 +66,141 @@ export const contractAttribute = defineAttributeMacro({
     const config = getContractConfig();
 
     // Parse requires:/ensures: blocks from the function body
-    const parsed = parseContractBlocks(fn.body);
+    const parsed = parseContractBlocks(fn.body, (node, message, severity) =>
+      severity === "error" ? ctx.reportError(node, message) : ctx.reportWarning(node, message)
+    );
 
-    // Collect all old() captures from ensures blocks
-    const allOldCaptures: ts.Statement[] = [];
-    const postChecks: ts.Statement[] = [];
+    if (fn.asteriskToken && (parsed.requires.length > 0 || parsed.ensures.length > 0)) {
+      // A generator's body cannot be wrapped (yield is not allowed in the
+      // capturing arrow) and its "result" is an iterator, not a value; the
+      // old expansion produced a SyntaxError (deep review 2026-10, #4).
+      ctx.reportError(
+        fn,
+        "@contract does not support generator functions: requires:/ensures: blocks " +
+          "in a generator are not checked. Move the checks into a non-generator wrapper."
+      );
+      return target;
+    }
 
-    // --- Precondition checks ---
+    const isAsync = (ts.getModifiers(fn) ?? []).some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+    const paramNames = new Set(
+      fn.parameters.flatMap((p) => (ts.isIdentifier(p.name) ? [p.name.text] : []))
+    );
+
+    // --- Precondition checks (entry state: parameter facts are valid) ---
     const preChecks: ts.Statement[] = [];
     for (const condition of parsed.requires) {
-      const check = generateConditionCheck(
-        ctx,
-        condition,
-        "precondition",
-        fn,
-        config.proveAtCompileTime
-      );
+      const check = generateConditionCheck(ctx, condition, "precondition", fn, {
+        prove: config.proveAtCompileTime,
+      });
       if (check) preChecks.push(check);
     }
 
     // --- Postcondition checks ---
-    for (const ensuresBlock of parsed.ensures) {
-      for (const condition of ensuresBlock.conditions) {
-        // Extract old() captures from the condition
-        const { rewritten, captures } = extractOldCaptures(ctx, condition.expression);
-        allOldCaptures.push(...generateOldCaptureStatements(ctx, captures));
+    // Parameter facts describe the ENTRY state. They are only usable at exit
+    // for parameters that cannot have changed: never assigned in the body
+    // and of an immutable primitive type (an array's `.length` can change),
+    // and not shadowed by the result binding (deep review 2026-10, #34).
+    const unstableParams = collectUnstableParams(ctx, fn);
 
-        // Generate the post-check with rewritten expression (old replaced)
-        const rewrittenCondition: ContractCondition = {
-          ...condition,
-          expression: rewritten,
-        };
+    const allOldCaptures: ts.Statement[] = [];
+    const postBlocks: ts.Statement[] = [];
+    const resultVar = ctx.generateUniqueName("result");
+
+    for (const ensuresBlock of parsed.ensures) {
+      // The block form's implicit `result` must not hijack a parameter that
+      // is itself called `result`: then `result` keeps meaning the parameter.
+      const bindName =
+        ensuresBlock.implicitResult && paramNames.has("result")
+          ? undefined
+          : ensuresBlock.resultParam;
+      const exclude = new Set(unstableParams);
+      if (bindName) exclude.add(bindName);
+
+      const checks: ts.Statement[] = [];
+      for (const condition of ensuresBlock.conditions) {
+        const { rewritten, captures } = extractOldCaptures(ctx, condition.expression);
         const check = generateConditionCheck(
           ctx,
-          rewrittenCondition,
+          { ...condition, expression: rewritten },
           "postcondition",
           fn,
-          config.proveAtCompileTime
+          { prove: config.proveAtCompileTime, exclude }
         );
-        if (check) postChecks.push(check);
+        if (check) {
+          checks.push(check);
+          allOldCaptures.push(...generateOldCaptureStatements(ctx, captures));
+        }
       }
+      if (checks.length === 0) continue;
+
+      // Bind the result under the name the conditions use, in a block of its
+      // own: `{ const result = __r; if (!(...)) throw ...; }`. Binding (rather
+      // than renaming identifiers) keeps property names, shorthand properties
+      // and shadowed bindings intact (deep review 2026-10, #25).
+      const binding = bindName
+        ? [
+            ctx.factory.createVariableStatement(
+              undefined,
+              ctx.factory.createVariableDeclarationList(
+                [ctx.factory.createVariableDeclaration(bindName, undefined, undefined, resultVar)],
+                ts.NodeFlags.Const
+              )
+            ),
+          ]
+        : [];
+      postBlocks.push(ctx.factory.createBlock([...binding, ...checks], true));
     }
 
     // --- Reconstruct function body ---
     const factory = ctx.factory;
     let newBodyStatements: ts.Statement[];
 
-    if (postChecks.length > 0) {
-      // Need to wrap body to capture return value
-      // Check if the function has a non-void return type
-      const hasReturn = parsed.body.some(containsReturnStatement);
-
-      if (hasReturn) {
-        // Wrap body in IIFE to capture result, then check postconditions
-        const resultVar = ctx.generateUniqueName("result");
-
-        const wrappedBody = factory.createVariableStatement(
-          undefined,
-          factory.createVariableDeclarationList(
-            [
-              factory.createVariableDeclaration(
-                resultVar,
-                undefined,
-                undefined,
-                factory.createCallExpression(
-                  factory.createParenthesizedExpression(
-                    factory.createArrowFunction(
-                      undefined,
-                      undefined,
-                      [],
-                      // Carry the function's declared return type onto the IIFE so
-                      // the captured result keeps its precise type (e.g. a tuple
-                      // `[number, number]` is not widened to `number[]`).
-                      fn.type,
-                      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-                      factory.createBlock(parsed.body, true)
-                    )
-                  ),
-                  undefined,
-                  []
-                )
-              ),
-            ],
-            ts.NodeFlags.Const
+    if (postBlocks.length > 0) {
+      // Run the body in an arrow IIFE (keeps `this`, `arguments`, `super`) to
+      // capture the return value, then check the postconditions. For an
+      // async function the IIFE is async and awaited, so postconditions see
+      // the resolved value, not the Promise (deep review 2026-10, #4).
+      const iife = factory.createCallExpression(
+        factory.createParenthesizedExpression(
+          factory.createArrowFunction(
+            isAsync ? [factory.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
+            undefined,
+            [],
+            // Carry the declared return type onto the IIFE so the captured
+            // result keeps its precise type (a tuple is not widened).
+            fn.type,
+            factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+            factory.createBlock(parsed.body, true)
           )
-        );
+        ),
+        undefined,
+        []
+      );
+      const wrappedBody = factory.createVariableStatement(
+        undefined,
+        factory.createVariableDeclarationList(
+          [
+            factory.createVariableDeclaration(
+              resultVar,
+              undefined,
+              undefined,
+              isAsync ? factory.createAwaitExpression(iife) : iife
+            ),
+          ],
+          ts.NodeFlags.Const
+        )
+      );
 
-        // Replace `result` references in postconditions with the result variable
-        const resultPostChecks = postChecks.map((check) =>
-          replaceResultReferences(ctx, check, resultVar, parsed.ensures)
-        );
-
-        newBodyStatements = [
-          ...preChecks,
-          ...allOldCaptures,
-          wrappedBody,
-          ...resultPostChecks,
-          factory.createReturnStatement(resultVar),
-        ];
-      } else {
-        // No return — just append post-checks after body
-        newBodyStatements = [...preChecks, ...allOldCaptures, ...parsed.body, ...postChecks];
-      }
+      newBodyStatements = [
+        ...preChecks,
+        ...allOldCaptures,
+        wrappedBody,
+        ...postBlocks,
+        factory.createReturnStatement(resultVar),
+      ];
     } else {
-      // No postconditions — just prepend prechecks
-      newBodyStatements = [...preChecks, ...parsed.body];
+      newBodyStatements = [...preChecks, ...allOldCaptures, ...parsed.body];
     }
 
     const newBody = factory.createBlock(newBodyStatements, true);
@@ -193,21 +226,17 @@ export const contractAttribute = defineAttributeMacro({
       );
     }
 
-    if (ts.isMethodDeclaration(fn)) {
-      return factory.updateMethodDeclaration(
-        fn,
-        allModifiers.length > 0 ? allModifiers : undefined,
-        fn.asteriskToken,
-        fn.name,
-        fn.questionToken,
-        fn.typeParameters,
-        fn.parameters,
-        fn.type,
-        newBody
-      );
-    }
-
-    return target;
+    return factory.updateMethodDeclaration(
+      fn,
+      allModifiers.length > 0 ? allModifiers : undefined,
+      fn.asteriskToken,
+      fn.name,
+      fn.questionToken,
+      fn.typeParameters,
+      fn.parameters,
+      fn.type,
+      newBody
+    );
   },
 });
 
@@ -224,13 +253,13 @@ function generateConditionCheck(
   condition: ContractCondition,
   type: "precondition" | "postcondition",
   fn: ts.FunctionDeclaration | ts.MethodDeclaration,
-  proveAtCompileTime: boolean
+  opts: { prove: boolean; exclude?: ReadonlySet<string> }
 ): ts.Statement | undefined {
   if (!shouldEmitCheck(type)) return undefined;
 
   // Try compile-time proof
-  if (proveAtCompileTime) {
-    const proof = tryProve(ctx, condition, fn);
+  if (opts.prove) {
+    const proof = tryProve(ctx, condition, fn, { exclude: opts.exclude });
     if (proof.proven) return undefined;
   }
 
@@ -248,8 +277,12 @@ function generateConditionCheck(
 
   const label = type === "precondition" ? "Precondition" : "Postcondition";
   const message = condition.message ?? `${label} failed: ${condition.sourceText}`;
+  const errorClass = ctx.ensureImport(
+    type === "precondition" ? "PreconditionError" : "PostconditionError",
+    "@typesugar/contracts"
+  );
 
-  // Generate: if (!(condition)) throw new Error(message);
+  // Generate: if (!(condition)) throw new PreconditionError(message);
   const factory = ctx.factory;
   return factory.createIfStatement(
     factory.createPrefixUnaryExpression(
@@ -258,62 +291,76 @@ function generateConditionCheck(
     ),
     factory.createBlock([
       factory.createThrowStatement(
-        factory.createNewExpression(factory.createIdentifier("Error"), undefined, [
-          factory.createStringLiteral(message),
-        ])
+        factory.createNewExpression(errorClass, undefined, [factory.createStringLiteral(message)])
       ),
     ])
   );
 }
 
 /**
- * Check if a statement list contains any return statements.
+ * Parameters whose entry-state refinement facts may not hold at exit:
+ * assigned anywhere in the body (including nested closures — conservative),
+ * or not of an immutable primitive type.
  */
-function containsReturnStatement(stmt: ts.Statement): boolean {
-  let found = false;
-  function visit(node: ts.Node): void {
-    if (ts.isReturnStatement(node)) {
-      found = true;
+function collectUnstableParams(
+  ctx: MacroContext,
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration
+): Set<string> {
+  const names = new Set<string>();
+  const params = fn.parameters.flatMap((p) => (ts.isIdentifier(p.name) ? [p] : []));
+  for (const p of params) {
+    const name = (p.name as ts.Identifier).text;
+    if (isSyntheticNode(p)) {
+      names.add(name);
+      continue;
+    }
+    const type = ctx.typeChecker.getTypeAtLocation(p);
+    if (!isImmutablePrimitive(type)) names.add(name);
+  }
+
+  const targets = new Set(params.map((p) => (p.name as ts.Identifier).text));
+  const markTarget = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) {
+      if (targets.has(node.text)) names.add(node.text);
       return;
     }
-    // Don't descend into nested functions
+    // Property names in a destructuring target are not assigned.
+    if (ts.isPropertyAccessExpression(node)) return;
+    if (ts.isPropertyAssignment(node)) return markTarget(node.initializer);
+    ts.forEachChild(node, markTarget);
+  };
+  const visit = (node: ts.Node): void => {
     if (
-      ts.isFunctionDeclaration(node) ||
-      ts.isArrowFunction(node) ||
-      ts.isFunctionExpression(node)
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
     ) {
-      return;
+      markTarget(node.left);
+    } else if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken ||
+        node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      markTarget(node.operand);
+    } else if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+      if (!ts.isVariableDeclarationList(node.initializer)) markTarget(node.initializer);
     }
     ts.forEachChild(node, visit);
-  }
-  visit(stmt);
-  return found;
+  };
+  if (fn.body) visit(fn.body);
+  return names;
 }
 
-/**
- * Replace references to the ensures result parameter with the actual
- * result variable name.
- */
-function replaceResultReferences(
-  ctx: MacroContext,
-  statement: ts.Statement,
-  resultVar: ts.Identifier,
-  ensuresBlocks: Array<{ resultParam?: string }>
-): ts.Statement {
-  const resultParams = ensuresBlocks
-    .map((b) => b.resultParam)
-    .filter((p): p is string => p !== undefined);
-
-  if (resultParams.length === 0) return statement;
-
-  function visit(node: ts.Node): ts.Node {
-    if (ts.isIdentifier(node) && resultParams.includes(node.text)) {
-      return resultVar;
-    }
-    return ts.visitEachChild(node, visit, ctx.transformContext);
-  }
-
-  return ts.visitNode(statement, visit) as ts.Statement;
+function isImmutablePrimitive(type: ts.Type): boolean {
+  const PRIMITIVE =
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.BooleanLike;
+  if (type.flags & PRIMITIVE) return true;
+  // Refined<number, B> = number & { [brand] }: primitive if a member is.
+  if (type.isIntersection()) return type.types.some((t) => (t.flags & PRIMITIVE) !== 0);
+  return false;
 }
 
 globalRegistry.register(contractAttribute);

@@ -36,9 +36,9 @@ import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
 import type { ContractCondition } from "../parser/predicate.js";
 import { type TypeFact, getDecidability, canWiden, getSubtypingRule } from "./type-facts.js";
-import { extractTypeFacts } from "./extract.js";
-import { tryAlgebraicProof, type AlgebraicProofResult } from "./algebra.js";
-import { tryLinearArithmetic, type LinearProofResult } from "./linear.js";
+import { extractTypeFacts, type ExtractTypeFactsOptions } from "./extract.js";
+import { tryAlgebraicProof } from "./algebra.js";
+import { tryLinearArithmetic, tryDirectFactMatch } from "./linear.js";
 import { getContractConfig, emitDecidabilityWarning, canProveAtCompileTime } from "../config.js";
 import {
   type ProofCertificate,
@@ -124,13 +124,15 @@ export function tryProve(goal: string, facts: TypeFact[]): ProofResult;
 export function tryProve(
   ctx: MacroContext,
   condition: ContractCondition,
-  fn: ts.FunctionDeclaration | ts.MethodDeclaration
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration,
+  options?: ExtractTypeFactsOptions
 ): ProofResult;
 
 export function tryProve(
   ctxOrGoal: MacroContext | string,
   conditionOrFacts: ContractCondition | TypeFact[],
-  fn?: ts.FunctionDeclaration | ts.MethodDeclaration
+  fn?: ts.FunctionDeclaration | ts.MethodDeclaration,
+  options?: ExtractTypeFactsOptions
 ): ProofResult {
   // Runtime overload: tryProve(goal: string, facts: TypeFact[])
   if (typeof ctxOrGoal === "string") {
@@ -142,7 +144,7 @@ export function tryProve(
   // Compile-time overload: tryProve(ctx, condition, fn)
   const ctx = ctxOrGoal;
   const condition = conditionOrFacts as ContractCondition;
-  return tryProveCompileTime(ctx, condition, fn!);
+  return tryProveCompileTime(ctx, condition, fn!, options);
 }
 
 /**
@@ -194,7 +196,8 @@ function tryProveRuntime(goal: string, facts: TypeFact[]): ProofResult {
 function tryProveCompileTime(
   ctx: MacroContext,
   condition: ContractCondition,
-  fn: ts.FunctionDeclaration | ts.MethodDeclaration
+  fn: ts.FunctionDeclaration | ts.MethodDeclaration,
+  options?: ExtractTypeFactsOptions
 ): ProofResult {
   const config = getContractConfig();
 
@@ -207,7 +210,7 @@ function tryProveCompileTime(
   }
 
   // Layer 2: Type-based deduction
-  const facts = extractTypeFacts(ctx, fn);
+  const facts = extractTypeFacts(ctx, fn, options);
   if (facts.length > 0) {
     const typeProof = tryTypeDeduction(condition.normalized, facts);
     if (typeProof.proven) return typeProof;
@@ -417,45 +420,26 @@ interface TypeDeductionResult extends ProofResult {
  * exactly matches a known type fact.
  */
 function tryTypeDeduction(goal: string, facts: TypeFact[]): TypeDeductionResult {
-  const normalizedGoal = goal.trim();
-
-  for (const fact of facts) {
-    // Direct match: the goal IS the type fact
-    if (fact.predicate === normalizedGoal) {
-      return {
-        proven: true,
-        method: "type",
-        reason: `${fact.variable} has Refined type guaranteeing: ${fact.predicate}`,
-        step: createStep(
-          "type_fact",
-          `Goal matches type fact from ${fact.variable}`,
-          `${fact.variable} has Refined type guaranteeing: ${fact.predicate}`,
-          [fact]
-        ),
-      };
-    }
-
-    // The goal is a subset of a compound fact
-    // e.g., fact is "x >= 0 && x <= 255", goal is "x >= 0"
-    if (fact.predicate.includes("&&")) {
-      const parts = fact.predicate.split("&&").map((p) => p.trim());
-      if (parts.includes(normalizedGoal)) {
-        return {
-          proven: true,
-          method: "type",
-          reason: `${fact.variable} has Refined type guaranteeing: ${fact.predicate} (includes ${normalizedGoal})`,
-          step: createStep(
-            "type_fact_conjunction",
-            `Goal is part of compound type fact from ${fact.variable}`,
-            `${fact.variable} has Refined type guaranteeing: ${fact.predicate} (includes ${normalizedGoal})`,
-            [fact]
-          ),
-        };
-      }
-    }
-  }
-
-  return { proven: false };
+  // Structural (parsed) match of every top-level goal conjunct against the
+  // top-level conjuncts of the facts — never `predicate.split("&&")`, which
+  // treated `a || b && c` as having a conjunct `c`.
+  const direct = tryDirectFactMatch(goal, facts);
+  if (!direct.proven) return { proven: false };
+  const used = direct.step?.usedFacts ?? [];
+  const desc = used.map((f) => `${f.variable}: ${f.predicate}`).join(", ");
+  return {
+    proven: true,
+    method: "type",
+    reason: `Refined type facts guarantee ${goal.trim()} (${desc})`,
+    step: createStep(
+      used.length === 1 && used[0].predicate.trim() === goal.trim()
+        ? "type_fact"
+        : "type_fact_conjunction",
+      `Goal follows directly from refined type facts`,
+      `Refined type facts guarantee ${goal.trim()} (${desc})`,
+      used
+    ),
+  };
 }
 
 // ============================================================================

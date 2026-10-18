@@ -19,6 +19,7 @@ export class SchemaBuilder<T> {
   private readonly _format: "json" | "binary";
   private readonly _fields: FieldMeta[] = [];
   private _layout?: FieldLayout[];
+  private _previousLayouts: Record<number, FieldLayout[]> = {};
 
   constructor(name: string, version: number, format?: "json" | "binary") {
     this._name = name;
@@ -42,9 +43,14 @@ export class SchemaBuilder<T> {
     return this;
   }
 
-  /** Set the binary field layout (only used when format is "binary"). */
-  binaryLayout(layout: FieldLayout[]): this {
+  /**
+   * Set the binary field layout (only used when format is "binary").
+   * `previousLayouts` maps older versions to the layouts their data used,
+   * so `decodeAny()` can read and migrate it.
+   */
+  binaryLayout(layout: FieldLayout[], previousLayouts?: Record<number, FieldLayout[]>): this {
     this._layout = layout;
+    if (previousLayouts) this._previousLayouts = previousLayouts;
     return this;
   }
 
@@ -74,7 +80,7 @@ export class SchemaBuilder<T> {
           `Binary schema "${this._name}" requires a field layout. Call .binaryLayout() before .buildCodec().`
         );
       }
-      return createBinaryCodec<T>(s, this._layout);
+      return createBinaryCodec<T>(s, this._layout, this._previousLayouts);
     }
     return createJsonCodec<T>(s);
   }

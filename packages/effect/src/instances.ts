@@ -299,7 +299,8 @@ export function effectEitherMonadError<E>(): MonadError<EffectEitherF<E>, E> {
     raiseError: (e) => Either.left(e),
     handleErrorWith: (fa, f) => {
       if (Either.isLeft(fa)) {
-        return f(Either.getLeft(fa) as E);
+        // `fa.left` is the error itself (Either.getLeft would wrap it in an Option).
+        return f(fa.left as E);
       }
       return fa;
     },

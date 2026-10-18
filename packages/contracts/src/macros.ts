@@ -14,6 +14,17 @@
  * extraction) that operate on the TypeScript AST.
  */
 
+import { config, type ContractsConfig } from "@typesugar/core";
+import { setContractsConfigSource } from "./config.js";
+
+// --- Unified config ---
+// The runtime entry can't import @typesugar/core (PEP-050), so the build-time
+// entry wires `contracts.*` from the unified config into getContractConfig().
+setContractsConfigSource({
+  get: () => config.get<ContractsConfig & Record<string, unknown>>("contracts"),
+  set: (values) => config.set(values),
+});
+
 // --- Macro definitions (importing each module runs its globalRegistry.register) ---
 export { requiresMacro } from "./macros/requires.js";
 export { ensuresMacro } from "./macros/ensures.js";

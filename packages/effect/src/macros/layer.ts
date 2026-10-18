@@ -59,26 +59,46 @@ export interface LayerInfo {
 }
 
 /**
- * Global registry for Effect layers.
- * Maps layer variable name to layer metadata.
+ * Registry of `@layer` declarations seen by the transformer.
+ *
+ * SHAPE (per CLAUDE.md "Resolving things a macro just generated"): this is a
+ * LIVE KEYED REGISTRY, written by `@layer` as it expands and read by
+ * `resolveLayer<R>()` in the same pass. Within one file that is the safe
+ * shape (declare-before-use). ACROSS files it depends on the other file
+ * having been transformed earlier in this process — there is no Program-level
+ * scan of imported files yet — so `resolveLayer` additionally restricts
+ * candidates to the current file's import graph and reports an error (never a
+ * silent fallback to every registered layer) when the only providers live in
+ * files that are not imported.
+ *
+ * Keyed by `sourceFile + "\0" + name`, so two files that each declare a
+ * `live` layer don't clobber each other, and re-transforming a file (watch
+ * mode, language service) replaces its own entries instead of warning.
  */
 export const layerRegistry = new Map<string, LayerInfo>();
 
-/**
- * Register a layer in the global registry.
- */
-export function registerLayer(info: LayerInfo): void {
-  if (layerRegistry.has(info.name)) {
-    console.warn(`Layer '${info.name}' is already registered, overwriting.`);
-  }
-  layerRegistry.set(info.name, info);
+function layerKey(info: Pick<LayerInfo, "sourceFile" | "name">): string {
+  return `${info.sourceFile}\0${info.name}`;
 }
 
 /**
- * Get layer info by variable name.
+ * Register a layer in the registry (replacing an earlier registration of the
+ * same layer from the same file).
  */
-export function getLayer(name: string): LayerInfo | undefined {
-  return layerRegistry.get(name);
+export function registerLayer(info: LayerInfo): void {
+  layerRegistry.set(layerKey(info), info);
+}
+
+/**
+ * Get layer info by variable name (first match across files), optionally
+ * restricted to one source file.
+ */
+export function getLayer(name: string, sourceFile?: string): LayerInfo | undefined {
+  if (sourceFile !== undefined) return layerRegistry.get(layerKey({ sourceFile, name }));
+  for (const info of layerRegistry.values()) {
+    if (info.name === name) return info;
+  }
+  return undefined;
 }
 
 /**
@@ -179,11 +199,12 @@ function detectLayerType(
  * Generate the Layer wrapper call.
  */
 function generateLayerWrapper(
-  factory: ts.NodeFactory,
+  ctx: MacroContext,
   serviceName: string,
   initializer: ts.Expression,
   layerType: "succeed" | "effect" | "scoped"
 ): ts.Expression {
+  const factory = ctx.factory;
   const tagIdentifier = factory.createIdentifier(`${serviceName}Tag`);
 
   const layerMethod =
@@ -191,7 +212,7 @@ function generateLayerWrapper(
 
   return factory.createCallExpression(
     factory.createPropertyAccessExpression(
-      factory.createIdentifier("Layer"),
+      ctx.ensureImport("Layer", "effect"),
       factory.createIdentifier(layerMethod)
     ),
     undefined,
@@ -270,7 +291,7 @@ export const layerAttribute: AttributeMacro = defineAttributeMacro({
 
     // Generate the wrapped layer
     const wrappedInitializer = generateLayerWrapper(
-      factory,
+      ctx,
       serviceName,
       target.initializer,
       layerType

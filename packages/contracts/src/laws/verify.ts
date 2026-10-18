@@ -76,7 +76,11 @@ export function resetLawsConfig(): void {
 
 /**
  * Maps proof hints to facts that the algebraic prover understands.
- * This bridges the gap between high-level law hints and low-level prover facts.
+ *
+ * The returned facts ASSERT the property (e.g. `associative(combine)`). Pass
+ * them to `verifyLaw` only when the instance is independently known to have
+ * it — `verifyLaw` no longer derives them from the law's own hint, since that
+ * made every hinted law trivially "proven".
  */
 export function proofHintToFacts(
   hint: ProofHint,
@@ -180,14 +184,13 @@ export function verifyLaw(
   facts: TypeFact[],
   options?: VerifyOptions
 ): LawVerificationResult {
-  // Add hint-derived facts
+  // A law's proofHint says what the law STATES ("this is associativity"),
+  // not evidence that a particular instance satisfies it. Turning the hint
+  // into an `associative(combine)` fact and then proving the law from it was
+  // circular — every hinted law was "proven" for every instance (deep review
+  // 2026-10, effect-contracts #3). Only caller-supplied facts about the
+  // instance are used; without them the law is undecidable (→ property test).
   const allFacts = [...facts];
-  if (law.proofHint) {
-    const hints = Array.isArray(law.proofHint) ? law.proofHint : [law.proofHint];
-    for (const hint of hints) {
-      allFacts.push(...proofHintToFacts(hint));
-    }
-  }
 
   // Try algebraic proof
   const goal = law.description ?? law.name;
@@ -299,14 +302,13 @@ async function verifyLawAsync(
   facts: TypeFact[],
   options?: VerifyOptions
 ): Promise<LawVerificationResult> {
-  // Add hint-derived facts
+  // A law's proofHint says what the law STATES ("this is associativity"),
+  // not evidence that a particular instance satisfies it. Turning the hint
+  // into an `associative(combine)` fact and then proving the law from it was
+  // circular — every hinted law was "proven" for every instance (deep review
+  // 2026-10, effect-contracts #3). Only caller-supplied facts about the
+  // instance are used; without them the law is undecidable (→ property test).
   const allFacts = [...facts];
-  if (law.proofHint) {
-    const hints = Array.isArray(law.proofHint) ? law.proofHint : [law.proofHint];
-    for (const hint of hints) {
-      allFacts.push(...proofHintToFacts(hint));
-    }
-  }
 
   // Try algebraic proof
   const goal = law.description ?? law.name;

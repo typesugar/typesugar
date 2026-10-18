@@ -47,6 +47,28 @@
  */
 
 /**
+ * Process-wide registry storage.
+ *
+ * The transformer loads macro packages with `require()` (CJS), and tsup's
+ * CJS output gives every entry (`index.cjs`, `macros.cjs`) its OWN copy of
+ * this module — so `@typesugar/contracts-refined` (which imports the `.`
+ * entry) registering predicates into one copy never reached the prover in
+ * `macros.cjs` (deep review 2026-10, effect-contracts #7). Keeping the
+ * registries on `globalThis` under a `Symbol.for` key makes every copy of
+ * the module (CJS and ESM) share one registry.
+ */
+function sharedRegistry<T>(name: string, init: () => T): T {
+  const key = Symbol.for(`@typesugar/contracts/${name}`);
+  const g = globalThis as unknown as Record<symbol, T | undefined>;
+  let value = g[key];
+  if (value === undefined) {
+    value = init();
+    g[key] = value;
+  }
+  return value;
+}
+
+/**
  * A fact known about a variable from its type.
  */
 export interface TypeFact {
@@ -102,19 +124,28 @@ export interface DecidabilityInfo {
  * - @typesugar/contracts-refined (auto-registers all @typesugar/type-system predicates)
  * - User code via registerRefinementPredicate()
  */
-export const REFINEMENT_PREDICATES: Record<string, string> = {};
+export const REFINEMENT_PREDICATES: Record<string, string> = sharedRegistry(
+  "refinement-predicates",
+  () => ({}) as Record<string, string>
+);
 
 /**
  * Registry of subtyping rules for automatic coercion.
  * Maps "from:to" → SubtypingRule
  */
-const SUBTYPING_RULES: Map<string, SubtypingRule> = new Map();
+const SUBTYPING_RULES: Map<string, SubtypingRule> = sharedRegistry(
+  "subtyping-rules",
+  () => new Map<string, SubtypingRule>()
+);
 
 /**
  * Registry of decidability information for refinement predicates.
  * Maps brand name → DecidabilityInfo
  */
-const DECIDABILITY_REGISTRY: Map<string, DecidabilityInfo> = new Map();
+const DECIDABILITY_REGISTRY: Map<string, DecidabilityInfo> = sharedRegistry(
+  "decidability",
+  () => new Map<string, DecidabilityInfo>()
+);
 
 /**
  * Register a custom refinement predicate.
@@ -130,13 +161,13 @@ export function registerRefinementPredicate(brand: string, predicate: string): v
 const DYNAMIC_PREDICATE_GENERATORS: Array<{
   pattern: RegExp;
   generate: (match: RegExpMatchArray) => string;
-}> = [
+}> = sharedRegistry("dynamic-predicate-generators", () => [
   // Vec<N> - length-indexed vectors
   {
     pattern: /^Vec<(\d+)>$/,
     generate: (match) => `$.length === ${match[1]}`,
   },
-];
+]);
 
 /**
  * Register a dynamic predicate generator for parameterized brands.
