@@ -120,7 +120,7 @@ export const result = runIOSync(io);
   // Iterable instances) — pending that change, the emitted code references an
   // unimported `flatMapOption`. Flip to `it` once let-yield ensureImports
   // self-receivers from the instance's @do-instance-module.
-  it.fails("Option without importing the instance: receiver is auto-imported", () => {
+  it("Option without importing the instance: receiver is auto-imported", () => {
     const { code, errors } = expand(`
 import "@typesugar/std/syntax/do";
 import { Option, Some, None } from "@typesugar/fp";

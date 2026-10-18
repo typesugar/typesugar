@@ -14,7 +14,7 @@
  *   z << expr2 || alt    // orElse: fallback on failure
  *   if (condition) {}    // Guard: short-circuit on false
  * }
- * yield: { resultExpr }
+ * yield: { resultExpr }   // or: yield: resultExpr, e.g. yield: ({ x, y })
  * ```
  *
  * ## Examples
@@ -103,6 +103,8 @@ import {
   createStyleAwareCall,
   createMetadataJoin,
   createTupleBindingPattern,
+  emitComprehensionResult,
+  importSelfReceiver,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
 import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
@@ -116,16 +118,6 @@ import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
  * the result instead of filtering (deep review #7).
  */
 const GUARD_CAPABLE_BRANDS = new Set(["Array", "Iterable", "AsyncIterable"]);
-
-/**
- * std instances whose `@do-methods` name THEMSELVES as the static receiver
- * (`style=static receiver=flatMapIterable`): plain Iterables/AsyncIterables
- * have no `.flatMap`/`.map` methods, so the comprehension calls the instance
- * (deep review #10). The receiver is imported from the do marker the file
- * already imports for the labels.
- */
-const STD_SELF_RECEIVER_INSTANCES = new Set(["flatMapIterable", "flatMapAsyncIterable"]);
-const STD_DO_MODULE = "@typesugar/std/syntax/do";
 
 /**
  * Method names for FlatMap operations.
@@ -248,14 +240,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 
     // Method names + emission style from the instance's @do-methods metadata.
     let doMeta: DoNotationMeta = scoped.doMeta ?? DEFAULT_DO_METHODS;
-    if (
-      doMeta.style === "static" &&
-      doMeta.receiver === scoped.exportName &&
-      STD_SELF_RECEIVER_INSTANCES.has(scoped.exportName)
-    ) {
-      const receiverId = ctx.ensureImport(scoped.exportName, STD_DO_MODULE);
-      doMeta = { ...doMeta, receiver: receiverId.text };
-    }
+    doMeta = importSelfReceiver(ctx, scoped, doMeta, typeConstructorName);
 
     // Guards need an empty value to filter with (deep review #7).
     if (!GUARD_CAPABLE_BRANDS.has(typeConstructorName)) {
@@ -287,14 +272,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // Handle yield expression or implicit return
     let returnExpr: ts.Expression;
     if (continuation) {
-      if (!ts.isBlock(continuation.statement)) {
-        ctx.reportError(
-          continuation,
-          `${continuation.label.text}: must be followed by a block { ... }`
-        );
-        return mainBlock;
-      }
-
+      // `yield: { expr }` or `yield: expr` (e.g. `yield: ({ a, b })`).
       const extracted = extractReturnExpr(ctx, continuation.statement);
       if (!extracted) {
         return mainBlock;
@@ -324,7 +302,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       const stepsWithoutLast = steps.slice(0, lastIdx);
       if (stepsWithoutLast.length === 0) {
         // Only one bind step — just return the expression directly
-        return factory.createExpressionStatement(tail);
+        return emitComprehensionResult(factory, mainBlock, continuation, tail);
       }
       // The tail is already an effect: every bind before it must flatten.
       const chain = buildChain(
@@ -336,13 +314,13 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
         doMeta,
         true
       );
-      return factory.createExpressionStatement(chain);
+      return emitComprehensionResult(factory, mainBlock, continuation, chain);
     }
 
     // Build the chain
     const result = buildChain(ctx, steps, returnExpr, methods, typeConstructorName, doMeta);
 
-    return factory.createExpressionStatement(result);
+    return emitComprehensionResult(factory, mainBlock, continuation, result);
   },
 });
 
@@ -623,7 +601,8 @@ function buildChain(
           for (const mapStep of [...mapSteps].reverse()) {
             bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
           }
-          inner = createMetadataJoin(factory, parScoped.doMeta, bindSteps, bodyWithMaps, {
+          const parMeta = importSelfReceiver(ctx, parScoped, parScoped.doMeta, typeConstructor);
+          inner = createMetadataJoin(factory, parMeta, bindSteps, bodyWithMaps, {
             meta: doMeta,
             method: continueMethod,
           });

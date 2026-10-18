@@ -538,6 +538,7 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
  * @typeclass
  */
 export interface Semigroup<A> {
+  /** @op + */
   combine(a: A, b: A): A;
 }
 typeclass("Semigroup");
@@ -602,9 +603,15 @@ export function semigroupArray<A>(): Semigroup<A[]> {
  * - Left identity: `combine(empty(), a) === a`
  * - Right identity: `combine(a, empty()) === a`
  *
+ * Operators dispatch via @op JSDoc tags:
+ * - `a + b` → `Monoid.combine(a, b)` (`@op` tags are not inherited, so the
+ *   inherited `combine` is restated here for the monoid/ops marker)
+ *
  * @typeclass
  */
 export interface Monoid<A> extends Semigroup<A> {
+  /** @op + */
+  combine(a: A, b: A): A;
   empty(): A;
 }
 typeclass("Monoid");
@@ -845,11 +852,18 @@ registerInstanceWithMeta(
  * - `a - b` → `Numeric.sub(a, b)`
  * - `a * b` → `Numeric.mul(a, b)`
  *
+ * `/` is deliberately NOT tagged here: it belongs to `Fractional` (true
+ * division) and `Integral` (floor division), and a type with both a Numeric
+ * and a Fractional instance would otherwise be an ambiguous-operator error.
+ *
  * @typeclass
  */
 export interface Numeric<A> {
+  /** @op + */
   add(a: A, b: A): A;
+  /** @op - */
   sub(a: A, b: A): A;
+  /** @op * */
   mul(a: A, b: A): A;
   div(a: A, b: A): A;
   pow(a: A, b: A): A;
@@ -928,7 +942,9 @@ registerInstanceWithMeta(
  * @typeclass
  */
 export interface Integral<A> {
+  /** @op / */
   div(a: A, b: A): A;
+  /** @op % */
   mod(a: A, b: A): A;
   divMod(a: A, b: A): [A, A];
   quot(a: A, b: A): A;
@@ -998,6 +1014,7 @@ registerInstanceWithMeta(
  * @typeclass
  */
 export interface Fractional<A> {
+  /** @op / */
   div(a: A, b: A): A;
   recip(a: A): A;
   fromRational(num: number, den: number): A;
@@ -1397,7 +1414,10 @@ export interface Searchable<F> {
 export interface Group<A> {
   /** The identity element */
   empty(): A;
-  /** Associative binary operation */
+  /**
+   * Associative binary operation
+   * @op +
+   */
   combine(a: A, b: A): A;
   /** Inverse operation: combine(invert(a), a) === empty() */
   invert(a: A): A;

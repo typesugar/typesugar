@@ -163,7 +163,11 @@ describe("let:/yield: in expression position", () => {
       const result = await transformCode(TOP_LEVEL_SOURCE, { fileName: "input.ts" });
       const out = result.code;
 
-      expect(out).toMatch(/const prog\s*=\s*Effect\.flatMap\(/);
+      // The preprocessor hoists every expression-position comprehension
+      // (docs review 2026-10): `const __letyield_N = <chain>; const prog = __letyield_N;`.
+      expect(out).toMatch(
+        /const prog\s*=\s*Effect\.flatMap\(|const (__letyield_\d+)\s*=\s*Effect\.flatMap\([\s\S]*const prog\s*=\s*\1;/
+      );
       expect(out).not.toContain("let: {");
       expect(out).not.toContain("yield: {");
 

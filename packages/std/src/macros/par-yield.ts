@@ -97,6 +97,8 @@ import {
   createStyleAwareCall,
   createMetadataJoin,
   resolveStdDoFallback,
+  emitComprehensionResult,
+  importSelfReceiver,
 } from "./comprehension-utils.js";
 
 // ============================================================================
@@ -159,14 +161,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       return mainBlock;
     }
 
-    if (!ts.isBlock(continuation.statement)) {
-      ctx.reportError(
-        continuation,
-        `${continuation.label.text}: must be followed by a block { ... }`
-      );
-      return mainBlock;
-    }
-
+    // `yield: { expr }` or `yield: expr` (e.g. `yield: ({ a, b })`).
     const returnExpr = extractReturnExpr(ctx, continuation.statement);
     if (!returnExpr) {
       return mainBlock;
@@ -202,7 +197,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     if (!scoped) {
       // Fall back to applicative chain if no ParCombine instance
       const result = buildApplicativeChain(ctx, steps, returnExpr);
-      return factory.createExpressionStatement(result);
+      return emitComprehensionResult(factory, mainBlock, continuation, result);
     }
     if (scoped.doMeta?.unrecognized?.length) {
       ctx.reportWarning(
@@ -220,15 +215,16 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // 2. A std-local AST builder (Array/Iterable cartesian products etc.).
     // 3. The generic applicative chain.
     if (scoped?.doMeta?.all && scoped.doMeta.receiver) {
-      const result = buildStaticAllParCombine(ctx, steps, returnExpr, scoped.doMeta);
-      return factory.createExpressionStatement(result);
+      const meta = importSelfReceiver(ctx, scoped, scoped.doMeta, typeConstructorName);
+      const result = buildStaticAllParCombine(ctx, steps, returnExpr, meta);
+      return emitComprehensionResult(factory, mainBlock, continuation, result);
     }
     const parCombineBuilder = getStdParCombineBuilder(typeConstructorName);
     const result = parCombineBuilder
       ? parCombineBuilder(ctx, steps, returnExpr)
       : buildApplicativeChain(ctx, steps, returnExpr);
 
-    return factory.createExpressionStatement(result);
+    return emitComprehensionResult(factory, mainBlock, continuation, result);
   },
 });
 

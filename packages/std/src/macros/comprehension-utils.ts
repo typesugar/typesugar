@@ -7,7 +7,11 @@
 
 import * as ts from "typescript";
 import { isSyntheticNode, type MacroContext } from "@typesugar/core";
-import type { DoNotationMeta } from "@typesugar/macros";
+import {
+  getDoInstanceModule,
+  type DoNotationMeta,
+  type ResolvedDoNotationInstance,
+} from "@typesugar/macros";
 
 // ============================================================================
 // Comprehension Step Types
@@ -191,11 +195,99 @@ export function extractReturnExpr(
     return undefined;
   }
 
+  // `yield: <expr>` (e.g. `yield: ({ a, b })`) is the same as `yield: { <expr> }`.
   if (ts.isExpressionStatement(stmt)) {
     return stmt.expression;
   }
 
+  ctx.reportError(
+    stmt,
+    "yield: must be followed by an expression (e.g. `yield: ({ a, b })`) or a block " +
+      "containing one (`yield: { a + b }`)"
+  );
   return undefined;
+}
+
+// ============================================================================
+// Value slot (expression-position comprehensions)
+// ============================================================================
+
+/** Synthetic tag names emitted by `arrow-comprehension-preprocess.ts`. */
+const VALUE_SLOT_TAG = /^__letyield_\d+$/;
+
+/**
+ * Expression-position comprehensions (`const x = let: …`, an arrow body,
+ * `return let: …`, `export default let: …`) are rewritten by the
+ * transformer's `arrow-comprehension-preprocess.ts` into a STATEMENT-position
+ * comprehension immediately followed by a statement that reads its value
+ * through a synthetic tag:
+ *
+ *   let: { … } yield: { … }
+ *   return __letyield_0;            // or: export default __letyield_0;
+ *                                   // or: const x = __letyield_0;
+ *
+ * When that follow-up statement is present, the macro must bind its result
+ * to the tag (`const __letyield_0 = <chain>;`) instead of emitting a
+ * discarded expression statement. Returns the tag name, or undefined.
+ *
+ * Reads the parsed source's own sibling list (the comprehension and the tag
+ * statement are both real, positioned nodes of the same container), so this
+ * is the "live, same-pass" shape: nothing is looked up in a snapshot.
+ */
+export function findValueSlot(
+  main: ts.LabeledStatement,
+  continuation: ts.LabeledStatement | undefined
+): string | undefined {
+  const tail = continuation ?? main;
+  const parent = tail.parent as ts.Node | undefined;
+  if (!parent || main.parent !== parent) return undefined;
+  if (!ts.isBlock(parent) && !ts.isSourceFile(parent) && !ts.isModuleBlock(parent)) {
+    return undefined;
+  }
+  const stmts = parent.statements;
+  let i = stmts.indexOf(tail);
+  if (i < 0) return undefined;
+  if (continuation && stmts[i - 1] !== main) return undefined;
+  i++;
+  while (i < stmts.length && ts.isEmptyStatement(stmts[i])) i++;
+  const next = stmts[i];
+  if (!next) return undefined;
+  let ref: ts.Expression | undefined;
+  if (ts.isReturnStatement(next) || ts.isExportAssignment(next)) {
+    ref = next.expression;
+  } else if (ts.isVariableStatement(next)) {
+    ref = next.declarationList.declarations[0]?.initializer;
+  }
+  return ref && ts.isIdentifier(ref) && VALUE_SLOT_TAG.test(ref.text) ? ref.text : undefined;
+}
+
+/**
+ * The statement a comprehension macro returns for its result: a plain
+ * expression statement, or `const <tag> = <result>;` when the comprehension
+ * fills a value slot (see {@link findValueSlot}).
+ */
+export function emitComprehensionResult(
+  factory: ts.NodeFactory,
+  main: ts.LabeledStatement,
+  continuation: ts.LabeledStatement | undefined,
+  result: ts.Expression
+): ts.Statement {
+  const slot = findValueSlot(main, continuation);
+  if (!slot) return factory.createExpressionStatement(result);
+  return factory.createVariableStatement(
+    undefined,
+    factory.createVariableDeclarationList(
+      [
+        factory.createVariableDeclaration(
+          factory.createIdentifier(slot),
+          undefined,
+          undefined,
+          result
+        ),
+      ],
+      ts.NodeFlags.Const
+    )
+  );
 }
 
 // ============================================================================
@@ -621,6 +713,43 @@ export const KNOWN_DO_INSTANCE_MODULES: Record<string, string> = {
   List: "@typesugar/fp",
   IO: "@typesugar/fp",
 };
+
+/**
+ * std instances whose `@do-methods` name THEMSELVES as the static receiver
+ * (`style=static receiver=flatMapIterable`): plain Iterables/AsyncIterables
+ * have no `.flatMap`/`.map` methods, so the comprehension calls the instance
+ * (deep review #10). They are exported by the do marker the file already
+ * imports for the labels.
+ */
+const STD_SELF_RECEIVER_INSTANCES = new Set(["flatMapIterable", "flatMapAsyncIterable"]);
+const STD_DO_MODULE = "@typesugar/std/syntax/do";
+
+/**
+ * An instance whose `@do-methods` names ITSELF as the static receiver
+ * (`style=static receiver=flatMapOption` — std's Iterable instances, fp's
+ * Option/Either/IO/List instances) is called by name in the emitted chain,
+ * but the user's file usually only imports the type/constructors (or a side-
+ * effect marker), not the instance. Import it (aliased if the name is taken)
+ * from its activation module: std's do marker for std's own, otherwise the
+ * provider's `@do-instance-module` or the static table. An instance declared
+ * in this file (no `modulePath`) is already in scope and is left alone.
+ */
+export function importSelfReceiver(
+  ctx: MacroContext,
+  scoped: Pick<ResolvedDoNotationInstance, "exportName" | "modulePath">,
+  doMeta: DoNotationMeta,
+  brand: string
+): DoNotationMeta {
+  if (doMeta.style !== "static" || doMeta.receiver !== scoped.exportName) return doMeta;
+  const isStd = STD_SELF_RECEIVER_INSTANCES.has(scoped.exportName);
+  if (!scoped.modulePath && !isStd) return doMeta;
+  const from = isStd
+    ? STD_DO_MODULE
+    : (getDoInstanceModule(ctx.program, brand) ?? KNOWN_DO_INSTANCE_MODULES[brand]);
+  if (!from) return doMeta;
+  const receiverId = ctx.ensureImport(scoped.exportName, from);
+  return { ...doMeta, receiver: receiverId.text };
+}
 
 /**
  * Create a static call: `Receiver.method(fa, arg)`
