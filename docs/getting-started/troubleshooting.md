@@ -162,7 +162,7 @@ import { derive, Eq, Clone } from "@typesugar/derive";
 ```json
 {
   "compilerOptions": {
-    "plugins": [{ "name": "typesugar/language-service" }]
+    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
   }
 }
 ```

@@ -874,6 +874,9 @@ importers:
       '@typesugar/lsp-common':
         specifier: workspace:*
         version: link:../lsp-common
+      '@typesugar/macros':
+        specifier: workspace:*
+        version: link:../macros
       '@typesugar/transformer-core':
         specifier: workspace:*
         version: link:../transformer-core
@@ -893,9 +896,6 @@ importers:
       '@typesugar/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@typesugar/macros':
-        specifier: workspace:*
-        version: link:../macros
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
@@ -3194,6 +3194,7 @@ packages:
   eslint@9.39.3:
     resolution: {integrity: sha512-VmQ+sifHUbI/IcSopBCF/HO3YiHQx/AVd3UVyYL6weuwW+HvON9VYn5l6Zl1WZzPWXPNZrSQpxwkkZ/VuvJZzg==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'

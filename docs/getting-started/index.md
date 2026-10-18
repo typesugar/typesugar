@@ -56,7 +56,7 @@ and `typesugar init` wires all three for you:
 | Layer      | What it gives you                                  | How                                                                         |
 | ---------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
 | **Build**  | macros expand when you compile or bundle           | `@typesugar/transformer` (via ts-patch, or the Vite/esbuild/Webpack plugin) |
-| **Editor** | your IDE sees the expanded types — no false errors | the `typesugar/language-service` TypeScript plugin                          |
+| **Editor** | your IDE sees the expanded types — no false errors | the `@typesugar/transformer/language-service` TypeScript plugin             |
 | **CI**     | the build fails on real type errors                | `typesugar check`                                                           |
 
 If your editor flags valid macro code as an error, the **Editor** layer isn't

@@ -624,6 +624,8 @@ function factorial(n: number, acc: number = 1): number {
 
 The macro validates that all recursive calls are in tail position (following Scala's rules) and reports compile-time errors for non-tail calls.
 
+Only named `function` declarations are supported — not arrow functions, function expressions or methods. Tail positions are `return f(...)` (also inside loops, `switch` clauses, ternaries, `||`/`&&`/`??` right-hand sides and comma expressions) and a final `f(...);` statement in a function that returns no value. Optional, defaulted and rest parameters behave exactly as in a real call (an omitted argument gets its default again). Shapes the loop can't preserve — destructured parameters, `arguments`, `var`, generators, calls inside `try`/`catch`/`finally` or nested functions — are reported as errors and the function is left unoptimised.
+
 ### Compile-Time Evaluation (`src/macros/comptime.ts`)
 
 ```typescript
@@ -804,7 +806,7 @@ The only exception is `tsc` with ts-patch, where transformation and typechecking
 
 Macros create type structure. `@derive(Eq)` generates `.equals()`, `summon<Eq<Point>>()` resolves to a concrete instance, extension methods rewrite `point.show()` to `showPoint.show(point)`. Before macros run, this code is intentionally type-incomplete — methods don't exist yet, instances aren't resolved, extension methods haven't been rewritten.
 
-The language service plugin (`typesugar/language-service`) runs macros before the IDE typechecks, so the IDE sees expanded code and reports accurate errors.
+The language service plugin (`@typesugar/transformer/language-service`) runs macros before the IDE typechecks, so the IDE sees expanded code and reports accurate errors.
 
 ### Strict Mode
 
