@@ -18,13 +18,14 @@ doesn't round-trip through the parser.
 **Remaining `parseStatements`/`parseExpression` call sites** (deferred to a follow-up
 PEP for migration):
 
-- `typeclass.ts` — companion + namespace assignment codegen (`companionCode`,
-  `assignCode`), and the HKT-expansion `fullSignatureText` contract: typeclass
+- `typeclass.ts` — the HKT-expansion `fullSignatureText` contract: typeclass
   member signatures travel as printed text and are re-parsed by
-  `generateHKTExpandedType`. (The heritage flattening that FEEDS that text is
+  `generateHKTExpandedType`. (The `@typeclass` companion const and the `@impl`
+  companion namespace — formerly `companionCode`/`assignCode` — are built with
+  `ts.factory` since the 2026-10 deep review, as are `summon`/`extend`
+  instance references.) (The heritage flattening that FEEDS that text is
   AST-based — a scoped visitor + one printer call — per the Wave 4 review;
   only the final text hand-off remains string-shaped.)
-- `verify-laws.ts` — law verification + property-test codegen.
 - `auto-derive.ts` — cached derivation output (memory + disk caches store strings;
   changing the cache contract to store AST is the bigger refactor).
 - `specialize.ts` — `parseAsStandaloneExpression`/`loadPrimitiveIntrinsicsFromReflection`

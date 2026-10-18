@@ -292,8 +292,8 @@ interface Point { x: number; y: number; }
 const p: Point = { x: 1, y: 2 };
 p.show();  // Method doesn't exist on Point!
 
-// Transformer rewrites to:
-Show.summon<Point>("Point").show(p);
+// Transformer rewrites to the resolved instance (here the derived companion):
+Point.Show.show(p);
 ```
 
 This enables Scala 3-style implicit extension methods. When the transformer sees `x.method()` and TypeScript reports that `.method()` doesn't exist on `x`'s type, it searches the extension method registry for a matching typeclass method.

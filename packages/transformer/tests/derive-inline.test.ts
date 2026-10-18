@@ -180,9 +180,16 @@ const areEqual = eqPoint.equals(p1, p2);
     expect(result.code).not.toContain("eqPoint.equals(");
     // The inlined result should be present
     expect(result.code).toContain("p1.x === p2.x && p1.y === p2.y");
-    // PEP-032 companion namespace keeps the declaration alive
-    expect(result.code).toContain("namespace Point");
-    expect(result.code).toContain("export const Eq = eqPoint");
+    // `Point` is not declared in this file, so no `namespace Point` companion
+    // is emitted (it would create a brand-new runtime `Point` value that
+    // shadows any imported/global one — deep review typeclass #10); a
+    // warning says so instead.
+    expect(result.code).not.toContain("namespace Point");
+    expect(
+      result.diagnostics.some(
+        (d) => d.severity === "warning" && /no 'Point.Eq' companion/.test(d.message)
+      )
+    ).toBe(true);
   });
 
   it("removes registration call along with declaration", () => {
@@ -200,10 +207,12 @@ console.log(eqPoint.equals({x:1,y:2}, {x:1,y:2}));
 
     // The call site should be inlined
     expect(result.code).not.toContain("eqPoint.equals(");
-    // PEP-032 companion namespace keeps the declaration alive, so
-    // registerInstance also stays (it still references eqPoint)
-    expect(result.code).toContain("namespace Point");
-    expect(result.code).toContain("export const Eq = eqPoint");
+    // With no `namespace Point` companion keeping it alive (`Point` isn't
+    // declared in this file — deep review typeclass #10), the fully-inlined
+    // dictionary and its registration call are both eliminated.
+    expect(result.code).not.toContain("namespace Point");
+    expect(result.code).not.toContain("const eqPoint");
+    expect(result.code).not.toContain("registerInstance");
   });
 });
 

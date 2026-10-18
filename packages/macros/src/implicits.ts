@@ -19,7 +19,7 @@
  *
  * // Call site — implicit param is filled in automatically:
  * show(42);
- * // Expands to: show(42, Show.summon<number>("number"))
+ * // Expands to: show(42, showNumber)   (the Show<number> instance in scope)
  *
  * // Explicit override still works:
  * show(42, customShow);
@@ -50,14 +50,14 @@
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
-import { TS9001, TS9008 } from "@typesugar/core";
+import { TS9001 } from "@typesugar/core";
+import { getSuggestionsForTypeclass } from "@typesugar/core";
 import {
-  getSuggestionsForTypeclass,
-  extractTypeArgumentsContent,
-  stripTypeArguments,
-  splitTopLevelTypeArgs,
-} from "@typesugar/core";
-import { resolveInstance, resolveInstanceInScopeByName } from "./instance-resolver.js";
+  resolveInstance,
+  findEmittableInstanceByName,
+  buildInstanceReference,
+  buildDottedReference,
+} from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
 import {
   formatResolutionTrace,
@@ -156,34 +156,6 @@ export function buildImplicitScopeFromDecl(decl: ts.SignatureDeclaration): Impli
 // ============================================================================
 
 /**
- * Build an expression from a potentially dotted name like "Show.number".
- * Simple names return an identifier; dotted names return a property access chain.
- */
-function buildDottedExpression(factory: ts.NodeFactory, name: string): ts.Expression {
-  const parts = name.split(".");
-  let expr: ts.Expression = factory.createIdentifier(parts[0]);
-  for (let i = 1; i < parts.length; i++) {
-    expr = factory.createPropertyAccessExpression(expr, parts[i]);
-  }
-  return expr;
-}
-
-const TS_KEYWORD_TYPES = new Set([
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "symbol",
-  "undefined",
-  "null",
-  "void",
-  "never",
-  "any",
-  "unknown",
-  "object",
-]);
-
-/**
  * Extract the concrete type argument from a parameter type based on a type parameter.
  *
  * For example:
@@ -226,52 +198,6 @@ function extractTypeArgFromParam(
   return undefined;
 }
 
-/**
- * Create a TypeNode from a type name string, handling complex forms that
- * `factory.createTypeReferenceNode(name)` would mangle (e.g. `string[]`,
- * `Map<string, number>`).
- */
-function createTypeRefSafe(factory: ts.NodeFactory, typeName: string): ts.TypeNode {
-  if (typeName.endsWith("[]")) {
-    const elementType = typeName.slice(0, -2);
-    return factory.createTypeReferenceNode("Array", [createTypeRefSafe(factory, elementType)]);
-  }
-
-  const argsContent = extractTypeArgumentsContent(typeName);
-  if (argsContent !== undefined) {
-    const baseName = stripTypeArguments(typeName);
-    const innerArgs = splitTopLevelTypeArgs(argsContent);
-    return factory.createTypeReferenceNode(
-      baseName,
-      innerArgs.map((a) => createTypeRefSafe(factory, a.trim()))
-    );
-  }
-
-  if (TS_KEYWORD_TYPES.has(typeName)) {
-    return factory.createKeywordTypeNode(keywordFor(typeName));
-  }
-
-  return factory.createTypeReferenceNode(typeName, undefined);
-}
-
-function keywordFor(name: string): ts.KeywordTypeSyntaxKind {
-  const map: Record<string, ts.KeywordTypeSyntaxKind> = {
-    number: ts.SyntaxKind.NumberKeyword,
-    string: ts.SyntaxKind.StringKeyword,
-    boolean: ts.SyntaxKind.BooleanKeyword,
-    bigint: ts.SyntaxKind.BigIntKeyword,
-    symbol: ts.SyntaxKind.SymbolKeyword,
-    undefined: ts.SyntaxKind.UndefinedKeyword,
-    null: ts.SyntaxKind.NullKeyword as ts.KeywordTypeSyntaxKind,
-    void: ts.SyntaxKind.VoidKeyword,
-    never: ts.SyntaxKind.NeverKeyword,
-    any: ts.SyntaxKind.AnyKeyword,
-    unknown: ts.SyntaxKind.UnknownKeyword,
-    object: ts.SyntaxKind.ObjectKeyword,
-  };
-  return map[name];
-}
-
 // ============================================================================
 // Call Site Transformation
 // ============================================================================
@@ -281,7 +207,8 @@ function keywordFor(name: string): ts.KeywordTypeSyntaxKind {
  *
  * Resolution order for each implicit parameter:
  *   1. Enclosing scope (propagation from caller's own implicit params)
- *   2. Global instance registry (`@instance` / `@deriving`)
+ *   2. Scope-based instance resolution (local, imported, or imported-module `@impl`)
+ *   3. Generic auto-derivation
  *
  * Returns the rewritten call expression, or `undefined` if no transformation
  * is needed (callee has no implicit params, or all args already provided).
@@ -402,8 +329,14 @@ export function transformImplicitsCall(
         }
       }
     }
-  } catch {
-    // Fall through with whatever we have
+  } catch (e) {
+    // Degrade (fill what we can), but visibly — CLAUDE.md rule 3.
+    ctx.reportWarning(
+      callExpr,
+      `implicit(): could not infer every type argument of this call ` +
+        `(${e instanceof Error ? e.message : String(e)}); implicit instances are resolved ` +
+        `from the type arguments that were inferred.`
+    );
   }
 
   // Fill in missing implicit parameters
@@ -455,24 +388,46 @@ export function transformImplicitsCall(
     // 2. Resolve the instance from scope (PEP-052): an imported/local `@impl`/
     //    `@instance` value for this typeclass + concrete type. Recursive and
     //    registry-free — the file brings the instance into scope by importing it.
-    let instanceRef: string | undefined;
+    //    Registry shape (CLAUDE.md): resolveInstance reads the live same-pass
+    //    `getSynthesized` table alongside the pass-start scan.
+    let instanceExpr: ts.Expression | undefined;
     if (concreteTsType) {
       try {
         const r = resolveInstance(ctx, typeclassName, concreteTsType);
-        if (r && r.kind === "resolved") instanceRef = r.exportName;
-      } catch {
-        // checker may throw on synthetic nodes — fall through to name-based scope
+        if (r && r.kind === "resolved") instanceExpr = buildInstanceReference(ctx, r);
+        if (r && r.kind === "ambiguous") {
+          ctx.reportError(
+            callExpr,
+            `Ambiguous ${typeclassName} instance for '${concreteType}' (implicit parameter ` +
+              `${ts.isIdentifier(param.name) ? param.name.text : `#${i}`}): ` +
+              `${r.candidates.map((c) => c.localName ?? c.exportName).join(", ")}. ` +
+              `Keep exactly one in scope, or pass the instance explicitly.`
+          );
+          return undefined;
+        }
+      } catch (e) {
+        ctx.reportWarning(
+          callExpr,
+          `implicit(): type-based lookup of ${typeclassName}<${concreteType}> failed ` +
+            `(${e instanceof Error ? e.message : String(e)}); trying name-based scope lookup.`
+        );
       }
     }
     // Name-based scope fallback for when the concrete `ts.Type` isn't available
     // (e.g. a synthetic/inferred type parameter): match a scanned in-scope instance
-    // by its type-constructor name. Still scope-based — no process-global registry.
-    if (!instanceRef) {
-      instanceRef = resolveInstanceInScopeByName(ctx, typeclassName, concreteType);
+    // by its type-constructor name. Still scope-based — no process-global registry —
+    // and never another module's non-exported member (not referenceable from here).
+    if (!instanceExpr) {
+      const hit = findEmittableInstanceByName(ctx, typeclassName, concreteType);
+      if (hit) {
+        instanceExpr =
+          hit.specifier && hit.modulePath
+            ? ctx.ensureImport(hit.exportName, hit.specifier)
+            : buildDottedReference(factory, hit.exportName);
+      }
     }
-    if (instanceRef) {
-      // Build expression from instance name — dotted paths become property access chains
-      newArgs.push(buildDottedExpression(factory, instanceRef));
+    if (instanceExpr) {
+      newArgs.push(instanceExpr);
       continue;
     }
 
@@ -496,7 +451,7 @@ export function transformImplicitsCall(
           step: "explicit-instance",
           target: `${typeclassName}<${concreteType}>`,
           result: "not-found",
-          reason: "no @instance or @deriving registered",
+          reason: "no @impl/@instance value for this type in scope",
         },
       ];
 
@@ -549,6 +504,8 @@ export const summonAllMacro = defineExpressionMacro({
   name: "summonAll",
   module: "typesugar",
   description: "Summon multiple typeclass instances as a tuple",
+  // Resolves instances from THIS file's scope — never reuse another file's expansion.
+  cacheable: false,
 
   expand(
     ctx: MacroContext,
@@ -559,47 +516,44 @@ export const summonAllMacro = defineExpressionMacro({
     if (!typeArgs || typeArgs.length === 0) {
       ctx.reportError(
         callExpr,
-        "summonAll requires type arguments, e.g., summonAll<Show<Point>, Eq<Point>>()"
+        "summonAll requires type arguments, e.g., summonAll<[Show<Point>, Eq<Point>]>()"
       );
       return callExpr;
     }
 
-    const factory = ctx.factory;
+    // Two spellings: the documented tuple form `summonAll<[Show<P>, Eq<P>]>()`
+    // and the variadic form `summonAll<Show<P>, Eq<P>>()`. Each element is
+    // resolved exactly like `summon<...>()` (scope instance, imported on
+    // demand, else auto-derivation, else a diagnostic).
+    const elements: readonly ts.TypeNode[] =
+      typeArgs.length === 1 && ts.isTupleTypeNode(typeArgs[0])
+        ? typeArgs[0].elements.map((e) => (ts.isNamedTupleMember(e) ? e.type : e))
+        : typeArgs;
+
+    const { summonInstanceExpression } =
+      require("./typeclass.js") as typeof import("./typeclass.js");
+
     const summonedExprs: ts.Expression[] = [];
-
-    for (const typeArg of typeArgs) {
-      if (!ts.isTypeReferenceNode(typeArg)) {
+    let failed = false;
+    for (const element of elements) {
+      if (!ts.isTypeReferenceNode(element)) {
         ctx.reportError(
-          typeArg,
-          "summonAll type arguments must be type references like Show<Point>"
+          element,
+          "summonAll type arguments must be typeclass applications like Show<Point>"
         );
+        failed = true;
         continue;
       }
-
-      const tcName = typeArg.typeName.getText();
-      const innerTypeArgs = typeArg.typeArguments;
-
-      if (!innerTypeArgs || innerTypeArgs.length === 0) {
-        ctx
-          .diagnostic(TS9008)
-          .at(typeArg)
-          .help(`Use summonAll<${tcName}<YourType>>() with a concrete type argument`)
-          .emit();
+      const expr = summonInstanceExpression(ctx, element, element);
+      if (!expr) {
+        failed = true;
         continue;
       }
-
-      const forType = innerTypeArgs[0].getText();
-
-      summonedExprs.push(
-        factory.createCallExpression(
-          factory.createPropertyAccessExpression(factory.createIdentifier(tcName), "summon"),
-          [createTypeRefSafe(factory, forType)],
-          [factory.createStringLiteral(forType)]
-        )
-      );
+      summonedExprs.push(expr);
     }
 
-    return factory.createArrayLiteralExpression(summonedExprs);
+    if (failed) return callExpr;
+    return ctx.factory.createArrayLiteralExpression(summonedExprs);
   },
 });
 

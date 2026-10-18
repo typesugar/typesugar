@@ -42,6 +42,15 @@ export interface ResolvedInstance {
   sourceModule: string;
   source: ResolutionSource;
   importSpecifier?: string;
+  /**
+   * The name the instance is bound to in the CURRENT file, when it is
+   * explicitly imported (`import { showPoint as sp }` → `"sp"`). Undefined for
+   * local-scope and module-scan hits. Use {@link buildInstanceReference} rather
+   * than reading `exportName` directly when emitting a reference.
+   */
+  localName?: string;
+  /** True when the explicit import that brings it into scope is `import type`. */
+  typeOnlyImport?: boolean;
 }
 
 export interface AmbiguousInstances {
@@ -57,10 +66,19 @@ export type ResolutionResult = ResolvedInstance | AmbiguousInstances | undefined
 // Import Map
 // ============================================================================
 
+interface NamedImportBinding {
+  /** The name exported by the module (`showPoint` in `{ showPoint as sp }`). */
+  exportName: string;
+  /** The local binding name in the importing file (`sp`). */
+  localName: string;
+  /** `import type { ... }` or `import { type x }` — not usable as a value. */
+  typeOnly: boolean;
+}
+
 interface ImportMapEntry {
   specifier: string;
   resolvedPath: string;
-  namedImports: string[];
+  namedImports: NamedImportBinding[];
 }
 
 // Keyed per program (and per file within a program) so watch/LSP rebuilds — which
@@ -108,11 +126,15 @@ function getImportMap(
     }
     if (!resolvedPath) continue;
 
-    const namedImports: string[] = [];
+    const namedImports: NamedImportBinding[] = [];
     const clause = stmt.importClause;
     if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
       for (const el of clause.namedBindings.elements) {
-        namedImports.push(el.name.text);
+        namedImports.push({
+          exportName: (el.propertyName ?? el.name).text,
+          localName: el.name.text,
+          typeOnly: clause.isTypeOnly || el.isTypeOnly,
+        });
       }
     }
 
@@ -126,7 +148,8 @@ function getImportMap(
 /**
  * Clear resolver caches. Per-program caches invalidate automatically when their
  * program is collected; this remains for explicit test isolation (it cannot clear
- * a WeakMap, so it is now a no-op kept for API compatibility).
+ * a WeakMap, so it is now a no-op kept for API compatibility — still called by
+ * transformer/std/macros tests, so not removed).
  */
 export function clearResolverCache(): void {
   // No-op: importMapCache is a WeakMap<Program> and self-invalidates per program.
@@ -253,8 +276,14 @@ function resolveFromImports(
     );
 
     for (const match of allMatches) {
-      if (entry.namedImports.includes(match.exportName)) {
-        explicitMatches.push({ ...match, source: "explicit-import" });
+      const binding = entry.namedImports.find((b) => b.exportName === match.exportName);
+      if (binding) {
+        explicitMatches.push({
+          ...match,
+          source: "explicit-import",
+          localName: binding.localName,
+          typeOnlyImport: binding.typeOnly,
+        });
       } else {
         moduleMatches.push(match);
       }
@@ -327,6 +356,70 @@ export function resolveInstanceInScopeByName(
 }
 
 /**
+ * Name-based lookup for code that will EMIT a reference to the instance
+ * (implicits' fallback when no concrete `ts.Type` is available). Unlike
+ * {@link findInstanceInScopeByName}, an imported module's NON-exported
+ * declarations are never returned — a bare reference to one from another
+ * file is a ReferenceError at runtime — and the module specifier is returned
+ * so the caller can import a module-scan hit.
+ *
+ * Registry shape (CLAUDE.md "Resolving things a macro just generated"): this
+ * goes through {@link findScannedInScope}, which reads the live same-pass
+ * `getSynthesized` side-table for the local file in addition to the
+ * pass-start scan, so a `@derive` companion generated earlier in the same
+ * pass is visible.
+ */
+export function findEmittableInstanceByName(
+  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  tcName: string,
+  typeName: string,
+  scanner: InstanceScanner = defaultScanner
+): { exportName: string; modulePath?: string; specifier?: string } | undefined {
+  const match = (inst: ScannedInstance): boolean =>
+    inst.typeclassName === tcName && baseTypeName(inst.forTypeString) === typeName;
+  const hit = findScannedInScope(ctx, match, scanner, /* includeNonExportedImports */ false);
+  return hit
+    ? { exportName: hit.instance.exportName, modulePath: hit.modulePath, specifier: hit.specifier }
+    : undefined;
+}
+
+/**
+ * Build the expression a macro should emit to reference a resolved instance
+ * from `ctx.sourceFile`:
+ *
+ * - local-scope hit → the declaration's own name (dotted companion paths such
+ *   as a synthesized `Point.Eq` become a property-access chain);
+ * - explicit value import → the LOCAL binding name (`import { showPoint as sp }`
+ *   → `sp`), never the module's export name, which isn't bound in this file;
+ * - module-scan hit (instance found in an imported module but not imported
+ *   by name), or an `import type`-only binding → `ctx.ensureImport(exportName,
+ *   importSpecifier)`, which injects the import (aliased if the name clashes).
+ */
+export function buildInstanceReference(
+  ctx: Pick<MacroContext, "factory" | "ensureImport">,
+  resolved: ResolvedInstance
+): ts.Expression {
+  const f = ctx.factory;
+  if (resolved.source === "explicit-import" && resolved.localName && !resolved.typeOnlyImport) {
+    return f.createIdentifier(resolved.localName);
+  }
+  if (resolved.source !== "local-scope" && resolved.importSpecifier) {
+    return ctx.ensureImport(resolved.exportName, resolved.importSpecifier);
+  }
+  return buildDottedReference(f, resolved.exportName);
+}
+
+/** `"Point.Eq"` → `Point.Eq` property access; a plain name → identifier. */
+export function buildDottedReference(factory: ts.NodeFactory, name: string): ts.Expression {
+  const parts = name.split(".");
+  let expr: ts.Expression = factory.createIdentifier(parts[0]);
+  for (let i = 1; i < parts.length; i++) {
+    expr = factory.createPropertyAccessExpression(expr, parts[i]);
+  }
+  return expr;
+}
+
+/**
  * Like {@link resolveInstanceInScopeByName}, but also reports WHERE the instance
  * lives: `modulePath` is the resolved file path for an imported instance, or
  * undefined when it was found in the local file. Source-based specialization
@@ -377,8 +470,9 @@ function baseTypeName(s: string): string {
 function findScannedInScope(
   ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
   match: (inst: ScannedInstance) => boolean,
-  scanner: InstanceScanner = defaultScanner
-): { instance: ScannedInstance; modulePath?: string } | undefined {
+  scanner: InstanceScanner = defaultScanner,
+  includeNonExportedImports = true
+): { instance: ScannedInstance; modulePath?: string; specifier?: string } | undefined {
   // Local file (includes non-exported @impl/@instance values). Also check
   // instances synthesized during THIS transform pass (e.g. a `@derive(Eq)`
   // companion) — invisible to the scan above, since that reads the
@@ -405,8 +499,10 @@ function findScannedInScope(
     );
     const hit =
       scanned.find(match) ??
-      scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program).find(match);
-    if (hit) return { instance: hit, modulePath: entry.resolvedPath };
+      (includeNonExportedImports
+        ? scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program).find(match)
+        : undefined);
+    if (hit) return { instance: hit, modulePath: entry.resolvedPath, specifier: entry.specifier };
   }
 
   return undefined;
@@ -537,11 +633,14 @@ function pickResult(
   if (matches.length === 0) return undefined;
   if (matches.length === 1) return matches[0];
 
-  // Deduplicate by exportName — same instance from different paths
+  // Deduplicate by (module, exportName) — the same instance reached through
+  // different paths. Keyed by module too: two DIFFERENT modules exporting a
+  // same-named instance are genuinely ambiguous, not one instance.
   const seen = new Map<string, ResolvedInstance>();
   for (const m of matches) {
-    if (!seen.has(m.exportName)) {
-      seen.set(m.exportName, m);
+    const key = `${m.sourceModule}\0${m.exportName}`;
+    if (!seen.has(key)) {
+      seen.set(key, m);
     }
   }
   if (seen.size === 1) return seen.values().next().value;
@@ -550,6 +649,6 @@ function pickResult(
     kind: "ambiguous",
     typeclassName: tcName,
     forType,
-    candidates: matches,
+    candidates: [...seen.values()],
   };
 }

@@ -21,11 +21,16 @@
  *
  * ## Verification Modes
  *
- * Controlled by `cats.verifyLaws` config option:
+ * Controlled by `cats.verifyLaws` config option (or a per-decorator
+ * `{ mode }` option, which takes precedence):
  *
  * - `false` (default): Decorator is erased completely — zero cost
- * - `"compile-time"`: Uses @typesugar/contracts prover for static verification
- * - `"property-test"`: Generates forAll() property tests via @typesugar/testing
+ * - `"compile-time"` / `"property-test"`: NOT IMPLEMENTED. The decorator is
+ *   erased and a diagnostic says no verification was performed (an error with
+ *   `{ strict: true }`, otherwise a warning). Earlier versions emitted code for
+ *   these modes that verified nothing (compile-time) or spliced test-framework
+ *   `describe`/`it` blocks into the production module (property-test); both
+ *   were removed rather than shipped as silent no-ops.
  *
  * ## Zero-Cost Guarantee
  *
@@ -97,9 +102,14 @@ export const verifyLawsAttribute = defineAttributeMacro({
   ): ts.Node | ts.Node[] {
     const cfg = getVerifyLawsConfig();
 
+    // Parse macro arguments for law generator and options
+    const macroArgs = parseVerifyLawsArgs(ctx, args);
+    // A per-decorator `{ mode }` overrides the project-wide config.
+    const mode = macroArgs.mode !== undefined ? macroArgs.mode : cfg.mode;
+
     // === ERASURE MODE ===
     // When verification is disabled, strip the decorator entirely
-    if (cfg.mode === false) {
+    if (mode === false) {
       return stripDecorator(ctx, target, decorator);
     }
 
@@ -114,10 +124,7 @@ export const verifyLawsAttribute = defineAttributeMacro({
       return stripDecorator(ctx, target, decorator);
     }
 
-    const { instanceName, typeclassName, forType } = instanceInfo;
-
-    // Parse macro arguments for law generator and options
-    const macroArgs = parseVerifyLawsArgs(ctx, args);
+    const { typeclassName, forType } = instanceInfo;
 
     // Determine which law generator to use
     const lawGenName = macroArgs.lawGenerator ?? inferLawGenerator(typeclassName);
@@ -130,31 +137,17 @@ export const verifyLawsAttribute = defineAttributeMacro({
       return stripDecorator(ctx, target, decorator);
     }
 
-    // === COMPILE-TIME MODE ===
-    if (cfg.mode === "compile-time") {
-      return expandCompileTimeVerification(ctx, target, decorator, {
-        instanceName,
-        typeclassName,
-        forType,
-        lawGenName,
-        macroArgs,
-        cfg,
-      });
+    // === "compile-time" / "property-test" ===
+    // Not implemented: say so, and erase (never emit code into the module).
+    const message =
+      `@verifyLaws mode '${mode}' is not implemented: no ${typeclassName}<${forType}> ` +
+      `laws were verified (law generator '${lawGenName}'). The decorator was erased. ` +
+      `Run the laws from a test file instead, e.g. with @typesugar/contracts' verifyLaws().`;
+    if (macroArgs.strict) {
+      ctx.reportError(decorator, message);
+    } else {
+      ctx.reportWarning(decorator, message);
     }
-
-    // === PROPERTY-TEST MODE ===
-    if (cfg.mode === "property-test") {
-      return expandPropertyTestVerification(ctx, target, decorator, {
-        instanceName,
-        typeclassName,
-        forType,
-        lawGenName,
-        macroArgs,
-        cfg,
-      });
-    }
-
-    // Should not reach here
     return stripDecorator(ctx, target, decorator);
   },
 });
@@ -315,128 +308,6 @@ function inferLawGenerator(typeclassName: string): string | undefined {
 }
 
 // ============================================================================
-// Compile-Time Verification Mode
-// ============================================================================
-
-interface VerificationContext {
-  instanceName: string;
-  typeclassName: string;
-  forType: string;
-  lawGenName: string;
-  macroArgs: VerifyLawsArgs;
-  cfg: VerifyLawsConfig;
-}
-
-function expandCompileTimeVerification(
-  ctx: MacroContext,
-  target: ts.Declaration,
-  decorator: ts.Decorator,
-  verifyCtx: VerificationContext
-): ts.Node | ts.Node[] {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } = verifyCtx;
-
-  // In compile-time mode, we attempt to prove each law at compile time
-  // If proof succeeds: emit nothing (law holds statically)
-  // If proof fails: emit a compile error
-  // If undecidable: emit warning or fallback to property test
-
-  // For now, we emit a compile-time assertion comment and the stripped target
-  // Full prover integration would go here
-
-  const comment = `/* @verifyLaws: compile-time verification of ${typeclassName}<${forType}> laws */`;
-
-  // Try to invoke the prover for each law
-  // This is a simplified implementation that generates a compile-time check stub
-  const verificationCode = generateCompileTimeCheck(verifyCtx);
-
-  const statements = ctx.parseStatements(verificationCode);
-  const strippedTarget = stripDecorator(ctx, target, decorator);
-
-  return [strippedTarget, ...statements];
-}
-
-function generateCompileTimeCheck(verifyCtx: VerificationContext): string {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs } = verifyCtx;
-
-  // Generate import for the law generator if needed
-  const eqArg = macroArgs.eq ?? `eq${capitalize(forType)}`;
-
-  // For value-level typeclasses (Eq, Semigroup), we can generate inline checks
-  // For HKT typeclasses, we need more sophisticated handling
-
-  // Simple approach: emit a static assertion block that runs at module load
-  // In a full implementation, this would use tryProve() from @typesugar/contracts
-  return `
-// Compile-time law verification for ${instanceName}: ${typeclassName}<${forType}>
-(function __verifyLaws_${instanceName}() {
-  const laws = ${lawGenName}(${instanceName}${macroArgs.eq ? `, ${macroArgs.eq}` : ""});
-  for (const law of laws) {
-    // In compile-time mode, the prover would attempt to prove each law statically
-    // Placeholder: log that verification was requested
-    if (typeof process !== "undefined" && process.env.TYPESUGAR_CATS_VERIFY_DEBUG) {
-      console.log(\`[verifyLaws] Would verify: \${law.name}\`);
-    }
-  }
-})();
-`;
-}
-
-// ============================================================================
-// Property-Test Verification Mode
-// ============================================================================
-
-function expandPropertyTestVerification(
-  ctx: MacroContext,
-  target: ts.Declaration,
-  decorator: ts.Decorator,
-  verifyCtx: VerificationContext
-): ts.Node | ts.Node[] {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } = verifyCtx;
-
-  // In property-test mode, generate forAll() blocks for each law
-  const testCode = generatePropertyTests(verifyCtx);
-  const statements = ctx.parseStatements(testCode);
-  const strippedTarget = stripDecorator(ctx, target, decorator);
-
-  return [strippedTarget, ...statements];
-}
-
-function generatePropertyTests(verifyCtx: VerificationContext): string {
-  const { instanceName, typeclassName, forType, lawGenName, macroArgs, cfg } = verifyCtx;
-
-  // Generate property-based tests using forAll
-  // Requires an Arbitrary instance for the type
-
-  const arbitraryArg = macroArgs.arbitrary ?? `arb${capitalize(forType)}`;
-  const eqArg = macroArgs.eq ?? `eq${capitalize(forType)}`;
-  const iterations = cfg.propertyTestIterations;
-
-  return `
-// Property-based law verification for ${instanceName}: ${typeclassName}<${forType}>
-describe("${typeclassName}<${forType}> laws", () => {
-  const laws = ${lawGenName}(${instanceName}${macroArgs.eq ? `, ${macroArgs.eq}` : ""});
-  
-  for (const law of laws) {
-    it(\`satisfies \${law.name}\`, () => {
-      // Generate test values based on arity
-      for (let i = 0; i < ${iterations}; i++) {
-        const args: unknown[] = [];
-        for (let j = 0; j < law.arity; j++) {
-          args.push(${arbitraryArg}.arbitrary());
-        }
-        
-        const result = law.check(...args);
-        if (!result) {
-          throw new Error(\`Law '\${law.name}' failed for inputs: \${JSON.stringify(args)}\`);
-        }
-      }
-    });
-  }
-});
-`;
-}
-
-// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -464,13 +335,8 @@ export {
   extractInstanceInfo,
   parseVerifyLawsArgs,
   inferLawGenerator,
-  expandCompileTimeVerification,
-  generateCompileTimeCheck,
-  expandPropertyTestVerification,
-  generatePropertyTests,
   capitalize,
   type VerifyLawsConfig,
   type VerifyLawsArgs,
   type InstanceInfo,
-  type VerificationContext,
 };

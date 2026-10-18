@@ -11,12 +11,10 @@
  *   identifier name and without a usable type annotation.
  * - parseVerifyLawsArgs: identifier (law generator), options object
  *   (eq/arbitrary/mode/strict), empty args.
- * - generateCompileTimeCheck: emits an IIFE referencing the instance and
- *   law generator.
- * - generatePropertyTests: emits describe/it with the iteration count.
- * - verifyLawsAttribute end-to-end: erasure mode (mode=false), compile-time
- *   mode, property-test mode, error reporting when type info is missing,
- *   error reporting when no generator is inferable.
+ * - verifyLawsAttribute end-to-end: erasure mode (mode=false); the
+ *   unimplemented compile-time / property-test modes erase the decorator and
+ *   report that nothing was verified (never emitting code into the module);
+ *   error reporting when type info is missing or no generator is inferable.
  * - capitalize: empty string, lowercase, already-capital, single char.
  */
 
@@ -33,10 +31,7 @@ import {
   extractInstanceInfo,
   parseVerifyLawsArgs,
   inferLawGenerator,
-  generateCompileTimeCheck,
-  generatePropertyTests,
   capitalize,
-  type VerificationContext,
 } from "./verify-laws.js";
 
 // ---------------------------------------------------------------------------
@@ -345,69 +340,6 @@ describe("parseVerifyLawsArgs", () => {
 });
 
 // ===========================================================================
-// generateCompileTimeCheck / generatePropertyTests
-// ===========================================================================
-
-describe("generateCompileTimeCheck", () => {
-  it("emits an IIFE referencing the instance and law generator", () => {
-    const code = generateCompileTimeCheck({
-      instanceName: "myMonoid",
-      typeclassName: "Monoid",
-      forType: "number",
-      lawGenName: "monoidLaws",
-      macroArgs: {},
-      cfg: { mode: "compile-time", onUndecidable: "warn", propertyTestIterations: 100 },
-    });
-    expect(code).toContain("__verifyLaws_myMonoid");
-    expect(code).toContain("monoidLaws(myMonoid)");
-    expect(code).toContain("Monoid<number>");
-  });
-
-  it("threads the explicit eq argument into the generator call", () => {
-    const code = generateCompileTimeCheck({
-      instanceName: "fooEq",
-      typeclassName: "Eq",
-      forType: "Foo",
-      lawGenName: "eqLaws",
-      macroArgs: { eq: "eqFoo" },
-      cfg: { mode: "compile-time", onUndecidable: "warn", propertyTestIterations: 100 },
-    });
-    expect(code).toContain("eqLaws(fooEq, eqFoo)");
-  });
-});
-
-describe("generatePropertyTests", () => {
-  it("emits a describe/it block referencing the law generator and iterations", () => {
-    const code = generatePropertyTests({
-      instanceName: "myMonoid",
-      typeclassName: "Monoid",
-      forType: "number",
-      lawGenName: "monoidLaws",
-      macroArgs: {},
-      cfg: { mode: "property-test", onUndecidable: "warn", propertyTestIterations: 250 },
-    });
-    expect(code).toContain('describe("Monoid<number> laws"');
-    expect(code).toContain("monoidLaws(myMonoid)");
-    expect(code).toContain("i < 250");
-    // Default arbitrary name follows arb<Capitalized>(forType) convention
-    expect(code).toContain("arbNumber.arbitrary()");
-  });
-
-  it("uses an explicit arbitrary identifier when provided", () => {
-    const code = generatePropertyTests({
-      instanceName: "fooEq",
-      typeclassName: "Eq",
-      forType: "Foo",
-      lawGenName: "eqLaws",
-      macroArgs: { arbitrary: "fooArb" },
-      cfg: { mode: "property-test", onUndecidable: "warn", propertyTestIterations: 10 },
-    });
-    expect(code).toContain("fooArb.arbitrary()");
-    expect(code).toContain("i < 10");
-  });
-});
-
-// ===========================================================================
 // capitalize
 // ===========================================================================
 
@@ -478,31 +410,53 @@ describe("verifyLawsAttribute (end-to-end)", () => {
     expect(diagnostics).toHaveLength(0);
   });
 
-  it("expands to compile-time verification when mode='compile-time'", () => {
+  it("mode='compile-time' is not implemented: erases and warns, emits no code", () => {
     config.set({ cats: { verifyLaws: "compile-time" } });
     const { nodes, printed, diagnostics } = runAttribute(
       `const myMonoid: Monoid<number> = {} as any;`
     );
-    expect(diagnostics).toHaveLength(0);
-    // First node is the stripped target; the rest are statements parsed from
-    // the compile-time check string.
-    expect(nodes.length).toBeGreaterThan(1);
-    expect(printed).toContain("__verifyLaws_myMonoid");
-    expect(printed).toContain("monoidLaws(myMonoid)");
+    // Only the stripped target — the old IIFE called an unimported law
+    // generator at module load (ReferenceError on import) and verified nothing.
+    expect(nodes).toHaveLength(1);
+    expect(printed).not.toContain("monoidLaws");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("warning");
+    expect(diagnostics[0].message).toMatch(/not implemented/);
   });
 
-  it("expands to property-based tests when mode='property-test'", () => {
+  it("mode='property-test' never splices describe/it into the production module", () => {
     config.set({
       cats: { verifyLaws: "property-test", propertyTestIterations: 7 },
     });
     const { nodes, printed, diagnostics } = runAttribute(
       `const myMonoid: Monoid<number> = {} as any;`
     );
+    expect(nodes).toHaveLength(1);
+    expect(printed).not.toContain("describe(");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toMatch(/not implemented/);
+  });
+
+  it("a per-decorator { mode: false } overrides the config and erases silently", () => {
+    config.set({ cats: { verifyLaws: "compile-time" } });
+    const opts = ts.factory.createObjectLiteralExpression([
+      ts.factory.createPropertyAssignment("mode", ts.factory.createFalse()),
+    ]);
+    const { nodes, diagnostics } = runAttribute(`const myMonoid: Monoid<number> = {} as any;`, [
+      opts,
+    ]);
+    expect(nodes).toHaveLength(1);
     expect(diagnostics).toHaveLength(0);
-    expect(nodes.length).toBeGreaterThan(1);
-    expect(printed).toContain('describe("Monoid<number> laws"');
-    expect(printed).toContain("monoidLaws(myMonoid)");
-    expect(printed).toContain("i < 7");
+  });
+
+  it("{ strict: true } turns the not-implemented warning into an error", () => {
+    config.set({ cats: { verifyLaws: "compile-time" } });
+    const opts = ts.factory.createObjectLiteralExpression([
+      ts.factory.createPropertyAssignment("strict", ts.factory.createTrue()),
+    ]);
+    const { diagnostics } = runAttribute(`const myMonoid: Monoid<number> = {} as any;`, [opts]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].severity).toBe("error");
   });
 
   it("reports an error when the instance type cannot be determined", () => {
@@ -530,7 +484,10 @@ describe("verifyLawsAttribute (end-to-end)", () => {
       `const myInst: NotATypeclass<number> = {} as any;`,
       [lawGen]
     );
-    expect(diagnostics).toHaveLength(0);
-    expect(printed).toContain("customLaws(myInst)");
+    // Generator resolved (no "no law generator found" error); only the
+    // not-implemented warning remains.
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toContain("customLaws");
+    expect(printed).not.toContain("customLaws(");
   });
 });
