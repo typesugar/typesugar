@@ -21,7 +21,7 @@ const PACKAGES = path.join(ROOT, "packages");
  * their `require` branch can't point at CJS types yet. Each needs a build
  * step that emits `.d.cts` before it can be removed from this list.
  */
-const NO_DCTS_YET = new Set(["@typesugar/fp"]);
+const NO_DCTS_YET = new Set<string>([]);
 
 interface Pkg {
   dir: string;

@@ -319,18 +319,48 @@ function instanceRegistryFor(program?: ts.Program): Map<string, DictMethodMap> {
 }
 
 /**
+ * Declaration-keyed view of the same registrations: two unrelated instances
+ * that share a name (different files) are distinct here, unlike the
+ * name-keyed map above, where the last registration wins. Keyed by the
+ * ORIGINAL declaration node (`ts.getOriginalNode`), so a visited/updated copy
+ * of a declaration finds the same entry. No per-Program partitioning is
+ * needed: a fresh Program has fresh nodes, and the WeakMap lets old ones go.
+ *
+ * Shape (CLAUDE.md "Resolving things a macro just generated"): a LIVE keyed
+ * registry written by `@impl` / `impl()` during the transform pass and read
+ * within the same pass — not a scan of a pass-start snapshot. The usual
+ * declare-before-use constraint of a single top-down pass applies.
+ */
+const instanceMethodsByDeclaration = new WeakMap<ts.Node, DictMethodMap>();
+
+/**
  * Register a typeclass instance's methods for specialization using AST nodes.
  * This is the preferred registration method as it avoids source string parsing.
  *
  * Called by @instance macros when processing declarations at compile time.
+ * Pass `declaration` (the instance's `VariableDeclaration`) whenever it is
+ * known, so {@link getInstanceMethodsForDeclaration} can find the entry by
+ * declaration identity rather than by bare name.
  */
 export function registerInstanceMethodsFromAST(
   dictName: string,
   brand: string,
   methods: Map<string, DictMethod>,
-  program?: ts.Program
+  program?: ts.Program,
+  declaration?: ts.Node
 ): void {
-  instanceRegistryFor(program).set(dictName, { brand, methods });
+  const entry: DictMethodMap = { brand, methods };
+  instanceRegistryFor(program).set(dictName, entry);
+  if (declaration) instanceMethodsByDeclaration.set(ts.getOriginalNode(declaration), entry);
+}
+
+/**
+ * The methods registered for exactly this instance declaration (see
+ * {@link registerInstanceMethodsFromAST}'s `declaration` parameter), or
+ * undefined if it was registered by name only / not at all.
+ */
+export function getInstanceMethodsForDeclaration(declaration: ts.Node): DictMethodMap | undefined {
+  return instanceMethodsByDeclaration.get(ts.getOriginalNode(declaration));
 }
 
 /**

@@ -25,7 +25,7 @@ import {
   isSyntheticNode,
   MacroContext,
 } from "@typesugar/core";
-import { resolveInstance, type ResolvedInstance } from "@typesugar/macros";
+import { buildInstanceReference, resolveInstance } from "@typesugar/macros";
 
 /**
  * Maps capability names to their corresponding typeclass info.
@@ -98,28 +98,6 @@ const CAPABILITY_TO_TYPECLASS: Record<
     ],
   },
 };
-
-/**
- * An expression that refers to a resolved instance from the call site: the
- * local binding for an explicit import, an ensured import for an instance found
- * by scanning an imported module, or the (possibly dotted) name for a local one.
- *
- * Mirrors `buildInstanceReference` in @typesugar/macros' instance-resolver,
- * which that package does not export.
- */
-function instanceReference(ctx: MacroContext, resolved: ResolvedInstance): ts.Expression {
-  const f = ctx.factory;
-  if (resolved.source === "explicit-import" && resolved.localName && !resolved.typeOnlyImport) {
-    return f.createIdentifier(resolved.localName);
-  }
-  if (resolved.source !== "local-scope" && resolved.importSpecifier) {
-    return ctx.ensureImport(resolved.exportName, resolved.importSpecifier);
-  }
-  const parts = resolved.exportName.split(".");
-  let expr: ts.Expression = f.createIdentifier(parts[0]);
-  for (let i = 1; i < parts.length; i++) expr = f.createPropertyAccessExpression(expr, parts[i]);
-  return expr;
-}
 
 /**
  * Extract capability names from a tuple type like `[Show, Eq]` or `[ShowCapability, EqCapability]`.
@@ -297,7 +275,7 @@ export const erasedMacro = defineExpressionMacro({
 
         const instanceCall = factory.createCallExpression(
           factory.createPropertyAccessExpression(
-            instanceReference(ctx, resolvedInstance),
+            buildInstanceReference(ctx, resolvedInstance),
             factory.createIdentifier(method.tcMethod)
           ),
           undefined,

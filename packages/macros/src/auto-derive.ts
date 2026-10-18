@@ -202,6 +202,13 @@ export function hasGenericDerivation(typeclassName: string): boolean {
 // generated earlier in the same pass is visible to a later derivation.
 // ============================================================================
 
+/**
+ * Salt for the L2 disk-cache key: bump whenever a built-in strategy's output
+ * shape changes, so persisted derivations from an older version (e.g. an
+ * `Ord` instance with only `compare`) are never served again.
+ */
+const DERIVATION_OUTPUT_FORMAT = 2;
+
 interface DerivationCaches {
   mirror: Map<ts.Symbol, GenericMeta | false>;
   derivation: Map<string, string>;
@@ -471,6 +478,7 @@ export function tryDeriveViaGeneric(
     ? diskCache.computeStructuralKey(
         typeclassName,
         JSON.stringify({
+          format: DERIVATION_OUTPUT_FORMAT,
           typeName,
           declFile,
           kind: meta.kind,
@@ -1131,7 +1139,7 @@ registerGenericDerivation("Ord", {
 
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
-    return `({ compare: (a: ${typeName}, b: ${typeName}): number => { ${lexCompare(meta.fieldNames, "a", "b")} return 0; } })`;
+    return ordFromCompare(typeName, `${lexCompare(meta.fieldNames, "a", "b")} return 0;`);
   },
 
   deriveSum(ctx, typeName, meta) {
@@ -1161,7 +1169,10 @@ registerGenericDerivation("Ord", {
     }
     const tagA = access("(a as any)", disc);
     const tagB = access("(b as any)", disc);
-    return `({ compare: (a: ${typeName}, b: ${typeName}): number => { const tagOrder: Record<string, number> = { ${tagOrder} }; const ta = tagOrder[${tagA}] ?? 0; const tb = tagOrder[${tagB}] ?? 0; if (ta !== tb) return ta < tb ? -1 : 1; switch (${tagA}) { ${cases.join("; ")}; default: return 0; } } })`;
+    return ordFromCompare(
+      typeName,
+      `const tagOrder: Record<string, number> = { ${tagOrder} }; const ta = tagOrder[${tagA}] ?? 0; const tb = tagOrder[${tagB}] ?? 0; if (ta !== tb) return ta < tb ? -1 : 1; switch (${tagA}) { ${cases.join("; ")}; default: return 0; }`
+    );
   },
 });
 
@@ -1392,6 +1403,24 @@ registerGenericDerivation("Monoid", {
     return `({ empty: (): ${typeName} => ({ ${empties.join(", ")} }), combine: (a: ${typeName}, b: ${typeName}): ${typeName} => ({ ${combines.join(", ")} }) })`;
   },
 });
+
+/**
+ * A complete `Ord` instance from a `compare` body: every method the `Ord`
+ * typeclass declares (`compare`, the four `@op` comparison methods, and the
+ * inherited `Eq` `equals`/`notEquals`), all defined in terms of `compare`.
+ * The `<`/`<=`/`>`/`>=` operator rewrites call `lessThan` etc. directly, so an
+ * instance with only `compare` fails at runtime ("lessThan is not a function").
+ */
+function ordFromCompare(typeName: string, compareBody: string): string {
+  const sig = `(a: ${typeName}, b: ${typeName}): boolean =>`;
+  return (
+    `(() => { const compare = (a: ${typeName}, b: ${typeName}): number => { ${compareBody} }; ` +
+    `return { compare, ` +
+    `equals: ${sig} compare(a, b) === 0, notEquals: ${sig} compare(a, b) !== 0, ` +
+    `lessThan: ${sig} compare(a, b) < 0, lessThanOrEqual: ${sig} compare(a, b) <= 0, ` +
+    `greaterThan: ${sig} compare(a, b) > 0, greaterThanOrEqual: ${sig} compare(a, b) >= 0 }; })()`
+  );
+}
 
 /** Lexicographic comparison statements over primitive fields. */
 function lexCompare(names: string[], a: string, b: string): string {

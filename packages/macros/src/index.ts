@@ -101,6 +101,7 @@ export {
 export {
   // Internal: registerInstanceMethodsFromAST is used by @impl macro, not public API
   registerInstanceMethodsFromAST,
+  getInstanceMethodsForDeclaration,
   extractMethodsFromObjectLiteral,
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
@@ -252,6 +253,7 @@ export {
 } from "./instance-scanner.js";
 export {
   resolveInstance,
+  buildInstanceReference,
   clearResolverCache,
   findInstanceInScopeByName,
   resolveDoNotationInstance,
