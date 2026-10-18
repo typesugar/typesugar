@@ -581,6 +581,19 @@ export function isNodeInProgram(program: ts.Program, node: ts.Node): boolean {
   return bound;
 }
 
+const symbolCacheIds = new WeakMap<ts.Symbol, number>();
+let nextSymbolCacheId = 1;
+
+/** A stable, unique-per-symbol-object id for cache keys. */
+function symbolCacheId(symbol: ts.Symbol): number {
+  let id = symbolCacheIds.get(symbol);
+  if (id === undefined) {
+    id = nextSymbolCacheId++;
+    symbolCacheIds.set(symbol, id);
+  }
+  return id;
+}
+
 export function resolveMacroFromSymbol(
   typeChecker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
@@ -617,17 +630,20 @@ export function resolveMacroFromSymbol(
   // Key by symbol AND kind: callers probe the same symbol under several kinds
   // (a tagged template is tried as "tagged-template", then as "expression"), and a
   // miss cached for one kind must not hide a hit for another.
-  const symbolId = (symbol as unknown as { id?: number }).id;
-  const cacheKey = symbolId !== undefined ? `${symbolId}:${kind}` : undefined;
-  if (cacheKey !== undefined && symbolMacroCache.has(cacheKey)) {
+  //
+  // Also key by macroName and by OUR OWN per-symbol id: the checker's internal
+  // `symbol.id` is 0 until something asks for it, and every unresolved name
+  // shares the checker's single `unknownSymbol` — so `Nullable<string>` and
+  // `Readonly<{a:1}>` used to share one cache slot, and the second was
+  // expanded by the first's macro (docs review W#23).
+  const cacheKey = `${symbolCacheId(symbol)}:${kind}:${macroName}`;
+  if (symbolMacroCache.has(cacheKey)) {
     return symbolMacroCache.get(cacheKey) ?? undefined;
   }
 
   const result = resolveSymbolToMacro(typeChecker, sourceFile, symbol, macroName, kind);
 
-  if (cacheKey !== undefined) {
-    symbolMacroCache.set(cacheKey, result ?? null);
-  }
+  symbolMacroCache.set(cacheKey, result ?? null);
 
   if (result && onMacroImport) {
     onMacroImport(symbol);
@@ -717,12 +733,8 @@ export function checkImportedSymbolForExtension(
   const identType = typeChecker.getTypeOfSymbolAtLocation(symbol, ident);
 
   if (ident.text === methodName) {
-    const callSigs = identType.getCallSignatures();
-    for (const sig of callSigs) {
-      const params = sig.getParameters();
-      if (params.length === 0) continue;
-      const firstParamType = typeChecker.getTypeOfSymbolAtLocation(params[0], ident);
-      if (typeChecker.isTypeAssignableTo(receiverType, firstParamType)) {
+    for (const sig of identType.getCallSignatures()) {
+      if (receiverMatchesFirstParam(typeChecker, receiverType, sig, ident)) {
         return { methodName, forType: "", qualifier: undefined };
       }
     }
@@ -732,17 +744,116 @@ export function checkImportedSymbolForExtension(
   if (!prop) return undefined;
 
   const propType = typeChecker.getTypeOfSymbolAtLocation(prop, ident);
-  const callSigs = propType.getCallSignatures();
-  for (const sig of callSigs) {
-    const params = sig.getParameters();
-    if (params.length === 0) continue;
-    const firstParamType = typeChecker.getTypeOfSymbolAtLocation(params[0], ident);
-    if (typeChecker.isTypeAssignableTo(receiverType, firstParamType)) {
+  for (const sig of propType.getCallSignatures()) {
+    if (receiverMatchesFirstParam(typeChecker, receiverType, sig, ident)) {
       return { methodName, forType: "", qualifier: ident.text };
     }
   }
 
   return undefined;
+}
+
+/**
+ * Can `receiverType` be passed as the first argument of `sig`?
+ *
+ * A generic signature's parameter types still mention its own type
+ * parameters (`head<A>(arr: readonly A[])` has `readonly A[]`), and the
+ * public checker API offers no way to infer/instantiate them, so a plain
+ * `isTypeAssignableTo(number[], readonly A[])` is always false — which is why
+ * every generic extension (`arr.head()`, `arr.chunk(2)`) was silently left
+ * un-rewritten. For a generic signature, fall back to matching against the
+ * parameter type with its type parameters erased to their constraints.
+ */
+export function receiverMatchesFirstParam(
+  checker: ts.TypeChecker,
+  receiverType: ts.Type,
+  sig: ts.Signature,
+  location: ts.Node
+): boolean {
+  const params = sig.getParameters();
+  if (params.length === 0) return false;
+  const paramType = checker.getTypeOfSymbolAtLocation(params[0], location);
+  if (checker.isTypeAssignableTo(receiverType, paramType)) return true;
+  const typeParams = sig.getTypeParameters();
+  if (!typeParams || typeParams.length === 0) return false;
+  return matchesErased(checker, receiverType, paramType, new Set<ts.Type>(typeParams), 0);
+}
+
+function isReferenceType(type: ts.Type): type is ts.TypeReference {
+  return (
+    (type.flags & ts.TypeFlags.Object) !== 0 &&
+    ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0
+  );
+}
+
+/** Structural match of `recv` against `param`, treating `typeParams` as wildcards bounded by their constraints. */
+function matchesErased(
+  checker: ts.TypeChecker,
+  recv: ts.Type,
+  param: ts.Type,
+  typeParams: ReadonlySet<ts.Type>,
+  depth: number
+): boolean {
+  if (depth > 8) return false;
+  if (checker.isTypeAssignableTo(recv, param)) return true;
+  const next = (r: ts.Type, p: ts.Type) => matchesErased(checker, r, p, typeParams, depth + 1);
+
+  if (param.flags & ts.TypeFlags.TypeParameter) {
+    if (!typeParams.has(param)) return false;
+    const constraint = checker.getBaseConstraintOfType(param);
+    if (!constraint || constraint.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) return true;
+    // `{}` is the base constraint the checker reports for an unconstrained
+    // parameter in some positions; it accepts every non-nullish receiver.
+    return next(recv, constraint);
+  }
+  if (recv.isUnion()) return recv.types.every((t) => next(t, param));
+  if (param.isUnion()) return param.types.some((t) => next(recv, t));
+  if (param.isIntersection()) return param.types.every((t) => next(recv, t));
+
+  if (checker.isArrayType(param)) {
+    const recvIsArray = checker.isArrayType(recv);
+    const recvIsTuple = checker.isTupleType(recv);
+    if (!recvIsArray && !recvIsTuple) return false;
+    const paramReadonly = param.getSymbol()?.getName() === "ReadonlyArray";
+    const recvReadonly = recvIsTuple
+      ? ((recv as ts.TypeReference).target as ts.TupleType).readonly
+      : recv.getSymbol()?.getName() === "ReadonlyArray";
+    if (recvReadonly && !paramReadonly) return false;
+    const [paramElem] = checker.getTypeArguments(param as ts.TypeReference);
+    const recvElem = checker.getIndexTypeOfType(recv, ts.IndexKind.Number);
+    if (!paramElem || !recvElem) return true;
+    return next(recvElem, paramElem);
+  }
+
+  // Same generic interface/class (`Box<A>` vs `Box<number>`): match type arguments pairwise.
+  if (isReferenceType(param) && isReferenceType(recv) && param.target === recv.target) {
+    const pArgs = checker.getTypeArguments(param);
+    const rArgs = checker.getTypeArguments(recv);
+    if (pArgs.length !== rArgs.length) return false;
+    return pArgs.every((p, i) => next(rArgs[i], p));
+  }
+
+  return false;
+}
+
+/**
+ * Is every declaration of `prop` inside a `declare global { ... }` block?
+ *
+ * Libraries like @typesugar/std declare their extension methods on the
+ * built-in interfaces (`interface Number { clamp(...) }`) purely so
+ * `(42).clamp(0, 100)` type-checks; those stubs never exist at runtime, so
+ * they must not count as the receiver's "own" method.
+ */
+export function isGlobalAugmentationStub(prop: ts.Symbol): boolean {
+  const decls = prop.getDeclarations();
+  if (!decls || decls.length === 0) return false;
+  return decls.every((d) => {
+    for (let n: ts.Node | undefined = d.parent; n; n = n.parent) {
+      if (ts.isModuleDeclaration(n) && (n.flags & ts.NodeFlags.GlobalAugmentation) !== 0)
+        return true;
+    }
+    return false;
+  });
 }
 
 /**
@@ -768,15 +879,18 @@ export function scanImportsForExtension(
   // parameter accepts an array, and `arr.map(f)` was being rewritten to
   // `parCombinePromise.map(arr, f)`. Only a bare imported function named
   // after the method (the explicit-override form) may shadow a native method.
+  // A `declare global` extension stub (std's `interface Number { clamp }`)
+  // is not a native method: it exists only so the call type-checks.
   let hasNativeMethod = false;
   try {
-    hasNativeMethod =
-      ctx.typeChecker.getPropertyOfType(
-        ctx.typeChecker.getApparentType(receiverType),
-        methodName
-      ) !== undefined;
+    const own = ctx.typeChecker.getPropertyOfType(
+      ctx.typeChecker.getApparentType(receiverType),
+      methodName
+    );
+    hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
   } catch {
-    hasNativeMethod = receiverType.getProperty(methodName) !== undefined;
+    const own = receiverType.getProperty(methodName);
+    hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
   }
   const push = (ext: StandaloneExtensionInfo | undefined, importSource: string) => {
     if (!ext) return;

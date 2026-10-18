@@ -175,7 +175,17 @@ export function tryResolveTypeclassMethod(
   const candidates = getMethodCandidates(ctx.program, activatedForMethods, methodName);
   if (candidates.length === 0) return undefined;
 
-  const typeName = ctx.typeChecker.typeToString(receiverType);
+  // `User.fromJson(json)`: the receiver is the class (or companion-carrying
+  // type) ITSELF, not an instance. Resolve against the instance type and emit
+  // `User.Json.fromJson(json)` without passing the class as an argument --
+  // resolving against `typeof User` produced `typeof User.Json.fromJson(User,
+  // json)` (docs review S#24).
+  const staticSym = staticCompanionReceiver(ctx, receiver);
+  const instanceSideType = staticSym
+    ? ctx.typeChecker.getDeclaredTypeOfSymbol(staticSym)
+    : receiverType;
+
+  const typeName = ctx.typeChecker.typeToString(instanceSideType);
   const baseTypeName = stripTypeArguments(typeName);
 
   let matched: MethodSugarInstance | undefined;
@@ -184,7 +194,13 @@ export function tryResolveTypeclassMethod(
     // Resolve the instance purely from scope (PEP-052): an imported/local
     // `@impl`/`@instance` value, or a `@derive(TC)` companion on the receiver's
     // type. No process-global instance registry.
-    const inst = resolveMethodSugarInstance(ctx, receiverType, typeName, baseTypeName, typeclass);
+    const inst = resolveMethodSugarInstance(
+      ctx,
+      instanceSideType,
+      typeName,
+      baseTypeName,
+      typeclass
+    );
     // Never apply instance-method sugar for instances on a built-in receiver
     // (Promise/Array/Map/...). Those carry native methods (map, then, ...) that
     // collide with typeclass method names; rewriting `arr.map(fn)` into a
@@ -262,13 +278,16 @@ export function tryResolveTypeclassMethod(
   const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, methodName);
 
-  // The receiver becomes the first argument; existing args follow.
-  const visitedReceiver = ts.visitNode(receiver, visit) as ts.Expression;
+  // The receiver becomes the first argument; existing args follow. A static
+  // receiver (the class itself) is not an argument.
   const visitedArgs = node.arguments.map((a) => ts.visitNode(a, visit) as ts.Expression);
-  const rewritten = factory.createCallExpression(methodAccess, undefined, [
-    cloneWithoutComments(visitedReceiver),
-    ...visitedArgs,
-  ]);
+  const rewritten = factory.createCallExpression(
+    methodAccess,
+    undefined,
+    staticSym
+      ? visitedArgs
+      : [cloneWithoutComments(ts.visitNode(receiver, visit) as ts.Expression), ...visitedArgs]
+  );
 
   if (verbose) {
     console.log(
@@ -277,6 +296,39 @@ export function tryResolveTypeclassMethod(
   }
 
   return preserveSourceMap(rewritten, node);
+}
+
+/**
+ * If `receiver` names a type's VALUE side -- a class constructor, or the
+ * companion namespace merged with an interface/type alias -- return that
+ * symbol: a call on it is a static companion call (`User.fromJson(json)`).
+ */
+function staticCompanionReceiver(
+  ctx: MacroContextImpl,
+  receiver: ts.Expression
+): ts.Symbol | undefined {
+  if (!ts.isIdentifier(receiver) && !ts.isPropertyAccessExpression(receiver)) return undefined;
+  if (isSyntheticNode(receiver)) return undefined;
+  let sym: ts.Symbol | undefined;
+  try {
+    sym = ctx.typeChecker.getSymbolAtLocation(receiver);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = ctx.typeChecker.getAliasedSymbol(sym);
+  } catch (error) {
+    ctx.reportWarning(
+      receiver,
+      `typesugar could not check whether '${receiver.getText()}' is a class (${error}); treating the call as an instance method call.`
+    );
+    return undefined;
+  }
+  if (!sym) return undefined;
+  if (sym.flags & ts.SymbolFlags.Class) return sym;
+  if (
+    sym.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias) &&
+    sym.flags & ts.SymbolFlags.ValueModule
+  ) {
+    return sym;
+  }
+  return undefined;
 }
 
 /**

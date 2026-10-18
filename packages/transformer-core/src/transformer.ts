@@ -1187,6 +1187,11 @@ class MacroTransformer {
 
     if (hasJSDocMacroTagsFn(node) && !this.isJSDocExpanded(node)) {
       const result = tryExpandJSDocMacrosFn(this.ctx, this.verbose, node);
+      // Mark even when nothing changed: a VariableDeclaration inherits its
+      // statement's JSDoc tags, so a failed `/** @impl */ const x = ...`
+      // would otherwise be dispatched again on the descent and report every
+      // diagnostic twice (docs review S#29, C#27).
+      this.markJSDocExpanded(node);
       if (result !== undefined) {
         // Descend into the (possibly rewritten) target so macros inside a
         // `/** @derive */` class body or `/** @impl */` initializer expand,
@@ -1440,8 +1445,8 @@ class MacroTransformer {
   /**
    * For an `ident.method(args)` call (the only shape derived-instance
    * inlining handles), visit the arguments now and return a call carrying
-   * them; the original call when nothing changed. Changed arguments are
-   * memoised in `preVisitedArgs` for the normal descent.
+   * them; the original call when nothing changed. Every visited argument
+   * (changed or not) is memoised in `preVisitedArgs` for the normal descent.
    */
   private withPreVisitedArgs(node: ts.CallExpression): ts.CallExpression {
     if (
@@ -1454,10 +1459,12 @@ class MacroTransformer {
     let changed = false;
     const visitedArgs = node.arguments.map((a) => {
       const v = ts.visitNode(a, this.visit.bind(this)) as ts.Expression;
-      if (v !== a) {
-        changed = true;
-        this.preVisitedArgs.set(a, v);
-      }
+      // Memoise UNCHANGED arguments too: visiting one already ran its
+      // rewrites (and reported their diagnostics), so the normal descent must
+      // reuse the result rather than visit it again — `log(f(xs, ordX))`
+      // reported f's TS9602 skip warning twice (docs review C#27).
+      this.preVisitedArgs.set(a, v);
+      if (v !== a) changed = true;
       return v;
     });
     if (!changed) return node;
@@ -1762,8 +1769,9 @@ class MacroTransformer {
       }
       const { macroName, args, identNode } = parseDecorator(decorator);
 
+      const isDerive = macroName === "derive" || macroName === "deriving";
       if (
-        macroName === "derive" &&
+        isDerive &&
         isInOptedOutScope(this.ctx.sourceFile, decorator, globalResolutionScope, "derive")
       ) {
         remainingDecorators.push(decorator);
@@ -1777,7 +1785,8 @@ class MacroTransformer {
       // in this same loop may have already replaced `currentNode` with a
       // transformed node whose shape extractTypeInfo's checker-backed
       // lookups (getTypeAtLocation, getPropertiesOfType) don't expect.
-      if (macroName === "derive") {
+      // `@deriving(...)` is the deprecated alias (expandDeriveDecorator warns).
+      if (isDerive) {
         const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
         if (derives) {
           extraStatements.push(...derives);

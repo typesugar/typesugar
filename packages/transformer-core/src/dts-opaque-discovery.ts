@@ -113,7 +113,11 @@ export function discoverOpaqueTypesFromImports(
     // `export type { Option } from "./data/option.js"`); without following the
     // re-export the type — and its companion functions — would be invisible.
     const packageName = packageNameOf(moduleSpecifier);
-    const entryDir = path.dirname(dtsSourceFile.fileName);
+    // Subpaths are relative to the BARE package's entry dir, not to the module
+    // the user imported: `@typesugar/fp/data/option` resolves to
+    // dist/data/option.d.ts, and computing relative to dist/data/ produced the
+    // nonexistent `@typesugar/fp/option` (docs review C#1).
+    const entryDir = packageEntryDir(moduleSpecifier, packageName, dtsSourceFile.fileName);
 
     const collected = collectReExportedDtsFiles(dtsSourceFile, program, fileAccess);
     for (const dts of collected) {
@@ -124,7 +128,8 @@ export function discoverOpaqueTypesFromImports(
       // entry import — a library can't expose same-named companions (Option.map vs
       // Either.map) from one entry, so each lives at its own subpath
       // (e.g. "@typesugar/fp/data/option").
-      const subModule = subpathFor(packageName, entryDir, dts.fileName);
+      const subModule =
+        entryDir === undefined ? moduleSpecifier : subpathFor(packageName, entryDir, dts.fileName);
       scanDtsForOpaqueTypes(dts, subModule, verbose);
     }
   }
@@ -134,6 +139,29 @@ export function discoverOpaqueTypesFromImports(
 function packageNameOf(spec: string): string {
   const parts = spec.split("/");
   return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+}
+
+/**
+ * The directory the bare package name (`@scope/pkg`) resolves into, derived
+ * from the file the consumer's specifier resolved to by stripping the
+ * specifier's subpath (`@scope/pkg/data/option` → `.../dist/data/option.d.ts`
+ * → `.../dist`). Returns undefined when the resolved path doesn't end in the
+ * subpath (an `exports` map that renames it): the caller then imports
+ * companions from the consumer's own specifier, which re-exports them.
+ */
+function packageEntryDir(
+  moduleSpecifier: string,
+  packageName: string,
+  resolvedFile: string
+): string | undefined {
+  const dir = path.dirname(resolvedFile);
+  if (moduleSpecifier === packageName) return dir;
+  const sub = moduleSpecifier.slice(packageName.length + 1).replace(/\.(c|m)?js$/, "");
+  const noExt = resolvedFile.replace(/\\/g, "/").replace(/\.d\.(c|m)?ts$/, "");
+  for (const candidate of [noExt, noExt.replace(/\/index$/, "")]) {
+    if (candidate.endsWith(`/${sub}`)) return candidate.slice(0, -(sub.length + 1));
+  }
+  return undefined;
 }
 
 /**
