@@ -13,17 +13,22 @@ pnpm add @typesugar/type-system
 ```
 
 ```typescript
-import { type Newtype, wrap, unwrap, type Refined, refine } from "@typesugar/type-system";
+import { type Newtype, wrap, unwrap, type Refined, Port } from "@typesugar/type-system";
 
 // Zero-cost branding
 type UserId = Newtype<number, "UserId">;
 const id = wrap<UserId>(42);
 
-// Compile-time validated refinements
-type Port = Refined<number, "Port">;
-const port = refine<Port>(8080); // ✓
-const bad = refine<Port>(-1); // ✗ Compile error
+// Refinements validate at runtime (`Port.refine` throws on failure)
+const port = Port.refine(8080); // ✓ Port
+const bad = Port.refine(-1); // throws at runtime
 ```
+
+> **Macros expand only when imported from `@typesugar/type-system`.** `wrap`, `unwrap`,
+> `newtypeCtor`, `unsafeRefine`, `opaqueModule`, `@pure`, `@effect`, the type-level arithmetic
+> macros, and the rest are scoped to that module: the transformer rewrites an identifier only
+> if it resolves to an import from `@typesugar/type-system`. A same-named function from another
+> library (or a locally defined one) is left alone.
 
 ## Features
 
@@ -114,19 +119,23 @@ This module provides three levels of type branding:
 
 ### Refinement Types
 
-Types with predicates — Byte, Port, NonEmpty, Email — with compile-time validation for literals.
+Types with predicates — Byte, Port, NonEmpty, Email. Each refinement is a value with the same name as its type, and validates at runtime through `.refine` (throws), `.from` (returns `undefined`), `.safe` (result object) and `.is` (type guard). There is no `refine<T>(value)` macro; it was removed because it could only ever fire on someone else's `refine`.
 
 ```typescript
-import { type Refined, refine, Positive, NonEmpty, Email, Port } from "@typesugar/type-system";
+import { type Refined, Positive, NonEmpty, Email, Port, MaxLength } from "@typesugar/type-system";
 
-// Refined types carry their constraints
-type PositiveInt = Refined<number, typeof Positive>;
-type ValidEmail = Refined<string, typeof Email>;
-type ValidPort = Refined<number, typeof Port>;
+// Each built-in refinement exports a type and a value under the same name
+const port: Port = Port.refine(8080); // ✓
+const badPort = Port.from(-1); // undefined (no throw)
+const checked = Email.safe("not-an-email"); // { ok: false, error: "..." }
 
-// Compile-time validation for literals
-const port = refine<Port>(8080); // ✓
-const badPort = refine<Port>(-1); // ✗ Compile error
+// Parameterised refinements carry their bound in the brand, so
+// MaxLength(5) and MaxLength(100) are different types
+const atMost5 = MaxLength<number, 5>(5);
+const short = atMost5.refine([1, 2, 3]); // Refined<number[], "MaxLength<5>">
+
+// Escape hatch: skip validation (the macro erases it to its argument)
+// unsafeRefine<Port>(n)
 ```
 
 ### Higher-Kinded Types (HKT)
@@ -233,7 +242,8 @@ Arrays with compile-time known length — type-safe head/tail, concatenation, zi
 import { Vec, type Add, type Sub } from "@typesugar/type-system";
 
 // Create length-indexed vectors
-const v3: Vec<number, 3> = Vec.from([1, 2, 3]);
+const v3: Vec<number, 3> = Vec.from([1, 2, 3]); // length inferred from the tuple
+const checked: Vec<number, 3> = Vec.from(someArray, 3); // length checked at runtime (throws on mismatch)
 const v0: Vec<string, 0> = Vec.empty();
 const v5: Vec<number, 5> = Vec.fill(0, 5);
 
@@ -247,7 +257,7 @@ const rest: Vec<number, 2> = Vec.tail(v3); // ✓
 
 // Type-preserving operations
 const v4: Vec<number, 4> = Vec.cons(0, v3); // Add<3, 1> = 4
-const v6: Vec<number, 6> = Vec.concat(v3, v3); // Add<3, 3> = 6
+const v6: Vec<number, 6> = Vec.append(v3, v3); // Add<3, 3> = 6
 const pairs: Vec<[number, string], 3> = Vec.zip(v3, Vec.from(["a", "b", "c"]));
 
 // Use with contracts: length is provable
@@ -261,24 +271,30 @@ Key properties for contract proofs:
 
 - `Vec<T, N>.length === N` (type fact)
 - `Vec.head(v)` is safe when `N > 0` (non-empty)
-- `Vec.concat(a, b)` produces `Vec<T, Add<N, M>>`
+- `Vec.append(a, b)` produces `Vec<T, Add<N, M>>`
 
 ### Opaque Type Modules
 
 ML-style abstract types with controlled access.
 
 ```typescript
-import { opaqueModule, type OpaqueModule } from "@typesugar/type-system";
+import { opaqueModule, type Opaque } from "@typesugar/type-system";
 
-// Define an opaque type with smart constructor
-const UserId = opaqueModule<number, "UserId">({
-  validate: (n) => n > 0,
-  error: "UserId must be positive",
+// opaqueModule<Repr, Brand>(brand, validate?)(ops)
+const UserId = opaqueModule<number, "UserId">(
+  "UserId",
+  (n) => n > 0 // optional validator
+)({
+  // operations receive the underlying representation
+  toString: (n) => `user-${n}`,
 });
+type UserId = Opaque<number, "UserId">;
 
-const id = UserId.make(42); // ✓ UserId
-const bad = UserId.make(-1); // Throws: "UserId must be positive"
+const id = UserId.create(42); // ✓ UserId
+const bad = UserId.create(-1); // Throws: Invalid UserId: -1 failed validation
+const maybe = UserId.tryCreate(-1); // undefined
 const raw = UserId.unwrap(id); // number
+UserId.toString(id); // "user-42" (results of operations are returned as-is)
 ```
 
 ### Phantom Type State Machines
@@ -286,43 +302,72 @@ const raw = UserId.unwrap(id); // number
 Encode state machines in the type system.
 
 ```typescript
-import { createStateMachine, type Phantom } from "@typesugar/type-system";
+import { createStateMachine } from "@typesugar/type-system";
 
-type DoorState = "open" | "closed" | "locked";
+type DoorDef = {
+  closed: { open: "open"; lock: "locked" };
+  open: { close: "closed" };
+  locked: { unlock: "closed" };
+};
 
-const Door = createStateMachine<DoorState>()
-  .state("closed", { open: "open", lock: "locked" })
-  .state("open", { close: "closed" })
-  .state("locked", { unlock: "closed" })
-  .build();
+const Door = createStateMachine<DoorDef, { opens: number }>({
+  initial: "closed",
+  initialData: { opens: 0 },
+  // Runtime state table: same shape as DoorDef. Required, because DoorDef is
+  // type-only and the runtime needs to know each transition's target state.
+  states: {
+    closed: { open: "open", lock: "locked" },
+    open: { close: "closed" },
+    locked: { unlock: "closed" },
+  },
+  transitions: {
+    open: (d) => ({ opens: d.opens + 1 }),
+    close: (d) => d,
+    lock: (d) => d,
+    unlock: (d) => d,
+  },
+});
 
-// Type-safe transitions
-const closed = Door.initial("closed");
-const open = Door.transition(closed, "open"); // ✓
-const locked = Door.transition(open, "lock"); // ✗ Can't lock an open door
+const closed = Door.create(); // { state: "closed", data: { opens: 0 } }
+const open = Door.open(closed); // state: "open"
+Door.lock(open); // throws at runtime: "lock" is not valid in state "open"
 ```
+
+A transition that is not listed for the instance's current state throws at runtime. The
+result type tracks the target state, but the argument type is not narrowed to the source
+state.
 
 ### Effect System Annotations
 
-Compile-time side-effect tracking.
+Compile-time side-effect tracking with `@pure` and `@effect(...)`.
 
 ```typescript
-import { pure, io, async, assertPure } from "@typesugar/type-system";
+import { pure, effect, assertPure } from "@typesugar/type-system";
+
+@effect("io")
+function log(msg: string): void {
+  console.log(msg);
+}
 
 @pure
 function add(a: number, b: number): number {
   return a + b;
 }
 
-@io
-function log(msg: string): void {
-  console.log(msg);
+@pure
+function bad(): void {
+  log("hello"); // ✗ Compile error: @pure function calls an @effect("io") function
 }
 
-// Verify purity at compile time
-assertPure(() => add(1, 2));      // ✓
-assertPure(() => log("hello"));   // ✗ Compile error: log has IO effect
+// A runtime no-op that returns its argument. It is NOT checked at compile time.
+assertPure(() => add(1, 2));
 ```
+
+`@pure` is checked by the macro (it must be imported from `@typesugar/type-system`): it
+reports an error for every call to a function declared `@effect(...)`. There is no `@io`
+or `@async` decorator; use `@effect("io")`, `@effect("async")`, etc. The `pure`, `io` and
+`async` exports are value wrappers that tag a value with the `Pure<T>`, `IO<T>` and
+`Async<T>` types.
 
 ## API Reference
 
@@ -343,9 +388,11 @@ assertPure(() => log("hello"));   // ✗ Compile error: log has IO effect
 ### Refinement Types
 
 - `Refined<Base, R>` — Refined type
-- `refinement(predicate, name)` — Create refinement
+- `refinement(predicate, name)` — Create refinement (`.refine`, `.is`, `.from`, `.safe`)
 - `Positive`, `NonNegative`, `Int`, `Byte`, `Port` — Number refinements
 - `NonEmpty`, `Email`, `Url`, `Uuid` — String refinements
+- `MaxLength(n)`, `MinLength(n)` — Array refinements; the bound is part of the brand (`"MaxLength<5>"`)
+- `unsafeRefine(value)` — Macro that skips validation
 
 ### Type-Level Arithmetic
 
@@ -356,12 +403,12 @@ assertPure(() => log("hello"));   // ✗ Compile error: log has IO effect
 ### Length-Indexed Arrays
 
 - `Vec<T, N>` — Array of T with exactly N elements
-- `Vec.from(arr)` — Create from array (validates length at runtime)
+- `Vec.from(tuple)` — Create from a tuple (length inferred); `Vec.from(arr, n)` — checks length at runtime
 - `Vec.empty()` — Create empty `Vec<T, 0>`
 - `Vec.fill(value, n)` — Create `Vec<T, N>` filled with value
 - `Vec.cons(head, tail)` — Prepend element (N+1)
 - `Vec.snoc(init, last)` — Append element (N+1)
-- `Vec.concat(a, b)` — Concatenate (`Add<N, M>`)
+- `Vec.append(a, b)` — Concatenate (`Add<N, M>`)
 - `Vec.head(v)`, `Vec.last(v)` — First/last element (error on empty)
 - `Vec.tail(v)`, `Vec.init(v)` — Rest/prefix (`Sub<N, 1>`)
 - `Vec.zip(a, b)` — Zip two vectors of same length
@@ -370,19 +417,18 @@ assertPure(() => log("hello"));   // ✗ Compile error: log has IO effect
 ### Opaque Types
 
 - `Opaque<Base, Brand>` — Opaque type
-- `OpaqueModule` — Module with make/unwrap
-- `opaqueModule(options)` — Create opaque module
+- `OpaqueModuleResult` — Module with `create`/`unwrap`/`isValid`/`tryCreate` plus your operations
+- `opaqueModule<Repr, Brand>(brand, validate?)(ops)` — Create opaque module
 
 ### Phantom Types
 
-- `Phantom<State, Data>` — Phantom-typed value
-- `createStateMachine()` — State machine builder
-- `transition(state, event)` — Type-safe transition
+- `Phantom<Data, State>` — Phantom-typed value
+- `createStateMachine<Def, Data>({ initial, initialData, states, transitions })` — State machine (the `states` table is required)
 
 ### Effects
 
-- `@pure`, `@io`, `@async` — Effect annotations
-- `assertPure(fn)` — Verify purity at compile time
+- `@pure`, `@effect("io", ...)` — Effect annotations (checked at compile time)
+- `assertPure(fn)` — Runtime no-op that returns `fn`
 - `Pure`, `IO`, `Async` — Effect types
 
 ## Learn More

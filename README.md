@@ -137,7 +137,7 @@ them).
 ## Getting Started
 
 ```bash
-npm install typesugar @typesugar/transformer typescript
+npm install typesugar @typesugar/std @typesugar/transformer typescript
 ```
 
 Fastest way in — no build config:

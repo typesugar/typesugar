@@ -61,10 +61,12 @@ const invalid = d1.add(t); // ✗ Compile error: can't add meters and seconds
 import { units } from "@typesugar/units";
 
 // Parse unit literals at compile time
-const speed = units`100 km/h`; // Type: Unit<Velocity>
-const mass = units`5.5 kg`; // Type: Unit<Mass>
-const energy = units`1000 J`; // Type: Unit<Energy>
+const speed = units`100 km/h`; // expands to kilometersPerHour(100)
+const mass = units`5.5 kg`; // expands to kilograms(5.5)
+const energy = units`1000 J`; // expands to joules(1000)
 ```
+
+The macro rewrites each literal to a call to the matching typed constructor (`kilometersPerHour(100)` returns `Unit<Velocity>`), and adds the import for you. In your source, though, TypeScript type-checks the call against the runtime fallback signature, `units(strings): Unit<any>`: the dimension depends on the literal's text, which a `TemplateStringsArray` cannot express. So `units\`100 km/h\``is statically`Unit<any>`and gets no dimension checking in the editor. It is assignable to any`Unit<D>`annotation, such as`const d: Unit<Velocity> = units\`100 km/h\``. For a precisely typed value in source, call the constructor (`kilometersPerHour(100)`) directly. Substitutions (`${...}`) in the template are an error.
 
 ## Unit Values and Display
 

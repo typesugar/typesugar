@@ -12,7 +12,7 @@
  * ## Zero-Cost Implementation
  *
  * Unlike Doobie's runtime free monad, typesugar's ConnectionIO is specialized
- * at compile time using the `specialize` macro:
+ * at compile time (always-on specialization, no explicit call needed):
  *
  * ```typescript
  * // Before (generic monadic composition):
@@ -389,18 +389,10 @@ export interface TransactorOptions {
  *
  * ## Zero-Cost Specialization
  *
- * When used with `specialize`, the monadic interpretation is eliminated:
- *
- * ```typescript
- * // Specialized transact function
- * const runProgram = specialize(
- *   <A>(xa: Transactor, cio: ConnectionIO<A>) => xa.run(cio),
- *   myTransactor,
- *   myProgram,
- * );
- *
- * // Compiles to direct async operations without interpretation overhead
- * ```
+ * Specialization is always on (PEP-053 removed the explicit `specialize(...)`
+ * API). When the transformer can see the instance's method bodies, calls such
+ * as `xa.run(cio)` are inlined automatically; there is nothing to call or
+ * import. Opt out of a call site with a `@no-specialize` comment.
  */
 export class Transactor {
   private readonly dialect: DialectLike | undefined;

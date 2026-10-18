@@ -342,45 +342,22 @@ console.log("ConnectionIO program created");
 console.log("\n=== Implicit Resolution ===");
 
 /**
- * Doobie-style implicit resolution allows you to summon instances by type name.
+ * Instances are resolved at compile time; there is no runtime registry
+ * (no `Read.registerInstance` / `Read.summon`).
  *
- * There are two approaches:
- *
- * ## 1. Runtime Registry (for dynamically registered instances)
- *
- * Each typeclass companion has `summon` and `registerInstance` methods:
- *
- * ```typescript
- * // Register an instance
- * Read.registerInstance<User>("User", ReadUser);
- *
- * // Summon it back
- * const reader = Read.summon<User>("User");
- * ```
- *
- * ## 2. Compile-Time Summon (with auto-derivation)
- *
- * The `summon<Read<User>>()` expression macro will:
- * 1. First check the registry for an explicit instance
- * 2. If not found and all fields have Get instances, auto-derive
+ * `summon<Read<User>>()` is an expression macro. The transformer replaces it
+ * with a reference to the `Read<User>` instance that is in scope for `User`,
+ * such as the one `@derive(Read, Write)` generates and attaches to the
+ * companion namespace (`User.Read`). If no instance can be resolved, it is a
+ * compile-time error, not a runtime lookup failure.
  *
  * ```typescript
- * // With @deriving, instance is registered automatically
- * @deriving(Read, Write)
+ * @derive(Read, Write)
  * interface User { id: number; name: string; }
  *
- * // Later, summon works:
- * const reader = summon<Read<User>>();
+ * const reader = summon<Read<User>>(); // resolved at compile time
  * ```
  */
-
-// Register our manually derived instances
-Read.registerInstance<User>("User", ReadUser);
-Write.registerInstance<User>("User", WriteUser);
-Codec.registerInstance<User>("User", CodecUser);
-
-Read.registerInstance<Post>("Post", ReadPost);
-Write.registerInstance<Post>("Post", WritePost);
 
 // Access instances via companion namespace (compile-time resolution)
 const summonedReader = User.Read;

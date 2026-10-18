@@ -47,15 +47,9 @@ import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
  *
  * ## Zero-Cost Specialization
  *
- * When used with `specialize`, all typeclass operations are inlined:
- *
- * ```typescript
- * const readUser = specialize(
- *   <A>(read: Read<A>, row: SqlRow) => read.read(row),
- *   summon<Read<User>>(),
- * );
- * // Compiles to direct field access without dictionary lookups
- * ```
+ * Specialization is always on (PEP-053): calls through a resolved instance are
+ * inlined when it is safe to do so, with no explicit API. Opt out per function
+ * with `@no-specialize`.
  *
  * @module
  */
