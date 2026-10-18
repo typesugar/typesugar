@@ -494,3 +494,31 @@ describe("codegen: parity with runtime", () => {
     }
   });
 });
+
+describe("codegen: parseAll error position matches runtime (TSP-12)", () => {
+  const cases: Array<[string, string]> = [
+    [`list = item* ";"\nitem = "a" "b"`, "aaX;"],
+    [`s = "a" ("b" | "c") "d"`, "abX"],
+    [`s = x+\nx = "(" "y" ")"`, "(y)(yz"],
+  ];
+  for (const [src, input] of cases) {
+    it(`same message for ${JSON.stringify(input)}`, () => {
+      const rt = buildParser(parseGrammarDef(src));
+      const cg = compileGrammar(src);
+      let m1 = "";
+      let m2 = "";
+      try {
+        rt.parseAll(input);
+      } catch (e) {
+        m1 = (e as Error).message;
+      }
+      try {
+        cg.parseAll(input);
+      } catch (e) {
+        m2 = (e as Error).message;
+      }
+      expect(m1).not.toBe("");
+      expect(m2).toBe(m1);
+    });
+  }
+});

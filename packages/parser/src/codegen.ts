@@ -27,6 +27,13 @@ import type { GrammarRule } from "./types.js";
  * @param rules - Named grammar rules (from `parseGrammarDef`)
  * @param startRule - Which rule is the entry point (defaults to first rule)
  * @returns A string of JavaScript code that evaluates to a Grammar-like object
+ *
+ * The `grammar` macro does not use this function: it builds the same parser
+ * directly as TypeScript AST (`generateParserAst` in `codegen-ast.ts`, per the
+ * repo's AST-over-strings codegen rule). This string form is the public,
+ * typescript-free API for callers that want source text (e.g. to write a
+ * parser to disk). Keep the two emitters in step; `codegen-parity.test.ts`
+ * checks that they behave identically.
  */
 export function generateParserCode(rules: Map<string, GrammarRule>, startRule?: string): string {
   varCounter = 0; // Reset per invocation for deterministic output
@@ -44,13 +51,21 @@ export function generateParserCode(rules: Map<string, GrammarRule>, startRule?: 
   lines.push(
     `  function __fail(pos, expected) { return { ok: false, value: undefined, pos: pos, expected: expected }; }`
   );
+  // Furthest failure seen across rule invocations, reported by parseAll (same
+  // rule-level granularity as the runtime `buildParser().parseAll`).
+  lines.push(`  var __furthestPos = 0, __furthestExpected = "unknown";`);
+  lines.push(
+    `  function __track(r) { if (!r.ok && r.pos >= __furthestPos) { __furthestPos = r.pos; __furthestExpected = r.expected; } return r; }`
+  );
   lines.push(``);
 
   // Emit a parse function for each rule
   for (const [name, rule] of rules) {
     lines.push(`  function $${sanitizeName(name)}(input, pos) {`);
-    const body = emitRule(rule, `    `);
+    lines.push(`    return __track((function(input, pos) {`);
+    const body = emitRule(rule, `      `);
     lines.push(body);
+    lines.push(`    })(input, pos));`);
     lines.push(`  }`);
     lines.push(``);
   }
@@ -81,12 +96,12 @@ export function generateParserCode(rules: Map<string, GrammarRule>, startRule?: 
   lines.push(`      return $${sanitizeName(start)}(input, pos);`);
   lines.push(`    },`);
   lines.push(`    parseAll: function(input) {`);
-  lines.push(`      var __furthestPos = 0, __furthestExpected = "unknown";`);
+  lines.push(`      __furthestPos = 0; __furthestExpected = "unknown";`);
   lines.push(`      var result = $${sanitizeName(start)}(input, 0);`);
   lines.push(`      if (!result.ok) {`);
-  lines.push(`        var lc = __lineCol(input, result.pos);`);
+  lines.push(`        var lc = __lineCol(input, __furthestPos);`);
   lines.push(
-    `        throw new Error("Parse error at line " + lc.line + ", col " + lc.col + ": expected " + result.expected);`
+    `        throw new Error("Parse error at line " + lc.line + ", col " + lc.col + ": expected " + __furthestExpected);`
   );
   lines.push(`      }`);
   lines.push(`      if (result.pos !== input.length) {`);

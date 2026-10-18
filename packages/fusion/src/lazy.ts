@@ -76,7 +76,7 @@ export class LazyPipeline<T> {
     return this.chain({ type: "zip", other }) as LazyPipeline<[T, U]>;
   }
 
-  /** Emit accumulated values: init, f(init,x1), f(f(init,x1),x2), ... */
+  /** Emit running accumulations: f(init,x1), f(f(init,x1),x2), ... (`init` itself is not emitted) */
   scan<Acc>(f: (acc: Acc, value: T) => Acc, init: Acc): LazyPipeline<Acc> {
     return this.chain({ type: "scan", f, init }) as LazyPipeline<Acc>;
   }
@@ -290,6 +290,15 @@ export class LazyPipeline<T> {
       if (step.type === "distinct") distinctSeen.set(i, new Set());
     }
 
+    // Set when any take counter reaches zero.
+    let exhausted = false;
+    let stopAfterYield = false;
+    // flatMapAfter[i]: some flatMap step comes after step i.
+    const flatMapAfter = new Array<boolean>(len).fill(false);
+    for (let i = len - 2; i >= 0; i--) {
+      flatMapAfter[i] = flatMapAfter[i + 1] || steps[i + 1].type === "flatMap";
+    }
+
     for (const raw of this.source) {
       // Process a single value through the pipeline. FlatMap can produce
       // multiple values, so we use a stack of pending items.
@@ -335,6 +344,12 @@ export class LazyPipeline<T> {
                 return;
               }
               takeCounters[i]--;
+              if (takeCounters[i] <= 0) {
+                exhausted = true;
+                // With no flatMap after this take, nothing still pending can
+                // pass it: stop right after this value is yielded.
+                if (!flatMapAfter[i]) stopAfterYield = true;
+              }
               break;
 
             case "drop":
@@ -397,15 +412,15 @@ export class LazyPipeline<T> {
 
         if (!skip) {
           yield value as T;
-
-          // Check if any take counter just hit zero — if so, we're done
-          for (let i = 0; i < len; i++) {
-            if (steps[i].type === "take" && takeCounters[i] <= 0) {
-              return;
-            }
-          }
+          if (stopAfterYield) return;
         }
       }
+
+      // A take reached zero while processing this source element. Items
+      // still pending (from a flatMap AFTER that take) belong to elements it
+      // already admitted, so they were drained above; now stop pulling the
+      // source. (A take after a flatMap is checked per item at its own step.)
+      if (exhausted) return;
     }
   }
 }

@@ -131,6 +131,14 @@ export interface StateMachineConfig<Def extends StateMachineDef, Data> {
   /** Initial data */
   readonly initialData: Data;
 
+  /**
+   * The state table at runtime — the same shape as `Def`
+   * (`{ [state]: { [transition]: targetState } }`). Required: `Def` is a
+   * type-only parameter, so without this the runtime cannot know a
+   * transition's target state or which states allow it.
+   */
+  readonly states: Def;
+
   /** Transition implementations */
   readonly transitions: {
     [K in AllTransitions<Def>]: TransitionFn<Data>;
@@ -166,6 +174,11 @@ export interface StateMachineInstance<Data, State extends string> {
  * const TrafficLight = createStateMachine<TrafficLightDef, { timer: number }>({
  *   initial: "red",
  *   initialData: { timer: 0 },
+ *   states: {
+ *     red: { toGreen: "green" },
+ *     green: { toYellow: "yellow" },
+ *     yellow: { toRed: "red" },
+ *   },
  *   transitions: {
  *     toGreen: (data) => ({ timer: data.timer + 1 }),
  *     toYellow: (data) => ({ timer: data.timer + 1 }),
@@ -178,14 +191,23 @@ export interface StateMachineInstance<Data, State extends string> {
  * light = TrafficLight.toYellow(light);     // { state: "yellow", data: { timer: 2 } }
  * light = TrafficLight.toRed(light);        // { state: "red", data: { timer: 3 } }
  *
- * // Compile-time error (if using the phantom-typed version):
- * // TrafficLight.toYellow(light); // Error: toYellow not available in "red" state
+ * // Runtime error: a transition not listed for the current state throws.
+ * // TrafficLight.toYellow(TrafficLight.create()); // Error: not valid in state "red"
  * ```
  */
 export function createStateMachine<Def extends StateMachineDef, Data>(
   config: StateMachineConfig<Def, Data>
 ): StateMachineModule<Def, Data> {
-  const { initial, initialData, transitions } = config;
+  const { initial, initialData, transitions, states } = config;
+
+  // TSP-2: the target state comes from the runtime state table. (It used to
+  // be looked up by scanning `Object.entries(config)`, which found
+  // `config.transitions` first and set `state` to the transition FUNCTION.)
+  if (!states || typeof states !== "object") {
+    throw new Error(
+      "createStateMachine: `states` (the runtime state table, same shape as the Def type) is required"
+    );
+  }
 
   // Build the valid transitions map
   const module: Record<string, Function> = {
@@ -202,21 +224,26 @@ export function createStateMachine<Def extends StateMachineDef, Data>(
 
   // Add transition functions
   for (const [name, transitionFn] of Object.entries(transitions)) {
+    if (Object.prototype.hasOwnProperty.call(module, name)) {
+      throw new Error(
+        `createStateMachine: transition name "${name}" is reserved (it would overwrite the module's own "${name}" method)`
+      );
+    }
     const fn = transitionFn as (data: Data, ...args: unknown[]) => Data;
     module[name] = (instance: StateMachineInstance<Data, string>, ...args: unknown[]) => {
-      // Find which state this transition belongs to and its target
-      let targetState: string | undefined;
-      for (const [, trans] of Object.entries(config) as [string, Record<string, string>][]) {
-        if (typeof trans === "object" && name in trans) {
-          targetState = trans[name];
-          break;
-        }
+      const row = (states as Record<string, Record<string, unknown> | undefined>)[instance.state];
+      const targetState =
+        row && Object.prototype.hasOwnProperty.call(row, name) ? row[name] : undefined;
+      if (typeof targetState !== "string") {
+        throw new Error(
+          `State machine transition "${name}" is not valid in state "${instance.state}"`
+        );
       }
 
       // Apply the transition
       const newData = fn(instance.data, ...args);
       return {
-        state: targetState ?? instance.state,
+        state: targetState,
         data: newData,
       };
     };
@@ -244,12 +271,20 @@ export type StateMachineModule<Def extends StateMachineDef, Data> = {
     state: S
   ) => instance is StateMachineInstance<Data, S>;
 } & {
-  /** Transition functions */
+  /**
+   * Transition functions. Calling a transition that is not listed for the
+   * instance's current state throws at runtime.
+   */
   readonly [K in AllTransitions<Def>]: (
     instance: StateMachineInstance<Data, string>,
     ...args: any[]
-  ) => StateMachineInstance<Data, string>;
+  ) => StateMachineInstance<Data, TargetsOf<Def, K>>;
 };
+
+/** Every state that transition `K` can lead to. */
+type TargetsOf<Def extends StateMachineDef, K extends string> = {
+  [S in keyof Def]: K extends keyof Def[S] ? Def[S][K] & string : never;
+}[keyof Def];
 
 // ============================================================================
 // Type-Safe Builder Pattern (common use of phantom types)
@@ -294,12 +329,20 @@ export interface TypedBuilder<
  * Create a type-safe builder for a record type.
  */
 export function createBuilder<Fields extends Record<string, unknown>>(): TypedBuilder<Fields> {
-  const data: Partial<Fields> = {};
+  return makeBuilder<Fields>({});
+}
 
+/**
+ * TSP-14: each `set` returns a NEW builder over a copy of the data, so
+ * branching (`b1 = B.set("a", 1); b2 = B.set("a", 2)`) does not share state —
+ * matching the type API, which presents every `set` as a new typed builder.
+ */
+function makeBuilder<Fields extends Record<string, unknown>>(
+  data: Partial<Fields>
+): TypedBuilder<Fields> {
   const builder: any = {
     set(key: string, value: unknown) {
-      (data as any)[key] = value;
-      return builder;
+      return makeBuilder<Fields>({ ...data, [key]: value } as Partial<Fields>);
     },
     build() {
       return { ...data };
@@ -356,3 +399,10 @@ export type Dual<P> =
 export function transition(_from: string, _to: string): MethodDecorator {
   return () => {};
 }
+
+/**
+ * `@phantom` decorator placeholder — processed by the `@phantom` macro (see
+ * the package's `./macros` entry). Import it from `@typesugar/type-system` so
+ * the macro resolves to this package.
+ */
+export function phantom(..._args: unknown[]): void {}

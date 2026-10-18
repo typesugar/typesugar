@@ -38,20 +38,28 @@ export function defineStateMachine(
   };
 }
 
-/** Verify a state machine definition for structural issues. */
+/**
+ * Verify a state machine definition for structural issues.
+ *
+ * `cycles` is computed lazily, on first read: enumerating every elementary
+ * cycle is exponential for densely connected machines (e.g. a "reset" event
+ * from every state), and `valid` doesn't depend on it. The `stateMachine`
+ * macro calls `verify()` at build time and never reads `cycles`.
+ */
 export function verify(sm: StateMachineDefinition): VerificationResult {
   const unreachable = unreachableStatesInternal(sm);
   const deadEnds = deadEndStatesInternal(sm);
   const nondet = isNondeterministicInternal(sm);
-  const graph = toGraph(sm);
-  const cycles = detectCycles(graph);
+  let cycles: string[][] | undefined;
 
   return {
     valid: unreachable.length === 0 && deadEnds.length === 0 && nondet.length === 0,
     unreachableStates: unreachable,
     deadEndStates: deadEnds,
     nondeterministic: nondet,
-    cycles,
+    get cycles() {
+      return (cycles ??= detectCycles(toGraph(sm)));
+    },
   };
 }
 

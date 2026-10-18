@@ -120,7 +120,9 @@ export function anyChar(): Parser<string> {
 
 /** Match a regex anchored at the current position. */
 export function regex(pattern: RegExp): Parser<string> {
-  const anchored = new RegExp(pattern.source, "y");
+  // Keep the caller's flags (i, u, s, m, ...) and force sticky anchoring; `g`
+  // is dropped because it would make `exec` ignore the sticky position.
+  const anchored = new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "") + "y");
   return mkParser((input, pos) => {
     anchored.lastIndex = pos;
     const m = anchored.exec(input);

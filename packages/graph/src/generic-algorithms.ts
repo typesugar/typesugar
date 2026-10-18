@@ -13,13 +13,30 @@ import type { GraphLike, WeightedGraphLike } from "./typeclass.js";
 // Topological Sort (Kahn's algorithm)
 // ============================================================================
 
-/** Generic topological sort over any GraphLike. */
+/**
+ * Throw for algorithms that are only defined on directed graphs. Topological
+ * order, DAG-ness and elementary-cycle enumeration have no meaning on an
+ * undirected graph, and the directed algorithms silently give wrong answers on
+ * one (every edge looks like a 2-cycle), so reject it explicitly.
+ */
+export function requireDirected<G, N, E>(g: G, GL: GraphLike<G, N, E>, what: string): void {
+  if (!GL.isDirected(g)) {
+    throw new TypeError(`${what} requires a directed graph (got an undirected graph)`);
+  }
+}
+
+/**
+ * Generic topological sort over any GraphLike.
+ *
+ * Directed graphs only: throws a `TypeError` for an undirected graph.
+ */
 export function topoSortG<G, N, E>(
   g: G,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
   hash: Hash<N>
 ): { ok: true; order: N[] } | { ok: false; cycle: N[] } {
+  requireDirected(g, GL, "topoSort");
   const inDeg = new HashMap<N, number>(eq, hash);
   const allNodes: N[] = [];
   for (const n of GL.nodes(g)) {
@@ -111,13 +128,49 @@ function findOneCycleG<G, N, E>(
 // Cycle Detection
 // ============================================================================
 
-/** Generic: returns true if the graph contains at least one cycle. */
+/**
+ * Generic: returns true if the graph contains at least one cycle.
+ *
+ * For a directed graph this is a directed cycle (Kahn's algorithm). For an
+ * undirected graph it is an undirected cycle, found with union-find: an edge
+ * whose endpoints are already connected closes a cycle. Self-loops and
+ * parallel edges count as cycles; a single edge does not.
+ */
 export function hasCyclesG<G, N, E>(
   g: G,
   GL: GraphLike<G, N, E>,
   eq: Eq<N>,
   hash: Hash<N>
 ): boolean {
+  if (!GL.isDirected(g)) {
+    const parent = new HashMap<N, N>(eq, hash);
+    const find = (x: N): N => {
+      let root = x;
+      for (let p = parent.get(root); p !== undefined && !eq.equals(p, root); p = parent.get(root)) {
+        root = p;
+      }
+      // Path compression
+      let cur = x;
+      while (!eq.equals(cur, root)) {
+        const next = parent.get(cur)!;
+        parent.set(cur, root);
+        cur = next;
+      }
+      return root;
+    };
+    for (const n of GL.nodes(g)) parent.set(n, n);
+    for (const e of GL.edges(g)) {
+      const a = GL.edgeSource(e);
+      const b = GL.edgeTarget(e);
+      if (!parent.has(a)) parent.set(a, a);
+      if (!parent.has(b)) parent.set(b, b);
+      const ra = find(a);
+      const rb = find(b);
+      if (eq.equals(ra, rb)) return true;
+      parent.set(ra, rb);
+    }
+    return false;
+  }
   return !topoSortG(g, GL, eq, hash).ok;
 }
 
@@ -166,16 +219,23 @@ export function dfsG<G, N, E>(
   const visited = new HashSet<N>(eq, hash);
   const order: N[] = [];
 
-  function visit(node: N): void {
-    if (visited.has(node)) return;
-    visited.add(node);
-    order.push(node);
-    for (const neighbor of GL.successors(g, node)) {
-      visit(neighbor);
+  // Iterative (explicit stack of successor iterators) so deep graphs don't
+  // overflow the call stack; visit order is the same as the recursive preorder.
+  visited.add(start);
+  order.push(start);
+  const stack: Iterator<N>[] = [GL.successors(g, start)[Symbol.iterator]()];
+  while (stack.length > 0) {
+    const step = stack[stack.length - 1].next();
+    if (step.done) {
+      stack.pop();
+      continue;
     }
+    const neighbor = step.value;
+    if (visited.has(neighbor)) continue;
+    visited.add(neighbor);
+    order.push(neighbor);
+    stack.push(GL.successors(g, neighbor)[Symbol.iterator]());
   }
-
-  visit(start);
   return order;
 }
 
@@ -298,7 +358,11 @@ export function dijkstraWithG<G, N, E, W>(
     if (currentDist === null || currentDist === undefined) continue;
 
     for (const e of edgesFrom(g, minNode, WGL, eq)) {
-      const neighbor = WGL.edgeTarget(e);
+      // For an undirected graph `edgesFrom` also returns edges stored as
+      // (neighbor -> minNode); the far endpoint is then the edge's source.
+      const neighbor = eq.equals(WGL.edgeSource(e), minNode)
+        ? WGL.edgeTarget(e)
+        : WGL.edgeSource(e);
       const weight = WGL.edgeWeight(e);
       const alt = monoid.combine(currentDist, weight);
       const neighborDist = dist.get(neighbor);
@@ -338,31 +402,47 @@ export function sccG<G, N, E>(g: G, GL: GraphLike<G, N, E>, eq: Eq<N>, hash: Has
   const stack: N[] = [];
   const sccs: N[][] = [];
 
-  function strongconnect(v: N): void {
-    nodeIndex.set(v, index);
-    lowlink.set(v, index);
-    index++;
-    stack.push(v);
-    onStack.add(v);
-
-    for (const w of GL.successors(g, v)) {
-      if (!nodeIndex.has(w)) {
-        strongconnect(w);
-        lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
-      } else if (onStack.has(w)) {
-        lowlink.set(v, Math.min(lowlink.get(v)!, nodeIndex.get(w)!));
+  // Iterative Tarjan (explicit call stack) so long paths don't overflow the
+  // JS stack. Each frame holds the node and its pending successor iterator.
+  function strongconnect(root: N): void {
+    const enter = (v: N): { v: N; it: Iterator<N> } => {
+      nodeIndex.set(v, index);
+      lowlink.set(v, index);
+      index++;
+      stack.push(v);
+      onStack.add(v);
+      return { v, it: GL.successors(g, v)[Symbol.iterator]() };
+    };
+    const callStack = [enter(root)];
+    while (callStack.length > 0) {
+      const frame = callStack[callStack.length - 1];
+      const step = frame.it.next();
+      if (!step.done) {
+        const w = step.value;
+        if (!nodeIndex.has(w)) {
+          callStack.push(enter(w));
+        } else if (onStack.has(w)) {
+          lowlink.set(frame.v, Math.min(lowlink.get(frame.v)!, nodeIndex.get(w)!));
+        }
+        continue;
       }
-    }
-
-    if (lowlink.get(v) === nodeIndex.get(v)) {
-      const scc: N[] = [];
-      let w: N;
-      do {
-        w = stack.pop()!;
-        onStack.delete(w);
-        scc.push(w);
-      } while (!eq.equals(w, v));
-      sccs.push(scc);
+      // All successors done: "return" from strongconnect(frame.v).
+      callStack.pop();
+      const v = frame.v;
+      if (lowlink.get(v) === nodeIndex.get(v)) {
+        const scc: N[] = [];
+        let w: N;
+        do {
+          w = stack.pop()!;
+          onStack.delete(w);
+          scc.push(w);
+        } while (!eq.equals(w, v));
+        sccs.push(scc);
+      }
+      const parent = callStack[callStack.length - 1];
+      if (parent) {
+        lowlink.set(parent.v, Math.min(lowlink.get(parent.v)!, lowlink.get(v)!));
+      }
     }
   }
 

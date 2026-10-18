@@ -84,4 +84,5 @@ export {
   graph,
   stateMachine,
   __typesugar_createStateMachineInstance,
+  __typesugar_stateMachineRuntime,
 } from "./templates.js";
