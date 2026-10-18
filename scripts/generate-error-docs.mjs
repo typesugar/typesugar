@@ -69,6 +69,136 @@ const CATEGORY_LABELS = {
   internal: "Internal",
 };
 
+/**
+ * Catalogued codes the compiler never emits (docs review 2026-10, docs-start
+ * #29). Their pages say so at the top, and the index marks them, so a reader
+ * whose build fails with a different code isn't sent chasing a page that
+ * describes a check typesugar doesn't perform.
+ *
+ * This is the single source list. `checkReservedList` re-derives it from the
+ * source tree on every run (both modes) and fails if the two disagree, so it
+ * can't silently drift: emit one of these codes and the generator tells you
+ * to remove it from here; stop emitting a code and it tells you to add it.
+ */
+const RESERVED_CODES = new Set([
+  "TS9002",
+  "TS9003",
+  "TS9004",
+  "TS9006",
+  "TS9007",
+  "TS9052",
+  "TS9060",
+  "TS9061",
+  "TS9062",
+  "TS9063",
+  "TS9102",
+  "TS9105",
+  "TS9201",
+  "TS9202",
+  "TS9204",
+  "TS9207",
+  "TS9208",
+  "TS9210",
+  "TS9211",
+  "TS9214",
+  "TS9215",
+  "TS9216",
+  "TS9218",
+  "TS9220",
+  "TS9301",
+  "TS9401",
+  "TS9501",
+  "TS9502",
+  "TS9701",
+  "TS9702",
+  "TS9703",
+  "TS9800",
+  "TS9801",
+  "TS9802",
+  "TS9803",
+  "EFFECT002",
+  "EFFECT003",
+  "EFFECT010",
+  "EFFECT011",
+  "EFFECT021",
+  "EFFECT030",
+  "EFFECT040",
+]);
+
+/**
+ * Files that only DECLARE or re-export descriptors; a code mentioned only
+ * there is not emitted.
+ */
+const CATALOG_FILES = new Set([
+  "packages/core/src/diagnostics.ts",
+  "packages/effect/src/diagnostics.ts",
+  "packages/effect/src/index.ts",
+]);
+
+/** Non-test `.ts` sources under packages/<pkg>/src, as repo-relative paths. */
+function listSourceFiles() {
+  const out = [];
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (["node_modules", "dist", "__tests__", "tests", "test"].includes(ent.name)) continue;
+        walk(full);
+      } else if (/\.tsx?$/.test(ent.name) && !/\.(test|spec)\.tsx?$/.test(ent.name)) {
+        out.push(path.relative(repoRoot, full).split(path.sep).join("/"));
+      }
+    }
+  };
+  const pkgsDir = path.join(repoRoot, "packages");
+  for (const pkg of fs.readdirSync(pkgsDir)) {
+    const src = path.join(pkgsDir, pkg, "src");
+    if (fs.existsSync(src)) walk(src);
+  }
+  return out;
+}
+
+/**
+ * Which catalogued ids are referenced by any source file outside the
+ * catalogue itself. A `TS9xxx` code counts when its identifier (`TS9002`)
+ * or bare number (`9002`) appears; there is no `TS${n}`-style computed
+ * lookup of descriptors in the source tree (getDiagnosticDescriptor is not
+ * called with computed codes), so a textual scan is complete.
+ */
+function referencedIds(ids) {
+  const texts = listSourceFiles()
+    .filter((f) => !CATALOG_FILES.has(f))
+    .map((f) => fs.readFileSync(path.join(repoRoot, f), "utf-8"));
+  const referenced = new Set();
+  for (const id of ids) {
+    const num = id.startsWith("TS") ? id.slice(2) : null;
+    const re = num ? new RegExp(`\\b(?:TS)?${num}\\b`) : new RegExp(`\\b${id}\\b`);
+    if (texts.some((t) => re.test(t))) referenced.add(id);
+  }
+  return referenced;
+}
+
+/** Problems where RESERVED_CODES disagrees with the source tree. */
+function checkReservedList(entries) {
+  const ids = entries.map((e) => e.id);
+  const referenced = referencedIds(ids);
+  const problems = [];
+  for (const id of ids) {
+    if (RESERVED_CODES.has(id) && referenced.has(id)) {
+      problems.push(
+        `${id} is now referenced outside the catalogue: remove it from RESERVED_CODES in scripts/generate-error-docs.mjs and regenerate`
+      );
+    } else if (!RESERVED_CODES.has(id) && !referenced.has(id)) {
+      problems.push(
+        `${id} is never referenced outside the catalogue: add it to RESERVED_CODES in scripts/generate-error-docs.mjs and regenerate`
+      );
+    }
+  }
+  for (const id of RESERVED_CODES) {
+    if (!ids.includes(id)) problems.push(`RESERVED_CODES lists ${id}, which is not in any catalog`);
+  }
+  return problems;
+}
+
 function categoryLabel(category) {
   return CATEGORY_LABELS[category] ?? category;
 }
@@ -107,6 +237,15 @@ function renderGenerated(id, d) {
   lines.push("");
   lines.push(`# ${id}`);
   lines.push("");
+  if (RESERVED_CODES.has(id)) {
+    lines.push(
+      "> **Reserved: not currently emitted by the compiler.** This code is catalogued, but no"
+    );
+    lines.push(
+      "> typesugar check reports it yet. If your build fails, look up the code it actually prints."
+    );
+    lines.push("");
+  }
   lines.push(`**Category:** ${categoryLabel(d.category)} · **Severity:** ${titleCase(d.severity)}`);
   lines.push("");
   lines.push("## Message");
@@ -172,6 +311,9 @@ function renderIndex(entries) {
   lines.push("catalogs in `packages/core/src/diagnostics.ts` (TS9xxx) and");
   lines.push("`packages/effect/src/diagnostics.ts` (EFFECT0xx).");
   lines.push("");
+  lines.push("Codes marked *(reserved)* are catalogued but not currently emitted by the");
+  lines.push("compiler.");
+  lines.push("");
   for (const [label, group] of byCategory) {
     lines.push(`## ${label}`);
     lines.push("");
@@ -180,7 +322,7 @@ function renderIndex(entries) {
     for (const e of group) {
       const msg = e.descriptor.messageTemplate.replace(/\|/g, "\\|").replace(/\n.*/s, "");
       lines.push(
-        `| [${e.id}](./${e.id}.md) | ${titleCase(e.descriptor.severity)} | ${codeSpan(msg)} |`
+        `| [${e.id}](./${e.id}.md)${RESERVED_CODES.has(e.id) ? " *(reserved)*" : ""} | ${titleCase(e.descriptor.severity)} | ${codeSpan(msg)} |`
       );
     }
     lines.push("");
@@ -207,7 +349,7 @@ async function loadCatalogs() {
 async function main() {
   const checkMode = process.argv.includes("--check");
   const entries = await loadCatalogs();
-  const problems = [];
+  const problems = checkReservedList(entries);
   let written = 0;
 
   fs.mkdirSync(errorsDir, { recursive: true });
@@ -244,7 +386,14 @@ async function main() {
       handwritten && handwritten.trim().length > 0
         ? handwritten
         : HANDWRITTEN_SKELETON.replace(/^\n/, "");
-    fs.writeFileSync(pagePath, generated + "\n\n" + preserved.replace(/\n*$/, "\n"));
+    // A page with no hand-written region ends right after the generated
+    // one (as a freshly created page does), not with stray blank lines.
+    fs.writeFileSync(
+      pagePath,
+      preserved.trim().length > 0
+        ? generated + "\n\n" + preserved.replace(/\n*$/, "\n")
+        : generated + "\n"
+    );
     written++;
   }
 

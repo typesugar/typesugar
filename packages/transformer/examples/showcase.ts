@@ -94,11 +94,11 @@ typeAssert<Equal<typeof basicConfig, MacroTransformerConfig>>();
 
 const verboseConfig: MacroTransformerConfig = {
   verbose: true,
-  macroModules: ["./src/custom-macros.ts"],
+  cfgConfig: { debug: true },
 };
 
 assert(verboseConfig.verbose === true);
-assert(verboseConfig.macroModules!.length === 1);
+assert(verboseConfig.cfgConfig!.debug === true);
 
 // Typical tsconfig.json setup:
 // {
