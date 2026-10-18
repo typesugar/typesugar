@@ -438,7 +438,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/contracts-refined:
@@ -450,7 +450,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/core:
@@ -462,7 +462,7 @@ importers:
         specifier: ^0.30.21
         version: 0.30.21
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/derive:
@@ -471,7 +471,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -565,7 +565,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       unplugin-typesugar:
@@ -619,7 +619,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/lsp-server:
@@ -637,7 +637,7 @@ importers:
         specifier: workspace:*
         version: link:../transformer
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
       vscode-languageserver:
         specifier: ^9.0.1
@@ -659,7 +659,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/mapper:
@@ -779,7 +779,7 @@ importers:
         specifier: ^0.30.21
         version: 0.30.21
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       esbuild:
@@ -798,7 +798,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/sql:
@@ -810,7 +810,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/std:
@@ -828,7 +828,7 @@ importers:
         specifier: workspace:*
         version: link:../typeclass
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       unplugin-typesugar:
@@ -841,7 +841,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -860,7 +860,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/transformer:
@@ -887,7 +887,7 @@ importers:
         specifier: ^0.30.21
         version: 0.30.21
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
       xxhash-wasm:
         specifier: ^1.1.0
@@ -912,7 +912,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -925,7 +925,7 @@ importers:
         specifier: workspace:*
         version: link:../transformer
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -938,7 +938,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/typeclass:
@@ -947,7 +947,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
 
   packages/typesugar:
@@ -967,11 +967,14 @@ importers:
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:../transformer
+      '@typesugar/type-system':
+        specifier: workspace:*
+        version: link:../type-system
       '@typesugar/typeclass':
         specifier: workspace:*
         version: link:../typeclass
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
       unplugin-typesugar:
         specifier: workspace:*
@@ -983,7 +986,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -1002,7 +1005,7 @@ importers:
         specifier: workspace:*
         version: link:../transformer
       typescript:
-        specifier: '>=5.0.0'
+        specifier: '>=5.0.0 <6.0.0'
         version: 5.9.3
       unplugin:
         specifier: ^2.0.0
