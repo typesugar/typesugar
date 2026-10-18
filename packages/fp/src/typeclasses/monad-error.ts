@@ -13,6 +13,11 @@
 import type { Applicative, Apply } from "./applicative.js";
 import type { Monad, FlatMap } from "./monad.js";
 import type { Kind } from "../hkt.js";
+// The package's real Either/Option (`{left}|{right}` and `A | null`), not a
+// private `{_tag, value}` shape that no other part of @typesugar/fp produces.
+import type { Either } from "../data/either.js";
+import { Left, Right, isRight } from "../data/either.js";
+import type { Option } from "../data/option.js";
 
 // ============================================================================
 // ApplicativeError
@@ -84,8 +89,8 @@ export function attempt<F, E>(
 ): <A>(fa: Kind<F, A>) => Kind<F, Either<E, A>> {
   return <A>(fa: Kind<F, A>): Kind<F, Either<E, A>> =>
     F.handleErrorWith(
-      F.map(fa, (a: A): Either<E, A> => ({ _tag: "Right" as const, value: a })),
-      (e: E): Kind<F, Either<E, A>> => F.pure({ _tag: "Left" as const, value: e })
+      F.map(fa, (a: A): Either<E, A> => Right<E, A>(a)),
+      (e: E): Kind<F, Either<E, A>> => F.pure(Left<E, A>(e))
     );
 }
 
@@ -95,7 +100,7 @@ export function attempt<F, E>(
 export function fromEither<F, E>(
   F: ApplicativeError<F, E>
 ): <A>(either: Either<E, A>) => Kind<F, A> {
-  return (either) => (either._tag === "Right" ? F.pure(either.value) : F.raiseError(either.value));
+  return (either) => (isRight(either) ? F.pure(either.right) : F.raiseError(either.left));
 }
 
 /**
@@ -162,12 +167,6 @@ export function onError<F, E>(
 // ============================================================================
 // Helper Types
 // ============================================================================
-
-type Either<E, A> =
-  | { readonly _tag: "Left"; readonly value: E }
-  | { readonly _tag: "Right"; readonly value: A };
-
-type Option<A> = { readonly _tag: "None" } | { readonly _tag: "Some"; readonly value: A };
 
 // ============================================================================
 // Instance Creator

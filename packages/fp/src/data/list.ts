@@ -175,10 +175,14 @@ export function head<A>(list: List<A>): Option<A> {
 }
 
 /**
- * Get the tail of the list
+ * Get the tail of the list, or `undefined` for the empty list.
+ *
+ * Not `Option<List<A>>`: both `Nil` and `None` are `null` at runtime, so
+ * `Some(Nil)` would be indistinguishable from `None` (the tail of a
+ * one-element list would read as "no tail").
  */
-export function tail<A>(list: List<A>): Option<List<A>> {
-  return list !== null ? Some(list.tail) : None;
+export function tail<A>(list: List<A>): List<A> | undefined {
+  return list !== null ? list.tail : undefined;
 }
 
 /**
@@ -194,11 +198,12 @@ export function last<A>(list: List<A>): Option<A> {
 }
 
 /**
- * Get all but the last element
+ * Get all but the last element, or `undefined` for the empty list
+ * (not `Option<List<A>>` — see `tail`).
  */
-export function init<A>(list: List<A>): Option<List<A>> {
-  if (list === null) return None;
-  return Some(dropLast(list, 1));
+export function init<A>(list: List<A>): List<A> | undefined {
+  if (list === null) return undefined;
+  return dropLast(list, 1);
 }
 
 /**
@@ -599,24 +604,28 @@ export function mkStringShow<A>(list: List<A>, show: (a: A) => string, sep: stri
 // ============================================================================
 
 /**
- * Traverse the list with an Option-returning function (stack-safe)
+ * Traverse the list with an Option-returning function (stack-safe).
+ *
+ * Returns the mapped list, or `undefined` if any `f` returned `None`.
+ * Not `Option<List<B>>`: both `Nil` and `None` are `null` at runtime, so a
+ * successful traverse of the empty list would read as failure.
  */
-export function traverse<A, B>(list: List<A>, f: (a: A) => Option<B>): Option<List<B>> {
+export function traverse<A, B>(list: List<A>, f: (a: A) => Option<B>): List<B> | undefined {
   let acc: List<B> = Nil;
   let current: List<A> = list;
   while (current !== null) {
     const result = f(current.head);
-    if (!isSome(result)) return None;
+    if (!isSome(result)) return undefined;
     acc = Cons(result as B, acc);
     current = current.tail;
   }
-  return Some(reverse(acc));
+  return reverse(acc);
 }
 
 /**
- * Sequence a list of Options
+ * Sequence a list of Options (`undefined` if any is `None`; see `traverse`)
  */
-export function sequence<A>(list: List<Option<A>>): Option<List<A>> {
+export function sequence<A>(list: List<Option<A>>): List<A> | undefined {
   return traverse(list, (opt) => opt);
 }
 

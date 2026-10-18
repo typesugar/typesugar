@@ -47,7 +47,14 @@
 
 // Re-export core HKT infrastructure from type-system
 export type { _, Kind, Apply, TypeFunction, ArrayF, PromiseF } from "@typesugar/type-system";
-export { unsafeCoerce } from "@typesugar/type-system";
+/**
+ * Unsafe coercion between types (identity at runtime). Defined here rather
+ * than re-exported from `@typesugar/type-system`, whose root entry loads
+ * `@typesugar/core` (and with it `typescript`) at runtime.
+ */
+export function unsafeCoerce<A, B>(a: A): B {
+  return a as unknown as B;
+}
 
 // Import TypeFunction for use in interface definitions
 import type { TypeFunction } from "@typesugar/type-system";

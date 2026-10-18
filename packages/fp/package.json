@@ -51,11 +51,6 @@
       "import": "./dist/syntax/index.js",
       "require": "./dist/syntax/index.cjs"
     },
-    "./effect": {
-      "types": "./dist/effect/index.d.ts",
-      "import": "./dist/effect/index.js",
-      "require": "./dist/effect/index.cjs"
-    },
     "./zero-cost": {
       "types": "./dist/zero-cost/index.d.ts",
       "import": "./dist/zero-cost/index.js",
@@ -107,5 +102,12 @@
     "dist",
     "src"
   ],
-  "sideEffects": true
+  "sideEffects": [
+    "./dist/macros.js",
+    "./dist/macros.cjs",
+    "./dist/zero-cost/macros.js",
+    "./dist/zero-cost/macros.cjs",
+    "./src/macros.ts",
+    "./src/zero-cost/macros.ts"
+  ]
 }

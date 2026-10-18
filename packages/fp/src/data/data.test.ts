@@ -201,13 +201,12 @@ describe("List", () => {
     it("tail should get rest of list", () => {
       const list = fromArray([1, 2, 3]);
       const t = tail(list);
-      expect(isSome(t)).toBe(true);
-      // Zero-cost: t IS the list when it's Some
-      expect(toArray(t as unknown as List<number>)).toEqual([2, 3]);
+      expect(t).not.toBeUndefined();
+      expect(toArray(t!)).toEqual([2, 3]);
     });
 
     it("tail of empty list should be None", () => {
-      expect(tail(Nil)).toBe(null);
+      expect(tail(Nil)).toBeUndefined();
     });
 
     it("length should count elements", () => {

@@ -122,8 +122,10 @@ export function tail<A>(nel: NonEmptyList<A>): List<A> {
  * Get the last element
  */
 export function last<A>(nel: NonEmptyList<A>): A {
-  const listLast = L.last(nel.tail);
-  return isSome(listLast) ? (listLast as any) : nel.head;
+  // Walk directly: L.last returns Option<A>, which can't carry a null element.
+  let cur: NonEmptyList<A> | L.Cons<A> = nel;
+  while (cur.tail !== null) cur = cur.tail;
+  return cur.head;
 }
 
 /**
@@ -131,12 +133,7 @@ export function last<A>(nel: NonEmptyList<A>): A {
  */
 export function init<A>(nel: NonEmptyList<A>): List<A> {
   if (L.isNil(nel.tail)) return L.Nil;
-  return L.Cons(
-    nel.head,
-    L.toArray(nel.tail)
-      .slice(0, -1)
-      .reduce((acc: List<A>, a) => L.append(acc, L.singleton(a)), L.Nil)
-  );
+  return L.Cons(nel.head, L.fromArray(L.toArray(nel.tail).slice(0, -1)));
 }
 
 /**
@@ -306,8 +303,11 @@ export function reduce<A>(nel: NonEmptyList<A>, f: (a: A, b: A) => A): A {
  * Reduce from the right
  */
 export function reduceRight<A>(nel: NonEmptyList<A>, f: (a: A, b: A) => A): A {
-  if (L.isNil(nel.tail)) return nel.head;
-  return f(nel.head, reduceRight(unsafeFromList(nel.tail), f));
+  // Iterative (stack-safe): f(a1, f(a2, ... f(an-1, an)))
+  const arr = toArray(nel);
+  let acc = arr[arr.length - 1];
+  for (let i = arr.length - 2; i >= 0; i--) acc = f(arr[i], acc);
+  return acc;
 }
 
 function unsafeFromList<A>(list: List<A>): NonEmptyList<A> {
@@ -406,10 +406,12 @@ export function traverse<A, B>(
   const headResult = f(nel.head);
   if (!isSome(headResult)) return None;
 
+  // L.traverse signals failure with `undefined` (a successful empty tail is
+  // Nil === null, which an Option can't distinguish from None).
   const tailResult = L.traverse(nel.tail, f);
-  if (!isSome(tailResult)) return None;
+  if (tailResult === undefined) return None;
 
-  return Some(NonEmptyList(headResult as any, tailResult as any));
+  return Some(NonEmptyList(headResult as B, tailResult));
 }
 
 /**

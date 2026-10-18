@@ -410,8 +410,13 @@ export function map2<E, A, B, C>(
  */
 export function sequence<E, A>(rds: RemoteData<E, A>[]): RemoteData<E, A[]> {
   return rds.reduce(
-    (acc: RemoteData<E, A[]>, rd: RemoteData<E, A>) => map2(acc, rd, (arr, a) => [...arr, a]),
-    Success([])
+    // `arr` is this call's own accumulator, so push in place (linear).
+    (acc: RemoteData<E, A[]>, rd: RemoteData<E, A>) =>
+      map2(acc, rd, (arr, a) => {
+        arr.push(a);
+        return arr;
+      }),
+    Success([] as A[])
   );
 }
 

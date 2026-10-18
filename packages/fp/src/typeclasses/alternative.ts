@@ -12,6 +12,9 @@
 
 import type { Applicative } from "./applicative.js";
 import type { Kind } from "../hkt.js";
+import type { Either } from "../data/either.js";
+import { isLeft } from "../data/either.js";
+import { type Acc, emptyAcc, snoc, accToArray } from "../internal/acc.js";
 
 // ============================================================================
 // SemigroupK
@@ -255,10 +258,10 @@ export function replicateA<F>(
   n: number
 ): <A>(fa: Kind<F, A>) => Kind<F, A[]> {
   return <A>(fa: Kind<F, A>): Kind<F, A[]> => {
-    if (n <= 0) {
-      return F.pure([]);
-    }
-    return F.flatMap(fa, (first) => F.map(replicateA(F, n - 1)(fa), (rest) => [first, ...rest]));
+    // Linear: an immutable snoc accumulator, converted once at the end.
+    const loop = (i: number, acc: Acc<A>): Kind<F, A[]> =>
+      i >= n ? F.pure(accToArray(acc)) : F.flatMap(fa, (a: A) => loop(i + 1, snoc(acc, a)));
+    return loop(0, emptyAcc);
   };
 }
 
@@ -270,9 +273,7 @@ export function separate<F>(
   F: Alternative<F> & {
     flatMap?: <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<F, B>) => Kind<F, B>;
   }
-): <A, B>(
-  fab: Kind<F, { _tag: "Left"; value: A } | { _tag: "Right"; value: B }>
-) => { left: Kind<F, A>; right: Kind<F, B> } {
+): <A, B>(fab: Kind<F, Either<A, B>>) => { left: Kind<F, A>; right: Kind<F, B> } {
   return (fab) => {
     if (!F.flatMap) {
       throw new Error(
@@ -280,11 +281,11 @@ export function separate<F>(
       );
     }
     return {
-      left: F.flatMap(fab, (either: any) =>
-        either._tag === "Left" ? F.pure(either.value) : F.emptyK()
+      left: F.flatMap(fab, (either: Either<unknown, unknown>) =>
+        isLeft(either) ? F.pure(either.left) : F.emptyK()
       ) as Kind<F, any>,
-      right: F.flatMap(fab, (either: any) =>
-        either._tag === "Right" ? F.pure(either.value) : F.emptyK()
+      right: F.flatMap(fab, (either: Either<unknown, unknown>) =>
+        isLeft(either) ? F.emptyK() : F.pure(either.right)
       ) as Kind<F, any>,
     };
   };

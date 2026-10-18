@@ -44,18 +44,22 @@ export function sequence<F>(
 }
 
 /**
- * Traverse with an effectful function that can fail (returning undefined)
+ * Traverse with an effectful function that can drop elements (returning
+ * undefined). Needs `filterMap` on F to remove the dropped slots — Traverse
+ * alone cannot change the structure's shape.
  */
 export function traverseFilter<F>(
-  F: Traverse<F>
+  F: Traverse<F> & {
+    readonly filterMap: <A, B>(fa: Kind<F, A>, f: (a: A) => B | undefined) => Kind<F, B>;
+  }
 ): <G>(
   G: Applicative<G>
 ) => <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B | undefined>) => Kind<G, Kind<F, B>> {
   return <G>(G: Applicative<G>) =>
     <A, B>(fa: Kind<F, A>, f: (a: A) => Kind<G, B | undefined>): Kind<G, Kind<F, B>> =>
-      F.traverse(G)(fa, (a: A) =>
-        G.map(f(a), (b: B | undefined) => (b !== undefined ? [b] : []))
-      ) as unknown as Kind<G, Kind<F, B>>;
+      G.map(F.traverse(G)(fa, f), (fbu: Kind<F, B | undefined>) =>
+        F.filterMap(fbu, (b: B | undefined) => b)
+      );
 }
 
 /**

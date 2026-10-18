@@ -521,8 +521,18 @@ export function traverse<E, A, B>(
   S: Semigroup<E>
 ): Validated<E, B[]> {
   return arr.reduce(
-    (acc: Validated<E, B[]>, a: A) => map2(acc, f(a), (bs, b) => [...bs, b], S),
-    Valid([])
+    // `bs` is this call's own accumulator, so push in place (linear).
+    (acc: Validated<E, B[]>, a: A) =>
+      map2(
+        acc,
+        f(a),
+        (bs, b) => {
+          bs.push(b);
+          return bs;
+        },
+        S
+      ),
+    Valid([] as B[])
   );
 }
 
