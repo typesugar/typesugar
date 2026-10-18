@@ -1,0 +1,11 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+const root = "/Users/deapovey/src/personal/typesugar";
+const { transformCode } = await import(root + "/packages/transformer/dist/index.js");
+await import(root + "/packages/contracts/dist/macros.js"); if (process.env.REFINED) await import(root + "/packages/contracts-refined/dist/index.js");
+const file = process.argv[2];
+const code = readFileSync(file, "utf8");
+const fileName = path.join(root, "tests", "__ec_repro_" + path.basename(file));
+const r = transformCode(code, { fileName });
+console.log(r.code);
+for (const d of r.diagnostics) console.log("DIAG", d.severity, d.code, d.message);

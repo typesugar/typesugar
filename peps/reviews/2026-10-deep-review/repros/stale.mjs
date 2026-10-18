@@ -1,0 +1,12 @@
+import fs from "fs";
+import path from "path";
+const { createPipeline } = await import("/Users/deapovey/src/personal/typesugar/packages/transformer/dist/index.js");
+const dir = path.resolve(process.argv[2]);
+fs.writeFileSync(dir + "/src/a.ts", "export const a = 1;\n");
+const p = createPipeline(dir + "/tsconfig.json", {});
+const A = path.join(dir, "src/a.ts"), B = path.join(dir, "src/b.ts");
+let r = p.transform(A); console.log("first:", JSON.stringify(r.code), r.changed);
+let rb = p.transform(B); console.log("b deps:", [...(rb.dependencies ?? [])]);
+fs.writeFileSync(A, "export const a = 2; // edited\n");
+p.invalidate(A);
+r = p.transform(A); console.log("after edit+invalidate:", JSON.stringify(r.code), "changed", r.changed, "original", JSON.stringify(r.original));

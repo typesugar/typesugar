@@ -1,0 +1,10 @@
+const path = require("path");
+const repo = "/Users/deapovey/src/personal/typesugar";
+const ts = require(repo + "/node_modules/typescript");
+const { macroTransformerFactory } = require(repo + "/packages/transformer/dist/index.cjs");
+const R = process.argv[2];
+const files = [path.join(R, "main.ts")];
+const program = ts.createProgram(files, { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, baseUrl: repo, paths: { "typesugar": [repo + "/packages/typesugar/src/index.ts"] } });
+const f = macroTransformerFactory(program, { cacheDir: false });
+const res = ts.transform(program.getSourceFile(files[0]), [f]);
+console.log(ts.createPrinter().printFile(res.transformed[0]));

@@ -1,0 +1,16 @@
+const P = require("/Users/deapovey/src/personal/typesugar/packages/parser/dist/index.cjs");
+const t = (name, f) => { try { console.log(name, JSON.stringify(f())); } catch (e) { console.log(name, "THROW", e.constructor.name, String(e.message).slice(0,150)); } };
+t("regex i flag", () => P.regex(/abc/i).parse("ABC"));
+t("nullable-left-rec opt", () => P.parseGrammarDef('a = "x"? a "y"').size);
+t("nullable-left-rec run", () => { const g = P.buildParser(P.parseGrammarDef('a = "x"? a "y" | "z"')); return g.parse("z"); });
+t("neg-left-rec", () => { const g = P.buildParser(P.parseGrammarDef('a = !"q" a | "z"')); return g.parse("z"); });
+t("star-left-rec", () => { const g = P.buildParser(P.parseGrammarDef('a = b a "y" | "z"\nb = "x"*')); return g.parse("z"); });
+t("codegen nullable", () => { const code = P.generateParserCode(P.parseGrammarDef('a = "x"? a "y" | "z"')); return eval(code).parse("z"); });
+t("unicode escape", () => P.parseGrammarDef('a = "\\u0041"').get("a"));
+t("group newline", () => P.parseGrammarDef('a = ( "a"\n "b" )').get("a"));
+t("runtime interp", () => P.grammar(["a = ", ""], '"x"').parse("x"));
+t("codegen vs runtime err", () => { const src='list = item* ";"\nitem = "a" "b"'; const r=P.buildParser(P.parseGrammarDef(src)); let m1,m2; try{r.parseAll("aaX;")}catch(e){m1=e.message} try{eval(P.generateParserCode(P.parseGrammarDef(src))).parseAll("aaX;")}catch(e){m2=e.message} return [m1,m2]; });
+t("result shape single-seq", () => { const src='a = "x" "y"'; return [P.buildParser(P.parseGrammarDef(src)).parse("xy"), eval(P.generateParserCode(P.parseGrammarDef(src))).parse("xy")]; });
+t("rule names", () => [...P.parseGrammarDef('a = b\nb = "x"').keys()]);
+t("eq in literal", () => P.parseGrammarDef('a = "=" b\nb = "x"').get("a"));
+t("slash literal", () => P.parseGrammarDef("a = '/' 'x'").get("a"));

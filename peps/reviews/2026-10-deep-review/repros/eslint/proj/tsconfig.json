@@ -1,0 +1,1 @@
+{"compilerOptions":{"target":"ES2022","module":"ESNext","strict":true,"noLib":false},"include":["*.ts"]}
