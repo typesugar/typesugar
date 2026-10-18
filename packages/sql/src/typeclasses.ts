@@ -980,8 +980,12 @@ export function toSnakeCase(str: string): string {
  * Column configuration for derivation.
  */
 export interface DeriveColumn<A> {
-  /** TypeScript field name */
-  readonly field: string;
+  /**
+   * TypeScript field name. Optional: in `deriveRead`/`deriveWrite`/
+   * `deriveCodec` configs the record key is the field name, and that is what
+   * they use.
+   */
+  readonly field?: string;
   /** SQL column name (defaults to snake_case of field) */
   readonly column?: string;
   /** Meta instance for this field */

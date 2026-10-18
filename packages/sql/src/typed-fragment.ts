@@ -36,7 +36,8 @@
  * @module
  */
 
-import { Fragment, SqlParam } from "./types.js";
+import { Fragment, SqlParam, type QueryCardinality, type RowDecoder } from "./types.js";
+import { ConnectionIO } from "./connection-io.js";
 import {
   type DialectLike,
   FRAGMENT_BRAND,
@@ -165,11 +166,29 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
 /**
  * A SQL query with compile-time parameter and result types.
  *
+ * A TypedQuery is a description: it carries the SQL, an optional row decoder
+ * (set by `to`/`map`) and a cardinality (set by `unique`/`option`). Running it
+ * with `ConnectionIO.query(q)` / `ConnectionIO.queryMany(q)` applies both.
+ *
  * @typeParam P - Parameter types
  * @typeParam R - Result row type
  */
 export class TypedQuery<P extends readonly unknown[], R> {
-  constructor(readonly fragment: TypedFragment<P, R>) {}
+  /**
+   * Decodes one result row. `undefined` means "no decoder of its own": rows
+   * are returned as-is, or decoded by the Read passed to `ConnectionIO.query`.
+   */
+  readonly decoder: RowDecoder<R> | undefined;
+  /** How many rows the query must return; checked when it runs. */
+  readonly cardinality: QueryCardinality;
+
+  constructor(
+    readonly fragment: TypedFragment<P, R>,
+    options: { decoder?: RowDecoder<R>; cardinality?: QueryCardinality } = {}
+  ) {
+    this.decoder = options.decoder;
+    this.cardinality = options.cardinality ?? "many";
+  }
 
   /**
    * Brand for the result type (used by type inference).
@@ -186,32 +205,47 @@ export class TypedQuery<P extends readonly unknown[], R> {
     return { sql: text, params: params as SqlParam[] };
   }
 
+  /** Decode one row with this query's decoder (the raw row if it has none). */
+  decode(row: SqlRow): R | null {
+    return this.decoder ? this.decoder(row) : (row as R);
+  }
+
+  private derive<R2>(decoder: RowDecoder<R2>, cardinality = this.cardinality): TypedQuery<P, R2> {
+    return new TypedQuery(this.fragment as unknown as TypedFragment<P, R2>, {
+      decoder,
+      cardinality,
+    });
+  }
+
   /**
-   * Map over the result type.
+   * Transform each result row with `f`, after this query's decoder (or on the
+   * raw row if it has none). A row the decoder rejects (`null`) stays `null`.
    */
   map<R2>(f: (row: R) => R2): TypedQuery<P, R2> {
-    return new TypedQuery(this.fragment as unknown as TypedFragment<P, R2>);
+    return this.derive((row) => {
+      const a = this.decode(row);
+      return a === null ? null : f(a);
+    });
+  }
+
+  /** Decode result rows with `read` (replacing any earlier decoder). */
+  to<R2>(read: Pick<Read<R2>, "read">): TypedQuery<P, R2> {
+    return this.derive((row) => read.read(row));
   }
 
   /**
-   * Convert to a list-returning query.
-   */
-  to<R2>(meta: Read<R2>): TypedQuery<P, R2> {
-    return new TypedQuery(this.fragment as unknown as TypedFragment<P, R2>);
-  }
-
-  /**
-   * Unique result (expects exactly one row).
+   * Expect exactly one row: running the query fails unless one row comes back.
    */
   unique(): TypedQuery<P, R> {
-    return this;
+    return this.derive((row) => this.decode(row), "unique");
   }
 
   /**
-   * Optional result (expects zero or one row).
+   * Expect zero or one row: running the query gives `null` for no row and
+   * fails for more than one.
    */
   option(): TypedQuery<P, R | null> {
-    return new TypedQuery(this.fragment as unknown as TypedFragment<P, R | null>);
+    return this.derive<R | null>((row) => this.decode(row), "option");
   }
 }
 
@@ -239,17 +273,31 @@ export class TypedUpdate<P extends readonly unknown[]> {
   }
 
   /**
-   * Execute and return affected row count.
+   * A program that executes this statement and returns the affected row
+   * count (same as `ConnectionIO.execute(update)`); run it with a Transactor.
    */
-  run(): TypedUpdate<P> {
-    return this;
+  run(): ConnectionIO<number> {
+    return ConnectionIO.execute(this);
   }
 
   /**
-   * Execute with generated keys returned.
+   * A query that runs this statement with `RETURNING <columns>` appended
+   * (unless it already has a RETURNING clause), so the generated keys come
+   * back as rows. Columns are validated as identifiers.
    */
   withGeneratedKeys<K extends string>(...columns: K[]): TypedQuery<P, Record<K, unknown>> {
-    return new TypedQuery(this.fragment as unknown as TypedFragment<P, Record<K, unknown>>);
+    if (columns.length === 0) {
+      throw new TypeError("withGeneratedKeys: name at least one column");
+    }
+    const cols = columns.map((c) => assertSafeIdentifier(c, "RETURNING column")).join(", ");
+    // Same check ConnectionIO.executeWithKeys makes, on the rendered SQL (so a
+    // RETURNING inside a nested fragment counts).
+    const hasReturning = /\bRETURNING\b/i.test(renderFragment(this.fragment).text);
+    const base = this.fragment.toFragment();
+    const frag = hasReturning ? base : base.append(Fragment.raw(`RETURNING ${cols}`));
+    return new TypedQuery(
+      new TypedFragment<P, Record<K, unknown>>([...frag.segments], [...frag.params])
+    );
   }
 }
 

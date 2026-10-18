@@ -22,24 +22,13 @@
  * // TypedFragment<[number], User>
  * ```
  *
- * ### Schema-Based Inference (with typeInfo)
+ * ### Schema-Based Inference — NOT IMPLEMENTED
  *
- * ```typescript
- * // When @schema is declared, columns are inferred
- * @schema
- * interface UsersTable {
- *   id: number;
- *   name: string;
- *   email: string;
- *   created_at: Date;
- * }
- *
- * const selectAll = sql$`SELECT * FROM users`;
- * // TypedFragment<[], UsersTable>
- *
- * const selectSome = sql$`SELECT id, name FROM users`;
- * // TypedFragment<[], Pick<UsersTable, 'id' | 'name'>>
- * ```
+ * `@schema("users")` on an interface was meant to make `SELECT * FROM users`
+ * infer that interface. It is not implemented: `@schema` only reports a
+ * warning, and without an explicit type argument a SELECT infers
+ * `Record<string, unknown>`. (`registerSchema` + `tryInferResultType` are the
+ * unfinished plumbing for it.)
  *
  * ## SQL Parsing
  *
@@ -62,6 +51,7 @@
 
 import * as ts from "typescript";
 import {
+  defineAttributeMacro,
   defineExpressionMacro,
   type MacroContext,
   createGenericRegistry,
@@ -192,7 +182,8 @@ function extractColumnName(expr: string): string | null {
 
 /**
  * Global registry mapping table names to their TypeScript types.
- * Populated by @schema decorator at compile time.
+ * Nothing populates it yet (`@schema` does not; see schemaMacro), so schema
+ * inference never fires unless a macro-time caller uses `registerSchema`.
  */
 const schemaRegistry: GenericRegistry<string, string> = createGenericRegistry({
   name: "SchemaRegistry",
@@ -360,7 +351,10 @@ function classifyInterpolation(checker: ts.TypeChecker, type: ts.Type): ParamSlo
     return { kind: "spread", params: args[0] };
   }
   if (name === "Fragment") return { kind: "spread", params: undefined };
-  return { kind: "value", type };
+  // Widen literal types: `${0}` binds a number, not the literal `0` — a
+  // literal param type would make andTyped/orTyped over fragments built from
+  // different literals (`${0}` and `${1}`) fail to type-check.
+  return { kind: "value", type: checker.getBaseTypeOfLiteralType?.(type) ?? type };
 }
 
 /**
@@ -461,7 +455,7 @@ function tryInferResultType(ctx: MacroContext, parsed: ParsedSql): ts.TypeNode |
 // ============================================================================
 
 /**
- * @schema — Register a type as a database table schema.
+ * @schema — NOT IMPLEMENTED: schema-based result-type inference.
  *
  * ```typescript
  * @schema("users")
@@ -470,16 +464,30 @@ function tryInferResultType(ctx: MacroContext, parsed: ParsedSql): ts.TypeNode |
  *   name: string;
  * }
  * ```
+ *
+ * The intent is that this registers `UsersTable` for table `users` so
+ * `sql$\`SELECT * FROM users\`` infers `UsersTable`. That inference is not
+ * implemented (PEP-059 P1 #14): the decorator registers nothing and `sql$`
+ * keeps inferring `Record<string, unknown>`. Rather than strip the decorator
+ * silently, the macro reports a warning saying so and leaves the declaration
+ * unchanged. Use `sql$<UsersTable>\`...\`` for an explicit result type.
  */
-export const schemaMacro = defineExpressionMacro({
+export const schemaMacro = defineAttributeMacro({
   name: "schema",
+  validTargets: ["interface", "type", "class"],
   expand(
     ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    // This is handled at the attribute level, not expression level
-    return callExpr;
+    decorator: ts.Decorator,
+    target: ts.Node,
+    _args: readonly ts.Expression[]
+  ): ts.Node {
+    ctx.reportWarning(
+      decorator,
+      "@schema: schema-based result-type inference is not implemented; this decorator " +
+        "has no effect and sql$ will not infer row types from it. Give the row type " +
+        "explicitly instead: sql$<RowType>`...`"
+    );
+    return target;
   },
 });
 
