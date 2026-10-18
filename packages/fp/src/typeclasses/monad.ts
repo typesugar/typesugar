@@ -10,6 +10,7 @@
  *   - Associativity: m.flatMap(f).flatMap(g) === m.flatMap(a => f(a).flatMap(g))
  */
 
+import { type Acc, emptyAcc, snoc, accToArray } from "../internal/acc.js";
 import type { Applicative, Apply, map2 } from "./applicative.js";
 import type { Kind } from "../hkt.js";
 
@@ -69,11 +70,13 @@ export function ifM<F>(
 /**
  * Filter the monadic value based on a predicate
  */
-export function mfilter<F extends FlatMap<F>>(
-  F: FlatMap<F>,
+export function mfilter<F>(
+  F: Monad<F>,
   empty: Kind<F, never>
 ): <A>(fa: Kind<F, A>, p: (a: A) => boolean) => Kind<F, A> {
-  return (fa, p) => F.flatMap(fa, (a) => (p(a) ? F.map(fa, () => a) : empty));
+  // pure(a), not map(fa, () => a): the latter re-runs fa's structure for each
+  // kept element (for arrays, [1,2,3] -> [2,2,2,3,3,3]).
+  return (fa, p) => F.flatMap(fa, (a) => (p(a) ? F.pure(a) : empty));
 }
 
 /**
@@ -103,12 +106,12 @@ export function compose<F>(
  */
 export function whileM<F>(F: Monad<F>): <A>(p: Kind<F, boolean>, body: Kind<F, A>) => Kind<F, A[]> {
   return <A>(p: Kind<F, boolean>, body: Kind<F, A>): Kind<F, A[]> => {
-    const loop = (acc: A[]): Kind<F, A[]> =>
+    const loop = (acc: Acc<A>): Kind<F, A[]> =>
       F.flatMap(p, (continue_) => {
-        if (!continue_) return F.pure(acc);
-        return F.flatMap(body, (a: A) => loop([...acc, a]));
+        if (!continue_) return F.pure(accToArray(acc));
+        return F.flatMap(body, (a: A) => loop(snoc(acc, a)));
       });
-    return loop([]);
+    return loop(emptyAcc);
   };
 }
 
@@ -117,12 +120,12 @@ export function whileM<F>(F: Monad<F>): <A>(p: Kind<F, boolean>, body: Kind<F, A
  */
 export function untilM<F>(F: Monad<F>): <A>(body: Kind<F, A>, p: Kind<F, boolean>) => Kind<F, A[]> {
   return <A>(body: Kind<F, A>, p: Kind<F, boolean>): Kind<F, A[]> => {
-    const loop = (acc: A[]): Kind<F, A[]> =>
+    const loop = (acc: Acc<A>): Kind<F, A[]> =>
       F.flatMap(body, (a: A) => {
-        const newAcc = [...acc, a];
-        return F.flatMap(p, (done) => (done ? F.pure(newAcc) : loop(newAcc)));
+        const newAcc = snoc(acc, a);
+        return F.flatMap(p, (done) => (done ? F.pure(accToArray(newAcc)) : loop(newAcc)));
       });
-    return loop([]);
+    return loop(emptyAcc);
   };
 }
 

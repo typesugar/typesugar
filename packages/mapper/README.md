@@ -26,6 +26,10 @@ const dto = transformInto<User, UserDTO>(user, {
 // dto is { firstName: "John", lastName: "Doe", age: 30, role: "user" }
 ```
 
+Each copied field is type-checked against its target field (a mismatched or optional-to-required
+field is a compile error), and the config must be written inline in the call: the macro reads it
+at compile time, so a config held in a variable is reported as an error.
+
 ## Documentation
 
 - [Object Mapping guide](https://typesugar.org/guides/mapper) — full reference

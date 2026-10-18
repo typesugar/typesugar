@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as ts from "typescript";
 import { transformCode, TransformationPipeline } from "../src/pipeline.js";
+import { transformWithDecls, DECLS_FILE } from "./opaque-fixture.js";
 import { registerTypeRewrite, clearTypeRewrites, type TypeRewriteEntry } from "@typesugar/core";
 
 beforeEach(() => {
@@ -18,10 +19,11 @@ afterEach(() => {
   clearTypeRewrites();
 });
 
-function registerOptionType(): void {
+function registerOptionType(declarationFile: string = DECLS_FILE): void {
   registerTypeRewrite({
     typeName: "Option",
     sourceModule: "@typesugar/fp/data/option",
+    declarationFile,
     underlyingTypeText: "T | null",
     methods: new Map([
       ["map", "map"],
@@ -52,7 +54,7 @@ declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;
 const result = Some(5).map(n => n * 2);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-basic.ts" });
+    const result = transformWithDecls(code, "type-rewrite-basic.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // Some(5) is also erased by constructor erasure (Wave 4), so expect map(5, ...).
     // The fixture's own `declare function map(...)` collides by name with the
@@ -77,7 +79,7 @@ declare function filter<A>(o: Option<A>, pred: (a: A) => boolean): Option<A>;
 const result = Some(5).map(n => n * 2).filter(n => n > 5);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-chain.ts" });
+    const result = transformWithDecls(code, "type-rewrite-chain.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // Some(5) erased to 5 (Wave 4), methods erased to function calls (Wave 3).
     // Both `map` and `filter` collide with the fixture's own `declare function`s,
@@ -100,7 +102,7 @@ declare function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B>;
 const result = Some(5).toString();
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-no-match.ts" });
+    const result = transformWithDecls(code, "type-rewrite-no-match.ts");
     // toString is NOT in the methods map, so it should not be rewritten
     expect(result.code).toContain(".toString()");
   });
@@ -116,7 +118,7 @@ declare const x: MyType;
 x.doStuff();
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-unregistered.ts" });
+    const result = transformWithDecls(code, "type-rewrite-unregistered.ts");
     expect(result.code).toContain(".doStuff()");
   });
 
@@ -132,7 +134,7 @@ declare const opt: Option<number>;
 const result = opt.map(n => n + 1);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-generic.ts" });
+    const result = transformWithDecls(code, "type-rewrite-generic.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // `map` collides with the fixture's own `declare function map`, so
     // ctx.ensureImport aliases it.
@@ -148,7 +150,7 @@ declare function clamp(x: number, lo: number, hi: number): number;
 const result = (42).clamp(0, 100);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-existing-ext.ts" });
+    const result = transformWithDecls(code, "type-rewrite-existing-ext.ts");
     // The clamp extension should still work via the existing path (not the type rewrite registry)
     // number is not in the type rewrite registry, so it falls through
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
@@ -165,7 +167,7 @@ declare function Some<A>(a: A): Option<A>;
 const result = Some(5).map(n => n * 2);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-import-inject.ts" });
+    const result = transformWithDecls(code, "type-rewrite-import-inject.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // Some(5) erased to 5, map injected as standalone call
     expect(result.code).toContain("map(5,");
@@ -185,7 +187,7 @@ declare function Some<A>(a: A): Option<A>;
 const result = Some(5).map(n => n * 2);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-no-dup-import.ts" });
+    const result = transformWithDecls(code, "type-rewrite-no-dup-import.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("map(5,");
     // Count occurrences of the import — should be exactly 1
@@ -206,7 +208,7 @@ const a = Some(5).map(n => n * 2);
 const b = Some(10).filter(n => n > 3);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-grouped-imports.ts" });
+    const result = transformWithDecls(code, "type-rewrite-grouped-imports.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // Some() erased by constructor erasure
     expect(result.code).toContain("map(5,");
@@ -220,6 +222,7 @@ const b = Some(10).filter(n => n > 3);
     registerTypeRewrite({
       typeName: "List",
       sourceModule: "@typesugar/fp/data/list",
+      declarationFile: DECLS_FILE,
       underlyingTypeText: "Array<T>",
       methods: new Map([["foldLeft", "foldLeft"]]),
     });
@@ -233,7 +236,7 @@ declare const xs: List<number>;
 const sum = xs.foldLeft(0, (acc, n) => acc + n);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-multi-args.ts" });
+    const result = transformWithDecls(code, "type-rewrite-multi-args.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // `foldLeft` collides with the fixture's own `declare function foldLeft`,
     // so ctx.ensureImport aliases it.
@@ -245,6 +248,7 @@ const sum = xs.foldLeft(0, (acc, n) => acc + n);
     registerTypeRewrite({
       typeName: "IO",
       sourceModule: "@typesugar/fp/io",
+      declarationFile: DECLS_FILE,
       underlyingTypeText: "() => T",
       methods: new Map([["run", "unsafeRunSync"]]),
     });
@@ -258,7 +262,7 @@ declare const io: IO<number>;
 const value = io.run();
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-rewrite-renamed.ts" });
+    const result = transformWithDecls(code, "type-rewrite-renamed.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // `unsafeRunSync` collides with the fixture's own `declare function
     // unsafeRunSync`, so ctx.ensureImport aliases it.
@@ -283,7 +287,7 @@ declare function Some<A>(a: A): Option<A>;
 const result = Some(5);
     `.trim();
 
-    const result = transformCode(code, { fileName: "ctor-identity.ts" });
+    const result = transformWithDecls(code, "ctor-identity.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = 5");
     expect(result.code).not.toContain("Some(");
@@ -301,7 +305,7 @@ declare const x: number;
 const result = Some(x + 1);
     `.trim();
 
-    const result = transformCode(code, { fileName: "ctor-identity-expr.ts" });
+    const result = transformWithDecls(code, "ctor-identity-expr.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("x + 1");
     expect(result.code).not.toContain("Some(");
@@ -318,7 +322,7 @@ declare const None: Option<never>;
 const result = None;
     `.trim();
 
-    const result = transformCode(code, { fileName: "ctor-constant.ts" });
+    const result = transformWithDecls(code, "ctor-constant.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = null");
     expect(result.code).not.toMatch(/\bNone\b.*=/);
@@ -332,7 +336,7 @@ declare function MyWrapper(x: number): number;
 const result = MyWrapper(42);
     `.trim();
 
-    const result = transformCode(code, { fileName: "ctor-unregistered.ts" });
+    const result = transformWithDecls(code, "ctor-unregistered.ts");
     expect(result.code).toContain("MyWrapper(42)");
   });
 });
@@ -354,7 +358,7 @@ declare const opt: Option<number>;
 const result = opt.value;
     `.trim();
 
-    const result = transformCode(code, { fileName: "accessor-identity.ts" });
+    const result = transformWithDecls(code, "accessor-identity.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = opt");
     expect(result.code).not.toContain(".value");
@@ -372,7 +376,7 @@ declare const opt: Option<number>;
 const result = opt.toString();
     `.trim();
 
-    const result = transformCode(code, { fileName: "accessor-unregistered.ts" });
+    const result = transformWithDecls(code, "accessor-unregistered.ts");
     // toString is not an accessor in the registry, so it should remain
     expect(result.code).toContain(".toString()");
   });
@@ -389,7 +393,7 @@ declare const opt: Option<number>;
 const result = opt.map(n => n + 1);
     `.trim();
 
-    const result = transformCode(code, { fileName: "accessor-not-method.ts" });
+    const result = transformWithDecls(code, "accessor-not-method.ts");
     // .map() is a method call, should be rewritten via method erasure not accessor
     // erasure. `map` collides with the fixture's own `declare function map`, so
     // ctx.ensureImport aliases it.
@@ -417,7 +421,7 @@ const f = (n: number) => n * 2;
 const result = Some(5).map(f).getOrElse(() => 0);
     `.trim();
 
-    const result = transformCode(code, { fileName: "e2e-pipeline.ts" });
+    const result = transformWithDecls(code, "e2e-pipeline.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     // Some(5) should be erased to 5
@@ -445,7 +449,7 @@ declare function getOrElse<A>(o: Option<A>, defaultValue: () => A): A;
 const result = None;
     `.trim();
 
-    const result = transformCode(code, { fileName: "e2e-none.ts" });
+    const result = transformWithDecls(code, "e2e-none.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = null");
   });
@@ -468,7 +472,7 @@ declare function getOrElse<A>(o: Option<A>, defaultValue: () => A): A;
 const result = Some(10).map(n => n * 2).filter(n => n > 5).getOrElse(() => 0);
     `.trim();
 
-    const result = transformCode(code, { fileName: "e2e-complex.ts" });
+    const result = transformWithDecls(code, "e2e-complex.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     // Some(10) → 10, then chained method erasure. `map`/`filter`/`getOrElse`
@@ -488,7 +492,7 @@ const result = Some(10).map(n => n * 2).filter(n => n > 5).getOrElse(() => 0);
 
 describe("PEP-030 Wave 1: type identity normalization", () => {
   it("rewrites method call when type is imported from another module", () => {
-    registerOptionType();
+    registerOptionType("/test/option-def.ts");
 
     // Simulate a multi-file project where Option is defined in another module.
     // When TypeScript resolves a type from another file, typeToString may emit
@@ -546,7 +550,7 @@ describe("PEP-030 Wave 1: type identity normalization", () => {
   });
 
   it("rewrites accessor when type is imported from another module", () => {
-    registerOptionType();
+    registerOptionType("/test/option-def2.ts");
 
     const optionDefFile = "/test/option-def2.ts";
     const mainFile = "/test/main2.ts";
@@ -606,7 +610,7 @@ declare const opt: Option<number>;
 const result = opt.map(n => n + 1);
     `.trim();
 
-    const result = transformCode(code, { fileName: "type-identity-symbol.ts" });
+    const result = transformWithDecls(code, "type-identity-symbol.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // `map` collides with the fixture's own `declare function map`, so
     // ctx.ensureImport aliases it.

@@ -304,7 +304,16 @@ export function traverse<W, A, B>(
   W: Monoid<W>
 ): Writer<W, B[]> {
   return arr.reduce(
-    (acc: Writer<W, B[]>, a: A) => acc.flatMap((bs) => f(a).map((b) => [...bs, b]), W),
+    // `bs` is this call's own accumulator (Writer is eager), so push in place.
+    (acc: Writer<W, B[]>, a: A) =>
+      acc.flatMap(
+        (bs) =>
+          f(a).map((b) => {
+            bs.push(b);
+            return bs;
+          }),
+        W
+      ),
     Writer.pure([], W)
   );
 }
@@ -320,8 +329,7 @@ export function sequence<W, A>(writers: Writer<W, A>[], W: Monoid<W>): Writer<W,
  * Execute a Writer action repeatedly n times
  */
 export function replicateA<W, A>(n: number, wa: Writer<W, A>, W: Monoid<W>): Writer<W, A[]> {
-  if (n <= 0) return Writer.pure([], W);
-  return wa.flatMap((a) => replicateA(n - 1, wa, W).map((as) => [a, ...as]), W);
+  return traverse(Array.from({ length: Math.max(0, n) }), () => wa, W);
 }
 
 /**

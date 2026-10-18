@@ -47,6 +47,9 @@ export const collectTypesMacro = defineExpressionMacro({
   module: "typesugar",
   description:
     "Collect all exported types matching a glob pattern across the project at compile time.",
+  // Output depends on the whole program and on the calling file's location,
+  // not on the call text — never serve it from the expansion cache.
+  cacheable: false,
 
   expand(
     ctx: MacroContext,
@@ -115,9 +118,14 @@ function collectTypesFromProgram(ctx: MacroContext, pattern: string): CollectedT
     // Check if the file matches the pattern
     if (!matchesPattern(sourceFile.fileName, pattern, sourceDir)) continue;
 
+    // Module paths are emitted relative to the calling file's directory with
+    // `/` separators (like `moduleIndex`) — never the absolute build path,
+    // which would leak the build machine's layout and differ per checkout.
+    const modulePath = relativeModulePath(sourceDir, sourceFile.fileName);
+
     // Scan the file for type declarations
     ts.forEachChild(sourceFile, (node) => {
-      const collected = extractTypeDeclaration(node, sourceFile, pattern);
+      const collected = extractTypeDeclaration(node, modulePath, pattern);
       if (collected) {
         results.push(collected);
       }
@@ -125,6 +133,11 @@ function collectTypesFromProgram(ctx: MacroContext, pattern: string): CollectedT
   }
 
   return results;
+}
+
+/** `path.relative`, normalized to `/` separators (stable across platforms). */
+function relativeModulePath(fromDir: string, fileName: string): string {
+  return path.relative(fromDir, fileName).replace(/\\/g, "/");
 }
 
 /**
@@ -168,7 +181,7 @@ function simpleGlobMatch(filepath: string, pattern: string): boolean {
  */
 function extractTypeDeclaration(
   node: ts.Node,
-  sourceFile: ts.SourceFile,
+  modulePath: string,
   pattern: string
 ): CollectedType | null {
   const isExported = hasExportModifier(node);
@@ -178,7 +191,7 @@ function extractTypeDeclaration(
       if (matchesDecoratorPattern(node, pattern)) {
         return {
           name: node.name.text,
-          module: sourceFile.fileName,
+          module: modulePath,
           kind: "interface",
           exported: isExported,
         };
@@ -191,7 +204,7 @@ function extractTypeDeclaration(
       if (matchesDecoratorPattern(node, pattern)) {
         return {
           name: node.name.text,
-          module: sourceFile.fileName,
+          module: modulePath,
           kind: "class",
           exported: isExported,
         };
@@ -204,7 +217,7 @@ function extractTypeDeclaration(
       if (matchesDecoratorPattern(node, pattern)) {
         return {
           name: node.name.text,
-          module: sourceFile.fileName,
+          module: modulePath,
           kind: "type",
           exported: isExported,
         };
@@ -217,7 +230,7 @@ function extractTypeDeclaration(
       if (matchesDecoratorPattern(node, pattern)) {
         return {
           name: node.name.text,
-          module: sourceFile.fileName,
+          module: modulePath,
           kind: "enum",
           exported: isExported,
         };
@@ -240,12 +253,18 @@ function matchesKindPattern(pattern: string, kind: string): boolean {
 }
 
 /**
- * Check if a node has a decorator matching the pattern.
+ * Check if a node has a decorator (or JSDoc tag) matching the pattern.
  */
 function matchesDecoratorPattern(node: ts.Node, pattern: string): boolean {
   if (!pattern.startsWith("@")) return true; // Not a decorator pattern
 
   const decoratorName = pattern.slice(1);
+
+  // JSDoc form (`/** @entity */`) — the decorator-free spelling every other
+  // typesugar attribute supports.
+  if (ts.getJSDocTags(node).some((t) => t.tagName.text === decoratorName)) {
+    return true;
+  }
 
   if (ts.canHaveDecorators(node)) {
     const decorators = ts.getDecorators(node);
@@ -279,6 +298,8 @@ export const moduleIndexMacro = defineExpressionMacro({
   name: "moduleIndex",
   module: "typesugar",
   description: "Get a compile-time index of all modules and their exported symbols in the project.",
+  // Depends on the whole program and the calling file's location.
+  cacheable: false,
 
   expand(
     ctx: MacroContext,
@@ -320,7 +341,7 @@ export const moduleIndexMacro = defineExpressionMacro({
       });
 
       if (exports.length > 0) {
-        const relativePath = path.relative(
+        const relativePath = relativeModulePath(
           path.dirname(ctx.sourceFile.fileName),
           sourceFile.fileName
         );

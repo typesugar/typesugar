@@ -45,42 +45,64 @@
  * };
  * ```
  *
+ * ## What this entry point contains (runtime-safe)
+ *
+ * This module is what APPLICATION code imports, so it ends up in app
+ * bundles. It therefore only re-exports the TypeScript-free runtime stubs
+ * (`@typesugar/macros/runtime`) -- it does not import the TypeScript
+ * compiler, the macro definitions, or Node built-ins (review finding #16:
+ * it used to `import "@typesugar/macros"` for its side effects and
+ * `export *` from `@typesugar/core`, pulling ~10 MB including `typescript`
+ * into every browser bundle).
+ *
+ * Macro-AUTHORING APIs (`defineExpressionMacro`, `globalRegistry`,
+ * `defineCustomDerive`, `defineSyntaxMacro`, `globalExpansionTracker`, ...)
+ * live at `typesugar/core` (or `@typesugar/core` / `@typesugar/macros`).
+ * Their types are still re-exported here as types only. Macro definitions
+ * are registered by the transformer, which loads macro packages itself.
+ *
  * @module
  */
 
 // ============================================================================
-// Core types and utilities
+// Types
 // ============================================================================
 
-export * from "@typesugar/core";
+// Core types (type-only: no runtime import of @typesugar/core, which loads
+// the TypeScript compiler). Value APIs: `typesugar/core`.
+export type * from "@typesugar/core";
 
 // HKT marker type (re-exported from @typesugar/type-system for convenience)
 export type { _ } from "@typesugar/type-system";
 
-// ============================================================================
-// All built-in macros
-// ============================================================================
-
-// Import macros (this registers them with the global registry)
-// Re-export specific items to avoid conflicts with @typesugar/core exports
-import "@typesugar/macros";
+import type { TypesugarConfig } from "@typesugar/core";
 
 /**
- * Register all built-in macros to the global registry.
- * Idempotent - can be called multiple times without side effects.
- *
- * This is useful for testing or manual macro registration.
+ * Helper for type-safe `typesugar.config.ts` files. Identity at runtime
+ * (defined here so a config file importing it from "typesugar" does not
+ * load the compiler).
  */
-export function registerAllMacros(): void {
-  // Importing @typesugar/macros automatically registers all built-in macros
-  // This function exists for explicit registration in test setups
-  // The actual registration happens when the module loads
+export function defineConfig(cfg: TypesugarConfig): TypesugarConfig {
+  return cfg;
 }
 
-// Re-export runtime stubs (these are what users typically import)
+/**
+ * @deprecated No-op. Macros are registered by the transformer, which loads
+ * macro packages itself; importing "typesugar" no longer registers them.
+ * Tests that need the registry populated should `import "@typesugar/macros"`.
+ */
+export function registerAllMacros(): void {
+  // intentionally empty
+}
+
+// ============================================================================
+// Runtime stubs (what users import; the transformer replaces the calls)
+// ============================================================================
+
 export {
   // Typeclass runtime stubs
   typeclass,
+  impl,
   instance,
   deriving,
   summon,
@@ -94,30 +116,41 @@ export {
   registerExtension,
   // Comptime
   comptime,
+  type ComptimePermissions,
   // Derive
   derive,
   // Operators
   pipe,
   compose,
   flow,
-  getOperatorString,
   // Reflect
   reflect,
   typeInfo,
   fieldNames,
   validator,
+  type ValidationResult,
   // Conditional compilation
   cfg,
+  cfgAttr,
   // File includes
   includeStr,
+  includeText,
+  includeBytes,
   includeJson,
-  // Static assert
+  // Static assert / compile-time diagnostics
   staticAssert,
+  compileError,
+  compileWarning,
   // Tail recursion
   tailrec,
   // HKT
   hkt,
-  // Derive name symbols
+} from "@typesugar/macros/runtime";
+
+// Derive name markers (@derive(Eq, Ord, ...)). These are runtime values
+// that survive in user code after expansion (`import { derive, Eq }` is
+// kept), so they must come from a TypeScript-free module too.
+export {
   Eq,
   Ord,
   Clone,
@@ -127,23 +160,4 @@ export {
   Json,
   Builder,
   TypeGuard,
-} from "@typesugar/macros";
-
-// ============================================================================
-// Namespace exports for backward compatibility
-// ============================================================================
-
-// Reflection and introspection
-import * as reflectNs from "@typesugar/reflect";
-export { reflectNs as reflectNamespace };
-
-// Derive macros (@derive(Eq, Ord, Debug, ...))
-import * as deriveNs from "@typesugar/derive";
-export { deriveNs as deriveNamespace };
-
-// Functional composition
-export { pipeMacro, composeMacro } from "@typesugar/macros";
-
-// Scala 3-style typeclasses (@typeclass, @impl, @derive, summon, extend)
-import * as typeclassNs from "@typesugar/typeclass";
-export { typeclassNs as typeclassNamespace };
+} from "./derive-markers.js";

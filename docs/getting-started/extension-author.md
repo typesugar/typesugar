@@ -34,7 +34,7 @@ npm install --save-dev @typesugar/transformer @typesugar/testing ts-patch
     "declaration": true,
     "outDir": "./dist",
     "plugins": [
-      { "name": "typesugar/language-service" },
+      { "name": "@typesugar/transformer/language-service" },
       { "transform": "@typesugar/transformer", "type": "program" }
     ]
   }

@@ -27,6 +27,7 @@
 import type { Linter, ESLint } from "eslint";
 import { createProcessor } from "./processor.js";
 import { createFullProcessor, clearTransformCache } from "./full-processor.js";
+import { PLUGIN_VERSION } from "./version.js";
 
 const lightweightProcessor = createProcessor();
 const fullProcessor = createFullProcessor();
@@ -34,7 +35,7 @@ const fullProcessor = createFullProcessor();
 const plugin: ESLint.Plugin = {
   meta: {
     name: "@typesugar/eslint-plugin",
-    version: "0.1.0",
+    version: PLUGIN_VERSION,
   },
 
   processors: {

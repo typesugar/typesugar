@@ -6,7 +6,7 @@
  * - @reflect decorator for enabling reflection on types
  * - typeInfo<T>() for getting type metadata
  * - fieldNames<T>() for getting field names
- * - validator<T>() for generating runtime type guards
+ * - validator<T>() for generating runtime validators (returning ValidationResult<T>)
  *
  * @example
  * ```typescript
@@ -24,8 +24,9 @@
  * const names = fieldNames<User>();
  * // ["name", "age"]
  *
- * const isUser = validator<User>();
- * if (isUser(data)) { ... }
+ * const validateUser = validator<User>();
+ * const result = validateUser(data);
+ * if (result.success) { result.value.name; } else { result.errors; }
  * ```
  *
  * @module

@@ -42,3 +42,6 @@ yarn.lock
 
 # Config files that shouldn't be reformatted
 tsconfig*.json
+
+# Throwaway reproduction scripts recorded with review findings
+peps/reviews/*/repros/

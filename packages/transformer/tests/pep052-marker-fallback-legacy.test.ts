@@ -27,7 +27,7 @@
 import { describe, it, expect } from "vitest";
 import * as path from "path";
 import { transformCode } from "@typesugar/transformer/pipeline";
-import "@typesugar/fp"; // registers the @typesugar/fp/syntax/show fallback
+import "@typesugar/fp/macros"; // registers the @typesugar/fp/syntax/show fallback
 
 function twoFileHost(files: Record<string, string>) {
   return {

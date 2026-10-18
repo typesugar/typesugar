@@ -1,28 +1,25 @@
 /**
  * EffectHash Derive Macro
  *
- * Generates Effect Hash instances from TypeScript interfaces.
+ * Generates a structural hash function for a TypeScript interface/type,
+ * combining `Hash.hash` of each field with Effect 3's curried
+ * `Hash.combine(b)(self)`.
+ *
+ * Effect 3's `Hash.Hash` is not a type-class instance: it is an interface an
+ * object implements on itself (`[Hash.symbol](): number`), so an external
+ * `{ [Hash.symbol](self) }` object is never consulted by `Hash.hash`. This
+ * derive therefore produces a plain `(self: T) => number` function, consistent
+ * with `@derive(EffectEqual)` (equal values hash equally, because both use
+ * Effect's structural `Equal.equals` / `Hash.hash` per field).
  *
  * @example
  * ```typescript
  * @derive(EffectHash)
- * interface User {
- *   id: string;
- *   name: string;
- *   age: number;
- * }
+ * interface Point { x: number; y: number }
  *
  * // Generates:
- * export const UserHash: Hash.Hash<User> = {
- *   [Hash.symbol]: (self: User) =>
- *     Hash.combine(
- *       Hash.hash(self.id),
- *       Hash.combine(
- *         Hash.hash(self.name),
- *         Hash.hash(self.age)
- *       )
- *     ),
- * };
+ * export const PointHash = (self: Point): number =>
+ *   Hash.combine(Hash.hash(self["y"]))(Hash.combine(Hash.hash(self["x"]))(Hash.string("Point")));
  * ```
  *
  * @module
@@ -37,104 +34,147 @@ import {
   defineDeriveMacro,
 } from "@typesugar/core";
 
-/**
- * Generate hash combination for fields.
- */
-function generateFieldHashes(fields: DeriveFieldInfo[]): string {
-  if (fields.length === 0) {
-    return "0";
+function hashCall(ctx: MacroContext, fn: string, arg: ts.Expression): ts.Expression {
+  return ctx.factory.createCallExpression(
+    ctx.factory.createPropertyAccessExpression(ctx.ensureImport("Hash", "effect"), fn),
+    undefined,
+    [arg]
+  );
+}
+
+/** Fold the fields into `seed` with `Hash.combine(Hash.hash(self[k]))(acc)`. */
+function foldFields(
+  ctx: MacroContext,
+  fields: DeriveFieldInfo[],
+  self: ts.Expression,
+  seed: ts.Expression
+): ts.Expression {
+  const f = ctx.factory;
+  let acc = seed;
+  for (const field of fields) {
+    acc = f.createCallExpression(
+      hashCall(
+        ctx,
+        "combine",
+        hashCall(
+          ctx,
+          "hash",
+          f.createElementAccessExpression(self, f.createStringLiteral(field.name))
+        )
+      ),
+      undefined,
+      [acc]
+    );
   }
+  return acc;
+}
 
-  if (fields.length === 1) {
-    return `Hash.hash(self.${fields[0].name})`;
-  }
-
-  // Build nested Hash.combine calls
-  // Hash.combine(hash1, Hash.combine(hash2, hash3))
-  const hashes = fields.map((f) => `Hash.hash(self.${f.name})`);
-
-  let result = hashes[hashes.length - 1];
-  for (let i = hashes.length - 2; i >= 0; i--) {
-    result = `Hash.combine(${hashes[i]}, ${result})`;
-  }
-
-  return result;
+/** `export const <name> = (self: T): number => <body>;` */
+function exportArrow(
+  f: ts.NodeFactory,
+  constName: string,
+  typeName: string,
+  body: ts.ConciseBody
+): ts.Statement {
+  return f.createVariableStatement(
+    [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+    f.createVariableDeclarationList(
+      [
+        f.createVariableDeclaration(
+          constName,
+          undefined,
+          undefined,
+          f.createArrowFunction(
+            undefined,
+            undefined,
+            [
+              f.createParameterDeclaration(
+                undefined,
+                undefined,
+                "self",
+                undefined,
+                f.createTypeReferenceNode(typeName)
+              ),
+            ],
+            f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword),
+            f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+            body
+          )
+        ),
+      ],
+      ts.NodeFlags.Const
+    )
+  );
 }
 
 /**
  * EffectHash derive macro.
- *
- * Generates an Effect Hash instance for the type.
  */
 export const EffectHashDerive: DeriveMacro = defineDeriveMacro({
   name: "EffectHash",
   module: "@typesugar/effect",
-  description: "Generate an Effect Hash instance for hashing",
+  description: "Generate an Effect-compatible structural hash function for a type",
 
   expand(
     ctx: MacroContext,
-    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+    _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    const f = ctx.factory;
     const { name, kind, fields, variants, discriminant } = typeInfo;
+    const self = f.createIdentifier("self");
 
+    if (kind === "sum" && (!variants || variants.length === 0 || !discriminant)) {
+      // Derive type info only resolves variants that are NAMED types
+      // (`type S = Circle | Rect`); for inline object-literal members it
+      // reports none, and an empty switch/Union would silently be wrong.
+      ctx.reportError(
+        _target,
+        `@derive(EffectHash) on ${name}: could not resolve the union's variants. ` +
+          "Declare each variant as a named interface/type (type S = A | B) with a literal discriminant."
+      );
+      return [];
+    }
     if (kind === "sum" && variants && discriminant) {
-      return generateSumTypeHash(ctx, name, discriminant, variants);
+      const selfAny = f.createParenthesizedExpression(
+        f.createAsExpression(self, f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword))
+      );
+      const body = f.createBlock(
+        [
+          f.createSwitchStatement(
+            f.createElementAccessExpression(selfAny, f.createStringLiteral(discriminant)),
+            f.createCaseBlock([
+              ...variants.map((v) =>
+                f.createCaseClause(f.createStringLiteral(v.tag), [
+                  f.createReturnStatement(
+                    foldFields(
+                      ctx,
+                      v.fields,
+                      selfAny,
+                      hashCall(ctx, "string", f.createStringLiteral(v.tag))
+                    )
+                  ),
+                ])
+              ),
+              f.createDefaultClause([f.createReturnStatement(hashCall(ctx, "hash", self))]),
+            ])
+          ),
+        ],
+        true
+      );
+      return [exportArrow(f, `${name}Hash`, name, body)];
     }
 
-    // Product type
-    const fieldHashes = generateFieldHashes(fields);
-    const hashName = `${name}Hash`;
-
-    const code = `
-export const ${hashName}: Hash.Hash<${name}> = {
-  [Hash.symbol](self: ${name}): number {
-    return ${fieldHashes};
-  }
-};
-`;
-
-    return ctx.parseStatements(code);
+    return [
+      exportArrow(
+        f,
+        `${name}Hash`,
+        name,
+        foldFields(ctx, fields, self, hashCall(ctx, "string", f.createStringLiteral(name)))
+      ),
+    ];
   },
 });
-
-/**
- * Generate Hash for sum types (discriminated unions).
- */
-function generateSumTypeHash(
-  ctx: MacroContext,
-  typeName: string,
-  discriminant: string,
-  variants: Array<{ tag: string; typeName: string; fields: DeriveFieldInfo[] }>
-): ts.Statement[] {
-  const hashName = `${typeName}Hash`;
-
-  // Assign a unique base hash to each variant tag
-  const cases = variants
-    .map((variant, index) => {
-      const baseHash = `Hash.hash("${variant.tag}")`;
-      const fieldHashes = generateFieldHashes(variant.fields);
-      const combinedHash =
-        variant.fields.length > 0 ? `Hash.combine(${baseHash}, ${fieldHashes})` : baseHash;
-      return `      case "${variant.tag}":
-        return ${combinedHash};`;
-    })
-    .join("\n");
-
-  const code = `
-export const ${hashName}: Hash.Hash<${typeName}> = {
-  [Hash.symbol](self: ${typeName}): number {
-    switch (self.${discriminant}) {
-${cases}
-      default:
-        return 0;
-    }
-  }
-};
-`;
-
-  return ctx.parseStatements(code);
-}
 
 /**
  * Runtime placeholder for @derive(EffectHash).

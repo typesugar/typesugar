@@ -70,7 +70,7 @@ export abstract class IOApp {
     } catch (error) {
       console.error("Unhandled error:", error);
       if (typeof process !== "undefined" && process.exit) {
-        process.exit(ExitFailure);
+        process.exit(exitCodeOf(error));
       }
     }
   }
@@ -167,7 +167,7 @@ export class IOAppBuilder {
   run(program: IO<ExitCode>): void {
     const fullProgram = IO.flatMap(this._beforeAll, () =>
       IO.guarantee(
-        IO.handleError(program, (e) => IO.flatMap(this._onError(e), () => IO.pure(ExitFailure))),
+        IO.handleError(program, (e) => IO.flatMap(this._onError(e), () => IO.pure(exitCodeOf(e)))),
         this._afterAll
       )
     );
@@ -214,6 +214,11 @@ export class AppError extends Error {
     super(message);
     this.name = "AppError";
   }
+}
+
+/** The exit code for a failure: an AppError's own code, else ExitFailure. */
+export function exitCodeOf(error: unknown): ExitCode {
+  return error instanceof AppError ? error.exitCode : ExitFailure;
 }
 
 /**

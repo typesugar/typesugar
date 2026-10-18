@@ -19,8 +19,8 @@
  * // Expression-level: evaluates to the expression or undefined
  * const debugInfo = cfg("debug", () => collectDebugInfo());
  *
- * // With complex conditions
- * const result = cfg("platform.node && !test", () => {
+ * // With complex conditions (&&, ||, !, ===/!== or ==/!=, parentheses)
+ * const result = cfg("platform === 'node' && !test", () => {
  *   return initNodeServer();
  * });
  * ```
@@ -123,13 +123,43 @@ function setNestedValue(obj: Record<string, unknown>, path: string, value: unkno
  * - Dotted path: "platform.node" → config.platform.node
  * - AND: "debug && !production"
  * - OR: "debug || test"
- * - Equality: "platform == 'browser'"
- * - Inequality: "platform != 'node'"
+ * - Equality: "platform === 'browser'" (or `==`)
+ * - Inequality: "platform !== 'node'" (or `!=`)
+ * - Literals: 'strings', "strings", numbers, true/false/null/undefined
  * - Parentheses: "(debug || test) && !production"
+ *
+ * A condition outside this grammar throws `ConfigConditionError` (from
+ * `@typesugar/core`); the cfg macros report it at the call site.
  */
 export function evaluateCfgCondition(condition: string): boolean {
   const config = getCfgConfig();
   return evaluateConditionExpr(condition.trim(), config);
+}
+
+/**
+ * Evaluate a condition for a macro call site. A `ConfigConditionError`
+ * (unsupported condition syntax) is reported as an error on `node` and
+ * yields `undefined`, so the caller can leave the code untouched instead of
+ * silently picking a branch. Other errors propagate.
+ *
+ * Matched by `name` rather than `instanceof` so a duplicated copy of
+ * `@typesugar/core` in node_modules still matches.
+ */
+export function evaluateConditionOrReport(
+  ctx: MacroContext,
+  node: ts.Node,
+  condition: string,
+  evaluate: (condition: string) => boolean
+): boolean | undefined {
+  try {
+    return evaluate(condition);
+  } catch (error) {
+    if (error instanceof Error && error.name === "ConfigConditionError") {
+      ctx.reportError(node, error.message);
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 // =============================================================================
@@ -138,6 +168,7 @@ export function evaluateCfgCondition(condition: string): boolean {
 
 export const cfgMacro = defineExpressionMacro({
   name: "cfg",
+  cacheable: false, // depends on the cfg configuration, not just the call text
   module: "typesugar",
   description:
     "Conditional compilation: include an expression only when a condition is true at compile time.",
@@ -168,7 +199,8 @@ export const cfgMacro = defineExpressionMacro({
     }
 
     // Evaluate the condition
-    const isActive = evaluateCfgCondition(condition);
+    const isActive = evaluateConditionOrReport(ctx, callExpr, condition, evaluateCfgCondition);
+    if (isActive === undefined) return callExpr;
 
     if (isActive) {
       // Condition is true — expand the then branch
@@ -204,6 +236,7 @@ export const cfgMacro = defineExpressionMacro({
 
 export const cfgAttrMacro = defineAttributeMacro({
   name: "cfgAttr",
+  cacheable: false, // depends on the cfg configuration, not just the call text
   module: "typesugar",
   description: "Conditionally include a declaration based on a compile-time condition.",
   validTargets: ["class", "method", "property", "function"] as AttributeTarget[],
@@ -232,7 +265,8 @@ export const cfgAttrMacro = defineAttributeMacro({
       return target;
     }
 
-    const isActive = evaluateCfgCondition(condition);
+    const isActive = evaluateConditionOrReport(ctx, decorator, condition, evaluateCfgCondition);
+    if (isActive === undefined) return target;
 
     if (isActive) {
       // Condition is true — keep the declaration (strip the decorator)

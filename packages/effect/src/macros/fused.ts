@@ -4,29 +4,24 @@
  * Detects consecutive Effect operations and fuses them into single operations,
  * eliminating intermediate Effect allocations.
  *
+ * **Experimental.** Only the nested, data-first call form is recognised.
+ *
  * ## Fusion Rules
  *
- * 1. **map∘map fusion**: `Effect.map(Effect.map(x, f), g)` → `Effect.map(x, x => g(f(x)))`
- * 2. **flatMap identity**: `Effect.flatMap(Effect.succeed(x), f)` → `f(x)`
- * 3. **map-flatMap fusion**: `Effect.flatMap(Effect.map(x, f), g)` → `Effect.flatMap(x, x => g(f(x)))`
- * 4. **tap reordering** (not yet implemented): `Effect.map(Effect.tap(x, f), g)` → `Effect.tap(Effect.map(x, g), f)`
+ * 1. **map∘map fusion**: `Effect.map(Effect.map(x, f), g)` → `Effect.map(x, compose(f, g))`
+ * 2. **map-flatMap fusion**: `Effect.flatMap(Effect.map(x, f), g)` → `Effect.flatMap(x, compose(f, g))`
+ *
+ * `compose(f, g)` is `((f, g) => (x) => g(f(x)))(f, g)`: `f` and `g` are
+ * evaluated once, in source order, and nothing is inlined by name.
+ * `pipe(x, Effect.map(f), Effect.map(g))` (data-last) is NOT fused.
  *
  * ## Usage
  *
  * ```typescript
- * // Before: 3 intermediate Effect allocations
- * @fused
- * const pipeline = (x: number) =>
- *   pipe(
- *     Effect.succeed(x),
- *     Effect.map(x => x + 1),
- *     Effect.map(x => x * 2),
- *     Effect.map(x => String(x))
- *   )
- *
- * // After: single Effect.map with composed function
- * const pipeline = (x: number) =>
- *   Effect.map(Effect.succeed(x), x => String((x + 1) * 2))
+ * const pipeline = fusePipeline(
+ *   Effect.map(Effect.map(Effect.succeed(1), (x) => x + 1), (x) => x * 2)
+ * )
+ * // → Effect.map(Effect.succeed(1), compose((x) => x + 1, (x) => x * 2))
  * ```
  *
  * Also provides `fusePipeline(expr)` for inline transformation.
@@ -55,13 +50,6 @@ function isEffectCall(node: ts.Node, methodName: string): node is ts.CallExpress
 }
 
 /**
- * Check if expression is Effect.succeed(value)
- */
-function isEffectSucceed(node: ts.Node): node is ts.CallExpression {
-  return isEffectCall(node, "succeed");
-}
-
-/**
  * Check if expression is Effect.map(effect, fn)
  */
 function isEffectMap(node: ts.Node): node is ts.CallExpression {
@@ -76,19 +64,14 @@ function isEffectFlatMap(node: ts.Node): node is ts.CallExpression {
 }
 
 /**
- * Check if expression is Effect.tap(effect, fn)
- */
-function isEffectTap(node: ts.Node): node is ts.CallExpression {
-  return isEffectCall(node, "tap");
-}
-
-/**
  * Extract the arguments from an Effect.map/flatMap/tap call.
  */
 function extractEffectCallArgs(
   call: ts.CallExpression
 ): { effect: ts.Expression; fn: ts.Expression } | null {
-  if (call.arguments.length < 2) return null;
+  // Only the data-first `Effect.map(self, f)` form.
+  if (call.arguments.length !== 2) return null;
+  if (call.arguments.some((a) => ts.isSpreadElement(a))) return null;
   return {
     effect: call.arguments[0],
     fn: call.arguments[1],
@@ -96,82 +79,46 @@ function extractEffectCallArgs(
 }
 
 /**
- * Compose two functions: (x) => g(f(x))
+ * Compose two functions without changing evaluation semantics:
+ *
+ * ```typescript
+ * ((f, g) => (x) => g(f(x)))(F, G)
+ * ```
+ *
+ * `F` and `G` are evaluated exactly once, in their original order (as the
+ * nested `Effect.map(Effect.map(e, F), G)` would), and each element runs `F`
+ * once. An earlier version substituted `F`'s body into `G`'s by identifier
+ * NAME, which rewrote property names/shorthand (`n => ({ n })`), captured
+ * shadowed parameters and duplicated `F`'s side effects at every use.
  */
 function composeFunctions(ctx: MacroContext, f: ts.Expression, g: ts.Expression): ts.Expression {
   const factory = ctx.factory;
-
-  // Generate a unique parameter name
-  const paramName = ctx.generateUniqueName("x");
-
-  // If f is an arrow function (x) => body, we can inline it
-  let fBody: ts.Expression;
-  if (ts.isArrowFunction(f) && f.parameters.length === 1) {
-    const fParamName = f.parameters[0].name;
-    if (ts.isIdentifier(fParamName)) {
-      // Inline f's body, substituting the parameter
-      fBody = ts.isBlock(f.body)
-        ? factory.createCallExpression(f, undefined, [paramName])
-        : substituteIdentifier(ctx, f.body as ts.Expression, fParamName.text, paramName);
-    } else {
-      fBody = factory.createCallExpression(f, undefined, [paramName]);
-    }
-  } else {
-    fBody = factory.createCallExpression(f, undefined, [paramName]);
-  }
-
-  // Now apply g to fBody
-  let gResult: ts.Expression;
-  if (ts.isArrowFunction(g) && g.parameters.length === 1) {
-    const gParamName = g.parameters[0].name;
-    if (ts.isIdentifier(gParamName)) {
-      gResult = ts.isBlock(g.body)
-        ? factory.createCallExpression(g, undefined, [fBody])
-        : substituteIdentifier(ctx, g.body as ts.Expression, gParamName.text, fBody);
-    } else {
-      gResult = factory.createCallExpression(g, undefined, [fBody]);
-    }
-  } else {
-    gResult = factory.createCallExpression(g, undefined, [fBody]);
-  }
-
-  // Create: (x) => gResult
-  return factory.createArrowFunction(
+  const fName = ctx.generateUniqueName("f");
+  const gName = ctx.generateUniqueName("g");
+  const xName = ctx.generateUniqueName("x");
+  const param = (n: ts.Identifier) => factory.createParameterDeclaration(undefined, undefined, n);
+  const composed = factory.createArrowFunction(
     undefined,
     undefined,
-    [
-      factory.createParameterDeclaration(
-        undefined,
-        undefined,
-        paramName,
-        undefined,
-        undefined,
-        undefined
-      ),
-    ],
+    [param(xName)],
     undefined,
     factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    gResult
+    factory.createCallExpression(gName, undefined, [
+      factory.createCallExpression(fName, undefined, [xName]),
+    ])
   );
-}
-
-/**
- * Substitute identifier occurrences in an expression.
- * // TODO: Track scope boundaries to avoid substituting shadowed names
- */
-function substituteIdentifier(
-  ctx: MacroContext,
-  expr: ts.Expression,
-  oldName: string,
-  newExpr: ts.Expression | ts.Identifier
-): ts.Expression {
-  function visit(node: ts.Node): ts.Node {
-    if (ts.isIdentifier(node) && node.text === oldName) {
-      return newExpr;
-    }
-    return ts.visitEachChild(node, visit, ctx.transformContext);
-  }
-  return visit(expr) as ts.Expression;
+  const composer = factory.createArrowFunction(
+    undefined,
+    undefined,
+    [param(fName), param(gName)],
+    undefined,
+    factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    composed
+  );
+  return factory.createCallExpression(factory.createParenthesizedExpression(composer), undefined, [
+    f,
+    g,
+  ]);
 }
 
 /**
@@ -186,61 +133,23 @@ function fuseEffectOps(
 
   // Rule 1: map∘map fusion
   // Effect.map(Effect.map(x, f), g) → Effect.map(x, compose(f, g))
-  if (isEffectMap(node)) {
-    const outerArgs = extractEffectCallArgs(node);
-    if (outerArgs && isEffectMap(outerArgs.effect)) {
-      const innerArgs = extractEffectCallArgs(outerArgs.effect);
-      if (innerArgs) {
-        const composedFn = composeFunctions(ctx, innerArgs.fn, outerArgs.fn);
-        return {
-          result: factory.createCallExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("Effect"),
-              factory.createIdentifier("map")
-            ),
-            undefined,
-            [innerArgs.effect, composedFn]
-          ),
-          fused: true,
-        };
-      }
-    }
-  }
-
-  // Rule 2: flatMap identity
-  // Effect.flatMap(Effect.succeed(x), f) → f(x)
-  if (isEffectFlatMap(node)) {
-    const args = extractEffectCallArgs(node);
-    if (args && isEffectSucceed(args.effect)) {
-      const succeedArgs = args.effect.arguments;
-      if (succeedArgs.length >= 1) {
-        const value = succeedArgs[0];
-        // Apply f to the value
-        return {
-          result: factory.createCallExpression(args.fn, undefined, [value]),
-          fused: true,
-        };
-      }
-    }
-  }
-
   // Rule 3: map-flatMap fusion
-  // Effect.flatMap(Effect.map(x, f), g) → Effect.flatMap(x, x => g(f(x)))
-  if (isEffectFlatMap(node)) {
+  // Effect.flatMap(Effect.map(x, f), g) → Effect.flatMap(x, compose(f, g))
+  //
+  // (There is intentionally no `Effect.flatMap(Effect.succeed(x), f) → f(x)`
+  // rule: it ran `f` when the Effect was CONSTRUCTED instead of when it is run,
+  // and every time it is run — an observable change for any effectful `f`.)
+  if (isEffectMap(node) || isEffectFlatMap(node)) {
     const outerArgs = extractEffectCallArgs(node);
     if (outerArgs && isEffectMap(outerArgs.effect)) {
       const innerArgs = extractEffectCallArgs(outerArgs.effect);
       if (innerArgs) {
         const composedFn = composeFunctions(ctx, innerArgs.fn, outerArgs.fn);
         return {
-          result: factory.createCallExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("Effect"),
-              factory.createIdentifier("flatMap")
-            ),
-            undefined,
-            [innerArgs.effect, composedFn]
-          ),
+          result: factory.updateCallExpression(node, node.expression, node.typeArguments, [
+            innerArgs.effect,
+            composedFn,
+          ]),
           fused: true,
         };
       }
@@ -322,12 +231,10 @@ export const fusedAttribute = defineAttributeMacro({
  * @example
  * ```typescript
  * // Before
- * const result = fusePipeline(
- *   pipe(effect, Effect.map(f), Effect.map(g), Effect.map(h))
- * )
+ * const result = fusePipeline(Effect.map(Effect.map(Effect.map(effect, f), g), h))
  *
- * // After
- * const result = Effect.map(effect, x => h(g(f(x))))
+ * // After (f, g, h each evaluated once)
+ * const result = Effect.map(effect, compose(compose(f, g), h))
  * ```
  */
 export const fusePipelineExpression = defineExpressionMacro({

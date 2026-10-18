@@ -483,3 +483,17 @@ describe("empty input", () => {
     expect(many(char("x")).parseAll("")).toEqual([]);
   });
 });
+
+describe("regex flags (TSP-10)", () => {
+  it("keeps the caller's i/u/s/m flags", () => {
+    expect(regex(/abc/i).parse("ABC").ok).toBe(true);
+    expect(regex(/a.b/s).parse("a\nb").ok).toBe(true);
+    expect(regex(/\u{1F600}/u).parse("\u{1F600}").ok).toBe(true);
+  });
+
+  it("still anchors at the current position, even with g", () => {
+    const r = regex(/b/g);
+    expect(r.parse("ab", 0).ok).toBe(false);
+    expect(r.parse("ab", 1)).toEqual({ ok: true, value: "b", pos: 2 });
+  });
+});

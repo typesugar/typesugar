@@ -40,9 +40,9 @@ describe("SpecializationCache", () => {
       expect(key).toBe("fn1×Array");
     });
 
-    it("sorts brands alphabetically", () => {
+    it("keeps dictionary identities in argument order (order is significant — tc#9)", () => {
       const key = SpecializationCache.computeKey("fn1", ["Monad", "Functor", "Apply"]);
-      expect(key).toBe("fn1×Apply,Functor,Monad");
+      expect(key).toBe("fn1×Monad,Functor,Apply");
     });
 
     it("handles numeric symbol ID", () => {
@@ -55,10 +55,10 @@ describe("SpecializationCache", () => {
       expect(key).toBe("fn1×");
     });
 
-    it("produces consistent keys regardless of input order", () => {
-      const key1 = SpecializationCache.computeKey("fn", ["B", "A"]);
-      const key2 = SpecializationCache.computeKey("fn", ["A", "B"]);
-      expect(key1).toBe(key2);
+    it("distinguishes the same dictionaries passed in a different order (tc#9)", () => {
+      const key1 = SpecializationCache.computeKey("fn", ["0:#1", "1:#2"]);
+      const key2 = SpecializationCache.computeKey("fn", ["0:#2", "1:#1"]);
+      expect(key1).not.toBe(key2);
     });
   });
 

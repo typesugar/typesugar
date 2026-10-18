@@ -9,7 +9,7 @@ import type { Graph, GraphEdge } from "./types.js";
 import { adjacencyList } from "./graph.js";
 import type { Monoid, Ord } from "@typesugar/std";
 import { eqString, hashString } from "@typesugar/std";
-import { graphLike, weightedGraphLike } from "./typeclass.js";
+import { graphLike, weightedGraphLike, type GraphLike } from "./typeclass.js";
 import {
   topoSortG,
   hasCyclesG,
@@ -19,6 +19,7 @@ import {
   shortestPathG,
   dijkstraWithG,
   sccG,
+  requireDirected,
 } from "./generic-algorithms.js";
 
 // Re-export generic algorithms
@@ -54,6 +55,8 @@ export interface PathCostConfig<W> {
 /**
  * Topological sort using Kahn's algorithm.
  * Returns the sorted node IDs, or the cycle that prevented sorting.
+ *
+ * Directed graphs only: throws a `TypeError` for an undirected graph.
  */
 export function topoSort(
   graph: Graph
@@ -61,62 +64,118 @@ export function topoSort(
   return topoSortG(graph, graphLike, eqString, hashString);
 }
 
-/** Detect all elementary cycles using Johnson's algorithm (simplified DFS variant). */
+/**
+ * Detect all elementary cycles using Johnson's algorithm (simplified DFS variant).
+ *
+ * Directed graphs only: throws a `TypeError` for an undirected graph (where
+ * every edge would otherwise be reported as a 2-cycle). The number of
+ * elementary cycles can be exponential in the number of nodes; use
+ * {@link hasCycles} when you only need to know whether one exists.
+ */
 export function detectCycles(graph: Graph): string[][] {
+  requireDirected(graph, graphLike, "detectCycles");
   const adj = adjacencyList(graph);
   const nodeIds = graph.nodes.map((n) => n.id);
+  const order = new Map<string, number>();
+  nodeIds.forEach((id, i) => order.set(id, i));
   const cycles: string[][] = [];
   const blocked = new Set<string>();
   const blockedMap = new Map<string, Set<string>>();
   const stack: string[] = [];
 
-  function unblock(u: string): void {
-    blocked.delete(u);
-    const bSet = blockedMap.get(u);
-    if (bSet) {
-      for (const w of bSet) {
-        if (blocked.has(w)) unblock(w);
+  function unblock(u0: string): void {
+    // Iterative worklist (the recursive version overflows on long chains).
+    const work = [u0];
+    while (work.length > 0) {
+      const u = work.pop()!;
+      blocked.delete(u);
+      const bSet = blockedMap.get(u);
+      if (bSet) {
+        for (const w of bSet) {
+          if (blocked.has(w)) work.push(w);
+        }
+        bSet.clear();
       }
-      bSet.clear();
     }
   }
 
-  function circuit(v: string, start: string): boolean {
-    let found = false;
-    stack.push(v);
-    blocked.add(v);
-
-    for (const w of adj.get(v) ?? []) {
-      if (w === start) {
-        cycles.push([...stack]);
-        found = true;
-      } else if (!blocked.has(w) && nodeIds.indexOf(w) >= nodeIds.indexOf(start)) {
-        if (circuit(w, start)) found = true;
+  // Iterative `circuit(v, start)` with an explicit frame stack, so cycle
+  // detection on long paths doesn't overflow the JS call stack.
+  function circuit(v0: string, start: string, allowed: Set<string>): void {
+    type Frame = { v: string; succ: string[]; i: number; found: boolean };
+    const enter = (v: string): Frame => {
+      stack.push(v);
+      blocked.add(v);
+      return { v, succ: adj.get(v) ?? [], i: 0, found: false };
+    };
+    const frames: Frame[] = [enter(v0)];
+    while (frames.length > 0) {
+      const f = frames[frames.length - 1];
+      if (f.i < f.succ.length) {
+        const w = f.succ[f.i++];
+        if (w === start) {
+          cycles.push([...stack]);
+          f.found = true;
+        } else if (!blocked.has(w) && allowed.has(w)) {
+          frames.push(enter(w));
+        }
+        continue;
       }
-    }
-
-    if (found) {
-      unblock(v);
-    } else {
-      for (const w of adj.get(v) ?? []) {
-        if (!blockedMap.has(w)) blockedMap.set(w, new Set());
-        blockedMap.get(w)!.add(v);
+      // Return from circuit(f.v)
+      frames.pop();
+      if (f.found) {
+        unblock(f.v);
+      } else {
+        for (const w of f.succ) {
+          if (!blockedMap.has(w)) blockedMap.set(w, new Set());
+          blockedMap.get(w)!.add(f.v);
+        }
       }
+      stack.pop();
+      const parent = frames[frames.length - 1];
+      if (parent && f.found) parent.found = true;
     }
-    stack.pop();
-    return found;
   }
 
-  for (const startNode of nodeIds) {
+  // Johnson's outer loop: only search from the least node of a non-trivial
+  // SCC of the subgraph induced by nodes at index >= s, restricted to that SCC.
+  // Nodes that cannot be on a cycle are never walked, which keeps long acyclic
+  // stretches linear instead of quadratic.
+  let s = 0;
+  while (s < nodeIds.length) {
+    const lo = s;
+    const sub: GraphLike<null, string, never> = {
+      nodes: () => nodeIds.slice(lo),
+      edges: () => [],
+      successors: (_g, v) => (adj.get(v) ?? []).filter((w) => (order.get(w) ?? -1) >= lo),
+      edgeSource: (e) => e,
+      edgeTarget: (e) => e,
+      isDirected: () => true,
+    };
+    let best: { least: number; members: string[] } | undefined;
+    for (const scc of sccG(null, sub, eqString, hashString)) {
+      const nontrivial = scc.length > 1 || (adj.get(scc[0]) ?? []).includes(scc[0]);
+      if (!nontrivial) continue;
+      let least = Infinity;
+      for (const m of scc) least = Math.min(least, order.get(m)!);
+      if (!best || least < best.least) best = { least, members: scc };
+    }
+    if (!best) break;
+    const startNode = nodeIds[best.least];
     blocked.clear();
     blockedMap.clear();
-    circuit(startNode, startNode);
+    circuit(startNode, startNode, new Set(best.members));
+    s = best.least + 1;
   }
 
   return cycles;
 }
 
-/** Returns true if the graph contains at least one cycle. */
+/**
+ * Returns true if the graph contains at least one cycle — a directed cycle for
+ * a directed graph, an undirected cycle (including self-loops and parallel
+ * edges) for an undirected graph.
+ */
 export function hasCycles(graph: Graph): boolean {
   return hasCyclesG(graph, graphLike, eqString, hashString);
 }
@@ -219,19 +278,35 @@ export function stronglyConnectedComponents(graph: Graph): string[][] {
   return sccG(graph, graphLike, eqString, hashString);
 }
 
-/** Returns true if the directed graph is a DAG (no cycles). */
+/**
+ * Returns true if the directed graph is a DAG (no cycles).
+ *
+ * Directed graphs only: throws a `TypeError` for an undirected graph.
+ */
 export function isDAG(graph: Graph): boolean {
+  requireDirected(graph, graphLike, "isDAG");
   return !hasCycles(graph);
 }
 
-/** Compute the transitive closure: an edge (u,v) exists iff v is reachable from u. */
+/**
+ * Compute the transitive closure: an edge (u,v) exists iff v is reachable from
+ * u by a path of one or more edges. In particular `u -> u` is included exactly
+ * when u lies on a cycle (or has a self-loop).
+ */
 export function transitiveClosure(graph: Graph): Graph {
   const nodeIds = graph.nodes.map((n) => n.id);
   const newEdges: GraphEdge[] = [];
 
   for (const nodeId of nodeIds) {
     const reached = reachable(graph, nodeId);
-    reached.delete(nodeId);
+    // `reachable` includes the start node itself (the empty path). Keep it only
+    // if a non-empty path returns to it: a directed edge p -> u from some p
+    // reachable from u (p === u is a self-loop). For an undirected graph only
+    // an explicit self-loop counts — walking an edge back is not a cycle.
+    const onCycle = graph.edges.some((e) =>
+      graph.directed ? e.to === nodeId && reached.has(e.from) : e.from === nodeId && e.to === nodeId
+    );
+    if (!onCycle) reached.delete(nodeId);
     for (const target of reached) {
       newEdges.push({ from: nodeId, to: target });
     }

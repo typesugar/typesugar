@@ -49,10 +49,12 @@ export function step(r: Range, s: number): Range {
 }
 
 /**
- * Returns a new Range with start and end swapped and step negated.
+ * Returns a Range over the same elements in reverse order (it starts at the
+ * last element, which for a stepped range need not be `end`).
  *
  * @example
  * (1).to(5).reversed().toArray() // [5, 4, 3, 2, 1]
+ * (1).to(10).step(2).reversed().toArray() // [9, 7, 5, 3, 1]
  */
 export function reversed(r: Range): Range {
   return rangeReversed(r);

@@ -13,6 +13,17 @@
  * - Most-requested JS/TS: deep clone, deep merge, deep equal, get/set path, diff
  */
 
+/**
+ * A fresh prototype-less record. The helpers that build a record from
+ * caller-supplied keys (pickBy, mapValues, mapKeys, mapEntries, invert,
+ * fromPairs, fromMap) use it, so a key like "constructor" or "__proto__" is
+ * stored as plain data instead of hitting `Object.prototype`. Such results have
+ * no inherited methods: use `Object.hasOwn(r, k)`, not `r.hasOwnProperty(k)`.
+ */
+function dict<V>(): Record<string, V> {
+  return Object.create(null) as Record<string, V>;
+}
+
 // ============================================================================
 // Selection (Lodash pick/omit, Ruby slice/except)
 // ============================================================================
@@ -35,7 +46,7 @@ export function pickBy<V>(
   obj: Record<string, V>,
   pred: (value: V, key: string) => boolean
 ): Record<string, V> {
-  const result: Record<string, V> = {};
+  const result = dict<V>();
   for (const [k, v] of Object.entries(obj)) {
     if (pred(v, k)) result[k] = v;
   }
@@ -57,7 +68,7 @@ export function mapValues<V, U>(
   obj: Record<string, V>,
   fn: (value: V, key: string) => U
 ): Record<string, U> {
-  const result: Record<string, U> = {};
+  const result = dict<U>();
   for (const [k, v] of Object.entries(obj)) result[k] = fn(v, k);
   return result;
 }
@@ -66,7 +77,7 @@ export function mapKeys<V>(
   obj: Record<string, V>,
   fn: (key: string, value: V) => string
 ): Record<string, V> {
-  const result: Record<string, V> = {};
+  const result = dict<V>();
   for (const [k, v] of Object.entries(obj)) result[fn(k, v)] = v;
   return result;
 }
@@ -75,7 +86,7 @@ export function mapEntries<V, U>(
   obj: Record<string, V>,
   fn: (key: string, value: V) => [string, U]
 ): Record<string, U> {
-  const result: Record<string, U> = {};
+  const result = dict<U>();
   for (const [k, v] of Object.entries(obj)) {
     const [newK, newV] = fn(k, v);
     result[newK] = newV;
@@ -188,7 +199,7 @@ export function setPath<T extends Record<string, unknown>>(
 // ============================================================================
 
 export function invert(obj: Record<string, string>): Record<string, string> {
-  const result: Record<string, string> = {};
+  const result = dict<string>();
   for (const [k, v] of Object.entries(obj)) result[v] = k;
   return result;
 }
@@ -198,7 +209,7 @@ export function toPairs<V>(obj: Record<string, V>): [string, V][] {
 }
 
 export function fromPairs<V>(pairs: readonly [string, V][]): Record<string, V> {
-  const result: Record<string, V> = {};
+  const result = dict<V>();
   for (const [k, v] of pairs) result[k] = v;
   return result;
 }
@@ -208,7 +219,7 @@ export function toMap<V>(obj: Record<string, V>): Map<string, V> {
 }
 
 export function fromMap<V>(map: Map<string, V>): Record<string, V> {
-  const result: Record<string, V> = {};
+  const result = dict<V>();
   for (const [k, v] of map) result[k] = v;
   return result;
 }
@@ -222,26 +233,90 @@ export function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
+/**
+ * Structural equality.
+ *
+ * - Primitives: `Object.is`, except `0` equals `-0` (so NaN equals NaN).
+ * - Objects must share a prototype: `[1]` is not equal to `{ 0: 1 }`, and a
+ *   class instance is not equal to a plain object with the same fields.
+ * - Date (by time), RegExp (source + flags), boxed primitives (by value),
+ *   Map (same keys by SameValueZero, deep-equal values), Set (same members by
+ *   SameValueZero — members are not compared deeply), typed arrays / DataView
+ *   (bytewise), arrays (element-wise), other objects (own enumerable string
+ *   keys, deep-equal values).
+ * - Cycles are handled.
+ */
 export function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a == null || b == null) return false;
-  if (typeof a !== typeof b) return false;
+  return deepEqualImpl(a, b, new Map());
+}
 
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((v, i) => deepEqual(v, b[i]));
+function deepEqualImpl(a: unknown, b: unknown, seen: Map<object, Set<object>>): boolean {
+  if (a === b || (a !== a && b !== b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+
+  // Assume a pair already being compared is equal (cycle); a real difference
+  // is found elsewhere in the walk.
+  let partners = seen.get(a);
+  if (partners?.has(b)) return true;
+  if (!partners) seen.set(a, (partners = new Set()));
+  partners.add(b);
+
+  if (a instanceof Date) return Object.is(a.getTime(), (b as Date).getTime());
+  if (a instanceof RegExp) {
+    const rb = b as RegExp;
+    return a.source === rb.source && a.flags === rb.flags;
+  }
+  if (a instanceof Number || a instanceof String || a instanceof Boolean) {
+    const va = a.valueOf();
+    const vb = (b as Number | String | Boolean).valueOf();
+    if (!(va === vb || (va !== va && vb !== vb))) return false;
+  }
+  if (a instanceof Map) {
+    const mb = b as Map<unknown, unknown>;
+    if (a.size !== mb.size) return false;
+    for (const [k, v] of a) {
+      if (!mb.has(k) || !deepEqualImpl(v, mb.get(k), seen)) return false;
+    }
+    return true;
+  }
+  if (a instanceof Set) {
+    const sb = b as Set<unknown>;
+    if (a.size !== sb.size) return false;
+    for (const v of a) if (!sb.has(v)) return false;
+    return true;
+  }
+  if (ArrayBuffer.isView(a)) {
+    const vb = b as ArrayBufferView;
+    if (a.byteLength !== vb.byteLength) return false;
+    const x = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+    const y = new Uint8Array(vb.buffer, vb.byteOffset, vb.byteLength);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
+  }
+  if (a instanceof ArrayBuffer) {
+    const x = new Uint8Array(a);
+    const y = new Uint8Array(b as ArrayBuffer);
+    if (x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
+  }
+  if (Array.isArray(a)) {
+    const ab = b as unknown[];
+    if (a.length !== ab.length) return false;
+    for (let i = 0; i < a.length; i++) if (!deepEqualImpl(a[i], ab[i], seen)) return false;
+    return true;
   }
 
-  if (typeof a === "object" && typeof b === "object") {
-    const keysA = Object.keys(a as object);
-    const keysB = Object.keys(b as object);
-    if (keysA.length !== keysB.length) return false;
-    return keysA.every((k) =>
-      deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
-    );
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!deepEqualImpl((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], seen))
+      return false;
   }
-
-  return false;
+  return true;
 }
 
 export function deepFreeze<T extends object>(obj: T): Readonly<T> {

@@ -21,8 +21,8 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "files": [
@@ -43,8 +43,8 @@
     "macros"
   ],
   "peerDependencies": {
-    "eslint": ">=8.0.0",
-    "typescript": ">=5.0.0"
+    "eslint": ">=9.0.0",
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "dependencies": {
     "@typesugar/transformer": "workspace:*"

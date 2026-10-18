@@ -20,10 +20,9 @@
  * Output:
  * ```typescript
  * const runnable = program.pipe(Effect.provide(
- *   Layer.merge(
- *     userRepoLive.pipe(Layer.provide(databaseLive)),
- *     emailServiceLive.pipe(Layer.provide(httpClientLive))
- *   )
+ *   emailServiceLive.pipe(Layer.provideMerge(httpClientLive.pipe(
+ *     Layer.provideMerge(userRepoLive.pipe(Layer.provideMerge(databaseLive)))
+ *   )))
  * ))
  * ```
  *
@@ -36,7 +35,7 @@
 
 import * as ts from "typescript";
 import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
-import { layerRegistry, getLayersForService, type LayerInfo } from "./layer.js";
+import { getLayersForService, type LayerInfo } from "./layer.js";
 import {
   resolveGraph,
   generateLayerComposition,
@@ -94,18 +93,25 @@ function collectImportScope(ctx: MacroContext, maxDepth: number = 5): Set<string
 
 /**
  * Get layers for a service, scoped to the import graph.
- * Falls back to the full registry if no layers are found in scope
- * (to avoid breaking existing code).
+ *
+ * There is deliberately NO fallback to the whole registry: a layer declared
+ * in a file this file doesn't import is not in scope here, so referencing its
+ * variable would be a ReferenceError at runtime (and which layer "wins" would
+ * depend on the order files happened to be transformed in). Out-of-scope
+ * providers are recorded in `outOfScope` so the caller can name them in its
+ * diagnostic.
  */
-function getScopedLayersForService(serviceName: string, importScope: Set<string>): LayerInfo[] {
+function getScopedLayersForService(
+  serviceName: string,
+  importScope: Set<string>,
+  outOfScope: Map<string, LayerInfo[]>
+): LayerInfo[] {
   const allLayers = getLayersForService(serviceName);
-
-  // Filter to layers from files in the import scope
   const scoped = allLayers.filter((l) => importScope.has(l.sourceFile));
-
-  // Fall back to all layers if none found in scope
-  // (graceful degradation for projects not yet using scoped resolution)
-  return scoped.length > 0 ? scoped : allLayers;
+  if (scoped.length === 0 && allLayers.length > 0) {
+    outOfScope.set(serviceName, allLayers);
+  }
+  return scoped;
 }
 
 /**
@@ -150,7 +156,7 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
         callExpr,
         "resolveLayer<R>() requires a type argument specifying the required services"
       );
-      return emptyLayer(factory);
+      return emptyLayer(ctx);
     }
 
     const debug = hasDebugOption(args);
@@ -159,26 +165,38 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
 
     if (requiredServices.length === 0) {
       ctx.reportWarning(callExpr, "resolveLayer<R>() received no recognizable service types");
-      return emptyLayer(factory);
+      return emptyLayer(ctx);
     }
 
     // Build the import scope for scoped resolution
     const importScope = collectImportScope(ctx);
 
+    const outOfScope = new Map<string, LayerInfo[]>();
     const findLayers = (service: string): LayerInfo[] =>
-      getScopedLayersForService(service, importScope);
+      getScopedLayersForService(service, importScope, outOfScope);
 
     try {
       const resolution = resolveGraph(requiredServices, findLayers, undefined, sourceFile.fileName);
 
       if (resolution.missing.length > 0) {
         const missingList = resolution.missing.join(", ");
+        const hints = resolution.missing
+          .filter((m) => outOfScope.has(m))
+          .map(
+            (m) =>
+              `'${m}' is provided by ${outOfScope
+                .get(m)!
+                .map((l) => `${l.name} (${l.sourceFile})`)
+                .join(", ")}, which is not imported by this file`
+          );
         ctx.reportError(
           callExpr,
           `No @layer found for required services: ${missingList}. ` +
-            `Register layers using @layer(${resolution.missing[0]}) decorator.`
+            (hints.length > 0
+              ? hints.join("; ") + ". Import that module or pass the layer to layerMake<R>()."
+              : `Register layers using @layer(${resolution.missing[0]}) decorator.`)
         );
-        return emptyLayer(factory);
+        return emptyLayer(ctx);
       }
 
       // Build expression map from resolved layers (identifiers)
@@ -196,21 +214,21 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
     } catch (e) {
       if (e instanceof CircularDependencyError) {
         ctx.reportError(callExpr, `Circular layer dependency: ${e.cycle.join(" → ")}`);
-        return emptyLayer(factory);
+        return emptyLayer(ctx);
       }
       ctx.reportError(
         callExpr,
         `Failed to resolve layers: ${e instanceof Error ? e.message : String(e)}`
       );
-      return emptyLayer(factory);
+      return emptyLayer(ctx);
     }
   },
 });
 
-function emptyLayer(factory: ts.NodeFactory): ts.Expression {
-  return factory.createPropertyAccessExpression(
-    factory.createIdentifier("Layer"),
-    factory.createIdentifier("empty")
+function emptyLayer(ctx: MacroContext): ts.Expression {
+  return ctx.factory.createPropertyAccessExpression(
+    ctx.ensureImport("Layer", "effect"),
+    ctx.factory.createIdentifier("empty")
   );
 }
 

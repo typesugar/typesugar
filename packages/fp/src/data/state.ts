@@ -13,6 +13,11 @@
 
 /**
  * State monad - a stateful computation
+ *
+ * Stack safety: `traverse`, `sequence`, `replicateA`, `whileM` and `untilM`
+ * run as loops and are stack-safe. A long chain of `flatMap`s you build
+ * yourself is NOT (each step adds a JS stack frame when run); for loops of
+ * many thousands of steps, use those combinators instead of recursion.
  */
 export class State<S, A> {
   constructor(private readonly _run: (s: S) => [A, S]) {}
@@ -257,10 +262,17 @@ export function flatten<S, A>(ssa: State<S, State<S, A>>): State<S, A> {
  * Traverse an array with a State-returning function
  */
 export function traverse<S, A, B>(arr: A[], f: (a: A) => State<S, B>): State<S, B[]> {
-  return arr.reduce(
-    (acc: State<S, B[]>, a: A) => acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
-    State.pure([])
-  );
+  // A single loop (stack-safe, linear) rather than a nested flatMap chain.
+  return new State((s) => {
+    const out: B[] = [];
+    let st = s;
+    for (const a of arr) {
+      const [b, s2] = f(a).run(st);
+      out.push(b);
+      st = s2;
+    }
+    return [out, st];
+  });
 }
 
 /**
@@ -274,19 +286,21 @@ export function sequence<S, A>(states: State<S, A>[]): State<S, A[]> {
  * Execute a State action repeatedly n times
  */
 export function replicateA<S, A>(n: number, sa: State<S, A>): State<S, A[]> {
-  if (n <= 0) return State.pure([]);
-  return sa.flatMap((a) => replicateA(n - 1, sa).map((as) => [a, ...as]));
+  return traverse(Array.from({ length: Math.max(0, n) }), () => sa);
 }
 
 /**
  * Execute an action while a condition holds
  */
 export function whileM<S>(cond: State<S, boolean>, body: State<S, void>): State<S, void> {
-  return cond.flatMap((b) => {
-    if (b) {
-      return body.flatMap(() => whileM(cond, body));
+  return new State((s) => {
+    let st = s;
+    for (;;) {
+      const [b, s2] = cond.run(st);
+      st = s2;
+      if (!b) return [undefined, st];
+      st = body.run(st)[1];
     }
-    return State.pure(undefined);
   });
 }
 
@@ -294,14 +308,15 @@ export function whileM<S>(cond: State<S, boolean>, body: State<S, void>): State<
  * Execute an action until a condition holds
  */
 export function untilM<S>(body: State<S, void>, cond: State<S, boolean>): State<S, void> {
-  return body.flatMap(() =>
-    cond.flatMap((b) => {
-      if (b) {
-        return State.pure(undefined);
-      }
-      return untilM(body, cond);
-    })
-  );
+  return new State((s) => {
+    let st = s;
+    for (;;) {
+      st = body.run(st)[1];
+      const [b, s2] = cond.run(st);
+      st = s2;
+      if (b) return [undefined, st];
+    }
+  });
 }
 
 // ============================================================================

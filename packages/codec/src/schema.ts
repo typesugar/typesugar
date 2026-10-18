@@ -125,7 +125,13 @@ export function generateMigrations(schema: Schema): VersionHistory {
 
       for (const f of fieldsAdded) {
         if (!(f.name in result)) {
-          result[f.name] = f.defaultValue ?? null;
+          if (f.defaultValue !== undefined) {
+            result[f.name] = cloneDefault(f.defaultValue);
+          } else if (!f.optional) {
+            // validateSchema() rejects this shape; keep the field present.
+            result[f.name] = null;
+          }
+          // optional without a default: leave it absent
         }
       }
 
@@ -140,4 +146,14 @@ export function generateMigrations(schema: Schema): VersionHistory {
   }
 
   return { versions, migrations };
+}
+
+/**
+ * Copy a default value so a mutable default (`[]`, `{}`) is never shared
+ * between decoded records.
+ */
+export function cloneDefault<T>(value: T): T {
+  if (value === null || typeof value !== "object") return value;
+  if (typeof structuredClone === "function") return structuredClone(value);
+  return JSON.parse(JSON.stringify(value)) as T;
 }

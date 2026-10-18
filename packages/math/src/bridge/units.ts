@@ -12,9 +12,9 @@
  * for cases where you need exact arithmetic on the numeric value.
  */
 
-import type { Unit, Dimensions, DimExp } from "@typesugar/units";
+import { Unit, type Dimensions, type DimExp } from "@typesugar/units";
 import type { Rational } from "../types/rational.js";
-import { rational, toNumber } from "../types/rational.js";
+import { rational, toNumber, fromNumber } from "../types/rational.js";
 
 /**
  * Extract the numeric value of a unit as a Rational.
@@ -53,11 +53,10 @@ export function unitToRational<
 export function rationalToUnit<
   D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>,
 >(r: Rational, symbol: string = ""): Unit<D> {
-  // Import Unit dynamically to avoid circular deps at module level
-  const { Unit } = require("@typesugar/units") as {
-    Unit: new (value: number, symbol?: string) => Unit<D>;
-  };
-  return new Unit(toNumber(r), symbol);
+  // Static import (MU-15): `require` inside the ESM bundle throws
+  // "Dynamic require of @typesugar/units is not supported". There is no cycle:
+  // @typesugar/units does not depend on @typesugar/math.
+  return new Unit<D>(toNumber(r), symbol);
 }
 
 /**
@@ -71,9 +70,6 @@ export function rationalToUnit<
 export function unitToRationalPrecise<
   D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>,
 >(u: Unit<D>, maxDenominator: bigint = 1000000n): Rational {
-  const { fromNumber } = require("../types/rational.js") as {
-    fromNumber: (n: number, max?: bigint) => Rational;
-  };
   return fromNumber(u.value, maxDenominator);
 }
 

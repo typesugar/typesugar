@@ -150,7 +150,11 @@ error[TS9062]: Method `clamp` does not exist on type `number`
 
 ### Coherence Violation (TS9050)
 
-Two instances for the same (typeclass, type) pair? typesugar catches it:
+> **Planned, not emitted in 1.0.** typesugar does not check coherence yet, so two
+> instances for the same (typeclass, type) pair currently compile silently. The
+> output below is the intended diagnostic.
+
+Two instances for the same (typeclass, type) pair would be reported like this:
 
 ```
 error[TS9050]: Conflicting instance of `Show` for type `Point`

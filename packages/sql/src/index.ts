@@ -27,16 +27,16 @@
  * ```typescript
  * import { sql$, ConnectionIO, Transactor } from "@typesugar/sql";
  *
- * // Type-safe query with inferred types
- * const findUser = sqlKind<User>`
+ * // Type-safe query with inferred parameter types and an explicit row type
+ * const findUser = sql$<User>`
  *   SELECT id, name, email FROM users WHERE id = ${userId}
  * `;
  *
  * // Pure database program
- * const program = ConnectionIO.query(findUser.query(), UserMeta)
+ * const program = ConnectionIO.query(findUser.toQuery(), ReadUser)
  *   .flatMap(user => user
  *     ? ConnectionIO.pure(user)
- *     : ConnectionIO.execute(insertDefaultUser));
+ *     : ConnectionIO.execute(insertDefaultUser).map(() => null));
  *
  * // Execute with transaction
  * const result = await transactor.transact(program);
@@ -51,6 +51,20 @@
 
 export type { SqlParam } from "./types.js";
 export { Fragment, Query, Update } from "./types.js";
+
+// Dialects: placeholder style + identifier quoting (see dialect.ts for the decision)
+export type { SqlDialect, DialectLike, FragmentLike } from "./dialect.js";
+export {
+  dialects,
+  postgres,
+  mysql,
+  sqlite,
+  defaultDialect,
+  quoteIdent,
+  isSafeIdentifier,
+  assertSafeIdentifier,
+  renderFragment,
+} from "./dialect.js";
 
 // Legacy ConnectionIO/Transactor (simple, lightweight)
 export { ConnectionIO as SimpleConnectionIO, Transactor as SimpleTransactor } from "./types.js";
@@ -96,12 +110,9 @@ export type {
   DeriveColumn,
 } from "./typeclasses.js";
 
-// Note: auto-derive-strategies.ts provides Scala 3-style summon auto-derivation
-// for Read/Write/Codec, but is not exported as it depends on internal infrastructure.
-// Use @deriving(Read), @deriving(Write), @deriving(Codec) decorators instead.
-//
-// The @deriving(Read|Write|Codec) macro *definitions* import `typescript` and live
-// in the `./macros` entry (PEP-050), not in this runtime `.` entry.
+// Use @derive(Read), @derive(Write), @derive(Codec), @derive(Meta) to generate
+// instances. The macro *definitions* import `typescript` and live in the
+// `./macros` entry (PEP-050), not in this runtime `.` entry.
 
 // Legacy Meta exports (deprecated - use typeclasses.ts)
 export type {
@@ -160,7 +171,15 @@ export {
 // ConnectionIO — Enhanced Pure Database Operations (Free Monad)
 // ============================================================================
 
-export type { ConnectionOp, Either, DbConnection } from "./connection-io.js";
+export type {
+  ConnectionOp,
+  Either,
+  DbConnection,
+  TransactorOptions,
+  AnyQuery,
+  AnyUpdate,
+  RowReader,
+} from "./connection-io.js";
 
 export {
   ConnectionIO,
@@ -197,42 +216,64 @@ export { Queryable as QueryableCompanion } from "./queryable.js";
 // ============================================================================
 
 import { Fragment, SqlParam } from "./types.js";
+import { isFragmentLike, type FragmentLike } from "./dialect.js";
+import { TypedFragment } from "./typed-fragment.js";
+import type { SqlRow as _SqlRow } from "./meta.js";
+
+/** Splice segments + interpolations, inlining Fragment/TypedFragment interpolations. */
+function buildSegments(
+  segments: readonly string[],
+  interpolations: readonly unknown[]
+): { segments: string[]; params: SqlParam[] } {
+  const resultSegments: string[] = [segments[0] ?? ""];
+  const resultParams: SqlParam[] = [];
+
+  for (let i = 1; i < segments.length; i++) {
+    const interp = interpolations[i - 1];
+
+    if (isFragmentLike(interp)) {
+      // Inline the fragment (Fragment or TypedFragment)
+      const f = interp as FragmentLike;
+      resultSegments[resultSegments.length - 1] += f.segments[0];
+      for (let j = 1; j < f.segments.length; j++) {
+        resultSegments.push(f.segments[j]);
+      }
+      resultParams.push(...(f.params as SqlParam[]));
+      // Append the next segment to the last one
+      resultSegments[resultSegments.length - 1] += segments[i];
+    } else {
+      // It's a plain parameter
+      resultParams.push(interp as SqlParam);
+      resultSegments.push(segments[i]);
+    }
+  }
+
+  return { segments: resultSegments, params: resultParams };
+}
 
 /**
  * Runtime helper for sql`` macro.
  *
- * Handles both Fragment interpolations (which get inlined) and
+ * Handles both Fragment/TypedFragment interpolations (which get inlined) and
  * plain values (which become bound parameters).
  */
 export function __sql_build(segments: string[], interpolations: unknown[]): Fragment {
-  const resultSegments: string[] = [];
-  const resultParams: SqlParam[] = [];
+  const r = buildSegments(segments, interpolations);
+  return new Fragment(r.segments, r.params);
+}
 
-  for (let i = 0; i < segments.length; i++) {
-    if (i === 0) {
-      resultSegments.push(segments[i]);
-    } else {
-      const interp = interpolations[i - 1];
-
-      if (interp instanceof Fragment) {
-        // Inline the fragment
-        const lastIdx = resultSegments.length - 1;
-        resultSegments[lastIdx] += interp.segments[0];
-        for (let j = 1; j < interp.segments.length; j++) {
-          resultSegments.push(interp.segments[j]);
-        }
-        resultParams.push(...interp.params);
-        // Append the next segment to the last one
-        resultSegments[resultSegments.length - 1] += segments[i];
-      } else {
-        // It's a plain parameter
-        resultParams.push(interp as SqlParam);
-        resultSegments.push(segments[i]);
-      }
-    }
-  }
-
-  return new Fragment(resultSegments, resultParams);
+/**
+ * Runtime helper for the sql$`` macro: like {@link __sql_build}, but returns a
+ * TypedFragment. The macro supplies the inferred `<P, R>` type arguments.
+ * Interpolated values are bound as plain parameters (no wrapper objects);
+ * fragment interpolations are inlined.
+ */
+export function __typed_sql_build<P extends readonly unknown[] = unknown[], R = _SqlRow>(
+  segments: readonly string[],
+  interpolations: readonly unknown[]
+): TypedFragment<P, R> {
+  const r = buildSegments(segments, interpolations);
+  return new TypedFragment<P, R>(r.segments, r.params);
 }
 
 // ============================================================================
@@ -270,4 +311,22 @@ Fragment.prototype.toUpdate = function (): Update {
  */
 export function sql(strings: TemplateStringsArray, ...values: unknown[]): Fragment {
   return __sql_build([...strings], values);
+}
+
+/**
+ * Typed SQL tagged template — fallback when the macro transform isn't applied.
+ *
+ * With the transformer, `sql$` is expanded at compile time and the parameter
+ * tuple type is inferred from the interpolations; without it, this runtime
+ * version builds the same TypedFragment (with `unknown[]` params).
+ *
+ * ```typescript
+ * const q = sql$<User>`SELECT id, name FROM users WHERE id = ${id}`;
+ * ```
+ */
+export function sql$<R = _SqlRow>(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): TypedFragment<unknown[], R> {
+  return __typed_sql_build<unknown[], R>([...strings], values);
 }

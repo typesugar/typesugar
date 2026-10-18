@@ -26,11 +26,24 @@ export interface FieldLayout {
   readonly encoding?: "le" | "be";
 }
 
-/** Create a binary codec with an explicit field layout. */
-export function createBinaryCodec<T>(schema: Schema, layout: FieldLayout[]): Codec<T> {
+/**
+ * Create a binary codec with an explicit field layout.
+ *
+ * `layout` describes the CURRENT schema version. Fixed-offset layouts cannot
+ * be inferred for older versions, so `previousLayouts` maps each older
+ * version number to the layout its data was written with; `decodeAny()`
+ * decodes old data with that layout and then runs the migration chain.
+ * Old data whose version has no registered layout is rejected rather than
+ * misread with the current offsets.
+ */
+export function createBinaryCodec<T>(
+  schema: Schema,
+  layout: FieldLayout[],
+  previousLayouts: Readonly<Record<number, FieldLayout[]>> = {}
+): Codec<T> {
   const history = generateMigrations(schema);
 
-  const totalSize = HEADER_SIZE + layout.reduce((max, f) => Math.max(max, f.offset + f.size), 0);
+  const totalSize = HEADER_SIZE + layoutSize(layout);
 
   return {
     schema,
@@ -51,6 +64,7 @@ export function createBinaryCodec<T>(schema: Schema, layout: FieldLayout[]): Cod
     decode(data: string | Uint8Array): T {
       const bytes = ensureBytes(data);
       validateHeader(bytes, schema.version);
+      checkLength(bytes, layout, schema.version);
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       return decodeBinary(layout, view) as T;
     },
@@ -61,7 +75,22 @@ export function createBinaryCodec<T>(schema: Schema, layout: FieldLayout[]): Cod
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const version = view.getUint16(2, true);
 
-      let record = decodeBinary(layout, view);
+      if (version > schema.version) {
+        throw new Error(
+          `Cannot decode v${version} data with a v${schema.version} codec. ` +
+            `Upgrade the codec schema to v${version} or later.`
+        );
+      }
+      const dataLayout = version === schema.version ? layout : previousLayouts[version];
+      if (!dataLayout) {
+        throw new Error(
+          `Binary codec "${schema.name}": no binary layout for v${version} data ` +
+            `(pass it in createBinaryCodec's previousLayouts).`
+        );
+      }
+      checkLength(bytes, dataLayout, version);
+
+      let record = decodeBinary(dataLayout, view);
 
       if (version < schema.version) {
         for (const step of history.migrations) {
@@ -74,6 +103,40 @@ export function createBinaryCodec<T>(schema: Schema, layout: FieldLayout[]): Cod
       return record as T;
     },
   };
+}
+
+function layoutSize(layout: readonly FieldLayout[]): number {
+  return layout.reduce((max, f) => Math.max(max, f.offset + f.size), 0);
+}
+
+function checkLength(bytes: Uint8Array, layout: readonly FieldLayout[], version: number): void {
+  const need = HEADER_SIZE + layoutSize(layout);
+  if (bytes.byteLength < need) {
+    throw new Error(
+      `Binary codec: data truncated — v${version} layout needs ${need} bytes, got ${bytes.byteLength}`
+    );
+  }
+}
+
+const INT_RANGES = {
+  uint8: [0, 0xff],
+  uint16: [0, 0xffff],
+  uint32: [0, 0xffffffff],
+  int8: [-0x80, 0x7f],
+  int16: [-0x8000, 0x7fff],
+  int32: [-0x80000000, 0x7fffffff],
+} as const;
+
+/** Range-check an integer field value (no silent wrapping / truncation). */
+function intValue(field: FieldLayout, v: unknown): number {
+  const n = Number(v ?? 0);
+  const [min, max] = INT_RANGES[field.type as keyof typeof INT_RANGES];
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new RangeError(
+      `Binary codec: field "${field.name}" (${field.type}) cannot hold ${String(v)} (range ${min}..${max})`
+    );
+  }
+  return n;
 }
 
 function ensureBytes(data: string | Uint8Array): Uint8Array {
@@ -106,22 +169,22 @@ function encodeBinary(value: Record<string, unknown>, layout: FieldLayout[], vie
 
     switch (field.type) {
       case "uint8":
-        view.setUint8(abs, Number(v ?? 0));
+        view.setUint8(abs, intValue(field, v));
         break;
       case "uint16":
-        view.setUint16(abs, Number(v ?? 0), le);
+        view.setUint16(abs, intValue(field, v), le);
         break;
       case "uint32":
-        view.setUint32(abs, Number(v ?? 0), le);
+        view.setUint32(abs, intValue(field, v), le);
         break;
       case "int8":
-        view.setInt8(abs, Number(v ?? 0));
+        view.setInt8(abs, intValue(field, v));
         break;
       case "int16":
-        view.setInt16(abs, Number(v ?? 0), le);
+        view.setInt16(abs, intValue(field, v), le);
         break;
       case "int32":
-        view.setInt32(abs, Number(v ?? 0), le);
+        view.setInt32(abs, intValue(field, v), le);
         break;
       case "float32":
         view.setFloat32(abs, Number(v ?? 0), le);
@@ -132,7 +195,10 @@ function encodeBinary(value: Record<string, unknown>, layout: FieldLayout[], vie
       case "string": {
         const str = String(v ?? "");
         const encoded = new TextEncoder().encode(str);
-        const len = Math.min(encoded.length, field.size - 2);
+        let len = Math.min(encoded.length, field.size - 2);
+        // Truncate on a code-point boundary: never split a UTF-8 sequence
+        // (a byte of the form 10xxxxxx continues the previous character).
+        while (len > 0 && len < encoded.length && (encoded[len] & 0xc0) === 0x80) len--;
         view.setUint16(abs, len, le);
         const target = new Uint8Array(view.buffer, view.byteOffset + abs + 2, len);
         target.set(encoded.subarray(0, len));
@@ -183,6 +249,11 @@ function decodeBinary(layout: FieldLayout[], view: DataView): Record<string, unk
         break;
       case "string": {
         const len = view.getUint16(abs, le);
+        if (len > field.size - 2) {
+          throw new Error(
+            `Binary codec: corrupt data — string field "${field.name}" length ${len} exceeds its ${field.size - 2}-byte slot`
+          );
+        }
         const bytes = new Uint8Array(view.buffer, view.byteOffset + abs + 2, len);
         result[field.name] = new TextDecoder().decode(bytes);
         break;

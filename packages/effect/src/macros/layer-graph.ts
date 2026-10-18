@@ -231,6 +231,24 @@ export function resolveGraph(
 
 /**
  * Generate the Layer composition AST from a resolved graph.
+ *
+ * Layers are folded in topological order (dependencies first) with
+ * `Layer.provideMerge`:
+ *
+ * ```typescript
+ * // sorted: [C, B, A]   (A requires B, B requires C)
+ * aLive.pipe(Layer.provideMerge(bLive.pipe(Layer.provideMerge(cLive))))
+ * ```
+ *
+ * Each step feeds EVERY previously built service into the next layer and keeps
+ * all outputs, so transitive dependencies are wired (A gets a B that already
+ * has its C) and the result provides every service in the graph. The
+ * expression is linear in the number of layers, and Effect memoizes each
+ * layer value, so a shared dependency is built once.
+ *
+ * (Previously this emitted `Layer.merge(l1, l2, l3, ...)`, but Effect 3's
+ * `Layer.merge` takes exactly two layers — the rest were silently dropped —
+ * and each dependency was provided "raw", leaking its own requirements.)
  */
 export function generateLayerComposition(
   ctx: MacroContext,
@@ -239,80 +257,39 @@ export function generateLayerComposition(
 ): ts.Expression {
   const { factory } = ctx;
   const { sorted, graph } = resolution;
-  const layerExprs: ts.Expression[] = [];
+  const layerId = (): ts.Identifier => ctx.ensureImport("Layer", "effect");
 
+  let acc: ts.Expression | undefined;
   for (const service of sorted) {
     const entry = graph.get(service);
     if (!entry) continue;
-
     const baseExpr = layerExpressions.get(entry.layer.name);
     if (!baseExpr) continue;
 
-    let expr: ts.Expression = baseExpr;
-    const deps = entry.dependencies;
-
-    if (deps.length > 0) {
-      const depExprs: ts.Expression[] = [];
-      for (const dep of deps) {
-        const depEntry = graph.get(dep);
-        if (depEntry) {
-          const depExpr = layerExpressions.get(depEntry.layer.name);
-          if (depExpr) depExprs.push(depExpr);
-        }
-      }
-
-      if (depExprs.length > 0) {
-        let depExpr: ts.Expression;
-        if (depExprs.length === 1) {
-          depExpr = depExprs[0];
-        } else {
-          depExpr = factory.createCallExpression(
-            factory.createPropertyAccessExpression(
-              factory.createIdentifier("Layer"),
-              factory.createIdentifier("merge")
-            ),
-            undefined,
-            depExprs
-          );
-        }
-
-        expr = factory.createCallExpression(
-          factory.createPropertyAccessExpression(expr, factory.createIdentifier("pipe")),
-          undefined,
-          [
-            factory.createCallExpression(
-              factory.createPropertyAccessExpression(
-                factory.createIdentifier("Layer"),
-                factory.createIdentifier("provide")
-              ),
-              undefined,
-              [depExpr]
-            ),
-          ]
-        );
-      }
+    if (acc === undefined) {
+      acc = baseExpr;
+      continue;
     }
-
-    layerExprs.push(expr);
-  }
-
-  if (layerExprs.length === 0) {
-    return factory.createPropertyAccessExpression(
-      factory.createIdentifier("Layer"),
-      factory.createIdentifier("empty")
-    );
-  } else if (layerExprs.length === 1) {
-    return layerExprs[0];
-  } else {
-    return factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("Layer"),
-        factory.createIdentifier("merge")
-      ),
+    // baseExpr.pipe(Layer.provideMerge(acc))
+    acc = factory.createCallExpression(
+      factory.createPropertyAccessExpression(baseExpr, factory.createIdentifier("pipe")),
       undefined,
-      layerExprs
+      [
+        factory.createCallExpression(
+          factory.createPropertyAccessExpression(
+            layerId(),
+            factory.createIdentifier("provideMerge")
+          ),
+          undefined,
+          [acc]
+        ),
+      ]
     );
   }
+
+  return (
+    acc ?? factory.createPropertyAccessExpression(layerId(), factory.createIdentifier("empty"))
+  );
 }
 
 /**

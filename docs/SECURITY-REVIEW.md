@@ -218,15 +218,20 @@ The sandbox provides `Math`, `Number`, `String`, `Boolean`, `Array`, `Object`, `
 
 ---
 
-### F4: Capabilities Are Advisory, Not Enforced (HIGH — partially addressed)
+### F4: Capabilities Are Not Wired Up (HIGH — open)
 
-> **Status (2026-06-21):** Partially addressed; tracked in
-> [#16](https://github.com/typesugar/typesugar/issues/16). `DEFAULT_CAPABILITIES`
-> now defaults `needsFileSystem: false` (`packages/core/src/capabilities.ts`), so
-> file access is opt-in. Capabilities remain **advisory** otherwise
-> (`needsTypeChecker` still defaults `true`; the restricted-context proxy does not
-> deeply restrict indirect access). Deny-by-default enforcement is a breaking
-> change deferred to #16.
+> **Status (2026-10-19, corrects the 2026-06-21 note):** Open; tracked in
+> [#16](https://github.com/typesugar/typesugar/issues/16). The capability system
+> in `packages/core/src/capabilities.ts` is **not used anywhere**: macro
+> definitions have no `capabilities` field, nothing calls
+> `createRestrictedContext()` or `resolveCapabilities()`, and nothing reads
+> `needsFileSystem` (the proxy doesn't handle it at all). The earlier note that
+> "`needsFileSystem: false` makes file access opt-in" was wrong: changing that
+> default restricted nothing. Every macro, including an approved third-party
+> one, runs with the full `MacroContext` and ordinary Node access (`fs`,
+> `process`, network). The module is marked `@experimental`. Enforcement is
+> deferred to #16; the analysis below describes the proxy as it would behave
+> once wired in.
 
 **Location:** `packages/core/src/capabilities.ts`
 

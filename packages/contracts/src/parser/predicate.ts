@@ -23,63 +23,38 @@ export interface ContractCondition {
 
 /**
  * Normalize an expression to a string predicate for the prover.
- * Handles common patterns like `x > 0`, `a + b > 0`, `!frozen`, etc.
+ *
+ * The result must mean exactly what the expression means — the prover
+ * deletes the runtime check for anything it proves about this string. It is
+ * the expression printed (whitespace/comments normalised) by the TypeScript
+ * printer, so every operator survives as written; the earlier hand-rolled
+ * printer mapped unknown operators to `?` and every non-`!` prefix operator
+ * (`~x`, `+x`) to `-x` (deep review 2026-10, effect-contracts #2).
  */
 export function normalizeExpression(expr: ts.Expression): string {
-  if (ts.isIdentifier(expr)) {
-    return expr.text;
+  let sourceFile: ts.SourceFile | undefined;
+  try {
+    sourceFile = expr.getSourceFile?.();
+  } catch {
+    sourceFile = undefined;
   }
-
-  if (ts.isPropertyAccessExpression(expr)) {
-    return `${normalizeExpression(expr.expression)}.${expr.name.text}`;
-  }
-
-  if (ts.isPrefixUnaryExpression(expr)) {
-    const op = expr.operator === ts.SyntaxKind.ExclamationToken ? "!" : "-";
-    return `${op}${normalizeExpression(expr.operand)}`;
-  }
-
-  if (ts.isBinaryExpression(expr)) {
-    const left = normalizeExpression(expr.left);
-    const right = normalizeExpression(expr.right);
-    const op = tokenToString(expr.operatorToken.kind);
-    return `${left} ${op} ${right}`;
-  }
-
-  if (ts.isParenthesizedExpression(expr)) {
-    return `(${normalizeExpression(expr.expression)})`;
-  }
-
-  if (ts.isNumericLiteral(expr)) {
-    return expr.text;
-  }
-
-  if (expr.kind === ts.SyntaxKind.TrueKeyword) return "true";
-  if (expr.kind === ts.SyntaxKind.FalseKeyword) return "false";
-
-  // Fallback: use getText if available
-  return expr.getText?.() ?? "<complex>";
+  return printer
+    .printNode(ts.EmitHint.Expression, expr, sourceFile ?? emptySourceFile)
+    .replace(/\s*\n\s*/g, " ");
 }
 
-function tokenToString(kind: ts.SyntaxKind): string {
-  const map: Record<number, string> = {
-    [ts.SyntaxKind.GreaterThanToken]: ">",
-    [ts.SyntaxKind.GreaterThanEqualsToken]: ">=",
-    [ts.SyntaxKind.LessThanToken]: "<",
-    [ts.SyntaxKind.LessThanEqualsToken]: "<=",
-    [ts.SyntaxKind.EqualsEqualsEqualsToken]: "===",
-    [ts.SyntaxKind.ExclamationEqualsEqualsToken]: "!==",
-    [ts.SyntaxKind.EqualsEqualsToken]: "==",
-    [ts.SyntaxKind.ExclamationEqualsToken]: "!=",
-    [ts.SyntaxKind.PlusToken]: "+",
-    [ts.SyntaxKind.MinusToken]: "-",
-    [ts.SyntaxKind.AsteriskToken]: "*",
-    [ts.SyntaxKind.SlashToken]: "/",
-    [ts.SyntaxKind.AmpersandAmpersandToken]: "&&",
-    [ts.SyntaxKind.BarBarToken]: "||",
-  };
-  return map[kind] ?? "?";
-}
+const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+const emptySourceFile = ts.createSourceFile("__predicate__.ts", "", ts.ScriptTarget.Latest);
+
+/**
+ * Called for problems in a contract block that would otherwise be silent
+ * (statements that are not conditions, a non-literal message, ...).
+ */
+export type ContractBlockDiagnostic = (
+  node: ts.Node,
+  message: string,
+  severity: "error" | "warning"
+) => void;
 
 /**
  * Extract individual conditions from a block of expression statements.
@@ -92,30 +67,64 @@ function tokenToString(kind: ts.SyntaxKind): string {
  * }
  * ```
  */
-export function extractConditionsFromBlock(block: ts.Block | ts.Statement): ContractCondition[] {
+export function extractConditionsFromBlock(
+  block: ts.Block | ts.Statement,
+  onDiagnostic?: ContractBlockDiagnostic
+): ContractCondition[] {
   const conditions: ContractCondition[] = [];
 
-  if (ts.isBlock(block)) {
-    for (const stmt of block.statements) {
-      if (ts.isExpressionStatement(stmt)) {
-        conditions.push(expressionToCondition(stmt.expression));
-      }
+  const visitStatement = (stmt: ts.Statement) => {
+    if (ts.isExpressionStatement(stmt)) {
+      conditions.push(expressionToCondition(stmt.expression, onDiagnostic));
+    } else if (!ts.isEmptyStatement(stmt)) {
+      // A `const`, `if`, loop, ... inside a contract block used to be dropped
+      // without a trace. Each condition must be an expression statement.
+      onDiagnostic?.(
+        stmt,
+        "Only expression statements are allowed in a contract block; each one is a " +
+          'condition (optionally `(condition, "message");`). This statement is not checked.',
+        "error"
+      );
     }
-  } else if (ts.isExpressionStatement(block)) {
-    conditions.push(expressionToCondition(block.expression));
+  };
+
+  if (ts.isBlock(block)) {
+    block.statements.forEach(visitStatement);
+  } else {
+    visitStatement(block);
   }
 
   return conditions;
 }
 
-function expressionToCondition(expr: ts.Expression): ContractCondition {
-  // Check for comma expression: `condition, "message"`
-  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.CommaToken) {
-    const message = ts.isStringLiteral(expr.right) ? expr.right.text : undefined;
+function expressionToCondition(
+  expr: ts.Expression,
+  onDiagnostic?: ContractBlockDiagnostic
+): ContractCondition {
+  // `condition, "message"` — documented as `(condition, "message");`. The
+  // parenthesized form is a ParenthesizedExpression around the comma
+  // expression; without unwrapping it the whole comma expression became the
+  // condition, whose value is the (truthy) message string, so the check could
+  // never fail (deep review 2026-10, effect-contracts #1).
+  let inner: ts.Expression = expr;
+  while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  if (ts.isBinaryExpression(inner) && inner.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    let message: string | undefined;
+    if (ts.isStringLiteral(inner.right) || ts.isNoSubstitutionTemplateLiteral(inner.right)) {
+      message = inner.right.text;
+    } else {
+      onDiagnostic?.(
+        inner.right,
+        "The message after the comma in a contract condition must be a string literal; " +
+          "the condition is still checked, with the default message.",
+        "warning"
+      );
+    }
+    const condition = inner.left;
     return {
-      expression: expr.left,
-      normalized: normalizeExpression(expr.left),
-      sourceText: expr.left.getText?.() ?? normalizeExpression(expr.left),
+      expression: condition,
+      normalized: normalizeExpression(condition),
+      sourceText: safeText(condition),
       message,
     };
   }
@@ -123,6 +132,16 @@ function expressionToCondition(expr: ts.Expression): ContractCondition {
   return {
     expression: expr,
     normalized: normalizeExpression(expr),
-    sourceText: expr.getText?.() ?? normalizeExpression(expr),
+    sourceText: safeText(expr),
   };
+}
+
+function safeText(expr: ts.Expression): string {
+  try {
+    const text = expr.getText?.();
+    if (text) return text;
+  } catch {
+    // Synthesized nodes have no source text.
+  }
+  return normalizeExpression(expr);
 }

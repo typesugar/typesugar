@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { globalExpansionTracker } from "typesugar";
+import { globalExpansionTracker } from "@typesugar/core";
 import * as ts from "typescript";
 
 describe("unplugin source map integration", () => {

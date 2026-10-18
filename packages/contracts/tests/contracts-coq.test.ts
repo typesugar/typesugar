@@ -678,7 +678,7 @@ describe("@decidable macro", () => {
 
 describe("check elision with decidability", () => {
   it("should prove goals matching type facts without emitting warnings", async () => {
-    const { tryAlgebraicProof, isCompileTimeDecidable, registerDecidability } =
+    const { tryLinearArithmetic, isCompileTimeDecidable, registerDecidability } =
       await import("@typesugar/contracts");
 
     // Register a decidable type
@@ -691,11 +691,12 @@ describe("check elision with decidability", () => {
     });
 
     // Proof should succeed via algebraic rules
+    // (Numeric goals are proven by the linear engine, not algebraic rules.)
     const facts: TypeFact[] = [{ variable: "x", predicate: "x > 0" }];
-    const result = tryAlgebraicProof("x > 0", facts);
+    const result = tryLinearArithmetic("x > 0", facts);
 
     expect(result.proven).toBe(true);
-    expect(result.method).toBe("algebra");
+    expect(result.method).toBe("linear");
   });
 
   it("should provide subtyping-based proof hints", async () => {

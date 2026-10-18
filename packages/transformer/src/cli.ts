@@ -18,6 +18,7 @@
 import * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
@@ -26,7 +27,6 @@ import { readTsConfig } from "./tsconfig-utils.js";
 import {
   TransformationPipeline,
   createPipeline,
-  transformCode,
   formatExpansions,
   transpileExpanded,
   macroTransformerFactory,
@@ -40,6 +40,7 @@ import {
   setDiagnosticSuppressionAuditMode,
   profiler,
   PROFILING_ENABLED,
+  config as typesugarConfig,
 } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 
@@ -338,6 +339,44 @@ EXAMPLES:
 `);
 }
 
+/**
+ * Load the project's `typesugar.config.*` from the tsconfig's directory (not
+ * the process cwd), so `typesugar build -p some/dir/tsconfig.json` honours
+ * that project's config.
+ */
+function loadProjectConfig(tsconfigPath: string): void {
+  typesugarConfig.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
+}
+
+/**
+ * HKT `F<_>` preprocessing for a file served to a ts.Program (build/watch).
+ * Returns the rewritten text, or `undefined` when the file is left as-is.
+ */
+function preprocessForProgram(fileName: string, source: string): string | undefined {
+  if (!/\.[jt]sx?$/.test(fileName) || /node_modules/.test(fileName)) return undefined;
+  if (!hasHKTPatterns(source)) return undefined;
+  const result = rewriteHKTTypeReferences(source, fileName);
+  return result.changed ? result.code : undefined;
+}
+
+/** Stable identity for de-duplicating a diagnostic reported by two passes. */
+function diagnosticKey(d: ts.Diagnostic): string {
+  const text = ts.flattenDiagnosticMessageText(d.messageText, "\n");
+  return `${d.file?.fileName ?? ""}:${d.start ?? ""}:${d.code}:${text}`;
+}
+
+function dedupeDiagnostics(diagnostics: readonly ts.Diagnostic[]): ts.Diagnostic[] {
+  const seen = new Set<string>();
+  const out: ts.Diagnostic[] = [];
+  for (const d of diagnostics) {
+    const key = diagnosticKey(d);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(d);
+  }
+  return out;
+}
+
 function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
   let errorCount = 0;
   for (const diagnostic of diagnostics) {
@@ -390,6 +429,7 @@ function build(options: CliOptions): void {
 
   profiler.start("cli.build.readTsConfig");
   const config = readTsConfig(options.project);
+  loadProjectConfig(options.project);
   profiler.end("cli.build.readTsConfig");
 
   if (options.verbose) {
@@ -432,12 +472,10 @@ function build(options: CliOptions): void {
           contentHashes.set(resolvedPath, hashContent(source));
         }
 
-        if (hasHKTPatterns(source)) {
-          const result = rewriteHKTTypeReferences(source, fileName);
-          if (result.changed) {
-            preprocessedFiles.set(path.resolve(fileName), result.code);
-            preprocessCount++;
-          }
+        const rewritten = preprocessForProgram(fileName, source);
+        if (rewritten !== undefined) {
+          preprocessedFiles.set(path.resolve(fileName), rewritten);
+          preprocessCount++;
         }
       } catch {
         // File read error - let TS handle it
@@ -467,9 +505,21 @@ function build(options: CliOptions): void {
   const program = ts.createProgram(config.fileNames, compilerOptions, host);
   profiler.end("cli.build.createProgram");
 
+  // Macro diagnostics side channel. TypeScript drops diagnostics a `before`
+  // transformer reports via context.addDiagnostic during program.emit(), so
+  // without this a macro error (e.g. a throwing comptime) printed nothing and
+  // the build exited 0. `collectMacroDiagnostics` is switched off while the
+  // --strict pass runs the transformer over detached re-parsed copies (no
+  // type info there, so its macro diagnostics are not authoritative).
+  const macroDiagnostics: ts.Diagnostic[] = [];
+  let collectMacroDiagnostics = true;
+
   profiler.start("cli.build.createTransformerFactory");
   const transformerFactory = macroTransformerFactory(program, {
     verbose: options.verbose,
+    onDiagnostic: (d) => {
+      if (collectMacroDiagnostics) macroDiagnostics.push(d);
+    },
   });
   profiler.end("cli.build.createTransformerFactory");
 
@@ -519,6 +569,7 @@ function build(options: CliOptions): void {
   let strictDiagnostics: ts.Diagnostic[] = [];
   if (options.strict) {
     profiler.start("cli.build.strictTypecheck");
+    collectMacroDiagnostics = false;
 
     // Transform all source files
     const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
@@ -558,6 +609,7 @@ function build(options: CliOptions): void {
 
       transformResult.dispose();
     }
+    collectMacroDiagnostics = true;
 
     // Create a virtual host serving expanded files
     const expandedHost = ts.createCompilerHost(compilerOptions);
@@ -632,35 +684,59 @@ function build(options: CliOptions): void {
   }
   profiler.end("cli.build.preEmitDiagnostics");
 
-  profiler.start("cli.build.emit");
-  const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
-    before: [transformerFactory],
-  });
-  profiler.end("cli.build.emit");
-
-  const rawDiagnostics = [...preEmitDiagnostics, ...emitResult.diagnostics, ...strictDiagnostics];
-
-  // Filter diagnostics through diagnostic suppression rules (suppress phantom errors from
-  // typesugar rewrites — extension methods, newtype assignment, opaque types).
-  // getTypeChecker() after emit may trigger deferred callbacks that crash on
-  // synthetic nodes — catch and fall back to unfiltered diagnostics.
-  let allDiagnostics: readonly ts.Diagnostic[] = rawDiagnostics;
-  if (getDiagnosticSuppressionRules().length > 0) {
+  // TS diagnostics are suppression-filtered BEFORE the transformer touches
+  // the program's own SourceFiles (check mode below), so the filter's
+  // checker calls never see synthetic nodes there.
+  const filterTsDiagnostics = (raw: readonly ts.Diagnostic[]): readonly ts.Diagnostic[] => {
+    if (getDiagnosticSuppressionRules().length === 0) return raw;
+    // getTypeChecker() after emit may trigger deferred callbacks that crash on
+    // synthetic nodes — catch and fall back to unfiltered diagnostics.
     try {
       const checker = program.getTypeChecker();
-      allDiagnostics = filterDiagnostics(rawDiagnostics, checker, (fn) =>
-        program.getSourceFile(fn)
-      );
+      return filterDiagnostics(raw, checker, (fn) => program.getSourceFile(fn), { program });
     } catch (e: unknown) {
       if (e instanceof Error && e.message.includes("start < 0")) {
         console.error(
           `🧊 Warning: diagnostic suppression filtering skipped — checker crashed on synthetic node positions`
         );
-      } else {
-        throw e;
+        return raw;
       }
+      throw e;
     }
+  };
+
+  let tsDiagnostics: readonly ts.Diagnostic[];
+  if (noEmit) {
+    // `check`: program.emit() is a no-op under noEmit, so the macro
+    // transformer would never run and macro errors would go unreported.
+    // Run it explicitly over every file emit would have transformed.
+    tsDiagnostics = filterTsDiagnostics([...preEmitDiagnostics, ...strictDiagnostics]);
+    profiler.start("cli.build.checkExpand");
+    for (const sourceFile of program.getSourceFiles()) {
+      if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
+        continue;
+      }
+      const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
+      transformResult.dispose();
+    }
+    profiler.end("cli.build.checkExpand");
+  } else {
+    profiler.start("cli.build.emit");
+    const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
+      before: [transformerFactory],
+    });
+    profiler.end("cli.build.emit");
+    tsDiagnostics = filterTsDiagnostics([
+      ...preEmitDiagnostics,
+      ...emitResult.diagnostics,
+      ...strictDiagnostics,
+    ]);
   }
+
+  // Macro diagnostics are real errors, never phantom ones: they bypass the
+  // suppression filter (which exists for TS errors caused by typesugar
+  // rewrites — extension methods, newtype assignment, opaque types).
+  const allDiagnostics = dedupeDiagnostics([...tsDiagnostics, ...macroDiagnostics]);
 
   const errorCount = reportDiagnostics(allDiagnostics);
 
@@ -719,6 +795,8 @@ function watch(options: CliOptions): void {
     process.exit(1);
   }
 
+  loadProjectConfig(configPath);
+
   // Create shared transformer state - reused across rebuilds for efficiency
   const transformerState = new TransformerState({
     verbose: options.verbose,
@@ -727,20 +805,47 @@ function watch(options: CliOptions): void {
   // Track the current program for diagnostic suppression filtering in watch mode
   let currentProgram: ts.Program | undefined;
 
+  // Serve HKT-preprocessed text to the watch program, exactly as `build`
+  // does — with the raw ts.sys, `F<A>` on a type parameter is TS2315 in watch.
+  const watchSystem: ts.System = {
+    ...ts.sys,
+    readFile: (fileName, encoding) => {
+      const source = ts.sys.readFile(fileName, encoding);
+      if (source === undefined) return undefined;
+      return preprocessForProgram(fileName, source) ?? source;
+    },
+  };
+
   const host = ts.createWatchCompilerHost(
     configPath,
     {},
-    ts.sys,
+    watchSystem,
     ts.createEmitAndSemanticDiagnosticsBuilderProgram,
     (diagnostic) => {
-      // Filter through diagnostic suppression rules before reporting
+      // Filter through diagnostic suppression rules before reporting. The
+      // reporter runs after emit, when the checker may trip over the
+      // transformer's synthetic nodes ("start < 0") — degrade to reporting
+      // the diagnostic unfiltered, with a visible warning.
       if (currentProgram && getDiagnosticSuppressionRules().length > 0) {
         const program = currentProgram;
-        const checker = program.getTypeChecker();
-        const filtered = filterDiagnostics([diagnostic], checker, (fn) =>
-          program.getSourceFile(fn)
-        );
-        if (filtered.length === 0) return;
+        try {
+          const checker = program.getTypeChecker();
+          const filtered = filterDiagnostics(
+            [diagnostic],
+            checker,
+            (fn) => program.getSourceFile(fn),
+            { program }
+          );
+          if (filtered.length === 0) return;
+        } catch (e: unknown) {
+          if (e instanceof Error && e.message.includes("start < 0")) {
+            console.error(
+              "🧊 Warning: diagnostic suppression filtering skipped — checker crashed on synthetic node positions"
+            );
+          } else {
+            throw e;
+          }
+        }
       }
       reportDiagnostics([diagnostic]);
     },
@@ -779,10 +884,23 @@ function watch(options: CliOptions): void {
       emitOnlyDtsFiles,
       customTransformers
     ) => {
-      return origEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
+      const result = origEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
         ...customTransformers,
         before: [transformerFactory, ...(customTransformers?.before ?? [])],
       });
+      // Macro diagnostics never reach `result.diagnostics` (TS drops what a
+      // `before` transformer adds), so report them from the state's side
+      // channel. TS's own "Found N errors" summary does not count these.
+      const macroDiagnostics = dedupeDiagnostics(transformerState.takeDiagnostics());
+      if (macroDiagnostics.length > 0) {
+        const macroErrors = reportDiagnostics(macroDiagnostics);
+        if (macroErrors > 0) {
+          console.error(
+            `🧊 ${macroErrors} macro error${macroErrors === 1 ? "" : "s"} (TypeScript's error count does not include these).`
+          );
+        }
+      }
+      return result;
     };
 
     origAfterProgramCreate?.(builderProgram);
@@ -807,6 +925,7 @@ function expand(options: CliOptions): void {
   }
 
   const originalContent = ts.sys.readFile(filePath) ?? "";
+  loadProjectConfig(options.project);
 
   // --ast option requires TypeScript AST output
   if (options.ast) {
@@ -965,37 +1084,53 @@ async function run(options: CliOptions): Promise<void> {
     console.log(`🧊 Running ${filePath}...`);
   }
 
-  let jsCode: string;
-
-  // Use pipeline with caching if --cache is enabled
+  loadProjectConfig(options.project);
   if (options.cache) {
     // Initialize hasher for faster content hashing
     await initHasher();
-
-    // Create pipeline for just this file (works even if file isn't in tsconfig)
-    const fileContent = fs.readFileSync(filePath, "utf-8");
-    const pipeline = new TransformationPipeline(config.options, [filePath], {
-      verbose: options.verbose,
-      diskCache: options.cache,
-      emitJs: true,
-      readFile: (f) => (f === filePath ? fileContent : ts.sys.readFile(f)),
-      fileExists: (f) => (f === filePath ? true : ts.sys.fileExists(f)),
-    });
-
-    const result = pipeline.transform(filePath);
-    jsCode = result.js ?? result.code;
-
-    // Save caches for next run
-    pipeline.cleanup();
-  } else {
-    const fileContent = fs.readFileSync(filePath, "utf-8");
-    const result = transformCode(fileContent, {
-      fileName: filePath,
-      verbose: options.verbose,
-      emitJs: true,
-    });
-    jsCode = result.js ?? result.code;
   }
+
+  // ONE type-aware pipeline (the project's tsconfig options, the project's
+  // files plus the entry) expands the entry AND every user module it imports
+  // (see the esbuild onLoad hook below) -- previously only the entry was
+  // macro-expanded and imported modules shipped raw macro calls.
+  const rootFiles = [...config.fileNames];
+  if (!rootFiles.includes(filePath)) {
+    rootFiles.push(filePath);
+  }
+  const pipeline = new TransformationPipeline(config.options, rootFiles, {
+    verbose: options.verbose,
+    ...(options.cache ? { diskCache: options.cache } : {}),
+  });
+
+  let macroErrorCount = 0;
+  const expandForRun = (file: string): string => {
+    const result = pipeline.transform(file);
+    for (const d of result.diagnostics) {
+      let loc = `${d.file}`;
+      try {
+        const text = result.original;
+        const before = text.slice(0, d.start);
+        const line = before.split("\n").length;
+        const col = d.start - before.lastIndexOf("\n");
+        loc = `${d.file}(${line},${col})`;
+      } catch {
+        // Fall back to the bare file name
+      }
+      const prefix = d.severity === "error" ? "error" : "warning";
+      console.error(`${loc}: ${prefix}${d.code ? ` TS${d.code}` : ""}: ${d.message}`);
+      if (d.severity === "error") macroErrorCount++;
+    }
+    return result.code;
+  };
+
+  const toJs = (file: string, code: string): string =>
+    transpileExpanded(code, file, config.options, {
+      sourceMap: false,
+      jsx: file.endsWith(".tsx") ? ts.JsxEmit.ReactJSX : undefined,
+    }).outputText;
+
+  const jsCode = toJs(filePath, expandForRun(filePath));
 
   // Bundle with esbuild (handles TS transpilation and dependency resolution)
   const esbuild = await import("esbuild");
@@ -1029,17 +1164,20 @@ async function run(options: CliOptions): Promise<void> {
         // Match .ts, .tsx files — preprocess HKT syntax then transpile to JS
         // so esbuild doesn't choke on namespaces/const enums
         build.onLoad({ filter: /\.tsx?$/ }, async (args: { path: string }) => {
-          const source = await fs.promises.readFile(args.path, "utf-8");
-          const hktCode = hasHKTPatterns(source)
-            ? rewriteHKTTypeReferences(source, args.path).code
-            : source;
           const isTsx = args.path.endsWith(".tsx");
-          const transpiled = transpileExpanded(hktCode, args.path, config.options, {
-            sourceMap: false,
-            jsx: isTsx ? ts.JsxEmit.ReactJSX : undefined,
-          });
+          let code: string;
+          if (pipeline.shouldTransform(args.path)) {
+            // User module: full macro expansion, diagnostics reported.
+            code = expandForRun(args.path);
+          } else {
+            // node_modules / .d.ts: HKT syntax only, as before.
+            const source = await fs.promises.readFile(args.path, "utf-8");
+            code = hasHKTPatterns(source)
+              ? rewriteHKTTypeReferences(source, args.path).code
+              : source;
+          }
           return {
-            contents: transpiled.outputText,
+            contents: toJs(args.path, code),
             loader: isTsx ? ("jsx" as const) : ("js" as const),
           };
         });
@@ -1068,6 +1206,23 @@ async function run(options: CliOptions): Promise<void> {
     }
   }
 
+  // Save caches for next run
+  pipeline.cleanup();
+
+  // Macro errors: do not execute code whose macros failed to expand (the
+  // same rule as `build`, which exits non-zero on them).
+  if (macroErrorCount > 0) {
+    console.error(
+      `\n🧊 Found ${macroErrorCount} macro error${macroErrorCount === 1 ? "" : "s"}; not running ${filePath}.`
+    );
+    try {
+      fs.unlinkSync(tempFile);
+    } catch {
+      // Ignore cleanup errors
+    }
+    process.exit(1);
+  }
+
   if (options.verbose) {
     console.log(`🧊 Wrote transpiled code to ${tempFile}`);
   }
@@ -1078,14 +1233,18 @@ async function run(options: CliOptions): Promise<void> {
     cwd: path.dirname(filePath),
   });
 
-  child.on("close", (code) => {
+  child.on("close", (code, signal) => {
     // Clean up temp file
     try {
       fs.unlinkSync(tempFile);
     } catch {
       // Ignore cleanup errors
     }
-    process.exit(code ?? 0);
+    // A child killed by a signal has code === null: that is a failure, not
+    // success. Use the shell convention 128 + signal number.
+    if (code !== null) process.exit(code);
+    const signum = signal ? os.constants.signals[signal] : undefined;
+    process.exit(signum ? 128 + signum : 1);
   });
 
   child.on("error", (err) => {

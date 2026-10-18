@@ -2,8 +2,9 @@
  * @invariant — Class Invariant Attribute Macro
  *
  * Declares a condition that must hold after construction and after
- * every public method call. The invariant check is inserted at the
- * end of every public method body.
+ * every public instance method / setter call. The check runs on every
+ * normal exit (any `return`, or falling off the end); not on a throw, and
+ * not for static members or getters.
  *
  * @example
  * ```typescript
@@ -66,64 +67,105 @@ export const invariantAttribute = defineAttributeMacro({
     const predicateArg = args[0];
     const messageArg = args.length >= 2 ? args[1] : undefined;
 
-    // Extract the predicate function body for the check
-    // The predicate is (self) => condition
-    let predicateBody: ts.Expression | undefined;
-    let selfParam: string = "this";
-
-    if (ts.isArrowFunction(predicateArg)) {
-      if (predicateArg.parameters.length >= 1) {
-        selfParam = predicateArg.parameters[0].name.getText();
-      }
-      if (ts.isBlock(predicateArg.body)) {
-        // Block body — look for return statement
-        for (const stmt of predicateArg.body.statements) {
-          if (ts.isReturnStatement(stmt) && stmt.expression) {
-            predicateBody = stmt.expression;
-            break;
-          }
-        }
-      } else {
-        // Expression body
-        predicateBody = predicateArg.body;
-      }
-    }
-
-    if (!predicateBody) {
+    if (!ts.isArrowFunction(predicateArg) && !ts.isFunctionExpression(predicateArg)) {
       ctx.reportError(
         decorator,
         "@invariant predicate must be an arrow function: (self) => condition"
       );
       return target;
     }
+    if (messageArg && !ts.isStringLiteralLike(messageArg)) {
+      ctx.reportError(messageArg, "@invariant message must be a string literal");
+      return target;
+    }
 
-    // Build the invariant check statement
-    const message =
-      messageArg && ts.isStringLiteral(messageArg)
-        ? messageArg.text
-        : `Invariant failed: ${predicateBody.getText?.() ?? "unknown"}`;
+    const message = messageArg
+      ? (messageArg as ts.StringLiteralLike).text
+      : `Invariant failed: ${safeText(predicateArg)}`;
 
-    // Replace `self` references with `this` in the predicate
-    const checkExpr = replaceSelfWithThis(ctx, predicateBody, selfParam);
-
-    const checkStatement = ctx.factory.createIfStatement(
-      ctx.factory.createPrefixUnaryExpression(
-        ts.SyntaxKind.ExclamationToken,
-        ctx.factory.createParenthesizedExpression(checkExpr)
-      ),
-      ctx.factory.createBlock([
-        ctx.factory.createThrowStatement(
-          ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
-            ctx.factory.createStringLiteral(message),
-          ])
+    // The check CALLS the user's predicate with the instance —
+    // `if (!(pred)(this)) throw new InvariantError(msg)` — instead of
+    // textually replacing `self` with `this`, which renamed property names
+    // and shadowed bindings, broke `this` inside nested functions, and only
+    // looked at the first `return` of a block body (deep review 2026-10, #25).
+    const invariantError = ctx.ensureImport("InvariantError", "@typesugar/contracts");
+    const makeCheck = (): ts.Statement =>
+      ctx.factory.createIfStatement(
+        ctx.factory.createPrefixUnaryExpression(
+          ts.SyntaxKind.ExclamationToken,
+          ctx.factory.createCallExpression(
+            ctx.factory.createParenthesizedExpression(predicateArg),
+            undefined,
+            [ctx.factory.createThis()]
+          )
         ),
-      ])
-    );
+        ctx.factory.createBlock([
+          ctx.factory.createThrowStatement(
+            ctx.factory.createNewExpression(invariantError, undefined, [
+              ctx.factory.createStringLiteral(message),
+            ])
+          ),
+        ])
+      );
 
-    // Insert the check at the end of every public method
-    const newMembers = target.members.map((member) => {
-      if (ts.isMethodDeclaration(member) && !isPrivateOrProtected(member) && member.body) {
-        const newBody = ctx.factory.createBlock([...member.body.statements, checkStatement], true);
+    // Check on every normal exit of each public INSTANCE method and setter:
+    //   let __threw = false;
+    //   try { <body> } catch (e) { __threw = true; throw e; }
+    //   finally { if (!__threw) <check> }
+    // The old expansion appended the check after the body — dead code after
+    // any `return` — and also instrumented static methods, where `this` is
+    // the class and the check always threw (deep review 2026-10, #9).
+    const wrap = (body: ts.Block): ts.Block => {
+      const threw = ctx.generateUniqueName("threw");
+      const err = ctx.generateUniqueName("e");
+      return ctx.factory.createBlock(
+        [
+          ctx.factory.createVariableStatement(
+            undefined,
+            ctx.factory.createVariableDeclarationList(
+              [
+                ctx.factory.createVariableDeclaration(
+                  threw,
+                  undefined,
+                  undefined,
+                  ctx.factory.createFalse()
+                ),
+              ],
+              ts.NodeFlags.Let
+            )
+          ),
+          ctx.factory.createTryStatement(
+            ctx.factory.createBlock(body.statements, true),
+            ctx.factory.createCatchClause(
+              err,
+              ctx.factory.createBlock(
+                [
+                  ctx.factory.createExpressionStatement(
+                    ctx.factory.createAssignment(threw, ctx.factory.createTrue())
+                  ),
+                  ctx.factory.createThrowStatement(err),
+                ],
+                true
+              )
+            ),
+            ctx.factory.createBlock(
+              [
+                ctx.factory.createIfStatement(
+                  ctx.factory.createPrefixUnaryExpression(ts.SyntaxKind.ExclamationToken, threw),
+                  ctx.factory.createBlock([makeCheck()], true)
+                ),
+              ],
+              true
+            )
+          ),
+        ],
+        true
+      );
+    };
+
+    let sawConstructor = false;
+    const newMembers: ts.ClassElement[] = target.members.map((member) => {
+      if (ts.isMethodDeclaration(member) && member.body && isPublicInstance(member)) {
         return ctx.factory.updateMethodDeclaration(
           member,
           member.modifiers,
@@ -133,23 +175,85 @@ export const invariantAttribute = defineAttributeMacro({
           member.typeParameters,
           member.parameters,
           member.type,
-          newBody
+          wrap(member.body)
         );
       }
 
-      // Also add to constructor
+      if (ts.isSetAccessorDeclaration(member) && member.body && isPublicInstance(member)) {
+        return ctx.factory.updateSetAccessorDeclaration(
+          member,
+          member.modifiers,
+          member.name,
+          member.parameters,
+          wrap(member.body)
+        );
+      }
+
+      // Constructor: check once construction (field initializers + body) is
+      // complete. Appended rather than try-wrapped so a `super(...)` call stays
+      // a top-level statement of the constructor.
       if (ts.isConstructorDeclaration(member) && member.body) {
-        const newBody = ctx.factory.createBlock([...member.body.statements, checkStatement], true);
+        sawConstructor = true;
         return ctx.factory.updateConstructorDeclaration(
           member,
           member.modifiers,
           member.parameters,
-          newBody
+          ctx.factory.createBlock([...member.body.statements, makeCheck()], true)
         );
       }
 
       return member;
     });
+
+    // No constructor: synthesize one so the state produced by the field
+    // initializers is checked too.
+    if (!sawConstructor) {
+      const ext = target.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword);
+      const base = ext?.types[0]?.expression;
+      if (base) {
+        const args = ctx.generateUniqueName("args");
+        const paramsType = ts.isIdentifier(base)
+          ? ctx.factory.createTypeReferenceNode("ConstructorParameters", [
+              ctx.factory.createTypeQueryNode(base),
+            ])
+          : ctx.factory.createArrayTypeNode(
+              ctx.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
+            );
+        newMembers.unshift(
+          ctx.factory.createConstructorDeclaration(
+            undefined,
+            [
+              ctx.factory.createParameterDeclaration(
+                undefined,
+                ctx.factory.createToken(ts.SyntaxKind.DotDotDotToken),
+                args,
+                undefined,
+                paramsType
+              ),
+            ],
+            ctx.factory.createBlock(
+              [
+                ctx.factory.createExpressionStatement(
+                  ctx.factory.createCallExpression(ctx.factory.createSuper(), undefined, [
+                    ctx.factory.createSpreadElement(args),
+                  ])
+                ),
+                makeCheck(),
+              ],
+              true
+            )
+          )
+        );
+      } else {
+        newMembers.unshift(
+          ctx.factory.createConstructorDeclaration(
+            undefined,
+            [],
+            ctx.factory.createBlock([makeCheck()], true)
+          )
+        );
+      }
+    }
 
     // Strip the @invariant decorator and update the class
     const remainingDecorators = ts.getDecorators(target)?.filter((d) => d !== decorator) ?? [];
@@ -170,26 +274,26 @@ export const invariantAttribute = defineAttributeMacro({
 // Helpers
 // ============================================================================
 
-function isPrivateOrProtected(member: ts.MethodDeclaration): boolean {
-  const modifiers = ts.getModifiers(member);
-  if (!modifiers) return false;
-  return modifiers.some(
-    (m) => m.kind === ts.SyntaxKind.PrivateKeyword || m.kind === ts.SyntaxKind.ProtectedKeyword
+/** Public (no private/protected modifier, no `#name`), non-static member. */
+function isPublicInstance(member: ts.MethodDeclaration | ts.SetAccessorDeclaration): boolean {
+  if (ts.isPrivateIdentifier(member.name)) return false;
+  const modifiers = ts.getModifiers(member) ?? [];
+  return !modifiers.some(
+    (m) =>
+      m.kind === ts.SyntaxKind.PrivateKeyword ||
+      m.kind === ts.SyntaxKind.ProtectedKeyword ||
+      m.kind === ts.SyntaxKind.StaticKeyword
   );
 }
 
-function replaceSelfWithThis(
-  ctx: MacroContext,
-  expr: ts.Expression,
-  selfParam: string
-): ts.Expression {
-  function visit(node: ts.Node): ts.Node {
-    if (ts.isIdentifier(node) && node.text === selfParam) {
-      return ctx.factory.createThis();
-    }
-    return ts.visitEachChild(node, visit, ctx.transformContext);
+function safeText(node: ts.Node): string {
+  try {
+    const text = node.getText?.();
+    if (text) return text;
+  } catch {
+    // Synthesized nodes have no source text.
   }
-  return ts.visitNode(expr, visit) as ts.Expression;
+  return "<predicate>";
 }
 
 function stripDecorator(

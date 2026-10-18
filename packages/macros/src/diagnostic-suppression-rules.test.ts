@@ -9,8 +9,8 @@ import { globalResolutionScope } from "@typesugar/core";
 
 /**
  * Build an in-memory Program for `code` and return its semantic diagnostics.
- * `noLib`/`noResolve` keep it self-contained — the MacroCallChain rule walks the
- * AST by the `match` identifier name, so it does not need `@typesugar/std` to resolve.
+ * `noLib`/`noResolve` keep it self-contained. The MacroCallChain rule accepts an
+ * unresolvable `match` import when its specifier is `@typesugar/std`.
  */
 function diagnose(code: string) {
   const fileName = "t.ts";
@@ -178,8 +178,10 @@ describe("MacroCallChain diagnostic suppression rule — TS18004 (PEP-033 N2)", 
   });
 
   it("suppresses TS18004 on pattern-binding shorthand inside a match() chain", () => {
+    // noResolve: the import stays unresolved, so the rule decides by the
+    // import specifier — as the transformer's name-and-import fallback does.
     const code = [
-      `declare function match(x: unknown): any;`,
+      `import { match } from "@typesugar/std";`,
       `type Shape = { kind: "circle"; r: number } | { kind: "square"; s: number };`,
       `function area(sh: Shape): number {`,
       `  return match(sh)`,
@@ -199,6 +201,22 @@ describe("MacroCallChain diagnostic suppression rule — TS18004 (PEP-033 N2)", 
 
   it("does NOT suppress a genuine TS18004 outside any match chain", () => {
     const code = `const obj = { kind: "circle", r };`;
+    const { sf, checker, diags } = diagnose(code);
+    const shorthand18004 = diags.filter((d) => d.code === 18004);
+    expect(shorthand18004.length).toBeGreaterThan(0);
+    for (const d of shorthand18004) {
+      expect(rule.shouldSuppress(d, checker, sf)).toBe(false);
+    }
+  });
+
+  it("does NOT suppress TS18004 inside a chain whose match is a local function", () => {
+    const code = [
+      `declare function match(x: unknown): any;`,
+      `type Shape = { kind: "circle"; r: number };`,
+      `function area(sh: Shape): number {`,
+      `  return match(sh).case({ kind: "circle", r }).then(r).else(0);`,
+      `}`,
+    ].join("\n");
     const { sf, checker, diags } = diagnose(code);
     const shorthand18004 = diags.filter((d) => d.code === 18004);
     expect(shorthand18004.length).toBeGreaterThan(0);

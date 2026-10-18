@@ -107,6 +107,7 @@ export interface ParameterInfo {
 
 export const reflectAttribute = defineAttributeMacro({
   name: "reflect",
+  cacheable: false, // depends on the checker's view of the type, not just the call text
   module: "typesugar",
   description: "Enable compile-time reflection for a type",
   validTargets: ["interface", "class", "type"] as AttributeTarget[],
@@ -456,6 +457,7 @@ function generateTypeInfoDeclaration(
 
 export const typeInfoMacro = defineExpressionMacro({
   name: "typeInfo",
+  cacheable: false, // depends on the checker's view of the type, not just the call text
   module: "typesugar",
   description: "Get compile-time type information",
 
@@ -546,6 +548,7 @@ export const typeInfoMacro = defineExpressionMacro({
 
 export const fieldNamesMacro = defineExpressionMacro({
   name: "fieldNames",
+  cacheable: false, // depends on the checker's view of the type, not just the call text
   module: "typesugar",
   description: "Get field names of a type as an array",
 
@@ -571,12 +574,29 @@ export const fieldNamesMacro = defineExpressionMacro({
   },
 });
 
+/** True when `name` can be written as `value.name` (public scanner API only). */
+function isIdentifierName(name: string): boolean {
+  if (name.length === 0) return false;
+  let i = 0;
+  for (const ch of name) {
+    const cp = ch.codePointAt(0)!;
+    const ok =
+      i === 0
+        ? ts.isIdentifierStart(cp, ts.ScriptTarget.ESNext)
+        : ts.isIdentifierPart(cp, ts.ScriptTarget.ESNext);
+    if (!ok) return false;
+    i++;
+  }
+  return true;
+}
+
 // ============================================================================
 // validator<T>() - Generate a runtime validator
 // ============================================================================
 
 export const validatorMacro = defineExpressionMacro({
   name: "validator",
+  cacheable: false, // depends on the checker's view of the type, not just the call text
   module: "typesugar",
   description: "Generate a runtime validator for a type",
 
@@ -593,169 +613,175 @@ export const validatorMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    const type = ctx.typeChecker.getTypeFromTypeNode(typeArgs[0]);
-    const properties = ctx.typeChecker.getPropertiesOfType(type);
-    const typeName = ctx.typeChecker.typeToString(type);
+    const checker = ctx.typeChecker;
+    const type = checker.getTypeFromTypeNode(typeArgs[0]);
+    const properties = checker.getPropertiesOfType(type);
+
+    const valueId = () => factory.createIdentifier("value");
+    const or = (l: ts.Expression, r: ts.Expression) =>
+      factory.createBinaryExpression(l, factory.createToken(ts.SyntaxKind.BarBarToken), r);
+    const and = (l: ts.Expression, r: ts.Expression) =>
+      factory.createBinaryExpression(
+        l,
+        factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
+        r
+      );
+    const notStrictEq = (l: ts.Expression, r: ts.Expression) =>
+      factory.createBinaryExpression(
+        l,
+        factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
+        r
+      );
+    const strictEq = (l: ts.Expression, r: ts.Expression) =>
+      factory.createBinaryExpression(
+        l,
+        factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+        r
+      );
+    const typeofNot = (e: ts.Expression, t: string) =>
+      notStrictEq(factory.createTypeOfExpression(e), factory.createStringLiteral(t));
+    const notObject = (e: () => ts.Expression) =>
+      factory.createParenthesizedExpression(
+        or(typeofNot(e(), "object"), strictEq(e(), factory.createNull()))
+      );
+    const notArray = (e: ts.Expression) =>
+      factory.createPrefixUnaryExpression(
+        ts.SyntaxKind.ExclamationToken,
+        factory.createCallExpression(
+          factory.createPropertyAccessExpression(factory.createIdentifier("Array"), "isArray"),
+          undefined,
+          [e]
+        )
+      );
+
+    /** Expression evaluating to the literal value of a literal type. */
+    const literalExpr = (t: ts.Type): ts.Expression | undefined => {
+      if (t.isStringLiteral()) return factory.createStringLiteral(t.value);
+      if (t.isNumberLiteral()) {
+        return t.value < 0 || Object.is(t.value, -0)
+          ? factory.createPrefixUnaryExpression(
+              ts.SyntaxKind.MinusToken,
+              factory.createNumericLiteral(Math.abs(t.value))
+            )
+          : factory.createNumericLiteral(t.value);
+      }
+      if (t.flags & ts.TypeFlags.BigIntLiteral) {
+        const v = (t as ts.BigIntLiteralType).value;
+        const lit = factory.createBigIntLiteral(`${v.base10Value}n`);
+        return v.negative
+          ? factory.createPrefixUnaryExpression(ts.SyntaxKind.MinusToken, lit)
+          : lit;
+      }
+      if (t.flags & ts.TypeFlags.BooleanLiteral) {
+        return checker.typeToString(t) === "true" ? factory.createTrue() : factory.createFalse();
+      }
+      return undefined;
+    };
+
+    /**
+     * Build an expression that is TRUE when `access()` does NOT match `t`.
+     * Returns "any" when every value matches, or undefined when the type
+     * cannot be checked at runtime (the caller reports that, rather than
+     * silently skipping the field).
+     */
+    const failCheck = (
+      t: ts.Type,
+      access: () => ts.Expression
+    ): ts.Expression | "any" | undefined => {
+      const f = t.flags;
+      if (f & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return "any";
+      if (f & ts.TypeFlags.Boolean && !t.isUnion()) return typeofNot(access(), "boolean");
+      if (f & ts.TypeFlags.Null) return notStrictEq(access(), factory.createNull());
+      if (f & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) {
+        return notStrictEq(access(), factory.createIdentifier("undefined"));
+      }
+      const lit = literalExpr(t);
+      if (lit) return notStrictEq(access(), lit);
+      if (t.isUnion()) {
+        // `boolean` (true | false), enums and literal unions all land here.
+        // A value is invalid only if it fails EVERY member.
+        const parts: ts.Expression[] = [];
+        for (const member of t.types) {
+          const c = failCheck(member, access);
+          if (c === "any") return "any";
+          if (c === undefined) return undefined;
+          parts.push(c);
+        }
+        return factory.createParenthesizedExpression(parts.reduce(and));
+      }
+      if (f & ts.TypeFlags.StringLike) return typeofNot(access(), "string");
+      if (f & ts.TypeFlags.NumberLike) return typeofNot(access(), "number");
+      if (f & ts.TypeFlags.BigIntLike) return typeofNot(access(), "bigint");
+      if (f & ts.TypeFlags.ESSymbolLike) return typeofNot(access(), "symbol");
+      if (f & ts.TypeFlags.NonPrimitive) {
+        // `object`: any non-null object or function
+        return and(notObject(access), typeofNot(access(), "function"));
+      }
+      if (checker.isArrayType(t) || checker.isTupleType(t)) return notArray(access());
+      if (t.isIntersection() && t.types.every((m) => (m.flags & ts.TypeFlags.Object) !== 0)) {
+        return notObject(access);
+      }
+      if (f & ts.TypeFlags.Object) {
+        if (t.getCallSignatures().length > 0 || t.getConstructSignatures().length > 0) {
+          return typeofNot(access(), "function");
+        }
+        return notObject(access);
+      }
+      // Type parameters, intersections, conditional/indexed types, never, ...
+      return undefined;
+    };
 
     // Generate validation checks for each property
     const checks: ts.Statement[] = [];
 
     for (const prop of properties) {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
-      const propTypeStr = ctx.typeChecker.typeToString(propType);
-      const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-
-      // Helper: create property access on value
-      const fieldAccess = () =>
-        factory.createPropertyAccessExpression(factory.createIdentifier("value"), prop.name);
-
-      // Helper: typeof field !== literal
-      const typeofNotEquals = (typeStr: string) =>
-        factory.createBinaryExpression(
-          factory.createTypeOfExpression(fieldAccess()),
-          factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createStringLiteral(typeStr)
+      if (prop.name.startsWith("__@") || prop.name.startsWith("#")) {
+        ctx.reportWarning(
+          callExpr,
+          `validator: property '${prop.name}' is symbol-keyed or private and is not validated`
         );
-
-      // Determine if the type includes undefined (e.g. "string | undefined")
-      const typeIncludesUndefined = propType.isUnion()
-        ? (propType as ts.UnionType).types.some((t) => (t.flags & ts.TypeFlags.Undefined) !== 0)
-        : false;
-
-      // For union types that include undefined, treat as optional
-      const effectiveOptional = isOptional || typeIncludesUndefined;
-
-      // Generate type check
-      let checkExpr: ts.Expression | undefined;
-      let expectedStr = propTypeStr;
-
-      // Primitives
-      if (propTypeStr === "string" || propTypeStr === "number" || propTypeStr === "boolean") {
-        checkExpr = typeofNotEquals(propTypeStr);
-      }
-      // Array types: T[] or Array<T>
-      else if (propTypeStr.endsWith("[]") || propTypeStr.startsWith("Array<")) {
-        checkExpr = factory.createPrefixUnaryExpression(
-          ts.SyntaxKind.ExclamationToken,
-          factory.createCallExpression(
-            factory.createPropertyAccessExpression(factory.createIdentifier("Array"), "isArray"),
-            undefined,
-            [fieldAccess()]
-          )
-        );
-        expectedStr = "array";
-      }
-      // Union types (including those with undefined)
-      else if (propType.isUnion()) {
-        // Filter out undefined from union variants for the check
-        const nonUndefinedTypes = (propType as ts.UnionType).types.filter(
-          (t) => (t.flags & ts.TypeFlags.Undefined) === 0
-        );
-
-        // Extract primitive variants from the union
-        const primitiveVariants: string[] = [];
-        let hasObjectVariant = false;
-        let hasArrayVariant = false;
-
-        for (const variant of nonUndefinedTypes) {
-          const variantStr = ctx.typeChecker.typeToString(variant);
-          if (variantStr === "string" || variantStr === "number" || variantStr === "boolean") {
-            primitiveVariants.push(variantStr);
-          } else if (variantStr.endsWith("[]") || variantStr.startsWith("Array<")) {
-            hasArrayVariant = true;
-          } else if (variant.flags & ts.TypeFlags.Object || variant.isClassOrInterface()) {
-            hasObjectVariant = true;
-          }
-        }
-
-        // Build a combined check: all variants must fail for an error
-        const variantChecks: ts.Expression[] = [];
-
-        for (const prim of primitiveVariants) {
-          variantChecks.push(typeofNotEquals(prim));
-        }
-
-        if (hasArrayVariant) {
-          variantChecks.push(
-            factory.createPrefixUnaryExpression(
-              ts.SyntaxKind.ExclamationToken,
-              factory.createCallExpression(
-                factory.createPropertyAccessExpression(
-                  factory.createIdentifier("Array"),
-                  "isArray"
-                ),
-                undefined,
-                [fieldAccess()]
-              )
-            )
-          );
-        }
-
-        if (hasObjectVariant) {
-          variantChecks.push(
-            factory.createBinaryExpression(
-              typeofNotEquals("object"),
-              factory.createToken(ts.SyntaxKind.BarBarToken),
-              factory.createBinaryExpression(
-                fieldAccess(),
-                factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-                factory.createNull()
-              )
-            )
-          );
-        }
-
-        if (variantChecks.length > 0) {
-          // Combine with &&: all checks must be true (all variants failed) to report error
-          checkExpr = variantChecks.reduce((acc, check) =>
-            factory.createBinaryExpression(
-              acc,
-              factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
-              check
-            )
-          );
-
-          // Build expected string from non-undefined variants
-          expectedStr = nonUndefinedTypes.map((t) => ctx.typeChecker.typeToString(t)).join(" | ");
-        } else {
-          // All variants are non-primitive/non-standard — skip
-          continue;
-        }
-      }
-      // Nested object/interface types
-      else if (propType.flags & ts.TypeFlags.Object || propType.isClassOrInterface()) {
-        // typeof field !== 'object' || field === null
-        checkExpr = factory.createBinaryExpression(
-          typeofNotEquals("object"),
-          factory.createToken(ts.SyntaxKind.BarBarToken),
-          factory.createBinaryExpression(
-            fieldAccess(),
-            factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-            factory.createNull()
-          )
-        );
-        expectedStr = "object";
-      } else {
-        // Unsupported complex type — skip
         continue;
       }
+      const propType = checker.getTypeOfSymbolAtLocation(prop, callExpr);
+      const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
 
-      // Wrap with optional/undefined guard: skip validation if value is undefined
-      if (effectiveOptional) {
-        checkExpr = factory.createBinaryExpression(
-          factory.createBinaryExpression(
-            fieldAccess(),
-            factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-            factory.createIdentifier("undefined")
-          ),
-          factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
-          checkExpr!
+      // value.name, or value["first-name"] when the key is not an identifier
+      const fieldAccess = () =>
+        isIdentifierName(prop.name)
+          ? factory.createPropertyAccessExpression(valueId(), prop.name)
+          : factory.createElementAccessExpression(
+              valueId(),
+              factory.createStringLiteral(prop.name)
+            );
+
+      let checkExpr: ts.Expression | "any" | undefined =
+        prop.flags & ts.SymbolFlags.Method
+          ? typeofNot(fieldAccess(), "function")
+          : failCheck(propType, fieldAccess);
+
+      if (checkExpr === undefined) {
+        ctx.reportWarning(
+          callExpr,
+          `validator: field '${prop.name}' has type '${checker.typeToString(propType)}', ` +
+            `which cannot be checked at runtime; it is not validated`
+        );
+        continue;
+      }
+      if (checkExpr === "any") continue;
+
+      // An optional property may be absent even when its type (without
+      // strictNullChecks) does not include undefined.
+      if (isOptional) {
+        checkExpr = and(
+          notStrictEq(fieldAccess(), factory.createIdentifier("undefined")),
+          checkExpr
         );
       }
 
+      const expectedStr = checker.typeToString(propType);
       checks.push(
         factory.createIfStatement(
-          checkExpr!,
+          checkExpr,
           factory.createBlock([
             factory.createExpressionStatement(
               factory.createCallExpression(
@@ -773,6 +799,34 @@ export const validatorMacro = defineExpressionMacro({
       );
     }
 
+    // { success: true; value: T } | { success: false; errors: string[] }
+    // (inlined: the ValidationResult name is not necessarily in scope at the call site)
+    const resultType = factory.createUnionTypeNode([
+      factory.createTypeLiteralNode([
+        factory.createPropertySignature(
+          undefined,
+          "success",
+          undefined,
+          factory.createLiteralTypeNode(factory.createTrue())
+        ),
+        factory.createPropertySignature(undefined, "value", undefined, typeArgs[0]),
+      ]),
+      factory.createTypeLiteralNode([
+        factory.createPropertySignature(
+          undefined,
+          "success",
+          undefined,
+          factory.createLiteralTypeNode(factory.createFalse())
+        ),
+        factory.createPropertySignature(
+          undefined,
+          "errors",
+          undefined,
+          factory.createArrayTypeNode(factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword))
+        ),
+      ]),
+    ]);
+
     // Build the validator function
     return factory.createArrowFunction(
       undefined,
@@ -786,7 +840,7 @@ export const validatorMacro = defineExpressionMacro({
           factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
         ),
       ],
-      factory.createTypeReferenceNode("ValidationResult", [typeArgs[0]]),
+      resultType,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       factory.createBlock(
         [
@@ -829,8 +883,21 @@ export const validatorMacro = defineExpressionMacro({
                     factory.createPropertyAssignment("success", factory.createFalse()),
                     factory.createPropertyAssignment(
                       "errors",
+                      // ["Expected object, got " + (value === null ? "null" : typeof value)]
                       factory.createArrayLiteralExpression([
-                        factory.createStringLiteral(`Expected object, got ${typeof null}`),
+                        factory.createBinaryExpression(
+                          factory.createStringLiteral("Expected object, got "),
+                          factory.createToken(ts.SyntaxKind.PlusToken),
+                          factory.createParenthesizedExpression(
+                            factory.createConditionalExpression(
+                              strictEq(valueId(), factory.createNull()),
+                              factory.createToken(ts.SyntaxKind.QuestionToken),
+                              factory.createStringLiteral("null"),
+                              factory.createToken(ts.SyntaxKind.ColonToken),
+                              factory.createTypeOfExpression(valueId())
+                            )
+                          )
+                        ),
                       ])
                     ),
                   ],

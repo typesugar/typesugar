@@ -373,9 +373,29 @@ describe("recordMacroImport + cleanupMacroImports", () => {
     >();
     recordMacroImport(tracked, sym);
 
-    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    // Simulate the post-expansion statements: the `Foo()` call was expanded
+    // away. (A surviving `Foo` reference keeps the import -- see below.)
+    const expanded = main.statements.filter(ts.isImportDeclaration);
+    const cleaned = cleanupMacroImports(ts.factory, tracked, expanded, false);
     // The import statement should be entirely removed
     expect(cleaned.some((s) => ts.isImportDeclaration(s))).toBe(false);
+  });
+
+  it("keeps a macro specifier whose name is still referenced (deep-review core #11)", () => {
+    const { typeChecker, files } = buildProgram({
+      "/main.ts": `import { Foo } from "./mod";\nFoo();\n`,
+      "/mod.ts": `export function Foo() {}\n`,
+    });
+    const main = files.get("/main.ts")!;
+    const sym = typeChecker.getSymbolAtLocation(getIdentifier(main, "Foo"))!;
+    const tracked = new Map<
+      ts.ImportDeclaration,
+      Set<ts.ImportSpecifier | "namespace" | "default">
+    >();
+    recordMacroImport(tracked, sym);
+    // `Foo()` survived (e.g. opted out), so the import must stay.
+    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    expect(cleaned.filter(ts.isImportDeclaration)).toHaveLength(1);
   });
 
   it("trims macro specifiers but keeps non-macro ones", () => {
@@ -418,7 +438,8 @@ describe("recordMacroImport + cleanupMacroImports", () => {
       Set<ts.ImportSpecifier | "namespace" | "default">
     >();
     recordMacroImport(tracked, sym);
-    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    const expanded = main.statements.filter(ts.isImportDeclaration);
+    const cleaned = cleanupMacroImports(ts.factory, tracked, expanded, false);
     expect(cleaned.some((s) => ts.isImportDeclaration(s))).toBe(false);
   });
 
@@ -436,7 +457,8 @@ describe("recordMacroImport + cleanupMacroImports", () => {
       Set<ts.ImportSpecifier | "namespace" | "default">
     >();
     recordMacroImport(tracked, sym);
-    const cleaned = cleanupMacroImports(ts.factory, tracked, [...main.statements], false);
+    const expanded = main.statements.filter(ts.isImportDeclaration);
+    const cleaned = cleanupMacroImports(ts.factory, tracked, expanded, false);
     expect(cleaned.some((s) => ts.isImportDeclaration(s))).toBe(false);
   });
 
@@ -735,12 +757,12 @@ describe("resolveMacroFromSymbol", () => {
     });
     const main = files.get("/proj/main.ts")!;
     const ident = getIdentifier(main, "ir_cached");
-    const cache = new Map<number, ReturnType<typeof resolveMacroFromSymbol> | null>();
+    const cache = new Map<string, ReturnType<typeof resolveMacroFromSymbol> | null>();
 
     const first = resolveMacroFromSymbol(
       typeChecker,
       main,
-      cache as Map<number, never>,
+      cache as Map<string, never>,
       ident,
       "ir_cached",
       "expression"
@@ -752,12 +774,52 @@ describe("resolveMacroFromSymbol", () => {
     const second = resolveMacroFromSymbol(
       typeChecker,
       main,
-      cache as Map<number, never>,
+      cache as Map<string, never>,
       ident,
       "ir_cached",
       "expression"
     );
     expect(second).toBe(macro);
+  });
+
+  it("keys the cache by macro kind, so a miss for one kind doesn't hide another", () => {
+    // Regression: tryExpandTaggedTemplate looks a tag up first as "tagged-template",
+    // then as "expression". With a symbol-only key the first lookup cached `null`
+    // and the expression macro (sql, units, ...) never expanded when imported.
+    const macro = defineExpressionMacro({
+      name: "ir_tagged_expr",
+      module: "@typesugar/test",
+      expand: () => ts.factory.createNumericLiteral(0),
+    });
+    globalRegistry.register(macro);
+
+    const { typeChecker, files } = buildProgram({
+      "/proj/main.ts": `import { ir_tagged_expr } from "@typesugar/test";\nir_tagged_expr\`x\`;\n`,
+      "/proj/node_modules/@typesugar/test/index.d.ts": `export declare function ir_tagged_expr(s: TemplateStringsArray): number;\n`,
+    });
+    const main = files.get("/proj/main.ts")!;
+    const ident = getIdentifier(main, "ir_tagged_expr");
+    const cache = new Map<string, never>();
+
+    const asTagged = resolveMacroFromSymbol(
+      typeChecker,
+      main,
+      cache,
+      ident,
+      "ir_tagged_expr",
+      "tagged-template"
+    );
+    expect(asTagged).toBeUndefined();
+
+    const asExpression = resolveMacroFromSymbol(
+      typeChecker,
+      main,
+      cache,
+      ident,
+      "ir_tagged_expr",
+      "expression"
+    );
+    expect(asExpression).toBe(macro);
   });
 
   it("invokes onMacroImport callback when resolution succeeds", () => {

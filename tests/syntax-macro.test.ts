@@ -151,27 +151,15 @@ describe("pattern-based / declarative macros", () => {
       expect(text).toContain("b");
     });
 
-    it("should reject stmts captures in expression position", () => {
-      const macro = defineSyntaxMacro("stmts_test", {
-        arms: [
-          {
-            pattern: "stmts_test($s:stmts)",
-            expand: "$s",
-          },
-        ],
-      });
-
-      const callExpr = ts.factory.createCallExpression(
-        ts.factory.createIdentifier("stmts_test"),
-        undefined,
-        [ts.factory.createIdentifier("foo")]
-      );
-
-      // Should fall through to "no arm matched" since stmts rejects in expr position.
-      // The macro returns the original callExpr when no arm matches.
-      const result = macro.expand(ctx, callExpr, [ts.factory.createIdentifier("foo")]);
-      // Result should be the original call expression (no arm matched)
-      expect(result).toBe(callExpr);
+    it("should reject stmts captures when the macro is defined", () => {
+      // Syntax macros are expression macros; a `stmts` capture can never
+      // match, so it is rejected up front (deep review #12d) instead of
+      // producing an always-failing arm.
+      expect(() =>
+        defineSyntaxMacro("stmts_test", {
+          arms: [{ pattern: "stmts_test($s:stmts)", expand: "$s" }],
+        })
+      ).toThrow(/stmts/);
     });
 
     it("should return captured node directly for single-capture templates", () => {

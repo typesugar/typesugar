@@ -27,7 +27,15 @@
 
 import type { Kind, TypeFunction } from "@typesugar/type-system";
 import type { ValidatedNel } from "@typesugar/fp";
-import { Valid, invalidNel, isValid } from "@typesugar/fp";
+import type { NonEmptyList } from "@typesugar/fp";
+import { Valid, Invalid, invalidNel, isValid } from "@typesugar/fp";
+
+/** Build a NonEmptyList (`{ head, tail }`, Nil = null) from a non-empty array. */
+function nelFromArray<A>(xs: readonly A[]): NonEmptyList<A> {
+  let tail: any = null;
+  for (let i = xs.length - 1; i > 0; i--) tail = { head: xs[i], tail };
+  return { head: xs[0], tail };
+}
 import type { ValidationError } from "./types.js";
 
 // ============================================================================
@@ -194,7 +202,7 @@ export function safeParseAll<F>(
     }
 
     if (errors.length > 0) {
-      return invalidNel(errors[0]);
+      return Invalid(nelFromArray(errors));
     }
 
     return Valid(values);
@@ -262,7 +270,7 @@ export function nativeSafeParseAll(
     }
 
     if (errors.length > 0) {
-      return invalidNel(errors[0]);
+      return Invalid(nelFromArray(errors));
     }
 
     return Valid(values);

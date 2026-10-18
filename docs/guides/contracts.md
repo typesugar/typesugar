@@ -52,6 +52,20 @@ function withdraw(account: Account, amount: Positive): number {
 }
 ```
 
+Rules for the block form:
+
+- Each statement in a `requires:`/`ensures:` block is one condition — an
+  expression statement, optionally `(condition, "message");`. The message must
+  be a string literal (anything else is a warning and the default message is
+  used). Any other statement (`const`, `if`, ...) is a compile error.
+- Blocks are supported in function declarations and methods (including
+  `async` ones — postconditions see the awaited value). In arrow functions,
+  function expressions, constructors and accessors the labels are a compile
+  error, and `@contract` on a generator function is an error.
+- A failed check throws `PreconditionError` / `PostconditionError` (both
+  extend `ContractError`); `@invariant` throws `InvariantError`. The
+  transformer adds the import from `@typesugar/contracts`.
+
 Postconditions (`ensures:`) and `old()` use the block form because the check
 must run at function exit and `old()` must be snapshotted at entry. The inline
 `ensures(condition)` call form cannot capture pre-state with `old()` — the check
@@ -96,7 +110,7 @@ at entry.
 import { requires } from "@typesugar/contracts";
 
 function deposit(account: Account, amount: Positive): void {
-  requires(amount > 0); // PROVEN: Positive type
+  requires(amount > 0); // elided when proveAtCompileTime is on (Positive type)
   account.balance += amount;
 }
 ```
@@ -117,7 +131,9 @@ function abs(n: number): number {
 
 ### The `result` Variable
 
-Inside `ensures:`, `result` refers to the return value:
+Inside `ensures: { ... }`, `result` refers to the return value (unless the
+function has a parameter named `result`, which then keeps its meaning — use
+`ensures: (r) => { ... }` to name the return value yourself):
 
 ```typescript
 function double(n: number): number {
@@ -187,8 +203,13 @@ class Range {
 
 The invariant is checked:
 
-- After construction
-- After each public method
+- After construction (including field initializers; a constructor is
+  synthesized when the class has none)
+- On every normal exit (any `return`) of each public instance method and
+  setter
+
+It is not checked for static members, getters, `private`/`protected`/`#private`
+members, or when the method throws (the original exception propagates).
 
 Another example, guarding a balance:
 
@@ -249,9 +270,21 @@ for proven conditions.
 The prover runs layers in order, stopping at the first success:
 
 1. **Constant evaluation** — Static values, `comptime()` results
-2. **Type deduction** — Facts from `Refined<T, Brand>` types
-3. **Algebraic rules** — Pattern matching (`a > 0 ∧ b > 0 → a + b > 0`)
-4. **Linear arithmetic** — Fourier-Motzkin elimination
+2. **Type deduction** — Facts from `Refined<T, Brand>` parameter types
+3. **Algebraic rules** — Equational laws (identity, associativity,
+   commutativity), only when a fact asserts the property for that exact
+   operation (e.g. `commutative(add)`)
+4. **Linear arithmetic** — Fourier-Motzkin elimination over order constraints
+
+Proving is opt-in (`proveAtCompileTime: true`) and **experimental**. Because a
+proven condition has its runtime check removed, the prover is deliberately
+conservative: it only reasons about comparisons between variables and numeric
+literals (plus two-term sums/differences, with IEEE floating-point–aware
+rules), treats facts from refined parameter types as holding at function
+entry, and for postconditions ignores facts about parameters that are
+reassigned in the body, are not of a primitive type, or are shadowed by the
+result name. Anything else falls back to a runtime check. A fuzz test in the
+package checks that no proven goal is falsified by values satisfying the facts.
 
 ### Compile-Time Evaluation with `comptime()`
 
@@ -357,12 +390,22 @@ const result = trySimpleLinearProof("x + y >= 0", [
 // result.proven === true
 ```
 
-Supported patterns:
+Supported patterns (facts and goals are parsed; only top-level `&&`
+conjuncts of the forms below are used, anything else is ignored):
 
-- Transitivity: `x > y ∧ y > z → x > z`
-- Sum bounds: `x >= a ∧ y >= b → x + y >= a + b`
-- Positive implies non-negative: `x > 0 → x >= 0`
-- Equality bounds: `x === c → x >= c ∧ x <= c`
+- Order atoms `a op b` with `op ∈ {<, <=, >, >=, ===}` and each side a
+  variable (`x`, `s.length`) or numeric literal — transitivity, bounds,
+  equality bounds, contradiction detection
+- `Number.isFinite(x)` / `Number.isInteger(x)` as finiteness facts
+- Two-term sums/differences against a literal: `x >= a ∧ y >= b → x + y >= a + b`
+  (with the bound sum computed in floating point), `x > y → x - y > 0`, and
+  `x >= y → x - y >= 0` only when one side is known finite
+  (`Infinity - Infinity` is `NaN`)
+- A goal variable must appear in some usable fact (otherwise it could be
+  `NaN`, for which even `x <= x` is false)
+
+Products (`x * y > 0` fails on underflow), `2 * x > x` (fails for `Infinity`),
+`%`, and disjunctions are not proven.
 
 ## Proof Certificates
 
@@ -389,7 +432,10 @@ console.log(formatCertificate(cert));
 
 ## Custom Algebraic Rules
 
-Extend the algebraic layer with your own pattern-matching rules:
+Extend the algebraic layer with your own rules. A matching rule removes the
+runtime check, so it must be sound: parse the goal and facts rather than
+matching substrings (a check like `predicate.includes("> 0")` also matches
+`x * x > 0` or `y > 0 || ...`).
 
 ```typescript
 import { registerAlgebraicRule } from "@typesugar/contracts";
@@ -398,9 +444,10 @@ registerAlgebraicRule({
   name: "percentage_bounds",
   description: "Percentage is 0-100",
   match(goal, facts) {
-    const m = goal.match(/^(\w+)\s*<=\s*100$/);
+    const m = /^([A-Za-z_$][\w$]*) <= 100$/.exec(goal.trim());
     if (!m) return false;
-    return facts.some((f) => f.variable === m[1] && f.predicate.includes("Percentage"));
+    // A fact you register yourself for Percentage-typed variables.
+    return facts.some((f) => f.variable === m[1] && f.predicate === `isPercentage(${m[1]})`);
   },
 });
 ```
@@ -428,14 +475,19 @@ This registers all built-in predicates so the prover can discharge conditions
 directly from refined type brands:
 
 ```typescript
-// REQUIRED: Registers all built-in predicates
+// REQUIRED: Registers all built-in predicates. Importing it also loads the
+// package into the transformer (it declares a `typesugar.macros` entry), so
+// the prover sees the predicates at build time.
 import "@typesugar/contracts-refined";
+import "@typesugar/contracts/syntax";
 
-import { Positive, Byte, Port } from "@typesugar/type-system";
+import type { Port } from "@typesugar/type-system";
 
 function processPort(port: Port): void {
-  requires(port >= 1); // PROVEN: Port guarantees >= 1
-  requires(port <= 65535); // PROVEN: Port guarantees <= 65535
+  requires: {
+    port >= 1; // elided with proveAtCompileTime: Port guarantees >= 1
+    port <= 65535; // elided: Port guarantees <= 65535
+  }
 }
 ```
 
@@ -503,18 +555,26 @@ export default {
 
 ```bash
 TYPESUGAR_CONTRACTS_MODE=none npm run build  # Production: strip all checks
+TYPESUGAR_CONTRACTS_PROVE_AT_COMPILE_TIME=1 npm run build  # enable proof elision
 ```
+
+These map onto `contracts.mode` / `contracts.proveAtCompileTime` in the
+unified typesugar config.
 
 ## Error Messages
 
-Contracts produce clear error messages:
+A failed check throws a typed error whose message is the condition's
+message, or `Precondition failed: <condition source>` by default:
 
-```
-ContractViolation: requires: amount must be positive
-  at withdraw (account.ts:5:3)
+```typescript
+import { PreconditionError } from "@typesugar/contracts";
 
-  Condition: amount > 0
-  Values: { amount: -50 }
+try {
+  withdraw(account, -50);
+} catch (e) {
+  e instanceof PreconditionError; // true
+  e.message; // "amount must be positive"
+}
 ```
 
 ## Performance

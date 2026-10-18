@@ -1,10 +1,12 @@
 /**
  * Tests for NewtypeAssignment diagnostic suppression rule (PEP-011 Wave 4)
  *
- * Verifies that TS2322 ("Type 'X' is not assignable to type 'Y'") and
- * TS2345 ("Argument of type 'X' is not assignable to parameter of type 'Y'")
- * are suppressed when a Newtype<Base, Brand> is involved and the other side
- * is assignable to Base. Also verifies no false positives for unrelated types.
+ * The rule only suppresses the spurious TS2345 on the argument of a
+ * `wrap<T>()` / `newtypeCtor<T>()` / `validatedNewtype<T>()` constructor
+ * (a parameter typed `UnwrapNewtype<T>`), which the transformer erases.
+ * Implicit `Base → Newtype` assignments and brand mismatches stay errors —
+ * that is what newtypes are for (docs/guides/type-system.md; deep-review
+ * macros-other #9).
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -32,6 +34,11 @@ type UserId = Newtype<number, "UserId">;
 type Email = Newtype<string, "Email">;
 type Meters = Newtype<number, "Meters">;
 type Seconds = Newtype<number, "Seconds">;
+
+type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
+function wrap<T>(value: UnwrapNewtype<T>): T { return value as T; }
+function unwrap<T>(value: T): UnwrapNewtype<T> { return value as UnwrapNewtype<T>; }
+function newtypeCtor<T>(): (value: UnwrapNewtype<T>) => T { return (v) => v as T; }
 `;
 
 function createProgram(
@@ -100,358 +107,121 @@ function getAssignmentDiagnostics(
 // Tests
 // ---------------------------------------------------------------------------
 
+function firstVerdict(code: string, codes = [2322, 2345]): boolean | undefined {
+  const { checker, diagnostics } = createProgram({ "/test.ts": `${NEWTYPE_PREAMBLE}\n${code}` });
+  const diags = getDiagnosticsForFile(diagnostics, "/test.ts").filter((d) =>
+    codes.includes(d.code)
+  );
+  expect(diags.length).toBeGreaterThan(0);
+  return evaluateDiagnosticSuppression(diags[0], checker, diags[0].file!);
+}
+
 describe("NewtypeAssignment diagnostic suppression rule", () => {
   beforeEach(() => {
     clearDiagnosticSuppressionRules();
+    registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
   });
 
   describe("rule creation", () => {
     it("creates a rule with correct metadata", () => {
       const rule = createNewtypeAssignmentRule();
       expect(rule.name).toBe("NewtypeAssignment");
-      expect(rule.errorCodes).toEqual([2322, 2345]);
+      expect(rule.errorCodes).toEqual([2345]);
     });
   });
 
-  describe("Base → Newtype suppression (TS2322)", () => {
-    it("suppresses TS2322 for const id: UserId = 42", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-const id: UserId = 42;
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
+  describe("wrap() / newtype constructor arguments are suppressed", () => {
+    it("suppresses the TS2345 from wrap<UserId>(42)", () => {
+      expect(firstVerdict(`const id = wrap<UserId>(42);`)).toBe(true);
     });
 
-    it("suppresses TS2322 for string newtype: const email: Email = 'user@test.com'", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-const email: Email = "user@test.com";
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
+    it("suppresses the TS2345 from wrap<Email>('user@test.com')", () => {
+      expect(firstVerdict(`const e = wrap<Email>("user@test.com");`)).toBe(true);
     });
 
-    it("suppresses TS2322 when assigning a number variable to Newtype<number>", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-const raw = 42;
-const id: UserId = raw;
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
-    });
-  });
-
-  describe("Newtype → Base suppression (TS2322)", () => {
-    it("suppresses TS2322 when assigning Newtype to its base type", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-declare const id: UserId;
-const raw: number = id;
-`,
-      });
-
-      // UserId is number & { __brand: ... }, which IS assignable to number
-      // in strict TS, so this may not produce an error. That's fine — the
-      // rule should handle the case where it does.
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      if (assignDiags.length > 0) {
-        const sourceFile = assignDiags[0].file!;
-        expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
-      }
-    });
-  });
-
-  describe("function argument suppression (TS2345)", () => {
-    it("suppresses TS2345 when passing a number literal to a UserId parameter", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-function getUser(id: UserId): void {}
-getUser(42);
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
+    it("suppresses a newtypeCtor-built constructor call", () => {
+      expect(firstVerdict(`const mk = newtypeCtor<UserId>();\nconst id = mk(42);`)).toBe(true);
     });
 
-    it("suppresses TS2345 when passing a string to an Email parameter", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-function sendEmail(to: Email): void {}
-sendEmail("user@test.com");
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
-    });
-  });
-
-  describe("no false positives", () => {
-    it("does NOT suppress TS2322 for unrelated types (string to number)", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `const x: number = "hello";`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
+    it("suppresses wrap() of a multi-constituent base", () => {
+      expect(
+        firstVerdict(`
+interface Serializable { serialize(): string; }
+interface Identifiable { id: string; }
+type Tagged = Newtype<Serializable & Identifiable, "Tagged">;
+declare const obj: Serializable & Identifiable;
+const tagged = wrap<Tagged>(obj);
+`)
+      ).toBe(true);
     });
 
-    it("does NOT suppress TS2322 for wrong base type (string to Newtype<number>)", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-const id: UserId = "not a number";
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
-    });
-
-    it("does NOT suppress when mixing different Newtype brands with same base", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-declare const meters: Meters;
-const seconds: Seconds = meters;
-`,
-      });
-
-      // Both Meters and Seconds have base type number, but the brand field
-      // values differ. TypeScript will error because the intersection types
-      // are structurally incompatible (different __brand literal types).
-      // However: Meters has __brand and its base is number. The source
-      // (meters) has type Newtype<number, "Meters"> — its base is number.
-      // The target (Seconds) has type Newtype<number, "Seconds"> — its base
-      // is number too. The rule checks if source is assignable to target's
-      // base: Meters (number & {__brand: "Meters"}) IS assignable to number.
-      // So the rule WILL suppress this — which is correct because at
-      // runtime both are just numbers. The brand discrimination is a
-      // type-level concern that wrap()/unwrap() handles.
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      if (assignDiags.length > 0) {
-        const sourceFile = assignDiags[0].file!;
-        // This SHOULD suppress — at runtime Meters and Seconds are both numbers
-        expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
-      }
-    });
-
-    it("does NOT suppress TS2345 for wrong base type in function args", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-function getUser(id: UserId): void {}
-getUser("not a number");
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
-    });
-  });
-
-  describe("filterDiagnostics integration", () => {
-    it("filters TS2322 from diagnostics array for valid newtype assignment", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
+    it("filterDiagnostics removes wrap()'s TS2345 and keeps other diagnostics", () => {
       const { program, checker, diagnostics } = createProgram({
         "/test.ts": `${NEWTYPE_PREAMBLE}
-const id: UserId = 42;
-`,
-      });
-
-      const fileDiags = getDiagnosticsForFile(diagnostics, "/test.ts");
-      const assignBefore = fileDiags.filter((d) => d.code === 2322 || d.code === 2345);
-      expect(assignBefore.length).toBeGreaterThan(0);
-
-      const filtered = filterDiagnostics(fileDiags, checker, (fn) => program.getSourceFile(fn));
-      const assignAfter = filtered.filter((d) => d.code === 2322 || d.code === 2345);
-
-      expect(assignAfter.length).toBeLessThan(assignBefore.length);
-    });
-
-    it("preserves non-assignment diagnostics", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { program, checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-const id: UserId = 42;
+const id = wrap<UserId>(42);
+const raw = unwrap(id);
 const bad = undeclaredVariable;
 `,
       });
-
       const fileDiags = getDiagnosticsForFile(diagnostics, "/test.ts");
-      const nonAssignBefore = fileDiags.filter((d) => d.code !== 2322 && d.code !== 2345);
-
+      expect(fileDiags.some((d) => d.code === 2345)).toBe(true);
       const filtered = filterDiagnostics(fileDiags, checker, (fn) => program.getSourceFile(fn));
-      const nonAssignAfter = filtered.filter((d) => d.code !== 2322 && d.code !== 2345);
-
-      expect(nonAssignAfter.length).toBe(nonAssignBefore.length);
+      expect(filtered.some((d) => d.code === 2345)).toBe(false);
+      expect(filtered.some((d) => d.code === 2304)).toBe(true);
     });
   });
 
-  describe("multi-constituent base newtypes", () => {
-    it("suppresses TS2322 for a newtype whose base is an intersection (Base1 & Base2)", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-interface Serializable { serialize(): string; }
-interface Identifiable { id: string; }
-
-type Tagged = Serializable & Identifiable & { readonly [__brand]: "Tagged" };
-
-declare const obj: Serializable & Identifiable;
-const tagged: Tagged = obj;
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
+  describe("must still report", () => {
+    it("does NOT suppress const id: UserId = 42 (implicit wrap)", () => {
+      expect(firstVerdict(`const id: UserId = 42;`)).toBe(false);
     });
 
-    it("does NOT suppress when source satisfies only one constituent of a multi-base newtype", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
+    it("does NOT suppress const email: Email = 'user@test.com'", () => {
+      expect(firstVerdict(`const email: Email = "user@test.com";`)).toBe(false);
+    });
 
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
+    it("does NOT suppress passing a number literal to a UserId parameter", () => {
+      expect(firstVerdict(`function getUser(id: UserId): void {}\ngetUser(42);`)).toBe(false);
+    });
+
+    it("does NOT suppress mixing different brands with the same base (Meters → Seconds)", () => {
+      expect(firstVerdict(`declare const meters: Meters;\nconst seconds: Seconds = meters;`)).toBe(
+        false
+      );
+    });
+
+    it("does NOT suppress re-wrapping another newtype: wrap<Meters>(seconds)", () => {
+      expect(firstVerdict(`declare const s: Seconds;\nconst m = wrap<Meters>(s);`)).toBe(false);
+    });
+
+    it("does NOT suppress wrap() of the wrong base type", () => {
+      expect(firstVerdict(`const id = wrap<UserId>("not a number");`)).toBe(false);
+    });
+
+    it("does NOT suppress wrap() when the source satisfies only one base constituent", () => {
+      expect(
+        firstVerdict(`
 interface Serializable { serialize(): string; }
 interface Identifiable { id: string; }
-
-type Tagged = Serializable & Identifiable & { readonly [__brand]: "Tagged" };
-
+type Tagged = Newtype<Serializable & Identifiable, "Tagged">;
 declare const partial: Serializable;
-const tagged: Tagged = partial;
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(false);
+const tagged = wrap<Tagged>(partial);
+`)
+      ).toBe(false);
     });
 
-    it("suppresses TS2345 for multi-base newtype in function argument position", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-interface Serializable { serialize(): string; }
-interface Identifiable { id: string; }
-
-type Tagged = Serializable & Identifiable & { readonly [__brand]: "Tagged" };
-
-function process(t: Tagged): void {}
-declare const obj: Serializable & Identifiable;
-process(obj);
-`,
-      });
-
-      const assignDiags = getAssignmentDiagnostics(diagnostics, "/test.ts");
-      expect(assignDiags.length).toBeGreaterThan(0);
-
-      const sourceFile = assignDiags[0].file!;
-      expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
+    it("does NOT suppress unrelated types (string to number)", () => {
+      expect(firstVerdict(`const x: number = "hello";`)).toBe(false);
     });
-  });
 
-  describe("wrap()/unwrap() compatibility", () => {
-    it("diagnostic suppression rule suppresses the TS2345 from wrap<UserId>(42) since the base type matches", () => {
-      const rule = createNewtypeAssignmentRule();
-      registerDiagnosticSuppressionRule(rule);
-
-      const { program, checker, diagnostics } = createProgram({
-        "/test.ts": `${NEWTYPE_PREAMBLE}
-type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
-function wrap<T>(value: UnwrapNewtype<T>): T { return value as T; }
-function unwrap<T>(value: T): UnwrapNewtype<T> { return value as UnwrapNewtype<T>; }
-
-const id = wrap<UserId>(42);
-const raw = unwrap(id);
-`,
-      });
-
-      // wrap<UserId>(42) produces TS2345 because TS can't simplify the
-      // conditional type UnwrapNewtype<UserId> in this standalone context.
-      // The transformer would erase wrap() entirely, but our diagnostic suppression rule
-      // should suppress this too since it's number → Newtype<number, ...>.
-      const fileDiags = getDiagnosticsForFile(diagnostics, "/test.ts");
-      const ts2345 = fileDiags.filter((d) => d.code === 2345);
-
-      if (ts2345.length > 0) {
-        const filtered = filterDiagnostics(fileDiags, checker, (fn) => program.getSourceFile(fn));
-        const ts2345After = filtered.filter((d) => d.code === 2345);
-        expect(ts2345After.length).toBeLessThan(ts2345.length);
-      }
+    it("does NOT treat a hand-rolled string-keyed __brand as a Newtype", () => {
+      expect(
+        firstVerdict(`
+type Token = string & { readonly __brand: "Token" };
+declare function wrapToken(value: UnwrapNewtype<Token>): Token;
+const t = wrapToken(42 as unknown as number);
+`)
+      ).toBe(false);
     });
   });
 });

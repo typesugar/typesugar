@@ -14,6 +14,7 @@ import {
   type MacroDefinition,
   scanImportsForScope,
   globalResolutionScope,
+  isSyntheticNode,
   type StandaloneExtensionInfo,
 } from "@typesugar/core";
 
@@ -84,8 +85,70 @@ export function recordMacroImport(
 // ---------------------------------------------------------------------------
 
 /**
- * Remove or trim import declarations whose specifiers resolved to macros.
+ * Collect the identifier texts still used as VALUE references in the
+ * transformed (non-import) statements: skips type positions, property-access
+ * names, and declaration names, but counts shorthand properties and
+ * `export { x }` specifiers.
  */
+function collectValueReferences(statements: readonly ts.Statement[]): Set<string> {
+  const refs = new Set<string>();
+  const walk = (node: ts.Node, parent: ts.Node | undefined): void => {
+    if (ts.isIdentifier(node)) {
+      if (parent && (parent as { name?: ts.Node }).name === node) {
+        if (ts.isShorthandPropertyAssignment(parent)) refs.add(node.text);
+        else if (ts.isExportSpecifier(parent) && !parent.propertyName) refs.add(node.text);
+        return;
+      }
+      refs.add(node.text);
+      return;
+    }
+    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
+    if (ts.isPropertyAccessExpression(node)) {
+      walk(node.expression, node);
+      return;
+    }
+    if (ts.isQualifiedName(node)) return;
+    ts.forEachChild(node, (child) => walk(child, node));
+  };
+  for (const stmt of statements) {
+    if (ts.isImportDeclaration(stmt)) continue;
+    if (ts.isImportEqualsDeclaration(stmt)) continue;
+    walk(stmt, undefined);
+  }
+  return refs;
+}
+
+/**
+ * Remove or trim import declarations whose specifiers resolved to macros.
+ *
+ * A specifier is only removed when no value reference to its local name
+ * survives in the transformed statements: an opted-out call (`"use no
+ * typesugar"`, `// @ts-no-typesugar`), a value use (`const f = pipe`,
+ * `export { pipe }`) or a call left unexpanded still needs the runtime
+ * binding (deep-review core #11). Name-based, so a same-named shadowing local
+ * also keeps the import -- a harmless false positive.
+ */
+/**
+ * A statement that prints nothing but `stmt`'s leading comments (copied as
+ * synthetic comments; the printer drops an original node's comments with the
+ * node). Comment text is copied verbatim, not generated.
+ */
+function commentPlaceholderFor(factory: ts.NodeFactory, stmt: ts.Statement): ts.Statement {
+  const placeholder = factory.createNotEmittedStatement(factory.createEmptyStatement());
+  const sf = stmt.getSourceFile();
+  if (!sf || stmt.pos < 0) return placeholder;
+  const text = sf.text;
+  for (const range of ts.getLeadingCommentRanges(text, stmt.pos) ?? []) {
+    const body =
+      range.kind === ts.SyntaxKind.SingleLineCommentTrivia
+        ? text.slice(range.pos + 2, range.end)
+        : text.slice(range.pos + 2, range.end - 2);
+    ts.addSyntheticLeadingComment(placeholder, range.kind, body, range.hasTrailingNewLine);
+  }
+  return placeholder;
+}
+
 export function cleanupMacroImports(
   factory: ts.NodeFactory,
   macroImportSpecifiers: Map<
@@ -97,6 +160,7 @@ export function cleanupMacroImports(
 ): ts.Statement[] {
   if (macroImportSpecifiers.size === 0) return statements;
 
+  const stillReferenced = collectValueReferences(statements);
   const result: ts.Statement[] = [];
 
   for (const stmt of statements) {
@@ -118,7 +182,8 @@ export function cleanupMacroImports(
     }
 
     const hasDefaultImport = importClause.name !== undefined;
-    const defaultIsMacro = tracked.has("default");
+    const defaultIsMacro =
+      tracked.has("default") && !stillReferenced.has(importClause.name?.text ?? "");
     const keepDefault = hasDefaultImport && !defaultIsMacro;
 
     const namedBindings = importClause.namedBindings;
@@ -126,13 +191,15 @@ export function cleanupMacroImports(
 
     if (namedBindings) {
       if (ts.isNamespaceImport(namedBindings)) {
-        if (tracked.has("namespace")) {
+        if (tracked.has("namespace") && !stillReferenced.has(namedBindings.name.text)) {
           newNamedBindings = undefined;
         } else {
           newNamedBindings = namedBindings;
         }
       } else if (ts.isNamedImports(namedBindings)) {
-        const remainingSpecifiers = namedBindings.elements.filter((spec) => !tracked.has(spec));
+        const remainingSpecifiers = namedBindings.elements.filter(
+          (spec) => !tracked.has(spec) || stillReferenced.has(spec.name.text)
+        );
 
         if (remainingSpecifiers.length === namedBindings.elements.length) {
           newNamedBindings = namedBindings;
@@ -151,6 +218,11 @@ export function cleanupMacroImports(
           : "<unknown>";
         console.log(`[typesugar] Removing macro-only import: import ... from "${moduleSpec}"`);
       }
+      // Keep the removed import's leading comments (a file header, `//!`
+      // banners, JSDoc) attached to a placeholder that prints nothing else;
+      // dropping the statement would lose them or reattach them inside the
+      // next (injected) import's braces.
+      result.push(commentPlaceholderFor(factory, stmt));
       continue;
     }
 
@@ -377,6 +449,29 @@ export function fallbackNameLookupWithImports(
 // Symbol-to-macro resolution
 // ---------------------------------------------------------------------------
 
+let macroModulesCache: { size: number; modules: Set<string> } | undefined;
+
+/**
+ * Whether a module specifier (as returned by `resolveModuleSpecifier`) is a
+ * macro-providing module: `typesugar`, any `@typesugar/*` package, or a
+ * module some registered macro declares as its `module` (third-party macro
+ * packages). An arbitrary `node_modules` package (rxjs, lodash, ...) is not,
+ * so a declaration living there must not enable the name-based fallback
+ * (deep-review core #2: `obs.pipe(...)` on an rxjs Observable was expanded as
+ * the `pipe` macro whenever the file imported `pipe`). Memoised on registry
+ * size, since macros are only ever added.
+ */
+export function isMacroModuleSpecifier(spec: string): boolean {
+  if (spec === "typesugar" || spec.startsWith("@typesugar/")) return true;
+  const all = globalRegistry.getAll();
+  if (!macroModulesCache || macroModulesCache.size !== all.length) {
+    const modules = new Set<string>();
+    for (const m of all) if (m.module) modules.add(m.module);
+    macroModulesCache = { size: all.length, modules };
+  }
+  return macroModulesCache.modules.has(spec);
+}
+
 /**
  * Core symbol resolution: follow aliases to find the original declaration,
  * then check if it comes from a known macro module.
@@ -421,7 +516,9 @@ export function resolveSymbolToMacro(
 
     const moduleSpecifier = resolveModuleSpecifier(fileName);
     if (moduleSpecifier) {
-      foundModuleDecl = true;
+      if (isMacroModuleSpecifier(moduleSpecifier)) {
+        foundModuleDecl = true;
+      }
       const exportName = resolved.name;
       const macro = globalRegistry.getByModuleExport(moduleSpecifier, exportName);
       if (macro && macro.kind === kind) {
@@ -466,35 +563,70 @@ export function resolveSymbolToMacro(
 /**
  * Resolve an identifier to a macro definition via import tracking.
  */
+const boundInProgram = new WeakMap<ts.SourceFile, boolean>();
+
+/**
+ * Is `node` part of a SourceFile the program's checker has bound (the
+ * program's own copy)? A detached `ts.createSourceFile` copy with the same
+ * name is not, and the checker must not be called on its nodes.
+ */
+export function isNodeInProgram(program: ts.Program, node: ts.Node): boolean {
+  const sf = node.getSourceFile();
+  if (!sf) return false;
+  let bound = boundInProgram.get(sf);
+  if (bound === undefined) {
+    bound = program.getSourceFile(sf.fileName) === sf;
+    boundInProgram.set(sf, bound);
+  }
+  return bound;
+}
+
 export function resolveMacroFromSymbol(
   typeChecker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
-  symbolMacroCache: Map<number, MacroDefinition | null>,
+  symbolMacroCache: Map<string, MacroDefinition | null>,
   node: ts.Node,
   macroName: string,
   kind: MacroDefinition["kind"],
-  onMacroImport?: (symbol: ts.Symbol) => void
+  onMacroImport?: (symbol: ts.Symbol) => void,
+  program?: ts.Program
 ): MacroDefinition | undefined {
+  // A macro-generated node is outside the checker's contract (CLAUDE.md):
+  // resolve it by name + the file's imports without asking the checker.
+  // So is a node of a SourceFile that is not the program's own (bound) copy
+  // -- e.g. the detached copy packages/transformer's pipeline makes when the
+  // preprocessed text differs: the checker throws on it ("reading 'members'").
+  if (isSyntheticNode(node) || (program && !isNodeInProgram(program, node))) {
+    return fallbackNameLookupWithImports(sourceFile, macroName, kind);
+  }
   let symbol: ts.Symbol | undefined;
   try {
     symbol = typeChecker.getSymbolAtLocation(node);
-  } catch {
-    // TypeChecker may throw on getSymbolAtLocation — fall back to name-based lookup
+  } catch (e) {
+    // Degrade to name-based lookup, but leave a visible trace.
+    console.warn(
+      `[typesugar] symbol lookup for '${macroName}' in ${sourceFile.fileName} failed ` +
+        `(${e instanceof Error ? e.message : String(e)}); resolving by name and imports instead`
+    );
     return fallbackNameLookupWithImports(sourceFile, macroName, kind);
   }
   if (!symbol) {
     return fallbackNameLookupWithImports(sourceFile, macroName, kind);
   }
 
+  // Key by symbol AND kind: callers probe the same symbol under several kinds
+  // (a tagged template is tried as "tagged-template", then as "expression"), and a
+  // miss cached for one kind must not hide a hit for another.
   const symbolId = (symbol as unknown as { id?: number }).id;
-  if (symbolId !== undefined && symbolMacroCache.has(symbolId)) {
-    return symbolMacroCache.get(symbolId) ?? undefined;
+  const cacheKey = symbolId !== undefined ? `${symbolId}:${kind}` : undefined;
+  if (cacheKey !== undefined && symbolMacroCache.has(cacheKey)) {
+    return symbolMacroCache.get(cacheKey) ?? undefined;
   }
 
   const result = resolveSymbolToMacro(typeChecker, sourceFile, symbol, macroName, kind);
 
-  if (symbolId !== undefined) {
-    symbolMacroCache.set(symbolId, result ?? null);
+  if (cacheKey !== undefined) {
+    symbolMacroCache.set(cacheKey, result ?? null);
   }
 
   if (result && onMacroImport) {
@@ -630,6 +762,28 @@ export function scanImportsForExtension(
 
   const matches: Array<{ ext: StandaloneExtensionInfo; importSource: string }> = [];
 
+  // A receiver's OWN method (e.g. Array.prototype.map) must never be
+  // redirected to a same-named member of some imported object: an imported
+  // typeclass instance like `parCombinePromise` has a `map(fa, f)` whose first
+  // parameter accepts an array, and `arr.map(f)` was being rewritten to
+  // `parCombinePromise.map(arr, f)`. Only a bare imported function named
+  // after the method (the explicit-override form) may shadow a native method.
+  let hasNativeMethod = false;
+  try {
+    hasNativeMethod =
+      ctx.typeChecker.getPropertyOfType(
+        ctx.typeChecker.getApparentType(receiverType),
+        methodName
+      ) !== undefined;
+  } catch {
+    hasNativeMethod = receiverType.getProperty(methodName) !== undefined;
+  }
+  const push = (ext: StandaloneExtensionInfo | undefined, importSource: string) => {
+    if (!ext) return;
+    if (hasNativeMethod && ext.qualifier !== undefined) return;
+    matches.push({ ext, importSource });
+  };
+
   for (const stmt of sourceFile.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
 
@@ -647,9 +801,7 @@ export function scanImportsForExtension(
           methodName,
           receiverType
         );
-        if (result) {
-          matches.push({ ext: result, importSource });
-        }
+        push(result, importSource);
       }
     }
 
@@ -660,9 +812,7 @@ export function scanImportsForExtension(
         methodName,
         receiverType
       );
-      if (result) {
-        matches.push({ ext: result, importSource });
-      }
+      push(result, importSource);
     }
 
     if (clause.name) {
@@ -672,9 +822,7 @@ export function scanImportsForExtension(
         methodName,
         receiverType
       );
-      if (result) {
-        matches.push({ ext: result, importSource });
-      }
+      push(result, importSource);
     }
   }
 

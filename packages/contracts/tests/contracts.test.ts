@@ -17,7 +17,7 @@ import {
   parseContractBlocks,
   normalizeExpression,
 } from "@typesugar/contracts/macros";
-import { tryAlgebraicProof, type TypeFact } from "@typesugar/contracts";
+import { tryAlgebraicProof, tryLinearArithmetic, type TypeFact } from "@typesugar/contracts";
 
 // ============================================================================
 // Test Helpers
@@ -434,36 +434,36 @@ describe("predicate normalization", () => {
 // Algebraic Prover Tests
 // ============================================================================
 
+// Numeric goals are the linear engine's job; the algebraic rules only do
+// equational laws backed by explicit facts (deep review 2026-10, #3).
 describe("algebraic prover", () => {
-  it("should prove sum of positives is positive", () => {
+  it("leaves numeric goals to the linear engine", () => {
     const facts: TypeFact[] = [
       { variable: "x", predicate: "x > 0" },
       { variable: "y", predicate: "y > 0" },
     ];
-    const result = tryAlgebraicProof("x + y > 0", facts);
-    expect(result.proven).toBe(true);
-    expect(result.method).toBe("algebra");
+    expect(tryAlgebraicProof("x + y > 0", facts).proven).toBe(false);
+    expect(tryLinearArithmetic("x + y > 0", facts).proven).toBe(true);
   });
 
-  it("should prove positive implies non-negative", () => {
+  it("should prove positive implies non-negative (linear)", () => {
     const facts: TypeFact[] = [{ variable: "x", predicate: "x > 0" }];
-    const result = tryAlgebraicProof("x >= 0", facts);
-    expect(result.proven).toBe(true);
+    expect(tryLinearArithmetic("x >= 0", facts).proven).toBe(true);
   });
 
-  it("should prove identity when fact matches goal", () => {
+  it("should prove identity when fact matches goal (linear direct match)", () => {
     const facts: TypeFact[] = [{ variable: "x", predicate: "x > 0" }];
-    const result = tryAlgebraicProof("x > 0", facts);
-    expect(result.proven).toBe(true);
+    expect(tryLinearArithmetic("x > 0", facts).proven).toBe(true);
   });
 
-  it("should prove product of positives is positive", () => {
+  it("does not prove product of positives is positive (false on underflow)", () => {
     const facts: TypeFact[] = [
       { variable: "x", predicate: "x > 0" },
       { variable: "y", predicate: "y > 0" },
     ];
-    const result = tryAlgebraicProof("x * y > 0", facts);
-    expect(result.proven).toBe(true);
+    // 1e-200 * 1e-200 === 0
+    expect(tryAlgebraicProof("x * y > 0", facts).proven).toBe(false);
+    expect(tryLinearArithmetic("x * y > 0", facts).proven).toBe(false);
   });
 
   it("should not prove unrelated goals", () => {

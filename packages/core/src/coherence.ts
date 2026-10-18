@@ -1,8 +1,16 @@
 /**
- * Coherence Checking System
+ * Coherence Checking System — EXPERIMENTAL, NOT WIRED IN.
  *
- * Detects and reports conflicting or ambiguous typeclass instances.
- * Similar to Rust's orphan rules and Scala's implicit resolution.
+ * @experimental Nothing calls this yet (deep review core #38): the
+ * `@instance`/`@impl`/`@derive` macros never register instances with
+ * {@link CoherenceChecker} or `globalCoherenceChecker`, so TS9050/TS9051 are
+ * never emitted and duplicate instances compile silently. The docs say so
+ * (guides/typeclasses.md "Coherence"). Wiring it in means registering from the
+ * instance macros, resetting per program, and emitting through the
+ * transformer's diagnostics.
+ *
+ * Intended behaviour: detect and report conflicting or ambiguous typeclass
+ * instances, similar to Rust's orphan rules and Scala's implicit resolution.
  *
  * Conflicts can occur when:
  * 1. Multiple explicit instances for the same (typeclass, type) pair

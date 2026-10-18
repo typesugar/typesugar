@@ -98,6 +98,15 @@ function interpolate(strings: TemplateStringsArray, values: unknown[]): string {
 }
 
 /**
+ * Runtime `stateMachine` tag under a name the macro can import. The macro
+ * emits this when a template has non-literal interpolations (which it can't
+ * evaluate at build time): the user's own `stateMachine` import specifier is
+ * removed by the transformer's import cleanup, so the fallback can't refer to
+ * it. Not part of the public API.
+ */
+export const __typesugar_stateMachineRuntime = stateMachine;
+
+/**
  * Runtime helper for creating state machine instances.
  * Called by the compiled output of `stateMachineMacro` (the `./macros` entry).
  */

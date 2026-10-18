@@ -14,11 +14,19 @@ import { parseGrammarDef, buildParser } from "./grammar.js";
  * Runtime `grammar` tagged template function.
  *
  * @param strings - Template literal string parts
- * @param exprs - Template literal interpolated expressions (currently unused)
+ * @param exprs - Interpolated expressions. Interpolation is not supported: any
+ *   `${...}` in the template throws, rather than silently dropping the value
+ *   and parsing a different grammar.
  * @returns A Grammar that can parse input strings
  */
 export function grammar(strings: TemplateStringsArray, ...exprs: unknown[]): Grammar<unknown> {
-  const source = strings.join("");
+  if (exprs.length > 0 || strings.length !== 1) {
+    throw new Error(
+      "grammar template interpolation (${...}) is not supported; " +
+        "write the grammar as a plain template, or build it with parseGrammarDef(text)"
+    );
+  }
+  const source = strings[0];
   const rules = parseGrammarDef(source);
   return buildParser(rules);
 }

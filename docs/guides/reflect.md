@@ -172,9 +172,21 @@ type ValidationResult<T> = { success: true; value: T } | { success: false; error
 
 ### validator\<T\>()
 
-- `validator<T>()` currently validates **primitive fields only** (`string`, `number`, `boolean`).
-- Fields with array types, nested object types, union types, and intersection types are **silently skipped** during validation — no error is reported for those fields regardless of the input value.
-- For complex validation needs (nested objects, arrays, unions, branded types), use [`@typesugar/validate`](/guides/validate) instead.
+- The generated function returns a `ValidationResult<T>` object — it is **not** a type guard. The
+  result is always truthy; check `result.success`.
+- Only the **top level** of `T` is checked. Per field:
+  - `string`, `number`, `boolean`, `bigint`, `symbol` — `typeof` check;
+  - string/number/boolean literal types, literal unions and enums — `===` against each allowed value;
+  - `null` / `undefined` members of a union (e.g. `string | null`) are accepted;
+  - arrays and tuples — `Array.isArray` only (elements are not checked);
+  - methods and function-typed fields — `typeof === "function"`;
+  - nested objects/interfaces — non-null object only (their fields are not checked);
+  - `any` / `unknown` — anything.
+- Fields whose type cannot be checked at runtime (type parameters, intersections, ...) are not
+  validated, and the macro reports a **warning** naming each one.
+- Keys that are not identifiers (e.g. `"first-name"`) are handled.
+- For deep validation (nested objects, array elements, branded types), use
+  [`@typesugar/validate`](/guides/validate) instead.
 
 ## Learn More
 

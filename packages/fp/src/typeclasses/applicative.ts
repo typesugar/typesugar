@@ -11,6 +11,7 @@
  *   - Composition: pure(compose).ap(u).ap(v).ap(w) === u.ap(v.ap(w))
  */
 
+import { type Acc, emptyAcc, snoc, accToArray } from "../internal/acc.js";
 import type { Functor } from "./functor.js";
 import type { Kind } from "../hkt.js";
 
@@ -168,12 +169,11 @@ export function unless<F>(
 export function replicateA<F>(F: Applicative<F>): <A>(n: number, fa: Kind<F, A>) => Kind<F, A[]> {
   return <A>(n: number, fa: Kind<F, A>): Kind<F, A[]> => {
     if (n <= 0) return F.pure([] as A[]);
-    const result: Kind<F, A[]> = F.map(fa, (a: A) => [a]);
-    let acc = result;
-    for (let i = 1; i < n; i++) {
-      acc = map2(F)(acc, fa, (arr: A[], a: A) => [...arr, a]);
+    let acc: Kind<F, Acc<A>> = F.pure(emptyAcc as Acc<A>);
+    for (let i = 0; i < n; i++) {
+      acc = map2(F)(acc, fa, (xs: Acc<A>, a: A) => snoc(xs, a));
     }
-    return acc;
+    return F.map(acc, accToArray);
   };
 }
 

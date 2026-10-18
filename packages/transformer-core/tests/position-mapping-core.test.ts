@@ -13,7 +13,7 @@ import {
   IdentityPositionMapperCore,
   type PositionMapperCore,
 } from "../src/position-mapping-core.js";
-import { decodeMappings } from "../src/source-map-utils.js";
+import { decodeMappings, decodeSourceMap, findGeneratedPosition } from "../src/source-map-utils.js";
 import type { RawSourceMap } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
@@ -260,5 +260,29 @@ describe("integration with real VLQ source maps", () => {
     expect(decoded.length).toBe(2);
     expect(decoded[0][0].sourceLine).toBe(0);
     expect(decoded[1][0].sourceLine).toBe(1);
+  });
+});
+
+describe("findGeneratedPosition picks the nearest segment (review core #21)", () => {
+  // Line 0: gen col 0 -> src col 0, gen col 20 -> src col 10 (an earlier expansion
+  // on the line grew the text by 10 chars).
+  const map: RawSourceMap = {
+    version: 3,
+    sources: ["input.ts"],
+    names: [],
+    mappings: "AAAA,oBAAU",
+  };
+
+  it("maps an original column after an expansion to the later segment", () => {
+    const decoded = decodeSourceMap(map);
+    expect(findGeneratedPosition(decoded, 0, 12)).toEqual({ line: 0, column: 22 });
+    expect(findGeneratedPosition(decoded, 0, 3)).toEqual({ line: 0, column: 3 });
+  });
+
+  it("SourceMapPositionMapperCore.toTransformed uses the nearest segment", () => {
+    const original = "aaaaaaaaaaXYZ";
+    const transformed = "bbbbbbbbbbbbbbbbbbbbXYZ";
+    const mapper = new SourceMapPositionMapperCore(map, original, transformed);
+    expect(mapper.toTransformed(12)).toBe(22);
   });
 });

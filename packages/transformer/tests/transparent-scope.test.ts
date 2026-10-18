@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as path from "path";
 import { transformCode } from "../src/pipeline.js";
+import { transformWithDecls } from "./opaque-fixture.js";
 import { registerTypeRewrite, clearTypeRewrites } from "@typesugar/core";
 
 beforeEach(() => {
@@ -194,7 +195,7 @@ describe("PEP-012 Wave 5: transparent scope — consumer file", () => {
     const code = `${optionDeclarations}
 const result = Some(5).map(n => n * 2);
 `;
-    const result = transformCode(code, { fileName: consumerFile });
+    const result = transformWithDecls(code, consumerFile, { declsFile: definingFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // In consumer file: .map() SHOULD be rewritten, Some(5) SHOULD be erased.
     // `map` collides with the fixture's own `declare function map`, so
@@ -212,7 +213,7 @@ const result = Some(5).map(n => n * 2);
     const code = `${optionDeclarations}
 const result = Some(5);
 `;
-    const result = transformCode(code, { fileName: consumerFile });
+    const result = transformWithDecls(code, consumerFile, { declsFile: definingFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = 5");
     expect(result.code).not.toContain("Some(");
@@ -227,7 +228,7 @@ const result = Some(5);
     const code = `${optionDeclarations}
 const result = None;
 `;
-    const result = transformCode(code, { fileName: consumerFile });
+    const result = transformWithDecls(code, consumerFile, { declsFile: definingFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = null");
   });
@@ -242,7 +243,7 @@ const result = None;
 declare const opt: Option<number>;
 const result = opt.value;
 `;
-    const result = transformCode(code, { fileName: consumerFile });
+    const result = transformWithDecls(code, consumerFile, { declsFile: definingFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = opt");
     expect(result.code).not.toContain(".value");
@@ -257,7 +258,7 @@ const result = opt.value;
     const code = `${optionDeclarations}
 const result = Some(10).map(n => n * 2).filter(n => n > 5).getOrElse(() => 0);
 `;
-    const result = transformCode(code, { fileName: consumerFile });
+    const result = transformWithDecls(code, consumerFile, { declsFile: definingFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     // `map`/`filter`/`getOrElse` all collide with the fixture's own `declare
     // function`s, so ctx.ensureImport aliases all three.
@@ -299,10 +300,11 @@ const result = Some(5).map(n => n * 2);
 `;
     const result = transformCode(code, { fileName: otherFile });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    // Should rewrite — not the defining file. `map` collides with the
-    // fixture's own `declare function map`, so ctx.ensureImport aliases it.
-    expect(result.code).toContain("__map_ts0__(5,");
-    expect(result.code).not.toMatch(/\.map\(/);
+    // This file declares its OWN Option/Some/map. They are not the registered
+    // @typesugar/fp/data/option type (erasure is scoped to the declaring
+    // symbol), so nothing here may be rewritten or erased.
+    expect(result.code).toContain("Some(5)");
+    expect(result.code).toContain(".map(");
   });
 });
 

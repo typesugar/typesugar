@@ -201,6 +201,16 @@ describe("PEP-052 in-memory fallback vs @do-methods tag consistency", () => {
       "bind=then map=then orElse=catch",
     ],
     [
+      `${root}../src/typeclasses/flatmap-instances.ts`,
+      "flatMapIterable",
+      "bind=flatMap map=map style=static receiver=flatMapIterable",
+    ],
+    [
+      `${root}../src/typeclasses/flatmap-instances.ts`,
+      "flatMapAsyncIterable",
+      "bind=flatMap map=map style=static receiver=flatMapAsyncIterable",
+    ],
+    [
       `${root}../src/typeclasses/par-combine-instances.ts`,
       "parCombinePromise",
       "map=then all=all receiver=Promise",

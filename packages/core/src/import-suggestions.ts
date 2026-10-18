@@ -68,6 +68,12 @@ export function createModuleExportIndex(): ModuleExportIndex {
 
 /**
  * Default export index populated with known typesugar exports.
+ *
+ * Every row must be a real export of its module: `tests/core-utils-review.test.ts`
+ * checks each one against the package's built `.d.ts` (deep review core #32 —
+ * the table used to suggest `Show`/`Default` from std, `Result`/`Ok`/`Err`/
+ * `Traversable` from fp, and `match`/`impl`/`quote`/`Option`/... from
+ * `typesugar`, none of which exist there).
  */
 const defaultExports: ExportedSymbol[] = [
   // Core typeclasses from @typesugar/std
@@ -86,7 +92,7 @@ const defaultExports: ExportedSymbol[] = [
     description: "Ordering comparison",
   },
   {
-    name: "Show",
+    name: "Printable",
     module: "@typesugar/std",
     kind: "typeclass",
     isReexport: false,
@@ -114,7 +120,7 @@ const defaultExports: ExportedSymbol[] = [
     description: "Hash code generation",
   },
   {
-    name: "Default",
+    name: "Defaultable",
     module: "@typesugar/std",
     kind: "typeclass",
     isReexport: false,
@@ -172,11 +178,18 @@ const defaultExports: ExportedSymbol[] = [
     description: "Reducible container",
   },
   {
-    name: "Traversable",
+    name: "Traverse",
     module: "@typesugar/fp",
     kind: "typeclass",
     isReexport: false,
     description: "Traversable container",
+  },
+  {
+    name: "Show",
+    module: "@typesugar/fp",
+    kind: "typeclass",
+    isReexport: false,
+    description: "String representation",
   },
 
   // FP data types from @typesugar/fp
@@ -223,27 +236,6 @@ const defaultExports: ExportedSymbol[] = [
     description: "Construct Right value",
   },
   {
-    name: "Result",
-    module: "@typesugar/fp",
-    kind: "type",
-    isReexport: false,
-    description: "Success or failure",
-  },
-  {
-    name: "Ok",
-    module: "@typesugar/fp",
-    kind: "function",
-    isReexport: false,
-    description: "Construct Ok value",
-  },
-  {
-    name: "Err",
-    module: "@typesugar/fp",
-    kind: "function",
-    isReexport: false,
-    description: "Construct Err value",
-  },
-  {
     name: "IO",
     module: "@typesugar/fp",
     kind: "type",
@@ -261,7 +253,7 @@ const defaultExports: ExportedSymbol[] = [
   },
   {
     name: "match",
-    module: "typesugar",
+    module: "@typesugar/std",
     kind: "macro",
     isReexport: false,
     description: "Pattern matching",
@@ -279,13 +271,6 @@ const defaultExports: ExportedSymbol[] = [
     kind: "macro",
     isReexport: false,
     description: "Define typeclass (JSDoc @typeclass preferred)",
-  },
-  {
-    name: "impl",
-    module: "typesugar",
-    kind: "macro",
-    isReexport: false,
-    description: "Define typeclass instance (JSDoc @impl preferred)",
   },
   {
     name: "instance",
@@ -324,7 +309,7 @@ const defaultExports: ExportedSymbol[] = [
   },
   {
     name: "quote",
-    module: "typesugar",
+    module: "@typesugar/macros",
     kind: "macro",
     isReexport: false,
     description: "AST quasiquoting",
@@ -376,41 +361,6 @@ const defaultExports: ExportedSymbol[] = [
 
   // Umbrella package re-exports common items
   {
-    name: "Option",
-    module: "typesugar",
-    kind: "type",
-    isReexport: true,
-    originalModule: "@typesugar/fp",
-  },
-  {
-    name: "Some",
-    module: "typesugar",
-    kind: "function",
-    isReexport: true,
-    originalModule: "@typesugar/fp",
-  },
-  {
-    name: "None",
-    module: "typesugar",
-    kind: "value",
-    isReexport: true,
-    originalModule: "@typesugar/fp",
-  },
-  {
-    name: "Either",
-    module: "typesugar",
-    kind: "type",
-    isReexport: true,
-    originalModule: "@typesugar/fp",
-  },
-  {
-    name: "Result",
-    module: "typesugar",
-    kind: "type",
-    isReexport: true,
-    originalModule: "@typesugar/fp",
-  },
-  {
     name: "Eq",
     module: "typesugar",
     kind: "typeclass",
@@ -419,13 +369,6 @@ const defaultExports: ExportedSymbol[] = [
   },
   {
     name: "Ord",
-    module: "typesugar",
-    kind: "typeclass",
-    isReexport: true,
-    originalModule: "@typesugar/std",
-  },
-  {
-    name: "Show",
     module: "typesugar",
     kind: "typeclass",
     isReexport: true,
@@ -753,6 +696,11 @@ export function formatSuggestionsMessage(
   return lines.join("\n");
 }
 
+/** A directive-prologue statement (`"use client";`, `"use strict";`). */
+function isDirective(stmt: ts.Statement): boolean {
+  return ts.isExpressionStatement(stmt) && ts.isStringLiteral(stmt.expression);
+}
+
 /**
  * Generate a code fix for adding an import.
  */
@@ -760,15 +708,20 @@ export function generateImportFix(
   sourceFile: ts.SourceFile,
   suggestion: ImportSuggestion
 ): { range: { start: number; end: number }; text: string } {
-  // Find the first non-comment, non-empty line to insert after
-  const firstStatement = sourceFile.statements[0];
-  const insertPos = firstStatement ? firstStatement.getStart(sourceFile) : 0;
+  // A directive prologue ("use client", "use strict") must stay first, or it
+  // stops being a directive (deep review core #25): skip it.
+  const statements = sourceFile.statements;
+  let firstIndex = 0;
+  while (firstIndex < statements.length && isDirective(statements[firstIndex])) {
+    firstIndex++;
+  }
+  const lastDirective = firstIndex > 0 ? statements[firstIndex - 1] : undefined;
 
   // Check if there are existing imports
   let hasImports = false;
   let lastImportEnd = 0;
 
-  for (const stmt of sourceFile.statements) {
+  for (const stmt of statements.slice(firstIndex)) {
     if (ts.isImportDeclaration(stmt)) {
       hasImports = true;
       lastImportEnd = stmt.getEnd();
@@ -784,8 +737,17 @@ export function generateImportFix(
       range: { start: lastImportEnd, end: lastImportEnd },
       text: `\n${suggestion.importStatement}`,
     };
+  } else if (lastDirective) {
+    // Insert right after the directive prologue
+    const end = lastDirective.getEnd();
+    return {
+      range: { start: end, end },
+      text: `\n${suggestion.importStatement}`,
+    };
   } else {
     // Insert at the beginning
+    const firstStatement = statements[0];
+    const insertPos = firstStatement ? firstStatement.getStart(sourceFile) : 0;
     return {
       range: { start: insertPos, end: insertPos },
       text: `${suggestion.importStatement}\n\n`,

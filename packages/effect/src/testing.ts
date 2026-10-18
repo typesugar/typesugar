@@ -24,6 +24,7 @@
  * @packageDocumentation
  */
 
+import { Context, Effect, Layer } from "effect";
 import { createMockFn, type MockFn, type MockOf } from "@typesugar/testing";
 
 // ============================================================================
@@ -94,6 +95,12 @@ export function mockService<T extends object>(
   // Create proxy to intercept property access and create mock functions lazily
   const handler: ProxyHandler<MockService<T>> = {
     get(target, prop, receiver) {
+      // Symbols (Symbol.toPrimitive, inspect, iterator, ...) and `then` are
+      // never service methods: answering them with a mock function made the
+      // mock thenable (so `await mock` never settled) and broke printing.
+      if (typeof prop === "symbol" || prop === "then") {
+        return undefined;
+      }
       if (prop === "_calls") {
         return calls;
       }
@@ -143,7 +150,13 @@ export function mockService<T extends object>(
     },
 
     has(_target, prop) {
-      return prop === "_calls" || prop === "_reset" || prop === "_resetAll" || prop === "_layer";
+      return (
+        prop === "_calls" ||
+        prop === "_reset" ||
+        prop === "_resetAll" ||
+        prop === "_layer" ||
+        (typeof prop === "string" && prop in methods)
+      );
     },
   };
 
@@ -179,7 +192,7 @@ export interface TestLayerOptions {
  * This is the primary way to inject mock services into Effect programs
  * for testing.
  *
- * @param _ServiceTag - The service tag (Context.Tag)
+ * @param ServiceTag - The service tag (Context.Tag)
  * @param mockImpl - The mock service implementation
  * @param options - Optional configuration
  * @returns A Layer providing the mock service
@@ -203,25 +216,19 @@ export interface TestLayerOptions {
  * );
  * ```
  */
-export function testLayer<T extends object>(
-  _ServiceTag: { readonly _tag: string } | string,
-  mockImpl: MockService<T> | T,
+export function testLayer<I, S extends object>(
+  ServiceTag: Context.Tag<I, S>,
+  mockImpl: MockService<S> | S,
   _options?: TestLayerOptions
-): unknown {
-  // Runtime placeholder - the actual Layer.succeed call requires Effect runtime
-  // This will be transformed by the @typesugar/effect transformer
-  return {
-    _tag: "TestLayer",
-    service: mockImpl,
-    tag: typeof _ServiceTag === "string" ? _ServiceTag : _ServiceTag._tag,
-  };
+): Layer.Layer<I> {
+  return Layer.succeed(ServiceTag, mockImpl as S);
 }
 
 /**
- * Combines multiple test layers into a single layer.
+ * Combines multiple test layers into a single layer (`Layer.mergeAll`).
  *
- * @param layers - Array of test layers to combine
- * @returns A combined Layer
+ * @param layers - Test layers to combine
+ * @returns A combined Layer providing every service
  *
  * @example
  * ```typescript
@@ -236,12 +243,16 @@ export function testLayer<T extends object>(
  * );
  * ```
  */
-export function combineLayers(...layers: unknown[]): unknown {
-  // Runtime placeholder
-  return {
-    _tag: "CombinedTestLayers",
-    layers,
-  };
+export function combineLayers<
+  const Ls extends readonly [Layer.Layer<any, any, any>, ...Layer.Layer<any, any, any>[]],
+>(
+  ...layers: Ls
+): Layer.Layer<
+  Layer.Layer.Success<Ls[number]>,
+  Layer.Layer.Error<Ls[number]>,
+  Layer.Layer.Context<Ls[number]>
+> {
+  return Layer.mergeAll(...(layers as unknown as [Layer.Layer<any, any, any>])) as any;
 }
 
 // ============================================================================
@@ -260,10 +271,9 @@ export function combineLayers(...layers: unknown[]): unknown {
  * // getUser() returns Effect.succeed({ id: "1", name: "Alice" })
  * ```
  */
-export function succeedMock<T>(value: T): MockFn<any[], unknown> {
-  const mock = createMockFn<(...args: any[]) => unknown>();
-  // Note: Actual Effect.succeed wrapping happens at compile time or requires Effect import
-  mock.mockReturnValue({ _tag: "Success", value } as unknown);
+export function succeedMock<T>(value: T): MockFn<any[], Effect.Effect<T>> {
+  const mock = createMockFn<(...args: any[]) => Effect.Effect<T>>();
+  mock.mockReturnValue(Effect.succeed(value));
   return mock;
 }
 
@@ -279,9 +289,9 @@ export function succeedMock<T>(value: T): MockFn<any[], unknown> {
  * // getUser() returns Effect.fail(new NotFound(...))
  * ```
  */
-export function failMock<E>(error: E): MockFn<any[], unknown> {
-  const mock = createMockFn<(...args: any[]) => unknown>();
-  mock.mockReturnValue({ _tag: "Failure", error } as unknown);
+export function failMock<E>(error: E): MockFn<any[], Effect.Effect<never, E>> {
+  const mock = createMockFn<(...args: any[]) => Effect.Effect<never, E>>();
+  mock.mockReturnValue(Effect.fail(error));
   return mock;
 }
 
@@ -297,9 +307,9 @@ export function failMock<E>(error: E): MockFn<any[], unknown> {
  * // process() returns Effect.die(Error)
  * ```
  */
-export function dieMock(defect: unknown): MockFn<any[], unknown> {
-  const mock = createMockFn<(...args: any[]) => unknown>();
-  mock.mockReturnValue({ _tag: "Die", defect } as unknown);
+export function dieMock(defect: unknown): MockFn<any[], Effect.Effect<never>> {
+  const mock = createMockFn<(...args: any[]) => Effect.Effect<never>>();
+  mock.mockReturnValue(Effect.die(defect));
   return mock;
 }
 

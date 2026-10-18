@@ -29,6 +29,7 @@ import {
   type MacroContext,
   type AttributeTarget,
 } from "@typesugar/core";
+import { evaluateConditionOrReport } from "./cfg.js";
 
 // =============================================================================
 // config.when Expression Macro
@@ -36,6 +37,7 @@ import {
 
 export const configWhenMacro = defineExpressionMacro({
   name: "config.when",
+  cacheable: false, // depends on the config, not just the call text
   module: "@typesugar/core",
   exportName: "when", // config.when is the "when" property of config
   description: "Conditional compilation based on configuration",
@@ -66,7 +68,8 @@ export const configWhenMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    const isActive = config.evaluate(condition);
+    const isActive = evaluateConditionOrReport(ctx, callExpr, condition, (c) => config.evaluate(c));
+    if (isActive === undefined) return callExpr;
 
     if (isActive) {
       if (ts.isArrowFunction(thenArg) || ts.isFunctionExpression(thenArg)) {
@@ -99,6 +102,7 @@ export const configWhenMacro = defineExpressionMacro({
 
 export const configWhenAttrMacro = defineAttributeMacro({
   name: "config.when",
+  cacheable: false, // depends on the config, not just the call text
   module: "@typesugar/core",
   exportName: "when",
   description: "Conditionally include a declaration based on configuration",
@@ -125,7 +129,10 @@ export const configWhenAttrMacro = defineAttributeMacro({
       return target;
     }
 
-    const isActive = config.evaluate(condition);
+    const isActive = evaluateConditionOrReport(ctx, decorator, condition, (c) =>
+      config.evaluate(c)
+    );
+    if (isActive === undefined) return target;
 
     if (isActive) {
       return stripDecorator(ctx, target, decorator);

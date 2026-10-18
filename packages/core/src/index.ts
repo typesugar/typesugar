@@ -36,6 +36,7 @@ export {
   type ContractsConfig,
   type SecurityConfig,
 } from "./config.js";
+export { ConfigConditionError, evaluateConfigCondition } from "./config-condition.js";
 
 // Re-export commonly used types for convenience
 export type {
@@ -61,6 +62,10 @@ export {
   standaloneExtensionRegistry,
   registerStandaloneExtensionEntry,
   findStandaloneExtension,
+  findStandaloneExtensions,
+  withStandaloneExtensionFile,
+  clearStandaloneExtensionsForFile,
+  type StandaloneExtensionEntry,
   getStandaloneExtensionsForType,
   getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
@@ -191,10 +196,15 @@ export {
   hasExportModifier,
   stripDecorator,
   isSyntheticNode,
+  hasSourceText,
   stripPositions,
   stripCommentsDeep,
+  cloneWithoutPositions,
+  cloneWithoutComments,
   cloneNodeDeep,
   jsValueToExpression,
+  numberToExpression,
+  bigintToExpression,
   getPrinter,
   getDummySourceFile,
   printNode,
@@ -223,6 +233,8 @@ export {
   FileBindingCache,
   KNOWN_GLOBALS,
   type PendingAliasEntry,
+  type ImportBinding,
+  type ImportBindingKind,
 } from "./hygiene.js";
 
 // Re-export markPure and CreateMacroContextOptions from context
@@ -247,6 +259,7 @@ export {
 export {
   registerDiagnosticSuppressionRule,
   registerDiagnosticSuppressionRuleOnce,
+  registerOrReplaceDiagnosticSuppressionRule,
   clearDiagnosticSuppressionRules,
   getDiagnosticSuppressionRules,
   getDiagnosticSuppressionAuditLog,
@@ -256,6 +269,7 @@ export {
   isDiagnosticSuppressionAuditEnabled,
   setDiagnosticSuppressionAuditMode,
   type DiagnosticSuppressionRule,
+  type DiagnosticSuppressionContext,
   type DiagnosticSuppressionAuditEntry,
   type DiagnosticSuppressionEvalResult,
 } from "./diagnostic-suppression.js";
@@ -273,6 +287,7 @@ export {
   findTypeRewrite,
   getTypeRewritesByModule,
   getTypeRewriteBySymbol,
+  typeRewriteEntryCoversFile,
   type TypeRewriteEntry,
   type ConstructorRewrite,
   type AccessorRewrite,

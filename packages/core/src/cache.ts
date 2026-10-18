@@ -48,8 +48,21 @@ interface CacheEntry {
 // Cache Store
 // =============================================================================
 
-/** Current cache format version — bump to invalidate all caches */
-const CACHE_VERSION = "2";
+/**
+ * Current cache format version — bump to invalidate all caches.
+ *
+ * "3": the call-site key now includes the source file path (`scope`), and
+ * expression-macro caching became opt-in (`cacheable: true`). Entries written
+ * under "2" were keyed by call-site text alone and may hold another file's
+ * type-dependent expansion, so they are discarded on load.
+ */
+const CACHE_VERSION = "3";
+
+/**
+ * Default cap on persisted entries. When exceeded on save, the least
+ * recently used entries (by `timestamp`, refreshed on every hit) are dropped.
+ */
+const DEFAULT_MAX_ENTRIES = 5000;
 
 /**
  * Separator used to join multiple node code strings in a single cache entry.
@@ -75,16 +88,22 @@ export class MacroExpansionCache {
     evictions: 0,
   };
 
-  constructor(cacheDir: string = ".typesugar-cache") {
+  private maxEntries: number;
+
+  constructor(cacheDir: string = ".typesugar-cache", options: { maxEntries?: number } = {}) {
     this.cacheFilePath = path.resolve(cacheDir, "expansions.json");
+    this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.load();
   }
 
   /**
    * Compute a cache key from the macro name, source text, and arguments.
+   *
+   * `scope` (normally the source file path) is part of the key so the same
+   * call-site text in two files never shares an entry.
    */
-  computeKey(macroName: string, sourceText: string, argTexts: string[]): string {
-    const input = [macroName, sourceText, ...argTexts].join("\0");
+  computeKey(macroName: string, sourceText: string, argTexts: string[], scope = ""): string {
+    const input = [scope, macroName, sourceText, ...argTexts].join("\0");
     return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
   }
 
@@ -96,6 +115,9 @@ export class MacroExpansionCache {
     const entry = this.entries.get(key);
     if (entry && entry.version === CACHE_VERSION) {
       this.stats.hits++;
+      // Refresh recency for LRU eviction on save.
+      entry.timestamp = Date.now();
+      this.dirty = true;
       return entry.expandedText;
     }
 
@@ -166,15 +188,41 @@ export class MacroExpansionCache {
         fs.mkdirSync(dir, { recursive: true });
       }
 
+      // LRU eviction: keep only the `maxEntries` most recently used entries.
+      if (this.entries.size > this.maxEntries) {
+        const byAge = [...this.entries].sort((a, b) => a[1].timestamp - b[1].timestamp);
+        const drop = byAge.length - this.maxEntries;
+        for (let i = 0; i < drop; i++) this.entries.delete(byAge[i][0]);
+        this.stats.evictions += drop;
+      }
+
       const data: Record<string, CacheEntry> = {};
       for (const [key, entry] of this.entries) {
         data[key] = entry;
       }
 
-      fs.writeFileSync(this.cacheFilePath, JSON.stringify(data, null, 2), "utf-8");
+      // Write to a unique temp file and rename over the target, so a
+      // concurrent build never reads (or leaves) a torn file.
+      const tmp = `${this.cacheFilePath}.${process.pid}.${Date.now()}.tmp`;
+      try {
+        fs.writeFileSync(tmp, JSON.stringify(data), "utf-8");
+        fs.renameSync(tmp, this.cacheFilePath);
+      } catch (e) {
+        try {
+          fs.unlinkSync(tmp);
+        } catch {
+          // temp file may not exist
+        }
+        throw e;
+      }
       this.dirty = false;
-    } catch {
-      // Cache write failure is non-fatal
+    } catch (e) {
+      // Cache write failure is non-fatal, but say so once.
+      console.warn(
+        `[typesugar] could not write expansion cache ${this.cacheFilePath}: ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
     }
   }
 
@@ -260,8 +308,8 @@ export class MacroExpansionCache {
 export class InMemoryExpansionCache {
   private entries = new Map<string, string>();
 
-  computeKey(macroName: string, sourceText: string, argTexts: string[]): string {
-    const input = [macroName, sourceText, ...argTexts].join("\0");
+  computeKey(macroName: string, sourceText: string, argTexts: string[], scope = ""): string {
+    const input = [scope, macroName, sourceText, ...argTexts].join("\0");
     return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
   }
 

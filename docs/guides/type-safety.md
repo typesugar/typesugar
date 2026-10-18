@@ -37,7 +37,7 @@ typesugar fits into this layer: the unplugin runs macro expansion during the bui
 
 Your editor runs `tsserver` in the background. It performs incremental typechecking as you type, showing red squiggles for type errors.
 
-typesugar's language service plugin (`typesugar/language-service`) hooks into this to transform your code before the IDE typechecks it. The IDE sees the macro-expanded version and reports errors against that.
+typesugar's language service plugin (`@typesugar/transformer/language-service`) hooks into this to transform your code before the IDE typechecks it. The IDE sees the macro-expanded version and reports errors against that.
 
 **What you get:** Real-time type errors in your editor, including errors in macro-expanded code.
 
@@ -46,7 +46,7 @@ typesugar's language service plugin (`typesugar/language-service`) hooks into th
 ```json
 {
   "compilerOptions": {
-    "plugins": [{ "name": "typesugar/language-service" }]
+    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
   }
 }
 ```

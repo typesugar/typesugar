@@ -7,7 +7,7 @@
  * 1. Double-invocation codegen: `extend(value).method(args)` is a two-call
  *    chain. Without `chainable: true`, the transformer only handed `expand()`
  *    the inner `extend(value)` call — but `expand()` already generated the
- *    FULL `TC.summon(...).method(...)` call, so the untouched outer
+ *    FULL `instance.method(...)` call, so the untouched outer
  *    `.method(args)` from the original source applied the method a second
  *    time on top of it.
  * 2. Blind first-candidate dispatch: when more than one `@typeclass` declares
@@ -45,7 +45,10 @@ export const r = extend(n).greet();
     // Exactly one `.greet(` call — the pre-fix bug left a second, outer
     // `.greet()` wrapping the macro's own fully-formed replacement.
     expect(result.code.match(/\.greet\(/g)).toHaveLength(1);
-    expect(result.code).toContain('Greet.summon<number>("number").greet(n)');
+    // The resolved instance is called directly — there is no runtime
+    // `Greet.summon` (deep review typeclass #12).
+    expect(result.code).toContain("greetNumber.greet(n)");
+    expect(result.code).not.toContain(".summon");
   });
 
   it("picks the candidate typeclass that actually has an instance, not just the first declared", () => {
@@ -81,7 +84,7 @@ export const r = extend(w).label();
 
     const result = transformCode(code, { fileName: "extend-instance-existence-check.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.code).toContain('HasInstance.summon<Widget>("Widget").label(w)');
-    expect(result.code).not.toContain("NoInstance.summon");
+    expect(result.code).toContain("hasInstanceWidget.label(w)");
+    expect(result.code).not.toContain(".summon");
   });
 });

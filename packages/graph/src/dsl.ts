@@ -11,6 +11,9 @@ import { defineStateMachine } from "./state-machine.js";
  * Edges can optionally carry a label in brackets:
  *   `a -> b [label], c`
  *
+ * Labels may not contain commas or brackets, and arrows cannot be chained
+ * (`a -> b -> c`); both are rejected with a `SyntaxError`.
+ *
  * Blank lines and lines starting with `#` are ignored.
  *
  * @example
@@ -45,11 +48,23 @@ export function parseDigraph(source: string): Graph {
       throw new SyntaxError(`Missing targets in: "${rawLine}"`);
     }
 
+    if (targetsPart.includes("->")) {
+      throw new SyntaxError(
+        `Chained arrows are not supported in: "${rawLine}". Write one "a -> b" rule per line.`
+      );
+    }
+
     for (const segment of targetsPart.split(",")) {
       const trimmed = segment.trim();
       if (!trimmed) continue;
 
-      const bracketMatch = trimmed.match(/^(\S+)\s*\[(.+?)\]$/);
+      const bracketMatch = trimmed.match(/^([^\s[\]]+)\s*\[([^[\]]+)\]$/);
+      if (!bracketMatch && /[[\]]/.test(trimmed)) {
+        throw new SyntaxError(
+          `Invalid edge target "${trimmed}" in: "${rawLine}". ` +
+            `Labels are written "target [label]" and may not contain commas or brackets.`
+        );
+      }
       if (bracketMatch) {
         const to = bracketMatch[1];
         const label = bracketMatch[2];

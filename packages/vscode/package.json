@@ -26,7 +26,7 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:**/node_modules/typesugar",
+    "workspaceContains:**/node_modules/typesugar/package.json",
     "workspaceContains:**/typesugar.manifest.json"
   ],
   "main": "./dist/extension.js",
@@ -212,6 +212,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable verbose logging for the language service plugin (useful for debugging)"
+        },
+        "typesugar.comptimeInEditor": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Evaluate `comptime(...)` blocks in the editor (trusted workspaces only). comptime runs code with editor privileges."
         }
       }
     }

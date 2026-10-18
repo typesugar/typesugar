@@ -22,58 +22,108 @@
   "types": "./dist/index.d.ts",
   "bin": {
     "typesugar": "./dist/cli.js",
-    "typesugar-dts-transform": "./dist/dts-transform.js"
+    "typesugar-dts-transform": "./dist/dts-transform-cli.js"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./cli": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js",
-      "require": "./dist/cli.cjs"
+      "import": {
+        "types": "./dist/cli.d.ts",
+        "default": "./dist/cli.js"
+      },
+      "require": {
+        "types": "./dist/cli.d.cts",
+        "default": "./dist/cli.cjs"
+      }
     },
     "./language-service": {
-      "types": "./dist/language-service.d.ts",
-      "import": "./dist/language-service.js",
-      "require": "./dist/language-service.cjs"
+      "import": {
+        "types": "./dist/language-service.d.ts",
+        "default": "./dist/language-service.js"
+      },
+      "require": {
+        "types": "./dist/language-service.d.cts",
+        "default": "./dist/language-service.cjs"
+      }
     },
     "./pipeline": {
-      "types": "./dist/pipeline.d.ts",
-      "import": "./dist/pipeline.js",
-      "require": "./dist/pipeline.cjs"
+      "import": {
+        "types": "./dist/pipeline.d.ts",
+        "default": "./dist/pipeline.js"
+      },
+      "require": {
+        "types": "./dist/pipeline.d.cts",
+        "default": "./dist/pipeline.cjs"
+      }
     },
     "./virtual-host": {
-      "types": "./dist/virtual-host.d.ts",
-      "import": "./dist/virtual-host.js",
-      "require": "./dist/virtual-host.cjs"
+      "import": {
+        "types": "./dist/virtual-host.d.ts",
+        "default": "./dist/virtual-host.js"
+      },
+      "require": {
+        "types": "./dist/virtual-host.d.cts",
+        "default": "./dist/virtual-host.cjs"
+      }
     },
     "./position-mapper": {
-      "types": "./dist/position-mapper.d.ts",
-      "import": "./dist/position-mapper.js",
-      "require": "./dist/position-mapper.cjs"
+      "import": {
+        "types": "./dist/position-mapper.d.ts",
+        "default": "./dist/position-mapper.js"
+      },
+      "require": {
+        "types": "./dist/position-mapper.d.cts",
+        "default": "./dist/position-mapper.cjs"
+      }
     },
     "./source-map-utils": {
-      "types": "./dist/source-map-utils.d.ts",
-      "import": "./dist/source-map-utils.js",
-      "require": "./dist/source-map-utils.cjs"
+      "import": {
+        "types": "./dist/source-map-utils.d.ts",
+        "default": "./dist/source-map-utils.js"
+      },
+      "require": {
+        "types": "./dist/source-map-utils.d.cts",
+        "default": "./dist/source-map-utils.cjs"
+      }
     },
     "./cache": {
-      "types": "./dist/cache.d.ts",
-      "import": "./dist/cache.js",
-      "require": "./dist/cache.cjs"
+      "import": {
+        "types": "./dist/cache.d.ts",
+        "default": "./dist/cache.js"
+      },
+      "require": {
+        "types": "./dist/cache.d.cts",
+        "default": "./dist/cache.cjs"
+      }
     },
     "./profiling": {
-      "types": "./dist/profiling.d.ts",
-      "import": "./dist/profiling.js",
-      "require": "./dist/profiling.cjs"
+      "import": {
+        "types": "./dist/profiling.d.ts",
+        "default": "./dist/profiling.js"
+      },
+      "require": {
+        "types": "./dist/profiling.d.cts",
+        "default": "./dist/profiling.cjs"
+      }
     },
     "./dts-transform": {
-      "types": "./dist/dts-transform.d.ts",
-      "import": "./dist/dts-transform.js",
-      "require": "./dist/dts-transform.cjs"
+      "import": {
+        "types": "./dist/dts-transform.d.ts",
+        "default": "./dist/dts-transform.js"
+      },
+      "require": {
+        "types": "./dist/dts-transform.d.cts",
+        "default": "./dist/dts-transform.cjs"
+      }
     }
   },
   "scripts": {
@@ -93,6 +143,7 @@
     "@ampproject/remapping": "^2.3.0",
     "@typesugar/core": "workspace:*",
     "@typesugar/lsp-common": "workspace:*",
+    "@typesugar/macros": "workspace:*",
     "@typesugar/transformer-core": "workspace:*",
     "esbuild": "^0.20.0",
     "magic-string": "^0.30.21",
@@ -100,11 +151,10 @@
   },
   "devDependencies": {
     "@typesugar/contracts": "workspace:*",
-    "@typesugar/macros": "workspace:*",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "files": [
     "dist",

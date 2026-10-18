@@ -88,9 +88,11 @@ export const requiresMacro = defineExpressionMacro({
             ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
             ctx.factory.createBlock([
               ctx.factory.createThrowStatement(
-                ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
-                  message,
-                ])
+                ctx.factory.createNewExpression(
+                  ctx.ensureImport("PreconditionError", "@typesugar/contracts"),
+                  undefined,
+                  [message]
+                )
               ),
             ])
           )

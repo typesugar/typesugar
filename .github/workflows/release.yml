@@ -1,11 +1,22 @@
 name: Release
 
+# Publishes only after CI has passed on the exact commit being released.
+# It used to run on every push to main in parallel with CI, so a commit whose
+# tests failed could still be versioned and published to npm.
+#
+# `workflow_run` fires when the CI workflow (ci.yml, `name: CI`) completes for
+# a push to main; the job below runs only if that run succeeded, and checks
+# out that run's head_sha (not whatever main is now). Note: a push that
+# ci.yml's paths-ignore skips entirely (root *.md, peps/**, LICENSE, .vscode/**)
+# does not trigger a release run — such commits never carry a changeset
+# (changesets live in .changeset/, which CI does not ignore).
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+concurrency: release-main
 
 permissions:
   contents: write
@@ -16,14 +27,37 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     steps:
+      # Check out the main BRANCH (changesets needs a branch, not a detached
+      # head, to push the version PR and tags), then make sure it is still the
+      # commit CI just passed. If main has moved on, this run stops; the CI run
+      # for the newer commit triggers its own release run.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Confirm main is the commit CI passed
+        id: sha
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [ "$HEAD_SHA" != "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "::notice::main is at $HEAD_SHA, CI passed ${{ github.event.workflow_run.head_sha }}; the newer commit's CI run will release."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup pnpm
+        if: steps.sha.outputs.current == 'true'
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
+        if: steps.sha.outputs.current == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -31,12 +65,15 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
+        if: steps.sha.outputs.current == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build packages
+        if: steps.sha.outputs.current == 'true'
         run: pnpm build
 
       - name: Create Release Pull Request or Publish
+        if: steps.sha.outputs.current == 'true'
         id: changesets
         uses: changesets/action@v1
         with:
@@ -57,7 +94,7 @@ jobs:
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish VS Code Extension
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.sha.outputs.current == 'true' && steps.changesets.outputs.published == 'true'
         run: |
           cd packages/vscode
           PUBLISHER=$(node -p "require('./package.json').publisher")

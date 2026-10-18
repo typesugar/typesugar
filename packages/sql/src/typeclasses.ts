@@ -47,15 +47,9 @@ import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
  *
  * ## Zero-Cost Specialization
  *
- * When used with `specialize`, all typeclass operations are inlined:
- *
- * ```typescript
- * const readUser = specialize(
- *   <A>(read: Read<A>, row: SqlRow) => read.read(row),
- *   summon<Read<User>>(),
- * );
- * // Compiles to direct field access without dictionary lookups
- * ```
+ * Specialization is always on (PEP-053): calls through a resolved instance are
+ * inlined when it is safe to do so, with no explicit API. Opt out per function
+ * with `@no-specialize`.
  *
  * @module
  */
@@ -132,9 +126,12 @@ export interface Get<A> {
 
 // Helper function to create Get instances (defined before companion to avoid circular reference)
 function makeGet<A>(
-  decode: (value: unknown) => A | null,
+  rawDecode: (value: unknown) => A | null,
   sqlTypes: readonly SqlTypeName[]
 ): Get<A> {
+  // A missing column (`undefined`) is treated as SQL NULL — never fed to the
+  // decoder, which would turn it into "undefined" / NaN (SQL-7).
+  const decode = (value: unknown): A | null => rawDecode(value === undefined ? null : value);
   return {
     _tag: "Get",
     get: decode,
@@ -149,21 +146,92 @@ function makeGet<A>(
   };
 }
 
+/**
+ * Decode a SQL numeric value to a JS number.
+ *
+ * - NULL / missing → null; an unparseable value → null (never NaN).
+ * - pg returns BIGINT / NUMERIC as strings: an integer string beyond
+ *   Number.MAX_SAFE_INTEGER would be silently rounded, so it throws instead —
+ *   use `Get.bigint` for int8 columns that can exceed 2^53 (SQL-17).
+ *
+ * @internal exported for meta.ts
+ */
+export function decodeNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return Number.isNaN(v) ? null : v;
+  if (typeof v === "bigint") {
+    if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < BigInt(Number.MIN_SAFE_INTEGER)) {
+      throw new Error(`SQL value ${v} exceeds Number.MAX_SAFE_INTEGER; use Get.bigint`);
+    }
+    return Number(v);
+  }
+  if (typeof v === "string") {
+    if (v.trim() === "") return null;
+    const n = Number(v);
+    if (Number.isNaN(n)) return null;
+    if (Number.isInteger(n) && !Number.isSafeInteger(n)) {
+      throw new Error(
+        `SQL value "${v}" cannot be represented exactly as a JS number; use Get.bigint`
+      );
+    }
+    return n;
+  }
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * Decode a SQL array, keeping positions (SQL-17): a NULL element is kept as
+ * `null` when the element Get accepts NULL (`Get.nullable(...)`), and is an
+ * error otherwise; a non-NULL element the element Get can't decode is an error.
+ * Elements are never silently dropped.
+ *
+ * @internal exported for meta.ts
+ */
+export function decodeArray<A>(
+  v: unknown,
+  element: { get: (value: unknown) => A | null; sqlTypes: readonly string[] }
+): A[] | null {
+  if (v === null || v === undefined) return null;
+  if (!Array.isArray(v)) return null;
+  const allowsNull = element.sqlTypes.includes("NULL");
+  return v.map((item, i) => {
+    if (item === null || item === undefined) {
+      if (allowsNull) return null as A;
+      throw new Error(
+        `NULL element at index ${i} of a SQL array decoded with a non-nullable element ` +
+          `instance; use Get.array(Get.nullable(...))`
+      );
+    }
+    const decoded = element.get(item);
+    if (decoded === null) {
+      throw new Error(`Cannot decode SQL array element at index ${i}: ${String(item)}`);
+    }
+    return decoded;
+  });
+}
+
 // Pre-create primitive instances to avoid circular reference in companion object
 const _getString: Get<string> = makeGet(
   (v: unknown) => (typeof v === "string" ? v : v === null ? null : String(v)),
   ["TEXT", "VARCHAR", "CHAR"]
 );
 
-const _getNumber: Get<number> = makeGet(
-  (v: unknown) => (typeof v === "number" ? v : v === null ? null : Number(v)),
-  ["INTEGER", "INT", "BIGINT", "SMALLINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"]
-);
+const _getNumber: Get<number> = makeGet(decodeNumber, [
+  "INTEGER",
+  "INT",
+  "BIGINT",
+  "SMALLINT",
+  "REAL",
+  "DOUBLE PRECISION",
+  "NUMERIC",
+  "DECIMAL",
+]);
 
 const _getInt: Get<number> = makeGet(
   (v: unknown) => {
-    if (v === null) return null;
-    const n = typeof v === "number" ? v : Number(v);
+    const n = decodeNumber(v);
+    if (n === null) return null;
     return Number.isInteger(n) ? n : Math.trunc(n);
   },
   ["INTEGER", "INT", "BIGINT", "SMALLINT"]
@@ -271,7 +339,10 @@ export namespace Get {
 
   /** Make a Get nullable — handle SQL NULL explicitly. */
   export function nullable<A>(ga: Get<A>): Get<A | null> {
-    return makeGet((v: unknown) => (v === null ? null : ga.get(v)), [...ga.sqlTypes, "NULL"]);
+    return makeGet(
+      (v: unknown) => (v === null || v === undefined ? null : ga.get(v)),
+      [...ga.sqlTypes, "NULL"]
+    );
   }
 
   /** Make a Get optional — map NULL to undefined. */
@@ -299,23 +370,13 @@ export namespace Get {
     return _getJson as Get<A>;
   }
 
-  /** Get instance for arrays */
+  /**
+   * Get instance for arrays. Element positions are preserved: for arrays that
+   * can contain NULLs use `Get.array(Get.nullable(x))` (→ `(X | null)[]`);
+   * a NULL element with a non-nullable element Get throws rather than being dropped.
+   */
   export function array<A>(element: Get<A>): Get<A[]> {
-    return makeGet(
-      (v: unknown) => {
-        if (v === null) return null;
-        if (!Array.isArray(v)) return null;
-        const result: A[] = [];
-        for (const item of v) {
-          const decoded = element.get(item);
-          if (decoded !== null) {
-            result.push(decoded);
-          }
-        }
-        return result;
-      },
-      ["ARRAY"]
-    );
+    return makeGet((v: unknown) => decodeArray(v, element), ["ARRAY"]);
   }
 }
 
@@ -577,6 +638,21 @@ export interface ColumnMapping {
   readonly nullable: boolean;
 }
 
+/**
+ * Look up a mapped column in a row. A column that is absent from the row is a
+ * column-name mismatch (e.g. snake_case vs camelCase), not a NULL — throw so it
+ * can't silently decode to garbage (SQL-7).
+ */
+function columnValue(row: SqlRow, mapping: ColumnMapping): unknown {
+  if (!(mapping.column in row)) {
+    throw new Error(
+      `Column "${mapping.column}" (field "${mapping.field}") is missing from the result row; ` +
+        `columns present: ${Object.keys(row).join(", ") || "(none)"}`
+    );
+  }
+  return row[mapping.column];
+}
+
 /** Read typeclass companion with constructors and combinators */
 export namespace Read {
   /**
@@ -594,7 +670,7 @@ export namespace Read {
       read: (row: SqlRow): A | null => {
         const fields: Record<string, unknown> = {};
         for (const mapping of mappings) {
-          const rawValue = row[mapping.column];
+          const rawValue = columnValue(row, mapping);
           const value = mapping.get.get(rawValue);
           if (value === null && !mapping.nullable) {
             return null;
@@ -606,7 +682,7 @@ export namespace Read {
       unsafeRead: (row: SqlRow): A => {
         const fields: Record<string, unknown> = {};
         for (const mapping of mappings) {
-          const rawValue = row[mapping.column];
+          const rawValue = columnValue(row, mapping);
           fields[mapping.field] = mapping.nullable
             ? mapping.get.get(rawValue)
             : mapping.get.unsafeGet(rawValue);
@@ -734,6 +810,14 @@ export interface Write<A> {
   readonly write: (value: A) => readonly unknown[];
   /** The column names in parameter order */
   readonly columns: readonly string[];
+  /**
+   * Optional per-column metadata: the TypeScript field each column comes from,
+   * and its single-field extractor (same order as `columns`). Present on
+   * derived Writes and `Write.make(columns, extractors, fields)`; required by
+   * `setTyped`, which writes only the fields present in a partial value.
+   */
+  readonly fields?: readonly string[];
+  readonly extractors?: readonly ((value: A) => unknown)[];
 }
 
 /** Write typeclass companion with constructors and combinators */
@@ -743,11 +827,20 @@ export namespace Write {
    */
   export function make<A>(
     columns: readonly string[],
-    extractors: readonly ((value: A) => unknown)[]
+    extractors: readonly ((value: A) => unknown)[],
+    fields?: readonly string[]
   ): Write<A> {
+    if (extractors.length !== columns.length) {
+      throw new Error(`Write.make: ${columns.length} columns but ${extractors.length} extractors`);
+    }
+    if (fields && fields.length !== columns.length) {
+      throw new Error(`Write.make: ${columns.length} columns but ${fields.length} fields`);
+    }
     return {
       _tag: "Write",
       columns,
+      ...(fields ? { fields } : {}),
+      extractors,
       write: (value) => extractors.map((extract) => extract(value)),
     };
   }
@@ -834,6 +927,8 @@ export namespace Codec {
       unsafeRead: read.unsafeRead,
       columns: read.columns,
       write: write.write,
+      ...(write.fields ? { fields: write.fields } : {}),
+      ...(write.extractors ? { extractors: write.extractors } : {}),
     };
   }
 
@@ -908,7 +1003,7 @@ export interface DeriveColumn<A> {
  * });
  * ```
  */
-export function deriveRead<A extends Record<string, unknown>>(config: {
+export function deriveRead<A extends object>(config: {
   [K in keyof A]: DeriveColumn<A[K]>;
 }): Read<A> {
   const mappings: ColumnMapping[] = Object.entries(config).map(([field, conf]) => {
@@ -938,7 +1033,7 @@ export function deriveRead<A extends Record<string, unknown>>(config: {
  * });
  * ```
  */
-export function deriveWrite<A extends Record<string, unknown>>(config: {
+export function deriveWrite<A extends object>(config: {
   [K in keyof A]: DeriveColumn<A[K]>;
 }): Write<A> {
   const entries = Object.entries(config);
@@ -952,13 +1047,17 @@ export function deriveWrite<A extends Record<string, unknown>>(config: {
     return (value: A) => c.meta.put((value as Record<string, unknown>)[field]);
   });
 
-  return Write.make(columns, extractors);
+  return Write.make(
+    columns,
+    extractors,
+    entries.map(([field]) => field)
+  );
 }
 
 /**
  * Derive a Codec instance from column configurations.
  */
-export function deriveCodec<A extends Record<string, unknown>>(config: {
+export function deriveCodec<A extends object>(config: {
   [K in keyof A]: DeriveColumn<A[K]>;
 }): Codec<A> {
   return Codec.fromReadWrite(deriveRead(config), deriveWrite(config));

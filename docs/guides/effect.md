@@ -9,9 +9,9 @@ Effect-TS provides structured concurrency, typed errors, and dependency injectio
 - **`@service`** — Define services without `Context.Tag` boilerplate
 - **`@layer`** — Declare dependencies; the compiler wires them
 - **`layerMake` / `resolveLayer`** — ZIO-style layer composition with clear errors when something's missing
-- **`@compiled`** — Eliminate generator overhead in `Effect.gen` at compile time
-- **`@fused`** — Fuse consecutive pipeline operations
-- **`specializeSchema`** — Compile Effect Schema to direct validation
+- **`@compiled`** _(experimental)_ — Eliminate generator overhead in `Effect.gen` at compile time
+- **`@fused`** _(experimental)_ — Fuse consecutive pipeline operations
+- **`specializeSchema`** _(experimental)_ — Compile Effect Schema to direct validation
 
 Effect's abstractions are powerful but have overhead:
 
@@ -71,9 +71,8 @@ class UserService {
   }
 }
 
-// specializeSchema — Schema validation compiled to direct type checks
-const UserSchema = Schema.Struct({ name: Schema.String, age: Schema.Number });
-const validateUser = specializeSchema(UserSchema);
+// specializeSchema — Schema validation compiled to direct type checks (schema written inline)
+const validateUser = specializeSchema(Schema.Struct({ name: Schema.String, age: Schema.Number }));
 ```
 
 When layers are missing, you get clear errors:
@@ -110,9 +109,14 @@ interface HttpClient {
 }
 
 // Generates:
-// - HttpClientTag (Context.Tag)
-// - HttpClient namespace with accessor functions
+// - export class HttpClientTag extends Context.Tag("HttpClient")<HttpClientTag, { readonly get: ...; readonly post: ... }>() {}
+//   (the shape reuses your signatures as written: optional/rest params and method generics are kept)
+// - export namespace HttpClient { Tag, get, post }  — accessors via Effect.serviceFunctionEffect
+// `Context`/`Effect` are imported for you if the file doesn't already import them from "effect".
 ```
+
+Provide the service with the Tag: `Effect.provideService(program, HttpClientTag, impl)` or
+`Layer.succeed(HttpClientTag, impl)`.
 
 ### `@layer` — Declarative Dependencies
 
@@ -156,10 +160,10 @@ const appLayer = layerMake<UserRepo | HttpClient>(
   httpClientLive // no requirements
 );
 
-// Compiles to:
-// Layer.merge(
-//   userRepoLive.pipe(Layer.provide(databaseLive)),
-//   httpClientLive
+// Compiles to (dependencies first, each fed into the next with Layer.provideMerge,
+// so transitive dependencies are wired and every service is in the output):
+// httpClientLive.pipe(
+//   Layer.provideMerge(userRepoLive.pipe(Layer.provideMerge(databaseLive)))
 // )
 ```
 
@@ -186,7 +190,10 @@ const runnable = program.pipe(
 );
 ```
 
-Only layers from files in your import graph are considered — no global action-at-a-distance.
+Only layers from files in your import graph are considered — no global action-at-a-distance. If the
+only layer for a required service is declared in a file you don't import, that is a compile error
+naming the layer and its file (there is no fallback to "any registered layer"). Layers declared in
+another file are only known once that file has been transformed in the same process.
 
 #### Layer Dependency Resolution
 
@@ -225,7 +232,15 @@ You can also format a resolved graph yourself with `formatDebugTree()`.
 
 ### `@compiled` — Eliminate Generator Overhead
 
-The `@compiled` decorator transforms `Effect.gen` calls into direct `flatMap` chains:
+> **Experimental.** `@compiled`, `compileGen()`, `@fused`, `fusePipeline()` and `specializeSchema()`
+> rewrite your code's structure; read the limits below before relying on them.
+
+The `@compiled` decorator transforms `Effect.gen` calls into direct `flatMap` chains. Only
+straight-line generator bodies are supported: top-level `const x = yield* e`, `yield* e`,
+`return ...`, and ordinary statements (kept, in order). A `yield*` inside `if`/loops/`try` or an
+expression, `this`/`arguments`, or a generator with parameters is a compile error and the
+`Effect.gen` is left as written. The chain is wrapped in `Effect.suspend` so, like `Effect.gen`,
+nothing runs until the Effect is executed.
 
 ```typescript
 import { compiled } from "@typesugar/effect";
@@ -244,8 +259,10 @@ class UserService {
 // Compiles to:
 class UserService {
   getWithPosts(id: string) {
-    return Effect.flatMap(getUser(id), (user) =>
-      Effect.map(getPosts(user.id), (posts) => ({ user, posts }))
+    return Effect.suspend(() =>
+      Effect.flatMap(getUser(id), (user) =>
+        Effect.map(getPosts(user.id), (posts) => ({ user, posts }))
+      )
     );
   }
 }
@@ -267,7 +284,8 @@ const program = compileGen(
 
 ### `@fused` — Pipeline Fusion
 
-The `@fused` decorator detects and fuses consecutive Effect operations:
+The `@fused` decorator detects and fuses nested, data-first Effect operations (the data-last
+`pipe(x, Effect.map(f), ...)` form is not fused):
 
 ```typescript
 import { fused } from "@typesugar/effect";
@@ -275,26 +293,22 @@ import { fused } from "@typesugar/effect";
 class DataPipeline {
   @fused
   process(data: Data) {
-    return pipe(getData(data), Effect.map(parse), Effect.map(validate), Effect.map(transform));
+    return Effect.map(Effect.map(Effect.map(getData(data), parse), validate), transform);
   }
 }
 
-// Compiles to (map∘map fusion):
-class DataPipeline {
-  process(data: Data) {
-    return pipe(
-      getData(data),
-      Effect.map((x) => transform(validate(parse(x))))
-    );
-  }
-}
+// Compiles to (map∘map fusion; parse/validate/transform are each evaluated once):
+// Effect.map(getData(data), compose(parse, compose(validate, transform)))
+// where compose(f, g) = ((f, g) => (x) => g(f(x)))(f, g)
 ```
 
 Fusion rules applied:
 
-- `map(map(fa, f), g)` → `map(fa, x => g(f(x)))`
-- `flatMap(succeed(a), f)` → `f(a)`
-- `flatMap(map(fa, f), g)` → `flatMap(fa, x => g(f(x)))`
+- `map(map(fa, f), g)` → `map(fa, compose(f, g))`
+- `flatMap(map(fa, f), g)` → `flatMap(fa, compose(f, g))`
+
+(`flatMap(succeed(a), f)` is deliberately NOT rewritten to `f(a)`: that would run `f` when the
+Effect is built instead of when it runs.)
 
 For expression-level fusion without the decorator, use `fusePipeline()`.
 
@@ -306,41 +320,27 @@ Generate specialized validators from Effect Schema at compile time:
 import { specializeSchema } from "@typesugar/effect";
 import { Schema } from "effect";
 
-const UserSchema = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  age: Schema.Number,
-});
-
 // Generic combinator walk at runtime
-const validateSlow = Schema.decodeSync(UserSchema);
+const validateSlow = Schema.decodeUnknownSync(UserSchema);
 
-// Direct field checks, no combinator overhead
-const validateFast = specializeSchema(UserSchema);
+// Direct field checks — the schema must be written INLINE so the macro can see it
+const validateFast = specializeSchema(
+  Schema.Struct({ id: Schema.String, name: Schema.String, age: Schema.Number })
+);
+// → (input: unknown) => typeof input === "object" && input !== null && !Array.isArray(input)
+//      ? { "id": typeof input["id"] === "string" ? input["id"] : throw..., ... }
+//      : throw...
 ```
 
-The specialized validator compiles to direct type checks:
+Specialized checks are generated for `String`, `Number`, `Boolean`, `BigIntFromSelf`,
+`SymbolFromSelf`, `Undefined`, `Null`, `Unknown`, `Struct` (identifier or quoted keys,
+`optional(...)` fields), `Array`, `Tuple`, `NullOr` and `Literal(a, b, ...)`. Anything else —
+`Schema.BigInt`/`Schema.Date` (transformations from string), `Union`, refinements, a schema
+variable — is decoded with `Schema.decodeUnknownSync(<that sub-schema>)`, built once. Failures
+throw a plain `Error` naming the path, not a `ParseError`.
 
-```typescript
-const validateFast = (input: unknown): User => {
-  if (typeof input !== "object" || input === null) {
-    throw new Error("Expected object");
-  }
-  const obj = input as Record<string, unknown>;
-  if (typeof obj.id !== "string") {
-    throw new Error("Field 'id': expected string");
-  }
-  if (typeof obj.name !== "string") {
-    throw new Error("Field 'name': expected string");
-  }
-  if (typeof obj.age !== "number") {
-    throw new Error("Field 'age': expected number");
-  }
-  return input as User;
-};
-```
-
-Use `specializeSchemaUnsafe()` to compile without error wrapping when you want the leanest possible checks.
+`specializeSchemaUnsafe(schema, input)` decodes one value directly (the input expression is
+evaluated once).
 
 ---
 
@@ -430,8 +430,8 @@ const mockUserRepo = mockService<UserRepo>({
 // Override for specific test
 mockUserRepo.getUser.mockImplementation(() => Effect.fail(new NotFound()));
 
-// Create test layer
-const TestUserRepo = testLayer(UserRepo, mockUserRepo);
+// Create test layer (a real Layer.succeed for the service's Tag)
+const TestUserRepo = testLayer(UserRepoTag, mockUserRepo);
 
 // Run test
 const result = await Effect.runPromise(pipe(program, Effect.provide(TestUserRepo)));
@@ -440,7 +440,9 @@ const result = await Effect.runPromise(pipe(program, Effect.provide(TestUserRepo
 assertCalled(mockUserRepo, "getUser", ["123"]);
 ```
 
-Combine multiple test layers with `combineLayers(...)`, and assert call behavior with `assertNotCalled(mock, method)` and `assertCalledTimes(mock, method, n)`.
+`succeedMock(v)`, `failMock(e)` and `dieMock(d)` return mocks whose result is a real
+`Effect.succeed`/`Effect.fail`/`Effect.die`. Combine multiple test layers with `combineLayers(...)`
+(`Layer.mergeAll`), and assert call behavior with `assertNotCalled(mock, method)` and `assertCalledTimes(mock, method, n)`.
 
 ---
 
@@ -499,8 +501,18 @@ interface Point {
   x: number;
   y: number;
 }
-// Generates: PointEqual and PointHash implementations
+// Generates:
+//   export const PointEqual = (self: Point, that: Point): boolean =>
+//     Equal.equals(self["x"], that["x"]) && Equal.equals(self["y"], that["y"]);   // an Equivalence<Point>
+//   export const PointHash = (self: Point): number =>
+//     Hash.combine(Hash.hash(self["y"]))(Hash.combine(Hash.hash(self["x"]))(Hash.string("Point")));
 ```
+
+Effect 3's `Equal`/`Hash` are interfaces a value implements on itself, not type-class instances,
+so these derives produce an `Equivalence` and a hash function rather than `Equal.Equal<T>` objects.
+`@derive(EffectSchema)` references other types' schemas via `Schema.suspend(() => XSchema)`, so
+recursive types work; a discriminated union must be declared from named variant types
+(`type Shape = Circle | Rect`).
 
 ---
 
@@ -556,11 +568,11 @@ interface Point {
 
 ### Derive Macros
 
-| Export                  | Description             |
-| ----------------------- | ----------------------- |
-| `@derive(EffectSchema)` | Generate Schema.Struct  |
-| `@derive(EffectEqual)`  | Generate Equal instance |
-| `@derive(EffectHash)`   | Generate Hash instance  |
+| Export                  | Description               |
+| ----------------------- | ------------------------- |
+| `@derive(EffectSchema)` | Generate Schema.Struct    |
+| `@derive(EffectEqual)`  | Generate an `Equivalence` |
+| `@derive(EffectHash)`   | Generate a hash function  |
 
 ---
 

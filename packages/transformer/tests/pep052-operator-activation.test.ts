@@ -79,7 +79,9 @@ export const r = a === b;
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.code).not.toMatch(/a === b/);
-    expect(result.code).toContain("eqPoint.equals(a, b)");
+    // The rewrite to eqPoint.equals(a, b) is then inlined to the instance's
+    // body (same semantics: equals is `(a, b) => a.x === b.x && a.y === b.y`).
+    expect(result.code).toMatch(/eqPoint\.equals\(a, b\)|a\.x === b\.x && a\.y === b\.y/);
   });
 
   it("leaves a === b native when no marker is imported (byte-for-byte unchanged)", () => {
@@ -171,7 +173,9 @@ const eqPoint: Eq<Point> = { equals: (a, b) => a.x === b.x && a.y === b.y };
     const result = transformCode(consumer, { fileName: "consumer.ts", ...vfs });
 
     expect(result.code).not.toMatch(/a === b/);
-    expect(result.code).toContain("eqPoint.equals(a, b)");
+    // The rewrite to eqPoint.equals(a, b) is then inlined to the instance's
+    // body (same semantics: equals is `(a, b) => a.x === b.x && a.y === b.y`).
+    expect(result.code).toMatch(/eqPoint\.equals\(a, b\)|a\.x === b\.x && a\.y === b\.y/);
   });
 
   it("falls back to native when two same-named typeclasses map the operator to different methods", () => {

@@ -21,6 +21,7 @@
  */
 
 import type * as ts from "typescript";
+import { isSyntheticNode } from "./ast-utils.js";
 
 // ============================================================================
 // Diagnostic Categories
@@ -249,11 +250,12 @@ export class DiagnosticBuilder {
    * Interpolate message template with provided arguments.
    */
   private interpolateMessage(): string {
-    let message = this.descriptor.messageTemplate;
-    for (const [key, value] of Object.entries(this.args)) {
-      message = message.replace(new RegExp(`\\{${key}\\}`, "g"), value);
-    }
-    return message;
+    // Single pass with a replacer FUNCTION: values are inserted literally (no
+    // `$&`/`$$` replacement patterns) and never re-scanned for placeholders
+    // (deep review core #46). Unknown placeholders are left as written.
+    return this.descriptor.messageTemplate.replace(/\{(\w+)\}/g, (m, key: string) =>
+      Object.prototype.hasOwnProperty.call(this.args, key) ? this.args[key] : m
+    );
   }
 
   /**
@@ -943,10 +945,13 @@ If the underlying type is lazy (Effect, Iterable, AsyncIterable), this
 means no side effects will run and the computation is silently dropped.
 Even for eager types, the computed value is wasted.
 
-Fix one of:
-1. Assign to a variable:        const result = let: { ... } yield: { ... }
-2. Pass to a consumer:           await Effect.runPromise(let: { ... } yield: { ... })
-3. Prefix with \`void\` to silence: void (let: { ... } yield: { ... })`,
+A comprehension is a labeled statement, so it can't be wrapped in a call or
+in \`void (...)\`. Fix one of:
+1. At module top level, assign it:   const result = let: { ... } yield: { ... }
+2. Return it from an arrow function, with \`let:\` on the line after \`=>\`:
+     const run = () =>
+       let: { ... } yield: { ... }
+3. If nothing needs the value, replace the comprehension with ordinary code.`,
   seeAlso: "https://typesugar.org/errors/TS9222",
 };
 
@@ -1492,13 +1497,20 @@ function colorsEnabled(): boolean {
   return !env.NO_COLOR && !env.TYPESUGAR_NO_COLOR && env.FORCE_COLOR !== "0";
 }
 
+type ColorFn = (text: string, ...styles: (keyof typeof COLORS)[]) => string;
+
 /**
- * Apply color if colors are enabled.
+ * Make a colorizer. `enabled` is the caller's `colors` option; when it is
+ * undefined, color follows the environment (NO_COLOR etc.). (Deep review
+ * core #49: the `colors` option used to be ignored.)
  */
-function color(text: string, ...styles: (keyof typeof COLORS)[]): string {
-  if (!colorsEnabled()) return text;
-  const prefix = styles.map((s) => COLORS[s]).join("");
-  return `${prefix}${text}${COLORS.reset}`;
+function makeColor(enabled: boolean | undefined): ColorFn {
+  const on = enabled ?? colorsEnabled();
+  return (text, ...styles) => {
+    if (!on) return text;
+    const prefix = styles.map((s) => COLORS[s]).join("");
+    return `${prefix}${text}${COLORS.reset}`;
+  };
 }
 
 /**
@@ -1592,6 +1604,7 @@ export function renderDiagnosticCLI(
   options: CLIRenderOptions = {}
 ): string {
   const { contextLines = 2, showExplanation = false } = options;
+  const color = makeColor(options.colors);
 
   const lines: string[] = [];
   const severityStr = diagnostic.severity;
@@ -1601,18 +1614,27 @@ export function renderDiagnosticCLI(
   const header = `${color(severityStr, "bold", severityClr)}${color(`[TS${diagnostic.code}]`, "bold", severityClr)}: ${color(diagnostic.message, "bold")}`;
   lines.push(header);
 
+  // A synthetic (macro-generated) node has no position: show the file only and
+  // skip the source excerpt rather than throwing (deep review core #49).
+  const primaryHasPosition =
+    diagnostic.primarySpan !== undefined && !isSyntheticNode(diagnostic.primarySpan.node);
+
   // Location line: --> file:line:column
   if (diagnostic.primarySpan) {
     const { node, sourceFile } = diagnostic.primarySpan;
-    const { line, column } = getLineAndColumn(sourceFile, node.getStart());
     const fileName = sourceFile.fileName;
-    lines.push(`  ${color("-->", "blue")} ${fileName}:${line}:${column}`);
+    if (primaryHasPosition) {
+      const { line, column } = getLineAndColumn(sourceFile, node.getStart(sourceFile));
+      lines.push(`  ${color("-->", "blue")} ${fileName}:${line}:${column}`);
+    } else {
+      lines.push(`  ${color("-->", "blue")} ${fileName} (macro-generated code)`);
+    }
   }
 
   // Source context with annotations
-  if (diagnostic.primarySpan) {
+  if (diagnostic.primarySpan && primaryHasPosition) {
     const { node, sourceFile } = diagnostic.primarySpan;
-    const startPos = getLineAndColumn(sourceFile, node.getStart());
+    const startPos = getLineAndColumn(sourceFile, node.getStart(sourceFile));
     const endPos = getLineAndColumn(sourceFile, node.getEnd());
 
     const minLine = Math.max(1, startPos.line - contextLines);
@@ -1643,8 +1665,8 @@ export function renderDiagnosticCLI(
 
     // Secondary labels
     for (const label of diagnostic.labels) {
-      if (!label.primary) {
-        const labelStart = getLineAndColumn(sourceFile, label.node.getStart());
+      if (!label.primary && !isSyntheticNode(label.node)) {
+        const labelStart = getLineAndColumn(sourceFile, label.node.getStart(sourceFile));
         const labelEnd = getLineAndColumn(sourceFile, label.node.getEnd());
 
         // If the label is outside the current context, show it separately
@@ -1726,6 +1748,7 @@ export function renderDiagnosticsCLI(
   }
 
   const lines: string[] = [];
+  const color = makeColor(options.colors);
 
   for (const diag of diagnostics) {
     lines.push(renderDiagnosticCLI(diag, options));

@@ -8,7 +8,12 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as ts from "typescript";
-import { clearTypeRewrites, getTypeRewrite, registerTypeRewrite } from "@typesugar/core";
+import {
+  clearTypeRewrites,
+  getAllTypeRewrites,
+  getTypeRewrite,
+  registerTypeRewrite,
+} from "@typesugar/core";
 import { discoverOpaqueTypesFromImports, resetDtsDiscovery } from "../src/dts-opaque-discovery.js";
 
 beforeEach(() => {
@@ -155,7 +160,7 @@ export function flatMap<A, B>(opt: Option<A>, f: (a: A) => Option<B>): Option<B>
     expect(getTypeRewrite("Foo")).toBeUndefined();
   });
 
-  it("does not overwrite existing type rewrites", () => {
+  it("keeps an existing same-named entry from a different declaration alongside the discovered one", () => {
     registerTypeRewrite({
       typeName: "Option",
       underlyingTypeText: "T | null",
@@ -173,10 +178,29 @@ export type Option<A> = A | null;
 
     discoverOpaqueTypesFromImports(sourceFile, program);
 
-    // Should keep the original registration
-    const entry = getTypeRewrite("Option");
-    expect(entry!.sourceModule).toBe("@typesugar/fp/data/option");
-    expect(entry!.transparent).toBe(true);
+    // Two different `Option` declarations are two different types (deep-review
+    // finding #3): the original registration is kept, and my-lib's Option is
+    // added next to it, identified by its declaring .d.ts. The transformer picks
+    // between them by resolved declaration, never by name.
+    const options = getAllTypeRewrites().filter((e) => e.typeName === "Option");
+    expect(options).toHaveLength(2);
+    const original = options.find((e) => e.sourceModule === "@typesugar/fp/data/option");
+    expect(original!.transparent).toBe(true);
+    const discovered = options.find((e) => e.sourceModule === "my-lib");
+    expect(discovered!.declarationFile).toMatch(/my-lib\/index\.d\.ts$/);
+  });
+
+  it("does not re-register the same .d.ts declaration twice", () => {
+    const dts = `
+/** @opaque A | null */
+export type Option<A> = A | null;
+`;
+    const program = createTestProgram(`import { Option } from "my-lib";`, dts);
+    const sourceFile = program.getSourceFile("/test/source.ts")!;
+    discoverOpaqueTypesFromImports(sourceFile, program);
+    resetDtsDiscovery();
+    discoverOpaqueTypesFromImports(sourceFile, program);
+    expect(getAllTypeRewrites().filter((e) => e.typeName === "Option")).toHaveLength(1);
   });
 
   it("discovers multiple @opaque types from one module", () => {

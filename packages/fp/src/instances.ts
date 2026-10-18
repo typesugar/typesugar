@@ -41,6 +41,7 @@
  * ```
  */
 
+import { type Acc, emptyAcc, snoc, accToArray } from "./internal/acc.js";
 import type { Kind } from "./hkt.js";
 import type { OptionF, ArrayF, PromiseF, EitherF } from "./hkt.js";
 import type { Functor } from "./typeclasses/functor.js";
@@ -359,13 +360,16 @@ export const arrayTraverse: ArrayTraverse = {
   traverse:
     <G>(G: Applicative<G>) =>
     <A, B>(fa: A[], f: (a: A) => Kind<G, B>): Kind<G, B[]> =>
-      fa.reduce(
-        (acc: Kind<G, B[]>, a: A) =>
-          G.ap(
-            G.map(acc, (bs: B[]) => (b: B) => [...bs, b]),
-            f(a)
-          ),
-        G.pure([] as B[])
+      G.map(
+        fa.reduce(
+          (acc: Kind<G, Acc<B>>, a: A) =>
+            G.ap(
+              G.map(acc, (bs: Acc<B>) => (b: B) => snoc(bs, b)),
+              f(a)
+            ),
+          G.pure(emptyAcc as Acc<B>)
+        ),
+        accToArray
       ),
 };
 /**

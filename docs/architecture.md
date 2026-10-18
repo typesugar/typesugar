@@ -322,7 +322,7 @@ The `safeRef` system uses three-tier resolution for O(1) conflict detection:
 
 When a conflict is detected, `safeRef` generates an aliased import that the transformer injects into the file.
 
-Unhygienic escapes (`raw()`) are available for intentional capture (e.g., when a macro needs to reference user-defined variables).
+Note that quasiquote splices are not hygienic: `ident()` and `raw()` both insert the name verbatim. Use `ctx.generateUniqueName()` (introduced-name hygiene above) for temporaries.
 
 ### Expansion Cache
 
@@ -363,11 +363,11 @@ const typeNode = quoteType(ctx)`Array<${elementType}>`;
 
 ### Splice Helpers
 
-| Helper          | Purpose                                  |
-| --------------- | ---------------------------------------- |
-| `spread(stmts)` | Splice an array of statements            |
-| `ident(name)`   | Force string to be treated as identifier |
-| `raw(name)`     | Unhygienic identifier (escapes hygiene)  |
+| Helper          | Purpose                                                      |
+| --------------- | ------------------------------------------------------------ |
+| `spread(stmts)` | Splice an array of statements                                |
+| `ident(name)`   | Insert a string as an identifier name, verbatim (no hygiene) |
+| `raw(name)`     | Same as `ident()` — names are never mangled                  |
 
 ### Convenience Builders
 
@@ -575,9 +575,9 @@ function experimentalFeature() { ... } // removed if condition is false
 
 The condition evaluator supports `&&`, `||`, `!`, `==`, `!=`, parentheses, and dotted config paths. Config values come from transformer options, environment variables (`TYPESUGAR_CFG_*`), and config files.
 
-### Pattern-Based Macros (`src/macros/syntax-macro.ts`)
+### Pattern-Based Macros (`src/macros/syntax-macro.ts`) — experimental
 
-Implements Rust `macro_rules!`-style pattern matching:
+Implements a small Rust `macro_rules!`-style capture-and-template system for **expression** macros. Experimental: the API may change.
 
 ```typescript
 defineSyntaxMacro("unless", {
@@ -593,7 +593,7 @@ defineSyntaxMacro("unless", {
 defineRewrite("double", "$x:expr", "($x) + ($x)");
 ```
 
-**Capture kinds:** `expr`, `ident`, `literal`, `type`, `stmts`
+**Capture kinds:** `expr`, `ident`, `literal`, `type`. A pattern is a capture list matched positionally against the call's arguments (`"$a, $b"` or `"unless($a, $b)"`); other literal syntax and `stmts` captures are rejected when the macro is defined, and an arm matches only a call with exactly as many arguments. Captures are substituted as AST nodes (parenthesised as needed, macros inside them still expand). There is no hygiene for names the template introduces.
 
 ### Reflection (`src/macros/reflect.ts`)
 
@@ -624,6 +624,8 @@ function factorial(n: number, acc: number = 1): number {
 
 The macro validates that all recursive calls are in tail position (following Scala's rules) and reports compile-time errors for non-tail calls.
 
+Only named `function` declarations are supported — not arrow functions, function expressions or methods. Tail positions are `return f(...)` (also inside loops, `switch` clauses, ternaries, `||`/`&&`/`??` right-hand sides and comma expressions) and a final `f(...);` statement in a function that returns no value. Optional, defaulted and rest parameters behave exactly as in a real call (an omitted argument gets its default again). Shapes the loop can't preserve — destructured parameters, `arguments`, `var`, generators, calls inside `try`/`catch`/`finally` or nested functions — are reported as errors and the function is left unoptimised.
+
 ### Compile-Time Evaluation (`src/macros/comptime.ts`)
 
 ```typescript
@@ -647,22 +649,28 @@ pipeline("myMacro", "my-module")
   .build(); // registers as ExpressionMacro
 ```
 
-### Capability Restrictions (`src/core/capabilities.ts`)
+### Capability Restrictions (`src/core/capabilities.ts`) — experimental, not enforced
 
-Declarative permissions for macros to limit what they can access:
+> **Not wired in 1.0.** Macro definitions have no `capabilities` field and the
+> transformer never wraps `ctx` in `createRestrictedContext()`, so none of the
+> restrictions below apply to any macro today. `needsFileSystem` is not read
+> anywhere: there is no file-system restriction even in the proxy. See
+> SECURITY-REVIEW.md F4.
+
+Intended design: declarative permissions for macros to limit what they can access:
 
 ```typescript
 const caps: MacroCapabilities = {
   needsTypeChecker: true,
-  needsFileSystem: false, // blocks fs access
-  needsProjectIndex: false, // blocks program-wide queries
+  needsFileSystem: false, // not enforced: nothing reads this flag
+  needsProjectIndex: false, // blocks program-wide queries (when the proxy is applied)
   canEmitDiagnostics: true,
   maxTimeout: 5000,
 };
 const restricted = createRestrictedContext(ctx, caps, "myMacro");
 ```
 
-`createRestrictedContext()` wraps `MacroContext` in a Proxy that throws on unauthorized access.
+`createRestrictedContext()` wraps `MacroContext` in a Proxy that throws on unauthorized access, but only when a caller applies it, and no caller does yet.
 
 ### Expansion Tracking (`src/core/source-map.ts`)
 
@@ -798,7 +806,7 @@ The only exception is `tsc` with ts-patch, where transformation and typechecking
 
 Macros create type structure. `@derive(Eq)` generates `.equals()`, `summon<Eq<Point>>()` resolves to a concrete instance, extension methods rewrite `point.show()` to `showPoint.show(point)`. Before macros run, this code is intentionally type-incomplete — methods don't exist yet, instances aren't resolved, extension methods haven't been rewritten.
 
-The language service plugin (`typesugar/language-service`) runs macros before the IDE typechecks, so the IDE sees expanded code and reports accurate errors.
+The language service plugin (`@typesugar/transformer/language-service`) runs macros before the IDE typechecks, so the IDE sees expanded code and reports accurate errors.
 
 ### Strict Mode
 

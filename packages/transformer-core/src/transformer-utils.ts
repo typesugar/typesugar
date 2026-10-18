@@ -158,6 +158,66 @@ export function updateNodeDecorators(
     );
   }
 
+  const mods = (m: ts.NodeArray<ts.ModifierLike> | undefined): ts.ModifierLike[] | undefined =>
+    modifiers
+      ? [...modifiers, ...(m?.filter((x) => !ts.isDecorator(x)) ?? [])]
+      : m?.filter((x) => !ts.isDecorator(x));
+
+  if (ts.isPropertyDeclaration(node)) {
+    return factory.updatePropertyDeclaration(
+      node,
+      mods(node.modifiers),
+      node.name,
+      node.questionToken ?? node.exclamationToken,
+      node.type,
+      node.initializer
+    );
+  }
+
+  if (ts.isGetAccessorDeclaration(node)) {
+    return factory.updateGetAccessorDeclaration(
+      node,
+      mods(node.modifiers),
+      node.name,
+      node.parameters,
+      node.type,
+      node.body
+    );
+  }
+
+  if (ts.isSetAccessorDeclaration(node)) {
+    return factory.updateSetAccessorDeclaration(
+      node,
+      mods(node.modifiers),
+      node.name,
+      node.parameters,
+      node.body
+    );
+  }
+
+  if (ts.isParameter(node)) {
+    return factory.updateParameterDeclaration(
+      node,
+      mods(node.modifiers),
+      node.dotDotDotToken,
+      node.name,
+      node.questionToken,
+      node.type,
+      node.initializer
+    );
+  }
+
+  if (ts.isClassExpression(node)) {
+    return factory.updateClassExpression(
+      node,
+      mods(node.modifiers),
+      node.name,
+      node.typeParameters,
+      node.heritageClauses,
+      node.members
+    );
+  }
+
   return node;
 }
 

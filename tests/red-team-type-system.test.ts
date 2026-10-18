@@ -734,6 +734,11 @@ describe("Type System Edge Cases", () => {
       const TrafficLight = createStateMachine<LightDef, { timer: number }>({
         initial: "red",
         initialData: { timer: 0 },
+        states: {
+          red: { toGreen: "green" },
+          green: { toYellow: "yellow" },
+          yellow: { toRed: "red" },
+        },
         transitions: {
           toGreen: (data) => ({ timer: data.timer + 1 }),
           toYellow: (data) => ({ timer: data.timer + 1 }),
@@ -745,15 +750,9 @@ describe("Type System Edge Cases", () => {
       expect(light.state).toBe("red");
       expect(light.data.timer).toBe(0);
 
-      // FINDING: The createStateMachine implementation doesn't properly track
-      // state transitions - it only updates data, not the state field.
-      // The state machine relies on phantom types for compile-time safety,
-      // but the runtime state tracking is incomplete.
-      // See FINDINGS.md for tracking.
       const afterGreen = TrafficLight.toGreen(light);
       expect(afterGreen.data.timer).toBe(1);
-      // Note: afterGreen.state is not reliably "green" at runtime due to
-      // incomplete state tracking in createStateMachine
+      expect(afterGreen.state).toBe("green");
     });
 
     it("should work with type-safe builder pattern", () => {

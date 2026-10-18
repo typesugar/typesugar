@@ -6,28 +6,42 @@
  * through the standalone extension registry or import-scoped resolution.
  *
  * Rule 2 (TypeRewriteAssignment): Suppresses TS2322/TS2345/TS2355 when a type
- * registered in the `typeRewriteRegistry` (from `@opaque`) is involved in an
- * assignment and the other side matches the registered underlying type.
+ * registered in the `typeRewriteRegistry` (from `@opaque`) — matched by symbol
+ * and declaring file — is involved in an assignment and the other side matches
+ * the registered underlying type.
  *
- * Rule 3 (NewtypeAssignment): Suppresses TS2322/TS2345 when a `Newtype<Base, Brand>`
- * is involved in an assignment and the other side is assignable to `Base`. Since
- * newtypes erase to their base type at runtime, these assignments are safe.
+ * Rule 3 (NewtypeAssignment): Suppresses the spurious TS2345 on the argument of
+ * `wrap<T>()` / a newtype constructor (a parameter typed `UnwrapNewtype<T>`).
+ * Implicit `Base → Newtype` assignments and brand mismatches stay errors.
+ *
+ * Every rule must only hide a diagnostic the transformer will actually make
+ * valid: an extra red squiggle is far less harmful than a hidden real bug.
  *
  * @see PEP-011 Waves 3-5
  */
 
 import ts from "typescript";
-import type { DiagnosticSuppressionRule } from "@typesugar/core";
+import type {
+  DiagnosticSuppressionContext,
+  DiagnosticSuppressionRule,
+  MacroContext,
+  TypeRewriteEntry,
+} from "@typesugar/core";
 import {
   findStandaloneExtension,
-  findTypeRewrite,
+  getAllTypeRewrites,
+  typeRewriteEntryCoversFile,
   isDiagnosticSuppressionAuditEnabled,
-  extractTypeArgumentsContent,
-  splitTopLevelTypeArgs,
+  isSyntheticNode,
   globalResolutionScope,
+  ResolutionScopeTracker,
+  scanImportsForScope,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
 import { getInstanceOrIntrinsicMethods } from "./specialize.js";
+import { getOperatorCandidates } from "./typeclass-index.js";
+import { getOperatorString } from "./operators.js";
+import { resolveInstance } from "./instance-resolver.js";
 
 /**
  * Create the ExtensionMethodCall diagnostic suppression rule.
@@ -490,33 +504,38 @@ function checkImportedSymbol(
 }
 
 // ===========================================================================
-// Rule 3: NewtypeAssignment — suppress TS2322/TS2345 for Newtype<Base, Brand>
+// Rule 3: NewtypeAssignment — suppress TS2345 on wrap()/newtype-constructor args
 // ===========================================================================
-
-/**
- * Pattern matching the escaped property name of the `__brand` unique symbol.
- * TypeScript encodes unique symbol properties as `__@variableName@uniqueId`.
- * The variable `__brand` gets an extra `_` from TS's internal `__` escaping,
- * yielding `__@___brand@<digits>`.
- */
-const BRAND_PROP_PATTERN = /__brand/;
 
 /**
  * Create the NewtypeAssignment diagnostic suppression rule.
  *
- * Suppresses TS2322 ("Type 'X' is not assignable to type 'Y'") and TS2345
- * ("Argument of type 'X' is not assignable to parameter of type 'Y'") when
- * the assignment involves a `Newtype<Base, Brand>` and the other side is
- * assignable to `Base`.
+ * Scope (deep-review macros-other #9): this rule used to suppress every
+ * TS2322/TS2345 where one side was a `Newtype<Base, Brand>` and the other fit
+ * `Base` — which hid exactly the errors newtypes exist to produce
+ * (`getUser(42)`, `area(meters, feet)`; docs/guides/type-system.md promises
+ * both are type errors). Implicit `Base → Newtype` assignment is NOT something
+ * the transformer makes valid — it rewrites nothing there — so it stays an
+ * error.
  *
- * At runtime, a `Newtype<Base, Brand>` IS just `Base` — the brand exists
- * only in the type system and is erased by the transformer. So assignments
- * like `const id: UserId = 42` are safe (where `type UserId = Newtype<number, "UserId">`).
+ * What remains is the one case the transformer DOES handle: the argument of
+ * a `wrap<T>(value)` / `newtypeCtor<T>()` / `validatedNewtype<T>()`
+ * constructor, i.e. any parameter declared as `UnwrapNewtype<T>`. TypeScript
+ * infers `Base` in `UnwrapNewtype<Newtype<number, "UserId">>` as the whole
+ * intersection, so `wrap<UserId>(42)` reports a spurious TS2345; `wrap` is
+ * erased to its argument by the transformer and the constructors are the
+ * identity at runtime. The argument is suppressed only when it fits the
+ * newtype's base and does not itself carry a (different or same) newtype
+ * brand — re-branding `wrap<Meters>(feet)` keeps its error.
+ *
+ * Newtypes are identified by declaration (the `[__brand]` member of a type
+ * alias named `Newtype`), not by a `/__brand/` substring of the property
+ * name, which also matched users' own hand-rolled brands.
  */
 export function createNewtypeAssignmentRule(): DiagnosticSuppressionRule {
   return {
     name: "NewtypeAssignment",
-    errorCodes: [2322, 2345],
+    errorCodes: [2345],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
@@ -528,37 +547,114 @@ export function createNewtypeAssignmentRule(): DiagnosticSuppressionRule {
       }
 
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
-      if (!node) return false;
+      if (!node || isSyntheticNode(node)) return false;
 
-      // For TS2322 the diagnostic is on the variable/property being assigned to.
-      // For TS2345 the diagnostic is on the argument expression.
-      // In both cases we need source and target types from the assignment context.
-      const types = extractAssignmentTypes(node, checker);
-      if (!types) return false;
+      const site = findUnwrapNewtypeArgument(node, checker);
+      if (!site) return false;
 
-      const { sourceType, targetType } = types;
+      const targetBases = extractNewtypeBaseTypes(site.paramType);
+      if (targetBases.length === 0) return false;
 
-      // Check: target is Newtype, source assignable to ALL its base constituents
-      const targetBases = extractNewtypeBaseTypes(targetType);
-      if (
-        targetBases.length > 0 &&
-        targetBases.every((base) => checker.isTypeAssignableTo(sourceType, base))
-      ) {
-        return true;
-      }
+      // A value that is already a newtype is not "a base value being wrapped".
+      if (hasNewtypeBrand(site.argType)) return false;
 
-      // Check: source is Newtype, ALL its base constituents assignable to target
-      const sourceBases = extractNewtypeBaseTypes(sourceType);
-      if (
-        sourceBases.length > 0 &&
-        sourceBases.every((base) => checker.isTypeAssignableTo(base, targetType))
-      ) {
-        return true;
-      }
-
-      return false;
+      return targetBases.every((base) => checker.isTypeAssignableTo(site.argType, base));
     },
   };
+}
+
+/**
+ * If `node` is (inside) an argument of a call whose matching parameter is
+ * declared as `UnwrapNewtype<...>`, return the argument and (instantiated)
+ * parameter types.
+ */
+function findUnwrapNewtypeArgument(
+  node: ts.Node,
+  checker: ts.TypeChecker
+): { argType: ts.Type; paramType: ts.Type } | undefined {
+  let current: ts.Node = node;
+  for (let i = 0; i < 6 && current.parent; i++) {
+    const parent: ts.Node = current.parent;
+    if (ts.isCallExpression(parent)) {
+      const argIndex = parent.arguments.indexOf(current as ts.Expression);
+      if (argIndex < 0) return undefined;
+      try {
+        const sig = checker.getResolvedSignature(parent);
+        const param = sig?.getParameters()[argIndex];
+        const decl = param?.valueDeclaration;
+        if (!param || !decl || !ts.isParameter(decl) || decl.dotDotDotToken) return undefined;
+        if (!decl.type || !isUnwrapNewtypeTypeNode(decl.type)) return undefined;
+        return {
+          argType: checker.getTypeAtLocation(current),
+          paramType: checker.getTypeOfSymbolAtLocation(param, parent),
+        };
+      } catch (e) {
+        reportCheckerFailure("NewtypeAssignment", e);
+        return undefined;
+      }
+    }
+    current = parent;
+  }
+  return undefined;
+}
+
+function isUnwrapNewtypeTypeNode(typeNode: ts.TypeNode): boolean {
+  if (!ts.isTypeReferenceNode(typeNode)) return false;
+  const name = typeNode.typeName;
+  const text = ts.isIdentifier(name) ? name.text : name.right.text;
+  return text === "UnwrapNewtype";
+}
+
+/**
+ * Is `prop` the phantom `readonly [__brand]: Brand` member declared inside
+ * the `Newtype` type alias (`@typesugar/type-system`'s, or a same-shaped local
+ * one)? Identified by its declaration, so an unrelated `__brand` property on
+ * a user's own branded type is not mistaken for a newtype.
+ */
+function isNewtypeBrandSymbol(prop: ts.Symbol): boolean {
+  for (const decl of prop.declarations ?? []) {
+    if (!ts.isPropertySignature(decl)) continue;
+    if (!ts.isComputedPropertyName(decl.name)) continue;
+    const expr = decl.name.expression;
+    if (!ts.isIdentifier(expr) || expr.text !== "__brand") continue;
+    for (let n: ts.Node | undefined = decl.parent; n; n = n.parent) {
+      if (ts.isTypeAliasDeclaration(n)) {
+        if (n.name.text === "Newtype") return true;
+        break;
+      }
+    }
+  }
+  return false;
+}
+
+function hasNewtypeBrand(type: ts.Type): boolean {
+  return type.getProperties().some(isNewtypeBrandSymbol);
+}
+
+/**
+ * For a `Newtype<Base, Brand>` (an intersection containing the declared brand
+ * member), return the base constituents — e.g. `[Base1, Base2]` for
+ * `Newtype<Base1 & Base2, Brand>`. Returns `[]` for anything else.
+ */
+function extractNewtypeBaseTypes(type: ts.Type): ts.Type[] {
+  if (!type.isIntersection()) return [];
+  if (!type.types.some(hasNewtypeBrand)) return [];
+  return type.types.filter((t) => !hasNewtypeBrand(t));
+}
+
+/** Leave a visible trace when a checker call fails and the rule degrades (CLAUDE.md). */
+const reportedCheckerFailures = new Set<string>();
+function reportCheckerFailure(where: string, e: unknown): void {
+  if (isDiagnosticSuppressionAuditEnabled()) {
+    console.error(`[DiagnosticSuppression] ${where}: ${e}`);
+    return;
+  }
+  if (reportedCheckerFailures.has(where)) return;
+  reportedCheckerFailures.add(where);
+  console.warn(
+    `[typesugar] diagnostic suppression (${where}) skipped a diagnostic after a type-checker ` +
+      `failure: ${e instanceof Error ? e.message : String(e)}`
+  );
 }
 
 /**
@@ -732,37 +828,6 @@ function findEnclosingFunction(
   return undefined;
 }
 
-/**
- * Check if a type has the `__brand` phantom field. Since `__brand` is a
- * unique symbol, TypeScript encodes it as `__@___brand@<id>` internally.
- * We match on the escaped property name rather than using `getProperty()`.
- */
-function hasBrandProperty(type: ts.Type): boolean {
-  return type.getProperties().some((p) => BRAND_PROP_PATTERN.test(p.escapedName as string));
-}
-
-/**
- * Check if a type is a `Newtype<Base, Brand>` and extract all base type
- * constituents.
- *
- * A Newtype is detected by the presence of a `__brand` property (the phantom
- * field declared as `readonly [__brand]: Brand`). The base types are the
- * intersection constituents minus the brand member — e.g., for
- * `Base1 & Base2 & { readonly [__brand]: Brand }`, returns `[Base1, Base2]`.
- *
- * The caller must check assignability against ALL returned types to correctly
- * handle multi-constituent bases.
- */
-function extractNewtypeBaseTypes(type: ts.Type): ts.Type[] {
-  if (!hasBrandProperty(type)) return [];
-
-  if (type.isIntersection()) {
-    return type.types.filter((t) => !hasBrandProperty(t));
-  }
-
-  return [];
-}
-
 // ===========================================================================
 // Rule 2: TypeRewriteAssignment — suppress TS2322/TS2345/TS2355 for @opaque
 // ===========================================================================
@@ -821,29 +886,143 @@ export function createTypeRewriteAssignmentRule(): DiagnosticSuppressionRule {
 /**
  * Check whether source→target assignment is valid because one side is a
  * registered opaque type and the other matches its underlying representation.
+ *
+ * The opaque side is identified by its SYMBOL (name + declaring file), the way
+ * the transformer's symbol-scoped erasure identifies it (commit c96a5925), not
+ * by the `typeToString` text: an unrelated same-named `Option` from another
+ * module must not borrow a registered entry. The underlying template is then
+ * instantiated with the type's real arguments, matched to the declaration's
+ * own type-parameter names (deep-review macros-other #18: a hardcoded
+ * `T, U, V, ...` positional list left fp's `Option<A>` unsubstituted).
  */
 function checkTypeRewriteAssignability(
   sourceType: ts.Type,
   targetType: ts.Type,
   checker: ts.TypeChecker
 ): boolean {
-  const targetText = checker.typeToString(targetType);
-  const sourceText = checker.typeToString(sourceType);
+  // Case 1: target is an opaque type, source matches its underlying
+  const target = resolveTypeRewrite(targetType, checker);
+  if (target) {
+    for (const st of collectTypeTextVariants(
+      sourceType,
+      checker.typeToString(sourceType),
+      checker
+    )) {
+      if (matchesRewriteUnderlying(st, target)) return true;
+    }
+  }
 
-  // Collect candidate type names for the source, including widened forms.
-  // e.g., for literal type "user@test.com" we also try "string".
-  const sourceTexts = collectTypeTextVariants(sourceType, sourceText, checker);
-  const targetTexts = collectTypeTextVariants(targetType, targetText, checker);
-
-  for (const st of sourceTexts) {
-    for (const tt of targetTexts) {
-      if (checkRewritePair(st, tt, sourceTexts, targetTexts)) {
-        return true;
-      }
+  // Case 2: source is an opaque type, target matches its underlying
+  const source = resolveTypeRewrite(sourceType, checker);
+  if (source) {
+    for (const tt of collectTypeTextVariants(
+      targetType,
+      checker.typeToString(targetType),
+      checker
+    )) {
+      if (matchesRewriteUnderlying(tt, source)) return true;
     }
   }
 
   return false;
+}
+
+interface ResolvedTypeRewrite {
+  entry: TypeRewriteEntry;
+  /** `underlyingTypeText` with the type's arguments substituted for its parameters. */
+  underlyingText: string;
+}
+
+function matchesRewriteUnderlying(candidateText: string, rewrite: ResolvedTypeRewrite): boolean {
+  if (rewrite.entry.matchesUnderlying && rewrite.entry.matchesUnderlying(candidateText)) {
+    return true;
+  }
+  return isUnderlyingMatch(candidateText, rewrite.underlyingText);
+}
+
+/**
+ * Find the type-rewrite entry for `type` by its symbol, and instantiate the
+ * entry's underlying template with the type's arguments.
+ *
+ * An entry with a `declarationFile` (or `sourceModule`) only applies to a
+ * symbol declared in that file/module. An entry carrying neither (hand-built
+ * registrations) falls back to a name match.
+ */
+function resolveTypeRewrite(
+  type: ts.Type,
+  checker: ts.TypeChecker
+): ResolvedTypeRewrite | undefined {
+  const symbol = type.aliasSymbol ?? type.getSymbol();
+  if (!symbol) return undefined;
+  const name = symbol.getName();
+  const candidates = getAllTypeRewrites().filter((e) => e.typeName === name);
+  if (candidates.length === 0) return undefined;
+
+  const declarations = symbol.getDeclarations() ?? [];
+  const declFiles = declarations.map((d) => d.getSourceFile().fileName);
+  let entry: TypeRewriteEntry | undefined;
+  for (let i = candidates.length - 1; i >= 0 && !entry; i--) {
+    const c = candidates[i];
+    if (
+      (c.declarationFile || c.sourceModule) &&
+      declFiles.some((f) => typeRewriteEntryCoversFile(f, c))
+    ) {
+      entry = c;
+    }
+  }
+  for (let i = candidates.length - 1; i >= 0 && !entry; i--) {
+    const c = candidates[i];
+    if (!c.declarationFile && !c.sourceModule) entry = c;
+  }
+  if (!entry) return undefined;
+
+  // Type parameters, by name, from the declaration itself.
+  let paramNames: string[] = [];
+  for (const decl of declarations) {
+    if (
+      (ts.isInterfaceDeclaration(decl) ||
+        ts.isTypeAliasDeclaration(decl) ||
+        ts.isClassDeclaration(decl)) &&
+      decl.typeParameters
+    ) {
+      paramNames = decl.typeParameters.map((tp) => tp.name.text);
+      break;
+    }
+  }
+
+  let typeArgs: readonly ts.Type[] = [];
+  if (type.aliasSymbol) {
+    typeArgs = type.aliasTypeArguments ?? [];
+  } else if (
+    type.flags & ts.TypeFlags.Object &&
+    (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference
+  ) {
+    typeArgs = checker.getTypeArguments(type as ts.TypeReference);
+  }
+
+  const substitutions = new Map<string, string>();
+  for (let i = 0; i < paramNames.length && i < typeArgs.length; i++) {
+    substitutions.set(paramNames[i], checker.typeToString(typeArgs[i]));
+  }
+  return {
+    entry,
+    underlyingText: substituteTypeParams(entry.underlyingTypeText, substitutions),
+  };
+}
+
+/**
+ * Replace whole-word type-parameter names in a type text, all at once (so
+ * `<A, B>` instantiated as `<B, A>` cannot substitute twice). This compares
+ * type texts for matching only; no code is generated from the result.
+ */
+function substituteTypeParams(
+  template: string,
+  substitutions: ReadonlyMap<string, string>
+): string {
+  if (substitutions.size === 0) return template;
+  const names = [...substitutions.keys()].map((n) => n.replace(/[$]/g, "\\$&"));
+  const pattern = new RegExp(`(?<![\\w$])(?:${names.join("|")})(?![\\w$])`, "g");
+  return template.replace(pattern, (m) => substitutions.get(m) ?? m);
 }
 
 /**
@@ -874,59 +1053,6 @@ function collectTypeTextVariants(
 }
 
 /**
- * Check a single (sourceText, targetText) pair against the type rewrite registry.
- */
-function checkRewritePair(
-  sourceText: string,
-  targetText: string,
-  allSourceTexts: string[],
-  allTargetTexts: string[]
-): boolean {
-  // Case 1: target is an opaque type, source matches its underlying
-  const targetEntry = findTypeRewrite(targetText);
-  if (targetEntry) {
-    for (const st of allSourceTexts) {
-      if (targetEntry.matchesUnderlying && targetEntry.matchesUnderlying(st)) return true;
-      if (isUnderlyingMatch(st, targetEntry.underlyingTypeText)) return true;
-    }
-  }
-
-  // Case 2: source is an opaque type, target matches its underlying
-  const sourceEntry = findTypeRewrite(sourceText);
-  if (sourceEntry) {
-    for (const tt of allTargetTexts) {
-      if (sourceEntry.matchesUnderlying && sourceEntry.matchesUnderlying(tt)) return true;
-      if (isUnderlyingMatch(tt, sourceEntry.underlyingTypeText)) return true;
-    }
-  }
-
-  // Case 3: strip generic parameters and retry (e.g., "Option<number>" → "Option")
-  const targetStripped = targetText.replace(/<.*>$/, "");
-  if (targetStripped !== targetText) {
-    const entry = findTypeRewrite(targetStripped);
-    if (entry) {
-      for (const st of allSourceTexts) {
-        if (entry.matchesUnderlying && entry.matchesUnderlying(st)) return true;
-        if (matchesUnderlyingWithTypeArgs(st, entry.underlyingTypeText, targetText)) return true;
-      }
-    }
-  }
-
-  const sourceStripped = sourceText.replace(/<.*>$/, "");
-  if (sourceStripped !== sourceText) {
-    const entry = findTypeRewrite(sourceStripped);
-    if (entry) {
-      for (const tt of allTargetTexts) {
-        if (entry.matchesUnderlying && entry.matchesUnderlying(tt)) return true;
-        if (matchesUnderlyingWithTypeArgs(tt, entry.underlyingTypeText, sourceText)) return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
  * Check if a type text matches an underlying type text representation.
  *
  * Handles simple cases like exact match and normalized whitespace comparison.
@@ -948,36 +1074,6 @@ function isUnderlyingMatch(candidateText: string, underlyingText: string): boole
   if (normalizeParts(candidateText) === normalizeParts(underlyingText)) return true;
 
   return false;
-}
-
-/**
- * For generic opaque types like `Option<number>`, substitute type arguments
- * into the underlying type pattern and compare.
- *
- * e.g., opaque "Option" with underlying "T | null", instantiated as
- * "Option<number>" → underlying becomes "number | null".
- */
-function matchesUnderlyingWithTypeArgs(
-  candidateText: string,
-  underlyingTemplate: string,
-  opaqueInstantiation: string
-): boolean {
-  // Extract type arguments from the opaque instantiation: "Option<number>" → "number"
-  const argsContent = extractTypeArgumentsContent(opaqueInstantiation);
-  if (!argsContent) return false;
-
-  const typeArgs = splitTopLevelTypeArgs(argsContent);
-  if (typeArgs.length === 0) return false;
-
-  // Simple single-parameter substitution: replace "T" with the actual type arg
-  // This covers the common case like Option<T> = T | null → Option<number> = number | null
-  let substituted = underlyingTemplate;
-  const typeParamNames = ["T", "U", "V", "W", "A", "B", "C"];
-  for (let i = 0; i < typeArgs.length && i < typeParamNames.length; i++) {
-    substituted = substituted.replace(new RegExp(`\\b${typeParamNames[i]}\\b`, "g"), typeArgs[i]);
-  }
-
-  return isUnderlyingMatch(candidateText, substituted);
 }
 
 // ===========================================================================
@@ -1050,29 +1146,28 @@ export function createMacroDecoratorRule(): DiagnosticSuppressionRule {
 }
 
 // ===========================================================================
-// Rule 7: MacroCallChain — suppress errors inside macro fluent chains
+// Rule 7: MacroCallChain — suppress errors inside typesugar match() chains
 // ===========================================================================
 
-/**
- * Names of macro functions whose return type is a sentinel (e.g. `never`)
- * indicating the call will be rewritten by the transformer. Any type errors
- * inside the fluent chain or binding positions are pre-transform artifacts.
- */
-const MACRO_FLUENT_NAMES = new Set(["match"]);
+/** The chain methods the `match` macro parses (std/src/macros/match.ts parseArms). */
+const MATCH_CHAIN_METHODS = new Set(["case", "or", "as", "if", "then", "else"]);
 
 /**
  * Create the MacroCallChain diagnostic suppression rule.
  *
- * Suppresses TS2339 ("Property does not exist on type 'never'"), TS2304
- * ("Cannot find name"), and TS18004 ("No value exists in scope for the
- * shorthand property 'X'") when the error occurs inside a fluent chain starting
- * from a known macro call like `match()`. These errors are artifacts of the
- * pre-transform source — the macro rewrites the entire chain at compile time.
+ * Applies only to a fluent chain rooted at `@typesugar/std`'s `match` (the
+ * callee resolved through imports to that package, as the transformer
+ * resolves it — deep-review macros-other #17: any function named `match`,
+ * including ts-pattern's, used to qualify, and every TS2339/TS2304 within 20
+ * parents was hidden). Within such a chain it suppresses:
  *
- * TS18004 specifically covers pattern-variable binding via object shorthand in
- * `.case({ kind: "circle", r })`: in the pre-transform source `r` is a shorthand
- * property with no value in scope, but the transformer binds it (`const r = _x.r`)
- * before the `.then(...)` expression that uses it.
+ * - TS2339 on a chain method itself (`.case`, `.then`, ... on `never`), which
+ *   the macro consumes;
+ * - TS2304 ("Cannot find name") and TS18004 (shorthand with no value) only for
+ *   a name the arm's own pattern binds (`.case({ kind: "circle", r })`,
+ *   `.case([p, ...rest])`, `.case(Some(x))`, `.as(name)`), used in that arm's
+ *   pattern, `.as`, `.if` or `.then`. The transformer emits `const r = ...`
+ *   for exactly those names. Any other unknown name is a real error.
  */
 export function createMacroCallChainRule(): DiagnosticSuppressionRule {
   return {
@@ -1081,66 +1176,203 @@ export function createMacroCallChainRule(): DiagnosticSuppressionRule {
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
-      _checker: ts.TypeChecker,
+      checker: ts.TypeChecker,
       sourceFile: ts.SourceFile
     ): boolean {
       if (diagnostic.start === undefined) return false;
 
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
-      if (!node) return false;
+      if (!node || isSyntheticNode(node)) return false;
 
-      // Walk up the AST looking for a fluent call chain rooted in a macro call.
-      // The chain looks like: match(x).case(...).then(...).case(...).then(...)
-      // We need to find any CallExpression ancestor, then walk DOWN its
-      // receiver chain to find the root call (e.g. match()).
-      let current: ts.Node | undefined = node;
-      for (let depth = 0; depth < 20 && current; depth++) {
-        if (ts.isCallExpression(current)) {
-          if (isRootedInMacroCall(current)) {
-            return true;
-          }
-        }
-        current = current.parent;
+      if (diagnostic.code === 2339) {
+        return isMatchChainMethodName(node, checker, sourceFile);
       }
 
+      if (!ts.isIdentifier(node)) return false;
+      const name = node.text;
+
+      // Every enclosing chain link whose arguments contain the node, innermost
+      // first: a name may be bound by an outer arm and used in a nested match.
+      for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+        if (!ts.isCallExpression(current)) continue;
+        if (!current.arguments.some((a) => isWithin(node, a))) continue;
+        const chain = flattenMatchChain(current, checker, sourceFile);
+        if (!chain) continue;
+        if (armBindingsAt(chain.links).has(name)) return true;
+      }
       return false;
     },
   };
 }
 
+interface MatchChainLink {
+  method: string;
+  args: readonly ts.Expression[];
+}
+
 /**
- * Walk down the receiver chain of a fluent call expression to find the root call.
- * e.g. match(x).case([]).then(y) — the root is match(x).
- * Returns true if the root is a known macro call.
+ * Flatten `match(x).case(p).then(r)...` ending at `call` into its links
+ * (outermost-last). Returns `undefined` unless `call` is a chain link (not the
+ * root `match(x)` call itself) of a chain rooted at typesugar's `match`.
  */
-function isRootedInMacroCall(call: ts.CallExpression): boolean {
-  let expr: ts.Expression = call.expression;
-
-  // Walk down through the chain: .then().case().then() etc.
-  // Each level is CallExpression -> PropertyAccessExpression -> CallExpression
-  for (let i = 0; i < 20; i++) {
-    // Direct call: match(x)
-    if (ts.isIdentifier(expr)) {
-      return MACRO_FLUENT_NAMES.has(expr.text);
+function flattenMatchChain(
+  call: ts.CallExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): { links: MatchChainLink[] } | undefined {
+  const links: MatchChainLink[] = [];
+  let expr: ts.CallExpression = call;
+  for (let i = 0; i < 200; i++) {
+    const callee = expr.expression;
+    if (ts.isIdentifier(callee)) {
+      if (links.length === 0) return undefined; // the root call's own args
+      if (!isTypesugarMatch(callee, checker, sourceFile)) return undefined;
+      links.reverse();
+      return { links };
     }
-
-    // Property access: something.case(...)
-    if (ts.isPropertyAccessExpression(expr)) {
-      // The receiver of the property access is the previous call in the chain
-      const receiver = expr.expression;
-      if (ts.isCallExpression(receiver)) {
-        expr = receiver.expression;
-        continue;
-      }
-      // receiver is an identifier: match.something — unlikely but check
-      if (ts.isIdentifier(receiver)) {
-        return MACRO_FLUENT_NAMES.has(receiver.text);
-      }
+    if (!ts.isPropertyAccessExpression(callee) || !ts.isCallExpression(callee.expression)) {
+      return undefined;
     }
+    if (!MATCH_CHAIN_METHODS.has(callee.name.text)) return undefined;
+    links.push({ method: callee.name.text, args: expr.arguments });
+    expr = callee.expression;
+  }
+  return undefined;
+}
 
-    break;
+/** Names bound by the arm that the LAST link belongs to. */
+function armBindingsAt(links: readonly MatchChainLink[]): Set<string> {
+  const names = new Set<string>();
+  const last = links[links.length - 1];
+  if (last.method === "else") return names;
+  // Walk back to the arm's `.case` (an arm is `.case [.or]* [.as] [.if] .then`).
+  for (let i = links.length - 1; i >= 0; i--) {
+    const link = links[i];
+    if (link.method === "then" && i !== links.length - 1) break;
+    if (link.method === "case" || link.method === "or" || link.method === "as") {
+      for (const arg of link.args.slice(0, 1)) collectPatternBindings(arg, names);
+    }
+    if (link.method === "case") break;
+  }
+  return names;
+}
+
+/**
+ * Syntactically collect the variable names a match pattern binds (mirrors
+ * `analyzePattern`/`collectBindings` in std/src/macros/match.ts): bare
+ * identifiers, array elements and spreads, object shorthands, property values,
+ * and extractor arguments (`Some(x)`), but never an extractor's callee.
+ */
+function collectPatternBindings(pattern: ts.Expression, out: Set<string>): void {
+  if (ts.isIdentifier(pattern)) {
+    if (pattern.text !== "_" && pattern.text !== "undefined") out.add(pattern.text);
+  } else if (ts.isParenthesizedExpression(pattern)) {
+    collectPatternBindings(pattern.expression, out);
+  } else if (ts.isArrayLiteralExpression(pattern)) {
+    for (const el of pattern.elements) collectPatternBindings(el, out);
+  } else if (ts.isSpreadElement(pattern)) {
+    collectPatternBindings(pattern.expression, out);
+  } else if (ts.isObjectLiteralExpression(pattern)) {
+    for (const prop of pattern.properties) {
+      if (ts.isShorthandPropertyAssignment(prop)) out.add(prop.name.text);
+      else if (ts.isPropertyAssignment(prop)) collectPatternBindings(prop.initializer, out);
+      else if (ts.isSpreadAssignment(prop)) collectPatternBindings(prop.expression, out);
+    }
+  } else if (ts.isCallExpression(pattern)) {
+    for (const arg of pattern.arguments) collectPatternBindings(arg, out);
+  }
+}
+
+/** Is `node` the name of a chain method (`.case`, `.then`, ...) of a typesugar match chain? */
+function isMatchChainMethodName(
+  node: ts.Node,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): boolean {
+  const access = node.parent;
+  if (!ts.isIdentifier(node) || !access || !ts.isPropertyAccessExpression(access)) return false;
+  if (access.name !== node) return false;
+  const call = access.parent;
+  if (!call || !ts.isCallExpression(call) || call.expression !== access) return false;
+  return flattenMatchChain(call, checker, sourceFile) !== undefined;
+}
+
+function isWithin(node: ts.Node, ancestor: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (n === ancestor) return true;
+  }
+  return false;
+}
+
+/** Packages whose `match` export is the typesugar macro (match.ts `module`). */
+function isTypesugarMatchModule(spec: string): boolean {
+  return spec === "@typesugar/std" || spec.startsWith("@typesugar/std/") || spec === "typesugar";
+}
+
+/** The package a declaration file belongs to (mirrors import-resolution.ts resolveModuleSpecifier). */
+function packageOfFile(fileName: string): string | undefined {
+  const normalized = fileName.replace(/\\/g, "/");
+  const nm = /\/node_modules\/((?:@[^/]+\/)?[^/]+)/.exec(normalized);
+  if (nm) return nm[1];
+  const pk = /\/packages\/([a-z0-9-]+)\//.exec(normalized);
+  if (pk) return pk[1] === "typesugar" ? "typesugar" : `@typesugar/${pk[1]}`;
+  return undefined;
+}
+
+/**
+ * Does `callee` refer to typesugar's `match` macro? Resolved through import
+ * aliases to a declaration in `@typesugar/std` (or the `typesugar` umbrella);
+ * when the import cannot be resolved at all, the import specifier decides,
+ * as the transformer's name-and-import fallback does. A local or third-party
+ * `match` never qualifies.
+ */
+function isTypesugarMatch(
+  callee: ts.Identifier,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): boolean {
+  let symbol: ts.Symbol | undefined;
+  try {
+    symbol = checker.getSymbolAtLocation(callee);
+  } catch (e) {
+    reportCheckerFailure("MacroCallChain", e);
+    return false;
+  }
+  if (!symbol) return false;
+
+  const wasImported = (symbol.flags & ts.SymbolFlags.Alias) !== 0;
+  let resolved = symbol;
+  if (wasImported) {
+    try {
+      resolved = checker.getAliasedSymbol(symbol);
+    } catch (e) {
+      reportCheckerFailure("MacroCallChain", e);
+      return false;
+    }
   }
 
+  const decls = resolved.getDeclarations() ?? [];
+  if (decls.length > 0) {
+    if (resolved.getName() !== "match") return false;
+    return decls.some((d) => {
+      const pkg = packageOfFile(d.getSourceFile().fileName);
+      return pkg !== undefined && isTypesugarMatchModule(pkg);
+    });
+  }
+
+  // Unresolvable import: decide by the import declaration's specifier.
+  if (!wasImported) return false;
+  const importDecl = symbol.declarations?.[0];
+  for (let n: ts.Node | undefined = importDecl; n; n = n.parent) {
+    if (ts.isImportDeclaration(n)) {
+      if (!ts.isStringLiteral(n.moduleSpecifier)) return false;
+      const importedName =
+        importDecl && ts.isImportSpecifier(importDecl)
+          ? (importDecl.propertyName ?? importDecl.name).text
+          : undefined;
+      return importedName === "match" && isTypesugarMatchModule(n.moduleSpecifier.text);
+    }
+  }
   return false;
 }
 
@@ -1148,13 +1380,56 @@ function isRootedInMacroCall(call: ts.CallExpression): boolean {
 // Rule 6: OperatorOverload — suppress TS2365 for @op operator overloading
 // ===========================================================================
 
+/** Mirrors OPERATOR_PRIMITIVE_TYPES in transformer-core/src/rewriting.ts. */
+const OPERATOR_PRIMITIVE_TYPES = new Set([
+  "number",
+  "string",
+  "boolean",
+  "bigint",
+  "null",
+  "undefined",
+  "any",
+  "unknown",
+]);
+
+/** Per-program operator-syntax activation, computed the way the transform pass does. */
+const operatorActivationCache = new WeakMap<ts.Program, Map<string, Set<string>>>();
+
+function activatedOperatorTypeclasses(program: ts.Program, sourceFile: ts.SourceFile): Set<string> {
+  let perFile = operatorActivationCache.get(program);
+  if (!perFile) {
+    perFile = new Map();
+    operatorActivationCache.set(program, perFile);
+  }
+  const cached = perFile.get(sourceFile.fileName);
+  if (cached) return cached;
+  // A private tracker: same scan as transform.ts's scanImportsForScope call,
+  // without depending on whether (or for which program) a transform ran.
+  const tracker = new ResolutionScopeTracker();
+  scanImportsForScope(sourceFile, tracker, program);
+  const result = new Set([
+    ...tracker.getActivatedOperatorSyntax(sourceFile.fileName),
+    ...tracker.getDefinedTypeclasses(sourceFile.fileName),
+  ]);
+  perFile.set(sourceFile.fileName, result);
+  return result;
+}
+
 /**
  * Create the OperatorOverload diagnostic suppression rule.
  *
  * Suppresses TS2365 ("Operator 'X' cannot be applied to types 'A' and 'B'")
- * when at least one operand is a non-primitive type. The typesugar transformer
- * rewrites operators on custom types via @typeclass @op annotations — these
- * errors are artifacts of the pre-transform source.
+ * only when the transformer's operator rewrite (`tryRewriteTypeclassOperator`)
+ * will replace that expression: the file activates (imports or defines) a
+ * typeclass mapping the operator via `@op`, the LEFT operand is a
+ * non-primitive type, and an instance of that typeclass for the left
+ * operand's type is in scope (or the type `@derive`s it). Deep-review
+ * macros-other #10: it used to suppress every TS2365 with any object operand
+ * (`money + 1`, `[1, 2] + 3`).
+ *
+ * The operator index needs the `ts.Program`, which the caller must pass in
+ * the evaluation context (`filterDiagnostics(..., { program })`); without it
+ * nothing is suppressed.
  */
 export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
   return {
@@ -1164,8 +1439,11 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
     shouldSuppress(
       diagnostic: ts.Diagnostic,
       checker: ts.TypeChecker,
-      sourceFile: ts.SourceFile
+      sourceFile: ts.SourceFile,
+      context?: DiagnosticSuppressionContext
     ): boolean {
+      const program = context?.program;
+      if (!program) return false;
       if (diagnostic.start === undefined || diagnostic.length === undefined) {
         return false;
       }
@@ -1173,38 +1451,50 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
       if (!node) return false;
 
-      // Walk up to find a BinaryExpression
-      let current: ts.Node | undefined = node;
-      for (let i = 0; i < 5 && current; i++) {
-        if (ts.isBinaryExpression(current)) {
-          // Suppress if either operand is a non-primitive (object/class/interface)
-          // type — these are the types that @op can apply to.
-          try {
-            const leftType = checker.getTypeAtLocation(current.left);
-            const rightType = checker.getTypeAtLocation(current.right);
-            if (isObjectLikeType(leftType) || isObjectLikeType(rightType)) {
-              return true;
-            }
-          } catch {
-            return false;
-          }
+      let binary: ts.BinaryExpression | undefined;
+      for (let cur: ts.Node | undefined = node, i = 0; cur && i < 5; cur = cur.parent, i++) {
+        if (ts.isBinaryExpression(cur)) {
+          binary = cur;
+          break;
         }
-        current = current.parent;
       }
+      if (!binary || isSyntheticNode(binary)) return false;
 
+      const op = getOperatorString(binary.operatorToken.kind);
+      if (!op) return false;
+
+      const activated = activatedOperatorTypeclasses(program, sourceFile);
+      if (activated.size === 0) return false;
+      const candidates = getOperatorCandidates(program, activated, op);
+      if (candidates.length === 0) return false;
+
+      try {
+        const leftType = checker.getTypeAtLocation(binary.left);
+        const rightType = checker.getTypeAtLocation(binary.right);
+        const nullish = ts.TypeFlags.Null | ts.TypeFlags.Undefined;
+        if ((leftType.flags & nullish) !== 0 || (rightType.flags & nullish) !== 0) return false;
+        const leftName = checker.typeToString(leftType).replace(/<.*>$/, "");
+        if (OPERATOR_PRIMITIVE_TYPES.has(leftName)) return false;
+        if (!(leftType.flags & ts.TypeFlags.Object)) return false;
+
+        const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+        const declared = new Set<string>();
+        const symbol = leftType.getSymbol() ?? leftType.aliasSymbol;
+        for (const decl of symbol?.getDeclarations() ?? []) {
+          for (const tc of deriveNamesFromDeclaration(decl)) declared.add(tc);
+        }
+        for (const candidate of candidates) {
+          if (declared.has(candidate.typeclass)) return true;
+          const resolved = resolveInstance(ctx, candidate.typeclass, leftType);
+          if (resolved?.kind === "resolved") return true;
+        }
+      } catch (e) {
+        reportCheckerFailure("OperatorOverload", e);
+        return false;
+      }
       return false;
     },
   };
-}
-
-function isObjectLikeType(type: ts.Type): boolean {
-  // Object types (classes, interfaces, object literals)
-  if (type.flags & ts.TypeFlags.Object) return true;
-  // Union/intersection containing object types
-  if (type.isUnionOrIntersection()) {
-    return type.types.some(isObjectLikeType);
-  }
-  return false;
 }
 
 /**
@@ -1218,12 +1508,7 @@ function checkReturnTypeRewrite(node: ts.Node, checker: ts.TypeChecker): boolean
 
   try {
     const returnType = checker.getTypeFromTypeNode(fn.type);
-    const returnText = checker.typeToString(returnType);
-
-    if (findTypeRewrite(returnText)) return true;
-
-    const stripped = returnText.replace(/<.*>$/, "");
-    if (stripped !== returnText && findTypeRewrite(stripped)) return true;
+    if (resolveTypeRewrite(returnType, checker)) return true;
   } catch (e) {
     if (isDiagnosticSuppressionAuditEnabled()) {
       console.error(`[DiagnosticSuppression] checkReturnTypeRewrite: ${e}`);

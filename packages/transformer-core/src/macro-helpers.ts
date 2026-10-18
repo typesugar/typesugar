@@ -82,6 +82,52 @@ export function isJSDocMacroTargetNode(
   );
 }
 
+/**
+ * Whether a JSDoc tag sits at a real tag position: the `@` starts its comment
+ * line (only whitespace and the leading `*` before it, or only whitespace
+ * after `/**` on the comment's first line), and the line is not inside a
+ * ``` / ~~~ code fence within that comment.
+ *
+ * TypeScript's JSDoc parser treats any whitespace-preceded `@word` as a tag,
+ * so prose ("Parsed from @adt tag."), nested example comments
+ * (` * /** @hkt *\/`) and fenced examples (` * @derive(Read)` between ```)
+ * all come back from `ts.getJSDocTags`. Those must not dispatch macros.
+ *
+ * A tag with no real source position (synthetic) is accepted, as before.
+ */
+export function isJSDocTagAtLineStart(tag: ts.JSDocTag): boolean {
+  if (tag.pos < 0) return true;
+  let jsDoc: ts.Node | undefined = tag.parent;
+  while (jsDoc && jsDoc.kind !== ts.SyntaxKind.JSDoc) jsDoc = jsDoc.parent;
+  let root: ts.Node | undefined = jsDoc;
+  while (root && root.kind !== ts.SyntaxKind.SourceFile) root = root.parent;
+  if (!jsDoc || !root || jsDoc.pos < 0) return true;
+  const text = (root as ts.SourceFile).text;
+  const commentStart = jsDoc.pos;
+  const tagPos = tag.pos;
+  if (text.charCodeAt(tagPos) !== 64 /* @ */) return true;
+
+  // Prefix of the tag's own line.
+  const lineStart = text.lastIndexOf("\n", tagPos - 1) + 1;
+  const prefix =
+    lineStart <= commentStart
+      ? text.slice(commentStart, tagPos).replace(/^\/\*\*/, "")
+      : text.slice(lineStart, tagPos).replace(/^[ \t]*\*/, "");
+  if (!/^[ \t]*$/.test(prefix)) return false;
+
+  // Code-fence state over the comment lines BEFORE the tag's line.
+  let inFence = false;
+  const before = text.slice(commentStart, lineStart);
+  for (const rawLine of before.split("\n")) {
+    const line = rawLine
+      .replace(/^[ \t]*\/\*\*/, "")
+      .replace(/^[ \t]*\*/, "")
+      .trimStart();
+    if (line.startsWith("```") || line.startsWith("~~~")) inFence = !inFence;
+  }
+  return !inFence;
+}
+
 export function hasJSDocMacroTags(node: ts.Node): boolean {
   if (!isJSDocMacroTargetNode(node)) {
     return false;
@@ -89,7 +135,7 @@ export function hasJSDocMacroTags(node: ts.Node): boolean {
 
   const tags = ts.getJSDocTags(node);
   for (const tag of tags) {
-    if (JSDOC_MACRO_TAGS.has(tag.tagName.text)) {
+    if (JSDOC_MACRO_TAGS.has(tag.tagName.text) && isJSDocTagAtLineStart(tag)) {
       return true;
     }
   }
@@ -131,6 +177,8 @@ export function tryExpandJSDocMacros(
   for (const tag of tags) {
     const macroName = JSDOC_MACRO_TAGS.get(tag.tagName.text);
     if (!macroName) continue;
+    // Prose / fenced-example / nested-comment mentions are not triggers.
+    if (!isJSDocTagAtLineStart(tag)) continue;
 
     // @derive/@deriving are handled directly (PEP-032 deleted the standalone
     // `derive` attribute macro; individual derives are registered under
@@ -640,7 +688,14 @@ export function extractTypeInfo(
   let type: ts.Type;
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
-  } catch {
+  } catch (e) {
+    // Degrading to zero fields changes generated output (e.g. an Eq that
+    // compares nothing), so the user must see it (CLAUDE.md rule 3).
+    ctx.reportWarning(
+      node,
+      `could not resolve the type of '${name}' (${e instanceof Error ? e.message : String(e)}); ` +
+        `derived code will see no fields`
+    );
     return {
       name,
       fields: [],
@@ -665,7 +720,12 @@ export function extractTypeInfo(
   let properties: ts.Symbol[];
   try {
     properties = ctx.typeChecker.getPropertiesOfType(type);
-  } catch {
+  } catch (e) {
+    ctx.reportWarning(
+      node,
+      `could not list the properties of '${name}' (${e instanceof Error ? e.message : String(e)}); ` +
+        `derived code will see no fields`
+    );
     return { name, fields: [], typeParameters, type, kind: "product" };
   }
 
@@ -732,15 +792,41 @@ function extractSumTypeInfo(
 
   if (ts.isUnionTypeNode(node.type)) {
     for (const member of node.type.types) {
-      if (!ts.isTypeReferenceNode(member)) continue;
-
-      const memberTypeName = ts.isIdentifier(member.typeName)
-        ? member.typeName.text
-        : safeGetNodeText(member.typeName, ctx.sourceFile);
-      const variantInfo = sumInfo.variants.find((v) => v.typeName === memberTypeName);
+      let memberType: ts.Type;
+      let variantInfo: { tag: string; typeName: string } | undefined;
+      try {
+        memberType = ctx.typeChecker.getTypeFromTypeNode(member);
+      } catch (e) {
+        ctx.reportWarning(
+          member,
+          `could not resolve a variant of '${name}' (${e instanceof Error ? e.message : String(e)}); ` +
+            `derived code will not handle it`
+        );
+        continue;
+      }
+      if (ts.isTypeReferenceNode(member)) {
+        const memberTypeName = ts.isIdentifier(member.typeName)
+          ? member.typeName.text
+          : safeGetNodeText(member.typeName, ctx.sourceFile);
+        variantInfo = sumInfo.variants.find((v) => v.typeName === memberTypeName);
+      } else if (ts.isTypeLiteralNode(member)) {
+        // Inline `{ kind: "square"; ... }`: tryExtractSumType names it
+        // `${alias}_${tag}`; recover its tag from the discriminant's type.
+        const discProp = memberType.getProperty(sumInfo.discriminant);
+        const discDecl = discProp?.getDeclarations()?.[0];
+        const discType =
+          discProp && discDecl
+            ? ctx.typeChecker.getTypeOfSymbolAtLocation(discProp, discDecl)
+            : undefined;
+        if (discType?.isStringLiteral()) {
+          const tag = discType.value;
+          variantInfo = sumInfo.variants.find(
+            (v) => v.tag === tag && v.typeName === `${name}_${tag}`
+          );
+        }
+      }
       if (!variantInfo) continue;
 
-      const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
       const fields: DeriveFieldInfo[] = [];
 
       try {
@@ -781,8 +867,12 @@ function extractSumTypeInfo(
             symbol: prop,
           });
         }
-      } catch {
-        // Skip variant if we can't get its properties
+      } catch (e) {
+        ctx.reportWarning(
+          member,
+          `could not list the fields of variant '${variantInfo.tag}' of '${name}' ` +
+            `(${e instanceof Error ? e.message : String(e)}); derived code will see no fields`
+        );
       }
 
       variants.push({

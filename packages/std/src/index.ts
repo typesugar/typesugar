@@ -28,10 +28,9 @@
  * ## Macros
  *
  * - `match()` — zero-cost pattern matching with exhaustiveness checking
- * - `when()` / `otherwise()` — guard arm constructors
- * - `isType()` — compile-time type guards (typeof/instanceof/null)
- * - `P` — array/structural pattern helpers (P.empty, P.length, P.between, etc.)
- * - `let:` / `yield:` — do-notation for monadic types
+ *   (fluent `.case(...).if(...).then(...).else(...)` chains, or a handler
+ *   object `match(value, { ... })`)
+ * - `let:` / `yield:` and `par:` / `yield:` — do-notation for monadic types
  *
  * @example
  * ```ts
@@ -74,7 +73,7 @@ export * from "./extensions";
 // Data types
 export * from "./data";
 
-// Macros (let:/yield:, match/when/otherwise/isType/P).
+// Macros (let:/yield:, par:/yield:, match).
 //
 // PEP-050 Case-1: the macro *definitions* live in the `./macros` entry (which
 // imports `typescript`) and are loaded by the transformer at build time — they

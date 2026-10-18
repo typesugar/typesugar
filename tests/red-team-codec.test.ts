@@ -226,10 +226,10 @@ describe("Codec Edge Cases", () => {
       const parsed = JSON.parse(encoded as string);
 
       expect(parsed.required).toBe("hello");
-      expect(parsed.optional).toBe(null); // optional fields become null
+      expect("optional" in parsed).toBe(false); // absent optionals are omitted, not null
     });
 
-    it("loses BigInt precision (not JSON-serializable)", () => {
+    it("round-trips BigInt without losing precision", () => {
       interface BigData {
         huge: bigint;
       }
@@ -239,8 +239,8 @@ describe("Codec Edge Cases", () => {
       });
       const codec = createJsonCodec<BigData>(s);
 
-      // BigInt throws in JSON.stringify
-      expect(() => codec.encode({ huge: BigInt("9007199254740993") })).toThrow();
+      const huge = BigInt("9007199254740993");
+      expect(codec.decode(codec.encode({ huge })).huge).toBe(huge);
     });
 
     it("handles -0 (becomes 0 in JSON roundtrip)", () => {
@@ -385,12 +385,8 @@ describe("Codec Edge Cases", () => {
       const layout: FieldLayout[] = [{ name: "small", offset: 0, size: 1, type: "uint8" }];
       const codec = createBinaryCodec<OverflowData>(s, layout);
 
-      // uint8 can only hold 0-255, value 300 should wrap
-      const encoded = codec.encode({ small: 300 });
-      const decoded = codec.decode(encoded);
-
-      // 300 & 0xFF = 44
-      expect(decoded.small).toBe(44);
+      // uint8 can only hold 0-255; silently wrapping 300 to 44 was review finding #31
+      expect(() => codec.encode({ small: 300 })).toThrow(RangeError);
     });
 
     it("handles negative numbers in signed vs unsigned fields", () => {
@@ -412,12 +408,11 @@ describe("Codec Edge Cases", () => {
       ];
       const codec = createBinaryCodec<SignedData>(s, layout);
 
-      const encoded = codec.encode({ signedVal: -100, unsignedVal: -100 });
-      const decoded = codec.decode(encoded);
-
+      const decoded = codec.decode(codec.encode({ signedVal: -100, unsignedVal: 100 }));
       expect(decoded.signedVal).toBe(-100);
-      // -100 as uint16 wraps to 65436
-      expect(decoded.unsignedVal).toBe(65436);
+      expect(decoded.unsignedVal).toBe(100);
+      // A negative value in an unsigned field is out of range rather than wrapped
+      expect(() => codec.encode({ signedVal: 0, unsignedVal: -100 })).toThrow(RangeError);
     });
 
     it("handles float precision loss in float32", () => {

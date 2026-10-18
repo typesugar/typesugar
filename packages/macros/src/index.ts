@@ -39,7 +39,13 @@ import "./adt.js"; // @adt macro for algebraic data types (PEP-014)
 // registration of typeInfo macro. Import it separately when needed.
 
 // Re-export for programmatic use
-export { comptimeMacro, jsToComptimeValue, type ComptimePermissions } from "./comptime.js";
+export {
+  comptimeMacro,
+  jsToComptimeValue,
+  setComptimeEvaluationEnabled,
+  isComptimeEvaluationEnabled,
+  type ComptimePermissions,
+} from "./comptime.js";
 export {
   // Derive markers for use in @derive() decorators
   // Eq, Ord, Hash, Show are frozen objects carrying primitive instances
@@ -87,7 +93,6 @@ export {
   getTypeclassesForMethod,
   extractOpFromJSDoc,
   registerInstanceWithMeta,
-  getSpecializationMethodsForDerivation,
   type TypeclassInfo,
   type TypeclassMethod,
   type InstanceInfo,
@@ -96,6 +101,7 @@ export {
 export {
   // Internal: registerInstanceMethodsFromAST is used by @impl macro, not public API
   registerInstanceMethodsFromAST,
+  getInstanceMethodsForDeclaration,
   extractMethodsFromObjectLiteral,
   getInstanceMethods,
   getInstanceOrIntrinsicMethods,
@@ -106,6 +112,9 @@ export {
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
   inlineMethod,
+  collectMethodFreeNames,
+  forEachMethodFreeReference,
+  methodDependsOnReceiver,
   flattenReturnsToExpression,
   analyzeForFlattening,
   SpecializationCache,
@@ -176,6 +185,7 @@ export {
   hashProduct,
   deriveShowViaGeneric,
   deriveEqViaGeneric,
+  genericDeriveMacro,
 } from "./generic.js";
 
 // --- Scala 3-style typeclass derivation via Mirror/Generic ---
@@ -226,6 +236,8 @@ export {
   monoidString,
   monoidArray,
   // Grouped exports (Eq, Ord, Hash, Show are now on the derive markers in derive.ts)
+  Semigroup,
+  Monoid,
   Semigroup as SemigroupPrimitives,
   Monoid as MonoidPrimitives,
 } from "./primitives.js";
@@ -241,6 +253,7 @@ export {
 } from "./instance-scanner.js";
 export {
   resolveInstance,
+  buildInstanceReference,
   clearResolverCache,
   findInstanceInScopeByName,
   resolveDoNotationInstance,
@@ -427,9 +440,16 @@ export {
   validator,
   // Conditional compilation
   cfg,
+  cfgAttr,
+  type CfgBranch,
   // File include stubs
   includeStr,
   includeJson,
+  includeBytes,
+  includeText,
+  // Compile-time diagnostics
+  compileError,
+  compileWarning,
   // Static assert
   staticAssert,
   // Tail recursion

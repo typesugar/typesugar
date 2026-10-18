@@ -1,27 +1,42 @@
 /**
- * Pattern-Based / Declarative Macros (macro_rules! equivalent)
+ * Pattern-Based / Declarative Macros (macro_rules! equivalent) — EXPERIMENTAL
  *
- * Provides a declarative API for defining simple macros via pattern matching
- * and template expansion, without writing AST manipulation code.
+ * Provides a declarative API for defining simple EXPRESSION macros via
+ * capture patterns and template expansion, without writing AST manipulation
+ * code. The API is experimental: it may change before it is stabilised.
  *
  * Inspired by: Rust `macro_rules!`, Racket `syntax-rules`, C++ `#define`
+ *
+ * What it does (and doesn't):
+ * - A pattern is a list of captures matched POSITIONALLY against the call's
+ *   arguments: `"name($a:expr, $b:ident)"` or the bare `"$a:expr, $b:ident"`.
+ *   Any other literal syntax in a pattern (`{ $body }`, `+`, ...) is rejected
+ *   when the macro is defined — it could never be matched.
+ * - An arm matches only a call with exactly as many arguments as captures.
+ * - The expansion is a single EXPRESSION. Captures are substituted as whole
+ *   AST nodes (parenthesised as needed), so `$x * $x` with `1 + 2` is
+ *   `(1 + 2) * (1 + 2)`, and macros inside a capture are still expanded.
+ *   A `$name` inside a string or template literal is replaced with the
+ *   capture's source text (stringification).
+ * - There is NO hygiene: names introduced by the template can shadow or
+ *   capture user names. Prefer passing captures as arguments to an arrow
+ *   function (see `dbg` below) over declaring locals that wrap them.
  *
  * @example
  * ```typescript
  * import { defineSyntaxMacro } from "typesugar";
  *
- * // Simple pattern → replacement
  * defineSyntaxMacro("unless", {
- *   pattern: "unless($cond:expr) { $body }",
- *   expand: "if (!($cond)) { $body }",
+ *   pattern: "unless($cond:expr, $then:expr, $else:expr)",
+ *   expand: "!($cond) ? $then : $else",
  * });
  *
- * // Multiple arms
+ * // Multiple arms, tried in order
  * defineSyntaxMacro("dbg", {
  *   arms: [
  *     {
  *       pattern: "dbg($e:expr)",
- *       expand: "(() => { const __v = $e; console.log(`[$e] =`, __v); return __v; })()",
+ *       expand: "((__dbg_value) => (console.log(`[$e] =`, __dbg_value), __dbg_value))($e)",
  *     },
  *   ],
  * });
@@ -135,6 +150,57 @@ export function parsePattern(pattern: string): {
   return { captures, captureNames };
 }
 
+const CAPTURE_KINDS: ReadonlySet<string> = new Set(["expr", "ident", "literal", "type", "stmts"]);
+
+/** One capture token, `$name` or `$name:kind`, with optional surrounding spaces. */
+const CAPTURE_TOKEN_RE = /^\s*\$(\w+)(?::(\w+))?\s*$/;
+
+/**
+ * Check that a pattern is something an expression macro can actually match:
+ * a comma-separated capture list, optionally wrapped as `macroName(...)`.
+ * Anything else (`unless($c) { $body }`, `$a + $b`) used to be accepted and
+ * its literal text silently ignored (deep review #12d). Throws a descriptive
+ * Error at definition time.
+ */
+export function validatePattern(macroName: string, pattern: string): void {
+  let inner = pattern.trim();
+  const open = inner.indexOf("(");
+  if (open !== -1) {
+    const callee = inner.slice(0, open).trim();
+    if (callee !== macroName || !inner.endsWith(")")) {
+      throw new Error(
+        `Syntax macro '${macroName}': unsupported pattern "${pattern}". A pattern must be ` +
+          `"${macroName}($a, $b, ...)" or a bare capture list "$a, $b, ..." — syntax macros ` +
+          `match call arguments positionally and cannot match other literal syntax.`
+      );
+    }
+    inner = inner.slice(open + 1, -1);
+  }
+  if (inner.trim() === "") return;
+  for (const part of inner.split(",")) {
+    const m = CAPTURE_TOKEN_RE.exec(part);
+    if (!m) {
+      throw new Error(
+        `Syntax macro '${macroName}': unsupported pattern "${pattern}" — "${part.trim()}" is ` +
+          `not a capture. Each argument position must be a single $name or $name:kind.`
+      );
+    }
+    const kind = m[2] ?? "expr";
+    if (!CAPTURE_KINDS.has(kind)) {
+      throw new Error(
+        `Syntax macro '${macroName}': unknown capture kind '${kind}' in "${pattern}" ` +
+          `(expected one of: expr, ident, literal, type)`
+      );
+    }
+    if (kind === "stmts") {
+      throw new Error(
+        `Syntax macro '${macroName}': '$${m[1]}:stmts' can't be used — syntax macros are ` +
+          `expression macros and their arguments are always expressions`
+      );
+    }
+  }
+}
+
 /**
  * Extract captures from a macro call's arguments based on the pattern.
  *
@@ -148,8 +214,10 @@ export function extractCaptures(
 ): Map<string, ts.Node> | null {
   const result = new Map<string, ts.Node>();
 
-  if (args.length < captures.length) {
-    return null; // Not enough arguments
+  // Exact arity: a one-capture arm used to match a two-argument call and
+  // silently drop the second argument (deep review #12b).
+  if (args.length !== captures.length) {
+    return null;
   }
 
   for (let i = 0; i < captures.length; i++) {
@@ -251,10 +319,157 @@ export function expandTemplate(
   const expanded = template.replace(CAPTURE_RE, (match, name) => {
     const node = captures.get(name);
     if (!node) return match; // Leave unmatched captures as-is
-    return nodeToText(node, ctx);
+    const text = nodeToText(node, ctx);
+    // Keep the capture a single operand wherever it lands (deep review #12a).
+    return ts.isExpression(node) && needsParentheses(node) ? `(${text})` : text;
   });
 
   return expanded;
+}
+
+/**
+ * Whether substituting `expr` into an arbitrary expression slot could change
+ * how it parses (`1 + 2` under `*`). Primary/member/call expressions never
+ * need parentheses; everything else gets them.
+ */
+export function needsParentheses(expr: ts.Expression): boolean {
+  return !(
+    ts.isIdentifier(expr) ||
+    ts.isPrivateIdentifier(expr) ||
+    ts.isStringLiteral(expr) ||
+    ts.isNumericLiteral(expr) ||
+    ts.isBigIntLiteral(expr) ||
+    ts.isNoSubstitutionTemplateLiteral(expr) ||
+    ts.isTemplateExpression(expr) ||
+    ts.isRegularExpressionLiteral(expr) ||
+    expr.kind === ts.SyntaxKind.TrueKeyword ||
+    expr.kind === ts.SyntaxKind.FalseKeyword ||
+    expr.kind === ts.SyntaxKind.NullKeyword ||
+    expr.kind === ts.SyntaxKind.ThisKeyword ||
+    ts.isParenthesizedExpression(expr) ||
+    ts.isCallExpression(expr) ||
+    ts.isPropertyAccessExpression(expr) ||
+    ts.isElementAccessExpression(expr) ||
+    ts.isArrayLiteralExpression(expr) ||
+    ts.isNonNullExpression(expr) ||
+    ts.isTaggedTemplateExpression(expr) ||
+    (ts.isNewExpression(expr) && expr.arguments !== undefined)
+  );
+}
+
+const PLACEHOLDER_PREFIX = "__typesugar_syntax_capture_";
+const PLACEHOLDER_RE = /__typesugar_syntax_capture_(\d+)__/g;
+
+/** Identifier slots that name something rather than evaluate an expression. */
+function isNameSlot(id: ts.Identifier, parent: ts.Node): boolean {
+  if (ts.isPropertyAccessExpression(parent)) return parent.name === id;
+  if (ts.isLabeledStatement(parent)) return parent.label === id;
+  if (ts.isBreakOrContinueStatement(parent)) return parent.label === id;
+  if (
+    ts.isPropertyAssignment(parent) ||
+    ts.isShorthandPropertyAssignment(parent) ||
+    ts.isMethodDeclaration(parent) ||
+    ts.isPropertyDeclaration(parent) ||
+    ts.isGetAccessorDeclaration(parent) ||
+    ts.isSetAccessorDeclaration(parent) ||
+    ts.isVariableDeclaration(parent) ||
+    ts.isParameter(parent) ||
+    ts.isBindingElement(parent) ||
+    ts.isFunctionExpression(parent) ||
+    ts.isFunctionDeclaration(parent) ||
+    ts.isClassExpression(parent) ||
+    ts.isTypeReferenceNode(parent) ||
+    ts.isQualifiedName(parent)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+class TemplateSubstitutionError extends Error {}
+
+/**
+ * Expand a template into an expression AST.
+ *
+ * The template TEXT is parsed once with each `$name` replaced by a unique
+ * placeholder identifier (string→AST parsing of the template is this
+ * module's documented purpose — see CLAUDE.md), and then the placeholders
+ * are replaced with the CAPTURED NODES themselves. Captures are never
+ * printed and re-parsed: precedence is preserved (non-primary captures are
+ * parenthesised) and, because the captured nodes keep their real source
+ * positions, macros nested inside a capture are still expanded by the
+ * transformer (a print/re-parse made them synthetic, which the visitor
+ * skips). Placeholders inside string/template literals become the capture's
+ * source text.
+ */
+export function expandTemplateToExpression(
+  template: string,
+  captures: Map<string, ts.Node>,
+  ctx: MacroContext
+): ts.Expression {
+  const singleCaptureMatch = template.match(/^\s*\$(\w+)(?::(\w+))?\s*$/);
+  if (singleCaptureMatch) {
+    const node = captures.get(singleCaptureMatch[1]);
+    if (node && ts.isExpression(node)) return node;
+  }
+
+  const slots: ts.Node[] = [];
+  const slotOf = new Map<string, number>();
+  const text = template.replace(CAPTURE_RE, (match, name: string) => {
+    const node = captures.get(name);
+    if (!node) return match;
+    let idx = slotOf.get(name);
+    if (idx === undefined) {
+      idx = slots.length;
+      slots.push(node);
+      slotOf.set(name, idx);
+    }
+    return `${PLACEHOLDER_PREFIX}${idx}__`;
+  });
+
+  const parsed = ctx.parseExpression(text);
+  const factory = ctx.factory;
+  const literalText = (t: string) =>
+    t.replace(PLACEHOLDER_RE, (_m, i: string) => nodeToText(slots[Number(i)], ctx));
+
+  const visitWithParent =
+    (parent: ts.Node) =>
+    (node: ts.Node): ts.Node => {
+      if (ts.isIdentifier(node) && node.text.startsWith(PLACEHOLDER_PREFIX)) {
+        const m = /^__typesugar_syntax_capture_(\d+)__$/.exec(node.text);
+        const capture = m ? slots[Number(m[1])] : undefined;
+        if (capture) {
+          if (ts.isIdentifier(capture)) return capture;
+          if (isNameSlot(node, parent)) {
+            throw new TemplateSubstitutionError(
+              `capture '${nodeToText(capture, ctx)}' is used where a name is required; use an $name:ident capture there`
+            );
+          }
+          if (ts.isExpression(capture) && needsParentheses(capture)) {
+            return factory.createParenthesizedExpression(capture);
+          }
+          return capture;
+        }
+      }
+      if (ts.isStringLiteral(node) && node.text.includes(PLACEHOLDER_PREFIX)) {
+        return factory.createStringLiteral(literalText(node.text));
+      }
+      if (ts.isNoSubstitutionTemplateLiteral(node) && node.text.includes(PLACEHOLDER_PREFIX)) {
+        return factory.createNoSubstitutionTemplateLiteral(literalText(node.text));
+      }
+      if (ts.isTemplateHead(node) && node.text.includes(PLACEHOLDER_PREFIX)) {
+        return factory.createTemplateHead(literalText(node.text));
+      }
+      if (ts.isTemplateMiddle(node) && node.text.includes(PLACEHOLDER_PREFIX)) {
+        return factory.createTemplateMiddle(literalText(node.text));
+      }
+      if (ts.isTemplateTail(node) && node.text.includes(PLACEHOLDER_PREFIX)) {
+        return factory.createTemplateTail(literalText(node.text));
+      }
+      return ts.visitEachChild(node, visitWithParent(node), ctx.transformContext);
+    };
+
+  return visitWithParent(parsed)(parsed) as ts.Expression;
 }
 
 // =============================================================================
@@ -280,6 +495,7 @@ export function defineSyntaxMacro(
 
   if ("arms" in options) {
     for (const arm of options.arms) {
+      validatePattern(name, arm.pattern);
       const { captures } = parsePattern(arm.pattern);
       arms.push({
         patternSource: arm.pattern,
@@ -289,6 +505,7 @@ export function defineSyntaxMacro(
       });
     }
   } else {
+    validatePattern(name, options.pattern);
     const { captures } = parsePattern(options.pattern);
     arms.push({
       patternSource: options.pattern,
@@ -318,23 +535,15 @@ export function defineSyntaxMacro(
           continue;
         }
 
-        // Expand the template
-        const expanded = expandTemplate(arm.expandTemplate, captures, ctx);
-
-        // If expandTemplate returned an AST node directly (optimisation for
-        // single-capture templates), use it without re-parsing.
-        if (typeof expanded !== "string") {
-          return expanded;
-        }
-
         try {
-          return ctx.parseExpression(expanded);
+          return expandTemplateToExpression(arm.expandTemplate, captures, ctx);
         } catch (e) {
+          const reason = e instanceof Error ? e.message : String(e);
           ctx.reportError(
             callExpr,
-            `Syntax macro '${name}': Failed to parse expansion: ${expanded}\n  ${
-              e instanceof Error ? e.message : String(e)
-            }`
+            e instanceof TemplateSubstitutionError
+              ? `Syntax macro '${name}': ${reason}`
+              : `Syntax macro '${name}': Failed to parse expansion: ${arm.expandTemplate}\n  ${reason}`
           );
           return callExpr;
         }

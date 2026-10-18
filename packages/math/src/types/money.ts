@@ -28,7 +28,8 @@ import { makeOrd } from "@typesugar/std";
 import type { CurrencyDef } from "./currencies.js";
 
 import { currencyScaleFactor } from "./currencies.js";
-import { roundBigInt, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
+import { roundBigInt, roundDiv, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
+import { parseDecimalString } from "./decimal-string.js";
 
 /**
  * Money type branded by currency.
@@ -114,13 +115,75 @@ function moneyFromString<C extends CurrencyDef>(
   currency: C,
   mode: RoundingMode
 ): Money<C> {
-  // Remove currency symbols and thousand separators
-  s = s.replace(/[^\d.\-]/g, "");
-  const num = parseFloat(s);
-  if (!Number.isFinite(num)) {
-    throw new RangeError(`Money: invalid string "${s}"`);
+  const { unscaled, scale } = parseMoneyString(s, currency);
+  return roundBigInt(unscaled, currency.minorUnits, scale, mode) as Money<C>;
+}
+
+/** `1,234,567.89` — comma is only ever a thousands separator, in groups of 3. */
+const GROUPED_RE = /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
+
+/**
+ * Exact, strict money-string parse (MU-10). Accepts an optional sign, the
+ * currency's own symbol or code as a prefix or suffix (`-$1,234.56`,
+ * `1234.56 USD`), and a plain decimal (exponent allowed) or a decimal with
+ * comma thousands separators. Everything else throws — in particular
+ * comma-decimal input such as `1.234,56`, which used to be read as 1.23, and
+ * accounting negatives such as `(12.34)`, which used to come back positive.
+ * No float round-trip, so amounts above 2^53 minor units stay exact.
+ */
+function parseMoneyString(
+  input: string,
+  currency: CurrencyDef
+): { unscaled: bigint; scale: number } {
+  const fail = (): never => {
+    throw new RangeError(`Money: invalid ${currency.code} amount "${input}"`);
+  };
+  let t = input.trim();
+  let negative = false;
+  let signSeen = false;
+  const takeSign = (): void => {
+    if (t.startsWith("-") || t.startsWith("+")) {
+      if (signSeen) fail();
+      signSeen = true;
+      negative = t.startsWith("-");
+      t = t.slice(1).trimStart();
+    }
+  };
+  const affixes = [currency.symbol, currency.code]
+    .filter((a) => a.length > 0)
+    .sort((a, b) => b.length - a.length);
+
+  takeSign();
+  let prefixed = false;
+  for (const a of affixes) {
+    if (t.startsWith(a)) {
+      t = t.slice(a.length).trimStart();
+      prefixed = true;
+      break;
+    }
   }
-  return moneyFromMajor(num, currency, mode);
+  takeSign();
+  if (!prefixed) {
+    for (const a of affixes) {
+      if (t.endsWith(a)) {
+        t = t.slice(0, t.length - a.length).trimEnd();
+        break;
+      }
+    }
+  }
+
+  if (t.includes(",")) {
+    if (!GROUPED_RE.test(t)) fail();
+    t = t.replace(/,/g, "");
+  }
+  if (t.startsWith("-") || t.startsWith("+")) fail();
+  let parsed: { unscaled: bigint; scale: number };
+  try {
+    parsed = parseDecimalString(t, "Money");
+  } catch {
+    return fail();
+  }
+  return { unscaled: negative ? -parsed.unscaled : parsed.unscaled, scale: parsed.scale };
 }
 
 /**
@@ -263,57 +326,10 @@ export function moneyDivide<C extends CurrencyDef>(
   }
 
   if (typeof divisor === "bigint") {
-    // Integer division with rounding
-    const quotient = (m as bigint) / divisor;
-    const remainder = (m as bigint) % divisor;
-
-    if (remainder === 0n) {
-      return quotient as Money<C>;
-    }
-
-    const negative = m < 0n !== divisor < 0n;
-    const absDivisor = divisor < 0n ? -divisor : divisor;
-    const absRemainder = remainder < 0n ? -remainder : remainder;
-    const halfDivisor = absDivisor / 2n;
-
-    let result = quotient;
-
-    switch (mode) {
-      case "CEIL":
-        if (!negative && remainder !== 0n) result += 1n;
-        break;
-      case "FLOOR":
-        if (negative && remainder !== 0n) result -= 1n;
-        break;
-      case "TRUNC":
-        break;
-      case "HALF_UP":
-        if (absRemainder >= halfDivisor) {
-          result += negative ? -1n : 1n;
-        }
-        break;
-      case "HALF_DOWN":
-        if (absRemainder > halfDivisor) {
-          result += negative ? -1n : 1n;
-        }
-        break;
-      case "HALF_EVEN":
-        if (absRemainder > halfDivisor) {
-          result += negative ? -1n : 1n;
-        } else if (absRemainder === halfDivisor && absDivisor % 2n === 0n) {
-          const absResult = result < 0n ? -result : result;
-          if (absResult % 2n !== 0n) {
-            result += negative ? -1n : 1n;
-          }
-        }
-        break;
-      default:
-        if (absRemainder >= halfDivisor) {
-          result += negative ? -1n : 1n;
-        }
-    }
-
-    return result as Money<C>;
+    // Exact integer division, rounded with the shared primitive (MU-8: the
+    // hand-rolled copy compared against a floored divisor/2 and sent
+    // HALF_CEIL / HALF_FLOOR to HALF_UP).
+    return roundDiv(m as bigint, divisor, mode) as Money<C>;
   }
 
   // Fractional divisor
@@ -406,29 +422,39 @@ export function moneyAllocate<C extends CurrencyDef>(
     return [];
   }
 
-  const total = ratios.reduce((sum, r) => sum + r, 0);
-  if (total === 0) {
+  // Read each ratio as the decimal it prints as (0.3 is 3/10, not the
+  // nearest double), then scale all of them to integers on a common scale, so
+  // fractional ratios work (MU-12: `BigInt(0.3)` threw).
+  const parsed = ratios.map((r) => {
+    if (!Number.isFinite(r) || r < 0) {
+      throw new RangeError(`Money.allocate: ratios must be finite and >= 0, got ${r}`);
+    }
+    return parseDecimalString(String(r), "Money.allocate");
+  });
+  const maxScale = Math.max(...parsed.map((p) => p.scale));
+  const weights = parsed.map((p) => p.unscaled * 10n ** BigInt(maxScale - p.scale));
+  const total = weights.reduce((sum, w) => sum + w, 0n);
+  if (total === 0n) {
     throw new RangeError("Money.allocate: ratios sum to zero");
   }
 
+  // Largest-remainder method on |amount|: floor each exact share, then hand
+  // the leftover units one each to the largest fractional remainders (ties by
+  // position). A zero-ratio entry has remainder 0 and so never receives a
+  // leftover unit (MU-12: leftovers used to go to index 0, 1, … regardless).
   const amount = m as bigint;
-  const results: bigint[] = [];
-  let allocated = 0n;
-
-  // First pass: allocate proportionally (truncated)
-  for (const ratio of ratios) {
-    const portion = (amount * BigInt(ratio)) / BigInt(total);
-    results.push(portion);
-    allocated += portion;
+  const negative = amount < 0n;
+  const abs = negative ? -amount : amount;
+  const results = weights.map((w) => (abs * w) / total);
+  const remainders = weights.map((w, i) => ({ i, r: (abs * w) % total }));
+  let leftover = abs - results.reduce((sum, x) => sum + x, 0n);
+  remainders.sort((a, b) => (a.r === b.r ? a.i - b.i : a.r > b.r ? -1 : 1));
+  for (let k = 0; leftover > 0n; k++) {
+    results[remainders[k].i] += 1n;
+    leftover -= 1n;
   }
-
-  // Second pass: distribute remainder one unit at a time
-  let remainder = amount - allocated;
-  const unit = amount >= 0n ? 1n : -1n;
-
-  for (let i = 0; remainder !== 0n && i < results.length; i++) {
-    results[i] += unit;
-    remainder -= unit;
+  if (negative) {
+    for (let i = 0; i < results.length; i++) results[i] = -results[i];
   }
 
   return results as Money<C>[];

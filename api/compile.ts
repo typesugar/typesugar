@@ -4,8 +4,15 @@ import * as path from "path";
 import { transformCode, type TransformDiagnostic } from "@typesugar/transformer";
 import { AMBIENT_DECLARATIONS } from "./playground-declarations.js";
 import { registerTypeRewrite, globalRegistry, type MethodInlinePattern } from "@typesugar/core";
+import { setComptimeEvaluationEnabled } from "@typesugar/macros";
 
-// Force-load ALL macro packages that register via side effects.
+// Force-load ALL macro packages that register via side effects. Import each
+// package's `/macros` entry: since PEP-055 the root entries are runtime-only
+// (and `"sideEffects": false`), so `import "@typesugar/std"` registers nothing
+// — that left match/letYield/parYield/erased/grammar/lazy/units/sql unexpanded
+// on the playground. The deployed function has no node_modules for the
+// transformer's macro-package discovery to find, so these imports are the only
+// way the macros get registered there.
 // Every @typesugar/* package that calls globalRegistry.register() MUST be listed
 // here. If you add a new package with macros, add it here too — otherwise the
 // playground will silently fall through to runtime fallbacks.
@@ -14,21 +21,27 @@ import { registerTypeRewrite, globalRegistry, type MethodInlinePattern } from "@
 // @typesugar/macros if they import it) in their tsup.config.ts so they share
 // the same globalRegistry and instanceRegistry.
 import "@typesugar/macros";
-import "@typesugar/std";
-import "@typesugar/fp";
-import "@typesugar/graph";
-import "@typesugar/parser";
-import "@typesugar/strings";
+import "@typesugar/std/macros";
+import "@typesugar/fp/macros";
+import "@typesugar/graph/macros";
+import "@typesugar/parser/macros";
+import "@typesugar/strings/macros";
 import "@typesugar/testing/macros";
-import "@typesugar/erased";
-import "@typesugar/effect";
-import "@typesugar/type-system";
-import "@typesugar/contracts";
-import "@typesugar/codec";
+import "@typesugar/erased/macros";
+import "@typesugar/effect/macros";
+import "@typesugar/type-system/macros";
+import "@typesugar/contracts/macros";
+import "@typesugar/codec/macros";
 import "@typesugar/mapper/macros";
-import "@typesugar/fusion";
-import "@typesugar/units";
-import "@typesugar/sql";
+import "@typesugar/fusion/macros";
+import "@typesugar/units/macros";
+import "@typesugar/sql/macros";
+
+// SECURITY: this is a public endpoint compiling untrusted code. comptime
+// executes the code it is given inside this process (node:vm is not a
+// security boundary), so it must never run here. While disabled, comptime(...)
+// calls are left unexpanded with a warning at each call site.
+setComptimeEvaluationEnabled(false);
 
 // ---------------------------------------------------------------------------
 // Macro registration validation
@@ -56,7 +69,7 @@ const EXPECTED_MACROS: ReadonlyArray<{ name: string; from: string }> = [
   { name: "erased", from: "@typesugar/erased" },
   { name: "grammar", from: "@typesugar/parser" },
   { name: "transformInto", from: "@typesugar/mapper" },
-  { name: "lazy", from: "@typesugar/fusion" },
+  { name: "fused", from: "@typesugar/fusion" }, // `lazy` is a runtime function, not a macro
   { name: "units", from: "@typesugar/units" },
   { name: "sql", from: "@typesugar/sql" },
 ];
@@ -414,6 +427,16 @@ function compile(code: string, fileName: string, strict: boolean): CompileResult
   return { ...entry, cached: false, sourceMap: result.sourceMap ?? undefined };
 }
 
+/**
+ * The playground compiles one virtual file. Only a bare `name.ts` / `name.tsx`
+ * is accepted; anything else (paths, traversal, other extensions) falls back
+ * to `input.ts`, so the client can't steer the virtual file — and with it the
+ * include-macro project root and module resolution — elsewhere on the host.
+ */
+function playgroundFileName(raw: unknown): string {
+  return typeof raw === "string" && /^[A-Za-z0-9_-]{1,64}\.tsx?$/.test(raw) ? raw : "input.ts";
+}
+
 // ---------------------------------------------------------------------------
 // Vercel serverless handler
 // ---------------------------------------------------------------------------
@@ -447,7 +470,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const code: string = body.code;
-  const fileName: string = typeof body.fileName === "string" ? body.fileName : "input.ts";
+  const fileName = playgroundFileName(body.fileName);
   const strict: boolean = body.strict === true;
 
   if (code.trim() === "") {

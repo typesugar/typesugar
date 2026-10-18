@@ -150,6 +150,52 @@ function withMultiFileContext<T>(
   return result!;
 }
 
+/**
+ * The registry entries in these suites say their type lives in
+ * "@typesugar/fp/data/option" (or ".../money"). Erasure resolves each
+ * reference's symbol and requires it to be DECLARED in that module (deep-review
+ * finding #3), so fixtures declare the constructors/types in a
+ * `typesugar/fp/data/<mod>.ts` file and the consumer imports them -- a
+ * same-named local declaration in the consumer is unrelated code and must not
+ * be erased. Returns the consumer's LAST statement to the callback.
+ */
+function withOpaqueModule<T>(
+  moduleDecls: string,
+  importNames: string[],
+  consumerBody: string,
+  cb: (
+    ctx: ReturnType<typeof createMacroContext>,
+    last: ts.Statement,
+    visit: VisitFn,
+    sf: ts.SourceFile
+  ) => T,
+  mod = "option"
+): { result: T; diagnostics: unknown[] } {
+  let diagnostics: unknown[] = [];
+  const result = withMultiFileContext(
+    {
+      [`typesugar/fp/data/${mod}.ts`]: moduleDecls,
+      "consumer.ts": `import { ${importNames.join(", ")} } from "./typesugar/fp/data/${mod}";\n${consumerBody}`,
+    },
+    "consumer.ts",
+    (ctx, sf, visit) => {
+      const r = cb(ctx, sf.statements[sf.statements.length - 1], visit, sf);
+      diagnostics = ctx.diagnostics ?? [];
+      return r;
+    }
+  );
+  return { result, diagnostics };
+}
+
+const OPTION_DECLS = [
+  "export type Option<A> = A | null;",
+  "export declare function Some<A>(a: A): Option<A>;",
+  "export declare function Some2(a: number, b: number): unknown;",
+  "export declare const None: Option<never>;",
+  "export declare function NoneFn(): Option<never>;",
+  "export declare function Tagged(a: number): unknown;",
+].join("\n");
+
 /** Run a callback inside a transformation context, returning the result + diagnostics. */
 function withContext<T>(
   source: string,
@@ -224,6 +270,8 @@ describe("tryEraseOpaqueConstructorCall", () => {
       constructors: new Map([
         ["Some", { kind: "identity" }],
         ["None", { kind: "constant", value: "null" }],
+        ["NoneFn", { kind: "constant", value: "null" }],
+        ["Some2", { kind: "identity" }],
         ["Tagged", { kind: "custom", value: "myCustom" }],
       ]),
       transparent: true,
@@ -232,14 +280,10 @@ describe("tryEraseOpaqueConstructorCall", () => {
 
   it("erases an identity constructor call to its argument", () => {
     registerOption();
-    const { result } = withContext(
-      `declare function Some<A>(a: A): unknown;\nSome(42);`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
-        return tryEraseOpaqueConstructorCall(ctx, false, visit, expr);
-      },
-      "consumer.ts"
-    );
+    const { result } = withOpaqueModule(OPTION_DECLS, ["Some"], `Some(42);`, (ctx, last, visit) => {
+      const expr = (last as ts.ExpressionStatement).expression as ts.CallExpression;
+      return tryEraseOpaqueConstructorCall(ctx, false, visit, expr);
+    });
     expect(result).toBeDefined();
     expect(ts.isNumericLiteral(result!)).toBe(true);
     expect((result as ts.NumericLiteral).text).toBe("42");
@@ -247,13 +291,14 @@ describe("tryEraseOpaqueConstructorCall", () => {
 
   it("erases a constant constructor call to its constant value (null)", () => {
     registerOption();
-    const { result } = withContext(
-      `declare function None(): unknown;\nNone();`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["NoneFn"],
+      `NoneFn();`,
+      (ctx, last, visit) => {
+        const expr = (last as ts.ExpressionStatement).expression as ts.CallExpression;
         return tryEraseOpaqueConstructorCall(ctx, false, visit, expr);
-      },
-      "consumer.ts"
+      }
     );
     expect(result).toBeDefined();
     expect(result!.kind).toBe(ts.SyntaxKind.NullKeyword);
@@ -261,13 +306,14 @@ describe("tryEraseOpaqueConstructorCall", () => {
 
   it("erases a custom constructor call to the configured identifier", () => {
     registerOption();
-    const { result } = withContext(
-      `declare function Tagged(a: number): unknown;\nTagged(1);`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["Tagged"],
+      `Tagged(1);`,
+      (ctx, last, visit) => {
+        const expr = (last as ts.ExpressionStatement).expression as ts.CallExpression;
         return tryEraseOpaqueConstructorCall(ctx, false, visit, expr);
-      },
-      "consumer.ts"
+      }
     );
     expect(result).toBeDefined();
     expect(ts.isIdentifier(result!)).toBe(true);
@@ -300,15 +346,29 @@ describe("tryEraseOpaqueConstructorCall", () => {
     expect(result).toBeUndefined();
   });
 
-  it("warns and skips when an identity constructor has wrong arity", () => {
+  it("does not erase a same-named function declared outside the registered module (finding #3)", () => {
     registerOption();
-    const { result, diagnostics } = withContext(
-      `declare function Some(a: number, b: number): unknown;\nSome(1, 2);`,
+    const { result } = withContext(
+      `function Some(x: number) { return { wrapped: x }; }\nSome(42);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
         return tryEraseOpaqueConstructorCall(ctx, false, visit, expr);
       },
       "consumer.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("warns and skips when an identity constructor has wrong arity", () => {
+    registerOption();
+    const { result, diagnostics } = withOpaqueModule(
+      OPTION_DECLS,
+      ["Some2"],
+      `Some2(1, 2);`,
+      (ctx, last, visit) => {
+        const expr = (last as ts.ExpressionStatement).expression as ts.CallExpression;
+        return tryEraseOpaqueConstructorCall(ctx, false, visit, expr);
+      }
     );
     expect(result).toBeUndefined();
     const diags = diagnostics as Array<{ severity: string; message: string }>;
@@ -350,15 +410,11 @@ describe("tryEraseOpaqueConstantRef", () => {
   });
 
   it("erases a bare constant constructor reference to its literal", () => {
-    const { result } = withContext(
-      `declare const None: unknown;\nconst x = None;`,
-      (ctx, sf) => {
-        const decl = (sf.statements[1] as ts.VariableStatement).declarationList.declarations[0];
-        const initIdent = decl.initializer as ts.Identifier;
-        return tryEraseOpaqueConstantRef(ctx, false, initIdent);
-      },
-      "consumer.ts"
-    );
+    const { result } = withOpaqueModule(OPTION_DECLS, ["None"], `const x = None;`, (ctx, last) => {
+      const decl = (last as ts.VariableStatement).declarationList.declarations[0];
+      const initIdent = decl.initializer as ts.Identifier;
+      return tryEraseOpaqueConstantRef(ctx, false, initIdent);
+    });
     expect(result).toBeDefined();
     expect(result!.kind).toBe(ts.SyntaxKind.NullKeyword);
   });
@@ -386,6 +442,33 @@ describe("tryEraseOpaqueConstantRef", () => {
       "consumer.ts"
     );
     expect(result).toBeUndefined();
+  });
+
+  it("does not erase a local `const None` or enum/property/shorthand positions (finding #3)", () => {
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["Some"],
+      [
+        "enum Flags { None = 0 }",
+        "const o = { None: 1 };",
+        "const None = 5;",
+        "const sh = { None };",
+        "None + 1;",
+      ].join("\n"),
+      (ctx, _last, _visit, sf) => {
+        const found: ts.Expression[] = [];
+        const walk = (n: ts.Node): void => {
+          if (ts.isIdentifier(n) && n.text === "None") {
+            const r = tryEraseOpaqueConstantRef(ctx, false, n);
+            if (r) found.push(r);
+          }
+          ts.forEachChild(n, walk);
+        };
+        walk(sf);
+        return found;
+      }
+    );
+    expect(result).toEqual([]);
   });
 
   it("returns undefined for unrelated identifiers", () => {
@@ -420,28 +503,28 @@ describe("tryStripOpaqueTypeAnnotation", () => {
   });
 
   it("strips the type annotation when init would be erased (Some)", () => {
-    const { result } = withContext(
-      `declare function Some<A>(a: A): unknown;\ndeclare type Option<A> = A | null;\nconst x: Option<number> = Some(1);`,
-      (ctx, sf, visit) => {
-        const stmt = sf.statements[2] as ts.VariableStatement;
-        const decl = stmt.declarationList.declarations[0];
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["Some", "type Option"],
+      `const x: Option<number> = Some(1);`,
+      (ctx, last, visit) => {
+        const decl = (last as ts.VariableStatement).declarationList.declarations[0];
         return tryStripOpaqueTypeAnnotation(ctx, false, visit, decl);
-      },
-      "consumer.ts"
+      }
     );
     expect(result).toBeDefined();
     expect(result!.type).toBeUndefined();
   });
 
   it("strips the type annotation when init is bare None", () => {
-    const { result } = withContext(
-      `declare const None: unknown;\ndeclare type Option<A> = A | null;\nconst x: Option<number> = None;`,
-      (ctx, sf, visit) => {
-        const stmt = sf.statements[2] as ts.VariableStatement;
-        const decl = stmt.declarationList.declarations[0];
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["None", "type Option"],
+      `const x: Option<number> = None;`,
+      (ctx, last, visit) => {
+        const decl = (last as ts.VariableStatement).declarationList.declarations[0];
         return tryStripOpaqueTypeAnnotation(ctx, false, visit, decl);
-      },
-      "consumer.ts"
+      }
     );
     expect(result).toBeDefined();
     expect(result!.type).toBeUndefined();
@@ -502,14 +585,14 @@ describe("tryStripOpaqueParamAnnotation", () => {
   });
 
   it("strips a parameter type annotation when default value would be erased", () => {
-    const { result } = withContext(
-      `declare function Some<A>(a: A): unknown;\ndeclare type Option<A> = A | null;\nfunction f(x: Option<number> = Some(1)) {}`,
-      (ctx, sf, visit) => {
-        const fn = sf.statements[2] as ts.FunctionDeclaration;
-        const param = fn.parameters[0];
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["Some", "type Option"],
+      `function f(x: Option<number> = Some(1)) {}`,
+      (ctx, last, visit) => {
+        const param = (last as ts.FunctionDeclaration).parameters[0];
         return tryStripOpaqueParamAnnotation(ctx, false, visit, param);
-      },
-      "consumer.ts"
+      }
     );
     expect(result).toBeDefined();
     expect(result!.type).toBeUndefined();
@@ -545,13 +628,14 @@ describe("shouldStripOpaqueReturnType", () => {
   });
 
   it("returns true for a return type referencing a transparent opaque type", () => {
-    const { result } = withContext(
-      `declare type Option<A> = A | null;\nfunction f(): Option<number> { return 1 as any; }`,
-      (ctx, sf) => {
-        const fn = sf.statements[1] as ts.FunctionDeclaration;
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["type Option"],
+      `function f(): Option<number> { return 1 as any; }`,
+      (ctx, last) => {
+        const fn = last as ts.FunctionDeclaration;
         return shouldStripOpaqueReturnType(ctx, fn.type, fn.body);
-      },
-      "consumer.ts"
+      }
     );
     expect(result).toBe(true);
   });
@@ -561,6 +645,18 @@ describe("shouldStripOpaqueReturnType", () => {
       `function f() {}`,
       (ctx, sf) => {
         const fn = sf.statements[0] as ts.FunctionDeclaration;
+        return shouldStripOpaqueReturnType(ctx, fn.type, fn.body);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBe(false);
+  });
+
+  it("returns false for a same-named type declared outside the registered module (finding #3)", () => {
+    const { result } = withContext(
+      `declare type Option<A> = A | null;\nfunction f(): Option<number> { return 1 as any; }`,
+      (ctx, sf) => {
+        const fn = sf.statements[1] as ts.FunctionDeclaration;
         return shouldStripOpaqueReturnType(ctx, fn.type, fn.body);
       },
       "consumer.ts"
@@ -621,13 +717,14 @@ describe("tryRewriteOpaqueMethodCall", () => {
 
   it("inlines map() into a null-check ternary for simple receiver", () => {
     registerOptionWithMethods();
-    const { result } = withContext(
-      `declare type Option<A> = A | null;\ndeclare const x: Option<number>;\nx.map((n: number) => n + 1);`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
+    const { result } = withOpaqueModule(
+      OPTION_DECLS,
+      ["type Option"],
+      `declare const x: Option<number>;\nx.map((n: number) => n + 1);`,
+      (ctx, last, visit) => {
+        const expr = (last as ts.ExpressionStatement).expression as ts.CallExpression;
         return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
-      },
-      "consumer.ts"
+      }
     );
     expect(result).toBeDefined();
     expect(ts.isConditionalExpression(result!)).toBe(true);
@@ -651,6 +748,19 @@ describe("tryRewriteOpaqueMethodCall", () => {
     // return undefined. The important constant-folding path is verified via
     // tryEraseOpaqueConstructorCall + the ternary path above.
     expect(result === undefined || result.kind === ts.SyntaxKind.NullKeyword).toBe(true);
+  });
+
+  it("does not rewrite a method on a same-named type declared outside the registered module (finding #3)", () => {
+    registerOptionWithMethods();
+    const { result } = withContext(
+      `class Option { map(f: (n: number) => number) { return f(1); } }\ndeclare const x: Option;\nx.map((n: number) => n + 1);`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
+        return tryRewriteOpaqueMethodCall(ctx, false, visit, () => undefined, expr);
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeUndefined();
   });
 
   it("returns undefined when the receiver is not a property access (already-direct call)", () => {
@@ -765,6 +875,8 @@ describe("tryRewriteOpaqueMethodCall", () => {
 // had method/constructor/constant-ref erasure but no accessor erasure at all)
 // ---------------------------------------------------------------------------
 
+const MONEY_DECLS = `export type Money = { readonly __brand: "Money"; value: number; zero: number };`;
+
 describe("tryEraseOpaqueAccessor", () => {
   function registerMoneyWithAccessors(): void {
     registerTypeRewrite({
@@ -781,14 +893,15 @@ describe("tryEraseOpaqueAccessor", () => {
 
   it("erases an identity accessor to the receiver", () => {
     registerMoneyWithAccessors();
-    const { result } = withContext(
-      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.value;`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[2] as ts.ExpressionStatement)
-          .expression as ts.PropertyAccessExpression;
+    const { result } = withOpaqueModule(
+      MONEY_DECLS,
+      ["type Money"],
+      `declare const m: Money;\nm.value;`,
+      (ctx, last, visit) => {
+        const expr = (last as ts.ExpressionStatement).expression as ts.PropertyAccessExpression;
         return tryEraseOpaqueAccessor(ctx, false, visit, expr);
       },
-      "consumer.ts"
+      "money"
     );
     expect(result).toBeDefined();
     expect(ts.isIdentifier(result!)).toBe(true);
@@ -797,14 +910,15 @@ describe("tryEraseOpaqueAccessor", () => {
 
   it("erases a custom accessor to its configured expression", () => {
     registerMoneyWithAccessors();
-    const { result } = withContext(
-      `declare type Money = number & { readonly __brand: "Money" };\ndeclare const m: Money;\nm.zero;`,
-      (ctx, sf, visit) => {
-        const expr = (sf.statements[2] as ts.ExpressionStatement)
-          .expression as ts.PropertyAccessExpression;
+    const { result } = withOpaqueModule(
+      MONEY_DECLS,
+      ["type Money"],
+      `declare const m: Money;\nm.zero;`,
+      (ctx, last, visit) => {
+        const expr = (last as ts.ExpressionStatement).expression as ts.PropertyAccessExpression;
         return tryEraseOpaqueAccessor(ctx, false, visit, expr);
       },
-      "consumer.ts"
+      "money"
     );
     expect(result).toBeDefined();
     expect(ts.isIdentifier(result!)).toBe(true);
@@ -857,9 +971,9 @@ describe("tryRewriteExtensionMethod", () => {
     });
 
     const { result } = withContext(
-      `declare const x: number; x.clamp(0, 10);`,
+      `declare function clamp(n: number, lo: number, hi: number): number;\ndeclare const x: number; x.clamp(0, 10);`,
       (ctx, sf, visit) => {
-        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
+        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
         const rewritten = tryRewriteExtensionMethod(
           ctx,
           false,
@@ -894,9 +1008,9 @@ describe("tryRewriteExtensionMethod", () => {
     });
 
     const { result } = withContext(
-      `declare const x: number; x.twice();`,
+      `declare const NumberOps: { twice(n: number): number };\ndeclare const x: number; x.twice();`,
       (ctx, sf, visit) => {
-        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
+        const expr = (sf.statements[2] as ts.ExpressionStatement).expression as ts.CallExpression;
         return tryRewriteExtensionMethod(
           ctx,
           false,
@@ -921,6 +1035,26 @@ describe("tryRewriteExtensionMethod", () => {
   it("returns undefined when no matching extension is registered", () => {
     const { result } = withContext(
       `declare const x: number; x.nonsense();`,
+      (ctx, sf, visit) => {
+        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
+        return tryRewriteExtensionMethod(
+          ctx,
+          false,
+          visit,
+          () => undefined,
+          () => undefined,
+          expr
+        );
+      },
+      "consumer.ts"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("does not rewrite to a registered extension that is not bound in this file (finding #18)", () => {
+    standaloneExtensionRegistry.push({ methodName: "clamp", forType: "number" });
+    const { result } = withContext(
+      `declare const x: number; x.clamp(0, 10);`,
       (ctx, sf, visit) => {
         const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
         return tryRewriteExtensionMethod(
@@ -972,9 +1106,9 @@ describe("tryRewriteExtensionMethod", () => {
     });
 
     const { result } = withContext(
-      `(5).clamp(0, 10);`,
+      `declare function clamp(n: number, lo: number, hi: number): number;\n(5).clamp(0, 10);`,
       (ctx, sf, visit) => {
-        const expr = (sf.statements[0] as ts.ExpressionStatement).expression as ts.CallExpression;
+        const expr = (sf.statements[1] as ts.ExpressionStatement).expression as ts.CallExpression;
         // Confirm the fixture actually exercises a literal type, not `number`.
         const receiverType = ctx.typeChecker.getTypeAtLocation(
           (expr.expression as ts.PropertyAccessExpression).expression
@@ -1235,6 +1369,86 @@ describe("tryRewriteTypeclassOperator", () => {
     expect(call.arguments).toHaveLength(2);
     expect((call.arguments[0] as ts.Identifier).text).toBe("a");
     expect((call.arguments[1] as ts.Identifier).text).toBe("b");
+  });
+
+  it("does not strip positions/comments off the user's real operand nodes (in-place mutation)", () => {
+    const source = [
+      "/** @typeclass */",
+      "interface Numeric<A> {",
+      "  /** @op + */",
+      "  add(a: A, b: A): A;",
+      "}",
+      "interface Point { x: number; y: number; }",
+      "/** @impl Numeric<Point> */",
+      "const numericPoint: Numeric<Point> = { add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) };",
+      "declare const a: Point;",
+      "declare const b: Point;",
+      "a + b;",
+    ].join("\n");
+    const { result } = withContext(
+      source,
+      (ctx, sf, visit, program) => {
+        scanImportsForScope(sf, globalResolutionScope, program);
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.BinaryExpression;
+        const before = [expr.left.pos, expr.left.end, expr.right.pos, expr.right.end];
+        const rewritten = tryRewriteTypeclassOperator(ctx, false, visit, expr);
+        return {
+          rewritten,
+          before,
+          after: [expr.left.pos, expr.left.end, expr.right.pos, expr.right.end],
+        };
+      },
+      "consumer.ts"
+    );
+    expect(result.rewritten).toBeDefined();
+    expect(result.before.every((n: number) => n >= 0)).toBe(true);
+    expect(result.after).toEqual(result.before);
+  });
+
+  it("reports a warning (not a silent skip) when the checker throws on the operands", () => {
+    const source = [
+      "/** @typeclass */",
+      "interface Numeric<A> {",
+      "  /** @op + */",
+      "  add(a: A, b: A): A;",
+      "}",
+      "interface Point { x: number; y: number; }",
+      "/** @impl Numeric<Point> */",
+      "const numericPoint: Numeric<Point> = { add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) };",
+      "declare const a: Point;",
+      "declare const b: Point;",
+      "a + b;",
+    ].join("\n");
+    const { result } = withContext(
+      source,
+      (ctx, sf, visit, program) => {
+        scanImportsForScope(sf, globalResolutionScope, program);
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.BinaryExpression;
+        const checker = ctx.typeChecker as unknown as Record<string, unknown>;
+        const orig = checker.getTypeAtLocation;
+        checker.getTypeAtLocation = () => {
+          throw new Error("boom");
+        };
+        try {
+          return {
+            rewritten: tryRewriteTypeclassOperator(ctx, false, visit, expr),
+            warnings: ctx
+              .getDiagnostics()
+              .filter((d) => d.severity === "warning")
+              .map((d) => d.message),
+          };
+        } finally {
+          checker.getTypeAtLocation = orig;
+        }
+      },
+      "consumer.ts"
+    );
+    expect(result.rewritten).toBeUndefined();
+    expect(result.warnings.some((m: string) => m.includes("boom"))).toBe(true);
   });
 
   it("returns undefined for primitive number operands (no rewrite)", () => {

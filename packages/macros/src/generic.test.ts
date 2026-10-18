@@ -508,23 +508,23 @@ describe("genericDerive attribute macro", () => {
     }
   }
 
-  it("expands interface to: original target + registerGenericMeta + const + registerGeneric", () => {
+  it("expands interface to: original target + identity const (no unimported runtime calls)", () => {
     const { generated, nodes } = runOn(
       `interface Point { x: number; y: number; }`,
       (sf) => sf.statements.find(ts.isInterfaceDeclaration)!
     );
 
-    // 4 statements: original interface, const decl, registerGenericMeta, registerGeneric
-    expect(nodes).toHaveLength(4);
+    // original interface + const decl. registerGeneric/registerGenericMeta are
+    // NOT emitted: they were emitted without an import (ReferenceError at load)
+    // and live in the compiler-loading macro package.
+    expect(nodes).toHaveLength(2);
     expect(ts.isInterfaceDeclaration(nodes[0])).toBe(true);
 
     const joined = generated.join("\n");
     expect(joined).toContain("const genericPoint");
-    expect(joined).toContain('registerGenericMeta("Point"');
-    expect(joined).toContain('"product"');
-    expect(joined).toContain('"x"');
-    expect(joined).toContain('"y"');
-    expect(joined).toContain('registerGeneric("Point"');
+    expect(joined).not.toContain("registerGenericMeta(");
+    expect(joined).not.toContain("registerGeneric(");
+    expect(getGenericMeta("Point")).toMatchObject({ kind: "product", fieldNames: ["x", "y"] });
   });
 
   it("registers product meta at compile time during expansion", () => {
@@ -550,13 +550,8 @@ type Shape = Circle | Square;
     });
 
     const joined = generated.join("\n");
-    expect(joined).toContain('registerGenericMeta("Shape"');
-    expect(joined).toContain('"sum"');
-    expect(joined).toContain('"kind"'); // discriminant
-    expect(joined).toContain('"circle"');
-    expect(joined).toContain('"square"');
     expect(joined).toContain("const genericShape");
-    expect(joined).toContain('registerGeneric("Shape"');
+    expect(joined).not.toContain("registerGeneric(");
 
     const meta = getGenericMeta("Shape");
     expect(meta).toBeDefined();
@@ -569,9 +564,9 @@ type Shape = Circle | Square;
     const source = `class Pair { constructor(public left: number, public right: string) {} }`;
     const { generated } = runOn(source, (sf) => sf.statements.find(ts.isClassDeclaration)!);
     const joined = generated.join("\n");
-    expect(joined).toContain('registerGenericMeta("Pair"');
-    expect(joined).toContain('registerGeneric("Pair"');
+    expect(joined).not.toContain("registerGeneric(");
     expect(joined).toContain("const genericPair");
+    expect(getGenericMeta("Pair")).toMatchObject({ kind: "product" });
   });
 
   it("emits an identity to/from arrow expression in the const declaration", () => {

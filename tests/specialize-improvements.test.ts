@@ -272,10 +272,10 @@ describe("Phase 2: Deduplication / Hoisting", () => {
       expect(key1).toBe(key2);
     });
 
-    it("should sort dictionary brands in cache key", () => {
+    it("keeps dictionary order significant in the cache key (pair(a, b) != pair(b, a))", () => {
       const key1 = SpecializationCache.computeKey("fn", ["Eq", "Show"]);
       const key2 = SpecializationCache.computeKey("fn", ["Show", "Eq"]);
-      expect(key1).toBe(key2);
+      expect(key1).not.toBe(key2);
     });
 
     it("should differentiate keys by function symbol", () => {

@@ -1,0 +1,7 @@
+interface Tree {
+    v: number;
+    kids: Tree[];
+}
+export const isTree = (() => { throw new Error("typesugar: expansion of 'is' failed: RangeError: Maximum call stack size exceeded"); })();
+
+DIAG error 9999 [typesugar] Macro expansion failed: RangeError: Maximum call stack size exceeded

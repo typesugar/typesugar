@@ -55,9 +55,12 @@ jobs:
           path: packages/*/dist
           retention-days: 1
 
+  # Runs the FULL suite on pull requests too. The old PR job ran
+  # `pnpm --filter "...[$BASE]" test || true`: the `|| true` swallowed every
+  # failure, and package `test` scripts never cover the root tests/ project
+  # (nor packages without a `test` script), so PRs were effectively untested.
   test:
     name: Test (shard ${{ matrix.shard }})
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: [build]
     strategy:
@@ -84,48 +87,6 @@ jobs:
 
       - name: Test
         run: pnpm test -- --shard=${{ matrix.shard }}
-
-  test-pr:
-    name: Test (PR — selective)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    needs: [build]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: build-dist
-          path: packages
-
-      - name: Detect changes and run tests
-        run: |
-          BASE="origin/${{ github.base_ref }}"
-          CHANGED=$(git diff --name-only "$BASE"...HEAD)
-
-          # If root-level config files changed, run full suite
-          if echo "$CHANGED" | grep -qE '^(vitest\.config|tsconfig|package\.json|pnpm-lock)'; then
-            echo "Root config changed — running full test suite"
-            pnpm test
-          else
-            echo "Running selective tests for changed packages"
-            # Run tests for changed packages and their dependents
-            pnpm --filter "...[$BASE]" test || true
-            # Always run the integration test as a safety net
-            pnpm vitest run tests/playground-examples.test.ts
-          fi
 
   lint:
     name: Lint & Typecheck
@@ -173,6 +134,13 @@ jobs:
       - name: Runtime purity (no `typescript` in runtime entries)
         run: pnpm run check:runtime-purity
 
+      # Bundles api/*.ts exactly as deploy.yml does, then imports each built
+      # function and sends it one request. A bundle that crashes on cold start
+      # (e.g. CJS output emptying import.meta) used to deploy "successfully"
+      # and 500 in production.
+      - name: Vercel functions load
+        run: node scripts/build-vercel-output.mjs --functions-only --out "$RUNNER_TEMP/vercel-output"
+
   test-vscode:
     name: VS Code Extension Tests
     runs-on: ubuntu-latest
@@ -210,13 +178,7 @@ jobs:
   publish-dry-run:
     name: Publish (dry run)
     runs-on: ubuntu-latest
-    needs: [test, test-pr, lint, test-vscode]
-    if: |
-      !cancelled() &&
-      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
-      (needs.test-pr.result == 'success' || needs.test-pr.result == 'skipped') &&
-      needs.lint.result == 'success' &&
-      needs.test-vscode.result == 'success'
+    needs: [test, lint, test-vscode]
     steps:
       - uses: actions/checkout@v4
 
