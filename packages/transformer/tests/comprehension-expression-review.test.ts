@@ -43,10 +43,15 @@ function run(body: string) {
   const req = (s: string) =>
     s === "@typesugar/std" ? std : s === "@typesugar/std/syntax/do" ? stdDo : {};
   let runError: unknown;
-  try {
-    new Function("require", "exports", "module", js)(req, mod.exports, mod);
-  } catch (e) {
-    runError = e;
+  // Only run output that compiled cleanly: the output of a failed compile
+  // (the TS9226 "unsupported shape" cases) is not meant to run, and running
+  // it left an async ReferenceError as an unhandled rejection in the suite.
+  if (errors.length === 0) {
+    try {
+      new Function("require", "exports", "module", js)(req, mod.exports, mod);
+    } catch (e) {
+      runError = e;
+    }
   }
   return { code: r.code, errors, exports: mod.exports, runError };
 }

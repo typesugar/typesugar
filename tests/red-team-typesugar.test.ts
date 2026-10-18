@@ -10,6 +10,11 @@
  * - registerAllMacros idempotency and side effects
  *
  * NOTE: This file tests runtime behavior of macros, so we opt out of macro expansion.
+ *
+ * The umbrella root ("typesugar") is runtime-only by design (it must not load
+ * the TypeScript compiler): it has no `*Namespace` exports and re-exports
+ * @typesugar/core as TYPES only. Core VALUE APIs live at "typesugar/core", so
+ * those assertions import from there.
  */
 "use no typesugar";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -19,13 +24,6 @@ import * as typesugar from "typesugar";
 
 // Direct imports of specific exports
 import {
-  // Namespace exports (current API uses *Namespace suffix)
-  // Note: comptimeNamespace doesn't exist - comptime is a single function, not a package
-  reflectNamespace,
-  deriveNamespace,
-  // Note: operatorsNamespace doesn't exist - operators are in @typesugar/macros
-  // Note: specializeNamespace doesn't exist - specialization is always-on (PEP-053), not a package
-  typeclassNamespace,
   // Direct callable exports
   pipe,
   compose,
@@ -46,7 +44,7 @@ import {
   registerAllMacros,
 } from "typesugar";
 
-// Core re-exports (should be accessible from main)
+// Core value APIs: "typesugar/core" (the root re-exports core as types only)
 import {
   globalRegistry,
   defineExpressionMacro,
@@ -56,21 +54,26 @@ import {
   unreachable,
   debugOnly,
   config,
-  defineConfig,
-} from "typesugar";
+  defineConfig as coreDefineConfig,
+} from "typesugar/core";
+import { defineConfig } from "typesugar";
 
 describe("Typesugar Umbrella Edge Cases", () => {
   // ==========================================================================
   // Attack 1: Re-export Completeness
   // ==========================================================================
   describe("Re-export completeness", () => {
-    it("exports all namespace modules", () => {
-      // Note: comptimeNamespace doesn't exist - comptime is a single function, not a package
-      expect(typesugar.reflectNamespace).toBeDefined();
-      expect(typesugar.deriveNamespace).toBeDefined();
-      // Note: operatorsNamespace doesn't exist - operators are exported directly from @typesugar/macros
-      // Note: specializeNamespace doesn't exist - specialization is always-on (PEP-053), not a package
-      expect(typesugar.typeclassNamespace).toBeDefined();
+    it("the runtime-only root has no namespace or core value re-exports", () => {
+      const root = typesugar as Record<string, unknown>;
+      for (const name of [
+        "reflectNamespace",
+        "deriveNamespace",
+        "typeclassNamespace",
+        "globalRegistry",
+        "defineExpressionMacro",
+      ]) {
+        expect([name, root[name]]).toEqual([name, undefined]);
+      }
     });
 
     it("exports all derive markers", () => {
@@ -90,22 +93,25 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typeof TypeGuard).toBe("symbol");
     });
 
-    it("exports core macro infrastructure from @typesugar/core", () => {
+    it("typesugar/core exports core macro infrastructure", () => {
       expect(globalRegistry).toBeDefined();
       expect(typeof defineExpressionMacro).toBe("function");
       expect(typeof defineAttributeMacro).toBe("function");
       expect(typeof defineDeriveMacro).toBe("function");
     });
 
-    it("exports safety primitives from @typesugar/core", () => {
+    it("typesugar/core exports safety primitives", () => {
       expect(typeof invariant).toBe("function");
       expect(typeof unreachable).toBe("function");
       expect(typeof debugOnly).toBe("function");
     });
 
-    it("exports config system from @typesugar/core", () => {
+    it("exports the config system (root defineConfig is a runtime identity)", () => {
       expect(config).toBeDefined();
+      expect(typeof coreDefineConfig).toBe("function");
       expect(typeof defineConfig).toBe("function");
+      const cfg = {};
+      expect(defineConfig(cfg)).toBe(cfg);
     });
   });
 
@@ -119,28 +125,10 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typeof comptime).toBe("function");
     });
 
-    it("namespace exports preserve their sub-module structure", () => {
-      // deriveNamespace should have the derive macro objects
-      expect(deriveNamespace.Eq).toBeDefined();
-      expect(deriveNamespace.Ord).toBeDefined();
-      expect(deriveNamespace.Clone).toBeDefined();
-
-      // pipe and compose are exported directly from @typesugar/macros
-      expect(typeof pipe).toBe("function");
-      expect(typeof compose).toBe("function");
-    });
-
     it("direct pipe/compose exports are functions", () => {
       // These are exported directly from @typesugar/macros
       expect(typeof pipe).toBe("function");
       expect(typeof compose).toBe("function");
-    });
-
-    it("deriveNamespace contains derive markers", () => {
-      // deriveNamespace is the full @typesugar/derive namespace
-      // Eq is now a frozen object carrying primitive instances
-      expect(typeof deriveNamespace.Eq).toBe("object");
-      expect(deriveNamespace.Eq).toBe(Eq);
     });
   });
 
@@ -204,16 +192,10 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(() => registerAllMacros()).not.toThrow();
     });
 
-    it("registerAllMacros registers macros to globalRegistry", () => {
-      // Get initial count
-      const registry = globalRegistry as { macros?: Map<string, unknown> };
-
-      // Call registration
-      registerAllMacros();
-
-      // Registry should have macros (implementation detail, but verifies side effect)
-      // Note: The exact structure depends on globalRegistry implementation
-      expect(globalRegistry).toBeDefined();
+    it("registerAllMacros is a deprecated no-op", () => {
+      // Macros are registered by the transformer (or `import "@typesugar/macros"`);
+      // the runtime-only umbrella's registerAllMacros does nothing.
+      expect(registerAllMacros()).toBeUndefined();
     });
   });
 
@@ -324,11 +306,6 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(typeof globalRegistry.getType).toBe("function");
       expect(typeof globalRegistry.getLabeledBlock).toBe("function");
       expect(typeof globalRegistry.getAll).toBe("function");
-
-      // After registerAllMacros, it should contain known macros
-      registerAllMacros();
-      expect(globalRegistry.getExpression("pipe")).toBeDefined();
-      expect(globalRegistry.getExpression("compose")).toBeDefined();
     });
   });
 });

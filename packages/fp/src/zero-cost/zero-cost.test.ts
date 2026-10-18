@@ -63,13 +63,34 @@ describe("runtime barrel does not load the compiler (#8)", () => {
 describe("./effect export (#9)", () => {
   it("every exports target that names a concrete file exists after build", () => {
     const pkg = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    // Exports use nested conditions ({ import: { types, default }, require:
+    // { types: .d.cts, default: .cjs } }) since the fp CJS-types fix — walk
+    // every leaf target, not just a flat import/require string.
+    const leaves = (t: unknown, conds: string[]): Array<[string, string]> =>
+      typeof t === "string"
+        ? [[conds.join("."), t]]
+        : Object.entries((t ?? {}) as Record<string, unknown>).flatMap(([c, v]) =>
+            leaves(v, [...conds, c])
+          );
+    let checked = 0;
     for (const [key, target] of Object.entries(pkg.exports as Record<string, unknown>)) {
       if (key.includes("*")) continue;
-      const t = target as Record<string, string>;
-      for (const cond of ["import", "require"]) {
-        if (built) expect([key, existsSync(path.join(pkgDir, t[cond]))]).toEqual([key, true]);
+      const found = leaves(target, []);
+      expect(found.map(([c]) => c)).toEqual(
+        expect.arrayContaining([
+          "import.types",
+          "import.default",
+          "require.types",
+          "require.default",
+        ])
+      );
+      for (const [cond, file] of found) {
+        if (!built) continue;
+        checked++;
+        expect([key, cond, existsSync(path.join(pkgDir, file))]).toEqual([key, cond, true]);
       }
     }
+    if (built) expect(checked).toBeGreaterThan(0);
     expect(pkg.exports["./effect"]).toBeUndefined();
   });
 });

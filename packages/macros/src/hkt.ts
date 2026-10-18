@@ -204,6 +204,17 @@ function resolveTypeConstructorViaTypeCheckerUncached(
 
   if (!symbol) return undefined;
 
+  // An imported name (`import type { Option } from "./data/option.js"`)
+  // resolves to the import alias, whose only declaration is the
+  // ImportSpecifier — follow it to the real declaration.
+  if (symbol.flags & ts.SymbolFlags.Alias) {
+    try {
+      symbol = checker.getAliasedSymbol(symbol);
+    } catch {
+      return undefined;
+    }
+  }
+
   // Get the type and its declarations to find type parameters
   const declarations = symbol.getDeclarations();
   if (!declarations || declarations.length === 0) return undefined;
@@ -867,7 +878,7 @@ function expandTier2Companion(
 // ============================================================================
 
 /**
- * @hkt attribute macro for interfaces/type aliases
+ * The `@hkt` attribute macro for interfaces/type aliases
  *
  * Tier 2 (type alias with type params, no `_` in RHS):
  *   Generates a companion `*F` interface (last param as hole).

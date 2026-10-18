@@ -98,6 +98,7 @@ export {
   JSDOC_MACRO_TAGS,
   isJSDocMacroTargetNode,
   hasJSDocMacroTags,
+  isJSDocTagAtLineStart,
   tryExpandJSDocMacros,
   parseJSDocMacroArgs,
   createSyntheticDecorator,

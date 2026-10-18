@@ -366,10 +366,18 @@ describe("Core Edge Cases", () => {
       expect(suggestions.some((s) => s.module === "@typesugar/fp")).toBe(true);
     });
 
-    it("should prefer umbrella package over individual packages", () => {
+    // Deep review core #32: the umbrella re-export rows for Option/Some/None/
+    // Either/Result/Show were removed (the umbrella does not export them), so
+    // `Option` is suggested only from the package that really exports it.
+    it("suggests Option only from @typesugar/fp (no phantom umbrella row)", () => {
       const suggestions = getSuggestionsForSymbol("Option");
+      expect(suggestions[0].module).toBe("@typesugar/fp");
+      expect(suggestions.some((s) => s.module === "typesugar")).toBe(false);
+    });
+
+    it("still prefers the umbrella for a symbol it really re-exports (Eq)", () => {
+      const suggestions = getSuggestionsForSymbol("Eq");
       expect(suggestions[0].module).toBe("typesugar");
-      expect(suggestions.some((s) => s.module === "@typesugar/fp")).toBe(true);
     });
 
     it("should handle custom registered exports", () => {

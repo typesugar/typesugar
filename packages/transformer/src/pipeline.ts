@@ -2267,9 +2267,19 @@ function collectModuleSpecifiers(sf: ts.SourceFile): string[] {
     ) {
       specs.push(node.arguments[0].text);
     }
-    ts.forEachChild(node, visit);
   };
-  visit(sf);
+  // Explicit stack, not recursion: a deeply nested expression (e.g. a
+  // 10k-term `1 + 1 + ...` chain) would overflow the call stack.
+  const stack: ts.Node[] = [sf];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    visit(node);
+    const children: ts.Node[] = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
   return specs;
 }
 

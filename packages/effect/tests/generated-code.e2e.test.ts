@@ -492,13 +492,23 @@ export interface Rect { kind: "rect"; w: number; h: number }
 /** @derive(EffectSchema, EffectHash, EffectEqual) */
 export type Shape = Circle | Rect;
 `;
-  it("reports an error (not an empty Union) when variants can't be resolved", () => {
+  // Derive type info now resolves inline object-literal union members too, so
+  // this no longer hits the "could not resolve the union's variants" error
+  // path: it must produce a real discriminated Union (never an empty one).
+  it("derives a real Union (not an empty one) for inline object-literal variants", () => {
     const e = expand(`
 import { EffectSchema } from "@typesugar/effect";
 /** @derive(EffectSchema) */
 export type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number };
 `);
-    expect(e.errors.join("\n")).toMatch(/could not resolve the union's variants/);
+    expect(e.errors).toEqual([]);
+    const m = run(e.code);
+    const { Schema } = req("effect");
+    expect(Schema.decodeUnknownSync(m.ShapeSchema)({ kind: "rect", w: 1 })).toEqual({
+      kind: "rect",
+      w: 1,
+    });
+    expect(() => Schema.decodeUnknownSync(m.ShapeSchema)({ kind: "rect", r: 1 })).toThrow();
   });
 
   it("schema, hash and equality all discriminate on the tag", () => {

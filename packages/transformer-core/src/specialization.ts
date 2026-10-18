@@ -214,7 +214,13 @@ function methodFreeNamesResolveSameAt(
   return true;
 }
 
-const TYPESUGAR_PACKAGE_PATH = /[\\/](@typesugar[\\/]|typesugar[\\/]packages[\\/])/;
+// Only @typesugar/macros' own primitives.ts instances map to the intrinsics
+// (whose bodies are reflected from exactly those values). Other typesugar
+// packages declare same-named instances with DIFFERENT semantics (e.g.
+// @typesugar/fp's NaN-lawful `ordNumber`) — those must be extracted from
+// their own source like any user instance, not replaced by the intrinsic.
+const TYPESUGAR_PACKAGE_PATH =
+  /[\\/](@typesugar[\\/]macros|typesugar[\\/]packages[\\/]macros)[\\/]/;
 
 /** Does this resolved symbol denote typesugar's own primitive instance of that name? */
 function isTypesugarPrimitive(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
