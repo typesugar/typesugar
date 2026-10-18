@@ -37,7 +37,7 @@ const DEFAULT_MANIFEST: MacroManifest = {
     decorator: {
       derive: {
         module: "@typesugar/derive",
-        args: ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder", "Show"],
+        args: ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Show"],
       },
       typeclass: { module: "@typesugar/typeclass" },
       instance: { module: "@typesugar/typeclass" },

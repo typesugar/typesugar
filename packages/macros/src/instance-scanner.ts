@@ -651,5 +651,18 @@ function resolveTypeNameInScope(
   }
 }
 
-/** Default scanner instance for use across the pipeline. */
-export const instanceScanner = new InstanceScanner();
+/**
+ * Default scanner instance for use across the pipeline.
+ *
+ * Stored on globalThis (like `globalRegistry` in @typesugar/core) so the ESM
+ * and CJS copies of @typesugar/macros share ONE scanner. The transformer
+ * (ESM) registers same-pass `@derive` companions via `registerSynthesized`,
+ * while macro packages loaded through the CJS macro loader (e.g.
+ * @typesugar/erased) resolve through their own copy of this module; with a
+ * per-copy scanner they never saw those companions (docs review 2026-10:
+ * `erased<[Show, Eq]>(p)` after `@derive(Show, Eq)` reported both missing).
+ */
+const INSTANCE_SCANNER_KEY = "__typesugar_instanceScanner__";
+export const instanceScanner: InstanceScanner =
+  ((globalThis as Record<string, unknown>)[INSTANCE_SCANNER_KEY] as InstanceScanner | undefined) ??
+  ((globalThis as Record<string, unknown>)[INSTANCE_SCANNER_KEY] = new InstanceScanner());

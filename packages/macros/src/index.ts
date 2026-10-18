@@ -56,7 +56,6 @@ export {
   Hash,
   Default,
   Json,
-  Builder,
   TypeGuard,
   Show,
   // Utility for derived function naming

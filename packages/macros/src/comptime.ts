@@ -747,6 +747,33 @@ export const comptimeMacro = defineExpressionMacro({
  * This transpiles the source to JavaScript, runs it in a sandboxed context,
  * and converts the result back to a TypeScript AST node.
  */
+/**
+ * The directory comptime `fs` access is confined to: the project, i.e. the
+ * tsconfig's directory — NOT `program.getCurrentDirectory()`, which is the
+ * process cwd and made a build started from another directory reject every
+ * project path as "outside the project root" (docs review 2026-10).
+ *
+ * 1. `compilerOptions.configFilePath` (set by tsc / ts-patch and any host that
+ *    parses the tsconfig with its file name);
+ * 2. else the nearest `tsconfig.json` at or above the source file's directory;
+ * 3. else the program's current directory (unless it is "/" — single-file
+ *    `transformCode` uses that), else the source file's own directory.
+ */
+function comptimeProjectRoot(program: ts.Program, baseDir: string): string {
+  const configFilePath = program.getCompilerOptions().configFilePath;
+  if (typeof configFilePath === "string" && configFilePath) {
+    return nodePath.dirname(nodePath.resolve(configFilePath));
+  }
+  for (let dir = nodePath.resolve(baseDir); ; ) {
+    if (nodeFs.existsSync(nodePath.join(dir, "tsconfig.json"))) return dir;
+    const parent = nodePath.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  const cwd = program.getCurrentDirectory();
+  return cwd && cwd !== "/" ? cwd : baseDir;
+}
+
 function evaluateViaVm(
   ctx: MacroContextImpl,
   node: ts.Node,
@@ -777,12 +804,7 @@ function evaluateViaVm(
 
   // Get the base directory for relative path resolution
   const baseDir = nodePath.dirname(ctx.sourceFile.fileName);
-  let projectRoot = ctx.program.getCurrentDirectory();
-  // Single-file transformCode creates a program with cwd "/" — fall back to
-  // the source file's directory so path validation doesn't reject everything.
-  if (projectRoot === "/" || projectRoot === "") {
-    projectRoot = baseDir;
-  }
+  const projectRoot = comptimeProjectRoot(ctx.program, baseDir);
 
   try {
     const context = createComptimeContext(baseDir, projectRoot, permissions);

@@ -19,7 +19,7 @@
       "derive": {
         "module": "@typesugar/derive",
         "description": "Auto-derive implementations",
-        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder", "Show"]
+        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Show"]
       },
       "typeclass": { "module": "@typesugar/typeclass", "description": "Define a typeclass" },
       "instance": {

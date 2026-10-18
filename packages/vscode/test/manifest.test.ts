@@ -80,7 +80,7 @@ describe("ManifestLoader", () => {
       expect(names.has("Hash")).toBe(true);
       expect(names.has("Default")).toBe(true);
       expect(names.has("Json")).toBe(true);
-      expect(names.has("Builder")).toBe(true);
+      expect(names.has("Builder")).toBe(false);
     });
   });
 
@@ -557,6 +557,6 @@ describe("createDefaultManifest", () => {
     expect(deriveArgs).toContain("Hash");
     expect(deriveArgs).toContain("Default");
     expect(deriveArgs).toContain("Json");
-    expect(deriveArgs).toContain("Builder");
+    expect(deriveArgs).not.toContain("Builder");
   });
 });
