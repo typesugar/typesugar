@@ -31,9 +31,15 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
-import { shouldEmitCheck } from "../config.js";
+import {
+  defineExpressionMacro,
+  globalRegistry,
+  MacroContext,
+  isSyntheticNode,
+} from "@typesugar/core";
+import { getContractConfig, shouldEmitCheck } from "../config.js";
 import { normalizeExpression } from "../parser/predicate.js";
+import { tryProve } from "../prover/index.js";
 
 export const requiresMacro = defineExpressionMacro({
   name: "requires",
@@ -62,6 +68,27 @@ export const requiresMacro = defineExpressionMacro({
       args.length >= 2
         ? args[1]
         : ctx.factory.createStringLiteral(`Precondition failed: ${conditionText}`);
+
+    // Compile-time proof from the parameters' refinement types, as the
+    // `requires:` block form does (docs review A#19). Only for a requires()
+    // at function entry, where the parameter facts still hold.
+    if (getContractConfig().proveAtCompileTime) {
+      const fn = entryFunctionOf(callExpr);
+      if (fn) {
+        const proof = tryProve(
+          ctx,
+          {
+            expression: condition,
+            normalized: normalizeExpression(condition),
+            sourceText: conditionText,
+          },
+          fn
+        );
+        if (proof.proven) {
+          return ctx.factory.createVoidExpression(ctx.factory.createNumericLiteral(0));
+        }
+      }
+    }
 
     // Try compile-time evaluation — if condition is statically true, skip
     if (ctx.isComptime(condition)) {
@@ -103,6 +130,36 @@ export const requiresMacro = defineExpressionMacro({
     );
   },
 });
+
+/**
+ * The function/method whose entry this `requires(...)` call is at: the call is
+ * a statement directly in the function body, preceded only by other
+ * `requires(...)` statements (nothing can have reassigned a parameter yet).
+ * Undefined otherwise, or for a synthetic node (no real parent chain).
+ */
+function entryFunctionOf(
+  callExpr: ts.CallExpression
+): ts.FunctionDeclaration | ts.MethodDeclaration | undefined {
+  if (isSyntheticNode(callExpr)) return undefined;
+  const stmt = callExpr.parent;
+  if (!stmt || !ts.isExpressionStatement(stmt) || stmt.expression !== callExpr) return undefined;
+  const body = stmt.parent;
+  if (!body || !ts.isBlock(body)) return undefined;
+  const fn = body.parent;
+  if (!fn || (!ts.isFunctionDeclaration(fn) && !ts.isMethodDeclaration(fn)) || fn.body !== body) {
+    return undefined;
+  }
+  for (const prior of body.statements) {
+    if (prior === stmt) return fn;
+    const isRequires =
+      ts.isExpressionStatement(prior) &&
+      ts.isCallExpression(prior.expression) &&
+      ts.isIdentifier(prior.expression.expression) &&
+      prior.expression.expression.text === "requires";
+    if (!isRequires) return undefined;
+  }
+  return undefined;
+}
 
 /**
  * Safely get text representation of a node.

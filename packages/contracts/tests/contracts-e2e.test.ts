@@ -353,3 +353,83 @@ export class Adder { static add(a: number, b: number) { return a + b; } }
     expect(ran).toEqual(["satisfies commutative"]);
   });
 });
+
+describe("docs S#22: arrow inside an ensures block", () => {
+  it("`ensures: { result => result >= 0 }` binds the arrow parameter to the result", () => {
+    const r = transform(`
+import "@typesugar/contracts/syntax";
+export function sq(x: number): number {
+  requires: { x >= 0 }
+  ensures: { result => result >= 0 }
+  return x < 1 ? -1 : Math.sqrt(x);
+}
+export function named(x: number): number {
+  ensures: { (r) => r > 0 }
+  return x;
+}
+`);
+    expect(errorsOf(r)).toEqual([]);
+    const m = load(r.code);
+    expect(m.sq(4)).toBe(2);
+    expect(() => m.sq(0.5)).toThrow(contracts.PostconditionError);
+    expect(m.named(1)).toBe(1);
+    expect(() => m.named(0)).toThrow(contracts.PostconditionError);
+  });
+
+  it("a function value used as a condition anywhere else is a compile error", () => {
+    const r = transform(`
+import "@typesugar/contracts/syntax";
+export function f(x: number): number {
+  requires: { x > 0; (y: number) => y > 0; }
+  return x;
+}
+`);
+    expect(errorsOf(r).some((m) => /always truthy/.test(m))).toBe(true);
+  });
+});
+
+describe("docs A#19: inline requires() is proven like the block form", () => {
+  const SRC = `
+import "@typesugar/contracts-refined";
+import { requires } from "@typesugar/contracts";
+import type { Positive } from "@typesugar/type-system";
+interface Account { balance: number }
+export function deposit(account: Account, amount: Positive): number {
+  requires(amount > 0);
+  account.balance += amount;
+  return account.balance;
+}
+export function unproven(amount: Positive): number {
+  requires(amount > 1);
+  return amount;
+}
+export function late(amount: Positive): number {
+  amount = -1 as Positive;
+  requires(amount > 0);
+  return amount;
+}
+`;
+  const fn = (code: string, name: string) => {
+    const start = code.indexOf(`function ${name}(`);
+    const next = code.indexOf("export function", start + 1);
+    return code.slice(start, next === -1 ? undefined : next);
+  };
+
+  it("elides a proven leading requires() under proveAtCompileTime", () => {
+    setContractConfig({ proveAtCompileTime: true });
+    const r = transform(SRC);
+    expect(errorsOf(r)).toEqual([]);
+    expect(fn(r.code, "deposit")).not.toContain("PreconditionError");
+    expect(fn(r.code, "unproven")).toContain("PreconditionError");
+    const m = load(r.code);
+    expect(m.deposit({ balance: 1 }, 2)).toBe(3);
+    expect(() => m.unproven(0.5)).toThrow(contracts.PreconditionError);
+    // Not at function entry: the parameter's facts may no longer hold.
+    expect(() => m.late(5)).toThrow(contracts.PreconditionError);
+  });
+
+  it("keeps the check when proveAtCompileTime is off", () => {
+    const r = transform(SRC);
+    expect(fn(r.code, "deposit")).toContain("PreconditionError");
+  });
+});

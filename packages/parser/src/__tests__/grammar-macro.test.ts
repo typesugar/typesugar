@@ -79,6 +79,7 @@ describe("grammar macro: AST codegen (TSP-8)", () => {
       },
       reportError: (_n: ts.Node, m: string) => errors.push(m),
       reportWarning: (_n: ts.Node, m: string) => errors.push(m),
+      ensureImport: (name: string) => ts.factory.createIdentifier(name),
     };
     const out = grammarMacro.expand(ctx, node);
     expect(errors).toEqual([]);
@@ -104,5 +105,49 @@ export const g = grammar\`a = "x" \${y}\`;
     expect(diagnostics.some((m) => /Invalid grammar/.test(m))).toBe(false);
     expect(diagnostics.some((m) => /falling back/i.test(m))).toBe(false);
     expect(code).not.toContain("__typesugar_parser");
+  });
+});
+
+describe("docs B#21 / W#24: the inlined grammar throws ParseError", () => {
+  it("parseAll failures are ParseError instances with pos/expected/line/col", () => {
+    const { code, diagnostics } = expand(IDENT);
+    expect(diagnostics).toEqual([]);
+    const { g } = run(code);
+    let err: any;
+    try {
+      g.parseAll("42nope");
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(parserRuntime.ParseError);
+    expect(err.pos).toBe(0);
+    expect(err.expected).toBe("'a'..'z'");
+    expect(err.line).toBe(1);
+    expect(err.col).toBe(1);
+
+    let tail: any;
+    try {
+      g.parseAll("ab\n!");
+    } catch (e) {
+      tail = e;
+    }
+    expect(tail).toBeInstanceOf(parserRuntime.ParseError);
+    expect(tail.expected).toBe("end of input");
+    expect([tail.pos, tail.line, tail.col]).toEqual([2, 1, 3]);
+  });
+
+  it("an existing ParseError binding in the file is not shadowed", () => {
+    const { code, diagnostics } = expand(
+      IDENT.replace("import { grammar }", "import { grammar, ParseError }") +
+        `export const isPE = (e: unknown) => e instanceof ParseError;\n`
+    );
+    expect(diagnostics).toEqual([]);
+    const { g, isPE } = run(code);
+    expect(() => g.parseAll("42")).toThrow(parserRuntime.ParseError);
+    try {
+      g.parseAll("42");
+    } catch (e) {
+      expect(isPE(e)).toBe(true);
+    }
   });
 });

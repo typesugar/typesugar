@@ -66,18 +66,26 @@
 /** Brand symbol for newtype discrimination */
 declare const __brand: unique symbol;
 
+/** Phantom carrier for the base type, so `UnwrapNewtype` can recover it. */
+declare const __base: unique symbol;
+
 /**
  * A branded type that wraps Base with a phantom Brand tag.
  * At runtime this is just Base — the brand exists only in the type system.
  */
 export type Newtype<Base, Brand extends string> = Base & {
   readonly [__brand]: Brand;
+  readonly [__base]: Base;
 };
 
 /**
  * Extract the base type from a Newtype.
+ *
+ * Reads the phantom `[__base]` slot. Matching `T extends Newtype<infer Base, string>`
+ * does not work: inference against the intersection `Base & {...}` binds `Base`
+ * to the whole branded type, so `wrap<UserId>(42)` would reject `42`.
  */
-export type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
+export type UnwrapNewtype<T> = T extends { readonly [__base]: infer Base } ? Base : T;
 
 /**
  * Wrap a value in a Newtype. Compiles away to nothing.

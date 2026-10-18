@@ -1,8 +1,8 @@
 /**
  * Mod<N> - Modular arithmetic over Z/nZ
  *
- * The modulus is encoded at the type level, ensuring that operations
- * between values with different moduli are caught at compile time.
+ * The modulus is carried at the type level; binary operations on values
+ * with different moduli throw a RangeError at runtime.
  *
  * @example
  * ```typescript
@@ -10,9 +10,10 @@
  * const b = mod(3, 7);  // 3 mod 7
  * const sum = modAdd(a, b);  // 1 mod 7
  *
- * // Type error: can't mix different moduli
+ * // Mixing moduli throws a RangeError (the type parameter does not
+ * // catch it: N is inferred as 7 | 11)
  * const c = mod(2, 11);
- * modAdd(a, c);  // Error!
+ * modAdd(a, c);  // throws RangeError
  * ```
  */
 
@@ -72,9 +73,26 @@ export function one<N extends number>(modulus: N): Mod<N> {
 // ============================================================================
 
 /**
+ * Binary operations need both operands in the same Z/nZ. The type parameter
+ * does not enforce it (`modAdd(mod(5, 7), mod(2, 11))` type-checks, with N
+ * inferred as `7 | 11`), so check at runtime rather than return a value
+ * reduced by the wrong modulus.
+ */
+function assertSameModulus(a: Mod<number>, b: Mod<number>, op: string): void {
+  if (a.modulus !== b.modulus) {
+    throw new RangeError(
+      `${op}: moduli differ (${a.value} mod ${a.modulus} and ${b.value} mod ${b.modulus})`
+    );
+  }
+}
+
+/**
  * Modular addition.
+ *
+ * @throws RangeError if `a` and `b` have different moduli
  */
 export function modAdd<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> {
+  assertSameModulus(a, b, "modAdd");
   const sum = a.value + b.value;
   if (Number.isSafeInteger(sum)) return mod(sum, a.modulus);
   return {
@@ -85,15 +103,21 @@ export function modAdd<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> {
 
 /**
  * Modular subtraction.
+ *
+ * @throws RangeError if `a` and `b` have different moduli
  */
 export function modSub<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> {
+  assertSameModulus(a, b, "modSub");
   return mod(a.value - b.value, a.modulus);
 }
 
 /**
  * Modular multiplication.
+ *
+ * @throws RangeError if `a` and `b` have different moduli
  */
 export function modMul<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> {
+  assertSameModulus(a, b, "modMul");
   const product = a.value * b.value;
   if (Number.isSafeInteger(product)) return mod(product, a.modulus);
   // Above 2^53 the float product is already rounded before `%` (MU-7: with
@@ -188,8 +212,11 @@ export function modInverse<N extends number>(a: Mod<N>): Mod<N> | null {
 /**
  * Modular division (multiply by inverse).
  * Returns null if divisor has no inverse.
+ *
+ * @throws RangeError if `a` and `b` have different moduli
  */
 export function modDiv<N extends number>(a: Mod<N>, b: Mod<N>): Mod<N> | null {
+  assertSameModulus(a, b, "modDiv");
   const bInv = modInverse(b);
   if (bInv === null) return null;
   return modMul(a, bInv);

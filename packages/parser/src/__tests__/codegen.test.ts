@@ -510,13 +510,15 @@ describe("codegen: parseAll error position matches runtime (TSP-12)", () => {
       try {
         rt.parseAll(input);
       } catch (e) {
-        m1 = (e as Error).message;
+        m1 = (e as Error).message.split("\n")[0];
       }
       try {
         cg.parseAll(input);
       } catch (e) {
-        m2 = (e as Error).message;
+        m2 = (e as Error).message.split("\n")[0];
       }
+      // The runtime throws ParseError, whose message adds a context snippet on a
+      // second line; the text emitter throws a plain Error with the first line.
       expect(m1).not.toBe("");
       expect(m2).toBe(m1);
     });

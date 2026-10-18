@@ -111,11 +111,21 @@ function parseLabeledConditions(
  * - `ensures: { conditions }` (implicit `result`)
  * - `ensures: condition;` (implicit `result`)
  * - `ensures: (result) => { conditions }` / `ensures: (r) => expr`
+ * - `ensures: { result => expr }` — a lone arrow inside the braces, treated
+ *   like the arrow form (it used to become the condition itself: a function
+ *   value, always truthy, so the postcondition was never checked)
  */
 function parseEnsuresBlock(
   statement: ts.Statement,
   onDiagnostic?: ContractBlockDiagnostic
 ): EnsuresBlock {
+  if (ts.isBlock(statement)) {
+    const stmts = statement.statements.filter((s) => !ts.isEmptyStatement(s));
+    const only = stmts.length === 1 ? stmts[0] : undefined;
+    if (only && ts.isExpressionStatement(only) && ts.isArrowFunction(only.expression)) {
+      statement = only;
+    }
+  }
   if (ts.isExpressionStatement(statement)) {
     const expr = statement.expression;
     if (ts.isArrowFunction(expr)) {
