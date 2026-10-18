@@ -10,6 +10,7 @@
 
 import {
   registerDiagnosticSuppressionRuleOnce,
+  registerOrReplaceDiagnosticSuppressionRule,
   createMacroGeneratedRule,
   type PositionMapFn,
 } from "@typesugar/core";
@@ -31,7 +32,12 @@ export interface DiagnosticSuppressionRegistrationOptions {
  * Register all built-in diagnostic suppression rules.
  *
  * Uses `registerDiagnosticSuppressionRuleOnce` so it's safe to call multiple times —
- * duplicate registrations are silently ignored.
+ * duplicate registrations are silently ignored. The exception is MacroGenerated,
+ * whose behaviour depends on the `positionMapFn` it closes over: a later
+ * registration REPLACES it, so a multi-project host (tsserver) is never left
+ * with the first project's mapper (deep-review core #33). Hosts should still
+ * pass their per-project `positionMapFn` and `program` to `filterDiagnostics`
+ * as its `context` argument, which takes precedence over the registered one.
  *
  * @returns The names of all rules that were newly registered (not already present).
  */
@@ -41,7 +47,9 @@ export function registerAllDiagnosticSuppressionRules(
   const registered: string[] = [];
 
   if (options?.positionMapFn) {
-    if (registerDiagnosticSuppressionRuleOnce(createMacroGeneratedRule(options.positionMapFn))) {
+    if (
+      registerOrReplaceDiagnosticSuppressionRule(createMacroGeneratedRule(options.positionMapFn))
+    ) {
       registered.push("MacroGenerated");
     }
   }
