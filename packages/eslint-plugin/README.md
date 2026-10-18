@@ -16,6 +16,8 @@ npm install @typesugar/eslint-plugin --save-dev
 
 ### Flat Config (ESLint 9+)
 
+The plugin is ESM-only and supports flat config only (ESLint 9 or later).
+
 In your `eslint.config.mjs`:
 
 ```javascript
@@ -72,6 +74,18 @@ This prevents false positives like:
 - "Eq is not defined" from `@derive(Eq, Clone)`
 - "Label 'requires' is unused" from contract blocks
 - Type errors from un-expanded macro calls
+
+The full processor lints the text ESLint passes in (including unsaved editor buffers and
+stdin), not the file on disk.
+
+### Autofix (`eslint --fix`)
+
+ESLint computes fixes on the transformed text but applies them to your original file. The plugin
+maps every fix back and keeps it only when it can prove the fix edits identical text in the
+original: every line the fix touches must be unchanged by the transform. Fixes on lines the
+transform changed (a macro decorator, a `requires:`/`ensures:` block, an HKT rewrite, macro-expanded
+code, or, in full mode, a line the TypeScript printer reformatted) are dropped. The problem is
+still reported; it is just not auto-fixed.
 
 ## API
 

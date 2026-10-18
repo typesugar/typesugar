@@ -266,8 +266,9 @@ export function testCases(
  * Snapshot testing with compile-time source expression capture.
  *
  * The macro captures the source text of the expression at compile time,
- * so the snapshot label includes both the file location and the expression
- * that produced the value.
+ * so the snapshot label includes the project-relative file path and the
+ * expression that produced the value (no line number, so edits above a
+ * snapshot do not orphan it).
  *
  * @param value - The value to snapshot
  * @param name - Optional snapshot name
@@ -275,10 +276,10 @@ export function testCases(
  * @example
  * ```typescript
  * assertSnapshot(formatUser(testUser));
- * // Expands to: expect(formatUser(testUser)).toMatchSnapshot("file.ts:42 — formatUser(testUser)")
+ * // Expands to: expect(formatUser(testUser)).toMatchSnapshot("src/file.test.ts — formatUser(testUser)")
  *
  * assertSnapshot(renderComponent(props), "dark mode");
- * // Expands to: expect(renderComponent(props)).toMatchSnapshot("file.ts:45 — renderComponent(props) [dark mode]")
+ * // Expands to: expect(renderComponent(props)).toMatchSnapshot("src/file.test.ts — renderComponent(props) [dark mode]")
  * ```
  */
 export function assertSnapshot<T>(value: T, name?: string): void {
@@ -410,148 +411,19 @@ export function forAll<T>(
 // Mock Utilities
 // ============================================================================
 
-/**
- * Type representing a mock implementation of T with call tracking and stubbing.
- */
-export type MockOf<T> = {
-  [K in keyof T]: T[K] extends (...args: infer A) => infer R ? MockFn<A, R> & T[K] : T[K];
-} & {
-  _calls: { [K in keyof T]: T[K] extends (...args: any[]) => any ? Parameters<T[K]>[] : never };
-  _reset: () => void;
-};
+export { type MockOf, type MockFn, createMockFn } from "./mock-fn.js";
+import type { MockOf } from "./mock-fn.js";
 
-/**
- * Type representing a mock function with call tracking and stubbing.
- */
-export interface MockFn<Args extends any[] = any[], Return = any> {
-  (...args: Args): Return;
-  mockReturnValue(value: Return): this;
-  mockReturnValueOnce(value: Return): this;
-  mockResolvedValue<T>(value: T): this;
-  mockResolvedValueOnce<T>(value: T): this;
-  mockRejectedValue(error: unknown): this;
-  mockRejectedValueOnce(error: unknown): this;
-  mockImplementation(fn: (...args: Args) => Return): this;
-  mockImplementationOnce(fn: (...args: Args) => Return): this;
-  mockReset(): this;
-  mockClear(): this;
-  calls: Args[];
-}
-
-/**
- * Creates a mock function with vitest/jest-compatible API.
- * This is a runtime helper that works without the transformer.
- *
- * @example
- * ```typescript
- * const mockGetUser = createMockFn<(id: string) => Promise<User>>();
- * mockGetUser.mockResolvedValue({ id: "1", name: "Alice" });
- *
- * await mockGetUser("123");
- * expect(mockGetUser.calls).toEqual([["123"]]);
- * ```
- */
-export function createMockFn<T extends (...args: any[]) => any>(): MockFn<
-  Parameters<T>,
-  ReturnType<T>
-> {
-  type Args = Parameters<T>;
-  type Return = ReturnType<T>;
-
-  let impl: ((...args: Args) => Return) | undefined;
-  let returnValues: Return[] = [];
-  let onceReturnValues: Return[] = [];
-  let onceImpls: ((...args: Args) => Return)[] = [];
-  const calls: Args[] = [];
-
-  const mockFn = ((...args: Args): Return => {
-    calls.push(args);
-    mockFn.calls = calls;
-
-    // Check for one-time implementation
-    if (onceImpls.length > 0) {
-      const onceFn = onceImpls.shift()!;
-      return onceFn(...args);
-    }
-
-    // Check for one-time return value
-    if (onceReturnValues.length > 0) {
-      return onceReturnValues.shift()!;
-    }
-
-    // Use implementation if set
-    if (impl) {
-      return impl(...args);
-    }
-
-    // Use return value if set
-    if (returnValues.length > 0) {
-      return returnValues[0];
-    }
-
-    return undefined as Return;
-  }) as MockFn<Args, Return>;
-
-  mockFn.calls = calls;
-
-  mockFn.mockReturnValue = (value: Return) => {
-    returnValues = [value];
-    return mockFn;
-  };
-
-  mockFn.mockReturnValueOnce = (value: Return) => {
-    onceReturnValues.push(value);
-    return mockFn;
-  };
-
-  mockFn.mockResolvedValue = <T>(value: T) => {
-    returnValues = [Promise.resolve(value) as unknown as Return];
-    return mockFn;
-  };
-
-  mockFn.mockResolvedValueOnce = <T>(value: T) => {
-    onceReturnValues.push(Promise.resolve(value) as unknown as Return);
-    return mockFn;
-  };
-
-  mockFn.mockRejectedValue = (error: unknown) => {
-    impl = (() => Promise.reject(error)) as unknown as (...args: Args) => Return;
-    return mockFn;
-  };
-
-  mockFn.mockRejectedValueOnce = (error: unknown) => {
-    onceImpls.push((() => Promise.reject(error)) as unknown as (...args: Args) => Return);
-    return mockFn;
-  };
-
-  mockFn.mockImplementation = (fn: (...args: Args) => Return) => {
-    impl = fn;
-    return mockFn;
-  };
-
-  mockFn.mockImplementationOnce = (fn: (...args: Args) => Return) => {
-    onceImpls.push(fn);
-    return mockFn;
-  };
-
-  mockFn.mockReset = () => {
-    impl = undefined;
-    returnValues = [];
-    onceReturnValues = [];
-    onceImpls = [];
-    calls.length = 0;
-    mockFn.calls = calls;
-    return mockFn;
-  };
-
-  mockFn.mockClear = () => {
-    calls.length = 0;
-    mockFn.calls = calls;
-    return mockFn;
-  };
-
-  return mockFn;
-}
+// Runtime helpers referenced by macro output (and `createMockObject`, usable directly).
+export {
+  createMockObject,
+  __powerAssertFail,
+  __assertTypeCheck,
+  __seededRandom,
+  type __TypeSpec,
+  type __FieldSpec,
+  type __TypeCheck,
+} from "./runtime-helpers.js";
 
 /**
  * Runtime placeholder for mock<T>() expression macro.
@@ -577,7 +449,7 @@ export function mock<T>(_defaults?: Partial<T>): MockOf<T> {
   throw new Error(
     "mock<T>() was called at runtime. " +
       "This indicates the typesugar transformer is not configured correctly. " +
-      "Use createMockFn() directly for runtime mocking."
+      "Use createMockObject<T>([...methodNames]) or createMockFn() directly for runtime mocking."
   );
 }
 

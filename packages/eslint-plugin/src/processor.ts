@@ -2,170 +2,166 @@
  * ESLint Processor for typesugar (Lightweight)
  *
  * This processor runs the HKT type-reference rewriter (`F<A>` -> `Kind<F, A>`)
- * and ESLint-specific regex heuristics (commenting out decorators and labeled
- * blocks) before ESLint lints the file.
- *
- * It uses the rewriter's source map for accurate position mapping via
- * PositionMapper from @typesugar/transformer.
+ * and comments out macro-only syntax (macro decorators, `requires:` /
+ * `ensures:` contract blocks) before ESLint lints the file.
  *
  * How it works:
- * 1. transformSource(): Runs the HKT rewriter, then regex heuristics for
- *    ESLint-specific concerns (decorators, labeled blocks)
- * 2. ESLint lints the transformed code (no false positives from macro syntax)
- * 3. postprocess(): Maps lint messages back to original source locations
+ * 1. preprocess(): HKT rewriter (MagicString source map), then an AST pass
+ *    that locates macro decorators and contract blocks and wraps them in
+ *    comments via an exact edit list (no regex over code: nested braces,
+ *    object keys named `ensures`, and strings containing `@derive(` are
+ *    handled correctly).
+ * 2. ESLint lints the transformed code (no false positives from macro syntax).
+ * 3. postprocess(): maps locations back through both stages, and keeps an
+ *    autofix only when it provably edits identical original text (see
+ *    mapping.ts) — so `eslint --fix` never corrupts a file.
  *
  * This is the same approach used by eslint-plugin-svelte and eslint-plugin-vue.
  */
 
 import type { Linter } from "eslint";
+import * as ts from "typescript";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "@typesugar/transformer";
-import { createPositionMapper, type PositionMapper } from "@typesugar/transformer/position-mapper";
+import { createPositionMapper } from "@typesugar/transformer/position-mapper";
+import {
+  applyEdits,
+  isTypesugarUnusedImportError,
+  mapMessages,
+  stripBom,
+  type MappingState,
+  type TextEdit,
+} from "./mapping.js";
+import { PLUGIN_VERSION } from "./version.js";
 
-/** typesugar package prefixes for import detection */
-const TYPESUGAR_PACKAGE_PREFIXES = [
-  "typesugar",
-  "@typesugar/",
-  "typemacro", // legacy name
-  "@typemacro/", // legacy name
-  "ttfx", // legacy name
-  "@ttfx/", // legacy name
-];
+/** Decorators that only exist for the macro transformer. */
+const MACRO_DECORATORS = new Set([
+  "derive",
+  "deriving",
+  "typeclass",
+  "instance",
+  "operators",
+  "contract",
+  "invariant",
+  "reflect",
+]);
+
+/** Contract-block labels (`requires: { ... }`, `ensures: { ... }`). */
+const CONTRACT_LABELS = new Set(["requires", "ensures"]);
 
 /**
- * Check if a lint message is about an unused import from a typesugar package.
+ * Edits that wrap `[start, end)` of `text` in a block comment: insert "/* "
+ * and " *\/" around it and neutralise any "*\/" inside, as separate edits so
+ * every original character keeps an exact position.
  */
-function isTypesugarUnusedImportError(message: Linter.LintMessage, source: string): boolean {
-  const unusedImportRules = [
-    "no-unused-vars",
-    "@typescript-eslint/no-unused-vars",
-    "import/no-unused-modules",
-    "unused-imports/no-unused-imports",
-    "unused-imports/no-unused-vars",
-  ];
-
-  if (!unusedImportRules.includes(message.ruleId ?? "")) {
-    return false;
+function commentOutEdits(text: string, start: number, end: number): TextEdit[] {
+  const edits: TextEdit[] = [{ start, end: start, text: "/* " }];
+  let i = text.indexOf("*/", start);
+  while (i !== -1 && i + 2 <= end) {
+    edits.push({ start: i, end: i + 2, text: "* /" });
+    i = text.indexOf("*/", i + 2);
   }
-
-  if (message.line === undefined) {
-    return false;
-  }
-
-  const lines = source.split("\n");
-  const errorLine = lines[message.line - 1] ?? "";
-
-  const importMatch = errorLine.match(/from\s+["']([^"']+)["']/);
-  if (!importMatch) {
-    return false;
-  }
-
-  const modulePath = importMatch[1];
-  return TYPESUGAR_PACKAGE_PREFIXES.some(
-    (prefix) => modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix)
-  );
+  edits.push({ start: end, end, text: " */" });
+  return edits;
 }
 
-// ---------------------------------------------------------------------------
-// Line/column <-> offset helpers (ESLint uses 1-based line, 1-based column)
-// ---------------------------------------------------------------------------
+function isMacroDecorator(d: ts.Decorator): boolean {
+  const e = d.expression;
+  if (ts.isIdentifier(e)) return MACRO_DECORATORS.has(e.text);
+  return ts.isCallExpression(e) && ts.isIdentifier(e.expression)
+    ? MACRO_DECORATORS.has(e.expression.text)
+    : false;
+}
 
-function lineColToOffset(source: string, line: number, column: number): number {
-  let currentLine = 1;
-  let offset = 0;
-
-  while (currentLine < line && offset < source.length) {
-    if (source[offset] === "\n") {
-      currentLine++;
+/** Locate macro-only syntax with the TypeScript parser (no type checker). */
+function collectMacroSyntaxEdits(fileName: string, text: string): TextEdit[] {
+  const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, kind);
+  const edits: TextEdit[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isDecorator(node) && isMacroDecorator(node)) {
+      edits.push(...commentOutEdits(text, node.getStart(sf), node.getEnd()));
+      return;
     }
-    offset++;
-  }
-
-  return offset + (column - 1);
-}
-
-function offsetToLineCol(source: string, offset: number): { line: number; column: number } {
-  let line = 1;
-  let lastLineStart = 0;
-
-  for (let i = 0; i < offset && i < source.length; i++) {
-    if (source[i] === "\n") {
-      line++;
-      lastLineStart = i + 1;
+    if (
+      ts.isLabeledStatement(node) &&
+      CONTRACT_LABELS.has(node.label.text) &&
+      ts.isBlock(node.statement)
+    ) {
+      edits.push(...commentOutEdits(text, node.getStart(sf), node.getEnd()));
+      return;
     }
-  }
-
-  return { line, column: offset - lastLineStart + 1 };
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return edits;
 }
-
-// ---------------------------------------------------------------------------
-// Source transformation
-// ---------------------------------------------------------------------------
 
 interface TransformResult {
   code: string;
-  mapper: PositionMapper;
+  toOriginal: (offset: number) => number | null;
 }
 
 /**
- * Run preprocessing and ESLint-specific heuristics on source code.
- *
+ * Run preprocessing on source code:
  * 1. HKT rewriter rewrites `F<A>` -> `Kind<F, A>` for type parameters
- * 2. Regex heuristics comment out decorators and labeled blocks that would
- *    cause ESLint false positives
+ * 2. Macro decorators and contract blocks are commented out
  */
 function transformSource(fileName: string, source: string): TransformResult {
   try {
-    const hktResult = hasHKTPatterns(source)
+    const hkt = hasHKTPatterns(source)
       ? rewriteHKTTypeReferences(source, fileName)
       : { code: source, map: null };
-    let transformed = hktResult.code;
-    const sourceMap = hktResult.map;
+    const stage1 = hkt.code;
+    const stage1Mapper = createPositionMapper(hkt.map, source, stage1);
 
-    // ESLint-specific heuristics: comment out macro decorators
-    const decoratorPattern =
-      /@(derive|deriving|typeclass|instance|operators|contract|invariant|reflect)\s*\([^)]*\)/g;
-    transformed = transformed.replace(decoratorPattern, (match) => {
-      return `/* ${match} */`;
-    });
-
-    // ESLint-specific heuristics: comment out labeled blocks (requires:/ensures:)
-    const labeledBlockPattern = /(requires|ensures)\s*:\s*\{[\s\S]*?\n\s*\}/g;
-    transformed = transformed.replace(labeledBlockPattern, (match) => {
-      return `/* ${match.replace(/\*\//g, "* /")} */`;
-    });
-
-    const mapper = createPositionMapper(sourceMap, source, transformed);
-    return { code: transformed, mapper };
+    const { output, toInput } = applyEdits(stage1, collectMacroSyntaxEdits(fileName, stage1));
+    return {
+      code: output,
+      toOriginal: (offset) => {
+        const s1 = toInput(offset);
+        return stage1 === source ? s1 : stage1Mapper.toOriginal(s1);
+      },
+    };
   } catch (error) {
     console.warn(`[typesugar-eslint] Transform failed for ${fileName}:`, error);
-    return {
-      code: source,
-      mapper: createPositionMapper(null, source, source),
-    };
+    return { code: source, toOriginal: (o) => o };
   }
 }
 
-// ---------------------------------------------------------------------------
-// Per-file state for postprocess
-// ---------------------------------------------------------------------------
-
-interface FileState {
-  originalSource: string;
-  mapper: PositionMapper;
+function usesTypesugar(text: string): boolean {
+  return (
+    text.includes("@derive") ||
+    text.includes("@deriving") ||
+    text.includes("@typeclass") ||
+    text.includes("@instance") ||
+    text.includes("@contract") ||
+    text.includes("@invariant") ||
+    text.includes("comptime(") ||
+    text.includes("requires:") ||
+    text.includes("ensures:") ||
+    text.includes("@operators") ||
+    text.includes("@reflect") ||
+    hasHKTPatterns(text) // HKT type-parameter syntax (F<A>)
+  );
 }
-
-const fileStates = new Map<string, FileState>();
 
 /**
  * Create the ESLint processor
  */
 export function createProcessor(): Linter.Processor {
+  // Per-file state between preprocess and postprocess. Each entry is removed
+  // when its postprocess runs, so a long-lived ESLint process (editor
+  // integration, `--cache` runs) doesn't retain every file it has linted.
+  const fileStates = new Map<string, MappingState>();
+
   return {
     meta: {
       name: "typesugar",
-      version: "0.1.0",
+      version: PLUGIN_VERSION,
     },
 
+    // Fixes are remapped to original offsets and kept only when provably
+    // safe (mapping.ts), so autofix is supported.
     supportsAutofix: true,
 
     preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
@@ -173,74 +169,41 @@ export function createProcessor(): Linter.Processor {
         return [text];
       }
 
-      const usesTypesugar =
-        text.includes("@derive") ||
-        text.includes("@typeclass") ||
-        text.includes("@instance") ||
-        text.includes("@contract") ||
-        text.includes("@invariant") ||
-        text.includes("comptime(") ||
-        text.includes("requires:") ||
-        text.includes("ensures:") ||
-        text.includes("@operators") ||
-        text.includes("@reflect") ||
-        hasHKTPatterns(text); // HKT type-parameter syntax (F<A>)
-
-      if (!usesTypesugar) {
+      // ESLint parses — and applies fixes to — the BOM-less text.
+      const source = stripBom(text);
+      if (!usesTypesugar(source)) {
         fileStates.set(filename, {
-          originalSource: text,
-          mapper: createPositionMapper(null, text, text),
+          originalSource: source,
+          transformedSource: source,
+          toOriginal: (o) => o,
         });
         return [text];
       }
 
-      const { code, mapper } = transformSource(filename, text);
-
+      const { code, toOriginal } = transformSource(filename, source);
       fileStates.set(filename, {
-        originalSource: text,
-        mapper,
+        originalSource: source,
+        transformedSource: code,
+        toOriginal,
       });
-
       return [code];
     },
 
     postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
       const state = fileStates.get(filename);
+      fileStates.delete(filename);
       if (!state) {
         return messages.flat();
       }
 
-      return messages
+      const flat = messages
         .flat()
-        .filter((message) => !isTypesugarUnusedImportError(message, state.originalSource))
-        .map((message) => {
-          if (message.line !== undefined && message.column !== undefined) {
-            const offset = lineColToOffset(state.originalSource, message.line, message.column);
-            const originalOffset = state.mapper.toOriginal(offset);
-
-            if (originalOffset !== null) {
-              const mapped = offsetToLineCol(state.originalSource, originalOffset);
-              const result = { ...message, line: mapped.line, column: mapped.column };
-
-              if (message.endLine !== undefined && message.endColumn !== undefined) {
-                const endOffset = lineColToOffset(
-                  state.originalSource,
-                  message.endLine,
-                  message.endColumn
-                );
-                const originalEndOffset = state.mapper.toOriginal(endOffset);
-                if (originalEndOffset !== null) {
-                  const mappedEnd = offsetToLineCol(state.originalSource, originalEndOffset);
-                  result.endLine = mappedEnd.line;
-                  result.endColumn = mappedEnd.column;
-                }
-              }
-
-              return result;
-            }
-          }
-          return message;
-        });
+        // An unused-import report on a line the transform inserted (the HKT
+        // rewriter's `Kind` import) has no original line to check against.
+        .filter((m) => !isTypesugarUnusedImportError(m, state.transformedSource));
+      return mapMessages(flat, state).filter(
+        (m) => !isTypesugarUnusedImportError(m, state.originalSource)
+      );
     },
   };
 }

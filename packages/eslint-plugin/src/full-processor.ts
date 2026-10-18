@@ -14,56 +14,27 @@
  * - Better source mapping (offset-based via PositionMapper)
  * - Slower (full TS compilation)
  * - Higher memory usage
+ *
+ * The text ESLint passes to `preprocess` is what gets transformed — an
+ * unsaved editor buffer or stdin input, not whatever is on disk — via a
+ * read-file overlay on the pipeline's compiler host.
+ *
+ * Autofixes are remapped and kept only when they provably edit identical
+ * original text (mapping.ts); fixes inside or across macro-expanded code are
+ * dropped rather than applied at a wrong offset.
  */
 
 import type { Linter } from "eslint";
+import * as path from "node:path";
 import * as ts from "typescript";
 import { createPipeline, type TransformationPipeline } from "@typesugar/transformer/pipeline";
-import type { PositionMapper } from "@typesugar/transformer/position-mapper";
-
-/** typesugar package prefixes for import detection */
-const TYPESUGAR_PACKAGE_PREFIXES = [
-  "typesugar",
-  "@typesugar/",
-  "typemacro", // legacy name
-  "@typemacro/", // legacy name
-  "ttfx", // legacy name
-  "@ttfx/", // legacy name
-];
-
-/**
- * Check if a lint message is about an unused import from a typesugar package.
- */
-function isTypesugarUnusedImportError(message: Linter.LintMessage, source: string): boolean {
-  const unusedImportRules = [
-    "no-unused-vars",
-    "@typescript-eslint/no-unused-vars",
-    "import/no-unused-modules",
-    "unused-imports/no-unused-imports",
-    "unused-imports/no-unused-vars",
-  ];
-
-  if (!unusedImportRules.includes(message.ruleId ?? "")) {
-    return false;
-  }
-
-  if (message.line === undefined) {
-    return false;
-  }
-
-  const lines = source.split("\n");
-  const errorLine = lines[message.line - 1] ?? "";
-
-  const importMatch = errorLine.match(/from\s+["']([^"']+)["']/);
-  if (!importMatch) {
-    return false;
-  }
-
-  const modulePath = importMatch[1];
-  return TYPESUGAR_PACKAGE_PREFIXES.some(
-    (prefix) => modulePath === prefix.replace(/\/$/, "") || modulePath.startsWith(prefix)
-  );
-}
+import {
+  isTypesugarUnusedImportError,
+  mapMessages,
+  stripBom,
+  type MappingState,
+} from "./mapping.js";
+import { PLUGIN_VERSION } from "./version.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline management
@@ -71,12 +42,27 @@ function isTypesugarUnusedImportError(message: Linter.LintMessage, source: strin
 
 let pipeline: TransformationPipeline | null = null;
 
+/**
+ * Text ESLint handed us that differs from the file on disk (unsaved editor
+ * buffers, stdin), keyed by normalized path. The pipeline reads through this
+ * overlay, so the BUFFER is linted, not the file on disk.
+ */
+const bufferOverlay = new Map<string, string>();
+
+function overlayKey(fileName: string): string {
+  return path.normalize(path.resolve(fileName));
+}
+
 function getPipeline(): TransformationPipeline | null {
   if (!pipeline) {
     try {
       const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
       if (configPath) {
-        pipeline = createPipeline(configPath, { verbose: false });
+        pipeline = createPipeline(configPath, {
+          verbose: false,
+          readFile: (f) => bufferOverlay.get(overlayKey(f)) ?? ts.sys.readFile(f),
+          fileExists: (f) => bufferOverlay.has(overlayKey(f)) || ts.sys.fileExists(f),
+        });
       }
     } catch (e) {
       console.warn("[typesugar-eslint] Could not create pipeline:", e);
@@ -86,49 +72,12 @@ function getPipeline(): TransformationPipeline | null {
 }
 
 // ---------------------------------------------------------------------------
-// Line/column <-> offset helpers (ESLint uses 1-based line, 1-based column)
-// ---------------------------------------------------------------------------
-
-function lineColToOffset(source: string, line: number, column: number): number {
-  let currentLine = 1;
-  let offset = 0;
-
-  while (currentLine < line && offset < source.length) {
-    if (source[offset] === "\n") {
-      currentLine++;
-    }
-    offset++;
-  }
-
-  // column is 1-based in ESLint
-  return offset + (column - 1);
-}
-
-function offsetToLineCol(source: string, offset: number): { line: number; column: number } {
-  let line = 1;
-  let lastLineStart = 0;
-
-  for (let i = 0; i < offset && i < source.length; i++) {
-    if (source[i] === "\n") {
-      line++;
-      lastLineStart = i + 1;
-    }
-  }
-
-  return { line, column: offset - lastLineStart + 1 };
-}
-
-// ---------------------------------------------------------------------------
 // Per-file state for postprocess
 // ---------------------------------------------------------------------------
 
-interface FileState {
-  originalSource: string;
-  transformedSource: string;
-  mapper: PositionMapper;
-}
-
-const fileStates = new Map<string, FileState>();
+// Removed by postprocess, so a long-lived ESLint process doesn't retain
+// every file it has linted.
+const fileStates = new Map<string, MappingState>();
 
 /**
  * Create the full processor that uses the actual typesugar transformer
@@ -137,7 +86,7 @@ export function createFullProcessor(): Linter.Processor {
   return {
     meta: {
       name: "typesugar-full",
-      version: "0.1.0",
+      version: PLUGIN_VERSION,
     },
 
     supportsAutofix: true,
@@ -149,15 +98,37 @@ export function createFullProcessor(): Linter.Processor {
         return [text];
       }
 
+      const source = stripBom(text);
       const p = getPipeline();
       if (p) {
         try {
+          const key = overlayKey(filename);
+          const onDisk = ts.sys.readFile(filename);
+          const previous = bufferOverlay.has(key) ? bufferOverlay.get(key) : onDisk;
+          // Only buffers that differ from disk are kept in the overlay, so a
+          // plain `eslint .` run holds no extra copies of the project.
+          if (source === onDisk) bufferOverlay.delete(key);
+          else bufferOverlay.set(key, source);
+          if (previous !== source) {
+            // The pipeline's program holds the text it last read for this
+            // file; drop it so the text being linted now is what's transformed.
+            p.invalidate(filename);
+          }
           const result = p.transform(filename);
 
+          if (result.original !== undefined && result.original !== source) {
+            // The pipeline transformed something other than the text being
+            // linted; linting its output would report on the wrong code.
+            console.warn(
+              `[typesugar-eslint] ${filename}: transformer did not see the buffer being linted; linting it untransformed`
+            );
+            return [text];
+          }
+
           fileStates.set(filename, {
-            originalSource: text,
+            originalSource: source,
             transformedSource: result.code,
-            mapper: result.mapper,
+            toOriginal: (offset) => result.mapper.toOriginal(offset),
           });
 
           return [result.code];
@@ -172,41 +143,14 @@ export function createFullProcessor(): Linter.Processor {
 
     postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
       const state = fileStates.get(filename);
+      fileStates.delete(filename);
       if (!state) {
         return messages.flat();
       }
 
-      return messages
-        .flat()
-        .filter((message) => !isTypesugarUnusedImportError(message, state.originalSource))
-        .map((message) => {
-          if (message.line !== undefined && message.column !== undefined) {
-            const offset = lineColToOffset(state.transformedSource, message.line, message.column);
-            const originalOffset = state.mapper.toOriginal(offset);
-
-            if (originalOffset !== null) {
-              const mapped = offsetToLineCol(state.originalSource, originalOffset);
-              const result = { ...message, line: mapped.line, column: mapped.column };
-
-              if (message.endLine !== undefined && message.endColumn !== undefined) {
-                const endOffset = lineColToOffset(
-                  state.transformedSource,
-                  message.endLine,
-                  message.endColumn
-                );
-                const originalEndOffset = state.mapper.toOriginal(endOffset);
-                if (originalEndOffset !== null) {
-                  const mappedEnd = offsetToLineCol(state.originalSource, originalEndOffset);
-                  result.endLine = mappedEnd.line;
-                  result.endColumn = mappedEnd.column;
-                }
-              }
-
-              return result;
-            }
-          }
-          return message;
-        });
+      return mapMessages(messages.flat(), state).filter(
+        (message) => !isTypesugarUnusedImportError(message, state.originalSource)
+      );
     },
   };
 }
@@ -216,6 +160,7 @@ export function createFullProcessor(): Linter.Processor {
  */
 export function clearTransformCache(): void {
   fileStates.clear();
+  bufferOverlay.clear();
   if (pipeline) {
     pipeline.invalidateAll();
   }
