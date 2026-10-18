@@ -100,7 +100,7 @@ import { emitExtensionRegistrations as emitExtensionRegistrationsFn } from "./ex
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
 
-  private symbolMacroCache = new Map<number, MacroDefinition | null>();
+  private symbolMacroCache = new Map<string, MacroDefinition | null>();
 
   private macroImportSpecifiers = new Map<
     ts.ImportDeclaration,

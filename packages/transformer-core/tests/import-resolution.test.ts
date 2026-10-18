@@ -735,12 +735,12 @@ describe("resolveMacroFromSymbol", () => {
     });
     const main = files.get("/proj/main.ts")!;
     const ident = getIdentifier(main, "ir_cached");
-    const cache = new Map<number, ReturnType<typeof resolveMacroFromSymbol> | null>();
+    const cache = new Map<string, ReturnType<typeof resolveMacroFromSymbol> | null>();
 
     const first = resolveMacroFromSymbol(
       typeChecker,
       main,
-      cache as Map<number, never>,
+      cache as Map<string, never>,
       ident,
       "ir_cached",
       "expression"
@@ -752,12 +752,52 @@ describe("resolveMacroFromSymbol", () => {
     const second = resolveMacroFromSymbol(
       typeChecker,
       main,
-      cache as Map<number, never>,
+      cache as Map<string, never>,
       ident,
       "ir_cached",
       "expression"
     );
     expect(second).toBe(macro);
+  });
+
+  it("keys the cache by macro kind, so a miss for one kind doesn't hide another", () => {
+    // Regression: tryExpandTaggedTemplate looks a tag up first as "tagged-template",
+    // then as "expression". With a symbol-only key the first lookup cached `null`
+    // and the expression macro (sql, units, ...) never expanded when imported.
+    const macro = defineExpressionMacro({
+      name: "ir_tagged_expr",
+      module: "@typesugar/test",
+      expand: () => ts.factory.createNumericLiteral(0),
+    });
+    globalRegistry.register(macro);
+
+    const { typeChecker, files } = buildProgram({
+      "/proj/main.ts": `import { ir_tagged_expr } from "@typesugar/test";\nir_tagged_expr\`x\`;\n`,
+      "/proj/node_modules/@typesugar/test/index.d.ts": `export declare function ir_tagged_expr(s: TemplateStringsArray): number;\n`,
+    });
+    const main = files.get("/proj/main.ts")!;
+    const ident = getIdentifier(main, "ir_tagged_expr");
+    const cache = new Map<string, never>();
+
+    const asTagged = resolveMacroFromSymbol(
+      typeChecker,
+      main,
+      cache,
+      ident,
+      "ir_tagged_expr",
+      "tagged-template"
+    );
+    expect(asTagged).toBeUndefined();
+
+    const asExpression = resolveMacroFromSymbol(
+      typeChecker,
+      main,
+      cache,
+      ident,
+      "ir_tagged_expr",
+      "expression"
+    );
+    expect(asExpression).toBe(macro);
   });
 
   it("invokes onMacroImport callback when resolution succeeds", () => {

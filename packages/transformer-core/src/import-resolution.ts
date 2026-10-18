@@ -469,7 +469,7 @@ export function resolveSymbolToMacro(
 export function resolveMacroFromSymbol(
   typeChecker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
-  symbolMacroCache: Map<number, MacroDefinition | null>,
+  symbolMacroCache: Map<string, MacroDefinition | null>,
   node: ts.Node,
   macroName: string,
   kind: MacroDefinition["kind"],
@@ -486,15 +486,19 @@ export function resolveMacroFromSymbol(
     return fallbackNameLookupWithImports(sourceFile, macroName, kind);
   }
 
+  // Key by symbol AND kind: callers probe the same symbol under several kinds
+  // (a tagged template is tried as "tagged-template", then as "expression"), and a
+  // miss cached for one kind must not hide a hit for another.
   const symbolId = (symbol as unknown as { id?: number }).id;
-  if (symbolId !== undefined && symbolMacroCache.has(symbolId)) {
-    return symbolMacroCache.get(symbolId) ?? undefined;
+  const cacheKey = symbolId !== undefined ? `${symbolId}:${kind}` : undefined;
+  if (cacheKey !== undefined && symbolMacroCache.has(cacheKey)) {
+    return symbolMacroCache.get(cacheKey) ?? undefined;
   }
 
   const result = resolveSymbolToMacro(typeChecker, sourceFile, symbol, macroName, kind);
 
-  if (symbolId !== undefined) {
-    symbolMacroCache.set(symbolId, result ?? null);
+  if (cacheKey !== undefined) {
+    symbolMacroCache.set(cacheKey, result ?? null);
   }
 
   if (result && onMacroImport) {
