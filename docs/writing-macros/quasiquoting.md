@@ -5,7 +5,7 @@ Quasiquoting provides a clean way to construct AST from template strings with sp
 ## Basic Usage
 
 ```typescript
-import { quote, quoteStatements } from "@typesugar/core/quote";
+import { quote, quoteStatements } from "@typesugar/macros";
 
 // Single expression
 const expr = quote(ctx)`${a} + ${b}`;
@@ -31,12 +31,17 @@ const sum = quote(ctx)`${left} + ${right}`;
 
 ## Splice Helpers
 
+Spliced expressions are inserted as a single operand: with `sum = 1 + 2`,
+`` quote(ctx)`${sum} * 2` `` produces `(1 + 2) * 2`.
+
 ### ident()
 
-Force identifier treatment:
+Mark a string as an identifier name. The name is inserted verbatim — quote has
+**no automatic hygiene**, so it is not renamed and can collide with user names.
+For a collision-free temporary use `ctx.generateUniqueName(prefix)`:
 
 ```typescript
-import { ident } from "@typesugar/core/quote";
+import { ident } from "@typesugar/macros";
 
 const varName = "myVariable";
 const expr = quote(ctx)`const ${ident(varName)} = 42`;
@@ -45,10 +50,12 @@ const expr = quote(ctx)`const ${ident(varName)} = 42`;
 
 ### raw()
 
-Create an unhygienic identifier (intentional capture):
+Insert an exact name, e.g. for intentional capture. `raw()` currently behaves
+exactly like `ident()` (neither one mangles names); it exists to make intentional
+references to user-visible names obvious at the call site:
 
 ```typescript
-import { raw } from "@typesugar/core/quote";
+import { raw } from "@typesugar/macros";
 
 const expr = quote(ctx)`${raw("arguments")}[0]`;
 // Captures the actual arguments variable
@@ -59,7 +66,7 @@ const expr = quote(ctx)`${raw("arguments")}[0]`;
 Splice an array of statements:
 
 ```typescript
-import { spread } from "@typesugar/core/quote";
+import { spread } from "@typesugar/macros";
 
 const statements = [
   ctx.factory.createExpressionStatement(/* ... */),
@@ -99,7 +106,7 @@ const stmts: ts.Statement[] = quoteStatements(ctx)`
 Returns a type node:
 
 ```typescript
-import { quoteType } from "@typesugar/core/quote";
+import { quoteType } from "@typesugar/macros";
 
 const type: ts.TypeNode = quoteType(ctx)`Array<${elementType}>`;
 ```
@@ -109,7 +116,7 @@ const type: ts.TypeNode = quoteType(ctx)`Array<${elementType}>`;
 Returns a block statement:
 
 ```typescript
-import { quoteBlock } from "@typesugar/core/quote";
+import { quoteBlock } from "@typesugar/macros";
 
 const block: ts.Block = quoteBlock(ctx)`{
   const x = ${expr};
@@ -124,7 +131,7 @@ const block: ts.Block = quoteBlock(ctx)`{
 Create a function call:
 
 ```typescript
-import { quoteCall } from "@typesugar/core/quote";
+import { quoteCall } from "@typesugar/macros";
 
 const call = quoteCall(ctx, "console.log", [arg1, arg2]);
 // Produces: console.log(arg1, arg2)
@@ -135,7 +142,7 @@ const call = quoteCall(ctx, "console.log", [arg1, arg2]);
 Create property access:
 
 ```typescript
-import { quotePropAccess } from "@typesugar/core/quote";
+import { quotePropAccess } from "@typesugar/macros";
 
 const access = quotePropAccess(ctx, obj, "property");
 // Produces: obj.property
@@ -146,7 +153,7 @@ const access = quotePropAccess(ctx, obj, "property");
 Create method call:
 
 ```typescript
-import { quoteMethodCall } from "@typesugar/core/quote";
+import { quoteMethodCall } from "@typesugar/macros";
 
 const call = quoteMethodCall(ctx, obj, "method", [arg1]);
 // Produces: obj.method(arg1)
@@ -157,7 +164,7 @@ const call = quoteMethodCall(ctx, obj, "method", [arg1]);
 Create const declaration:
 
 ```typescript
-import { quoteConst } from "@typesugar/core/quote";
+import { quoteConst } from "@typesugar/macros";
 
 const decl = quoteConst(ctx, "x", initializer);
 // Produces: const x = initializer;
@@ -168,7 +175,7 @@ const decl = quoteConst(ctx, "x", initializer);
 Create let declaration:
 
 ```typescript
-import { quoteLet } from "@typesugar/core/quote";
+import { quoteLet } from "@typesugar/macros";
 
 const decl = quoteLet(ctx, "x", initializer);
 // Produces: let x = initializer;
@@ -179,7 +186,7 @@ const decl = quoteLet(ctx, "x", initializer);
 Create return statement:
 
 ```typescript
-import { quoteReturn } from "@typesugar/core/quote";
+import { quoteReturn } from "@typesugar/macros";
 
 const ret = quoteReturn(ctx, expr);
 // Produces: return expr;
@@ -190,7 +197,7 @@ const ret = quoteReturn(ctx, expr);
 Create if statement:
 
 ```typescript
-import { quoteIf } from "@typesugar/core/quote";
+import { quoteIf } from "@typesugar/macros";
 
 const ifStmt = quoteIf(ctx, condition, thenBlock, elseBlock);
 // Produces: if (condition) { thenBlock } else { elseBlock }
@@ -201,7 +208,7 @@ const ifStmt = quoteIf(ctx, condition, thenBlock, elseBlock);
 Create arrow function:
 
 ```typescript
-import { quoteArrow } from "@typesugar/core/quote";
+import { quoteArrow } from "@typesugar/macros";
 
 const arrow = quoteArrow(ctx, ["x", "y"], quote(ctx)`${ident("x")} + ${ident("y")}`);
 // Produces: (x, y) => x + y
@@ -212,7 +219,7 @@ const arrow = quoteArrow(ctx, ["x", "y"], quote(ctx)`${ident("x")} + ${ident("y"
 Create function declaration:
 
 ```typescript
-import { quoteFunction } from "@typesugar/core/quote";
+import { quoteFunction } from "@typesugar/macros";
 
 const fn = quoteFunction(
   ctx,
@@ -229,7 +236,7 @@ Building a memoization wrapper:
 
 ```typescript
 import { defineExpressionMacro } from "@typesugar/core";
-import { quote, quoteStatements, ident, spread } from "@typesugar/core/quote";
+import { quote, quoteStatements, ident, spread } from "@typesugar/macros";
 
 defineExpressionMacro("memoize", {
   expand(ctx, callExpr) {

@@ -206,12 +206,13 @@ describe("simple tail-recursive factorial", () => {
   it("wraps the body in a single while(true) loop", () => {
     const { result } = runTailrec(source, pickFunc("factorial"));
     const body = getBody(result);
-    // The body should have: 2 let-decls + 1 while-statement at the top level.
+    // The body should have: 2 let-decls + 1 labelled while-statement.
     expect(body.statements.length).toBe(3);
     expect(ts.isVariableStatement(body.statements[0])).toBe(true);
     expect(ts.isVariableStatement(body.statements[1])).toBe(true);
-    expect(ts.isWhileStatement(body.statements[2])).toBe(true);
-    const whileStmt = body.statements[2] as ts.WhileStatement;
+    expect(ts.isLabeledStatement(body.statements[2])).toBe(true);
+    const whileStmt = (body.statements[2] as ts.LabeledStatement).statement as ts.WhileStatement;
+    expect(ts.isWhileStatement(whileStmt)).toBe(true);
     expect(whileStmt.expression.kind).toBe(ts.SyntaxKind.TrueKeyword);
   });
 
@@ -251,13 +252,16 @@ describe("simple tail-recursive factorial", () => {
     expect(remaining).toBe(0);
   });
 
-  it("rewrites parameter references in the surviving return to use the _-shadowed names", () => {
+  it("leaves parameter references alone: per-iteration lets shadow the parameters", () => {
+    // Deep review #6: the old text-based rename (acc -> _acc) also renamed
+    // property names and shorthand keys. The body is now left untouched and
+    // `let acc = _acc` at the top of each iteration supplies the binding.
     const { result } = runTailrec(source, pickFunc("factorial"));
     const ret = findFirst(getBody(result), ts.isReturnStatement);
     expect(ret).toBeDefined();
     expect(ret!.expression).toBeDefined();
     expect(ts.isIdentifier(ret!.expression!)).toBe(true);
-    expect((ret!.expression as ts.Identifier).text).toBe("_acc");
+    expect((ret!.expression as ts.Identifier).text).toBe("acc");
   });
 });
 
@@ -425,21 +429,12 @@ describe("non-tail-position recursion", () => {
   });
 
   /**
-   * BUG (tailrec.ts): `findRecursiveCalls` treats the expression of any
-   * `ReturnStatement` as a tail position unconditionally — even when the
-   * `return` is itself nested inside a `for` / `while` / `do-while` body
-   * (which is NOT a tail position). The function then proceeds to
-   * `transformTailRecursion`, where `rewriteParamRefs` crashes inside
-   * `ts.visitEachChild` with "Cannot start a block scope during
-   * initialization" while descending into the loop.
-   *
-   * Expected behaviour: emit a diagnostic that the recursive call inside the
-   * loop is not in tail position, leave the function untouched.
-   *
-   * Pinning the current (broken) behaviour as an `expect().toThrow` so the
-   * test fails the day the bug is fixed and prompts an update.
+   * `return f(...)` inside a loop body IS a tail call (the `return` leaves the
+   * function). The old rewriter crashed in `ts.visitEachChild` here; the
+   * labelled-loop rewrite now turns it into `continue _tailrec`. Execution is
+   * covered in tailrec-semantics.test.ts.
    */
-  it("BUG: recursive return inside a loop body crashes the macro instead of emitting a tail-position diagnostic", () => {
+  it("rewrites a recursive return inside a loop body", () => {
     const source = `
       function loopy(n: number): number {
         while (n > 10) {
@@ -448,9 +443,14 @@ describe("non-tail-position recursion", () => {
         return n;
       }
     `;
-    expect(() => runTailrec(source, pickFunc("loopy"))).toThrow(
-      /Cannot start a block scope|block scope/i
+    const { result, diagnostics } = runTailrec(source, pickFunc("loopy"));
+    expect(diagnostics).toEqual([]);
+    const remaining = countNodes(
+      getBody(result),
+      (n) =>
+        ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "loopy"
     );
+    expect(remaining).toBe(0);
   });
 });
 

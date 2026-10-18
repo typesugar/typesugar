@@ -322,7 +322,7 @@ The `safeRef` system uses three-tier resolution for O(1) conflict detection:
 
 When a conflict is detected, `safeRef` generates an aliased import that the transformer injects into the file.
 
-Unhygienic escapes (`raw()`) are available for intentional capture (e.g., when a macro needs to reference user-defined variables).
+Note that quasiquote splices are not hygienic: `ident()` and `raw()` both insert the name verbatim. Use `ctx.generateUniqueName()` (introduced-name hygiene above) for temporaries.
 
 ### Expansion Cache
 
@@ -363,11 +363,11 @@ const typeNode = quoteType(ctx)`Array<${elementType}>`;
 
 ### Splice Helpers
 
-| Helper          | Purpose                                  |
-| --------------- | ---------------------------------------- |
-| `spread(stmts)` | Splice an array of statements            |
-| `ident(name)`   | Force string to be treated as identifier |
-| `raw(name)`     | Unhygienic identifier (escapes hygiene)  |
+| Helper          | Purpose                                                      |
+| --------------- | ------------------------------------------------------------ |
+| `spread(stmts)` | Splice an array of statements                                |
+| `ident(name)`   | Insert a string as an identifier name, verbatim (no hygiene) |
+| `raw(name)`     | Same as `ident()` — names are never mangled                  |
 
 ### Convenience Builders
 
@@ -575,9 +575,9 @@ function experimentalFeature() { ... } // removed if condition is false
 
 The condition evaluator supports `&&`, `||`, `!`, `==`, `!=`, parentheses, and dotted config paths. Config values come from transformer options, environment variables (`TYPESUGAR_CFG_*`), and config files.
 
-### Pattern-Based Macros (`src/macros/syntax-macro.ts`)
+### Pattern-Based Macros (`src/macros/syntax-macro.ts`) — experimental
 
-Implements Rust `macro_rules!`-style pattern matching:
+Implements a small Rust `macro_rules!`-style capture-and-template system for **expression** macros. Experimental: the API may change.
 
 ```typescript
 defineSyntaxMacro("unless", {
@@ -593,7 +593,7 @@ defineSyntaxMacro("unless", {
 defineRewrite("double", "$x:expr", "($x) + ($x)");
 ```
 
-**Capture kinds:** `expr`, `ident`, `literal`, `type`, `stmts`
+**Capture kinds:** `expr`, `ident`, `literal`, `type`. A pattern is a capture list matched positionally against the call's arguments (`"$a, $b"` or `"unless($a, $b)"`); other literal syntax and `stmts` captures are rejected when the macro is defined, and an arm matches only a call with exactly as many arguments. Captures are substituted as AST nodes (parenthesised as needed, macros inside them still expand). There is no hygiene for names the template introduces.
 
 ### Reflection (`src/macros/reflect.ts`)
 

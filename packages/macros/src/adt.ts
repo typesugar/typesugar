@@ -39,7 +39,7 @@
 
 import ts from "typescript";
 import type { MacroContext, AttributeMacro } from "@typesugar/core";
-import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import { cloneNodeDeep, defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import {
   registerTypeRewrite,
   type TypeRewriteEntry,
@@ -66,10 +66,15 @@ interface VariantInfo {
   optionalFields: Set<string>;
   /** All field names (required + optional) */
   allFields: Set<string>;
+  /**
+   * Optional fields whose declared type is exactly `undefined`
+   * (`readonly right?: undefined`) — a defined value there rules the variant out.
+   */
+  optionalUndefinedFields: Set<string>;
   /** Whether this variant is null-represented */
   isNull: boolean;
-  /** Type parameters on the variant interface */
-  typeParams: string[];
+  /** Type arguments as written in the union member (`Some<A>` → [A]) */
+  typeArgs: readonly ts.TypeNode[];
 }
 
 /**
@@ -190,6 +195,7 @@ function analyzeVariantMember(
     const requiredFields = new Set<string>();
     const optionalFields = new Set<string>();
     const allFields = new Set<string>();
+    const optionalUndefinedFields = new Set<string>();
 
     if (declaration) {
       for (const memberDecl of declaration.members) {
@@ -199,19 +205,14 @@ function analyzeVariantMember(
             allFields.add(fieldName);
             if (memberDecl.questionToken) {
               optionalFields.add(fieldName);
+              if (memberDecl.type?.kind === ts.SyntaxKind.UndefinedKeyword) {
+                optionalUndefinedFields.add(fieldName);
+              }
             } else {
               requiredFields.add(fieldName);
             }
           }
         }
-      }
-    }
-
-    // Extract type parameters
-    const typeParams: string[] = [];
-    if (member.typeArguments) {
-      for (const arg of member.typeArguments) {
-        typeParams.push(arg.getText());
       }
     }
 
@@ -221,20 +222,22 @@ function analyzeVariantMember(
       requiredFields,
       optionalFields,
       allFields,
+      optionalUndefinedFields,
       isNull,
-      typeParams,
+      typeArgs: member.typeArguments ?? [],
     };
   }
 
-  // Handle literal null type
-  if (member.kind === ts.SyntaxKind.NullKeyword || member.kind === ts.SyntaxKind.LiteralType) {
+  // Handle literal null type (only `null` — other literals are rejected in expand)
+  if (isNullTypeMember(member)) {
     return {
       name: "null",
       requiredFields: new Set(),
       optionalFields: new Set(),
       allFields: new Set(),
+      optionalUndefinedFields: new Set(),
       isNull: true,
-      typeParams: [],
+      typeArgs: [],
     };
   }
 
@@ -274,6 +277,56 @@ function buildDistinguishabilityMatrix(variants: VariantInfo[]): Map<string, Set
   return matrix;
 }
 
+/** `null` as a union member (a bare keyword or a `null` literal type). */
+function isNullTypeMember(member: ts.TypeNode): boolean {
+  return (
+    member.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isLiteralTypeNode(member) && member.literal.kind === ts.SyntaxKind.NullKeyword)
+  );
+}
+
+/**
+ * A runtime test on one field that separates two non-null variants.
+ *
+ * - `presence`: the field is required on the owner and absent from the other
+ *   variant's declaration → `"f" in value`.
+ * - `defined`: the field is required on the owner and declared
+ *   `f?: undefined` on the other → `"f" in value && value.f !== undefined`.
+ *
+ * A field that is merely optional on the other variant (with a real type)
+ * does NOT separate them: a value of the other variant may carry it
+ * (deep review #11 — `label` on `Circle | Labeled`).
+ */
+interface FieldTest {
+  field: string;
+  test: "presence" | "defined";
+}
+
+function separatingField(owner: VariantInfo, other: VariantInfo): FieldTest | undefined {
+  for (const field of owner.requiredFields) {
+    if (!other.allFields.has(field)) return { field, test: "presence" };
+  }
+  for (const field of owner.requiredFields) {
+    if (other.optionalUndefinedFields.has(field)) return { field, test: "defined" };
+  }
+  return undefined;
+}
+
+/**
+ * How to tell `v` apart from `other` at runtime: a field test that holds for
+ * `v` (positive) or one that holds for `other` (negated).
+ */
+function separation(
+  v: VariantInfo,
+  other: VariantInfo
+): { test: FieldTest; negate: boolean } | undefined {
+  const own = separatingField(v, other);
+  if (own) return { test: own, negate: false };
+  const theirs = separatingField(other, v);
+  if (theirs) return { test: theirs, negate: true };
+  return undefined;
+}
+
 /**
  * Check if two variants are distinguishable by structure alone.
  */
@@ -282,32 +335,15 @@ function checkDistinguishability(a: VariantInfo, b: VariantInfo): Distinguishabi
   if (a.isNull !== b.isNull) {
     return { kind: "null-vs-nonnull" };
   }
-
-  // Rule 2: Unique required field - one has a required field the other doesn't have at all
-  for (const field of a.requiredFields) {
-    if (!b.allFields.has(field)) {
-      return { kind: "unique-required-field", field, owner: a.name };
-    }
+  if (a.isNull && b.isNull) return { kind: "indistinguishable" };
+  const sep = separation(a, b);
+  if (sep) {
+    return {
+      kind: "unique-required-field",
+      field: sep.test.field,
+      owner: sep.negate ? b.name : a.name,
+    };
   }
-  for (const field of b.requiredFields) {
-    if (!a.allFields.has(field)) {
-      return { kind: "unique-required-field", field, owner: b.name };
-    }
-  }
-
-  // Rule 3: Field presence difference - one has a required field, other has it optional or missing
-  // This means we can distinguish by checking if the field is defined
-  for (const field of a.requiredFields) {
-    if (b.optionalFields.has(field) || !b.allFields.has(field)) {
-      return { kind: "unique-required-field", field, owner: a.name };
-    }
-  }
-  for (const field of b.requiredFields) {
-    if (a.optionalFields.has(field) || !a.allFields.has(field)) {
-      return { kind: "unique-required-field", field, owner: b.name };
-    }
-  }
-
   return { kind: "indistinguishable" };
 }
 
@@ -341,6 +377,40 @@ function findVariantsNeedingTag(variants: VariantInfo[]): Set<string> {
 // Code Generation
 // ============================================================================
 
+/** `Variant<args as written in the union>` (fresh nodes each call). */
+function variantTypeRef(factory: ts.NodeFactory, variant: VariantInfo): ts.TypeReferenceNode {
+  return factory.createTypeReferenceNode(
+    variant.name,
+    variant.typeArgs.length > 0 ? variant.typeArgs.map((a) => cloneNodeDeep(a)) : undefined
+  );
+}
+
+/** The ADT's own type parameters, cloned for a generated declaration. */
+function adtTypeParams(
+  factory: ts.NodeFactory,
+  target: ts.TypeAliasDeclaration
+): ts.TypeParameterDeclaration[] | undefined {
+  return target.typeParameters?.map((tp) =>
+    factory.createTypeParameterDeclaration(
+      undefined,
+      tp.name.text,
+      tp.constraint ? cloneNodeDeep(tp.constraint) : undefined,
+      tp.default ? cloneNodeDeep(tp.default) : undefined
+    )
+  );
+}
+
+/** `Adt<A, B, ...>` applied to its own type parameters. */
+function adtTypeRef(
+  factory: ts.NodeFactory,
+  target: ts.TypeAliasDeclaration
+): ts.TypeReferenceNode {
+  return factory.createTypeReferenceNode(
+    target.name.text,
+    target.typeParameters?.map((tp) => factory.createTypeReferenceNode(tp.name.text))
+  );
+}
+
 /**
  * Generate the transformed type alias with `_tag` intersections where needed.
  */
@@ -352,22 +422,12 @@ function generateTransformedTypeAlias(
 ): ts.TypeAliasDeclaration {
   const factory = ctx.factory;
 
-  // Build new union members
   const newUnionMembers: ts.TypeNode[] = [];
 
   for (const variant of variants) {
     if (variant.isNull && variant.name === "null") {
-      // Literal null type
       newUnionMembers.push(factory.createLiteralTypeNode(factory.createNull()));
     } else if (needsTag.has(variant.name)) {
-      // Add _tag intersection
-      const typeRef = factory.createTypeReferenceNode(
-        variant.name,
-        variant.typeParams.length > 0
-          ? variant.typeParams.map((p) => factory.createTypeReferenceNode(p))
-          : undefined
-      );
-
       const tagType = factory.createTypeLiteralNode([
         factory.createPropertySignature(
           [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
@@ -376,37 +436,34 @@ function generateTransformedTypeAlias(
           factory.createLiteralTypeNode(factory.createStringLiteral(variant.name))
         ),
       ]);
-
-      newUnionMembers.push(factory.createIntersectionTypeNode([typeRef, tagType]));
-    } else {
-      // No _tag needed
-      const typeRef = factory.createTypeReferenceNode(
-        variant.name,
-        variant.typeParams.length > 0
-          ? variant.typeParams.map((p) => factory.createTypeReferenceNode(p))
-          : undefined
+      newUnionMembers.push(
+        factory.createIntersectionTypeNode([variantTypeRef(factory, variant), tagType])
       );
-      newUnionMembers.push(typeRef);
+    } else {
+      newUnionMembers.push(variantTypeRef(factory, variant));
     }
   }
-
-  const newUnionType = factory.createUnionTypeNode(newUnionMembers);
 
   return factory.updateTypeAliasDeclaration(
     target,
     target.modifiers,
     target.name,
     target.typeParameters,
-    newUnionType
+    factory.createUnionTypeNode(newUnionMembers)
   );
 }
 
 /**
  * Generate constructor functions for each variant.
+ *
+ * Constructors are generic over the ADT's OWN type parameters and return
+ * `Adt<...>` — using the variant interface's parameters produced `function
+ * None(): Option` (TS2314) whenever the variant didn't mention them (deep
+ * review #15). Each field parameter is typed `Variant<args>["field"]`.
  */
 function generateConstructors(
   ctx: MacroContext,
-  adtName: string,
+  target: ts.TypeAliasDeclaration,
   variants: VariantInfo[],
   needsTag: Set<string>,
   nullMap: NullRepresentationMap
@@ -415,74 +472,63 @@ function generateConstructors(
   const factory = ctx.factory;
 
   for (const variant of variants) {
-    // Skip null literal type
     if (variant.name === "null") continue;
 
-    // Check if this is a null-represented variant
     if (nullMap.has(variant.name)) {
-      // Generate: export const Nil: Nil = null;
-      const constDecl = factory.createVariableStatement(
-        [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-        factory.createVariableDeclarationList(
-          [
-            factory.createVariableDeclaration(
-              variant.name,
-              undefined,
-              factory.createTypeReferenceNode(variant.name),
-              factory.createNull()
-            ),
-          ],
-          ts.NodeFlags.Const
-        )
-      );
-      statements.push(constDecl);
-    } else {
-      // Generate constructor function
-      const params: ts.ParameterDeclaration[] = [];
-      const objectProps: ts.ObjectLiteralElementLike[] = [];
-
-      // Add _tag if needed
-      if (needsTag.has(variant.name)) {
-        objectProps.push(
-          factory.createPropertyAssignment("_tag", factory.createStringLiteral(variant.name))
-        );
-      }
-
-      // Add parameters for required fields
-      for (const field of variant.requiredFields) {
-        params.push(
-          factory.createParameterDeclaration(
-            undefined,
-            undefined,
-            field,
-            undefined,
-            undefined, // Type will be inferred
-            undefined
+      // export const Nil: Nil = null;
+      statements.push(
+        factory.createVariableStatement(
+          [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+          factory.createVariableDeclarationList(
+            [
+              factory.createVariableDeclaration(
+                variant.name,
+                undefined,
+                factory.createTypeReferenceNode(variant.name),
+                factory.createNull()
+              ),
+            ],
+            ts.NodeFlags.Const
           )
-        );
-        objectProps.push(factory.createShorthandPropertyAssignment(field));
-      }
-
-      // Generate type parameters if present
-      const typeParams = variant.declaration?.typeParameters?.map((tp) =>
-        factory.createTypeParameterDeclaration(undefined, tp.name.text, tp.constraint, tp.default)
-      );
-
-      // Generate return type
-      const returnType = factory.createTypeReferenceNode(
-        adtName,
-        variant.declaration?.typeParameters?.map((tp) =>
-          factory.createTypeReferenceNode(tp.name.text)
         )
       );
+      continue;
+    }
 
-      const funcDecl = factory.createFunctionDeclaration(
+    const params: ts.ParameterDeclaration[] = [];
+    const objectProps: ts.ObjectLiteralElementLike[] = [];
+
+    if (needsTag.has(variant.name)) {
+      objectProps.push(
+        factory.createPropertyAssignment("_tag", factory.createStringLiteral(variant.name))
+      );
+    }
+
+    for (const field of variant.requiredFields) {
+      params.push(
+        factory.createParameterDeclaration(
+          undefined,
+          undefined,
+          field,
+          undefined,
+          factory.createIndexedAccessTypeNode(
+            variantTypeRef(factory, variant),
+            factory.createLiteralTypeNode(factory.createStringLiteral(field))
+          ),
+          undefined
+        )
+      );
+      objectProps.push(factory.createShorthandPropertyAssignment(field));
+    }
+
+    statements.push(
+      factory.createFunctionDeclaration(
         [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
         undefined,
         variant.name,
-        typeParams,
+        adtTypeParams(factory, target),
         params,
-        returnType,
+        adtTypeRef(factory, target),
         factory.createBlock(
           [
             factory.createReturnStatement(
@@ -491,229 +537,169 @@ function generateConstructors(
           ],
           true
         )
-      );
-      statements.push(funcDecl);
-    }
+      )
+    );
   }
 
   return statements;
 }
 
+/** `"f" in value` or `("f" in value && value.f !== undefined)`. */
+function fieldTestExpr(factory: ts.NodeFactory, paramName: string, t: FieldTest): ts.Expression {
+  const inCheck = factory.createBinaryExpression(
+    factory.createStringLiteral(t.field),
+    ts.SyntaxKind.InKeyword,
+    factory.createIdentifier(paramName)
+  );
+  if (t.test === "presence") return inCheck;
+  return factory.createParenthesizedExpression(
+    factory.createLogicalAnd(
+      inCheck,
+      factory.createStrictInequality(
+        factory.createPropertyAccessExpression(factory.createIdentifier(paramName), t.field),
+        factory.createIdentifier("undefined")
+      )
+    )
+  );
+}
+
+function andAll(factory: ts.NodeFactory, exprs: ts.Expression[]): ts.Expression {
+  return exprs.reduce((acc, e) => factory.createLogicalAnd(acc, e));
+}
+
 /**
  * Generate type guard functions for each variant.
+ *
+ * A guard for non-null variant V is `value !== null` (when the ADT has a
+ * null-represented variant — `"f" in null` throws, deep review #11) AND
+ * either its `_tag` check, or, for every other non-null variant O, a field
+ * test separating V from O. The conjunction is true for every V value and,
+ * for each O, false on the conjunct that separates it.
  */
 function generateTypeGuards(
   ctx: MacroContext,
-  adtName: string,
+  target: ts.TypeAliasDeclaration,
   variants: VariantInfo[],
   needsTag: Set<string>,
   nullMap: NullRepresentationMap
 ): ts.Statement[] {
   const statements: ts.Statement[] = [];
   const factory = ctx.factory;
+  const paramName = "value";
+  const value = () => factory.createIdentifier(paramName);
+  const hasNullVariant = variants.some((v) => v.isNull);
 
   for (const variant of variants) {
-    // Skip literal null type
     if (variant.name === "null") continue;
 
-    const guardName = `is${variant.name}`;
-    const paramName = "value";
-
-    // Get type parameters from the ADT declaration (we need to pass them through)
-    const typeParams = variant.declaration?.typeParameters?.map((tp) =>
-      factory.createTypeParameterDeclaration(undefined, tp.name.text, tp.constraint, tp.default)
-    );
-
-    // Parameter type is the ADT
-    const paramType = factory.createTypeReferenceNode(
-      adtName,
-      variant.declaration?.typeParameters?.map((tp) =>
-        factory.createTypeReferenceNode(tp.name.text)
-      )
-    );
-
-    // Return type is "value is VariantName<...>"
-    const narrowedType = factory.createTypeReferenceNode(
-      variant.name,
-      variant.declaration?.typeParameters?.map((tp) =>
-        factory.createTypeReferenceNode(tp.name.text)
-      )
-    );
-    const returnType = factory.createTypePredicateNode(undefined, paramName, narrowedType);
-
-    // Generate the check expression
     let checkExpr: ts.Expression;
 
     if (nullMap.has(variant.name)) {
-      // Null-represented: value === null
-      checkExpr = factory.createBinaryExpression(
-        factory.createIdentifier(paramName),
-        ts.SyntaxKind.EqualsEqualsEqualsToken,
-        factory.createNull()
-      );
-    } else if (needsTag.has(variant.name)) {
-      // Tag-based: value._tag === "VariantName"
-      checkExpr = factory.createBinaryExpression(
-        factory.createPropertyAccessExpression(factory.createIdentifier(paramName), "_tag"),
-        ts.SyntaxKind.EqualsEqualsEqualsToken,
-        factory.createStringLiteral(variant.name)
-      );
+      checkExpr = factory.createStrictEquality(value(), factory.createNull());
     } else {
-      // Field-based: use presence of unique required field or property check
-      // Find a unique required field that distinguishes this variant
-      const uniqueField = findUniqueField(variant, variants);
-      if (uniqueField) {
-        // Check: "fieldName" in value
-        checkExpr = factory.createBinaryExpression(
-          factory.createStringLiteral(uniqueField),
-          ts.SyntaxKind.InKeyword,
-          factory.createIdentifier(paramName)
+      const conjuncts: ts.Expression[] = [];
+      if (hasNullVariant) {
+        conjuncts.push(factory.createStrictInequality(value(), factory.createNull()));
+      }
+      if (needsTag.has(variant.name)) {
+        conjuncts.push(
+          factory.createParenthesizedExpression(
+            factory.createLogicalAnd(
+              factory.createBinaryExpression(
+                factory.createStringLiteral("_tag"),
+                ts.SyntaxKind.InKeyword,
+                value()
+              ),
+              factory.createStrictEquality(
+                factory.createPropertyAccessExpression(value(), "_tag"),
+                factory.createStringLiteral(variant.name)
+              )
+            )
+          )
         );
       } else {
-        // Fallback: check for any required field
-        const firstField = [...variant.requiredFields][0];
-        if (firstField) {
-          checkExpr = factory.createBinaryExpression(
-            factory.createStringLiteral(firstField),
-            ts.SyntaxKind.InKeyword,
-            factory.createIdentifier(paramName)
-          );
-        } else if (!needsTag.has(variant.name)) {
-          // No unique fields but structurally distinguishable — check absence of
-          // other variants' distinguishing fields
-          const otherFields = variants
-            .filter((v) => v.name !== variant.name && !v.isNull)
-            .flatMap((v) => {
-              const uf = findUniqueField(v, variants);
-              return uf ? [uf] : [...v.requiredFields].slice(0, 1);
-            })
-            .filter(Boolean);
-
-          if (otherFields.length > 0) {
-            const checks = otherFields.map((f) =>
-              factory.createPrefixUnaryExpression(
-                ts.SyntaxKind.ExclamationToken,
-                factory.createParenthesizedExpression(
-                  factory.createBinaryExpression(
-                    factory.createStringLiteral(f),
-                    ts.SyntaxKind.InKeyword,
-                    factory.createIdentifier(paramName)
-                  )
+        for (const other of variants) {
+          if (other === variant || other.isNull) continue;
+          const sep = separation(variant, other);
+          // Untagged variants are, by construction, separable from every
+          // other non-null variant (findVariantsNeedingTag uses the same test).
+          if (!sep) continue;
+          const t = fieldTestExpr(factory, paramName, sep.test);
+          conjuncts.push(
+            sep.negate
+              ? factory.createLogicalNot(
+                  ts.isParenthesizedExpression(t) ? t : factory.createParenthesizedExpression(t)
                 )
-              )
-            );
-            checkExpr = checks[0];
-            for (let i = 1; i < checks.length; i++) {
-              checkExpr = factory.createBinaryExpression(
-                checkExpr,
-                ts.SyntaxKind.AmpersandAmpersandToken,
-                checks[i]
-              );
-            }
-          } else {
-            // Truly empty ADT with no distinguishing fields — fall back to _tag
-            checkExpr = factory.createBinaryExpression(
-              factory.createPropertyAccessExpression(factory.createIdentifier(paramName), "_tag"),
-              ts.SyntaxKind.EqualsEqualsEqualsToken,
-              factory.createStringLiteral(variant.name)
-            );
-          }
-        } else {
-          // Needs _tag
-          checkExpr = factory.createBinaryExpression(
-            factory.createPropertyAccessExpression(factory.createIdentifier(paramName), "_tag"),
-            ts.SyntaxKind.EqualsEqualsEqualsToken,
-            factory.createStringLiteral(variant.name)
+              : t
           );
         }
       }
+      checkExpr = conjuncts.length > 0 ? andAll(factory, conjuncts) : factory.createTrue();
     }
 
-    const funcDecl = factory.createFunctionDeclaration(
-      [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-      undefined,
-      guardName,
-      typeParams,
-      [
-        factory.createParameterDeclaration(
-          undefined,
-          undefined,
-          paramName,
-          undefined,
-          paramType,
-          undefined
-        ),
-      ],
-      returnType,
-      factory.createBlock([factory.createReturnStatement(checkExpr)], true)
+    statements.push(
+      factory.createFunctionDeclaration(
+        [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+        undefined,
+        `is${variant.name}`,
+        adtTypeParams(factory, target),
+        [
+          factory.createParameterDeclaration(
+            undefined,
+            undefined,
+            paramName,
+            undefined,
+            adtTypeRef(factory, target),
+            undefined
+          ),
+        ],
+        factory.createTypePredicateNode(undefined, paramName, variantTypeRef(factory, variant)),
+        factory.createBlock([factory.createReturnStatement(checkExpr)], true)
+      )
     );
-    statements.push(funcDecl);
   }
 
-  // Generate isNil for null-represented empty variants
-  for (const [variantName, value] of nullMap) {
-    if (value === "null") {
-      const guardName = `is${variantName}`;
-      // Check if we already generated this guard
-      const alreadyGenerated = statements.some(
-        (s) => ts.isFunctionDeclaration(s) && s.name?.text === guardName
-      );
-
-      if (!alreadyGenerated) {
-        const funcDecl = factory.createFunctionDeclaration(
-          [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+  // isNil for null-represented variants that aren't union members by name
+  for (const [variantName] of nullMap) {
+    const guardName = `is${variantName}`;
+    const alreadyGenerated = statements.some(
+      (s) => ts.isFunctionDeclaration(s) && s.name?.text === guardName
+    );
+    if (alreadyGenerated) continue;
+    statements.push(
+      factory.createFunctionDeclaration(
+        [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+        undefined,
+        guardName,
+        undefined,
+        [
+          factory.createParameterDeclaration(
+            undefined,
+            undefined,
+            paramName,
+            undefined,
+            factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+            undefined
+          ),
+        ],
+        factory.createTypePredicateNode(
           undefined,
-          guardName,
-          undefined,
+          paramName,
+          factory.createTypeReferenceNode(variantName)
+        ),
+        factory.createBlock(
           [
-            factory.createParameterDeclaration(
-              undefined,
-              undefined,
-              "value",
-              undefined,
-              factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
-              undefined
+            factory.createReturnStatement(
+              factory.createStrictEquality(value(), factory.createNull())
             ),
           ],
-          factory.createTypePredicateNode(
-            undefined,
-            "value",
-            factory.createTypeReferenceNode(variantName)
-          ),
-          factory.createBlock(
-            [
-              factory.createReturnStatement(
-                factory.createBinaryExpression(
-                  factory.createIdentifier("value"),
-                  ts.SyntaxKind.EqualsEqualsEqualsToken,
-                  factory.createNull()
-                )
-              ),
-            ],
-            true
-          )
-        );
-        statements.push(funcDecl);
-      }
-    }
+          true
+        )
+      )
+    );
   }
 
   return statements;
-}
-
-/**
- * Find a unique field that distinguishes this variant from all others.
- */
-function findUniqueField(variant: VariantInfo, allVariants: VariantInfo[]): string | undefined {
-  for (const field of variant.requiredFields) {
-    const isUnique = allVariants.every((other) => {
-      if (other.name === variant.name) return true;
-      // Field is unique if other variants don't have it as required
-      return !other.requiredFields.has(field);
-    });
-    if (isUnique) return field;
-  }
-  return undefined;
 }
 
 // ============================================================================
@@ -722,6 +708,13 @@ function findUniqueField(variant: VariantInfo, allVariants: VariantInfo[]): stri
 
 /**
  * Register type rewrites for method erasure.
+ *
+ * Only null-represented variants are registered as erasable constructors
+ * (`Nil` → `null`). Every other variant has a REAL generated constructor
+ * function; registering it (formerly `{ kind: "custom", value: name }` /
+ * `identity`) made the erasure pass replace `Circle(5)` with `Circle` in
+ * importing files (deep review #3). `declarationFile` lets the rewriter match
+ * references by resolved symbol, not bare name.
  */
 function registerAdtTypeRewrites(
   ctx: MacroContext,
@@ -730,7 +723,6 @@ function registerAdtTypeRewrites(
   needsTag: Set<string>,
   nullMap: NullRepresentationMap
 ): void {
-  // Collect method names from variant interfaces
   const methods = new Map<string, string>();
 
   for (const variant of variants) {
@@ -744,20 +736,11 @@ function registerAdtTypeRewrites(
     }
   }
 
-  // Build constructors map
   const constructors = new Map<string, ConstructorRewrite>();
-
   for (const variant of variants) {
     if (variant.name === "null") continue;
-
     if (nullMap.has(variant.name)) {
       constructors.set(variant.name, { kind: "constant", value: "null" });
-    } else if (variant.requiredFields.size === 0 && !needsTag.has(variant.name)) {
-      // No required fields and no tag - identity-ish
-      constructors.set(variant.name, { kind: "identity" });
-    } else {
-      // Constructor creates object
-      constructors.set(variant.name, { kind: "custom", value: variant.name });
     }
   }
 
@@ -777,6 +760,7 @@ function registerAdtTypeRewrites(
     typeName: adtName,
     underlyingTypeText: underlyingParts.join(" | "),
     sourceModule: resolveSourceModule(ctx.sourceFile),
+    declarationFile: ctx.sourceFile.fileName,
     methods: methods.size > 0 ? methods : undefined,
     constructors: constructors.size > 0 ? constructors : undefined,
     transparent: true,
@@ -833,6 +817,15 @@ export const adtAttribute: AttributeMacro = defineAttributeMacro({
 
     const adtName = target.name.text;
     const nullMap = extractAdtTag(target);
+    for (const [variantName, repr] of nullMap) {
+      if (repr !== "null") {
+        ctx.reportError(
+          target,
+          `@adt: variant '${variantName}' is configured as '${repr}', but only null representation ({ ${variantName}: null }) is supported`
+        );
+        return target;
+      }
+    }
 
     // Each union member must be a NAMED type reference (or a literal `null`) —
     // constructor/type-guard generation below emits references to the
@@ -846,11 +839,18 @@ export const adtAttribute: AttributeMacro = defineAttributeMacro({
     // as if the union itself were too small, not that its member SHAPE is
     // unsupported).
     for (const member of target.type.types) {
-      if (
-        !ts.isTypeReferenceNode(member) &&
-        member.kind !== ts.SyntaxKind.NullKeyword &&
-        member.kind !== ts.SyntaxKind.LiteralType
-      ) {
+      if (ts.isLiteralTypeNode(member) && !isNullTypeMember(member)) {
+        // Only `null` has a runtime representation the generated guards and
+        // constructors understand; `"missing"` used to be silently turned
+        // into `null` (deep review #15).
+        ctx.reportError(
+          member,
+          `@adt: literal member "${ts.isStringLiteral(member.literal) ? member.literal.text : member.getText()}" is not supported — ` +
+            `only \`null\` may appear as a literal variant. Use a named interface for this variant.`
+        );
+        return target;
+      }
+      if (!ts.isTypeReferenceNode(member) && !isNullTypeMember(member)) {
         ctx.reportError(
           member,
           `@adt requires each variant to be a named interface or type alias reference ` +
@@ -875,10 +875,10 @@ export const adtAttribute: AttributeMacro = defineAttributeMacro({
     const transformedTypeAlias = generateTransformedTypeAlias(ctx, target, variants, needsTag);
 
     // 4. Generate constructors
-    const constructors = generateConstructors(ctx, adtName, variants, needsTag, nullMap);
+    const constructors = generateConstructors(ctx, target, variants, needsTag, nullMap);
 
     // 5. Generate type guards
-    const typeGuards = generateTypeGuards(ctx, adtName, variants, needsTag, nullMap);
+    const typeGuards = generateTypeGuards(ctx, target, variants, needsTag, nullMap);
 
     // 6. Register type rewrites
     registerAdtTypeRewrites(ctx, adtName, variants, needsTag, nullMap);

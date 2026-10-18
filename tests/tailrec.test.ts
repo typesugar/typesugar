@@ -508,9 +508,11 @@ describe("tailrec transformation", () => {
       }
     `);
 
-    expect(output).toContain("_n");
-    expect(output).toContain("_acc");
-    expect(output).toContain("return _acc");
+    // The body is no longer renamed (deep review #6): per-iteration
+    // `let acc = _acc` bindings shadow the parameters instead.
+    expect(output).toContain("let n = _n");
+    expect(output).toContain("let acc = _acc");
+    expect(output).toContain("return acc");
   });
 
   it("should end trampoline block with continue", () => {
@@ -521,7 +523,7 @@ describe("tailrec transformation", () => {
       }
     `);
 
-    expect(output).toContain("continue;");
+    expect(output).toContain("continue _tailrec;");
   });
 
   it("should preserve the function signature (params, return type)", () => {
@@ -628,7 +630,7 @@ describe("tailrec edge cases", () => {
     expect(diagnostics).toHaveLength(0);
     expect(output).toContain("while (true)");
     // Should have two continue statements (one for each tail call)
-    const continueCount = (output.match(/continue;/g) || []).length;
+    const continueCount = (output.match(/continue _tailrec;/g) || []).length;
     expect(continueCount).toBe(2);
   });
 
@@ -700,7 +702,7 @@ describe("tailrec edge cases", () => {
 
     expect(diagnostics).toHaveLength(0);
     expect(output).toContain("while (true)");
-    const continueCount = (output.match(/continue;/g) || []).length;
+    const continueCount = (output.match(/continue _tailrec;/g) || []).length;
     expect(continueCount).toBe(4);
   });
 
@@ -737,10 +739,10 @@ describe("tailrec functional correctness", () => {
 
     expect(output).toContain("let _n = n");
     expect(output).toContain("let _acc = acc");
-    expect(output).toContain("return _acc");
+    expect(output).toContain("return acc");
     expect(output).toContain("_next_n");
     expect(output).toContain("_next_acc");
-    expect(output).toContain("_n * _acc");
+    expect(output).toContain("n * acc");
     expect(output).toContain("continue");
   });
 
@@ -754,9 +756,9 @@ describe("tailrec functional correctness", () => {
 
     expect(output).toContain("let _a = a");
     expect(output).toContain("let _b = b");
-    expect(output).toContain("return _a");
+    expect(output).toContain("return a");
     expect(output).toContain("_next_a");
     expect(output).toContain("_next_b");
-    expect(output).toContain("_a % _b");
+    expect(output).toContain("a % b");
   });
 });
