@@ -579,6 +579,28 @@ describe("extractTypeInfo", () => {
     );
   });
 
+  it("collects variants of a union of inline object literals (and mixed members)", () => {
+    withCtx(
+      `
+      interface Circle { kind: "circle"; r: number; }
+      type Shape = Circle | { kind: "square"; side: number } | { kind: "dot" };
+    `,
+      (ctx, sourceFile) => {
+        const alias = sourceFile.statements.find(ts.isTypeAliasDeclaration)!;
+        const info = extractTypeInfo(ctx, alias);
+        expect(info.kind).toBe("sum");
+        expect(info.discriminant).toBe("kind");
+        expect(info.variants!.map((v) => [v.tag, v.typeName, v.fields.map((f) => f.name)])).toEqual(
+          [
+            ["circle", "Circle", ["r"]],
+            ["square", "Shape_square", ["side"]],
+            ["dot", "Shape_dot", []],
+          ]
+        );
+      }
+    );
+  });
+
   it("detects recursion when a field references the enclosing type", () => {
     withCtx(
       `

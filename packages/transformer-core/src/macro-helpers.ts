@@ -744,15 +744,41 @@ function extractSumTypeInfo(
 
   if (ts.isUnionTypeNode(node.type)) {
     for (const member of node.type.types) {
-      if (!ts.isTypeReferenceNode(member)) continue;
-
-      const memberTypeName = ts.isIdentifier(member.typeName)
-        ? member.typeName.text
-        : safeGetNodeText(member.typeName, ctx.sourceFile);
-      const variantInfo = sumInfo.variants.find((v) => v.typeName === memberTypeName);
+      let memberType: ts.Type;
+      let variantInfo: { tag: string; typeName: string } | undefined;
+      try {
+        memberType = ctx.typeChecker.getTypeFromTypeNode(member);
+      } catch (e) {
+        ctx.reportWarning(
+          member,
+          `could not resolve a variant of '${name}' (${e instanceof Error ? e.message : String(e)}); ` +
+            `derived code will not handle it`
+        );
+        continue;
+      }
+      if (ts.isTypeReferenceNode(member)) {
+        const memberTypeName = ts.isIdentifier(member.typeName)
+          ? member.typeName.text
+          : safeGetNodeText(member.typeName, ctx.sourceFile);
+        variantInfo = sumInfo.variants.find((v) => v.typeName === memberTypeName);
+      } else if (ts.isTypeLiteralNode(member)) {
+        // Inline `{ kind: "square"; ... }`: tryExtractSumType names it
+        // `${alias}_${tag}`; recover its tag from the discriminant's type.
+        const discProp = memberType.getProperty(sumInfo.discriminant);
+        const discDecl = discProp?.getDeclarations()?.[0];
+        const discType =
+          discProp && discDecl
+            ? ctx.typeChecker.getTypeOfSymbolAtLocation(discProp, discDecl)
+            : undefined;
+        if (discType?.isStringLiteral()) {
+          const tag = discType.value;
+          variantInfo = sumInfo.variants.find(
+            (v) => v.tag === tag && v.typeName === `${name}_${tag}`
+          );
+        }
+      }
       if (!variantInfo) continue;
 
-      const memberType = ctx.typeChecker.getTypeFromTypeNode(member);
       const fields: DeriveFieldInfo[] = [];
 
       try {
@@ -793,8 +819,12 @@ function extractSumTypeInfo(
             symbol: prop,
           });
         }
-      } catch {
-        // Skip variant if we can't get its properties
+      } catch (e) {
+        ctx.reportWarning(
+          member,
+          `could not list the fields of variant '${variantInfo.tag}' of '${name}' ` +
+            `(${e instanceof Error ? e.message : String(e)}); derived code will see no fields`
+        );
       }
 
       variants.push({

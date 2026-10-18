@@ -494,3 +494,145 @@ describe("native method vs imported object member", () => {
     expect(r.code).not.toContain("parCombinePromise.map(");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Attribute macro returning several statements: every one is visited
+// ---------------------------------------------------------------------------
+describe("attribute macro results after the first are visited", () => {
+  beforeAll(() => {
+    globalRegistry.register(
+      defineExpressionMacro({
+        name: "__twiceInner",
+        expand(ctx: MacroContext, _call, args) {
+          return ctx.factory.createArrayLiteralExpression([args[0], args[0]]);
+        },
+      })
+    );
+    globalRegistry.register(
+      defineAttributeMacro({
+        name: "__emitArgAfter",
+        validTargets: ["class"],
+        expand(ctx, decorator, target, args) {
+          // Second statement carries the decorator's (real) argument, which
+          // itself is an expression-macro call.
+          void decorator;
+          return [
+            target,
+            ctx.factory.createVariableStatement(
+              [ctx.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+              ctx.factory.createVariableDeclarationList(
+                [ctx.factory.createVariableDeclaration("after", undefined, undefined, args[0])],
+                ts.NodeFlags.Const
+              )
+            ),
+          ];
+        },
+      })
+    );
+  });
+
+  it("expands a macro inside result.slice(1)", () => {
+    const r = run(
+      {
+        "/m.ts": [
+          "export function __twiceInner(...a: any[]): any { return 0; }",
+          "export function __emitArgAfter(...a: any[]): any { return () => {}; }",
+        ].join("\n"),
+        "/main.ts": `
+          import { __twiceInner, __emitArgAfter } from "./m";
+          @__emitArgAfter(__twiceInner(3))
+          export class W { a = 1; }
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).toContain("after = [3, 3]");
+    expect(r.code).not.toContain("__twiceInner(3)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Field / accessor / parameter attribute macros: the expanded decorator is
+// removed (updateNodeDecorators handles those kinds), so it never re-expands.
+// ---------------------------------------------------------------------------
+describe("member and parameter attribute macros", () => {
+  const calls: string[] = [];
+  beforeAll(() => {
+    globalRegistry.register(
+      defineAttributeMacro({
+        name: "__memberNoop",
+        validTargets: ["property", "accessor", "parameter", "method"],
+        expand(_ctx, _dec, target) {
+          calls.push(ts.SyntaxKind[target.kind]);
+          return target; // returned as-is: the engine must strip the decorator
+        },
+      })
+    );
+  });
+
+  it("strips the decorator from a property, accessor and parameter and expands once each", () => {
+    calls.length = 0;
+    const r = run(
+      {
+        "/m.ts": "export function __memberNoop(...a: any[]): any { return () => {}; }",
+        "/main.ts": `
+          import { __memberNoop } from "./m";
+          export class V {
+            @__memberNoop x = 1;
+            @__memberNoop get y() { return 2; }
+            m(@__memberNoop p: number) { return p; }
+          }
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).not.toContain("@__memberNoop");
+    expect(calls.sort()).toEqual(["GetAccessor", "Parameter", "PropertyDeclaration"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Decorator on a `const` (the documented `@layer(Svc) const x = ...` form):
+// the attribute macro receives the VariableDeclaration and its result
+// replaces it inside the statement.
+// ---------------------------------------------------------------------------
+describe("attribute macro on a const declaration", () => {
+  const seen: string[] = [];
+  beforeAll(() => {
+    globalRegistry.register(
+      defineAttributeMacro({
+        name: "__wrapConst",
+        validTargets: ["property"],
+        expand(ctx, _dec, target) {
+          seen.push(ts.SyntaxKind[target.kind]);
+          if (!ts.isVariableDeclaration(target) || !target.initializer) return target;
+          return ctx.factory.createVariableDeclaration(
+            target.name,
+            undefined,
+            undefined,
+            ctx.factory.createArrayLiteralExpression([target.initializer])
+          );
+        },
+      })
+    );
+  });
+
+  it("expands `@macro const x = ...` and removes the decorator", () => {
+    seen.length = 0;
+    const r = run(
+      {
+        "/m.ts": "export function __wrapConst(...a: any[]): any { return () => {}; }",
+        "/main.ts": `
+          import { __wrapConst } from "./m";
+          // @ts-ignore -- decorators are not valid here (typesugar handles them)
+          @__wrapConst
+          export const v = 1;
+        `,
+      },
+      "/main.ts"
+    );
+    expect(seen).toEqual(["VariableDeclaration"]);
+    expect(r.code).not.toContain("@__wrapConst");
+    expect(r.code).toMatch(/export const v = \[1\]/);
+  });
+});

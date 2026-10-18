@@ -1371,6 +1371,86 @@ describe("tryRewriteTypeclassOperator", () => {
     expect((call.arguments[1] as ts.Identifier).text).toBe("b");
   });
 
+  it("does not strip positions/comments off the user's real operand nodes (in-place mutation)", () => {
+    const source = [
+      "/** @typeclass */",
+      "interface Numeric<A> {",
+      "  /** @op + */",
+      "  add(a: A, b: A): A;",
+      "}",
+      "interface Point { x: number; y: number; }",
+      "/** @impl Numeric<Point> */",
+      "const numericPoint: Numeric<Point> = { add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) };",
+      "declare const a: Point;",
+      "declare const b: Point;",
+      "a + b;",
+    ].join("\n");
+    const { result } = withContext(
+      source,
+      (ctx, sf, visit, program) => {
+        scanImportsForScope(sf, globalResolutionScope, program);
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.BinaryExpression;
+        const before = [expr.left.pos, expr.left.end, expr.right.pos, expr.right.end];
+        const rewritten = tryRewriteTypeclassOperator(ctx, false, visit, expr);
+        return {
+          rewritten,
+          before,
+          after: [expr.left.pos, expr.left.end, expr.right.pos, expr.right.end],
+        };
+      },
+      "consumer.ts"
+    );
+    expect(result.rewritten).toBeDefined();
+    expect(result.before.every((n: number) => n >= 0)).toBe(true);
+    expect(result.after).toEqual(result.before);
+  });
+
+  it("reports a warning (not a silent skip) when the checker throws on the operands", () => {
+    const source = [
+      "/** @typeclass */",
+      "interface Numeric<A> {",
+      "  /** @op + */",
+      "  add(a: A, b: A): A;",
+      "}",
+      "interface Point { x: number; y: number; }",
+      "/** @impl Numeric<Point> */",
+      "const numericPoint: Numeric<Point> = { add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) };",
+      "declare const a: Point;",
+      "declare const b: Point;",
+      "a + b;",
+    ].join("\n");
+    const { result } = withContext(
+      source,
+      (ctx, sf, visit, program) => {
+        scanImportsForScope(sf, globalResolutionScope, program);
+        const stmts = sf.statements;
+        const expr = (stmts[stmts.length - 1] as ts.ExpressionStatement)
+          .expression as ts.BinaryExpression;
+        const checker = ctx.typeChecker as unknown as Record<string, unknown>;
+        const orig = checker.getTypeAtLocation;
+        checker.getTypeAtLocation = () => {
+          throw new Error("boom");
+        };
+        try {
+          return {
+            rewritten: tryRewriteTypeclassOperator(ctx, false, visit, expr),
+            warnings: ctx
+              .getDiagnostics()
+              .filter((d) => d.severity === "warning")
+              .map((d) => d.message),
+          };
+        } finally {
+          checker.getTypeAtLocation = orig;
+        }
+      },
+      "consumer.ts"
+    );
+    expect(result.rewritten).toBeUndefined();
+    expect(result.warnings.some((m: string) => m.includes("boom"))).toBe(true);
+  });
+
   it("returns undefined for primitive number operands (no rewrite)", () => {
     registerNumericForPoint();
     const { result } = withContext(

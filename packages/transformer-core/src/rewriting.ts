@@ -21,7 +21,7 @@ import {
   MacroContextImpl,
   globalRegistry,
   type MacroDefinition,
-  findStandaloneExtension,
+  findStandaloneExtensions,
   getAllStandaloneExtensions,
   buildStandaloneExtensionCall,
   type StandaloneExtensionInfo,
@@ -33,12 +33,13 @@ import {
   isSyntheticNode,
   preserveSourceMap,
   getAllTypeRewrites,
+  typeRewriteEntryCoversFile,
   type TypeRewriteEntry,
   type ConstructorRewrite,
   type MethodInlinePattern,
   extractTypeArgumentsContent,
   stripTypeArguments,
-  stripCommentsDeep,
+  cloneWithoutComments,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -290,26 +291,25 @@ export function tryRewriteExtensionMethod(
     ctx.typeChecker.getBaseTypeOfLiteralType(receiverType)
   );
 
-  let standaloneExt = findStandaloneExtension(methodName, normalizedType);
-  if (!standaloneExt && normalizedType !== typeName) {
-    standaloneExt = findStandaloneExtension(methodName, typeName);
-  }
-  if (!standaloneExt) {
-    const baseTypeName = stripTypeArguments(typeName);
-    if (baseTypeName !== typeName) {
-      standaloneExt = findStandaloneExtension(methodName, baseTypeName);
-    }
-  }
   // Registry shape (CLAUDE.md): `standaloneExtensionRegistry` is a live keyed
-  // registry, so a same-file `@extension` registered earlier in THIS pass is
-  // visible here -- but it is process-global and not keyed by file, so an
-  // entry may equally come from another file, an earlier program (watch mode,
-  // LSP) or a compiled dist's self-registration. The rewrite emits a bare
-  // `method(recv, ...)` / `Qualifier.method(recv, ...)` and injects no import,
-  // so it is only correct when that callee is actually bound, and callable, at
-  // this call site. Otherwise fall through to the import-scoped resolver below.
-  if (standaloneExt && !isExtensionCalleeBound(ctx, node, standaloneExt)) {
-    standaloneExt = undefined;
+  // registry, keyed by declaring file, so a same-file `@extension` registered
+  // earlier in THIS pass is visible here and is preferred over other files'.
+  // It is still process-wide, though: an entry may come from another file, an
+  // earlier program (watch mode, LSP) or a compiled dist's self-registration.
+  // The rewrite emits a bare `method(recv, ...)` / `Qualifier.method(recv, ...)`
+  // and injects no import, so each candidate is only usable when its callee is
+  // actually bound, and callable, at this call site. Otherwise fall through to
+  // the import-scoped resolver below.
+  const fromFile = ctx.sourceFile.fileName;
+  const typeNames = [normalizedType, typeName, stripTypeArguments(typeName)].filter(
+    (t, i, all) => all.indexOf(t) === i
+  );
+  let standaloneExt: StandaloneExtensionInfo | undefined;
+  for (const t of typeNames) {
+    standaloneExt = findStandaloneExtensions(methodName, t, fromFile).find((ext) =>
+      isExtensionCalleeBound(ctx, node, ext)
+    );
+    if (standaloneExt) break;
   }
 
   if (!standaloneExt) {
@@ -480,11 +480,17 @@ export function tryRewriteTypeclassOperator(
   let leftType: ts.Type;
   let rightType: ts.Type;
   let typeName: string;
+  if (isSyntheticNode(node.left) || isSyntheticNode(node.right)) return undefined;
   try {
     leftType = ctx.typeChecker.getTypeAtLocation(node.left);
     rightType = ctx.typeChecker.getTypeAtLocation(node.right);
     typeName = ctx.typeChecker.typeToString(leftType);
-  } catch {
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped typeclass operator rewrite of '${opString}': ` +
+        `the operand types could not be resolved (${error}).`
+    );
     return undefined;
   }
 
@@ -551,8 +557,8 @@ export function tryRewriteTypeclassOperator(
   const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
   const rewritten = factory.createCallExpression(methodAccess, undefined, [
-    stripCommentsDeep(left),
-    stripCommentsDeep(right),
+    cloneWithoutComments(left),
+    cloneWithoutComments(right),
   ]);
   return preserveSourceMap(rewritten, node);
 }
@@ -611,53 +617,9 @@ function stripScriptExtension(p: string): string {
   return p.replace(/\.d\.[cm]?ts$/, "").replace(/\.[cm]?[jt]sx?$/, "");
 }
 
-/** Directories a package's published/sources files usually live under. */
-const PACKAGE_CODE_DIRS = ["src", "dist", "lib", "build", "esm", "cjs"];
-
-/**
- * Is `fileName` (where a resolved symbol is declared) the file/module that
- * `entry` describes?
- *
- * Uses {@link TypeRewriteEntry.declarationFile} when present (exact). Otherwise
- * falls back to `sourceModule`, compared as a MODULE, never by bare name:
- *
- * - an absolute path compares exactly;
- * - a package subpath `@scope/pkg/sub` (what `@opaque`/`@adt` derive from
- *   `.../packages/<pkg>/src/<sub>.ts`) matches `<pkg>/<dir>/<sub>` or
- *   `@scope/pkg/<dir>/<sub>` for a usual code dir (src, dist, ...) -- i.e. the
- *   package's source or its published `.d.ts`;
- * - anything else (including a relative "./lib.js") matches as a path suffix
- *   (the legacy {@link isWithinSourceModule} rule).
- */
-export function typeRewriteEntryCoversFile(fileName: string, entry: TypeRewriteEntry): boolean {
-  const file = stripScriptExtension(normalizeSlashes(fileName));
-  if (entry.declarationFile) {
-    return stripScriptExtension(normalizeSlashes(entry.declarationFile)) === file;
-  }
-  if (!entry.sourceModule) return false;
-  const mod = normalizeSlashes(entry.sourceModule);
-  if (isAbsolutePath(mod)) return stripScriptExtension(mod) === file;
-
-  const sub = /^((?:@[^/]+\/)?([^/.][^/]*))\/(.+)$/.exec(mod);
-  if (sub) {
-    const [, fullPkg, pkgDir, rest] = sub;
-    const subPath = stripScriptExtension(rest);
-    for (const root of new Set([pkgDir, fullPkg])) {
-      for (const dir of PACKAGE_CODE_DIRS) {
-        const tail = `/${root}/${dir}/${subPath}`;
-        if (file.endsWith(tail) || file.endsWith(`${tail}/index`)) return true;
-      }
-    }
-  }
-
-  // A relative specifier ("./lib.js") can only be compared as a path suffix.
-  const modulePath = stripScriptExtension(mod.replace(/^@/, "").replace(/^(\.\.?\/)+/, ""));
-  return (
-    file === modulePath ||
-    file.endsWith("/" + modulePath) ||
-    file.endsWith("/" + modulePath + "/index")
-  );
-}
+// `typeRewriteEntryCoversFile` lives in @typesugar/core (type-rewrite-registry.ts)
+// so the macros diagnostic-suppression rule uses the exact same membership test.
+export { typeRewriteEntryCoversFile };
 
 /** Does any declaration of `sym` live in a file belonging to `entry`? */
 function symbolDeclaredByEntry(sym: ts.Symbol, entry: TypeRewriteEntry): boolean {

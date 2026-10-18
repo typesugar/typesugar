@@ -303,3 +303,69 @@ export function getTypeRewritesByModule(sourceModule: string): readonly TypeRewr
 export function getTypeRewriteBySymbol(symbolName: string): TypeRewriteEntry | undefined {
   return latestByName(symbolName);
 }
+
+// ---------------------------------------------------------------------------
+// File/module membership
+// ---------------------------------------------------------------------------
+
+function normalizeSlashes(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+/** Strip a TS/JS (including `.d.ts`) extension from a normalized path. */
+function stripScriptExtension(p: string): string {
+  return p.replace(/\.d\.[cm]?ts$/, "").replace(/\.[cm]?[jt]sx?$/, "");
+}
+
+/** Absolute path (Unix `/...` or Windows `C:/...` / `C:\...`). Browser-safe. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[/\\]/.test(p);
+}
+
+/** Directories a package's published/sources files usually live under. */
+const PACKAGE_CODE_DIRS = ["src", "dist", "lib", "build", "esm", "cjs"];
+
+/**
+ * Is `fileName` (where a resolved symbol is declared) the file/module that
+ * `entry` describes?
+ *
+ * Uses {@link TypeRewriteEntry.declarationFile} when present (exact). Otherwise
+ * falls back to `sourceModule`, compared as a MODULE, never by bare name:
+ *
+ * - an absolute path compares exactly;
+ * - a package subpath `@scope/pkg/sub` (what `@opaque`/`@adt` derive from
+ *   `.../packages/<pkg>/src/<sub>.ts`) matches `<pkg>/<dir>/<sub>` or
+ *   `@scope/pkg/<dir>/<sub>` for a usual code dir (src, dist, ...) -- i.e. the
+ *   package's source or its published `.d.ts`;
+ * - anything else (including a relative "./lib.js") matches as a path suffix
+ *   (the legacy transformer-core `isWithinSourceModule` rule).
+ */
+export function typeRewriteEntryCoversFile(fileName: string, entry: TypeRewriteEntry): boolean {
+  const file = stripScriptExtension(normalizeSlashes(fileName));
+  if (entry.declarationFile) {
+    return stripScriptExtension(normalizeSlashes(entry.declarationFile)) === file;
+  }
+  if (!entry.sourceModule) return false;
+  const mod = normalizeSlashes(entry.sourceModule);
+  if (isAbsolutePath(mod)) return stripScriptExtension(mod) === file;
+
+  const sub = /^((?:@[^/]+\/)?([^/.][^/]*))\/(.+)$/.exec(mod);
+  if (sub) {
+    const [, fullPkg, pkgDir, rest] = sub;
+    const subPath = stripScriptExtension(rest);
+    for (const root of new Set([pkgDir, fullPkg])) {
+      for (const dir of PACKAGE_CODE_DIRS) {
+        const tail = `/${root}/${dir}/${subPath}`;
+        if (file.endsWith(tail) || file.endsWith(`${tail}/index`)) return true;
+      }
+    }
+  }
+
+  // A relative specifier ("./lib.js") can only be compared as a path suffix.
+  const modulePath = stripScriptExtension(mod.replace(/^@/, "").replace(/^(\.\.?\/)+/, ""));
+  return (
+    file === modulePath ||
+    file.endsWith("/" + modulePath) ||
+    file.endsWith("/" + modulePath + "/index")
+  );
+}

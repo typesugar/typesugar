@@ -26,6 +26,8 @@ export {
   decodeMappings,
   findOriginalPosition,
   findGeneratedPosition,
+  buildReverseSourceMapIndex,
+  type ReverseSourceMapIndex,
   type DecodedSourceMap,
   type DecodedSegment,
   type DecodedLine,

@@ -30,6 +30,7 @@ import type {
 import {
   findStandaloneExtension,
   getAllTypeRewrites,
+  typeRewriteEntryCoversFile,
   isDiagnosticSuppressionAuditEnabled,
   isSyntheticNode,
   globalResolutionScope,
@@ -962,7 +963,10 @@ function resolveTypeRewrite(
   let entry: TypeRewriteEntry | undefined;
   for (let i = candidates.length - 1; i >= 0 && !entry; i--) {
     const c = candidates[i];
-    if ((c.declarationFile || c.sourceModule) && declFiles.some((f) => entryCoversFile(f, c))) {
+    if (
+      (c.declarationFile || c.sourceModule) &&
+      declFiles.some((f) => typeRewriteEntryCoversFile(f, c))
+    ) {
       entry = c;
     }
   }
@@ -1019,42 +1023,6 @@ function substituteTypeParams(
   const names = [...substitutions.keys()].map((n) => n.replace(/[$]/g, "\\$&"));
   const pattern = new RegExp(`(?<![\\w$])(?:${names.join("|")})(?![\\w$])`, "g");
   return template.replace(pattern, (m) => substitutions.get(m) ?? m);
-}
-
-/**
- * Is `fileName` the file/module that `entry` describes? Mirrors
- * `typeRewriteEntryCoversFile` in transformer-core's rewriting.ts (which this
- * package cannot import), so the rule hides exactly what the transformer's
- * symbol-scoped erasure will rewrite.
- */
-function entryCoversFile(fileName: string, entry: TypeRewriteEntry): boolean {
-  const norm = (p: string) => p.replace(/\\/g, "/");
-  const strip = (p: string) => p.replace(/\.d\.[cm]?ts$/, "").replace(/\.[cm]?[jt]sx?$/, "");
-  const isAbs = (p: string) => p.startsWith("/") || /^[A-Za-z]:[/\\]/.test(p);
-  const file = strip(norm(fileName));
-  if (entry.declarationFile) return strip(norm(entry.declarationFile)) === file;
-  if (!entry.sourceModule) return false;
-  const mod = norm(entry.sourceModule);
-  if (isAbs(mod)) return strip(mod) === file;
-
-  const sub = /^((?:@[^/]+\/)?([^/.][^/]*))\/(.+)$/.exec(mod);
-  if (sub) {
-    const [, fullPkg, pkgDir, rest] = sub;
-    const subPath = strip(rest);
-    for (const root of new Set([pkgDir, fullPkg])) {
-      for (const dir of ["src", "dist", "lib", "build", "esm", "cjs"]) {
-        const tail = `/${root}/${dir}/${subPath}`;
-        if (file.endsWith(tail) || file.endsWith(`${tail}/index`)) return true;
-      }
-    }
-  }
-
-  const modulePath = strip(mod.replace(/^@/, "").replace(/^(\.\.?\/)+/, ""));
-  return (
-    file === modulePath ||
-    file.endsWith("/" + modulePath) ||
-    file.endsWith("/" + modulePath + "/index")
-  );
 }
 
 /**

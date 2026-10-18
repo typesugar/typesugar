@@ -11,6 +11,7 @@ import * as ts from "typescript";
 import {
   isRegisteredInstance,
   getInstanceMethods,
+  getInstanceMethodsForDeclaration,
   getPrimitiveIntrinsicMethods,
   SpecializationCache,
   createHoistedSpecialization,
@@ -35,7 +36,7 @@ import {
   isInOptedOutScope,
   isSyntheticNode,
   preserveSourceMap,
-  stripCommentsDeep,
+  cloneWithoutComments,
   extractTypeArgumentsContent,
 } from "@typesugar/core";
 
@@ -113,6 +114,21 @@ export function tryExtractInstanceFromSource(
 
 const VALUE_MEANING = ts.SymbolFlags.Value | ts.SymbolFlags.Alias;
 
+/**
+ * One-line visible trace for a checker failure we degrade on (CLAUDE.md:
+ * a caught checker exception must not vanish silently).
+ */
+function warnCheckerFailure(
+  ctx: MacroContextImpl,
+  node: ts.Node | undefined,
+  what: string,
+  error: unknown
+): void {
+  const at = node && !isSyntheticNode(node) ? node : ctx.sourceFile;
+  ctx.reportWarning(at, `typesugar skipped ${what}: the type checker failed (${error}).`);
+}
+
+/** `"error"` means the checker threw; a warning has already been reported. */
 function resolveNameAt(
   ctx: MacroContextImpl,
   name: string,
@@ -120,7 +136,8 @@ function resolveNameAt(
 ): ts.Symbol | undefined | "error" {
   try {
     return ctx.typeChecker.resolveName(name, location, VALUE_MEANING, false);
-  } catch {
+  } catch (error) {
+    warnCheckerFailure(ctx, location, `resolving '${name}' at the call site`, error);
     return "error";
   }
 }
@@ -229,6 +246,33 @@ function isTypesugarPrimitive(checker: ts.TypeChecker, symbol: ts.Symbol): boole
  * - Only a name that resolves to nothing falls back to the name-keyed
  *   registry / intrinsics.
  */
+/**
+ * The instance registered for exactly the declaration `symbol` resolves to
+ * (through an import alias). Registry shape (CLAUDE.md): macros'
+ * `getInstanceMethodsForDeclaration` is a LIVE WeakMap keyed by declaration,
+ * written by `@impl`/`impl()` in the same pass — never conflates same-named
+ * instances, unlike the name-keyed `getInstanceMethods`.
+ */
+function methodsForResolvedDeclaration(
+  ctx: MacroContextImpl,
+  symbol: ts.Symbol
+): DictMethodMap | undefined {
+  let target = symbol;
+  if (target.flags & ts.SymbolFlags.Alias) {
+    try {
+      target = ctx.typeChecker.getAliasedSymbol(target);
+    } catch (error) {
+      warnCheckerFailure(ctx, undefined, `resolving the alias '${symbol.getName()}'`, error);
+      return undefined;
+    }
+  }
+  for (const decl of target.declarations ?? []) {
+    const entry = getInstanceMethodsForDeclaration(decl);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
 function resolveDictForIdentifier(
   ctx: MacroContextImpl,
   ident: ts.Identifier,
@@ -242,13 +286,17 @@ function resolveDictForIdentifier(
   if (!isSyntheticNode(ident) && ident.parent) {
     try {
       symbol = ctx.typeChecker.getSymbolAtLocation(ident);
-    } catch {
-      symbol = undefined;
+    } catch (error) {
+      // Decline rather than fall through to the name-keyed registry below:
+      // we don't know what `name` really binds to here.
+      warnCheckerFailure(ctx, ident, `inlining '${name}' (symbol lookup)`, error);
+      return undefined;
     }
     extractFrom = ident;
   } else if (location) {
     const r = resolveNameAt(ctx, name, location);
-    if (r && r !== "error") symbol = r;
+    if (r === "error") return undefined;
+    if (r) symbol = r;
     const decl = symbol?.declarations?.[0];
     if (decl) {
       const declName = (decl as { name?: ts.Node }).name;
@@ -261,7 +309,10 @@ function resolveDictForIdentifier(
   if (symbol && (symbol.declarations?.length ?? 0) > 0) {
     const primitive = allowIntrinsics ? getPrimitiveIntrinsicMethods(name) : undefined;
     if (primitive && isTypesugarPrimitive(ctx.typeChecker, symbol)) return primitive;
-    return extractFrom ? tryExtractInstanceFromSource(ctx, extractFrom) : undefined;
+    return (
+      (extractFrom ? tryExtractInstanceFromSource(ctx, extractFrom) : undefined) ??
+      methodsForResolvedDeclaration(ctx, symbol)
+    );
   }
 
   // Unresolvable at a known location (no user declaration exists that could
@@ -503,7 +554,8 @@ function argResolvesToDeclaration(ctx: MacroContextImpl, arg: ts.Expression): bo
   try {
     const sym = ctx.typeChecker.getSymbolAtLocation(e);
     return (sym?.declarations?.length ?? 0) > 0;
-  } catch {
+  } catch (error) {
+    warnCheckerFailure(ctx, arg, "auto-specialization (argument symbol lookup)", error);
     return false;
   }
 }
@@ -528,8 +580,11 @@ function instanceIdentity(ctx: MacroContextImpl, arg: ts.Expression, fallback: s
         }
         return `#${id}`;
       }
-    } catch {
-      // fall through to the textual name
+    } catch (error) {
+      // Never share a cache entry by bare name when the identity is unknown:
+      // two different same-named instances would get one specialization.
+      warnCheckerFailure(ctx, e, `sharing a specialization for '${fallback}'`, error);
+      return `unresolved:${nextSymbolId++}`;
     }
   }
   return `name:${fallback}`;
@@ -674,6 +729,22 @@ export function tryAutoSpecialize(
     if (!argName) continue;
 
     let methods = tryExtractInstanceFromSource(ctx, arg);
+
+    // A resolvable argument whose source extraction failed: the
+    // declaration-keyed registry (same declaration, never a same-named one).
+    if (!methods && !isSyntheticNode(arg)) {
+      let e: ts.Expression = arg;
+      while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression;
+      if (ts.isIdentifier(e)) {
+        let sym: ts.Symbol | undefined;
+        try {
+          sym = ctx.typeChecker.getSymbolAtLocation(e);
+        } catch (error) {
+          warnCheckerFailure(ctx, e, `auto-specialization (symbol lookup of '${e.text}')`, error);
+        }
+        if (sym) methods = methodsForResolvedDeclaration(ctx, sym);
+      }
+    }
 
     // Name-keyed registry only for an argument the checker can't resolve —
     // a resolvable one that failed extraction is NOT that registry entry
@@ -1142,7 +1213,7 @@ export function tryInlineDerivedInstanceCall(
   // trivia from the instance declaration (e.g. JSDoc), which the printer
   // would otherwise emit at the call site. (Behavior unified from the legacy
   // transformer in PEP-053 Wave 3.)
-  return preserveSourceMap(stripCommentsDeep(result), node);
+  return preserveSourceMap(cloneWithoutComments(result), node);
 }
 
 /**

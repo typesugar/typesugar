@@ -21,7 +21,7 @@ import {
   isInOptedOutScope,
   isSyntheticNode,
   preserveSourceMap,
-  stripCommentsDeep,
+  cloneWithoutComments,
   stripTypeArguments,
 } from "@typesugar/core";
 
@@ -266,7 +266,7 @@ export function tryResolveTypeclassMethod(
   const visitedReceiver = ts.visitNode(receiver, visit) as ts.Expression;
   const visitedArgs = node.arguments.map((a) => ts.visitNode(a, visit) as ts.Expression);
   const rewritten = factory.createCallExpression(methodAccess, undefined, [
-    stripCommentsDeep(visitedReceiver),
+    cloneWithoutComments(visitedReceiver),
     ...visitedArgs,
   ]);
 
@@ -317,8 +317,13 @@ function resolveMethodSugarInstance(
       );
       return undefined;
     }
-  } catch {
-    // checker may throw on synthetic nodes -- fall through to companion detection
+  } catch (error) {
+    // Fall through to companion detection, but leave a visible trace.
+    ctx.reportWarning(
+      ctx.sourceFile,
+      `typesugar could not resolve a ${typeclass} instance for '${typeName}' (${error}); ` +
+        `only a @derive(${typeclass}) companion will be considered for method sugar.`
+    );
   }
 
   // 2. Derived companion: the receiver's type is declared with `@derive(TC)`.
@@ -380,12 +385,18 @@ function deriveDecoratorNames(
   // (`import { derive as d }`) to the original `derive`/`deriving` export.
   let calleeName: string | undefined = callee.text;
   if (calleeName !== "derive" && calleeName !== "deriving") {
+    if (isSyntheticNode(callee)) return false;
     let sym = ctx.typeChecker.getSymbolAtLocation(callee);
     if (sym && sym.flags & ts.SymbolFlags.Alias) {
       try {
         sym = ctx.typeChecker.getAliasedSymbol(sym);
-      } catch {
-        /* ignore */
+      } catch (error) {
+        ctx.reportWarning(
+          expr,
+          `typesugar could not resolve the import alias '${callee.text}' (${error}); ` +
+            `not treating it as @derive.`
+        );
+        return false;
       }
     }
     calleeName = sym?.getName();

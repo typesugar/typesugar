@@ -24,7 +24,7 @@ import {
   type ConstructorRewrite,
   hasExportModifier,
 } from "@typesugar/core";
-import { typeRewriteEntryCoversFile } from "./rewriting.js";
+import { typeRewriteEntryCoversFile } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
 // State — tracks which .d.ts files have already been scanned

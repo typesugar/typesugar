@@ -227,6 +227,42 @@ describe("method sugar: derived companion from an unimported module (finding #23
   });
 });
 
+describe("method sugar does not mutate the user's receiver node", () => {
+  it("leaves the receiver's pos/end intact after rewriting", () => {
+    const out = withContext(
+      {
+        "point.ts": POINT_TS,
+        "main.ts": [
+          ...EQ_TYPECLASS,
+          'import { Point } from "./point";',
+          "declare const p: Point;",
+          "declare const q: Point;",
+          "p.equals(q);",
+        ].join("\n"),
+      },
+      "main.ts",
+      (ctx, sf, visit) => {
+        scanImportsForScope(sf, globalResolutionScope, ctx.program);
+        const call = lastExpressionStatement(sf);
+        const receiver = (call.expression as ts.PropertyAccessExpression).expression;
+        const before = [receiver.pos, receiver.end];
+        const rewritten = tryResolveTypeclassMethod(
+          ctx,
+          false,
+          visit,
+          noResolveMacroFromSymbol,
+          noResolveExtensionFromImports,
+          call
+        );
+        return { rewritten, before, after: [receiver.pos, receiver.end] };
+      }
+    );
+    expect(out.rewritten).toBeDefined();
+    expect(out.before.every((n) => n >= 0)).toBe(true);
+    expect(out.after).toEqual(out.before);
+  });
+});
+
 const MODELS_TS = [
   "/** @derive(Eq) */",
   "export class File { constructor(public name: string) {} }",

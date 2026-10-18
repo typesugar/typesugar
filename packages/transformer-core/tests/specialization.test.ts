@@ -948,6 +948,73 @@ describe("tryInlineDerivedInstanceCall", () => {
     expect(printNode(result!)).toContain("5 + 1");
   });
 
+  it("does not strip positions off the caller's real argument nodes", () => {
+    const { program, sourceFile } = createProgramFromSource(
+      `const v = 5;\n__test_inc_inst.inc(/* keep */ v);`
+    );
+    registerTestIncInst(program);
+    const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
+    const call = findFirstCall(sourceFile)!;
+    const arg = call.arguments[0];
+    const before = [arg.pos, arg.end];
+    const result = tryInlineDerivedInstanceCall(ctx, call);
+    expect(result).toBeDefined();
+    expect(printNode(result!)).toContain("v + 1");
+    expect(before.every((n) => n >= 0)).toBe(true);
+    expect([arg.pos, arg.end]).toEqual(before);
+  });
+
+  it("declines with a visible warning (not a name-keyed fallback) when the checker throws", () => {
+    const { program, sourceFile } = createProgramFromSource(`__test_inc_inst.inc(5);`);
+    registerTestIncInst(program);
+    const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
+    const checker = ctx.typeChecker as unknown as Record<string, unknown>;
+    const orig = checker.getSymbolAtLocation;
+    checker.getSymbolAtLocation = () => {
+      throw new Error("boom");
+    };
+    try {
+      const call = findFirstCall(sourceFile)!;
+      expect(tryInlineDerivedInstanceCall(ctx, call)).toBeUndefined();
+      const warnings = ctx.getDiagnostics().filter((d) => d.severity === "warning");
+      expect(warnings.some((d) => d.message.includes("boom"))).toBe(true);
+    } finally {
+      checker.getSymbolAtLocation = orig;
+    }
+  });
+
+  it("uses the declaration-keyed registry when source extraction of a resolved receiver fails", () => {
+    const { program, sourceFile } = createProgramFromSource(
+      `declare const declInst: { inc(a: number): number };\ndeclInst.inc(5);`
+    );
+    const stmt = sourceFile.statements.find(ts.isVariableStatement)!;
+    const decl = stmt.declarationList.declarations[0];
+    const methods = new Map<string, DictMethod>();
+    methods.set("inc", {
+      node: ts.factory.createArrowFunction(
+        undefined,
+        undefined,
+        [ts.factory.createParameterDeclaration(undefined, undefined, "a")],
+        undefined,
+        ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+        ts.factory.createBinaryExpression(
+          ts.factory.createIdentifier("a"),
+          ts.SyntaxKind.PlusToken,
+          ts.factory.createNumericLiteral(2)
+        )
+      ),
+      params: ["a"],
+    });
+    // Registered by declaration identity only (as @impl/impl() do), under a
+    // different name so the name-keyed path cannot be what finds it.
+    registerInstanceMethodsFromAST("__unrelatedName", "X", methods, program, decl);
+    const ctx = createMacroContext(program, sourceFile, sharedTransformContext);
+    const call = findFirstCall(sourceFile)!;
+    const result = tryInlineDerivedInstanceCall(ctx, call);
+    expect(result).toBeDefined();
+    expect(printNode(result!)).toContain("5 + 2");
+  });
+
   it("returns undefined when the call is not a property access on a known instance", () => {
     const { program, sourceFile } = createProgramFromSource(`const f = (x: number) => x; f(1);`);
     const ctx = createMacroContext(program, sourceFile, sharedTransformContext);

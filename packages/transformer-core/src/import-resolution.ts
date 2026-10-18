@@ -129,6 +129,26 @@ function collectValueReferences(statements: readonly ts.Statement[]): Set<string
  * binding (deep-review core #11). Name-based, so a same-named shadowing local
  * also keeps the import -- a harmless false positive.
  */
+/**
+ * A statement that prints nothing but `stmt`'s leading comments (copied as
+ * synthetic comments; the printer drops an original node's comments with the
+ * node). Comment text is copied verbatim, not generated.
+ */
+function commentPlaceholderFor(factory: ts.NodeFactory, stmt: ts.Statement): ts.Statement {
+  const placeholder = factory.createNotEmittedStatement(factory.createEmptyStatement());
+  const sf = stmt.getSourceFile();
+  if (!sf || stmt.pos < 0) return placeholder;
+  const text = sf.text;
+  for (const range of ts.getLeadingCommentRanges(text, stmt.pos) ?? []) {
+    const body =
+      range.kind === ts.SyntaxKind.SingleLineCommentTrivia
+        ? text.slice(range.pos + 2, range.end)
+        : text.slice(range.pos + 2, range.end - 2);
+    ts.addSyntheticLeadingComment(placeholder, range.kind, body, range.hasTrailingNewLine);
+  }
+  return placeholder;
+}
+
 export function cleanupMacroImports(
   factory: ts.NodeFactory,
   macroImportSpecifiers: Map<
@@ -198,6 +218,11 @@ export function cleanupMacroImports(
           : "<unknown>";
         console.log(`[typesugar] Removing macro-only import: import ... from "${moduleSpec}"`);
       }
+      // Keep the removed import's leading comments (a file header, `//!`
+      // banners, JSDoc) attached to a placeholder that prints nothing else;
+      // dropping the statement would lose them or reattach them inside the
+      // next (injected) import's braces.
+      result.push(commentPlaceholderFor(factory, stmt));
       continue;
     }
 
@@ -538,6 +563,24 @@ export function resolveSymbolToMacro(
 /**
  * Resolve an identifier to a macro definition via import tracking.
  */
+const boundInProgram = new WeakMap<ts.SourceFile, boolean>();
+
+/**
+ * Is `node` part of a SourceFile the program's checker has bound (the
+ * program's own copy)? A detached `ts.createSourceFile` copy with the same
+ * name is not, and the checker must not be called on its nodes.
+ */
+export function isNodeInProgram(program: ts.Program, node: ts.Node): boolean {
+  const sf = node.getSourceFile();
+  if (!sf) return false;
+  let bound = boundInProgram.get(sf);
+  if (bound === undefined) {
+    bound = program.getSourceFile(sf.fileName) === sf;
+    boundInProgram.set(sf, bound);
+  }
+  return bound;
+}
+
 export function resolveMacroFromSymbol(
   typeChecker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
@@ -545,11 +588,15 @@ export function resolveMacroFromSymbol(
   node: ts.Node,
   macroName: string,
   kind: MacroDefinition["kind"],
-  onMacroImport?: (symbol: ts.Symbol) => void
+  onMacroImport?: (symbol: ts.Symbol) => void,
+  program?: ts.Program
 ): MacroDefinition | undefined {
   // A macro-generated node is outside the checker's contract (CLAUDE.md):
   // resolve it by name + the file's imports without asking the checker.
-  if (isSyntheticNode(node)) {
+  // So is a node of a SourceFile that is not the program's own (bound) copy
+  // -- e.g. the detached copy packages/transformer's pipeline makes when the
+  // preprocessed text differs: the checker throws on it ("reading 'members'").
+  if (isSyntheticNode(node) || (program && !isNodeInProgram(program, node))) {
     return fallbackNameLookupWithImports(sourceFile, macroName, kind);
   }
   let symbol: ts.Symbol | undefined;
