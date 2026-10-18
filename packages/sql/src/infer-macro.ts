@@ -18,7 +18,7 @@
  * ### Explicit Result Type
  *
  * ```typescript
- * const findUser = sqlKind<User>`SELECT id, name FROM users WHERE id = ${userId}`;
+ * const findUser = sql$<User>`SELECT id, name FROM users WHERE id = ${userId}`;
  * // TypedFragment<[number], User>
  * ```
  *
@@ -51,8 +51,11 @@
  *
  * ## Zero-Cost
  *
- * The type information exists only at compile time. At runtime,
- * sql$ generates the same code as the basic sql`` template.
+ * The type information exists only at compile time. At runtime the output is
+ * `__typed_sql_build<P, R>(segments, [e0, e1, ...])` — interpolated values are
+ * bound as plain params and Fragment/TypedFragment interpolations are inlined,
+ * exactly like `sql```'s `__sql_build` (SQL-2). Runtime names are imported via
+ * `ctx.ensureImport` (SQL-4).
  *
  * @module
  */
@@ -63,7 +66,9 @@ import {
   type MacroContext,
   createGenericRegistry,
   type GenericRegistry,
+  isSyntheticNode,
 } from "@typesugar/core";
+import { runtimeRef } from "./derive-common.js";
 
 // ============================================================================
 // SQL Statement Types
@@ -215,7 +220,7 @@ export const sql$Macro = defineExpressionMacro({
     const factory = ctx.factory;
     const typeChecker = ctx.typeChecker;
 
-    // Get type arguments if provided: sqlKind<User>`...`
+    // Get type arguments if provided: sql$<User>`...`
     const typeArgs = callExpr.typeArguments;
     let explicitResultType: ts.TypeNode | undefined;
 
@@ -294,15 +299,31 @@ function expandTemplate(
   // Extract segments and expressions
   const segments: string[] = [template.head.text];
   const expressions: ts.Expression[] = [];
-  const paramTypes: ts.Type[] = [];
+  const paramTypes: ParamSlot[] = [];
+  let skippedSynthetic = false;
 
   for (const span of template.templateSpans) {
     segments.push(span.literal.text);
     expressions.push(span.expression);
 
-    // Get the type of each interpolated expression
-    const type = typeChecker.getTypeAtLocation(span.expression);
-    paramTypes.push(type);
+    // Get the type of each interpolated expression. A macro-generated
+    // (synthetic) interpolation is outside the checker's contract — skip it
+    // and type that param as `unknown` (CLAUDE.md; SQL-18).
+    if (isSyntheticNode(span.expression)) {
+      skippedSynthetic = true;
+      paramTypes.push({ kind: "value", type: undefined });
+    } else {
+      paramTypes.push(
+        classifyInterpolation(typeChecker, typeChecker.getTypeAtLocation(span.expression))
+      );
+    }
+  }
+  if (skippedSynthetic) {
+    ctx.reportWarning(
+      template,
+      "sql$: some interpolations are macro-generated; their parameter types could not be " +
+        "inferred and are typed as unknown"
+    );
   }
 
   // Build full SQL for parsing (with placeholders)
@@ -324,6 +345,25 @@ function expandTemplate(
 }
 
 /**
+ * One interpolation's contribution to the parameter tuple: a single bound
+ * value, or a spliced-in fragment whose own params are spread (`...P2` for a
+ * `TypedFragment<P2, _>`, `...unknown[]` for an untyped `Fragment`).
+ */
+type ParamSlot =
+  | { kind: "value"; type: ts.Type | undefined }
+  | { kind: "spread"; params: ts.Type | undefined };
+
+function classifyInterpolation(checker: ts.TypeChecker, type: ts.Type): ParamSlot {
+  const name = type.getSymbol()?.getName();
+  if (name === "TypedFragment") {
+    const args = checker.getTypeArguments(type as ts.TypeReference);
+    return { kind: "spread", params: args[0] };
+  }
+  if (name === "Fragment") return { kind: "spread", params: undefined };
+  return { kind: "value", type };
+}
+
+/**
  * Create a TypedFragment construction call with inferred types.
  */
 function createTypedFragmentCall(
@@ -332,16 +372,26 @@ function createTypedFragmentCall(
   expressions: ts.Expression[],
   parsed: ParsedSql,
   explicitResultType: ts.TypeNode | undefined,
-  paramTypes?: ts.Type[]
+  paramTypes?: ParamSlot[]
 ): ts.Expression {
   const factory = ctx.factory;
   const typeChecker = ctx.typeChecker;
+  const unknownType = () => factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword);
 
-  // Build parameter type tuple
+  // Build parameter type tuple. typeToTypeNode can return undefined; fall back
+  // to `unknown` rather than leaving a hole that crashes the printer (SQL-18).
   let paramTypeTuple: ts.TypeNode;
   if (paramTypes && paramTypes.length > 0) {
+    const toNode = (t: ts.Type | undefined): ts.TypeNode | undefined =>
+      t ? typeChecker.typeToTypeNode(t, undefined, ts.NodeBuilderFlags.NoTruncation) : undefined;
     paramTypeTuple = factory.createTupleTypeNode(
-      paramTypes.map((t) => typeChecker.typeToTypeNode(t, undefined, ts.NodeBuilderFlags.None)!)
+      paramTypes.map((slot) =>
+        slot.kind === "value"
+          ? (toNode(slot.type) ?? unknownType())
+          : factory.createRestTypeNode(
+              toNode(slot.params) ?? factory.createArrayTypeNode(unknownType())
+            )
+      )
     );
   } else {
     paramTypeTuple = factory.createTupleTypeNode([]);
@@ -354,24 +404,26 @@ function createTypedFragmentCall(
   } else if (parsed.type === "SELECT" || parsed.isReturning) {
     // Try to infer from schema
     const inferredType = tryInferResultType(ctx, parsed);
-    resultType = inferredType ?? factory.createTypeReferenceNode("SqlRow");
+    // Record<string, unknown> (= SqlRow) built inline: no type-only import needed.
+    resultType =
+      inferredType ??
+      factory.createTypeReferenceNode("Record", [
+        factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+        unknownType(),
+      ]);
   } else {
     resultType = factory.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword);
   }
 
-  // Create: new TypedFragment<P, R>(segments, params)
+  // Create: __typed_sql_build<P, R>(segments, [e0, e1, ...]) — plain params,
+  // fragment interpolations inlined at runtime (SQL-2).
   const segmentsArray = factory.createArrayLiteralExpression(
     segments.map((s) => factory.createStringLiteral(s))
   );
+  const paramsArray = factory.createArrayLiteralExpression(expressions);
 
-  const paramsArray = factory.createArrayLiteralExpression(
-    expressions.map((expr) =>
-      factory.createObjectLiteralExpression([factory.createPropertyAssignment("value", expr)])
-    )
-  );
-
-  return factory.createNewExpression(
-    factory.createIdentifier("TypedFragment"),
+  return factory.createCallExpression(
+    runtimeRef(ctx, "__typed_sql_build"),
     [paramTypeTuple, resultType],
     [segmentsArray, paramsArray]
   );

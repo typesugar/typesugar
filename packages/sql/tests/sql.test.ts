@@ -774,7 +774,8 @@ describe("TypedFragment combinators", () => {
     const b = new TypedFragment<[string], void>(["role = ", ""], ["mod"]);
     const result = orTyped(a, b);
 
-    expect(result.query.text).toBe("role = $1 OR role = $2");
+    // Parenthesised, like Fragment.or (SQL-8)
+    expect(result.query.text).toBe("(role = $1 OR role = $2)");
   });
 
   it("commasTyped joins with commas", () => {
@@ -789,7 +790,9 @@ describe("TypedFragment combinators", () => {
   it("inListTyped creates IN clause", () => {
     const result = inListTyped("id", [1, 2, 3]);
     const { sql, params } = result.toQuery().toSql();
-    expect(sql).toBe("id IN (?, ?, ?)");
+    // Default dialect is Postgres (SQL-10); "?" with an explicit dialect
+    expect(sql).toBe("id IN ($1, $2, $3)");
+    expect(result.toQuery().toSql("sqlite").sql).toBe("id IN (?, ?, ?)");
     expect(params).toEqual([1, 2, 3]);
   });
 

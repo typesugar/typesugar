@@ -487,7 +487,7 @@ console.log("\n=== Scala 3-Style Auto-Derivation ===");
  * ### Built-in `derived` strategies:
  *
  * Core (auto-derive.ts): Show, Eq, Ord, Hash, Clone
- * SQL (auto-derive-strategies.ts): Read (via Get), Write (via Put), Codec (via Read+Write)
+ * SQL: Read/Write/Codec/Meta via @derive(...) (summon-based SQL auto-derivation was removed: it was never wired up)
  */
 
 // ============================================================================

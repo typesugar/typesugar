@@ -11,10 +11,10 @@
  *
  * ```typescript
  * // Parameter types inferred from interpolations
- * const byId = sqlKind<[number]>`WHERE id = ${0}`;
+ * const byId = sql$`WHERE id = ${0}`;            // TypedFragment<[number], void>
  *
- * // Result types inferred from SELECT clause
- * const selectUsers = sqlKind<[], User>`
+ * // Explicit result type
+ * const selectUsers = sql$<User>`
  *   SELECT id, name, email FROM users
  * `;
  *
@@ -37,6 +37,12 @@
  */
 
 import { Fragment, SqlParam } from "./types.js";
+import {
+  type DialectLike,
+  FRAGMENT_BRAND,
+  assertSafeIdentifier,
+  renderFragment,
+} from "./dialect.js";
 import { Read, Write, SqlRow } from "./meta.js";
 
 // ============================================================================
@@ -66,6 +72,7 @@ export type Unit = void;
  * @typeParam R - Result row type (void for non-SELECT fragments)
  */
 export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
+  declare readonly [FRAGMENT_BRAND]: true;
   /** Type brand for parameter types */
   readonly __params!: P;
   /** Type brand for result type */
@@ -91,10 +98,15 @@ export class TypedFragment<P extends readonly unknown[] = Empty, R = Unit> {
   }
 
   /**
-   * Get the rendered query with positional placeholders.
+   * Get the rendered query with Postgres placeholders ($1, $2, …).
    */
   get query(): { text: string; params: readonly SqlParam[] } {
-    return this.toFragment().query;
+    return this.render();
+  }
+
+  /** Render for a dialect (default Postgres `$n`; `"mysql"`/`"sqlite"` → `?`). */
+  render(dialect?: DialectLike): { text: string; params: SqlParam[] } {
+    return renderFragment(this, dialect) as { text: string; params: SqlParam[] };
   }
 
   /**
@@ -166,13 +178,12 @@ export class TypedQuery<P extends readonly unknown[], R> {
   readonly __params!: P;
 
   /**
-   * Get the SQL string and parameters.
+   * Get the SQL string and parameters, rendered for `dialect` (default
+   * Postgres `$n`). Nested fragments are inlined.
    */
-  toSql(): { sql: string; params: readonly SqlParam[] } {
-    return {
-      sql: this.fragment.segments.join("?"),
-      params: this.fragment.params,
-    };
+  toSql(dialect?: DialectLike): { sql: string; params: readonly SqlParam[] } {
+    const { text, params } = renderFragment(this.fragment, dialect);
+    return { sql: text, params: params as SqlParam[] };
   }
 
   /**
@@ -219,13 +230,12 @@ export class TypedUpdate<P extends readonly unknown[]> {
   readonly __params!: P;
 
   /**
-   * Get the SQL string and parameters.
+   * Get the SQL string and parameters, rendered for `dialect` (default
+   * Postgres `$n`). Nested fragments are inlined.
    */
-  toSql(): { sql: string; params: readonly SqlParam[] } {
-    return {
-      sql: this.fragment.segments.join("?"),
-      params: this.fragment.params,
-    };
+  toSql(dialect?: DialectLike): { sql: string; params: readonly SqlParam[] } {
+    const { text, params } = renderFragment(this.fragment, dialect);
+    return { sql: text, params: params as SqlParam[] };
   }
 
   /**
@@ -299,12 +309,14 @@ export function andTyped<P extends readonly unknown[]>(
 }
 
 /**
- * Join typed fragments with OR.
+ * Join typed fragments with OR, wrapped in parentheses (like `Fragment.or`) so
+ * `andTyped(orTyped(a, b), c)` keeps the intended precedence.
  */
 export function orTyped<P extends readonly unknown[]>(
   ...fragments: TypedFragment<P, Unit>[]
 ): TypedFragment<P[], Unit> {
-  return intercalateTyped(new TypedFragment([" OR "], []), fragments);
+  if (fragments.length === 0) return emptyTyped as unknown as TypedFragment<P[], Unit>;
+  return intercalateTyped(new TypedFragment([" OR "], []), fragments).parens();
 }
 
 /**
@@ -332,16 +344,26 @@ export function commasTyped<P extends readonly unknown[], R>(
  * ```
  */
 export function inListTyped<T>(column: string, values: readonly T[]): TypedFragment<T[], Unit> {
+  assertSafeIdentifier(column, "column name");
   if (values.length === 0) {
     // Empty IN is always false
     return new TypedFragment(["1 = 0"], []);
   }
 
-  const placeholders = values.map(() => "?").join(", ");
-  return new TypedFragment(
-    [`${column} IN (${placeholders})`],
-    values as unknown as readonly SqlParam[]
-  );
+  // Real segments, one per param (segments.length === params.length + 1).
+  const segments = [`${column} IN (`];
+  for (let i = 0; i < values.length; i++) {
+    segments.push(i < values.length - 1 ? ", " : ")");
+  }
+  return new TypedFragment(segments, values as unknown as readonly SqlParam[]);
+}
+
+/** `(p1, p2, …)` placeholder-list segments for `n` params. */
+function tupleSegments(n: number, prefix = "(", suffix = ")"): string[] {
+  if (n === 0) return [prefix + suffix];
+  const segs = [prefix];
+  for (let i = 0; i < n; i++) segs.push(i < n - 1 ? ", " : suffix);
+  return segs;
 }
 
 // ============================================================================
@@ -361,8 +383,7 @@ export function inListTyped<T>(column: string, values: readonly T[]): TypedFragm
  */
 export function valuesTyped<A>(meta: Write<A>, value: A): TypedFragment<unknown[], Unit> {
   const params = meta.write(value);
-  const placeholders = params.map(() => "?").join(", ");
-  return new TypedFragment([`(${placeholders})`], params as readonly SqlParam[]);
+  return new TypedFragment(tupleSegments(params.length), params as readonly SqlParam[]);
 }
 
 /**
@@ -376,17 +397,14 @@ export function valuesManyTyped<A>(
     return emptyTyped as unknown as TypedFragment<unknown[], Unit>;
   }
 
-  const allParams: SqlParam[] = [];
-  const rows: string[] = [];
-
-  for (const value of values) {
+  const rows = values.map((value) => {
     const params = meta.write(value);
-    const placeholders = params.map(() => "?").join(", ");
-    rows.push(`(${placeholders})`);
-    allParams.push(...(params as SqlParam[]));
-  }
-
-  return new TypedFragment([rows.join(", ")], allParams);
+    return new TypedFragment(tupleSegments(params.length), params as readonly SqlParam[]);
+  });
+  return intercalateTyped(
+    new TypedFragment([", "], []),
+    rows as unknown as TypedFragment<unknown[], Unit>[]
+  ) as unknown as TypedFragment<unknown[], Unit>;
 }
 
 // ============================================================================
@@ -394,33 +412,43 @@ export function valuesManyTyped<A>(
 // ============================================================================
 
 /**
- * Create a typed SET clause for UPDATE.
+ * Create a typed SET clause for UPDATE from a partial value.
+ *
+ * Only fields that are present (not `undefined`) in `value` are written, and
+ * only their own extractors run — so omitted Date/bigint fields don't crash and
+ * omitted optional fields aren't overwritten with NULL. This needs the Write's
+ * per-field metadata (`fields` + `extractors`), which `@derive(Write)`,
+ * `deriveWrite`, and `Write.make(columns, extractors, fields)` provide.
  *
  * @example
  * ```typescript
  * const updates = { name: "Bob", email: "bob@example.com" };
- * const setClause = setTyped(UserMeta, updates);
- * // SQL: "name = ?, email = ?"
+ * const setClause = setTyped(UserWrite, updates);
+ * // SQL: "name = $1, email = $2"
  * ```
  */
 export function setTyped<A>(meta: Write<A>, value: Partial<A>): TypedFragment<unknown[], Unit> {
-  const columns = meta.columns;
-  const allValues = meta.write(value as A);
-
-  const setClauses: string[] = [];
-  const params: SqlParam[] = [];
-
-  for (let i = 0; i < columns.length; i++) {
-    const col = columns[i];
-    const val = allValues[i];
-    // Only include non-undefined values
-    if (val !== undefined) {
-      setClauses.push(`${col} = ?`);
-      params.push(val as SqlParam);
-    }
+  const { columns, fields, extractors } = meta;
+  if (!fields || !extractors || fields.length !== columns.length) {
+    throw new Error(
+      "setTyped needs a Write with per-field metadata (fields + extractors): use " +
+        "@derive(Write), deriveWrite(), or Write.make(columns, extractors, fields)"
+    );
   }
 
-  return new TypedFragment([setClauses.join(", ")], params);
+  const parts: TypedFragment<unknown[], Unit>[] = [];
+  for (let i = 0; i < columns.length; i++) {
+    const field = fields[i];
+    if ((value as Record<string, unknown>)[field] === undefined) continue;
+    const col = assertSafeIdentifier(columns[i], "column name");
+    const param = extractors[i](value as A) as SqlParam;
+    parts.push(new TypedFragment([`${col} = `, ""], [param]));
+  }
+
+  return intercalateTyped(new TypedFragment([", "], []), parts) as unknown as TypedFragment<
+    unknown[],
+    Unit
+  >;
 }
 
 // ============================================================================
@@ -457,3 +485,6 @@ export function whereAndTyped<P extends readonly unknown[]>(
     [...combined.params]
   ) as TypedFragment<P[], Unit>;
 }
+
+// Brand TypedFragment instances so the shared renderer (and __sql_build) inline them.
+Object.defineProperty(TypedFragment.prototype, FRAGMENT_BRAND, { value: true });

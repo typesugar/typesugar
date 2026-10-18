@@ -50,9 +50,35 @@
  * @module
  */
 
-import { TypedQuery, TypedUpdate, TypedFragment, Empty, Unit } from "./typed-fragment.js";
-import { Read, Write, SqlRow } from "./meta.js";
+import { TypedQuery, TypedUpdate } from "./typed-fragment.js";
+import { Read, SqlRow } from "./meta.js";
 import { Queryable } from "./queryable.js";
+import { Query, Update, type SqlParam } from "./types.js";
+import { type DialectLike, assertSafeIdentifier, renderFragment } from "./dialect.js";
+
+/**
+ * A query accepted by `ConnectionIO.query`/`queryMany`: a typed query
+ * (`sql$`...`.toQuery()`) or an untyped one (`sql`...`.toQuery()`).
+ */
+export type AnyQuery<A> = TypedQuery<readonly unknown[], A> | Query<A>;
+
+/**
+ * Anything that can decode a row: a `Read<A>`, a `Codec<A>`, or a
+ * `@derive(Meta)`-generated instance.
+ */
+export type RowReader<A> = Pick<Read<A>, "read">;
+
+/** An update accepted by `ConnectionIO.execute`/`executeWithKeys`. */
+export type AnyUpdate = TypedUpdate<readonly unknown[]> | Update;
+
+/** Render a query/update for a dialect through the single shared renderer. */
+function renderStatement(
+  q: AnyQuery<unknown> | AnyUpdate,
+  dialect: DialectLike | undefined
+): { sql: string; params: readonly SqlParam[] } {
+  const { text, params } = renderFragment(q.fragment, dialect);
+  return { sql: text, params: params as SqlParam[] };
+}
 
 // ============================================================================
 // ConnectionIO Algebra (Operations)
@@ -66,18 +92,18 @@ export type ConnectionOp<A> =
   | { readonly _tag: "Pure"; readonly value: A }
   | {
       readonly _tag: "Query";
-      readonly query: TypedQuery<unknown[], A>;
-      readonly read: Read<A>;
+      readonly query: AnyQuery<A>;
+      readonly read: RowReader<A>;
     }
   | {
       readonly _tag: "QueryMany";
-      readonly query: TypedQuery<unknown[], A>;
-      readonly read: Read<A>;
+      readonly query: AnyQuery<A>;
+      readonly read: RowReader<A>;
     }
-  | { readonly _tag: "Execute"; readonly update: TypedUpdate<unknown[]> }
+  | { readonly _tag: "Execute"; readonly update: AnyUpdate }
   | {
       readonly _tag: "ExecuteWithKeys";
-      readonly update: TypedUpdate<unknown[]>;
+      readonly update: AnyUpdate;
       readonly columns: string[];
     }
   | { readonly _tag: "Raw"; readonly sql: string; readonly params: unknown[] }
@@ -93,7 +119,12 @@ export type ConnectionOp<A> =
       readonly query: unknown;
       readonly queryable: Queryable<unknown>;
     }
-  | { readonly _tag: "Transact"; readonly cio: ConnectionIO<A> };
+  | { readonly _tag: "Transact"; readonly cio: ConnectionIO<A> }
+  | {
+      readonly _tag: "FlatMap";
+      readonly source: ConnectionIO<unknown>;
+      readonly f: (a: unknown) => ConnectionIO<A>;
+    };
 
 // ============================================================================
 // ConnectionIO Class
@@ -161,11 +192,10 @@ export class ConnectionIO<A> {
    * Chain this operation with another that depends on the result.
    */
   flatMap<B>(f: (a: A) => ConnectionIO<B>): ConnectionIO<B> {
-    return new ConnectionIO({
-      _tag: "Pure",
-      value: undefined as unknown as B,
-      // This will be interpreted by the Transactor
-      // The actual flatMap is handled during interpretation
+    return new ConnectionIO<B>({
+      _tag: "FlatMap",
+      source: this as ConnectionIO<unknown>,
+      f: f as (a: unknown) => ConnectionIO<B>,
     });
   }
 
@@ -265,7 +295,7 @@ export class ConnectionIO<A> {
   /**
    * Execute a query returning a single result.
    */
-  static query<A>(query: TypedQuery<unknown[], A>, read: Read<A>): ConnectionIO<A | null> {
+  static query<A>(query: AnyQuery<A>, read: RowReader<A>): ConnectionIO<A | null> {
     return new ConnectionIO({
       _tag: "Query",
       query,
@@ -276,14 +306,14 @@ export class ConnectionIO<A> {
   /**
    * Execute a query returning multiple results.
    */
-  static queryMany<A>(query: TypedQuery<unknown[], A>, read: Read<A>): ConnectionIO<A[]> {
+  static queryMany<A>(query: AnyQuery<A>, read: RowReader<A>): ConnectionIO<A[]> {
     return new ConnectionIO({ _tag: "QueryMany", query, read }) as ConnectionIO<A[]>;
   }
 
   /**
    * Execute an update statement.
    */
-  static execute(update: TypedUpdate<unknown[]>): ConnectionIO<number> {
+  static execute(update: AnyUpdate): ConnectionIO<number> {
     return new ConnectionIO({
       _tag: "Execute",
       update,
@@ -294,9 +324,10 @@ export class ConnectionIO<A> {
    * Execute an update returning generated keys.
    */
   static executeWithKeys<K extends string>(
-    update: TypedUpdate<unknown[]>,
+    update: AnyUpdate,
     columns: K[]
   ): ConnectionIO<Record<K, unknown>[]> {
+    for (const c of columns) assertSafeIdentifier(c, "RETURNING column");
     return new ConnectionIO({
       _tag: "ExecuteWithKeys",
       update,
@@ -342,6 +373,12 @@ export interface DbConnection {
   rollback(): Promise<void>;
 }
 
+/** Options for a {@link Transactor}. */
+export interface TransactorOptions {
+  /** Placeholder dialect for rendering queries (default Postgres `$n`). */
+  readonly dialect?: DialectLike;
+}
+
 /**
  * Transactor — Interprets ConnectionIO programs against a database.
  *
@@ -366,10 +403,27 @@ export interface DbConnection {
  * ```
  */
 export class Transactor {
+  private readonly dialect: DialectLike | undefined;
+
+  /**
+   * @param getConnection - acquire a connection
+   * @param releaseConnection - release it after the program finishes
+   * @param options.dialect - placeholder style used to render queries
+   *   (default Postgres `$n`; `"mysql"` / `"sqlite"` render `?`). See dialect.ts.
+   */
   constructor(
     private readonly getConnection: () => Promise<DbConnection>,
-    private readonly releaseConnection: (conn: DbConnection) => Promise<void>
-  ) {}
+    private readonly releaseConnection: (conn: DbConnection) => Promise<void>,
+    options: TransactorOptions = {}
+  ) {
+    if (typeof getConnection !== "function" || typeof releaseConnection !== "function") {
+      throw new TypeError(
+        "new Transactor(getConnection, releaseConnection) takes two functions; " +
+          "use Transactor.fromConnection(conn) or Transactor.fromPool(pool)"
+      );
+    }
+    this.dialect = options.dialect;
+  }
 
   /**
    * Run a ConnectionIO program.
@@ -402,11 +456,34 @@ export class Transactor {
   }
 
   /**
-   * Interpret a ConnectionIO operation.
+   * Interpret a ConnectionIO program.
+   *
+   * Stack-safe: `FlatMap` nodes are handled by an explicit continuation stack
+   * in a loop rather than by recursion, so arbitrarily long chains built by
+   * `sequence`/`traverse`/`unfold` (left- or right-nested) run in constant JS
+   * stack. Only the scoped operations (`Attempt`, `HandleError`, `Transact`)
+   * recurse, once per nesting level of those scopes.
    */
-  private async interpret<A>(cio: ConnectionIO<A>, conn: DbConnection): Promise<A> {
-    const op = cio.op;
+  private async interpret<A>(program: ConnectionIO<A>, conn: DbConnection): Promise<A> {
+    const conts: Array<(a: unknown) => ConnectionIO<unknown>> = [];
+    let current: ConnectionIO<unknown> = program as ConnectionIO<unknown>;
 
+    for (;;) {
+      const op = current.op;
+      if (op._tag === "FlatMap") {
+        conts.push(op.f);
+        current = op.source;
+        continue;
+      }
+      const value = await this.step(op, conn);
+      const k = conts.pop();
+      if (!k) return value as A;
+      current = k(value);
+    }
+  }
+
+  /** Execute one non-FlatMap operation. */
+  private async step(op: ConnectionOp<unknown>, conn: DbConnection): Promise<unknown> {
     switch (op._tag) {
       case "Pure":
         return op.value;
@@ -415,43 +492,42 @@ export class Transactor {
         return op.thunk();
 
       case "Query": {
-        const { sql, params } = op.query.toSql();
+        const { sql, params } = renderStatement(op.query, this.dialect);
         const rows = await conn.query(sql, params);
-        if (rows.length === 0) return null as A;
-        return op.read.read(rows[0]) as A;
+        if (rows.length === 0) return null;
+        return op.read.read(rows[0]);
       }
 
       case "QueryMany": {
-        const { sql, params } = op.query.toSql();
+        const { sql, params } = renderStatement(op.query, this.dialect);
         const rows = await conn.query(sql, params);
-        return rows.map((row) => op.read.read(row)).filter((r) => r !== null) as A;
+        return rows.map((row) => op.read.read(row)).filter((r) => r !== null);
       }
 
       case "Execute": {
-        const { sql, params } = op.update.toSql();
-        return (await conn.execute(sql, params)) as A;
+        const { sql, params } = renderStatement(op.update, this.dialect);
+        return await conn.execute(sql, params);
       }
 
       case "ExecuteWithKeys": {
-        const { sql, params } = op.update.toSql();
-        // Append RETURNING clause if not present
-        const returningClause = op.columns.map((c) => c).join(", ");
-        const fullSql = sql.includes("RETURNING") ? sql : `${sql} RETURNING ${returningClause}`;
-        const rows = await conn.query(fullSql, params);
-        return rows as A;
+        const { sql, params } = renderStatement(op.update, this.dialect);
+        // Append RETURNING clause if not present (case-insensitive check).
+        const returningClause = op.columns
+          .map((c) => assertSafeIdentifier(c, "RETURNING column"))
+          .join(", ");
+        const fullSql = /\bRETURNING\b/i.test(sql) ? sql : `${sql} RETURNING ${returningClause}`;
+        return await conn.query(fullSql, params);
       }
 
-      case "Raw": {
-        const rows = await conn.query(op.sql, op.params);
-        return rows as A;
-      }
+      case "Raw":
+        return await conn.query(op.sql, op.params);
 
       case "Attempt": {
         try {
           const result = await this.interpret(op.cio, conn);
-          return Right(result) as A;
+          return Right(result);
         } catch (error) {
-          return Left(error instanceof Error ? error : new Error(String(error))) as A;
+          return Left(error instanceof Error ? error : new Error(String(error)));
         }
       }
 
@@ -464,9 +540,8 @@ export class Transactor {
         }
       }
 
-      case "ExecuteQueryable": {
-        return (await op.queryable.execute(op.query, conn)) as A;
-      }
+      case "ExecuteQueryable":
+        return await op.queryable.execute(op.query, conn);
 
       case "Transact": {
         await conn.begin();
@@ -479,29 +554,38 @@ export class Transactor {
           throw error;
         }
       }
+
+      case "FlatMap":
+        // Handled by interpret()'s loop; unreachable here.
+        return this.interpret(op as unknown as ConnectionIO<unknown>, conn);
     }
   }
 
   /**
    * Create a Transactor from a connection pool.
    */
-  static fromPool(pool: {
-    connect(): Promise<DbConnection>;
-    release(conn: DbConnection): Promise<void>;
-  }): Transactor {
+  static fromPool(
+    pool: {
+      connect(): Promise<DbConnection>;
+      release(conn: DbConnection): Promise<void>;
+    },
+    options: TransactorOptions = {}
+  ): Transactor {
     return new Transactor(
       () => pool.connect(),
-      (conn) => pool.release(conn)
+      (conn) => pool.release(conn),
+      options
     );
   }
 
   /**
    * Create a Transactor from a single connection (for testing).
    */
-  static fromConnection(conn: DbConnection): Transactor {
+  static fromConnection(conn: DbConnection, options: TransactorOptions = {}): Transactor {
     return new Transactor(
       async () => conn,
-      async () => {}
+      async () => {},
+      options
     );
   }
 }
@@ -514,10 +598,18 @@ export class Transactor {
  * Sequence multiple ConnectionIO operations, collecting results.
  */
 export function sequence<A>(cios: readonly ConnectionIO<A>[]): ConnectionIO<A[]> {
-  return cios.reduce(
-    (acc, cio) => acc.flatMap((results) => cio.map((a) => [...results, a])),
-    ConnectionIO.pure<A[]>([])
-  );
+  // Right-nested chain that pushes into one accumulator: O(n), and stack-safe
+  // because the Transactor interprets FlatMap with an explicit loop.
+  // The accumulator is created per run (inside the outer flatMap), so running
+  // the same program twice — or concurrently — never shares state.
+  const go = (i: number, acc: A[]): ConnectionIO<A[]> =>
+    i >= cios.length
+      ? ConnectionIO.pure(acc)
+      : cios[i].flatMap((a) => {
+          acc.push(a);
+          return go(i + 1, acc);
+        });
+  return ConnectionIO.unit.flatMap(() => go(0, []));
 }
 
 /**
@@ -565,8 +657,10 @@ export function unfold<A, B>(
   f: (a: A) => ConnectionIO<[A, B] | null>
 ): ConnectionIO<B[]> {
   const go = (acc: A, results: B[]): ConnectionIO<B[]> =>
-    f(acc).flatMap((next) =>
-      next === null ? ConnectionIO.pure(results) : go(next[0], [...results, next[1]])
-    );
-  return go(initial, []);
+    f(acc).flatMap((next) => {
+      if (next === null) return ConnectionIO.pure(results);
+      results.push(next[1]);
+      return go(next[0], results);
+    });
+  return ConnectionIO.unit.flatMap(() => go(initial, []));
 }

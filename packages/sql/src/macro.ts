@@ -15,28 +15,25 @@
  * // Input:
  * const q = sql`SELECT * FROM users WHERE name = ${name} AND age > ${age}`;
  *
- * // Expands to:
- * const q = new Fragment(
+ * // Expands to (with `import { __sql_build } from "@typesugar/sql"` added):
+ * const q = __sql_build(
  *   ["SELECT * FROM users WHERE name = ", " AND age > ", ""],
  *   [name, age]
  * );
  * ```
  *
- * Fragment interpolations are composed at the Fragment level:
+ * Fragment interpolations are inlined at runtime by `__sql_build`:
  * ```typescript
  * const cond = sql`WHERE active = ${true}`;
- * const q = sql`SELECT * FROM users ${cond}`;
- *
- * // Expands to:
- * const q = __sql_compose(
- *   ["SELECT * FROM users ", ""],
- *   [cond]
- * );
+ * const q = sql`SELECT * FROM users ${cond}`;   // → __sql_build([...], [cond])
  * ```
+ *
+ * Runtime names in the output are imported via `ctx.ensureImport` (SQL-4).
  */
 
 import * as ts from "typescript";
 import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
+import { runtimeRef } from "./derive-common.js";
 
 // ============================================================================
 // SQL Macro Definition
@@ -72,7 +69,7 @@ export const sqlMacro = defineExpressionMacro({
       }
 
       // new Fragment(["SELECT 1"], [])
-      return createFragmentConstructor(factory, [sqlText], []);
+      return createFragmentConstructor(ctx, [sqlText], []);
     }
 
     // -----------------------------------------------------------------------
@@ -96,7 +93,7 @@ export const sqlMacro = defineExpressionMacro({
 
       // Generate: __sql_build(["seg0", "seg1", ...], [expr0, expr1, ...])
       // The runtime helper handles Fragment vs plain value interpolations
-      return createSqlBuildCall(factory, segments, interpolations);
+      return createSqlBuildCall(ctx, segments, interpolations);
     }
 
     return callExpr;
@@ -113,17 +110,18 @@ export const sqlMacro = defineExpressionMacro({
  * Used when all interpolations are known to be plain params (no sub-fragments).
  */
 function createFragmentConstructor(
-  factory: ts.NodeFactory,
+  ctx: MacroContext,
   segments: string[],
   params: ts.Expression[]
 ): ts.Expression {
+  const factory = ctx.factory;
   const segmentsArray = factory.createArrayLiteralExpression(
     segments.map((s) => factory.createStringLiteral(s))
   );
 
   const paramsArray = factory.createArrayLiteralExpression(params);
 
-  return factory.createNewExpression(factory.createIdentifier("Fragment"), undefined, [
+  return factory.createNewExpression(runtimeRef(ctx, "Fragment"), undefined, [
     segmentsArray,
     paramsArray,
   ]);
@@ -132,8 +130,8 @@ function createFragmentConstructor(
 /**
  * Generate: __sql_build(["seg0", "seg1", ...], [expr0, expr1, ...])
  *
- * INTENTIONALLY UNHYGIENIC: __sql_build is a runtime helper exported from @typesugar/sql.
- * Users must import it for the generated code to work.
+ * `__sql_build` is a runtime helper exported from @typesugar/sql; the import is
+ * added by `ctx.ensureImport` (aliased if the name is already taken).
  *
  * The runtime helper inspects each interpolation at runtime:
  * - If it's a Fragment, it inlines its SQL and params
@@ -142,17 +140,18 @@ function createFragmentConstructor(
  * This allows mixing Fragment composition and parameter binding in one template.
  */
 function createSqlBuildCall(
-  factory: ts.NodeFactory,
+  ctx: MacroContext,
   segments: string[],
   interpolations: ts.Expression[]
 ): ts.Expression {
+  const factory = ctx.factory;
   const segmentsArray = factory.createArrayLiteralExpression(
     segments.map((s) => factory.createStringLiteral(s))
   );
 
   const interpolationsArray = factory.createArrayLiteralExpression(interpolations);
 
-  return factory.createCallExpression(factory.createIdentifier("__sql_build"), undefined, [
+  return factory.createCallExpression(runtimeRef(ctx, "__sql_build"), undefined, [
     segmentsArray,
     interpolationsArray,
   ]);
