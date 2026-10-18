@@ -9,7 +9,7 @@ typesugar brings compile-time metaprogramming to TypeScript, drawing from the be
 **[Try it in the Playground →](https://typesugar.org/playground)** — No installation required.
 
 ```typescript
-import { derive, Eq, Ord, Clone, Json } from "@typesugar/std";
+import { derive, Eq, Ord, Clone, Json } from "typesugar";
 // Opt the file into typeclass operator syntax (cats-style) — sugar is never ambient
 import "@typesugar/std/syntax/eq/ops";
 import "@typesugar/std/syntax/ord/ops";

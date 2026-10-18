@@ -9,7 +9,10 @@ import {
   positionToOffset,
   uriToFileName,
   fileNameToUri,
+  normalizeFileName,
+  mapTsDiagnosticToOriginal,
 } from "../src/helpers.js";
+import * as path from "path";
 
 // ---------------------------------------------------------------------------
 // fix #1 / #2: URI ↔ fileName conversion (using vscode-uri)
@@ -341,5 +344,67 @@ describe("Boundary clamping and edge cases (extended)", () => {
     // line 1 starts at offset 4 and is empty
     expect(positionToOffset(text, { line: 1, character: 0 })).toBe(4);
     expect(offsetToPosition(text, 4)).toEqual({ line: 1, character: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deep-review tooling #15: one file-name normalisation (Windows drive/sep)
+// ---------------------------------------------------------------------------
+
+describe("normalizeFileName", () => {
+  it("makes the tsconfig form and the editor-URI form of a Windows path equal", () => {
+    const fromTsconfig = normalizeFileName("C:/proj/src/a.ts", path.win32);
+    const fromUri = normalizeFileName("c:\\proj\\src\\a.ts", path.win32);
+    expect(fromTsconfig).toBe(fromUri);
+    expect(fromUri).toBe("c:\\proj\\src\\a.ts");
+  });
+
+  it("only normalises POSIX paths (they are case-sensitive)", () => {
+    expect(normalizeFileName("/Users/X/proj/./a.ts", path.posix)).toBe("/Users/X/proj/a.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deep-review tooling #24: line-text fallback must not pin errors elsewhere
+// ---------------------------------------------------------------------------
+
+describe("mapTsDiagnosticToOriginal", () => {
+  const unmapped = { toOriginal: () => null };
+
+  it("drops an unmapped diagnostic on a trivial line like '}' instead of pinning it", () => {
+    const original = "function a() {\n  if (x) {\n    foo();\n  }\n}\n";
+    const transformed = "function a() {\n  if (x) {\n    foo();\n    __gen();\n  }\n}\n";
+    const start = transformed.indexOf("  }");
+    expect(mapTsDiagnosticToOriginal({ start, length: 1 }, unmapped, transformed, original)).toBe(
+      null
+    );
+  });
+
+  it("drops an unmapped diagnostic whose line occurs more than once in the original", () => {
+    const original = "const total = compute(1);\nconst total = compute(1);\n";
+    const transformed = "const __x = 1;\nconst total = compute(1);\n";
+    const start = transformed.indexOf("compute");
+    expect(mapTsDiagnosticToOriginal({ start, length: 7 }, unmapped, transformed, original)).toBe(
+      null
+    );
+  });
+
+  it("maps a unique, non-trivial line and keeps the column within it", () => {
+    const original = "import x from 'y';\n\nconst total = compute(1);\n";
+    const transformed = "import x from 'y';\nconst __gen = 0;\n\n  const total = compute(1);\n";
+    const start = transformed.indexOf("compute");
+    const mapped = mapTsDiagnosticToOriginal({ start, length: 7 }, unmapped, transformed, original);
+    expect(mapped).not.toBeNull();
+    expect(original.slice(mapped!.start!, mapped!.start! + mapped!.length!)).toBe("compute");
+  });
+
+  it("uses the source map when it has the position", () => {
+    const mapped = mapTsDiagnosticToOriginal(
+      { start: 10, length: 4 },
+      { toOriginal: (p: number) => p - 5 },
+      "x".repeat(20),
+      "y".repeat(20)
+    );
+    expect(mapped).toEqual({ start: 5, length: 4 });
   });
 });

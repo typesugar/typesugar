@@ -12,6 +12,11 @@
  *    positions can't be mapped back to the original source
  *
  * Usage: typesugar-lsp --stdio
+ *
+ * This module OPENS THE CONNECTION AT LOAD TIME — it is the bin/script entry
+ * (`dist/server.js`, `dist/server.cjs`, `dist/server-bundled.cjs`), never the
+ * package's library entry. Import `src/index.ts` ("." export) for the pure
+ * helpers.
  */
 
 import * as ts from "typescript";
@@ -45,7 +50,12 @@ import {
   type Range,
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { uriToFileName, fileNameToUri } from "./helpers.js";
+import {
+  uriToFileName,
+  fileNameToUri,
+  normalizeFileName,
+  mapTsDiagnosticToOriginal,
+} from "./helpers.js";
 import {
   TransformationPipeline,
   transformCode,
@@ -57,11 +67,15 @@ import {
   type PositionMapper,
 } from "@typesugar/transformer/position-mapper";
 import {
+  config,
   filterDiagnostics,
   getDiagnosticSuppressionRules,
   type PositionMapFn,
 } from "@typesugar/core";
-import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
+import {
+  registerAllDiagnosticSuppressionRules,
+  setComptimeEvaluationEnabled,
+} from "@typesugar/macros";
 import {
   mapTextSpanToOriginal,
   offsetToPosition,
@@ -82,7 +96,28 @@ import { computeInlayHints } from "./inlay-hints.js";
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 
+// tooling #14: a throw that escapes a timer or a promise (the debounced
+// diagnostics, a transformer bug) must not kill the server — the client would
+// restart it, it would hit the same file again, and crash-loop. Log it instead.
+process.on("uncaughtException", (err) => {
+  log(`Uncaught exception: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+});
+process.on("unhandledRejection", (reason) => {
+  log(
+    `Unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`
+  );
+});
+
 let workspaceRoot = "";
+/** Directory of the tsconfig in use (or the workspace root without one). */
+let projectDir = "";
+/**
+ * Whether comptime blocks are evaluated in the editor. Off unless the client
+ * opts in (initializationOptions.comptimeInEditor or
+ * TYPESUGAR_COMPTIME_IN_EDITOR=1): opening an unreviewed repository must not
+ * execute its comptime code.
+ */
+let comptimeInEditor = false;
 let languageService: ts.LanguageService | null = null;
 let pipeline: TransformationPipeline | null = null;
 let pipelineGeneration = 0; // Incremented on pipeline recreation to bust TS language service cache
@@ -144,6 +179,7 @@ function loadTsConfig(rootDir: string): {
   fileNames: string[];
 } {
   const configPath = ts.findConfigFile(rootDir, ts.sys.fileExists, "tsconfig.json");
+  projectDir = configPath ? path.dirname(configPath) : rootDir;
   if (!configPath) {
     log("No tsconfig.json found, using defaults");
     return {
@@ -167,7 +203,7 @@ function loadTsConfig(rootDir: string): {
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath));
   return {
     compilerOptions: parsed.options,
-    fileNames: parsed.fileNames,
+    fileNames: parsed.fileNames.map((f) => normalizeFileName(f)),
   };
 }
 
@@ -176,7 +212,7 @@ function loadTsConfig(rootDir: string): {
 // ---------------------------------------------------------------------------
 
 function getOriginalContent(fileName: string): string | undefined {
-  const normalizedFileName = path.normalize(fileName);
+  const normalizedFileName = normalizeFileName(fileName);
   // Use vscode-uri to construct the URI the editor would use
   const uri = fileNameToUri(normalizedFileName);
   const doc = documents.get(uri);
@@ -192,7 +228,7 @@ function getOriginalContent(fileName: string): string | undefined {
 }
 
 function getFileVersion(fileName: string): string {
-  const normalizedFileName = path.normalize(fileName);
+  const normalizedFileName = normalizeFileName(fileName);
   const uri = fileNameToUri(normalizedFileName);
   const doc = documents.get(uri);
   if (doc) {
@@ -213,6 +249,21 @@ function getFileVersion(fileName: string): string {
 function createPipeline(compilerOptions: ts.CompilerOptions): void {
   currentCompilerOptions = compilerOptions;
   pipelineGeneration++;
+  // Editor hosts must not run comptime code unless the user opted in.
+  setComptimeEvaluationEnabled(comptimeInEditor);
+  // Read typesugar.config.* for THIS project, not whatever is above the
+  // server process's cwd.
+  try {
+    config.load({ searchFrom: projectDir || workspaceRoot });
+    const loadError = config.getLoadError();
+    if (loadError) {
+      connection.window.showWarningMessage(
+        `typesugar: config file not applied (${loadError.kind}): ${loadError.message}`
+      );
+    }
+  } catch (e) {
+    log(`Failed to load typesugar config: ${e instanceof Error ? e.message : String(e)}`);
+  }
   pipeline = new TransformationPipeline(compilerOptions, projectFileNames, {
     verbose: false,
     readFile: (f: string) => getOriginalContent(f),
@@ -251,7 +302,7 @@ function createPipeline(compilerOptions: ts.CompilerOptions): void {
 // ---------------------------------------------------------------------------
 
 function getTransformResult(fileName: string): TransformResult | null {
-  const normalizedFileName = path.normalize(fileName);
+  const normalizedFileName = normalizeFileName(fileName);
 
   if (!pipeline) return null;
 
@@ -313,7 +364,7 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
     getScriptFileNames: () => projectFileNames,
 
     getScriptVersion: (fileName: string) => {
-      const normalizedFileName = path.normalize(fileName);
+      const normalizedFileName = normalizeFileName(fileName);
       // Use getFileVersion (doc version or mtime) as the base.
       // When the file has been transformed, append transform code length
       // to bust the TS cache. Crucially, we check the transformCache
@@ -329,7 +380,7 @@ function createLanguageServiceHost(compilerOptions: ts.CompilerOptions): ts.Lang
     },
 
     getScriptSnapshot: (fileName: string) => {
-      const normalizedFileName = path.normalize(fileName);
+      const normalizedFileName = normalizeFileName(fileName);
 
       // Skip transformation for declaration files and node_modules —
       // these can never be macro-transformed and reading them directly
@@ -433,83 +484,20 @@ function convertTransformDiagnostic(diag: TransformDiagnostic, originalText: str
   };
 }
 
+/** See mapTsDiagnosticToOriginal (helpers.ts) — deep-review tooling #24. */
 function mapTsDiagnostic(
   diag: ts.Diagnostic,
   mapper: PositionMapper,
   transformedCode: string,
   originalText: string
 ): ts.Diagnostic | null {
-  if (diag.start === undefined) return diag;
-
-  const originalStart = mapper.toOriginal(diag.start);
-  if (originalStart !== null) {
-    let originalLength = diag.length;
-    if (diag.length !== undefined) {
-      const originalEnd = mapper.toOriginal(diag.start + diag.length);
-      if (originalEnd !== null) {
-        originalLength = Math.max(1, originalEnd - originalStart);
-      }
-    }
-    return { ...diag, start: originalStart, length: originalLength };
-  }
-
-  // Position mapper returned null — try line-based fallback.
-  // The source map may have gaps for lines after macro expansions.
-  // Map by finding which line in the transformed code this position is on,
-  // then finding the corresponding line in the original (by content match).
-  const transformedLines = transformedCode.split("\n");
-  const originalLines = originalText.split("\n");
-  let charCount = 0;
-  let transformedLine = 0;
-  for (let i = 0; i < transformedLines.length; i++) {
-    if (charCount + transformedLines[i].length >= diag.start) {
-      transformedLine = i;
-      break;
-    }
-    charCount += transformedLines[i].length + 1; // +1 for \n
-  }
-
-  const lineText = transformedLines[transformedLine]?.trim();
-  if (!lineText) return null;
-
-  // Find this line in the original source, searching outward from the expected position
-  // to disambiguate repeated lines (common in templates).
-  const trimmedOriginals = originalLines.map((l) => l.trim());
-  let origLineIdx = -1;
-  const maxDist = Math.max(transformedLine, trimmedOriginals.length - transformedLine);
-  for (let d = 0; d <= maxDist; d++) {
-    const above = transformedLine - d;
-    const below = transformedLine + d;
-    if (above >= 0 && above < trimmedOriginals.length && trimmedOriginals[above] === lineText) {
-      origLineIdx = above;
-      break;
-    }
-    // d > 0 avoids double-checking transformedLine itself
-    if (
-      d > 0 &&
-      below >= 0 &&
-      below < trimmedOriginals.length &&
-      trimmedOriginals[below] === lineText
-    ) {
-      origLineIdx = below;
-      break;
-    }
-  }
-  if (origLineIdx < 0) return null; // Truly macro-generated, no original equivalent
-
-  // Map to the start of this line in the original
-  let origOffset = 0;
-  for (let i = 0; i < origLineIdx; i++) {
-    origOffset += originalLines[i].length + 1;
-  }
-
-  return { ...diag, start: origOffset, length: diag.length };
+  return mapTsDiagnosticToOriginal(diag, mapper, transformedCode, originalText);
 }
 
 function getDiagnosticsForFile(fileName: string): Diagnostic[] {
   if (!languageService) return [];
 
-  const normalizedFileName = path.normalize(fileName);
+  const normalizedFileName = normalizeFileName(fileName);
   const originalText = getOriginalContent(normalizedFileName);
   if (!originalText) return [];
 
@@ -536,7 +524,12 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
   let filtered: readonly ts.Diagnostic[];
   if (program && getDiagnosticSuppressionRules().length > 0) {
     const checker = program.getTypeChecker();
-    filtered = filterDiagnostics(allTsDiags, checker, (fn) => program.getSourceFile(fn));
+    // Per-call context: suppression runs against THIS program and this
+    // server's position mapping, not whatever another host registered.
+    filtered = filterDiagnostics(allTsDiags, checker, (fn) => program.getSourceFile(fn), {
+      program,
+      positionMapFn: (fn, pos) => getMapper(fn).toOriginal(pos),
+    });
   } else {
     filtered = allTsDiags;
   }
@@ -599,7 +592,7 @@ function getDiagnosticsForFile(fileName: string): Diagnostic[] {
   const suggestions: StoredSuggestion[] = [];
 
   for (const diag of transformDiags) {
-    if (path.normalize(diag.file) !== normalizedFileName) continue;
+    if (normalizeFileName(diag.file) !== normalizedFileName) continue;
     diagnostics.push(convertTransformDiagnostic(diag, originalText));
     if (diag.suggestion) {
       suggestions.push(diag.suggestion);
@@ -624,15 +617,21 @@ function publishDiagnostics(uri: string): void {
     uri,
     setTimeout(() => {
       diagnosticTimers.delete(uri);
-      const fileName = uriToFileName(uri);
-      const diagnostics = getDiagnosticsForFile(fileName);
-      log(
-        `Publishing ${diagnostics.length} diagnostics for ${path.basename(fileName)} (debounced)`
-      );
-      for (const d of diagnostics) {
-        log(`  [${d.source}:${d.code}] L${d.range.start.line}: ${d.message.substring(0, 80)}`);
+      // tooling #14: a throw here is outside any LSP handler — uncaught, it
+      // would kill the server.
+      try {
+        const fileName = uriToFileName(uri);
+        const diagnostics = getDiagnosticsForFile(fileName);
+        log(
+          `Publishing ${diagnostics.length} diagnostics for ${path.basename(fileName)} (debounced)`
+        );
+        for (const d of diagnostics) {
+          log(`  [${d.source}:${d.code}] L${d.range.start.line}: ${d.message.substring(0, 80)}`);
+        }
+        connection.sendDiagnostics({ uri, diagnostics });
+      } catch (e) {
+        log(`Diagnostics failed for ${uri}: ${e instanceof Error ? e.message : String(e)}`);
       }
-      connection.sendDiagnostics({ uri, diagnostics });
     }, DIAGNOSTIC_DELAY_MS)
   );
 }
@@ -643,14 +642,18 @@ function publishDiagnosticsImmediate(uri: string): void {
   if (existing) clearTimeout(existing);
   diagnosticTimers.delete(uri);
 
-  const fileName = uriToFileName(uri);
-  const diagnostics = getDiagnosticsForFile(fileName);
+  try {
+    const fileName = uriToFileName(uri);
+    const diagnostics = getDiagnosticsForFile(fileName);
 
-  log(`Publishing ${diagnostics.length} diagnostics for ${path.basename(fileName)} (immediate)`);
-  for (const d of diagnostics) {
-    log(`  [${d.source}:${d.code}] L${d.range.start.line}: ${d.message.substring(0, 80)}`);
+    log(`Publishing ${diagnostics.length} diagnostics for ${path.basename(fileName)} (immediate)`);
+    for (const d of diagnostics) {
+      log(`  [${d.source}:${d.code}] L${d.range.start.line}: ${d.message.substring(0, 80)}`);
+    }
+    connection.sendDiagnostics({ uri, diagnostics });
+  } catch (e) {
+    log(`Diagnostics failed for ${uri}: ${e instanceof Error ? e.message : String(e)}`);
   }
-  connection.sendDiagnostics({ uri, diagnostics });
 }
 
 // ---------------------------------------------------------------------------
@@ -836,10 +839,15 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
   log(`Initializing with workspace root: ${workspaceRoot}`);
 
+  const initOptions = (params.initializationOptions ?? {}) as { comptimeInEditor?: unknown };
+  comptimeInEditor =
+    initOptions.comptimeInEditor === true || process.env.TYPESUGAR_COMPTIME_IN_EDITOR === "1";
+  log(`comptime evaluation in editor: ${comptimeInEditor ? "ENABLED (opted in)" : "disabled"}`);
+
   // Load tsconfig
   const { compilerOptions, fileNames: tsFileNames } = loadTsConfig(workspaceRoot);
 
-  projectFileNames = [...new Set(tsFileNames)];
+  projectFileNames = [...new Set(tsFileNames)]; // already normalizeFileName'd
 
   // Load macro manifest
   if (manifest.load(workspaceRoot)) {
@@ -940,14 +948,25 @@ connection.onExit(() => {
 documents.onDidOpen((event) => {
   log(`Document opened: ${event.document.uri}`);
   const fileName = uriToFileName(event.document.uri);
-  const normalized = path.normalize(fileName);
+  const normalized = normalizeFileName(fileName);
 
-  // Add new transformable files to the project and recreate pipeline ONCE
+  // tooling #15: add a file outside the tsconfig to the project WITHOUT
+  // recreating the pipeline (which re-transformed the whole project
+  // synchronously on every such open). The pipeline was constructed with
+  // `projectFileNames` and keeps that array (`getFileNames()` returns it), so
+  // pushing here extends its root files; `invalidateContent` drops its
+  // program so the next transform rebuilds it (reusing the old one). If a
+  // future pipeline copies the list instead, fall back to recreating it.
   if (!projectFileNames.includes(normalized)) {
     projectFileNames.push(normalized);
-    if (pipeline?.shouldTransform(normalized) && currentCompilerOptions) {
-      createPipeline(currentCompilerOptions);
-      log(`Recreated pipeline to include ${path.basename(normalized)}`);
+    if (pipeline?.shouldTransform(normalized)) {
+      if (pipeline.getFileNames().includes(normalized)) {
+        pipeline.invalidateContent(normalized);
+        log(`Added ${path.basename(normalized)} to the project`);
+      } else if (currentCompilerOptions) {
+        createPipeline(currentCompilerOptions);
+        log(`Recreated pipeline to include ${path.basename(normalized)}`);
+      }
     }
   }
 
@@ -956,7 +975,7 @@ documents.onDidOpen((event) => {
 });
 
 documents.onDidChangeContent((event) => {
-  const fileName = path.normalize(uriToFileName(event.document.uri));
+  const fileName = normalizeFileName(uriToFileName(event.document.uri));
   log(`onDidChangeContent: ${path.basename(fileName)} v${event.document.version}`);
 
   // Skip if the cached transform is already for this version.
@@ -983,12 +1002,12 @@ documents.onDidChangeContent((event) => {
 
 // fix #13: on save, re-check dependents — other open files may have stale diagnostics
 documents.onDidSave((event) => {
-  const savedFileName = path.normalize(uriToFileName(event.document.uri));
+  const savedFileName = normalizeFileName(uriToFileName(event.document.uri));
 
   // Re-publish diagnostics for all OTHER open documents, since saving file A
   // can change the diagnostics in file B if B imports A.
   for (const doc of documents.all()) {
-    const docFileName = path.normalize(uriToFileName(doc.uri));
+    const docFileName = normalizeFileName(uriToFileName(doc.uri));
     if (docFileName !== savedFileName) {
       // Invalidate the dependent's transform cache so it re-transforms
       if (pipeline) {
@@ -1021,7 +1040,7 @@ connection.onCompletion(
   safeHandler([] as CompletionItem[], (params: TextDocumentPositionParams): CompletionItem[] => {
     if (!languageService) return [];
 
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return [];
 
@@ -1114,7 +1133,7 @@ connection.onHover(
   safeHandler(null as Hover | null, (params: TextDocumentPositionParams): Hover | null => {
     if (!languageService) return null;
 
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return null;
 
@@ -1155,7 +1174,7 @@ connection.onDefinition(
     (params: TextDocumentPositionParams): Definition | null => {
       if (!languageService) return null;
 
-      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
       const originalText = getOriginalContent(fileName);
       if (!originalText) return null;
 
@@ -1198,7 +1217,7 @@ connection.onTypeDefinition(
     (params: TextDocumentPositionParams): Definition | null => {
       if (!languageService) return null;
 
-      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
       const originalText = getOriginalContent(fileName);
       if (!originalText) return null;
 
@@ -1239,7 +1258,7 @@ connection.onReferences(
   safeHandler(null as Location[] | null, (params: ReferenceParams): Location[] | null => {
     if (!languageService) return null;
 
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return null;
 
@@ -1281,7 +1300,7 @@ connection.onDocumentHighlight(
     (params: TextDocumentPositionParams): DocumentHighlight[] | null => {
       if (!languageService) return null;
 
-      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
       const originalText = getOriginalContent(fileName);
       if (!originalText) return null;
 
@@ -1328,7 +1347,7 @@ connection.onSignatureHelp(
     (params: TextDocumentPositionParams): SignatureHelp | null => {
       if (!languageService) return null;
 
-      const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+      const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
       const originalText = getOriginalContent(fileName);
       if (!originalText) return null;
 
@@ -1370,7 +1389,7 @@ connection.onPrepareRename(
   safeHandler(null as Range | null, (params: PrepareRenameParams): Range | null => {
     if (!languageService) return null;
 
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return null;
 
@@ -1394,7 +1413,7 @@ connection.onRenameRequest(
   safeHandler(null as WorkspaceEdit | null, (params: RenameParams): WorkspaceEdit | null => {
     if (!languageService) return null;
 
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return null;
 
@@ -1444,7 +1463,7 @@ connection.onCodeAction(
   safeHandler([] as CodeAction[], (params: CodeActionParams): CodeAction[] => {
     if (!languageService) return [];
 
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return [];
 
@@ -1533,7 +1552,7 @@ connection.onCodeAction(
       }
     }
 
-    // Add macro-specific code actions (expand, wrap-in-comptime, add-derive)
+    // Add macro-specific code actions (expand, wrap-in-comptime)
     const startOff = positionToOffset(originalText, params.range.start);
     const endOff = positionToOffset(originalText, params.range.end);
     const macroActions = computeMacroCodeActions(
@@ -1565,12 +1584,11 @@ connection.onCodeAction(
             ],
           },
         };
-      } else if (ma.kind === "add-derive") {
-        action.command = {
-          title: ma.title,
-          command: "typesugar.addDerive",
-          arguments: [params.textDocument.uri, ma.declOffset],
-        };
+      } else {
+        // tooling #23: "add-derive" used to carry a `typesugar.addDerive`
+        // command that no server or client registers, so choosing it did
+        // nothing. It isn't offered until it can be a real WorkspaceEdit.
+        continue;
       }
       actions.push(action);
     }
@@ -1585,7 +1603,7 @@ connection.onCodeAction(
 
 connection.languages.semanticTokens.on(
   safeHandler({ data: [] as number[] }, (params: any) => {
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return { data: [] };
 
@@ -1599,7 +1617,7 @@ connection.languages.semanticTokens.on(
 
 connection.onCodeLens(
   safeHandler([] as any[], (params: any) => {
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return [];
 
@@ -1613,7 +1631,7 @@ connection.onCodeLens(
 
 connection.languages.inlayHint.on(
   safeHandler([] as any[], (params: any) => {
-    const fileName = path.normalize(uriToFileName(params.textDocument.uri));
+    const fileName = normalizeFileName(uriToFileName(params.textDocument.uri));
     const originalText = getOriginalContent(fileName);
     if (!originalText) return [];
 
@@ -1635,7 +1653,7 @@ connection.onExecuteCommand(
       case "typesugar.expandMacro": {
         if (!params.arguments || params.arguments.length < 2) return null;
         const [uri, offset] = params.arguments as [string, number];
-        const fileName = path.normalize(uriToFileName(uri));
+        const fileName = normalizeFileName(uriToFileName(uri));
         const result = getTransformResult(fileName);
         if (!result?.expansions) return null;
 
@@ -1661,7 +1679,7 @@ connection.onExecuteCommand(
       case "typesugar.showTransformed": {
         if (!params.arguments || params.arguments.length < 1) return null;
         const [uri] = params.arguments as [string];
-        const fileName = path.normalize(uriToFileName(uri));
+        const fileName = normalizeFileName(uriToFileName(uri));
         const result = getTransformResult(fileName);
         if (!result) return null;
         return { original: result.original, transformed: result.code, changed: result.changed };

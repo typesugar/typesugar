@@ -22,14 +22,24 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./macros": {
-      "types": "./dist/macro.d.ts",
-      "import": "./dist/macro.js",
-      "require": "./dist/macro.cjs"
+      "import": {
+        "types": "./dist/macro.d.ts",
+        "default": "./dist/macro.js"
+      },
+      "require": {
+        "types": "./dist/macro.d.cts",
+        "default": "./dist/macro.cjs"
+      }
     }
   },
   "typesugar": {
@@ -39,7 +49,8 @@
     "build": "tsup",
     "build:watch": "tsup --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "keywords": [
     "typescript",
@@ -55,11 +66,15 @@
     "@typesugar/type-system": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "files": [
     "dist",
     "src"
   ],
-  "sideEffects": false
+  "sideEffects": [
+    "./dist/macro.js",
+    "./dist/macro.cjs",
+    "./src/macro.ts"
+  ]
 }

@@ -794,6 +794,12 @@ export const extensions = {
   },
 };
 
+export enum ConfigurationTarget {
+  Global = 1,
+  Workspace = 2,
+  WorkspaceFolder = 3,
+}
+
 export enum ViewColumn {
   Active = -1,
   Beside = -2,
