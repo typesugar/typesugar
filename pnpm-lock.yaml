@@ -455,6 +455,9 @@ importers:
 
   packages/core:
     dependencies:
+      cosmiconfig:
+        specifier: ^9.0.0
+        version: 9.0.0(typescript@5.9.3)
       magic-string:
         specifier: ^0.30.21
         version: 0.30.21
