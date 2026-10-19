@@ -245,12 +245,15 @@ jobs:
       # config's `projects` list is not what selects these). The package
       # configs don't set timeouts, so pass the root config's limits: vitest's
       # 5s default times out the CLI and strict-typecheck tests on CI runners.
+      # Two workers: with the default pool the CLI tests' synchronous spawns
+      # starved the runner and vitest failed on an RPC timeout ("Timeout
+      # calling onTaskUpdate") with every test passing.
       - name: Test subset
         run: |
           status=0
           for pkg in core transformer-core macros transformer std fp; do
             echo "::group::$pkg"
-            (cd "packages/$pkg" && pnpm exec vitest run --testTimeout=30000 --hookTimeout=15000) || { status=1; echo "::error::$pkg tests failed on typescript ${{ matrix.typescript }}"; }
+            (cd "packages/$pkg" && pnpm exec vitest run --testTimeout=30000 --hookTimeout=15000 --maxWorkers=2) || { status=1; echo "::error::$pkg tests failed on typescript ${{ matrix.typescript }}"; }
             echo "::endgroup::"
           done
           exit $status
