@@ -5,7 +5,14 @@
  * (via the `./macros` subpath). It must NOT be imported by application runtime
  * code — the runtime stubs + helpers live in the package's `.` entry. See PEP-050.
  *
- * Provides the expression macros: is<T>(), assert<T>(), validate<T>().
+ * Provides the expression macros: is<T>(), assert<T>() (and its alias
+ * assertType<T>()), validate<T>(). Each has two forms (typia's shape):
+ * `is<T>()` returns a reusable function, `is<T>(value)` checks `value` now.
+ *
+ * Every macro declares `module: "@typesugar/validate"`, so its registry
+ * identity is (`@typesugar/validate`, name) and it coexists with other
+ * packages' same-named macros — @typesugar/testing's `assert(cond)` in
+ * particular (PEP-060 item 8). The user's import picks which one expands.
  *
  * Code generation is two-layered, all built with `ts.factory`:
  *
@@ -1008,20 +1015,58 @@ function getTargetType(
   return { typeNode: typeArgs[0], type: ctx.typeChecker.getTypeFromTypeNode(typeArgs[0]) };
 }
 
+/** The module every validate macro is exported from (its registry identity). */
+const VALIDATE_MODULE = "@typesugar/validate";
+
+/**
+ * `name<T>()` takes no arguments; `name<T>(value)` takes exactly one. More is
+ * a compile-time error — the extra arguments used to be silently dropped.
+ */
+function checkArity(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression,
+  name: string,
+  args: readonly ts.Expression[]
+): boolean {
+  if (args.length <= 1) return true;
+  ctx.reportError(
+    callExpr,
+    `${name}<T>() takes no arguments or one value to check: \`${name}<T>()\` returns a ` +
+      `reusable function, \`${name}<T>(value)\` checks \`value\` immediately.`
+  );
+  return false;
+}
+
+/**
+ * `name<T>()` is the generated function itself; `name<T>(value)` applies it
+ * to `value` on the spot (`(fn)(value)`), evaluating `value` exactly once.
+ */
+function applyToArgument(
+  ctx: MacroContext,
+  fn: ts.Expression,
+  args: readonly ts.Expression[]
+): ts.Expression {
+  if (args.length === 0) return fn;
+  const f = ctx.factory;
+  return f.createCallExpression(f.createParenthesizedExpression(fn), undefined, [args[0]]);
+}
+
 // ============================================================================
 // validate<T>()
 // ============================================================================
 
 export const validateMacro = defineExpressionMacro({
   name: "validate",
+  module: VALIDATE_MODULE,
   description: "Generate a runtime validator returning ValidatedNel",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[]
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const f = ctx.factory;
+    if (!checkArity(ctx, callExpr, "validate", args)) return callExpr;
     const target = getTargetType(ctx, callExpr, "validate");
     if (!target) return callExpr;
     const g = newGen(ctx, callExpr, "validate");
@@ -1086,7 +1131,7 @@ export const validateMacro = defineExpressionMacro({
         true
       )
     );
-    return withHelpers(g, arrow);
+    return applyToArgument(ctx, withHelpers(g, arrow), args);
   },
 });
 
@@ -1096,14 +1141,16 @@ export const validateMacro = defineExpressionMacro({
 
 export const isMacro = defineExpressionMacro({
   name: "is",
+  module: VALIDATE_MODULE,
   description: "Generate a boolean type guard function",
 
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[]
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const f = ctx.factory;
+    if (!checkArity(ctx, callExpr, "is", args)) return callExpr;
     const target = getTargetType(ctx, callExpr, "is");
     if (!target) return callExpr;
     const g = newGen(ctx, callExpr, "is");
@@ -1118,7 +1165,7 @@ export const isMacro = defineExpressionMacro({
       f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       f.createBlock([f.createReturnStatement(test)], true)
     );
-    return withHelpers(g, arrow);
+    return applyToArgument(ctx, withHelpers(g, arrow), args);
   },
 });
 
@@ -1126,19 +1173,18 @@ export const isMacro = defineExpressionMacro({
 // assert<T>()
 // ============================================================================
 
-export const assertMacro = defineExpressionMacro({
-  name: "assert",
-  description: "Generate an assertion function",
-
-  expand(
+/** Shared by `assert<T>()` and its alias `assertType<T>()`; `name` is used in diagnostics. */
+function expandAssert(name: string) {
+  return (
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[]
-  ): ts.Expression {
+    args: readonly ts.Expression[]
+  ): ts.Expression => {
     const f = ctx.factory;
-    const target = getTargetType(ctx, callExpr, "assert");
+    if (!checkArity(ctx, callExpr, name, args)) return callExpr;
+    const target = getTargetType(ctx, callExpr, name);
     if (!target) return callExpr;
-    const g = newGen(ctx, callExpr, "assert");
+    const g = newGen(ctx, callExpr, name);
     const value = f.createIdentifier("value");
     const body = topChecks(g, target.typeNode, target.type, value);
 
@@ -1186,14 +1232,38 @@ export const assertMacro = defineExpressionMacro({
         true
       )
     );
-    return withHelpers(g, arrow);
-  },
+    return applyToArgument(ctx, withHelpers(g, arrow), args);
+  };
+}
+
+export const assertMacro = defineExpressionMacro({
+  name: "assert",
+  module: VALIDATE_MODULE,
+  description: "Generate an assertion function",
+  expand: expandAssert("assert"),
+});
+
+// ============================================================================
+// assertType<T>() — alias of assert<T>()
+// ============================================================================
+
+/**
+ * `assertType<T>()` / `assertType<T>(value)`: exactly `assert<T>()` under the
+ * name typescript-is and typia v2 use, so a file can import it next to
+ * @typesugar/testing's `assert(cond)` without aliasing.
+ */
+export const assertTypeMacro = defineExpressionMacro({
+  name: "assertType",
+  module: VALIDATE_MODULE,
+  description: "Generate an assertion function (alias of assert<T>())",
+  expand: expandAssert("assertType"),
 });
 
 export function register(): void {
   globalRegistry.register(validateMacro);
   globalRegistry.register(isMacro);
   globalRegistry.register(assertMacro);
+  globalRegistry.register(assertTypeMacro);
 }
 
 // Auto-register on import (the transformer loads this entry for its side effects).

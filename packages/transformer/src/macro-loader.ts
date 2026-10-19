@@ -383,7 +383,8 @@ function loadDiscoveredPackages(
         pkg,
         message:
           `macro package '${pkg}' declares macros at '${info.target}' but loading it failed: ` +
-          `${error}. Its macros will not be expanded.`,
+          `${error}. Its macros will not be expanded` +
+          (error.startsWith(PARTIAL_LOAD) ? " (the conflicting ones)." : "."),
       });
     }
   }
@@ -495,6 +496,9 @@ function loadPackage(pkg: string, verbose?: boolean, fromDir?: string): boolean 
  * require() `target` and register its macros. Returns `undefined` on
  * success, or the error message when the module could not be loaded.
  */
+/** Prefix of a load error where only some `__typesugar_macros__` entries conflicted. */
+const PARTIAL_LOAD = "some of its macros conflict with registered ones: ";
+
 function tryLoadModule(
   pkg: string,
   target: string,
@@ -514,10 +518,25 @@ function tryLoadModule(
     // objects that should be registered. This is the preferred pattern for
     // third-party macro packages.
     if (Array.isArray(loaded.__typesugar_macros__)) {
+      // Register every macro even if one conflicts, so a single clash does
+      // not leave the package's later macros unregistered; then report the
+      // conflicts as this package's load failure (a warning naming them).
+      // Macros from different modules never conflict: identity is
+      // (kind, module, exportName ?? name) — see MacroRegistryImpl.
+      const conflicts: string[] = [];
       for (const macro of loaded.__typesugar_macros__) {
         if (isMacroDefinition(macro)) {
-          globalRegistry.register(macro);
+          try {
+            globalRegistry.register(macro);
+          } catch (error) {
+            conflicts.push(error instanceof Error ? error.message : String(error));
+          }
         }
+      }
+      if (conflicts.length > 0) {
+        const message = `${PARTIAL_LOAD}${conflicts.join("; ")}`;
+        failedForReq.set(target, message);
+        return message;
       }
       if (verbose) {
         console.log(

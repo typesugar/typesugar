@@ -96,6 +96,9 @@ importers:
       '@typesugar/units':
         specifier: workspace:*
         version: link:packages/units
+      '@typesugar/validate':
+        specifier: workspace:*
+        version: link:packages/validate
       '@vercel/node':
         specifier: ^5.6.15
         version: 5.6.15(rollup@4.59.0)

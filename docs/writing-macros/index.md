@@ -197,8 +197,30 @@ Common optional fields on every definition:
 - `expandAfter`: names of macros that must expand first on the same declaration.
 - `description`: shown in tooling.
 
-Macro names are global per kind: registering a second macro with a name that is already
-taken (for example `assert`, `sql` or `regex` from typesugar's own packages) throws.
+### Macro identity: module and export name
+
+A macro with a `module` is identified by its kind, its `module` and its export name
+(`exportName ?? name`), not by its name alone. Two packages can register macros with the
+same name, and both stay loaded: `@typesugar/validate`'s `assert<T>()` and
+`@typesugar/testing`'s `assert(cond)` are different macros. The transformer follows the
+user's import to the module that declares the placeholder and expands that module's macro,
+so the result never depends on which package loaded first. Aliased imports
+(`import { assert as check }`) and namespace imports (`v.assert<T>()`) resolve the same way.
+
+The rules for registering:
+
+- Registering the same definition again (an ESM and a CJS copy of one package) does nothing.
+- A different definition with the same kind, `module` and export name throws, naming both.
+- A macro without a `module` is identified by its kind and name. It expands wherever the
+  name appears, so only one module-less macro can have a given name. It can share the name
+  with macros that do have a `module`; those still win when their own module is imported.
+- A labeled-block label (`let:`) belongs to one macro. A label is syntax with no import to
+  tell two macros apart, so a second macro claiming a taken label throws.
+
+Lookups that only have a name, such as `@derive(Name)` arguments and JSDoc tags, use the one
+macro of that name if only one exists. If several modules provide it, they use the one whose
+module the file imports. If that still leaves more than one, the name is left unexpanded and
+the transformer prints a warning.
 
 ## Best Practices
 

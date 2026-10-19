@@ -236,153 +236,183 @@ import {
 } from "./types.js";
 import { registerSyntaxMarkerFallback } from "./syntax-marker-fallback.js";
 
-/**
- * Key for module-scoped macro lookup: "module::exportName"
- */
-function moduleKey(mod: string, exportName: string): string {
-  return `${mod}::${exportName}`;
+type MacroKind = MacroDefinition["kind"];
+
+const MACRO_KINDS: ReadonlySet<MacroKind> = new Set<MacroKind>([
+  "expression",
+  "attribute",
+  "derive",
+  "tagged-template",
+  "type",
+  "labeled-block",
+]);
+
+/** Identity key of a module-qualified macro: kind + module + export name. */
+function moduleKey(kind: MacroKind, mod: string, exportName: string): string {
+  return `${kind}\u0000${mod}::${exportName}`;
 }
 
+/** Identity key of a legacy (module-less) macro: kind + bare name. */
+function legacyKey(kind: MacroKind, name: string): string {
+  return `${kind}\u0000${name}`;
+}
+
+/** The names a non-labeled-block macro is found under: `name`, plus `exportName` if different. */
+function namesOf(macro: MacroDefinition): string[] {
+  return macro.exportName && macro.exportName !== macro.name
+    ? [macro.name, macro.exportName]
+    : [macro.name];
+}
+
+function labelsOf(macro: LabeledBlockMacro): string[] {
+  return Array.isArray(macro.label) ? [...macro.label] : [macro.label];
+}
+
+function describeMacro(macro: MacroDefinition): string {
+  return macro.module ? `module '${macro.module}'` : "no module (legacy, matched by name)";
+}
+
+/**
+ * Macro registry.
+ *
+ * ## Identity (PEP-060 item 8)
+ *
+ * A macro that declares a `module` is identified by
+ * **(kind, module, exportName ?? name)**. Two packages may register the same
+ * name (@typesugar/validate's `assert<T>()` and @typesugar/testing's
+ * `assert(cond)`): both stay registered, and the import the user wrote decides
+ * which one expands — transformer-core resolves a call through the import's
+ * declaring module ({@link getByModuleExport}), never by load order.
+ *
+ * A macro WITHOUT a `module` (legacy) is identified by (kind, name): it is
+ * matched by name in any file, so a second, different module-less macro of
+ * that name is a conflict. A legacy macro and module-qualified ones may share
+ * a name; the bare-name getters return the legacy one, and module-qualified
+ * resolution never sees it shadow theirs.
+ *
+ * Labeled blocks are keyed by label alone: a label is file-wide syntax (gated
+ * by `@syntax-labels` activation), with no import binding to tell two macros
+ * apart, so one label maps to one macro.
+ *
+ * ## Re-registration and conflicts
+ *
+ * Registering a macro whose identity is already taken is idempotent when it is
+ * the same definition — the same object, or a copy with the same kind, name,
+ * module, exportName, labels and description (an ESM and a CJS build, or src
+ * and dist, of one package). The first registration is kept. Any other
+ * definition under a taken identity throws, naming both.
+ *
+ * ## Bare-name lookups
+ *
+ * `getExpression(name)` and friends serve call sites that have only a name
+ * (JSDoc tags, `@derive` arguments, decorator fallbacks). They return the
+ * legacy macro of that name if there is one, else the single module-qualified
+ * macro of that name, else `undefined` when two or more modules provide it —
+ * never whichever loaded first. {@link getCandidates} lists them all, for
+ * callers that disambiguate by the file's imports.
+ */
 class MacroRegistryImpl implements MacroRegistry {
-  private expressionMacros = new Map<string, ExpressionMacro>();
-  private attributeMacros = new Map<string, AttributeMacro>();
-  private deriveMacros = new Map<string, DeriveMacro>();
-  private taggedTemplateMacros = new Map<string, TaggedTemplateMacroDef>();
-  private typeMacros = new Map<string, TypeMacro>();
-  private labeledBlockMacros = new Map<string, LabeledBlockMacro>();
+  /** Every registered macro, once, in registration order. */
+  private macros: MacroDefinition[] = [];
+
+  /** Per kind: name (and exportName alias) → every macro registered under it, in order. */
+  private byName = new Map<MacroKind, Map<string, MacroDefinition[]>>();
+
+  /** Module-qualified identities: {@link moduleKey} → macro. */
+  private byModule = new Map<string, MacroDefinition>();
+
+  /** Legacy (module-less) identities: {@link legacyKey} → macro. */
+  private legacy = new Map<string, MacroDefinition>();
+
+  /** Labeled blocks: label → macro (labels are globally unique). */
+  private labels = new Map<string, LabeledBlockMacro>();
 
   /**
-   * Secondary index: module-scoped lookup for macros that declare a `module`.
-   * Key is "module::exportName", value is the macro definition.
-   */
-  private moduleScopedMacros = new Map<string, MacroDefinition>();
-
-  /**
-   * Check if two macros are semantically the same.
-   * Used to allow idempotent registration in ESM environments where
-   * module re-imports can create new object instances.
-   *
-   * Two macros are considered the same if they have:
-   * - Same name (or label for labeled blocks)
-   * - Same kind
-   * - Compatible modules (same, both undefined, or both from typesugar packages)
+   * Whether `incoming` is the same definition as `existing`, which already
+   * holds its identity: the same object, or a copy of it (an ESM/CJS or
+   * src/dist duplicate of one package re-registering on load).
    */
   private isSameMacro(existing: MacroDefinition, incoming: MacroDefinition): boolean {
-    // Same object reference
     if (existing === incoming) return true;
-    // Must be same kind
-    if (existing.kind !== incoming.kind) return false;
-    // Same name (or label for labeled blocks)
-    const key = "label" in existing ? String(existing.label) : existing.name;
-    const incomingKey = "label" in incoming ? String(incoming.label) : incoming.name;
-    if (key !== incomingKey) return false;
-    // Same module (or both have no module)
-    if (existing.module === incoming.module) return true;
-    // If both have no module, they're the same
-    if (existing.module === undefined && incoming.module === undefined) return true;
-    // Allow typesugar packages to be equivalent (handles ESM/CJS resolution differences)
-    const isTypeSugarModule = (m: string | undefined) =>
-      m === "typesugar" || m?.startsWith("@typesugar/");
-    if (isTypeSugarModule(existing.module) && isTypeSugarModule(incoming.module)) {
-      return true;
-    }
-    return false;
+    const fingerprint = (m: MacroDefinition) =>
+      JSON.stringify([
+        m.kind,
+        m.name,
+        m.module ?? null,
+        m.exportName ?? null,
+        m.kind === "labeled-block" ? labelsOf(m) : null,
+        m.description ?? null,
+      ]);
+    return fingerprint(existing) === fingerprint(incoming);
+  }
+
+  private conflict(what: string, existing: MacroDefinition, incoming: MacroDefinition): Error {
+    return new Error(
+      `${what} is already registered by a different definition ` +
+        `(existing: ${describeMacro(existing)}, incoming: ${describeMacro(incoming)}). ` +
+        `Two definitions cannot share one identity; give each macro its own \`module\` ` +
+        `(macros from different modules coexist), or rename one. If both are copies of the ` +
+        `same package (two installed versions, or a stale dist), deduplicate or rebuild it.`
+    );
+  }
+
+  private index(kind: MacroKind, name: string, macro: MacroDefinition): void {
+    let names = this.byName.get(kind);
+    if (!names) this.byName.set(kind, (names = new Map()));
+    const list = names.get(name);
+    if (!list) names.set(name, [macro]);
+    else if (!list.includes(macro)) list.push(macro);
   }
 
   register(macro: MacroDefinition): void {
-    switch (macro.kind) {
-      case "expression": {
-        const existing = this.expressionMacros.get(macro.name);
+    if (!MACRO_KINDS.has(macro.kind)) {
+      throw new Error(`Unknown macro kind: ${(macro as MacroDefinition).kind}`);
+    }
+
+    if (macro.kind === "labeled-block") {
+      const labels = labelsOf(macro);
+      const fresh: string[] = [];
+      for (const label of labels) {
+        const existing = this.labels.get(label);
+        if (!existing) {
+          fresh.push(label);
+        } else if (!this.isSameMacro(existing, macro)) {
+          throw this.conflict(`Labeled block macro for label '${label}'`, existing, macro);
+        }
+      }
+      if (fresh.length === 0) return;
+      for (const label of fresh) {
+        this.labels.set(label, macro);
+        this.index("labeled-block", label, macro);
+      }
+    } else {
+      const kindLabel = `${macro.kind[0].toUpperCase()}${macro.kind.slice(1)} macro`;
+      if (macro.module !== undefined) {
+        const key = moduleKey(macro.kind, macro.module, macro.exportName ?? macro.name);
+        const existing = this.byModule.get(key);
         if (existing) {
-          // Idempotent: skip if semantically same macro
           if (this.isSameMacro(existing, macro)) return;
-          throw new Error(
-            `Expression macro '${macro.name}' is already registered ` +
-              `(existing module: ${existing.module}, incoming module: ${macro.module})`
+          throw this.conflict(
+            `${kindLabel} '${macro.exportName ?? macro.name}' of module '${macro.module}'`,
+            existing,
+            macro
           );
         }
-        this.expressionMacros.set(macro.name, macro);
-        if (macro.exportName && macro.exportName !== macro.name) {
-          this.expressionMacros.set(macro.exportName, macro);
-        }
-        break;
-      }
-
-      case "attribute": {
-        const existing = this.attributeMacros.get(macro.name);
-        if (existing) {
+        this.byModule.set(key, macro);
+      } else {
+        const names = namesOf(macro);
+        for (const name of names) {
+          const existing = this.legacy.get(legacyKey(macro.kind, name));
+          if (!existing) continue;
           if (this.isSameMacro(existing, macro)) return;
-          throw new Error(`Attribute macro '${macro.name}' is already registered`);
+          throw this.conflict(`${kindLabel} '${name}'`, existing, macro);
         }
-        this.attributeMacros.set(macro.name, macro);
-        if (macro.exportName && macro.exportName !== macro.name) {
-          this.attributeMacros.set(macro.exportName, macro);
-        }
-        break;
+        for (const name of names) this.legacy.set(legacyKey(macro.kind, name), macro);
       }
-
-      case "derive": {
-        const existing = this.deriveMacros.get(macro.name);
-        if (existing) {
-          if (this.isSameMacro(existing, macro)) return;
-          throw new Error(`Derive macro '${macro.name}' is already registered`);
-        }
-        this.deriveMacros.set(macro.name, macro);
-        if (macro.exportName && macro.exportName !== macro.name) {
-          this.deriveMacros.set(macro.exportName, macro);
-        }
-        break;
-      }
-
-      case "tagged-template": {
-        const existing = this.taggedTemplateMacros.get(macro.name);
-        if (existing) {
-          if (this.isSameMacro(existing, macro)) return;
-          throw new Error(`Tagged template macro '${macro.name}' is already registered`);
-        }
-        this.taggedTemplateMacros.set(macro.name, macro);
-        if (macro.exportName && macro.exportName !== macro.name) {
-          this.taggedTemplateMacros.set(macro.exportName, macro);
-        }
-        break;
-      }
-
-      case "type": {
-        const existing = this.typeMacros.get(macro.name);
-        if (existing) {
-          if (this.isSameMacro(existing, macro)) return;
-          throw new Error(`Type macro '${macro.name}' is already registered`);
-        }
-        this.typeMacros.set(macro.name, macro);
-        if (macro.exportName && macro.exportName !== macro.name) {
-          this.typeMacros.set(macro.exportName, macro);
-        }
-        break;
-      }
-
-      case "labeled-block": {
-        const labels = Array.isArray(macro.label) ? macro.label : [macro.label];
-        for (const label of labels) {
-          const existing = this.labeledBlockMacros.get(label);
-          if (existing) {
-            if (this.isSameMacro(existing, macro)) return;
-            throw new Error(`Labeled block macro for label '${label}' is already registered`);
-          }
-          this.labeledBlockMacros.set(label, macro);
-        }
-        break;
-      }
-
-      default:
-        throw new Error(`Unknown macro kind: ${(macro as MacroDefinition).kind}`);
+      for (const name of namesOf(macro)) this.index(macro.kind, name, macro);
     }
 
-    // Index by module if the macro declares one
-    if (macro.module) {
-      const exportName = macro.exportName ?? macro.name;
-      const key = moduleKey(macro.module, exportName);
-      this.moduleScopedMacros.set(key, macro);
-    }
+    this.macros.push(macro);
 
     // PEP-052 Wave 2/6 unification: a macro's `syntaxModule` (attribute or
     // labeled-block macros only) names the module whose import activates its
@@ -395,12 +425,25 @@ class MacroRegistryImpl implements MacroRegistry {
     }
   }
 
+  getCandidates(name: string, kind: MacroKind): readonly MacroDefinition[] {
+    return [...(this.byName.get(kind)?.get(name) ?? [])];
+  }
+
+  /** The bare-name rule: the legacy macro, else the sole provider, else none (ambiguous). */
+  private byBareName(name: string, kind: MacroKind): MacroDefinition | undefined {
+    const candidates = this.byName.get(kind)?.get(name);
+    if (!candidates || candidates.length === 0) return undefined;
+    const legacy = candidates.find((m) => m.module === undefined);
+    if (legacy) return legacy;
+    return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
   getExpression(name: string): ExpressionMacro | undefined {
-    return this.expressionMacros.get(name);
+    return this.byBareName(name, "expression") as ExpressionMacro | undefined;
   }
 
   getAttribute(name: string): AttributeMacro | undefined {
-    return this.attributeMacros.get(name);
+    return this.byBareName(name, "attribute") as AttributeMacro | undefined;
   }
 
   /**
@@ -408,10 +451,14 @@ class MacroRegistryImpl implements MacroRegistry {
    * `triggerLabels`. Used to implicitly apply attribute macros (e.g.
    * `@contract`) to functions containing matching labeled blocks
    * (`requires:` / `ensures:`) without an explicit decorator.
+   *
+   * Trigger labels are syntax, like labeled blocks: the first registered
+   * attribute macro declaring the label is returned, and dispatch is gated by
+   * that macro's `@syntax-labels` activation.
    */
   getAttributeByTriggerLabel(label: string): AttributeMacro | undefined {
-    for (const macro of this.attributeMacros.values()) {
-      if (macro.triggerLabels?.includes(label)) {
+    for (const macro of this.macros) {
+      if (macro.kind === "attribute" && macro.triggerLabels?.includes(label)) {
         return macro;
       }
     }
@@ -419,15 +466,15 @@ class MacroRegistryImpl implements MacroRegistry {
   }
 
   getDerive(name: string): DeriveMacro | undefined {
-    return this.deriveMacros.get(name);
+    return this.byBareName(name, "derive") as DeriveMacro | undefined;
   }
 
   getTaggedTemplate(name: string): TaggedTemplateMacroDef | undefined {
-    return this.taggedTemplateMacros.get(name);
+    return this.byBareName(name, "tagged-template") as TaggedTemplateMacroDef | undefined;
   }
 
   getType(name: string): TypeMacro | undefined {
-    return this.typeMacros.get(name);
+    return this.byBareName(name, "type") as TypeMacro | undefined;
   }
 
   /**
@@ -438,66 +485,48 @@ class MacroRegistryImpl implements MacroRegistry {
    * dispatch site silently bypasses import-scoped activation.
    */
   getLabeledBlock(label: string): LabeledBlockMacro | undefined {
-    return this.labeledBlockMacros.get(label);
+    return this.labels.get(label);
   }
 
   /**
-   * Look up a macro by its source module and export name.
-   * Returns the macro if it was registered with a matching module+exportName.
+   * Look up a macro by its identity: source module and export name (and,
+   * optionally, kind). Without `kind`, returns the first kind registered
+   * under that module and export name.
    */
-  getByModuleExport(mod: string, exportName: string): MacroDefinition | undefined {
-    return this.moduleScopedMacros.get(moduleKey(mod, exportName));
-  }
-
-  /**
-   * Check whether a macro (looked up by name) requires import-scoping.
-   * Returns true if the macro has a `module` field set.
-   */
-  isImportScoped(name: string, kind: MacroDefinition["kind"]): boolean {
-    let macro: MacroDefinition | undefined;
-    switch (kind) {
-      case "expression":
-        macro = this.expressionMacros.get(name);
-        break;
-      case "attribute":
-        macro = this.attributeMacros.get(name);
-        break;
-      case "derive":
-        macro = this.deriveMacros.get(name);
-        break;
-      case "tagged-template":
-        macro = this.taggedTemplateMacros.get(name);
-        break;
-      case "type":
-        macro = this.typeMacros.get(name);
-        break;
-      case "labeled-block":
-        macro = this.labeledBlockMacros.get(name);
-        break;
+  getByModuleExport(
+    mod: string,
+    exportName: string,
+    kind?: MacroKind
+  ): MacroDefinition | undefined {
+    if (kind) return this.byModule.get(moduleKey(kind, mod, exportName));
+    for (const k of MACRO_KINDS) {
+      const macro = this.byModule.get(moduleKey(k, mod, exportName));
+      if (macro) return macro;
     }
-    return macro?.module !== undefined;
+    return undefined;
+  }
+
+  /**
+   * Whether the macro(s) of this name and kind require import-scoping: true
+   * when every macro registered under the name declares a `module` (a legacy
+   * module-less one of that name is matched by name alone).
+   */
+  isImportScoped(name: string, kind: MacroKind): boolean {
+    const candidates = this.byName.get(kind)?.get(name);
+    return !!candidates && candidates.length > 0 && candidates.every((m) => m.module !== undefined);
   }
 
   getAll(): MacroDefinition[] {
-    return [
-      ...this.expressionMacros.values(),
-      ...this.attributeMacros.values(),
-      ...this.deriveMacros.values(),
-      ...this.taggedTemplateMacros.values(),
-      ...this.typeMacros.values(),
-      ...this.labeledBlockMacros.values(),
-    ];
+    return [...this.macros];
   }
 
   /** Clear all registered macros (useful for testing) */
   clear(): void {
-    this.expressionMacros.clear();
-    this.attributeMacros.clear();
-    this.deriveMacros.clear();
-    this.taggedTemplateMacros.clear();
-    this.typeMacros.clear();
-    this.labeledBlockMacros.clear();
-    this.moduleScopedMacros.clear();
+    this.macros = [];
+    this.byName.clear();
+    this.byModule.clear();
+    this.legacy.clear();
+    this.labels.clear();
   }
 }
 
