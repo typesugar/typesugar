@@ -102,6 +102,7 @@ import {
   KNOWN_DO_INSTANCE_MODULES,
   createStyleAwareCall,
   createMetadataJoin,
+  createSequentialBinds,
   createTupleBindingPattern,
   emitComprehensionResult,
   importSelfReceiver,
@@ -262,6 +263,23 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
           `unrecognized entries: ${doMeta.unrecognized.join(" ")} — valid keys are ` +
           `bind= map= orElse= all= receiver= style=method|static.`
       );
+    }
+    // `x << fa || alt` / `?? alt` needs a recovery method. A method-style
+    // instance defaults to `fa.orElse(...)`, but a static-style one has no
+    // such default: `F.orElse` only exists when the instance declares it
+    // (`@do-methods orElse=…`) — emitting it anyway was a runtime TypeError
+    // (docs review r3 guides-a #2).
+    if (doMeta.style === "static" && !doMeta.orElse) {
+      const fallback = steps.find((s): s is BindStep => s.kind === "bind" && !!s.orElse);
+      if (fallback) {
+        ctx.reportError(
+          fallback.node,
+          `${label}: the ${typeConstructorName} FlatMap instance (${scoped.exportName}) declares no ` +
+            `orElse= in its @do-methods, so \`<< expr || fallback\` / \`?? fallback\` is not supported ` +
+            `for ${typeConstructorName}. Recover inside the bind instead (e.g. \`x << orElse(expr, () => fallback)\`).`
+        );
+        return mainBlock;
+      }
     }
     const methods: MethodNames = {
       bind: doMeta.bind,
@@ -610,7 +628,21 @@ function buildChain(
           break;
         }
 
-        // 2./3. Otherwise combine the group into F<[names...]> — with the std
+        // 2. No ParCombine join and no std builder, and the FlatMap instance
+        //    is static style (fp's Option/Either/IO/List: no `.map`/`.ap`
+        //    methods on the values): chain the group's independent binds
+        //    straight into the surrounding chain (docs review r3 guides-a #1).
+        if (!getStdParCombineBuilder(typeConstructor) && doMeta.style === "static") {
+          let bodyWithMaps = inner;
+          for (const mapStep of [...mapSteps].reverse()) {
+            bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
+          }
+          inner = createSequentialBinds(factory, doMeta, bindSteps, bodyWithMaps, innerIsEffect);
+          innerIsEffect = true;
+          break;
+        }
+
+        // 3./4. Otherwise combine the group into F<[names...]> — with the std
         //    builder (Array/Iterable cartesian product, AsyncIterable
         //    collection) or the generic `.map().ap()` chain — and continue
         //    from that tuple like a single bind.

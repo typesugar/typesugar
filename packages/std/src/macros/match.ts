@@ -36,6 +36,8 @@ import {
   globalRegistry,
   isSyntheticNode,
   type MacroContext,
+  TS9202,
+  TS9216,
 } from "@typesugar/core";
 
 // ============================================================================
@@ -2933,6 +2935,12 @@ function expandObjectHandlerMatch(
   const paramName = f.createUniqueName("_m");
   let tagExpr: ts.Expression;
   let tagType: ts.Type;
+  // Object dispatch reads the discriminant ONCE into a const (`const _k =
+  // _m.kind`) and compares that: TS narrows `_m` through the aliased
+  // discriminant, and the non-exhaustive throw can name `_k` — reading
+  // `_m.kind` there failed strict checking because every variant has
+  // already narrowed `_m` to `never` (docs review r3 guides-b #3).
+  let discriminantDecl: ts.Statement | undefined;
 
   if (isPrimitive) {
     tagExpr = paramName;
@@ -2960,7 +2968,22 @@ function expandObjectHandlerMatch(
       return deferToRuntimeMatch(ctx, callExpr);
     }
     if (!discProp || !discriminant) return deferToRuntimeMatch(ctx, callExpr);
-    tagExpr = f.createPropertyAccessExpression(paramName, discriminant);
+    const tagName = f.createUniqueName("_k");
+    discriminantDecl = f.createVariableStatement(
+      undefined,
+      f.createVariableDeclarationList(
+        [
+          f.createVariableDeclaration(
+            tagName,
+            undefined,
+            undefined,
+            f.createPropertyAccessExpression(paramName, discriminant)
+          ),
+        ],
+        ts.NodeFlags.Const
+      )
+    );
+    tagExpr = tagName;
     tagType = ctx.typeChecker.getTypeOfSymbol(discProp);
   } else {
     // Mixed primitive/object or nullable unions: the runtime switches between
@@ -2968,12 +2991,17 @@ function expandObjectHandlerMatch(
     return deferToRuntimeMatch(ctx, callExpr);
   }
 
-  const callHandler = (h: ts.Expression) =>
-    f.createCallExpression(
-      ts.isArrowFunction(h) || ts.isFunctionExpression(h) ? f.createParenthesizedExpression(h) : h,
+  // An inline handler that declares no parameters (`circle: () => "c"`) is
+  // called with none — passing the value failed strict checking with
+  // "Expected 0 arguments, but got 1" (docs review r3 guides-b #3).
+  const callHandler = (h: ts.Expression) => {
+    const inline = ts.isArrowFunction(h) || ts.isFunctionExpression(h);
+    return f.createCallExpression(
+      inline ? f.createParenthesizedExpression(h) : h,
       undefined,
-      [paramName]
+      inline && h.parameters.length === 0 ? [] : [paramName]
     );
+  };
 
   let result: ts.Expression;
   if (wildcardHandler) {
@@ -3047,7 +3075,12 @@ function expandObjectHandlerMatch(
     [f.createParameterDeclaration(undefined, undefined, paramName)],
     undefined,
     f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    f.createBlock([f.createReturnStatement(result)], true)
+    f.createBlock(
+      discriminantDecl
+        ? [discriminantDecl, f.createReturnStatement(result)]
+        : [f.createReturnStatement(result)],
+      true
+    )
   );
   return f.createCallExpression(f.createParenthesizedExpression(arrow), undefined, [value]);
 }
@@ -3063,7 +3096,14 @@ function expandMatch(
   }
 
   if (args.length < 2) {
-    ctx.reportError(callExpr, "match() requires at least a value argument");
+    ctx
+      .diagnostic(TS9216)
+      .at(callExpr)
+      .withArgs({ macro: "match(value, handlers)", min: "2" })
+      .help(
+        "Pass a handlers object (`match(value, { Variant: handler })`) or use the fluent form `match(value).case(...)`."
+      )
+      .emit();
     return callExpr;
   }
 
@@ -3089,10 +3129,16 @@ function expandMatch(
     return expandObjectHandlerMatch(ctx, callExpr, value, handlersOrArms, explicitDiscriminant);
   }
 
-  ctx.reportError(
-    handlersOrArms,
-    "match() second argument must be an object literal { variant: handler }"
-  );
+  ctx
+    .diagnostic(TS9202)
+    .at(handlersOrArms)
+    .withArgs({
+      macro: "match()",
+      index: "2",
+      expected: "object literal { variant: handler }",
+      received: ts.SyntaxKind[handlersOrArms.kind],
+    })
+    .emit();
   return callExpr;
 }
 

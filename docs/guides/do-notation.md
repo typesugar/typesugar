@@ -29,7 +29,7 @@ Instance resolution is scope-based too (no global registry): the `FlatMap`/`ParC
 
 - **Std builtins** (`Array`, `Promise`, `Iterable`, `AsyncIterable`) ride the same marker — `import "@typesugar/std/syntax/do"` activates the labels AND brings their instances into scope, so the common case needs nothing extra.
 - **Effect** — use `import "@typesugar/effect/syntax/do"` instead; one import activates the labels and provides the Effect instances (it re-exports the std builtins too).
-- **fp types** (`Option`, `Either`, `List`, `IO`) — any import from `@typesugar/fp` brings their instances into scope. Their values are erased (`Some(10)` is just `10` at runtime), so `let:` over them compiles to static calls on the instance (`flatMapOption.flatMap(10, …)`), and the instance import is added for you. Only `let:`/`seq:` is supported for fp types: they have no `ParCombine` instance, so `par:` falls back to `.map().ap()` methods the erased values don't have, and `||`/`??` fallbacks are not supported either.
+- **fp types** (`Option`, `Either`, `List`, `IO`) — any import from `@typesugar/fp` brings their instances into scope. Their values are erased (`Some(10)` is just `10` at runtime), so `let:` over them compiles to static calls on the instance (`flatMapOption.flatMap(10, …)`), and the instance import is added for you. `par:` works too: with no `ParCombine` instance in scope, the independent binds are chained through the same instance (`flatMapEitherInstance.flatMap(Right(1), a => flatMapEitherInstance.map(Right(2), b => a + b))`). `||`/`??` fallbacks work for `Option` and `Either`, whose instances declare `orElse=`; `List` and `IO` reject them with a compile error.
 - **Custom monads** — see [Custom Types](#custom-types) below.
 
 If a comprehension's type has no instance in scope, the compiler errors (TS9225: `No FlatMap instance for 'X' is in scope`) with a hint naming the import to add.
@@ -147,7 +147,7 @@ const value = loadConfig()
   .then((config) => parseValue(config).then((value) => value));
 ```
 
-Other types use the method named by `orElse=` in their instance's [`@do-methods`](#custom-method-names-do-methods) (Effect: `catchAll`). A type with no `orElse` (including the fp types) does not support fallbacks.
+Other types use the method named by `orElse=` in their instance's [`@do-methods`](#custom-method-names-do-methods) (Effect: `catchAll`; fp `Option` and `Either`: `orElse`, so `v << parse(s) ?? Some(0)` compiles to `flatMapOption.orElse(parse(s), _ => 0)`). A method-style instance with no `orElse=` gets `fa.orElse(...)`. A static-style instance with no `orElse=` (fp `List` and `IO`) does not support fallbacks: the comprehension is a compile error.
 
 ### Discard Bindings with `_`
 
@@ -420,16 +420,17 @@ Plain iterables (`Set`, `Map`, generators) and async iterables have no `.flatMap
 
 ### par: (ParCombine typeclass)
 
-| Type            | `par:` Behavior                                      |
-| --------------- | ---------------------------------------------------- |
-| `Promise`       | `Promise.all([...]).then(([a,b,c]) => expr)`         |
-| `AsyncIterable` | Collect each via async iteration, then `Promise.all` |
-| `Array`         | Cartesian product via `.reduce().map()`              |
-| `Iterable`      | Collect to arrays, then cartesian product            |
-| `Effect`        | `Effect.map(Effect.all([...]), ([a,b,c]) => expr)`   |
-| Other           | `.map().ap()` on the values' own methods             |
+| Type                             | `par:` Behavior                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `Promise`                        | `Promise.all([...]).then(([a,b,c]) => expr)`                                     |
+| `AsyncIterable`                  | Collect each via async iteration, then `Promise.all`                             |
+| `Array`                          | Cartesian product via `.reduce().map()`                                          |
+| `Iterable`                       | Collect to arrays, then cartesian product                                        |
+| `Effect`                         | `Effect.map(Effect.all([...]), ([a,b,c]) => expr)`                               |
+| fp `Option`/`Either`/`List`/`IO` | Chained through the FlatMap instance: `F.flatMap(fa, a => F.map(fb, b => expr))` |
+| Other                            | `.map().ap()` on the values' own methods                                         |
 
-The `.map().ap()` fallback only works for values that have those methods. The fp types have no `ParCombine` instance and their erased values have no methods, so `par:` over `Option` or `Either` compiles but throws at runtime. Use `let:` for them.
+The `.map().ap()` fallback only works for values that have those methods. A type with no `ParCombine` instance whose FlatMap instance is static style (the fp types, whose erased values have no methods) chains the independent binds through that instance instead. This runs the binds one after another, so it does not accumulate errors: an `Either` `par:` stops at the first `Left`.
 
 ### AsyncIterable with par:
 

@@ -73,7 +73,10 @@
  * 2. It validates that no step references a previous step's binding
  * 3. It infers the type constructor from the first bind's expression
  * 4. For Promises, it emits `Promise.all([...]).then(([a, b, c]) => expr)`
- * 5. For other types, it emits `fa.map(a => b => c => expr).ap(fb).ap(fc)`
+ * 5. For brands with a static-style FlatMap instance but no ParCombine (fp's
+ *    Option/Either/IO/List), it chains the independent binds through that
+ *    instance: `F.flatMap(fa, a => F.map(fb, b => expr))`
+ * 6. For other types, it emits `fa.map(a => b => c => expr).ap(fb).ap(fc)`
  */
 
 import * as ts from "typescript";
@@ -96,6 +99,7 @@ import {
   createIIFE,
   createStyleAwareCall,
   createMetadataJoin,
+  createSequentialBinds,
   resolveStdDoFallback,
   emitComprehensionResult,
   importSelfReceiver,
@@ -195,7 +199,19 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName) ??
       resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructorName);
     if (!scoped) {
-      // Fall back to applicative chain if no ParCombine instance
+      // No ParCombine instance. A brand whose FlatMap instance is STATIC
+      // style (fp's Option/Either/IO/List — the values carry no methods, so
+      // `fa.map(...).ap(fb)` would throw) combines its independent binds
+      // through that instance instead (docs review r3 guides-a #1).
+      const flatMap =
+        resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName) ??
+        resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
+      if (flatMap?.doMeta?.style === "static" && flatMap.doMeta.receiver) {
+        const meta = importSelfReceiver(ctx, flatMap, flatMap.doMeta, typeConstructorName);
+        const result = buildFlatMapParCombine(ctx, steps, returnExpr, meta);
+        return emitComprehensionResult(factory, mainBlock, continuation, result);
+      }
+      // Otherwise the generic applicative chain (types with .map/.ap methods).
       const result = buildApplicativeChain(ctx, steps, returnExpr);
       return emitComprehensionResult(factory, mainBlock, continuation, result);
     }
@@ -416,6 +432,28 @@ function buildStaticAllParCombine(
   }
 
   return createMetadataJoin(factory, doMeta, bindSteps, yieldExpr);
+}
+
+/**
+ * `par:` through a static-style FlatMap instance (no ParCombine in scope):
+ * the independent binds are chained with the instance's bind/map — see
+ * createSequentialBinds. Pure map steps wrap the yield in IIFEs, as in the
+ * other par: emitters.
+ */
+function buildFlatMapParCombine(
+  ctx: MacroContext,
+  steps: (BindStep | MapStep)[],
+  returnExpr: ts.Expression,
+  doMeta: DoNotationMeta
+): ts.Expression {
+  const { factory } = ctx;
+  const bindSteps = steps.filter((s): s is BindStep => s.kind === "bind");
+  const mapSteps = steps.filter((s): s is MapStep => s.kind === "map");
+  let yieldExpr = returnExpr;
+  for (let i = mapSteps.length - 1; i >= 0; i--) {
+    yieldExpr = createIIFE(factory, mapSteps[i].name, yieldExpr, mapSteps[i].expression);
+  }
+  return createSequentialBinds(factory, doMeta, bindSteps, yieldExpr);
 }
 
 /**

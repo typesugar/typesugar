@@ -134,3 +134,81 @@ yield: { x + y; }
     expect(run(code).r).toBe(30);
   });
 });
+
+// Docs review r3 (guides-a #1): `par:` over fp types used to emit the generic
+// `fa.map(a => b => …).ap(fb)` chain — `Some(1)` erases to `1` and `Right(1)`
+// is a plain object, so it threw a TypeError at runtime. With no ParCombine
+// instance in scope, a static-style FlatMap instance now chains the
+// independent binds.
+describe("par: over fp types (docs review r3 guides-a #1)", () => {
+  it("Either and Option par: blocks run and combine their values", () => {
+    const { code, errors } = expand(`
+import "@typesugar/std/syntax/do";
+import { Some, None, Right, Left, type Option, type Either } from "@typesugar/fp";
+export const e = par: { a << Right(1); b << Right(2); } yield: a + b
+export const o = par: { a << Some(1); b << Some(2); c = 10; } yield: a + b + c
+const n: Option<number> = None;
+export const oNone = par: { a << Some(1); b << n; } yield: a + b
+const l: Either<string, number> = Left("bad");
+export const eLeft = par: { a << Right(1); b << l; } yield: a + b
+export const single = par: { a << Some(5); } yield: a * 2
+`);
+    expect(errors).toEqual([]);
+    expect(code).not.toContain(".ap(");
+    const out = run(code);
+    expect(out.e.right).toBe(3);
+    expect(out.o).toBe(13);
+    expect(out.oNone).toBe(null);
+    expect(out.eLeft.left).toBe("bad");
+    expect(out.single).toBe(10);
+  });
+
+  it("a nested par: group inside let: over Option runs", () => {
+    const { code, errors } = expand(`
+import "@typesugar/std/syntax/do";
+import { Some } from "@typesugar/fp";
+export const r = let: {
+  x << Some(1);
+  par: {
+    a << Some(x + 1);
+    b << Some(x + 2);
+  }
+  y << Some(a * b);
+}
+yield: { x + y }
+`);
+    expect(errors).toEqual([]);
+    expect(run(code).r).toBe(7);
+  });
+});
+
+// Docs review r3 (guides-a #2): `v << fa ?? alt` over Option emitted
+// `flatMapOption.orElse(...)`, which did not exist (TypeError). Option and
+// Either now declare `orElse=orElse` in their @do-methods.
+describe("let: fallback (||/??) over fp types (docs review r3 guides-a #2)", () => {
+  it("Option ?? and Either || recover through the instance's orElse", () => {
+    const { code, errors } = expand(`
+import "@typesugar/std/syntax/do";
+import { Some, None, Left, Right, type Option, type Either } from "@typesugar/fp";
+const parse = (s: string): Option<number> => (isNaN(Number(s)) ? None : Some(Number(s)));
+export const v = let: { v << parse("x") ?? Some(0); } yield: { v }
+export const w = let: { w << parse("4") ?? Some(0); } yield: { w + 1 }
+const bad: Either<string, number> = Left("no");
+export const e = let: { x << bad || Right(9); } yield: { x * 2 }
+`);
+    expect(errors).toEqual([]);
+    const out = run(code);
+    expect(out.v).toBe(0);
+    expect(out.w).toBe(5);
+    expect(out.e.right).toBe(18);
+  });
+
+  it("a static-style instance with no orElse= gives a clean compile error", () => {
+    const { errors } = expand(`
+import "@typesugar/std/syntax/do";
+import { IO, runIOSync } from "@typesugar/fp";
+export const r = let: { x << IO.pure(1) || IO.pure(2); } yield: { x }
+`);
+    expect(errors.join("\\n")).toMatch(/declares no orElse=/);
+  });
+});

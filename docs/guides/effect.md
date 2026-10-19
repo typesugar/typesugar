@@ -91,7 +91,7 @@ const program = new UserService().getName("1");
 Effect.runPromise(Effect.provide(program, appLayer)).then(console.log); // "Ada"
 ```
 
-A layer that needs another service gets it with `yield* <Service>Tag` inside `Effect.gen`. (Binding it with `db << Database` inside a `let:` block does not work yet: the comprehension can't infer the type of a Tag generated in the same file.)
+A layer that needs another service gets it with `yield* <Service>Tag` inside `Effect.gen`. Inside a `let:` block (with `import "@typesugar/effect/syntax/do"`) you can bind the Tag directly, even when `@service` generated it in the same file: `db << DatabaseTag` compiles to `Effect.flatMap(DatabaseTag, (db) => …)`.
 
 When a layer is missing, you get a compile error naming it. Leaving `databaseLive` out of `layerMake` above gives:
 

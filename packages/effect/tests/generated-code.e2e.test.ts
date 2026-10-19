@@ -54,7 +54,7 @@ function run(code: string, globals: Record<string, unknown> = {}): Record<string
   const mod = { exports: {} as Record<string, any> };
   const require = (id: string) => {
     if (id === "effect") return req("effect");
-    if (id === "@typesugar/effect") return {};
+    if (id === "@typesugar/effect" || id === "@typesugar/effect/syntax/do") return {};
     throw new Error("unexpected require: " + id);
   };
   const names = Object.keys(globals);
@@ -701,5 +701,41 @@ export const prog = Effect.flatMap(UserRepoTag, (r) => r.findById("42"));
     } finally {
       layerRegistry.clear();
     }
+  });
+});
+
+// ============================================================================
+// Docs review r3 (guides-a #6): `let:` binding a same-file @service Tag
+// ============================================================================
+// `DatabaseTag` is synthesized by @service in the same pass, so the checker
+// (built from the pre-transform source) types it as `any` and do-notation
+// reported "Could not infer type constructor". @service now records the Tag
+// in std's live same-pass registry as an Effect.
+
+describe("let: over a same-file @service Tag (docs review r3 guides-a #6)", () => {
+  it("binds the service and runs", () => {
+    const e = expand(`
+import "@typesugar/effect/syntax/do";
+import { service } from "@typesugar/effect";
+import { Effect } from "effect";
+
+@service
+interface Database {
+  query(sql: string): Effect.Effect<string[]>;
+}
+
+const prog = let: {
+  db << DatabaseTag;
+  rows << db.query("select 1");
+}
+yield: { rows.length }
+
+export const out = Effect.provideService(prog, DatabaseTag, {
+  query: (_: string) => Effect.succeed(["a", "b"]),
+});
+`);
+    expect(e.errors).toEqual([]);
+    const m = run(e.code);
+    expect(Effect.runSync(m.out)).toBe(2);
   });
 });

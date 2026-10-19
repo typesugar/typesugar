@@ -547,7 +547,7 @@ import { map as validatedMap, andThen as validatedFlatMap } from "./data/validat
  */
 /**
  * @impl FlatMap<OptionF>
- * @do-methods bind=flatMap map=map style=static receiver=flatMapOption
+ * @do-methods bind=flatMap map=map orElse=orElse style=static receiver=flatMapOption
  * @do-instance-module @typesugar/fp
  */
 export const flatMapOption = {
@@ -556,6 +556,9 @@ export const flatMapOption = {
     (fa as any) !== null ? (f(fa as any) as any) : (null as any),
   flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
     (fa as any) !== null ? f(fa as any) : (null as any),
+  /** `x << fa || alt` / `?? alt` in `let:`: `fa` if it is Some, else `f()`. */
+  orElse: <A>(fa: Option<A>, f: (none: null) => Option<A>): Option<A> =>
+    (fa as any) !== null ? fa : f(null),
 };
 /**
  * Create FlatMap instance for Either with a fixed error type E.
@@ -579,10 +582,15 @@ export function flatMapEither<E>() {
  */
 /**
  * @impl FlatMap<EitherF>
- * @do-methods bind=flatMap map=map style=static receiver=flatMapEitherInstance
+ * @do-methods bind=flatMap map=map orElse=orElse style=static receiver=flatMapEitherInstance
  * @do-instance-module @typesugar/fp
  */
-export const flatMapEitherInstance = flatMapEither<unknown>();
+export const flatMapEitherInstance = {
+  ...flatMapEither<unknown>(),
+  /** `x << fa || alt` / `?? alt` in `let:`: `fa` if it is Right, else `f(left)`. */
+  orElse: <E, A, E2>(fa: Either<E, A>, f: (e: E) => Either<E2, A>): Either<E2, A> =>
+    isRight(fa) ? (fa as unknown as Either<E2, A>) : f((fa as Left<E, A>).left),
+};
 /**
  * FlatMap instance for IO.
  */

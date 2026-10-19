@@ -328,6 +328,52 @@ function inferTypeConstructorFromAST(expr: ts.Expression): string | undefined {
   return undefined;
 }
 
+// ============================================================================
+// Same-pass synthesized bindings
+// ============================================================================
+
+/**
+ * Value bindings that a macro synthesizes in the CURRENT pass and whose type
+ * constructor do-notation needs before the checker can see them — e.g.
+ * `@service interface Database` generates `class DatabaseTag`, an Effect, so
+ * `db << DatabaseTag` in the same file must infer "Effect" although the
+ * checker (built from the pre-transform source) types `DatabaseTag` as `any`.
+ *
+ * SHAPE (per CLAUDE.md "Resolving things a macro just generated"): a LIVE
+ * KEYED REGISTRY, written by the synthesizing macro as it expands and read by
+ * `inferTypeConstructor` later in the same top-down pass — not a scan of the
+ * pre-transform statements, which can never contain the synthesized name.
+ * Only the ordinary declare-before-use constraint applies. It is consulted
+ * only when the checker gives up (`any`) on a bare identifier, so a real
+ * declaration always wins. Keyed by file, re-written on every expansion.
+ *
+ * Stored on `globalThis` so the writer (another package's macro, which may
+ * load a different copy of this module — ESM vs CJS dist) and the reader
+ * share one table.
+ */
+const SYNTHESIZED_KEY = Symbol.for("@typesugar/std.synthesizedTypeConstructors");
+function synthesizedTable(): Map<string, Map<string, string>> {
+  const g = globalThis as unknown as Record<symbol, Map<string, Map<string, string>> | undefined>;
+  return (g[SYNTHESIZED_KEY] ??= new Map());
+}
+
+/** Record that `name` in `fileName` is a value of type constructor `brand`. */
+export function registerSynthesizedTypeConstructor(
+  fileName: string,
+  name: string,
+  brand: string
+): void {
+  const table = synthesizedTable();
+  let byName = table.get(fileName);
+  if (!byName) table.set(fileName, (byName = new Map()));
+  byName.set(name, brand);
+}
+
+/** Look up a same-pass synthesized binding (see registerSynthesizedTypeConstructor). */
+export function getSynthesizedTypeConstructor(fileName: string, name: string): string | undefined {
+  return synthesizedTable().get(fileName)?.get(name);
+}
+
 export function inferTypeConstructor(
   expr: ts.Expression,
   typeChecker: ts.TypeChecker,
@@ -448,6 +494,15 @@ export function inferTypeConstructor(
         }
       }
     }
+  }
+
+  // A bare identifier the checker cannot type may be a binding a macro just
+  // synthesized in this pass (`DatabaseTag` from `@service`): consult the
+  // live same-pass registry (docs review r3 guides-a #6).
+  if (typeString === "any" && ts.isIdentifier(expr)) {
+    const sf = sourceFile ?? expr.getSourceFile?.();
+    const synthesized = sf && getSynthesizedTypeConstructor(sf.fileName, expr.text);
+    if (synthesized) return synthesized;
   }
 
   // Last resort: pure AST-based detection.
@@ -850,6 +905,42 @@ export function createMetadataJoin(
     return createStyleAwareCall(factory, continuation.meta, continuation.method, join, arrow);
   }
   return createStyleAwareCall(factory, doMeta, doMeta.map, join, arrow);
+}
+
+/**
+ * Combine INDEPENDENT binds through a FlatMap instance, one after another:
+ * `F.flatMap(fa, a => F.flatMap(fb, b => F.map(fc, c => body)))` (style-aware).
+ *
+ * The `par:` fallback for brands that have a static-style FlatMap instance
+ * but no ParCombine (fp's Option/Either/IO/List): their values carry no
+ * `.map`/`.ap` methods (`Some(1)` erases to `1`), so the generic
+ * `fa.map(...).ap(fb)` chain throws at runtime. For independent binds a
+ * monadic chain computes the same result as the applicative one for these
+ * brands (none of them accumulates errors); the independence check has
+ * already run. `bodyIsEffect` says whether `body` is already an `F<_>` (a
+ * nested `par:` group continuing a `let:` chain), so the innermost call uses
+ * the bind method instead of `map`.
+ */
+export function createSequentialBinds(
+  factory: ts.NodeFactory,
+  doMeta: DoNotationMeta,
+  binds: Array<{ name: string; effect: ts.Expression }>,
+  body: ts.Expression,
+  bodyIsEffect = false
+): ts.Expression {
+  let inner = body;
+  let innerIsEffect = bodyIsEffect;
+  for (let i = binds.length - 1; i >= 0; i--) {
+    inner = createStyleAwareCall(
+      factory,
+      doMeta,
+      innerIsEffect ? doMeta.bind : doMeta.map,
+      binds[i].effect,
+      createArrowFn(factory, binds[i].name, inner)
+    );
+    innerIsEffect = true;
+  }
+  return inner;
 }
 
 /**

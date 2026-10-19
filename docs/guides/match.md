@@ -32,10 +32,9 @@ This form is **not exhaustiveness-checked**: every handler is optional, so a mis
 variant compiles and throws `Error("Non-exhaustive match: no handler for '…'")` at runtime.
 Add a `_` handler, or use the fluent API when you want a compile-time error for a missing case.
 
-Known issue: with `strict: true` (expanded-output type checking), the inlined dispatch
-currently produces spurious output type errors ("Property 'kind' does not exist on type
-'never'", and "Expected 0 arguments, but got 1" for zero-parameter handlers). The generated
-code runs correctly.
+The inlined dispatch reads the discriminant once (`const _k = _m.kind`), calls a handler
+with no parameters without an argument, and type-checks under `strict: true`
+(expanded-output type checking).
 
 ## Usage
 

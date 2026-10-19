@@ -287,8 +287,7 @@ Applying a type parameter to a type argument (`F<A>`) signals "F is a type const
 
 ```typescript
 import { derive } from "typesugar";
-import type { Show } from "@typesugar/fp";
-import "@typesugar/fp/syntax/show"; // activate Show method syntax (PEP-052)
+import "@typesugar/fp/syntax/show"; // activate Show method syntax (PEP-052); enough on its own
 
 @derive(Show)
 interface Point { x: number; y: number; }
