@@ -103,6 +103,22 @@ par: { a << [1]; b << [2]; } yield: (out.push({ a, b }));`)
     await expect(ex.r).resolves.toEqual({ a: 1, b: 2 });
   });
 
+  it("a const / export default comprehension emits `const r = <chain>` (no tag temp)", async () => {
+    const r1 = run(`export const r = let: { a << ${P("1")}; b << ${P("2")}; } yield: ({ a, b });`);
+    const ex = ok(r1);
+    await expect(ex.r).resolves.toEqual({ a: 1, b: 2 });
+    expect(r1.code).not.toMatch(/__letyield_/);
+    const r2 = run(`export function f() {
+  const r = let: { a << [1, 2]; } yield: ({ v: a });
+  return r;
+}`);
+    expect((ok(r2).f as () => unknown)()).toEqual([{ v: 1 }, { v: 2 }]);
+    expect(r2.code).not.toMatch(/__letyield_/);
+    const r3 = run(`export default let: { a << [3]; } yield: { a };`);
+    expect(ok(r3).default).toEqual([3]);
+    expect(r3.code).not.toMatch(/__letyield_/);
+  });
+
   it("module-level const, seq:, multi-line", async () => {
     const ex = ok(
       run(`export const r =
@@ -235,6 +251,9 @@ yield: ({ a, b, c })`)
     const r = run(`par: { a << ${P("1")}; b << ${P("2")}; } yield: { a + b }`);
     const help = r.warnings.join("\n");
     expect(help).toMatch(/discarded/);
+    expect(help).toMatch(/const result = par:/);
+    // `const result = <comprehension>` works inside functions too now.
+    expect(help).not.toMatch(/top level/i);
   });
 });
 

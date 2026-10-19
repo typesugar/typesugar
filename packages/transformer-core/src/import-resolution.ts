@@ -742,6 +742,11 @@ export function checkImportedSymbolForExtension(
 
   const prop = identType.getProperty(methodName);
   if (!prop) return undefined;
+  // A member every value has from the standard library (`Function.prototype.
+  // bind/call/apply`, `Object.prototype.toString`, ...) is not an extension
+  // provided by the import: `describe.bind` / `head.bind` must never become
+  // candidates for `fn.bind(x)`.
+  if (isDefaultLibMember(prop)) return undefined;
 
   const propType = typeChecker.getTypeOfSymbolAtLocation(prop, ident);
   for (const sig of propType.getCallSignatures()) {
@@ -772,6 +777,11 @@ export function receiverMatchesFirstParam(
 ): boolean {
   const params = sig.getParameters();
   if (params.length === 0) return false;
+  // A rest first parameter (`join(...paths: string[])`) is not a receiver
+  // slot: its array type would swallow an array receiver, turning
+  // `xs.join("/")` into node:path's `join(xs, "/")`.
+  const decl = params[0].valueDeclaration;
+  if (decl && ts.isParameter(decl) && decl.dotDotDotToken) return false;
   const paramType = checker.getTypeOfSymbolAtLocation(params[0], location);
   if (checker.isTypeAssignableTo(receiverType, paramType)) return true;
   const typeParams = sig.getTypeParameters();
@@ -836,6 +846,27 @@ function matchesErased(
   return false;
 }
 
+/** The declaration symbol an extension match calls (aliases resolved), for de-duplication. */
+function extensionTarget(
+  checker: ts.TypeChecker,
+  ident: ts.Identifier,
+  ext: StandaloneExtensionInfo
+): ts.Symbol | undefined {
+  const resolve = (s: ts.Symbol | undefined) =>
+    s && s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s;
+  const sym = checker.getSymbolAtLocation(ident);
+  if (!sym) return undefined;
+  if (ext.qualifier === undefined) return resolve(sym);
+  return resolve(checker.getTypeOfSymbolAtLocation(sym, ident).getProperty(ext.methodName));
+}
+
+/** Is every declaration of `prop` in a default lib file (`lib.*.d.ts`)? */
+function isDefaultLibMember(prop: ts.Symbol): boolean {
+  const decls = prop.getDeclarations();
+  if (!decls || decls.length === 0) return false;
+  return decls.every((d) => d.getSourceFile().hasNoDefaultLib);
+}
+
 /**
  * Is every declaration of `prop` inside a `declare global { ... }` block?
  *
@@ -871,7 +902,11 @@ export function scanImportsForExtension(
     return undefined;
   }
 
-  const matches: Array<{ ext: StandaloneExtensionInfo; importSource: string }> = [];
+  const matches: Array<{
+    ext: StandaloneExtensionInfo;
+    importSource: string;
+    target: ts.Symbol | undefined;
+  }> = [];
 
   // A receiver's OWN method (e.g. Array.prototype.map) must never be
   // redirected to a same-named member of some imported object: an imported
@@ -881,10 +916,14 @@ export function scanImportsForExtension(
   // after the method (the explicit-override form) may shadow a native method.
   // A `declare global` extension stub (std's `interface Number { clamp }`)
   // is not a native method: it exists only so the call type-checks.
+  // The check uses the receiver with `null | undefined` removed: for
+  // `host.directoryExists?.bind(host)` the receiver is `F | undefined`, and a
+  // union only has the properties of ALL its members, so `bind` was "not
+  // native" and the call was offered to every import's `.bind`.
   let hasNativeMethod = false;
   try {
     const own = ctx.typeChecker.getPropertyOfType(
-      ctx.typeChecker.getApparentType(receiverType),
+      ctx.typeChecker.getApparentType(ctx.typeChecker.getNonNullableType(receiverType)),
       methodName
     );
     hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
@@ -892,10 +931,14 @@ export function scanImportsForExtension(
     const own = receiverType.getProperty(methodName);
     hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
   }
-  const push = (ext: StandaloneExtensionInfo | undefined, importSource: string) => {
+  const push = (
+    ext: StandaloneExtensionInfo | undefined,
+    importSource: string,
+    ident: ts.Identifier
+  ) => {
     if (!ext) return;
     if (hasNativeMethod && ext.qualifier !== undefined) return;
-    matches.push({ ext, importSource });
+    matches.push({ ext, importSource, target: extensionTarget(ctx.typeChecker, ident, ext) });
   };
 
   for (const stmt of sourceFile.statements) {
@@ -915,7 +958,7 @@ export function scanImportsForExtension(
           methodName,
           receiverType
         );
-        push(result, importSource);
+        push(result, importSource, spec.name);
       }
     }
 
@@ -926,7 +969,7 @@ export function scanImportsForExtension(
         methodName,
         receiverType
       );
-      push(result, importSource);
+      push(result, importSource, clause.namedBindings.name);
     }
 
     if (clause.name) {
@@ -936,7 +979,7 @@ export function scanImportsForExtension(
         methodName,
         receiverType
       );
-      push(result, importSource);
+      push(result, importSource, clause.name);
     }
   }
 
@@ -951,6 +994,13 @@ export function scanImportsForExtension(
   const uniqueQualifiers = new Set(matches.map((m) => m.ext.qualifier ?? ""));
   if (uniqueQualifiers.size === 1) {
     return matches[0].ext;
+  }
+
+  // The same export reached two ways (`import { head }` and `import * as std`
+  // from one module) is one extension, not an ambiguity: prefer the bare name.
+  const first = matches[0].target;
+  if (first && matches.every((m) => m.target === first)) {
+    return (matches.find((m) => m.ext.qualifier === undefined) ?? matches[0]).ext;
   }
 
   const typeName = ctx.typeChecker.typeToString(receiverType);

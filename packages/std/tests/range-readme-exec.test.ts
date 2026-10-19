@@ -42,4 +42,22 @@ export const arrLast = [1, 2, 3].last();`);
     expect(ex.total).toBe(15);
     expect(ex.arrLast).toBe(3);
   });
+
+  // Integration follow-up: a Range method on the result of another rewritten
+  // extension call (`(1).to(5).reversed().toArray()`) was left as a method
+  // call: the inner rewrite's synthetic node has no checker type.
+  it("chained extension calls on a rewritten receiver", () => {
+    const r =
+      transformAndRun(`import { to, step, reversed, toArray, map, size } from "@typesugar/std";
+export const rev = (1).to(5).reversed().toArray();
+export const stepped = (0).to(100).step(10).toArray();
+export const deep = (1).to(10).step(3).reversed().toArray();
+export const n = (1).to(4).reversed().size();`);
+    if (r.runError) throw new Error(`${String(r.runError)}\n--- emitted ---\n${r.code}`);
+    expect(r.errors).toEqual([]);
+    expect(r.exports.rev).toEqual([5, 4, 3, 2, 1]);
+    expect(r.exports.stepped).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
+    expect(r.exports.deep).toEqual([10, 7, 4, 1]);
+    expect(r.exports.n).toBe(4);
+  });
 });

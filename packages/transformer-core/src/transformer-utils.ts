@@ -244,6 +244,76 @@ export function tryExtractCompReturnExpr(body: ts.Block): ts.Expression | undefi
 }
 
 /**
+ * Collapse the value-slot pairs `arrow-comprehension-preprocess.ts` leaves in a
+ * statement list once the comprehension has expanded:
+ *
+ *   const __letyield_N = EXPR;  <decl> x = __letyield_N;   →  <decl> x = EXPR;
+ *   const __letyield_N = EXPR;  export default __letyield_N; →  export default EXPR;
+ *
+ * The preprocessor reads each tag exactly once, in the statement right after
+ * the comprehension, so nothing else can refer to it. Built with
+ * `factory.update*` (no printing / re-parsing). Returns the input array
+ * unchanged when there is nothing to collapse.
+ */
+export function collapseCompValueSlots(
+  factory: ts.NodeFactory,
+  stmts: readonly ts.Statement[]
+): ts.Statement[] {
+  let out: ts.Statement[] | undefined;
+  for (let i = 0; i < stmts.length; i++) {
+    const stmt = stmts[i];
+    const tag = compSlotTag(stmt);
+    let j = i + 1;
+    while (tag && j < stmts.length && ts.isEmptyStatement(stmts[j])) j++;
+    const next = tag ? stmts[j] : undefined;
+    const merged = tag && next ? fillCompSlot(factory, next, tag.name, tag.init) : undefined;
+    if (merged) {
+      out ??= stmts.slice(0, i);
+      out.push(merged);
+      i = j;
+    } else if (out) {
+      out.push(stmt);
+    }
+  }
+  return out ?? (stmts as ts.Statement[]);
+}
+
+function compSlotTag(stmt: ts.Statement): { name: string; init: ts.Expression } | undefined {
+  if (!ts.isVariableStatement(stmt) || stmt.modifiers?.length) return undefined;
+  const decls = stmt.declarationList.declarations;
+  if (decls.length !== 1) return undefined;
+  const d = decls[0];
+  if (!ts.isIdentifier(d.name) || !/^__letyield_\d+$/.test(d.name.text)) return undefined;
+  if (!d.initializer || d.type) return undefined;
+  return { name: d.name.text, init: d.initializer };
+}
+
+function fillCompSlot(
+  factory: ts.NodeFactory,
+  next: ts.Statement,
+  tag: string,
+  init: ts.Expression
+): ts.Statement | undefined {
+  const isTag = (e: ts.Expression | undefined) => !!e && ts.isIdentifier(e) && e.text === tag;
+  if (ts.isExportAssignment(next) && isTag(next.expression)) {
+    return factory.updateExportAssignment(next, next.modifiers, init);
+  }
+  if (ts.isVariableStatement(next)) {
+    const decls = next.declarationList.declarations;
+    if (decls.length !== 1 || !isTag(decls[0].initializer)) return undefined;
+    const d = decls[0];
+    return factory.updateVariableStatement(
+      next,
+      next.modifiers,
+      factory.updateVariableDeclarationList(next.declarationList, [
+        factory.updateVariableDeclaration(d, d.name, d.exclamationToken, d.type, init),
+      ])
+    );
+  }
+  return undefined;
+}
+
+/**
  * Detect a Block that was synthesized by `arrow-comprehension-preprocess.ts`
  * to wrap an expression-position `let:/yield:` comprehension.
  *

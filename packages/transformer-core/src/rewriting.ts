@@ -43,6 +43,7 @@ import {
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
+import { receiverMatchesFirstParam } from "./import-resolution.js";
 
 // ---------------------------------------------------------------------------
 // Callback types for cross-cutting concerns
@@ -247,7 +248,16 @@ export function tryRewriteExtensionMethod(
   if (!guarded) return undefined;
   const { methodName, receiver } = guarded;
 
-  const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  let receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+
+  // `(1).to(5).reversed().toArray()`: the receiver `(1).to(5).reversed()` is
+  // itself an extension call on a type with no such member (Range is a plain
+  // interface, not a global augmentation), so the checker types it as an
+  // error. Recover its type from the extension it will be rewritten to.
+  if (!ctx.isTypeReliable(receiverType) && ts.isCallExpression(receiver)) {
+    receiverType =
+      inferExtensionCallType(ctx, resolveExtensionFromImports, receiver, 0) ?? receiverType;
+  }
 
   if (!ctx.isTypeReliable(receiverType)) {
     const couldBeExtension = getAllStandaloneExtensions().some((e) => e.methodName === methodName);
@@ -347,6 +357,76 @@ export function tryRewriteExtensionMethod(
     return preserveSourceMap(visited, node);
   } catch (error) {
     ctx.reportError(node, `Extension method rewrite failed: ${error}`);
+    return undefined;
+  }
+}
+
+/**
+ * The result type of `call` (`inner.method(args)`) when `method` is not a
+ * member of `inner`'s type but resolves to an imported extension: the
+ * extension function's return type. Recurses through a chain of such calls
+ * (`(0).to(100).step(10).reversed()`), inside-out from the innermost
+ * receiver the checker can type.
+ *
+ * Only real (parsed) nodes are handed to the checker (CLAUDE.md): this runs
+ * on the ORIGINAL receiver before any rewrite, never on a synthesized call.
+ * Generic extension signatures are not instantiated here (the public checker
+ * API cannot infer them), so a chain through one stays unresolved and the
+ * caller's "receiver type could not be resolved" warning still fires.
+ */
+function inferExtensionCallType(
+  ctx: MacroContextImpl,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  call: ts.CallExpression,
+  depth: number
+): ts.Type | undefined {
+  if (depth > 32 || isSyntheticNode(call) || !ts.isPropertyAccessExpression(call.expression)) {
+    return undefined;
+  }
+  const checker = ctx.typeChecker;
+  const methodName = call.expression.name.text;
+  const inner = call.expression.expression;
+  try {
+    let innerType = checker.getTypeAtLocation(inner);
+    if (!ctx.isTypeReliable(innerType)) {
+      if (!ts.isCallExpression(inner)) return undefined;
+      const inferred = inferExtensionCallType(ctx, resolveExtensionFromImports, inner, depth + 1);
+      if (!inferred) return undefined;
+      innerType = inferred;
+    }
+    // No "is it a real member?" bail-out: the checker already failed to type
+    // this call (else we would not be here), and Range's own `step: number`
+    // field is exactly such a member. The rewrite path forces an imported
+    // extension over an existing member the same way.
+    const ext = resolveExtensionFromImports(call, methodName, innerType);
+    if (!ext) return undefined;
+    const rootName = ext.qualifier ?? ext.methodName;
+    // `Alias` too: an import binding is an alias symbol, which a plain
+    // `Value` scope query leaves out.
+    const sym = checker
+      .getSymbolsInScope(call, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
+      .find((s) => s.getName() === rootName);
+    if (!sym) return undefined;
+    let calleeType = checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), call);
+    if (ext.qualifier) {
+      const prop = calleeType.getProperty(ext.methodName);
+      if (!prop) return undefined;
+      calleeType = checker.getTypeOfSymbolAtLocation(prop, call);
+    }
+    const sig = calleeType
+      .getCallSignatures()
+      .find(
+        (s) =>
+          !s.getTypeParameters()?.length && receiverMatchesFirstParam(checker, innerType, s, call)
+      );
+    if (!sig) return undefined;
+    const ret = checker.getReturnTypeOfSignature(sig);
+    return ctx.isTypeReliable(ret) ? ret : undefined;
+  } catch (error) {
+    ctx.reportWarning(
+      call,
+      `typesugar could not infer the type of '${methodName}(...)' for a chained extension call (${error}).`
+    );
     return undefined;
   }
 }

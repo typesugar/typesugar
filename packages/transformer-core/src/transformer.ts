@@ -48,6 +48,7 @@ import {
   createMacroErrorStatement as createMacroErrorStmt,
   updateNodeDecorators,
   tryExtractCompReturnExpr,
+  collapseCompValueSlots,
   isPreprocessedCompWrapperBlock,
 } from "./transformer-utils.js";
 
@@ -798,7 +799,7 @@ class MacroTransformer {
                 .at(stmt)
                 .withArgs({ label: labelName })
                 .help(
-                  `At module top level assign it (const result = ${labelName}: { ... } yield: { ... }), ` +
+                  `Assign it (const result = ${labelName}: { ... } yield: { ... }), ` +
                     `or return it from an arrow function (\`=>\` then ${labelName}: on the next line).`
                 )
                 .emit();
@@ -898,14 +899,12 @@ class MacroTransformer {
       }
     }
 
+    const collapsed = collapseCompValueSlots(this.ctx.factory, newStatements);
+    if (collapsed !== newStatements) modified = true;
+
     let cleanedStatements = ts.isSourceFile(node)
-      ? cleanupMacroImports(
-          this.ctx.factory,
-          this.macroImportSpecifiers,
-          newStatements,
-          this.verbose
-        )
-      : newStatements;
+      ? cleanupMacroImports(this.ctx.factory, this.macroImportSpecifiers, collapsed, this.verbose)
+      : collapsed;
 
     if (ts.isSourceFile(node)) {
       const pendingImports = this.ctx.fileBindingCache.getPendingImports();

@@ -206,6 +206,57 @@ describe("namespace-import extensions (docs B#12)", () => {
     expect(result.code).toContain("[1, 2].map(");
     expect(run(result.code)).toEqual([[2, 4], 1]);
   });
+
+  // Integration regression: `host.directoryExists?.bind(host)` (receiver
+  // `F | undefined`) matched every imported function's Function.prototype.bind
+  // through the erased generic match and was reported as ambiguous.
+  it("never redirects a native Function method on an optional receiver", () => {
+    const result = transform(
+      [
+        `import { head, chunk } from "fakestd";`,
+        `import * as std from "fakestd";`,
+        `declare function log(v: unknown): void;`,
+        `const host: { f?: (s: string) => boolean } = { f: (s) => s === "a" };`,
+        `const g = host.f?.bind(host);`,
+        `const h = host.f!.call(host, "b");`,
+        `log(g ? g("a") : "none");`,
+        `log(h);`,
+        `log([1].head());`,
+        `log(chunk([1, 2], 1).length + std.clamp(5, 0, 1));`,
+      ].join("\n")
+    );
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("host.f?.bind(host)");
+    expect(run(result.code)).toEqual([true, false, 1, 3]);
+  });
+
+  // `import { join } from "node:path"; xs.join("/")` became `join(xs, "/")`:
+  // a rest first parameter (`...paths: string[]`) took the whole receiver.
+  it("a rest-parameter function named like a native method does not hijack it", () => {
+    const result = transform(
+      [
+        `import { join } from "fakepath";`,
+        `declare function log(v: unknown): void;`,
+        `const xs = ["a", "b"];`,
+        `log(xs.join("/"));`,
+        `log(join("x", "y"));`,
+      ].join("\n"),
+      {
+        "node_modules/fakepath/package.json": JSON.stringify({
+          name: "fakepath",
+          version: "1.0.0",
+          types: "index.d.ts",
+        }),
+        "node_modules/fakepath/index.d.ts":
+          "export declare function join(...paths: string[]): string;",
+      }
+    );
+    expect(result.code).toContain(`xs.join("/")`);
+    expect(run(result.code, { fakepath: { join: (...p: string[]) => p.join("|") } })).toEqual([
+      "a/b",
+      "x|y",
+    ]);
+  });
 });
 
 describe("@opaque companion import subpath (docs C#1)", () => {
