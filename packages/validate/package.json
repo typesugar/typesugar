@@ -71,7 +71,8 @@
     "tsup": "^8.0.0",
     "vitest": "^3.0.0",
     "unplugin-typesugar": "workspace:*",
-    "@typesugar/transformer": "workspace:*"
+    "@typesugar/transformer": "workspace:*",
+    "@typesugar/testing": "workspace:*"
   },
   "peerDependencies": {
     "typescript": ">=5.9.0 <7.0.0"
