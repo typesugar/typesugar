@@ -229,7 +229,7 @@ Instances are found for types with `@derive`d or `@impl` instances in scope, and
 primitives when the file imports `@typesugar/std`'s instances: with
 `import { eqNumber, hashNumber } from "@typesugar/std"`, `erased<[EqCapability, HashCapability]>(n)`
 on a `number` compiles to `eraseWith(n, { equals: (a, b) => eqNumber.equals(a, b), hash: … })`.
-A missing instance is a compile error ("Missing typeclass instances for erased(): Eq<number>, …").
+A missing instance is a compile error (`Missing typeclass instances for erased(): Eq<number>, …`).
 
 ## Auto-Derivation with `erased()`
 
@@ -258,8 +258,8 @@ but those need `Show`/`Eq` types in scope that take no type argument, so the cap
 names are the form that also type-checks under plain `tsc`.
 
 Known issue: with `strict: true` (expanded-output type checking), the emitted `eraseWith(...)`
-call reports "Argument of type 'Erased<readonly Capability<string>[]>' is not assignable to
-parameter of type 'WithShow'" where the result is passed to `show()` and friends. The code runs
+call reports `Argument of type 'Erased<readonly Capability<string>[]>' is not assignable to
+parameter of type 'WithShow'` where the result is passed to `show()` and friends. The code runs
 correctly.
 
 **How it works:**

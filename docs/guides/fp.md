@@ -37,8 +37,8 @@ const back: number | null = toNullable(opt);
 ```
 
 Known issue: because `Some(42)` compiles to `42` while `Option<…>` annotations stay in the
-output, expanded-output type checking (`strict: true`) reports errors such as "Type 'number' is
-not assignable to type 'Option<number>'" in code that uses Option. The emitted JavaScript is
+output, expanded-output type checking (`strict: true`) reports errors such as `Type 'number' is
+not assignable to type 'Option<number>'` in code that uses Option. The emitted JavaScript is
 correct.
 
 ### Methods (Dot Syntax)
