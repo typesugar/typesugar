@@ -1,7 +1,8 @@
 # PEP-060: Architecture for 1.0 — What to Settle Before the Freeze
 
-**Status:** Draft (2026-10-19) — proposals and decisions; item 1's packaging part is
-implemented (see its status note), the rest is not.
+**Status:** Draft (2026-10-19) — proposals and decisions. Implemented on branch
+`decisions-1.0`: item 1's packaging part (see its status note), D5 (editor engine), and
+item 8's module-qualified macro identity (see its status note). The rest is not.
 **Date:** 2026-10-19
 **Author:** Claude (with Dean Povey)
 **Depends on:** [PEP-059](PEP-059-1.0-readiness.md) (deep review outcome, 1.0 task list),
@@ -153,6 +154,14 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
    part of the context (`getTypeOf`, `isAssignableTo`, `reportError`, `ensureImport`, …)
    as the stable tier and document raw `ts.*` handles as bound to the engine's TS
    version, which is safe once item 1's "typesugar owns its TS" holds. (E R5, S R1c)
+
+   _Status (2026-10-19, Dean's decision):_ module-qualified identity is implemented —
+   the registry keys module-qualified macros by (kind, module, exportName ?? name), so
+   same-named macros from different packages coexist and the user's import decides which
+   expands (motivating bug: `@typesugar/validate` and `@typesugar/testing` both register
+   `assert`; validate also gained `assertType<T>()`). Declarative registration,
+   `apiVersion`, the peer dependency and the context cleanup are not done.
+
 9. **Curate and freeze the public surface** — BLOCKS 1.0; L (mechanical). `.` = stable,
    `./internal` = cross-package engine API documented unstable, api-extractor reports in
    CI (extends PEP-059 P0 #5). Delete dead modules (`prelude`, core `manifest`,
