@@ -45,9 +45,6 @@ interface MacroTransformerConfig {
   /** Enable verbose logging */
   verbose?: boolean;
 
-  /** Custom macro module paths to load */
-  macroModules?: string[];
-
   /** Conditional compilation configuration (for cfg/cfgAttr macros) */
   cfgConfig?: Record<string, unknown>;
 
@@ -62,6 +59,10 @@ interface MacroTransformerConfig {
   cacheDir?: string | false;
 }
 ```
+
+There is no option for naming macro modules. Macro packages are found through the
+`typesugar.macros` field in their own `package.json` when a compiled file imports them;
+see [Publishing Macros](https://typesugar.org/writing-macros/publishing-macros#getting-discovered).
 
 **Example tsconfig.json:**
 

@@ -13,21 +13,42 @@ npm install @typesugar/effect effect
 ## Quick Start
 
 ```typescript
-import { service, layer, layerMake, compiled } from "@typesugar/effect";
 import { Effect } from "effect";
+import { service, layer, layerMake } from "@typesugar/effect";
+
+@service
+interface Database {
+  query(sql: string): Effect.Effect<string>;
+}
 
 @service
 interface UserRepo {
-  findById(id: string): Effect.Effect<User, NotFound>;
+  findById(id: string): Effect.Effect<string>;
 }
 
-@layer(UserRepo, { requires: [Database] })
-const userRepoLive =
-let: { db << Database; }
-yield: ({ findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`) });
+@layer(Database)
+const databaseLive = {
+  query: (sql: string) => Effect.succeed("rows for " + sql),
+};
 
+@layer(UserRepo, { requires: [Database] })
+const userRepoLive = Effect.gen(function* () {
+  const db = yield* DatabaseTag; // @service generates DatabaseTag
+  return { findById: (id: string) => db.query("SELECT " + id) };
+});
+
+// Wires userRepoLive's Database requirement to databaseLive
 const appLayer = layerMake<UserRepo | Database>(userRepoLive, databaseLive);
+
+const program = Effect.flatMap(UserRepoTag, (repo) => repo.findById("42"));
+Effect.runSync(Effect.provide(program, appLayer)); // "rows for SELECT 42"
 ```
+
+`@service` generates a `Context.Tag` class (`DatabaseTag`) and a `Database` namespace of
+accessors. `@layer` wraps the const in `Layer.succeed` / `Layer.effect`, and `layerMake`
+composes the layers in dependency order (here
+`userRepoLive.pipe(Layer.provideMerge(databaseLive))`). A missing layer is a compile error:
+``[EFFECT001] No layer provides `Database` ``.
 
 ## Documentation
 

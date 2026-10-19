@@ -20,7 +20,7 @@ pnpm add @typesugar/std
 
 ### Extension Methods (Dot Syntax via Global Augmentation)
 
-With PEP-012 Wave 8, importing `@typesugar/std` adds type-checked methods to `Number`, `String`, `Array`, `Map`, `Promise`, `Date`, and `Boolean` via global augmentation. The transformer rewrites dot-syntax calls to standalone function calls — zero runtime overhead.
+With PEP-012 Wave 8, importing `@typesugar/std` adds type-checked methods to `Number`, `String`, `Array`, `Map`, `Promise`, `Date`, and `Boolean` via global augmentation. The transformer rewrites dot-syntax calls to standalone function calls — zero runtime overhead. Import each function you call with dot syntax (or `import * as std from "@typesugar/std"`); the import is what the transformer resolves the method against.
 
 ```typescript
 import { clamp, isEven, abs, capitalize, head } from "@typesugar/std";
@@ -50,7 +50,7 @@ import { abs, ceil, floor, sqrt, sin, cos } from "@typesugar/std";
 
 **How it works:** `@typesugar/std` declares `declare global { interface Number { clamp(min: number, max: number): number; ... } }` so TypeScript sees the methods. The transformer rewrites `(42).clamp(0, 100)` → `clamp(42, 0, 100)` — no prototype mutation, no runtime cost.
 
-**Augmented types:** Number, String, Array, Map, Promise, Date, Boolean.
+**Augmented types:** Number, String, Array, Map, Promise, Date, Boolean. A method the type already has natively (`[1, 2].map(...)`) is never rewritten.
 **Not augmented (intentionally):** Set (conflicts with ES2025 Set methods), Object, Function (too broad).
 
 ### Ranges (Scala/Kotlin-style)
@@ -58,7 +58,7 @@ import { abs, ceil, floor, sqrt, sin, cos } from "@typesugar/std";
 Create ranges with fluent extension methods on numbers:
 
 ```typescript
-import { to, until, step, toArray, contains, first } from "@typesugar/std";
+import { to, until, step, toArray, contains, first, forEach, map, filter } from "@typesugar/std";
 
 // Inclusive range (like Scala's 1 to 10)
 (1).to(10).toArray(); // [1, 2, 3, ..., 10]
@@ -91,15 +91,22 @@ rangeToArray(rangeInclusive(1, 10)); // [1, 2, ..., 10]
 
 `@typesugar/std` exports core typeclasses that power operator dispatch and auto-derivation:
 
-| Typeclass      | Purpose                                              |
-| -------------- | ---------------------------------------------------- |
-| `Eq<A>`        | Equality with `===` / `!==` operator dispatch        |
-| `Hash<A>`      | Hashing for HashMap/HashSet                          |
-| `Ord<A>`       | Total ordering with `<` / `<=` / `>` / `>=` dispatch |
-| `Semigroup<A>` | Associative combine with `+` dispatch                |
-| `Monoid<A>`    | Semigroup with identity element                      |
-| `Numeric<A>`   | Full arithmetic with `+` / `-` / `*` / `/` dispatch  |
-| `FlatMap<F>`   | Sequencing for do-notation                           |
+| Typeclass                      | Purpose                                              |
+| ------------------------------ | ---------------------------------------------------- |
+| `Eq<A>`                        | Equality with `===` / `!==` operator dispatch        |
+| `Hash<A>`                      | Hashing for HashMap/HashSet                          |
+| `Ord<A>`                       | Total ordering with `<` / `<=` / `>` / `>=` dispatch |
+| `Semigroup<A>`                 | Associative combine with `+` dispatch                |
+| `Monoid<A>`                    | Semigroup with identity element                      |
+| `Numeric<A>`                   | Arithmetic with `+` / `-` / `*` dispatch             |
+| `Fractional<A>`, `Integral<A>` | `/` (and `%` for `Integral`) dispatch                |
+| `FlatMap<F>`                   | Sequencing for do-notation                           |
+
+Operator dispatch is off until a file imports the typeclass's activation module, for
+example `import "@typesugar/std/syntax/eq/ops";` for `===` / `!==`, or
+`import "@typesugar/std/syntax/semigroup/ops";` for `+`. Without it, `a === b` stays a
+plain reference comparison. The method forms (`a.equals(b)`) need
+`import "@typesugar/std/syntax/eq";`.
 
 ### Hash (NEW)
 
@@ -143,47 +150,57 @@ Two labeled block macros with aliases for effect-based programming:
 
 ### `let:/yield:` — Sequential Comprehensions
 
-Bindings can depend on previous bindings. Supports guards, fallbacks, discard bindings, and pure map steps.
+Bindings can depend on previous bindings. Supports guards, fallbacks, discard bindings, and pure map steps. Every file that uses the syntax needs the activation import `import "@typesugar/std/syntax/do";`, and the comprehension is an expression: assign it, return it, or use it as an arrow body (a bare one at statement position is reported as TS9222, "result discarded").
 
 ```typescript
-let: {
+import "@typesugar/std/syntax/do";
+
+const result = let: {
   user << fetchUser(id); // Monadic bind
   posts << fetchPosts(user.id); // Depends on user
-  if (posts.length > 0) {
-  } // Guard
   first = posts[0]; // Pure map step
 }
 yield: ({ user, first });
 
 // Compiles to:
-// fetchUser(id).then(user =>
-//   fetchPosts(user.id).then(posts =>
-//     posts.length > 0
-//       ? ((first) => ({ user, first }))(posts[0])
-//       : undefined))
+// const result = fetchUser(id).then(user =>
+//   fetchPosts(user.id).then(posts => (first => ({ user, first }))(posts[0])));
+```
+
+`yield: <expr>` and `yield: { <expr> }` mean the same thing.
+
+#### Guards
+
+Guards (`if (cond) {}`) filter, so they work for Array, Iterable and AsyncIterable, not Promise:
+
+```typescript
+const evens = let: {
+  x << [1, 2, 3, 4];
+  if (x % 2 === 0) {
+  } // Guard
+}
+yield: x * 10;
+// → [1, 2, 3, 4].flatMap(x => x % 2 === 0 ? [x * 10] : [])   // [20, 40]
 ```
 
 #### orElse Fallback
 
 ```typescript
-let: {
+const config = let: {
   config << loadConfig() || defaultConfig(); // Fallback on error
 }
-yield: {
-  config;
-}
+yield: config;
+// → loadConfig().catch(_ => defaultConfig()).then(config => config)
 ```
 
 #### Discard Binding
 
 ```typescript
-let: {
+const x = let: {
   _ << log("Starting..."); // Execute but discard result
   x << computation();
 }
-yield: {
-  x;
-}
+yield: x;
 ```
 
 ### `par:/yield:` — Parallel Comprehensions
@@ -191,7 +208,7 @@ yield: {
 All bindings must be independent. Uses `Promise.all` for Promises, `.map()/.ap()` for other applicative types.
 
 ```typescript
-par: {
+const all = par: {
   user << fetchUser(id);
   config << loadConfig();
   posts << fetchPosts();
@@ -199,8 +216,8 @@ par: {
 yield: ({ user, config, posts });
 
 // Compiles to:
-// Promise.all([fetchUser(id), loadConfig(), fetchPosts()])
-//   .then(([user, config, posts]) => ({ user, config, posts }))
+// const all = Promise.all([fetchUser(id), loadConfig(), fetchPosts()])
+//   .then(([user, config, posts]) => ({ user, config, posts }));
 ```
 
 **Why `par:` instead of `let:`?**
@@ -214,21 +231,32 @@ yield: ({ user, config, posts });
 Any type with a `FlatMap` instance in scope works with both macros — declared locally with an `@impl` JSDoc tag, or exported by a module the file imports (no registration call):
 
 ```typescript
-/** @impl FlatMap<Option> */
-export const flatMapOption = {
-  map: (fa, f) => fa.map(f),
-  flatMap: (fa, f) => fa.flatMap(f),
+import "@typesugar/std/syntax/do";
+
+interface Box<A> {
+  value: A;
+}
+const box = <A>(value: A): Box<A> => ({ value });
+
+/**
+ * @impl FlatMap<Box>
+ * @do-methods style=static receiver=flatMapBox
+ */
+export const flatMapBox = {
+  map: <A, B>(fa: Box<A>, f: (a: A) => B): Box<B> => box(f(fa.value)),
+  flatMap: <A, B>(fa: Box<A>, f: (a: A) => Box<B>): Box<B> => f(fa.value),
 };
 
-// Now Option works with let:/yield:
-let: {
-  x << some(5);
-  y << some(x * 2);
+// Now Box works with let:/yield:
+const r = let: {
+  x << box(5);
+  y << box(x * 2);
 }
 yield: ({ x, y });
+// → flatMapBox.flatMap(box(5), x => flatMapBox.map(box(x * 2), y => ({ x, y })))   // { value: { x: 5, y: 10 } }
 ```
 
-An optional `@do-methods` tag next to `@impl` customizes emission (`bind=` / `map=` / `orElse=` method names, `style=static receiver=X` for static combinators, and `all=` to enable the zero-cost parallel join for `par:`).
+The optional `@do-methods` tag next to `@impl` customizes emission (`bind=` / `map=` / `orElse=` method names, `style=static receiver=X` for static combinators as above, and `all=` to enable the zero-cost parallel join for `par:`). Without it, the macro calls `.flatMap` / `.map` as methods on the value. `@typesugar/fp`'s Option, Either, IO and List instances already carry these tags.
 
 ## Extension Methods
 

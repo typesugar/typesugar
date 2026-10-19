@@ -78,23 +78,35 @@ interface TypesugarPluginOptions {
   /** Path to tsconfig.json (default: auto-detected) */
   tsconfig?: string;
 
-  /** File patterns to include (default: /\.[jt]sx?$/) */
-  include?: RegExp | string[];
+  /**
+   * Files to transform: a RegExp, a glob, or an array of either (default: /\.[jt]sx?$/).
+   * Globs (picomatch) match the absolute module path; a relative glob resolves against
+   * the project root (Vite's `root`, else the working directory); `**`-prefixed globs
+   * match anywhere. `include: []` transforms nothing.
+   */
+  include?: RegExp | string | Array<RegExp | string>;
 
-  /** File patterns to exclude (default: /node_modules/) */
-  exclude?: RegExp | string[];
+  /**
+   * Files to skip, in the same forms as `include`. Files under node_modules are
+   * always skipped, unless an `include` pattern names node_modules.
+   */
+  exclude?: RegExp | string | Array<RegExp | string>;
 
   /** Enable verbose logging */
   verbose?: boolean;
 
-  /** Syntax extensions to enable (default: all) */
-  extensions?: ("hkt" | "pipeline" | "cons")[];
-
   /** Enable disk-backed transform cache for faster rebuilds */
   diskCache?: boolean | string;
 
-  /** Enable strict mode - typecheck expanded output at build end */
-  strict?: boolean;
+  /**
+   * Typecheck the expanded output at build end, and fail the build on type errors.
+   * `true`: every file, every build. `"incremental"`: only files whose macro output
+   * changed (and their dependents); the first build is a full check.
+   */
+  strict?: boolean | "incremental";
+
+  /** Conditions for cfg() / @cfgAttr conditional compilation, e.g. { debug: true } */
+  cfgConfig?: Record<string, unknown>;
 }
 ```
 
@@ -108,8 +120,8 @@ export default {
   plugins: [
     typesugar({
       verbose: true,
-      include: /src\/.*\.tsx?$/,
-      exclude: /\.test\.ts$/,
+      include: ["src/**/*.ts", "src/**/*.tsx"],
+      exclude: ["**/*.test.ts"],
       diskCache: true, // Enable disk cache for faster rebuilds
       strict: true, // Typecheck expanded output
     }),
@@ -143,12 +155,12 @@ This means macros are fully expanded before your code reaches the bundler's opti
 ```typescript
 interface TypesugarPluginOptions {
   tsconfig?: string;
-  include?: RegExp | string[];
-  exclude?: RegExp | string[];
+  include?: RegExp | string | Array<RegExp | string>;
+  exclude?: RegExp | string | Array<RegExp | string>;
   verbose?: boolean;
-  extensions?: ("hkt" | "pipeline" | "cons")[];
   diskCache?: boolean | string;
-  strict?: boolean;
+  strict?: boolean | "incremental";
+  cfgConfig?: Record<string, unknown>;
 }
 ```
 

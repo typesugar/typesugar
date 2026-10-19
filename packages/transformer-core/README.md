@@ -33,13 +33,16 @@ import "@typesugar/macros"; // Register built-in macros
 
 const result = transformCode(`
   import { staticAssert } from "@typesugar/macros";
-  staticAssert<true>();
+  staticAssert(1 + 1 === 2);
 `);
 
-console.log(result.code); // Transformed code
+console.log(result.code); // "// staticAssert(1 + 1 === 2) ✓" — the call compiles away
 console.log(result.changed); // true if any macros were expanded
 console.log(result.diagnostics); // Any errors or warnings
 ```
+
+A condition that is false at compile time is reported as an error diagnostic
+(`[TS9217] Static assertion failed: ...`).
 
 ### With Options
 

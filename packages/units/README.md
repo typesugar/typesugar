@@ -2,7 +2,7 @@
 
 > 📖 **Full documentation:** [Units of Measure guide](https://typesugar.org/guides/units). The microsite is the canonical reference; this README is a quickstart.
 
-> 🧊 **Frozen ([PEP-048](../../peps/PEP-048-package-triage.md)).** Not under active development and excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+> Status: experimental — API may change before 1.0.
 
 Type-safe physical units with compile-time dimensional analysis, so the compiler catches dimension mismatches before runtime.
 

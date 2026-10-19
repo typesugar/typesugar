@@ -24,65 +24,95 @@ This section covers creating custom macros for typesugar.
 
 ## Techniques
 
-- [Quasiquoting](./quasiquoting.md) — Building AST with `quote()`
+- [Quasiquoting](./quasiquoting.md) — Building AST from templates with `quote()`
 - [Testing Macros](./testing-macros.md) — Verifying macro output
-- [Publishing Macros](./publishing-macros.md) — Packaging and distribution
+- [Publishing Macros](./publishing-macros.md) — Packaging, and getting your macros discovered
 
 ## Quick Start
 
 ### 1. Set Up
 
 ```bash
-npm install @typesugar/core
-npm install --save-dev @typesugar/transformer @typesugar/testing
+npm install --save-dev @typesugar/core @typesugar/transformer @typesugar/testing typescript
 ```
 
 ### 2. Create a Macro
 
+A macro is a definition object passed to one of the `define*Macro` functions. Defining a
+macro does **not** register it: you must also pass it to `globalRegistry.register(...)`,
+at module scope, so registration happens when the module is loaded.
+
 ```typescript
-// src/macros/double.ts
-import { defineExpressionMacro } from "@typesugar/core";
+// src/macros.ts — the macro definitions (build-time code; imports typescript)
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import * as ts from "typescript";
 
-defineExpressionMacro("double", {
-  expand(ctx, callExpr) {
-    const arg = callExpr.arguments[0];
-    if (!arg) {
-      ctx.reportError(callExpr, "double() requires an argument");
-      return callExpr;
-    }
-    return ctx.factory.createBinaryExpression(
-      ctx.factory.createParenthesizedExpression(arg),
-      ts.SyntaxKind.PlusToken,
-      ctx.factory.createParenthesizedExpression(arg)
-    );
-  },
-});
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "double",
+    module: "my-macros", // only expand double() imported from "my-macros"
+    expand(ctx, callExpr, args) {
+      const arg = args[0];
+      if (!arg) {
+        ctx.reportError(callExpr, "double() requires an argument");
+        return callExpr;
+      }
+      return ctx.factory.createBinaryExpression(
+        ctx.factory.createParenthesizedExpression(arg),
+        ts.SyntaxKind.PlusToken,
+        ctx.factory.createParenthesizedExpression(arg)
+      );
+    },
+  })
+);
+```
 
-export function double<T extends number>(x: T): T {
-  throw new Error("double() should be compiled away");
+Users also need something to import and type-check against: a runtime placeholder with
+the macro's signature. Keep it in a separate file from the definitions, so that importing
+it does not pull `typescript` into the app:
+
+```typescript
+// src/index.ts — the runtime entry users import
+export function double(x: number): number {
+  throw new Error("double() should be compiled away. Is the typesugar transformer configured?");
 }
 ```
 
 ### 3. Use It
 
 ```typescript
-import { double } from "./macros/double";
+import { double } from "my-macros";
 
-const x = double(21); // Compiles to: (21) + (21)
+const x = double(21); // Compiles to: const x = (21) + (21);
 ```
+
+The transformer only runs macros that are registered when it runs. For a macro package,
+that happens through the `typesugar.macros` field in its `package.json`; see
+[Publishing Macros](./publishing-macros.md#getting-discovered). In tests, you import the
+definitions module yourself.
 
 ### 4. Test It
 
 ```typescript
-import { assertExpands } from "@typesugar/testing";
+import { it, expect } from "vitest";
+import { transformCode } from "@typesugar/transformer";
+import "../src/macros"; // registers double
 
-assertExpands(`import { double } from "./double"; const x = double(21);`, `const x = (21) + (21);`);
+it("expands double()", () => {
+  const result = transformCode(`import { double } from "my-macros"; const x = double(21);`, {
+    fileName: "test.ts",
+  });
+  expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  expect(result.code).toContain("const x = (21) + (21);");
+});
 ```
+
+See [Testing Macros](./testing-macros.md) for running the output, checking errors, and
+unit-testing `expand` directly.
 
 ## MacroContext API
 
-Every macro receives a context with:
+Every macro receives a context. The most-used members:
 
 ```typescript
 interface MacroContext {
@@ -96,62 +126,94 @@ interface MacroContext {
   createIdentifier(name: string): ts.Identifier;
   createStringLiteral(value: string): ts.StringLiteral;
   createNumericLiteral(value: number): ts.NumericLiteral;
-  parseExpression(code: string): ts.Expression;
-  parseStatements(code: string): ts.Statement[];
+  createBooleanLiteral(value: boolean): ts.Expression;
 
   // Type utilities
   getTypeOf(node: ts.Node): ts.Type;
   getTypeString(node: ts.Node): string;
   isAssignableTo(source: ts.Type, target: ts.Type): boolean;
+  getPropertiesOfType(type: ts.Type): ts.Symbol[];
 
   // Diagnostics
   reportError(node: ts.Node, message: string): void;
   reportWarning(node: ts.Node, message: string): void;
 
-  // Compile-time
-  evaluate(node: ts.Node): unknown;
+  // Compile-time evaluation
+  evaluate(node: ts.Node): ComptimeValue; // { kind: "number", value: 42 }, { kind: "error", message }, ...
   isComptime(node: ts.Node): boolean;
+
+  // Names and imports
   generateUniqueName(prefix: string): ts.Identifier;
+  ensureImport(symbol: string, from: string): ts.Identifier;
 }
 ```
 
-See [MacroContext Reference](../reference/macro-context.md) for full API.
+`parseExpression(code)` and `parseStatements(code)` also exist, but this project builds
+AST with `ctx.factory` rather than parsing code strings (see the [Quasiquoting](./quasiquoting.md)
+page for when templates are the better tool).
 
-## Registration Functions
+See [MacroContext Reference](../reference/macro-context.md) for the full API.
+
+## Definition Functions
+
+Each function takes one definition object and returns it with its `kind` filled in.
+Register the result with `globalRegistry.register(...)`.
 
 ```typescript
-// Expression macro: myMacro(...)
-defineExpressionMacro("myMacro", { expand(ctx, callExpr) { ... } });
+import {
+  defineExpressionMacro,
+  defineAttributeMacro,
+  defineDeriveMacro,
+  defineTaggedTemplateMacro,
+  defineTypeMacro,
+  defineLabeledBlockMacro,
+  globalRegistry,
+} from "@typesugar/core";
 
-// Attribute macro: @myMacro
-defineAttributeMacro("myMacro", { expand(ctx, decorator, target) { ... } });
+// Expression macro: myMacro(...)
+globalRegistry.register(defineExpressionMacro({ name: "myMacro", expand(ctx, callExpr, args) { ... } }));
+
+// Attribute macro: @myMacro (validTargets is required)
+globalRegistry.register(defineAttributeMacro({ name: "myMacro", validTargets: ["class"], expand(ctx, decorator, target, args) { ... } }));
 
 // Derive macro: @derive(MyDerive)
-defineDeriveMacro("MyDerive", { expand(ctx, target, typeInfo) { ... } });
+globalRegistry.register(defineDeriveMacro({ name: "MyDerive", expand(ctx, target, typeInfo) { ... } }));
 
 // Tagged template: tag`...`
-defineTaggedTemplateMacro("tag", { expand(ctx, node) { ... } });
+globalRegistry.register(defineTaggedTemplateMacro({ name: "tag", expand(ctx, node) { ... } }));
 
 // Type macro: MyType<T>
-defineTypeMacro("MyType", { expand(ctx, typeRef) { ... } });
+globalRegistry.register(defineTypeMacro({ name: "MyType", expand(ctx, typeRef, args) { ... } }));
 
 // Labeled block: label: { ... }
-defineLabeledBlockMacro("label", { expand(ctx, block) { ... } });
+globalRegistry.register(defineLabeledBlockMacro({ name: "myBlock", label: "label", expand(ctx, mainBlock, continuation) { ... } }));
 ```
+
+Common optional fields on every definition:
+
+- `module` / `exportName`: import scoping. With `module` set, the macro only expands when
+  the user imports its placeholder from that module (or from a barrel that re-exports it).
+  Without it, any call with a matching name expands. Set it for anything you publish.
+- `expandAfter`: names of macros that must expand first on the same declaration.
+- `description`: shown in tooling.
+
+Macro names are global per kind: registering a second macro with a name that is already
+taken (for example `assert`, `sql` or `regex` from typesugar's own packages) throws.
 
 ## Best Practices
 
 ### Do
 
 - Return the original node on error (after reporting)
-- Use quasiquoting for complex AST
+- Build AST with `ctx.factory`; reach for quasiquoting when a template is clearly easier to read
 - Generate hygienic names with `ctx.generateUniqueName()`
-- Write tests for every macro
+- Write tests that run the expanded code, not just match its text
 - Document expected inputs and outputs
 
 ### Don't
 
 - Mutate input nodes (create new ones)
-- Use string concatenation for AST
-- Forget to handle edge cases
+- Build code as strings and parse it back
+- Declare the placeholder in the same file that uses the macro (a macro call is only
+  expanded when the placeholder is imported)
 - Create macros with surprising behavior

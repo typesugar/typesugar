@@ -2,40 +2,55 @@
 
 > 📖 **Full documentation:** [Package reference](https://typesugar.org/reference/packages). The microsite is the canonical reference; this README is a quickstart.
 
-> 🧊 **Frozen ([PEP-048](../../peps/PEP-048-package-triage.md)).** Not under active development. Still published because `@typesugar/graph` depends on its `HashSet`/`HashMap`.
+> Status: experimental — API may change before 1.0.
 
 > Collection typeclasses and hash-based data structures.
 
 ## Installation
 
 ```bash
-pnpm add @typesugar/collections
+pnpm add @typesugar/collections @typesugar/std
 ```
 
 ## Quick Start
 
-`HashSet` and `HashMap` use `Eq<K>` + `Hash<K>` for key identity. The compiler auto-derives these from your type's fields and fills them via `= implicit()` parameters — you just write the code you'd expect:
+`HashSet` and `HashMap` use `Eq<K>` + `Hash<K>` for key identity. You pass both instances
+to the constructor; for primitives, `@typesugar/std` exports them (`eqNumber`/`hashNumber`,
+`eqString`/`hashString`, ...), and `makeEq`/`makeHash` build them for your own types:
 
 ```typescript
-import { HashSet, union, intersection, type Eq, type Hash } from "@typesugar/collections";
+import {
+  HashSet,
+  union,
+  intersection,
+  hashSetLike,
+  hashMutableSetLike,
+} from "@typesugar/collections";
+import { makeEq, makeHash } from "@typesugar/std";
 
 interface Point {
   x: number;
   y: number;
 }
 
-// Eq<Point> and Hash<Point> are auto-derived and implicitly resolved
-const a = new HashSet<Point>();
+const eqPoint = makeEq<Point>((a, b) => a.x === b.x && a.y === b.y);
+const hashPoint = makeHash<Point>((p) => p.x * 31 + p.y);
+
+const a = new HashSet<Point>(eqPoint, hashPoint);
 a.add({ x: 1, y: 2 }).add({ x: 2, y: 3 });
 
-const b = new HashSet<Point>();
+const b = new HashSet<Point>(eqPoint, hashPoint);
 b.add({ x: 2, y: 3 }).add({ x: 3, y: 4 });
 
-const u = union(a, b); // {1,2}, {2,3}, {3,4}
-const i = intersection(a, b); // {2,3}
+// Set operations take the SetLike / MutableSetLike instances explicitly
+const SL = hashSetLike(eqPoint, hashPoint);
+const MSL = hashMutableSetLike(eqPoint, hashPoint);
+const u = union(a, b, SL, MSL); // {1,2}, {2,3}, {3,4}  (size 3)
+const i = intersection(a, b, SL, MSL); // {2,3}
 ```
 
-Under the hood, the compiler sees the `Eq<K>` and `Hash<K>` parameters on `HashSet`'s constructor and `union`'s signature, auto-derives instances from `Point`'s fields, and fills them in — then specializes everything to direct field comparisons. Zero boilerplate, zero runtime cost.
+Instances are not derived or filled in for you: the constructors and the derived
+operations take them as ordinary required parameters.
 
 ---
 
@@ -61,50 +76,51 @@ IterableOnce<I, A>
 
 ## HashSet and HashMap
 
-Native `Set`/`Map` use reference equality for objects — `HashSet`/`HashMap` use structural equality via the `Eq` and `Hash` typeclasses. The compiler resolves `= implicit()` parameters automatically, so usage looks like native collections:
+Native `Set`/`Map` use reference equality for objects — `HashSet`/`HashMap` use structural equality via the `Eq` and `Hash` typeclasses you pass in:
 
 ```typescript
-import { HashSet, HashMap, type Eq, type Hash } from "@typesugar/collections";
+import { HashSet, HashMap } from "@typesugar/collections";
+import { eqNumber, hashNumber, eqString, hashString, makeEq, makeHash } from "@typesugar/std";
 
 // Primitives
-const nums = new HashSet<number>();
+const nums = new HashSet<number>(eqNumber, hashNumber);
 nums.add(1).add(2).add(1);
 nums.size; // 2
 
-const map = new HashMap<string, number>();
+const map = new HashMap<string, number>(eqString, hashString);
 map.set("a", 1).set("b", 2);
 map.get("a"); // 1
 map.getOrElse("c", 0); // 0 (key missing → fallback)
 
-// Custom types — Eq + Hash auto-derived from fields
+// Custom types
 interface UserId {
   org: string;
   id: number;
 }
-const users = new HashSet<UserId>();
+const eqUserId = makeEq<UserId>((a, b) => a.org === b.org && a.id === b.id);
+const hashUserId = makeHash<UserId>((u) => hashString.hash(u.org) * 31 + u.id);
+
+const users = new HashSet<UserId>(eqUserId, hashUserId);
 users.add({ org: "acme", id: 1 });
 users.add({ org: "acme", id: 1 }); // duplicate, not added
 users.size; // 1
 ```
 
-**Custom instances** — if you need non-default behavior (e.g., case-insensitive keys), provide an explicit `@instance` to override auto-derivation:
+**Custom behaviour** — non-default equality (e.g., case-insensitive keys) is just a different pair of instances:
 
 ```typescript
-import { type Eq, type Hash, makeEq, makeHash, hashString } from "@typesugar/std";
+import { makeEq, hashBy, hashString } from "@typesugar/std";
 
-@instance const ciEq: Eq<string> = makeEq(
-  (a, b) => a.toLowerCase() === b.toLowerCase()
-);
-@instance const ciHash: Hash<string> = makeHash(
-  (s) => hashString.hash(s.toLowerCase())
-);
+const ciEq = makeEq<string>((a, b) => a.toLowerCase() === b.toLowerCase());
+const ciHash = hashBy((s: string) => s.toLowerCase(), hashString);
 
-// Now HashSet<string> uses case-insensitive comparison
-const tags = new HashSet<string>();
+const tags = new HashSet<string>(ciEq, ciHash);
 tags.add("TypeScript");
 tags.add("typescript"); // duplicate under ciEq, not added
 tags.size; // 1
 ```
+
+Keep the law in mind: values that are equal under `Eq` must have the same `Hash`.
 
 ---
 
@@ -119,56 +135,48 @@ tags.size; // 1
 | `HashMap<K,V>` | `MutableMapLike<HashMap<K,V>, K, V>` |
 | `string`       | `Seq<string, string>`                |
 
-Instance factories: `arraySeqOf<A>()`, `nativeMutableSetLike<K>()`, `nativeMutableMapLike<K,V>()`, `hashMutableSetLike<K>()`, `hashMutableMapLike<K,V>()`.
+Instance factories: `arraySeqOf<A>()`, `nativeMutableSetLike<K>()`, `nativeMutableMapLike<K,V>()`, `hashMutableSetLike(eq, hash)`, `hashMutableMapLike(eq, hash)`.
 
 ---
 
 ## Derived Operations
 
-Free functions built on the typeclass interfaces. Typeclass instance parameters use `= implicit()` and are resolved automatically by the compiler.
+Free functions built on the typeclass interfaces. Each takes its typeclass instances as trailing parameters.
 
-| Operation       | From         | What you write         |
-| --------------- | ------------ | ---------------------- |
-| `forEach`       | IterableOnce | `forEach(items, f)`    |
-| `toArray`       | IterableOnce | `toArray(items)`       |
-| `find`          | IterableOnce | `find(items, pred)`    |
-| `exists`        | IterableOnce | `exists(items, pred)`  |
-| `forAll`        | IterableOnce | `forAll(items, pred)`  |
-| `count`         | IterableOnce | `count(items)`         |
-| `sum`           | IterableOnce | `sum(nums)`            |
-| `head`          | Seq          | `head(seq)`            |
-| `last`          | Seq          | `last(seq)`            |
-| `take`          | Seq          | `take(seq, n)`         |
-| `drop`          | Seq          | `drop(seq, n)`         |
-| `sorted`        | Seq          | `sorted(seq)`          |
-| `seqContains`   | Seq          | `seqContains(seq, x)`  |
-| `union`         | SetLike      | `union(a, b)`          |
-| `intersection`  | SetLike      | `intersection(a, b)`   |
-| `difference`    | SetLike      | `difference(a, b)`     |
-| `isSubsetOf`    | SetLike      | `isSubsetOf(a, b)`     |
-| `getOrElse`     | MapLike      | `getOrElse(m, k, def)` |
-| `mapValues`     | MapLike      | `mapValues(m, f)`      |
-| `filterEntries` | MapLike      | `filterEntries(m, p)`  |
-| `mapEntries`    | MapLike      | `mapEntries(m)`        |
-
-The actual function signatures include typeclass instance parameters (e.g., `union(a, b, SL, MSL)`) — the compiler fills these in from the types of `a` and `b`.
+| Operation       | From         | Signature                      |
+| --------------- | ------------ | ------------------------------ |
+| `forEach`       | IterableOnce | `forEach(items, f, IO)`        |
+| `toArray`       | IterableOnce | `toArray(items, IO)`           |
+| `find`          | IterableOnce | `find(items, pred, IO)`        |
+| `exists`        | IterableOnce | `exists(items, pred, IO)`      |
+| `forAll`        | IterableOnce | `forAll(items, pred, IO)`      |
+| `count`         | IterableOnce | `count(items, IO)`             |
+| `sum`           | IterableOnce | `sum(nums, IO)`                |
+| `head`          | Seq          | `head(seq, SQ)`                |
+| `last`          | Seq          | `last(seq, SQ)`                |
+| `take`          | Seq          | `take(seq, n, SQ)`             |
+| `drop`          | Seq          | `drop(seq, n, SQ)`             |
+| `sorted`        | Seq          | `sorted(seq, SQ, ord)`         |
+| `seqContains`   | Seq          | `seqContains(seq, x, SQ, eq)`  |
+| `union`         | SetLike      | `union(a, b, SL, MSL)`         |
+| `intersection`  | SetLike      | `intersection(a, b, SL, MSL)`  |
+| `difference`    | SetLike      | `difference(a, b, SL, MSL)`    |
+| `isSubsetOf`    | SetLike      | `isSubsetOf(a, b, SL)`         |
+| `getOrElse`     | MapLike      | `getOrElse(m, k, def, ML)`     |
+| `mapValues`     | MapLike      | `mapValues(m, f, ML, MML)`     |
+| `filterEntries` | MapLike      | `filterEntries(m, p, ML, MML)` |
+| `mapEntries`    | MapLike      | `mapEntries(m, ML)`            |
 
 ---
 
-## Auto-Derivation
+## Generic Code
 
-`Eq` and `Hash` are auto-derived for any struct whose fields have instances (all primitives do). This means:
-
-- `HashSet<Point>` just works — no annotations needed
-- `HashMap<UserId, Account>` just works
-- Nested types work too: if `Address` has `Eq` + `Hash`, then a struct containing `Address` gets them automatically
-
-For generic code where `K` isn't concrete yet, `mutableSetFor` and `mutableMapFor` give you a `MutableSetLike`/`MutableMapLike` backed by `HashSet`/`HashMap`:
+For generic code, take the instances as parameters and build a `MutableSetLike`/`MutableMapLike` backed by `HashSet`/`HashMap` with `mutableSetFor` and `mutableMapFor`:
 
 ```typescript
 import { mutableSetFor, type Eq, type Hash } from "@typesugar/collections";
 
-function dedup<K>(items: K[], eq: Eq<K> = implicit(), hash: Hash<K> = implicit()): K[] {
+function dedup<K>(items: K[], eq: Eq<K>, hash: Hash<K>): K[] {
   const setInstance = mutableSetFor(eq, hash);
   const seen = setInstance.create();
   return items.filter((k) => {
@@ -178,28 +186,24 @@ function dedup<K>(items: K[], eq: Eq<K> = implicit(), hash: Hash<K> = implicit()
   });
 }
 
-// At call sites, eq and hash are filled in automatically:
-const unique = dedup([
-  { x: 1, y: 2 },
-  { x: 1, y: 2 },
-  { x: 3, y: 4 },
-]);
+const unique = dedup(
+  [
+    { x: 1, y: 2 },
+    { x: 1, y: 2 },
+    { x: 3, y: 4 },
+  ],
+  eqPoint,
+  hashPoint
+);
 // → [{ x: 1, y: 2 }, { x: 3, y: 4 }]
 ```
 
 ---
 
-## Zero-Cost Guarantee
-
-Specialization happens automatically at compile time: `HashSet<string>` compiles to the equivalent of native `Set<string>` — no wrapper overhead, direct method calls. For custom keys, the only cost is the `Eq`/`Hash` logic for your fields; the collection infrastructure itself inlines away.
-
----
-
 ## Integration
 
-- **@typesugar/std** — `Eq`, `Hash`, `Ord` are auto-derived from type structure. Explicit instances (`makeEq`, `makeHash`) are only needed for custom behavior.
+- **@typesugar/std** — provides `Eq`, `Hash` and `Ord`, the primitive instances (`eqNumber`, `hashString`, ...) and the builders `makeEq`, `makeHash`, `hashBy`.
 - **@typesugar/graph** — Generic algorithms (`topoSortG`, `dijkstraWithG`, `sccG`) use `HashSet` and `HashMap` internally for visited sets and distance maps.
-- **@typesugar/effect** — Layer dependency resolution uses `HashMap` internally for the layer graph.
 
 ---
 
@@ -219,28 +223,28 @@ Specialization happens automatically at compile time: `HashSet<string>` compiles
 
 ### Data Structures
 
-| Type           | Constructor          | Notes                                               |
-| -------------- | -------------------- | --------------------------------------------------- |
-| `HashSet<K>`   | `new HashSet<K>()`   | API mirrors native `Set`. Eq/Hash auto-resolved.    |
-| `HashMap<K,V>` | `new HashMap<K,V>()` | API mirrors native `Map`. `getOrElse(k, fallback)`. |
+| Type           | Constructor                  | Notes                                               |
+| -------------- | ---------------------------- | --------------------------------------------------- |
+| `HashSet<K>`   | `new HashSet<K>(eq, hash)`   | API mirrors native `Set`.                           |
+| `HashMap<K,V>` | `new HashMap<K,V>(eq, hash)` | API mirrors native `Map`. `getOrElse(k, fallback)`. |
 
 ### Instance Factories
 
-For generic code where you need to pass instances explicitly:
+Instances for the typeclass-based derived operations:
 
-| Factory                       | Produces                             |
-| ----------------------------- | ------------------------------------ |
-| `arraySeqOf<A>()`             | `Seq<A[], A>`                        |
-| `nativeSetLike<K>()`          | `SetLike<Set<K>, K>`                 |
-| `nativeMutableSetLike<K>()`   | `MutableSetLike<Set<K>, K>`          |
-| `nativeMapLike<K,V>()`        | `MapLike<Map<K,V>, K, V>`            |
-| `nativeMutableMapLike<K,V>()` | `MutableMapLike<Map<K,V>, K, V>`     |
-| `hashSetLike<K>()`            | `SetLike<HashSet<K>, K>`             |
-| `hashMutableSetLike<K>()`     | `MutableSetLike<HashSet<K>, K>`      |
-| `hashMapLike<K,V>()`          | `MapLike<HashMap<K,V>, K, V>`        |
-| `hashMutableMapLike<K,V>()`   | `MutableMapLike<HashMap<K,V>, K, V>` |
-| `mutableSetFor<K>()`          | `MutableSetLike<HashSet<K>, K>`      |
-| `mutableMapFor<K,V>()`        | `MutableMapLike<HashMap<K,V>, K, V>` |
+| Factory                        | Produces                             |
+| ------------------------------ | ------------------------------------ |
+| `arraySeqOf<A>()`              | `Seq<A[], A>`                        |
+| `nativeSetLike<K>()`           | `SetLike<Set<K>, K>`                 |
+| `nativeMutableSetLike<K>()`    | `MutableSetLike<Set<K>, K>`          |
+| `nativeMapLike<K,V>()`         | `MapLike<Map<K,V>, K, V>`            |
+| `nativeMutableMapLike<K,V>()`  | `MutableMapLike<Map<K,V>, K, V>`     |
+| `hashSetLike(eq, hash)`        | `SetLike<HashSet<K>, K>`             |
+| `hashMutableSetLike(eq, hash)` | `MutableSetLike<HashSet<K>, K>`      |
+| `hashMapLike(eq, hash)`        | `MapLike<HashMap<K,V>, K, V>`        |
+| `hashMutableMapLike(eq, hash)` | `MutableMapLike<HashMap<K,V>, K, V>` |
+| `mutableSetFor(eq, hash)`      | `MutableSetLike<HashSet<K>, K>`      |
+| `mutableMapFor(eq, hash)`      | `MutableMapLike<HashMap<K,V>, K, V>` |
 
 **Inspired by:** Scala collections, Haskell Data.Set/Data.Map, Rust std::collections
 
