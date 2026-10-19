@@ -94,12 +94,12 @@ interface UserProfile {
 ```
 
 ```
-error TS9999: [typesugar] GenericDerivation failed for Eq: Error: cannot derive Eq for 'UserProfile'.
-  resolution trace for Eq<UserProfile>:
-    1. derivation-strategy: Eq — ok
-    2. generic-meta: GenericMeta for UserProfile: { id: number, metadata: unknown } — FAILED — one or more fields lack required instance
-      field-check: field `id`: number — ok — number has Eq
-      field-check: field `metadata`: unknown — FAILED — unknown lacks Eq
+error TS9106: [typesugar] [TS9106] Cannot derive Eq for 'UserProfile'
+  = note: resolution trace for Eq<UserProfile>:
+  1. derivation-strategy: Eq — ok
+  2. generic-meta: GenericMeta for UserProfile: { id: number, metadata: unknown } — FAILED — one or more fields lack required instance
+    field-check: field `id`: number — ok — number has Eq
+    field-check: field `metadata`: unknown — FAILED — unknown lacks Eq
 ```
 
 Use a concrete type instead of `unknown`, or provide the instance by hand.

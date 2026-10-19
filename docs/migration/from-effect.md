@@ -268,12 +268,9 @@ Likewise a plain `(self: T) => number` function rather than a `Hash.Hash<T>` ins
 
 ## Extension Methods
 
-::: warning Not working in 1.0
-In the current build, `effect.map(...)` with `EffectExt` imported is reported as
-"Ambiguous extension method 'map' … EffectExt.map (from "@typesugar/effect") /
-Effect.map (from "effect")" whenever the file also imports `Effect` from `"effect"`
-(which Effect code always does), and a chained call after the first one is not
-rewritten. Call the `Effect.*` functions or `pipe` directly until this is fixed.
+::: tip
+`import { Effect } from "effect"` does not compete with `EffectExt`: a module
+namespace imported by name is not an extension provider (only `import * as X` is).
 :::
 
 Import `EffectExt` to enable fluent method calls that compile to direct function calls:

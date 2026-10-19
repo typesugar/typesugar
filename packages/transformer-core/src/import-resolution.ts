@@ -888,6 +888,40 @@ export function isGlobalAugmentationStub(prop: ts.Symbol): boolean {
 }
 
 /**
+ * Is `ident` a NAMED (or default) import binding a whole MODULE namespace --
+ * `import { Effect } from "effect"`, where the package does
+ * `export * as Effect from "./Effect.js"` -- that has not opted in to being an
+ * extension provider (a `"use extension"` module / `@extension`)?
+ *
+ * Such a namespace is an ordinary library value, not an extension object: its
+ * `map(self, f)` matched every Effect receiver and made `eff.map(f)` ambiguous
+ * with the `EffectExt` the user imported for exactly that (docs start #2).
+ * `import * as X` stays an explicit provider (that is the opt-in form), and a
+ * named import of a declared object/`namespace` (`EffectExt`) is unaffected.
+ */
+function isUnoptedModuleNamespaceBinding(ctx: MacroContextImpl, ident: ts.Identifier): boolean {
+  const checker = ctx.typeChecker;
+  let target: ts.Symbol | undefined;
+  try {
+    target = checker.getSymbolAtLocation(ident);
+    if (target && target.flags & ts.SymbolFlags.Alias) target = checker.getAliasedSymbol(target);
+  } catch (error) {
+    ctx.reportWarning(
+      ident,
+      `typesugar could not resolve the import '${ident.text}' while looking for extension methods (${error}); ignoring it as an extension provider.`
+    );
+    return true;
+  }
+  const decls = target?.getDeclarations();
+  if (!target || !decls || decls.length === 0) return false;
+  const isModule = decls.every(
+    (d) => ts.isSourceFile(d) || (ts.isModuleDeclaration(d) && ts.isStringLiteral(d.name))
+  );
+  if (!isModule) return false;
+  return !isExtensionEnabled(ctx, target);
+}
+
+/**
  * Scan imports for a matching extension method.
  * Collects all matching extensions for ambiguity detection.
  */
@@ -952,6 +986,7 @@ export function scanImportsForExtension(
 
     if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
       for (const spec of clause.namedBindings.elements) {
+        if (isUnoptedModuleNamespaceBinding(ctx, spec.name)) continue;
         const result = checkImportedSymbolForExtension(
           ctx.typeChecker,
           spec.name,
@@ -972,7 +1007,7 @@ export function scanImportsForExtension(
       push(result, importSource, clause.namedBindings.name);
     }
 
-    if (clause.name) {
+    if (clause.name && !isUnoptedModuleNamespaceBinding(ctx, clause.name)) {
       const result = checkImportedSymbolForExtension(
         ctx.typeChecker,
         clause.name,

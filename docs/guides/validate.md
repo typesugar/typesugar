@@ -238,8 +238,8 @@ the compiler can see the instance's source: an instance you declare with
 `@typesugar/validate` is compiled from source in the same program. Across a
 published package boundary it is **not** specialized yet: a `nativeSchema`
 imported from the installed `@typesugar/validate` package keeps dictionary
-passing (correct, just not zero-cost), and no TS9602 warning says so, because
-the package's `.d.ts` has no method bodies to inline.
+passing (correct, just not zero-cost), and a TS9602 warning says so: the
+package's `.d.ts` has no method bodies to inline.
 
 ## API Reference
 

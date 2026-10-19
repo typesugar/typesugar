@@ -13,6 +13,7 @@ import {
   tryExtractSumType,
   instanceScanner,
   companionPath,
+  reportGenericDeriveFailure,
 } from "@typesugar/macros";
 
 import {
@@ -70,7 +71,51 @@ export const JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
   // @typesugar/sql's schema attribute macro: `/** @schema("users") */` was
   // silently ignored while the decorator form reached the macro.
   ["schema", "schema"],
+  // @typesugar/contracts' function attribute macro (docs guides-b #4):
+  // `/** @contract */ function f() { requires: ... }` was silently ignored.
+  ["contract", "contract"],
 ]);
+
+/** The SourceFile a (parsed) node belongs to, or undefined for a synthetic node. */
+function sourceFileOf(node: ts.Node): ts.SourceFile | undefined {
+  let n: ts.Node | undefined = ts.getOriginalNode(node);
+  while (n && !ts.isSourceFile(n)) n = n.parent;
+  return n;
+}
+
+/** Does `sourceFile` import `moduleName` (or a subpath of it) in any form? */
+function fileImportsModule(sourceFile: ts.SourceFile, moduleName: string): boolean {
+  return sourceFile.statements.some(
+    (stmt) =>
+      ts.isImportDeclaration(stmt) &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      (stmt.moduleSpecifier.text === moduleName ||
+        stmt.moduleSpecifier.text.startsWith(moduleName + "/"))
+  );
+}
+
+/**
+ * The attribute-macro name a JSDoc tag dispatches, if any: a built-in tag from
+ * {@link JSDOC_MACRO_TAGS}, or -- for third-party attribute macros (docs
+ * start #6) -- a registered attribute macro of the same name whose `module`
+ * this file imports (`import "my-macros"`, `import { logged } from
+ * "my-macros"`, or a subpath). The import requirement keeps ordinary
+ * documentation tags inert in files that never asked for such a macro; the
+ * caller still applies the line-start rule and the function-target check.
+ *
+ * Reads the file's own `import` declarations, which are never synthesized
+ * mid-pass, and the macro registry, which macro packages populate at load
+ * time -- so no same-pass-visibility concern (CLAUDE.md).
+ */
+export function jsDocTagMacroName(tag: ts.JSDocTag, node: ts.Node): string | undefined {
+  const name = tag.tagName.text;
+  const builtin = JSDOC_MACRO_TAGS.get(name);
+  if (builtin) return builtin;
+  const macro = globalRegistry.getAttribute(name);
+  if (!macro?.module) return undefined;
+  const sf = sourceFileOf(node);
+  return sf && fileImportsModule(sf, macro.module) ? name : undefined;
+}
 
 export function isJSDocMacroTargetNode(
   node: ts.Node
@@ -144,7 +189,7 @@ export function hasJSDocMacroTags(node: ts.Node): boolean {
 
   const tags = ts.getJSDocTags(node);
   for (const tag of tags) {
-    if (JSDOC_MACRO_TAGS.has(tag.tagName.text) && isJSDocTagAtLineStart(tag)) {
+    if (jsDocTagMacroName(tag, node) && isJSDocTagAtLineStart(tag)) {
       return true;
     }
   }
@@ -184,7 +229,7 @@ export function tryExpandJSDocMacros(
   let currentNode: ts.Declaration = targetDecl;
 
   for (const tag of tags) {
-    const macroName = JSDOC_MACRO_TAGS.get(tag.tagName.text);
+    const macroName = jsDocTagMacroName(tag, node);
     if (!macroName) continue;
     // Prose / fenced-example / nested-comment mentions are not triggers.
     if (!isJSDocTagAtLineStart(tag)) continue;
@@ -671,7 +716,7 @@ export function expandDeriveDecorator(
         continue;
       }
     } catch (error) {
-      ctx.reportError(arg, `GenericDerivation failed for ${deriveName}: ${error}`);
+      reportGenericDeriveFailure(ctx, arg, deriveName, error);
       continue;
     }
 

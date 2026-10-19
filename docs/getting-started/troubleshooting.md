@@ -150,9 +150,11 @@ import "@typesugar/std/syntax/json"; // .toJson(), User.fromJson()
 ```
 
 **Cause #2: the receiver's type isn't known.** The type checker sees the unexpanded
-source, so a value whose type comes from another sugared call (e.g.
-`const c = p.clone(); c.equals(p)`) has no known type and isn't rewritten. Annotate
-it: `const c: Point = p.clone();`.
+source. typesugar recovers the type of a value that comes from another sugared call
+(`const c = p.clone(); c.equals(p)`, `const r = (0).to(9).step(3); r.toArray()`) when
+that call is an imported extension function or a typeclass method that returns its
+own type parameter (`clone(a: A): A`). For anything else, annotate the variable:
+`const c: Point = p.clone();`.
 
 **Other causes:**
 

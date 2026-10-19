@@ -122,8 +122,22 @@ h(5); // 12 (5 + 1 = 6, 6 * 2 = 12)
 
 ## Unary Operators
 
-Not yet supported: `@op` dispatch covers binary operators only. A unary `-c` or `~c` is
-left as plain JavaScript, so call the method directly (`negate(c)`).
+Put `@op` on a ONE-parameter method to dispatch the prefix-unary form. The same
+token can map a binary method too; the parameter count decides which form each one
+handles:
+
+```typescript
+/** @typeclass */
+interface VecOps<A> {
+  /** @op - */
+  sub(a: A, b: A): A; // v - w  → vecOps.sub(v, w)
+  /** @op - */
+  negate(a: A): A; // -v     → vecOps.negate(v)
+}
+```
+
+Prefix `-`, `+`, `!` and `~` can be dispatched. `++`/`--` never are, and a unary
+operator on a primitive (`-n` for a `number`) stays plain JavaScript.
 
 ## Comparison with @derive
 
@@ -140,15 +154,19 @@ class Point { ... }
 
 ## Type Safety
 
-Dispatch picks the instance from the left operand's type. The right operand is not
-checked against the method's parameter type when the operator is rewritten:
+Dispatch picks the instance from the left operand's type. When the method's right
+parameter is the typeclass's type parameter (`add(a: A, b: A)`), the right operand
+must have the instance type too; otherwise the operator is left native and reported:
 
 ```typescript
 const sum = vec + other; // OK: vecOps.add(vec, other)
-const bad = vec + 5; // Rewritten anyway; the mismatch only shows up as an output type error
+const bad = vec + 5; // error: Operator '+' on 'Vec2' dispatches to VecOps.add, whose right
+//                      operand must also be 'Vec2', but it is 'number'.
 ```
 
-Set the bundler plugin's `strict: true` to have the expanded code type-checked (see [Type Safety](./type-safety.md)); the build then fails on this mistake.
+A method whose right parameter has some other type (`scale(a: A, k: number)`) is not
+checked here. Set the bundler plugin's `strict: true` to have the expanded code
+type-checked (see [Type Safety](./type-safety.md)).
 
 ## Performance
 

@@ -18,6 +18,24 @@ import {
   richToLegacyDiagnostic,
 } from "./diagnostics.js";
 
+/**
+ * Unwrap expressions that do not change a value at runtime -- parentheses,
+ * `as T` / `as const`, `satisfies T`, `<T>x` and `x!` -- so compile-time
+ * evaluation sees the value they wrap (`const C = { T: 5 } as const` is as
+ * constant as the same literal without `as const`).
+ */
+function skipTypeOnlyWrappers(node: ts.Node): ts.Node {
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isNonNullExpression(node)
+  ) {
+    node = node.expression;
+  }
+  return node;
+}
 export class MacroContextImpl implements MacroContext {
   private diagnostics: MacroDiagnostic[] = [];
   private scope: Map<string, ComptimeValue> = new Map();
@@ -290,6 +308,7 @@ export class MacroContextImpl implements MacroContext {
   }
 
   isComptime(node: ts.Node): boolean {
+    node = skipTypeOnlyWrappers(node);
     // Check if a node can be evaluated at compile time
     if (ts.isLiteralExpression(node)) {
       return true;
@@ -356,6 +375,7 @@ export class MacroContextImpl implements MacroContext {
   }
 
   private evaluateNode(node: ts.Node): ComptimeValue {
+    node = skipTypeOnlyWrappers(node);
     // Numeric literals
     if (ts.isNumericLiteral(node)) {
       return { kind: "number", value: parseFloat(node.text) };

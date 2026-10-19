@@ -12,7 +12,12 @@
 
 import * as ts from "typescript";
 
-import { resolveInstance, getMethodCandidates, companionPath } from "@typesugar/macros";
+import {
+  resolveInstance,
+  getMethodCandidates,
+  getOpMapForTypeclass,
+  companionPath,
+} from "@typesugar/macros";
 
 import {
   KNOWN_GLOBALS,
@@ -27,6 +32,7 @@ import {
 
 import {
   buildInstanceReferenceExpression,
+  inferSugaredExpressionType,
   type ResolveMacroFn,
   type ResolveExtensionFn,
 } from "./rewriting.js";
@@ -138,7 +144,14 @@ export function tryResolveTypeclassMethod(
     }
   }
 
-  const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  let receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  // `const c = p.clone(); c.equals(p)`: `c` is typed from a call the checker
+  // could not type (an error type). Recover it from the sugar it initialises
+  // from (docs start #3).
+  if (!ctx.isTypeReliable(receiverType)) {
+    receiverType =
+      inferSugaredExpressionType(ctx, resolveExtensionFromImports, receiver, 0) ?? receiverType;
+  }
   if (!ctx.isTypeReliable(receiverType)) {
     return undefined;
   }
@@ -296,6 +309,69 @@ export function tryResolveTypeclassMethod(
   }
 
   return preserveSourceMap(rewritten, node);
+}
+
+/**
+ * The type a typeclass method-sugar call (`p.clone()`) will have after its
+ * rewrite, for a call the checker typed as an error: when exactly one
+ * activated typeclass declaring `method` has an instance (or a `@derive`
+ * companion) for the receiver's type, and that method's declared return type
+ * is the typeclass's own type parameter (`clone(a: A): A`), the result is the
+ * receiver's type. Anything else (other return types, ambiguity, a static
+ * companion receiver) is not inferred.
+ *
+ * Quiet by design: it reports nothing, because the call it inspects is itself
+ * rewritten (and diagnosed) on its own visit. Only original nodes reach the
+ * checker (via {@link inferSugaredExpressionType}).
+ */
+export function inferMethodSugarCallType(
+  ctx: MacroContextImpl,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  call: ts.CallExpression,
+  depth: number
+): ts.Type | undefined {
+  if (isSyntheticNode(call) || !ts.isPropertyAccessExpression(call.expression)) return undefined;
+  const methodName = call.expression.name.text;
+  const receiver = call.expression.expression;
+  const receiverType = inferSugaredExpressionType(
+    ctx,
+    resolveExtensionFromImports,
+    receiver,
+    depth + 1
+  );
+  if (!receiverType || !ctx.isTypeReliable(receiverType)) return undefined;
+  if (receiverType.getProperty(methodName)) return undefined;
+
+  const sfn = ctx.sourceFile.fileName;
+  const activatedMethods = globalResolutionScope.getActivatedMethodSyntax(sfn);
+  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+  const activated =
+    definedTcs.size === 0 ? activatedMethods : new Set([...activatedMethods, ...definedTcs]);
+  if (activated.size === 0) return undefined;
+
+  let found: string | undefined;
+  for (const { typeclass } of getMethodCandidates(ctx.program, activated, methodName)) {
+    let has = false;
+    try {
+      const r = resolveInstance(ctx, typeclass, receiverType);
+      has = r?.kind === "resolved";
+    } catch {
+      // Quiet: the call's own rewrite reports a resolution failure.
+      has = false;
+    }
+    if (!has) has = typeDerivesTypeclass(ctx, receiverType, typeclass);
+    if (!has) continue;
+    if (found) return undefined; // ambiguous: reported by the call's own rewrite
+    found = typeclass;
+  }
+  if (!found) return undefined;
+
+  const def = getOpMapForTypeclass(ctx.program, found)?.def;
+  const method = def?.methods.find((m) => m.name === methodName);
+  if (!def || !method || method.returnType !== def.typeParam) return undefined;
+  const typeName = stripTypeArguments(ctx.typeChecker.typeToString(receiverType));
+  if (BUILTIN_METHOD_RECEIVER_NAMES.has(typeName)) return undefined;
+  return receiverType;
 }
 
 /**

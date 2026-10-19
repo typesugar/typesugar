@@ -29,6 +29,20 @@ export interface TypeclassOpInfo {
   name: string;
   /** Map from operator token (e.g., "===") to the method it dispatches to (e.g., "equals"). */
   opToMethod: Map<string, string>;
+  /**
+   * Map from PREFIX-UNARY operator token (e.g., "-") to the method it dispatches
+   * to: an `@op` tag on a ONE-parameter member (`negate(a: A): A`). Kept apart
+   * from `opToMethod` so `@op -` can name both `sub(a, b)` (binary `a - b`) and
+   * `negate(a)` (unary `-a`) in the same typeclass. Optional: built-in seeds
+   * declare no unary operators.
+   */
+  unaryOpToMethod?: Map<string, string>;
+  /**
+   * Binary operators whose method's RIGHT parameter is not the typeclass's type
+   * parameter (`scale(a: A, k: number)`). For every other binary operator the
+   * right operand must be the instance type, which operator dispatch checks.
+   */
+  mixedOperandOps?: Set<string>;
   /** All method names declared by the typeclass interface. */
   methodNames: Set<string>;
   /**
@@ -60,9 +74,23 @@ function hasTypeclassTag(node: ts.Node): boolean {
 }
 
 /** Read a single `@typeclass` interface declaration into a {@link TypeclassOpInfo}. */
+/** The value parameters of a callable typeclass member, if it is one. */
+function memberParameters(
+  member: ts.TypeElement
+): ts.NodeArray<ts.ParameterDeclaration> | undefined {
+  if (ts.isMethodSignature(member)) return member.parameters;
+  if (ts.isPropertySignature(member) && member.type && ts.isFunctionTypeNode(member.type)) {
+    return member.type.parameters;
+  }
+  return undefined;
+}
+
 function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo {
   const opToMethod = new Map<string, string>();
+  const unaryOpToMethod = new Map<string, string>();
+  const mixedOperandOps = new Set<string>();
   const methodNames = new Set<string>();
+  const typeParamName = iface.typeParameters?.[0]?.name.text;
 
   for (const member of iface.members) {
     if (!member.name || !ts.isIdentifier(member.name)) continue;
@@ -70,7 +98,23 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
     methodNames.add(methodName);
 
     const op = extractOpFromJSDoc(member);
-    if (op) opToMethod.set(op, methodName);
+    if (!op) continue;
+    const params = memberParameters(member);
+    if (params && params.length === 1) {
+      // `/** @op - */ negate(a: A): A` -- the prefix-unary form `-a`.
+      unaryOpToMethod.set(op, methodName);
+      continue;
+    }
+    opToMethod.set(op, methodName);
+    const right = params?.[1]?.type;
+    const rightIsSelf =
+      !!right &&
+      !!typeParamName &&
+      ts.isTypeReferenceNode(right) &&
+      ts.isIdentifier(right.typeName) &&
+      right.typeName.text === typeParamName &&
+      !right.typeArguments;
+    if (params && params.length >= 2 && !rightIsSelf) mixedOperandOps.add(op);
   }
 
   const def = buildTypeclassInfoFromInterface(iface);
@@ -78,6 +122,8 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
   return {
     name: iface.name.text,
     opToMethod,
+    unaryOpToMethod,
+    mixedOperandOps,
     methodNames,
     conflictedOps: new Set(),
     def,
@@ -151,6 +197,23 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
             existing.opToMethod.delete(op);
             existing.conflictedOps.add(op);
           }
+        }
+        // Unary operators: same agree/conflict rule, tracked under a "unary "
+        // key prefix so a unary conflict never hides the binary mapping.
+        for (const [op, method] of info.unaryOpToMethod ?? []) {
+          const key = `unary ${op}`;
+          if (existing.conflictedOps.has(key)) continue;
+          const unary = (existing.unaryOpToMethod ??= new Map());
+          const prev = unary.get(op);
+          if (prev === undefined) {
+            unary.set(op, method);
+          } else if (prev !== method) {
+            unary.delete(op);
+            existing.conflictedOps.add(key);
+          }
+        }
+        for (const op of info.mixedOperandOps ?? []) {
+          (existing.mixedOperandOps ??= new Set()).add(op);
         }
         for (const m of info.methodNames) existing.methodNames.add(m);
       } else {
@@ -354,17 +417,30 @@ export function getOpMapForTypeclass(
  * given operator token, returning `{ typeclass, method }` candidates. This is the
  * registry-free replacement for `getSyntaxForOperator`, scoped to the typeclasses
  * the using file actually activated via `@syntax-operators` imports.
+ *
+ * `arity` selects the binary (`a - b`, two-parameter method) or prefix-unary
+ * (`-a`, one-parameter method) mapping. `rightOperandIsSelf` says whether the
+ * method's right parameter is the typeclass's type parameter, i.e. whether the
+ * right operand must be the instance type for the dispatch to be well-typed.
  */
 export function getOperatorCandidates(
   program: ts.Program,
   activatedTypeclasses: Iterable<string>,
-  op: string
-): Array<{ typeclass: string; method: string }> {
-  const candidates: Array<{ typeclass: string; method: string }> = [];
+  op: string,
+  arity: "binary" | "unary" = "binary"
+): Array<{ typeclass: string; method: string; rightOperandIsSelf: boolean }> {
+  const candidates: Array<{ typeclass: string; method: string; rightOperandIsSelf: boolean }> = [];
   for (const tc of activatedTypeclasses) {
     const info = getOpMapForTypeclass(program, tc);
-    const method = info?.opToMethod.get(op);
-    if (method) candidates.push({ typeclass: tc, method });
+    if (!info) continue;
+    const method = arity === "unary" ? info.unaryOpToMethod?.get(op) : info.opToMethod.get(op);
+    if (method) {
+      candidates.push({
+        typeclass: tc,
+        method,
+        rightOperandIsSelf: arity === "binary" && !info.mixedOperandOps?.has(op),
+      });
+    }
   }
   return candidates;
 }

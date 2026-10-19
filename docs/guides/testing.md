@@ -73,9 +73,9 @@ staticAssert(SUPPORTED_LOCALES.length > 0, "must have locales");
 The condition must be something typesugar can evaluate at compile time:
 literals, and `const` bindings initialized with them (including plain object and
 array literals). Anything else is TS9219 ("staticAssert condition must be a
-compile-time constant"). That includes values declared with `as const`:
-`const CONFIG = { TIMEOUT: 5 } as const` makes `CONFIG.TIMEOUT > 0` fail with
-TS9219, while the same object without `as const` works.
+compile-time constant"). Type-only wrappers are looked through, so
+`const CONFIG = { TIMEOUT: 5 } as const` (or `satisfies`, `<T>x`, `x!`) makes
+`CONFIG.TIMEOUT > 0` a constant just like the plain object literal.
 
 ### typeAssert() — Type-Level Assertions
 

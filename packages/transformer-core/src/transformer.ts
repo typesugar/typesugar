@@ -75,6 +75,7 @@ import {
 import {
   hasJSDocMacroTags as hasJSDocMacroTagsFn,
   tryExpandJSDocMacros as tryExpandJSDocMacrosFn,
+  isJSDocTagAtLineStart,
   parseDecorator,
   sortDecoratorsByDependency,
   expandDeriveDecorator,
@@ -86,6 +87,7 @@ import {
   tryRewriteExtensionMethod as tryRewriteExtensionMethodFn,
   tryTransformHKTDeclaration as tryTransformHKTDeclarationFn,
   tryRewriteTypeclassOperator as tryRewriteTypeclassOperatorFn,
+  tryRewriteTypeclassUnaryOperator as tryRewriteTypeclassUnaryOperatorFn,
   tryRewriteOpaqueMethodCall as tryRewriteOpaqueMethodCallFn,
   tryEraseOpaqueConstructorCall as tryEraseOpaqueConstructorCallFn,
   tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
@@ -1342,13 +1344,10 @@ class MacroTransformer {
       }
     }
 
-    if (ts.isBinaryExpression(node)) {
-      const result = tryRewriteTypeclassOperatorFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
+    if (ts.isBinaryExpression(node) || ts.isPrefixUnaryExpression(node)) {
+      const result = ts.isBinaryExpression(node)
+        ? tryRewriteTypeclassOperatorFn(this.ctx, this.verbose, this.visit.bind(this), node)
+        : tryRewriteTypeclassUnaryOperatorFn(this.ctx, this.verbose, this.visit.bind(this), node);
       if (result !== undefined) {
         if (ts.isCallExpression(result)) {
           const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, node);
@@ -1959,7 +1958,12 @@ class MacroTransformer {
             candidate.name
           )
         ) {
-          if (!hintedUnactivated.has(candidate.name)) {
+          // An explicit `/** @contract */` tag is its own opt-in (the JSDoc
+          // dispatch below applies the macro), so no "not activated" hint.
+          const explicitTag = ts
+            .getJSDocTags(node)
+            .some((t) => t.tagName.text === candidate.name && isJSDocTagAtLineStart(t));
+          if (!explicitTag && !hintedUnactivated.has(candidate.name)) {
             hintedUnactivated.add(candidate.name);
             emitLabelSyntaxNotActivatedHint(this.ctx, stmt, stmt.label.text, candidate);
           }

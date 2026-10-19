@@ -44,6 +44,9 @@ import {
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
 import { receiverMatchesFirstParam } from "./import-resolution.js";
+// Circular with method-sugar.ts (which imports buildInstanceReferenceExpression
+// from here); both bindings are only used at call time.
+import { inferMethodSugarCallType } from "./method-sugar.js";
 
 // ---------------------------------------------------------------------------
 // Callback types for cross-cutting concerns
@@ -253,10 +256,11 @@ export function tryRewriteExtensionMethod(
   // `(1).to(5).reversed().toArray()`: the receiver `(1).to(5).reversed()` is
   // itself an extension call on a type with no such member (Range is a plain
   // interface, not a global augmentation), so the checker types it as an
-  // error. Recover its type from the extension it will be rewritten to.
-  if (!ctx.isTypeReliable(receiverType) && ts.isCallExpression(receiver)) {
+  // error. Recover its type from the extension it will be rewritten to --
+  // also through a variable it initialises (`const r = ...; r.toArray()`).
+  if (!ctx.isTypeReliable(receiverType)) {
     receiverType =
-      inferExtensionCallType(ctx, resolveExtensionFromImports, receiver, 0) ?? receiverType;
+      inferSugaredExpressionType(ctx, resolveExtensionFromImports, receiver, 0) ?? receiverType;
   }
 
   if (!ctx.isTypeReliable(receiverType)) {
@@ -362,17 +366,88 @@ export function tryRewriteExtensionMethod(
 }
 
 /**
+ * The type an expression WILL have once typesugar's sugar is rewritten, for an
+ * expression the checker could not type (an error type): an extension call or
+ * typeclass method-sugar call (`p.clone()`), a parenthesised one, or an
+ * identifier bound by an un-annotated `const`/`let` whose initializer is one
+ * (`const r3 = (0).to(100).step(10); r3.toArray()`, docs authoring #1 /
+ * start #3). Returns `undefined` when nothing can be inferred.
+ *
+ * Only ORIGINAL (parsed) nodes are inspected (CLAUDE.md): the receiver and the
+ * variable's declaration both come from the program the checker was built
+ * from, never from a synthesized rewrite. This reads declarations, not a
+ * registry, so it has no same-pass-visibility concern.
+ */
+export function inferSugaredExpressionType(
+  ctx: MacroContextImpl,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  expr: ts.Expression,
+  depth: number
+): ts.Type | undefined {
+  if (depth > 32 || isSyntheticNode(expr)) return undefined;
+  const checker = ctx.typeChecker;
+  let type: ts.Type;
+  try {
+    type = checker.getTypeAtLocation(expr);
+  } catch (error) {
+    ctx.reportWarning(
+      expr,
+      `typesugar could not resolve the type of a method-call receiver (${error}).`
+    );
+    return undefined;
+  }
+  if (ctx.isTypeReliable(type)) return type;
+
+  if (ts.isParenthesizedExpression(expr)) {
+    return inferSugaredExpressionType(ctx, resolveExtensionFromImports, expr.expression, depth + 1);
+  }
+  if (ts.isCallExpression(expr)) {
+    return (
+      inferExtensionCallType(ctx, resolveExtensionFromImports, expr, depth + 1) ??
+      inferMethodSugarCallType(ctx, resolveExtensionFromImports, expr, depth + 1)
+    );
+  }
+  if (ts.isIdentifier(expr)) {
+    let decl: ts.Declaration | undefined;
+    try {
+      const sym = checker.getSymbolAtLocation(expr);
+      decl = sym?.valueDeclaration;
+    } catch (error) {
+      ctx.reportWarning(expr, `typesugar could not resolve '${expr.text}' (${error}).`);
+      return undefined;
+    }
+    if (
+      decl &&
+      ts.isVariableDeclaration(decl) &&
+      !decl.type &&
+      decl.initializer &&
+      ts.isIdentifier(decl.name) &&
+      !isSyntheticNode(decl.initializer) &&
+      decl.getSourceFile() === expr.getSourceFile()
+    ) {
+      return inferSugaredExpressionType(
+        ctx,
+        resolveExtensionFromImports,
+        decl.initializer,
+        depth + 1
+      );
+    }
+  }
+  return undefined;
+}
+
+/**
  * The result type of `call` (`inner.method(args)`) when `method` is not a
  * member of `inner`'s type but resolves to an imported extension: the
  * extension function's return type. Recurses through a chain of such calls
- * (`(0).to(100).step(10).reversed()`), inside-out from the innermost
- * receiver the checker can type.
+ * (`(0).to(100).step(10).reversed()`) and through variables they initialise,
+ * inside-out from the innermost receiver the checker can type.
  *
  * Only real (parsed) nodes are handed to the checker (CLAUDE.md): this runs
  * on the ORIGINAL receiver before any rewrite, never on a synthesized call.
- * Generic extension signatures are not instantiated here (the public checker
- * API cannot infer them), so a chain through one stays unresolved and the
- * caller's "receiver type could not be resolved" warning still fires.
+ * Generic extension signatures are not instantiated (the public checker API
+ * cannot infer them): their return type keeps its type parameters, which is
+ * enough to resolve the next extension in a chain (see below).
  */
 function inferExtensionCallType(
   ctx: MacroContextImpl,
@@ -389,8 +464,12 @@ function inferExtensionCallType(
   try {
     let innerType = checker.getTypeAtLocation(inner);
     if (!ctx.isTypeReliable(innerType)) {
-      if (!ts.isCallExpression(inner)) return undefined;
-      const inferred = inferExtensionCallType(ctx, resolveExtensionFromImports, inner, depth + 1);
+      const inferred = inferSugaredExpressionType(
+        ctx,
+        resolveExtensionFromImports,
+        inner,
+        depth + 1
+      );
       if (!inferred) return undefined;
       innerType = inferred;
     }
@@ -413,14 +492,19 @@ function inferExtensionCallType(
       if (!prop) return undefined;
       calleeType = checker.getTypeOfSymbolAtLocation(prop, call);
     }
-    const sig = calleeType
+    const sigs = calleeType
       .getCallSignatures()
-      .find(
-        (s) =>
-          !s.getTypeParameters()?.length && receiverMatchesFirstParam(checker, innerType, s, call)
-      );
+      .filter((s) => receiverMatchesFirstParam(checker, innerType, s, call));
+    // Prefer a non-generic overload. A generic one (`EffectExt.map<A, E, B>
+    // (self: Effect<A, E>, ...): Effect<B, E>`) cannot be instantiated through
+    // the public checker API, so its return type keeps the signature's own
+    // type parameters (`Effect<B, E>`). That is still enough to pick the NEXT
+    // extension in a chain (`.flatMap`), whose first-parameter match treats
+    // type parameters as wildcards; a bare type-parameter return (`A`) is not.
+    const sig = sigs.find((s) => !s.getTypeParameters()?.length) ?? sigs[0];
     if (!sig) return undefined;
     const ret = checker.getReturnTypeOfSignature(sig);
+    if (ret.flags & ts.TypeFlags.TypeParameter) return undefined;
     return ctx.isTypeReliable(ret) ? ret : undefined;
   } catch (error) {
     ctx.reportWarning(
@@ -584,7 +668,9 @@ export function tryRewriteTypeclassOperator(
   if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
 
   // Resolve an instance for the operand type from scope (no global registry).
-  let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
+  let matched:
+    | { typeclass: string; method: string; rightOperandIsSelf: boolean; resolved: ResolvedInstance }
+    | undefined;
   for (const candidate of candidates) {
     const result = resolveInstance(ctx, candidate.typeclass, leftType);
     if (!result) continue;
@@ -607,10 +693,47 @@ export function tryRewriteTypeclassOperator(
       );
       return undefined;
     }
-    matched = { typeclass: candidate.typeclass, method: candidate.method, resolved: result };
+    matched = {
+      typeclass: candidate.typeclass,
+      method: candidate.method,
+      rightOperandIsSelf: candidate.rightOperandIsSelf,
+      resolved: result,
+    };
   }
 
   if (!matched) return undefined;
+
+  // The instance was resolved from the LEFT operand only. For a method whose
+  // right parameter is the typeclass's type parameter (`add(a: A, b: A)`), the
+  // right operand must be the instance type too: `v + 5` must not become
+  // `add(v, 5)` (which inlines to `5..x`). Leave it native and say why.
+  if (matched.rightOperandIsSelf) {
+    let rightOk = true;
+    try {
+      rightOk = ctx.typeChecker.isTypeAssignableTo(rightType, matched.resolved.forType);
+    } catch (error) {
+      ctx.reportWarning(
+        node,
+        `typesugar skipped typeclass operator rewrite of '${opString}': ` +
+          `the right operand's type could not be checked (${error}).`
+      );
+      return undefined;
+    }
+    if (!rightOk) {
+      const rightName = ctx.typeChecker.typeToString(
+        ctx.typeChecker.getBaseTypeOfLiteralType(rightType)
+      );
+      ctx.reportError(
+        node,
+        `Operator '${opString}' on '${typeName}' dispatches to ` +
+          `${matched.typeclass}.${matched.method}, whose right operand must also be ` +
+          `'${matched.resolved.forTypeString || typeName}', but it is '${rightName}'. ` +
+          `The expression was left as a native '${opString}'. Convert the right operand, ` +
+          `or call the instance method explicitly.`
+      );
+      return undefined;
+    }
+  }
 
   if (verbose) {
     console.log(
@@ -640,6 +763,123 @@ export function tryRewriteTypeclassOperator(
     cloneWithoutComments(left),
     cloneWithoutComments(right),
   ]);
+  return preserveSourceMap(rewritten, node);
+}
+
+/** Prefix-unary operator tokens that `@op` on a one-parameter method can map. */
+function getPrefixUnaryOperatorString(kind: ts.SyntaxKind): string | undefined {
+  switch (kind) {
+    case ts.SyntaxKind.MinusToken:
+      return "-";
+    case ts.SyntaxKind.PlusToken:
+      return "+";
+    case ts.SyntaxKind.ExclamationToken:
+      return "!";
+    case ts.SyntaxKind.TildeToken:
+      return "~";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Prefix-unary counterpart of {@link tryRewriteTypeclassOperator}: `-v` →
+ * `instance.negate(v)` when an activated typeclass declares `@op -` on a
+ * ONE-parameter method (`negate(a: A): A`) and an instance for the operand's
+ * type is in scope. Same activation gate, primitive/nullish guards and
+ * instance resolution as the binary form; `++`/`--` are never dispatched.
+ */
+export function tryRewriteTypeclassUnaryOperator(
+  ctx: MacroContextImpl,
+  verbose: boolean,
+  visit: VisitFn,
+  node: ts.PrefixUnaryExpression
+): ts.Expression | undefined {
+  if (isSyntheticNode(node) || isSyntheticNode(node.operand)) return undefined;
+  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
+    return undefined;
+  }
+
+  const opString = getPrefixUnaryOperatorString(node.operator);
+  if (!opString) return undefined;
+
+  const sfn = ctx.sourceFile.fileName;
+  const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
+  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+  const activatedForOps =
+    definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
+  if (activatedForOps.size === 0) return undefined;
+
+  const candidates = getOperatorCandidates(ctx.program, activatedForOps, opString, "unary");
+  if (candidates.length === 0) return undefined;
+  if (isNullOrUndefinedExpr(node.operand)) return undefined;
+
+  let operandType: ts.Type;
+  let typeName: string;
+  try {
+    operandType = ctx.typeChecker.getTypeAtLocation(node.operand);
+    typeName = ctx.typeChecker.typeToString(operandType);
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped typeclass operator rewrite of unary '${opString}': ` +
+        `the operand type could not be resolved (${error}).`
+    );
+    return undefined;
+  }
+  if ((operandType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) return undefined;
+  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
+  const base = ctx.typeChecker.getBaseTypeOfLiteralType(operandType);
+  if (OPERATOR_PRIMITIVE_TYPES.has(ctx.typeChecker.typeToString(base))) return undefined;
+
+  let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
+  for (const candidate of candidates) {
+    const result = resolveInstance(ctx, candidate.typeclass, operandType);
+    if (!result) continue;
+    if (result.kind === "ambiguous") {
+      ctx.reportError(
+        node,
+        `Ambiguous ${candidate.typeclass} instance for type '${typeName}': ` +
+          `${result.candidates.map((c) => c.exportName).join(", ")}. ` +
+          `Import exactly one instance to disambiguate.`
+      );
+      return undefined;
+    }
+    if (matched) {
+      ctx.reportError(
+        node,
+        `Ambiguous unary operator '${opString}' for type '${typeName}': both ` +
+          `${matched.typeclass}.${matched.method} and ` +
+          `${candidate.typeclass}.${candidate.method} apply. ` +
+          `Use explicit method calls to disambiguate.`
+      );
+      return undefined;
+    }
+    matched = { typeclass: candidate.typeclass, method: candidate.method, resolved: result };
+  }
+  if (!matched) return undefined;
+
+  if (verbose) {
+    console.log(
+      `[typesugar] Rewriting unary operator: ${opString}${typeName} → ` +
+        `${matched.typeclass}.${matched.method}()`
+    );
+  }
+
+  const factory = ctx.factory;
+  const operand = ts.visitNode(node.operand, visit) as ts.Expression;
+  const instName = matched.resolved.exportName;
+  let importedIdentifier: ts.Identifier | undefined;
+  if (matched.resolved.importSpecifier && matched.resolved.source !== "local-scope") {
+    const importName = instName.includes(".") ? instName.split(".")[0] : instName;
+    importedIdentifier = ctx.ensureImport(importName, matched.resolved.importSpecifier);
+  }
+  const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
+  const rewritten = factory.createCallExpression(
+    factory.createPropertyAccessExpression(instanceRef, matched.method),
+    undefined,
+    [cloneWithoutComments(operand)]
+  );
   return preserveSourceMap(rewritten, node);
 }
 

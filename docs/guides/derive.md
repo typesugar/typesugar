@@ -398,7 +398,7 @@ p2.address === p1.address; // true — Clone is shallow, so the Address is share
 
 ## Generic Types
 
-Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `GenericDerivation failed for Eq: cannot derive Eq for 'Box'`, and `summon<Eq<Box<number>>>()` is TS9001. Write those instances by hand for now.
+Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `TS9106: Cannot derive Eq for 'Box'` (the trace notes `T lacks Eq`), and `summon<Eq<Box<number>>>()` is TS9001. Write those instances by hand for now.
 
 ## See Expanded Code
 

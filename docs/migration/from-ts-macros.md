@@ -211,8 +211,8 @@ export const loggedMacro = defineAttributeMacro({
 });
 globalRegistry.register(loggedMacro);
 
-// Usage: the decorator form triggers a custom attribute macro
-// (the `/** @tag */` JSDoc form is only recognised for typesugar's built-in tags)
+// Usage: the decorator form triggers a custom attribute macro. The JSDoc form
+// (`/** @logged */`) works too, in files that import the macro's `module`.
 @logged
 function greet(name: string) {
   return "hi " + name;

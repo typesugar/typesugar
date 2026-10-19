@@ -142,3 +142,22 @@ export class B { x: number = 0; }
     expect(e.errors.length).toBeGreaterThan(0);
   });
 });
+
+describe("docs examples/codec/schema-codec.ts: defineSchema is imported by the expansion", () => {
+  it("/** @codec */ on an interface works when the file never imports defineSchema", () => {
+    const src = `import "@typesugar/codec";
+/** @codec */
+interface UserV1 {
+  name: string;
+  email: string;
+}
+export { UserV1Schema };
+`;
+    const r = transformCode(src, { fileName: FILE });
+    const errors = ((r.diagnostics ?? []) as any[]).filter((d) => d.severity === "error");
+    expect(errors).toEqual([]);
+    const m = run(r.code as string);
+    expect(m.UserV1Schema.name).toBe("UserV1");
+    expect(m.UserV1Schema.fields.map((f: any) => f.name)).toEqual(["name", "email"]);
+  });
+});
