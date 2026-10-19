@@ -8,9 +8,12 @@ The `@derive()` decorator auto-generates typeclass instances from your type's st
 
 ## What `@derive` Does
 
-`@derive` takes a list of typeclass names and generates instances for your type. The generated instances are registered with the typeclass system, so they work with `summon()`, operator overloading, and generic functions — just like hand-written instances.
+`@derive` takes a list of typeclass names and generates instances for your type. The generated instances are attached to the type's companion and resolved from scope, so they work with `summon()`, operator overloading, and generic functions — just like hand-written instances.
 
 ```typescript
+import { derive, summon, Eq, Clone, Debug, Json } from "typesugar";
+import "@typesugar/std/syntax/eq/ops"; // activates === / !== for Eq instances
+
 @derive(Eq, Clone, Debug, Json)
 class User {
   constructor(
@@ -35,6 +38,22 @@ const debug = summon<Debug<User>>().debug(u1);
 // "User { id: 1, name: \"Alice\", email: \"alice@example.com\" }"
 ```
 
+### Imports and Activation
+
+- The `@derive` decorator, `summon` and `implicit`, and the markers `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json` and `TypeGuard` come from `typesugar`.
+- `Show`, `Semigroup` and `Monoid` are not exported from `typesugar`. `@derive(Show)` works without importing a value, because the transformer reads the name; to name the type in `summon<Show<Point>>()`, import `type Show` from `@typesugar/fp`, and `type Semigroup` / `type Monoid` from `@typesugar/std`.
+- Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` stays reference equality and `u1 < u2` is a plain JavaScript comparison:
+
+| Sugar                      | Activation import                               |
+| -------------------------- | ----------------------------------------------- |
+| `===`, `!==` (Eq)          | `import "@typesugar/std/syntax/eq/ops";`        |
+| `<`, `>`, `<=`, `>=` (Ord) | `import "@typesugar/std/syntax/ord/ops";`       |
+| `a + b` (Semigroup)        | `import "@typesugar/std/syntax/semigroup/ops";` |
+
+`summon<...>()` and the companion (`User.Eq.equals(a, b)`) need no activation import.
+
+The markers exported by `typesugar` are values, so plain `tsc` reports TS2749 ("refers to a value, but is being used as a type") on `summon<Eq<User>>()`; the transformer resolves it by name either way. In your own type signatures, import the typeclass type instead, e.g. `import type { Eq } from "@typesugar/std"`.
+
 ## Supported Typeclasses
 
 ### Eq — Structural Equality
@@ -53,7 +72,8 @@ class Point {
 const p1 = new Point(1, 2);
 const p2 = new Point(1, 2);
 
-// Operator overloading — compiles to Point.Eq.equals(p1, p2)
+// Operator overloading (with import "@typesugar/std/syntax/eq/ops")
+// — compiles to Point.Eq.equals(p1, p2)
 p1 === p2; // true
 
 // Or use summon
@@ -77,12 +97,12 @@ const v1 = new Version(1, 0);
 const v2 = new Version(2, 0);
 
 summon<Ord<Version>>().compare(v1, v2); // -1 (less than)
-v1 < v2; // true (operator overloading)
+v1 < v2; // true (operator overloading, with import "@typesugar/std/syntax/ord/ops")
 ```
 
-### Clone — Deep Copy
+### Clone — Shallow Copy
 
-Shallow spread-copy for product types, switch-on-discriminant for sum types.
+Shallow spread-copy for product types, switch-on-discriminant for sum types. Nested objects are shared, not copied, and the result is a plain object with the same fields, not a class instance (`c2 instanceof Config` is false).
 
 ```typescript
 @derive(Clone)
@@ -145,12 +165,12 @@ class Options {
 }
 
 summon<Default<Options>>().default();
-// Options { enabled: false, count: 0, name: "" }
+// { enabled: false, count: 0, name: "" } — a plain object, not an Options instance
 ```
 
 ### Json — Serialization and Deserialization
 
-`toJson` produces a plain object, `fromJson` validates required fields and types.
+`toJson` produces a plain object. `fromJson` takes an already-parsed object (use `JSON.parse` on a string first), checks that every required field is present and has the right type, and throws otherwise (`Missing required field id`). Optional fields may be absent. It returns a plain object, not a class instance.
 
 ```typescript
 @derive(Json)
@@ -165,7 +185,9 @@ const json = summon<Json<User>>().toJson(new User(1, "Alice"));
 // { id: 1, name: "Alice" }
 
 const user = summon<Json<User>>().fromJson({ id: 1, name: "Alice" });
-// User { id: 1, name: "Alice" }
+// { id: 1, name: "Alice" }
+
+summon<Json<User>>().fromJson({}); // throws: Missing required field id
 ```
 
 ### Show — User-Facing Display
@@ -173,6 +195,9 @@ const user = summon<Json<User>>().fromJson({ id: 1, name: "Alice" });
 Human-readable string representation, as opposed to Debug's developer-focused format.
 
 ```typescript
+import { derive, summon } from "typesugar";
+import type { Show } from "@typesugar/fp";
+
 @derive(Show)
 class Point {
   constructor(
@@ -181,7 +206,7 @@ class Point {
   ) {}
 }
 
-summon<Show<Point>>().show(new Point(1, 2)); // "Point(1, 2)"
+summon<Show<Point>>().show(new Point(1, 2)); // "Point(x = 1, y = 2)"
 ```
 
 ### TypeGuard — Runtime Type Checking
@@ -217,12 +242,12 @@ class Stats {
   ) {}
 }
 
-summon<Semigroup<Stats>>().combine(new Stats(1, 10), new Stats(2, 20)); // Stats { count: 3, total: 30 }
+summon<Semigroup<Stats>>().combine(new Stats(1, 10), new Stats(2, 20)); // { count: 3, total: 30 }
 ```
 
 ### Monoid — Semigroup with Identity
 
-Extends Semigroup with an `empty` value.
+Extends Semigroup with an `empty` value. `@derive(Monoid)` also gives the type a `Semigroup` instance.
 
 ```typescript
 @derive(Monoid)
@@ -233,26 +258,13 @@ class Stats {
   ) {}
 }
 
-summon<Monoid<Stats>>().empty(); // Stats { count: 0, total: 0 }
+summon<Monoid<Stats>>().empty(); // { count: 0, total: 0 }
 ```
 
-### Functor — Mappable Containers
+### Not Derivable
 
-For generic types with one type parameter.
-
-```typescript
-@derive(Functor)
-class Box<T> {
-  constructor(public value: T) {}
-}
-
-summon<Functor<Box>>().map(new Box(42), (n) => n.toString());
-// Box { value: "42" }
-```
-
-### What About Builder?
-
-Builder was intentionally excluded from the typeclass model. A builder accumulates partial state before producing a value, which is fundamentally stateful and doesn't map to a pure `A -> B` method signature. Use the standalone `@derive(Builder)` pattern if you need a fluent builder — it's not part of the typeclass system.
+- **Functor** (and other typeclasses over type constructors) has no derivation: `@derive(Functor)` is a compile error, `Unknown derive: 'Functor'`. Write the instance by hand with `/** @impl Functor<Box> */`.
+- **Builder** is not a derive. A builder accumulates partial state before producing a value, which doesn't map to a typeclass method signature.
 
 ## Product Types vs Sum Types
 
@@ -281,7 +293,7 @@ The generated Eq checks the tag first, then compares variant-specific fields. De
 
 ## Operator Overloading
 
-When you derive a typeclass that has operator mappings, the operators work automatically:
+When you derive a typeclass that has operator mappings, the operators work in any file that has the activation import (`@typesugar/std/syntax/eq/ops`, `.../ord/ops`; see [Imports and Activation](#imports-and-activation)):
 
 | Typeclass | Operators                      |
 | --------- | ------------------------------ |
@@ -290,6 +302,10 @@ When you derive a typeclass that has operator mappings, the operators work autom
 | Hash      | (used by `HashSet`, `HashMap`) |
 
 ```typescript
+import { derive, Eq, Ord } from "typesugar";
+import "@typesugar/std/syntax/eq/ops";
+import "@typesugar/std/syntax/ord/ops";
+
 @derive(Eq, Ord)
 class Score {
   constructor(public value: number) {}
@@ -326,10 +342,14 @@ Point.Debug.debug(p1);
 summon<Eq<Point>>().equals(p1, p2);
 ```
 
-This is useful in generic functions:
+In a generic function, use `implicit()` as the parameter default. `summon<Eq<A>>()` can't work there, because `A` is a type parameter with no instance of its own (it is a TS9001 error):
 
 ```typescript
-function deduplicate<A>(items: A[], E: Eq<A> = summon<Eq<A>>()): A[] {
+import { implicit } from "typesugar";
+import type { Eq } from "@typesugar/std";
+
+// implicit() fills E at each call site from the caller's concrete A
+function deduplicate<A>(items: A[], E: Eq<A> = implicit()): A[] {
   return items.filter((item, i) => items.findIndex((other) => E.equals(item, other)) === i);
 }
 ```
@@ -351,7 +371,7 @@ class Product {
 
 ## Nested Types
 
-Derives handle nested types automatically. If a field's type also has a derived instance, the derived implementation delegates to it:
+Derives handle nested types. Eq compares nested fields structurally:
 
 ```typescript
 @derive(Eq, Clone)
@@ -370,25 +390,15 @@ class Person {
   ) {}
 }
 
-// Clone deep-copies the nested Address
 const p1 = new Person("Alice", new Address("NYC", "10001"));
 const p2 = summon<Clone<Person>>().clone(p1);
+summon<Eq<Person>>().equals(p1, p2); // true
+p2.address === p1.address; // true — Clone is shallow, so the Address is shared
 ```
 
 ## Generic Types
 
-Derives work with generic type parameters:
-
-```typescript
-@derive(Eq, Clone, Debug)
-class Box<T> {
-  constructor(public value: T) {}
-}
-
-const box1 = new Box(42);
-const box2 = summon<Clone<Box<number>>>().clone(box1);
-summon<Eq<Box<number>>>().equals(box1, box2); // true
-```
+Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `GenericDerivation failed for Eq: cannot derive Eq for 'Box'`, and `summon<Eq<Box<number>>>()` is TS9001. Write those instances by hand for now.
 
 ## See Expanded Code
 
@@ -420,7 +430,7 @@ If you're upgrading from an older version of typesugar:
 | `debugPoint(p)` standalone function                       | `Point.Debug.debug(p)`                                                                 |
 | `import { eqPoint } from "./point"`                       | `import { Point } from "./point"` — instances come with the type                       |
 
-`@deriving(...)` still works but emits a deprecation warning. Update to `@derive(...)` in new code.
+`@deriving(...)` still works but emits a deprecation warning (`@deriving is deprecated: use @derive(...) (identical behaviour)`). Update to `@derive(...)` in new code.
 
 ## Best Practices
 

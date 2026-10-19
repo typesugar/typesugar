@@ -88,12 +88,13 @@ instructions — is preserved exactly.
 The whole documentation site is published in the [llms.txt](https://llmstxt.org)
 format, so an assistant can pull exactly what it needs:
 
-| File                                                    | What it is                                      |
-| ------------------------------------------------------- | ----------------------------------------------- |
-| [`/llms.txt`](https://typesugar.org/llms.txt)           | Index: one line per page, with descriptions     |
-| [`/llms-full.txt`](https://typesugar.org/llms-full.txt) | The entire corpus in a single file              |
-| [`/errors/`](/errors/)                                  | One page per diagnostic code, with worked fixes |
+| File                               | What it is                                      |
+| ---------------------------------- | ----------------------------------------------- |
+| [`/llms.txt`](/llms.txt)           | Index: one line per page, with descriptions     |
+| [`/llms-full.txt`](/llms-full.txt) | The entire corpus in a single file              |
+| [`/errors/`](/errors/)             | One page per diagnostic code, with worked fixes |
 
 Point your assistant at these when it needs detail beyond the scaffolded
-context — for example: _"read https://typesugar.org/llms-full.txt and then add
-a `@derive(Ord)` instance to this type"_.
+context — for example: _"read llms-full.txt from the typesugar docs site and
+then add a `@derive(Ord)` instance to this type"_. Both files sit at the root of
+the docs site this page is served from.

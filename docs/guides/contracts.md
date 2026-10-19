@@ -107,7 +107,9 @@ below, because the check must run at function exit and `old()` must be snapshott
 at entry.
 
 ```typescript
+import "@typesugar/contracts-refined"; // tells the prover what Positive means
 import { requires } from "@typesugar/contracts";
+import type { Positive } from "@typesugar/type-system";
 
 function deposit(account: Account, amount: Positive): void {
   requires(amount > 0); // elided when proveAtCompileTime is on (Positive type)
@@ -224,27 +226,6 @@ class BankAccount {
 }
 ```
 
-## Assertions
-
-For inline assertions:
-
-```typescript
-import { assert, assertNever } from "@typesugar/contracts";
-
-function process(status: "pending" | "done"): void {
-  assert(status !== "pending" || canProcess(), "cannot process pending");
-
-  switch (status) {
-    case "pending":
-      /* ... */ break;
-    case "done":
-      /* ... */ break;
-    default:
-      assertNever(status);
-  }
-}
-```
-
 ## Type Narrowing
 
 Contracts narrow types in subsequent code:
@@ -291,7 +272,8 @@ package checks that no proven goal is falsified by values satisfying the facts.
 The `comptime()` macro evaluates expressions at build time:
 
 ```typescript
-import { requires, comptime } from "@typesugar/contracts";
+import { comptime } from "typesugar";
+import { requires } from "@typesugar/contracts";
 
 // Complex computations at build time
 const BUFFER_SIZE = comptime(() => 1024 * 16); // Becomes: 16384
@@ -320,11 +302,11 @@ warnings:
 ```typescript
 import { decidable, registerDecidability } from "@typesugar/contracts";
 
-// Decorator form
+// Decorator form (expanded by the transformer, so it reaches the prover)
 @decidable("compile-time", "constant")
 type Literal42 = Refined<number, "Literal42">;
 
-// Programmatic form
+// Programmatic form (must run in the transformer's process; see below)
 registerDecidability({
   brand: "Positive",
   predicate: "$ > 0",
@@ -333,12 +315,18 @@ registerDecidability({
 });
 ```
 
-| Level            | Meaning                           |
-| ---------------- | --------------------------------- |
-| `"compile-time"` | Always provable at compile time   |
-| `"decidable"`    | Decidable, may need SMT solver    |
-| `"runtime"`      | Must check at runtime             |
-| `"undecidable"`  | Cannot be decided algorithmically |
+| Level            | Meaning                         |
+| ---------------- | ------------------------------- |
+| `"compile-time"` | Always provable at compile time |
+| `"decidable"`    | Decidable, may need SMT solver  |
+| `"runtime"`      | Must check at runtime           |
+
+A decorator on a `type` alias is not valid TypeScript, so plain `tsc` and editors report TS1206 on the `@decidable` line; the typesugar transformer still expands it.
+
+::: tip Registrations must reach the compiler
+The prover runs inside the transformer. `registerDecidability`, `registerSubtypingRule`, `registerAlgebraicRule` and `registerRefinementPredicate` only affect proofs when they run in the transformer's process: put them in the module a package names as its `typesugar.macros` entry, and import that package from the files that need it (see [Custom Refinements](/guides/contracts-refined#custom-refinements)). Called from ordinary application code, they run only when your app runs, and the prover never sees them.
+:::
+| `"undecidable"` | Cannot be decided algorithmically |
 
 ### Decidability Warnings
 
@@ -412,22 +400,38 @@ Products (`x * y > 0` fails on underflow), `2 * x > x` (fails for `Infinity`),
 Generate structured proof traces for debugging:
 
 ```typescript
-import { createCertificate, succeedCertificate, formatCertificate } from "@typesugar/contracts";
+import {
+  createCertificate,
+  createStep,
+  succeedCertificate,
+  formatCertificate,
+} from "@typesugar/contracts";
 
 const facts = [{ variable: "x", predicate: "x > 0" }];
 let cert = createCertificate("x >= 0", facts);
 
-// Add proof steps...
-cert = succeedCertificate(cert, "linear", {
-  rule: "positive_implies_nonneg",
-  description: "x > 0 implies x >= 0",
-});
+// createStep(rule, description, justification, usedFacts?, subgoals?)
+cert = succeedCertificate(
+  cert,
+  "linear",
+  createStep("positive_implies_nonneg", "x > 0 implies x >= 0", "x > 0 implies x >= 0")
+);
 
 console.log(formatCertificate(cert));
-// Certificate for: x >= 0
-// Status: PROVEN (linear)
-// Steps:
-//   1. [positive_implies_nonneg] x > 0 implies x >= 0
+// Proof Certificate
+// ─────────────────
+// Goal: x >= 0
+// Status: ✓ PROVEN
+// Method: linear
+//
+// Assumptions:
+//   x: x > 0
+//
+// Proof Steps:
+//   1. positive_implies_nonneg
+//      x > 0 implies x >= 0
+//
+// Summary: Proven by linear: x > 0 implies x >= 0
 ```
 
 ## Custom Algebraic Rules
@@ -457,12 +461,10 @@ registerAlgebraicRule({
 Combine with refinement types for stronger guarantees:
 
 ```typescript
-import { Refined, Positive, NonEmpty } from "@typesugar/contracts-refined";
+import type { Positive, NonEmpty } from "@typesugar/type-system";
 
-type PositiveNumber = Refined<number, Positive>;
-type NonEmptyString = Refined<string, NonEmpty>;
-
-function divide(a: number, b: PositiveNumber): number {
+// Positive is Refined<number, "Positive">; NonEmpty is Refined<string, "NonEmpty">
+function divide(a: number, b: Positive): number {
   // b is guaranteed to be > 0
   return a / b;
 }
@@ -498,33 +500,6 @@ npm install @typesugar/contracts-refined @typesugar/type-system
 ```
 
 ## Configuration
-
-### Runtime modes via `configure()`
-
-```typescript
-import { configure } from "@typesugar/contracts";
-
-configure({
-  // "enabled" | "disabled" | "assume"
-  mode: "enabled",
-});
-```
-
-| Mode       | Behavior                                |
-| ---------- | --------------------------------------- |
-| `enabled`  | Check all contracts at runtime          |
-| `disabled` | Remove all contract checks (production) |
-| `assume`   | Use contracts for type narrowing only   |
-
-#### Conditional Compilation
-
-```typescript
-import { cfg } from "@typesugar/core";
-
-configure({
-  mode: cfg("production", "disabled", "enabled"),
-});
-```
 
 ### Build configuration via `typesugar.config.ts`
 
@@ -585,7 +560,7 @@ All contracts checked at runtime.
 
 ### Production
 
-With `mode: "disabled"`, contracts compile away:
+With `mode: "none"` (or `TYPESUGAR_CONTRACTS_MODE=none`), contracts compile away:
 
 ```typescript
 // Source
@@ -637,8 +612,7 @@ Zero runtime overhead.
 - `requires(condition, message?)` — Precondition check
 - `ensures(condition, message?)` — Postcondition check
 - `old(expression)` — Capture pre-call value
-- `comptime(() => expr)` — Compile-time expression evaluation
-- `assert(condition, message?)` / `assertNever(value)` — Inline assertions
+- `comptime(() => expr)` — Compile-time expression evaluation (import it from `typesugar`; `@typesugar/contracts` does not re-export it)
 
 ### Construct Reference
 

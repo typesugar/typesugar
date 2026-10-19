@@ -7,12 +7,12 @@ typesugar provides conditional compilation through `cfg()` and `@cfgAttr`.
 ### cfg() Expression
 
 ```typescript
-import { cfg } from "@typesugar/core";
+import { cfg } from "typesugar";
 
 const logger = cfg(
   "debug",
   { log: (msg: string) => console.log(`[DEBUG] ${msg}`) },
-  { log: () => {} } // No-op in production
+  { log: (_msg: string) => {} } // No-op in production
 );
 
 logger.log("Application started");
@@ -21,7 +21,7 @@ logger.log("Application started");
 ### @cfgAttr Decorator
 
 ```typescript
-import { cfgAttr } from "@typesugar/core";
+import { cfgAttr } from "typesugar";
 
 @cfgAttr("feature.experimental")
 function experimentalFeature(): void {
@@ -29,22 +29,25 @@ function experimentalFeature(): void {
 }
 ```
 
+A decorator on a function declaration is not valid TypeScript, so plain `tsc` reports TS1206 on it; the typesugar transformer still handles it. On classes, methods and properties, `@cfgAttr` is an ordinary decorator.
+
 ## Configuration
 
 ### Setting Conditions
 
-Configure in your build:
+Pass the conditions as `cfgConfig` in your bundler plugin:
 
 ```typescript
 // vite.config.ts
+import { defineConfig } from "vite";
 import typesugar from "unplugin-typesugar/vite";
 
 export default defineConfig({
   plugins: [
     typesugar({
-      config: {
+      cfgConfig: {
         debug: process.env.NODE_ENV !== "production",
-        "feature.experimental": false,
+        feature: { experimental: false },
         platform: "web",
       },
     }),
@@ -52,7 +55,11 @@ export default defineConfig({
 });
 ```
 
+A dotted condition such as `"feature.experimental"` reads a nested object (`{ feature: { experimental: … } }`), not a key containing a dot. A condition that isn't set is `undefined`, so it is false.
+
 ### tsconfig.json
+
+The transformer's plugin entry takes the same `cfgConfig` key:
 
 ```json
 {
@@ -60,15 +67,25 @@ export default defineConfig({
     "plugins": [
       {
         "transform": "@typesugar/transformer",
-        "config": {
+        "cfgConfig": {
           "debug": true,
-          "feature.experimental": false
+          "feature": { "experimental": false }
         }
       }
     ]
   }
 }
 ```
+
+### Environment Variables
+
+With no `cfgConfig`, conditions are read from `TYPESUGAR_CFG_<KEY>` environment variables at build time. The key is lowercased and `__` becomes a dot; `1`/`true` mean true, `0`/`false`/empty mean false, and anything else is a string:
+
+```bash
+TYPESUGAR_CFG_DEBUG=1 TYPESUGAR_CFG_FEATURE__EXPERIMENTAL=true TYPESUGAR_CFG_PLATFORM=node npx vite build
+```
+
+When `cfgConfig` is given, it replaces the environment variables rather than merging with them.
 
 ## Condition Types
 
@@ -78,20 +95,47 @@ export default defineConfig({
 cfg("debug", debugValue, releaseValue);
 ```
 
+With no third argument, a false condition gives `undefined`.
+
 ### String Conditions
 
+Compare a condition with `===` (or `==`, `!==`, `!=`) and chain `cfg` calls to pick one of several values:
+
 ```typescript
-cfg("platform", {
-  web: webImplementation,
-  node: nodeImplementation,
-  native: nativeImplementation,
-});
+cfg(
+  "platform === 'web'",
+  webImplementation,
+  cfg("platform === 'node'", nodeImplementation, nativeImplementation)
+);
 ```
 
-### Expressions
+### Function Branches Are Called
+
+If a branch is an arrow function or function expression, `cfg` calls it, so the chosen branch is evaluated lazily and the result is its return value:
 
 ```typescript
-config.evaluate("debug && !production");
+const value = cfg("debug", () => expensiveDebugComputation(), 0);
+// debug on:  const value = (() => expensiveDebugComputation())();
+// debug off: const value = 0;
+```
+
+To get a function as the value, return it from the branch: `cfg("debug", () => (x: string) => log(x), () => (_x: string) => {})`.
+
+### Condition Grammar
+
+A condition string can use:
+
+- names and dotted paths (`debug`, `feature.experimental`), true when the value is truthy
+- `'strings'`, `"strings"`, numbers, `true`, `false`, `null`, `undefined`
+- `==`, `===`, `!=`, `!==`
+- `&&`, `||`, `!` and parentheses
+
+Anything else is a compile error at the call site, and the call is left unexpanded:
+
+```
+error: Unsupported config condition "platform.startsWith('w')": unexpected '(' after a complete
+expression. Supported: dotted paths, 'strings', numbers, true/false/null/undefined,
+== === != !==, &&, ||, !, and parentheses.
 ```
 
 ## Use Cases
@@ -99,13 +143,17 @@ config.evaluate("debug && !production");
 ### Debug Logging
 
 ```typescript
+// Each branch returns the function, because cfg calls function branches
 const debug = cfg(
   "debug",
-  (...args: unknown[]) => console.log("[DEBUG]", ...args),
-  () => {}
+  () =>
+    (...args: unknown[]) =>
+      console.log("[DEBUG]", ...args),
+  () =>
+    (..._args: unknown[]) => {}
 );
 
-debug("Processing", data); // Removed in production
+debug("Processing", data); // A no-op in production
 ```
 
 ### Feature Flags
@@ -127,11 +175,15 @@ function render(): JSX.Element {
 ### Platform-Specific Code
 
 ```typescript
-const storage = cfg("platform", {
-  web: new WebStorage(),
-  node: new FileStorage(),
-  native: new NativeStorage(),
-});
+const storage = cfg(
+  "platform === 'web'",
+  () => new WebStorage(),
+  cfg(
+    "platform === 'node'",
+    () => new FileStorage(),
+    () => new NativeStorage()
+  )
+);
 ```
 
 ### Development Tools
@@ -150,7 +202,7 @@ cfg() removes unused branches at compile time:
 
 ```typescript
 // Source
-const value = cfg("debug", expensiveDebugComputation(), 0);
+const value = cfg("debug", () => expensiveDebugComputation(), 0);
 
 // Compiled (production, debug = false)
 const value = 0;
@@ -173,8 +225,10 @@ function debugOnly(): void { /* ... */ }
 class AdminPanel {
   /* ... */
 }
-// Class and all usages removed if feature.admin is false
+// The class declaration is removed if feature.admin is false
 ```
+
+Only the declaration is removed, not the code that uses it. Guard each usage too (for example with `cfg("feature.admin", () => new AdminPanel())`), or the output throws `ReferenceError: AdminPanel is not defined`. With `strictOutput`, the build warns `Cannot find name 'AdminPanel'`.
 
 ### On Methods
 
@@ -209,28 +263,9 @@ cfg("platform === 'web' || platform === 'native'", ...)
 cfg("!production", ...)
 ```
 
-## Default Values
+## Unset Conditions
 
-```typescript
-import { config } from "@typesugar/core";
-
-// Returns undefined if not set
-const value = config.get("some.key");
-
-// With default
-const value = config.get("some.key") ?? "default";
-```
-
-## Runtime Access
-
-For values needed at runtime (not just compile time):
-
-```typescript
-import { config } from "@typesugar/core";
-
-// This is evaluated at runtime
-const apiUrl = config.get("api.url");
-```
+There are no defaults: a condition that isn't in `cfgConfig` (or the environment) is `undefined`, so `cfg("some.key", a, b)` picks `b`. `cfg` is evaluated at compile time only, and nothing about the configuration is available at runtime. For runtime settings, use your own config or `process.env`.
 
 ## Best Practices
 
@@ -271,16 +306,14 @@ export const buildConfig = {
 };
 
 // vite.config.ts
+import { defineConfig } from "vite";
 import typesugar from "unplugin-typesugar/vite";
 import { buildConfig } from "./config";
 
 export default defineConfig({
   plugins: [
     typesugar({
-      config: {
-        ...buildConfig,
-        ...buildConfig.features,
-      },
+      cfgConfig: buildConfig, // "features.analytics" reads buildConfig.features.analytics
     }),
   ],
 });
@@ -289,7 +322,7 @@ export default defineConfig({
 Usage in code:
 
 ```typescript
-import { cfg, cfgAttr } from "@typesugar/core";
+import { cfg, cfgAttr } from "typesugar";
 
 @cfgAttr("features.analytics")
 function trackEvent(name: string): void {

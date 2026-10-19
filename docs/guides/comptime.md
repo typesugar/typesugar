@@ -9,7 +9,10 @@ runs in a hardened `node:vm` context, but Node documents `vm` as
 guard against accidents, not an isolation boundary. Treat `comptime` blocks — including ones in
 dependencies — like build scripts: never build untrusted code outside a disposable, isolated
 environment. Editor integrations (the TypeScript plugin and the LSP server) do not evaluate
-`comptime` unless explicitly enabled; there the call is left unexpanded with a warning.
+`comptime` unless explicitly enabled; there the call is left unexpanded with a warning. To enable
+it, turn on the VS Code setting `typesugar.comptimeInEditor` (trusted workspaces only), or set
+`TYPESUGAR_COMPTIME_IN_EDITOR=1` in the environment the editor's TypeScript server or LSP server
+runs in.
 :::
 
 ::: tip Try in Playground
@@ -56,8 +59,9 @@ The following capabilities are blocked by default but can be explicitly enabled:
 
 - **File system access** — Use `{ fs: 'read' }` or `{ fs: true }`
 - **Environment variables** — Use `{ env: 'read' }` or `{ env: true }`
-- **Network requests** — Not yet implemented
-- **Real time** — Not yet implemented
+- **Network requests** — Planned, not in 1.0 (there is no network access at all today)
+
+`new Date()` and `Date.now()` need no permission, so a `comptime` value can include the build time.
 
 ### Not Supported
 
@@ -84,7 +88,7 @@ comptime({ fs: "write" }, () => {
 });
 ```
 
-Available `fs` operations: `readFileSync`, `existsSync`, `readdirSync`, `statSync`, `writeFileSync`, `mkdirSync`. Paths must be relative and stay inside the project root. `readFileSync` without an encoding returns a `Uint8Array` (with a `toString(encoding)` helper) rather than a Node `Buffer`; `statSync` / `readdirSync({ withFileTypes: true })` return plain objects with `isFile()` / `isDirectory()` / `isSymbolicLink()`.
+Available `fs` operations: `readFileSync`, `existsSync`, `readdirSync`, `statSync`, `writeFileSync`, `mkdirSync`. Paths must be relative and stay inside the project root (the `tsconfig.json` directory, see below). `readFileSync` without an encoding returns a `Uint8Array` (with a `toString(encoding)` helper) rather than a Node `Buffer`; `statSync` / `readdirSync({ withFileTypes: true })` return plain objects with `isFile()` / `isDirectory()` / `isSymbolicLink()`.
 
 ### Environment Variables
 
@@ -123,7 +127,7 @@ const config = comptime({ fs: "read", env: "read" }, () => {
 1. **Separate context**: code runs in a fresh `node:vm` context with its own built-ins (`Math`, `JSON`, `Array`, ...). No host-realm object is placed in it, so tricks like `Object.constructor("return process")()` see the context's own `Function`, not the compiler's.
 2. **No string code generation**: `eval` and `new Function` are disabled in the context.
 3. **Bridged helpers**: `fs`, `path`, `process` and `require()` are created inside the context and talk to the compiler only by passing strings; permissions are checked on the compiler side of that bridge.
-4. **Path resolution**: relative paths resolve from the source file's directory and must stay inside the project root.
+4. **Path resolution**: relative paths resolve from the source file's directory and must stay inside the project root, which is the directory of your `tsconfig.json` (the nearest one above the source file if the build doesn't name one), whatever directory the build runs from.
 5. **Timeout**: evaluation (including promise callbacks) is limited to 5 seconds.
 
 This prevents accidental file/env access and closes the well-known `vm` escapes, but it is **defence in depth, not isolation** — see the security warning at the top of this page.
@@ -133,11 +137,12 @@ This prevents accidental file/env access and closes the well-known `vm` escapes,
 ### Build Information
 
 ```typescript
-const BUILD_INFO = comptime({
+// Reading process.env needs the env permission
+const BUILD_INFO = comptime({ env: "read" }, () => ({
   version: "1.0.0",
   buildTime: new Date().toISOString(),
   commit: process.env.GIT_COMMIT ?? "dev",
-});
+}));
 ```
 
 ### Lookup Tables
@@ -244,11 +249,11 @@ comptime(() => {
 
 ## Error Handling
 
-Compile-time errors become build errors:
+An exception thrown during evaluation becomes a build error (TS9209, with the source and the error message):
 
 ```typescript
-// Build error: Division by zero
-comptime(1 / 0);
+// Build error: Expected property name or '}' in JSON at position 1
+comptime(() => JSON.parse("{"));
 
 // Build error: Undefined is not a function
 comptime(() => {

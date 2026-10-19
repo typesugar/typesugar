@@ -58,16 +58,27 @@ The integration registers safe widening rules, allowing the prover to verify saf
 
 ## Custom Refinements
 
+The prover runs inside the transformer, so a custom predicate must be registered in the transformer's process, not in your application:
+
 ```typescript
+// my-refinements/macros.ts — loaded by the transformer, not bundled into your app
 import { registerRefinementPredicate } from "@typesugar/contracts-refined";
 
 registerRefinementPredicate("PositiveEven", "$ > 0 && $ % 2 === 0");
+```
+
+Put the registration in a package whose `package.json` names that module as its `typesugar.macros` entry (the way `@typesugar/contracts-refined` itself does), and import the package from the files that use the type. A `registerRefinementPredicate(...)` call in an ordinary source file only runs when your app runs, so the prover never sees it.
+
+```typescript
+import "my-refinements";
+import type { Refined } from "@typesugar/type-system";
+import { contract } from "@typesugar/contracts";
 
 type PositiveEven = Refined<number, "PositiveEven">;
 
 @contract
-function halve(n: PositiveEven): number {
-  ensures: { result > 0 }  // Provable!
+function half(n: PositiveEven): number {
+  requires: { n > 0 } // Elided with proveAtCompileTime: the predicate gives n > 0
   return n / 2;
 }
 ```
@@ -88,9 +99,10 @@ function halve(n: PositiveEven): number {
 
 ### Re-exports from `@typesugar/type-system`
 
-- All refinement types and their utilities
-- `Vec`, `isVec`, `extractVecLength`, `generateVecPredicate`
+- `Vec` (the type) and its constructors as `VecConstructors`; `isVec`, `extractVecLength`, `generateVecPredicate`
 - `widen()`, `widenTo()`, `isSubtype()`
+
+The refinement types themselves (`Positive`, `Byte`, `NonEmpty`, `Refined`, ...) are not re-exported: import them from `@typesugar/type-system`.
 
 ## Learn More
 

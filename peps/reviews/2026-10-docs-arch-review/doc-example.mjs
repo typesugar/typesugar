@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 const REPO = "/Users/deapovey/src/personal/typesugar";
 const args = process.argv.slice(2);
@@ -29,7 +30,10 @@ if (!src) {
 
 const dir = path.join(REPO, under, ".typesugar", "doc-examples");
 fs.mkdirSync(dir, { recursive: true });
-const base = path.basename(src).replace(/\.(ts|tsx|sts)$/, "");
+const stem = path.basename(src).replace(/\.(ts|tsx|sts)$/, "");
+// Prefix with a hash of the source path so agents using the same file names
+// (d1.ts, ...) in different scratch dirs never overwrite each other's copies.
+const base = `${createHash("sha1").update(path.resolve(src)).digest("hex").slice(0, 8)}-${stem}`;
 const tsFile = path.join(dir, `${base}.ts`);
 const code = fs.readFileSync(src, "utf8");
 fs.writeFileSync(tsFile, code);

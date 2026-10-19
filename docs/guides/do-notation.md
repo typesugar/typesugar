@@ -29,7 +29,7 @@ Instance resolution is scope-based too (no global registry): the `FlatMap`/`ParC
 
 - **Std builtins** (`Array`, `Promise`, `Iterable`, `AsyncIterable`) ride the same marker — `import "@typesugar/std/syntax/do"` activates the labels AND brings their instances into scope, so the common case needs nothing extra.
 - **Effect** — use `import "@typesugar/effect/syntax/do"` instead; one import activates the labels and provides the Effect instances (it re-exports the std builtins too).
-- **fp types** (`Option`, `Either`, `List`, `IO`) — any import from `@typesugar/fp` brings their instances into scope.
+- **fp types** (`Option`, `Either`, `List`, `IO`) — any import from `@typesugar/fp` brings their instances into scope. Their values are erased (`Some(10)` is just `10` at runtime), so `let:` over them compiles to static calls on the instance (`flatMapOption.flatMap(10, …)`), and the instance import is added for you. Only `let:`/`seq:` is supported for fp types: they have no `ParCombine` instance, so `par:` falls back to `.map().ap()` methods the erased values don't have, and `||`/`??` fallbacks are not supported either.
 - **Custom monads** — see [Custom Types](#custom-types) below.
 
 If a comprehension's type has no instance in scope, the compiler errors (TS9225: `No FlatMap instance for 'X' is in scope`) with a hint naming the import to add.
@@ -41,23 +41,24 @@ import "@typesugar/std/syntax/do"; // activate let:/seq:/par:/all: label syntax
 import { Option, Some, None } from "@typesugar/fp";
 
 // Sequential: each binding can depend on previous bindings
-let: {
+const sum = let: {
   x << Some(10);
   y << Some(x * 2); // Uses x
 }
 yield: {
   x + y;
 }
-// Result: Some(30)
+// sum: Some(30)
 
 // Parallel: all bindings must be independent
-par: {
+// (fetchUser, loadConfig and fetchPosts return Promises)
+const page = par: {
   user << fetchUser(id);
   config << loadConfig();
   posts << fetchPosts();
 }
 yield: ({ user, config, posts });
-// All three run concurrently via Promise.all
+// All three run concurrently via Promise.all; page is a Promise
 ```
 
 ## The `let:/yield:` Macro
@@ -77,11 +78,15 @@ yield: {
 }
 ```
 
-This compiles to:
+This compiles to static calls on the `Option` instance (`Some(x)` erases to `x`, and the `flatMapOption` import is added for you):
 
 ```typescript
-Some(10).flatMap((a) => Some(20).flatMap((b) => Some(30).map((c) => a + b + c)));
+flatMapOption.flatMap(10, (a) =>
+  flatMapOption.flatMap(20, (b) => flatMapOption.map(30, (c) => a + b + c))
+);
 ```
+
+For a type with methods, such as `Array` or `Promise`, the output uses them directly: `[1, 2].flatMap((a) => …)`, `p.then((a) => …)`.
 
 ### Dependent Bindings
 
@@ -120,30 +125,29 @@ A guard turns the bind before it into a `flatMap` that returns an empty array wh
 
 ### Fallback with `||` and `??`
 
-Provide a fallback value when the primary effect fails:
+Provide a fallback effect when the primary effect fails. Both operators mean the same thing here: recover from a failure (they are not a nullish check):
 
 ```typescript
-let: {
-  config << loadConfig() || defaultConfig(); // Fallback on error
-  value << parseValue(config) ?? Some(0); // Nullish coalescing fallback
+// loadConfig, defaultConfig and parseValue return Promises
+const value = let: {
+  config << loadConfig() || defaultConfig(); // Fallback on rejection
+  value << parseValue(config);
 }
 yield: {
   value;
 }
 ```
 
-This wraps the expression with `.orElse()`:
+For a Promise the fallback becomes `.catch()`:
 
 ```typescript
 // Compiles to:
-loadConfig()
-  .orElse(() => defaultConfig())
-  .flatMap((config) =>
-    parseValue(config)
-      .orElse(() => Some(0))
-      .map((value) => value)
-  );
+const value = loadConfig()
+  .catch((_) => defaultConfig())
+  .then((config) => parseValue(config).then((value) => value));
 ```
+
+Other types use the method named by `orElse=` in their instance's [`@do-methods`](#custom-method-names-do-methods) (Effect: `catchAll`). A type with no `orElse` (including the fp types) does not support fallbacks.
 
 ### Discard Bindings with `_`
 
@@ -180,7 +184,7 @@ Pure map steps compile to IIFEs:
 
 ```typescript
 // Compiles to:
-Some(10).flatMap((x) => ((doubled) => Some(doubled).map((y) => y))(x * 2));
+flatMapOption.flatMap(10, (x) => ((doubled) => flatMapOption.map(doubled, (y) => y))(x * 2));
 ```
 
 ### Implicit Yield
@@ -192,28 +196,37 @@ let: {
   a << Some(10);
   b << Some(20);
 }
-// No yield: — compiles to Some(10).flatMap((a) => Some(20)), i.e. Some(20)
+// No yield: — compiles to flatMapOption.flatMap(10, (a) => 20), i.e. Some(20)
 ```
 
 Nothing may follow the last binding in this form — a guard, pure map or `par:` group after it is a compile error asking for an explicit `yield:` block.
 
 ### Using the Result
 
-A comprehension is a statement-level label, so where its value can go is limited. At module top level, assign it with `const result =` (optionally on its own line before `let:`); an arrow function body (`const f = () =>` followed by a newline and `let:`) also works. In those expression positions the first statement of the block must be a plain `name << expr` binding — a leading or nested `par:` group is only supported when the comprehension is a statement on its own.
+A comprehension's value can be used in these positions. Every form works in every position: `let:`/`seq:`, `par:`/`all:`, a `let:` with a leading or nested `par:` group, a `||`/`??` fallback on any bind (the first one included), and `yield: <expr>`, `yield: { <expr> }` or an implicit yield.
+
+| Position                    | Example                                              | Value                          |
+| --------------------------- | ---------------------------------------------------- | ------------------------------ |
+| `const` / `let` declaration | `const r = let: { … } yield: …` (module or function) | Bound to `r`                   |
+| `return`                    | `return par: { … } yield: …`                         | Returned                       |
+| Arrow body                  | `const f = () =>` then `let: { … }` on the next line | Returned from `f`              |
+| `export default`            | `export default let: { … } yield: …`                 | The module's default export    |
+| Statement on its own        | `let: { … } yield: …`                                | Discarded, with warning TS9222 |
+
+In a `const` or `export default`, the output is the chain itself (`const r = p.then(…)`), with no temporary variable.
 
 ### Object Literals in Yield
 
-Use parentheses for object literals (due to block syntax ambiguity):
+Both of these yield an object literal:
 
 ```typescript
-// Correct:
 yield: ({ name, age });
-
-// Wrong (parses as label, not object):
 yield: {
-  (name, age);
-} // Error: comma expression, not object literal
+  ({ name, age });
+}
 ```
+
+Inside a block, the parentheses are needed: `yield: { { name, age } }` is a nested block, not an object, and is a compile error with a hint to add the parentheses. Note that `yield: { (name, age) }` (no braces inside the parentheses) is a comma expression that yields just `age`, and the compiler does not warn about it.
 
 ## The `par:/yield:` Macro
 
@@ -235,7 +248,7 @@ par: {
 yield: ({ name, age });
 ```
 
-For non-Promise types, this compiles to:
+For a type with no `all=` combinator (here, a hypothetical `Validation` class with `.map` and `.ap` methods), this compiles to:
 
 ```typescript
 validateName(input.name)
@@ -376,7 +389,17 @@ yield: {
 }
 ```
 
-For object literal returns, use parentheses: `yield: { ({ a, b }) }`.
+This compiles to:
+
+```typescript
+loadConfig().then((config) =>
+  Promise.all([fetchUsers(config), fetchProducts(config)]).then(([users, products]) => ({
+    config,
+    users,
+    products,
+  }))
+);
+```
 
 ## Supported Types
 
@@ -391,6 +414,8 @@ Built-in `FlatMap` instances:
 | `Iterable`      | `flatMapIterable.flatMap(fa, f)` (static; imported for you)      |
 | `AsyncIterable` | `flatMapAsyncIterable.flatMap(fa, f)` (static; imported for you) |
 
+From other packages: `Effect` (`Effect.flatMap(fa, f)`, via `@typesugar/effect/syntax/do`) and the `@typesugar/fp` types `Option`, `Either`, `List` and `IO` (static calls on `flatMapOption`, `flatMapEitherInstance`, `flatMapList` and `flatMapIO`, imported for you).
+
 Plain iterables (`Set`, `Map`, generators) and async iterables have no `.flatMap` method, so the comprehension calls the std instance directly; the result is a lazy iterable.
 
 ### par: (ParCombine typeclass)
@@ -401,7 +426,10 @@ Plain iterables (`Set`, `Map`, generators) and async iterables have no `.flatMap
 | `AsyncIterable` | Collect each via async iteration, then `Promise.all` |
 | `Array`         | Cartesian product via `.reduce().map()`              |
 | `Iterable`      | Collect to arrays, then cartesian product            |
-| Other           | `.map().ap()` fallback (Option, Either, Validation)  |
+| `Effect`        | `Effect.map(Effect.all([...]), ([a,b,c]) => expr)`   |
+| Other           | `.map().ap()` on the values' own methods             |
+
+The `.map().ap()` fallback only works for values that have those methods. The fp types have no `ParCombine` instance and their erased values have no methods, so `par:` over `Option` or `Either` compiles but throws at runtime. Use `let:` for them.
 
 ### AsyncIterable with par:
 
@@ -604,7 +632,7 @@ yield: ({ name: n, email: e, age: a });
 - Use `par:` for independent operations that can run concurrently
 - Use guards (`if`) in `let:` for filtering
 - Use fallbacks (`||`/`??`) in `let:` for error recovery
-- Use parentheses for object literals in `yield:`
+- Wrap object literals in parentheses in `yield:`
 
 ### Don't
 
