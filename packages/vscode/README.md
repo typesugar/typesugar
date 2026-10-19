@@ -2,54 +2,45 @@
 
 > 📖 **Full documentation:** [Editor Setup](https://typesugar.org/getting-started/editor-setup). The microsite is the canonical reference; this README is a quickstart.
 
-> VSCode/Cursor IDE extension for typesugar macro development.
+> VS Code / Cursor extension for typesugar.
 
 ## Overview
 
-The typesugar VS Code extension (package `typesugar-vscode`, private: it is not published to npm) provides IDE support for typesugar macros: syntax highlighting, expansion previews, inline hints, code actions, and diagnostics — all powered by a manifest-driven architecture that automatically adapts to your project's macros.
+The typesugar VS Code extension (package `typesugar-vscode`, private: it is not published to npm)
+adds typesugar to VS Code's built-in TypeScript support. All language features come from the
+TypeScript server plugin `@typesugar/ts-plugin` (a thin wrapper around
+`@typesugar/transformer/language-service`), which the extension bundles and registers through
+`typescriptServerPlugins`. That plugin is typesugar's single editor engine for 1.0; the extension
+no longer starts the `@typesugar/lsp-server` language server.
 
 ## Features
 
-### Semantic Token Highlighting
+### From the TypeScript server plugin
 
-- **Macro invocations** — Expression macros, decorators, tagged templates
-- **Extension methods** — Typeclass implicit extension methods
-- **Comprehension syntax** — `let:`, `yield:`, `par:`, `<<` operators
-- **Bind variables** — Variables bound in comprehension blocks
+VS Code's own TypeScript features become macro-aware: the plugin serves macro-expanded code to
+TypeScript and maps positions back to your source.
 
-### CodeLens — Expansion Previews
+- **Diagnostics**: TypeScript errors and typesugar's macro errors (TS9xxx), at your source
+  positions, not in generated code
+- **Completions, hover, go-to-definition, references, rename, signature help** through macro
+  expansions
+- **Quick fixes** that typesugar diagnostics suggest
+- **Inlay hints** after expression-macro calls showing the expansion
+  (`fieldNames<User>()  = ["id", "name"]`). VS Code only asks for inlay hints when at least one
+  `typescript.inlayHints.*` setting is on.
 
-See what your macros expand to without running the build:
+### From the extension
 
-```typescript
-// ▶ Expands to: const x = 120;
-const x = comptime(() => {
-  let r = 1;
-  for (let i = 1; i <= 5; i++) r *= i;
-  return r;
-});
-```
+| Command                                                            | What it does                                                      |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `typesugar: Expand Macro at Cursor` (`typesugar.expandMacro`)      | Opens the expansion of the macro under the cursor beside the file |
+| `typesugar: Show Transformed Source` (`typesugar.showTransformed`) | Diff of the file against what TypeScript sees after expansion     |
 
-### Inlay Hints
+Both are in the command palette and the editor context menu for TypeScript files. They ask the
+plugin through custom tsserver requests, so they show the current buffer, saved or not.
 
-- **Bind variable types** in comprehensions: `user: User`
-- **Comptime results** inline: `= 120`
-
-### Code Actions
-
-- **Expand macro** — Replace macro call with its expansion
-- **Wrap in comptime** — Convert expression to compile-time evaluation
-- **Add @derive** — Quick-pick to add derive macros
-
-### Diagnostics
-
-- Background transformer runs on save
-- Macro-specific errors with rich related info
-- Points to the exact macro invocation, not internal code
-
-### Status Bar
-
-Shows macro count with one-click manifest refresh.
+TextMate grammars highlight `let:`/`yield:` blocks, the `<<` bind operator, `comptime`, and unit
+literals such as `42_km`.
 
 ## Installation
 
@@ -62,156 +53,51 @@ pnpm run package
 code --install-extension typesugar-*.vsix
 ```
 
-## Configuration
+The extension's bundled plugin works with VS Code's bundled TypeScript and with the workspace
+version. If your `tsconfig.json` also lists `@typesugar/transformer/language-service` (needed for
+other editors), the project's installed copy is used and the bundled one stands down.
 
-The extension knows typesugar's built-in macros out of the box. If your workspace has a
-`typesugar.manifest.json` (path set by `typesugar.manifestPath`), the extension merges it
-with the built-ins, watches it and hot-reloads when it changes. The manifest lists macro
-names, types and metadata (format below).
+## Settings
 
-There is currently no command that generates the manifest: `typesugar build` has no
-`--manifest` flag, so the `typesugar.generateManifest` command does not produce one. Write
-the file by hand if you need to describe your own macros.
+| Setting                      | Description                                                                                                      | Default |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------- |
+| `typesugar.comptimeInEditor` | Evaluate `comptime(...)` in the editor. Trusted workspaces only: comptime code runs with the editor's privileges | `false` |
 
-### Settings
-
-| Setting                       | Description                                           | Default                     |
-| ----------------------------- | ----------------------------------------------------- | --------------------------- |
-| `typesugar.enableCodeLens`    | Show expansion previews                               | `true`                      |
-| `typesugar.enableInlayHints`  | Show inline type hints                                | `true`                      |
-| `typesugar.enableDiagnostics` | Run background transformer                            | `true`                      |
-| `typesugar.manifestPath`      | Manifest path, relative to the workspace root         | `"typesugar.manifest.json"` |
-| `typesugar.comptimeInEditor`  | Evaluate `comptime(...)` in the editor (trusted only) | `false`                     |
-
-## Commands
-
-| Command                      | Description                                                        |
-| ---------------------------- | ------------------------------------------------------------------ |
-| `typesugar.expandMacro`      | Expand macro at cursor                                             |
-| `typesugar.showTransformed`  | Show the transformed source in a diff view                         |
-| `typesugar.refreshManifest`  | Reload the manifest file                                           |
-| `typesugar.generateManifest` | Runs `typesugar build --manifest`, which doesn't exist yet (above) |
-| `typesugar.addDerive`        | Add @derive to interface/class                                     |
-
-## Manifest Format
-
-```json
-{
-  "version": 1,
-  "macros": {
-    "expression": {
-      "comptime": {
-        "module": "@typesugar/macros",
-        "description": "Compile-time evaluation"
-      }
-    },
-    "decorator": {
-      "derive": {
-        "module": "@typesugar/derive",
-        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json"]
-      },
-      "operators": {
-        "module": "@typesugar/macros"
-      }
-    },
-    "taggedTemplate": {
-      "sql": {
-        "module": "@typesugar/sql",
-        "contentType": "sql"
-      }
-    },
-    "labeledBlock": {
-      "let": {
-        "continuations": ["yield", "pure"]
-      },
-      "par": {
-        "continuations": ["yield"]
-      }
-    }
-  },
-  "extensionMethods": {
-    "Show": ["show"],
-    "Eq": ["equals"]
-  }
-}
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      VSCode Extension                        │
-├─────────────┬─────────────┬──────────────┬─────────────────┤
-│  Semantic   │  CodeLens   │  Inlay Hints │  Code Actions   │
-│   Tokens    │  Provider   │   Provider   │    Provider     │
-├─────────────┴─────────────┴──────────────┴─────────────────┤
-│                    Manifest Loader                          │
-│              (watches typesugar.manifest.json)                   │
-├─────────────────────────────────────────────────────────────┤
-│                   Expansion Service                         │
-│           (runs transformer for previews)                   │
-└─────────────────────────────────────────────────────────────┘
-```
+The setting reaches the plugin through the TypeScript extension's `configurePlugin` API. A
+repository can't switch it on from its own `tsconfig.json`.
 
 ## Development
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Build
-pnpm run build
-
-# Watch mode
+pnpm run build          # tsup → dist/extension.js
 pnpm run build:watch
-
-# Package VSIX
-pnpm run package
-
-# Run tests
-pnpm run test
+pnpm run package        # VSIX with the bundled ts-plugin + transformer
 ```
 
-## Development & Testing
-
-The extension has a comprehensive test suite covering three layers:
-
-### Unit Tests (vitest)
-
-Tests run with mocked VS Code API, testing provider logic in isolation:
+### Unit tests (vitest, mocked VS Code API)
 
 ```bash
-# Run unit tests
 pnpm --filter typesugar-vscode test:unit
-
-# Watch mode
-pnpm --filter typesugar-vscode test:watch
 ```
 
-Test files: `test/manifest.test.ts`, `test/semantic-tokens.test.ts`, `test/codelens-inlay.test.ts`, `test/expansion.test.ts`, `test/error-scenarios.test.ts`
+Test files: `test/extension-activation.test.ts` (commands, tsserver requests, plugin
+configuration), `test/vsix-smoke.test.ts` (package contents). The plugin side of the custom
+requests is tested in `packages/transformer/tests/language-service-editor.test.ts`.
 
-### Integration Tests (@vscode/test-cli)
+### Integration tests (@vscode/test-cli)
 
-Tests run in a VS Code Extension Development Host with the real VS Code API:
+These download and run VS Code in an Extension Development Host:
 
 ```bash
-# Run integration tests (requires display or xvfb)
 pnpm --filter typesugar-vscode test:integration
-
-# On Linux CI (headless)
+# Linux CI (headless)
 xvfb-run -a pnpm --filter typesugar-vscode test:integration
 ```
 
-Test files: `test/integration/activation.test.ts`, `test/integration/providers.test.ts`, `test/integration/commands.test.ts`
-
-### Test Fixtures
-
-The `test-fixtures/sample-project/` directory contains a minimal typesugar project used by both integration tests and as a reference for expected behavior:
-
-- `typesugar.manifest.json` — Manifest with known macros
-- `sample.ts` — Code exercising all macro types
-- `no-macros.ts` — Plain TypeScript (negative test)
-- `empty.ts` — Empty file (edge case)
+Test files: `test/integration/activation.test.ts`, `test/integration/commands.test.ts`,
+`test/integration/providers.test.ts` (the plugin answers `_typesugar.showTransformed`).
+They use `test-fixtures/sample-project/`.
 
 ## License
 

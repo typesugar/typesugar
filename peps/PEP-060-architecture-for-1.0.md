@@ -190,6 +190,10 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
     macro definitions (mark the involved exports `@internal` at 1.0). (E R11)
 21. Hygiene from the checker (`resolveName` at the use site) instead of a top-level
     binding scan; one root cause behind six review findings. (E R12)
+22. TypeScript 7 host prototype: prototype one host against the TS 7.1 API when its beta
+    ships (overlay + `createProgram` + checker over IPC); measure per-call checker cost —
+    the key risk, since macros make many checker calls per file. Feeds the separate TS 7
+    PEP that D4 calls for.
 
 ## Decisions for Dean
 
@@ -216,6 +220,19 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
   plugin for 1.0 only if D4 keeps users on TS ≤ 6 for the 1.x line; if 1.x must support
   TS 7 projects, the LSP is the only engine that can, and it needs multi-project and
   project references before 1.0.
+  **Decided (Dean, 2026-10-19): the tsserver plugin is the single editor engine for
+  1.0; TS 7 via TypeScript 7.1's content mappers; the LSP server is deprecated.**
+  Implemented on `decisions-1.0`: the VS Code extension no longer starts
+  `@typesugar/lsp-server` and keeps only UI (Expand Macro / Show Transformed, answered
+  by the plugin through the custom tsserver requests `_typesugar.expandMacro` and
+  `_typesugar.showTransformed`); the plugin gained macro-expansion inlay hints, the
+  trusted `comptimeInEditor` setting via `configurePlugin`, and a guard against loading
+  twice per project. CodeLens, macro semantic tokens, the status bar and the
+  manifest commands were dropped. `@typesugar/lsp-server` stays in the repo, marked
+  unsupported (README banner, one-time warning on start). Editor docs are plugin-first
+  for every editor (`docs/getting-started/editor-setup.md`). TS 7 has no tsserver
+  plugins; the TS 7 editor path is a follow-up PEP on 7.1 content mappers, not the
+  LSP.
 - **D6. Is the Engine/Session refactor (items 2, 7) in 1.0 or 1.1?** _Recommended:_ in
   1.0 ship the `@internal` marking, one public entry-point name (so
   `TransformationPipeline` doesn't freeze), and build/watch routed through the existing

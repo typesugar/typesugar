@@ -613,16 +613,14 @@ const _saveListeners: Array<(doc: any) => void> = [];
 const _closeListeners: Array<(doc: any) => void> = [];
 const _configData: Record<string, Record<string, unknown>> = {
   typesugar: {
-    enableCodeLens: true,
-    enableInlayHints: true,
-    enableDiagnostics: true,
-    manifestPath: "typesugar.manifest.json",
+    comptimeInEditor: false,
   },
 };
 
 let _fsReadFileHandler: ((uri: Uri) => Promise<Uint8Array>) | undefined;
 let _fileSystemWatcher: MockFileSystemWatcher | undefined;
 let _workspaceFolders: Array<{ uri: Uri; name: string; index: number }> | undefined;
+let _isTrusted = true;
 
 export const workspace = {
   getConfiguration(section?: string): MockConfiguration {
@@ -648,6 +646,23 @@ export const workspace = {
       const idx = _closeListeners.indexOf(listener);
       if (idx >= 0) _closeListeners.splice(idx, 1);
     });
+  },
+
+  get isTrusted(): boolean {
+    return _isTrusted;
+  },
+
+  onDidChangeConfiguration(_listener: (e: any) => void): Disposable {
+    return new Disposable(() => {});
+  },
+
+  onDidGrantWorkspaceTrust(_listener: () => void): Disposable {
+    return new Disposable(() => {});
+  },
+
+  /** Test helper: set workspace trust */
+  _setTrusted(trusted: boolean): void {
+    _isTrusted = trusted;
   },
 
   get textDocuments(): any[] {
@@ -870,12 +885,10 @@ export function resetMockState(): void {
   _fsReadFileHandler = undefined;
   _fileSystemWatcher = undefined;
   _workspaceFolders = undefined;
+  _isTrusted = true;
   Object.assign(_configData, {
     typesugar: {
-      enableCodeLens: true,
-      enableInlayHints: true,
-      enableDiagnostics: true,
-      manifestPath: "typesugar.manifest.json",
+      comptimeInEditor: false,
     },
   });
 }

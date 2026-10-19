@@ -11,30 +11,33 @@ TypeScript Language Service Plugin for typesugar that enables full IDE support i
 - **Hover info** — See type information for original symbols
 - **Find references** — Find all references to symbols across transformed code
 
-## Installation
+## Installation and configuration
+
+Most projects don't install this package. List the engine it wraps,
+`@typesugar/transformer/language-service`, in `tsconfig.json` and install
+`@typesugar/transformer` as a direct devDependency:
 
 ```bash
-npm install @typesugar/ts-plugin --save-dev
-# or
-pnpm add -D @typesugar/ts-plugin
+npm install --save-dev @typesugar/transformer
 ```
-
-## Configuration
-
-Add the plugin to your `tsconfig.json`:
 
 ```json
 {
   "compilerOptions": {
     "plugins": [
       {
-        "name": "@typesugar/ts-plugin",
+        "name": "@typesugar/transformer/language-service",
         "verbose": false
       }
     ]
   }
 }
 ```
+
+`@typesugar/ts-plugin` is the wrapper the VS Code extension bundles and registers under that
+name. Listing `@typesugar/ts-plugin` in `tsconfig.json` (after installing it) loads the same
+engine; if a project ends up with both names, the plugin loads once and the second load does
+nothing. See [Editor Setup](https://typesugar.org/getting-started/editor-setup) for each editor.
 
 ### Options
 

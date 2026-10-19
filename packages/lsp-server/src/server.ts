@@ -70,6 +70,7 @@ import {
   config,
   filterDiagnostics,
   getDiagnosticSuppressionRules,
+  assertSupportedTypeScript,
   type PositionMapFn,
 } from "@typesugar/core";
 import {
@@ -87,11 +88,16 @@ import { ManifestState } from "./manifest.js";
 import { computeSemanticTokens, getSemanticTokensLegend } from "./semantic-tokens.js";
 import { computeCodeLenses } from "./codelens.js";
 import { computeInlayHints } from "./inlay-hints.js";
+import { announceDeprecation } from "./deprecation.js";
 
 // ---------------------------------------------------------------------------
 // Connection setup (fix #9: always let vscode-languageserver auto-detect
 // transport from argv; the bin script ensures --stdio is present)
 // ---------------------------------------------------------------------------
+
+// PEP-060 item 1: refuse to start on TypeScript 7 (no JS compiler API) with one
+// clear message on stderr, which the editor shows in the server's output.
+assertSupportedTypeScript(ts);
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -912,6 +918,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 });
 
 connection.onInitialized(() => {
+  // PEP-060 D5: not supported in 1.0 — the tsserver plugin is the editor engine.
+  announceDeprecation(connection);
   log("Server initialized, publishing initial diagnostics...");
 
   // Publish diagnostics for all open documents
