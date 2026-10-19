@@ -28,8 +28,8 @@ Add ts-patch to your `prepare` script so it persists after `npm install`:
 {
   "scripts": {
     "prepare": "ts-patch install -s",
-    "build": "tsc",
-    "check": "tsc --noEmit"
+    "build": "typesugar build",
+    "check": "typesugar check"
   }
 }
 ```
@@ -67,21 +67,32 @@ The transformer plugin accepts options:
     {
       "transform": "@typesugar/transformer",
       "type": "program",
-      "verbose": false
+      "verbose": false,
+      "cfgConfig": {}
     }
   ]
 }
 ```
 
+See [Configuration](../../reference/config.md#transformer-plugin) for every option.
+
 ### Typechecking
 
-**tsc with ts-patch provides full typechecking.** This is the only build path where:
+ts-patch runs the transformer at **emit** time, after TypeScript has already
+type-checked the file. So a patched `tsc`:
 
-- Macro transformation AND typechecking happen in the same pass
-- Type errors are reported during build (not as a separate step)
-- The full TypeScript API is available for all macros
+- type-checks the **original, unexpanded** source. Code that is valid only after
+  expansion produces phantom errors — for example `@derive(Eq) interface P {…}`
+  reports `TS1206: Decorators are not valid here`, and method sugar or `let:` labels
+  are checked as written;
+- reports macro errors (they are added to the emit diagnostics, so `tsc` exits
+  non-zero on them);
+- with `--noEmit`, never runs the transformer at all, so it is not a useful check.
 
-Unlike bundlers (Vite, esbuild, Webpack), you don't need `strict: true` or a separate `tsc --noEmit` step — typechecking is built-in.
+For type-checking, and as your CI gate, use the typesugar CLI: `typesugar check`
+(no output) or `typesugar build` (emits). They expand macros first and filter out
+the phantom errors the unexpanded source produces. To also type-check the expanded
+output, add `--strict` (experimental).
 
 ## Using tspc Instead of tsc
 
@@ -99,7 +110,8 @@ ts-patch provides `tspc` as an alternative to `tsc`:
 
 ## Using the typesugar CLI
 
-typesugar provides its own CLI that wraps tsc:
+typesugar provides its own CLI, built on the TypeScript API (recommended over plain
+`tsc`; see [Typechecking](#typechecking)):
 
 ```bash
 # Build with macro expansion
@@ -132,9 +144,9 @@ export const buildTime = comptime(new Date().toISOString());
 2. Build:
 
 ```bash
-npx tsc
-# or
 npx typesugar build
+# or, with ts-patch installed
+npx tsc
 ```
 
 3. Check `dist/test.js` for the expanded timestamp.
@@ -145,10 +157,10 @@ For different build configurations:
 
 ```bash
 # Development build
-npx tsc --project tsconfig.dev.json
+npx typesugar build --project tsconfig.dev.json
 
 # Production build
-npx tsc --project tsconfig.prod.json
+npx typesugar build --project tsconfig.prod.json
 ```
 
 Each config can have different transformer options.
@@ -196,6 +208,7 @@ steps:
   - uses: actions/setup-node@v4
   - run: npm ci
   - run: npx ts-patch install
+  - run: npx typesugar check
   - run: npm run build
 ```
 

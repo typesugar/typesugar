@@ -146,7 +146,9 @@ const obj = ctx.createObjectLiteral([
 ctx.parseExpression(code: string): ts.Expression
 ```
 
-Parse a code string into an expression AST.
+Parse a code string into an expression AST. Prefer building nodes with
+`ctx.factory`: string→AST parsing round-trips through text, strips source
+positions, and throws on malformed input.
 
 ```typescript
 const expr = ctx.parseExpression("a + b * c");
@@ -158,7 +160,7 @@ const expr = ctx.parseExpression("a + b * c");
 ctx.parseStatements(code: string): ts.Statement[]
 ```
 
-Parse a code string into statements.
+Parse a code string into statements (same caveat as `parseExpression`).
 
 ```typescript
 const stmts = ctx.parseStatements(`
@@ -277,18 +279,38 @@ if (deprecated) {
 ### evaluate
 
 ```typescript
-ctx.evaluate(node: ts.Node): unknown
+ctx.evaluate(node: ts.Node): ComptimeValue
 ```
 
-Evaluate an expression at compile time.
+Evaluate an expression at compile time. The result is a tagged union, not a plain
+JS value:
 
 ```typescript
-const arg = callExpr.arguments[0];
-const value = ctx.evaluate(arg);
-// value is the JS value (number, string, object, etc.)
+type ComptimeValue =
+  | { kind: "number"; value: number }
+  | { kind: "string"; value: string }
+  | { kind: "boolean"; value: boolean }
+  | { kind: "bigint"; value: bigint }
+  | { kind: "null" }
+  | { kind: "undefined" }
+  | { kind: "array"; elements: ComptimeValue[] }
+  | { kind: "object"; properties: Map<string, ComptimeValue> }
+  | { kind: "function"; fn: (...args: ComptimeValue[]) => ComptimeValue }
+  | { kind: "type"; type: ts.Type }
+  | { kind: "error"; message: string };
 ```
 
-Returns `undefined` if evaluation fails.
+```typescript
+const v = ctx.evaluate(args[0]);
+if (v.kind === "number") {
+  return ctx.createNumericLiteral(v.value * 2);
+}
+if (v.kind === "error") {
+  ctx.reportError(args[0], v.message);
+}
+```
+
+Failure is `{ kind: "error", message }`, never `undefined`.
 
 ### isComptime
 
@@ -300,8 +322,7 @@ Check if a node can be evaluated at compile time.
 
 ```typescript
 if (ctx.isComptime(arg)) {
-  const value = ctx.evaluate(arg);
-  // Safe to use value
+  const value = ctx.evaluate(arg); // a ComptimeValue — check value.kind
 } else {
   ctx.reportError(arg, "Argument must be a compile-time constant");
 }
@@ -325,20 +346,56 @@ const temp = ctx.generateUniqueName("temp");
 Use for any generated variables to ensure hygiene:
 
 ```typescript
+const f = ctx.factory;
 const result = ctx.generateUniqueName("result");
-return quote(ctx)`
-  const ${result} = ${expr};
-  return ${result};
-`;
+// const <result> = <expr>;
+const decl = f.createVariableStatement(
+  undefined,
+  f.createVariableDeclarationList(
+    [f.createVariableDeclaration(result, undefined, undefined, expr)],
+    ts.NodeFlags.Const
+  )
+);
 ```
+
+### safeRef / ensureImport
+
+```typescript
+ctx.safeRef(symbol: string, from: string): ts.Identifier
+ctx.ensureImport(symbol: string, from: string): ts.Identifier
+```
+
+Refer to an export of another module from generated code. `safeRef` returns an
+identifier that doesn't collide with a user binding of the same name;
+`ensureImport` also adds the `import` to the file if it isn't there.
+
+```typescript
+const parseError = ctx.ensureImport("ParseError", "@typesugar/parser");
+```
+
+## Diagnostics with Codes
+
+### diagnostic
+
+```typescript
+ctx.diagnostic(descriptor: DiagnosticDescriptor) // builder: .at(node).note(...).help(...).emit()
+```
+
+Report a catalogued diagnostic (a `TS9xxx` code with notes and help text) instead
+of a plain `reportError` string. `ctx.getDiagnostics()` returns everything reported
+so far in this context.
 
 ## Example Usage
 
 ```typescript
-defineExpressionMacro("example", {
-  expand(ctx, callExpr) {
-    // Get arguments
-    const args = callExpr.arguments;
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import * as ts from "typescript";
+
+export const exampleMacro = defineExpressionMacro({
+  name: "example",
+  module: "my-macros",
+  expand(ctx, callExpr, args) {
+    const f = ctx.factory;
 
     // Validate
     if (args.length === 0) {
@@ -346,25 +403,25 @@ defineExpressionMacro("example", {
       return callExpr;
     }
 
-    // Get type info
-    const argType = ctx.getTypeString(args[0]);
-
-    // Evaluate if constant
+    // Evaluate if constant: example(21) → 42
     if (ctx.isComptime(args[0])) {
-      const value = ctx.evaluate(args[0]);
-      return ctx.createNumericLiteral((value as number) * 2);
+      const v = ctx.evaluate(args[0]);
+      if (v.kind === "number") return ctx.createNumericLiteral(v.value * 2);
     }
 
-    // Generate unique name
+    // Otherwise: ((temp) => temp * 2)(arg), with a hygienic parameter name
     const temp = ctx.generateUniqueName("temp");
-
-    // Build result
-    return quote(ctx)`
-      (() => {
-        const ${temp} = ${args[0]};
-        return ${temp} * 2;
-      })()
-    `;
+    const fn = f.createArrowFunction(
+      undefined,
+      undefined,
+      [f.createParameterDeclaration(undefined, undefined, temp)],
+      undefined,
+      f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      f.createBinaryExpression(temp, ts.SyntaxKind.AsteriskToken, f.createNumericLiteral(2))
+    );
+    return f.createCallExpression(f.createParenthesizedExpression(fn), undefined, [args[0]]);
   },
 });
+
+globalRegistry.register(exampleMacro);
 ```

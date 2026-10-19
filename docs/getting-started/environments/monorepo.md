@@ -29,6 +29,7 @@ my-monorepo/
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
     "prepare": "ts-patch install -s"
   },
   "devDependencies": {
@@ -80,14 +81,32 @@ packages:
 }
 ```
 
+### Package scripts
+
+Build and type-check each package with the typesugar CLI. It builds one tsconfig at
+a time (no `--build` mode), so let pnpm/Turborepo/Nx order the packages:
+
+```json
+{
+  "scripts": {
+    "build": "typesugar build",
+    "typecheck": "typesugar check"
+  }
+}
+```
+
 ## Turborepo
 
 ### turbo.json
 
+Turborepo runs each package's own `package.json` scripts (above); `turbo.json`
+only declares the task graph. Turborepo 2 uses the `tasks` key (1.x called it
+`pipeline`):
+
 ```json
 {
   "$schema": "https://turbo.build/schema.json",
-  "pipeline": {
+  "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
@@ -136,7 +155,7 @@ turbo build --filter=@myorg/app
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "tsc --build",
+        "command": "typesugar build",
         "cwd": "packages/core"
       }
     }
@@ -161,11 +180,22 @@ packages/
 
 ### packages/macros/package.json
 
+The `typesugar.macros` field is what makes the transformer load the package's
+macros (PEP-055). Its value is a subpath of the package (`"./macros"` is loaded as
+`@myorg/macros/macros`) whose module registers the macros:
+
 ```json
 {
   "name": "@myorg/macros",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./macros": "./dist/macros.js"
+  },
+  "typesugar": {
+    "macros": "./macros"
+  },
   "dependencies": {
     "@typesugar/core": "^0.1.0"
   },
@@ -174,6 +204,21 @@ packages/
   }
 }
 ```
+
+Because `@myorg/macros` is not under `@typesugar/*`, every package that uses it must
+approve it once: run `npx typesugar approve-macros` (it writes
+`security.allowedMacroPackages: ["@myorg/macros"]` into `typesugar.config.ts`, or use
+`"@myorg/*"` to approve the whole scope) and commit the file. A config at the
+monorepo root covers every package below it.
+
+::: warning Known issue: `packages/<name>/` paths
+typesugar maps any source file under a `/packages/<name>/` directory to the module
+name `@typesugar/<name>` when it matches macro imports (PEP-059 P1 #18). A
+workspace macro package whose files resolve to such a path (e.g. `packages/macros/`
+reached through a pnpm symlink) can be mistaken for `@typesugar/macros`, so a macro
+declared with `module: "@myorg/macros"` may not activate. This is a 1.0 bug, not
+intended behaviour.
+:::
 
 ### Using Shared Macros
 
@@ -196,7 +241,10 @@ const result = myMacro(...);
 
 ## TypeScript Project References
 
-For faster incremental builds, use project references:
+The typesugar CLI does not support project references (`--build`) or
+`.tsbuildinfo` incremental builds. A ts-patched `tsc --build` does run the
+transformer when it emits, but it type-checks the unexpanded source (see
+[tsc Setup](./tsc.md#typechecking)), so keep `typesugar check` as the type-check:
 
 ### tsconfig.json (root)
 
@@ -210,7 +258,7 @@ For faster incremental builds, use project references:
 ### Build Command
 
 ```bash
-# Build all with project references
+# Build all with project references (ts-patch)
 tsc --build
 
 # Build specific project
@@ -229,7 +277,7 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
-      strict: true, // Typecheck expanded output (Vite doesn't typecheck)
+      strict: false, // set true to type-check expanded output (experimental)
     }),
   ],
   resolve: {
@@ -243,15 +291,15 @@ export default defineConfig({
 
 ### Typechecking in Monorepos
 
-Vite doesn't typecheck. For monorepos, common patterns:
+Vite doesn't type-check. Give each package a `"typecheck": "typesugar check"` script
+(not `tsc --noEmit`, which never expands macros) and run it as a Turborepo task:
 
 ```json
-// turbo.json — separate typecheck task
+// turbo.json — runs each package's "typecheck" script
 {
-  "pipeline": {
+  "tasks": {
     "typecheck": {
-      "dependsOn": ["^build"],
-      "command": "tsc --noEmit"
+      "dependsOn": ["^build"]
     }
   }
 }
@@ -316,9 +364,8 @@ Pin all typesugar packages to the same version:
 
 ### Slow builds
 
-1. Use TypeScript project references
-2. Enable incremental builds: `"incremental": true`
-3. Use Turborepo or Nx for caching
+1. Use Turborepo or Nx for task caching
+2. Enable the disk cache: `typesugar build --cache`
 
 ### IDE issues
 

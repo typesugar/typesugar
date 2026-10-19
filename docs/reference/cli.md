@@ -32,7 +32,14 @@ typesugar build [options]
 - `-v, --verbose` — Enable verbose logging
 - `--cache [dir]` — Enable disk cache for faster rebuilds (default: `.typesugar-cache/transforms`)
 - `--no-cache` — Disable disk cache
-- `--strict` — Typecheck expanded output (catches macro bugs)
+- `--strict` — Also type-check the expanded output. Experimental: the per-file
+  expansion check may report false positives (e.g. a spurious TS2304). Off by default.
+- `--strict=incremental` — Like `--strict`, but only re-checks changed files
+- `--show-suppressed-diagnostics` — Also print the diagnostics typesugar's
+  suppression rules filtered out (audit mode)
+
+`build` emits `.js`/`.d.ts` and exits non-zero if any diagnostics (including macro
+errors) are found.
 
 **Examples:**
 
@@ -65,6 +72,7 @@ typesugar watch [options]
 
 - `-p, --project <path>` — Path to tsconfig.json
 - `-v, --verbose` — Enable verbose logging
+- `--show-suppressed-diagnostics` — Show suppressed diagnostics (audit mode)
 
 **Examples:**
 
@@ -89,17 +97,21 @@ typesugar check [options]
 
 - `-p, --project <path>` — Path to tsconfig.json
 - `-v, --verbose` — Enable verbose logging
-- `--strict` — Also type-check the fully expanded output. Experimental: it can
-  surface false positives, so it is off by default and is not a substitute for
-  `check`.
+- `--strict` / `--strict=incremental` — Also type-check the fully expanded output.
+  Experimental: it can surface false positives, so it is off by default and is not
+  a substitute for plain `check`.
+- `--show-suppressed-diagnostics` — Show suppressed diagnostics (audit mode)
 
 > **`check` vs `build`:** `check` type-checks and emits nothing; `build` emits to
-> `dist/`. Both report the same diagnostics (after typesugar's diagnostic suppression filtering
-> removes the phantom errors valid pre-expansion source produces) and both exit
-> non-zero when errors are found — so a green `build` means "compiled, no errors
-> detected." typesugar's published `.d.ts` files type-check cleanly, so
-> `skipLibCheck: true` is **not** required (it remains a fine speed optimization
-> for skipping _all_ third-party `.d.ts`).
+> your `outDir`. Both report the same diagnostics (after typesugar's diagnostic
+> suppression filtering removes the phantom errors valid pre-expansion source
+> produces) and both exit non-zero when errors are found — so a green `build` means
+> "compiled, no errors detected." Use `typesugar check`, not `tsc --noEmit`, as the
+> CI type-check: `tsc --noEmit` never runs the transformer, so it type-checks the
+> unexpanded source.
+>
+> `typesugar doctor` warns when `skipLibCheck` is off, because some typesugar
+> package declarations (e.g. `@typesugar/fp`) may produce errors without it.
 
 **Examples:**
 
@@ -110,7 +122,7 @@ typesugar check
 # Type-check with custom config
 typesugar check -p tsconfig.check.json
 
-# Type-check expanded output (catches macro-generated bugs)
+# Also type-check the expanded output (experimental)
 typesugar check --strict
 ```
 
@@ -131,6 +143,7 @@ typesugar expand <file> [options]
 - `-p, --project <path>` — Path to tsconfig.json
 - `--diff` — Show unified diff between original and expanded
 - `--ast` — Show expanded AST as JSON
+- `--js` — Show the transpiled JavaScript instead of expanded TypeScript
 - `-v, --verbose` — Enable verbose logging
 
 **Examples:**
@@ -144,6 +157,9 @@ typesugar expand src/main.ts --diff
 
 # Show AST
 typesugar expand src/main.ts --ast
+
+# Show the JavaScript that would run
+typesugar expand src/main.ts --js
 ```
 
 ### run
@@ -164,6 +180,10 @@ typesugar run <file> [options]
 - `-v, --verbose` — Enable verbose logging
 - `--cache [dir]` — Enable disk cache (useful when iterating on a script)
 
+If any macro fails to expand, `run` prints the errors and exits 1 without
+executing the file. Otherwise its exit code is the script's own exit code
+(`128 + n` if the script is killed by signal `n`).
+
 **Examples:**
 
 ```bash
@@ -179,7 +199,7 @@ typesugar run src/script.ts --verbose
 
 ### preprocess
 
-Preprocess files with custom syntax only (no macro expansion). Useful for debugging or generating valid TypeScript from typesugar syntax.
+Preprocess files for HKT syntax only (`F<A>` → `Kind<F, A>`), with no macro expansion. Useful for debugging.
 
 ```bash
 typesugar preprocess <files|dirs> [options]
@@ -191,8 +211,8 @@ typesugar preprocess <files|dirs> [options]
 
 **Options:**
 
-- `--outDir <dir>` — Output directory (default: `.typesugar`)
-- `--inPlace` — Preprocess files in place (overwrites originals)
+- `--outDir <dir>`, `-o <dir>` — Output directory (default: `.typesugar`)
+- `--inPlace` — Preprocess files in place (overwrites originals; can't be combined with `--outDir`)
 - `-v, --verbose` — Enable verbose logging
 
 **Examples:**
@@ -221,6 +241,13 @@ typesugar init [options]
 
 **Options:**
 
+- `-y, --yes` — Non-interactive: accept the default for every question (required in
+  CI, or when an AI assistant runs `init`)
+- `--persona <name>` — `end-user`, `app-developer` or `extension-author` (default
+  with `--yes`: `app-developer`)
+- `--ai` — Write AI-assistant context (`AGENTS.md`) without asking, and install the
+  Claude Code skill
+- `--no-ai` — Skip AI-assistant context entirely
 - `-v, --verbose` — Enable verbose logging
 
 **What it does:**
@@ -230,6 +257,7 @@ typesugar init [options]
 3. Configures tsconfig.json
 4. Patches build configs
 5. Sets up ts-patch
+6. Writes an example file (`src/typesugar-example.ts`)
 
 **Examples:**
 
@@ -237,8 +265,9 @@ typesugar init [options]
 # Interactive setup
 typesugar init
 
-# Verbose output
-typesugar init --verbose
+# Non-interactive (CI / AI agent)
+typesugar init --yes
+typesugar init --yes --persona end-user --ai
 ```
 
 ### create
@@ -253,10 +282,6 @@ typesugar create <template> [name] [options]
 
 - `<template>` — Template to use (app, library, or macro-plugin)
 - `[name]` — Project name (defaults to `my-<template>`)
-
-**Options:**
-
-- `-v, --verbose` — Enable verbose logging
 
 **Available Templates:**
 
@@ -310,8 +335,13 @@ typesugar doctor [options]
 - ts-patch installed
 - ts-patch active (TypeScript patched)
 - prepare script configured
+- `@typesugar/transformer` installed
+- `skipLibCheck` enabled (warning only)
+- Macro registration
 - unplugin installed (for bundlers)
 - Package version consistency
+
+`doctor` exits 1 if any check fails; warnings alone exit 0.
 
 **Examples:**
 
@@ -341,18 +371,55 @@ All checks passed!
 typesugar is properly configured and ready to use.
 ```
 
+### approve-macros
+
+Review and approve third-party macro packages (PEP-055).
+
+```bash
+typesugar approve-macros [options]
+```
+
+Packages under `@typesugar/*` (and `typesugar`) are trusted automatically. Any other
+package that declares a `typesugar.macros` entry in its `package.json` is refused,
+and the build fails with "…have not been approved. Run `typesugar approve-macros`…",
+until it is listed in `security.allowedMacroPackages` of your
+[`typesugar.config.ts`](./config.md#typesugar-config-ts). This command scans the
+project the same way the macro loader does, lists the unapproved packages, and after
+confirmation writes them into that list. It creates `typesugar.config.ts` if there is
+none, and otherwise edits only the `allowedMacroPackages` value, leaving the rest of
+the file as you wrote it. Commit the file.
+
+**Options:**
+
+- `-p, --project <path>` — Path to tsconfig.json (default: tsconfig.json). The config
+  file is read from, and written next to, that directory.
+- `-y, --yes` — Skip the confirmation prompt (for CI use)
+- `-v, --verbose` — Enable verbose logging
+
+**Examples:**
+
+```bash
+typesugar approve-macros
+typesugar approve-macros --yes
+```
+
 ## Exit Codes
 
-| Code | Meaning                                           |
-| ---- | ------------------------------------------------- |
-| 0    | Success                                           |
-| 1    | Error (build failed, check failed, doctor issues) |
+| Command          | Exit code                                                                     |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `build`, `check` | 0 on success; 1 on any diagnostic or macro error                              |
+| `run`            | 1 on macro errors (the file is not run); otherwise the script's own exit code |
+| `doctor`         | 0 if every check passes or only warns; 1 if any check fails                   |
+| any command      | 1 on an unknown command, unapproved macro packages, or a crash                |
 
 ## Environment Variables
 
 **typesugar-specific:**
 
 - `TYPESUGAR_PROFILE=1` — Enable detailed performance profiling (outputs timing reports)
+- `TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS=1` — Same as `--show-suppressed-diagnostics`
+- `TYPESUGAR_CFG_<NAME>` — Set a `cfg()` condition value (see [Configuration](./config.md#conditional-compilation-cfg))
+- `TYPESUGAR_<KEY>` — Override a `typesugar.config.ts` value (see [Configuration](./config.md#environment-variables))
 
 **TypeScript standard:**
 
@@ -366,9 +433,9 @@ typesugar is properly configured and ready to use.
 {
   "scripts": {
     "build": "typesugar build --cache",
-    "build:prod": "typesugar build -p tsconfig.prod.json --strict",
+    "build:prod": "typesugar build -p tsconfig.prod.json",
     "watch": "typesugar watch",
-    "check": "typesugar check --strict",
+    "check": "typesugar check",
     "expand": "typesugar expand",
     "prepare": "ts-patch install -s"
   }
@@ -377,17 +444,17 @@ typesugar is properly configured and ready to use.
 
 ## Comparison with tsc
 
-| Feature                     | typesugar CLI    | tsc                 |
-| --------------------------- | ---------------- | ------------------- |
-| Macro expansion             | Yes              | No (needs ts-patch) |
-| Watch mode                  | Yes              | Yes                 |
-| Project references          | Via tsconfig     | Yes                 |
-| Incremental                 | Via tsconfig     | Yes                 |
-| Expand preview              | Yes (`expand`)   | No                  |
-| Diagnostics                 | Yes (`doctor`)   | No                  |
-| Disk caching                | Yes (`--cache`)  | No                  |
-| Strict mode (expanded code) | Yes (`--strict`) | No                  |
-| Run scripts directly        | Yes (`run`)      | No                  |
+| Feature                      | typesugar CLI    | tsc                 |
+| ---------------------------- | ---------------- | ------------------- |
+| Macro expansion              | Yes              | No (needs ts-patch) |
+| Watch mode                   | Yes              | Yes                 |
+| Project references (`-b`)    | No               | Yes                 |
+| Incremental (`.tsbuildinfo`) | No               | Yes                 |
+| Expand preview               | Yes (`expand`)   | No                  |
+| Diagnostics                  | Yes (`doctor`)   | No                  |
+| Disk caching                 | Yes (`--cache`)  | No                  |
+| Strict mode (expanded code)  | Yes (`--strict`) | No                  |
+| Run scripts directly         | Yes (`run`)      | No                  |
 
 ## Troubleshooting
 
@@ -406,17 +473,10 @@ typesugar doctor
 typesugar build --cache
 ```
 
-2. Enable incremental builds in tsconfig.json:
+The CLI builds the whole program each time (no project references, `--build` mode
+or `.tsbuildinfo`), so tsconfig's `incremental` setting has no effect on it.
 
-```json
-{
-  "compilerOptions": {
-    "incremental": true
-  }
-}
-```
-
-3. For detailed profiling:
+2. For detailed profiling:
 
 ```bash
 TYPESUGAR_PROFILE=1 typesugar build --cache

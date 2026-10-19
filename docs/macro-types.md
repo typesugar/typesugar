@@ -80,13 +80,16 @@ interface Show<A> {
   show(a: A): string;
 }
 
-// @instance — provide a typeclass instance
-@instance(Show, Number)
+// @impl (alias @instance) — provide a typeclass instance
+/** @impl Show<number> */
 const numberShow: Show<number> = { show: String };
 
 // @derive — auto-derive typeclass instances
 /** @derive(Show, Eq) */
-interface Point { x: number; y: number; }
+interface Point {
+  x: number;
+  y: number;
+}
 ```
 
 > Interfaces, functions, and type aliases use the **JSDoc form**
@@ -117,7 +120,7 @@ macroName`template ${expr} literal`;
 
 ```typescript
 import { sql } from "@typesugar/sql";
-import { regex, html, json } from "@typesugar/strings";
+import { regex, html } from "@typesugar/strings";
 import { units } from "@typesugar/units";
 
 // sql — type-safe SQL with compile-time validation
@@ -128,9 +131,6 @@ const pattern = regex`^[a-z]+@[a-z]+\.[a-z]{2,}$`;
 
 // html — XSS-safe HTML templates
 const page = html`<div>${userInput}</div>`;
-
-// json — compile-time JSON parsing
-const config = json`{"host": "localhost", "port": 8080}`;
 
 // units — type-safe physical units
 const speed = units`100 km/h`;
@@ -166,17 +166,23 @@ continuation: {
 import "@typesugar/std/syntax/do"; // activate let:/par: label syntax (PEP-052)
 
 // let:/yield: — monadic do-notation (sequential, dependent)
-let: {
+const result = let: {
   user << fetchUser(id);
   posts << getPosts(user.id); // Can depend on previous bindings
-  if (posts.length > 0) {
-  } // Guards for filtering
   first = posts[0]; // Pure map step
 }
 yield: ({ user, first });
 
+// Guards filter, for Array / Iterable / AsyncIterable (not Promise)
+const evens = let: {
+  n << [1, 2, 3, 4];
+  if (n % 2 === 0) {
+  }
+}
+yield: n * 10; // [20, 40]
+
 // par:/yield: — applicative comprehension (parallel, independent)
-par: {
+const all = par: {
   user << fetchUser(id); // All bindings must be independent
   config << loadConfig();
   posts << fetchPosts();
@@ -187,14 +193,14 @@ yield: ({ user, config, posts });
 
 ### Syntax in `let:` Blocks
 
-| Syntax                    | Description                 | Output                                     |
-| ------------------------- | --------------------------- | ------------------------------------------ |
-| `x << expr`               | Monadic bind                | `.flatMap(x => ...)`                       |
-| `x << expr \|\| fallback` | Bind with fallback          | `expr.orElse(() => fallback).flatMap(...)` |
-| `x << expr ?? fallback`   | Nullish coalescing fallback | Same as `\|\|`                             |
-| `_ << expr`               | Discard binding             | `.flatMap(_ => ...)`                       |
-| `x = expr`                | Pure map (no unwrap)        | `((x) => ...)(expr)`                       |
-| `if (cond) {}`            | Guard/filter                | `cond ? ... : undefined`                   |
+| Syntax                    | Description                                        | Output                                     |
+| ------------------------- | -------------------------------------------------- | ------------------------------------------ |
+| `x << expr`               | Monadic bind                                       | `.flatMap(x => ...)`                       |
+| `x << expr \|\| fallback` | Bind with fallback                                 | `expr.orElse(() => fallback).flatMap(...)` |
+| `x << expr ?? fallback`   | Nullish coalescing fallback                        | Same as `\|\|`                             |
+| `_ << expr`               | Discard binding                                    | `.flatMap(_ => ...)`                       |
+| `x = expr`                | Pure map (no unwrap)                               | `((x) => ...)(expr)`                       |
+| `if (cond) {}`            | Guard/filter (Array, Iterable, AsyncIterable only) | skips elements where `cond` is false       |
 
 ### Restrictions in `par:` Blocks
 
@@ -225,56 +231,69 @@ Derive macros are a special case of attribute macros that generate implementatio
 
 ### Available Derives
 
-| Derive      | Generates                      |
-| ----------- | ------------------------------ |
-| `Eq`        | `equals(other): boolean`       |
-| `Ord`       | `compare(other): -1 \| 0 \| 1` |
-| `Clone`     | `clone(): T`                   |
-| `Debug`     | `debug(): string`              |
-| `Json`      | `toJson()` / `fromJson()`      |
-| `Builder`   | Fluent builder pattern         |
-| `Default`   | `static default(): T`          |
-| `Hash`      | `hash(): number`               |
-| `TypeGuard` | `static isT(x): x is T`        |
-| `Arbitrary` | Property-based test generators |
+Each derive generates a companion instance on the type (`Config.Eq`, `Config.Ord`,
+…). Method syntax such as `config.equals(other)` is rewritten to a call on that
+companion only in files that import the syntax marker (`@typesugar/std/syntax/eq`,
+`…/ord`, `…/clone`, `…/debug`, `…/json`, …).
+
+| Derive      | Companion members                                                            |
+| ----------- | ---------------------------------------------------------------------------- |
+| `Eq`        | `Config.Eq.equals(a, b)`, `notEquals`                                        |
+| `Ord`       | `Config.Ord.compare(a, b)` (`-1 \| 0 \| 1`), `lessThan`, `greaterThan`, …    |
+| `Clone`     | `Config.Clone.clone(a)`                                                      |
+| `Debug`     | `Config.Debug.debug(a): string`                                              |
+| `Json`      | `Config.Json.toJson(a)` (a plain object), `fromJson(value)` (a parsed value) |
+| `Default`   | `Config.Default.default()`                                                   |
+| `Hash`      | `Config.Hash.hash(a): number`                                                |
+| `TypeGuard` | `Config.TypeGuard.is(x): x is Config`                                        |
+| `Arbitrary` | `arbitraryConfig` — a generator for property-based tests                     |
 
 ### Example
 
 ```typescript
-@derive(Eq, Ord, Clone, Debug, Json, Builder)
+import { derive, Eq, Ord, Clone, Debug, Json } from "typesugar";
+import "@typesugar/std/syntax/eq";
+import "@typesugar/std/syntax/ord";
+import "@typesugar/std/syntax/clone";
+import "@typesugar/std/syntax/debug";
+import "@typesugar/std/syntax/json";
+
+@derive(Eq, Ord, Clone, Debug, Json)
 class Config {
   host: string = "localhost";
   port: number = 8080;
   secure: boolean = false;
 }
 
-// Generated:
-// - config.equals(other)
-// - config.compare(other)
-// - config.clone()
-// - config.debug()
-// - config.toJson() / Config.fromJson(json)
-// - Config.builder().host("...").port(443).build()
+const config = new Config();
+config.equals(other); // → Config.Eq.equals(config, other)
+config.compare(other); // → Config.Ord.compare(config, other)
+config.clone(); // → Config.Clone.clone(config)
+config.debug(); // 'Config { host: "localhost", port: 8080, secure: false }'
+config.toJson(); // { host: "localhost", port: 8080, secure: false }
+Config.fromJson(JSON.parse(text)); // validates fields; returns a plain object
 ```
 
 ## Type Macros
 
-Type macros transform type annotations.
+Type macros transform type annotations. `@typesugar/type-system` also provides
+plain branded types for the same jobs, which need no macro:
 
 ### Examples
 
 ```typescript
-import { Refined, Opaque, Phantom } from "@typesugar/type-system";
+import { refinement, type Refined, type Opaque, type Phantom } from "@typesugar/type-system";
 
 // Refined types — types with predicates
-type Port = Refined<number, typeof Port>;
-const Port = refinement((n) => n >= 0 && n <= 65535, "Port");
+type Port = Refined<number, "Port">;
+const Port = refinement<number, "Port">((n) => n >= 0 && n <= 65535, "Port");
+Port.is(8080); // true
 
 // Opaque types — branded primitives
 type UserId = Opaque<number, "UserId">;
 
 // Phantom types — type-level state machines
-type Door<State extends "open" | "closed" | "locked"> = Phantom<State, DoorData>;
+type Door<State extends "open" | "closed" | "locked"> = Phantom<DoorData, State>;
 ```
 
 ## Choosing the Right Macro Type
@@ -289,5 +308,5 @@ type Door<State extends "open" | "closed" | "locked"> = Phantom<State, DoorData>
 
 ## Next Steps
 
-- [Writing Macros](./writing-macros.md) — Create your own macros
+- [Writing Macros](./writing-macros/) — Create your own macros
 - [Architecture](./architecture.md) — How the transformer works

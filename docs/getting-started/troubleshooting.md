@@ -14,6 +14,15 @@ This checks your configuration and provides actionable fixes.
 
 ## Installation Issues
 
+### "…declare a "typesugar.macros" entry but are not @typesugar/\*-scoped and have not been approved"
+
+**Cause:** A library you depend on ships macros, and it is outside the auto-trusted
+`@typesugar/*` scope. typesugar won't run a third-party package's macros until you
+approve them.
+
+**Fix:** Run `npx typesugar approve-macros` and commit the `typesugar.config.ts` it
+writes (see [End User Guide](./end-user.md#step-5-approve-the-library-s-macros)).
+
 ### "Cannot find module '@typesugar/transformer'"
 
 **Cause:** Package not installed or not in dependencies.
@@ -123,11 +132,29 @@ npx typesugar expand src/file.ts --diff
 }
 ```
 
-### @derive Methods Missing
+### @derive Methods Missing ("user.clone is not a function")
 
-**Cause:** Derive expansion failed silently or class not decorated correctly.
+**Cause #1 (most common): the method syntax isn't activated in this file.** Since
+PEP-052, `@derive(Clone)` generates a `User.Clone` companion, but `user.clone()` is
+only rewritten to `User.Clone.clone(user)` in files that import the syntax marker.
+Without it the call is left alone, nothing is reported, and it fails at runtime.
 
-**Fix:**
+**Fix:** import the marker for each method you call:
+
+```typescript
+import "@typesugar/std/syntax/eq"; // .equals()   (`/ops` adds ===, !==)
+import "@typesugar/std/syntax/ord"; // .compare()  (`/ops` adds <, <=, >, >=)
+import "@typesugar/std/syntax/clone"; // .clone()
+import "@typesugar/std/syntax/debug"; // .debug()
+import "@typesugar/std/syntax/json"; // .toJson(), User.fromJson()
+```
+
+**Cause #2: the receiver's type isn't known.** The type checker sees the unexpanded
+source, so a value whose type comes from another sugared call (e.g.
+`const c = p.clone(); c.equals(p)`) has no known type and isn't rewritten. Annotate
+it: `const c: Point = p.clone();`.
+
+**Other causes:**
 
 1. Check decorator syntax:
 
@@ -179,11 +206,7 @@ import { derive, Eq, Clone } from "@typesugar/derive";
 
 1. Use workspace TypeScript in editor
 2. Add language service plugin
-3. Regenerate the manifest:
-
-```bash
-npx typesugar build --manifest
-```
+3. Restart the TypeScript server after changing `tsconfig.json`.
 
 ### Generic Type Inference Issues
 
@@ -209,49 +232,46 @@ const result: Show<User> = summon<Show<User>>();
 plugins: [typesugar(), ...otherPlugins];
 ```
 
-2. Check file is included:
+2. Check file is included. `include`/`exclude` strings are globs matched against
+   the absolute module path (relative ones resolve against Vite's root), and the
+   default is every `.ts/.tsx/.js/.jsx` file, so the simplest fix is often to remove
+   a custom `include`:
 
 ```typescript
 typesugar({
-  include: ["**/*.ts", "**/*.tsx"],
+  include: ["src/**/*.ts", "src/**/*.tsx"],
 });
 ```
 
 3. Check console for errors during build.
 
-### Webpack: "Transform not found"
+### Webpack: "typesugar is not a function"
 
-1. Ensure ts-patch is installed
-2. Check astTransformers config in Jest:
+In a CommonJS config, the plugin is the module's `default` export:
 
 ```javascript
-transform: {
-  "^.+\\.tsx?$": [
-    "ts-jest",
-    {
-      astTransformers: {
-        before: ["@typesugar/transformer"],
-      },
-    },
-  ],
-}
+const typesugar = require("unplugin-typesugar/webpack").default;
 ```
+
+### Jest
+
+There is no working Jest (ts-jest) integration; use [Vitest](./environments/vitest.md).
+See [Jest](./environments/jest.md).
 
 ### Next.js: Macros Work in Build but Not Dev
 
-**Cause:** Using Turbopack (`next dev --turbo`).
+**Cause:** Turbopack is in use. It doesn't run Webpack plugins.
 
-**Fix:** Use webpack mode for development:
-
-```bash
-next dev  # Not: next dev --turbo
-```
+**Fix:** Use Webpack mode. In Next.js 16 and later, Turbopack is the default, so pass
+`--webpack` (`next dev --webpack`, `next build --webpack`); in Next.js 13–15, don't
+pass `--turbo`. See [Webpack Setup](./environments/webpack.md#important-turbopack-limitation).
 
 ### esbuild: No Type Checking
 
 **Cause:** esbuild doesn't type-check.
 
-**Fix:** Run `tsc --noEmit` separately or use tsup with `dts: true`.
+**Fix:** Run `typesugar check` separately. (Plain `tsc --noEmit` doesn't expand
+macros, so it type-checks the unexpanded source and reports phantom errors.)
 
 ## ESLint Issues
 
@@ -268,7 +288,7 @@ npm install --save-dev @typesugar/eslint-plugin
 ```javascript
 // eslint.config.js
 import typesugar from "@typesugar/eslint-plugin";
-export default [...typesugar.configs.recommended];
+export default [typesugar.configs.recommended];
 ```
 
 ### ESLint Very Slow
@@ -278,7 +298,7 @@ export default [...typesugar.configs.recommended];
 **Fix:** Use `recommended` (lightweight) processor:
 
 ```javascript
-export default [...typesugar.configs.recommended];
+export default [typesugar.configs.recommended];
 ```
 
 ## Performance Issues
@@ -289,7 +309,8 @@ export default [...typesugar.configs.recommended];
 
 **Mitigations:**
 
-1. Use incremental builds: `"incremental": true` in tsconfig
+1. Enable the disk cache: `typesugar build --cache` (or `diskCache: true` in the
+   bundler plugin)
 2. Use Turborepo/Nx for caching in monorepos
 3. Limit scope with `include` patterns
 

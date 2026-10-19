@@ -44,32 +44,39 @@ build({
 
 ```typescript
 typesugar({
-  // Typecheck expanded output at build end
+  // Type-check the expanded output at build end and fail the build (experimental)
   strict: false,
 
-  // Logging and file patterns
+  // Logging and file patterns (globs or RegExps; relative globs resolve
+  // against the working directory; node_modules is always skipped)
   verbose: false,
-  include: ["**/*.ts", "**/*.tsx"],
-  exclude: ["node_modules/**"],
+  include: ["src/**/*.ts", "src/**/*.tsx"],
+  exclude: ["**/*.test.ts"],
   tsconfig: "./tsconfig.json",
 });
 ```
+
+See [Configuration](../../reference/config.md#bundler-plugins-unplugin-typesugar)
+for every option.
 
 ### Typechecking
 
 **esbuild does NOT typecheck** — it only transforms. To get type errors:
 
 ```typescript
-// Option 1: Strict mode
+// Option 1: Strict mode (experimental)
 typesugar({
-  strict: true, // Typechecks expanded output at build end
+  strict: true, // type-checks expanded output at build end; errors fail the build
 });
 ```
 
 ```bash
-# Option 2: Run tsc separately (recommended)
-tsc --noEmit && node build.ts
+# Option 2: Run typesugar check separately (recommended)
+typesugar check && npx tsx build.ts
 ```
+
+Use `typesugar check` rather than `tsc --noEmit`, which never runs the macros and so
+type-checks the unexpanded source.
 
 ## Watch Mode
 
@@ -137,9 +144,8 @@ build({
 ## Verification
 
 ```bash
-node build.ts
-# or
 npx tsx build.ts
+# (or `node build.ts` on a Node version that runs TypeScript directly)
 ```
 
 Check `dist/bundle.js` for expanded macros.
@@ -148,7 +154,8 @@ Check `dist/bundle.js` for expanded macros.
 
 ### Type errors but build succeeds
 
-esbuild doesn't type-check. Run `tsc --noEmit` separately or use tsup with `dts: true`.
+esbuild doesn't type-check. Run `typesugar check` separately (plain `tsc --noEmit`
+doesn't expand macros), or set `strict: true`.
 
 ### Macros not expanding
 

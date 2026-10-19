@@ -6,6 +6,7 @@ This guide covers setting up typesugar with Vite projects, including frameworks 
 
 ```bash
 npm install --save-dev unplugin-typesugar @typesugar/transformer ts-patch
+npm install typesugar @typesugar/std   # the macros and runtime you import
 ```
 
 ## Configuration
@@ -39,20 +40,25 @@ export default defineConfig({
 
 ```typescript
 typesugar({
-  // Typecheck expanded output at build end (catches macro bugs)
+  // Type-check the expanded output at build end and fail the build on errors
+  // (experimental; "incremental" re-checks only changed files)
   strict: false,
 
   // Enable verbose logging for debugging
   verbose: false,
 
-  // File patterns to include (default: TypeScript files)
-  include: ["**/*.ts", "**/*.tsx"],
+  // Files to transform: globs (picomatch) or RegExps; default /\.[jt]sx?$/.
+  // Relative globs resolve against Vite's root.
+  include: ["src/**/*.ts", "src/**/*.tsx"],
 
-  // File patterns to exclude
-  exclude: ["node_modules/**", "**/*.d.ts"],
+  // Files to skip. node_modules is always skipped unless `include` names it.
+  exclude: ["**/*.d.ts"],
 
   // Path to tsconfig.json (auto-detected by default)
   tsconfig: "./tsconfig.json",
+
+  // Conditions for cfg() / @cfgAttr
+  cfgConfig: { debug: true },
 });
 ```
 
@@ -61,19 +67,24 @@ typesugar({
 **Vite does NOT typecheck your code** — it only transforms. To get type errors:
 
 ```typescript
-// vite.config.ts — Option 1: Strict mode (typechecks expanded output)
+// vite.config.ts — Option 1: Strict mode (type-checks expanded output, experimental)
 typesugar({
-  strict: true, // Runs tsc on expanded code at build end
+  strict: true, // fails `vite build` if the expanded code has type errors
 });
 ```
 
 ```bash
-# Option 2: Run tsc separately (recommended for CI)
-tsc --noEmit && vite build
+# Option 2: Run typesugar check separately (recommended for CI)
+typesugar check && vite build
 ```
 
+Use `typesugar check`, not `tsc --noEmit`: plain `tsc --noEmit` never runs the
+macros, so it type-checks the unexpanded source and reports errors like
+`TS1206: Decorators are not valid here` on `@derive`.
+
 ```typescript
-// Option 3: Use vite-plugin-checker for dev server type errors
+// Option 3: Use vite-plugin-checker for dev server type errors.
+// Note: it runs plain tsc, so it has the same limitation as `tsc --noEmit`.
 import checker from "vite-plugin-checker";
 
 export default defineConfig({
@@ -174,7 +185,8 @@ console.log(`Built at: ${buildTime}`);
 ### Macros not expanding
 
 - Ensure `unplugin-typesugar` is installed and configured
-- Check that the file is included (matches `include` patterns)
+- Check that the file is included (matches `include` patterns — globs are matched
+  against the absolute path, so prefer `"src/**/*.ts"` or `"**/*.ts"`)
 - Run with `verbose: true` to see expansion logs
 
 ### Type errors in editor but build works

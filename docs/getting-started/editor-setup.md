@@ -15,7 +15,7 @@ Install the typesugar extension from the marketplace:
 Or install from the command line:
 
 ```bash
-code --install-extension typesugar.vscode-typesugar
+code --install-extension typesugar.typesugar-vscode
 ```
 
 ### Extension Features
@@ -34,7 +34,7 @@ code --install-extension typesugar.vscode-typesugar
 **Inlay Hints:**
 
 - Bind variable types in comprehensions
-- Compile-time evaluation results
+- Compile-time evaluation results (only with `typesugar.comptimeInEditor` on; see below)
 
 **Code Actions:**
 
@@ -63,7 +63,11 @@ Open Settings (Cmd/Ctrl+,) and search for "typesugar":
   "typesugar.enableDiagnostics": true,
 
   // Path to manifest file (auto-generated)
-  "typesugar.manifestPath": "typesugar.manifest.json"
+  "typesugar.manifestPath": "typesugar.manifest.json",
+
+  // Evaluate comptime(...) blocks in the editor (trusted workspaces only).
+  // Off by default: comptime code runs with editor privileges.
+  "typesugar.comptimeInEditor": false
 }
 ```
 
@@ -118,7 +122,7 @@ import typesugar from "@typesugar/eslint-plugin";
 
 export default [
   // Use the recommended config (lightweight, fast)
-  ...typesugar.configs.recommended,
+  typesugar.configs.recommended,
 
   // Your other configs...
 ];
@@ -132,12 +136,16 @@ For maximum accuracy, use the full processor that runs the actual transformer:
 import typesugar from "@typesugar/eslint-plugin";
 
 export default [
-  ...typesugar.configs.full,
+  typesugar.configs.full,
   // Your other configs...
 ];
 ```
 
 The full mode is slower but catches more edge cases.
+
+Each `configs.*` entry is a single flat-config object, so put it in the array as is
+(spreading it with `...` throws "is not iterable"). The plugin needs ESLint 9 or
+later; legacy `.eslintrc` configs are not supported.
 
 ### What the Plugin Does
 
@@ -148,15 +156,6 @@ The ESLint plugin solves a key problem: ESLint sees your source code before macr
 - "Expected 0 arguments, but got 1"
 
 The plugin preprocesses your code so ESLint sees the expanded output.
-
-### Legacy .eslintrc Config
-
-```json
-{
-  "extends": ["plugin:@typesugar/recommended"],
-  "plugins": ["@typesugar"]
-}
-```
 
 ## Prettier
 

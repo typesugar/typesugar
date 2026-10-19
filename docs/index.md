@@ -42,7 +42,7 @@ features:
     linkText: Browse the guides
   - icon: 🎯
     title: Developer Experience
-    details: Rust-style error messages, "did you mean?" import suggestions, opt-out directives, and ESLint/IDE integration that just works.
+    details: Rust-style error messages with resolution traces, opt-out directives, and ESLint/IDE integration that just works.
     link: /guides/developer-experience
     linkText: See the DX
   - icon: 🦀
@@ -76,19 +76,19 @@ const alice: User = { id: 1, name: "Alice", email: "alice@example.com" };
 const bob: User = { id: 2, name: "Bob", email: "bob@example.com" };
 
 // Operators are activated for this file and an instance is in scope, so they rewrite
-alice === bob; // Compiles to: alice.id === bob.id && alice.name === bob.name && ...
-alice < bob; // Lexicographic comparison
+alice === bob; // Compiles to: User.Eq.equals(alice, bob)
+alice < bob; // Compiles to: User.Ord.lessThan(alice, bob) (field by field)
 
 // Method syntax is activated too (its own marker import, above)
-alice.clone(); // Deep copy
-alice.toJson(); // JSON serialization
+alice.clone(); // Compiles to: User.Clone.clone(alice)
+alice.toJson(); // A JSON-ready plain object: User.Json.toJson(alice)
 ```
 
 **How it works:** activation is explicit and local (PEP-052). Importing
 `@typesugar/std/syntax/eq/ops` opts _this file_ into `Eq`'s operator syntax; the
 compiler then sees `===` on a `User`, resolves the `@derive(Eq)` instance **from
-scope** (no global registry), and inlines the comparison directly — no dictionary
-lookup, no runtime cost. A file that doesn't import the syntax marker keeps native
+scope** (no global registry), and rewrites the operator to a direct call of the
+generated `User.Eq.equals` — no runtime dictionary lookup. A file that doesn't import the syntax marker keeps native
 `===`. Method syntax (`.clone()`, `.toJson()`) works the same way through its own
 marker — additive, since it introduces a method name rather than redefining an
 operator.
@@ -111,22 +111,25 @@ typesugar provides 6 kinds of macros, each triggered differently:
 - **Labeled block macros** — `let: { } yield: { }` for custom control flow
 
 ```typescript
-// Define a simple expression macro (syntax macros are experimental)
-defineSyntaxMacro("unless", {
-  arms: [
-    {
-      pattern: "$cond:expr, $body:expr",
-      expand: "($cond) ? undefined : ($body)",
-    },
-  ],
-});
+// In your macro package (loaded through its package.json "typesugar.macros" entry)
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 
-// Use it
+export const unlessMacro = defineExpressionMacro({
+  name: "unless",
+  module: "my-macros", // activates only when `unless` is imported from here
+  expand(ctx, _call, [cond, body]) {
+    const f = ctx.factory;
+    return f.createConditionalExpression(cond, undefined, f.createVoidZero(), undefined, body);
+  },
+});
+globalRegistry.register(unlessMacro);
+
+// In user code: import { unless } from "my-macros";
 unless(isLoggedIn, redirect("/login"));
-// Compiles to: (isLoggedIn) ? undefined : (redirect("/login"))
+// Compiles to: isLoggedIn ? void 0 : redirect("/login")
 ```
 
-[Writing Macros Guide](/writing-macros/) · [Macro Types Reference](/reference/macro-context)
+[Writing Macros Guide](/writing-macros/) · [Macro Types Reference](/macro-types) · [MacroContext Reference](/reference/macro-context)
 
 ---
 
@@ -153,20 +156,21 @@ interface Functor<F> {
   map<A, B>(fa: F<A>, f: (a: A) => B): F<B>;
 }
 
-// Do-notation for any monad
+// Do-notation for any monad (here: Promise)
 const result = let: {
   user  << fetchUser(id);
   posts << fetchPosts(user.id);
   stats << computeStats(posts);
 }
-yield: { { user, posts, stats } };
+yield: ({ user, posts, stats });
 
-// Contracts with compile-time proof elimination
+// Contracts: checked at runtime unless proven at compile time
 function sqrt(x: number): number {
   requires: { x >= 0 }
-  ensures: { result => result >= 0 }
+  ensures: { result >= 0 }
   return Math.sqrt(x);
 }
+sqrt(-1); // throws PreconditionError
 ```
 
 [Typeclasses Guide](/guides/typeclasses) · [FP Guide](/guides/fp) · [Contracts Guide](/guides/contracts)
@@ -184,21 +188,26 @@ Move computation from runtime to compile time:
 - **`includeStr()` / `includeJson()`** — embed file contents at compile time
 - **`staticAssert()`** — compile-time assertions that disappear in output
 - **`cfg()` / `@cfgAttr`** — conditional compilation for feature flags
-- **`collectTypes()`** — introspect your entire project at compile time
 - **`"use no typesugar"`** — [opt-out directives](/guides/opt-out) for debugging and interop
 
 ```typescript
+import { comptime, includeJson, includeStr } from "typesugar";
+
 // Computed at compile time, inlined as a literal
-const BUILD_TIME = comptime(new Date().toISOString());
-const FIB_50 = comptime(fibonacci(50));
+const BUILD_TIME = comptime(() => new Date().toISOString()); // "2026-…Z"
+const FIB_20 = comptime(() => {
+  // comptime code only sees what is defined inside the block
+  const fib = (n: number): number => (n <= 1 ? n : fib(n - 1) + fib(n - 2));
+  return fib(20);
+}); // → const FIB_20 = 6765;
 
 // Stack-safe recursion via loop transformation
-@tailrec
+/** @tailrec */
 function factorial(n: number, acc = 1): number {
   if (n <= 1) return acc;
   return factorial(n - 1, n * acc);
 }
-// Compiles to: while(true) { if (n <= 1) return acc; acc = n * acc; n = n - 1; }
+// Compiles to a labelled `while (true)` loop that reassigns n and acc
 
 // Embed files at compile time
 const SCHEMA = includeJson("./schema.json");
@@ -215,26 +224,30 @@ _TypeScript's missing standard library_
 
 Batteries included for everyday TypeScript:
 
-- **Extension methods** — `(42).clamp(0, 100)`, `"hello".capitalize()`, `[1,2,3].sum()`
+- **Extension methods** — `(42).clamp(0, 100)`, `"hello".capitalize()`, `[1,2,3].chunk(2)`
 - **Pattern matching** — exhaustive `match()` with discriminated unions, guards, OR patterns
 - **Reflection** — `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` at compile time
 - **Object mapping** — `transformInto()` for zero-cost struct-to-struct conversion
-- **Derive macros** — `@derive(Eq, Ord, Clone, Debug, Hash, Json, Builder, TypeGuard)`
+- **Derive macros** — `@derive(Eq, Ord, Clone, Debug, Hash, Json, Default, TypeGuard)`
 - **Tagged templates** — `sql`, `regex`, `html`, `fmt` with compile-time validation
 
 ```typescript
+import { match, clamp, words, chunk } from "@typesugar/std";
+import { derive, Eq, Clone, Debug, Json } from "typesugar";
+
 // Pattern matching with exhaustiveness checking
 type Result<T, E> = { tag: "Ok"; value: T } | { tag: "Err"; error: E };
 
-const message = match(result, {
-  Ok: ({ value }) => `Got ${value}`,
-  Err: ({ error }) => `Failed: ${error}`,
-});
+const message = match(result)
+  .case({ tag: "Ok", value: v })
+  .then(`Got ${v}`)
+  .case({ tag: "Err", error: e })
+  .then(`Failed: ${e}`);
 
-// Extension methods on primitives
+// Extension methods (activated by the named imports above)
 const clamped = (255).clamp(0, 100); // 100
-const words = "hello world".words(); // ["hello", "world"]
-const total = [1, 2, 3, 4, 5].sum(); // 15
+const ws = "hello world".words(); // ["hello", "world"]
+const pairs = [1, 2, 3, 4, 5].chunk(2); // [[1, 2], [3, 4], [5]]
 
 // Auto-derive common implementations
 @derive(Eq, Clone, Debug, Json)
@@ -246,7 +259,7 @@ class Point {
 }
 ```
 
-[Pattern Matching](/guides/typeclasses#pattern-matching) · [Derive Guide](/guides/derive) · [Extension Methods](/guides/extension-methods)
+[Pattern Matching](/guides/pattern-matching) · [Derive Guide](/guides/derive) · [Extension Methods](/guides/extension-methods)
 
 ---
 
@@ -256,7 +269,6 @@ _Powerful abstractions with zero runtime cost_
 
 Advanced data structures and algorithms following typesugar's zero-cost philosophy:
 
-- **HList** — Heterogeneous lists with compile-time type tracking (Boost.Fusion)
 - **Parser** — Compile-time parser generation from PEG grammars (Boost.Spirit)
 - **Fusion** — Single-pass iterator pipelines and expression templates (Blitz++)
 - **Graph** — Graph algorithms and state machine verification (Boost.Graph)
@@ -294,25 +306,33 @@ typesugar integrates deeply with popular frameworks:
 
 ### Effect-TS
 
-Reduce Effect boilerplate with macros. The `let:/yield:` do-notation works seamlessly with Effect.
+Reduce Effect boilerplate with macros. The `let:/yield:` do-notation works with Effect values.
 
 ```typescript
+import "@typesugar/std/syntax/do";
+import { Effect } from "effect";
+import { service, layer, resolveLayer } from "@typesugar/effect";
+
 @service
-class UserService {
-  getUser(id: string) { return Effect.succeed({ id, name: "Alice" }); }
+interface UserRepo {
+  findById(id: string): Effect.Effect<string>;
 }
 
-@layer
-class UserServiceLive implements UserService {
-  getUser(id: string) { return Effect.succeed({ id, name: "Alice" }); }
-}
+@layer(UserRepo)
+const userRepoLive = { findById: (id: string) => Effect.succeed("user " + id) };
 
-// Do-notation with Effect
-const program = let: {
-  user  << UserService.getUser("123");
-  posts << PostService.getPosts(user.id);
+const getPosts = (user: string) => Effect.succeed([`${user}'s post`]);
+
+// Do-notation with Effect (compiles to Effect.flatMap / Effect.map)
+const countPosts = (repo: UserRepo) => let: {
+  user  << repo.findById("123");
+  posts << getPosts(user);
 }
-yield: { posts.length };
+yield: posts.length;
+
+// UserRepoTag is generated by @service; resolveLayer wires the layers
+const program = Effect.flatMap(UserRepoTag, countPosts);
+Effect.runSync(program.pipe(Effect.provide(resolveLayer<UserRepo>()))); // 1
 ```
 
 ### Testing
@@ -320,24 +340,27 @@ yield: { posts.length };
 Power assertions and property-based testing:
 
 ```typescript
+import { assert, forAll } from "@typesugar/testing";
+import { derive } from "typesugar";
+
 // Power assertions show expression breakdown on failure
 assert(user.age > 18 && user.name.length > 0);
 // On failure:
 //   assert(user.age > 18 && user.name.length > 0)
-//          |    |   |     |    |    |      |
-//          |    16  false |    ""   0      false
-//          { age: 16, name: "" }
+//          |    |   |    |
+//          |    16  false|
+//          |             false
+//          {"age":16,"name":""}
 
-class Point {
-  constructor(
-    public x: number,
-    public y: number
-  ) {}
+// @derive(Arbitrary) generates arbitraryPoint from the field types
+@derive(Arbitrary)
+interface Point {
+  x: number;
+  y: number;
 }
 
-// forAll auto-derives Arbitrary generators from field types
-forAll(Point, (p) => p.x + p.y === p.y + p.x);
-forAll(Point, 1000, (p) => p.x * 0 === 0); // custom iteration count
+forAll(arbitraryPoint, (p) => assert(p.x + p.y === p.y + p.x));
+forAll(arbitraryPoint, 1000, (p) => assert(p.x * 0 === 0)); // custom iteration count
 ```
 
 [Effect Integration](/guides/effect) · [Testing Guide](/guides/testing)
@@ -350,37 +373,21 @@ _When something goes wrong, you should know exactly what happened and how to fix
 
 ### Rust-Style Errors
 
-Every error shows the code, points at the problem, and suggests a fix:
+Every error has a code, and typeclass failures carry a resolution trace and a fix.
+For `summon<Eq<Palette>>()` where `Palette` has a field of type `Color` with no `Eq`:
 
 ```
-error[TS9101]: Cannot auto-derive Eq<UserProfile>: field `metadata` has type `unknown` which lacks Eq
-  --> src/user.ts:5:3
-   |
- 3 |   interface UserProfile {
- 4 |     id: number;
- 5 |     metadata: unknown;
-   |     ^^^^^^^^ this field prevents auto-derivation
-   |
-   = note: `unknown` cannot implement Eq — it could be anything
-   = help: Use a concrete type instead of `unknown`, or provide @instance Eq<UserProfile>
+error [TS9001] No instance found for `Eq<Palette>`
+  = note: resolution trace for Eq<Palette>:
+  = note:   1. explicit-instance: Eq<Palette> — not found — no @impl/@instance value for this type in scope
+  = note:   2. auto-derive via Generic: Eq<Palette> — FAILED — see child attempts
+  = note:     derivation-strategy: Eq — ok
+  = note:     generic-meta: GenericMeta for Palette: { primary: Color } — FAILED — one or more fields lack required instance
+  = note:       field-check: field `primary`: Color — FAILED — Color lacks Eq
+  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
 ```
 
-Look up any error: `npx typesugar --explain TS9101`
-
-### Import Suggestions
-
-Missing an import? typesugar tells you where to find it:
-
-```
-error[TS9062]: Method `clamp` does not exist on type `number`
-  --> src/math.ts:7:20
-   |
- 7 |   const safe = value.clamp(0, 100);
-   |                      ^^^^^
-   |
-   = help: Did you mean to import?
-     + import { clamp } from "@typesugar/std";
-```
+Look up any error code in the [error reference](/errors/) (`https://typesugar.org/errors/TS9001`).
 
 ### Opt-Out When You Need To
 
@@ -476,9 +483,9 @@ typesugar draws from the best ideas across language ecosystems:
 
 | Language     | What it brings                                             | Packages                                                 |
 | ------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
-| Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect, operators                    |
+| Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect                               |
 | Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, codec, erased, validate                          |
-| Zig          | Compile-time evaluation and reflection                     | comptime, reflect, preprocessor                          |
+| Zig          | Compile-time evaluation and reflection                     | macros (comptime), reflect                               |
 | C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, graph, parser, units                             |
 | Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math |
 
@@ -486,8 +493,8 @@ typesugar draws from the best ideas across language ecosystems:
 
 ## Vision
 
-Long-term vision documents for typesugar's future:
+Historical design documents (exploratory; not a description of shipped features):
 
-- [Vision Index](/vision/) — Overview, philosophy, roadmap
+- [Vision Index](/vision/) — Overview and philosophy
 - [Reactivity](/vision/reactivity) — State model with type-aware auto-unwrapping
 - [Effect Integration](/vision/effect-integration) — Deep Effect-TS integration

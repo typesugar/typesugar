@@ -113,7 +113,7 @@ defineAttributeMacro({
 
 The `@derive` decorator is a unified handler that routes each argument to the appropriate strategy:
 
-1. **Registered derive macro** — code-gen derives like `Eq`, `Clone`, `TypeGuard`, `Builder`
+1. **Registered derive macro** — code-gen derives like `Eq`, `Clone`, `TypeGuard`
 2. **Built-in typeclass derivation** — `Show`, `Ord`, `Hash`, `Semigroup`, `Monoid`
 3. **Typeclass derive macro** — custom `{Name}TC` macros
 
@@ -283,9 +283,13 @@ Applying a type parameter to a type argument (`F<A>`) signals "F is a type const
 
 ## 8. Implicit Extension Methods (Auto-Detection)
 
-**Trigger:** Method call on a type where the method doesn't exist natively but is provided by a typeclass
+**Trigger:** Method call on a type where the method doesn't exist natively but is provided by a typeclass, in a file that has activated that typeclass's method syntax
 
 ```typescript
+import { derive } from "typesugar";
+import type { Show } from "@typesugar/fp";
+import "@typesugar/fp/syntax/show"; // activate Show method syntax (PEP-052)
+
 @derive(Show)
 interface Point { x: number; y: number; }
 
@@ -293,59 +297,76 @@ const p: Point = { x: 1, y: 2 };
 p.show();  // Method doesn't exist on Point!
 
 // Transformer rewrites to the resolved instance (here the derived companion):
-Point.Show.show(p);
+Point.Show.show(p); // "Point(x = 1, y = 2)"
 ```
 
-This enables Scala 3-style implicit extension methods. When the transformer sees `x.method()` and TypeScript reports that `.method()` doesn't exist on `x`'s type, it searches the extension method registry for a matching typeclass method.
+This enables Scala 3-style implicit extension methods. When the transformer sees `x.method()` and TypeScript reports that `.method()` doesn't exist on `x`'s type, it searches the typeclasses whose method syntax is active in this file for a matching method.
 
 **Requirements:**
 
-- The type must have a typeclass instance (auto-derived, or explicitly via `@instance` or `@derive`)
-- The method must be declared in the typeclass
+- Method syntax for the typeclass is active in the file: import its `@syntax-methods` marker module (`@typesugar/std/syntax/eq`, `…/clone`, `…/json`, `@typesugar/fp/syntax/show`, …) or declare the typeclass in the same file. Without it the call is left alone and fails at runtime.
+- For a typeclass from a package other than `@typesugar/std`, the typeclass itself must also be imported (a type-only import is enough), as `Show` is above.
+- The type has an instance in scope (`@derive`, or an explicit `@impl`/`@instance`). Instances are never ambient.
+- The method is declared in the typeclass.
 
 **Transformer Location:** `tryRewriteExtensionMethod()` in `packages/transformer-core/src/rewriting.ts`
 
 ---
 
-## 9. Typeclass Operator Overloading (`& Op<"...">`)
+## 9. Typeclass Operator Overloading (`/** @op */`)
 
-**Trigger:** Binary/unary operators on types that have typeclass instances with `& Op<"...">` annotated methods
+**Trigger:** Binary operators on a type with an instance of a typeclass whose methods carry `/** @op <operator> */` JSDoc tags, in a file that activated that typeclass's operator syntax
 
-This is a workaround for TypeScript's lack of decorator support on interface methods. The `& Op<"+">` intersection type on a method's return type declares that this method should be invoked for the `+` operator.
+The `@op` tag on a typeclass method declares which operator dispatches to it:
 
 ```typescript
-// In typeclass definition:
-@typeclass
-interface Semigroup<A> {
-  combine(a: A, b: A): A & Op<"+">;  // ← declares operator mapping
+// In the typeclass definition:
+/** @typeclass */
+interface Add<A> {
+  /** @op + */
+  add(a: A, b: A): A;
 }
 
-// Register instance:
-@instance("Semigroup<Point>")
-const semigroupPoint = {
-  combine: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+interface Point {
+  x: number;
+  y: number;
+}
+
+// Register an instance:
+/** @impl Add<Point> */
+const addPoint: Add<Point> = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
 };
 
 // User writes:
-const c = a + b;  // where a, b: Point
+const c = a + b; // where a, b: Point
 
 // Transformer rewrites to (with zero-cost inlining):
 const c = { x: a.x + b.x, y: a.y + b.y };
 ```
 
+A file that declares the typeclass has its operators active. Any other file opts in
+with the typeclass's `/ops` marker, e.g. `import "@typesugar/std/syntax/semigroup/ops"`.
+Without it, `a + b` stays the native `+`.
+
 **How it works:**
 
-1. `@typeclass` parses `& Op<"+">` annotations and builds an operator→method mapping
-2. The transformer sees a binary expression like `a + b`
-3. It determines the type of `a` and looks up registered instances
+1. The typeclass index reads `/** @op */` tags on typeclass methods and builds an operator→method mapping
+2. The transformer sees a binary expression like `a + b` in a file where that typeclass's operator syntax is active
+3. It determines the type of `a` and resolves an instance from scope
 4. If an instance exists with a method mapped to `+`, it rewrites the expression
-5. Zero-cost: the method body is inlined when possible
+5. Zero-cost: the method body is inlined when the instance's source is visible; otherwise the call goes to the instance (e.g. `Point.Eq.equals(a, b)` for a derived `Eq`)
 
-**Built-in operator mappings:**
+**Built-in operator mappings (`@typesugar/std`):**
 
-- `Eq`: `===` → `eq`, `!==` → `neq`
-- `Ord`: `<` → `compare` (and others)
-- `Semigroup`: `+` → `combine`
+| Typeclass                      | Operators → methods                                                                          | Activation import                                |
+| ------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `Eq`                           | `===` → `equals`, `!==` → `notEquals`                                                        | `@typesugar/std/syntax/eq/ops`                   |
+| `Ord`                          | `<` → `lessThan`, `<=` → `lessThanOrEqual`, `>` → `greaterThan`, `>=` → `greaterThanOrEqual` | `@typesugar/std/syntax/ord/ops`                  |
+| `Semigroup`, `Monoid`, `Group` | `+` → `combine`                                                                              | `…/semigroup/ops`, `…/monoid/ops`, `…/group/ops` |
+| `Numeric`                      | `+` → `add`, `-` → `sub`, `*` → `mul`                                                        | `@typesugar/std/syntax/numeric/ops`              |
+| `Integral`                     | `/` → `div`, `%` → `mod`                                                                     | `@typesugar/std/syntax/integral/ops`             |
+| `Fractional`                   | `/` → `div`                                                                                  | `@typesugar/std/syntax/fractional/ops`           |
 
 **Transformer Location:** `tryRewriteTypeclassOperator()` in `packages/transformer-core/src/rewriting.ts`
 
@@ -376,8 +397,11 @@ When the transformer sees a call where an argument resolves to a registered inst
 
 **Requirements:**
 
-- The instance must be registered via `@instance` with method implementations
-- The function body must be resolvable by the type checker
+- The instance must be registered via `@impl`/`@instance` with method implementations
+- The instance's and the function's source must be visible to the compiler. An
+  instance imported from a published package's compiled `.d.ts` (for example
+  `optionFunctor` from `@typesugar/fp`'s dist) has no body to inline, so the call is
+  left as a normal dictionary call, without a warning.
 
 **Opt-out:** Add `// @no-specialize` comment before the call to skip inlining.
 
