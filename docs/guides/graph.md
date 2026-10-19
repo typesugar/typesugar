@@ -267,8 +267,22 @@ shipped.availableEvents(); // ["deliver"]
 shipped.transition("cancel"); // Error: No transition from state "Shipped" on event "cancel"
 ```
 
-State and event names are typed as `string`, so an unknown event is a runtime error, not a
-type error.
+The code the macro emits types states and events as the definition's literal unions, so with
+`strictOutput` an unknown event such as `inst.transition("nope")` is reported. Your source is
+type-checked against the runtime tag, where a template's text has no type, so there they are
+`string` unless you pass the unions as type arguments:
+
+```typescript
+const order = stateMachine<"Draft" | "Submitted", "submit">`
+  @initial Draft
+  @terminal Submitted
+  Draft --submit--> Submitted
+`;
+order.create().transition("nope"); // ✗ type error in your editor
+```
+
+The macro checks those type arguments against the definition and reports an error if they
+name a missing or extra state or event.
 
 ## GraphLike Typeclass
 

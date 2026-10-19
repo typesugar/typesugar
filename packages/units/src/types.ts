@@ -353,9 +353,18 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    */
   declare readonly __dimensions: D;
 
+  /**
+   * @param value - the quantity in SI base units
+   * @param symbol - the display symbol (e.g. "km")
+   * @param displayFactor - SI units per display unit (1000 for "km"); `toString()`
+   *   prints `(value - displayOffset) / displayFactor`
+   * @param displayOffset - SI value of the display unit's zero (273.15 for "°C")
+   */
   constructor(
     public readonly value: number,
-    public readonly symbol: string = ""
+    public readonly symbol: string = "",
+    public readonly displayFactor: number = 1,
+    public readonly displayOffset: number = 0
   ) {}
 
   /**
@@ -363,7 +372,7 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    * Enables `unit1 + unit2` syntax via transformer operator rewriting.
    */
   add(other: Unit<D>): Unit<D> {
-    return new Unit(this.value + other.value, this.symbol);
+    return new Unit(this.value + other.value, this.symbol, this.displayFactor, this.displayOffset);
   }
 
   /**
@@ -371,7 +380,9 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    * Enables `unit1 - unit2` syntax via transformer operator rewriting.
    */
   sub(other: Unit<D>): Unit<D> {
-    return new Unit(this.value - other.value, this.symbol);
+    // A difference is a delta, so it is displayed without the zero offset
+    // (celsius(30).sub(celsius(10)) prints "20 °C").
+    return new Unit(this.value - other.value, this.symbol, this.displayFactor);
   }
 
   /**
@@ -398,14 +409,14 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
    * Scale by a dimensionless number
    */
   scale(factor: number): Unit<D> {
-    return new Unit(this.value * factor, this.symbol);
+    return new Unit(this.value * factor, this.symbol, this.displayFactor, this.displayOffset);
   }
 
   /**
    * Negate the value
    */
   neg(): Unit<D> {
-    return new Unit(-this.value, this.symbol);
+    return new Unit(-this.value, this.symbol, this.displayFactor, this.displayOffset);
   }
 
   /**
@@ -445,10 +456,17 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
   }
 
   /**
-   * Format as string
+   * Format as string, in the displayed unit: `kilometers(1).toString()` is
+   * "1 km" (while `.value` is the SI value, 1000). A unit with no symbol, such
+   * as the result of `mul`/`div`, prints its SI value.
    */
   toString(): string {
-    return this.symbol ? `${this.value} ${this.symbol}` : `${this.value}`;
+    let shown = this.value;
+    if (this.displayFactor !== 1 || this.displayOffset !== 0) {
+      // Round away the float noise of SI → display (100 / 3.6 * 3.6).
+      shown = Number(((this.value - this.displayOffset) / this.displayFactor).toPrecision(15));
+    }
+    return this.symbol ? `${shown} ${this.symbol}` : `${shown}`;
   }
 }
 
@@ -458,30 +476,30 @@ export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, D
 
 // Length
 export const meters = (v: number): Unit<Length> => new Unit(v, "m");
-export const kilometers = (v: number): Unit<Length> => new Unit(v * 1000, "km");
-export const centimeters = (v: number): Unit<Length> => new Unit(v / 100, "cm");
-export const millimeters = (v: number): Unit<Length> => new Unit(v / 1000, "mm");
-export const feet = (v: number): Unit<Length> => new Unit(v * 0.3048, "ft");
-export const inches = (v: number): Unit<Length> => new Unit(v * 0.0254, "in");
-export const miles = (v: number): Unit<Length> => new Unit(v * 1609.344, "mi");
+export const kilometers = (v: number): Unit<Length> => new Unit(v * 1000, "km", 1000);
+export const centimeters = (v: number): Unit<Length> => new Unit(v / 100, "cm", 1 / 100);
+export const millimeters = (v: number): Unit<Length> => new Unit(v / 1000, "mm", 1 / 1000);
+export const feet = (v: number): Unit<Length> => new Unit(v * 0.3048, "ft", 0.3048);
+export const inches = (v: number): Unit<Length> => new Unit(v * 0.0254, "in", 0.0254);
+export const miles = (v: number): Unit<Length> => new Unit(v * 1609.344, "mi", 1609.344);
 
 // Mass
 export const kilograms = (v: number): Unit<Mass> => new Unit(v, "kg");
-export const grams = (v: number): Unit<Mass> => new Unit(v / 1000, "g");
-export const milligrams = (v: number): Unit<Mass> => new Unit(v / 1e6, "mg");
-export const pounds = (v: number): Unit<Mass> => new Unit(v * 0.453592, "lb");
+export const grams = (v: number): Unit<Mass> => new Unit(v / 1000, "g", 1 / 1000);
+export const milligrams = (v: number): Unit<Mass> => new Unit(v / 1e6, "mg", 1 / 1e6);
+export const pounds = (v: number): Unit<Mass> => new Unit(v * 0.453592, "lb", 0.453592);
 
 // Time
 export const seconds = (v: number): Unit<Time> => new Unit(v, "s");
-export const minutes = (v: number): Unit<Time> => new Unit(v * 60, "min");
-export const hours = (v: number): Unit<Time> => new Unit(v * 3600, "h");
-export const days = (v: number): Unit<Time> => new Unit(v * 86400, "d");
-export const milliseconds = (v: number): Unit<Time> => new Unit(v / 1000, "ms");
+export const minutes = (v: number): Unit<Time> => new Unit(v * 60, "min", 60);
+export const hours = (v: number): Unit<Time> => new Unit(v * 3600, "h", 3600);
+export const days = (v: number): Unit<Time> => new Unit(v * 86400, "d", 86400);
+export const milliseconds = (v: number): Unit<Time> => new Unit(v / 1000, "ms", 1 / 1000);
 
 // Velocity
 export const metersPerSecond = (v: number): Unit<Velocity> => new Unit(v, "m/s");
-export const kilometersPerHour = (v: number): Unit<Velocity> => new Unit(v / 3.6, "km/h");
-export const milesPerHour = (v: number): Unit<Velocity> => new Unit(v * 0.44704, "mph");
+export const kilometersPerHour = (v: number): Unit<Velocity> => new Unit(v / 3.6, "km/h", 1 / 3.6);
+export const milesPerHour = (v: number): Unit<Velocity> => new Unit(v * 0.44704, "mph", 0.44704);
 
 // Acceleration
 export const metersPerSecondSquared = (v: number): Unit<Acceleration> => new Unit(v, "m/s²");
@@ -491,40 +509,40 @@ export const newtons = (v: number): Unit<Force> => new Unit(v, "N");
 
 // Energy
 export const joules = (v: number): Unit<Energy> => new Unit(v, "J");
-export const kilojoules = (v: number): Unit<Energy> => new Unit(v * 1000, "kJ");
-export const calories = (v: number): Unit<Energy> => new Unit(v * 4.184, "cal");
-export const kilocalories = (v: number): Unit<Energy> => new Unit(v * 4184, "kcal");
+export const kilojoules = (v: number): Unit<Energy> => new Unit(v * 1000, "kJ", 1000);
+export const calories = (v: number): Unit<Energy> => new Unit(v * 4.184, "cal", 4.184);
+export const kilocalories = (v: number): Unit<Energy> => new Unit(v * 4184, "kcal", 4184);
 
 // Power
 export const watts = (v: number): Unit<Power> => new Unit(v, "W");
-export const kilowatts = (v: number): Unit<Power> => new Unit(v * 1000, "kW");
+export const kilowatts = (v: number): Unit<Power> => new Unit(v * 1000, "kW", 1000);
 
 // Temperature (absolute — stored internally in kelvin)
 export const kelvin = (v: number): Unit<Temperature> => new Unit(v, "K");
-export const celsius = (v: number): Unit<Temperature> => new Unit(v + 273.15, "°C");
+export const celsius = (v: number): Unit<Temperature> => new Unit(v + 273.15, "°C", 1, 273.15);
 export const fahrenheit = (v: number): Unit<Temperature> =>
-  new Unit(((v - 32) * 5) / 9 + 273.15, "°F");
+  new Unit(((v - 32) * 5) / 9 + 273.15, "°F", 5 / 9, 273.15 - (32 * 5) / 9);
 
 // Frequency
 export const hertz = (v: number): Unit<Frequency> => new Unit(v, "Hz");
-export const kilohertz = (v: number): Unit<Frequency> => new Unit(v * 1e3, "kHz");
-export const megahertz = (v: number): Unit<Frequency> => new Unit(v * 1e6, "MHz");
-export const gigahertz = (v: number): Unit<Frequency> => new Unit(v * 1e9, "GHz");
+export const kilohertz = (v: number): Unit<Frequency> => new Unit(v * 1e3, "kHz", 1e3);
+export const megahertz = (v: number): Unit<Frequency> => new Unit(v * 1e6, "MHz", 1e6);
+export const gigahertz = (v: number): Unit<Frequency> => new Unit(v * 1e9, "GHz", 1e9);
 
 // Voltage
 export const volts = (v: number): Unit<Voltage> => new Unit(v, "V");
-export const millivolts = (v: number): Unit<Voltage> => new Unit(v / 1000, "mV");
-export const kilovolts = (v: number): Unit<Voltage> => new Unit(v * 1000, "kV");
+export const millivolts = (v: number): Unit<Voltage> => new Unit(v / 1000, "mV", 1 / 1000);
+export const kilovolts = (v: number): Unit<Voltage> => new Unit(v * 1000, "kV", 1000);
 
 // Resistance
 export const ohms = (v: number): Unit<Resistance> => new Unit(v, "Ω");
-export const kilohms = (v: number): Unit<Resistance> => new Unit(v * 1000, "kΩ");
-export const megohms = (v: number): Unit<Resistance> => new Unit(v * 1e6, "MΩ");
+export const kilohms = (v: number): Unit<Resistance> => new Unit(v * 1000, "kΩ", 1000);
+export const megohms = (v: number): Unit<Resistance> => new Unit(v * 1e6, "MΩ", 1e6);
 
 // Pressure
 export const pascals = (v: number): Unit<Pressure> => new Unit(v, "Pa");
-export const kilopascals = (v: number): Unit<Pressure> => new Unit(v * 1000, "kPa");
-export const atmospheres = (v: number): Unit<Pressure> => new Unit(v * 101325, "atm");
+export const kilopascals = (v: number): Unit<Pressure> => new Unit(v * 1000, "kPa", 1000);
+export const atmospheres = (v: number): Unit<Pressure> => new Unit(v * 101325, "atm", 101325);
 
 // ============================================================================
 // Type Guards and Utilities

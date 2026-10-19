@@ -350,3 +350,66 @@ describe("C#10: @schema warns that schema inference is not implemented", () => {
     expect(warnings.join("\n")).toMatch(/@schema.*not implemented/i);
   });
 });
+
+// ============================================================================
+// Docs review r3 (guides-c bugs #2, #3): typed combinators over mixed tuples
+// ============================================================================
+
+describe("r3: andTyped/orTyped/whereAndTyped/commasTyped concatenate parameter tuples", () => {
+  it("andTyped over fragments with different param types type-checks and runs", async () => {
+    const src = `
+      import { sql$, andTyped, orTyped, whereAndTyped, commasTyped, TypedFragment } from "@typesugar/sql";
+      export const both = andTyped(sql$\`name = \${"Alice"}\`, sql$\`age > \${21}\`);
+      export const either = orTyped(sql$\`name = \${"Bob"}\`, sql$\`age < \${5}\`);
+      export const where = whereAndTyped(sql$\`active = \${true}\`, null, sql$\`age > \${3}\`);
+      const p1: TypedFragment<[string, number], void> = both;
+      const p2: TypedFragment<[string, number], void> = either;
+      const p3: TypedFragment<[boolean, number], void> = where;
+      const p4: TypedFragment<[number, string], void> = commasTyped(sql$\`\${1}\`, sql$\`\${"a"}\`);
+      void p4;
+      // @ts-expect-error -- the tuple is ordered
+      const bad: TypedFragment<[number, string], void> = both;
+      void p1; void p2; void p3; void bad;
+    `;
+    const { code, errors } = expand(src);
+    expect(errors).toEqual([]);
+    expect(typecheck(code.replace(/"@typesugar\/sql"/g, '"../src/index.js"'))).toEqual([]);
+    const { exports } = await expandAndRun(src.replace(/^\s*(const|\/\/|void).*$/gm, ""));
+    expect((exports.both as TypedFragment<unknown[], void>).query).toEqual({
+      text: "name = $1 AND age > $2",
+      params: ["Alice", 21],
+    });
+    expect((exports.where as TypedFragment<unknown[], void>).query).toEqual({
+      text: "WHERE active = $1 AND age > $2",
+      params: [true, 3],
+    });
+  });
+});
+
+describe("r3: Write.tuple over instances of different types", () => {
+  it("type-checks and writes the concatenated parameters", () => {
+    const code = `
+      import { Write, Meta, deriveWrite } from "../src/index.js";
+      interface User { id: number; name: string }
+      interface Profile { bio: string }
+      const WriteUser = deriveWrite<User>({ id: { meta: Meta.int }, name: { meta: Meta.string } });
+      const WriteProfile = deriveWrite<Profile>({ bio: { meta: Meta.string } });
+      const w: Write<[User, Profile]> = Write.tuple(WriteUser, WriteProfile);
+      // @ts-expect-error -- wrong element type
+      w.write([{ bio: "x" }, { bio: "y" }]);
+      export { w };
+    `;
+    expect(typecheck(code)).toEqual([]);
+  });
+  it("runs", async () => {
+    const { Write, Meta, deriveWrite } = await import("../src/index.js");
+    const WU = deriveWrite<{ id: number; name: string }>({
+      id: { meta: Meta.int },
+      name: { meta: Meta.string },
+    });
+    const WP = deriveWrite<{ bio: string }>({ bio: { meta: Meta.string } });
+    const w = Write.tuple(WU, WP);
+    expect(w.columns).toEqual(["id", "name", "bio"]);
+    expect(w.write([{ id: 1, name: "a" }, { bio: "b" }])).toEqual([1, "a", "b"]);
+  });
+});

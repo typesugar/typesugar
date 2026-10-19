@@ -53,6 +53,23 @@ import { Read, Write, SqlRow } from "./meta.js";
 /** Concatenate two tuples at the type level */
 export type Concat<A extends readonly unknown[], B extends readonly unknown[]> = [...A, ...B];
 
+/**
+ * The parameter tuples of a list of fragments, concatenated in order.
+ * `null`/`undefined`/`false` entries (as `whereAndTyped` accepts) contribute
+ * nothing; a non-tuple array of fragments gives an array of their params.
+ */
+export type ConcatParams<Fs extends readonly unknown[]> = Fs extends readonly []
+  ? []
+  : Fs extends readonly [infer H, ...infer Rest]
+    ? H extends TypedFragment<infer P, unknown>
+      ? [...P, ...ConcatParams<Rest>]
+      : ConcatParams<Rest>
+    : Fs extends readonly (infer F)[]
+      ? F extends TypedFragment<infer P, unknown>
+        ? P[number][]
+        : unknown[]
+      : unknown[];
+
 /** Empty tuple type */
 export type Empty = readonly [];
 
@@ -350,30 +367,42 @@ export function intercalateTyped<P extends readonly unknown[], R>(
 /**
  * Join typed fragments with AND.
  */
-export function andTyped<P extends readonly unknown[]>(
-  ...fragments: TypedFragment<P, Unit>[]
-): TypedFragment<P[], Unit> {
-  return intercalateTyped(new TypedFragment([" AND "], []), fragments);
+export function andTyped<Fs extends readonly TypedFragment<readonly unknown[], Unit>[]>(
+  ...fragments: Fs
+): TypedFragment<ConcatParams<Fs>, Unit> {
+  return intercalateTyped(new TypedFragment([" AND "], []), fragments) as TypedFragment<
+    ConcatParams<Fs>,
+    Unit
+  >;
 }
 
 /**
  * Join typed fragments with OR, wrapped in parentheses (like `Fragment.or`) so
  * `andTyped(orTyped(a, b), c)` keeps the intended precedence.
  */
-export function orTyped<P extends readonly unknown[]>(
-  ...fragments: TypedFragment<P, Unit>[]
-): TypedFragment<P[], Unit> {
-  if (fragments.length === 0) return emptyTyped as unknown as TypedFragment<P[], Unit>;
-  return intercalateTyped(new TypedFragment([" OR "], []), fragments).parens();
+export function orTyped<Fs extends readonly TypedFragment<readonly unknown[], Unit>[]>(
+  ...fragments: Fs
+): TypedFragment<ConcatParams<Fs>, Unit> {
+  if (fragments.length === 0) return emptyTyped as unknown as TypedFragment<ConcatParams<Fs>, Unit>;
+  return intercalateTyped(new TypedFragment([" OR "], []), fragments).parens() as TypedFragment<
+    ConcatParams<Fs>,
+    Unit
+  >;
 }
 
 /**
  * Join typed fragments with commas.
  */
-export function commasTyped<P extends readonly unknown[], R>(
-  ...fragments: TypedFragment<P, R>[]
-): TypedFragment<P[], R> {
-  return intercalateTyped(new TypedFragment([", "], []), fragments);
+export function commasTyped<Fs extends readonly TypedFragment<readonly unknown[], unknown>[]>(
+  ...fragments: Fs
+): TypedFragment<
+  ConcatParams<Fs>,
+  Fs[number] extends TypedFragment<readonly unknown[], infer R> ? R : never
+> {
+  return intercalateTyped(new TypedFragment([", "], []), fragments) as TypedFragment<
+    ConcatParams<Fs>,
+    Fs[number] extends TypedFragment<readonly unknown[], infer R> ? R : never
+  >;
 }
 
 // ============================================================================
@@ -516,22 +545,22 @@ export function whenTyped<P extends readonly unknown[], R>(
 /**
  * Build a WHERE clause from optional conditions.
  */
-export function whereAndTyped<P extends readonly unknown[]>(
-  ...conditions: (TypedFragment<P, Unit> | null | undefined | false)[]
-): TypedFragment<P[], Unit> {
+export function whereAndTyped<
+  Cs extends readonly (TypedFragment<readonly unknown[], Unit> | null | undefined | false)[],
+>(...conditions: Cs): TypedFragment<ConcatParams<Cs>, Unit> {
   const validConditions = conditions.filter(
-    (c): c is TypedFragment<P, Unit> => c instanceof TypedFragment
+    (c): c is TypedFragment<readonly unknown[], Unit> => c instanceof TypedFragment
   );
 
   if (validConditions.length === 0) {
-    return emptyTyped as unknown as TypedFragment<P[], Unit>;
+    return emptyTyped as unknown as TypedFragment<ConcatParams<Cs>, Unit>;
   }
 
   const combined = andTyped(...validConditions);
   return new TypedFragment(
     ["WHERE " + combined.segments[0], ...combined.segments.slice(1)],
     [...combined.params]
-  ) as TypedFragment<P[], Unit>;
+  ) as TypedFragment<ConcatParams<Cs>, Unit>;
 }
 
 // Brand TypedFragment instances so the shared renderer (and __sql_build) inline them.

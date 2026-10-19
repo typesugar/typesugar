@@ -325,11 +325,11 @@ const where = whereAndTyped(
 // Only includes non-null conditions
 ```
 
-In 1.0, `andTyped`, `orTyped` and `whereAndTyped` take fragments that all have
-the **same** parameter tuple type. Mixing them, as in
-``andTyped(sql$`name = ${"Alice"}`, sql$`age > ${21}`)`` (`[string]` and
-`[number]`), is a type error (TS2345). For mixed parameter types, combine
-untyped `sql` fragments with `Fragment.and([...])` / `Fragment.whereAnd([...])`.
+`andTyped`, `orTyped`, `commasTyped` and `whereAndTyped` concatenate the
+fragments' parameter tuples in order, so fragments with different parameter
+types combine: ``andTyped(sql$`name = ${"Alice"}`, sql$`age > ${21}`)`` is a
+`TypedFragment<[string, number], void>`. In `whereAndTyped`, a `null`,
+`undefined` or `false` condition contributes no parameters.
 
 ## The sql$ Macro — Compile-Time Type Inference
 
@@ -553,7 +553,7 @@ Read.column("name", Get.string); // Read single column
 // Write combinators
 Write.contramap(WriteUser, (dto: UserDTO) => toUser(dto));
 Write.product(WriteUser, WriteProfile); // Write<[User, Profile]>
-// (Write.tuple(WriteUser, WriteProfile) is a type error in 1.0, TS2345: use Write.product)
+Write.tuple(WriteUser, WriteProfile, WriteSettings); // Write<[User, Profile, Settings]>
 
 // Codec combinators
 Codec.fromReadWrite(ReadUser, WriteUser);
@@ -1128,6 +1128,7 @@ cost per step, the same as any free-monad library.
 | `Read.tuple(...rs)`     | Multi-read              |
 | `Write.contramap(w, f)` | Transform input         |
 | `Write.product(w1, w2)` | Combine writes          |
+| `Write.tuple(...ws)`    | Multi-write             |
 
 ## Learn More
 

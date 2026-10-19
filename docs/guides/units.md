@@ -73,8 +73,7 @@ import { meters, kilometers, feet } from "@typesugar/units";
 const d = kilometers(1);
 console.log(d.value); // 1000 (stored as meters internally)
 console.log(d.symbol); // "km"
-console.log(d.toString()); // "1000 km" — the SI value with the display symbol
-console.log(d.to(kilometers).toString()); // "1 km"
+console.log(d.toString()); // "1 km" — printed in the displayed unit
 
 const f = feet(1);
 console.log(f.value); // 0.3048 (stored as meters)
@@ -163,6 +162,8 @@ workday.to(seconds); // Unit(28800, "s")
 class Unit<D extends Dimensions> {
   readonly value: number; // Value in SI base units
   readonly symbol: string; // Display symbol (e.g., "km", "m/s")
+  readonly displayFactor: number; // SI units per display unit (1000 for km)
+  readonly displayOffset: number; // SI value of the display unit's zero (273.15 for °C)
 
   // Same-dimension operations
   add(other: Unit<D>): Unit<D>;
@@ -183,7 +184,7 @@ class Unit<D extends Dimensions> {
   equals(other: Unit<D>, tolerance?: number): boolean;
 
   // Display
-  toString(): string; // "value symbol"
+  toString(): string; // "value symbol", value in the displayed unit
 }
 ```
 
