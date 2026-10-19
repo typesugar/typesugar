@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
+import * as path from "path";
+import { fileURLToPath } from "url";
 import {
   createMacroCallChainRule,
   createExtensionMethodCallRule,
+  createNewtypeAssignmentRule,
 } from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
@@ -223,5 +226,72 @@ describe("MacroCallChain diagnostic suppression rule — TS18004 (PEP-033 N2)", 
     for (const d of shorthand18004) {
       expect(rule.shouldSuppress(d, checker, sf)).toBe(false);
     }
+  });
+});
+
+describe("NewtypeAssignment rule — no longer needed by @typesugar/type-system", () => {
+  // The rule exists to hide a spurious TS2345 on `wrap<UserId>(42)` that the
+  // OLD `UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T`
+  // produced. Since 6a99751a the real type reads a phantom `[__base]` slot, so
+  // TypeScript itself accepts every constructor call: with NO suppression rule
+  // registered there is nothing for the rule to hide, while real errors stay.
+  const newtypeModule = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../type-system/src/newtype.ts"
+  );
+  const code = `
+import { wrap, unwrap, newtypeCtor, validatedNewtype, type Newtype } from ${JSON.stringify(newtypeModule)};
+type UserId = Newtype<number, "UserId">;
+type Email = Newtype<string, "Email">;
+export const a: UserId = wrap<UserId>(42);
+const U = newtypeCtor<UserId>();
+export const b: UserId = U(7);
+const E = validatedNewtype<Email>((s) => s.includes("@"));
+export const e: Email = E("a@b");
+export const n: number = unwrap(a);
+export const bad1: UserId = 42;
+export const bad2 = U("x");
+`;
+
+  function check() {
+    const fileName = path.join(path.dirname(newtypeModule), "__newtype_rule_probe__.ts");
+    const options: ts.CompilerOptions = {
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      allowImportingTsExtensions: true,
+    };
+    const host = ts.createCompilerHost(options);
+    const orig = { getSourceFile: host.getSourceFile, fileExists: host.fileExists };
+    host.getSourceFile = (fn, lv, ...rest) =>
+      fn === fileName
+        ? ts.createSourceFile(fn, code, lv, true)
+        : orig.getSourceFile.call(host, fn, lv, ...rest);
+    host.fileExists = (fn) => fn === fileName || orig.fileExists.call(host, fn);
+    const program = ts.createProgram([fileName], options, host);
+    const sf = program.getSourceFile(fileName)!;
+    const diags = ts.getPreEmitDiagnostics(program, sf);
+    const line = (d: ts.Diagnostic) =>
+      code.split("\n")[sf.getLineAndCharacterOfPosition(d.start!).line];
+    return { diags, checker: program.getTypeChecker(), sf, line };
+  }
+
+  it("wrap / newtypeCtor / validatedNewtype type-check with no rule registered", () => {
+    const { diags, line } = check();
+    const summary = diags.map((d) => `TS${d.code}: ${line(d).trim()}`);
+    // Exactly the two real errors, and no TS2345 on any constructor argument.
+    expect(summary).toEqual([
+      "TS2322: export const bad1: UserId = 42;",
+      'TS2345: export const bad2 = U("x");',
+    ]);
+  });
+
+  it("the rule would suppress nothing in that program", () => {
+    const { diags, checker, sf } = check();
+    const rule = createNewtypeAssignmentRule();
+    expect(diags.filter((d) => rule.shouldSuppress(d, checker, sf))).toEqual([]);
   });
 });

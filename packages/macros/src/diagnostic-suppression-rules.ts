@@ -13,6 +13,8 @@
  * Rule 3 (NewtypeAssignment): Suppresses the spurious TS2345 on the argument of
  * `wrap<T>()` / a newtype constructor (a parameter typed `UnwrapNewtype<T>`).
  * Implicit `Base → Newtype` assignments and brand mismatches stay errors.
+ * Legacy: @typesugar/type-system's own types no longer produce that TS2345
+ * (see the rule's comment).
  *
  * Every rule must only hide a diagnostic the transformer will actually make
  * valid: an extra red squiggle is far less harmful than a hidden real bug.
@@ -531,6 +533,17 @@ function checkImportedSymbol(
  * Newtypes are identified by declaration (the `[__brand]` member of a type
  * alias named `Newtype`), not by a `/__brand/` substring of the property
  * name, which also matched users' own hand-rolled brands.
+ *
+ * LEGACY — no longer needed by `@typesugar/type-system` (2026-10): its
+ * `UnwrapNewtype` now reads a phantom `[__base]` slot instead of
+ * `T extends Newtype<infer Base, string>`, so `wrap<UserId>(42)` and the
+ * constructors type-check with no suppression at all (see "NewtypeAssignment
+ * rule — no longer needed" in diagnostic-suppression-rules.test.ts, which
+ * also shows this rule suppresses nothing there). It now only fires for code
+ * that declares its own `Newtype`/`UnwrapNewtype` in the OLD inferred-base
+ * shape, which is what the tests/diagnostic-suppression-*.test.ts fixtures
+ * still do. Candidate for removal together with those fixtures and the
+ * `createNewtypeAssignmentRule` export.
  */
 export function createNewtypeAssignmentRule(): DiagnosticSuppressionRule {
   return {

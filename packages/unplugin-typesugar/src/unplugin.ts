@@ -94,11 +94,16 @@ function createTransformFilter(
   exclude: FilterPattern | undefined,
   root: string
 ): (id: string) => boolean {
+  // An explicitly empty include list matches nothing (as it did before
+  // globs). createFilter alone would read `[]` as "no include filter" and
+  // accept every module, CSS and JSON included.
+  if (Array.isArray(include) && include.length === 0) return () => false;
   const filter = createFilter(include ?? DEFAULT_INCLUDE, exclude, { resolve: root });
   const keepNodeModules = includesNodeModules(include);
   return (id) => {
     const normalizedId = id.replace(/\\/g, "/");
-    if (!keepNodeModules && /\/node_modules\//.test(normalizedId)) return false;
+    // `(^|/)`: a relative id (`node_modules/x.js`) is under node_modules too.
+    if (!keepNodeModules && /(^|\/)node_modules\//.test(normalizedId)) return false;
     return filter(normalizedId);
   };
 }
