@@ -86,6 +86,9 @@ Query the structure with `neighbors()`, `inEdges()`, `outEdges()`, `degree()`, `
 | Transitive closure            | `transitiveClosure(g)`                    | O(V \* (V + E)) |
 | Reverse graph                 | `reverseGraph(g)`                         | O(V + E)        |
 
+`topoSort`, `isDAG` and `detectCycles` require a directed graph: on an undirected `graph`
+they throw (`topoSort requires a directed graph (got an undirected graph)`).
+
 ```typescript
 import {
   digraph,
@@ -131,7 +134,9 @@ const durationMonoid: Monoid<Duration> = {
 
 const durationOrd: Ord<Duration> = {
   equals: (a, b) => a.totalMs === b.totalMs,
-  compare: (a, b) => a.totalMs - b.totalMs,
+  notEquals: (a, b) => a.totalMs !== b.totalMs,
+  // compare returns an Ordering: -1 | 0 | 1
+  compare: (a, b) => (a.totalMs < b.totalMs ? -1 : a.totalMs > b.totalMs ? 1 : 0),
   lessThan: (a, b) => a.totalMs < b.totalMs,
   lessThanOrEqual: (a, b) => a.totalMs <= b.totalMs,
   greaterThan: (a, b) => a.totalMs > b.totalMs,
@@ -161,7 +166,7 @@ import { stateMachine, verify, createInstance } from "@typesugar/graph";
 
 const order = stateMachine`
   @initial Created
-  @terminal Delivered, Cancelled
+  @terminal Delivered, Cancelled, Rejected
 
   Created  --submit-->  Pending
   Pending  --approve--> Approved
@@ -180,18 +185,20 @@ const order = stateMachine`
 FromState --event--> ToState
 ```
 
+Each transition line has exactly one target state; write one line per transition.
+
 Lines starting with `#` are comments. Blank lines are ignored.
 
 ### Verification
 
-`verify()` catches structural problems at definition time:
+`verify()` checks a machine's structure at runtime:
 
 ```typescript
 const result = verify(order);
 // {
-//   valid: false,
+//   valid: true,
 //   unreachableStates: [],
-//   deadEndStates: ["Rejected"],   // not terminal, no way out
+//   deadEndStates: [],      // e.g. ["Rejected"] if Rejected were not @terminal
 //   nondeterministic: [],
 //   cycles: []
 // }
@@ -209,9 +216,10 @@ It checks for:
 When used with the typesugar transformer, `stateMachine` validates your state machine at compile time, turning the same structural issues into compile errors:
 
 ```typescript
-// ❌ Compile error: Unreachable states detected: Orphan
+// ❌ Compile error: Unreachable states detected: Orphan, Used
 const bad = stateMachine`
   @initial A
+  @terminal B, Used
   A --go--> B
   Orphan --never--> Used
 `;
@@ -220,24 +228,28 @@ const bad = stateMachine`
 const deadEnd = stateMachine`
   @initial A
   @terminal B
-  A --go--> B, C
+  A --go--> B
+  A --stop--> C
 `;
 
 // ❌ Compile error: Nondeterministic transitions detected:
 //    State "A" on event "go" → [B, C]
 const nondet = stateMachine`
   @initial A
+  @terminal B, C
   A --go--> B
   A --go--> C
 `;
 ```
 
-For the `order` machine above, the transformer emits:
+If `Rejected` were left out of the `order` machine's `@terminal` line, the transformer would emit:
 
 ```text
-Dead-end states detected: Rejected. These states have no outgoing
-transitions and are not marked as terminal.
+Dead-end states detected: Rejected. These states have no outgoing transitions and are
+not marked as terminal. Add @terminal Rejected or add transitions from them.
 ```
+
+These are compile errors, so the build fails (the CLI exits non-zero) until they are fixed.
 
 Runtime verification is still available via `verify()` for dynamic state machines.
 
@@ -252,8 +264,11 @@ shipped.current; // "Shipped"
 shipped.availableEvents(); // ["deliver"]
 
 // Invalid transitions throw
-shipped.transition("cancel"); // Error: no "cancel" transition from "Shipped"
+shipped.transition("cancel"); // Error: No transition from state "Shipped" on event "cancel"
 ```
+
+State and event names are typed as `string`, so an unknown event is a runtime error, not a
+type error.
 
 ## GraphLike Typeclass
 
@@ -347,6 +362,12 @@ const path = shortestPathG(g, 1, 4, adjGraphLike, eqNumber, hashNumber);
 // [1, 2, 4] or [1, 3, 4]
 ```
 
+With the transformer, these calls report warnings such as "[TS9602] Auto-specialization of
+topoSortG skipped — function body not resolvable": the library's compiled functions can't be
+inlined at your call site, and the advice in the message (declare it as a const arrow function)
+is for your own code, not the library's. They are informational: the call runs unspecialized
+and gives the same result.
+
 ### Concrete Instances
 
 For the built-in `Graph` type:
@@ -360,17 +381,18 @@ For the built-in `Graph` type:
 
 ## Zero-Cost Guarantee
 
-When using the typesugar transformer:
+When using the typesugar transformer, `stateMachine` templates get:
 
 - **Compile-time parsing** — the DSL is parsed at compile time, not runtime
 - **Compile-time verification** — structural issues are caught before your code runs
 - **Inlined definitions** — the generated code contains literal state/transition arrays
-- **Type-safe instances** — state and event types are inferred from the definition
+
+The `digraph` and `graph` templates are not macros: they are parsed when the code runs.
 
 ## Real-World Example: Dependency Resolution
 
 ```typescript
-import { digraph, topoSort, detectCycles } from "@typesugar/graph";
+import { digraph, topoSort, detectCycles, reverseGraph } from "@typesugar/graph";
 
 const deps = digraph`
   app      -> api, ui
@@ -384,12 +406,16 @@ if (cycles.length > 0) {
   throw new Error(`Circular dependencies: ${cycles}`);
 }
 
-const buildOrder = topoSort(deps);
-// { ok: true, order: ["db", "auth", "styles", "components", "api", "ui", "app"] }
+// Edges point from a package to its dependencies, so topoSort(deps) lists
+// dependents first. Reverse the graph to get dependencies first:
+const buildOrder = topoSort(reverseGraph(deps));
+// { ok: true, order: ["db", "components", "styles", "auth", "ui", "api", "app"] }
 
 // Build packages in order
-for (const pkg of buildOrder.order) {
-  console.log(`Building ${pkg}...`);
+if (buildOrder.ok) {
+  for (const pkg of buildOrder.order) {
+    console.log(`Building ${pkg}...`);
+  }
 }
 ```
 

@@ -148,8 +148,12 @@ match(obj)
   .case({ name })
   .then(name)
   .case({ ...rest })
-  .then(Object.keys(rest).length);
+  .then(Object.keys(rest).length)
+  .else(-1);
 ```
+
+An object or tuple scrutinee isn't enumerable, so these matches need a final `.else()`
+(or `_`) even when the last arm looks like a catch-all.
 
 **Pattern semantics:**
 
@@ -216,7 +220,7 @@ match(value)
 | `Array([x, y])` | `Array.isArray(__m)` plus the inner pattern's own test (`length === 2`) |
 | `Date(d)`       | `__m instanceof Date`                                                   |
 | `MyClass(v)`    | `__m instanceof MyClass`                                                |
-| `Some(v)`       | Destructure typeclass (see below)                                       |
+| `Some(v)`       | Built-in extractor (see below)                                          |
 
 ### OR Patterns
 
@@ -258,7 +262,8 @@ match(point)
   .then({ point: p, quadrant: 1 })
   .case([x, y])
   .as(p)
-  .then({ point: p, quadrant: 0 });
+  .then({ point: p, quadrant: 0 })
+  .else(undefined); // tuples need .else(), as above
 ```
 
 ### Regex Patterns
@@ -306,9 +311,12 @@ match(data)
   .else("unknown");
 ```
 
-### Extractor Patterns (Destructure Typeclass)
+### Extractor Patterns
 
-Match using custom extractors via the `Destructure` typeclass — typesugar's equivalent of Scala's `unapply`:
+Match `@typesugar/fp`'s `Option`, `Either` and `List` with the built-in extractors —
+typesugar's equivalent of Scala's `unapply`. They test fp's real representations:
+`Some(v)` matches a non-null value and binds it, `None` matches `null`, `Left(e)` /
+`Right(v)` test for a `left` / `right` field.
 
 ```typescript
 import { match } from "@typesugar/std";
@@ -333,20 +341,28 @@ match(either)
   .then(`Positive: ${val}`)
   .case(Right(val))
   .then(`Value: ${val}`);
+// eith(Left("bad")) → "Error: bad", eith(Right(3)) → "Positive: 3"
 ```
+
+Some + None, Left + Right and Cons + Nil each cover their type, so these matches need no
+`.else()`.
 
 Built-in extractors:
 
-| Extractor   | Input          | Extracts        |
-| ----------- | -------------- | --------------- |
-| `Some(v)`   | `Option<T>`    | `T`             |
-| `None`      | `Option<T>`    | (boolean match) |
-| `Left(v)`   | `Either<L, R>` | `L`             |
-| `Right(v)`  | `Either<L, R>` | `R`             |
-| `Ok(v)`     | `Result<T, E>` | `T`             |
-| `Err(e)`    | `Result<T, E>` | `E`             |
-| `Cons(h,t)` | `List<T>`      | `[T, List<T>]`  |
-| `Nil`       | `List<T>`      | (boolean match) |
+| Extractor   | Input                     | Extracts        |
+| ----------- | ------------------------- | --------------- |
+| `Some(v)`   | `Option<T>`               | `T`             |
+| `None`      | `Option<T>`               | (boolean match) |
+| `Left(v)`   | `Either<L, R>`            | `L`             |
+| `Right(v)`  | `Either<L, R>`            | `R`             |
+| `Cons(h,t)` | `List<T>`                 | `T`, `List<T>`  |
+| `Nil`       | `List<T>`                 | (boolean match) |
+| `Ok(v)`     | `{ ok: true; value: T }`  | `T`             |
+| `Err(e)`    | `{ ok: false; error: E }` | `E`             |
+
+When the scrutinee's type has a `_tag` property (Effect's `Option`/`Either`, or your own
+`{ _tag: "Some"; value }` union), `Some`/`None`/`Left`/`Right`/`Cons`/`Nil` test `_tag`
+instead and read the payload from `value` (`head`/`tail` for `Cons`).
 
 ---
 
@@ -355,13 +371,7 @@ Built-in extractors:
 Every `match()` is **always exhaustive** — like Rust, not like Scala. Missing cases produce a compile error:
 
 ```
-error[TS9401]: Non-exhaustive match — missing cases: "blue"
-  --> src/colors.ts:5:1
-   |
- 5 | match(color)
-   | ^^^^^ missing case "blue"
-   |
-   = help: Add .case("blue").then(...) or .else(...) to handle remaining cases
+error: Non-exhaustive match — missing cases: "blue". Add the missing cases or use .else() / _ to handle remaining values.
 ```
 
 ### How It Works
@@ -371,7 +381,7 @@ error[TS9401]: Non-exhaustive match — missing cases: "blue"
 | Discriminated union              | All variants must be covered   |
 | Literal union (`"a" \| "b"`)     | All values must be covered     |
 | Boolean                          | Both `true` and `false`        |
-| Sum types (Destructure)          | All variant extractors present |
+| Option / Either / List           | All variant extractors present |
 | `string`, `number`, arrays, etc. | Requires `_` or `.else()`      |
 | `unknown` / `any`                | Requires `_` or `.else()`      |
 
@@ -400,57 +410,12 @@ throw new MatchError(__m); // "Non-exhaustive match: <value>"
 
 ---
 
-## Custom Extractors (Destructure Typeclass)
+## Custom Extractors
 
-Define your own extractors by providing a `Destructure` instance:
-
-```typescript
-/** @impl Destructure<typeof Email, string, { user: string; domain: string }> */
-const emailDestructure = {
-  extract(input: string): { user: string; domain: string } | undefined {
-    const m = input.match(/^([^@]+)@(.+)$/);
-    return m ? { user: m[1], domain: m[2] } : undefined;
-  },
-};
-
-// Now works in patterns:
-match(str).case(Email({ user, domain })).then(`${user} at ${domain}`).else("not an email");
-```
-
-### Auto-Derivation
-
-For product types (interfaces, classes), `Destructure` auto-derives. You don't write anything:
-
-```typescript
-interface Point {
-  x: number;
-  y: number;
-}
-
-// Auto-derived: extract(p) → [p.x, p.y]
-match(point)
-  .case(Point(x, y))
-  .if(x > 0)
-  .then(`positive x: ${x}`)
-  .else("non-positive");
-```
-
-For sum types (discriminated unions), each variant gets its own extractor automatically.
-
-### Boolean Extractors
-
-For patterns that test membership without extracting data:
-
-```typescript
-/** @impl Destructure<typeof Even, number, true> */
-const evenDestructure = {
-  extract(input: number): true | undefined {
-    return input % 2 === 0 ? true : undefined;
-  },
-};
-
-match(n).case(Even).then("even").else("odd");
-```
+Not yet supported: user-defined extractors (a `Destructure` instance such as
+`Email({ user, domain })`, or an auto-derived `Point(x, y)` for an interface) are not
+recognised. `Name(...)` with an unknown `Name` compiles to an `instanceof Name` type
+pattern. Use an object pattern (`.case({ x, y })`) or a guard instead.
 
 ---
 
@@ -483,7 +448,7 @@ Direct emit only happens when it is provably equivalent: the scrutinee has no si
 Impossible patterns produce a compile error:
 
 ```
-error[TS9402]: Pattern "pending" can never match type "ok" | "fail"
+error: Pattern "pending" can never match type "ok" | "fail"
 ```
 
 ### Code Generation Strategies
@@ -503,7 +468,7 @@ If any arm, guard, `.else()` or the scrutinee contains `await`, the IIFE becomes
 Arms dominated by earlier patterns produce warnings:
 
 ```
-warning: Unreachable pattern — previous arm already covers this case
+warning: Unreachable pattern — value "ok" is already matched by an earlier arm
 ```
 
 ---

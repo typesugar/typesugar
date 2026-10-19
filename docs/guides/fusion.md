@@ -4,7 +4,7 @@ Single-pass iterator pipelines with zero intermediate allocations — `.filter()
 
 Inspired by Blitz++/Eigen expression templates and Rust's zero-cost iterator adapters.
 
-> **Current Status:** Runtime fusion via `LazyPipeline` class. Single-pass iteration with no intermediate arrays is achieved, but the pipeline object itself exists at runtime. Phase 2 will add compile-time macro analysis to eliminate the pipeline class entirely.
+> **Two levels of fusion.** `lazy()` fuses at runtime through the `LazyPipeline` class: one pass, no intermediate arrays, but the pipeline object exists at runtime. With the typesugar transformer, wrapping a chain in `fused(...)` compiles it to a single loop with no pipeline object at all (see [Compile-Time Fusion](#compile-time-fusion-with-fused)).
 
 ## The Problem
 
@@ -59,22 +59,26 @@ These build up the pipeline description. No work happens yet.
 ### Terminal (execute the pipeline)
 
 ```typescript
-lazy(data).filter(x => x > 0).map(x => x * 2)
-  .toArray();          // T[] — collect results
-  .reduce((a, b) => a + b, 0);  // fold left
-  .find(x => x > 100);          // first match or null
-  .some(x => x > 100);          // any match?
-  .every(x => x > 0);           // all match?
-  .count();                      // count elements
-  .forEach(x => console.log(x)); // side effects
-  .first();                      // first element or null
-  .last();                       // last element or null
-  .sum();                        // sum (number pipelines)
-  .min();                        // minimum (optional comparator: .min(cmp))
-  .max();                        // maximum (optional comparator: .max(cmp))
-  .groupBy(x => x.category);    // Map<K, T[]>
-  .toMap(x => x.id, x => x);    // Map<K, V>
-  .join(", ");                   // join strings
+const p = lazy(data).filter((x) => x > 0);
+
+p.toArray(); // T[] — collect results
+p.reduce((a, b) => a + b, 0); // fold left
+p.find((x) => x > 100); // first match or null
+p.some((x) => x > 100); // any match?
+p.every((x) => x > 0); // all match?
+p.count(); // count elements
+p.forEach((x) => console.log(x)); // side effects
+p.first(); // first element or null
+p.last(); // last element or null
+p.sum(); // sum (number pipelines)
+p.min(); // minimum (optional comparator: .min(cmp))
+p.max(); // maximum (optional comparator: .max(cmp))
+p.groupBy((x) => x.category); // Map<K, T[]>
+p.toMap(
+  (x) => x.id,
+  (x) => x
+); // Map<K, V>
+p.join(", "); // join strings
 ```
 
 Calling any terminal runs the entire pipeline in a single pass.
@@ -151,47 +155,65 @@ data.filter(pred)  → full pass, allocates array
 
 The fused version touches each element at most once and stops early.
 
-## Current vs Future Fusion
+## Compile-Time Fusion with `fused()`
 
-### Current (Phase 1): Runtime Fusion
+`lazy()` alone is runtime fusion: each element flows through every step before the next
+one starts, nothing is allocated between steps, and `take(5)` stops after five elements.
+The `LazyPipeline` object itself still exists at runtime.
 
-The `LazyPipeline` class provides runtime fusion:
-
-- **Single-pass iteration** — each element flows through all steps before the next
-- **No intermediate arrays** — `filter().map().take()` doesn't allocate between steps
-- **Early termination** — `take(5)` stops after 5 elements, doesn't process the rest
-
-The pipeline object itself exists at runtime (allocation overhead), but the fusion benefit comes from avoiding intermediate arrays on large datasets.
-
-### Future (Phase 2): Compile-Time Fusion
-
-The `lazy` macro will inspect the full method chain at compile time and emit a hand-optimized loop — no `LazyPipeline` class at runtime at all.
+`fused(chain)` removes it. The transformer reads the whole chain at compile time and emits
+one loop in place of the call:
 
 ```typescript
-// Phase 2 (future): macro rewrites this to a single for-loop
-const result = lazy(users)
-  .filter((u) => u.active)
-  .map((u) => u.score)
-  .sum();
+import { fused, lazy } from "@typesugar/fusion";
 
-// Compiles to:
-// let __sum = 0;
-// for (const __el of users) {
-//   if (__el.active) __sum += __el.score;
-// }
-// const result = __sum;
+const total = fused(
+  users
+    .filter((u) => u.active)
+    .map((u) => u.score * 2)
+    .reduce((a, b) => a + b, 0)
+);
+
+const sum = fused(
+  lazy(users)
+    .filter((u) => u.active)
+    .map((u) => u.score)
+    .sum()
+);
 ```
 
-This will be true zero-cost abstraction: write high-level pipeline code, get hand-optimized loops.
+`total` compiles to (generated names shortened):
+
+```typescript
+const total = (() => {
+  let acc = 0;
+  for (const el of users) {
+    if (!((u) => u.active)(el)) continue;
+    const v = ((u) => u.score * 2)(el);
+    acc = ((a, b) => a + b)(acc, v);
+  }
+  return acc;
+})();
+```
+
+Two chain shapes are fused, each keeping its own semantics:
+
+| Root              | Intermediate steps      | Terminal steps                                                                           | Callbacks receive                                                                    |
+| ----------------- | ----------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| An array or tuple | `map`, `filter`         | `reduce` (with an initial value), `find`, `some`, `every`, `forEach`                     | `(value, index, array)`, as the Array methods pass them                              |
+| `lazy(iterable)`  | `map`, `filter`, `take` | `toArray`, `reduce`, `sum`, `count`, `find`, `some`, `every`, `forEach`, `first`, `last` | the value only; `find`/`first`/`last` return `null` when empty, as LazyPipeline does |
+
+Anything else — another receiver type, an unsupported step (`sort`, `flatMap`, `min`, …), or a
+callback containing `await`/`yield` that the loop's wrapper function would capture — is left
+unfused: `fused(chain)` becomes plain `chain`, with identical behaviour. Without the
+transformer, `fused` is the identity function.
 
 ## Zero-Cost Guarantee
 
-Fusion's zero-cost story has two phases, each eliminating a different category of overhead:
-
-- **Phase 1 (current):** The `LazyPipeline` object is allocated at runtime, but no intermediate arrays are created. A chain like `.filter().map().take()` performs single-pass iteration, eliminating the O(n) allocations-per-operation cost of standard array methods. For large datasets this is the dominant cost savings.
-- **Phase 2 (planned):** The `lazy` and `fused` macros will compile method chains directly to single for-loops, eliminating the `LazyPipeline` object entirely. No class instantiation, no method dispatch — just a tight loop.
-
-**Net effect:** Phase 1 achieves _memory-zero-cost_ (no intermediate collections). Phase 2 will achieve _allocation-zero-cost_ (no pipeline object). Together they deliver true zero-cost abstraction where the high-level pipeline syntax compiles to the same code you would write by hand.
+- **`lazy()`:** no intermediate collections (a `.filter().map().take()` chain is one pass), but
+  one `LazyPipeline` object per pipeline.
+- **`fused(...)`:** no pipeline object and no method dispatch: the chain becomes the loop you
+  would write by hand.
 
 ## When to Use `lazy()` vs Plain Array Methods
 
@@ -207,10 +229,9 @@ Fusion's zero-cost story has two phases, each eliminating a different category o
 
 `@typesugar/fusion` is designed to interoperate with the rest of the typesugar ecosystem:
 
-- **Any Iterable source** — `lazy()` accepts any `Iterable`, including `@typesugar/std` collections like `Range` and `Tuple`, plain arrays, Sets, Maps, and generators.
+- **Any Iterable source** — `lazy()` accepts any `Iterable`: plain arrays, Sets, Maps, strings and generators. `@typesugar/std`'s `Range` and `@typesugar/fp`'s `List` are plain data, not iterables, so convert them to an array first (for a Range, `toArray(range)` from `@typesugar/std`).
 - **Vec + numeric math** — `vec()` operations (`add`, `scale`, `dot`, etc.) provide SIMD-style element-wise arithmetic on numeric arrays, complementing the iterator pipeline for batch math workloads.
-- **Compatible with @typesugar/fp** — `@typesugar/fp`'s lazy `List` also uses deferred evaluation. You can feed a lazy `List` into `lazy()` (it implements `Iterable`) for fusion, or use each independently depending on whether you need persistent data structure semantics or pure throughput.
-- **Macro registration** — Fusion's compile-time macros (Phase 2) are registered through `@typesugar/core`'s `globalRegistry`, following the same pattern as all other typesugar macro packages.
+- **Macro registration** — the `fused` macro is loaded from the package's `./macros` entry, like every other typesugar macro package. `lazy` is a plain runtime function, not a macro.
 
 ## What's Next
 

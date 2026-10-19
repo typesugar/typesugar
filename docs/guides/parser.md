@@ -167,6 +167,11 @@ Parse error at line 3, col 5: expected "}" or ","
 
 The parser tracks the "furthest failure" across all alternation branches, so errors point to the most likely problem — not just the first branch that failed.
 
+Every parser — combinators, the runtime `grammar`/`buildParser`, and the parser the
+transformer inlines for a `grammar` template — throws a `ParseError`. It carries `pos` (the
+0-based offset), 1-based `line` and `col`, and `expected`. Its message is the line above
+followed by a second line showing the input around the failure.
+
 ```typescript
 import { ParseError } from "@typesugar/parser";
 

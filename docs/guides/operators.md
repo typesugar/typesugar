@@ -4,19 +4,28 @@ typesugar provides operator overloading via `@op` JSDoc on typeclass methods: st
 
 ## Standard Operators via @op JSDoc
 
-The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures:
+The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures. For the standard typeclasses, operator syntax is off until you import the typeclass's `ops` activation module (PEP-052) — without it, `a + b` is left alone:
 
 ```typescript
-import { Numeric, numericRational, rational } from "@typesugar/std";
+import "@typesugar/std/syntax/numeric/ops"; // + - *
+import "@typesugar/std/syntax/fractional/ops"; // /
+import "@typesugar/std/syntax/ord/ops"; // < <= > >=
+import { rational, rationalToString } from "@typesugar/math";
 
 const a = rational(1n, 2n);
 const b = rational(1n, 3n);
 
-// Operators work automatically through Numeric typeclass
 const sum = a + b; // Compiles to: numericRational.add(a, b)
 const product = a * b; // Compiles to: numericRational.mul(a, b)
-const comparison = a < b; // Compiles to: ordRational.compare(a, b) < 0
+const quotient = a / b; // Compiles to: fractionalRational.div(a, b)
+const comparison = a < b; // Compiles to: ordRational.lessThan(a, b)
+rationalToString(sum); // "5/6"
 ```
+
+The instances (`numericRational`, …) are imported for you. The activation modules are
+`@typesugar/std/syntax/<typeclass>/ops` for `eq` (`===`, `!==`), `ord`, `semigroup`,
+`monoid`, `group` (`+`), `numeric` (`+ - *`), `integral` (`/ %`) and `fractional` (`/`).
+A typeclass you define in the same file with `@op` tags needs no activation import.
 
 Typeclasses define methods with `@op` JSDoc tags, which the transformer uses to dispatch operators:
 
@@ -65,11 +74,10 @@ This approach is **zero-cost** — the operator is transformed directly to the m
 ### Bitwise
 
 | Operator | Typical Method | Example  |
-| -------- | -------------- | -------- | --- | --- |
+| -------- | -------------- | -------- |
 | `&`      | `and`          | `a & b`  |
-| `        | `              | `or`     | `a  | b`  |
+| `\|`     | `or`           | `a \| b` |
 | `^`      | `xor`          | `a ^ b`  |
-| `~`      | `not`          | `~a`     |
 | `<<`     | `shl`          | `a << b` |
 | `>>`     | `shr`          | `a >> b` |
 
@@ -114,15 +122,8 @@ h(5); // 12 (5 + 1 = 6, 6 * 2 = 12)
 
 ## Unary Operators
 
-```typescript
-/** @typeclass */
-interface Negate<A> {
-  /** @op - */
-  negate(a: A): A;
-}
-```
-
-When an instance exists, `-c` compiles to `negateInstance.negate(c)`.
+Not yet supported: `@op` dispatch covers binary operators only. A unary `-c` or `~c` is
+left as plain JavaScript, so call the method directly (`negate(c)`).
 
 ## Comparison with @derive
 
@@ -139,13 +140,15 @@ class Point { ... }
 
 ## Type Safety
 
-Operator dispatch is fully type-checked:
+Dispatch picks the instance from the left operand's type. The right operand is not
+checked against the method's parameter type when the operator is rewritten:
 
 ```typescript
-// If Vec2 has Numeric instance, vec + 5 fails if add expects (Vec2, Vec2)
-const sum = vec + other; // OK
-const bad = vec + 5; // Type error if add expects Vec2
+const sum = vec + other; // OK: vecOps.add(vec, other)
+const bad = vec + 5; // Rewritten anyway; the mismatch only shows up as an output type error
 ```
+
+Set the bundler plugin's `strict: true` to have the expanded code type-checked (see [Type Safety](./type-safety.md)); the build then fails on this mistake.
 
 ## Performance
 

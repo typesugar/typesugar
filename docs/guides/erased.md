@@ -154,9 +154,10 @@ Returns `null` if the vtable doesn't have the required methods.
 
 ```typescript
 import { extendCapabilities } from "@typesugar/erased";
+import type { ShowCapability, EqCapability } from "@typesugar/erased";
 
-const withEq = extendCapabilities(showOnly, {
-  equals: (a, b) => a === b,
+const withEq = extendCapabilities<[ShowCapability], [ShowCapability, EqCapability]>(showOnly, {
+  equals: (a: unknown, b: unknown) => a === b,
 });
 ```
 
@@ -220,31 +221,50 @@ The capability system mirrors typesugar's typeclass system. The `erased()` macro
 | `OrdCapability`  | `Ord`     | `compare` → `compare` |
 | `HashCapability` | `Hash`    | `hash` → `hash`       |
 
-**Available for auto-derivation:** Show, Eq, Ord, Hash (these have typeclass definitions in `@typesugar/std` and `@typesugar/fp`).
+`CloneCapability` → `Clone` (`clone`), `DebugCapability` → `Debug` (`debug`) and
+`JsonCapability` → `Json` (`toJson`, `fromJson`) are mapped the same way, so `erased()` can
+resolve them from `@derive(Clone, Debug, Json)` companions too.
 
-**Requires manual vtable construction:** Clone, Debug, Json. These capabilities are supported by `eraseWith()` but have no corresponding typeclass in the registry, so `erased()` cannot resolve them automatically. Use `eraseWith()` or the convenience constructors to provide implementations.
+Instances are found for types with `@derive`d or `@impl` instances in scope, and for
+primitives when the file imports `@typesugar/std`'s instances: with
+`import { eqNumber, hashNumber } from "@typesugar/std"`, `erased<[EqCapability, HashCapability]>(n)`
+on a `number` compiles to `eraseWith(n, { equals: (a, b) => eqNumber.equals(a, b), hash: … })`.
+A missing instance is a compile error ("Missing typeclass instances for erased(): Eq<number>, …").
 
 ## Auto-Derivation with `erased()`
 
 The `erased()` macro resolves vtables automatically from the typeclass registry at compile time:
 
 ```typescript
-import { erased } from "@typesugar/erased";
+import { erased, show, equals } from "@typesugar/erased";
+import type { ShowCapability, EqCapability } from "@typesugar/erased";
 
-@derive(Show, Eq)
+/** @derive(Show, Eq) */
 interface Point {
   x: number;
   y: number;
 }
 
-const p = { x: 1, y: 2 };
-const e = erased<[Show, Eq]>(p);
-// Automatically generates the vtable from Show<Point> and Eq<Point> instances.
+const p: Point = { x: 1, y: 2 };
+const e = erased<[ShowCapability, EqCapability]>(p);
+// Automatically generates the vtable from the Show<Point> and Eq<Point> instances.
+show(e); // "Point(x = 1, y = 2)"
+equals(e, e); // true
 ```
+
+Give the value its type (`const p: Point`): an untyped object literal has no named type to
+look instances up for. The macro also accepts the typeclass names (`erased<[Show, Eq]>(p)`),
+but those need `Show`/`Eq` types in scope that take no type argument, so the capability
+names are the form that also type-checks under plain `tsc`.
+
+Known issue: with `strict: true` (expanded-output type checking), the emitted `eraseWith(...)`
+call reports "Argument of type 'Erased<readonly Capability<string>[]>' is not assignable to
+parameter of type 'WithShow'" where the result is passed to `show()` and friends. The code runs
+correctly.
 
 **How it works:**
 
-1. Parse type arguments: `erased<[Show, Eq]>(value)` → capabilities = `[Show, Eq]`
+1. Parse type arguments: `erased<[ShowCapability, EqCapability]>(value)` → capabilities = `[Show, Eq]`
 2. Infer the value's type: the TypeChecker determines `typeof value`
 3. Resolve instances: look up `Show<T>`, `Eq<T>` from the registry
 4. Generate the vtable: build `{ show: ..., equals: ... }` at compile time
