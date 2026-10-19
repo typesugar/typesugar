@@ -17,7 +17,11 @@ const LSP_BIN = path.resolve(__dirname, "../packages/lsp-server/bin/typesugar-ls
  */
 class LspClient {
   private process: ChildProcess;
-  private buffer = "";
+  // Bytes, not a string: Content-Length counts UTF-8 bytes, and a chunk may
+  // end mid-character. Slicing a decoded string by Content-Length overshoots
+  // by one character per extra byte of any non-ASCII text (e.g. the "—" in
+  // the deprecation warning) and breaks the framing of the next message.
+  private buffer: Buffer = Buffer.alloc(0);
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>();
   private notifications: Array<{ method: string; params: any }> = [];
   private nextId = 1;
@@ -29,7 +33,7 @@ class LspClient {
     });
 
     this.process.stdout!.on("data", (chunk: Buffer) => {
-      this.buffer += chunk.toString();
+      this.buffer = Buffer.concat([this.buffer, chunk]);
       this.processBuffer();
     });
   }
@@ -39,7 +43,7 @@ class LspClient {
       const headerEnd = this.buffer.indexOf("\r\n\r\n");
       if (headerEnd === -1) break;
 
-      const header = this.buffer.slice(0, headerEnd);
+      const header = this.buffer.subarray(0, headerEnd).toString("ascii");
       const match = header.match(/Content-Length:\s*(\d+)/i);
       if (!match) break;
 
@@ -47,8 +51,8 @@ class LspClient {
       const bodyStart = headerEnd + 4;
       if (this.buffer.length < bodyStart + contentLength) break;
 
-      const body = this.buffer.slice(bodyStart, bodyStart + contentLength);
-      this.buffer = this.buffer.slice(bodyStart + contentLength);
+      const body = this.buffer.subarray(bodyStart, bodyStart + contentLength).toString("utf8");
+      this.buffer = this.buffer.subarray(bodyStart + contentLength);
 
       const msg = JSON.parse(body);
       if (msg.id !== undefined && this.pending.has(msg.id)) {
@@ -152,6 +156,14 @@ describe("LSP Server Integration", () => {
 
     // Send initialized notification
     client.notify("initialized", {});
+
+    // PEP-060 D5: the server says once that it is unsupported, as a
+    // window/showMessage notification (not a request the client must answer).
+    // The message contains non-ASCII text, which also exercises byte-correct
+    // framing of the stream.
+    const warning = await client.waitForNotification("window/showMessage");
+    expect(warning.type).toBe(2); // MessageType.Warning
+    expect(warning.message).toMatch(/not supported in 1\.0/);
 
     // Server should not crash — verify by sending another request
     const shutdownResponse = await client.send("shutdown", null);

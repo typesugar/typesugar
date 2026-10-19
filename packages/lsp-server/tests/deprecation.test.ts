@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
+import { MessageType, ShowMessageNotification } from "vscode-languageserver/node.js";
 import { DEPRECATION_MESSAGE, announceDeprecation } from "../src/deprecation.js";
 
 describe("lsp-server deprecation notice", () => {
@@ -14,19 +15,30 @@ describe("lsp-server deprecation notice", () => {
     expect(DEPRECATION_MESSAGE).toContain("editor-setup");
   });
 
-  it("warns on stderr and in the editor, once per process", () => {
+  it("warns on stderr and with a window/showMessage notification, once per process", () => {
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const showWarningMessage = vi.fn();
-    const connection = { window: { showWarningMessage } };
+    // stdout carries the JSON-RPC stream under --stdio: a stray write corrupts it.
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const sendNotification = vi.fn();
+    const sendRequest = vi.fn();
+    const connection = { sendNotification, sendRequest };
     try {
       announceDeprecation(connection);
       announceDeprecation(connection);
       expect(stderr).toHaveBeenCalledTimes(1);
       expect(String(stderr.mock.calls[0][0])).toContain(DEPRECATION_MESSAGE);
-      expect(showWarningMessage).toHaveBeenCalledTimes(1);
-      expect(showWarningMessage).toHaveBeenCalledWith(DEPRECATION_MESSAGE);
+      expect(stdout).not.toHaveBeenCalled();
+      // A notification, not window/showMessageRequest: the warning has no
+      // actions, so there is nothing for the client to answer.
+      expect(sendRequest).not.toHaveBeenCalled();
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+      const [type, params] = sendNotification.mock.calls[0];
+      expect(type.method).toBe("window/showMessage");
+      expect(type.method).toBe(ShowMessageNotification.type.method);
+      expect(params).toEqual({ type: MessageType.Warning, message: DEPRECATION_MESSAGE });
     } finally {
       stderr.mockRestore();
+      stdout.mockRestore();
     }
   });
 
