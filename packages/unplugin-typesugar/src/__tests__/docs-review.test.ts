@@ -136,6 +136,47 @@ describe("S#6: include/exclude take globs", () => {
   });
 });
 
+describe("S#6: warns about plain-word include/exclude patterns", () => {
+  // Patterns are process-wide one-time warnings, so each test uses fresh names.
+  function warningsFor(opts: Record<string, unknown>): string[] {
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      unpluginFactory(opts as never, { framework: "vite" } as never);
+      return spy.mock.calls.map((c) => String(c[0]));
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("a bare directory name gets a **/name/** suggestion", () => {
+    expect(warningsFor({ exclude: ["warn-tests"] })).toEqual([
+      '[typesugar] include/exclude pattern "warn-tests" is now matched as a glob (substring matching was removed). Did you mean "**/warn-tests/**"?',
+    ]);
+  });
+
+  it("a relative path gets a path/** suggestion, a dotted fragment a **/*frag* one", () => {
+    const w = warningsFor({ include: "warn-pkg/core/", exclude: [".warnspec."] });
+    expect(w).toHaveLength(2);
+    expect(w[0]).toContain('pattern "warn-pkg/core/"');
+    expect(w[0]).toContain('Did you mean "warn-pkg/core/**"?');
+    expect(w[1]).toContain('Did you mean "**/*.warnspec.*"?');
+  });
+
+  it("globs, absolute paths and RegExps do not warn", () => {
+    expect(
+      warningsFor({
+        include: ["**/*.ts", "src/**", "a?b.ts", "{x,y}.ts", "[ab].ts", "!c.ts", /plain/],
+        exclude: [path.join(dir, "warn-abs"), "C:\\warn\\abs"],
+      })
+    ).toEqual([]);
+  });
+
+  it("warns once per pattern per process", () => {
+    expect(warningsFor({ exclude: ["warn-once"] })).toHaveLength(1);
+    expect(warningsFor({ exclude: ["warn-once"] })).toHaveLength(0);
+  });
+});
+
 describe("S#7 / A#4: cfgConfig sets cfg() conditions", () => {
   it("cfgConfig: { debug: true } selects the debug branch", () => {
     project({

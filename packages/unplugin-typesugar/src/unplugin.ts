@@ -151,10 +151,48 @@ function lineColumn(text: string, pos: number): { line: number; column: number }
   return { line, column: pos - lineStart };
 }
 
+/** Patterns already warned about in this process (warn once, not per plugin instance). */
+const warnedPlainPatterns = new Set<string>();
+
+/**
+ * The glob a substring-era pattern most likely meant: `tests` ->
+ * `**\/tests/**`, `packages/core` -> `packages/core/**`, `.spec.` ->
+ * `**\/*.spec.*`.
+ */
+function suggestGlob(pattern: string): string {
+  if (pattern.includes("/")) return `${pattern.replace(/\/+$/, "")}/**`;
+  if (pattern.includes(".")) return `**/*${pattern}*`;
+  return `**/${pattern}/**`;
+}
+
+/**
+ * include/exclude strings used to be substring matches; they are globs now,
+ * so an old config like `exclude: ["tests"]` silently stops matching. Warn
+ * (once per pattern) about any string with no glob metacharacters that is not
+ * an absolute path, since that is almost always a substring-era pattern.
+ */
+function warnAboutPlainPatterns(...patterns: Array<FilterPattern | undefined>): void {
+  for (const pattern of patterns) {
+    if (pattern === undefined) continue;
+    for (const p of Array.isArray(pattern) ? pattern : [pattern]) {
+      if (typeof p !== "string" || p === "") continue;
+      if (/[*?[\]{}!]/.test(p)) continue;
+      if (path.isAbsolute(p) || path.win32.isAbsolute(p)) continue;
+      if (warnedPlainPatterns.has(p)) continue;
+      warnedPlainPatterns.add(p);
+      console.warn(
+        `[typesugar] include/exclude pattern "${p}" is now matched as a glob ` +
+          `(substring matching was removed). Did you mean "${suggestGlob(p)}"?`
+      );
+    }
+  }
+}
+
 export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined> = (
   options = {},
   meta
 ) => {
+  warnAboutPlainPatterns(options?.include, options?.exclude);
   let pipeline: TransformationPipeline | undefined;
   /** Error from creating the pipeline; reported (fatally) by buildStart/transform. */
   let setupError: unknown;
