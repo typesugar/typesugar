@@ -21,6 +21,7 @@ import {
   PROFILING_ENABLED,
   type FileTimings,
   config,
+  assertSupportedTypeScript,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
 import { MacroTransformer, discoverOpaqueTypesFromImports } from "@typesugar/transformer-core";
@@ -322,6 +323,8 @@ export function macroTransformerFactory(
   config?: MacroTransformerConfig,
   stateOrExtras?: TransformerState | TsPatchTransformerExtras
 ): ts.TransformerFactory<ts.SourceFile> {
+  // PEP-060 item 1: reject TypeScript 7 with one clear message (memoized).
+  assertSupportedTypeScript(ts);
   const state = isTransformerState(stateOrExtras) ? stateOrExtras : undefined;
   const tsPatchExtras = !state && isTsPatchExtras(stateOrExtras) ? stateOrExtras : undefined;
   const reportDiagnostic = (diag: ts.Diagnostic): void => {
@@ -1046,6 +1049,8 @@ export class TransformationPipeline {
     fileNames: string[],
     private options: PipelineOptions = {}
   ) {
+    // PEP-060 item 1: reject TypeScript 7 with one clear message (memoized).
+    assertSupportedTypeScript(ts);
     this.verbose = options.verbose ?? false;
     this.transformerConfig = {
       verbose: this.verbose,

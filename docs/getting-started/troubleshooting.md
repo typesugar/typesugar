@@ -23,6 +23,35 @@ approve them.
 **Fix:** Run `npx typesugar approve-macros` and commit the `typesugar.config.ts` it
 writes (see [End User Guide](./end-user.md#step-5-approve-the-library-s-macros)).
 
+### "TypeScript 7.x is not supported" {#typescript-7}
+
+The full message starts `[typesugar] TypeScript 7.0.2 is not supported: TypeScript 7 removed
+the JavaScript compiler API that typesugar's transformer needs.`
+
+**Cause:** typesugar's transformer, bundler plugin, language-service plugin, LSP server and
+ESLint plugin are built on TypeScript's JavaScript compiler API (`ts.factory`,
+`ts.createProgram`, transformers, the type checker). TypeScript 5.x and 6.x have it.
+TypeScript 7 (the native port, `typescript@latest` since July 2026) does not: its package
+root exports only the version, so typesugar checks the version when it starts and stops
+with this message instead of failing later with an opaque `Cannot read properties of
+undefined`. The same message, with different wording, appears for a `typescript` older
+than 5.9 or a module missing `ts.factory` / `ts.createProgram`. (Before 5.5, Node's ESM
+loader sees none of TypeScript's named exports; 5.5 to 5.8 lack checker methods typesugar
+uses to resolve `@impl X<object>` and `@impl X<unknown>` instances.)
+
+**Fix:** install TypeScript 6 (or 5.9) as the project's `typescript`:
+
+```bash
+npm install --save-dev typescript@6
+```
+
+typesugar supports `typescript` `>=5.9.0 <7.0.0`. If you also want TypeScript 7's compiler
+for your own type-checking, install it under an npm alias (for example
+`"typescript-7": "npm:typescript@^7"`) so that the name `typescript` still resolves to 6.x.
+Note that typesugar's suppression of sugar-specific diagnostics (operators, extension
+methods) only runs inside the TypeScript that typesugar hosts, not inside TypeScript 7's
+compiler; use `npx typesugar check` for the type-check that understands typesugar.
+
 ### "Cannot find module '@typesugar/transformer'"
 
 **Cause:** Package not installed or not in dependencies.

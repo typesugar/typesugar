@@ -746,7 +746,12 @@ Transactor;
 
 Most packages have:
 
-- `typescript: >=5.0.0 <6.0.0`
+- `typescript: >=5.9.0 <7.0.0` (TypeScript 5.9 or 6.x; TypeScript 7 has no JavaScript
+  compiler API, see [Troubleshooting](/getting-started/troubleshooting#typescript-7)).
+  Packages whose runtime entry never loads TypeScript (fp, validate, contracts,
+  collections, codec, fusion, mapper, parser, strings, units, erased, testing and the
+  `typesugar` umbrella) mark it optional: a production install doesn't need it, but
+  their `./macros` entries still do at build time.
 - `@typesugar/transformer: >=0.1.0` (peer)
 
 Check each package's package.json for specifics.

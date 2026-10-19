@@ -42,7 +42,7 @@ server's environment), which logs what it does to the TypeScript server log.
 
 ::: warning TypeScript 7
 TypeScript 7 (the native port) has no tsserver plugin API, so typesugar's editor support doesn't
-work with it yet. Use TypeScript 6 (or 5.x) as typesugar's `typescript` devDependency. On
+work with it yet. Use TypeScript 6 (or 5.9+) as typesugar's `typescript` devDependency. On
 TypeScript 7 the plugin refuses to load with a
 ["TypeScript 7.x is not supported"](./troubleshooting.md#typescript-7) message.
 :::

@@ -16,6 +16,7 @@
  */
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const ROOT = process.cwd();
 const PKGS_DIR = join(ROOT, "packages");
@@ -59,6 +60,49 @@ for (const name of readdirSync(PKGS_DIR)) {
   }
 }
 
+/**
+ * PEP-060 item 1: a package that marks its `typescript` peer optional
+ * (`peerDependenciesMeta.typescript.optional`) promises its `.` runtime entry
+ * never loads TypeScript — not directly (checked above) and not transitively
+ * through a dependency such as `@typesugar/core`. Load the built CJS entry in a
+ * fresh node and fail if `typescript` ends up in `require.cache`.
+ */
+const optionalPeerLeaks = [];
+for (const name of readdirSync(PKGS_DIR)) {
+  const pkgDir = join(PKGS_DIR, name);
+  const pkgJson = join(pkgDir, "package.json");
+  if (!existsSync(pkgJson)) continue;
+  const pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
+  if (!pkg.peerDependenciesMeta?.typescript?.optional) continue;
+  const entry = join(pkgDir, "dist/index.cjs");
+  if (!existsSync(entry)) continue;
+  const probe =
+    `require(${JSON.stringify(entry)});` +
+    `const hit = Object.keys(require.cache).find((k) => /[\\\\/]node_modules[\\\\/]typescript[\\\\/]/.test(k));` +
+    `if (hit) { console.log(hit); process.exit(3); }`;
+  const r = spawnSync(process.execPath, ["-e", probe], { encoding: "utf8" });
+  if (r.status !== 0) {
+    optionalPeerLeaks.push({
+      name,
+      detail:
+        r.status === 3
+          ? `loads ${r.stdout.trim()}`
+          : `failed to load: ${r.stderr.trim().split("\n")[0]}`,
+    });
+  }
+}
+if (optionalPeerLeaks.length > 0) {
+  console.error(
+    "✗ Runtime-purity check failed — these packages mark `typescript` an optional peer, but their `.` entry loads it:"
+  );
+  for (const l of optionalPeerLeaks) console.error(`  - ${l.name}: ${l.detail}`);
+  console.error(
+    "\nEither keep the runtime entry TypeScript-free or drop the `optional` flag from\n" +
+      "its `peerDependenciesMeta.typescript` (PEP-060 item 1)."
+  );
+  process.exit(1);
+}
+
 if (leaks.length > 0) {
   console.error(
     "✗ Runtime-purity check failed — these runtime libraries pull `typescript` into their `.` entry:"
@@ -75,5 +119,6 @@ if (leaks.length > 0) {
 }
 
 console.log(
-  "✓ Runtime-purity check passed — no runtime library leaks `typescript` into its `.` entry."
+  "✓ Runtime-purity check passed — no runtime library leaks `typescript` into its `.` entry," +
+    " and every optional-typescript-peer package's entry stays TypeScript-free."
 );

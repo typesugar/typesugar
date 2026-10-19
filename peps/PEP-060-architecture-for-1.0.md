@@ -1,6 +1,7 @@
 # PEP-060: Architecture for 1.0 — What to Settle Before the Freeze
 
-**Status:** Draft (2026-10-19) — proposals and decisions only; nothing here is implemented.
+**Status:** Draft (2026-10-19) — proposals and decisions; item 1's packaging part is
+implemented (see its status note), the rest is not.
 **Date:** 2026-10-19
 **Author:** Claude (with Dean Povey)
 **Depends on:** [PEP-059](PEP-059-1.0-readiness.md) (deep review outcome, 1.0 task list),
@@ -55,6 +56,38 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
    actionable message; fix the init templates. Record the post-1.0 direction:
    **typesugar owns a pinned JS TypeScript (6.x) and expands source-to-source**, handing
    expanded TS to whatever compiler the user runs, including tsgo. (S R1)
+
+   _Status (2026-10-19, packaging part landed on `ts-range-1.0`):_
+   - Peer range is **`>=5.9.0 <7.0.0`**, not `>=5.0.0 <7`. Measured per version
+     (build, `pnpm typecheck`, core/transformer-core/macros/transformer/std/fp suites):
+     5.0.4 fails to build (no `checker.isTypeAssignableTo` before 5.4, no
+     `Scanner.getTokenStart`/`ImportDeclaration.attributes` before 5.1/5.3, and many
+     inference errors in fp/std); 5.4.5 builds partly but every ESM entry dies on
+     `ts.ScriptTarget` because TypeScript only ships Node-ESM named exports from 5.5;
+     5.5.4 and 5.8.3 build and type-check but `@impl X<unknown>` / `X<object>` never
+     resolve (`getUnknownType` arrives in 5.8, `getNonPrimitiveType` in 5.9). 5.9.3
+     and 6.0.3 pass, apart from failures that also occur on 5.9.3 and come from
+     unrelated work in progress. Supporting 5.0–5.8 would mean replacing those checker
+     calls and the `import * as ts` ESM entries; not worth it for 1.0.
+   - TypeScript 6 needed only test-harness and repo-config fixes: `types: ["node"]`
+     (TS 6 defaults `types` to `[]`), `ignoreDeprecations: "6.0"` for tsup's
+     hard-coded `baseUrl` in the repo's own declaration build (CI adds it in the 6.x
+     cell only, since 5.x rejects the value), and two tests that evaluated
+     `transpileModule` output with `return ${js}` (TS 6 prefixes `"use strict";`).
+   - `typescript` is an optional peer of the 13 packages whose `.` entry never loads it
+     (codec, collections, contracts, erased, fp, fusion, mapper, parser, strings,
+     testing, units, validate, typesugar); `check:runtime-purity` enforces it. effect
+     was on the review's list but its root loads `@typesugar/core`, so it stays
+     required (item 10).
+   - Guard: `assertSupportedTypeScript` in `@typesugar/core`, run first at
+     `@typesugar/macros` load and by every host before its first compiler-API access;
+     TS 7 (and < 5.9, or a module without `ts.factory`/`ts.createProgram`) gets one
+     message linking to `getting-started/troubleshooting#typescript-7`.
+   - CI: `typescript-compat` job in `ci.yml` (matrix 5.9.2 / 6.0.3, pnpm override,
+     build + typecheck + the suites above), gating nothing.
+   - Not done here: the post-1.0 "typesugar owns its TS" direction (b) and the
+     MacroContext tiering (c).
+
 2. **One engine, thin hosts** — BLOCKS 1.0 for host parity and for which transformer
    exports are public; L. PEP-056 unified the dispatcher, not the pipeline: there are
    **12 paths** from `.ts` to output, with HKT preprocessing implemented 5×, diagnostic

@@ -82,6 +82,16 @@ export {
 // Diagnostics System
 export * from "./diagnostics.js";
 
+// TypeScript-major guard (PEP-060 item 1): every host calls this once before
+// its first compiler-API access, so TypeScript 7 fails with one clear message.
+export {
+  assertSupportedTypeScript,
+  getUnsupportedTypeScriptReason,
+  UnsupportedTypeScriptError,
+  SUPPORTED_TYPESCRIPT_RANGE,
+  TYPESCRIPT_SUPPORT_URL,
+} from "./typescript-version.js";
+
 // Resolution Scope Tracking
 export {
   globalResolutionScope,

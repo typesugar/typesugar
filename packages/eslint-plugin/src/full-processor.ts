@@ -28,6 +28,7 @@ import type { Linter } from "eslint";
 import * as path from "node:path";
 import * as ts from "typescript";
 import { createPipeline, type TransformationPipeline } from "@typesugar/transformer/pipeline";
+import { assertSupportedTypeScript } from "@typesugar/transformer";
 import {
   isTypesugarUnusedImportError,
   mapMessages,
@@ -83,6 +84,8 @@ const fileStates = new Map<string, MappingState>();
  * Create the full processor that uses the actual typesugar transformer
  */
 export function createFullProcessor(): Linter.Processor {
+  // PEP-060 item 1: see createProcessor. Memoized.
+  assertSupportedTypeScript(ts);
   return {
     meta: {
       name: "typesugar-full",

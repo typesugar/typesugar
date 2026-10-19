@@ -21,7 +21,11 @@
 
 import type { Linter } from "eslint";
 import * as ts from "typescript";
-import { rewriteHKTTypeReferences, hasHKTPatterns } from "@typesugar/transformer";
+import {
+  rewriteHKTTypeReferences,
+  hasHKTPatterns,
+  assertSupportedTypeScript,
+} from "@typesugar/transformer";
 import { createPositionMapper } from "@typesugar/transformer/position-mapper";
 import {
   applyEdits,
@@ -149,6 +153,9 @@ function usesTypesugar(text: string): boolean {
  * Create the ESLint processor
  */
 export function createProcessor(): Linter.Processor {
+  // PEP-060 item 1: reject TypeScript 7 (no JS compiler API) with one clear
+  // message when the plugin loads, not on the first file. Memoized.
+  assertSupportedTypeScript(ts);
   // Per-file state between preprocess and postprocess. Each entry is removed
   // when its postprocess runs, so a long-lived ESLint process (editor
   // integration, `--cache` runs) doesn't retain every file it has linted.

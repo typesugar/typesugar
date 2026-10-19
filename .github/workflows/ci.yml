@@ -175,6 +175,84 @@ jobs:
       - name: TS Plugin Tests
         run: pnpm --filter @typesugar/ts-plugin test
 
+  # PEP-060 item 1: the packages peer `typescript >=5.9.0 <7.0.0`, but the lockfile
+  # pins one version (5.9.3, which every other job runs on). This job re-resolves
+  # the whole workspace against the range's two ends — 5.9.2 (the floor: older
+  # releases were measured to break, see MIN_MINOR in core/src/typescript-version.ts)
+  # and 6.0.3 (the last release with the JavaScript compiler API) — with a root
+  # pnpm override, then builds and runs
+  # a subset that exercises the compiler API end to end (core, transformer-core,
+  # the transformer pipeline, macros, std, fp). Nothing `needs` it, so it never
+  # gates publish-dry-run; a red cell means the advertised range is wrong.
+  typescript-compat:
+    name: TypeScript ${{ matrix.typescript }} compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        typescript: ["5.9.2", "6.0.3"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Override typescript to ${{ matrix.typescript }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.pnpm = { ...pkg.pnpm, overrides: { ...pkg.pnpm?.overrides, typescript: process.argv[1] } };
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          ' "${{ matrix.typescript }}"
+
+      # tsup's declaration build hard-codes `baseUrl: "."`, which TypeScript 6
+      # reports as deprecated (TS5101) and fails on. TypeScript 5.x rejects the
+      # "6.0" value, so silence it only in the 6.x cell. Repo-build only: users
+      # consume the published .d.ts and never run tsup.
+      - name: Silence TS 6 deprecations for the repo's own build
+        if: startsWith(matrix.typescript, '6.')
+        run: |
+          node -e '
+            const fs = require("fs");
+            for (const f of ["tsconfig.base.json", "packages/eslint-plugin/tsconfig.json"]) {
+              const src = fs.readFileSync(f, "utf8");
+              fs.writeFileSync(f, src.replace(/"compilerOptions":\s*\{/, (m) => m + "\n    \"ignoreDeprecations\": \"6.0\",") );
+            }
+          '
+
+      - run: pnpm install --no-frozen-lockfile
+
+      - name: Check the resolved typescript
+        run: |
+          for dir in . packages/core packages/transformer packages/macros; do
+            v=$(cd "$dir" && node -p 'require("typescript").version')
+            echo "$dir: typescript $v"
+            test "$v" = "${{ matrix.typescript }}"
+          done
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      # Each package's own vitest config, one package after another (the root
+      # config's `projects` list is not what selects these).
+      - name: Test subset
+        run: |
+          status=0
+          for pkg in core transformer-core macros transformer std fp; do
+            echo "::group::$pkg"
+            (cd "packages/$pkg" && pnpm exec vitest run) || { status=1; echo "::error::$pkg tests failed on typescript ${{ matrix.typescript }}"; }
+            echo "::endgroup::"
+          done
+          exit $status
+
   publish-dry-run:
     name: Publish (dry run)
     runs-on: ubuntu-latest

@@ -34,6 +34,8 @@ const TSCONFIG = {
     moduleResolution: "Bundler",
     strict: true,
     skipLibCheck: true,
+    // src/kill.ts uses `process`; TypeScript 6 no longer auto-includes @types.
+    types: ["node"],
     outDir: "out",
   },
   include: ["src"],
