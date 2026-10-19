@@ -213,3 +213,20 @@ export const s = wrap<UserId>("x");
     expect(errs.length).toBe(3);
   });
 });
+
+describe("type-level predicates", () => {
+  it("Extends is not distributive: never and unions give a plain true/false", () => {
+    // `A extends B ? ...` with a naked A distributes: Extends<never, X> was
+    // `never` and Extends<string | number, string> was `boolean`, so
+    // typeAssert<Extends<never, string>>() failed and Not<Extends<...>> lied.
+    const errs = typeErrors(`import type { Extends, Not, Equal } from "@typesugar/type-system";
+const a: Equal<Extends<never, string>, true> = true;
+const b: Equal<Extends<string | number, string>, false> = true;
+const c: Equal<Extends<"a" | "b", string>, true> = true;
+const d: Equal<Not<Extends<string, never>>, true> = true;
+const e: Equal<Not<Extends<null, undefined>>, true> = true;
+export { a, b, c, d, e };
+`);
+    expect(errs).toEqual([]);
+  });
+});
