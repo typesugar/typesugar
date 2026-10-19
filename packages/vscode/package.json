@@ -1,7 +1,7 @@
 {
   "name": "typesugar-vscode",
   "version": "0.1.1",
-  "description": "🧊 IDE support for typesugar — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
+  "description": "IDE support for typesugar — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "private": true,
   "repository": {

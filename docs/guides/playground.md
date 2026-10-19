@@ -29,11 +29,13 @@ playground: `typesugar` / `@typesugar/macros`, `@typesugar/std`, `@typesugar/fp`
 `@typesugar/effect`, `@typesugar/contracts`, `@typesugar/type-system`,
 `@typesugar/units`, `@typesugar/sql`, `@typesugar/parser`, `@typesugar/graph`,
 `@typesugar/codec`, `@typesugar/mapper`, `@typesugar/strings`,
-`@typesugar/testing`, `@typesugar/erased` and `@typesugar/fusion`.
+`@typesugar/testing`, `@typesugar/erased` and `@typesugar/fusion`. The
+`typeInfo<T>()` macro of `@typesugar/reflect` is registered by
+`@typesugar/macros`, so it expands too.
 
-Macros from other packages (for example `@typesugar/validate`'s `is<T>()` or
-`@typesugar/reflect`'s `typeInfo<T>()`) are not loaded there and are left
-unexpanded.
+`@typesugar/validate`'s `is<T>()` and `validate<T>()` are not loaded: its
+`assert` macro has the same name as `@typesugar/testing`'s, and the macro
+registry rejects the duplicate, so they are left unexpanded.
 
 ## Examples
 

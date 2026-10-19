@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/core",
   "version": "0.1.1",
-  "description": "🧊 Core types and registry for typesugar macro system",
+  "description": "Core types and registry for typesugar macro system",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

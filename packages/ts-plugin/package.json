@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/ts-plugin",
   "version": "0.1.1",
-  "description": "🧊 TypeScript language service plugin for typesugar",
+  "description": "TypeScript language service plugin for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/type-system",
   "version": "0.1.1",
-  "description": "🧊 Type-level programming utilities and macros for typesugar",
+  "description": "Type-level programming utilities and macros for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

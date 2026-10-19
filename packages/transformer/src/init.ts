@@ -534,7 +534,7 @@ export function injectPluginIntoConfig(
   return result;
 }
 
-function createExampleFile(cwd: string): void {
+export function createExampleFile(cwd: string): void {
   const srcDir = path.join(cwd, "src");
   if (!fs.existsSync(srcDir)) {
     fs.mkdirSync(srcDir, { recursive: true });
@@ -553,6 +553,13 @@ function createExampleFile(cwd: string): void {
  */
 
 import { comptime, derive, Eq, Clone, Debug, Json } from "typesugar";
+
+// Method syntax (.equals(), .clone(), ...) is opt-in per file (PEP-052):
+// each side-effect import below activates one family of derived methods.
+import "@typesugar/std/syntax/eq"; // .equals()
+import "@typesugar/std/syntax/clone"; // .clone()
+import "@typesugar/std/syntax/debug"; // .debug()
+import "@typesugar/std/syntax/json"; // .toJson()
 
 // Compile-time evaluation: this runs at build time, not runtime
 const BUILD_TIME = comptime(new Date().toISOString());
@@ -580,7 +587,7 @@ const user2 = user1.clone();
 
 console.log(user1.debug());
 console.log(\`Equal: \${user1.equals(user2)}\`);
-console.log(\`JSON: \${user1.toJson()}\`);
+console.log(\`JSON: \${JSON.stringify(user1.toJson())}\`);
 `;
 
   fs.writeFileSync(examplePath, content);

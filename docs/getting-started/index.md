@@ -21,22 +21,6 @@ packages, configures `tsconfig.json` (the transformer **and** the editor plugin)
 wires up `ts-patch`, patches your bundler config, and drops a runnable example at
 `src/typesugar-example.ts`.
 
-::: warning Add the syntax imports to the generated example
-Method syntax such as `user1.clone()` only rewrites in files that activate it
-(PEP-052), and the example `init` writes today doesn't. Add these lines under its
-first import, or it fails at runtime with `user1.clone is not a function`:
-
-```typescript
-import "@typesugar/std/syntax/eq"; // .equals()
-import "@typesugar/std/syntax/clone"; // .clone()
-import "@typesugar/std/syntax/debug"; // .debug()
-import "@typesugar/std/syntax/json"; // .toJson()
-```
-
-`toJson()` returns a plain object, so the example's last line prints
-`JSON: [object Object]`; wrap it in `JSON.stringify(...)` to see the JSON.
-:::
-
 Run the example and see its output:
 
 ```bash
