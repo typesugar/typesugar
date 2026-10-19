@@ -283,10 +283,21 @@ class MacroTransformer {
         const fromScope = currentScope ? " (with propagation)" : "";
         console.log(`[typesugar] Filling implicit parameters for call: ${funcName}()${fromScope}`);
       }
-      // Use visitEachChild (not visitNode) so the arguments get visited for
-      // nested macro expansion, but the call itself is not re-fed through
-      // tryTransform — which would trigger auto-specialization and inline the
-      // function body instead of preserving the call with the resolved instance.
+      // The completed call is auto-specialized exactly as the explicit call
+      // `f(x, inst)` would be (same tryAutoSpecializeFn path, same fallbacks).
+      // This deliberately supersedes the PEP-056 parity choice in commit
+      // 7210ac66, which kept implicit calls as plain dictionary passing
+      // (Dean's decision 2026-10-19).
+      const autoSpecResult = ts.isCallExpression(result)
+        ? tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, result)
+        : undefined;
+      if (autoSpecResult !== undefined) {
+        return preserveSourceMap(this.visitRewrittenCall(autoSpecResult, result), node);
+      }
+      // Not specializable: use visitEachChild (not visitNode) so the
+      // arguments get visited for nested macro expansion, but the call
+      // itself is not re-fed through tryTransform (which would fill it in
+      // and attempt specialization a second time).
       const visited = ts.visitEachChild(
         result,
         this.visit.bind(this),

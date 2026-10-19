@@ -17,10 +17,10 @@
  * 5. `/** @contract *\/` was not a JSDoc macro tag, and a registered
  *    third-party attribute macro could only be triggered in decorator form
  *    (guides-b #4, start #6).
- * 6. A call completed by `= implicit()` is filled in but deliberately NOT
- *    auto-specialized (PEP-056 parity choice; see
- *    packages/transformer/tests/implicit-no-autospec.test.ts) -- pinned here
- *    so the docs' description stays true (guides-c #1).
+ * 6. A call completed by `= implicit()` is filled in AND then
+ *    auto-specialized, exactly as the explicit call would be (Dean's
+ *    decision 2026-10-19, superseding the PEP-056 parity choice in 7210ac66;
+ *    see packages/transformer/tests/implicit-autospec.test.ts) (guides-c #1).
  *
  * Each test transforms a real on-disk program and, where the bug was a
  * runtime failure, EXECUTES the output.
@@ -442,26 +442,74 @@ describe("JSDoc attribute tags: @contract and third-party macros (docs guides-b 
 });
 
 // ---------------------------------------------------------------------------
-// 6. A call completed by `= implicit()` is filled in, NOT auto-specialized
+// 6. A call completed by `= implicit()` is filled in, then auto-specialized
 // ---------------------------------------------------------------------------
 
-describe("= implicit() calls are filled in but not specialized (docs guides-c #1)", () => {
-  it("sortWith([3, 1, 2]) fills numberOrd and keeps dictionary passing", () => {
-    const result = transform(
-      [
-        `import { implicit } from "typesugar";`,
-        `declare function log(v: unknown): void;`,
-        `interface Ord<A> { compare(a: A, b: A): number }`,
-        `/** @impl Ord<number> */`,
-        `const numberOrd: Ord<number> = {`,
-        `  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),`,
-        `};`,
-        `function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {`,
-        `  return items.slice().sort((a, b) => ord.compare(a, b));`,
-        `}`,
-        `log(sortWith([3, 1, 2]));`,
-      ].join("\n")
-    );
+const SORT_WITH = [
+  `import { implicit } from "typesugar";`,
+  `declare function log(v: unknown): void;`,
+  `interface Ord<A> { compare(a: A, b: A): number }`,
+  `/** @impl Ord<number> */`,
+  `const numberOrd: Ord<number> = {`,
+  `  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),`,
+  `};`,
+  `function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {`,
+  `  return items.slice().sort((a, b) => ord.compare(a, b));`,
+  `}`,
+].join("\n");
+
+describe("= implicit() calls are filled in and then specialized (docs guides-c #1)", () => {
+  it("sortWith([3, 1, 2]) becomes a hoisted specialization with compare inlined, and runs", () => {
+    const result = transform(`${SORT_WITH}\nlog(sortWith([3, 1, 2]));`);
+    expect(errors(result)).toEqual([]);
+    expect(result.code).toMatch(/__typesugar___sortWith_number_\d+__\(\[3, 1, 2\]\)/);
+    expect(result.code).not.toContain("sortWith([3, 1, 2], numberOrd)");
+    // The compare body is inlined into the hoisted function: no dictionary lookup.
+    const hoisted = result.code.match(/const __typesugar___sortWith_number_\d+__ =[^;]*;/s)?.[0];
+    expect(hoisted).toBeDefined();
+    expect(hoisted).toContain("a < b ? -1 : a > b ? 1 : 0");
+    expect(hoisted).not.toContain("compare");
+    expect(run(result.code, { typesugar: { implicit: () => undefined } })).toEqual([[1, 2, 3]]);
+  });
+
+  it("matches what the explicit call sortWith([3, 1, 2], numberOrd) produces", () => {
+    const implicitCall = transform(`${SORT_WITH}\nlog(sortWith([3, 1, 2]));`);
+    const explicitCall = transform(`${SORT_WITH}\nlog(sortWith([3, 1, 2], numberOrd));`);
+    expect(implicitCall.code).toBe(explicitCall.code);
+  });
+
+  it.each([
+    ["implicit", "sortTwice([3, 1, 2])"],
+    ["explicit", "sortTwice([3, 1, 2], numberOrd)"],
+  ])(
+    "an %s call to a function that propagates its dictionary via = implicit() falls back and runs",
+    (_kind, call) => {
+      const result = transform(
+        [
+          SORT_WITH,
+          `function sortTwice<T>(items: T[], ord: Ord<T> = implicit()): T[] {`,
+          `  return sortWith(sortWith(items));`,
+          `}`,
+          `log(${call});`,
+        ].join("\n")
+      );
+      expect(errors(result)).toEqual([]);
+      // Specializing would drop `ord`, which the inner calls receive only by
+      // propagation: the call keeps dictionary passing and says why.
+      expect(result.code).toContain("sortTwice([3, 1, 2], numberOrd)");
+      expect(result.code).toContain("return sortWith(sortWith(items, ord), ord);");
+      expect(result.code).not.toMatch(/__typesugar___sortTwice_/);
+      expect(
+        result.diagnostics.some(
+          (d) => d.severity === "warning" && /TS9602.*sortTwice.*implicit\(\)/.test(d.message)
+        )
+      ).toBe(true);
+      expect(run(result.code, { typesugar: { implicit: () => undefined } })).toEqual([[1, 2, 3]]);
+    }
+  );
+
+  it("a call marked // @no-specialize keeps dictionary passing and runs", () => {
+    const result = transform(`${SORT_WITH}\n// @no-specialize\nlog(sortWith([3, 1, 2]));`);
     expect(errors(result)).toEqual([]);
     expect(result.code).toContain("sortWith([3, 1, 2], numberOrd)");
     expect(result.code).not.toMatch(/__typesugar___sortWith_/);

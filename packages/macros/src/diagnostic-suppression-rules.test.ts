@@ -5,7 +5,6 @@ import { fileURLToPath } from "url";
 import {
   createMacroCallChainRule,
   createExtensionMethodCallRule,
-  createNewtypeAssignmentRule,
 } from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
@@ -229,12 +228,14 @@ describe("MacroCallChain diagnostic suppression rule — TS18004 (PEP-033 N2)", 
   });
 });
 
-describe("NewtypeAssignment rule — no longer needed by @typesugar/type-system", () => {
-  // The rule exists to hide a spurious TS2345 on `wrap<UserId>(42)` that the
-  // OLD `UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T`
+describe("@typesugar/type-system newtypes need no diagnostic suppression", () => {
+  // A NewtypeAssignment suppression rule used to hide a spurious TS2345 on
+  // `wrap<UserId>(42)` that the OLD
+  // `UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T`
   // produced. Since 6a99751a the real type reads a phantom `[__base]` slot, so
-  // TypeScript itself accepts every constructor call: with NO suppression rule
-  // registered there is nothing for the rule to hide, while real errors stay.
+  // TypeScript itself accepts every constructor call, and the rule was
+  // removed (2026-10). With NO suppression rule registered, the real library
+  // produces no spurious TS2345 and still reports the real errors.
   const newtypeModule = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../../type-system/src/newtype.ts"
@@ -280,6 +281,7 @@ export const bad2 = U("x");
   }
 
   it("wrap / newtypeCtor / validatedNewtype type-check with no rule registered", () => {
+    // Raw checker output: no suppression rule is consulted at all.
     const { diags, line } = check();
     const summary = diags.map((d) => `TS${d.code}: ${line(d).trim()}`);
     // Exactly the two real errors, and no TS2345 on any constructor argument.
@@ -287,11 +289,5 @@ export const bad2 = U("x");
       "TS2322: export const bad1: UserId = 42;",
       'TS2345: export const bad2 = U("x");',
     ]);
-  });
-
-  it("the rule would suppress nothing in that program", () => {
-    const { diags, checker, sf } = check();
-    const rule = createNewtypeAssignmentRule();
-    expect(diags.filter((d) => rule.shouldSuppress(d, checker, sf))).toEqual([]);
   });
 });

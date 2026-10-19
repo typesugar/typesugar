@@ -5,6 +5,10 @@
  * with the global registry when imported.
  */
 
+// MUST stay the first import: rejects TypeScript 7 (no JS compiler API) with one
+// clear message before any module below reads `ts.*` at load (PEP-060 item 1).
+import "./ts-guard.js";
+
 // Import to register all built-in macros
 import "./comptime.js";
 import "./derive.js";
@@ -368,7 +372,6 @@ export {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
-  createNewtypeAssignmentRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
 } from "./diagnostic-suppression-rules.js";

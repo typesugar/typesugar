@@ -104,7 +104,7 @@ describe("Diagnostic Parity — unified diagnostic suppression pipeline", () => 
     const expected = [...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES];
     // Note: we can't easily reflect on create*Rule exports, but ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES
     // is maintained alongside the registration function in the same file.
-    expect(expected).toHaveLength(7);
+    expect(expected).toHaveLength(6);
   });
 
   it("OperatorOverload: suppresses TS2365 only where an @op instance rewrites it", () => {
@@ -170,15 +170,16 @@ const y = x.clamp(0, 10);
     expect(filtered.every((d) => d.code !== 2339)).toBe(true);
   });
 
-  it("NewtypeAssignment: suppresses TS2322 for branded newtypes", () => {
+  it("branded newtypes: no rule hides an implicit Base → Newtype assignment", () => {
+    // There is no newtype suppression rule (NewtypeAssignment was removed in
+    // 2026-10); the brand errors newtypes exist to produce must survive.
     registerAllDiagnosticSuppressionRules();
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
 declare const __brand: unique symbol;
 type UserId = number & { readonly [__brand]: "UserId" };
-declare function makeUserId(n: number): UserId;
-const id: UserId = 42 as any;
+const id: UserId = 42;
 const n: number = id;
 `,
     });
@@ -187,11 +188,8 @@ const n: number = id;
     const checker = program.getTypeChecker();
     const filtered = filterDiagnostics(fileDiags, checker, (f) => program.getSourceFile(f));
 
-    // Any TS2322 about UserId ↔ number should be suppressed
-    const remaining2322 = filtered.filter(
-      (d) => d.code === 2322 && d.messageText.toString().includes("UserId")
-    );
-    expect(remaining2322).toHaveLength(0);
+    expect(fileDiags.map((d) => d.code)).toEqual([2322]);
+    expect(filtered.map((d) => d.code)).toEqual([2322]);
   });
 
   it("TypeRewriteAssignment: suppresses TS2322/TS2345 for @opaque types", () => {
@@ -288,7 +286,6 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
       "ExtensionMethodCall", // from @typesugar/macros
       "MacroCallChain", // from @typesugar/macros
       "MacroDecorator", // from @typesugar/macros
-      "NewtypeAssignment", // from @typesugar/macros
       "OperatorOverload", // from @typesugar/macros
       "TypeRewriteAssignment", // from @typesugar/macros
     ]);
@@ -297,16 +294,16 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
     expect(actualNames).toEqual(expectedNames);
   });
 
-  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 7 rules", () => {
+  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 6 rules", () => {
     const dummyMapFn = () => null;
     const registered = registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
-    expect(registered).toHaveLength(7);
+    expect(registered).toHaveLength(6);
     expect(new Set(registered)).toEqual(new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES));
   });
 
-  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 6 rules", () => {
+  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 5 rules", () => {
     const registered = registerAllDiagnosticSuppressionRules();
-    expect(registered).toHaveLength(6);
+    expect(registered).toHaveLength(5);
     expect(registered).not.toContain("MacroGenerated");
   });
 });
