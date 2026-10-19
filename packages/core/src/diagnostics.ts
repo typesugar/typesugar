@@ -650,6 +650,26 @@ For sum types, consider:
   seeAlso: "https://typesugar.org/errors/TS9105",
 };
 
+export const TS9106: DiagnosticDescriptor = {
+  code: 9106,
+  severity: "error",
+  category: DiagnosticCategory.DeriveFailed,
+  messageTemplate: "Cannot derive {typeclass} for '{type}'",
+  explanation: `A generic derivation strategy exists for {typeclass}, but it could not build an
+instance for {type}. The notes show the resolution trace: which step failed and why.
+
+Common causes:
+1. A field's type has no {typeclass} instance (e.g. \`unknown\`, a function type, or a
+   type with no @derive/@impl of its own)
+2. The type is generic (e.g. \`Box<T>\`): deriving for generic types is not yet supported
+3. The type's shape could not be read (no fields, or an unsupported type form)
+
+Solutions:
+- Use a concrete field type, or add @derive({typeclass}) / an @impl to the field's type
+- Write the {typeclass} instance by hand with /** @impl {typeclass}<{type}> */`,
+  seeAlso: "https://typesugar.org/errors/TS9106",
+};
+
 // ============================================================================
 // Error Catalog: Macro Syntax (9200-9299)
 // ============================================================================
@@ -1344,6 +1364,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9103, TS9103],
   [9104, TS9104],
   [9105, TS9105],
+  [9106, TS9106],
 
   // Macro Syntax (9200-9299)
   [9201, TS9201],

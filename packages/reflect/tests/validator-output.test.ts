@@ -88,7 +88,7 @@ describe("validator<T>() output", () => {
   });
 
   // Known bug, owned by @typesugar/macros (see the header comment).
-  it.fails("type-checks (no TS2339 on `value.name`)", () => {
+  it("type-checks (no TS2339 on `value.name`)", () => {
     const { code } = expand(BODY);
     expect(typecheck(code)).toEqual([]);
   });

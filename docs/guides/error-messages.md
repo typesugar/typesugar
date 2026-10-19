@@ -195,7 +195,7 @@ function factorial(n: number): number {
 ```
 
 ```
-error TS9999: [typesugar] @tailrec: could not optimize 'factorial' — recursive call is not in tail position (line 7)
+error TS9220: [typesugar] [TS9220] @tailrec: could not optimize 'factorial' — recursive call is not in tail position (line 7)
 ```
 
 Rewrite with an accumulator — `function factorial(n: number, acc = 1): number`, returning

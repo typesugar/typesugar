@@ -41,7 +41,7 @@ const debug = summon<Debug<User>>().debug(u1);
 ### Imports and Activation
 
 - The `@derive` decorator, `summon` and `implicit`, and the markers `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json` and `TypeGuard` come from `typesugar`.
-- `Show`, `Semigroup` and `Monoid` are not exported from `typesugar`. `@derive(Show)` works without importing a value, because the transformer reads the name; to name the type in `summon<Show<Point>>()`, import `type Show` from `@typesugar/fp`, and `type Semigroup` / `type Monoid` from `@typesugar/std`.
+- The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (they are values; `@derive(Show)` works even without importing one, because the transformer reads the name). To name the type in `summon<Show<Point>>()`, import `type Show` from `@typesugar/fp`, and `type Semigroup` / `type Monoid` from `@typesugar/std`.
 - Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` stays reference equality and `u1 < u2` is a plain JavaScript comparison:
 
 | Sugar                      | Activation import                               |

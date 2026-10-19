@@ -35,7 +35,7 @@ compiler.
 | --- | --- | --- |
 | [TS9061](./TS9061.md) *(reserved)* | Error | ``Macro `{name}` is not defined`` |
 | [TS9201](./TS9201.md) *(reserved)* | Error | `{macro} expects {expected} argument(s), got {received}` |
-| [TS9202](./TS9202.md) *(reserved)* | Error | `{macro} argument {index} must be a {expected}, got {received}` |
+| [TS9202](./TS9202.md) | Error | `{macro} argument {index} must be a {expected}, got {received}` |
 | [TS9203](./TS9203.md) | Error | `{macro} can only be applied to {expected}` |
 | [TS9204](./TS9204.md) *(reserved)* | Error | `{macro} requires {expected} type argument(s)` |
 | [TS9205](./TS9205.md) | Error | `Expected a compile-time constant string literal` |
@@ -49,11 +49,11 @@ compiler.
 | [TS9213](./TS9213.md) | Error | `Failed to parse JSON from file: {path}` |
 | [TS9214](./TS9214.md) *(reserved)* | Error | `Macro expansion failed: {reason}` |
 | [TS9215](./TS9215.md) *(reserved)* | Error | `@operator must be inside a class declaration` |
-| [TS9216](./TS9216.md) *(reserved)* | Error | `{macro} requires at least {min} argument(s)` |
+| [TS9216](./TS9216.md) | Error | `{macro} requires at least {min} argument(s)` |
 | [TS9217](./TS9217.md) | Error | `Static assertion failed: {message}` |
 | [TS9218](./TS9218.md) *(reserved)* | Warning | `Compile-time warning: {message}` |
 | [TS9219](./TS9219.md) | Error | `staticAssert condition must be a compile-time constant` |
-| [TS9220](./TS9220.md) *(reserved)* | Error | `@tailrec: {reason}` |
+| [TS9220](./TS9220.md) | Error | `@tailrec: {reason}` |
 | [TS9222](./TS9222.md) | Warning | `Result of {label}: comprehension is discarded` |
 | [TS9223](./TS9223.md) | Error | `` `yield:` cannot be used as a continuation label inside a generator function `` |
 | [TS9224](./TS9224.md) | Warning | `'{label}:' matches the {macro} macro, but its label syntax is not activated in this file` |
@@ -68,6 +68,7 @@ compiler.
 | [TS9103](./TS9103.md) | Error | `@deriving on union types requires a discriminant field` |
 | [TS9104](./TS9104.md) | Error | `Cannot derive {typeclass}: type {type} has no fields` |
 | [TS9105](./TS9105.md) *(reserved)* | Warning | `@derive(Builder) is not applicable to sum types` |
+| [TS9106](./TS9106.md) | Error | `Cannot derive {typeclass} for '{type}'` |
 
 ## Higher-Kinded Types
 

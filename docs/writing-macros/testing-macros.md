@@ -229,9 +229,9 @@ describe("doubleMacro.expand", () => {
 Exporting the definition (`doubleMacro`) as well as registering it is what makes it
 reachable from a unit test.
 
-A macro that builds its output with `quote()` produces nodes parsed from a separate
-template string. Printing those against `ctx.sourceFile` gives garbled literals, so test
-such macros through `transformCode` instead.
+A macro that builds its output with `quote()` works the same way: the test context's
+`parseExpression`/`parseStatements` return synthetic nodes, so `print(result, ctx.sourceFile)`
+gives the generated text (`quote(ctx)\`1 + 2\``prints`1 + 2`).
 
 ## Testing Type-Aware Macros
 

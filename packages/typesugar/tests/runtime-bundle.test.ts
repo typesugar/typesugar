@@ -52,3 +52,18 @@ describe("typesugar root entry is runtime-safe (#16)", () => {
     expect(src).not.toMatch(/^export \* from ["']@typesugar\/core["']/m);
   });
 });
+
+describe("derive markers from the umbrella (docs review r3 #6)", () => {
+  it("Show, Semigroup and Monoid are exported from typesugar, TS-free, same identity as @typesugar/macros", async () => {
+    const { inputs } = await bundle(
+      `import { derive, Eq, Show, Semigroup, Monoid } from "typesugar";\nconsole.log(derive, Eq, Show, Semigroup, Monoid);\n`
+    );
+    expect(inputs.some((f) => /node_modules[\\/]typescript[\\/]/.test(f))).toBe(false);
+    const umbrella = (await import(path.join(pkgRoot, "dist/index.js"))) as Record<string, unknown>;
+    const macros = (await import("@typesugar/macros/runtime")) as Record<string, unknown>;
+    for (const name of ["Show", "Semigroup", "Monoid"]) {
+      expect(umbrella[name], name).toBeDefined();
+      expect(umbrella[name], name).toBe(macros[name]);
+    }
+  });
+});

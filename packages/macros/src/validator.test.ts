@@ -111,7 +111,7 @@ describe("validator<T>() generated checks", () => {
   });
 
   it("uses element access for non-identifier keys", () => {
-    expect(printed).toContain(`value["first-name"]`);
+    expect(printed).toContain(`(value as Record<string, unknown>)["first-name"]`);
     expect(validate({ ...good, "first-name": 5 }).success).toBe(false);
   });
 

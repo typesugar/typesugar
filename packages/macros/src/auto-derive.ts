@@ -72,6 +72,29 @@ import { isSyntheticNode } from "@typesugar/core";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
 import type { ResolutionAttempt } from "@typesugar/core";
 
+/**
+ * Parse cached/generated derivation text (the string cache contract — see the
+ * CLAUDE.md exception for this file) into a FULLY synthetic expression.
+ *
+ * `ctx.parseExpression` resets node positions with `stripPositions`, but that
+ * walks with `visitEachChild`, which skips TOKEN children (a binary
+ * expression's `===`/`&&`, an arrow's `=>`). Those tokens kept their offsets
+ * in the temporary parse file, and the printer then emitted whatever comment
+ * the USER's file had at that offset: `a.name === // a < b, ...` (docs
+ * review r3 #2). `ts.forEachChild` does visit tokens; the nodes are freshly
+ * parsed and owned here, so resetting them in place is safe.
+ */
+function parseDerivedExpression(ctx: MacroContext, code: string): ts.Expression {
+  const expr = ctx.parseExpression(code);
+  const reset = (n: ts.Node): void => {
+    ts.setTextRange(n, { pos: -1, end: -1 });
+    ts.setCommentRange(n, { pos: -1, end: -1 });
+    ts.forEachChild(n, reset);
+  };
+  reset(expr);
+  return expr;
+}
+
 // ============================================================================
 // Derivation Result (with resolution trace for error diagnostics)
 // ============================================================================
@@ -368,7 +391,7 @@ export function tryDeriveViaGeneric(
       result: "found",
       reason: "in-memory cache hit",
     });
-    return { expression: ctx.parseExpression(memCached), trace };
+    return { expression: parseDerivedExpression(ctx, memCached), trace };
   }
 
   // Step 2: Obtain GenericMeta
@@ -502,7 +525,7 @@ export function tryDeriveViaGeneric(
         result: "found",
         reason: "disk cache hit",
       });
-      return { expression: ctx.parseExpression(diskCached), trace };
+      return { expression: parseDerivedExpression(ctx, diskCached), trace };
     }
   }
 
@@ -535,7 +558,7 @@ export function tryDeriveViaGeneric(
     result: "found",
   });
 
-  return { expression: ctx.parseExpression(code), trace };
+  return { expression: parseDerivedExpression(ctx, code), trace };
 }
 
 /**

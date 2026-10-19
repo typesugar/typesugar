@@ -84,6 +84,8 @@ export {
   withDerivationContext,
   resolveFieldInstance,
   tryExpandGenericDerive,
+  reportGenericDeriveFailure,
+  GenericDeriveError,
   registerTypeclassMacros,
   instanceVarName,
   companionPath,

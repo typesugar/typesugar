@@ -95,7 +95,7 @@ export function createMacroTestContext(source: string): TestMacroContext {
       );
       const varStmt = tempSource.statements[0] as ts.VariableStatement;
       const decl = varStmt.declarationList.declarations[0];
-      return decl.initializer!;
+      return detachFromParseFile(decl.initializer!);
     },
 
     parseStatements(code: string): ts.Statement[] {
@@ -106,7 +106,7 @@ export function createMacroTestContext(source: string): TestMacroContext {
         true,
         ts.ScriptKind.TSX
       );
-      return [...tempSource.statements];
+      return tempSource.statements.map(detachFromParseFile);
     },
 
     // Type utilities
@@ -240,6 +240,26 @@ export function createMacroTestContext(source: string): TestMacroContext {
   };
 
   return ctx;
+}
+
+/**
+ * Make a node parsed from a temporary source file fully synthetic, as the
+ * real `MacroContextImpl.parseExpression` does: positions -1 on every node
+ * AND token (`ts.forEachChild` visits tokens such as a binary `+`; core's
+ * `stripPositions` walks with `visitEachChild`, which skips them). Otherwise
+ * printing the node against `ctx.sourceFile` reads literal text and comments
+ * at the temporary file's offsets from the wrong file — `quote(ctx)\`1 + 2\``
+ * printed as ` + ` (docs review r3 #5). The nodes are freshly parsed and owned
+ * here, so resetting them in place is safe. `parent` links are kept.
+ */
+function detachFromParseFile<T extends ts.Node>(node: T): T {
+  const reset = (n: ts.Node): void => {
+    ts.setTextRange(n, { pos: -1, end: -1 });
+    ts.setCommentRange(n, { pos: -1, end: -1 });
+    ts.forEachChild(n, reset);
+  };
+  reset(node);
+  return node;
 }
 
 /**

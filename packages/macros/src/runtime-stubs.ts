@@ -797,3 +797,6 @@ export function hkt(target: any, _context?: ClassDecoratorContext): any {
 // imports, so re-exporting it here keeps this entry free of the TypeScript compiler
 // while preserving marker identity with the macros root.
 export { Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard, Show } from "./derive.js";
+// Semigroup/Monoid markers are the primitive-instance groups in primitives.ts
+// (also TypeScript-free), the same objects the macros root exports.
+export { Semigroup, Monoid } from "./primitives.js";

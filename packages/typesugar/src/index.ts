@@ -150,4 +150,16 @@ export {
 // Derive name markers (@derive(Eq, Ord, ...)). These are runtime values
 // that survive in user code after expansion (`import { derive, Eq }` is
 // kept), so they must come from a TypeScript-free module too.
-export { Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard } from "./derive-markers.js";
+export {
+  Eq,
+  Ord,
+  Clone,
+  Debug,
+  Hash,
+  Default,
+  Json,
+  TypeGuard,
+  Show,
+  Semigroup,
+  Monoid,
+} from "./derive-markers.js";

@@ -745,12 +745,24 @@ export const validatorMacro = defineExpressionMacro({
       const propType = checker.getTypeOfSymbolAtLocation(prop, callExpr);
       const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
 
-      // value.name, or value["first-name"] when the key is not an identifier
+      // (value as Record<string, unknown>).name, or [...]["first-name"] when the
+      // key is not an identifier. `value` is narrowed only to `object` at this
+      // point, so a bare `value.name` fails strictOutput (TS2339/TS7053).
+      const asRecord = () =>
+        factory.createParenthesizedExpression(
+          factory.createAsExpression(
+            valueId(),
+            factory.createTypeReferenceNode("Record", [
+              factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+              factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+            ])
+          )
+        );
       const fieldAccess = () =>
         isIdentifierName(prop.name)
-          ? factory.createPropertyAccessExpression(valueId(), prop.name)
+          ? factory.createPropertyAccessExpression(asRecord(), prop.name)
           : factory.createElementAccessExpression(
-              valueId(),
+              asRecord(),
               factory.createStringLiteral(prop.name)
             );
 
