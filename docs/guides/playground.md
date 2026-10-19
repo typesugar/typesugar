@@ -1,60 +1,62 @@
 # Interactive Playground
 
-typesugar includes an interactive playground that lets you try code directly in your browser without installing anything.
+typesugar includes an interactive playground that lets you try code in your browser without installing anything.
 
 **[Open the Playground →](/playground)**
 
 ## What Works in the Playground
 
-The playground runs the full typesugar transformer in your browser. You can:
+You edit in the browser; the transform runs on the typesugar server (each edit
+is sent to `/api/compile`), with the full transformer and the `@typesugar/*`
+macro packages loaded. You can:
 
-- **Write and transform** — see your code compiled in real time
-- **Run the output** — execute transformed code with console output
-- **Use runtime libraries** — `import` from `@typesugar/*` packages and run real code
+- **Write and transform** — see your code compiled as you type, with macro diagnostics in the editor
 - **Share** — copy a URL that encodes your code
 
-### Runtime Library Support
+Two things are switched off on the public playground, because it compiles
+untrusted code:
 
-The playground bundles runtime implementations of `@typesugar/*` packages, so imports actually work at runtime — not just at the type level. When you press Run, your code executes with real `@typesugar/fp`, `@typesugar/collections`, `@typesugar/graph`, and more.
+- **Run.** Pressing Run shows "Run is not available on the public playground".
+  Copy the compiled output and run it locally, or run your source directly with
+  `npx typesugar run <file>.ts`.
+- **`comptime`.** Compile-time evaluation is disabled on the server, so
+  `comptime(...)` calls are left unexpanded with a warning at each call site.
 
-Available packages:
+### Macro Packages
 
-| Package                         | What You Can Use                              |
-| ------------------------------- | --------------------------------------------- |
-| `typesugar` / `@typesugar/core` | `staticAssert`, `comptime`, macro APIs        |
-| `@typesugar/fp`                 | `Some`, `None`, `Left`, `Right`, `pipe`, `IO` |
-| `@typesugar/std`                | Extension methods, pattern matching, ranges   |
-| `@typesugar/collections`        | `HashSet`, `HashMap`                          |
-| `@typesugar/graph`              | `DiGraph`, `StateMachine`                     |
-| `@typesugar/contracts`          | `requires`, `ensures`, `invariant`            |
-| `@typesugar/units`              | Dimensional analysis                          |
-| `@typesugar/codec`              | Schema codecs                                 |
-| `@typesugar/parser`             | Parser combinators                            |
-| `@typesugar/type-system`        | Newtype, refined types                        |
-| `@typesugar/typeclass`          | `@typeclass`, `@instance`, `summon`           |
-| `@typesugar/validate`           | Schema validation                             |
-| `@typesugar/mapper`             | Object mapping                                |
+The server preloads the macros of these packages, so their macros expand in the
+playground: `typesugar` / `@typesugar/macros`, `@typesugar/std`, `@typesugar/fp`,
+`@typesugar/effect`, `@typesugar/contracts`, `@typesugar/type-system`,
+`@typesugar/units`, `@typesugar/sql`, `@typesugar/parser`, `@typesugar/graph`,
+`@typesugar/codec`, `@typesugar/mapper`, `@typesugar/strings`,
+`@typesugar/testing`, `@typesugar/erased` and `@typesugar/fusion`.
 
-Packages with heavy Node.js dependencies (`@typesugar/math`, `@typesugar/testing`, `@typesugar/effect`) are excluded from the runtime bundle.
+Macros from other packages (for example `@typesugar/validate`'s `is<T>()` or
+`@typesugar/reflect`'s `typeInfo<T>()`) are not loaded there and are left
+unexpanded.
 
 ## Examples
 
-The playground ships with 20+ examples organized by module. Pick one from the **Examples** dropdown to see a feature in action.
+The playground ships with 30+ examples organized by module. Pick one from the **Examples** dropdown to see a feature in action.
 
-| Category                   | Examples                                                                                   |
-| -------------------------- | ------------------------------------------------------------------------------------------ |
-| **Getting Started**        | Welcome                                                                                    |
-| **Core Macros**            | @typeclass, @derive, extension, comptime, pipe & compose, static-assert, reflect, @tailrec |
-| **@typesugar/fp**          | Option & Either, Validated, Linked List                                                    |
-| **@typesugar/std**         | Pattern Matching, Ranges                                                                   |
-| **@typesugar/collections** | HashSet & HashMap                                                                          |
-| **@typesugar/graph**       | Directed Graph, State Machine                                                              |
-| **@typesugar/contracts**   | Design by Contract                                                                         |
-| **@typesugar/units**       | Dimensional Analysis                                                                       |
-| **@typesugar/codec**       | Schema Codec                                                                               |
-| **@typesugar/parser**      | Arithmetic Parser                                                                          |
+| Category                   | Examples                                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Getting Started**        | Welcome, Full Stack                                                                                                    |
+| **Core Macros**            | @typeclass, @derive, extension, comptime, pipe & compose, static-assert, reflect, @tailrec, cfg, operators, specialize |
+| **@typesugar/fp**          | Option & Either, Either, Validated, Linked List                                                                        |
+| **@typesugar/std**         | Pattern Matching, Ranges, Do-Notation                                                                                  |
+| **@typesugar/effect**      | Do-Comprehensions, Service Layer                                                                                       |
+| **@typesugar/collections** | HashSet & HashMap                                                                                                      |
+| **@typesugar/graph**       | Directed Graph, State Machine                                                                                          |
+| **@typesugar/contracts**   | Design by Contract                                                                                                     |
+| **@typesugar/units**       | Dimensional Analysis                                                                                                   |
+| **@typesugar/math**        | Numeric Typeclass                                                                                                      |
+| **@typesugar/codec**       | Schema Codec                                                                                                           |
+| **@typesugar/parser**      | Arithmetic Parser                                                                                                      |
+| **@typesugar/validate**    | Schema Validation                                                                                                      |
+| **@typesugar/testing**     | Power Assert                                                                                                           |
 
-All examples are runnable — they use real runtime libraries, not stubs.
+The `comptime` example shows the unexpanded call on the public playground (see above).
 
 ## Adding Examples
 
@@ -99,9 +101,9 @@ Groups without an entry still appear — they just use the directory name as-is 
 
 ### Tips for good examples
 
-- **Make it runnable.** Use `console.log()` so pressing Run shows output.
+- **Make it runnable.** Use `console.log()` so the output means something when the example is run locally (`npx typesugar run`).
 - **Keep it focused.** One concept per example. 20–40 lines is ideal.
-- **Use real imports.** `import { ... } from "@typesugar/fp"` works in the sandbox.
+- **Use real imports.** `import { ... } from "@typesugar/fp"` works in the playground.
 - **Show the value.** Don't just define types — demonstrate behavior.
 
 ## Embedded Playgrounds
@@ -134,7 +136,9 @@ For code containing angle brackets (like generics), use the [full playground](/p
 
 ## Keyboard Shortcuts
 
-| Shortcut           | Action                      |
-| ------------------ | --------------------------- |
-| `Cmd/Ctrl + Enter` | Run code                    |
-| `Cmd/Ctrl + S`     | Transform (without running) |
+| Shortcut           | Action                                     |
+| ------------------ | ------------------------------------------ |
+| `Cmd/Ctrl + Enter` | Run (unavailable on the public playground) |
+| `Cmd/Ctrl + S`     | Copy the share URL                         |
+
+The transform runs automatically as you type; there is no shortcut for it.

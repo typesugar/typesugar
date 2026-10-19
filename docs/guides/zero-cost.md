@@ -21,6 +21,8 @@ transformed tab.
 **You write:**
 
 ```typescript
+import { comptime } from "typesugar";
+
 const TABLE = comptime(() => Array.from({ length: 5 }, (_, i) => i * i));
 ```
 
@@ -35,11 +37,17 @@ The function, the loop, and `comptime` itself are gone.
 ## Derived typeclasses and operators
 
 `@derive` generates the implementation from the type's structure, and operators
-resolve to those generated functions — no runtime reflection.
+resolve to those generated functions — no runtime reflection. Operator rewriting
+is opt-in per typeclass: the `@typesugar/std/syntax/eq/ops` import is what turns
+`===` into a call to the derived `Eq`. Without it, `a === b` stays reference
+equality.
 
 **You write:**
 
 ```typescript
+import { derive } from "typesugar";
+import "@typesugar/std/syntax/eq/ops";
+
 @derive(Eq, Clone)
 class Point {
   constructor(
@@ -50,13 +58,16 @@ class Point {
 
 const a = new Point(1, 2);
 const b = new Point(1, 2);
-const same = a === b;
+const same = a === b; // true
 ```
 
 **It compiles to:**
 
 ```javascript
+import "@typesugar/std/syntax/eq/ops";
 class Point {
+  x;
+  y;
   constructor(x, y) {
     this.x = x;
     this.y = y;
@@ -64,17 +75,20 @@ class Point {
 }
 (function (Point) {
   Point.Eq = {
-    equals: (a, b) => Eq.number.equals(a.x, b.x) && Eq.number.equals(a.y, b.y),
+    equals: (a, b) => a.x === b.x && a.y === b.y,
+    notEquals: (a, b) => !(a.x === b.x && a.y === b.y),
   };
 })(Point || (Point = {}));
 (function (Point) {
   Point.Clone = { clone: (a) => ({ x: a.x, y: a.y }) };
 })(Point || (Point = {}));
-
 const a = new Point(1, 2);
 const b = new Point(1, 2);
 const same = Point.Eq.equals(a, b); // `a === b` → the derived structural compare
 ```
+
+The derived `Eq` compares `number` fields with `===` directly; no instance
+lookup is left in the output.
 
 ## Zero-allocation data types
 
@@ -95,6 +109,7 @@ const doubled = price.map((n) => n * 2).getOrElse(() => 0);
 **It compiles to:**
 
 ```javascript
+import { getOrElse, map } from "@typesugar/fp/data/option";
 const price = 42; // Some(42) is just 42 — no wrapper object
 const doubled = getOrElse(
   map(price, (n) => n * 2),

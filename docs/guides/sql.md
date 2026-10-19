@@ -1,6 +1,6 @@
 # SQL DSL
 
-Doobie-inspired type-safe SQL for TypeScript with compile-time validation and zero-cost abstractions.
+Doobie-inspired type-safe SQL for TypeScript with compile-time validation.
 
 `@typesugar/sql` provides a comprehensive SQL DSL inspired by Scala's [Doobie](https://tpolecat.github.io/doobie/) library. Build composable SQL queries with the `sql` tagged template, get compile-time SQL validation, and execute with `ConnectionIO` — a free monad for pure, composable database operations.
 
@@ -10,7 +10,6 @@ Doobie-inspired type-safe SQL for TypeScript with compile-time validation and ze
 - **Compile-time type inference** — the `sql$` macro infers parameter and result types
 - **Pure database operations** — `ConnectionIO` separates description from execution
 - **Doobie-style typeclasses** — `Get`/`Put`/`Meta` for columns, `Read`/`Write`/`Codec` for rows
-- **Zero-cost abstractions** — all typeclass overhead compiles away via specialization
 - **ORM integration** — `Queryable` interface for Kysely/Drizzle adapters
 
 ## Installation
@@ -195,24 +194,46 @@ class TypedFragment<P extends readonly unknown[], R> {
 
 ### TypedQuery Methods
 
-`TypedQuery<P, R>` wraps a typed fragment for SELECT operations:
+`TypedQuery<P, R>` wraps a typed fragment for SELECT operations. A query can
+carry its own row decoder and cardinality, which apply when it runs:
 
 ```typescript
 class TypedQuery<P extends readonly unknown[], R> {
-  // Transform result type
-  map<R2>(f: (row: R) => R2): TypedQuery<P, R2>;
-
-  // Apply a Read instance
+  // Decode each row with a Read instance
   to<R2>(read: Read<R2>): TypedQuery<P, R2>;
 
-  // Cardinality modifiers
-  unique(): TypedQuery<P, R>; // Expect exactly one row
-  option(): TypedQuery<P, R | null>; // Expect zero or one row
+  // Transform each row (after the decoder, or on the raw row if there is none;
+  // a null row stays null)
+  map<R2>(f: (row: R) => R2): TypedQuery<P, R2>;
+
+  // Cardinality, checked when the query runs
+  unique(): TypedQuery<P, R>; // fails unless exactly one row comes back
+  option(): TypedQuery<P, R | null>; // null for zero rows, fails for more than one
+
+  // Decode one row with this query's decoder
+  decode(row: SqlRow): R | null;
 
   // Get SQL (default dialect: Postgres `$n`; pass "mysql" / "sqlite" for `?`)
   toSql(dialect?: DialectLike): { sql: string; params: readonly SqlParam[] };
 }
 ```
+
+Build the decoder on the query, then run it with `ConnectionIO.query(q)` or
+`ConnectionIO.queryMany(q)` and no `Read` argument:
+
+```typescript
+const q = sql$<User>`SELECT id, name, email FROM users WHERE id = ${id}`
+  .toQuery()
+  .to(ReadUser)
+  .map((u) => u.name.toUpperCase())
+  .unique();
+
+const name = await transactor.run(ConnectionIO.query(q)); // "ALICE"
+```
+
+Passing a `Read` to `ConnectionIO.query`/`queryMany` for a query that already
+decodes its rows (via `.to()` or `.map()`) throws a `TypeError`, rather than
+silently picking one of the two decoders.
 
 ### TypedUpdate Methods
 
@@ -220,10 +241,12 @@ class TypedQuery<P extends readonly unknown[], R> {
 
 ```typescript
 class TypedUpdate<P extends readonly unknown[]> {
-  // Execute and return affected count
-  run(): TypedUpdate<P>;
+  // A program that executes the update and returns the affected row count
+  // (the same as ConnectionIO.execute(this))
+  run(): ConnectionIO<number>;
 
-  // Execute with RETURNING clause for generated keys
+  // Appends ` RETURNING <columns>` (unless the statement already has one);
+  // columns must be plain identifiers, and an empty list throws
   withGeneratedKeys<K extends string>(...columns: K[]): TypedQuery<P, Record<K, unknown>>;
 
   // Get SQL (default dialect: Postgres `$n`)
@@ -235,8 +258,11 @@ const insert = sql$`
   INSERT INTO users (name, email) VALUES (${name}, ${email})
 `.toUpdate();
 
+const affected = await transactor.run(insert.run()); // number of rows inserted
+
 const withId = insert.withGeneratedKeys("id");
 // TypedQuery<[string, string], { id: unknown }>
+// SQL: "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id"
 ```
 
 ### TypedFragment Combinators
@@ -257,8 +283,8 @@ import {
 } from "@typesugar/sql";
 
 // Join conditions with AND
-const conditions = andTyped(sql$`name = ${"Alice"}`, sql$`age > ${21}`);
-// SQL: "name = $1 AND age > $2"
+const conditions = andTyped(sql$`name = ${"Alice"}`, sql$`city = ${"Paris"}`);
+// SQL: "name = $1 AND city = $2"
 
 // Join conditions with OR (wrapped in parentheses, like Fragment.or)
 const alternatives = orTyped(sql$`status = ${"active"}`, sql$`role = ${"admin"}`);
@@ -292,12 +318,18 @@ const maybeFilter = whenTyped(showInactive, sql$`active = ${false}`);
 // Build WHERE clause from optional conditions
 const where = whereAndTyped(
   sql$`name = ${"Alice"}`,
-  showInactive ? sql$`active = ${false}` : null,
-  minAge ? sql$`age >= ${minAge}` : null
+  city ? sql$`city = ${city}` : null,
+  team ? sql$`team = ${team}` : null
 );
-// SQL: "WHERE name = $1 AND active = $2 AND age >= $3"
+// SQL: "WHERE name = $1 AND city = $2 AND team = $3"
 // Only includes non-null conditions
 ```
+
+In 1.0, `andTyped`, `orTyped` and `whereAndTyped` take fragments that all have
+the **same** parameter tuple type. Mixing them, as in
+``andTyped(sql$`name = ${"Alice"}`, sql$`age > ${21}`)`` (`[string]` and
+`[number]`), is a type error (TS2345). For mixed parameter types, combine
+untyped `sql` fragments with `Fragment.and([...])` / `Fragment.whereAnd([...])`.
 
 ## The sql$ Macro — Compile-Time Type Inference
 
@@ -321,33 +353,13 @@ const findUser = sql$<User>`SELECT id, name FROM users WHERE id = ${userId}`;
 // TypedFragment<[number], User>
 ```
 
-### Schema-Based Inference with @schema
+### Schema-Based Inference (Planned — not in 1.0)
 
-Register table schemas for automatic result type inference:
-
-```typescript
-import { registerSchema, sql$ } from "@typesugar/sql";
-
-// Register schema at compile time
-@schema("users")
-interface UsersTable {
-  id: number;
-  name: string;
-  email: string;
-  created_at: Date;
-}
-
-// Or register programmatically
-registerSchema("users", "UsersTable");
-
-// SELECT * infers full table type
-const selectAll = sql$`SELECT * FROM users`;
-// TypedFragment<[], UsersTable>
-
-// SELECT specific columns infers Pick type
-const selectSome = sql$`SELECT id, name FROM users`;
-// TypedFragment<[], Pick<UsersTable, 'id' | 'name'>>
-```
+Inferring a result type from a registered table schema is not implemented.
+`@schema("users")` on an interface reports a warning that it has no effect and
+leaves the declaration unchanged, and `sql$` without a type argument types its
+rows as `Record<string, unknown>` whatever the columns. Give the row type
+explicitly instead: ``sql$<UsersTable>`SELECT * FROM users` ``.
 
 ### Query Builder DSL
 
@@ -541,7 +553,7 @@ Read.column("name", Get.string); // Read single column
 // Write combinators
 Write.contramap(WriteUser, (dto: UserDTO) => toUser(dto));
 Write.product(WriteUser, WriteProfile); // Write<[User, Profile]>
-Write.tuple(WriteUser, WriteProfile); // Write<[User, Profile]>
+// (Write.tuple(WriteUser, WriteProfile) is a type error in 1.0, TS2345: use Write.product)
 
 // Codec combinators
 Codec.fromReadWrite(ReadUser, WriteUser);
@@ -562,7 +574,8 @@ interface User {
   createdAt: Date;
 }
 
-// Using @derive (requires the transformer) — generates ReadUser, WriteUser, CodecUser.
+// Using @derive (requires the transformer) — generates ReadUser, WriteUser, CodecUser,
+// each exactly once. `@derive(Codec)` alone generates all three as well.
 // Field types: string, number, boolean, bigint, Date, Buffer, arrays, `T | null`,
 // `T | undefined`, string/number literal unions and enums. camelCase fields map to
 // snake_case columns; override with a JSDoc tag: `/** @column("created") */`.
@@ -710,7 +723,8 @@ const async = ConnectionIO.async(() => fetchFromExternalAPI());
 ### Query Operations
 
 ```typescript
-// Query returning single result (or null)
+// Query returning single result (or null). The Read argument is optional: without
+// one, the query's own decoder (from .to()/.map()) is used, or the raw rows are returned.
 const findOne = ConnectionIO.query(
   sql$<User>`SELECT * FROM users WHERE id = ${id}`.toQuery(),
   UserRead
@@ -789,15 +803,15 @@ const program = findUser(userId).zipLeft(logAccess(userId));
 const program = logAccess(userId).zipRight(findUser(userId));
 // ConnectionIO<User | null>
 
-// ap — Applicative apply
-const program = ConnectionIO.pure((u: User) => u.name).ap(findUser(userId));
+// ap — Applicative apply: fa.ap(ff) applies the function in ff to the value in fa
+const program = findUser(userId).ap(ConnectionIO.pure((u: User | null) => u?.name));
 // ConnectionIO<string | undefined>
 ```
 
 ### Error Handling
 
 ```typescript
-import { ConnectionIO, Either, Left, Right } from "@typesugar/sql";
+import { ConnectionIO, type Either, Left, Right } from "@typesugar/sql";
 
 // attempt — Catch errors as Either
 const safe = riskyOperation.attempt();
@@ -830,15 +844,14 @@ const atomicProgram = ConnectionIO.execute(debitAccount)
 Use `fromQueryable` to integrate with Kysely, Drizzle, or other ORMs:
 
 ```typescript
-import { ConnectionIO, Queryable } from "@typesugar/sql";
+import { ConnectionIO, type Queryable, QueryableCompanion } from "@typesugar/sql";
 
-// Define a Queryable instance for your ORM
-const kyselyQueryable: Queryable<KyselyQuery> = {
-  execute: async (query, conn) => {
-    // Execute the Kysely query using the connection
-    return await query.execute(conn);
-  },
-};
+// Define a Queryable instance for your ORM. `Queryable` is exported as a type;
+// build values with QueryableCompanion.make (it adds the required `_tag`).
+const kyselyQueryable: Queryable<KyselyQuery> = QueryableCompanion.make(async (query, conn) => {
+  // Execute the Kysely query using the connection
+  return await query.execute(conn);
+});
 
 // Use ORM queries in ConnectionIO
 const program = ConnectionIO.fromQueryable(
@@ -863,11 +876,11 @@ const userIds = [1, 2, 3];
 const users = traverse(userIds, (id) => findUser(id));
 // ConnectionIO<(User | null)[]>
 
-// parZip — Run two operations (potentially in parallel)
+// parZip — Run two operations. In 1.0 this is sequential (the same as zip).
 const both = parZip(findUser(1), findProfile(1));
 // ConnectionIO<[User | null, Profile | null]>
 
-// parSequence — Run all operations (potentially in parallel)
+// parSequence — Run all operations. In 1.0 this is sequential (the same as sequence).
 const all = parSequence([findUser(1), findUser(2), findUser(3)]);
 // ConnectionIO<(User | null)[]>
 
@@ -879,13 +892,13 @@ const maybeLog = when(shouldLog, logAccess(userId));
 const maybeUser = whenA(shouldFetch, findUser(userId));
 // ConnectionIO<User | null>
 
-// unfold — Loop with accumulator
-const paginate = unfold(0, (page) =>
-  ConnectionIO.query(getPage(page), PageRead).map((results) =>
+// unfold — Loop with accumulator (queryMany: each step needs the page's rows)
+const paginate = unfold(0, (page: number) =>
+  ConnectionIO.queryMany(getPage(page), PageRead).map((results): [number, Page[]] | null =>
     results.length > 0 ? [page + 1, results] : null
   )
 );
-// ConnectionIO<Page[]>
+// ConnectionIO<Page[][]>
 ```
 
 ## Transactor — Execute ConnectionIO Programs
@@ -897,10 +910,10 @@ The `Transactor` interprets `ConnectionIO` programs against an actual database.
 ```typescript
 import { Transactor, DbConnection } from "@typesugar/sql";
 
-// From a connection pool (recommended)
+// From a connection pool (recommended): anything with connect() and release(conn)
 const transactor = Transactor.fromPool({
-  connect: () => pool.getConnection(),
-  release: (conn) => conn.release(),
+  connect: () => pool.getConnection(), // Promise<DbConnection>
+  release: async (conn) => pool.releaseConnection(conn), // Promise<void>
 });
 
 // From a single connection (for testing)
@@ -909,7 +922,7 @@ const transactor = Transactor.fromConnection(mockConnection);
 // Custom constructor: (getConnection, releaseConnection, options?)
 const transactor = new Transactor(
   () => pool.getConnection(),
-  (conn) => conn.release(),
+  async (conn) => pool.releaseConnection(conn),
   { dialect: "mysql" } // `?` placeholders; default is Postgres `$n`
 );
 ```
@@ -946,22 +959,22 @@ The `Queryable` interface enables integration with any ORM (Kysely, Drizzle, Pri
 
 ```typescript
 interface Queryable<Q> {
-  execute(query: Q, conn: DbConnection): Promise<unknown>;
+  readonly _tag: "Queryable";
+  readonly execute: (query: Q, conn: DbConnection) => Promise<unknown>;
 }
+
+// Build one with QueryableCompanion.make(execute)
 ```
 
 ### Kysely Example (Queryable)
 
 ```typescript
-import { Queryable, ConnectionIO } from "@typesugar/sql";
-import { Kysely } from "kysely";
+import { type Queryable, QueryableCompanion, ConnectionIO } from "@typesugar/sql";
+import type { CompiledQuery } from "kysely";
 
-const kyselyQueryable: Queryable<CompiledQuery> = {
-  async execute(query, conn) {
-    const { sql, parameters } = query;
-    return await conn.query(sql, parameters);
-  },
-};
+const kyselyQueryable: Queryable<CompiledQuery> = QueryableCompanion.make(async (query, conn) =>
+  conn.query(query.sql, query.parameters)
+);
 
 // Now use Kysely query builders in ConnectionIO
 const findUsers = ConnectionIO.fromQueryable(
@@ -973,14 +986,12 @@ const findUsers = ConnectionIO.fromQueryable(
 ### Drizzle Example (Queryable)
 
 ```typescript
-import { Queryable, ConnectionIO } from "@typesugar/sql";
+import { type Queryable, QueryableCompanion, ConnectionIO } from "@typesugar/sql";
 
-const drizzleQueryable: Queryable<DrizzleQuery> = {
-  async execute(query, conn) {
-    const { sql, params } = query.toSQL();
-    return await conn.query(sql, params);
-  },
-};
+const drizzleQueryable: Queryable<DrizzleQuery> = QueryableCompanion.make(async (query, conn) => {
+  const { sql, params } = query.toSQL();
+  return await conn.query(sql, params);
+});
 
 // Use Drizzle queries in ConnectionIO
 const findUsers = ConnectionIO.fromQueryable(db.select().from(users), drizzleQueryable);
@@ -988,43 +999,14 @@ const findUsers = ConnectionIO.fromQueryable(db.select().from(users), drizzleQue
 
 ## Using Fragments with Query Builders
 
-`@typesugar/sql` also works alongside popular query builders like Kysely and Drizzle ORM directly at the fragment level. The `sql` tagged template produces a `{ text, params }` object that can be used with their raw SQL APIs.
-
-### With Kysely (raw fragment)
-
-```typescript
-import { sql as kyselySql, Kysely } from "kysely";
-import { sql } from "@typesugar/sql";
-
-// Build a fragment with typesugar/sql
-const userId = 42;
-const fragment = sql`id = ${userId}`;
-
-// Use with Kysely's sql helper
-const result = await db
-  .selectFrom("users")
-  .where(kyselySql.raw(fragment.text, fragment.values))
-  .execute();
-```
-
-### With Drizzle ORM (raw fragment)
-
-```typescript
-import { sql as drizzleSql } from "drizzle-orm";
-import { sql } from "@typesugar/sql";
-
-// Build a fragment with typesugar/sql
-const minAge = 18;
-const fragment = sql`age >= ${minAge}`;
-
-// Use with Drizzle's sql helper
-const result = await db
-  .select()
-  .from(users)
-  .where(drizzleSql.raw(fragment.text, ...fragment.values));
-```
-
-Both integrations use the native raw SQL capabilities of each library, giving you type safety from typesugar/sql's compile-time validation while preserving compatibility with your existing query builder.
+To run a typesugar fragment through another library, hand over its SQL text
+**and** its parameters: `fragment.text` (Postgres `$n` placeholders, or
+`fragment.render("mysql")` for `?`) and `fragment.values`. Kysely's and
+Drizzle's `sql.raw(...)` take a single string, so they would drop the
+parameters and leave the placeholders unbound; use an API that takes text plus
+parameters instead (for Kysely, `CompiledQuery.raw(text, parameters)`), or the
+[`Queryable`](#queryable-orm-integration-interface) route above. These
+integrations are not tested by typesugar.
 
 ## Macro Features
 
@@ -1033,12 +1015,12 @@ When used with the typesugar transformer, additional compile-time features are a
 ### SQL Syntax Validation
 
 ```typescript
-// Compile-time error: unbalanced parentheses
+// Compile-time warning: "SQL warning: Unbalanced parentheses"
 const bad = sql`SELECT * FROM users WHERE (id = ${1}`;
-
-// Compile-time warning: potentially dangerous pattern
-const risky = sql`DELETE FROM users`; // Warning: DELETE without WHERE
 ```
+
+The checks are warnings, not errors, and they are syntactic only (for example,
+`` sql`DELETE FROM users` `` gets no diagnostic).
 
 ### Type Inference
 
@@ -1049,24 +1031,12 @@ const query = sql$`SELECT * FROM users WHERE id = ${userId} AND name = ${name}`;
 // => TypedFragment<[number, string], SqlRow>
 ```
 
-## Zero-Cost Guarantee
+## Runtime Model
 
-All typeclass operations compile away via specialization:
-
-```typescript
-// Before (generic)
-const program = ConnectionIO.query(findUserQuery, UserRead)
-  .map(user => user?.name);
-
-// After specialization (direct code)
-const program = async (conn) => {
-  const rows = await conn.query("SELECT ...", params);
-  const user = rows[0] ? { id: rows[0].id, name: rows[0].name, ... } : null;
-  return user?.name;
-};
-```
-
-No runtime dictionary lookups, no wrapper allocations — just the code you'd write by hand.
+`ConnectionIO` programs are data: `map`, `flatMap` and the other combinators
+build a tree of operations, which the `Transactor` interprets at runtime. The
+transformer does not specialize or inline them, so there is a small runtime
+cost per step, the same as any free-monad library.
 
 ## API Quick Reference
 
@@ -1103,8 +1073,8 @@ No runtime dictionary lookups, no wrapper allocations — just the code you'd wr
 | `ConnectionIO.unit`                     | Void value             |
 | `ConnectionIO.delay(f)`                 | Delayed computation    |
 | `ConnectionIO.async(f)`                 | Async computation      |
-| `ConnectionIO.query(q, read)`           | Single result query    |
-| `ConnectionIO.queryMany(q, read)`       | Multiple results query |
+| `ConnectionIO.query(q, read?)`          | Single result query    |
+| `ConnectionIO.queryMany(q, read?)`      | Multiple results query |
 | `ConnectionIO.execute(update)`          | Execute update         |
 | `ConnectionIO.executeWithKeys(u, cols)` | Update with RETURNING  |
 | `ConnectionIO.raw(sql, params)`         | Raw SQL                |

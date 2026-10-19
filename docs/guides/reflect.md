@@ -164,10 +164,6 @@ type ValidationResult<T> = { success: true; value: T } | { success: false; error
 
 - `@reflect` — Enable compile-time reflection metadata generation
 
-### Functions
-
-- `register()` — Register all reflection macros (called automatically on import)
-
 ## Limitations
 
 ### validator\<T\>()

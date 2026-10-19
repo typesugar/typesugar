@@ -25,7 +25,8 @@ import {
 assert(users.length === expected.length);
 
 // Compile-time assertion — fails BUILD, not test
-staticAssert(CONFIG.TIMEOUT > 0, "timeout must be positive");
+const TIMEOUT_MS = 5000;
+staticAssert(TIMEOUT_MS > 0, "timeout must be positive");
 
 // Type assertion — verifies types at compile time
 typeAssert<Equal<ReturnType<typeof parse>, AST>>();
@@ -42,17 +43,15 @@ import { assert } from "@typesugar/testing";
 
 assert(users.length === filtered.length);
 
-// On failure:
+// On failure, the thrown error's message is a diagram of every sub-expression:
 //   Power Assert Failed
 //
-//   users.length === filtered.length
-//
-//   Sub-expressions:
-//     users.length === filtered.length → false
-//     users.length → 3
-//     users → [{...}, {...}, {...}]
-//     filtered.length → 2
-//     filtered → [{...}, {...}]
+//     assert(users.length === filtered.length)
+//            |     |      |   |        |
+//            |     3      |   |        2
+//            |            false
+//            |                [{"a":2},{"a":3}]
+//            [{"a":1},{"a":2},{"a":3}]
 ```
 
 ### staticAssert() — Compile-Time Assertions
@@ -62,12 +61,21 @@ Fail the BUILD, not the test. Zero runtime cost.
 ```typescript
 import { staticAssert } from "@typesugar/testing";
 
+const SUPPORTED_LOCALES = ["en", "fr"];
+
 staticAssert(3 + 4 === 7, "basic math must work");
 staticAssert(SUPPORTED_LOCALES.length > 0, "must have locales");
 
-// If false: BUILD FAILS with the message
-// If true: No runtime cost (expands to void 0)
+// If false: BUILD FAILS with the message (TS9217)
+// If true: No runtime cost (expands to a comment)
 ```
+
+The condition must be something typesugar can evaluate at compile time:
+literals, and `const` bindings initialized with them (including plain object and
+array literals). Anything else is TS9219 ("staticAssert condition must be a
+compile-time constant"). That includes values declared with `as const`:
+`const CONFIG = { TIMEOUT: 5 } as const` makes `CONFIG.TIMEOUT > 0` fail with
+TS9219, while the same object without `as const` works.
 
 ### typeAssert() — Type-Level Assertions
 
@@ -100,21 +108,21 @@ function testIsBlank(input: string, expected: boolean) {
 // Expands to:
 // it('testIsBlank (case #1: input="", expected=true)', ...)
 // it('testIsBlank (case #2: input="hello", expected=false)', ...)
-// it('testIsBlank (case #3: input="  ", expected=true)', ...)
+// it('testIsBlank (case #3: input=" ", expected=true)', ...)  (whitespace in the label is collapsed)
 ```
 
 ### assertSnapshot() — Source-Capturing Snapshots
 
-Snapshot testing with compile-time source capture. The snapshot label is derived from the source location and the expression being snapshotted.
+Snapshot testing with compile-time source capture. The snapshot label is derived from the file name and the expression being snapshotted. It expands to `expect(value).toMatchSnapshot(label)`, so it needs a test runner's global `expect` (vitest or jest).
 
 ```typescript
 import { assertSnapshot } from "@typesugar/testing";
 
 assertSnapshot(formatUser(testUser));
-// Label: "file.ts:42 — formatUser(testUser)"
+// Label: "file.ts — formatUser(testUser)"
 
 assertSnapshot(renderComponent(props), "dark mode");
-// Label: "file.ts:45 — renderComponent(props) [dark mode]"
+// Label: "file.ts — renderComponent(props) [dark mode]"
 ```
 
 ### forAll() — Property-Based Testing
@@ -218,11 +226,6 @@ See the [`examples/`](https://github.com/typesugar/typesugar/tree/main/packages/
 - `staticAssert(condition, message?)` — Compile-time assertion
 - `typeAssert<T extends true>()` — Type-level assertion
 - `assertSnapshot(value, name?)` — Snapshot with source capture
-
-#### Deprecated Aliases
-
-- `powerAssert` — Use `assert()` instead
-- `comptimeAssert` — Use `staticAssert()` instead
 
 ### Parameterized Testing
 
