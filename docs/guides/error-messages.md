@@ -114,13 +114,15 @@ match(color).case("red").then(0xff0000);
 ```
 
 ```
-error: Non-exhaustive match — missing cases: "green", "blue". Add the missing cases or use .else() / _ to handle remaining values.
+error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "green", "blue"
+  = help: Add the missing cases or use .else() / _ to handle remaining values.
 ```
 
 For non-enumerable types (string, number, objects), you must add `.else()` or a `_` wildcard:
 
 ```
-error: Non-exhaustive match — scrutinee type is not enumerable. Add .else() or a _ wildcard to handle all remaining values.
+error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing a fallback: the scrutinee type is not enumerable
+  = help: Add .else() or a _ wildcard to handle all remaining values.
 ```
 
 **Fixes:**

@@ -118,4 +118,21 @@ describe("match() argument errors carry catalogue codes (docs review r3 guides-b
       )
     ).toEqual([9202]);
   });
+
+  it("a non-exhaustive match is TS9226 with the missing cases in the message", () => {
+    const src = (body: string) =>
+      transformCode(`import { match } from "@typesugar/std";\n${body}`, {
+        fileName: path.resolve(here, `__match_codes_${n++}.ts`),
+      }).diagnostics.filter((d: { severity?: string }) => d.severity === "error");
+    const lit = src(`export const f = (s: "a" | "b") => match(s).case("a").then(1);`);
+    expect(lit.map((d: { code?: number }) => d.code)).toEqual([9226]);
+    expect(String(lit[0].message)).toMatch(/missing cases: "b"/);
+    const du = src(
+      `type U = { kind: "x" } | { kind: "y" };\nexport const f = (u: U) => match(u).case({ kind: "x" }).then(1);`
+    );
+    expect(du.map((d: { code?: number }) => d.code)).toEqual([9226]);
+    expect(String(du[0].message)).toMatch(/missing variants: "?y"?/);
+    const ne = src(`export const f = (n: number) => match(n).case(1).then(1);`);
+    expect(ne.map((d: { code?: number }) => d.code)).toEqual([9226]);
+  });
 });

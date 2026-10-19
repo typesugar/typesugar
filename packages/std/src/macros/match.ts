@@ -38,6 +38,7 @@ import {
   type MacroContext,
   TS9202,
   TS9216,
+  TS9226,
 } from "@typesugar/core";
 
 // ============================================================================
@@ -935,10 +936,12 @@ function checkExhaustiveness(
 
       const missing = [...analysis.literalMembers].filter((m) => !covered.has(m));
       if (missing.length > 0) {
-        ctx.reportError(
-          chainExpr,
-          `Non-exhaustive match — missing cases: ${missing.join(", ")}. Add the missing cases or use .else() / _ to handle remaining values.`
-        );
+        ctx
+          .diagnostic(TS9226)
+          .at(chainExpr)
+          .withArgs({ what: "cases", missing: missing.join(", ") })
+          .help("Add the missing cases or use .else() / _ to handle remaining values.")
+          .emit();
       }
       break;
     }
@@ -958,19 +961,26 @@ function checkExhaustiveness(
       const expected = [...analysis.variantValues, ...(analysis.nullishMembers ?? [])];
       const missing = expected.filter((m) => !covered.has(m));
       if (missing.length > 0) {
-        ctx.reportError(
-          chainExpr,
-          `Non-exhaustive match — missing variants: ${missing.join(", ")} (discriminant: "${analysis.discriminantField}"). Add the missing cases or use .else() / _ to handle remaining values.`
-        );
+        ctx
+          .diagnostic(TS9226)
+          .at(chainExpr)
+          .withArgs({
+            what: "variants",
+            missing: `${missing.join(", ")} (discriminant: "${analysis.discriminantField}")`,
+          })
+          .help("Add the missing cases or use .else() / _ to handle remaining values.")
+          .emit();
       }
       break;
     }
 
     case "non-enumerable": {
-      ctx.reportError(
-        chainExpr,
-        `Non-exhaustive match — scrutinee type is not enumerable. Add .else() or a _ wildcard to handle all remaining values.`
-      );
+      ctx
+        .diagnostic(TS9226)
+        .at(chainExpr)
+        .withArgs({ what: "a fallback", missing: "the scrutinee type is not enumerable" })
+        .help("Add .else() or a _ wildcard to handle all remaining values.")
+        .emit();
       break;
     }
 

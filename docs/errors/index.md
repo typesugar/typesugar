@@ -58,6 +58,7 @@ compiler.
 | [TS9223](./TS9223.md) | Error | `` `yield:` cannot be used as a continuation label inside a generator function `` |
 | [TS9224](./TS9224.md) | Warning | `'{label}:' matches the {macro} macro, but its label syntax is not activated in this file` |
 | [TS9225](./TS9225.md) | Error | `No {typeclass} instance for '{brand}' is in scope` |
+| [TS9226](./TS9226.md) | Error | `Non-exhaustive match — missing {what}: {missing}` |
 
 ## Derive
 

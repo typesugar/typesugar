@@ -1023,6 +1023,28 @@ Fix one of:
   seeAlso: "https://typesugar.org/errors/TS9225",
 };
 
+export const TS9226: DiagnosticDescriptor = {
+  code: 9226,
+  severity: "error",
+  category: DiagnosticCategory.MacroSyntax,
+  messageTemplate: "Non-exhaustive match — missing {what}: {missing}",
+  explanation: `A fluent match(value).case(...).then(...) chain does not cover every
+value of the scrutinee's type, and has no fallback arm. The macro checks
+literal unions (including booleans and null/undefined members) and
+discriminated unions, and lists the cases or variants no arm handles. A
+scrutinee whose values can't be enumerated (number, string, object types
+without a discriminant) always needs a fallback.
+
+Fix one of:
+1. Add an arm for each missing case or variant.
+2. End the chain with .else(handler) to handle every remaining value.
+3. Add a catch-all .case(_).then(...) arm.
+
+The object-handler form match(value, { Variant: handler }) is not
+exhaustiveness-checked; a missing handler throws at runtime.`,
+  seeAlso: "https://typesugar.org/errors/TS9226",
+};
+
 // ============================================================================
 // Error Catalog: HKT Issues (9300-9399)
 // ============================================================================
@@ -1391,6 +1413,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9223, TS9223],
   [9224, TS9224],
   [9225, TS9225],
+  [9226, TS9226],
 
   // HKT Issues (9300-9399)
   [9301, TS9301],

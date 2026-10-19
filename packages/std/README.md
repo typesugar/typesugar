@@ -307,11 +307,8 @@ The fluent API supports all structural patterns — literals, variable binding, 
 Every `match()` is always exhaustive. Missing cases produce a compile error:
 
 ```
-error[TS9401]: Non-exhaustive match — missing cases: "blue"
-  --> src/colors.ts:5:1
-   |
- 5 | match(color)
-   | ^^^^^ missing case "blue"
+error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue"
+  = help: Add the missing cases or use .else() / _ to handle remaining values.
 ```
 
 Use `.else(value)` as a catch-all. When no pattern matches at runtime, the generated code throws `MatchError`.

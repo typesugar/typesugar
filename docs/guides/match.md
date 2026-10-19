@@ -77,7 +77,7 @@ const name = match(shape, {
 
 ## Exhaustiveness and MatchError
 
-The fluent `match().case().then().else()` API (see [Pattern Matching](./pattern-matching.md)) enforces compile-time exhaustiveness. Missing cases produce a clear error (e.g. "Non-exhaustive match — missing cases: blue, green"). When no pattern matches at runtime, the generated code throws `MatchError` with the unmatched value on `.value`.
+The fluent `match().case().then().else()` API (see [Pattern Matching](./pattern-matching.md)) enforces compile-time exhaustiveness. Missing cases produce a [TS9226](../errors/TS9226.md) error (e.g. `Non-exhaustive match — missing cases: "green", "blue"`). When no pattern matches at runtime, the generated code throws `MatchError` with the unmatched value on `.value`.
 
 ## Learn More
 

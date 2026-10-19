@@ -371,7 +371,8 @@ instead and read the payload from `value` (`head`/`tail` for `Cons`).
 Every `match()` is **always exhaustive** — like Rust, not like Scala. Missing cases produce a compile error:
 
 ```
-error: Non-exhaustive match — missing cases: "blue". Add the missing cases or use .else() / _ to handle remaining values.
+error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue"
+  = help: Add the missing cases or use .else() / _ to handle remaining values.
 ```
 
 ### How It Works
