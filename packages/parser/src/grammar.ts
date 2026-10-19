@@ -6,7 +6,7 @@
  */
 
 import type { Parser, ParseResult, GrammarRule, Grammar } from "./types.js";
-import { literal, char, regex, seq, alt, many, map, lazy } from "./combinators.js";
+import { literal, char, regex, seq, alt, many, map, lazy, ParseError } from "./combinators.js";
 
 function mkParser<T>(fn: (input: string, pos: number) => ParseResult<T>): Parser<T> {
   return {
@@ -16,10 +16,10 @@ function mkParser<T>(fn: (input: string, pos: number) => ParseResult<T>): Parser
     parseAll(input: string): T {
       const result = fn(input, 0);
       if (!result.ok) {
-        throw new Error(`Grammar parse error at pos ${result.pos}: expected ${result.expected}`);
+        throw new ParseError(input, result.pos, result.expected);
       }
       if (result.pos !== input.length) {
-        throw new Error(`Grammar parse error: unexpected input at pos ${result.pos}`);
+        throw new ParseError(input, result.pos, "end of input");
       }
       return result.value;
     },
@@ -602,32 +602,16 @@ export function buildParser<T = string>(
       for (const [name, p] of origParsers) parsers.set(name, p);
 
       if (!result.ok) {
-        const { line, col } = lineColOf(input, furthestPos);
-        throw new Error(`Parse error at line ${line}, col ${col}: expected ${furthestExpected}`);
+        throw new ParseError(input, furthestPos, furthestExpected);
       }
       if (result.pos !== input.length) {
-        const { line, col } = lineColOf(input, result.pos);
-        throw new Error(`Parse error at line ${line}, col ${col}: expected end of input`);
+        throw new ParseError(input, result.pos, "end of input");
       }
       return result.value as T;
     },
   };
 
   return wrapped;
-}
-
-function lineColOf(input: string, pos: number): { line: number; col: number } {
-  let line = 1;
-  let col = 1;
-  for (let i = 0; i < pos && i < input.length; i++) {
-    if (input[i] === "\n") {
-      line++;
-      col = 1;
-    } else {
-      col++;
-    }
-  }
-  return { line, col };
 }
 
 /** Compile a single GrammarRule into a Parser. */

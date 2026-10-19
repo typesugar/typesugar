@@ -1,7 +1,7 @@
 {
   "name": "typesugar-vscode",
   "version": "0.1.1",
-  "description": "🧊 IDE support for typesugar — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
+  "description": "IDE support for typesugar — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "private": true,
   "repository": {
@@ -172,6 +172,10 @@
       {
         "command": "typesugar.generateManifest",
         "title": "typesugar: Generate Macro Manifest"
+      },
+      {
+        "command": "typesugar.addDerive",
+        "title": "typesugar: Add @derive(...)"
       }
     ],
     "typescriptServerPlugins": [
@@ -202,16 +206,6 @@
           "type": "string",
           "default": "typesugar.manifest.json",
           "description": "Path to the macro manifest file (relative to workspace root)"
-        },
-        "typesugar.useLegacyPlugin": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use legacy language service plugin (error suppression instead of full transformation)"
-        },
-        "typesugar.enableVerboseLogging": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable verbose logging for the language service plugin (useful for debugging)"
         },
         "typesugar.comptimeInEditor": {
           "type": "boolean",

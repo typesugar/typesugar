@@ -18,7 +18,7 @@ typesugar follows the same model as the TypeScript ecosystem: **fast builds, bac
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │  Layer 3: CI             Full correctness gate               │
-│  (tsc --noEmit)          Broken types don't merge            │
+│  (typesugar check)       Broken types don't merge            │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -53,19 +53,21 @@ typesugar's language service plugin (`@typesugar/transformer/language-service`) 
 
 ### Layer 3: CI (Correctness Gate)
 
-`tsc --noEmit` runs the full TypeScript compiler without emitting output. This catches every type error, including ones the IDE might miss (e.g., cross-file issues in large projects). Run this in CI to prevent broken types from merging.
+`typesugar check` expands macros across the whole project and type-checks the result, without emitting output. This catches every type error, including ones the IDE might miss (e.g., cross-file issues in large projects). Run this in CI to prevent broken types from merging.
 
-**What you get:** Complete type safety. Nothing passes that `tsc` wouldn't accept.
+Plain `tsc --noEmit` is not a substitute: it type-checks your pre-macro source, which is type-incomplete (see the next section), so it reports false errors such as TS2339 on `@derive`-generated members.
+
+**What you get:** Complete type safety on the code that actually ships.
 
 **What you need:**
 
 ```bash
-tsc --noEmit && npm run build
+npx typesugar check && npm run build
 ```
 
-### The Exception: tsc with ts-patch
+### tsc with ts-patch
 
-When you build directly with `tsc` (via ts-patch), all three layers collapse into one. The TypeScript compiler typechecks AND transforms in the same pass. You get type errors during the build itself — no separate `tsc --noEmit` needed.
+When you build directly with `tsc` (via ts-patch), macros expand during emit and macro diagnostics are reported by `tsc`, which exits non-zero on them. But TypeScript's own type check still runs on the pre-macro source, before the transformer, so it has the same false errors as plain `tsc --noEmit`. Keep `typesugar check` as the type-checking gate.
 
 ## Why Pre-Macro Code Is Type-Incomplete
 
@@ -128,14 +130,16 @@ typesugar({
 });
 ```
 
-| Scenario                    | `strict: false`                  | `strict: true`                   |
-| --------------------------- | -------------------------------- | -------------------------------- |
-| Dev server startup          | Fast                             | Slower (typecheck at build end)  |
-| Macro expansion errors      | Reported via `ctx.reportError()` | Same + post-expansion tsc errors |
-| Type errors in macro output | Not caught until `tsc --noEmit`  | Caught during build              |
-| Recommended for             | Development                      | CI, production builds            |
+| Scenario                    | `strict: false`                    | `strict: true`                   |
+| --------------------------- | ---------------------------------- | -------------------------------- |
+| Dev server startup          | Fast                               | Slower (typecheck at build end)  |
+| Macro expansion errors      | Reported via `ctx.reportError()`   | Same + post-expansion tsc errors |
+| Type errors in macro output | Not caught until `typesugar check` | Caught; the build fails          |
+| Recommended for             | Development                        | CI, production builds            |
 
-**Rule of thumb:** Use `strict: false` for development (fast iteration), `strict: true` or `tsc --noEmit` for CI.
+With `strict: true` (or `strict: "incremental"`, which only re-checks files whose macro output changed), type errors in the expanded output fail the build: Vite/Rollup report them through the plugin's error, and webpack and esbuild fail the build too.
+
+**Rule of thumb:** Use `strict: false` for development (fast iteration), `strict: true` or `typesugar check` for CI.
 
 ## Recommended CI Configuration
 
@@ -145,8 +149,7 @@ typesugar({
 # .github/workflows/ci.yml
 steps:
   - run: npm ci
-  - run: npx ts-patch install # if using tsc directly
-  - run: tsc --noEmit # typecheck
+  - run: npx typesugar check # expand macros and typecheck
   - run: npm run build # build (macros expand here)
   - run: npm test # tests
 ```
@@ -156,18 +159,20 @@ steps:
 ```yaml
 steps:
   - run: npm ci
-  - run: npm run build # typesugar({ strict: true }) handles typechecking
+  - run: npm run build # typesugar({ strict: true }) fails the build on type errors
   - run: npm test
 ```
 
 ### Monorepo with Turborepo
 
+Each package's `package.json` defines `"typecheck": "typesugar check"`; `turbo.json`
+then schedules it:
+
 ```json
 {
-  "pipeline": {
+  "tasks": {
     "typecheck": {
-      "dependsOn": ["^build"],
-      "command": "tsc --noEmit"
+      "dependsOn": ["^build"]
     },
     "build": {
       "dependsOn": ["^build"],
@@ -186,6 +191,6 @@ steps:
 | -------------- | --------------------------------- | -------------------------- | ----------------------- |
 | Dev build      | Vite/esbuild/Webpack              | No (unless `strict: true`) | Fast                    |
 | IDE            | VS Code/Cursor + language service | Yes (background)           | Incremental             |
-| CI gate        | `tsc --noEmit`                    | Yes (full)                 | Depends on project size |
-| tsc build      | ts-patch                          | Yes (built-in)             | Depends on project size |
+| CI gate        | `typesugar check`                 | Yes (full, expanded code)  | Depends on project size |
+| tsc build      | ts-patch                          | Pre-macro source only      | Depends on project size |
 | `strict: true` | Any build tool                    | Yes (at build end)         | Adds tsc pass           |

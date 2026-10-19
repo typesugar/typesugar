@@ -4,31 +4,38 @@ Tagged template macros process template literals at compile time.
 
 ## When to Use
 
-- Create DSLs: `` sql`SELECT ...` ``
-- Validate at compile time: `` regex`[a-z]+` ``
+- Create DSLs: `` query`SELECT ...` ``
+- Validate at compile time: `` pattern`[a-z]+` ``
 - Transform templates: `` html`<div>...</div>` ``
 - Embed external content
 
 ## Basic Structure
 
 ```typescript
-import { defineTaggedTemplateMacro } from "@typesugar/core";
+import { defineTaggedTemplateMacro, globalRegistry } from "@typesugar/core";
 import * as ts from "typescript";
 
-defineTaggedTemplateMacro("myTag", {
-  expand(ctx, node: ts.TaggedTemplateExpression): ts.Expression {
-    const template = node.template;
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "myTag",
+    expand(ctx, node) {
+      const template = node.template;
+      // Handle the template...
+      return ctx.createStringLiteral("result");
+    },
+  })
+);
+```
 
-    // Handle the template...
-    return ctx.createStringLiteral("result");
-  },
-});
-
-// Runtime placeholder
+```typescript
+// src/index.ts — runtime placeholder
 export function myTag(strings: TemplateStringsArray, ...values: unknown[]): string {
   throw new Error("myTag should be compiled away");
 }
 ```
+
+Tag names are global: typesugar's own packages register `sql`, `regex`, `html`, `fmt`,
+`raw` and others, so pick a name that doesn't clash.
 
 ## Template Structure
 
@@ -57,102 +64,114 @@ tag`hello ${name}!`;
 A tag that uppercases static strings at compile time:
 
 ```typescript
-import { defineTaggedTemplateMacro } from "@typesugar/core";
-import * as ts from "typescript";
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "upper",
+    expand(ctx, node) {
+      const template = node.template;
 
-defineTaggedTemplateMacro("upper", {
-  expand(ctx, node) {
-    const template = node.template;
+      if (ts.isNoSubstitutionTemplateLiteral(template)) {
+        // Simple case: no interpolations
+        return ctx.createStringLiteral(template.text.toUpperCase());
+      }
 
-    if (ts.isNoSubstitutionTemplateLiteral(template)) {
-      // Simple case: no interpolations
-      return ctx.createStringLiteral(template.text.toUpperCase());
-    }
+      // With interpolations: uppercase static parts, keep dynamic ones
+      const f = ctx.factory;
+      const head = f.createTemplateHead(template.head.text.toUpperCase());
+      const spans = template.templateSpans.map((span, i) => {
+        const isLast = i === template.templateSpans.length - 1;
+        const literal = isLast
+          ? f.createTemplateTail(span.literal.text.toUpperCase())
+          : f.createTemplateMiddle(span.literal.text.toUpperCase());
+        return f.createTemplateSpan(span.expression, literal);
+      });
+      return f.createTemplateExpression(head, spans);
+    },
+  })
+);
 
-    // With interpolations: uppercase static parts, keep dynamic
-    const head = ctx.factory.createTemplateHead(template.head.text.toUpperCase());
-
-    const spans = template.templateSpans.map((span, i) => {
-      const isLast = i === template.templateSpans.length - 1;
-      const literal = isLast
-        ? ctx.factory.createTemplateTail(span.literal.text.toUpperCase())
-        : ctx.factory.createTemplateMiddle(span.literal.text.toUpperCase());
-
-      return ctx.factory.createTemplateSpan(span.expression, literal);
-    });
-
-    return ctx.factory.createTemplateExpression(head, spans);
-  },
-});
+// upper`hello ${name}!`  →  `HELLO ${name}!`
 ```
 
-## Tutorial: Creating `sql`
+## Tutorial: Creating `query`
 
-Type-safe SQL with parameterized queries:
+Parameterized SQL-style queries:
 
 ```typescript
-import { defineTaggedTemplateMacro } from "@typesugar/core";
-import { quote } from "@typesugar/core/quote";
-import * as ts from "typescript";
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "query",
+    expand(ctx, node) {
+      const f = ctx.factory;
+      const template = node.template;
+      let text: string;
+      const params: ts.Expression[] = [];
 
-defineTaggedTemplateMacro("sql", {
-  expand(ctx, node) {
-    const template = node.template;
+      if (ts.isNoSubstitutionTemplateLiteral(template)) {
+        text = template.text;
+      } else {
+        text = template.head.text;
+        template.templateSpans.forEach((span, i) => {
+          params.push(span.expression);
+          text += `$${i + 1}${span.literal.text}`;
+        });
+      }
 
-    if (ts.isNoSubstitutionTemplateLiteral(template)) {
-      return quote(ctx)`{
-        text: ${ctx.createStringLiteral(template.text)},
-        params: []
-      }`;
-    }
-
-    // Build parameterized query
-    let text = template.head.text;
-    const params: ts.Expression[] = [];
-
-    template.templateSpans.forEach((span, i) => {
-      params.push(span.expression);
-      text += `$${i + 1}` + span.literal.text;
-    });
-
-    return quote(ctx)`{
-      text: ${ctx.createStringLiteral(text)},
-      params: [${params.map((p) => p).join(", ")}]
-    }`;
-  },
-});
+      // { text: "...", params: [a, b] }
+      return f.createObjectLiteralExpression([
+        f.createPropertyAssignment("text", f.createStringLiteral(text)),
+        f.createPropertyAssignment("params", f.createArrayLiteralExpression(params)),
+      ]);
+    },
+  })
+);
 ```
+
+```typescript
+const q1 = query`SELECT * FROM users`;
+const q2 = query`SELECT * FROM users WHERE id = ${id} AND name = ${name}`;
+
+// Compiles to:
+const q1 = { text: "SELECT * FROM users", params: [] };
+const q2 = { text: "SELECT * FROM users WHERE id = $1 AND name = $2", params: [id, name] };
+```
+
+The interpolated expressions are passed to `createArrayLiteralExpression` as nodes. Don't
+turn nodes into strings to build code.
 
 ## Compile-Time Validation
 
 Validate templates at build time:
 
 ```typescript
-defineTaggedTemplateMacro("regex", {
-  expand(ctx, node) {
-    const template = node.template;
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "pattern",
+    expand(ctx, node) {
+      const template = node.template;
+      if (!ts.isNoSubstitutionTemplateLiteral(template)) {
+        ctx.reportError(node, "pattern does not support interpolations");
+        return node;
+      }
 
-    if (!ts.isNoSubstitutionTemplateLiteral(template)) {
-      ctx.reportError(node, "regex tag does not support interpolations");
-      return node;
-    }
+      const source = template.text;
+      try {
+        new RegExp(source);
+      } catch (e) {
+        ctx.reportError(node, (e as Error).message);
+        return node;
+      }
 
-    const pattern = template.text;
+      return ctx.factory.createRegularExpressionLiteral(`/${source.replace(/\//g, "\\/")}/`);
+    },
+  })
+);
 
-    // Validate the regex
-    try {
-      new RegExp(pattern);
-    } catch (e) {
-      ctx.reportError(node, `Invalid regex: ${e}`);
-      return node;
-    }
-
-    return quote(ctx)`new RegExp(${ctx.createStringLiteral(pattern)})`;
-  },
-});
+// pattern`[a-z]+`  →  /[a-z]+/
+// pattern`[a-z`    →  error: Invalid regular expression: /[a-z/: Unterminated character class
 ```
 
-## Accessing Tag Arguments
+## Accessing Type Arguments
 
 Some tagged templates have type arguments:
 
@@ -162,18 +181,18 @@ tag<Type>`template`;
 ```
 
 ```typescript
-defineTaggedTemplateMacro("typed", {
-  expand(ctx, node) {
-    const typeArgs = node.typeArguments;
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "typed",
+    expand(ctx, node) {
+      const typeArg = node.typeArguments?.[0];
+      const typeText = typeArg ? typeArg.getText(ctx.sourceFile) : "unknown";
+      return ctx.createStringLiteral(`${typeText}: ${node.template.getText(ctx.sourceFile)}`);
+    },
+  })
+);
 
-    if (typeArgs && typeArgs.length > 0) {
-      const firstType = typeArgs[0];
-      // Use the type...
-    }
-
-    return ctx.createStringLiteral("result");
-  },
-});
+// typed<number>`x`  →  "number: `x`"
 ```
 
 ## Returning Complex Types
@@ -181,109 +200,145 @@ defineTaggedTemplateMacro("typed", {
 Generate typed objects:
 
 ```typescript
-defineTaggedTemplateMacro("config", {
-  expand(ctx, node) {
-    const template = node.template;
-
-    if (!ts.isNoSubstitutionTemplateLiteral(template)) {
-      return node;
-    }
-
-    // Parse YAML-like config at compile time
-    const text = template.text;
-    const lines = text.trim().split("\n");
-    const entries: string[] = [];
-
-    for (const line of lines) {
-      const [key, value] = line.split(":").map((s) => s.trim());
-      if (key && value) {
-        entries.push(`${key}: ${JSON.stringify(value)}`);
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "config",
+    expand(ctx, node) {
+      const template = node.template;
+      if (!ts.isNoSubstitutionTemplateLiteral(template)) {
+        ctx.reportError(node, "config requires a static template");
+        return node;
       }
-    }
 
-    return ctx.parseExpression(`({ ${entries.join(", ")} })`);
-  },
-});
+      // Parse "key: value" lines at compile time
+      const f = ctx.factory;
+      const props: ts.PropertyAssignment[] = [];
+      for (const line of template.text.trim().split("\n")) {
+        const [key, value] = line.split(":").map((s) => s.trim());
+        if (key && value) props.push(f.createPropertyAssignment(key, f.createStringLiteral(value)));
+      }
+      return f.createObjectLiteralExpression(props, true);
+    },
+  })
+);
+
+// config`
+//   host: localhost
+//   port: 8080
+// `
+// → { host: "localhost", port: "8080" }
 ```
 
 ## Handling Raw Strings
 
-Access raw (unescaped) text:
+`rawText` is the template text exactly as written, with escapes not processed:
 
 ```typescript
-defineTaggedTemplateMacro("raw", {
-  expand(ctx, node) {
-    const template = node.template;
-
-    if (ts.isNoSubstitutionTemplateLiteral(template)) {
-      // template.rawText is the unescaped version
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "verbatim",
+    expand(ctx, node) {
+      const template = node.template;
+      if (!ts.isNoSubstitutionTemplateLiteral(template)) {
+        ctx.reportError(node, "verbatim does not support interpolations");
+        return node;
+      }
       return ctx.createStringLiteral(template.rawText ?? template.text);
-    }
+    },
+  })
+);
 
-    // Handle template expression...
-    return node;
-  },
-});
+// verbatim`a\nb` is the 4-character string a\nb (a backslash, not a newline)
 ```
 
 ## Error Reporting
 
-Provide helpful compile-time errors:
+Provide helpful compile-time errors. This tag parses JSON at build time and turns the value
+into AST:
 
 ```typescript
-defineTaggedTemplateMacro("json", {
-  expand(ctx, node) {
-    const template = node.template;
+import type { MacroContext } from "@typesugar/core";
 
-    if (!ts.isNoSubstitutionTemplateLiteral(template)) {
-      ctx.reportError(node, "json tag requires a static template");
-      return node;
-    }
+/** Turn a JSON value into an AST expression. */
+function jsonToAst(ctx: MacroContext, value: unknown): ts.Expression {
+  const f = ctx.factory;
+  if (value === null) return f.createNull();
+  if (Array.isArray(value))
+    return f.createArrayLiteralExpression(value.map((v) => jsonToAst(ctx, v)));
+  switch (typeof value) {
+    case "string":
+      return f.createStringLiteral(value);
+    case "number":
+      return value < 0
+        ? f.createPrefixUnaryExpression(ts.SyntaxKind.MinusToken, f.createNumericLiteral(-value))
+        : f.createNumericLiteral(value);
+    case "boolean":
+      return value ? f.createTrue() : f.createFalse();
+    default:
+      return f.createObjectLiteralExpression(
+        Object.entries(value as object).map(([k, v]) =>
+          f.createPropertyAssignment(f.createStringLiteral(k), jsonToAst(ctx, v))
+        )
+      );
+  }
+}
 
-    try {
-      const parsed = JSON.parse(template.text);
-      return ctx.parseExpression(JSON.stringify(parsed));
-    } catch (e) {
-      ctx.reportError(node, `Invalid JSON: ${e}`);
-      return node;
-    }
-  },
-});
+globalRegistry.register(
+  defineTaggedTemplateMacro({
+    name: "json",
+    expand(ctx, node) {
+      const template = node.template;
+      if (!ts.isNoSubstitutionTemplateLiteral(template)) {
+        ctx.reportError(node, "json requires a static template");
+        return node;
+      }
+      try {
+        return jsonToAst(ctx, JSON.parse(template.text));
+      } catch (e) {
+        ctx.reportError(node, `Invalid JSON: ${(e as Error).message}`);
+        return node;
+      }
+    },
+  })
+);
+
+// json`{"a": [1, -2, true, null]}`  →  { "a": [1, -2, true, null] }
+// json`{a:1}`  →  error: Invalid JSON: Expected property name or '}' in JSON at position 1 ...
 ```
+
+(Negative numbers need `createPrefixUnaryExpression`: `createNumericLiteral` only accepts
+non-negative values.)
 
 ## Testing Tagged Templates
 
 ```typescript
-import { expandCode } from "@typesugar/testing";
+import { describe, it, expect } from "vitest";
+import { transformCode } from "@typesugar/transformer";
+import "../src/macros"; // registers query
 
-describe("sql tag", () => {
-  it("extracts parameters", async () => {
-    const result = await expandCode(`
-      import { sql } from "./sql";
+describe("query tag", () => {
+  it("extracts parameters", () => {
+    const result = transformCode(
+      `
+      import { query } from "./macros";
       const id = 42;
-      const query = sql\`SELECT * FROM users WHERE id = \${id}\`;
-    `);
-
+      const q = query\`SELECT * FROM users WHERE id = \${id}\`;
+      `,
+      { fileName: "test.ts" }
+    );
     expect(result.code).toContain('text: "SELECT * FROM users WHERE id = $1"');
     expect(result.code).toContain("params: [id]");
   });
-
-  it("handles no interpolations", async () => {
-    const result = await expandCode(`
-      import { sql } from "./sql";
-      const query = sql\`SELECT * FROM users\`;
-    `);
-
-    expect(result.code).toContain("params: []");
-  });
 });
 ```
+
+See [Testing Macros](./testing-macros.md) for running the output.
 
 ## Best Practices
 
 1. **Handle both template types**: NoSubstitutionTemplateLiteral and TemplateExpression
 2. **Validate early**: Catch errors at compile time
-3. **Preserve source info**: Use proper span positions for errors
+3. **Report on the right node**: Pass the template (or a span) to `ctx.reportError` so the error points at it
 4. **Type the output**: Generate well-typed code
 5. **Document syntax**: Explain what the tag expects
 

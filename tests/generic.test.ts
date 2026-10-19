@@ -369,6 +369,8 @@ describe("type-level assertions", () => {
   });
 
   it("GenericMeta has kind field", () => {
-    typeAssert<Equal<Pick<GenericMeta, "kind">, { kind: "product" | "sum" | "primitive" }>>();
+    typeAssert<
+      Equal<Pick<GenericMeta, "kind">, { readonly kind: "product" | "sum" | "primitive" }>
+    >();
   });
 });

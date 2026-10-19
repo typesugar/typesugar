@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/effect",
   "version": "0.1.1",
-  "description": "🧊 Effect-TS adapter for typesugar - do-notation and comprehension syntax",
+  "description": "Effect-TS adapter for typesugar - do-notation and comprehension syntax",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

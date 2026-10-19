@@ -13,10 +13,11 @@ npm install --save-dev unplugin-typesugar @typesugar/transformer ts-patch
 ### webpack.config.js
 
 ```javascript
-const typesugar = require("unplugin-typesugar/webpack");
+// CommonJS: the plugin is the module's `default` export
+const typesugar = require("unplugin-typesugar/webpack").default;
 
 module.exports = {
-  plugins: [typesugar.default()],
+  plugins: [typesugar()],
   // ... rest of your config
 };
 ```
@@ -39,35 +40,43 @@ export default config;
 
 ```javascript
 typesugar({
-  // Typecheck expanded output at build end
+  // Type-check the expanded output at build end and fail the build (experimental)
   strict: false,
 
-  // Logging and file patterns
+  // Logging and file patterns (globs or RegExps; relative globs resolve
+  // against the working directory; node_modules is always skipped)
   verbose: false,
-  include: ["**/*.ts", "**/*.tsx"],
-  exclude: ["node_modules/**"],
+  include: ["src/**/*.ts", "src/**/*.tsx"],
+  exclude: ["**/*.test.ts"],
   tsconfig: "./tsconfig.json",
 });
 ```
+
+See [Configuration](../../reference/config.md#bundler-plugins-unplugin-typesugar)
+for every option.
 
 ### Typechecking
 
 **Webpack does NOT typecheck by default** — it only transforms. To get type errors:
 
 ```javascript
-// Option 1: Strict mode
+// Option 1: Strict mode (experimental)
 typesugar({
-  strict: true, // Typechecks expanded output at build end
+  strict: true, // type-checks expanded output at build end; errors fail the build
 });
 ```
 
 ```bash
-# Option 2: Run tsc separately (recommended for CI)
-tsc --noEmit && webpack build
+# Option 2: Run typesugar check separately (recommended for CI)
+typesugar check && webpack build
 ```
 
+Use `typesugar check` rather than `tsc --noEmit`, which never runs the macros and so
+type-checks the unexpanded source.
+
 ```javascript
-// Option 3: Use fork-ts-checker-webpack-plugin for parallel typechecking
+// Option 3: fork-ts-checker-webpack-plugin for parallel type-checking.
+// Note: it runs plain tsc, so it has the same limitation as `tsc --noEmit`.
 const ForkTsCheckerWebpackPlugin = require("fork-ts-checker-webpack-plugin");
 
 module.exports = {
@@ -81,7 +90,7 @@ module.exports = {
 
 ```javascript
 // next.config.js
-const typesugar = require("unplugin-typesugar/webpack");
+const typesugar = require("unplugin-typesugar/webpack").default;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -112,17 +121,21 @@ export default nextConfig;
 
 ### Important: Turbopack Limitation
 
-If you're using Turbopack (`next dev --turbo`), typesugar won't work because Turbopack uses SWC instead of the TypeScript compiler. Use the standard Webpack mode for development:
+typesugar is a Webpack plugin here, so it does nothing under Turbopack, which
+doesn't run Webpack plugins. Which bundler Next.js uses depends on its version:
+Next.js 16 and later use Turbopack by default for both `next dev` and `next build`
+(pass `--webpack` to use Webpack); earlier versions use Webpack unless you pass
+`--turbo`.
 
 ```bash
-# Use webpack (typesugar works)
+# Next.js 16+: opt in to Webpack so typesugar runs
+next dev --webpack
+next build --webpack
+
+# Next.js 13–15: Webpack is the default
 next dev
-
-# Turbopack (typesugar doesn't work)
-next dev --turbo
+next build
 ```
-
-Production builds (`next build`) always use Webpack, so typesugar will work.
 
 ## With ts-loader
 
@@ -194,7 +207,7 @@ resolve: {
 
 ### Next.js: macros not expanding
 
-1. Make sure you're not using Turbopack
+1. Make sure you're not using Turbopack (see above)
 2. Check that the webpack function is being called (add a `console.log`)
 3. Verify the plugin is in the correct position in the plugins array
 
@@ -212,4 +225,4 @@ typesugar({
 ## Next Steps
 
 - [Editor Setup](../editor-setup.md)
-- [Jest Setup](./jest.md) for testing with Webpack projects
+- [Vitest Setup](./vitest.md) for testing (there is no working Jest integration; see [Jest](./jest.md))

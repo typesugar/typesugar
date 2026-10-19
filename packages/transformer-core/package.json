@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/transformer-core",
   "version": "0.1.1",
-  "description": "🧊 Browser-compatible transformer core for typesugar macro expansion",
+  "description": "Browser-compatible transformer core for typesugar macro expansion",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

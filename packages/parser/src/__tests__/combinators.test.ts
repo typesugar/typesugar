@@ -468,6 +468,18 @@ describe("parseAll error handling", () => {
       expect((e as ParseError).pos).toBe(0);
     }
   });
+
+  it("error carries 1-based line/col (docs B#21)", () => {
+    const p = seq(literal("a\nb"), literal("c"));
+    let err: any;
+    try {
+      p.parseAll("a\nbX");
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ParseError);
+    expect([err.pos, err.line, err.col]).toEqual([3, 2, 2]);
+  });
 });
 
 describe("empty input", () => {

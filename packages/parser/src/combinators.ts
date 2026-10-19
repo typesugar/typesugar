@@ -48,6 +48,10 @@ export class ParseError extends Error {
   readonly pos: number;
   /** What the parser expected at the failure position. */
   readonly expected: string;
+  /** 1-based line of the failure position. */
+  readonly line: number;
+  /** 1-based column of the failure position. */
+  readonly col: number;
 
   constructor(input: string, pos: number, expected: string) {
     const { line, col } = lineCol(input, pos);
@@ -56,6 +60,8 @@ export class ParseError extends Error {
     this.name = "ParseError";
     this.pos = pos;
     this.expected = expected;
+    this.line = line;
+    this.col = col;
   }
 }
 

@@ -9,17 +9,28 @@
 import * as ts from "typescript";
 import * as path from "path";
 import { createUnplugin, type UnpluginFactory } from "unplugin";
+import { createFilter } from "@rollup/pluginutils";
 import { createPipeline, type TransformationPipeline } from "@typesugar/transformer";
 
 export interface TypesugarPluginOptions {
   /** Path to tsconfig.json (default: auto-detected) */
   tsconfig?: string;
 
-  /** File patterns to include (default: /\.[jt]sx?$/) */
-  include?: RegExp | string[];
+  /**
+   * Files to transform: a RegExp, a glob, or an array of either (default:
+   * `/\.[jt]sx?$/`). Globs use picomatch syntax and are matched against the
+   * absolute module path; a relative glob (`"src/**\/*.ts"`) is resolved
+   * against the project root (Vite's `root`, else the working directory),
+   * and one starting with `**` matches anywhere.
+   */
+  include?: RegExp | string | Array<RegExp | string>;
 
-  /** File patterns to exclude (default: /node_modules/) */
-  exclude?: RegExp | string[];
+  /**
+   * Files to skip, in the same forms as `include`. Files under
+   * `node_modules` are always skipped too, unless an `include` pattern
+   * names `node_modules` explicitly.
+   */
+  exclude?: RegExp | string | Array<RegExp | string>;
 
   /** Enable verbose logging */
   verbose?: boolean;
@@ -36,6 +47,13 @@ export interface TypesugarPluginOptions {
    * - `false` / `undefined`: No strict typecheck
    */
   strict?: boolean | "incremental";
+
+  /**
+   * Conditions for `cfg()` / `@cfgAttr` conditional compilation, e.g.
+   * `{ debug: true, platform: "node" }`. Same as the `cfgConfig` key of the
+   * tsconfig transformer plugin entry.
+   */
+  cfgConfig?: Record<string, unknown>;
 }
 
 function findTsConfig(cwd: string, explicit?: string): string {
@@ -53,33 +71,41 @@ function findTsConfig(cwd: string, explicit?: string): string {
   return found;
 }
 
-function shouldTransform(
-  id: string,
-  include?: RegExp | string[],
-  exclude?: RegExp | string[]
-): boolean {
-  const normalizedId = id.replace(/\\/g, "/");
+type FilterPattern = RegExp | string | Array<RegExp | string>;
 
-  // Check exclude first
-  if (exclude) {
-    if (exclude instanceof RegExp) {
-      if (exclude.test(normalizedId)) return false;
-    } else {
-      if (exclude.some((pattern) => normalizedId.includes(pattern))) return false;
-    }
-  } else {
-    if (/node_modules/.test(normalizedId)) return false;
-  }
+const DEFAULT_INCLUDE = /\.[jt]sx?$/;
 
-  // Check include
-  if (include) {
-    if (include instanceof RegExp) {
-      return include.test(normalizedId);
-    }
-    return include.some((pattern) => normalizedId.includes(pattern));
-  }
+/** Whether any include pattern names node_modules (an explicit opt-in). */
+function includesNodeModules(include: FilterPattern | undefined): boolean {
+  if (include === undefined) return false;
+  const list = Array.isArray(include) ? include : [include];
+  return list.some((p) => (p instanceof RegExp ? p.source : p).includes("node_modules"));
+}
 
-  return /\.[jt]sx?$/.test(normalizedId);
+/**
+ * Build the include/exclude predicate: real glob semantics for strings
+ * (docs review 2026-10: they used to be substring matches, so documented
+ * values like `"**\/*.ts"` matched nothing and silently turned the plugin
+ * off), RegExps as before, and node_modules excluded unless explicitly
+ * included -- passing an `exclude` no longer drops that default.
+ */
+function createTransformFilter(
+  include: FilterPattern | undefined,
+  exclude: FilterPattern | undefined,
+  root: string
+): (id: string) => boolean {
+  // An explicitly empty include list matches nothing (as it did before
+  // globs). createFilter alone would read `[]` as "no include filter" and
+  // accept every module, CSS and JSON included.
+  if (Array.isArray(include) && include.length === 0) return () => false;
+  const filter = createFilter(include ?? DEFAULT_INCLUDE, exclude, { resolve: root });
+  const keepNodeModules = includesNodeModules(include);
+  return (id) => {
+    const normalizedId = id.replace(/\\/g, "/");
+    // `(^|/)`: a relative id (`node_modules/x.js`) is under node_modules too.
+    if (!keepNodeModules && /(^|\/)node_modules\//.test(normalizedId)) return false;
+    return filter(normalizedId);
+  };
 }
 
 /**
@@ -125,10 +151,48 @@ function lineColumn(text: string, pos: number): { line: number; column: number }
   return { line, column: pos - lineStart };
 }
 
+/** Patterns already warned about in this process (warn once, not per plugin instance). */
+const warnedPlainPatterns = new Set<string>();
+
+/**
+ * The glob a substring-era pattern most likely meant: `tests` ->
+ * `**\/tests/**`, `packages/core` -> `packages/core/**`, `.spec.` ->
+ * `**\/*.spec.*`.
+ */
+function suggestGlob(pattern: string): string {
+  if (pattern.includes("/")) return `${pattern.replace(/\/+$/, "")}/**`;
+  if (pattern.includes(".")) return `**/*${pattern}*`;
+  return `**/${pattern}/**`;
+}
+
+/**
+ * include/exclude strings used to be substring matches; they are globs now,
+ * so an old config like `exclude: ["tests"]` silently stops matching. Warn
+ * (once per pattern) about any string with no glob metacharacters that is not
+ * an absolute path, since that is almost always a substring-era pattern.
+ */
+function warnAboutPlainPatterns(...patterns: Array<FilterPattern | undefined>): void {
+  for (const pattern of patterns) {
+    if (pattern === undefined) continue;
+    for (const p of Array.isArray(pattern) ? pattern : [pattern]) {
+      if (typeof p !== "string" || p === "") continue;
+      if (/[*?[\]{}!]/.test(p)) continue;
+      if (path.isAbsolute(p) || path.win32.isAbsolute(p)) continue;
+      if (warnedPlainPatterns.has(p)) continue;
+      warnedPlainPatterns.add(p);
+      console.warn(
+        `[typesugar] include/exclude pattern "${p}" is now matched as a glob ` +
+          `(substring matching was removed). Did you mean "${suggestGlob(p)}"?`
+      );
+    }
+  }
+}
+
 export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined> = (
   options = {},
   meta
 ) => {
+  warnAboutPlainPatterns(options?.include, options?.exclude);
   let pipeline: TransformationPipeline | undefined;
   /** Error from creating the pipeline; reported (fatally) by buildStart/transform. */
   let setupError: unknown;
@@ -142,6 +206,8 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
    * THIS text, not re-read the file from disk (review #20).
    */
   const latestCode = new Map<string, string>();
+  /** include/exclude predicate, rebuilt if the root changes. */
+  let transformFilter: { root: string; test: (id: string) => boolean } | undefined;
 
   function ensurePipeline(): TransformationPipeline | undefined {
     if (pipeline || setupError) return pipeline;
@@ -152,6 +218,7 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
         diskCache: options?.diskCache,
         strict: options?.strict,
         emitJs,
+        transformerConfig: options?.cfgConfig ? { cfgConfig: options.cfgConfig } : undefined,
         readFile: (f) => latestCode.get(path.normalize(f)) ?? ts.sys.readFile(f),
       });
       if (verbose) {
@@ -203,7 +270,13 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
     },
 
     transformInclude(id) {
-      return shouldTransform(fileOf(id), options?.include, options?.exclude);
+      if (transformFilter?.root !== root) {
+        transformFilter = {
+          root,
+          test: createTransformFilter(options?.include, options?.exclude, root),
+        };
+      }
+      return transformFilter.test(fileOf(id));
     },
 
     transform(code, id) {
@@ -279,26 +352,41 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
 
     // Cleanup at end of build: save caches, print profiling report, run strict typecheck
     buildEnd() {
-      if (pipeline) {
-        // Run strict mode typecheck if enabled
+      if (!pipeline) return;
+      let strictErrors: string | undefined;
+      try {
+        // Strict mode: type errors in the expanded output fail the build
+        // (docs review 2026-10: they used to be console.error'd only, so a CI
+        // gate built on `strict: true` passed with type errors).
         if (options?.strict) {
-          const diagnostics = pipeline.strictTypecheck();
+          const diagnostics = pipeline
+            .strictTypecheck()
+            .filter((d) => d.category === ts.DiagnosticCategory.Error);
           if (diagnostics.length > 0) {
-            console.error(
-              `[typesugar] Strict mode found ${diagnostics.length} type errors in expanded output:`
-            );
-            for (const diag of diagnostics) {
+            const lines = diagnostics.map((diag) => {
               const file = diag.file?.fileName ?? "<unknown>";
               const msg = ts.flattenDiagnosticMessageText(diag.messageText, "\n");
-              const pos = diag.start
-                ? diag.file?.getLineAndCharacterOfPosition(diag.start)
-                : undefined;
+              const pos =
+                diag.file && diag.start !== undefined
+                  ? diag.file.getLineAndCharacterOfPosition(diag.start)
+                  : undefined;
               const loc = pos ? `:${pos.line + 1}:${pos.character + 1}` : "";
-              console.error(`  ${file}${loc}: ${msg}`);
-            }
+              return `  ${file}${loc}: ${msg}`;
+            });
+            strictErrors =
+              `[typesugar] Strict mode found ${diagnostics.length} type error(s) in expanded output:\n` +
+              lines.join("\n");
           }
         }
+      } finally {
         pipeline.cleanup();
+      }
+      if (strictErrors) {
+        // Rollup/Vite's buildEnd context has error(), which throws; other
+        // bundlers fail the build on the thrown error (webpack: emit hook
+        // rejection, esbuild: onEnd error).
+        (this as { error?: (message: string) => void } | undefined)?.error?.(strictErrors);
+        throw new Error(strictErrors);
       }
     },
   };

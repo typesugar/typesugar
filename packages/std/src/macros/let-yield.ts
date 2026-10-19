@@ -14,7 +14,7 @@
  *   z << expr2 || alt    // orElse: fallback on failure
  *   if (condition) {}    // Guard: short-circuit on false
  * }
- * yield: { resultExpr }
+ * yield: { resultExpr }   // or: yield: resultExpr, e.g. yield: ({ x, y })
  * ```
  *
  * ## Examples
@@ -102,7 +102,10 @@ import {
   KNOWN_DO_INSTANCE_MODULES,
   createStyleAwareCall,
   createMetadataJoin,
+  createSequentialBinds,
   createTupleBindingPattern,
+  emitComprehensionResult,
+  importSelfReceiver,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
 import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
@@ -116,16 +119,6 @@ import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
  * the result instead of filtering (deep review #7).
  */
 const GUARD_CAPABLE_BRANDS = new Set(["Array", "Iterable", "AsyncIterable"]);
-
-/**
- * std instances whose `@do-methods` name THEMSELVES as the static receiver
- * (`style=static receiver=flatMapIterable`): plain Iterables/AsyncIterables
- * have no `.flatMap`/`.map` methods, so the comprehension calls the instance
- * (deep review #10). The receiver is imported from the do marker the file
- * already imports for the labels.
- */
-const STD_SELF_RECEIVER_INSTANCES = new Set(["flatMapIterable", "flatMapAsyncIterable"]);
-const STD_DO_MODULE = "@typesugar/std/syntax/do";
 
 /**
  * Method names for FlatMap operations.
@@ -248,14 +241,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 
     // Method names + emission style from the instance's @do-methods metadata.
     let doMeta: DoNotationMeta = scoped.doMeta ?? DEFAULT_DO_METHODS;
-    if (
-      doMeta.style === "static" &&
-      doMeta.receiver === scoped.exportName &&
-      STD_SELF_RECEIVER_INSTANCES.has(scoped.exportName)
-    ) {
-      const receiverId = ctx.ensureImport(scoped.exportName, STD_DO_MODULE);
-      doMeta = { ...doMeta, receiver: receiverId.text };
-    }
+    doMeta = importSelfReceiver(ctx, scoped, doMeta, typeConstructorName);
 
     // Guards need an empty value to filter with (deep review #7).
     if (!GUARD_CAPABLE_BRANDS.has(typeConstructorName)) {
@@ -278,6 +264,23 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
           `bind= map= orElse= all= receiver= style=method|static.`
       );
     }
+    // `x << fa || alt` / `?? alt` needs a recovery method. A method-style
+    // instance defaults to `fa.orElse(...)`, but a static-style one has no
+    // such default: `F.orElse` only exists when the instance declares it
+    // (`@do-methods orElse=…`) — emitting it anyway was a runtime TypeError
+    // (docs review r3 guides-a #2).
+    if (doMeta.style === "static" && !doMeta.orElse) {
+      const fallback = steps.find((s): s is BindStep => s.kind === "bind" && !!s.orElse);
+      if (fallback) {
+        ctx.reportError(
+          fallback.node,
+          `${label}: the ${typeConstructorName} FlatMap instance (${scoped.exportName}) declares no ` +
+            `orElse= in its @do-methods, so \`<< expr || fallback\` / \`?? fallback\` is not supported ` +
+            `for ${typeConstructorName}. Recover inside the bind instead (e.g. \`x << orElse(expr, () => fallback)\`).`
+        );
+        return mainBlock;
+      }
+    }
     const methods: MethodNames = {
       bind: doMeta.bind,
       map: doMeta.map,
@@ -287,14 +290,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // Handle yield expression or implicit return
     let returnExpr: ts.Expression;
     if (continuation) {
-      if (!ts.isBlock(continuation.statement)) {
-        ctx.reportError(
-          continuation,
-          `${continuation.label.text}: must be followed by a block { ... }`
-        );
-        return mainBlock;
-      }
-
+      // `yield: { expr }` or `yield: expr` (e.g. `yield: ({ a, b })`).
       const extracted = extractReturnExpr(ctx, continuation.statement);
       if (!extracted) {
         return mainBlock;
@@ -324,7 +320,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       const stepsWithoutLast = steps.slice(0, lastIdx);
       if (stepsWithoutLast.length === 0) {
         // Only one bind step — just return the expression directly
-        return factory.createExpressionStatement(tail);
+        return emitComprehensionResult(factory, mainBlock, continuation, tail);
       }
       // The tail is already an effect: every bind before it must flatten.
       const chain = buildChain(
@@ -336,13 +332,13 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
         doMeta,
         true
       );
-      return factory.createExpressionStatement(chain);
+      return emitComprehensionResult(factory, mainBlock, continuation, chain);
     }
 
     // Build the chain
     const result = buildChain(ctx, steps, returnExpr, methods, typeConstructorName, doMeta);
 
-    return factory.createExpressionStatement(result);
+    return emitComprehensionResult(factory, mainBlock, continuation, result);
   },
 });
 
@@ -623,7 +619,8 @@ function buildChain(
           for (const mapStep of [...mapSteps].reverse()) {
             bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
           }
-          inner = createMetadataJoin(factory, parScoped.doMeta, bindSteps, bodyWithMaps, {
+          const parMeta = importSelfReceiver(ctx, parScoped, parScoped.doMeta, typeConstructor);
+          inner = createMetadataJoin(factory, parMeta, bindSteps, bodyWithMaps, {
             meta: doMeta,
             method: continueMethod,
           });
@@ -631,7 +628,21 @@ function buildChain(
           break;
         }
 
-        // 2./3. Otherwise combine the group into F<[names...]> — with the std
+        // 2. No ParCombine join and no std builder, and the FlatMap instance
+        //    is static style (fp's Option/Either/IO/List: no `.map`/`.ap`
+        //    methods on the values): chain the group's independent binds
+        //    straight into the surrounding chain (docs review r3 guides-a #1).
+        if (!getStdParCombineBuilder(typeConstructor) && doMeta.style === "static") {
+          let bodyWithMaps = inner;
+          for (const mapStep of [...mapSteps].reverse()) {
+            bodyWithMaps = createIIFE(factory, mapStep.name, bodyWithMaps, mapStep.expression);
+          }
+          inner = createSequentialBinds(factory, doMeta, bindSteps, bodyWithMaps, innerIsEffect);
+          innerIsEffect = true;
+          break;
+        }
+
+        // 3./4. Otherwise combine the group into F<[names...]> — with the std
         //    builder (Array/Iterable cartesian product, AsyncIterable
         //    collection) or the generic `.map().ap()` chain — and continue
         //    from that tuple like a single bind.

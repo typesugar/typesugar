@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseGrammarDef, buildParser } from "../grammar.js";
 import { grammar } from "../grammar-macro.js";
+import { ParseError } from "../combinators.js";
 import type { GrammarRule, Grammar } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -467,6 +468,21 @@ describe("parseAll error reporting", () => {
   it("reports unconsumed input", () => {
     const p = grammar`rule = "ab"`;
     expect(() => p.parseAll("abc")).toThrow(/end of input/i);
+  });
+
+  it("throws ParseError with pos/expected/line/col (docs B#21)", () => {
+    const p = grammar`rule = "a" "\\n"? "b"`;
+    let err: any;
+    try {
+      p.parseAll("a\nx");
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ParseError);
+    expect(err.pos).toBe(2);
+    expect(err.expected).toBe('"b"');
+    expect([err.line, err.col]).toEqual([2, 1]);
+    expect(() => grammar`rule = "ab"`.parseAll("abc")).toThrow(ParseError);
   });
 });
 

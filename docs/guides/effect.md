@@ -1,6 +1,6 @@
 # Effect-TS Integration
 
-Zero-boilerplate services, automatic layer wiring, and compile-time optimization for Effect-TS — with Rust-quality diagnostics.
+Zero-boilerplate services, automatic layer wiring, and compile-time optimization for Effect-TS — with compile-time errors for missing layers and dependency cycles.
 
 ## Why Use @typesugar/effect?
 
@@ -36,24 +36,38 @@ pnpm add @typesugar/effect effect
 ## Quick Start
 
 ```typescript
-import "@typesugar/effect/syntax/do"; // activate let:/yield: labels + Effect instances
 import { service, layer, layerMake, compiled, specializeSchema } from "@typesugar/effect";
 import { Effect, Schema } from "effect";
 
-// @service — one decorator, you get the Tag and accessors
-@service
-interface UserRepo {
-  findById(id: string): Effect.Effect<User, NotFound>;
+interface User {
+  id: string;
+  name: string;
 }
 
-// @layer — declare what you need, compiler figures out the wiring
-@layer(UserRepo, { requires: [Database] })
-const userRepoLive =
-let: {
-  db << Database;
+// @service — one decorator, you get the Tag and accessors
+@service
+interface Database {
+  query(sql: string): Effect.Effect<User[]>;
 }
-yield: ({
-  findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`),
+
+@service
+interface UserRepo {
+  findById(id: string): Effect.Effect<User | undefined>;
+}
+
+// @layer — declare what a layer provides and what it needs
+@layer(Database)
+const databaseLive = {
+  query: (sql: string) => Effect.succeed([{ id: "1", name: "Ada" }]),
+};
+
+@layer(UserRepo, { requires: [Database] })
+const userRepoLive = Effect.gen(function* () {
+  const db = yield* DatabaseTag; // the Tag @service generated
+  return {
+    findById: (id: string) =>
+      Effect.map(db.query(`SELECT * FROM users WHERE id = '${id}'`), (rows) => rows[0]),
+  };
 });
 
 // layerMake — you list layers, typesugar composes them
@@ -62,33 +76,29 @@ const appLayer = layerMake<UserRepo | Database>(userRepoLive, databaseLive);
 // @compiled — Effect.gen without generator overhead
 class UserService {
   @compiled
-  getWithPosts(id: string) {
+  getName(id: string) {
     return Effect.gen(function* () {
-      const user = yield* getUser(id);
-      const posts = yield* getPosts(user.id);
-      return { user, posts };
+      const user = yield* UserRepo.findById(id);
+      return user?.name ?? "unknown";
     });
   }
 }
 
 // specializeSchema — Schema validation compiled to direct type checks (schema written inline)
 const validateUser = specializeSchema(Schema.Struct({ name: Schema.String, age: Schema.Number }));
+
+const program = new UserService().getName("1");
+Effect.runPromise(Effect.provide(program, appLayer)).then(console.log); // "Ada"
 ```
 
-When layers are missing, you get clear errors:
+A layer that needs another service gets it with `yield* <Service>Tag` inside `Effect.gen`. Inside a `let:` block (with `import "@typesugar/effect/syntax/do"`) you can bind the Tag directly, even when `@service` generated it in the same file: `db << DatabaseTag` compiles to `Effect.flatMap(DatabaseTag, (db) => …)`.
+
+When a layer is missing, you get a compile error naming it. Leaving `databaseLive` out of `layerMake` above gives:
 
 ```
-error[EFFECT001]: No layer provides `UserRepo`
-  --> src/app.ts:15:5
-   |
-15 |   const result = program.pipe(Effect.provide(appLayer))
-   |                  ^^^^^^^ requires UserRepo
-   |
-   = note: Effect<void, Error, UserRepo | Database> needs layers for:
-           - UserRepo (no layer found)
-           - Database (provided by `databaseLive` at src/layers.ts:8)
-   = help: Add a layer:
-           @layer(UserRepo) const userRepoLive = { ... }
+error: [EFFECT001] No layer provides `Database`
+  = note: required by userRepoLive
+  = help: Add a layer providing Database to the layerMake<R>() arguments.
 ```
 
 ---
@@ -121,7 +131,6 @@ Provide the service with the Tag: `Effect.provideService(program, HttpClientTag,
 ### `@layer` — Declarative Dependencies
 
 ```typescript
-import "@typesugar/effect/syntax/do";
 import { layer } from "@typesugar/effect";
 
 @layer(HttpClient)
@@ -133,14 +142,13 @@ const httpClientLive = {
 };
 
 @layer(UserRepo, { requires: [Database] })
-const userRepoLive =
-let: {
-  db << Database;
-}
-yield: ({
-  findById: (id) => db.query(sql`SELECT * FROM users WHERE id = ${id}`)
+const userRepoLive = Effect.gen(function* () {
+  const db = yield* DatabaseTag;
+  return { findById: (id: string) => db.query(`SELECT * FROM users WHERE id = '${id}'`) };
 });
 ```
+
+A plain object becomes `Layer.succeed(HttpClientTag, { ... })`; an `Effect` body becomes `Layer.effect(UserRepoTag, ...)`.
 
 ### Layer Wiring — Two Approaches
 
@@ -148,7 +156,7 @@ Inspired by ZIO's `ZLayer.make`, `@typesugar/effect` offers two ways to compose 
 
 #### `layerMake<R>(...)` — Explicit (ZIO-style)
 
-List the layer values explicitly. The compiler resolves the dependency graph:
+List the layers explicitly, as `@layer` consts or ordinary `Layer` values. The compiler resolves the dependency graph:
 
 ```typescript
 import { layerMake } from "@typesugar/effect";
@@ -160,19 +168,19 @@ const appLayer = layerMake<UserRepo | HttpClient>(
   httpClientLive // no requirements
 );
 
-// Compiles to (dependencies first, each fed into the next with Layer.provideMerge,
+// Compiles to (each layer is fed its dependencies with Layer.provideMerge,
 // so transitive dependencies are wired and every service is in the output):
-// httpClientLive.pipe(
-//   Layer.provideMerge(userRepoLive.pipe(Layer.provideMerge(databaseLive)))
+// userRepoLive.pipe(
+//   Layer.provideMerge(httpClientLive.pipe(Layer.provideMerge(databaseLive)))
 // )
 ```
 
-Missing dependencies produce clear errors:
+Each missing dependency is a compile error:
 
 ```
-error: Missing layers for:
-  - Database (required by userRepoLive)
-Add the missing layers to layerMake<R>() arguments.
+error: [EFFECT001] No layer provides `Database`
+  = note: required by userRepoLive
+  = help: Add a layer providing Database to the layerMake<R>() arguments.
 ```
 
 #### `resolveLayer<R>()` — Implicit (from registered layers)
@@ -209,15 +217,15 @@ const appLayer = layerMake<UserRepo | HttpClient>(userRepoLive, databaseLive, ht
   debug: true,
 });
 
-// Emits at compile time:
+// Reports a compile-time warning:
 // Layer Wiring Graph
 //
+// ◉ httpClientLive
 // ◑ userRepoLive
 // ╰─◉ databaseLive
-// ◉ httpClientLive
 ```
 
-You can also format a resolved graph yourself with `formatDebugTree()`.
+You can also format a resolved graph yourself with `formatDebugTree()` from `@typesugar/effect/macros`.
 
 #### When to Use Which
 
@@ -344,74 +352,32 @@ evaluated once).
 
 ---
 
-## Rich Diagnostics
+## Wiring Diagnostics
 
-### Service Resolution Errors
+Layer wiring errors carry an `EFFECTnnn` code in the message (and a numeric `TS99xx` code for tooling).
 
-When a program requires services that aren't provided:
+### Missing Layers (EFFECT001)
+
+`layerMake` and `resolveLayer` report one error per service no layer provides:
 
 ```
-error[EFFECT001]: No layer provides `UserRepo`
-  --> src/app.ts:15:5
-   |
-15 |   Effect.provide(program, appLayer)
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ requires UserRepo
-   |
-   = note: Effect<void, Error, UserRepo | Database> needs:
-           - UserRepo (no layer found)
-           - Database (provided by databaseLive at src/layers.ts:8)
-   = help: Add a layer with @layer(UserRepo)
+error: [EFFECT001] No layer provides `Database`
+  = note: required by userRepoLive
+  = help: Add a layer providing Database to the layerMake<R>() arguments.
 ```
 
-### Layer Dependency Cycles
+### Layer Dependency Cycles (EFFECT020)
 
 Circular dependencies are detected at compile time:
 
 ```
-error[EFFECT020]: Circular layer dependency detected
-  --> src/layers.ts
-   |
-   = note: Dependency cycle:
-           AuthService → UserRepo → Database → AuthService
-                                               ^^^^^^^^^^^ cycle
-   |
- 5 | @layer(AuthService, { requires: [UserRepo] })
-   |        ^^^^^^^^^^^ depends on UserRepo
-12 | @layer(UserRepo, { requires: [Database] })
-   |        ^^^^^^^^ depends on Database
-18 | @layer(Database, { requires: [AuthService] })
-   |        ^^^^^^^^ depends on AuthService (creates cycle)
+error: [EFFECT020] Circular layer dependency detected
+  = note: Dependency cycle: A → B → A
 ```
 
-### Error Handler Completeness
+### Planned
 
-Warns when error handlers don't cover all error types:
-
-```
-warning[EFFECT010]: Error handler doesn't cover all error types
-  --> src/handler.ts:22:3
-   |
-22 |   Effect.catchTag("NotFound", () => Effect.succeed(null))
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = note: Unhandled: DbError, ValidationError
-           from getUser() at line 12, validateInput() at line 14
-   = help: Add handlers for DbError, ValidationError
-```
-
-### Schema Type Drift
-
-Detects when types and schemas diverge:
-
-```
-error[EFFECT030]: Schema `UserSchema` is out of sync with type `User`
-  --> src/models.ts:5:3
-   |
- 5 |   email: string;  // field added to interface
-   |   ^^^^^ new field not in UserSchema
-   |
-   = help: Regenerate with @derive(EffectSchema) or update manually
-```
+Error-handler completeness (EFFECT010, warning when `catchTag` handlers don't cover every error type), schema drift (EFFECT030, a schema out of sync with its type) and the other codes in the [table below](#diagnostics) are planned — not in 1.0. Their codes are reserved but the compiler does not report them.
 
 ---
 
@@ -526,9 +492,11 @@ recursive types work; a discriminated union must be declared from named variant 
 | `@layer(Service, opts?)`  | Create layer with dependency tracking                       |
 | `layerMake<R>(...layers)` | ZIO-style explicit wiring from listed layers                |
 | `resolveLayer<R>(opts?)`  | Implicit wiring from `@layer` registrations in import scope |
-| `formatDebugTree()`       | Format resolved graph as a tree string                      |
-| `serviceRegistry`         | Registered services                                         |
-| `layerRegistry`           | Registered layers                                           |
+| `formatDebugTree()`       | Format resolved graph as a tree string (`/macros` only)     |
+| `serviceRegistry`         | Registered services (`/macros` only)                        |
+| `layerRegistry`           | Registered layers (`/macros` only)                          |
+
+The last three are exported from `@typesugar/effect/macros`, not the package root.
 
 ### Zero-Cost Macros
 
@@ -543,17 +511,17 @@ recursive types work; a discriminated union must be declared from named variant 
 
 ### Diagnostics
 
-| Code      | Category            | Severity | Description                          |
-| --------- | ------------------- | -------- | ------------------------------------ |
-| EFFECT001 | Service Resolution  | error    | No layer provides required service   |
-| EFFECT002 | Service Resolution  | error    | Layer provides wrong service type    |
-| EFFECT003 | Service Resolution  | warning  | Multiple layers provide same service |
-| EFFECT010 | Error Completeness  | warning  | Unhandled error types                |
-| EFFECT011 | Error Completeness  | info     | Redundant error handler              |
-| EFFECT020 | Layer Dependency    | error    | Circular layer dependency            |
-| EFFECT021 | Layer Dependency    | info     | Unused layer in composition          |
-| EFFECT030 | Schema Drift        | error    | Schema/type drift detected           |
-| EFFECT040 | Type Simplification | info     | Type could be simplified             |
+| Code      | Category            | Severity | Description                          | Status  |
+| --------- | ------------------- | -------- | ------------------------------------ | ------- |
+| EFFECT001 | Service Resolution  | error    | No layer provides required service   | Emitted |
+| EFFECT002 | Service Resolution  | error    | Layer provides wrong service type    | Planned |
+| EFFECT003 | Service Resolution  | warning  | Multiple layers provide same service | Planned |
+| EFFECT010 | Error Completeness  | warning  | Unhandled error types                | Planned |
+| EFFECT011 | Error Completeness  | info     | Redundant error handler              | Planned |
+| EFFECT020 | Layer Dependency    | error    | Circular layer dependency            | Emitted |
+| EFFECT021 | Layer Dependency    | info     | Unused layer in composition          | Planned |
+| EFFECT030 | Schema Drift        | error    | Schema/type drift detected           | Planned |
+| EFFECT040 | Type Simplification | info     | Type could be simplified             | Planned |
 
 ### Testing
 
@@ -582,7 +550,7 @@ recursive types work; a discriminated union must be declared from named variant 
 
 1. **Analyze** Effect patterns at compile time
 2. **Transform** abstractions into direct code
-3. **Emit** diagnostics with source locations and suggestions
+3. **Report** wiring errors (missing layers, cycles) at compile time
 4. **Preserve** Effect's runtime semantics (fibers, interruption, scheduling)
 
 The optimization removes **abstraction overhead** while keeping **runtime behavior** intact. Your code runs on Effect's full fiber runtime — just faster.

@@ -162,7 +162,7 @@ describe("isJSDocMacroTargetNode", () => {
     expect(isJSDocMacroTargetNode(decl)).toBe(true);
   });
 
-  it("returns false for non-target nodes (function decl, expression)", () => {
+  it("accepts function declarations; rejects expressions (docs review B#4)", () => {
     const fn = ts.factory.createFunctionDeclaration(
       undefined,
       undefined,
@@ -172,7 +172,7 @@ describe("isJSDocMacroTargetNode", () => {
       undefined,
       undefined
     );
-    expect(isJSDocMacroTargetNode(fn)).toBe(false);
+    expect(isJSDocMacroTargetNode(fn)).toBe(true);
     expect(isJSDocMacroTargetNode(ts.factory.createIdentifier("x"))).toBe(false);
     expect(isJSDocMacroTargetNode(ts.factory.createNumericLiteral(42))).toBe(false);
   });
@@ -205,13 +205,13 @@ describe("hasJSDocMacroTags", () => {
     expect(hasJSDocMacroTags(iface)).toBe(false);
   });
 
-  it("returns false for non-target nodes (function declarations)", () => {
+  it("sees macro tags on function declarations (dispatch then warns or expands; docs review B#4)", () => {
     const { sourceFile } = makeProgram(`
       /** @typeclass */
       function foo() {}
     `);
     const fn = sourceFile.statements.find(ts.isFunctionDeclaration)!;
-    expect(hasJSDocMacroTags(fn)).toBe(false);
+    expect(hasJSDocMacroTags(fn)).toBe(true);
   });
 });
 

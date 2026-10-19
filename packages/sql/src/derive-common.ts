@@ -229,7 +229,15 @@ export function buildReadMake(
     [f.createParameterDeclaration(undefined, undefined, "fields")],
     undefined,
     f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    f.createAsExpression(f.createIdentifier("fields"), f.createTypeReferenceNode(typeName))
+    // `fields as unknown as T`: a direct `Record<string, unknown> as T` is a
+    // TS2352 error in the output under strict type-checking.
+    f.createAsExpression(
+      f.createAsExpression(
+        f.createIdentifier("fields"),
+        f.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
+      ),
+      f.createTypeReferenceNode(typeName)
+    )
   );
   return f.createCallExpression(
     f.createPropertyAccessExpression(runtimeRef(ctx, "Read"), "make"),
@@ -322,7 +330,16 @@ export function registerInRegistry(
     f.createCallExpression(
       f.createPropertyAccessExpression(runtimeRef(ctx, registry), "set"),
       undefined,
-      [f.createStringLiteral(typeName), f.createIdentifier(instance)]
+      [
+        f.createStringLiteral(typeName),
+        // `as never`: the registries hold `Write<unknown>` etc., and a
+        // `Write<T>` is not assignable to that (contravariant `write`), so
+        // the output would not type-check under strict without the cast.
+        f.createAsExpression(
+          f.createIdentifier(instance),
+          f.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
+        ),
+      ]
     )
   );
 }

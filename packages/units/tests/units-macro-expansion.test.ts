@@ -84,6 +84,51 @@ describe("units macro expansion (executed)", () => {
     expect(code).not.toMatch(/return meters\(5\)/);
   });
 
+  it("negative literals expand and run (prefix-minus, not a negative numeric literal)", () => {
+    const { code, messages } = expand(
+      `import { units } from "@typesugar/units";\n` +
+        `export const a = units\`-5 m\`;\nexport const b = units("-2.5 kg");\nexport const c = units\`-3\`;\n`
+    );
+    expect(messages).toEqual([]);
+    const out = run(code);
+    expect((out.a as unitsRuntime.Unit<unitsRuntime.Length>).value).toBe(-5);
+    expect((out.a as unitsRuntime.Unit<unitsRuntime.Length>).toString()).toBe("-5 m");
+    expect((out.b as unitsRuntime.Unit<unitsRuntime.Mass>).value).toBe(-2.5);
+    expect(out.c).toBe(-3);
+  });
+
+  it("leaves another module's function named `units` alone (math's modUnits)", () => {
+    // @typesugar/math exports its own `units(modulus)` as `modUnits`. Once the
+    // import resolves, the call's original export name is `units`; the units
+    // macro must still only fire for the placeholder from @typesugar/units.
+    const files: Record<string, string> = {
+      [FILE]:
+        `import { units as modUnits } from "./modular";\n` + `export const u = modUnits(6);\n`,
+      "/virtual/modular.ts": `export function units(n: number): number[] { return [n]; }\n`,
+    };
+    const host: ts.CompilerHost = {
+      getSourceFile: (f, v) =>
+        f in files
+          ? ts.createSourceFile(f, files[f], v, true)
+          : f.includes("lib.") && f.endsWith(".d.ts")
+            ? ts.createSourceFile(f, "", v, true)
+            : undefined,
+      getDefaultLibFileName: () => "lib.d.ts",
+      writeFile: () => {},
+      getCurrentDirectory: () => "/",
+      getDirectories: () => [],
+      fileExists: (f) => f in files,
+      readFile: (f) => files[f],
+      getCanonicalFileName: (f) => f,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+    };
+    const result = transformCode(files[FILE], { fileName: FILE, compilerHost: host });
+    const messages = (result.diagnostics ?? []).map((d) => String(d.message));
+    expect(messages).toEqual([]);
+    expect(result.code).toContain("modUnits(6)");
+  });
+
   it("rejects Object.prototype keys as units with a diagnostic (MU-21)", () => {
     for (const key of ["toString", "hasOwnProperty", "constructor", "__proto__"]) {
       const { messages } = expand(

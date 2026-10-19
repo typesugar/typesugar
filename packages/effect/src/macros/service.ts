@@ -39,6 +39,7 @@
 
 import * as ts from "typescript";
 import { type AttributeMacro, type MacroContext, defineAttributeMacro } from "@typesugar/core";
+import { registerSynthesizedTypeConstructor } from "@typesugar/std/macros";
 
 /**
  * Service metadata stored in the registry.
@@ -360,6 +361,11 @@ export const serviceAttribute: AttributeMacro = defineAttributeMacro({
       methods,
       sourceFile: ctx.sourceFile.fileName,
     });
+    // The generated `${serviceName}Tag` class is a Context.Tag — an Effect —
+    // but the checker cannot see it this pass. Record it in std's live
+    // same-pass registry so `db << DatabaseTag` in a let:/par: block in this
+    // file infers "Effect" (docs review r3 guides-a #6).
+    registerSynthesizedTypeConstructor(ctx.sourceFile.fileName, `${serviceName}Tag`, "Effect");
 
     // Generate outputs
     const outputs: ts.Node[] = [];

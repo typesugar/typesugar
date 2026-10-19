@@ -2,7 +2,7 @@
 
 Schema evolution with automatic migration chains — old data decodes correctly through any number of version bumps.
 
-> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** `@typesugar/codec` is not under active development and is excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** `@typesugar/codec` is not under active development. It is published to npm and builds, but is not part of typesugar's actively-maintained surface.
 
 ## The Problem
 
@@ -51,7 +51,7 @@ const bob = userCodec.decodeAny(old);
 | `defaultValue: V`               | Default for older versions  | Required for non-optional fields added after v1 |
 | `optional: true`                | Field may be null/undefined | No default needed                               |
 
-Validation runs at build time. Break a rule and `buildCodec()` throws with a clear error message.
+Validation runs when the schema is built, at runtime: break a rule and `buildCodec()` (or `build()`) throws, listing every violation. For a schema from `defineSchema` or `@codec`, call `validateSchema(schema)` yourself; neither validates on its own, and nothing is checked at compile time.
 
 ### Evolution example
 
@@ -212,6 +212,8 @@ class UserProfile {
 // generates: const UserProfileSchema = defineSchema("UserProfile", { version: 3, fields: [...] });
 ```
 
+`codec`, `since`, `removed`, `renamed` and `defaultValue` are not exported from any module: the transformer recognizes them by name and removes them. Plain `tsc` and editors therefore report TS2304 ("Cannot find name") on each one.
+
 `@since`/`@removed`/`@renamed` need literal arguments (a non-literal one is a
 compile error). `@defaultValue(expr)` accepts any expression; it is emitted
 as written. Optional properties (`x?: T`) are recorded as `optional: true`,
@@ -223,18 +225,18 @@ The `@codec` macro extracts type structure at build time and emits a small `defi
 
 ## Integration
 
-`@typesugar/codec` works with [`@typesugar/validate`](/guides/validate) for runtime validation of decoded data — decode first, then validate against your schema constraints. It is compatible with [`@typesugar/derive`](/guides/derive) for auto-deriving codec instances from type definitions. Codecs produce and consume plain strings or `Uint8Array` buffers, so they work with any transport layer: HTTP, WebSocket, file I/O, or message queues.
+`@typesugar/codec` works with [`@typesugar/validate`](/guides/validate) for runtime validation of decoded data — decode first, then validate against your schema constraints. Codecs produce and consume plain strings or `Uint8Array` buffers, so they work with any transport layer: HTTP, WebSocket, file I/O, or message queues.
 
 ## Comparison
 
-| Feature                 | @typesugar/codec      | protobuf               | serde                      |
-| ----------------------- | --------------------- | ---------------------- | -------------------------- |
-| Language                | TypeScript            | Multi-language         | Rust                       |
-| Schema evolution        | Automatic migrations  | Manual field numbering | Manual `#[serde(default)]` |
-| Binary format           | Fixed-layout          | Varint + tag           | Format-dependent           |
-| JSON support            | Built-in              | Via jsonpb             | Via serde_json             |
-| Compile-time validation | Phase 2 (implemented) | protoc                 | Compile-time               |
-| Zero external deps      | Yes                   | protobuf runtime       | N/A                        |
+| Feature            | @typesugar/codec     | protobuf               | serde                      |
+| ------------------ | -------------------- | ---------------------- | -------------------------- |
+| Language           | TypeScript           | Multi-language         | Rust                       |
+| Schema evolution   | Automatic migrations | Manual field numbering | Manual `#[serde(default)]` |
+| Binary format      | Fixed-layout         | Varint + tag           | Format-dependent           |
+| JSON support       | Built-in             | Via jsonpb             | Via serde_json             |
+| Schema validation  | Runtime (builder)    | protoc                 | Compile-time               |
+| Zero external deps | Yes                  | protobuf runtime       | N/A                        |
 
 ## What's Next
 

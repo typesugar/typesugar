@@ -277,29 +277,6 @@ export function __typed_sql_build<P extends readonly unknown[] = unknown[], R = 
 }
 
 // ============================================================================
-// Prototype Extensions for Fragment
-// ============================================================================
-
-declare module "./types.js" {
-  interface Fragment {
-    /** Convert this fragment to a typed Query */
-    toQuery<R>(): Query<R>;
-    /** Convert this fragment to an Update */
-    toUpdate(): Update;
-  }
-}
-
-import { Query, Update } from "./types.js";
-
-Fragment.prototype.toQuery = function <R>(): Query<R> {
-  return new Query<R>(this);
-};
-
-Fragment.prototype.toUpdate = function (): Update {
-  return new Update(this);
-};
-
-// ============================================================================
 // Fallback sql function for non-macro usage
 // ============================================================================
 

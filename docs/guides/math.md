@@ -77,8 +77,10 @@ import {
 
 // Create rationals
 const half = rational(1n, 2n);
-const third = rational(1, 3); // numbers converted to bigint
+const third = rational(1, 3); // integer numbers are converted to bigint
 const quarter = rat(1, 4); // convenience function
+// rat(0.5, 1) and rational(0.5) throw RangeError: pass bigint or integer numbers
+// (use rationalFromNumber for a non-integer)
 
 // Arithmetic (exact)
 const sum = numericRational.add(half, third); // 5/6
@@ -187,12 +189,16 @@ const rounded = bigDecimalRound(a, 2, "round"); // 123.46
 
 // Formatting
 bigDecimalToString(a); // "123.456"
-toFixed(a, 2); // "123.46"
+toFixed(a, 2); // "123.45" (truncates; round first with bigDecimalRound for "123.46")
 ```
+
+Converting a rational with `rationalToBigDecimal(r, scale)` rounds half to even: at scale 0,
+`5/2` becomes `2` and `7/2` becomes `4`.
 
 ### `Matrix<R, C>` — Type-Safe Dimensions
 
-Matrices with row/column counts tracked at the type level. Dimension mismatches are caught at compile time.
+Matrices with row/column counts tracked in the type. A dimension mismatch in `matMul` is not
+a type error: it throws a `RangeError` at runtime.
 
 ```typescript
 import {
@@ -208,7 +214,7 @@ import {
   trace,
   rows,
   cols,
-  matrixGet,
+  get,
   matrixToString,
 } from "@typesugar/math";
 
@@ -220,8 +226,8 @@ const z = zeros(2, 2); // 2×2 zeros
 const d = diag([1, 2, 3]); // 3×3 diagonal
 
 // Type-safe multiplication
-const c = matMul(a, b); // 2×2 — types match!
-// matMul(a, a);         // Type error! 2×3 × 2×3 invalid
+const c = matMul(a, b); // 2×2
+// matMul(a, a);         // RangeError: Matrix multiplication dimension mismatch: 2x3 * 2x3
 
 // Square matrix operations
 const sq = matrix(2, 2, [1, 2, 3, 4]);
@@ -233,7 +239,7 @@ transpose(sq); // [[1,3],[2,4]]
 // Access
 rows(sq); // 2
 cols(sq); // 2
-matrixGet(sq, 0, 1); // 2
+get(sq, 0, 1); // 2
 
 console.log(matrixToString(sq));
 // [     1.0000      2.0000 ]
@@ -295,7 +301,8 @@ const total = numericInterval.mul(measurement, count);
 
 ### `Mod<N>` — Modular Arithmetic
 
-Integers modulo N with the modulus tracked at the type level. Prevents mixing different moduli.
+Integers modulo N with the modulus tracked in the type. Mixing different moduli throws a
+`RangeError` at runtime (it is not a type error: `N` is inferred as `7 | 11`).
 
 ```typescript
 import {
@@ -321,9 +328,9 @@ modAdd(a, b); // 1 mod 7
 modMul(a, b); // 1 mod 7
 modPow(a, 3); // 6 mod 7 (5³ mod 7)
 
-// Type safety prevents mixing moduli
+// Mixing moduli throws (modAdd, modSub, modMul, modDiv and numericMod's methods)
 const c = mod(2, 11);
-// modAdd(a, c);   // Type error! Can't mix mod 7 with mod 11
+// modAdd(a, c);   // RangeError: modAdd: moduli differ (5 mod 7 and 2 mod 11)
 
 // Modular inverse (when coprime)
 modInverse(a); // 3 mod 7 (because 5 × 3 = 15 ≡ 1 mod 7)
@@ -355,7 +362,7 @@ import {
   addPoly,
   mulPoly,
   derivative,
-  integral,
+  polyIntegral,
   divPoly,
   rationalRoots,
   polyToString,
@@ -378,7 +385,7 @@ mulPoly(p, q, N); // 1 + 3x + 5x² + 3x³
 
 // Calculus
 derivative(p, N); // 2 + 6x
-integral(p, N, F); // x + x² + x³
+polyIntegral(p, N, F); // x + x² + x³
 
 // Division
 const [quot, rem] = divPoly(p, q, N, F);
@@ -428,7 +435,7 @@ interface Normed<V, F> {
 }
 ```
 
-Instances: `normedVec2`, `normedVec3`, `normedNumberArray`.
+Instance: `normedNumberArray` (Euclidean norm of a `number[]`; `normedNumberArray.norm([3, 4])` is `5`).
 
 ### Derived Operations
 
@@ -488,9 +495,13 @@ import {
 
 ## Operator Support
 
-Typeclass instances use `@op` JSDoc tags on method signatures for operator integration. When used with the typesugar macro transform, operators dispatch to the corresponding typeclass methods:
+Typeclass instances use `@op` JSDoc tags on method signatures for operator integration. With the typesugar transformer and the std operator activation imports, operators dispatch to the corresponding typeclass methods (see [Operators](./operators.md)):
 
 ```typescript
+import "@typesugar/std/syntax/numeric/ops"; // + - *
+import "@typesugar/std/syntax/fractional/ops"; // /
+import { rational } from "@typesugar/math";
+
 const a = rational(1n, 2n);
 const b = rational(1n, 3n);
 

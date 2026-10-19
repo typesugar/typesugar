@@ -101,8 +101,9 @@ const greetMacro = defineTaggedTemplateMacro({
   name: "greet",
   module: "@my-org/my-macros",
   description: "Validates greeting templates at compile time",
-  expand(ctx, taggedTemplate, tag, template) {
-    // Validate template at compile time, emit optimized code
+  expand(ctx, node) {
+    // node is the whole tagged template; node.template holds the text and substitutions.
+    // Validate it at compile time and emit optimized code.
     return ctx.factory.createStringLiteral("Hello, World!");
   },
 });
@@ -131,13 +132,16 @@ interface MacroContext {
   /** Report a warning */
   reportWarning(node: ts.Node, message: string): void;
 
-  /** Generate a unique identifier name (hygienic) */
-  generateUniqueName(prefix: string): string;
+  /** Generate a unique, hygienic identifier */
+  generateUniqueName(prefix: string): ts.Identifier;
 
-  /** Parse a string as a TypeScript expression */
-  parseExpression(code: string): ts.Expression;
+  /** Import `symbol` from `from` in the file being transformed, returning its local name */
+  ensureImport(symbol: string, from: string): ts.Identifier;
 }
 ```
+
+This is a subset; see the [Macro Context API reference](https://typesugar.org/reference/macro-context)
+for the full interface.
 
 ## Registry
 
@@ -146,15 +150,20 @@ The `globalRegistry` is a singleton that holds all registered macros:
 ```typescript
 import { globalRegistry } from "@typesugar/core";
 
-// Register a macro
+// Register a macro (defining one with define*Macro does not register it)
 globalRegistry.register(myMacro);
 
-// Look up by name
-const macro = globalRegistry.get("myMacro");
+// Look up by kind and name
+const expr = globalRegistry.getExpression("myMacro");
+const tag = globalRegistry.getTaggedTemplate("greet");
+// also getAttribute, getDerive, getType, getLabeledBlock
 
-// Look up by module + name (import-scoped)
-const macro = globalRegistry.getByModule("@my-org/my-macros", "myMacro");
+// Look up by module + export name (import-scoped macros)
+const scoped = globalRegistry.getByModuleExport("@my-org/my-macros", "myMacro");
 ```
+
+Macro names are unique per kind: registering a different macro under a name that is
+already taken throws.
 
 ## API Reference
 

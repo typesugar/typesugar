@@ -175,3 +175,58 @@ export const n: 2 = Vec.length(t);
     expect(Max2.is([1, 2, 3])).toBe(false);
   });
 });
+
+describe("docs C#12: Newtype base-type extraction", () => {
+  it("wrap / newtypeCtor / unwrap accept and return the base type", () => {
+    const errs =
+      typeErrors(`import { type Newtype, wrap, unwrap, newtypeCtor, validatedNewtype } from "@typesugar/type-system";
+type UserId = Newtype<number, "UserId">;
+type Email = Newtype<string, "Email">;
+type Meters = Newtype<number, "Meters">;
+type Feet = Newtype<number, "Feet">;
+export const id = wrap<UserId>(42);
+export const raw: number = unwrap(id);
+export const mkUserId = newtypeCtor<UserId>();
+export const id2: UserId = mkUserId(42);
+export const mkEmail = newtypeCtor<Email>();
+export const e: Email = mkEmail("a@b");
+export const mkE2 = validatedNewtype<Email>((s) => s.includes("@"));
+function calculateArea(width: Meters, height: Meters): number {
+  return unwrap(width) * unwrap(height);
+}
+export const area = calculateArea(wrap<Meters>(10), wrap<Meters>(5));
+`);
+    expect(errs).toEqual([]);
+  });
+
+  it("still rejects mixing brands and raw values", () => {
+    const errs = typeErrors(`import { type Newtype, wrap } from "@typesugar/type-system";
+type UserId = Newtype<number, "UserId">;
+type Meters = Newtype<number, "Meters">;
+type Feet = Newtype<number, "Feet">;
+function getUser(id: UserId): number { return id; }
+function calculateArea(width: Meters, height: Meters): number { return width * height; }
+getUser(42);
+calculateArea(wrap<Meters>(10), wrap<Feet>(5));
+export const s = wrap<UserId>("x");
+`);
+    expect(errs.length).toBe(3);
+  });
+});
+
+describe("type-level predicates", () => {
+  it("Extends is not distributive: never and unions give a plain true/false", () => {
+    // `A extends B ? ...` with a naked A distributes: Extends<never, X> was
+    // `never` and Extends<string | number, string> was `boolean`, so
+    // typeAssert<Extends<never, string>>() failed and Not<Extends<...>> lied.
+    const errs = typeErrors(`import type { Extends, Not, Equal } from "@typesugar/type-system";
+const a: Equal<Extends<never, string>, true> = true;
+const b: Equal<Extends<string | number, string>, false> = true;
+const c: Equal<Extends<"a" | "b", string>, true> = true;
+const d: Equal<Not<Extends<string, never>>, true> = true;
+const e: Equal<Not<Extends<null, undefined>>, true> = true;
+export { a, b, c, d, e };
+`);
+    expect(errs).toEqual([]);
+  });
+});

@@ -254,6 +254,20 @@ export class Fragment {
   }
 
   // --------------------------------------------------------------------------
+  // Conversion
+  // --------------------------------------------------------------------------
+
+  /** Convert this fragment to a Query whose rows have type R */
+  toQuery<R>(): Query<R> {
+    return new Query<R>(this);
+  }
+
+  /** Convert this fragment to an Update (INSERT/UPDATE/DELETE) */
+  toUpdate(): Update {
+    return new Update(this);
+  }
+
+  // --------------------------------------------------------------------------
   // Debugging
   // --------------------------------------------------------------------------
 
@@ -269,15 +283,37 @@ export class Fragment {
 // ============================================================================
 
 /**
+ * Decodes one result row into an R; `null` means the row could not be
+ * decoded (it is dropped from list results).
+ */
+export type RowDecoder<R> = (row: Record<string, unknown>) => R | null;
+
+/**
+ * How many rows a query must return, checked when it runs:
+ * `"many"` (any number), `"unique"` (exactly one), `"option"` (zero or one).
+ */
+export type QueryCardinality = "many" | "unique" | "option";
+
+/**
  * A SELECT query that returns rows of type R.
  *
- * This is a branded wrapper around Fragment that carries the expected
- * result row type for downstream consumption (e.g. by a database driver).
+ * This is a wrapper around Fragment that carries the expected result row
+ * type and, after `map`, a row decoder that `ConnectionIO.query`/`queryMany`
+ * apply when the query runs.
  */
 export class Query<R> {
   readonly _tag = "Query" as const;
+  /** Always "many" for an untyped Query (see TypedQuery.unique/option). */
+  readonly cardinality: QueryCardinality = "many";
 
-  constructor(readonly fragment: Fragment) {}
+  /**
+   * @param decoder - decodes each row; `undefined` returns rows as-is (or
+   *   decodes them with the Read passed to `ConnectionIO.query`).
+   */
+  constructor(
+    readonly fragment: Fragment,
+    readonly decoder?: RowDecoder<R>
+  ) {}
 
   get text(): string {
     return this.fragment.text;
@@ -287,14 +323,25 @@ export class Query<R> {
     return this.fragment.values;
   }
 
-  /** Map over the expected result type (compile-time only) */
-  map<B>(_f: (a: R) => B): Query<B> {
-    return new Query<B>(this.fragment);
+  /** Decode one row with this query's decoder (the raw row if it has none). */
+  decode(row: Record<string, unknown>): R | null {
+    return this.decoder ? this.decoder(row) : (row as R);
   }
 
-  /** Append a fragment to this query */
+  /**
+   * Transform each result row with `f` when the query runs (after any earlier
+   * `map`). A row an earlier decoder rejected (`null`) stays `null`.
+   */
+  map<B>(f: (a: R) => B): Query<B> {
+    return new Query<B>(this.fragment, (row) => {
+      const a = this.decode(row);
+      return a === null ? null : f(a);
+    });
+  }
+
+  /** Append a fragment to this query (keeps its decoder) */
   append(other: Fragment): Query<R> {
-    return new Query<R>(this.fragment.append(other));
+    return new Query<R>(this.fragment.append(other), this.decoder);
   }
 
   toString(): string {
@@ -355,12 +402,24 @@ export const ConnectionIO = {
     return { _tag: "Pure", value };
   },
 
-  /** Create a query operation */
-  query<A>(q: Query<A>, decoder: (row: Record<string, unknown>) => A): ConnectionIO<A[]> {
+  /**
+   * Create a query operation. `decoder` decodes each row; omit it to use the
+   * query's own decoder (from `Query.map`) or get the raw rows. Passing one
+   * for a query that already has a decoder throws, rather than silently
+   * ignoring either.
+   */
+  query<A>(q: Query<A>, decoder?: (row: Record<string, unknown>) => A): ConnectionIO<A[]> {
+    if (decoder && q.decoder) {
+      throw new TypeError(
+        "SimpleConnectionIO.query: this query already decodes its rows (Query.map was " +
+          "applied); call SimpleConnectionIO.query(query) without a decoder"
+      );
+    }
+    const d = decoder ?? ((row: Record<string, unknown>) => q.decode(row) as A);
     return {
       _tag: "QueryIO",
       query: q as unknown as Query<A[]>,
-      decoder: decoder as unknown as (row: Record<string, unknown>) => A[],
+      decoder: d as unknown as (row: Record<string, unknown>) => A[],
     };
   },
 

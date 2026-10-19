@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/fusion",
   "version": "0.1.1",
-  "description": "🧊 Expression templates and loop fusion — zero-cost iterator and array operations",
+  "description": "Expression templates and loop fusion — zero-cost iterator and array operations",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

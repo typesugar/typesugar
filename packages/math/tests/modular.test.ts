@@ -277,3 +277,23 @@ describe("Mod", () => {
     });
   });
 });
+
+describe("docs B#13: mismatched moduli", () => {
+  const a = mod(5, 7);
+  const c = mod(2, 11) as unknown as ReturnType<typeof mod<7>>;
+  it.each([
+    ["modAdd", () => modAdd(a, c)],
+    ["modSub", () => modSub(a, c)],
+    ["modMul", () => modMul(a, c)],
+    ["modDiv", () => modDiv(a, c)],
+  ])("%s throws RangeError instead of returning a wrong value", (_name, op) => {
+    expect(op).toThrow(RangeError);
+    expect(op).toThrow(/moduli/);
+  });
+  it("the Numeric instance rejects a value from another modulus", () => {
+    expect(() => numericMod(7).add(a, c)).toThrow(RangeError);
+  });
+  it("matching moduli still work", () => {
+    expect(modAdd(a, mod(3, 7))).toEqual({ value: 1, modulus: 7 });
+  });
+});

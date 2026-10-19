@@ -48,6 +48,7 @@ import {
   createMacroErrorStatement as createMacroErrorStmt,
   updateNodeDecorators,
   tryExtractCompReturnExpr,
+  collapseCompValueSlots,
   isPreprocessedCompWrapperBlock,
 } from "./transformer-utils.js";
 
@@ -74,6 +75,7 @@ import {
 import {
   hasJSDocMacroTags as hasJSDocMacroTagsFn,
   tryExpandJSDocMacros as tryExpandJSDocMacrosFn,
+  isJSDocTagAtLineStart,
   parseDecorator,
   sortDecoratorsByDependency,
   expandDeriveDecorator,
@@ -85,6 +87,7 @@ import {
   tryRewriteExtensionMethod as tryRewriteExtensionMethodFn,
   tryTransformHKTDeclaration as tryTransformHKTDeclarationFn,
   tryRewriteTypeclassOperator as tryRewriteTypeclassOperatorFn,
+  tryRewriteTypeclassUnaryOperator as tryRewriteTypeclassUnaryOperatorFn,
   tryRewriteOpaqueMethodCall as tryRewriteOpaqueMethodCallFn,
   tryEraseOpaqueConstructorCall as tryEraseOpaqueConstructorCallFn,
   tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
@@ -798,7 +801,7 @@ class MacroTransformer {
                 .at(stmt)
                 .withArgs({ label: labelName })
                 .help(
-                  `At module top level assign it (const result = ${labelName}: { ... } yield: { ... }), ` +
+                  `Assign it (const result = ${labelName}: { ... } yield: { ... }), ` +
                     `or return it from an arrow function (\`=>\` then ${labelName}: on the next line).`
                 )
                 .emit();
@@ -898,14 +901,12 @@ class MacroTransformer {
       }
     }
 
+    const collapsed = collapseCompValueSlots(this.ctx.factory, newStatements);
+    if (collapsed !== newStatements) modified = true;
+
     let cleanedStatements = ts.isSourceFile(node)
-      ? cleanupMacroImports(
-          this.ctx.factory,
-          this.macroImportSpecifiers,
-          newStatements,
-          this.verbose
-        )
-      : newStatements;
+      ? cleanupMacroImports(this.ctx.factory, this.macroImportSpecifiers, collapsed, this.verbose)
+      : collapsed;
 
     if (ts.isSourceFile(node)) {
       const pendingImports = this.ctx.fileBindingCache.getPendingImports();
@@ -1187,6 +1188,11 @@ class MacroTransformer {
 
     if (hasJSDocMacroTagsFn(node) && !this.isJSDocExpanded(node)) {
       const result = tryExpandJSDocMacrosFn(this.ctx, this.verbose, node);
+      // Mark even when nothing changed: a VariableDeclaration inherits its
+      // statement's JSDoc tags, so a failed `/** @impl */ const x = ...`
+      // would otherwise be dispatched again on the descent and report every
+      // diagnostic twice (docs review S#29, C#27).
+      this.markJSDocExpanded(node);
       if (result !== undefined) {
         // Descend into the (possibly rewritten) target so macros inside a
         // `/** @derive */` class body or `/** @impl */` initializer expand,
@@ -1338,13 +1344,10 @@ class MacroTransformer {
       }
     }
 
-    if (ts.isBinaryExpression(node)) {
-      const result = tryRewriteTypeclassOperatorFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
+    if (ts.isBinaryExpression(node) || ts.isPrefixUnaryExpression(node)) {
+      const result = ts.isBinaryExpression(node)
+        ? tryRewriteTypeclassOperatorFn(this.ctx, this.verbose, this.visit.bind(this), node)
+        : tryRewriteTypeclassUnaryOperatorFn(this.ctx, this.verbose, this.visit.bind(this), node);
       if (result !== undefined) {
         if (ts.isCallExpression(result)) {
           const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, node);
@@ -1440,8 +1443,8 @@ class MacroTransformer {
   /**
    * For an `ident.method(args)` call (the only shape derived-instance
    * inlining handles), visit the arguments now and return a call carrying
-   * them; the original call when nothing changed. Changed arguments are
-   * memoised in `preVisitedArgs` for the normal descent.
+   * them; the original call when nothing changed. Every visited argument
+   * (changed or not) is memoised in `preVisitedArgs` for the normal descent.
    */
   private withPreVisitedArgs(node: ts.CallExpression): ts.CallExpression {
     if (
@@ -1454,10 +1457,12 @@ class MacroTransformer {
     let changed = false;
     const visitedArgs = node.arguments.map((a) => {
       const v = ts.visitNode(a, this.visit.bind(this)) as ts.Expression;
-      if (v !== a) {
-        changed = true;
-        this.preVisitedArgs.set(a, v);
-      }
+      // Memoise UNCHANGED arguments too: visiting one already ran its
+      // rewrites (and reported their diagnostics), so the normal descent must
+      // reuse the result rather than visit it again — `log(f(xs, ordX))`
+      // reported f's TS9602 skip warning twice (docs review C#27).
+      this.preVisitedArgs.set(a, v);
+      if (v !== a) changed = true;
       return v;
     });
     if (!changed) return node;
@@ -1762,8 +1767,9 @@ class MacroTransformer {
       }
       const { macroName, args, identNode } = parseDecorator(decorator);
 
+      const isDerive = macroName === "derive" || macroName === "deriving";
       if (
-        macroName === "derive" &&
+        isDerive &&
         isInOptedOutScope(this.ctx.sourceFile, decorator, globalResolutionScope, "derive")
       ) {
         remainingDecorators.push(decorator);
@@ -1777,7 +1783,8 @@ class MacroTransformer {
       // in this same loop may have already replaced `currentNode` with a
       // transformed node whose shape extractTypeInfo's checker-backed
       // lookups (getTypeAtLocation, getPropertiesOfType) don't expect.
-      if (macroName === "derive") {
+      // `@deriving(...)` is the deprecated alias (expandDeriveDecorator warns).
+      if (isDerive) {
         const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
         if (derives) {
           extraStatements.push(...derives);
@@ -1951,7 +1958,12 @@ class MacroTransformer {
             candidate.name
           )
         ) {
-          if (!hintedUnactivated.has(candidate.name)) {
+          // An explicit `/** @contract */` tag is its own opt-in (the JSDoc
+          // dispatch below applies the macro), so no "not activated" hint.
+          const explicitTag = ts
+            .getJSDocTags(node)
+            .some((t) => t.tagName.text === candidate.name && isJSDocTagAtLineStart(t));
+          if (!explicitTag && !hintedUnactivated.has(candidate.name)) {
             hintedUnactivated.add(candidate.name);
             emitLabelSyntaxNotActivatedHint(this.ctx, stmt, stmt.label.text, candidate);
           }

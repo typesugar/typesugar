@@ -21,6 +21,7 @@ Install the core transformer and the macro packages you want to use:
 ```bash
 # Core (required)
 npm install --save-dev @typesugar/transformer ts-patch
+npm install @typesugar/std           # standard typeclasses + the syntax-activation imports
 
 # Popular macro packages (install what you need)
 npm install @typesugar/derive        # Auto-derive implementations
@@ -28,10 +29,11 @@ npm install @typesugar/reflect       # Type reflection
 npm install @typesugar/sql           # Type-safe SQL
 ```
 
-Or install the umbrella package that includes everything:
+Or install the umbrella package (core, macros, derive, reflect, typeclass,
+type-system, the transformer and the bundler plugin) plus the standard library:
 
 ```bash
-npm install typesugar
+npm install typesugar @typesugar/std
 npm install --save-dev ts-patch
 ```
 
@@ -124,6 +126,12 @@ const COMPUTED = 5050;
 
 ```typescript
 import { derive, Eq, Clone, Debug, Json } from "@typesugar/derive";
+// Method syntax is opt-in per file (PEP-052) — without these imports the
+// calls below are left alone and fail at runtime ("user.clone is not a function")
+import "@typesugar/std/syntax/eq"; // .equals()
+import "@typesugar/std/syntax/clone"; // .clone()
+import "@typesugar/std/syntax/debug"; // .debug()
+import "@typesugar/std/syntax/json"; // .toJson() / User.fromJson()
 
 @derive(Eq, Clone, Debug, Json)
 class User {
@@ -136,18 +144,21 @@ class User {
 
 const user = new User(1, "Alice", "alice@example.com");
 
-// @derive generated these methods from the class's fields — at compile time,
-// inlined to plain code. They are real methods on the instance/class:
-user.equals(user.clone()); // true     (Eq + Clone)
-user.debug(); // "User { id: 1, name: \"Alice\", email: \"alice@example.com\" }"  (Debug)
-user.toJson(); // "{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}" (Json)
-User.fromJson("..."); // Parse JSON back to User                                  (Json, static)
+// @derive generated companion instances (User.Eq, User.Clone, ...) at compile
+// time; each method call compiles to a direct call on one of them:
+user.equals(user.clone()); // true  → User.Eq.equals(user, User.Clone.clone(user))
+user.debug(); // 'User { id: 1, name: "Alice", email: "alice@example.com" }'
+user.toJson(); // { id: 1, name: "Alice", email: "alice@example.com" } — a plain object
+JSON.stringify(user.toJson()); // '{"id":1,"name":"Alice","email":"alice@example.com"}'
+User.fromJson(JSON.parse(text)); // validates the fields; returns a plain object
 ```
 
 Each derive adds methods: `Eq`→`.equals()`, `Clone`→`.clone()`, `Debug`→`.debug()`,
-`Json`→`.toJson()`/`fromJson()`. Run `typesugar expand <file> --diff` to see exactly
-what each one generates. Available derives: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`,
-`Default`, `Json`, `Builder`, `TypeGuard`.
+`Json`→`.toJson()`/`fromJson()`. `toJson` returns a JSON-ready object (not a string)
+and `fromJson` takes an already-parsed value, checks required fields and their types,
+and returns a plain object (not a class instance). Run `typesugar expand <file> --diff`
+to see exactly what each one generates. Available derives: `Eq`, `Ord`, `Clone`,
+`Debug`, `Hash`, `Default`, `Json`, `TypeGuard`.
 
 ### Type-Safe SQL
 
@@ -182,10 +193,13 @@ interface User {
 }
 
 const fields = fieldNames<User>(); // ["id", "name", "email"]
-const validate = validator<User>(); // Runtime type guard
+const validate = validator<User>(); // Runtime validator generated from the type
 
-if (validate(unknownData)) {
-  // unknownData is now typed as User
+const r = validate(unknownData);
+if (r.success) {
+  r.value; // typed as User
+} else {
+  r.errors; // e.g. ["Expected object, got number"]
 }
 ```
 
@@ -213,18 +227,18 @@ npx typesugar doctor
 
 ## Package Reference
 
-| Package                | Features                                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `typesugar`            | `comptime()`, `derive`, `reflect`, `operators`, etc. (umbrella package)                       |
-| `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `Builder`, `TypeGuard` |
-| `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                              |
-| `@typesugar/sql`       | `sql` tagged template                                                                         |
-| `@typesugar/typeclass` | `@typeclass`, `@instance`, `@derive`, `summon<T>()`                                           |
-| `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                         |
-| `@typesugar/std`       | `match()` (fluent pattern matching), extension methods                                        |
-| `@typesugar/fp`        | `Option`, `Result`, `IO`                                                                      |
-| `@typesugar/strings`   | `regex`, `html`, `raw` tagged templates                                                       |
-| `@typesugar/units`     | `units` tagged template for dimensional analysis                                              |
+| Package                | Features                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `typesugar`            | `comptime()`, `derive`, derive markers, `summon` (umbrella; authoring APIs at `typesugar/core`) |
+| `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`              |
+| `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                                |
+| `@typesugar/sql`       | `sql` tagged template                                                                           |
+| `@typesugar/typeclass` | `@typeclass`, `@instance`, `@derive`, `summon<T>()`                                             |
+| `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                           |
+| `@typesugar/std`       | `match()` (fluent pattern matching), extension methods                                          |
+| `@typesugar/fp`        | `Option`, `Either`, `IO`, `List`                                                                |
+| `@typesugar/strings`   | `regex`, `html`, `raw` tagged templates                                                         |
+| `@typesugar/units`     | `units` tagged template for dimensional analysis                                                |
 
 ## What's Next?
 

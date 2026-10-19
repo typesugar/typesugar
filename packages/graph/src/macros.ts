@@ -14,6 +14,7 @@ import { verify } from "./state-machine.js";
 import {
   defineTaggedTemplateMacro,
   globalRegistry,
+  isSyntheticNode,
   type MacroContext,
   type TaggedTemplateMacroDef,
 } from "@typesugar/core";
@@ -138,8 +139,19 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
         )
       : factory.createIdentifier("undefined");
 
-    // Build the state type and event type as comments for IDE hints
-    // In a full implementation, these would be generated as type assertions
+    // Explicit `stateMachine<S, E>\`...\`` type arguments are what the user's
+    // SOURCE is type-checked with (see the runtime tag's signature): check
+    // that they name exactly the definition's states and events.
+    checkTypeArguments(ctx, node, states, events);
+
+    // The emitted instance is typed with the definition's literal unions, so
+    // `create().transition("nope")` is a type error in the output.
+    const literalUnion = (names: readonly string[]): ts.TypeNode =>
+      names.length === 0
+        ? factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
+        : factory.createUnionTypeNode(
+            names.map((n) => factory.createLiteralTypeNode(factory.createStringLiteral(n)))
+          );
 
     // Generate: { states: [...], transitions: [...], initial: "...", terminal: [...], create: () => createInstance(def) }
     return factory.createObjectLiteralExpression([
@@ -160,7 +172,7 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
             // user only imported `stateMachine`, and that specifier is removed
             // by import cleanup once it resolves to this macro.
             ctx.ensureImport("__typesugar_createStateMachineInstance", "@typesugar/graph"),
-            undefined,
+            [literalUnion(states), literalUnion(events)],
             [
               factory.createObjectLiteralExpression([
                 factory.createPropertyAssignment("states", statesArray),
@@ -182,6 +194,47 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
     ]);
   },
 });
+
+/**
+ * Report an error when explicit `stateMachine<S, E>` type arguments do not
+ * name exactly the definition's states (S) and events (E). A type argument
+ * that is not a union of string literals (e.g. `string`) is not checked.
+ */
+function checkTypeArguments(
+  ctx: MacroContext,
+  node: ts.TaggedTemplateExpression,
+  states: readonly string[],
+  events: readonly string[]
+): void {
+  const args = node.typeArguments;
+  if (!args || args.length === 0) return;
+  const expected: [string, readonly string[]][] = [
+    ["states", states],
+    ["events", events],
+  ];
+  args.slice(0, 2).forEach((arg, i) => {
+    // Synthetic type nodes are outside the checker's contract.
+    if (isSyntheticNode(arg)) return;
+    const t = ctx.typeChecker.getTypeFromTypeNode(arg);
+    const members = t.isUnion() ? t.types : [t];
+    if (!members.every((m) => m.isStringLiteral())) return;
+    const given = new Set(members.map((m) => (m as ts.StringLiteralType).value));
+    const [what, names] = expected[i];
+    const missing = names.filter((n) => !given.has(n));
+    const extra = [...given].filter((n) => !names.includes(n));
+    if (missing.length === 0 && extra.length === 0) return;
+    const parts: string[] = [];
+    if (missing.length > 0) parts.push(`missing ${missing.map((n) => `"${n}"`).join(", ")}`);
+    if (extra.length > 0) {
+      parts.push(`not in the definition: ${extra.map((n) => `"${n}"`).join(", ")}`);
+    }
+    ctx.reportError(
+      arg,
+      `stateMachine type argument for ${what} does not match the definition (${parts.join("; ")}). ` +
+        `Expected ${names.map((n) => `"${n}"`).join(" | ") || "never"}.`
+    );
+  });
+}
 
 /**
  * Register all graph macros with the global registry.

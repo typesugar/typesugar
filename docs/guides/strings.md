@@ -2,7 +2,7 @@
 
 Compile-time validated string templates: regex validation, HTML XSS escaping, string formatting, and raw strings.
 
-> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** Not under active development and excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** Not under active development. It is still published to npm and builds, but is not part of typesugar's actively-maintained surface.
 
 `@typesugar/strings` provides tagged template macros for string processing with compile-time validation: regex validation, HTML XSS escaping, string formatting, and raw strings.
 
@@ -40,7 +40,7 @@ const email = regex`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`;
 
 // Invalid regex causes compile-time error
 const bad = regex`[invalid`;
-// Error: Invalid regular expression: Unterminated character class
+// Error: Invalid regular expression: Invalid regular expression: /[invalid/: Unterminated character class
 ```
 
 ### html — XSS-Safe HTML Templates
@@ -52,7 +52,7 @@ const userInput = "<script>alert('xss')</script>";
 
 // Interpolations are automatically escaped
 const safe = html`<div>${userInput}</div>`;
-// Result: "<div>&lt;script&gt;alert('xss')&lt;/script&gt;</div>"
+// Result: "<div>&lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt;</div>"
 ```
 
 ### fmt — String Formatting
@@ -90,10 +90,6 @@ const pattern = raw`\d+\.\d+`;
 - `html` — HTML with automatic XSS escaping
 - `fmt` — String formatting (printf-style specifiers planned for Phase 2)
 - `raw` — Raw strings without escape processing
-
-### Functions
-
-- `register()` — Register macros (called automatically on import)
 
 ### Runtime Helper
 

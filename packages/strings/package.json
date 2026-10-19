@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/strings",
   "version": "0.1.1",
-  "description": "🧊 String interpolation macros (regex, html, fmt, raw) for typesugar",
+  "description": "String interpolation macros (regex, html, fmt, raw) for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

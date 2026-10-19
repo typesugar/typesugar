@@ -12,13 +12,13 @@ with `typesugar run`.
 
 Everyday features from `@typesugar/std`:
 
-| Guide                                          | Description                                                 |
-| ---------------------------------------------- | ----------------------------------------------------------- |
-| [Extension Methods](./extension-methods.md)    | UFCS, @opaque dot syntax, global augmentation               |
-| [Pattern Matching](./match.md)                 | Exhaustive `match()` with discriminated unions              |
-| [Pattern Matching (v2)](./pattern-matching.md) | Scala-style structural patterns, exhaustiveness, extractors |
-| [Do-Notation](./do-notation.md)                | Monadic `let:`/`yield:` and applicative `par:`/`yield:`     |
-| [Standard Typeclasses](./std-typeclasses.md)   | Eq, Ord, Hash, Show, Monoid, FlatMap                        |
+| Guide                                        | Description                                                 |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| [Extension Methods](./extension-methods.md)  | UFCS, @opaque dot syntax, global augmentation               |
+| [Pattern Matching](./pattern-matching.md)    | Scala-style structural patterns, exhaustiveness, extractors |
+| [Pattern Matching (object form)](./match.md) | `match(value, { variant: handler })` dispatch               |
+| [Do-Notation](./do-notation.md)              | Monadic `let:`/`yield:` and applicative `par:`/`yield:`     |
+| [Standard Typeclasses](./std-typeclasses.md) | Eq, Ord, Hash, Show, Monoid, FlatMap                        |
 
 ## Typeclasses & Derivation
 
@@ -59,19 +59,17 @@ Compile-time correctness guarantees:
 
 Powerful abstractions with zero runtime cost:
 
-| Guide                             | Description                                             |
-| --------------------------------- | ------------------------------------------------------- |
-| [Functional Programming](./fp.md) | Option, Either, IO with @opaque dot syntax              |
-| [HList](./hlist.md)               | Heterogeneous lists (Boost.Fusion)                      |
-| [Type Erasure](./erased.md)       | dyn Trait for heterogeneous collections                 |
-| [Loop Fusion](./fusion.md)        | Single-pass iterator pipelines                          |
-| [Parser Combinators](./parser.md) | PEG grammar to parser (Boost.Spirit)                    |
-| [Collections](./collections.md)   | Typeclasses for collections, HashSet, HashMap           |
-| [Graph Algorithms](./graph.md)    | GraphLike typeclass, BFS, DFS, Dijkstra, state machines |
-| [Versioned Codecs](./codec.md)    | Schema evolution (serde)                                |
-| [Math](./math.md)                 | Rational, complex, matrix, interval                     |
-| [Object Mapping](./mapper.md)     | Zero-cost struct transformation                         |
-| [Symbolic Math](./symbolic.md)    | Calculus, simplification, rendering                     |
+| Guide                                          | Description                                             |
+| ---------------------------------------------- | ------------------------------------------------------- |
+| [Functional Programming](./fp.md)              | Option, Either, IO with @opaque dot syntax              |
+| [Type Erasure](./erased.md)                    | dyn Trait for heterogeneous collections                 |
+| [Loop Fusion](./fusion.md)                     | Single-pass iterator pipelines                          |
+| [Parser Combinators](./parser.md)              | PEG grammar to parser (Boost.Spirit)                    |
+| [Collections](/reference/packages#collections) | Typeclasses for collections, HashSet, HashMap           |
+| [Graph Algorithms](./graph.md)                 | GraphLike typeclass, BFS, DFS, Dijkstra, state machines |
+| [Versioned Codecs](./codec.md)                 | Schema evolution (serde)                                |
+| [Math](./math.md)                              | Rational, complex, matrix, interval                     |
+| [Object Mapping](./mapper.md)                  | Zero-cost struct transformation                         |
 
 ## Ecosystem Integrations
 
@@ -91,11 +89,12 @@ When something goes wrong, you should know exactly what happened and how to get 
 | [Type Safety](./type-safety.md)                 | The three-layer model: build, IDE, CI                                     |
 | [JSDoc vs Decorators](./jsdoc-vs-decorators.md) | When to use `/** @macro */` vs `@macro` — portability, TS1206, tsc-safety |
 | [Overview](./developer-experience.md)           | How error messages, suggestions, and tooling work                         |
-| [Error Messages](./error-messages.md)           | Rust-style errors with labeled spans                                      |
+| [AI Assistants](./ai-assistants.md)             | Using typesugar with AI coding assistants                                 |
+| [Error Messages](./error-messages.md)           | Error codes, notes, help and resolution traces                            |
 | [Opt-Out Directives](./opt-out.md)              | Disable transformations for debugging                                     |
 | [Testing](./testing.md)                         | Power assertions, property testing                                        |
 | [Authoring Libraries](./authoring-libraries.md) | Ship a standalone+transformer library: macros vs runtime, packaging       |
-| [Library Manifest](./library-manifest.md)       | Publishing typesugar-powered libraries                                    |
+| [Library Manifest](./library-manifest.md)       | Planned — not in 1.0                                                      |
 | [Interactive Playground](./playground.md)       | Try code in-browser with runtime libraries, 20+ examples                  |
 
 ---
@@ -124,7 +123,7 @@ import { comptime, includeStr, staticAssert } from "@typesugar/macros";
 import { requires, ensures, invariant } from "@typesugar/contracts";
 
 // FP
-import { Option, Some, None, Result, Ok, Err, IO } from "@typesugar/fp";
+import { Some, None, Left, Right, IO, type Option, type Either } from "@typesugar/fp";
 
 // SQL
 import { sql, ConnectionIO } from "@typesugar/sql";
@@ -146,5 +145,5 @@ import { assert, staticAssert, typeAssert, forAll } from "@typesugar/testing";
 | `requires:`     | `@typesugar/contracts` | Labeled Block   |
 | `let:`/`yield:` | `@typesugar/std`       | Labeled Block   |
 | `par:`/`yield:` | `@typesugar/std`       | Labeled Block   |
-| `cfg()`         | `@typesugar/core`      | Expression      |
+| `cfg()`         | `@typesugar/macros`    | Expression      |
 | `assert()`      | `@typesugar/testing`   | Expression      |

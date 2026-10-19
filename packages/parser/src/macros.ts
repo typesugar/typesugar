@@ -72,7 +72,12 @@ export const grammarMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
     }
 
     // Phase 2: build the inline recursive-descent parser directly as AST.
-    return generateParserAst(ctx.factory, rules);
+    // parseAll throws the runtime `ParseError` class (imported if the file
+    // doesn't already import it), so `instanceof ParseError` holds whether or
+    // not the transformer ran.
+    return generateParserAst(ctx.factory, rules, undefined, () =>
+      ctx.ensureImport("ParseError", "@typesugar/parser")
+    );
   },
 });
 

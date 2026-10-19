@@ -253,6 +253,34 @@ function isArrayExpr(f: ts.NodeFactory, x: ts.Expression): ts.Expression {
   );
 }
 
+/**
+ * `(x as Record<string, unknown>)` / `(x as unknown[])`. The value under test
+ * is `unknown`, and TypeScript does not narrow a property path such as
+ * `value.addr` from a `typeof … === "object"` test, so every read of a member
+ * or element goes through one of these casts to keep the generated code
+ * type-correct under strictOutput.
+ */
+function asRecord(f: ts.NodeFactory, x: ts.Expression): ts.Expression {
+  return f.createParenthesizedExpression(
+    f.createAsExpression(
+      x,
+      f.createTypeReferenceNode("Record", [
+        f.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+        f.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+      ])
+    )
+  );
+}
+
+function asArray(f: ts.NodeFactory, x: ts.Expression): ts.Expression {
+  return f.createParenthesizedExpression(
+    f.createAsExpression(
+      x,
+      f.createArrayTypeNode(f.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword))
+    )
+  );
+}
+
 function lengthOf(f: ts.NodeFactory, x: ts.Expression): ts.Expression {
   return f.createPropertyAccessExpression(x, "length");
 }
@@ -264,9 +292,10 @@ function isPlainIdentifier(name: string): boolean {
 
 /** `x.name` when `name` is an identifier, otherwise `x["name"]`. */
 function memberAccess(f: ts.NodeFactory, x: ts.Expression, name: string): ts.Expression {
+  const r = asRecord(f, x);
   return isPlainIdentifier(name)
-    ? f.createPropertyAccessExpression(x, f.createIdentifier(name))
-    : f.createElementAccessExpression(x, f.createStringLiteral(name));
+    ? f.createPropertyAccessExpression(r, f.createIdentifier(name))
+    : f.createElementAccessExpression(r, f.createStringLiteral(name));
 }
 
 function memberLabel(name: string): string {
@@ -479,7 +508,10 @@ function structuralBody(
   const checker = g.ctx.typeChecker;
 
   if (kind.k === "array") {
-    return and(f, [isArrayExpr(f, x), everyExpr(f, x, (e) => pred(g, kind.elem, e, label + "[]"))]);
+    return and(f, [
+      isArrayExpr(f, x),
+      everyExpr(f, asArray(f, x), (e) => pred(g, kind.elem, e, label + "[]")),
+    ]);
   }
 
   if (kind.k === "tuple") {
@@ -488,7 +520,7 @@ function structuralBody(
     const parts: ts.Expression[] = [
       isArrayExpr(f, x),
       f.createBinaryExpression(
-        lengthOf(f, x),
+        lengthOf(f, asArray(f, x)),
         ts.SyntaxKind.GreaterThanEqualsToken,
         f.createNumericLiteral(t.minLength)
       ),
@@ -496,21 +528,21 @@ function structuralBody(
     if (!t.rest) {
       parts.push(
         f.createBinaryExpression(
-          lengthOf(f, x),
+          lengthOf(f, asArray(f, x)),
           ts.SyntaxKind.LessThanEqualsToken,
           f.createNumericLiteral(t.fixed.length)
         )
       );
     }
     t.fixed.forEach((el, i) => {
-      const ex = f.createElementAccessExpression(x, f.createNumericLiteral(i));
+      const ex = f.createElementAccessExpression(asArray(f, x), f.createNumericLiteral(i));
       const p = pred(g, el.type, ex, `${label}[${i}]`);
       parts.push(el.optional ? or(f, [strictEq(f, ex, f.createIdentifier("undefined")), p]) : p);
     });
     if (t.rest) {
       const restType = t.rest;
       const sliced = f.createCallExpression(
-        f.createPropertyAccessExpression(x, "slice"),
+        f.createPropertyAccessExpression(asArray(f, x), "slice"),
         undefined,
         [f.createNumericLiteral(t.fixed.length)]
       );
@@ -533,8 +565,8 @@ function structuralBody(
   const idx = stringIndexType(g, type);
   if (idx) {
     parts.push(
-      everyExpr(f, objectKeys(f, x), (k) =>
-        pred(g, idx, f.createElementAccessExpression(x, k), label + "[key]")
+      everyExpr(f, objectKeys(f, asRecord(f, x)), (k) =>
+        pred(g, idx, f.createElementAccessExpression(asRecord(f, x), k), label + "[key]")
       )
     );
   }
@@ -661,7 +693,7 @@ function checks(
       const elemChecks = checks(
         g,
         kind.elem,
-        f.createElementAccessExpression(x, i),
+        f.createElementAccessExpression(asArray(f, x), i),
         appendPath(
           f,
           pathExpr,
@@ -689,7 +721,11 @@ function checks(
                     ],
                     ts.NodeFlags.Let
                   ),
-                  f.createBinaryExpression(i, ts.SyntaxKind.LessThanToken, lengthOf(f, x)),
+                  f.createBinaryExpression(
+                    i,
+                    ts.SyntaxKind.LessThanToken,
+                    lengthOf(f, asArray(f, x))
+                  ),
                   f.createPostfixUnaryExpression(i, ts.SyntaxKind.PlusPlusToken),
                   f.createBlock(elemChecks, true)
                 ),
@@ -714,7 +750,7 @@ function checks(
       const shape: ts.Expression[] = [
         isArrayExpr(f, x),
         f.createBinaryExpression(
-          lengthOf(f, x),
+          lengthOf(f, asArray(f, x)),
           ts.SyntaxKind.GreaterThanEqualsToken,
           f.createNumericLiteral(t.minLength)
         ),
@@ -722,7 +758,7 @@ function checks(
       if (!t.rest) {
         shape.push(
           f.createBinaryExpression(
-            lengthOf(f, x),
+            lengthOf(f, asArray(f, x)),
             ts.SyntaxKind.LessThanEqualsToken,
             f.createNumericLiteral(t.fixed.length)
           )
@@ -730,7 +766,7 @@ function checks(
       }
       const inner: ts.Statement[] = [];
       t.fixed.forEach((el, idx) => {
-        const ex = f.createElementAccessExpression(x, f.createNumericLiteral(idx));
+        const ex = f.createElementAccessExpression(asArray(f, x), f.createNumericLiteral(idx));
         const c = checks(
           g,
           el.type,
@@ -756,9 +792,11 @@ function checks(
         const restType = t.rest;
         const restPred = everyExpr(
           f,
-          f.createCallExpression(f.createPropertyAccessExpression(x, "slice"), undefined, [
-            f.createNumericLiteral(t.fixed.length),
-          ]),
+          f.createCallExpression(
+            f.createPropertyAccessExpression(asArray(f, x), "slice"),
+            undefined,
+            [f.createNumericLiteral(t.fixed.length)]
+          ),
           (e) => pred(g, restType, e, `${label}[...]`)
         );
         inner.push(
@@ -809,7 +847,7 @@ function checks(
       const c = checks(
         g,
         idx,
-        f.createElementAccessExpression(x, k),
+        f.createElementAccessExpression(asRecord(f, x), k),
         appendPath(
           f,
           pathExpr,
@@ -834,7 +872,7 @@ function checks(
           f.createForOfStatement(
             undefined,
             f.createVariableDeclarationList([f.createVariableDeclaration(k)], ts.NodeFlags.Const),
-            objectKeys(f, x),
+            objectKeys(f, asRecord(f, x)),
             f.createBlock(c, true)
           )
         );

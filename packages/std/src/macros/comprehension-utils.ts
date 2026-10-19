@@ -7,7 +7,11 @@
 
 import * as ts from "typescript";
 import { isSyntheticNode, type MacroContext } from "@typesugar/core";
-import type { DoNotationMeta } from "@typesugar/macros";
+import {
+  getDoInstanceModule,
+  type DoNotationMeta,
+  type ResolvedDoNotationInstance,
+} from "@typesugar/macros";
 
 // ============================================================================
 // Comprehension Step Types
@@ -191,11 +195,99 @@ export function extractReturnExpr(
     return undefined;
   }
 
+  // `yield: <expr>` (e.g. `yield: ({ a, b })`) is the same as `yield: { <expr> }`.
   if (ts.isExpressionStatement(stmt)) {
     return stmt.expression;
   }
 
+  ctx.reportError(
+    stmt,
+    "yield: must be followed by an expression (e.g. `yield: ({ a, b })`) or a block " +
+      "containing one (`yield: { a + b }`)"
+  );
   return undefined;
+}
+
+// ============================================================================
+// Value slot (expression-position comprehensions)
+// ============================================================================
+
+/** Synthetic tag names emitted by `arrow-comprehension-preprocess.ts`. */
+const VALUE_SLOT_TAG = /^__letyield_\d+$/;
+
+/**
+ * Expression-position comprehensions (`const x = let: …`, an arrow body,
+ * `return let: …`, `export default let: …`) are rewritten by the
+ * transformer's `arrow-comprehension-preprocess.ts` into a STATEMENT-position
+ * comprehension immediately followed by a statement that reads its value
+ * through a synthetic tag:
+ *
+ *   let: { … } yield: { … }
+ *   return __letyield_0;            // or: export default __letyield_0;
+ *                                   // or: const x = __letyield_0;
+ *
+ * When that follow-up statement is present, the macro must bind its result
+ * to the tag (`const __letyield_0 = <chain>;`) instead of emitting a
+ * discarded expression statement. Returns the tag name, or undefined.
+ *
+ * Reads the parsed source's own sibling list (the comprehension and the tag
+ * statement are both real, positioned nodes of the same container), so this
+ * is the "live, same-pass" shape: nothing is looked up in a snapshot.
+ */
+export function findValueSlot(
+  main: ts.LabeledStatement,
+  continuation: ts.LabeledStatement | undefined
+): string | undefined {
+  const tail = continuation ?? main;
+  const parent = tail.parent as ts.Node | undefined;
+  if (!parent || main.parent !== parent) return undefined;
+  if (!ts.isBlock(parent) && !ts.isSourceFile(parent) && !ts.isModuleBlock(parent)) {
+    return undefined;
+  }
+  const stmts = parent.statements;
+  let i = stmts.indexOf(tail);
+  if (i < 0) return undefined;
+  if (continuation && stmts[i - 1] !== main) return undefined;
+  i++;
+  while (i < stmts.length && ts.isEmptyStatement(stmts[i])) i++;
+  const next = stmts[i];
+  if (!next) return undefined;
+  let ref: ts.Expression | undefined;
+  if (ts.isReturnStatement(next) || ts.isExportAssignment(next)) {
+    ref = next.expression;
+  } else if (ts.isVariableStatement(next)) {
+    ref = next.declarationList.declarations[0]?.initializer;
+  }
+  return ref && ts.isIdentifier(ref) && VALUE_SLOT_TAG.test(ref.text) ? ref.text : undefined;
+}
+
+/**
+ * The statement a comprehension macro returns for its result: a plain
+ * expression statement, or `const <tag> = <result>;` when the comprehension
+ * fills a value slot (see {@link findValueSlot}).
+ */
+export function emitComprehensionResult(
+  factory: ts.NodeFactory,
+  main: ts.LabeledStatement,
+  continuation: ts.LabeledStatement | undefined,
+  result: ts.Expression
+): ts.Statement {
+  const slot = findValueSlot(main, continuation);
+  if (!slot) return factory.createExpressionStatement(result);
+  return factory.createVariableStatement(
+    undefined,
+    factory.createVariableDeclarationList(
+      [
+        factory.createVariableDeclaration(
+          factory.createIdentifier(slot),
+          undefined,
+          undefined,
+          result
+        ),
+      ],
+      ts.NodeFlags.Const
+    )
+  );
 }
 
 // ============================================================================
@@ -234,6 +326,52 @@ function inferTypeConstructorFromAST(expr: ts.Expression): string | undefined {
     return expr.expression.text;
   }
   return undefined;
+}
+
+// ============================================================================
+// Same-pass synthesized bindings
+// ============================================================================
+
+/**
+ * Value bindings that a macro synthesizes in the CURRENT pass and whose type
+ * constructor do-notation needs before the checker can see them — e.g.
+ * `@service interface Database` generates `class DatabaseTag`, an Effect, so
+ * `db << DatabaseTag` in the same file must infer "Effect" although the
+ * checker (built from the pre-transform source) types `DatabaseTag` as `any`.
+ *
+ * SHAPE (per CLAUDE.md "Resolving things a macro just generated"): a LIVE
+ * KEYED REGISTRY, written by the synthesizing macro as it expands and read by
+ * `inferTypeConstructor` later in the same top-down pass — not a scan of the
+ * pre-transform statements, which can never contain the synthesized name.
+ * Only the ordinary declare-before-use constraint applies. It is consulted
+ * only when the checker gives up (`any`) on a bare identifier, so a real
+ * declaration always wins. Keyed by file, re-written on every expansion.
+ *
+ * Stored on `globalThis` so the writer (another package's macro, which may
+ * load a different copy of this module — ESM vs CJS dist) and the reader
+ * share one table.
+ */
+const SYNTHESIZED_KEY = Symbol.for("@typesugar/std.synthesizedTypeConstructors");
+function synthesizedTable(): Map<string, Map<string, string>> {
+  const g = globalThis as unknown as Record<symbol, Map<string, Map<string, string>> | undefined>;
+  return (g[SYNTHESIZED_KEY] ??= new Map());
+}
+
+/** Record that `name` in `fileName` is a value of type constructor `brand`. */
+export function registerSynthesizedTypeConstructor(
+  fileName: string,
+  name: string,
+  brand: string
+): void {
+  const table = synthesizedTable();
+  let byName = table.get(fileName);
+  if (!byName) table.set(fileName, (byName = new Map()));
+  byName.set(name, brand);
+}
+
+/** Look up a same-pass synthesized binding (see registerSynthesizedTypeConstructor). */
+export function getSynthesizedTypeConstructor(fileName: string, name: string): string | undefined {
+  return synthesizedTable().get(fileName)?.get(name);
 }
 
 export function inferTypeConstructor(
@@ -356,6 +494,15 @@ export function inferTypeConstructor(
         }
       }
     }
+  }
+
+  // A bare identifier the checker cannot type may be a binding a macro just
+  // synthesized in this pass (`DatabaseTag` from `@service`): consult the
+  // live same-pass registry (docs review r3 guides-a #6).
+  if (typeString === "any" && ts.isIdentifier(expr)) {
+    const sf = sourceFile ?? expr.getSourceFile?.();
+    const synthesized = sf && getSynthesizedTypeConstructor(sf.fileName, expr.text);
+    if (synthesized) return synthesized;
   }
 
   // Last resort: pure AST-based detection.
@@ -623,6 +770,43 @@ export const KNOWN_DO_INSTANCE_MODULES: Record<string, string> = {
 };
 
 /**
+ * std instances whose `@do-methods` name THEMSELVES as the static receiver
+ * (`style=static receiver=flatMapIterable`): plain Iterables/AsyncIterables
+ * have no `.flatMap`/`.map` methods, so the comprehension calls the instance
+ * (deep review #10). They are exported by the do marker the file already
+ * imports for the labels.
+ */
+const STD_SELF_RECEIVER_INSTANCES = new Set(["flatMapIterable", "flatMapAsyncIterable"]);
+const STD_DO_MODULE = "@typesugar/std/syntax/do";
+
+/**
+ * An instance whose `@do-methods` names ITSELF as the static receiver
+ * (`style=static receiver=flatMapOption` — std's Iterable instances, fp's
+ * Option/Either/IO/List instances) is called by name in the emitted chain,
+ * but the user's file usually only imports the type/constructors (or a side-
+ * effect marker), not the instance. Import it (aliased if the name is taken)
+ * from its activation module: std's do marker for std's own, otherwise the
+ * provider's `@do-instance-module` or the static table. An instance declared
+ * in this file (no `modulePath`) is already in scope and is left alone.
+ */
+export function importSelfReceiver(
+  ctx: MacroContext,
+  scoped: Pick<ResolvedDoNotationInstance, "exportName" | "modulePath">,
+  doMeta: DoNotationMeta,
+  brand: string
+): DoNotationMeta {
+  if (doMeta.style !== "static" || doMeta.receiver !== scoped.exportName) return doMeta;
+  const isStd = STD_SELF_RECEIVER_INSTANCES.has(scoped.exportName);
+  if (!scoped.modulePath && !isStd) return doMeta;
+  const from = isStd
+    ? STD_DO_MODULE
+    : (getDoInstanceModule(ctx.program, brand) ?? KNOWN_DO_INSTANCE_MODULES[brand]);
+  if (!from) return doMeta;
+  const receiverId = ctx.ensureImport(scoped.exportName, from);
+  return { ...doMeta, receiver: receiverId.text };
+}
+
+/**
  * Create a static call: `Receiver.method(fa, arg)`
  *
  * The `@do-methods style=static receiver=X` emission form (PEP-052 Wave 3) —
@@ -721,6 +905,42 @@ export function createMetadataJoin(
     return createStyleAwareCall(factory, continuation.meta, continuation.method, join, arrow);
   }
   return createStyleAwareCall(factory, doMeta, doMeta.map, join, arrow);
+}
+
+/**
+ * Combine INDEPENDENT binds through a FlatMap instance, one after another:
+ * `F.flatMap(fa, a => F.flatMap(fb, b => F.map(fc, c => body)))` (style-aware).
+ *
+ * The `par:` fallback for brands that have a static-style FlatMap instance
+ * but no ParCombine (fp's Option/Either/IO/List): their values carry no
+ * `.map`/`.ap` methods (`Some(1)` erases to `1`), so the generic
+ * `fa.map(...).ap(fb)` chain throws at runtime. For independent binds a
+ * monadic chain computes the same result as the applicative one for these
+ * brands (none of them accumulates errors); the independence check has
+ * already run. `bodyIsEffect` says whether `body` is already an `F<_>` (a
+ * nested `par:` group continuing a `let:` chain), so the innermost call uses
+ * the bind method instead of `map`.
+ */
+export function createSequentialBinds(
+  factory: ts.NodeFactory,
+  doMeta: DoNotationMeta,
+  binds: Array<{ name: string; effect: ts.Expression }>,
+  body: ts.Expression,
+  bodyIsEffect = false
+): ts.Expression {
+  let inner = body;
+  let innerIsEffect = bodyIsEffect;
+  for (let i = binds.length - 1; i >= 0; i--) {
+    inner = createStyleAwareCall(
+      factory,
+      doMeta,
+      innerIsEffect ? doMeta.bind : doMeta.map,
+      binds[i].effect,
+      createArrowFn(factory, binds[i].name, inner)
+    );
+    innerIsEffect = true;
+  }
+  return inner;
 }
 
 /**

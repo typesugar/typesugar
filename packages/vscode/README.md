@@ -1,4 +1,4 @@
-# @typesugar/vscode
+# typesugar-vscode
 
 > 📖 **Full documentation:** [Editor Setup](https://typesugar.org/getting-started/editor-setup). The microsite is the canonical reference; this README is a quickstart.
 
@@ -6,7 +6,7 @@
 
 ## Overview
 
-`@typesugar/vscode` provides IDE support for typesugar macros: syntax highlighting, expansion previews, inline hints, code actions, and diagnostics — all powered by a manifest-driven architecture that automatically adapts to your project's macros.
+The typesugar VS Code extension (package `typesugar-vscode`, private: it is not published to npm) provides IDE support for typesugar macros: syntax highlighting, expansion previews, inline hints, code actions, and diagnostics — all powered by a manifest-driven architecture that automatically adapts to your project's macros.
 
 ## Features
 
@@ -53,10 +53,6 @@ Shows macro count with one-click manifest refresh.
 
 ## Installation
 
-### From Marketplace
-
-Search for "typesugar" in the VSCode/Cursor extensions panel.
-
 ### From VSIX
 
 ```bash
@@ -68,30 +64,34 @@ code --install-extension typesugar-*.vsix
 
 ## Configuration
 
-The extension reads from `typesugar.manifest.json` in your workspace root. Generate it with:
+The extension knows typesugar's built-in macros out of the box. If your workspace has a
+`typesugar.manifest.json` (path set by `typesugar.manifestPath`), the extension merges it
+with the built-ins, watches it and hot-reloads when it changes. The manifest lists macro
+names, types and metadata (format below).
 
-```bash
-npx typesugar build --manifest
-```
-
-The manifest contains all macro names, types, and metadata. The extension watches this file and hot-reloads when it changes.
+There is currently no command that generates the manifest: `typesugar build` has no
+`--manifest` flag, so the `typesugar.generateManifest` command does not produce one. Write
+the file by hand if you need to describe your own macros.
 
 ### Settings
 
-| Setting                       | Description                | Default |
-| ----------------------------- | -------------------------- | ------- |
-| `typesugar.enableCodeLens`    | Show expansion previews    | `true`  |
-| `typesugar.enableInlayHints`  | Show inline type hints     | `true`  |
-| `typesugar.enableDiagnostics` | Run background transformer | `true`  |
+| Setting                       | Description                                           | Default                     |
+| ----------------------------- | ----------------------------------------------------- | --------------------------- |
+| `typesugar.enableCodeLens`    | Show expansion previews                               | `true`                      |
+| `typesugar.enableInlayHints`  | Show inline type hints                                | `true`                      |
+| `typesugar.enableDiagnostics` | Run background transformer                            | `true`                      |
+| `typesugar.manifestPath`      | Manifest path, relative to the workspace root         | `"typesugar.manifest.json"` |
+| `typesugar.comptimeInEditor`  | Evaluate `comptime(...)` in the editor (trusted only) | `false`                     |
 
 ## Commands
 
-| Command                      | Description                      |
-| ---------------------------- | -------------------------------- |
-| `typesugar.expandMacro`      | Expand macro at cursor           |
-| `typesugar.refreshManifest`  | Reload the manifest file         |
-| `typesugar.generateManifest` | Run `typesugar build --manifest` |
-| `typesugar.addDerive`        | Add @derive to interface/class   |
+| Command                      | Description                                                        |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `typesugar.expandMacro`      | Expand macro at cursor                                             |
+| `typesugar.showTransformed`  | Show the transformed source in a diff view                         |
+| `typesugar.refreshManifest`  | Reload the manifest file                                           |
+| `typesugar.generateManifest` | Runs `typesugar build --manifest`, which doesn't exist yet (above) |
+| `typesugar.addDerive`        | Add @derive to interface/class                                     |
 
 ## Manifest Format
 
@@ -108,7 +108,7 @@ The manifest contains all macro names, types, and metadata. The extension watche
     "decorator": {
       "derive": {
         "module": "@typesugar/derive",
-        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder"]
+        "args": ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json"]
       },
       "operators": {
         "module": "@typesugar/macros"
@@ -159,11 +159,11 @@ The manifest contains all macro names, types, and metadata. The extension watche
 # Install dependencies
 pnpm install
 
-# Compile
-pnpm run compile
+# Build
+pnpm run build
 
 # Watch mode
-pnpm run watch
+pnpm run build:watch
 
 # Package VSIX
 pnpm run package
@@ -182,10 +182,10 @@ Tests run with mocked VS Code API, testing provider logic in isolation:
 
 ```bash
 # Run unit tests
-pnpm --filter @typesugar/vscode test:unit
+pnpm --filter typesugar-vscode test:unit
 
 # Watch mode
-pnpm --filter @typesugar/vscode test:watch
+pnpm --filter typesugar-vscode test:watch
 ```
 
 Test files: `test/manifest.test.ts`, `test/semantic-tokens.test.ts`, `test/codelens-inlay.test.ts`, `test/expansion.test.ts`, `test/error-scenarios.test.ts`
@@ -196,10 +196,10 @@ Tests run in a VS Code Extension Development Host with the real VS Code API:
 
 ```bash
 # Run integration tests (requires display or xvfb)
-pnpm --filter @typesugar/vscode test:integration
+pnpm --filter typesugar-vscode test:integration
 
 # On Linux CI (headless)
-xvfb-run -a pnpm --filter @typesugar/vscode test:integration
+xvfb-run -a pnpm --filter typesugar-vscode test:integration
 ```
 
 Test files: `test/integration/activation.test.ts`, `test/integration/providers.test.ts`, `test/integration/commands.test.ts`

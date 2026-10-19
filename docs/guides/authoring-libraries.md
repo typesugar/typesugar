@@ -46,7 +46,10 @@ their code (e.g. `regex\`...\``→`new RegExp("...")`). Macros import `typescrip
    Without this field your `./macros` entry exists but is never `require()`'d —
    nothing discovers it. See "Getting discovered" below for what happens next,
    which differs depending on whether you publish under the `@typesugar/` scope.
-4. **Keep `typescript`/`@typesugar/core` as peer/dev deps**, not runtime deps.
+4. **Keep `typescript` a peer dependency**, never a runtime dependency. `@typesugar/core`
+   is imported only by the `./macros` entry, so it can be a regular dependency (as in the
+   strings example below) or a peer dependency; either way, the `.` runtime entry must not
+   import it.
 5. **Emit references to runtime symbols, don't inline them.** If your macro needs a
    helper at runtime, put the helper in the `.` runtime entry and have the macro emit
    an import to it (use `ctx.ensureImport(symbol, "your-pkg")`, or emit a bare
@@ -95,15 +98,15 @@ src/macros.ts   →  the `./macros` entry: regexMacro/htmlMacro/fmtMacro/rawMacr
 ```jsonc
 {
   "exports": {
+    // types nested under import/require, so CommonJS consumers get .d.cts
+    // types (a flat top-level "types" gives them ESM types: TS1479)
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" },
     },
     "./macros": {
-      "types": "./dist/macros.d.ts",
-      "import": "./dist/macros.js",
-      "require": "./dist/macros.cjs",
+      "import": { "types": "./dist/macros.d.ts", "default": "./dist/macros.js" },
+      "require": { "types": "./dist/macros.d.cts", "default": "./dist/macros.cjs" },
     },
   },
   // Required for the compiler to find the ./macros entry above — see

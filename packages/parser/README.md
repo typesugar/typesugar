@@ -2,7 +2,7 @@
 
 > 📖 **Full documentation:** [Parser Combinators guide](https://typesugar.org/guides/parser). The microsite is the canonical reference; this README is a quickstart.
 
-> 🧊 **Frozen ([PEP-048](../../peps/PEP-048-package-triage.md)).** Not under active development and excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+> Status: experimental — API may change before 1.0.
 
 Compile-time parser generation from PEG grammars. Think Boost.Spirit, but for TypeScript.
 
@@ -10,12 +10,18 @@ Define grammars with tagged templates or programmatic combinators, get recursive
 
 > **Current Status:** with the typesugar transformer, `grammar` templates are compiled to inline parsers at build time; without it, they are interpreted at runtime.
 
+## Installation
+
+```bash
+npm install @typesugar/parser
+```
+
 ## Quick Start
 
 ### Grammar template
 
 ```typescript
-import { grammar } from "@typesugar/parser";
+import { grammar, ParseError } from "@typesugar/parser";
 
 const ident = grammar`
   ident  = letter (letter | digit)*
@@ -24,18 +30,25 @@ const ident = grammar`
 `;
 
 ident.parseAll("hello_42"); // succeeds
-ident.parseAll("42nope"); // throws ParseError
+
+try {
+  ident.parseAll("42nope");
+} catch (err) {
+  if (err instanceof ParseError) {
+    console.log(`${err.line}:${err.col} expected ${err.expected}`); // 1:1 expected 'a'..'z'
+  }
+}
 ```
+
+`ParseError` is thrown both by the parser the transformer inlines and by the runtime
+interpreter.
 
 ### Combinator API
 
 ```typescript
 import {
-  literal,
   char,
-  charRange,
   many,
-  many1,
   alt,
   seq,
   map,
@@ -44,24 +57,28 @@ import {
   lazy,
   integer,
   token,
+  type Parser,
 } from "@typesugar/parser";
 
 // CSV row: comma-separated integers
 const row = sepBy(integer(), char(","));
 row.parseAll("1,2,3"); // [1, 2, 3]
 
-// Arithmetic with correct precedence
-const expr = lazy(() =>
+// Arithmetic with correct precedence. Mutually recursive parsers need explicit
+// Parser<T> annotations (TypeScript can't infer a type that refers to itself).
+const expr: Parser<number> = lazy(() =>
   map(seq(term, many(seq(token(alt(char("+"), char("-"))), term))), ([first, rest]) =>
     rest.reduce((a, [op, b]) => (op === "+" ? a + b : a - b), first)
   )
 );
-const term = lazy(() =>
+const term: Parser<number> = lazy(() =>
   map(seq(factor, many(seq(token(alt(char("*"), char("/"))), factor))), ([first, rest]) =>
     rest.reduce((a, [op, b]) => (op === "*" ? a * b : a / b), first)
   )
 );
-const factor = lazy(() => alt(between(char("("), expr, char(")")), token(integer())));
+const factor: Parser<number> = lazy(() =>
+  alt(between(char("("), expr, char(")")), token(integer()))
+);
 
 expr.parseAll("2 + 3 * 4"); // 14
 expr.parseAll("(2 + 3) * 4"); // 20
@@ -149,10 +166,13 @@ This package uses PEG (Parsing Expression Grammar) semantics:
 
 ## Error Reporting
 
-Parse failures include the position (line/col) and what was expected:
+Parse failures throw `ParseError`, with `pos` (0-based offset), `line` and `col` (1-based)
+and `expected` fields. The message names the position and what was expected, followed by
+a snippet of the input:
 
 ```
-Parse error at line 3, col 5: expected "}" or ","
+Parse error at line 1, col 1: expected 'a'..'z'
+  ...42nope...
 ```
 
 The parser tracks the "furthest failure" position across all alternation branches, so error messages point to the most likely problem location.

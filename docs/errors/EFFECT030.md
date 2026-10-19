@@ -3,6 +3,9 @@
 
 # EFFECT030
 
+> **Reserved: not currently emitted by the compiler.** This code is catalogued, but no
+> typesugar check reports it yet. If your build fails, look up the code it actually prints.
+
 **Category:** schema-drift · **Severity:** Error
 
 ## Message

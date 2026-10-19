@@ -81,7 +81,7 @@ import {
 } from "@typesugar/core";
 import type { DerivationResult } from "./auto-derive.js";
 import { globalResolutionScope } from "@typesugar/core";
-import { TS9001, TS9005, TS9008, TS9101, TS9203, TS9305 } from "@typesugar/core";
+import { TS9001, TS9005, TS9008, TS9101, TS9106, TS9203, TS9305 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 import {
@@ -1885,7 +1885,13 @@ export const implAttribute = defineAttributeMacro({
         );
       } else {
         emitted.set(key, varName);
-        // namespace Type { export const TC = varName as TC<Type>; }
+        // namespace Type { export const TC = varName; }
+        // No `as TC<Type>` assertion: the companion takes the instance's own
+        // (declared or inferred) type. The assertion added nothing and didn't
+        // type-check in general — `TC` is often not a type in scope here (the
+        // typeclass is only named in the JSDoc tag) and an HKT instance's
+        // `Type` is a bare type constructor (`FlatMap<Box>`: "Box requires 1
+        // type argument"). Docs review r3 #1.
         const hostExported =
           (host as ts.InterfaceDeclaration).modifiers?.some(
             (m) => m.kind === ts.SyntaxKind.ExportKeyword
@@ -1898,12 +1904,7 @@ export const implAttribute = defineAttributeMacro({
                 tcName,
                 undefined,
                 undefined,
-                factory.createAsExpression(
-                  factory.createIdentifier(varName),
-                  factory.createTypeReferenceNode(tcName, [
-                    factory.createTypeReferenceNode(typeName),
-                  ])
-                )
+                factory.createIdentifier(varName)
               ),
             ],
             ts.NodeFlags.Const
@@ -2348,6 +2349,44 @@ export const summonMacro = defineExpressionMacro({
 });
 
 /**
+ * The `ts.Type` a summon type argument denotes, for scope-based instance
+ * lookup. A bare generic type constructor (`Functor<Option>`,
+ * `Functor<Array>`) has no type arguments, so `getTypeFromTypeNode` gives the
+ * checker's error type — `any`, which is assignable both ways to EVERY
+ * instance's type and so matched whichever instance came first (docs review
+ * C#6: `summon<Functor<Array>>()` silently became `optionFunctor`). Use the
+ * symbol's declared type instead, which is exactly what the instance scanner
+ * records for `@impl Functor<Option>` (`resolveTypeNameInScope`), so the
+ * constructor matches its own instances and nothing else.
+ */
+function summonTargetType(ctx: MacroContext, innerType: ts.TypeNode): ts.Type {
+  const checker = ctx.typeChecker;
+  if (ts.isTypeReferenceNode(innerType) && !innerType.typeArguments?.length) {
+    let sym = checker.getSymbolAtLocation(innerType.typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const isGenericDecl = (d: ts.Declaration) =>
+      (ts.isTypeAliasDeclaration(d) || ts.isInterfaceDeclaration(d) || ts.isClassDeclaration(d)) &&
+      (d.typeParameters?.length ?? 0) > 0;
+    if (sym && sym.flags & ts.SymbolFlags.Type && (sym.declarations ?? []).some(isGenericDecl)) {
+      return checker.getDeclaredTypeOfSymbol(sym);
+    }
+  }
+  return checker.getTypeFromTypeNode(innerType);
+}
+
+/** If `typeNode` names a type parameter in scope (`A` in `Show<A>`), its name. */
+function typeParameterName(ctx: MacroContext, typeNode: ts.TypeNode): string | undefined {
+  if (!ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) return undefined;
+  if (isSyntheticNode(typeNode)) return undefined;
+  try {
+    const sym = ctx.typeChecker.getSymbolAtLocation(typeNode.typeName);
+    return sym && sym.flags & ts.SymbolFlags.TypeParameter ? typeNode.typeName.text : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Resolve `TC<A>` (a type node such as `Show<Point>`) to an instance
  * expression, as `summon<TC<A>>()` does: an explicit instance in scope
  * (local, explicitly imported, or found in an imported module — imported on
@@ -2421,7 +2460,7 @@ export function summonInstanceExpression(
     );
   } else {
     try {
-      const forType = ctx.typeChecker.getTypeFromTypeNode(innerType);
+      const forType = summonTargetType(ctx, innerType);
       const scopeResult = resolveInstance(ctx, tcName, forType);
       if (scopeResult && scopeResult.kind === "resolved") {
         return buildInstanceReference(ctx, scopeResult);
@@ -2505,7 +2544,21 @@ export function summonInstanceExpression(
   }
 
   const tcSuggestions = getSuggestionsForTypeclass(tcName);
-  if (tcSuggestions.length > 0) {
+  const typeParam = typeParameterName(ctx, innerType);
+  if (typeParam) {
+    // `function f<A>(x: A, S: Show<A> = summon<Show<A>>())`: summon resolves
+    // at the definition site, where `A` is still abstract. The supported form
+    // for an instance-parameter default is `= implicit()`, which the CALLER
+    // fills in with the instance for its concrete `A`.
+    builder.note(
+      `'${typeParam}' is a type parameter, so there is no concrete type to resolve ` +
+        `${tcName}<${typeName}> for here; summon() resolves at this definition site, not at each call.`
+    );
+    builder.help(
+      `For an instance parameter, use \`= implicit()\` instead (the caller supplies the instance): ` +
+        `\`${tcName.charAt(0)}: ${tcName}<${typeName}> = implicit()\``
+    );
+  } else if (tcSuggestions.length > 0) {
     builder.help(`${helpMessage}\n    Add: ${tcSuggestions[0].importStatement}`);
   } else {
     builder.help(helpMessage);
@@ -3071,6 +3124,49 @@ registerTypeclassMacros();
 const MACROS_PRIMITIVE_COMPANIONS = new Set(["Eq", "Ord", "Show", "Hash", "Semigroup", "Monoid"]);
 
 /**
+ * Thrown by {@link tryExpandGenericDerive} when a GenericDerivation strategy
+ * exists for the typeclass but could not build an instance. The message keeps
+ * the historical text; {@link reportGenericDeriveFailure} turns it into the
+ * catalogued TS9106 diagnostic (trace as a note) instead of a generic TS9999.
+ */
+export class GenericDeriveError extends Error {
+  constructor(
+    readonly typeclass: string,
+    readonly typeName: string,
+    readonly traceNotes: string[]
+  ) {
+    super(
+      `cannot derive ${typeclass} for '${typeName}'.\n` + traceNotes.map((n) => `  ${n}`).join("\n")
+    );
+    this.name = "GenericDeriveError";
+  }
+}
+
+/**
+ * Report a failure thrown by {@link tryExpandGenericDerive} at `node` (the
+ * derive argument). A {@link GenericDeriveError} becomes TS9106 with the
+ * resolution trace as a note; anything else (a bug in a strategy) keeps the
+ * legacy "GenericDerivation failed" error so it is never swallowed.
+ */
+export function reportGenericDeriveFailure(
+  ctx: MacroContext,
+  node: ts.Node,
+  deriveName: string,
+  error: unknown
+): void {
+  if (error instanceof GenericDeriveError) {
+    ctx
+      .diagnostic(TS9106)
+      .at(node)
+      .withArgs({ typeclass: error.typeclass, type: error.typeName })
+      .note(error.traceNotes.join("\n"))
+      .emit();
+    return;
+  }
+  ctx.reportError(node, `GenericDerivation failed for ${deriveName}: ${error}`);
+}
+
+/**
  * Result of expanding a GenericDerivation for @derive.
  * Contains parsed AST statements (including companion namespace) and registry entry,
  * or null if derivation wasn't possible.
@@ -3116,9 +3212,7 @@ export function tryExpandGenericDerive(
       attempts: result.trace,
       finalResult: "failed",
     });
-    throw new Error(
-      `cannot derive ${deriveName} for '${typeName}'.\n` + notes.map((n) => `  ${n}`).join("\n")
-    );
+    throw new GenericDeriveError(deriveName, typeName, notes);
   }
 
   const uncap = deriveName.charAt(0).toLowerCase() + deriveName.slice(1);

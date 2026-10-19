@@ -881,14 +881,16 @@ export namespace Write {
   /**
    * Combine multiple Writes.
    */
-  export function tuple<T extends readonly Write<unknown>[]>(
-    ...writes: T
-  ): Write<{ [K in keyof T]: T[K] extends Write<infer A> ? A : never }> {
-    type Input = { [K in keyof T]: T[K] extends Write<infer A> ? A : never };
+  export function tuple<T extends readonly unknown[]>(
+    ...writes: { [K in keyof T]: Write<T[K]> }
+  ): Write<T> {
+    // Generic over the instances' value types, not over `Write<unknown>[]`:
+    // Write is contravariant, so `Write<User>` is not a `Write<unknown>`.
+    const ws = writes as readonly Write<unknown>[];
     return {
       _tag: "Write",
-      columns: writes.flatMap((w) => w.columns),
-      write: (values: Input) => writes.flatMap((w, i) => w.write((values as unknown[])[i])),
+      columns: ws.flatMap((w) => w.columns),
+      write: (values: T) => ws.flatMap((w, i) => w.write(values[i])),
     };
   }
 
@@ -980,8 +982,12 @@ export function toSnakeCase(str: string): string {
  * Column configuration for derivation.
  */
 export interface DeriveColumn<A> {
-  /** TypeScript field name */
-  readonly field: string;
+  /**
+   * TypeScript field name. Optional: in `deriveRead`/`deriveWrite`/
+   * `deriveCodec` configs the record key is the field name, and that is what
+   * they use.
+   */
+  readonly field?: string;
   /** SQL column name (defaults to snake_case of field) */
   readonly column?: string;
   /** Meta instance for this field */

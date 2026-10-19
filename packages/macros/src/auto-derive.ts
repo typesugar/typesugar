@@ -72,6 +72,29 @@ import { isSyntheticNode } from "@typesugar/core";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
 import type { ResolutionAttempt } from "@typesugar/core";
 
+/**
+ * Parse cached/generated derivation text (the string cache contract — see the
+ * CLAUDE.md exception for this file) into a FULLY synthetic expression.
+ *
+ * `ctx.parseExpression` resets node positions with `stripPositions`, but that
+ * walks with `visitEachChild`, which skips TOKEN children (a binary
+ * expression's `===`/`&&`, an arrow's `=>`). Those tokens kept their offsets
+ * in the temporary parse file, and the printer then emitted whatever comment
+ * the USER's file had at that offset: `a.name === // a < b, ...` (docs
+ * review r3 #2). `ts.forEachChild` does visit tokens; the nodes are freshly
+ * parsed and owned here, so resetting them in place is safe.
+ */
+function parseDerivedExpression(ctx: MacroContext, code: string): ts.Expression {
+  const expr = ctx.parseExpression(code);
+  const reset = (n: ts.Node): void => {
+    ts.setTextRange(n, { pos: -1, end: -1 });
+    ts.setCommentRange(n, { pos: -1, end: -1 });
+    ts.forEachChild(n, reset);
+  };
+  reset(expr);
+  return expr;
+}
+
 // ============================================================================
 // Derivation Result (with resolution trace for error diagnostics)
 // ============================================================================
@@ -207,7 +230,7 @@ export function hasGenericDerivation(typeclassName: string): boolean {
  * shape changes, so persisted derivations from an older version (e.g. an
  * `Ord` instance with only `compare`) are never served again.
  */
-const DERIVATION_OUTPUT_FORMAT = 2;
+const DERIVATION_OUTPUT_FORMAT = 3;
 
 interface DerivationCaches {
   mirror: Map<ts.Symbol, GenericMeta | false>;
@@ -368,7 +391,7 @@ export function tryDeriveViaGeneric(
       result: "found",
       reason: "in-memory cache hit",
     });
-    return { expression: ctx.parseExpression(memCached), trace };
+    return { expression: parseDerivedExpression(ctx, memCached), trace };
   }
 
   // Step 2: Obtain GenericMeta
@@ -484,6 +507,9 @@ export function tryDeriveViaGeneric(
           kind: meta.kind,
           fieldNames: meta.fieldNames,
           fieldTypes: meta.fieldTypes,
+          // Optionality changes the output (Json's fromJson rejects a missing
+          // REQUIRED field), so it must be part of the key.
+          optional: mirrorTypes.get(meta)?.optional,
           discriminant: meta.discriminant,
           variants: meta.variants?.map((v) => ({ tag: v.tag, typeName: v.typeName })),
         })
@@ -499,7 +525,7 @@ export function tryDeriveViaGeneric(
         result: "found",
         reason: "disk cache hit",
       });
-      return { expression: ctx.parseExpression(diskCached), trace };
+      return { expression: parseDerivedExpression(ctx, diskCached), trace };
     }
   }
 
@@ -532,7 +558,7 @@ export function tryDeriveViaGeneric(
     result: "found",
   });
 
-  return { expression: ctx.parseExpression(code), trace };
+  return { expression: parseDerivedExpression(ctx, code), trace };
 }
 
 /**
@@ -1308,12 +1334,23 @@ registerGenericDerivation("Json", {
     const toFields = meta.fieldNames
       .map((name) => `${objKey(name)}: ${access("a", name)}`)
       .join(", ");
+    // Optionality comes from the checker mirror (`x?: T`); a pre-registered
+    // meta without one falls back to the type text (a field whose type
+    // admits `undefined` is treated as optional, anything else as required).
+    const optional = mirrorTypes.get(meta)?.optional;
     const validations = meta.fieldNames
       .map((name, i) => {
         const v = access("obj", name);
-        const check = runtimeTypeCheck(meta.fieldTypes![i], v);
+        const ft = meta.fieldTypes![i];
+        const check = runtimeTypeCheck(ft, v);
         if (check === "true") return "";
-        return `if (${v} !== undefined && !(${check})) throw new Error(${JSON.stringify(`Field ${name} must be ${meta.fieldTypes![i]}`)});`;
+        const isOptional =
+          optional?.[i] ??
+          splitTopLevelUnion(ft).some((p) => p.trim() === "undefined" || p.trim() === "void");
+        const typeError = `throw new Error(${JSON.stringify(`Field ${name} must be ${ft}`)});`;
+        if (isOptional) return `if (${v} !== undefined && !(${check})) ${typeError}`;
+        // Required: a missing field is an error, not a silently-accepted hole.
+        return `if (${v} === undefined) throw new Error(${JSON.stringify(`Missing required field ${name}`)}); if (!(${check})) ${typeError}`;
       })
       .filter((x) => x)
       .join(" ");

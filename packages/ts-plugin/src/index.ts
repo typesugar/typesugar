@@ -5,7 +5,7 @@
  * implementation, which transforms source files before TypeScript processes them.
  *
  * Key features:
- * - Transforms custom syntax (|>, ::, F<_>) to valid TypeScript
+ * - Transforms typesugar syntax (F<_> higher-kinded type parameters) to valid TypeScript
  * - Expands macros (@derive, comptime, etc.)
  * - Maps diagnostics, completions, and definitions back to original positions
  * - Caches transformation results for performance

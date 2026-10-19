@@ -16,7 +16,10 @@ npm install @typesugar/fp
 import { Some, None, pipe } from "@typesugar/fp";
 import type { Option } from "@typesugar/fp";
 
-// Dot syntax, zero-cost (compiles to plain null checks)
+// Dot syntax on a zero-cost Option (Some(5) is just 5 at runtime). The method calls
+// compile to calls of the standalone functions:
+// getOrElse(filter(map(5, (n) => n * 2), (n) => n > 5), () => 0)
+// imported from "@typesugar/fp/data/option".
 const result = Some(5)
   .map((n) => n * 2)
   .filter((n) => n > 5)

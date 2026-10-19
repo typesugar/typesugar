@@ -16,11 +16,11 @@ the scoped version we _would_ generate are in
 
 ## Core APIs
 
-| Reference                             | Description                             |
-| ------------------------------------- | --------------------------------------- |
-| [MacroContext](./macro-context.md)    | Full MacroContext API for macro authors |
-| [Macro Types](./macro-types.md)       | All 6 macro kinds and their signatures  |
-| [Macro Triggers](./macro-triggers.md) | How macros are invoked                  |
+| Reference                              | Description                             |
+| -------------------------------------- | --------------------------------------- |
+| [MacroContext](./macro-context.md)     | Full MacroContext API for macro authors |
+| [Macro Types](../macro-types.md)       | All 6 macro kinds and their signatures  |
+| [Macro Triggers](../macro-triggers.md) | How macros are invoked                  |
 
 ## Tools
 
@@ -39,24 +39,30 @@ the scoped version we _would_ generate are in
 
 ### Registration Functions
 
+Each `define*Macro` takes one definition object and returns it; it does **not**
+register the macro. Register with `globalRegistry.register(macro)` (or
+`registerMacros(globalRegistry, ...macros)`) in your package's macro entry.
+
 ```typescript
 // Expression macro: fn()
-defineExpressionMacro(name, { expand(ctx, callExpr) {} });
+defineExpressionMacro({ name, module, expand(ctx, callExpr, args) {} });
 
 // Attribute macro: @decorator
-defineAttributeMacro(name, { expand(ctx, decorator, target) {} });
+defineAttributeMacro({ name, module, validTargets, expand(ctx, decorator, target, args) {} });
 
 // Derive macro: @derive(Name)
-defineDeriveMacro(name, { expand(ctx, target, typeInfo) {} });
+defineDeriveMacro({ name, expand(ctx, target, typeInfo) {} });
 
 // Tagged template: tag`...`
-defineTaggedTemplateMacro(name, { expand(ctx, node) {} });
+defineTaggedTemplateMacro({ name, module, expand(ctx, node) {} });
 
 // Type macro: Type<T>
-defineTypeMacro(name, { expand(ctx, typeRef) {} });
+defineTypeMacro({ name, module, expand(ctx, typeRef, args) {} });
 
 // Labeled block: label: { }
-defineLabeledBlockMacro(name, { expand(ctx, block) {} });
+defineLabeledBlockMacro({ name, label, expand(ctx, mainBlock, continuation) {} });
+
+globalRegistry.register(myMacro);
 ```
 
 ### Key Imports
@@ -70,14 +76,17 @@ import {
   defineTaggedTemplateMacro,
   defineTypeMacro,
   defineLabeledBlockMacro,
+  globalRegistry,
 } from "@typesugar/core";
 
-// Quasiquoting
-import { quote, quoteStatements, quoteType, ident, raw, spread } from "@typesugar/core/quote";
+// Quasiquoting (string-based; prefer ctx.factory — see the Quasiquoting guide)
+import { quote, quoteStatements, quoteType, ident, raw, spread } from "@typesugar/macros";
 
-// Testing
-import { expandCode, expandMacro, assertExpands } from "@typesugar/testing";
+// Testing: expand with the real pipeline, or unit-test an expand() function
+import { transformCode } from "@typesugar/transformer";
+import { createMacroTestContext } from "@typesugar/testing/macros";
 
 // Configuration
-import { config, cfg, cfgAttr } from "@typesugar/core";
+import { config, defineConfig } from "@typesugar/core";
+import { cfg, cfgAttr } from "typesugar"; // the cfg macros (runtime placeholders)
 ```

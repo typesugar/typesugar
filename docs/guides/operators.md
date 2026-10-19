@@ -4,19 +4,28 @@ typesugar provides operator overloading via `@op` JSDoc on typeclass methods: st
 
 ## Standard Operators via @op JSDoc
 
-The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures:
+The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures. For the standard typeclasses, operator syntax is off until you import the typeclass's `ops` activation module (PEP-052) — without it, `a + b` is left alone:
 
 ```typescript
-import { Numeric, numericRational, rational } from "@typesugar/std";
+import "@typesugar/std/syntax/numeric/ops"; // + - *
+import "@typesugar/std/syntax/fractional/ops"; // /
+import "@typesugar/std/syntax/ord/ops"; // < <= > >=
+import { rational, rationalToString } from "@typesugar/math";
 
 const a = rational(1n, 2n);
 const b = rational(1n, 3n);
 
-// Operators work automatically through Numeric typeclass
 const sum = a + b; // Compiles to: numericRational.add(a, b)
 const product = a * b; // Compiles to: numericRational.mul(a, b)
-const comparison = a < b; // Compiles to: ordRational.compare(a, b) < 0
+const quotient = a / b; // Compiles to: fractionalRational.div(a, b)
+const comparison = a < b; // Compiles to: ordRational.lessThan(a, b)
+rationalToString(sum); // "5/6"
 ```
+
+The instances (`numericRational`, …) are imported for you. The activation modules are
+`@typesugar/std/syntax/<typeclass>/ops` for `eq` (`===`, `!==`), `ord`, `semigroup`,
+`monoid`, `group` (`+`), `numeric` (`+ - *`), `integral` (`/ %`) and `fractional` (`/`).
+A typeclass you define in the same file with `@op` tags needs no activation import.
 
 Typeclasses define methods with `@op` JSDoc tags, which the transformer uses to dispatch operators:
 
@@ -65,11 +74,10 @@ This approach is **zero-cost** — the operator is transformed directly to the m
 ### Bitwise
 
 | Operator | Typical Method | Example  |
-| -------- | -------------- | -------- | --- | --- |
+| -------- | -------------- | -------- |
 | `&`      | `and`          | `a & b`  |
-| `        | `              | `or`     | `a  | b`  |
+| `\|`     | `or`           | `a \| b` |
 | `^`      | `xor`          | `a ^ b`  |
-| `~`      | `not`          | `~a`     |
 | `<<`     | `shl`          | `a << b` |
 | `>>`     | `shr`          | `a >> b` |
 
@@ -114,15 +122,22 @@ h(5); // 12 (5 + 1 = 6, 6 * 2 = 12)
 
 ## Unary Operators
 
+Put `@op` on a ONE-parameter method to dispatch the prefix-unary form. The same
+token can map a binary method too; the parameter count decides which form each one
+handles:
+
 ```typescript
 /** @typeclass */
-interface Negate<A> {
+interface VecOps<A> {
   /** @op - */
-  negate(a: A): A;
+  sub(a: A, b: A): A; // v - w  → vecOps.sub(v, w)
+  /** @op - */
+  negate(a: A): A; // -v     → vecOps.negate(v)
 }
 ```
 
-When an instance exists, `-c` compiles to `negateInstance.negate(c)`.
+Prefix `-`, `+`, `!` and `~` can be dispatched. `++`/`--` never are, and a unary
+operator on a primitive (`-n` for a `number`) stays plain JavaScript.
 
 ## Comparison with @derive
 
@@ -139,13 +154,19 @@ class Point { ... }
 
 ## Type Safety
 
-Operator dispatch is fully type-checked:
+Dispatch picks the instance from the left operand's type. When the method's right
+parameter is the typeclass's type parameter (`add(a: A, b: A)`), the right operand
+must have the instance type too; otherwise the operator is left native and reported:
 
 ```typescript
-// If Vec2 has Numeric instance, vec + 5 fails if add expects (Vec2, Vec2)
-const sum = vec + other; // OK
-const bad = vec + 5; // Type error if add expects Vec2
+const sum = vec + other; // OK: vecOps.add(vec, other)
+const bad = vec + 5; // error: Operator '+' on 'Vec2' dispatches to VecOps.add, whose right
+//                      operand must also be 'Vec2', but it is 'number'.
 ```
+
+A method whose right parameter has some other type (`scale(a: A, k: number)`) is not
+checked here. Set the bundler plugin's `strict: true` to have the expanded code
+type-checked (see [Type Safety](./type-safety.md)).
 
 ## Performance
 

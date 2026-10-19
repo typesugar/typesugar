@@ -94,8 +94,6 @@ export const Hash = Object.freeze({
 export const Default: unique symbol = Symbol("Default");
 /** Derive JSON serialization (toJson/fromJson methods) */
 export const Json: unique symbol = Symbol("Json");
-/** Derive builder pattern (builder static method) */
-export const Builder: unique symbol = Symbol("Builder");
 /** Derive type guard function (isTypeName static method) */
 export const TypeGuard: unique symbol = Symbol("TypeGuard");
 /** Derive show/display string representation. Also carries primitive Show instances. */

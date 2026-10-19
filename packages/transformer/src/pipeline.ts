@@ -63,8 +63,9 @@ export interface MacroTransformerConfig {
   /** Enable verbose logging */
   verbose?: boolean;
 
-  /** Custom macro module paths to load */
-  macroModules?: string[];
+  // `macroModules` (documented as "custom macro module paths to load") was
+  // removed before 1.0: nothing ever read it. Macro packages are discovered
+  // through their package.json `typesugar.macros` field (PEP-055).
 
   /** Conditional compilation configuration (for cfg/cfgAttr macros) */
   cfgConfig?: Record<string, unknown>;
@@ -399,7 +400,26 @@ export function macroTransformerFactory(
       // activation scope below -- a provider's registerSyntaxMarkerFallback
       // side effect must be registered before scanImportsForScope's lookups
       // depend on it. Safe to run first: loadPackage is idempotent.
-      loadMacroPackagesFromFile(sourceFile, verbose);
+      // A macro package the file imports but whose macros could not be
+      // loaded (unresolvable from the project, or its macro entry threw)
+      // would otherwise leave its calls unexpanded with no trace, so each
+      // one becomes a warning on the import (docs review 2026-10).
+      for (const w of loadMacroPackagesFromFile(sourceFile, verbose)) {
+        const start = w.node.getStart(sourceFile);
+        const warning: ts.Diagnostic = {
+          file: sourceFile,
+          start,
+          length: w.node.end - start,
+          messageText: `[typesugar] ${w.message}`,
+          category: ts.DiagnosticCategory.Warning,
+          code: 9999,
+          source: "typesugar",
+        };
+        (
+          context as ts.TransformationContext & { addDiagnostic?: (d: ts.Diagnostic) => void }
+        ).addDiagnostic?.(warning);
+        reportDiagnostic(warning);
+      }
 
       // Scan for imports and opt-out directives
       scanImportsForScope(sourceFile, globalResolutionScope, program);
@@ -2321,10 +2341,14 @@ export function createPipeline(
     );
   }
 
+  // Passing the config file name sets `compilerOptions.configFilePath`,
+  // which comptime's fs project root prefers (the tsconfig's directory).
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
-    path.dirname(tsconfigPath)
+    path.dirname(tsconfigPath),
+    undefined,
+    path.resolve(tsconfigPath)
   );
 
   // Surface tsconfig problems (unknown options, bad `extends`, invalid

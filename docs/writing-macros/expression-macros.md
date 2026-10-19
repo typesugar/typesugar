@@ -12,264 +12,329 @@ Expression macros transform function calls at compile time.
 ## Basic Structure
 
 ```typescript
-import { defineExpressionMacro, type MacroContext } from "@typesugar/core";
-import * as ts from "typescript";
+// src/macros.ts
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 
-defineExpressionMacro("myMacro", {
-  expand(ctx: MacroContext, callExpr: ts.CallExpression): ts.Expression {
-    // Transform the call expression
-    // Return a new expression to replace it
-    return ctx.createNumericLiteral(42);
-  },
-});
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "myMacro",
+    module: "my-macros", // expand only myMacro() imported from "my-macros"
+    expand(ctx, callExpr, args) {
+      // callExpr: the whole call; args: its arguments
+      // Return a new expression to replace the call
+      return ctx.createNumericLiteral(42);
+    },
+  })
+);
+```
 
-// Runtime placeholder (never actually called)
+```typescript
+// src/index.ts — runtime placeholder (never actually called)
 export function myMacro(): number {
   throw new Error("myMacro() should be compiled away");
 }
 ```
 
-## Tutorial: Creating `assert()`
+`defineExpressionMacro` only builds the definition; `globalRegistry.register` is what makes
+the transformer use it. The call is only expanded where the user imports the placeholder;
+a call to a function declared in the same file is left alone.
 
-Let's create an assert macro that throws with the actual expression text.
+The examples below leave out `module` to stay short, and import their placeholders from a
+local `./macros` file.
+
+## Tutorial: Creating `check()`
+
+Let's create an assertion macro that puts the source text of the condition into its error
+message. (It's called `check` because `assert` is already registered by `@typesugar/testing`,
+and macro names are global.)
 
 ### Step 1: Define the Macro
 
 ```typescript
-// src/macros/assert.ts
-import { defineExpressionMacro } from "@typesugar/core";
+// src/macros.ts
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import * as ts from "typescript";
 
-defineExpressionMacro("assert", {
-  expand(ctx, callExpr) {
-    const condition = callExpr.arguments[0];
-    const message = callExpr.arguments[1];
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "check",
+    expand(ctx, callExpr, args) {
+      const [condition, message] = args;
+      if (!condition) {
+        ctx.reportError(callExpr, "check() requires a condition");
+        return callExpr;
+      }
+      const f = ctx.factory;
+      const conditionText = condition.getText(ctx.sourceFile);
+      const errorMessage = message ?? ctx.createStringLiteral(`Check failed: ${conditionText}`);
 
-    if (!condition) {
-      ctx.reportError(callExpr, "assert() requires a condition");
-      return callExpr;
-    }
-
-    // Get the source text of the condition
-    const conditionText = condition.getText(ctx.sourceFile);
-
-    // Generate: if (!(condition)) throw new Error(message || "Assertion failed: <text>")
-    const errorMessage = message ?? ctx.createStringLiteral(`Assertion failed: ${conditionText}`);
-
-    return ctx.factory.createCallExpression(
-      ctx.factory.createParenthesizedExpression(
-        ctx.factory.createArrowFunction(
-          undefined,
-          undefined,
-          [],
-          undefined,
-          undefined,
-          ctx.factory.createBlock([
-            ctx.factory.createIfStatement(
-              ctx.factory.createPrefixUnaryExpression(
-                ts.SyntaxKind.ExclamationToken,
-                ctx.factory.createParenthesizedExpression(condition)
+      // (condition) || (() => { throw new Error(message); })()
+      const throwIife = f.createCallExpression(
+        f.createParenthesizedExpression(
+          f.createArrowFunction(
+            undefined,
+            undefined,
+            [],
+            undefined,
+            f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+            f.createBlock([
+              f.createThrowStatement(
+                f.createNewExpression(f.createIdentifier("Error"), undefined, [errorMessage])
               ),
-              ctx.factory.createThrowStatement(
-                ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
-                  errorMessage,
-                ])
-              )
-            ),
-          ])
-        )
-      ),
-      undefined,
-      []
-    );
-  },
-});
+            ])
+          )
+        ),
+        undefined,
+        []
+      );
+      return f.createBinaryExpression(
+        f.createParenthesizedExpression(condition),
+        ts.SyntaxKind.BarBarToken,
+        throwIife
+      );
+    },
+  })
+);
+```
 
-export function assert(condition: boolean, message?: string): void {
-  throw new Error("assert() should be compiled away");
+```typescript
+// src/index.ts
+export function check(condition: boolean, message?: string): void {
+  throw new Error("check() should be compiled away");
 }
 ```
 
 ### Step 2: Use It
 
 ```typescript
-import { assert } from "./macros/assert";
+import { check } from "./macros";
 
 const x = 5;
-assert(x > 0);
-assert(x < 10, "x must be less than 10");
+check(x > 0);
+check(x < 10, "x must be less than 10");
 ```
 
 ### Step 3: Compiled Output
 
-```javascript
-(() => {
-  if (!(x > 0)) throw new Error("Assertion failed: x > 0");
-})();
-(() => {
-  if (!(x < 10)) throw new Error("x must be less than 10");
-})();
+```typescript
+const x = 5;
+x > 0 ||
+  (() => {
+    throw new Error("Check failed: x > 0");
+  })();
+x < 10 ||
+  (() => {
+    throw new Error("x must be less than 10");
+  })();
 ```
+
+The import of the placeholder is removed once every use of it has been expanded.
 
 ## Using Quasiquoting
 
-The factory API is verbose. Use `quote()` for cleaner code:
+Building AST with `ctx.factory` is explicit and type-safe, and it is the style this
+project uses. For larger expressions, `quote()` from `@typesugar/macros` builds the same
+AST from a template, splicing in the nodes you pass:
 
 ```typescript
-import { defineExpressionMacro } from "@typesugar/core";
-import { quote } from "@typesugar/core/quote";
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { quote } from "@typesugar/macros";
 
-defineExpressionMacro("assert", {
-  expand(ctx, callExpr) {
-    const condition = callExpr.arguments[0];
-    const conditionText = condition?.getText(ctx.sourceFile) ?? "?";
-    const message =
-      callExpr.arguments[1] ?? ctx.createStringLiteral(`Assertion failed: ${conditionText}`);
-
-    return quote(ctx)`
-      (() => {
-        if (!(${condition})) throw new Error(${message});
-      })()
-    `;
-  },
-});
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "check",
+    expand(ctx, callExpr, args) {
+      const [condition, message] = args;
+      if (!condition) {
+        ctx.reportError(callExpr, "check() requires a condition");
+        return callExpr;
+      }
+      const conditionText = condition.getText(ctx.sourceFile);
+      const errorMessage = message ?? ctx.createStringLiteral(`Check failed: ${conditionText}`);
+      return quote(ctx)`${condition} || (() => { throw new Error(${errorMessage}); })()`;
+    },
+  })
+);
 ```
+
+This produces the same output as the factory version. See [Quasiquoting](./quasiquoting.md).
 
 ## Accessing Arguments
 
 ```typescript
-defineExpressionMacro("example", {
-  expand(ctx, callExpr) {
-    const args = callExpr.arguments;
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "example",
+    expand(ctx, callExpr, args) {
+      // Check argument count first
+      if (args.length < 2) {
+        ctx.reportError(callExpr, "example() expects at least 2 arguments");
+        return callExpr;
+      }
 
-    // First argument
-    const first = args[0];
+      const first = args[0];
+      const firstText = first.getText(ctx.sourceFile); // source text of an argument
+      const firstType = ctx.getTypeOf(first); // its type
 
-    // All arguments
-    for (const arg of args) {
-      console.log(arg.getText(ctx.sourceFile));
-    }
-
-    // Type of an argument
-    const firstType = ctx.getTypeOf(first);
-
-    // Check argument count
-    if (args.length < 2) {
-      ctx.reportError(callExpr, "Expected at least 2 arguments");
-      return callExpr;
-    }
-
-    return first;
-  },
-});
+      return first;
+    },
+  })
+);
 ```
+
+`args` is the same list as `callExpr.arguments`. (For a `chainable` macro, `callExpr` is the
+outermost call of the chain and `args` are the root call's arguments.)
 
 ## Type-Aware Macros
 
 Use the type checker for conditional behavior:
 
 ```typescript
-defineExpressionMacro("stringify", {
-  expand(ctx, callExpr) {
-    const arg = callExpr.arguments[0];
-    const type = ctx.getTypeOf(arg);
-    const typeStr = ctx.typeChecker.typeToString(type);
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "stringify",
+    expand(ctx, callExpr, args) {
+      const arg = args[0];
+      if (!arg) {
+        ctx.reportError(callExpr, "stringify() requires an argument");
+        return callExpr;
+      }
+      const f = ctx.factory;
+      const type = ctx.getTypeOf(arg);
+      if (type.flags & ts.TypeFlags.StringLike) {
+        return arg; // already a string
+      }
+      if (type.flags & ts.TypeFlags.NumberLike) {
+        return f.createCallExpression(f.createIdentifier("String"), undefined, [arg]);
+      }
+      return f.createCallExpression(
+        f.createPropertyAccessExpression(f.createIdentifier("JSON"), "stringify"),
+        undefined,
+        [arg]
+      );
+    },
+  })
+);
 
-    if (typeStr === "number") {
-      return quote(ctx)`${arg}.toString()`;
-    } else if (typeStr === "string") {
-      return arg; // Already a string
-    } else {
-      return quote(ctx)`JSON.stringify(${arg})`;
-    }
-  },
-});
+// stringify("hi")     → "hi"
+// stringify(42)       → String(42)
+// stringify({ a: 1 }) → JSON.stringify({ a: 1 })
 ```
 
 ## Compile-Time Evaluation
 
-Evaluate arguments at compile time:
+Evaluate arguments at compile time. `ctx.evaluate` returns a `ComptimeValue`, a tagged
+object such as `{ kind: "number", value: 42 }` or `{ kind: "error", message }`, so switch on
+`kind`:
 
 ```typescript
-defineExpressionMacro("comptime", {
-  expand(ctx, callExpr) {
-    const arg = callExpr.arguments[0];
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "constant",
+    expand(ctx, callExpr, args) {
+      const arg = args[0];
+      if (!arg || !ctx.isComptime(arg)) {
+        ctx.reportError(
+          callExpr,
+          "constant() needs an argument that can be evaluated at compile time"
+        );
+        return callExpr;
+      }
+      const result = ctx.evaluate(arg);
+      switch (result.kind) {
+        case "number":
+          return ctx.createNumericLiteral(result.value);
+        case "string":
+          return ctx.createStringLiteral(result.value);
+        case "boolean":
+          return ctx.createBooleanLiteral(result.value);
+        case "error":
+          ctx.reportError(arg, result.message);
+          return callExpr;
+        default:
+          ctx.reportError(arg, `constant() cannot inline a ${result.kind} value`);
+          return callExpr;
+      }
+    },
+  })
+);
 
-    if (!ctx.isComptime(arg)) {
-      ctx.reportError(arg, "Argument must be evaluable at compile time");
-      return callExpr;
-    }
-
-    const result = ctx.evaluate(arg);
-
-    if (typeof result === "number") {
-      return ctx.createNumericLiteral(result);
-    } else if (typeof result === "string") {
-      return ctx.createStringLiteral(result);
-    }
-    // ... handle other types
-
-    return callExpr;
-  },
-});
+// const k = constant(6 * 7);  →  const k = 42;
 ```
+
+For general compile-time evaluation, use the built-in [`comptime`](../guides/comptime.md)
+instead of writing your own.
 
 ## Error Handling
 
 Always handle edge cases gracefully:
 
 ```typescript
-defineExpressionMacro("safe", {
-  expand(ctx, callExpr) {
-    // Check arguments
-    if (callExpr.arguments.length === 0) {
-      ctx.reportError(callExpr, "Missing required argument");
-      return callExpr; // Return original on error
-    }
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "safe",
+    expand(ctx, callExpr, args) {
+      // Check arguments
+      if (args.length === 0) {
+        ctx.reportError(callExpr, "Missing required argument");
+        return callExpr; // Return the original on error
+      }
 
-    // Validate argument type
-    const arg = callExpr.arguments[0];
-    const type = ctx.getTypeOf(arg);
+      // Validate the argument type
+      const arg = args[0];
+      const type = ctx.getTypeOf(arg);
+      if (!ctx.isAssignableTo(type, ctx.typeChecker.getStringType())) {
+        ctx.reportWarning(arg, "Expected string argument");
+      }
 
-    if (!ctx.isAssignableTo(type, ctx.typeChecker.getStringType())) {
-      ctx.reportWarning(arg, "Expected string argument");
-    }
-
-    // Transform...
-    return arg;
-  },
-});
+      return arg;
+    },
+  })
+);
 ```
 
 ## Generating Unique Names
 
-For hygienic macros:
+When a macro introduces a variable, name it with `ctx.generateUniqueName(prefix)` so it
+cannot collide with the user's names. This `swap` doesn't need a temporary at all, which is
+better still:
 
 ```typescript
-defineExpressionMacro("swap", {
-  expand(ctx, callExpr) {
-    const [a, b] = callExpr.arguments;
-    const temp = ctx.generateUniqueName("temp");
+globalRegistry.register(
+  defineExpressionMacro({
+    name: "swap",
+    expand(ctx, callExpr, args) {
+      const [a, b] = args;
+      if (!a || !b || !ts.isIdentifier(a) || !ts.isIdentifier(b)) {
+        ctx.reportError(callExpr, "swap(a, b) needs two variable names");
+        return callExpr;
+      }
+      const f = ctx.factory;
+      // [a, b] = [b, a]
+      return f.createBinaryExpression(
+        f.createArrayLiteralExpression([a, b]),
+        ts.SyntaxKind.EqualsToken,
+        f.createArrayLiteralExpression([b, a])
+      );
+    },
+  })
+);
 
-    return quote(ctx)`
-      (() => {
-        const ${temp} = ${a};
-        ${a} = ${b};
-        ${b} = ${temp};
-      })()
-    `;
-  },
-});
+// let p = 1, q = 2;
+// swap(p, q);  →  [p, q] = [q, p];
 ```
+
+The [Quasiquoting](./quasiquoting.md#complex-example) page has an example that needs
+generated names.
 
 ## Best Practices
 
 1. **Validate inputs**: Check argument count and types
 2. **Report clear errors**: Use `ctx.reportError()` with helpful messages
 3. **Return original on error**: Don't crash, let TypeScript show the error
-4. **Use quasiquoting**: Much cleaner than raw factory calls
+4. **Build AST with `ctx.factory`**: Use quasiquoting where a template reads better
 5. **Generate hygienic names**: Avoid variable capture
-6. **Test thoroughly**: Use `@typesugar/testing`
+6. **Test thoroughly**: Run the expanded code (see [Testing Macros](./testing-macros.md))
 
 ## Next Steps
 

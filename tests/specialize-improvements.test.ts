@@ -378,6 +378,16 @@ describe("Phase 2: Deduplication / Hoisting", () => {
       expect(name1.text).toContain("parseAge");
       expect(name1.text).toContain("Option");
     });
+
+    it("produces a valid identifier when a brand is a type's text (e.g. any[])", () => {
+      // A dictionary typed `Functor<any[]>` has the brand "any[]"; the hoisted
+      // name used to be `__double_any[]_0__`, which is not an identifier.
+      const name = globalHygiene.withScope(() =>
+        SpecializationCache.generateHoistedName("double", ["any[]", "Map<K, V>"], globalHygiene)
+      );
+      expect(name.text).toMatch(/^[A-Za-z_$][\w$]*$/);
+      expect(name.text).toContain("double");
+    });
   });
 
   describe("createHoistedSpecialization", () => {

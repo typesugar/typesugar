@@ -36,7 +36,6 @@ import {
   Hash,
   Default,
   Json,
-  Builder,
   TypeGuard,
   // Decorator functions
   derive,
@@ -84,12 +83,11 @@ describe("Typesugar Umbrella Edge Cases", () => {
       expect(Ord.number).toBeDefined();
       expect(typeof Hash).toBe("object");
       expect(Hash.number).toBeDefined();
-      // Clone, Debug, Default, Json, Builder, TypeGuard remain symbols
+      // Clone, Debug, Default, Json, TypeGuard remain symbols
       expect(typeof Clone).toBe("symbol");
       expect(typeof Debug).toBe("symbol");
       expect(typeof Default).toBe("symbol");
       expect(typeof Json).toBe("symbol");
-      expect(typeof Builder).toBe("symbol");
       expect(typeof TypeGuard).toBe("symbol");
     });
 
@@ -276,12 +274,11 @@ describe("Typesugar Umbrella Edge Cases", () => {
   describe("Cross-module consistency", () => {
     it("derive marker descriptions match their names", () => {
       // Eq, Ord, Hash, Show are now frozen objects (not symbols)
-      // Clone, Debug, Default, Json, Builder, TypeGuard remain symbols with descriptions
+      // Clone, Debug, Default, Json, TypeGuard remain symbols with descriptions
       expect(Clone.description).toBe("Clone");
       expect(Debug.description).toBe("Debug");
       expect(Default.description).toBe("Default");
       expect(Json.description).toBe("Json");
-      expect(Builder.description).toBe("Builder");
       expect(TypeGuard.description).toBe("TypeGuard");
     });
 

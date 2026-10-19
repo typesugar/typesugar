@@ -108,6 +108,16 @@ function expressionToCondition(
   // never fail (deep review 2026-10, effect-contracts #1).
   let inner: ts.Expression = expr;
   while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  if (ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) {
+    // A function value is always truthy: the check could never fail.
+    onDiagnostic?.(
+      inner,
+      "A function is not a contract condition (a function value is always truthy, so " +
+        "this would never be checked). Write the condition itself, e.g. " +
+        "`ensures: { result >= 0 }` or `ensures: (r) => { r >= 0; }`.",
+      "error"
+    );
+  }
   if (ts.isBinaryExpression(inner) && inner.operatorToken.kind === ts.SyntaxKind.CommaToken) {
     let message: string | undefined;
     if (ts.isStringLiteral(inner.right) || ts.isNoSubstitutionTemplateLiteral(inner.right)) {

@@ -807,8 +807,28 @@ describe("toString", () => {
     expect(u.toString()).toBe("42");
   });
 
-  it("formats decimal values", () => {
-    expect(kilometers(2.5).toString()).toBe("2500 km");
+  it("formats decimal values in the displayed unit", () => {
+    expect(kilometers(2.5).toString()).toBe("2.5 km");
+  });
+
+  it("prints the value in the displayed unit, not the SI value (docs guides-c #5)", () => {
+    expect(kilometers(1).toString()).toBe("1 km");
+    expect(kilometers(1).value).toBe(1000); // storage stays SI
+    expect(kilometersPerHour(100).toString()).toBe("100 km/h");
+    expect(hours(2).toString()).toBe("2 h");
+    expect(grams(250).toString()).toBe("250 g");
+    expect(celsius(20).toString()).toBe("20 °C");
+    expect(fahrenheit(212).toString()).toBe("212 °F");
+    expect(units`100 km/h`.toString()).toBe("100 km/h");
+  });
+
+  it("arithmetic keeps the left operand's display unit", () => {
+    expect(kilometers(1).add(meters(500)).toString()).toBe("1.5 km");
+    expect(kilometers(3).scale(2).toString()).toBe("6 km");
+    expect(kilometers(3).neg().toString()).toBe("-3 km");
+    // a difference of absolute temperatures is a delta: no offset
+    expect(celsius(30).sub(celsius(10)).toString()).toBe("20 °C");
+    expect(fahrenheit(50).sub(fahrenheit(30)).toString()).toBe("20 °F");
   });
 
   it("formats negative values", () => {

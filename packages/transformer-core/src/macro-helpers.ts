@@ -13,6 +13,7 @@ import {
   tryExtractSumType,
   instanceScanner,
   companionPath,
+  reportGenericDeriveFailure,
 } from "@typesugar/macros";
 
 import {
@@ -63,7 +64,58 @@ export const JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
   ["reflect", "reflect"],
   ["hkt", "hkt"],
   ["adt", "adt"],
+  // Function-only attribute macro (docs review B#4): `/** @tailrec */` on a
+  // function declaration was silently ignored. On a non-function target the
+  // macro itself reports that it only applies to functions.
+  ["tailrec", "tailrec"],
+  // @typesugar/sql's schema attribute macro: `/** @schema("users") */` was
+  // silently ignored while the decorator form reached the macro.
+  ["schema", "schema"],
+  // @typesugar/contracts' function attribute macro (docs guides-b #4):
+  // `/** @contract */ function f() { requires: ... }` was silently ignored.
+  ["contract", "contract"],
 ]);
+
+/** The SourceFile a (parsed) node belongs to, or undefined for a synthetic node. */
+function sourceFileOf(node: ts.Node): ts.SourceFile | undefined {
+  let n: ts.Node | undefined = ts.getOriginalNode(node);
+  while (n && !ts.isSourceFile(n)) n = n.parent;
+  return n;
+}
+
+/** Does `sourceFile` import `moduleName` (or a subpath of it) in any form? */
+function fileImportsModule(sourceFile: ts.SourceFile, moduleName: string): boolean {
+  return sourceFile.statements.some(
+    (stmt) =>
+      ts.isImportDeclaration(stmt) &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      (stmt.moduleSpecifier.text === moduleName ||
+        stmt.moduleSpecifier.text.startsWith(moduleName + "/"))
+  );
+}
+
+/**
+ * The attribute-macro name a JSDoc tag dispatches, if any: a built-in tag from
+ * {@link JSDOC_MACRO_TAGS}, or -- for third-party attribute macros (docs
+ * start #6) -- a registered attribute macro of the same name whose `module`
+ * this file imports (`import "my-macros"`, `import { logged } from
+ * "my-macros"`, or a subpath). The import requirement keeps ordinary
+ * documentation tags inert in files that never asked for such a macro; the
+ * caller still applies the line-start rule and the function-target check.
+ *
+ * Reads the file's own `import` declarations, which are never synthesized
+ * mid-pass, and the macro registry, which macro packages populate at load
+ * time -- so no same-pass-visibility concern (CLAUDE.md).
+ */
+export function jsDocTagMacroName(tag: ts.JSDocTag, node: ts.Node): string | undefined {
+  const name = tag.tagName.text;
+  const builtin = JSDOC_MACRO_TAGS.get(name);
+  if (builtin) return builtin;
+  const macro = globalRegistry.getAttribute(name);
+  if (!macro?.module) return undefined;
+  const sf = sourceFileOf(node);
+  return sf && fileImportsModule(sf, macro.module) ? name : undefined;
+}
 
 export function isJSDocMacroTargetNode(
   node: ts.Node
@@ -72,8 +124,10 @@ export function isJSDocMacroTargetNode(
   | ts.ClassDeclaration
   | ts.TypeAliasDeclaration
   | ts.VariableStatement
-  | ts.VariableDeclaration {
+  | ts.VariableDeclaration
+  | ts.FunctionDeclaration {
   return (
+    ts.isFunctionDeclaration(node) ||
     ts.isInterfaceDeclaration(node) ||
     ts.isClassDeclaration(node) ||
     ts.isTypeAliasDeclaration(node) ||
@@ -135,7 +189,7 @@ export function hasJSDocMacroTags(node: ts.Node): boolean {
 
   const tags = ts.getJSDocTags(node);
   for (const tag of tags) {
-    if (JSDOC_MACRO_TAGS.has(tag.tagName.text) && isJSDocTagAtLineStart(tag)) {
+    if (jsDocTagMacroName(tag, node) && isJSDocTagAtLineStart(tag)) {
       return true;
     }
   }
@@ -175,7 +229,7 @@ export function tryExpandJSDocMacros(
   let currentNode: ts.Declaration = targetDecl;
 
   for (const tag of tags) {
-    const macroName = JSDOC_MACRO_TAGS.get(tag.tagName.text);
+    const macroName = jsDocTagMacroName(tag, node);
     if (!macroName) continue;
     // Prose / fenced-example / nested-comment mentions are not triggers.
     if (!isJSDocTagAtLineStart(tag)) continue;
@@ -195,6 +249,8 @@ export function tryExpandJSDocMacros(
         if (derives) {
           results.push(...derives);
         }
+      } else if (ts.isFunctionDeclaration(currentNode)) {
+        reportUnsupportedOnFunction(ctx, tag);
       }
       continue;
     }
@@ -202,6 +258,14 @@ export function tryExpandJSDocMacros(
     const macro = globalRegistry.getAttribute(macroName);
     if (!macro) {
       ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
+      continue;
+    }
+
+    // A function declaration only dispatches attribute macros that declare
+    // "function" as a valid target (@extension, @tailrec); anything else
+    // (`/** @typeclass */ function f`) is reported, not silently dropped.
+    if (ts.isFunctionDeclaration(currentNode) && !macro.validTargets.includes("function")) {
+      reportUnsupportedOnFunction(ctx, tag);
       continue;
     }
 
@@ -255,6 +319,13 @@ export function tryExpandJSDocMacros(
   }
 
   return results.length > 0 ? [currentNode, ...results] : currentNode;
+}
+
+function reportUnsupportedOnFunction(ctx: MacroContextImpl, tag: ts.JSDocTag): void {
+  ctx.reportWarning(
+    tag,
+    `JSDoc macro tag @${tag.tagName.text} is not supported on a function declaration and was ignored.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -526,6 +597,14 @@ export function expandDeriveDecorator(
   node: ts.Node,
   args: ts.Expression[]
 ): ts.Statement[] | undefined {
+  // Covers both forms: the JSDoc path builds a synthetic `deriving` decorator.
+  const callee = ts.isCallExpression(decorator.expression)
+    ? decorator.expression.expression
+    : decorator.expression;
+  if (ts.isIdentifier(callee) && callee.text === "deriving") {
+    ctx.reportWarning(decorator, "@deriving is deprecated: use @derive(...) (identical behaviour)");
+  }
+
   if (
     !ts.isInterfaceDeclaration(node) &&
     !ts.isClassDeclaration(node) &&
@@ -637,7 +716,7 @@ export function expandDeriveDecorator(
         continue;
       }
     } catch (error) {
-      ctx.reportError(arg, `GenericDerivation failed for ${deriveName}: ${error}`);
+      reportGenericDeriveFailure(ctx, arg, deriveName, error);
       continue;
     }
 

@@ -12,7 +12,12 @@
 
 import * as ts from "typescript";
 
-import { resolveInstance, getMethodCandidates, companionPath } from "@typesugar/macros";
+import {
+  resolveInstance,
+  getMethodCandidates,
+  getOpMapForTypeclass,
+  companionPath,
+} from "@typesugar/macros";
 
 import {
   KNOWN_GLOBALS,
@@ -27,6 +32,7 @@ import {
 
 import {
   buildInstanceReferenceExpression,
+  inferSugaredExpressionType,
   type ResolveMacroFn,
   type ResolveExtensionFn,
 } from "./rewriting.js";
@@ -138,7 +144,14 @@ export function tryResolveTypeclassMethod(
     }
   }
 
-  const receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  let receiverType = ctx.typeChecker.getTypeAtLocation(receiver);
+  // `const c = p.clone(); c.equals(p)`: `c` is typed from a call the checker
+  // could not type (an error type). Recover it from the sugar it initialises
+  // from (docs start #3).
+  if (!ctx.isTypeReliable(receiverType)) {
+    receiverType =
+      inferSugaredExpressionType(ctx, resolveExtensionFromImports, receiver, 0) ?? receiverType;
+  }
   if (!ctx.isTypeReliable(receiverType)) {
     return undefined;
   }
@@ -175,7 +188,17 @@ export function tryResolveTypeclassMethod(
   const candidates = getMethodCandidates(ctx.program, activatedForMethods, methodName);
   if (candidates.length === 0) return undefined;
 
-  const typeName = ctx.typeChecker.typeToString(receiverType);
+  // `User.fromJson(json)`: the receiver is the class (or companion-carrying
+  // type) ITSELF, not an instance. Resolve against the instance type and emit
+  // `User.Json.fromJson(json)` without passing the class as an argument --
+  // resolving against `typeof User` produced `typeof User.Json.fromJson(User,
+  // json)` (docs review S#24).
+  const staticSym = staticCompanionReceiver(ctx, receiver);
+  const instanceSideType = staticSym
+    ? ctx.typeChecker.getDeclaredTypeOfSymbol(staticSym)
+    : receiverType;
+
+  const typeName = ctx.typeChecker.typeToString(instanceSideType);
   const baseTypeName = stripTypeArguments(typeName);
 
   let matched: MethodSugarInstance | undefined;
@@ -184,7 +207,13 @@ export function tryResolveTypeclassMethod(
     // Resolve the instance purely from scope (PEP-052): an imported/local
     // `@impl`/`@instance` value, or a `@derive(TC)` companion on the receiver's
     // type. No process-global instance registry.
-    const inst = resolveMethodSugarInstance(ctx, receiverType, typeName, baseTypeName, typeclass);
+    const inst = resolveMethodSugarInstance(
+      ctx,
+      instanceSideType,
+      typeName,
+      baseTypeName,
+      typeclass
+    );
     // Never apply instance-method sugar for instances on a built-in receiver
     // (Promise/Array/Map/...). Those carry native methods (map, then, ...) that
     // collide with typeclass method names; rewriting `arr.map(fn)` into a
@@ -262,13 +291,16 @@ export function tryResolveTypeclassMethod(
   const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, methodName);
 
-  // The receiver becomes the first argument; existing args follow.
-  const visitedReceiver = ts.visitNode(receiver, visit) as ts.Expression;
+  // The receiver becomes the first argument; existing args follow. A static
+  // receiver (the class itself) is not an argument.
   const visitedArgs = node.arguments.map((a) => ts.visitNode(a, visit) as ts.Expression);
-  const rewritten = factory.createCallExpression(methodAccess, undefined, [
-    cloneWithoutComments(visitedReceiver),
-    ...visitedArgs,
-  ]);
+  const rewritten = factory.createCallExpression(
+    methodAccess,
+    undefined,
+    staticSym
+      ? visitedArgs
+      : [cloneWithoutComments(ts.visitNode(receiver, visit) as ts.Expression), ...visitedArgs]
+  );
 
   if (verbose) {
     console.log(
@@ -277,6 +309,102 @@ export function tryResolveTypeclassMethod(
   }
 
   return preserveSourceMap(rewritten, node);
+}
+
+/**
+ * The type a typeclass method-sugar call (`p.clone()`) will have after its
+ * rewrite, for a call the checker typed as an error: when exactly one
+ * activated typeclass declaring `method` has an instance (or a `@derive`
+ * companion) for the receiver's type, and that method's declared return type
+ * is the typeclass's own type parameter (`clone(a: A): A`), the result is the
+ * receiver's type. Anything else (other return types, ambiguity, a static
+ * companion receiver) is not inferred.
+ *
+ * Quiet by design: it reports nothing, because the call it inspects is itself
+ * rewritten (and diagnosed) on its own visit. Only original nodes reach the
+ * checker (via {@link inferSugaredExpressionType}).
+ */
+export function inferMethodSugarCallType(
+  ctx: MacroContextImpl,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  call: ts.CallExpression,
+  depth: number
+): ts.Type | undefined {
+  if (isSyntheticNode(call) || !ts.isPropertyAccessExpression(call.expression)) return undefined;
+  const methodName = call.expression.name.text;
+  const receiver = call.expression.expression;
+  const receiverType = inferSugaredExpressionType(
+    ctx,
+    resolveExtensionFromImports,
+    receiver,
+    depth + 1
+  );
+  if (!receiverType || !ctx.isTypeReliable(receiverType)) return undefined;
+  if (receiverType.getProperty(methodName)) return undefined;
+
+  const sfn = ctx.sourceFile.fileName;
+  const activatedMethods = globalResolutionScope.getActivatedMethodSyntax(sfn);
+  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+  const activated =
+    definedTcs.size === 0 ? activatedMethods : new Set([...activatedMethods, ...definedTcs]);
+  if (activated.size === 0) return undefined;
+
+  let found: string | undefined;
+  for (const { typeclass } of getMethodCandidates(ctx.program, activated, methodName)) {
+    let has = false;
+    try {
+      const r = resolveInstance(ctx, typeclass, receiverType);
+      has = r?.kind === "resolved";
+    } catch {
+      // Quiet: the call's own rewrite reports a resolution failure.
+      has = false;
+    }
+    if (!has) has = typeDerivesTypeclass(ctx, receiverType, typeclass);
+    if (!has) continue;
+    if (found) return undefined; // ambiguous: reported by the call's own rewrite
+    found = typeclass;
+  }
+  if (!found) return undefined;
+
+  const def = getOpMapForTypeclass(ctx.program, found)?.def;
+  const method = def?.methods.find((m) => m.name === methodName);
+  if (!def || !method || method.returnType !== def.typeParam) return undefined;
+  const typeName = stripTypeArguments(ctx.typeChecker.typeToString(receiverType));
+  if (BUILTIN_METHOD_RECEIVER_NAMES.has(typeName)) return undefined;
+  return receiverType;
+}
+
+/**
+ * If `receiver` names a type's VALUE side -- a class constructor, or the
+ * companion namespace merged with an interface/type alias -- return that
+ * symbol: a call on it is a static companion call (`User.fromJson(json)`).
+ */
+function staticCompanionReceiver(
+  ctx: MacroContextImpl,
+  receiver: ts.Expression
+): ts.Symbol | undefined {
+  if (!ts.isIdentifier(receiver) && !ts.isPropertyAccessExpression(receiver)) return undefined;
+  if (isSyntheticNode(receiver)) return undefined;
+  let sym: ts.Symbol | undefined;
+  try {
+    sym = ctx.typeChecker.getSymbolAtLocation(receiver);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = ctx.typeChecker.getAliasedSymbol(sym);
+  } catch (error) {
+    ctx.reportWarning(
+      receiver,
+      `typesugar could not check whether '${receiver.getText()}' is a class (${error}); treating the call as an instance method call.`
+    );
+    return undefined;
+  }
+  if (!sym) return undefined;
+  if (sym.flags & ts.SymbolFlags.Class) return sym;
+  if (
+    sym.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias) &&
+    sym.flags & ts.SymbolFlags.ValueModule
+  ) {
+    return sym;
+  }
+  return undefined;
 }
 
 /**
