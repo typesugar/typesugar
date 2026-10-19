@@ -39,9 +39,7 @@ const code = fs.readFileSync(src, "utf8");
 fs.writeFileSync(tsFile, code);
 
 const require = createRequire(path.join(REPO, "package.json"));
-const { transformCode } = await import(
-  path.join(REPO, "packages/transformer/dist/index.js")
-);
+const { transformCode } = await import(path.join(REPO, "packages/transformer/dist/index.js"));
 const ts = require("typescript");
 
 let result;
