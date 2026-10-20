@@ -2423,6 +2423,33 @@ function summonTargetType(ctx: MacroContext, innerType: ts.TypeNode): ts.Type {
 }
 
 /**
+ * The top-level `const` whose initializer evaluates `node` while it is being
+ * initialized (no function in between): `export const cloneFeature =
+ * summon<Clone<Feature>>()`. Such a const is never the instance `node`
+ * resolves to (`const cloneFeature = cloneFeature` throws at run time); a
+ * summon inside a function in the initializer (a recursive instance
+ * referring to itself) is evaluated later and may resolve to it.
+ */
+function initializedDeclarationName(node: ts.Node): string | undefined {
+  let n: ts.Node | undefined = node;
+  while (n && n.parent) {
+    const parent: ts.Node = n.parent;
+    if (ts.isFunctionLike(parent) || ts.isClassLike(parent)) return undefined;
+    if (ts.isVariableDeclaration(parent)) {
+      return parent.initializer === n &&
+        ts.isIdentifier(parent.name) &&
+        ts.isVariableStatement(parent.parent.parent) &&
+        ts.isSourceFile(parent.parent.parent.parent)
+        ? parent.name.text
+        : undefined;
+    }
+    if (ts.isStatement(parent)) return undefined;
+    n = parent;
+  }
+  return undefined;
+}
+
+/**
  * `Feature` written with no type arguments, for `interface Feature<G =
  * Geometry, P = Props>`, means `Feature<Geometry, Props>` to TypeScript. The
  * derivation would otherwise mirror the declared type `Feature<G, P>`, whose
@@ -2543,7 +2570,13 @@ export function summonInstanceExpression(
   } else {
     try {
       const forType = summonTargetType(ctx, innerType);
-      const scopeResult = resolveInstance(ctx, tcName, forType);
+      const scopeResult = resolveInstance(
+        ctx,
+        tcName,
+        forType,
+        undefined,
+        initializedDeclarationName(errorNode)
+      );
       if (scopeResult && scopeResult.kind === "resolved") {
         return buildInstanceReference(ctx, scopeResult);
       }

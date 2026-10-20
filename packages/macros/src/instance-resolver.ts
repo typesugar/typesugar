@@ -247,18 +247,30 @@ function isDefaultInstantiation(
  * @param tcName - Typeclass name (e.g., "Ord")
  * @param forType - The actual ts.Type to find an instance for
  * @param scanner - Optional scanner instance (defaults to the singleton)
+ * @param excludeLocal - A top-level declaration of the current file to leave
+ *   out: the instance whose initializer is being expanded (`/** @impl
+ *   Clone<Feature> *\/ export const cloneFeature = summon<Clone<Feature>>()`
+ *   must not resolve to `cloneFeature` itself, which would be `const x = x`).
  */
 export function resolveInstance(
   ctx: MacroContext,
   tcName: string,
   forType: ts.Type,
-  scanner: InstanceScanner = defaultScanner
+  scanner: InstanceScanner = defaultScanner,
+  excludeLocal?: string
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
   const forTypeString = typeChecker.typeToString(forType);
 
   // Stage 1: Local scope
-  const localResult = resolveFromLocalScope(ctx, tcName, forType, forTypeString, scanner);
+  const localResult = resolveFromLocalScope(
+    ctx,
+    tcName,
+    forType,
+    forTypeString,
+    scanner,
+    excludeLocal
+  );
   if (localResult) return localResult;
 
   // Stage 2 & 3: Imports (explicit and module-level)
@@ -270,7 +282,8 @@ function resolveFromLocalScope(
   tcName: string,
   forType: ts.Type,
   forTypeString: string,
-  scanner: InstanceScanner
+  scanner: InstanceScanner,
+  excludeLocal?: string
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
@@ -279,7 +292,11 @@ function resolveFromLocalScope(
   // a `@impl`/`@instance` const that is in local scope but NOT exported is still
   // found — and found independent of declaration order. This is the registry-free
   // replacement for instances the global registry used to provide.
-  const scanned = scanner.scanLocalFile(typeChecker, sourceFile, ctx.program);
+  const allScanned = scanner.scanLocalFile(typeChecker, sourceFile, ctx.program);
+  const scanned =
+    excludeLocal === undefined
+      ? allScanned
+      : allScanned.filter((inst) => inst.exportName !== excludeLocal);
   // Also check instances synthesized during THIS transform pass (e.g. a
   // `@derive(Eq)` companion) — invisible to the scan above, since that reads
   // the pre-transform source text and the companion doesn't exist there yet.
