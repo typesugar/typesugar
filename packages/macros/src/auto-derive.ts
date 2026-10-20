@@ -1517,7 +1517,7 @@ function cloneNonNull(g: CloneGen, t: ts.Type, x: string, path: string): string 
       g.depth++;
       let cv: string | undefined;
       try {
-        cv = cloneValue(g, args[1], v, `${path} extends ReadonlyMap<any, infer V> ? V : never`);
+        cv = cloneValue(g, args[1], v, `(${path} extends ReadonlyMap<any, infer V> ? V : never)`);
       } finally {
         g.depth--;
       }
@@ -1526,7 +1526,7 @@ function cloneNonNull(g: CloneGen, t: ts.Type, x: string, path: string): string 
         : `new Map(Array.from(${x}, ([${k}, ${v}]) => [${k}, ${cv}] as const))`;
     }
     if ((name === "Set" || name === "ReadonlySet") && args.length === 1) {
-      const fn = cloneLambda(g, args[0], `${path} extends ReadonlySet<infer E> ? E : never`);
+      const fn = cloneLambda(g, args[0], `(${path} extends ReadonlySet<infer E> ? E : never)`);
       return fn === undefined ? `new Set(${x})` : `new Set(Array.from(${x}, ${fn}))`;
     }
     return undefined; // Promise, Error, WeakMap, ...: copied as is
