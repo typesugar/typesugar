@@ -119,6 +119,18 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
    The Engine is the only producer, emitting diagnostics in original coordinates plus
    one composed map; one `PositionMapper` with one documented unmappable-position policy;
    one source-map generator. (E R7)
+   _Status (2026-10-20, `decisions-1.0`):_ the editor position bugs the integration
+   suite recorded as `it.fails` are fixed, and none remain. A file no macro changes is
+   no longer reprinted (the statement visitor rebuilt every container from a fresh
+   array), so its positions map by identity; the source-map generator finds output
+   tokens by parsing rather than with a bare scanner, which lost every mapping after a
+   `${...}` template; and the plugin's span translation now has one policy, in
+   `@typesugar/lsp-common`: a span that must be the user's text (an edit, a rename
+   location, a reference) maps only when the source has the same text there, so code a
+   macro generated (which the map attributes to the macro call) is dropped rather than
+   mapped onto it; a request span is mapped as a range, so its ends may fall in
+   comments; and line/column conversion (`toLineColumnOffset`) runs on the source text.
+   The Engine-as-only-producer and composed-map parts of this item are still open.
 
 ### State and cross-file semantics
 
@@ -275,7 +287,8 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
   (0.1.1 stays on npm, with no further releases). The editor integration suite
   (`integration/`) now drives tsserver with the plugin loaded from `tsconfig.json`; it
   found that tsserver couldn't load the plugin by its documented name (fixed) and
-  several position-mapping bugs, kept as `it.fails` tests under item 5. Editor docs
+  several position-mapping bugs, kept as `it.fails` tests under item 5 (since fixed).
+  Editor docs
   are plugin-first for every editor (`docs/getting-started/editor-setup.md`). TS 7 has no tsserver
   plugins; the TS 7 editor path is a follow-up PEP on 7.1 content mappers, not the
   LSP.
