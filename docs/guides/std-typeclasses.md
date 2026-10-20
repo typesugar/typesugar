@@ -37,8 +37,8 @@ summon<Show<Point>>().show(p1); // Uses Show — "Point(x = 1, y = 2)"
 
 ### Eq — Equality
 
-Structural equality comparison via `===` and `!==`, after
-`import "@typesugar/std/syntax/eq/ops"`.
+Structural equality comparison via `===` and `!==` (and their loose spellings `==`
+and `!=`), after `import "@typesugar/std/syntax/eq/ops"`.
 
 ```typescript
 import "@typesugar/std/syntax/eq/ops";

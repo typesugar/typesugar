@@ -12,7 +12,7 @@ The `@derive()` decorator auto-generates typeclass instances from your type's st
 
 ```typescript
 import { derive, summon, Eq, Clone, Debug, Json } from "typesugar";
-import "@typesugar/std/syntax/eq/ops"; // activates === / !== for Eq instances
+import "@typesugar/std/syntax/eq/ops"; // activates === !== == != for Eq instances
 
 @derive(Eq, Clone, Debug, Json)
 class User {
@@ -42,11 +42,11 @@ const debug = summon<Debug<User>>().debug(u1);
 
 - The `@derive` decorator, `summon` and `implicit`, and the markers `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json` and `TypeGuard` come from `typesugar`.
 - The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (they are values; `@derive(Show)` works even without importing one, because the transformer reads the name). To name the type in `summon<Show<Point>>()`, import `type Show` from `@typesugar/fp`, and `type Semigroup` / `type Monoid` from `@typesugar/std`.
-- Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` stays reference equality and `u1 < u2` is a plain JavaScript comparison, and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add:
+- Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` (and `u1 == u2`) stays reference equality and `u1 < u2` is a plain JavaScript comparison, and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add:
 
 | Sugar                      | Activation import                               |
 | -------------------------- | ----------------------------------------------- |
-| `===`, `!==` (Eq)          | `import "@typesugar/std/syntax/eq/ops";`        |
+| `===`, `!==`, `==`, `!=`   | `import "@typesugar/std/syntax/eq/ops";`        |
 | `<`, `>`, `<=`, `>=` (Ord) | `import "@typesugar/std/syntax/ord/ops";`       |
 | `a + b` (Semigroup)        | `import "@typesugar/std/syntax/semigroup/ops";` |
 
@@ -58,10 +58,13 @@ The markers exported by `typesugar` are values, so plain `tsc` reports TS2749 ("
 
 ### Eq — Structural Equality
 
-Compares all fields for equality. Enables `===` operator overloading.
+Compares all fields for equality. Enables `===`, `!==`, `==` and `!=` operator
+overloading. Comparisons with `null`/`undefined` (`p == null`) stay native; for
+reference identity in a file with the activation import, use `Object.is(p1, p2)`,
+which is a call and is never rewritten.
 
 ```typescript
-import "@typesugar/std/syntax/eq/ops"; // activates === / !== for Eq types
+import "@typesugar/std/syntax/eq/ops"; // activates === !== == != for Eq types
 
 @derive(Eq)
 class Point {
@@ -300,7 +303,7 @@ When you derive a typeclass that has operator mappings, the operators work in an
 
 | Typeclass | Operators                      |
 | --------- | ------------------------------ |
-| Eq        | `===`, `!==`                   |
+| Eq        | `===`, `!==`, `==`, `!=`       |
 | Ord       | `<`, `>`, `<=`, `>=`           |
 | Hash      | (used by `HashSet`, `HashMap`) |
 

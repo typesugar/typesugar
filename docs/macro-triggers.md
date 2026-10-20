@@ -350,11 +350,13 @@ Without it, `a + b` stays the native `+`, and when an instance in scope would ha
 handled the operator the transformer warns (TS9804) with a hint naming the import to
 add: the provider's registered marker specifier, or a project-relative path to a local
 `@syntax-operators` marker module. Primitive operands, types with no instance, activated
-files and opted-out files produce no warning.
+files and opted-out files produce no warning. A comparison with `null` or `undefined`
+(`a == null`) is never rewritten, and `Object.is(a, b)` is a call, so it always compares
+references.
 
 **How it works:**
 
-1. The typeclass index reads `/** @op */` tags on typeclass methods and builds an operator→method mapping
+1. The typeclass index reads `/** @op */` tags on typeclass methods and builds an operator→method mapping (a method may carry several tags, one per operator, e.g. std's `Eq.equals` has both `@op ===` and `@op ==`)
 2. The transformer sees a binary expression like `a + b` in a file where that typeclass's operator syntax is active
 3. It determines the type of `a` and resolves an instance from scope
 4. If an instance exists with a method mapped to `+`, it rewrites the expression
@@ -364,7 +366,7 @@ files and opted-out files produce no warning.
 
 | Typeclass                      | Operators → methods                                                                          | Activation import                                |
 | ------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `Eq`                           | `===` → `equals`, `!==` → `notEquals`                                                        | `@typesugar/std/syntax/eq/ops`                   |
+| `Eq`                           | `===`, `==` → `equals`; `!==`, `!=` → `notEquals`                                            | `@typesugar/std/syntax/eq/ops`                   |
 | `Ord`                          | `<` → `lessThan`, `<=` → `lessThanOrEqual`, `>` → `greaterThan`, `>=` → `greaterThanOrEqual` | `@typesugar/std/syntax/ord/ops`                  |
 | `Semigroup`, `Monoid`, `Group` | `+` → `combine`                                                                              | `…/semigroup/ops`, `…/monoid/ops`, `…/group/ops` |
 | `Numeric`                      | `+` → `add`, `-` → `sub`, `*` → `mul`                                                        | `@typesugar/std/syntax/numeric/ops`              |
