@@ -346,7 +346,11 @@ const c = { x: a.x + b.x, y: a.y + b.y };
 
 A file that declares the typeclass has its operators active. Any other file opts in
 with the typeclass's `/ops` marker, e.g. `import "@typesugar/std/syntax/semigroup/ops"`.
-Without it, `a + b` stays the native `+`.
+Without it, `a + b` stays the native `+`, and when an instance in scope would have
+handled the operator the transformer warns (TS9804) with a hint naming the import to
+add: the provider's registered marker specifier, or a project-relative path to a local
+`@syntax-operators` marker module. Primitive operands, types with no instance, activated
+files and opted-out files produce no warning.
 
 **How it works:**
 
@@ -367,7 +371,7 @@ Without it, `a + b` stays the native `+`.
 | `Integral`                     | `/` → `div`, `%` → `mod`                                                                     | `@typesugar/std/syntax/integral/ops`             |
 | `Fractional`                   | `/` → `div`                                                                                  | `@typesugar/std/syntax/fractional/ops`           |
 
-**Transformer Location:** `tryRewriteTypeclassOperator()` in `packages/transformer-core/src/rewriting.ts`
+**Transformer Location:** `tryRewriteTypeclassOperator()` / `tryRewriteTypeclassUnaryOperator()` in `packages/transformer-core/src/rewriting.ts`; the TS9804 hint in `packages/transformer-core/src/operator-activation.ts`
 
 ---
 

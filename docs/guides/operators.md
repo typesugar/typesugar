@@ -4,7 +4,7 @@ typesugar provides operator overloading via `@op` JSDoc on typeclass methods: st
 
 ## Standard Operators via @op JSDoc
 
-The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures. For the standard typeclasses, operator syntax is off until you import the typeclass's `ops` activation module (PEP-052) — without it, `a + b` is left alone:
+The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures. For the standard typeclasses, operator syntax is off until you import the typeclass's `ops` activation module (PEP-052) — without it, `a + b` is left alone, and the transformer warns ([TS9804](../errors/TS9804.md)) when an instance in scope would have handled the operator, naming the import to add:
 
 ```typescript
 import "@typesugar/std/syntax/numeric/ops"; // + - *
@@ -26,6 +26,20 @@ The instances (`numericRational`, …) are imported for you. The activation modu
 `@typesugar/std/syntax/<typeclass>/ops` for `eq` (`===`, `!==`), `ord`, `semigroup`,
 `monoid`, `group` (`+`), `numeric` (`+ - *`), `integral` (`/ %`) and `fractional` (`/`).
 A typeclass you define in the same file with `@op` tags needs no activation import.
+
+If you forget the import, the operator stays native JavaScript (`a + b` on two
+objects concatenates strings; `p1 === p2` compares references), and you get:
+
+```
+warning [TS9804] Operator '+' on 'Complex' matches Numeric.add, but Numeric operator syntax is not activated in this file
+  = help: Add `import "@typesugar/std/syntax/numeric/ops";` to rewrite it to Numeric.add(...). Without it the operator stays native JavaScript.
+```
+
+The warning only fires when activating the typeclass would actually change the
+expression: never on primitive operands, on types with no instance in scope, in
+files that already activate the typeclass or declare it, or in
+`"use no typesugar"` files. Where the native operator is intended (reference
+equality, say), add `// @ts-no-typesugar operators` to the line.
 
 Typeclasses define methods with `@op` JSDoc tags, which the transformer uses to dispatch operators:
 

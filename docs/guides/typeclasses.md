@@ -326,9 +326,10 @@ interface Ord<A> {
 
 ### Using Operators
 
-Once you have a typeclass with `@op` annotations and an instance for your type, standard operators automatically rewrite:
+Once you have a typeclass with `@op` annotations and an instance for your type, standard operators rewrite in any file that activates the typeclass's operator syntax: a file that declares the typeclass (as below, in the same file as the declarations above), or one that imports its `@syntax-operators` marker module, e.g. `import "@typesugar/std/syntax/numeric/ops";` for std's `Numeric`. Anywhere else the operator stays native JavaScript and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add.
 
 ```typescript
+// Same file as the typeclass declarations above, so their operators are active.
 interface Point {
   x: number;
   y: number;

@@ -42,7 +42,7 @@ const debug = summon<Debug<User>>().debug(u1);
 
 - The `@derive` decorator, `summon` and `implicit`, and the markers `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json` and `TypeGuard` come from `typesugar`.
 - The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (they are values; `@derive(Show)` works even without importing one, because the transformer reads the name). To name the type in `summon<Show<Point>>()`, import `type Show` from `@typesugar/fp`, and `type Semigroup` / `type Monoid` from `@typesugar/std`.
-- Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` stays reference equality and `u1 < u2` is a plain JavaScript comparison:
+- Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` stays reference equality and `u1 < u2` is a plain JavaScript comparison, and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add:
 
 | Sugar                      | Activation import                               |
 | -------------------------- | ----------------------------------------------- |
@@ -61,6 +61,8 @@ The markers exported by `typesugar` are values, so plain `tsc` reports TS2749 ("
 Compares all fields for equality. Enables `===` operator overloading.
 
 ```typescript
+import "@typesugar/std/syntax/eq/ops"; // activates === / !== for Eq types
+
 @derive(Eq)
 class Point {
   constructor(
@@ -72,8 +74,7 @@ class Point {
 const p1 = new Point(1, 2);
 const p2 = new Point(1, 2);
 
-// Operator overloading (with import "@typesugar/std/syntax/eq/ops")
-// — compiles to Point.Eq.equals(p1, p2)
+// Operator overloading — compiles to Point.Eq.equals(p1, p2)
 p1 === p2; // true
 
 // Or use summon
@@ -85,6 +86,8 @@ summon<Eq<Point>>().equals(p1, p2); // true
 Lexicographic comparison of fields. Enables `<`, `>`, `<=`, `>=` operator overloading.
 
 ```typescript
+import "@typesugar/std/syntax/ord/ops"; // activates < <= > >= for Ord types
+
 @derive(Eq, Ord)
 class Version {
   constructor(
@@ -97,7 +100,7 @@ const v1 = new Version(1, 0);
 const v2 = new Version(2, 0);
 
 summon<Ord<Version>>().compare(v1, v2); // -1 (less than)
-v1 < v2; // true (operator overloading, with import "@typesugar/std/syntax/ord/ops")
+v1 < v2; // true (operator overloading)
 ```
 
 ### Clone — Shallow Copy
