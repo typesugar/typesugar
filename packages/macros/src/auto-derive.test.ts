@@ -773,14 +773,11 @@ describe("built-in Clone derivation", () => {
     return withMacroContext(source, (ctx, sf) => {
       const decl = sf.statements.find(
         (s): s is ts.TypeAliasDeclaration | ts.InterfaceDeclaration =>
-          (ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) &&
-          s.name.text === typeName
+          (ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) && s.name.text === typeName
       );
       const result = tryDeriveViaGeneric(ctx, "Clone", typeName, decl);
       expect(result.expression).not.toBeNull();
-      const text = ts
-        .createPrinter()
-        .printNode(ts.EmitHint.Expression, result.expression!, sf);
+      const text = ts.createPrinter().printNode(ts.EmitHint.Expression, result.expression!, sf);
       const js = ts.transpileModule(`export default ${text};`, {
         compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
       }).outputText;
