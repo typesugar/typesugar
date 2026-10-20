@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { createRequire } from "module";
 import * as ts from "typescript";
+import { SUPPORTED_TYPESCRIPT_RANGE, TYPESCRIPT_SUPPORT_URL } from "@typesugar/core";
 import { macroTransformerFactory } from "./pipeline.js";
 import {
   KNOWN_LANGUAGE_SERVICE_PLUGIN_NAMES,
@@ -120,50 +121,66 @@ function checkPackageJson(cwd: string): DiagnosticCheck {
   };
 }
 
-function checkTypeScript(cwd: string): DiagnosticCheck {
-  const pkgPath = path.join(cwd, "package.json");
-
-  if (!fs.existsSync(pkgPath)) {
-    return {
-      name: "TypeScript installed",
-      status: "skip",
-      message: "No package.json",
-    };
-  }
-
+/**
+ * Checks the project's TypeScript against the supported range
+ * (`SUPPORTED_TYPESCRIPT_RANGE`, PEP-060 item 1). Prefers the installed
+ * version over the declared range, since `^5.0.0` can resolve to 5.9 and
+ * `latest` resolves to TypeScript 7.
+ */
+export function checkTypeScript(cwd: string): DiagnosticCheck {
+  const name = "TypeScript installed";
+  const fix = "npm install --save-dev typescript@6";
   try {
+    const pkgPath = path.join(cwd, "package.json");
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
     if (!allDeps.typescript) {
       return {
-        name: "TypeScript installed",
+        name,
         status: "fail",
         message: "TypeScript is not listed in dependencies",
-        fix: "npm install --save-dev typescript",
+        fix,
       };
     }
 
-    const version = allDeps.typescript.replace(/[\^~]/g, "");
-    const major = parseInt(version.split(".")[0], 10);
+    let version = String(allDeps.typescript);
+    try {
+      const installed = JSON.parse(
+        fs.readFileSync(path.join(cwd, "node_modules", "typescript", "package.json"), "utf-8")
+      );
+      if (typeof installed.version === "string") version = installed.version;
+    } catch {
+      // Not installed yet: judge the declared range.
+    }
 
-    if (major < 5) {
+    // `latest` (and `next`) install TypeScript 7 since July 2026.
+    const match = /(\d+)(?:\.(\d+))?/.exec(version);
+    const major = match ? parseInt(match[1], 10) : /^(latest|next)$/.test(version) ? 7 : NaN;
+    const minor = match && match[2] !== undefined ? parseInt(match[2], 10) : 0;
+
+    if (major >= 7) {
       return {
-        name: "TypeScript installed",
-        status: "warn",
-        message: `TypeScript ${version} detected. typesugar requires TypeScript 5.0+`,
-        fix: "npm install --save-dev typescript@latest",
+        name,
+        status: "fail",
+        message: `TypeScript ${version} is not supported: TypeScript 7 removed the compiler API typesugar needs (supported: ${SUPPORTED_TYPESCRIPT_RANGE}). See ${TYPESCRIPT_SUPPORT_URL}`,
+        fix,
       };
     }
 
-    return {
-      name: "TypeScript installed",
-      status: "pass",
-      message: `v${version}`,
-    };
+    if (Number.isNaN(major) || major < 5 || (major === 5 && minor < 9)) {
+      return {
+        name,
+        status: "warn",
+        message: `TypeScript ${version} detected. typesugar supports ${SUPPORTED_TYPESCRIPT_RANGE}`,
+        fix,
+      };
+    }
+
+    return { name, status: "pass", message: `v${version}` };
   } catch {
     return {
-      name: "TypeScript installed",
+      name,
       status: "fail",
       message: "Could not parse package.json",
     };
