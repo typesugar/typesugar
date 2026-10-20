@@ -175,6 +175,37 @@ jobs:
       - name: TS Plugin Tests
         run: pnpm --filter @typesugar/ts-plugin test
 
+  # integration/: the editor suite. Starts TypeScript's tsserver on a fixture
+  # project whose tsconfig.json lists the typesugar plugin, as every
+  # tsserver-based editor loads it, and checks diagnostics, completions, hover,
+  # navigation, rename, quick fixes, inlay hints and the custom requests at exact
+  # source positions. Uses the build artifact (the plugin loads from
+  # packages/transformer/dist); the suite itself takes seconds.
+  test-editor:
+    name: Editor Integration Tests (tsserver)
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-dist
+          path: packages
+
+      - name: Editor integration tests
+        run: pnpm --dir integration test
+
   # PEP-060 item 1: the packages peer `typescript >=5.9.0 <7.0.0`, but the lockfile
   # pins one version (5.9.3, which every other job runs on). This job re-resolves
   # the whole workspace against the range's two ends — 5.9.2 (the floor: older
@@ -262,7 +293,7 @@ jobs:
   publish-dry-run:
     name: Publish (dry run)
     runs-on: ubuntu-latest
-    needs: [test, lint, test-vscode]
+    needs: [test, lint, test-vscode, test-editor]
     steps:
       - uses: actions/checkout@v4
 
