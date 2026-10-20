@@ -149,6 +149,6 @@ Then explore the feature guides:
 - [Derive Macros](../guides/derive.md) — Auto-generate implementations
 - [Typeclasses](../guides/typeclasses.md) — Scala 3-style ad-hoc polymorphism
 - [Operators](../guides/operators.md) — Operator overloading
-- [Tagged Templates](../guides/tagged-templates.md) — Type-safe SQL, regex, and more
+- [Tagged Templates](../guides/tagged-templates.md) — Type-safe SQL and custom tagged-template macros
 
 Or dive into the [Architecture](../architecture.md) to understand how typesugar works under the hood.

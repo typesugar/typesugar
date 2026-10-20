@@ -65,14 +65,14 @@ my-macro-package/
   "keywords": ["typesugar", "macro", "typescript"],
   "peerDependencies": {
     "@typesugar/core": ">=0.1.0",
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.9.0 <7.0.0"
   },
   "devDependencies": {
     "@typesugar/core": "^0.1.0",
     "@typesugar/testing": "^0.1.0",
     "@typesugar/transformer": "^0.1.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0",
+    "typescript": "^6.0.0",
     "vitest": "^2.0.0"
   }
 }
@@ -271,7 +271,7 @@ myMacro(x); // → (x) + (x)
 
 ## Requirements
 
-- TypeScript >= 5.0
+- TypeScript `>=5.9.0 <7.0.0` (5.9 or 6.x; TypeScript 7 is not supported)
 - @typesugar/core and the typesugar transformer
 ````
 
@@ -411,7 +411,7 @@ placeholders throw at runtime.
 // Good: peerDependency (the user's install provides it)
 "peerDependencies": {
   "@typesugar/core": ">=0.1.0",
-  "typescript": ">=5.0.0"
+  "typescript": ">=5.9.0 <7.0.0"
 }
 ```
 

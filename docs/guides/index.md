@@ -1,6 +1,8 @@
 # Feature Guides
 
-Deep-dive guides for typesugar features, organized by category.
+Deep-dive guides for typesugar features, organized by category. Guides marked _(frozen)_
+cover packages that are still published but not under active development
+([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).
 
 **New here?** [**Zero-Cost, Seen**](./zero-cost.md) shows the actual compiled
 output (the headline claim, proven), and the
@@ -39,7 +41,7 @@ New language features — the "typesugar" in typesugar:
 | ------------------------------------------------------- | --------------------------------------------------------- |
 | [Operators](./operators.md)                             | Operator overloading via `@op` JSDoc on typeclass methods |
 | [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units                     |
-| [String Macros](./strings.md)                           | `regex`, `html`, `raw` templates                          |
+| [String Macros](./strings.md)                           | `regex`, `html`, `raw` templates (frozen)                 |
 | [Compile-Time Eval](./comptime.md)                      | Run code at build time with `comptime()`                  |
 | [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`                 |
 
@@ -53,7 +55,7 @@ Compile-time correctness guarantees:
 | [Refined Types](./contracts-refined.md) | Integration with refinement types              |
 | [Type System](./type-system.md)         | Refined types, newtype, HKT, phantom types     |
 | [Validation](./validate.md)             | Schema validation macros                       |
-| [Units of Measure](./units.md)          | Type-safe physical units                       |
+| [Units of Measure](./units.md)          | Type-safe physical units (frozen)              |
 
 ## Data Structures & Algorithms
 
@@ -62,13 +64,13 @@ Powerful abstractions with zero runtime cost:
 | Guide                                          | Description                                             |
 | ---------------------------------------------- | ------------------------------------------------------- |
 | [Functional Programming](./fp.md)              | Option, Either, IO with @opaque dot syntax              |
-| [Type Erasure](./erased.md)                    | dyn Trait for heterogeneous collections                 |
+| [Type Erasure](./erased.md)                    | dyn Trait for heterogeneous collections (frozen)        |
 | [Loop Fusion](./fusion.md)                     | Single-pass iterator pipelines                          |
-| [Parser Combinators](./parser.md)              | PEG grammar to parser (Boost.Spirit)                    |
-| [Collections](/reference/packages#collections) | Typeclasses for collections, HashSet, HashMap           |
+| [Parser Combinators](./parser.md)              | PEG grammar to parser (Boost.Spirit) (frozen)           |
+| [Collections](/reference/packages#collections) | Typeclasses for collections, HashSet, HashMap (frozen)  |
 | [Graph Algorithms](./graph.md)                 | GraphLike typeclass, BFS, DFS, Dijkstra, state machines |
-| [Versioned Codecs](./codec.md)                 | Schema evolution (serde)                                |
-| [Math](./math.md)                              | Rational, complex, matrix, interval                     |
+| [Versioned Codecs](./codec.md)                 | Schema evolution (serde) (frozen)                       |
+| [Math](./math.md)                              | Rational, complex, matrix, interval (frozen)            |
 | [Object Mapping](./mapper.md)                  | Zero-cost struct transformation                         |
 
 ## Ecosystem Integrations
@@ -95,7 +97,7 @@ When something goes wrong, you should know exactly what happened and how to get 
 | [Testing](./testing.md)                         | Power assertions, property testing                                        |
 | [Authoring Libraries](./authoring-libraries.md) | Ship a standalone+transformer library: macros vs runtime, packaging       |
 | [Library Manifest](./library-manifest.md)       | Planned — not in 1.0                                                      |
-| [Interactive Playground](./playground.md)       | Try code in-browser with runtime libraries, 20+ examples                  |
+| [Interactive Playground](./playground.md)       | Try code in-browser with runtime libraries, 30+ examples                  |
 
 ---
 

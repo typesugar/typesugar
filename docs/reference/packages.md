@@ -2,6 +2,8 @@
 
 All typesugar packages organized by category.
 
+Packages marked 🧊 **Frozen** ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)) are still published to npm and build, but are not under active development and are not part of typesugar's actively-maintained surface.
+
 ## Build Infrastructure
 
 ### typesugar {#typesugar}
@@ -128,13 +130,22 @@ import typesugar from "unplugin-typesugar/rollup";
 
 ### @typesugar/ts-plugin {#ts-plugin}
 
-TypeScript language service plugin for IDE integration.
+TypeScript language service plugin: typesugar's single editor engine for 1.0. It is a thin
+wrapper around `@typesugar/transformer/language-service`, which is what most projects list in
+`tsconfig.json` (with `@typesugar/transformer` as a direct devDependency); the VS Code extension
+bundles this wrapper.
 
-```bash
-npm install --save-dev @typesugar/ts-plugin
+```json
+{
+  "compilerOptions": {
+    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
+  }
+}
 ```
 
-Enables type-aware transformation, diagnostics, go-to-definition, completions, and hover info for typesugar syntax in any TypeScript editor.
+Diagnostics, completions, hover, go-to-definition, references, rename and quick fixes work
+through macro expansions in any tsserver-based editor. See
+[Editor Setup](/getting-started/editor-setup).
 
 ---
 
@@ -142,12 +153,15 @@ Enables type-aware transformation, diagnostics, go-to-definition, completions, a
 
 ### @typesugar/vscode {#vscode}
 
-VSCode/Cursor extension (install from marketplace).
+VS Code / Cursor extension. It bundles and registers the TypeScript server plugin
+([`@typesugar/ts-plugin`](#ts-plugin)), which provides all language features, and adds:
 
-- Syntax highlighting for custom syntax
-- Inline expansion previews
-- Go-to-definition for macro-generated code
-- Error lens integration
+- **typesugar: Expand Macro at Cursor** and **typesugar: Show Transformed Source** commands
+- Macro-expansion inlay hints (from the plugin)
+- Syntax highlighting for `let:`/`yield:` blocks, the `<<` bind operator and `comptime`
+- The `typesugar.comptimeInEditor` setting (trusted workspaces only)
+
+See [Editor Setup](/getting-started/editor-setup#vs-code-cursor).
 
 ### @typesugar/eslint-plugin {#eslint-plugin}
 
@@ -312,6 +326,8 @@ validator<T>();
 
 ### @typesugar/strings {#strings}
 
+> 🧊 **Frozen.** Not under active development.
+
 String validation macros with compile-time checking.
 
 ```bash
@@ -416,7 +432,7 @@ npm install @typesugar/validate
 
 ```typescript
 is<T>(); // type guard
-assert<T>(); // assertion
+assert<T>(); // assertion (also exported as assertType<T>())
 validate<T>(); // validation with error accumulation
 nativeSchema; // Schema instance for the native validators
 ```
@@ -426,6 +442,8 @@ nativeSchema; // Schema instance for the native validators
 [Guide](/guides/validate)
 
 ### @typesugar/units {#units}
+
+> 🧊 **Frozen.** Not under active development.
 
 Type-safe physical units with dimensional analysis.
 
@@ -520,6 +538,8 @@ lazy();
 
 ### @typesugar/parser {#parser}
 
+> 🧊 **Frozen.** Not under active development.
+
 Compile-time parser generation from PEG grammars.
 
 ```bash
@@ -570,6 +590,8 @@ digraph`...`; // tagged template
 
 ### @typesugar/erased {#erased}
 
+> 🧊 **Frozen.** Not under active development.
+
 Typeclass-based type erasure for heterogeneous collections.
 
 ```bash
@@ -591,6 +613,8 @@ eraseWith();
 
 ### @typesugar/codec {#codec}
 
+> 🧊 **Frozen.** Not under active development.
+
 Versioned codecs with schema evolution.
 
 ```bash
@@ -611,6 +635,8 @@ generateMigrations();
 [Guide](/guides/codec)
 
 ### @typesugar/collections {#collections}
+
+> 🧊 **Frozen.** Not under active development.
 
 Collection typeclasses and hash-based data structures.
 
@@ -645,6 +671,8 @@ npm install @typesugar/collections
 **Inspired by:** Scala collections, Haskell Data.Set/Data.Map, Rust std::collections
 
 ### @typesugar/math {#math}
+
+> 🧊 **Frozen.** Not under active development.
 
 Math types and typeclasses.
 

@@ -323,7 +323,7 @@ my-macros/
   },
   "peerDependencies": {
     "@typesugar/core": ">=0.1.0",
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.9.0 <7.0.0"
   }
 }
 ```

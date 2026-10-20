@@ -68,7 +68,7 @@ bun dist/index.js
   "devDependencies": {
     "@typesugar/transformer": "^0.1.0",
     "ts-patch": "^3.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^6.0.0"
   }
 }
 ```

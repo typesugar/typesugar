@@ -47,7 +47,7 @@ features:
     linkText: See the DX
   - icon: 🦀
     title: Inspired by the Best
-    details: Scala 3 typeclasses, Rust derives, Zig comptime, C++ expression templates — brought to TypeScript.
+    details: Scala 3 typeclasses, Rust derives, Zig comptime, C++ expression templates, Lisp quasi-quotation — brought to TypeScript.
     link: /architecture
     linkText: How it works
 ---
@@ -231,7 +231,7 @@ Batteries included for everyday TypeScript:
 - **Reflection** — `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` at compile time
 - **Object mapping** — `transformInto()` for zero-cost struct-to-struct conversion
 - **Derive macros** — `@derive(Eq, Ord, Clone, Debug, Hash, Json, Default, TypeGuard)`
-- **Tagged templates** — `sql`, `regex`, `html`, `fmt` with compile-time validation
+- **Tagged templates** — `sql` with compile-time validation, and your own via tagged-template macros
 
 ```typescript
 import { match, clamp, words, chunk } from "@typesugar/std";
@@ -271,13 +271,13 @@ _Powerful abstractions with zero runtime cost_
 
 Advanced data structures and algorithms following typesugar's zero-cost philosophy:
 
-- **Parser** — Compile-time parser generation from PEG grammars (Boost.Spirit)
 - **Fusion** — Single-pass iterator pipelines and expression templates (Blitz++)
 - **Graph** — Graph algorithms and state machine verification (Boost.Graph)
-- **Erased** — Typeclass-based type erasure for heterogeneous collections (dyn Trait)
-- **Codec** — Versioned serialization with schema evolution (Boost.Serialization)
+- **Mapper** — Zero-cost struct-to-struct conversion with `transformInto()`
 
 ```typescript
+import { lazy } from "@typesugar/fusion";
+
 // Lazy iterator fusion — single pass, no intermediate arrays
 const result = lazy([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
   .filter((x) => x % 2 === 0)
@@ -285,18 +285,9 @@ const result = lazy([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
   .take(3)
   .toArray();
 // → [4, 16, 36] — single loop, early termination
-
-// PEG grammar → recursive descent parser
-const csv = grammar`
-  file   = record ("\\n" record)*
-  record = field ("," field)*
-  field  = quoted | unquoted
-  quoted = '"' (!'"' .)* '"'
-  unquoted = (!',' !'\\n' .)*
-`;
 ```
 
-[Parser Guide](/guides/parser) · [Fusion Guide](/guides/fusion) · [Graph Guide](/guides/graph)
+[Fusion Guide](/guides/fusion) · [Graph Guide](/guides/graph) · [Mapper Guide](/guides/mapper)
 
 ---
 
@@ -410,12 +401,14 @@ function debug() {
 
 ### Build Infrastructure
 
-| Package                                                   | Description                                      |
-| --------------------------------------------------------- | ------------------------------------------------ |
-| [typesugar](/reference/packages#typesugar)                | Umbrella package                                 |
-| [@typesugar/core](/reference/packages#core)               | Macro registration and types                     |
-| [@typesugar/transformer](/reference/packages#transformer) | TypeScript transformer (ts-patch)                |
-| [unplugin-typesugar](/reference/packages#unplugin)        | Bundler plugins (Vite, esbuild, Rollup, Webpack) |
+| Package                                                   | Description                                         |
+| --------------------------------------------------------- | --------------------------------------------------- |
+| [typesugar](/reference/packages#typesugar)                | Umbrella package                                    |
+| [@typesugar/core](/reference/packages#core)               | Macro registration and types                        |
+| [@typesugar/macros](/reference/packages#macros)           | Built-in macro implementations                      |
+| [@typesugar/transformer](/reference/packages#transformer) | TypeScript transformer (ts-patch, CLI)              |
+| [unplugin-typesugar](/reference/packages#unplugin)        | Bundler plugins (Vite, esbuild, Rollup, Webpack)    |
+| [@typesugar/ts-plugin](/reference/packages#ts-plugin)     | TypeScript language service plugin (editor support) |
 
 ### Standard Library
 
@@ -431,12 +424,6 @@ function debug() {
 | [@typesugar/derive](/reference/packages#derive)       | `@derive(Eq, Clone, Debug, Json, ...)`               |
 | [@typesugar/reflect](/reference/packages#reflect)     | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 
-### Syntax Sugar
-
-| Package                                           | Description                             |
-| ------------------------------------------------- | --------------------------------------- |
-| [@typesugar/strings](/reference/packages#strings) | `regex`, `html`, `raw` tagged templates |
-
 ### Type Safety & Contracts
 
 | Package                                                               | Description                                |
@@ -445,7 +432,6 @@ function debug() {
 | [@typesugar/contracts](/reference/packages#contracts)                 | `requires:`, `ensures:`, `@invariant`      |
 | [@typesugar/contracts-refined](/reference/packages#contracts-refined) | Refinement type integration                |
 | [@typesugar/validate](/reference/packages#validate)                   | Schema validation macros                   |
-| [@typesugar/units](/reference/packages#units)                         | Type-safe physical units                   |
 
 ### Data Structures & Algorithms
 
@@ -453,11 +439,7 @@ function debug() {
 | ----------------------------------------------- | ------------------------------------- |
 | [@typesugar/fp](/reference/packages#fp)         | Option, Either, IO, Result, List      |
 | [@typesugar/fusion](/reference/packages#fusion) | Iterator fusion, expression templates |
-| [@typesugar/parser](/reference/packages#parser) | PEG parser generation                 |
 | [@typesugar/graph](/reference/packages#graph)   | Graph algorithms, state machines      |
-| [@typesugar/erased](/reference/packages#erased) | Type erasure / dyn Trait              |
-| [@typesugar/codec](/reference/packages#codec)   | Versioned codecs, schema evolution    |
-| [@typesugar/math](/reference/packages#math)     | Math types and typeclasses            |
 | [@typesugar/mapper](/reference/packages#mapper) | Zero-cost object mapping              |
 
 ### Ecosystem Integrations
@@ -469,11 +451,26 @@ function debug() {
 
 ### Developer Experience
 
-| Package                                                       | Description                        |
-| ------------------------------------------------------------- | ---------------------------------- |
-| [@typesugar/vscode](/reference/packages#vscode)               | VS Code/Cursor extension           |
-| [@typesugar/eslint-plugin](/reference/packages#eslint-plugin) | ESLint processor and rules         |
-| [@typesugar/testing](/reference/packages#testing)             | Power assertions, property testing |
+| Package                                                       | Description                           |
+| ------------------------------------------------------------- | ------------------------------------- |
+| [typesugar-vscode](/reference/packages#vscode)                | VS Code/Cursor extension (not on npm) |
+| [@typesugar/eslint-plugin](/reference/packages#eslint-plugin) | ESLint processor and rules            |
+| [@typesugar/testing](/reference/packages#testing)             | Power assertions, property testing    |
+
+### Frozen
+
+Not under active development ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)). These packages still build, but they are not part of typesugar's actively maintained surface.
+
+| Package                                                                                       | Description                                          |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| [@typesugar/math](/reference/packages#math)                                                   | Math types and typeclasses                           |
+| [@typesugar/units](/reference/packages#units)                                                 | Type-safe physical units                             |
+| [@typesugar/parser](/reference/packages#parser)                                               | PEG parser generation                                |
+| [@typesugar/codec](/reference/packages#codec)                                                 | Versioned codecs, schema evolution                   |
+| [@typesugar/collections](/reference/packages#collections)                                     | HashSet/HashMap (`@typesugar/graph` depends on it)   |
+| [@typesugar/erased](/reference/packages#erased)                                               | Type erasure / dyn Trait                             |
+| [@typesugar/strings](/reference/packages#strings)                                             | `regex`, `html`, `raw` tagged templates              |
+| [@typesugar/lsp-server](https://github.com/typesugar/typesugar/tree/main/packages/lsp-server) | Standalone LSP server: deprecated, use the TS plugin |
 
 [Full Package Reference](/reference/packages)
 
@@ -483,13 +480,14 @@ function debug() {
 
 typesugar draws from the best ideas across language ecosystems:
 
-| Language     | What it brings                                             | Packages                                                 |
-| ------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
-| Scala 3      | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect                               |
-| Rust         | Derive macros, zero-cost specialization, serde, dyn Trait  | derive, codec, erased, validate                          |
-| Zig          | Compile-time evaluation and reflection                     | macros (comptime), reflect                               |
-| C++ / Boost  | Expression templates, heterogeneous containers, parsers    | fusion, graph, parser, units                             |
-| Haskell / ML | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing, math |
+| Language      | What it brings                                             | Packages                                           |
+| ------------- | ---------------------------------------------------------- | -------------------------------------------------- |
+| Scala 3       | Typeclasses, extension methods, do-notation                | typeclass, std, fp, effect                         |
+| Rust          | Derive macros, zero-cost specialization, serde             | derive, validate                                   |
+| Zig           | Compile-time evaluation and reflection                     | macros (comptime), reflect                         |
+| C++ / Boost   | Expression templates, graph algorithms                     | fusion, graph                                      |
+| Lisp / Racket | Quasi-quotation for building generated code                | macros (`quote`)                                   |
+| Haskell / ML  | Refinement types, type-level programming, property testing | contracts, contracts-refined, type-system, testing |
 
 ---
 

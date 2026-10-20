@@ -1,7 +1,7 @@
 {
   "name": "typesugar",
   "version": "0.1.1",
-  "description": "TypeScript compile-time macros - Scala 3-style metaprogramming for TypeScript",
+  "description": "Syntactic sugar for TypeScript with zero calories: typeclasses, operator overloading, pattern matching and more through compile-time macros",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

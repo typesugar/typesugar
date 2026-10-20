@@ -1,6 +1,6 @@
 # Type Erasure
 
-> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** `@typesugar/erased` is not under active development and is excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** `@typesugar/erased` is not under active development. It is still published to npm and builds, but is not part of typesugar's actively-maintained surface.
 
 Typeclass-based type erasure for heterogeneous collections — `dyn Trait` for TypeScript.
 

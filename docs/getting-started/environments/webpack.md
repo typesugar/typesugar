@@ -162,7 +162,7 @@ module.exports = {
 };
 ```
 
-Note: The unplugin approach is recommended as it handles both the transformer and preprocessor stages.
+Note: The unplugin approach is recommended. It runs typesugar's full pipeline, including the source pre-passes (such as the HKT rewrite) that run before macro expansion; a `getCustomTransformers` hook runs only the macro transformer.
 
 ## tsconfig.json
 

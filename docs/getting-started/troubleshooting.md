@@ -28,7 +28,7 @@ writes (see [End User Guide](./end-user.md#step-5-approve-the-library-s-macros))
 The full message starts `[typesugar] TypeScript 7.0.2 is not supported: TypeScript 7 removed
 the JavaScript compiler API that typesugar's transformer needs.`
 
-**Cause:** typesugar's transformer, bundler plugin, language-service plugin, LSP server and
+**Cause:** typesugar's transformer, bundler plugin, language-service plugin and
 ESLint plugin are built on TypeScript's JavaScript compiler API (`ts.factory`,
 `ts.createProgram`, transformers, the type checker). TypeScript 5.x and 6.x have it.
 TypeScript 7 (the native port, `typescript@latest` since July 2026) does not: its package

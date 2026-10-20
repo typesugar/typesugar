@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/lsp-server",
   "version": "0.1.1",
-  "description": "Standalone LSP server for typesugar macro-aware IDE support",
+  "description": "Deprecated standalone LSP server for typesugar; use @typesugar/ts-plugin",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",
