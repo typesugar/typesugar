@@ -1255,21 +1255,32 @@ registerGenericDerivation("Hash", {
   },
 });
 
-// Clone derivation via Generic
+// Clone derivation via Generic.
+//
+// A shallow clone is a spread, `{ ...a }`, for products and sums alike: it
+// copies every own enumerable property, so an absent optional field stays
+// absent and properties the type doesn't declare (GeoJSON "foreign members",
+// say) are kept. Listing the declared fields instead (`{ x: a.x, ... }`, the
+// previous output) added `bbox: undefined` keys for absent optional fields and
+// dropped undeclared ones, and there was no sum-type strategy at all, although
+// Clone advertises one (canDeriveSum) and the docs promise it.
+const cloneBySpread = (typeName: string): string =>
+  `({ clone: (a: ${typeName}): ${typeName} => ({ ...a }) })`;
+
 registerGenericDerivation("Clone", {
   typeclassName: "Clone",
   fieldTypeclass: null,
 
   hasFieldInstance: () => true,
 
-  deriveProduct(ctx, typeName, meta) {
+  deriveProduct(_ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
+    return cloneBySpread(typeName);
+  },
 
-    const fields = meta.fieldNames
-      .map((name) => `${objKey(name)}: ${access("a", name)}`)
-      .join(", ");
-
-    return `({ clone: (a: ${typeName}): ${typeName} => ({ ${fields} }) })`;
+  deriveSum(_ctx, typeName, meta) {
+    if (!meta.variants) return null;
+    return cloneBySpread(typeName);
   },
 });
 

@@ -762,3 +762,59 @@ describe("makePrimitiveChecker", () => {
     expect(numericOnly("number | null")).toBe(true);
   });
 });
+
+// ===========================================================================
+// Built-in Clone derivation (Turf case study, Stage 1)
+// ===========================================================================
+
+describe("built-in Clone derivation", () => {
+  /** Derive Clone<typeName> from `source`, print it, and evaluate it to the instance. */
+  function deriveClone(source: string, typeName: string): { clone: (a: unknown) => any } {
+    return withMacroContext(source, (ctx, sf) => {
+      const decl = sf.statements.find(
+        (s): s is ts.TypeAliasDeclaration | ts.InterfaceDeclaration =>
+          (ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) &&
+          s.name.text === typeName
+      );
+      const result = tryDeriveViaGeneric(ctx, "Clone", typeName, decl);
+      expect(result.expression).not.toBeNull();
+      const text = ts
+        .createPrinter()
+        .printNode(ts.EmitHint.Expression, result.expression!, sf);
+      const js = ts.transpileModule(`export default ${text};`, {
+        compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+      }).outputText;
+      const mod = { exports: {} as Record<string, any> };
+      new Function("module", "exports", js)(mod, mod.exports);
+      return mod.exports.default;
+    });
+  }
+
+  it("leaves an absent optional field absent, and keeps undeclared properties", () => {
+    const { clone } = deriveClone(
+      `export interface CloneOpt { type: "P"; xs: number[]; bbox?: number[] }`,
+      "CloneOpt"
+    );
+    const original = { type: "P", xs: [1, 2], extra: "kept" };
+    const copy = clone(original);
+    expect(copy).not.toBe(original);
+    expect(Object.keys(copy)).toEqual(["type", "xs", "extra"]);
+    expect(copy).toEqual(original);
+    // Shallow, as documented: nested values are shared.
+    expect(copy.xs).toBe(original.xs);
+  });
+
+  it("derives for a discriminated union (sum type), as documented", () => {
+    const { clone } = deriveClone(
+      `interface CA { type: "A"; x: number }
+       interface CB { type: "B"; y: string }
+       export type CloneAB = CA | CB;`,
+      "CloneAB"
+    );
+    const a = { type: "A", x: 1 };
+    const b = { type: "B", y: "s" };
+    expect(clone(a)).toEqual(a);
+    expect(clone(a)).not.toBe(a);
+    expect(clone(b)).toEqual(b);
+  });
+});

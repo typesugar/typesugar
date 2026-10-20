@@ -108,7 +108,7 @@ v1 < v2; // true (operator overloading)
 
 ### Clone — Shallow Copy
 
-Shallow spread-copy for product types, switch-on-discriminant for sum types. Nested objects are shared, not copied, and the result is a plain object with the same fields, not a class instance (`c2 instanceof Config` is false).
+A shallow spread copy, `({ ...a })`, for product and sum types alike. It copies every own enumerable property: an optional field that is absent stays absent, and properties the type doesn't declare are kept. Nested objects are shared, not copied, and the result is a plain object, not a class instance (`c2 instanceof Config` is false).
 
 ```typescript
 @derive(Clone)
