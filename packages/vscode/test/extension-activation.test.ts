@@ -81,7 +81,6 @@ function withActiveEditor(content: string, file: string, offset: number) {
 describe("extension activate()", () => {
   it("does not start a language server or depend on one", async () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"));
-    expect(Object.keys(pkg.dependencies ?? {})).not.toContain("@typesugar/lsp-server");
     expect(Object.keys(pkg.dependencies ?? {})).not.toContain("vscode-languageclient");
     const src = fs.readFileSync(path.join(__dirname, "..", "src", "extension.ts"), "utf-8");
     expect(src).not.toMatch(/vscode-languageclient|LanguageClient/);

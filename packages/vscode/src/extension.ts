@@ -5,8 +5,8 @@
  * go-to-definition, references, rename, quick fixes, refactors, inlay hints)
  * comes from the tsserver plugin `@typesugar/ts-plugin`, which this extension
  * registers through `typescriptServerPlugins` in package.json. That plugin is
- * the single editor engine for 1.0 (PEP-060 D5); the extension no longer
- * starts the `@typesugar/lsp-server` language server.
+ * the single editor engine for 1.0 (PEP-060 D5); the extension doesn't start a
+ * separate language server.
  *
  * What this module adds:
  * - "Expand Macro at Cursor" (peek of one expansion) and "Show Transformed

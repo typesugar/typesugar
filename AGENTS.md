@@ -78,7 +78,6 @@ packages/
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
 ├── ts-plugin/          # @typesugar/ts-plugin — tsserver plugin wrapper (the 1.0 editor engine)
 ├── lsp-common/         # @typesugar/lsp-common — shared language-service helpers
-├── lsp-server/         # @typesugar/lsp-server — standalone LSP server (not supported in 1.0; kept, not developed)
 │
 │   ## Developer Experience
 ├── vscode/             # @typesugar/vscode — VS Code/Cursor extension

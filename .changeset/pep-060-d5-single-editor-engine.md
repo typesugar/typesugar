@@ -1,7 +1,6 @@
 ---
 "typesugar-vscode": minor
 "@typesugar/transformer": patch
-"@typesugar/lsp-server": patch
 ---
 
 PEP-060 D5: the tsserver plugin is typesugar's single editor engine for 1.0.
@@ -25,5 +24,5 @@ PEP-060 D5: the tsserver plugin is typesugar's single editor engine for 1.0.
   extension's global plugin no longer double-transform); maps positions for TypeScript's own
   refactors, which crashed on transformed files; and no longer offers "Expand …" / "Add
   @derive(...)" refactors that did nothing.
-- **`@typesugar/lsp-server`**: not supported in 1.0. The README says so, and the server logs a
-  one-time warning on start pointing to the TypeScript plugin. The package and its code are kept.
+- **`@typesugar/lsp-server`**: removed from the repository. The published 0.1.1 stays on npm and
+  stays installable, but gets no further releases; use the TypeScript plugin.

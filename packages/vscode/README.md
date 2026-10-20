@@ -10,8 +10,8 @@ The typesugar VS Code extension (package `typesugar-vscode`, private: it is not 
 adds typesugar to VS Code's built-in TypeScript support. All language features come from the
 TypeScript server plugin `@typesugar/ts-plugin` (a thin wrapper around
 `@typesugar/transformer/language-service`), which the extension bundles and registers through
-`typescriptServerPlugins`. That plugin is typesugar's single editor engine for 1.0; the extension
-no longer starts the `@typesugar/lsp-server` language server.
+`typescriptServerPlugins`. That plugin is typesugar's single editor engine; the extension doesn't
+start a separate language server.
 
 ## Features
 

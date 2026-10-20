@@ -31,7 +31,6 @@ const ALLOWLIST = new Set([
   "transformer", // the transformer itself
   "transformer-core", // shared transformer helpers
   "lsp-common",
-  "lsp-server",
   "eslint-plugin",
   "prettier-plugin",
   "ts-plugin",

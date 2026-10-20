@@ -461,16 +461,15 @@ function debug() {
 
 Not under active development ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)). These packages still build, but they are not part of typesugar's actively maintained surface.
 
-| Package                                                                                       | Description                                          |
-| --------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| [@typesugar/math](/reference/packages#math)                                                   | Math types and typeclasses                           |
-| [@typesugar/units](/reference/packages#units)                                                 | Type-safe physical units                             |
-| [@typesugar/parser](/reference/packages#parser)                                               | PEG parser generation                                |
-| [@typesugar/codec](/reference/packages#codec)                                                 | Versioned codecs, schema evolution                   |
-| [@typesugar/collections](/reference/packages#collections)                                     | HashSet/HashMap (`@typesugar/graph` depends on it)   |
-| [@typesugar/erased](/reference/packages#erased)                                               | Type erasure / dyn Trait                             |
-| [@typesugar/strings](/reference/packages#strings)                                             | `regex`, `html`, `raw` tagged templates              |
-| [@typesugar/lsp-server](https://github.com/typesugar/typesugar/tree/main/packages/lsp-server) | Standalone LSP server: deprecated, use the TS plugin |
+| Package                                                   | Description                                        |
+| --------------------------------------------------------- | -------------------------------------------------- |
+| [@typesugar/math](/reference/packages#math)               | Math types and typeclasses                         |
+| [@typesugar/units](/reference/packages#units)             | Type-safe physical units                           |
+| [@typesugar/parser](/reference/packages#parser)           | PEG parser generation                              |
+| [@typesugar/codec](/reference/packages#codec)             | Versioned codecs, schema evolution                 |
+| [@typesugar/collections](/reference/packages#collections) | HashSet/HashMap (`@typesugar/graph` depends on it) |
+| [@typesugar/erased](/reference/packages#erased)           | Type erasure / dyn Trait                           |
+| [@typesugar/strings](/reference/packages#strings)         | `regex`, `html`, `raw` tagged templates            |
 
 [Full Package Reference](/reference/packages)
 

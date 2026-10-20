@@ -131,7 +131,6 @@ actively maintained surface.
 | [@typesugar/collections](packages/collections) | HashSet/HashMap (still released — `@typesugar/graph` depends on it) |
 | [@typesugar/erased](packages/erased)           | Type erasure / dyn Trait                                            |
 | [@typesugar/strings](packages/strings)         | `regex`, `html`, `raw` tagged templates                             |
-| [@typesugar/lsp-server](packages/lsp-server)   | Standalone LSP server — not supported in 1.0; use the TS plugin     |
 
 ## Getting Started
 

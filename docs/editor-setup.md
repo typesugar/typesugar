@@ -6,5 +6,4 @@ ESLint and Prettier.
 
 typesugar's editor engine is the TypeScript language-service plugin
 (`@typesugar/transformer/language-service`, configured in `tsconfig.json`), which
-works in any editor that uses tsserver. The standalone `@typesugar/lsp-server` is
-not supported in 1.0.
+works in any editor that uses tsserver.

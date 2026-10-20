@@ -263,16 +263,20 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
   TS 7 projects, the LSP is the only engine that can, and it needs multi-project and
   project references before 1.0.
   **Decided (Dean, 2026-10-19): the tsserver plugin is the single editor engine for
-  1.0; TS 7 via TypeScript 7.1's content mappers; the LSP server is deprecated.**
+  1.0; TS 7 via TypeScript 7.1's content mappers; the LSP server is deprecated**
+  (and then removed from the repo).
   Implemented on `decisions-1.0`: the VS Code extension no longer starts
   `@typesugar/lsp-server` and keeps only UI (Expand Macro / Show Transformed, answered
   by the plugin through the custom tsserver requests `_typesugar.expandMacro` and
   `_typesugar.showTransformed`); the plugin gained macro-expansion inlay hints, the
   trusted `comptimeInEditor` setting via `configurePlugin`, and a guard against loading
   twice per project. CodeLens, macro semantic tokens, the status bar and the
-  manifest commands were dropped. `@typesugar/lsp-server` stays in the repo, marked
-  unsupported (README banner, one-time warning on start). Editor docs are plugin-first
-  for every editor (`docs/getting-started/editor-setup.md`). TS 7 has no tsserver
+  manifest commands were dropped. `@typesugar/lsp-server` is removed from the repo
+  (0.1.1 stays on npm, with no further releases). The editor integration suite
+  (`integration/`) now drives tsserver with the plugin loaded from `tsconfig.json`; it
+  found that tsserver couldn't load the plugin by its documented name (fixed) and
+  several position-mapping bugs, kept as `it.fails` tests under item 5. Editor docs
+  are plugin-first for every editor (`docs/getting-started/editor-setup.md`). TS 7 has no tsserver
   plugins; the TS 7 editor path is a follow-up PEP on 7.1 content mappers, not the
   LSP.
 - **D6. Is the Engine/Session refactor (items 2, 7) in 1.0 or 1.1?** _Recommended:_ in

@@ -5,7 +5,7 @@
  * TypeScript support. All language features come from the TypeScript server
  * plugin `@typesugar/ts-plugin` (which loads
  * `@typesugar/transformer/language-service`), the single editor engine for 1.0.
- * The extension no longer starts the `@typesugar/lsp-server` language server.
+ * The extension doesn't start a separate language server.
  */
 
 // ============================================================================

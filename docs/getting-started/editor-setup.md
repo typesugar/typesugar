@@ -6,8 +6,7 @@ TypeScript, and maps every position back to your source. Diagnostics (TypeScript
 typesugar's TS9xxx), completions, hover, go-to-definition, references, rename, signature help and
 quick fixes then work through macros in any editor whose TypeScript support is tsserver-based.
 
-The plugin is the only supported editor engine in 1.0. The standalone `@typesugar/lsp-server` is
-not supported in 1.0.
+The plugin is typesugar's only editor engine.
 
 ## Set up the project (every editor)
 
@@ -103,8 +102,9 @@ Other editors reach tsserver through
 [`typescript-language-server`](https://github.com/typescript-language-server/typescript-language-server)
 or [`vtsls`](https://github.com/yioneko/vtsls), and both load tsserver plugins. Set up the project
 as above, then make sure the server uses the project's TypeScript. The snippets below follow each
-editor's standard TypeScript configuration; we test the plugin itself and the VS Code extension,
-not every editor's setup, so please [report](https://github.com/typesugar/typesugar/issues) what
+editor's standard TypeScript configuration. We test the plugin inside tsserver loaded from
+`tsconfig.json` (what these servers run) and the VS Code extension, not each editor's own setup, so
+please [report](https://github.com/typesugar/typesugar/issues) what
 works or doesn't. The expansion commands are VS Code only; elsewhere, run
 `npx typesugar expand <file>` (add `--diff` for a diff).
 
@@ -153,8 +153,10 @@ require("lspconfig").vtsls.setup({
 
 ### Zed
 
-Zed's TypeScript support uses vtsls by default. With the project setup above, tell vtsls to use
-the workspace TypeScript in `.zed/settings.json`:
+Unverified: we haven't confirmed that Zed's vtsls loads the plugin; please
+[report](https://github.com/typesugar/typesugar/issues) whether it does. Zed's TypeScript support
+uses vtsls by default. With the project setup above, tell vtsls to use the workspace TypeScript in
+`.zed/settings.json`:
 
 ```json
 {

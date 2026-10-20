@@ -12,7 +12,6 @@
 "@typesugar/fusion": patch
 "@typesugar/graph": patch
 "@typesugar/lsp-common": patch
-"@typesugar/lsp-server": patch
 "@typesugar/macros": patch
 "@typesugar/mapper": patch
 "@typesugar/math": patch

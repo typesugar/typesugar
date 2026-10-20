@@ -131,11 +131,6 @@ describe("VSIX Packaging Smoke Tests", () => {
       expect(pkg.bundledDependencies).toContain("@typesugar/ts-plugin");
     });
 
-    it("does not bundle @typesugar/lsp-server (the tsserver plugin is the engine, PEP-060 D5)", () => {
-      expect(pkg.bundledDependencies).not.toContain("@typesugar/lsp-server");
-      expect(pkg.dependencies?.["@typesugar/lsp-server"]).toBeUndefined();
-    });
-
     it("all bundled deps are also in dependencies", () => {
       for (const dep of pkg.bundledDependencies ?? []) {
         expect(pkg.dependencies?.[dep]).toBeDefined();
@@ -175,11 +170,10 @@ describe("VSIX Packaging Smoke Tests", () => {
 
   describe("prepackage bundles the tsserver plugin only", () => {
     for (const script of ["inject-ts-plugin.js", "bundle-ts-plugin.js"]) {
-      it(`${script} ships ts-plugin + transformer and no lsp-server`, () => {
+      it(`${script} ships ts-plugin + transformer`, () => {
         const code = fs.readFileSync(path.join(VSCODE_PKG_PATH, "scripts", script), "utf-8");
         expect(code).toContain("ts-plugin");
         expect(code).toContain("transformer");
-        expect(code).not.toContain("lsp-server");
       });
     }
   });
