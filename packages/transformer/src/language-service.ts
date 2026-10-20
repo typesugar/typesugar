@@ -43,6 +43,8 @@ import {
 import { hashContent } from "./cache.js";
 import {
   mapTextSpanToOriginal,
+  mapSourceSpanToOriginal,
+  mapTextSpanToTransformed,
   computeMacroCodeActions,
   type MacroManifest,
 } from "@typesugar/lsp-common";
@@ -188,6 +190,35 @@ function trustedComptimeOptIn(info: ts.server.PluginCreateInfo, log: (msg: strin
     return false;
   }
   return true;
+}
+
+/**
+ * Line starts of `text`, with TypeScript's line breaks (CR, LF, CRLF, U+2028,
+ * U+2029), so line/column results match what tsserver computes for the file.
+ */
+function computeLineStarts(text: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 13 /* \r */) {
+      if (text.charCodeAt(i + 1) === 10) i++;
+      starts.push(i + 1);
+    } else if (ch === 10 || ch === 0x2028 || ch === 0x2029) {
+      starts.push(i + 1);
+    }
+  }
+  return starts;
+}
+
+function lineAndCharacterOf(lineStarts: number[], position: number): ts.LineAndCharacter {
+  let lo = 0;
+  let hi = lineStarts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lineStarts[mid] <= position) lo = mid;
+    else hi = mid - 1;
+  }
+  return { line: lo, character: position - lineStarts[lo] };
 }
 
 function init(modules: { typescript: typeof ts }) {
@@ -479,12 +510,80 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     /**
-     * Get the position mapper for a file
+     * Get the position mapper for a file. A file the transform left unchanged
+     * is served to TypeScript as written, so its positions map by identity
+     * (whatever source map the pipeline produced is not for the text TS sees).
      */
     function getMapper(fileName: string): PositionMapper {
       const result = getTransformResult(fileName);
-      return result?.mapper ?? new IdentityPositionMapper();
+      return result?.changed ? result.mapper : new IdentityPositionMapper();
     }
+
+    /** The transform result for a file TypeScript sees in expanded form, else null. */
+    function expandedResult(fileName: string): TransformResult | null {
+      const result = getTransformResult(path.normalize(fileName));
+      return result?.changed ? result : null;
+    }
+
+    /**
+     * Map a span TypeScript returned in `fileName` that must be the user's own
+     * text (a rename location, a reference, an edit's range) to the source.
+     * Null when it is in macro-generated code (see mapSourceSpanToOriginal):
+     * the caller drops it, by design.
+     */
+    function toSourceSpan(fileName: string, span: ts.TextSpan): ts.TextSpan | null {
+      const result = expandedResult(fileName);
+      if (!result) return span;
+      return mapSourceSpanToOriginal(span, result.mapper, {
+        original: result.original,
+        transformed: result.code,
+      });
+    }
+
+    /**
+     * Map edits TypeScript computed on the expanded code back to the source.
+     * Null when any edit touches macro-generated code: applying part of a fix
+     * or refactor would leave the user's file inconsistent.
+     */
+    function toSourceEdits(
+      changes: readonly ts.FileTextChanges[],
+      what: string
+    ): ts.FileTextChanges[] | null {
+      const mapped: ts.FileTextChanges[] = [];
+      for (const fileChange of changes) {
+        const textChanges: ts.TextChange[] = [];
+        for (const change of fileChange.textChanges) {
+          const span = toSourceSpan(fileChange.fileName, change.span);
+          if (!span) {
+            log(
+              `${what} edits macro-generated code in ${path.basename(fileChange.fileName)} ` +
+                `(${change.span.start}+${change.span.length}); not offered`
+            );
+            return null;
+          }
+          textChanges.push({ ...change, span });
+        }
+        mapped.push({ ...fileChange, textChanges });
+      }
+      return mapped;
+    }
+
+    /**
+     * A request's source span as a range of the expanded code (see
+     * mapTextSpanToTransformed): its ends may fall in comments, which have no
+     * mapping of their own.
+     */
+    function toTransformedRange(fileName: string, span: ts.TextSpan): ts.TextSpan | null {
+      const result = expandedResult(fileName);
+      if (!result) return span;
+      return mapTextSpanToTransformed(span, result.mapper, {
+        original: result.original.length,
+        transformed: result.code.length,
+      });
+    }
+
+    /** Line starts of the source text, for toLineColumnOffset (cached per transform). */
+    const sourceLineStarts = new WeakMap<TransformResult, number[]>();
 
     // ---------------------------------------------------------------------------
     // Register diagnostic suppression rules
@@ -708,15 +807,27 @@ function init(modules: { typescript: typeof ts }) {
     ): readonly ts.CodeFixAction[] => {
       const normalizedFileName = path.normalize(fileName);
 
-      // Get TS's own code fixes
-      const original = oldLS.getCodeFixesAtPosition(
-        fileName,
-        start,
-        end,
-        errorCodes,
-        formatOptions,
-        preferences
-      );
+      // TypeScript's own fixes: it finds the error in the EXPANDED code, so
+      // the span goes in mapped, and the fixes' edits come back mapped (a fix
+      // that would edit macro-generated code is not offered).
+      const original: ts.CodeFixAction[] = [];
+      const range = toTransformedRange(normalizedFileName, { start, length: end - start });
+      if (range) {
+        const tsFixes = oldLS.getCodeFixesAtPosition(
+          fileName,
+          range.start,
+          range.start + range.length,
+          errorCodes,
+          formatOptions,
+          preferences
+        );
+        for (const fix of tsFixes) {
+          const changes = toSourceEdits(fix.changes, `Code fix ${fix.fixName}`);
+          if (changes) original.push({ ...fix, changes });
+        }
+      } else {
+        log(`getCodeFixesAtPosition: could not map ${start}-${end} in ${fileName}`);
+      }
 
       // Check if any of the error codes are in the typesugar range (9001-9999)
       const hasTypesugarCodes = errorCodes.some((c) => c >= 9001 && c <= 9999);
@@ -760,6 +871,18 @@ function init(modules: { typescript: typeof ts }) {
       }
 
       return [...original, ...fixes];
+    };
+
+    proxy.getCombinedCodeFix = (
+      scope: ts.CombinedCodeFixScope,
+      fixId: {},
+      formatOptions: ts.FormatCodeSettings,
+      preferences: ts.UserPreferences
+    ): ts.CombinedCodeActions => {
+      // "Fix all in file": TypeScript computes the edits on the expanded code.
+      const combined = oldLS.getCombinedCodeFix(scope, fixId, formatOptions, preferences);
+      const changes = toSourceEdits(combined.changes, `Combined code fix ${String(fixId)}`);
+      return { ...combined, changes: changes ?? [] };
     };
 
     // ---------------------------------------------------------------------------
@@ -1041,12 +1164,13 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!definitions) return definitions;
 
-      return definitions.map((def) => {
+      return definitions.flatMap((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
 
         if (!mappedSpan) {
-          return def;
+          log(`Definition in macro-generated code of ${path.basename(def.fileName)}; dropped`);
+          return [];
         }
 
         let mappedContextSpan = def.contextSpan;
@@ -1082,11 +1206,14 @@ function init(modules: { typescript: typeof ts }) {
       const mappedTextSpan = mapTextSpanToOriginal(result.textSpan, mapper);
       if (!mappedTextSpan) return undefined;
 
-      const mappedDefinitions = result.definitions?.map((def) => {
+      const mappedDefinitions = result.definitions?.flatMap((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedDefSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
 
-        if (!mappedDefSpan) return def;
+        if (!mappedDefSpan) {
+          log(`Definition in macro-generated code of ${path.basename(def.fileName)}; dropped`);
+          return [];
+        }
 
         let mappedContextSpan = def.contextSpan;
         if (def.contextSpan) {
@@ -1107,6 +1234,26 @@ function init(modules: { typescript: typeof ts }) {
       };
     };
 
+    /**
+     * tsserver turns the offsets of definitions (and implementations) into
+     * line/column with this, on whatever text the language service has, which
+     * is the EXPANDED code. Our results are already source offsets, so convert
+     * them on the source text, or a jump after a @derive companion lands lines
+     * off (PEP-060 item 5).
+     */
+    if (typeof oldLS.toLineColumnOffset === "function") {
+      proxy.toLineColumnOffset = (fileName: string, position: number): ts.LineAndCharacter => {
+        const result = expandedResult(fileName);
+        if (!result) return oldLS.toLineColumnOffset!(fileName, position);
+        let lineStarts = sourceLineStarts.get(result);
+        if (!lineStarts) {
+          lineStarts = computeLineStarts(result.original);
+          sourceLineStarts.set(result, lineStarts);
+        }
+        return lineAndCharacterOf(lineStarts, position);
+      };
+    }
+
     proxy.getTypeDefinitionAtPosition = (
       fileName: string,
       position: number
@@ -1122,11 +1269,14 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!definitions) return definitions;
 
-      return definitions.map((def) => {
+      return definitions.flatMap((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
 
-        if (!mappedSpan) return def;
+        if (!mappedSpan) {
+          log(`Type definition in macro-generated code of ${path.basename(def.fileName)}; dropped`);
+          return [];
+        }
 
         let mappedContextSpan = def.contextSpan;
         if (def.contextSpan) {
@@ -1139,6 +1289,30 @@ function init(modules: { typescript: typeof ts }) {
           textSpan: mappedSpan,
           contextSpan: mappedContextSpan,
         };
+      });
+    };
+
+    proxy.getImplementationAtPosition = (
+      fileName: string,
+      position: number
+    ): readonly ts.ImplementationLocation[] | undefined => {
+      const transformedPosition = getMapper(fileName).toTransformed(position);
+      if (transformedPosition === null) return undefined;
+
+      const implementations = oldLS.getImplementationAtPosition(fileName, transformedPosition);
+      if (!implementations) return implementations;
+
+      return implementations.flatMap((impl) => {
+        const targetMapper = getMapper(impl.fileName);
+        const textSpan = mapTextSpanToOriginal(impl.textSpan, targetMapper);
+        if (!textSpan) {
+          log(`Implementation in macro-generated code of ${path.basename(impl.fileName)}; dropped`);
+          return [];
+        }
+        const contextSpan = impl.contextSpan
+          ? (mapTextSpanToOriginal(impl.contextSpan, targetMapper) ?? undefined)
+          : undefined;
+        return [{ ...impl, textSpan, contextSpan }];
       });
     };
 
@@ -1160,7 +1334,9 @@ function init(modules: { typescript: typeof ts }) {
       const mapped: ts.ReferenceEntry[] = [];
       for (const ref of references) {
         const targetMapper = getMapper(ref.fileName);
-        const mappedSpan = mapTextSpanToOriginal(ref.textSpan, targetMapper);
+        // A reference must be the user's own text: one in generated code
+        // (attributed to the macro call by the source map) is dropped.
+        const mappedSpan = toSourceSpan(ref.fileName, ref.textSpan);
 
         if (!mappedSpan) continue;
 
@@ -1170,8 +1346,7 @@ function init(modules: { typescript: typeof ts }) {
         };
 
         if (ref.contextSpan) {
-          result.contextSpan =
-            mapTextSpanToOriginal(ref.contextSpan, targetMapper) ?? ref.contextSpan;
+          result.contextSpan = mapTextSpanToOriginal(ref.contextSpan, targetMapper) ?? undefined;
         }
 
         mapped.push(result);
@@ -1213,7 +1388,7 @@ function init(modules: { typescript: typeof ts }) {
         const mappedReferences: ts.ReferencedSymbolEntry[] = [];
         for (const ref of symbol.references) {
           const refMapper = getMapper(ref.fileName);
-          const mappedRefSpan = mapTextSpanToOriginal(ref.textSpan, refMapper);
+          const mappedRefSpan = toSourceSpan(ref.fileName, ref.textSpan);
 
           if (!mappedRefSpan) continue;
 
@@ -1223,8 +1398,7 @@ function init(modules: { typescript: typeof ts }) {
           };
 
           if (ref.contextSpan) {
-            mappedRef.contextSpan =
-              mapTextSpanToOriginal(ref.contextSpan, refMapper) ?? ref.contextSpan;
+            mappedRef.contextSpan = mapTextSpanToOriginal(ref.contextSpan, refMapper) ?? undefined;
           }
 
           mappedReferences.push(mappedRef);
@@ -1329,11 +1503,18 @@ function init(modules: { typescript: typeof ts }) {
       if (!locations) return locations;
 
       const mapped: ts.RenameLocation[] = [];
+      let generatedLocations = 0;
       for (const loc of locations) {
         const targetMapper = getMapper(loc.fileName);
-        const mappedSpan = mapTextSpanToOriginal(loc.textSpan, targetMapper);
+        // Rename edits the user's text: a location in macro-generated code
+        // (e.g. a @derive companion naming the type, which the source map
+        // attributes to the @derive tag) is dropped, not mapped onto the tag.
+        const mappedSpan = toSourceSpan(loc.fileName, loc.textSpan);
 
-        if (!mappedSpan) continue;
+        if (!mappedSpan) {
+          generatedLocations++;
+          continue;
+        }
 
         const result: ts.RenameLocation = {
           ...loc,
@@ -1341,13 +1522,18 @@ function init(modules: { typescript: typeof ts }) {
         };
 
         if (loc.contextSpan) {
-          result.contextSpan =
-            mapTextSpanToOriginal(loc.contextSpan, targetMapper) ?? loc.contextSpan;
+          result.contextSpan = mapTextSpanToOriginal(loc.contextSpan, targetMapper) ?? undefined;
         }
 
         mapped.push(result);
       }
 
+      if (generatedLocations > 0) {
+        log(
+          `Rename: skipped ${generatedLocations} location(s) in macro-generated code ` +
+            `(${path.basename(fileName)})`
+        );
+      }
       return mapped;
     };
 
@@ -1372,7 +1558,7 @@ function init(modules: { typescript: typeof ts }) {
 
         const mappedSpans: ts.HighlightSpan[] = [];
         for (const span of docHighlight.highlightSpans) {
-          const mappedTextSpan = mapTextSpanToOriginal(span.textSpan, targetMapper);
+          const mappedTextSpan = toSourceSpan(docHighlight.fileName, span.textSpan);
           if (!mappedTextSpan) continue;
 
           const result: ts.HighlightSpan = {
@@ -1381,8 +1567,7 @@ function init(modules: { typescript: typeof ts }) {
           };
 
           if (span.contextSpan) {
-            result.contextSpan =
-              mapTextSpanToOriginal(span.contextSpan, targetMapper) ?? span.contextSpan;
+            result.contextSpan = mapTextSpanToOriginal(span.contextSpan, targetMapper) ?? undefined;
           }
 
           mappedSpans.push(result);
@@ -1546,20 +1731,8 @@ function init(modules: { typescript: typeof ts }) {
         if (!result) return result;
         // Map the edits back to original-source coordinates; a refactor that
         // would edit macro-generated text can't be applied to the user's file.
-        const edits: ts.FileTextChanges[] = [];
-        for (const fileChange of result.edits) {
-          const fileMapper = getMapper(fileChange.fileName);
-          const textChanges: ts.TextChange[] = [];
-          for (const change of fileChange.textChanges) {
-            const span = mapTextSpanToOriginal(change.span, fileMapper);
-            if (!span) {
-              log(`Refactor ${refactorName} edits macro-generated code; not offered`);
-              return undefined;
-            }
-            textChanges.push({ ...change, span });
-          }
-          edits.push({ ...fileChange, textChanges });
-        }
+        const edits = toSourceEdits(result.edits, `Refactor ${refactorName}`);
+        if (!edits) return undefined;
         const renameLocation =
           result.renameFilename !== undefined && result.renameLocation !== undefined
             ? (getMapper(result.renameFilename).toOriginal(result.renameLocation) ?? undefined)
@@ -1635,19 +1808,26 @@ function init(modules: { typescript: typeof ts }) {
         const result = getTransformResult(normalizedFileName);
         if (!result?.changed) return oldLS.provideInlayHints(fileName, span, preferences);
 
+        // TypeScript's own hints. The span is mapped as a range: an editor
+        // asks for the whole file or the visible lines, whose ends are often
+        // in a comment (no mapping of their own), and mapping only exact ends
+        // dropped every hint.
         const hints: ts.InlayHint[] = [];
-        const mapper = result.mapper;
-        const tStart = mapper.toTransformed(span.start);
-        const tEnd = mapper.toTransformed(span.start + span.length);
-        if (tStart !== null && tEnd !== null && tEnd >= tStart) {
+        const range = toTransformedRange(normalizedFileName, span);
+        const spanEnd = span.start + span.length;
+        if (range) {
           try {
-            for (const hint of oldLS.provideInlayHints(
-              fileName,
-              { start: tStart, length: tEnd - tStart },
-              preferences
-            )) {
-              const position = mapper.toOriginal(hint.position);
-              if (position !== null) hints.push({ ...hint, position });
+            for (const hint of oldLS.provideInlayHints(fileName, range, preferences)) {
+              // A hint must sit in the user's code: one in generated code
+              // (e.g. after a @derive companion's name, attributed to the tag)
+              // is dropped, and the range may reach a little past the span.
+              const at = toSourceSpan(normalizedFileName, { start: hint.position, length: 0 });
+              if (!at || at.start < span.start || at.start > spanEnd) continue;
+              hints.push({
+                ...hint,
+                position: at.start,
+                displayParts: hint.displayParts?.map((part) => mapDisplayPart(part)),
+              });
             }
           } catch (error) {
             log(`provideInlayHints failed in ${path.basename(fileName)}: ${error}`);
@@ -1657,6 +1837,15 @@ function init(modules: { typescript: typeof ts }) {
         hints.push(...expansionHints(result, normalizedFileName, span));
         return hints.sort((a, b) => a.position - b.position);
       };
+    }
+
+    /** An interactive inlay hint part links to a declaration: map its span too. */
+    function mapDisplayPart(part: ts.InlayHintDisplayPart): ts.InlayHintDisplayPart {
+      if (!part.span || !part.file) return part;
+      const span = mapTextSpanToOriginal(part.span, getMapper(part.file));
+      if (span) return { ...part, span };
+      const { span: _generated, file: _file, ...rest } = part;
+      return rest;
     }
 
     function expansionHints(

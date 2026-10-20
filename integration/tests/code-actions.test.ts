@@ -40,42 +40,37 @@ describe("code actions (basic-project)", () => {
     fixture?.cleanup();
   });
 
-  // PEP-060 item 5 (one diagnostics and position model): the plugin's
-  // getCodeFixesAtPosition hands the ORIGINAL span to TypeScript, which looks
-  // for the error at that offset in the EXPANDED text, finds none and offers
-  // nothing. Flip to `it` when that is fixed.
-  it.fails(
-    "offers TypeScript's spelling fix and its edit lands on the misspelled name (PEP-060 item 5)",
-    async () => {
-      const { file, text } = openFile(session, "src/code-actions.ts");
-      const diagnostics = await getDiagnostics(session, file);
-      const error = assertDiagnosticAt(
-        diagnostics,
-        locate(text, "greetng"),
-        "Cannot find name 'greetng'",
-        "misspelled call"
-      );
+  // The plugin maps the error's span into the expanded code for TypeScript and
+  // the fix's edits back to the source (PEP-060 item 5).
+  it("offers TypeScript's spelling fix and its edit lands on the misspelled name", async () => {
+    const { file, text } = openFile(session, "src/code-actions.ts");
+    const diagnostics = await getDiagnostics(session, file);
+    const error = assertDiagnosticAt(
+      diagnostics,
+      locate(text, "greetng"),
+      "Cannot find name 'greetng'",
+      "misspelled call"
+    );
 
-      const fixes = await session.client.request<CodeFix[]>("getCodeFixes", {
-        file,
-        startLine: error.start.line,
-        startOffset: error.start.offset,
-        endLine: error.end.line,
-        endOffset: error.end.offset,
-        errorCodes: [error.code],
-      });
-      const spelling = fixes.find((f) => f.fixName === "spelling");
-      expect(spelling?.description).toBe("Change spelling to 'greeting'");
+    const fixes = await session.client.request<CodeFix[]>("getCodeFixes", {
+      file,
+      startLine: error.start.line,
+      startOffset: error.start.offset,
+      endLine: error.end.line,
+      endOffset: error.end.offset,
+      errorCodes: [error.code],
+    });
+    const spelling = fixes.find((f) => f.fixName === "spelling");
+    expect(spelling?.description).toBe("Change spelling to 'greeting'");
 
-      // Apply the fix to the ORIGINAL text: it must change exactly that name.
-      const changes = spelling!.changes.flatMap((c) => c.textChanges);
-      expect(changes).toHaveLength(1);
-      const [change] = changes;
-      const fixed =
-        text.slice(0, toPos(text, change.start)) +
-        change.newText +
-        text.slice(toPos(text, change.end));
-      expect(fixed).toBe(text.replace('greetng("there")', 'greeting("there")'));
-    }
-  );
+    // Apply the fix to the ORIGINAL text: it must change exactly that name.
+    const changes = spelling!.changes.flatMap((c) => c.textChanges);
+    expect(changes).toHaveLength(1);
+    const [change] = changes;
+    const fixed =
+      text.slice(0, toPos(text, change.start)) +
+      change.newText +
+      text.slice(toPos(text, change.end));
+    expect(fixed).toBe(text.replace('greetng("there")', 'greeting("there")'));
+  });
 });

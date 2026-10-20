@@ -11,7 +11,10 @@
 // Position mapping
 export {
   mapTextSpanToOriginal,
+  mapSourceSpanToOriginal,
+  mapTextSpanToTransformed,
   IdentityPositionMapper,
+  type MappedTexts,
   type PositionMapper,
 } from "./position-mapping.js";
 

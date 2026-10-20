@@ -1,6 +1,6 @@
 // Integration test fixture: navigation (go-to-definition, references, rename)
 // in a file with no macros. The template literal matters: positions after it
-// don't map back (see tests/navigation.test.ts).
+// used to stop mapping (see tests/navigation.test.ts).
 
 export function greet(name: string): string {
   return `Hello, ${name}!`;

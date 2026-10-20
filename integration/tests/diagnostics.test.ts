@@ -99,11 +99,10 @@ describe("diagnostic positions (basic-project)", () => {
     expect(pipeDiagnostics).toHaveLength(1);
   });
 
-  // PEP-060 item 5 (one diagnostics and position model): the plugin reprints
-  // every file, and the reprint's source map has no mappings after a template
-  // literal with a substitution, so a diagnostic after one can't be mapped back
-  // and is dropped. Flip to `it` when that is fixed.
-  it.fails("type error after a template literal is reported (PEP-060 item 5)", async () => {
+  // A file without macros is served as written (positions map by identity),
+  // and the source map of an expanded file maps tokens after a `${...}`
+  // template (PEP-060 item 5).
+  it("type error after a template literal is reported", async () => {
     const tpl = openFile(session, "src/template-literal.ts");
     const tplDiagnostics = await getDiagnostics(session, tpl.file);
     assertDiagnosticAt(tplDiagnostics, locate(tpl.text, "notANumber"), "not assignable");

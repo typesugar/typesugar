@@ -47,11 +47,10 @@ describe("rename (basic-project)", () => {
     }
   });
 
-  // PEP-060 item 5: the @derive(Eq) companion's own references to `Vec`
-  // (generated code) map back onto the `@derive` JSDoc tag, so rename returns
-  // five extra locations covering "@de" and would corrupt the comment. Flip to
-  // `it` when generated references are filtered out.
-  it.fails("renames a type used by @derive and in pipe() arguments (PEP-060 item 5)", async () => {
+  // The @derive(Eq) companion's own references to `Vec` are generated code
+  // that the source map attributes to the `@derive` tag; rename drops them
+  // instead of editing "@de" of the comment (PEP-060 item 5).
+  it("renames a type used by @derive and in pipe() arguments", async () => {
     const { file, text } = openFile(session, "src/navigation-macros.ts");
     const { spans } = await getRenameLocations(session, file, locate(text, "Vec {", { delta: 1 }));
     // interface Vec, scale's parameter and return type, and the two pipe() lambdas
@@ -59,9 +58,8 @@ describe("rename (basic-project)", () => {
     for (const s of spans) expect(spanText(text, s)).toBe("Vec");
   });
 
-  // PEP-060 item 5: positions after a template literal don't map back (see
-  // navigation.test.ts), so the call site is missing. Flip to `it` when fixed.
-  it.fails("renames greet() at its declaration and its call (PEP-060 item 5)", async () => {
+  // Positions after a template literal map (see navigation.test.ts).
+  it("renames greet() at its declaration and its call", async () => {
     const { file, text } = openFile(session, "src/navigation.ts");
     const { spans } = await getRenameLocations(
       session,

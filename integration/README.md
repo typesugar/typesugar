@@ -60,8 +60,9 @@ plugin's `[typesugar]` lines, so it shows whether the plugin loaded and what it 
 
 Tests written with `it.fails(...)` assert the correct behaviour for a bug the plugin still has,
 so the suite stays green and the test turns red when the bug is fixed (then change it to `it`).
-Each one names the bug in a comment and is tracked under PEP-060 item 5 (one diagnostics and
-position model).
+Each one names the bug in a comment and where it is tracked. There are none at the moment: the
+position-mapping bugs the suite first recorded were fixed under PEP-060 item 5 (one diagnostics
+and position model).
 
 ## Modes
 

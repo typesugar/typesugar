@@ -47,31 +47,28 @@ describe("inlay hints (basic-project)", () => {
   });
 
   it("does not evaluate comptime for a hint unless the editor enables it", async () => {
-    expect((await hints()).map((h) => h.text)).not.toContain("= 42");
+    const texts = (await hints()).map((h) => h.text);
+    expect(texts).not.toContain("= 42");
+    // An unevaluated call has no value to show (it used to repeat the call).
+    expect(texts.filter((t) => t.startsWith("= comptime"))).toEqual([]);
   });
 
-  // PEP-060 item 5: the plugin maps the requested span to the expanded text
-  // and drops TypeScript's own hints when either end doesn't map, which is the
-  // case whenever the span starts or ends in a comment (here: start of file).
-  // Without the plugin TypeScript returns `: number` after `answer`. Flip to
-  // `it` when that is fixed.
-  it.fails(
-    "shows TypeScript's variable-type hint at the source position (PEP-060 item 5)",
-    async () => {
+  // The requested span (the whole file here) starts in a comment, which has
+  // no mapping of its own; the plugin maps it as a range (PEP-060 item 5).
+  it("shows TypeScript's variable-type hint at the source position", async () => {
+    await session.client.request("configure", {
+      preferences: { includeInlayVariableTypeHints: true },
+    });
+    try {
+      const typeHint = (await hints()).find((h) => h.text === ": number");
+      // `const answer = comptime(...)`: the hint goes right after `answer`.
+      expect(typeHint?.position).toEqual(locate(text, "answer =", { delta: "answer".length }));
+    } finally {
       await session.client.request("configure", {
-        preferences: { includeInlayVariableTypeHints: true },
+        preferences: { includeInlayVariableTypeHints: false },
       });
-      try {
-        const typeHint = (await hints()).find((h) => h.text === ": number");
-        // `const answer = comptime(...)`: the hint goes right after `answer`.
-        expect(typeHint?.position).toEqual(locate(text, "answer =", { delta: "answer".length }));
-      } finally {
-        await session.client.request("configure", {
-          preferences: { includeInlayVariableTypeHints: false },
-        });
-      }
     }
-  );
+  });
 
   it("shows `= 42` after the comptime call once the editor enables comptimeInEditor", async () => {
     // What the VS Code extension sends for `typesugar.comptimeInEditor: true`.
