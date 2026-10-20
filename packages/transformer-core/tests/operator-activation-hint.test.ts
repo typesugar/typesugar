@@ -215,6 +215,35 @@ describe("TS9804: no false positives", () => {
   });
 });
 
+describe("the operators opt-out in an activated file", () => {
+  // The rewrite gate used to check only the `extensions` feature, so the
+  // documented `operators` opt-out silenced TS9804 but still rewrote here.
+  it("// @ts-no-typesugar operators keeps that line native", () => {
+    const result = transform(
+      [
+        PRELUDE,
+        `import "./syntax/vec-ops";`,
+        `export const r1 = v + w; // @ts-no-typesugar operators`,
+        `export const r2 = v + w;`,
+      ].join("\n")
+    );
+    expect(result.code).toContain("r1 = v + w;");
+    expect(result.code).toContain("r2 = ({ x: v.x + w.x, y: v.y + w.y })");
+  });
+
+  it('"use no typesugar operators" keeps the file native', () => {
+    const result = transform(
+      [
+        `"use no typesugar operators";`,
+        PRELUDE,
+        `import "./syntax/vec-ops";`,
+        `export const r = [v + w, -v];`,
+      ].join("\n")
+    );
+    expect(result.code).toContain("r = [v + w, -v]");
+  });
+});
+
 describe("TS9804: equality operators", () => {
   // `===` on a type with an Eq-style instance is the same silent failure:
   // without activation it compares references, not structure.

@@ -606,6 +606,20 @@ function isNullOrUndefinedExpr(node: ts.Expression): boolean {
   return false;
 }
 
+/**
+ * Whether operator rewriting is opted out at `node`: the whole file
+ * (`"use no typesugar"`), the documented `operators` feature
+ * (`"use no typesugar operators"`, `// @ts-no-typesugar operators`), or the
+ * `extensions` feature, which gated operator rewriting before the `operators`
+ * feature was honored here and is kept so existing opt-outs keep working.
+ */
+function isOperatorRewriteOptedOut(ctx: MacroContextImpl, node: ts.Node): boolean {
+  return (
+    isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "operators") ||
+    isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")
+  );
+}
+
 const OPERATOR_PRIMITIVE_TYPES = new Set([
   "number",
   "string",
@@ -625,9 +639,7 @@ export function tryRewriteTypeclassOperator(
 ): ts.Expression | undefined {
   // Skip synthetic nodes (from macro-generated code) — the checker can crash.
   if (isSyntheticNode(node)) return undefined;
-  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
-    return undefined;
-  }
+  if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getOperatorString(node.operatorToken.kind);
   if (!opString) return undefined;
@@ -834,9 +846,7 @@ export function tryRewriteTypeclassUnaryOperator(
   node: ts.PrefixUnaryExpression
 ): ts.Expression | undefined {
   if (isSyntheticNode(node) || isSyntheticNode(node.operand)) return undefined;
-  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
-    return undefined;
-  }
+  if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getPrefixUnaryOperatorString(node.operator);
   if (!opString) return undefined;
