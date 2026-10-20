@@ -2,7 +2,7 @@
 
 > 📖 **Full documentation:** [Getting Started](https://typesugar.org/getting-started/). The microsite is the canonical reference; this README is a quickstart.
 
-> Syntactic sugar for TypeScript with zero calories. Operators and methods that just work, compiled to exactly what you'd write by hand.
+> Syntactic sugar for TypeScript with zero calories. Typeclasses, operator overloading, pattern matching and more through compile-time macros and zero-cost abstractions.
 
 ## Overview
 

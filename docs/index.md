@@ -4,7 +4,7 @@ layout: home
 hero:
   name: typesugar
   text: Syntactic sugar for TypeScript with zero calories
-  tagline: Operators and methods that just work, compiled to exactly what you'd write by hand.
+  tagline: Typeclasses, operator overloading, pattern matching and more through compile-time macros and zero-cost abstractions.
   image:
     src: /logo.png
     alt: typesugar
