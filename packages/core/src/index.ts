@@ -112,6 +112,7 @@ export {
 export {
   registerSyntaxMarkerFallback,
   getSyntaxMarkerFallback,
+  findSyntaxMarkerSpecifiers,
   type SyntaxMarkerFallbackEntry,
 } from "./syntax-marker-fallback.js";
 

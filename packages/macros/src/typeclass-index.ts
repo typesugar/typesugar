@@ -446,6 +446,27 @@ export function getOperatorCandidates(
 }
 
 /**
+ * The complement of {@link getOperatorCandidates}: every typeclass in the
+ * program's index (source `@typeclass` declarations + built-in seeds) that maps
+ * the operator but is NOT in `activatedTypeclasses`. Used only for the TS9804
+ * "operator syntax not activated" hint, which must agree exactly with what
+ * {@link getOperatorCandidates} would return once the file activated the
+ * typeclass — hence the same per-typeclass lookup, over the other names.
+ */
+export function getInactiveOperatorCandidates(
+  program: ts.Program,
+  activatedTypeclasses: ReadonlySet<string>,
+  op: string,
+  arity: "binary" | "unary" = "binary"
+): Array<{ typeclass: string; method: string; rightOperandIsSelf: boolean }> {
+  const inactive: string[] = [];
+  for (const name of buildIndex(program).keys()) {
+    if (!activatedTypeclasses.has(name)) inactive.push(name);
+  }
+  return getOperatorCandidates(program, inactive, op, arity);
+}
+
+/**
  * Among a set of activated typeclasses, find those whose declaration declares the
  * given method name, returning `{ typeclass, method }` candidates. Registry-free
  * replacement for `getTypeclassesForMethod`, scoped to activated method syntax.

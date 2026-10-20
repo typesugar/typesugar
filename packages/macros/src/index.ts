@@ -273,6 +273,7 @@ export { getDoInstanceModule } from "./do-instance-index.js";
 export {
   getOpMapForTypeclass,
   getOperatorCandidates,
+  getInactiveOperatorCandidates,
   getMethodCandidates,
   getTypeclassesDeclaringMethod,
   isHktTypeclass,

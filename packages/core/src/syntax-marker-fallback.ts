@@ -95,6 +95,23 @@ export function getSyntaxMarkerFallback(specifier: string): SyntaxMarkerFallback
   return syntaxMarkerFallbackRegistry.get(specifier);
 }
 
+/**
+ * Reverse lookup: the registered import specifiers that activate `name` at
+ * the given tier, in registration order. Feeds "syntax not activated" hints
+ * (TS9804) that name the exact import to add; a typeclass whose provider
+ * registered no fallback yields `[]` and the hint falls back to other means.
+ */
+export function findSyntaxMarkerSpecifiers(
+  tier: keyof SyntaxMarkerFallbackEntry,
+  name: string
+): string[] {
+  const out: string[] = [];
+  for (const [specifier, entry] of syntaxMarkerFallbackRegistry) {
+    if (entry[tier]?.includes(name)) out.push(specifier);
+  }
+  return out;
+}
+
 /** Test-only: clear all registrations. */
 export function clearSyntaxMarkerFallbackRegistry(): void {
   syntaxMarkerFallbackRegistry.clear();
