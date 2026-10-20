@@ -181,9 +181,56 @@ function isTypeMatch(
 
   // Bidirectional assignability = exact match (handles aliases like `type MyNum = number`)
   return (
-    typeChecker.isTypeAssignableTo(fieldType, candidateType) &&
-    typeChecker.isTypeAssignableTo(candidateType, fieldType)
+    sameType(typeChecker, fieldType, candidateType) ||
+    isDefaultInstantiation(typeChecker, fieldType, candidateType) ||
+    isDefaultInstantiation(typeChecker, candidateType, fieldType)
   );
+}
+
+function sameType(checker: ts.TypeChecker, a: ts.Type, b: ts.Type): boolean {
+  return checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a);
+}
+
+/**
+ * Is `inst` the default instantiation of the generic declared type
+ * `declared`? `/** @impl Clone<Feature> *\/` names `interface Feature<G =
+ * Geometry, P = Props>` bare, and the scanner resolves a bare name to the
+ * declared type `Feature<G, P>` (which HKT instances such as `@impl
+ * FlatMap<Box>` rely on), while a value typed `Feature` has
+ * `Feature<Geometry, Props>`: TypeScript reads the bare name as its
+ * defaults. Only for a generic whose type parameters ALL have defaults, and
+ * only when every argument of `inst` is its parameter's default.
+ */
+function isDefaultInstantiation(
+  checker: ts.TypeChecker,
+  inst: ts.Type,
+  declared: ts.Type
+): boolean {
+  const sym = declared.aliasSymbol ?? declared.symbol;
+  if (!sym || inst === declared) return false;
+  const decl = sym.declarations?.find(
+    (d): d is ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration =>
+      (ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d) || ts.isClassDeclaration(d)) &&
+      (d.typeParameters?.length ?? 0) > 0
+  );
+  const params = decl?.typeParameters;
+  if (!params || !params.every((tp) => tp.default)) return false;
+  try {
+    if (checker.getDeclaredTypeOfSymbol(sym) !== declared) return false;
+    const args =
+      inst.aliasSymbol === sym
+        ? inst.aliasTypeArguments
+        : !declared.aliasSymbol && inst.symbol === sym && (inst as ts.TypeReference).target
+          ? checker.getTypeArguments(inst as ts.TypeReference)
+          : undefined;
+    // A class/interface reference may carry its `this` type as a last argument.
+    if (!args || args.length < params.length) return false;
+    return params.every((tp, i) =>
+      sameType(checker, args[i], checker.getTypeFromTypeNode(tp.default!))
+    );
+  } catch {
+    return false; // a declaration the checker can't resolve: no match
+  }
 }
 
 // ============================================================================
