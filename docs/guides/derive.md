@@ -106,9 +106,38 @@ summon<Ord<Version>>().compare(v1, v2); // -1 (less than)
 v1 < v2; // true (operator overloading)
 ```
 
-### Clone — Shallow Copy
+### Clone — Field-Wise Copy
 
-A shallow spread copy, `({ ...a })`, for product and sum types alike. It copies every own enumerable property: an optional field that is absent stays absent, and properties the type doesn't declare are kept. Nested objects are shared, not copied, and the result is a plain object, not a class instance (`c2 instanceof Config` is false).
+Like Rust's `#[derive(Clone)]`: each field is cloned through its own `Clone`, so mutating the clone never changes the original.
+
+| Field type                                      | How it is copied                                                                                                      |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Primitives, literals, enums, functions          | As is                                                                                                                 |
+| Arrays, readonly arrays, tuples                 | Element by element (`xs.slice()`, `xs.map((e) => ...)`)                                                               |
+| `Date`, `Map`, `Set`, `RegExp`, typed arrays    | Into a new one (a `Map`'s keys are kept, its values cloned)                                                           |
+| A type with a `Clone` instance in scope         | Through that instance (`Address.Clone.clone(a.address)`, or your `@impl`)                                             |
+| Any other object type, or a discriminated union | Structurally, by these same rules, inlined (a union per variant)                                                      |
+| `any`, `unknown`, `object`, type parameters     | By reference: there is no type to clone by. A `Clone<any>`/`Clone<unknown>` instance in scope is used if there is one |
+| A class with no `Clone` instance                | By reference, with a warning: give it `@derive(Clone)` or an `@impl Clone<...>`                                       |
+
+The copy starts as a spread of the original and then sets the fields that need cloning, so an optional field that is absent stays absent, and properties the type doesn't declare are kept (by reference). The result is a plain object, not a class instance (`c2 instanceof Config` is false).
+
+```typescript
+interface Shape {
+  id: number;
+  points: number[][];
+  bbox?: [number, number, number, number];
+}
+summon<Clone<Shape>>();
+// Compiles to:
+// ({ clone: (a: Shape): Shape => ({
+//   ...a,
+//   points: a.points.map(e => e.slice()),
+//   ...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }),
+// }) })
+```
+
+A discriminated union becomes a `switch` on its discriminant, and a type that contains itself (a tree, or GeoJSON's `GeometryCollection` inside `Geometry`) becomes a local helper that calls itself; derivation itself never loops. A _value_ that contains itself (a cycle such as `node.parent.child === node`) is cloned until the stack overflows, as any field-wise clone would be; give such a type a hand-written `Clone`.
 
 ```typescript
 @derive(Clone)
@@ -399,7 +428,7 @@ class Person {
 const p1 = new Person("Alice", new Address("NYC", "10001"));
 const p2 = summon<Clone<Person>>().clone(p1);
 summon<Eq<Person>>().equals(p1, p2); // true
-p2.address === p1.address; // true — Clone is shallow, so the Address is shared
+p2.address === p1.address; // false — the Address is cloned through Address.Clone
 ```
 
 ## Generic Types

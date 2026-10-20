@@ -71,6 +71,9 @@ import type { MacroContext } from "@typesugar/core";
 import { isSyntheticNode } from "@typesugar/core";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
 import type { ResolutionAttempt } from "@typesugar/core";
+// Static: instance-resolver imports nothing from this module, so there is no
+// cycle (a lazy require() of it doesn't resolve when tests run the sources).
+import { resolveInstance, buildInstanceReference } from "./instance-resolver.js";
 
 /**
  * Parse cached/generated derivation text (the string cache contract — see the
@@ -230,10 +233,11 @@ export function hasGenericDerivation(typeclassName: string): boolean {
  * shape changes, so persisted derivations from an older version (e.g. an
  * `Ord` instance with only `compare`) are never served again.
  */
-const DERIVATION_OUTPUT_FORMAT = 3;
+const DERIVATION_OUTPUT_FORMAT = 4;
 
 interface DerivationCaches {
-  mirror: Map<ts.Symbol, GenericMeta | false>;
+  /** Keyed by the type's symbol, or by the concrete type when one was given. */
+  mirror: Map<ts.Symbol | ts.Type, GenericMeta | false>;
   derivation: Map<string, string>;
 }
 
@@ -269,6 +273,8 @@ interface MirrorTypes {
   fieldTypes: ts.Type[];
   optional: boolean[];
   variantTypes?: ts.Type[];
+  /** The type the mirror describes (the product, or the union for a sum). */
+  self: ts.Type;
 }
 
 const mirrorTypes = new WeakMap<GenericMeta, MirrorTypes>();
@@ -280,6 +286,14 @@ const mirrorTypes = new WeakMap<GenericMeta, MirrorTypes>();
  * cache, whose key is structural only.
  */
 let scopeDependence = 0;
+
+/**
+ * Incremented when a derivation's output depends on more than the top-level
+ * field type text in the disk-cache key: a nested type's structure, an
+ * alias's target (field-wise Clone). Such output is not written to the disk
+ * cache.
+ */
+let structureDependence = 0;
 
 // ============================================================================
 // Compile-Time Derivation (used by summon macro)
@@ -338,13 +352,20 @@ function declKey(sym: ts.Symbol | undefined, typeName: string): string {
  * @param ctx - The macro context
  * @param typeclassName - The typeclass to derive (e.g., "Show", "Read")
  * @param typeName - The type to derive for (e.g., "User")
+ * @param node - The type's declaration, when deriving for one (`@derive`)
+ * @param concreteType - The type `typeName` denotes at the request site, when
+ *   it differs from the symbol's declared type: `summon<Clone<Feature>>()` on
+ *   `interface Feature<G = Geometry, P = Props>` means `Feature<Geometry,
+ *   Props>`, while the declared type is `Feature<G, P>`, whose fields are
+ *   type parameters.
  * @returns DerivationResult with expression (if successful) and trace (always)
  */
 export function tryDeriveViaGeneric(
   ctx: MacroContext,
   typeclassName: string,
   typeName: string,
-  node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+  node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+  concreteType?: ts.Type
 ): DerivationResult {
   const trace: ResolutionAttempt[] = [];
 
@@ -382,7 +403,9 @@ export function tryDeriveViaGeneric(
   }
 
   // L1 fast path: return in-memory cached derivation
-  const memKey = `${ctx.sourceFile.fileName}\0${typeclassName}\0${declKey(typeSymbol, typeName)}`;
+  const memKey =
+    `${ctx.sourceFile.fileName}\0${typeclassName}\0${declKey(typeSymbol, typeName)}` +
+    (concreteType ? "\0concrete" : "");
   const memCached = caches.derivation.get(memKey);
   if (memCached !== undefined) {
     trace.push({
@@ -397,7 +420,8 @@ export function tryDeriveViaGeneric(
   // Step 2: Obtain GenericMeta
   let meta: GenericMeta | undefined | null = registeredMeta;
   if (!meta) {
-    const mirrorCached = typeSymbol ? caches.mirror.get(typeSymbol) : undefined;
+    const mirrorKey = concreteType ?? typeSymbol;
+    const mirrorCached = mirrorKey ? caches.mirror.get(mirrorKey) : undefined;
     if (mirrorCached === false || !typeSymbol) {
       trace.push({
         step: "generic-meta",
@@ -410,8 +434,8 @@ export function tryDeriveViaGeneric(
     if (mirrorCached) {
       meta = mirrorCached;
     } else {
-      meta = extractMetaFromSymbol(ctx, typeName, typeSymbol);
-      caches.mirror.set(typeSymbol, meta ?? false);
+      meta = extractMetaFromSymbol(ctx, typeName, typeSymbol, concreteType);
+      caches.mirror.set(mirrorKey!, meta ?? false);
       if (!meta) {
         trace.push({
           step: "generic-meta",
@@ -531,8 +555,12 @@ export function tryDeriveViaGeneric(
 
   // Generate the derivation code
   const before = scopeDependence;
+  const beforeStructure = structureDependence;
   const code = generateDerivationCode(strategy, ctx, typeName, meta);
   const dependsOnScope = scopeDependence !== before;
+  // Output that depends on nested types' structure isn't determined by the
+  // disk-cache key (top-level field type TEXT): in memory only.
+  const dependsOnStructure = structureDependence !== beforeStructure;
   if (!code) {
     trace.push({
       step: "code-generation",
@@ -549,7 +577,7 @@ export function tryDeriveViaGeneric(
   // reference without re-registering its import.
   if (!dependsOnScope) {
     caches.derivation.set(memKey, code);
-    if (diskCache && diskKey) diskCache.set(diskKey, code);
+    if (diskCache && diskKey && !dependsOnStructure) diskCache.set(diskKey, code);
   }
 
   trace.push({
@@ -646,10 +674,11 @@ function dataProperties(
 function extractMetaFromSymbol(
   ctx: MacroContext,
   typeName: string,
-  typeSymbol: ts.Symbol
+  typeSymbol: ts.Symbol,
+  concreteType?: ts.Type
 ): GenericMeta | null {
   const typeChecker = ctx.typeChecker;
-  const type = typeChecker.getDeclaredTypeOfSymbol(typeSymbol);
+  const type = concreteType ?? typeChecker.getDeclaredTypeOfSymbol(typeSymbol);
 
   // Discriminated union (sum type): EVERY member must carry the same
   // string-literal discriminant. A union without one is not derivable —
@@ -701,6 +730,7 @@ function extractMetaFromSymbol(
       fieldTypes: common.map((p) => p.type),
       optional: common.map((p) => p.optional),
       variantTypes: [...unionTypes],
+      self: type,
     });
     return meta;
   }
@@ -717,6 +747,7 @@ function extractMetaFromSymbol(
   mirrorTypes.set(meta, {
     fieldTypes: props.map((p) => p.type),
     optional: props.map((p) => p.optional),
+    self: type,
   });
   return meta;
 }
@@ -838,11 +869,11 @@ function fieldInstanceRef(
   tc: string,
   t: ts.Type,
   /** Only check availability: no import is injected, scope use not recorded. */
-  probe = false
+  probe = false,
+  /** Look up `t` as written, `null`/`undefined` included (default: its non-nullish part). */
+  exact = false
 ): string | undefined {
-  const { resolveInstance, buildInstanceReference } =
-    require("./instance-resolver.js") as typeof import("./instance-resolver.js");
-  const base = splitNullable(ctx, t).base;
+  const base = exact ? t : splitNullable(ctx, t).base;
   try {
     const r = resolveInstance(ctx, tc, base);
     if (r && r.kind === "resolved") {
@@ -1255,17 +1286,609 @@ registerGenericDerivation("Hash", {
   },
 });
 
-// Clone derivation via Generic.
+// ============================================================================
+// Clone derivation via Generic: field-wise, like Rust's #[derive(Clone)]
+// ============================================================================
 //
-// A shallow clone is a spread, `{ ...a }`, for products and sums alike: it
-// copies every own enumerable property, so an absent optional field stays
-// absent and properties the type doesn't declare (GeoJSON "foreign members",
-// say) are kept. Listing the declared fields instead (`{ x: a.x, ... }`, the
-// previous output) added `bbox: undefined` keys for absent optional fields and
-// dropped undeclared ones, and there was no sum-type strategy at all, although
-// Clone advertises one (canDeriveSum) and the docs promise it.
-const cloneBySpread = (typeName: string): string =>
-  `({ clone: (a: ${typeName}): ${typeName} => ({ ...a }) })`;
+// Each field is cloned through its own Clone: primitives (and functions) are
+// copied as they are, arrays and tuples element by element, Date/Map/Set into
+// new ones, a type with a Clone instance in scope (`@impl`, or a `@derive`
+// companion) through that instance, and any other object type or
+// discriminated union structurally, by these same rules, in place. `any`,
+// `unknown`, `object` and type parameters name no type to clone by, so they
+// are copied by reference (an in-scope `Clone<any>`/`Clone<unknown>` instance
+// is used if there is one).
+//
+// The copy starts as a spread, `{ ...a }`, and overrides only the fields that
+// need cloning. So an absent optional field stays absent (it is overridden
+// only when present: `...(a.bbox && { bbox: ... })`), and properties the type
+// doesn't declare (GeoJSON "foreign members") are kept, by reference.
+//
+// A discriminated union becomes a local helper with a `switch`, and so does a
+// type that contains itself (found when its own clone is being generated, so
+// derivation never recurses forever); the instance is then an IIFE that
+// declares the helpers. Nothing is looked up at run time: an instance in
+// scope is referenced directly, and everything else is inlined.
+
+/** Lib types copied with a known expression (anything else from the lib: as is). */
+const CLONE_TYPED_ARRAYS = new Set([
+  "Int8Array",
+  "Uint8Array",
+  "Uint8ClampedArray",
+  "Int16Array",
+  "Uint16Array",
+  "Int32Array",
+  "Uint32Array",
+  "Float16Array",
+  "Float32Array",
+  "Float64Array",
+  "BigInt64Array",
+  "BigUint64Array",
+]);
+
+/** Nested types inlined before giving up (a generic type that grows, `L<T[]>`). */
+const MAX_CLONE_DEPTH = 32;
+
+const ENTITY_NAME_RE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/;
+
+/** State for generating one Clone instance. */
+interface CloneGen {
+  ctx: MacroContext;
+  /** What the derivation is for, as the user wrote it (`Feature`). */
+  rootTypeName: string;
+  /** Hoisted helpers (`const cloneGeometry = <fn>;`), in creation order. */
+  helpers: Array<{ name: string; fn: string }>;
+  /** References to each helper in generated code. */
+  helperRefs: Map<string, number>;
+  /** Helper name per type: discriminated unions, and types that contain themselves. */
+  helperNames: Map<ts.Type, string>;
+  /** Product types whose inline clone is being generated (recursion detection). */
+  inProgress: ts.Type[];
+  /** Names that a generated name must not shadow (the user file's identifiers). */
+  taken: Set<string>;
+  /** Lambda nesting depth: parameters are `e`, `e1`, `e2`, ... */
+  depth: number;
+  /** Warnings already reported (each once). */
+  warned: Set<string>;
+  /** Type symbols visible in the user's file, by name (lazily computed). */
+  scopeTypes?: Map<string, ts.Symbol>;
+}
+
+function identifiersOf(sf: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isIdentifier(n)) out.add(n.text);
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
+}
+
+/** A call to helper `name` (counted, so an unreferenced root helper can be inlined). */
+function helperCall(g: CloneGen, name: string, x: string): string {
+  g.helperRefs.set(name, (g.helperRefs.get(name) ?? 0) + 1);
+  return `${name}(${x})`;
+}
+
+function cloneWarn(g: CloneGen, message: string): void {
+  if (g.warned.has(message)) return;
+  g.warned.add(message);
+  g.ctx.reportWarning(g.ctx.sourceFile, `derived Clone<${g.rootTypeName}>: ${message}`);
+}
+
+/** A name for a lambda parameter at the current depth (`e`, `e1`, ...; `k`, `v` for entries). */
+function lambdaName(g: CloneGen, base: string): string {
+  let name = g.depth === 0 ? base : `${base}${g.depth}`;
+  while (g.taken.has(name)) name = `${name}_`;
+  return name;
+}
+
+/**
+ * `(e) => <clone of e>`, or undefined when the element is copied as is. A
+ * clone that is just a helper call is passed point-free: `.map(cloneGeometry)`.
+ */
+function cloneLambda(g: CloneGen, elem: ts.Type, path: string): string | undefined {
+  const p = lambdaName(g, "e");
+  g.depth++;
+  let body: string | undefined;
+  try {
+    body = cloneValue(g, elem, p, path);
+  } finally {
+    g.depth--;
+  }
+  if (body === undefined) return undefined;
+  for (const helper of g.helperNames.values()) {
+    if (body === `${helper}(${p})`) return helper;
+  }
+  return `(${p}) => ${body.startsWith("{") ? `(${body})` : body}`;
+}
+
+/** `typeof x` when `x` can be named in a type query, else the type's path text. */
+function typeOfText(x: string, path: string): string {
+  return ENTITY_NAME_RE.test(x) ? `typeof ${x}` : path;
+}
+
+/** Every constituent is an object (so `x && f(x)` guards exactly null/undefined). */
+function isObjectOnly(t: ts.Type): boolean {
+  const notObject =
+    PRIMITIVE_FLAGS | ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter;
+  if (t.isUnion()) return t.types.every((m) => (m.flags & notObject) === 0);
+  return (t.flags & notObject) === 0;
+}
+
+function isArrayLike(ctx: MacroContext, t: ts.Type): boolean {
+  return arrayElementType(ctx, t) !== undefined || ctx.typeChecker.isTupleType(t);
+}
+
+/**
+ * `t` is an interface or class from TypeScript's default libs (`Date`, `Map`,
+ * `Promise`, ...). Lib type ALIASES (`Record`, `Partial`, `Readonly`) are
+ * not: they describe ordinary objects, cloned structurally.
+ */
+function isLibType(ctx: MacroContext, t: ts.Type): boolean {
+  const sym = t.symbol;
+  if (!sym || !(sym.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.Class))) return false;
+  const decl = sym.declarations?.[0];
+  return !!decl && ctx.program.isSourceFileDefaultLibrary(decl.getSourceFile());
+}
+
+/**
+ * `Clone` instance call for `t` from scope, or undefined. Registry shape
+ * (CLAUDE.md "Resolving things a macro just generated"): fieldInstanceRef goes
+ * through resolveInstance, which reads the live same-pass `getSynthesized`
+ * table, so a `@derive(Clone)` companion generated earlier in this pass is
+ * found; its `@derive` fallback reads the type's own declaration, which exists
+ * before the pass.
+ */
+function cloneInstanceCall(g: CloneGen, t: ts.Type, x: string, exact: boolean): string | undefined {
+  const ref = fieldInstanceRef(g.ctx, "Clone", t, false, exact);
+  return ref ? `${ref}.clone(${x})` : undefined;
+}
+
+/**
+ * Expression cloning `x` (of type `t`), or undefined when `x` is copied as is.
+ * `path` is a type expression for `t` that is valid in the user's file
+ * (`Feature["geometry"]`), used where the generated code needs to name `t`.
+ */
+function cloneValue(g: CloneGen, t: ts.Type, x: string, path: string): string | undefined {
+  const { ctx } = g;
+  if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+    // Nothing to clone by. An instance declared for `any`/`unknown` is used.
+    return cloneInstanceCall(g, t, x, true);
+  }
+  if (isPrimitiveLike(t)) return undefined;
+  const { base, nullable } = splitNullable(ctx, t);
+  if (!nullable) return cloneNonNull(g, t, x, path);
+  // An instance for the type as written, null included (`Clone<GeoJsonProperties>`
+  // for `{ [k: string]: any } | null`), wins over cloning the non-null part.
+  if (!isArrayLike(ctx, base)) {
+    const exact = cloneInstanceCall(g, t, x, true);
+    if (exact) return exact;
+  }
+  const inner = cloneNonNull(g, base, x, `NonNullable<${path}>`);
+  if (inner === undefined) return undefined;
+  return isObjectOnly(base) ? `${x} && ${inner}` : `${x} == null ? ${x} : ${inner}`;
+}
+
+/** {@link cloneValue} for a type that includes neither `null` nor `undefined`. */
+function cloneNonNull(g: CloneGen, t: ts.Type, x: string, path: string): string | undefined {
+  const { ctx } = g;
+  const checker = ctx.typeChecker;
+  if (isPrimitiveLike(t)) return undefined;
+  if (
+    t.flags &
+    (ts.TypeFlags.Any |
+      ts.TypeFlags.Unknown |
+      ts.TypeFlags.TypeParameter |
+      ts.TypeFlags.NonPrimitive |
+      ts.TypeFlags.Never)
+  ) {
+    // `any`/`unknown` reach here inside a union; `T` and `object` name no shape.
+    return t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+      ? cloneInstanceCall(g, t, x, true)
+      : undefined;
+  }
+  if (t.getCallSignatures().length > 0) return undefined; // functions: shared, like Rc
+
+  // Arrays and tuples: element-wise, through the element type's Clone.
+  const elem = arrayElementType(ctx, t);
+  if (elem) {
+    const fn = cloneLambda(g, elem, `${path}[number]`);
+    return fn === undefined ? `${x}.slice()` : `${x}.map(${fn})`;
+  }
+  if (checker.isTupleType(t)) return cloneTuple(g, t as ts.TupleTypeReference, x, path);
+
+  if (t.isUnion()) return cloneUnion(g, t, x, path);
+
+  // Built-in object types.
+  if (isLibType(ctx, t)) {
+    const name = t.symbol.name;
+    if (name === "Date") return `new Date(${x}.getTime())`;
+    if (name === "RegExp") return `new RegExp(${x})`;
+    if (name === "ArrayBuffer") return `${x}.slice(0)`;
+    if (CLONE_TYPED_ARRAYS.has(name)) return `${x}.slice()`;
+    const args = (t as ts.TypeReference).target
+      ? checker.getTypeArguments(t as ts.TypeReference)
+      : [];
+    if ((name === "Map" || name === "ReadonlyMap") && args.length === 2) {
+      // Keys are kept (a Map is looked up by key identity); values are cloned.
+      const k = lambdaName(g, "k");
+      const v = lambdaName(g, "v");
+      g.depth++;
+      let cv: string | undefined;
+      try {
+        cv = cloneValue(g, args[1], v, `${path} extends ReadonlyMap<any, infer V> ? V : never`);
+      } finally {
+        g.depth--;
+      }
+      return cv === undefined
+        ? `new Map(${x})`
+        : `new Map(Array.from(${x}, ([${k}, ${v}]) => [${k}, ${cv}] as const))`;
+    }
+    if ((name === "Set" || name === "ReadonlySet") && args.length === 1) {
+      const fn = cloneLambda(g, args[0], `${path} extends ReadonlySet<infer E> ? E : never`);
+      return fn === undefined ? `new Set(${x})` : `new Set(Array.from(${x}, ${fn}))`;
+    }
+    return undefined; // Promise, Error, WeakMap, ...: copied as is
+  }
+
+  // A Clone instance in scope (`@impl`, `@derive` companion) clones the type.
+  const viaInstance = cloneInstanceCall(g, t, x, false);
+  if (viaInstance) return viaInstance;
+
+  const sym = t.aliasSymbol ?? t.symbol;
+  if (sym && sym.flags & ts.SymbolFlags.Class) {
+    cloneWarn(
+      g,
+      `'${checker.typeToString(t)}' is a class with no Clone instance in scope, so it is ` +
+        `copied by reference. Give it one (@derive(Clone), or an @impl Clone<${sym.name}>) to clone it.`
+    );
+    return undefined;
+  }
+  return cloneProduct(g, t, x, path);
+}
+
+/** A tuple: a fixed one element by element, otherwise through `.slice()`/`.map`. */
+function cloneTuple(
+  g: CloneGen,
+  t: ts.TupleTypeReference,
+  x: string,
+  path: string
+): string | undefined {
+  const checker = g.ctx.typeChecker;
+  const elems = checker.getTypeArguments(t);
+  const fixed = t.target.elementFlags.every((f) => (f & ts.ElementFlags.Required) !== 0);
+  const cast = typeOfText(x, path);
+  if (fixed) {
+    const clones = elems.map((et, i) => cloneValue(g, et, `${x}[${i}]`, `${path}[${i}]`));
+    if (clones.every((c) => c === undefined)) return `${x}.slice() as ${cast}`;
+    return `[${clones.map((c, i) => c ?? `${x}[${i}]`).join(", ")}] as ${cast}`;
+  }
+  const union = elems.length === 1 ? elems[0] : undefined;
+  const fn = union
+    ? cloneLambda(g, union, `${path}[number]`)
+    : elems.every((et) => isPrimitiveLike(et))
+      ? undefined
+      : null;
+  if (fn === undefined) return `${x}.slice() as ${cast}`;
+  if (fn === null) {
+    cloneWarn(
+      g,
+      `a tuple with optional or rest elements of different types ('${checker.typeToString(t)}') ` +
+        `is copied with .slice(); its elements are not cloned.`
+    );
+    return `${x}.slice() as ${cast}`;
+  }
+  return `${x}.map(${fn}) as ${cast}`;
+}
+
+/** The property every member of `t` has with a string-literal type, if any. */
+function cloneDiscriminant(ctx: MacroContext, members: readonly ts.Type[]): string | undefined {
+  const checker = ctx.typeChecker;
+  const first = members[0];
+  if (!first) return undefined;
+  for (const p of first.getProperties()) {
+    const ok = members.every((m) => {
+      const prop = m.getProperty(p.name);
+      if (!prop) return false;
+      return checker
+        .getTypeOfSymbolAtLocation(prop, prop.valueDeclaration ?? ctx.sourceFile)
+        .isStringLiteral();
+    });
+    if (ok) return p.name;
+  }
+  return undefined;
+}
+
+/** A union without null/undefined that has at least one non-primitive member. */
+function cloneUnion(g: CloneGen, t: ts.UnionType, x: string, path: string): string | undefined {
+  const { ctx } = g;
+  const prims = t.types.filter((m) => isPrimitiveLike(m));
+  const objs = t.types.filter((m) => !isPrimitiveLike(m));
+  if (objs.length === 0) return undefined;
+  if (objs.length === 1) {
+    const inner = cloneNonNull(g, objs[0], x, path);
+    if (inner === undefined) return undefined;
+    return prims.length > 0 ? `typeof ${x} === "object" ? ${inner} : ${x}` : inner;
+  }
+  // `[n, n, n, n] | [n, n, n, n, n, n]` (GeoJSON's BBox), `A[] | B[]`.
+  if (objs.every((m) => isArrayLike(ctx, m))) {
+    const elementsAsIs = objs.every((m) => {
+      const elem = arrayElementType(ctx, m);
+      const elems = elem ? [elem] : ctx.typeChecker.getTypeArguments(m as ts.TypeReference);
+      return elems.every((e) => isPrimitiveLike(e));
+    });
+    if (elementsAsIs) {
+      const copy = `${x}.slice() as ${typeOfText(x, path)}`;
+      return prims.length > 0 ? `Array.isArray(${x}) ? ${copy} : ${x}` : copy;
+    }
+  } else if (prims.length === 0) {
+    const helper = cloneSumHelper(g, t, path);
+    if (helper) return helperCall(g, helper, x);
+  }
+  cloneWarn(
+    g,
+    `values of type '${ctx.typeChecker.typeToString(t)}' (a union of object types with no ` +
+      `string-literal discriminant) are copied by reference.`
+  );
+  return undefined;
+}
+
+/** A type expression for `t` in the user's file: its own name if that is in scope, else `path`. */
+function cloneTypeText(g: CloneGen, t: ts.Type, path: string): string {
+  const checker = g.ctx.typeChecker;
+  const sym = t.aliasSymbol ?? t.symbol;
+  const name = sym?.name;
+  if (!name || !IDENT_RE.test(name) || name.startsWith("__")) return path;
+  // An instantiation (`GeometryCollection<Geometry>`): the bare name may mean
+  // a different instantiation, so name it by its path.
+  const typeArgs = t.aliasSymbol
+    ? t.aliasTypeArguments
+    : (t as ts.TypeReference).target
+      ? checker.getTypeArguments(t as ts.TypeReference)
+      : undefined;
+  if (typeArgs?.length) return path;
+  if (!g.scopeTypes) {
+    g.scopeTypes = new Map();
+    try {
+      for (const s of checker.getSymbolsInScope(
+        g.ctx.sourceFile,
+        ts.SymbolFlags.Type | ts.SymbolFlags.Alias
+      )) {
+        if (!g.scopeTypes.has(s.name)) g.scopeTypes.set(s.name, s);
+      }
+    } catch {
+      /* no scope information: use paths */
+    }
+  }
+  let inScope = g.scopeTypes.get(name);
+  if (inScope && inScope.flags & ts.SymbolFlags.Alias) {
+    try {
+      inScope = checker.getAliasedSymbol(inScope);
+    } catch {
+      return path;
+    }
+  }
+  return inScope === sym ? name : path;
+}
+
+function cloneHelperName(g: CloneGen, t: ts.Type, path: string): string {
+  const sym = t.aliasSymbol ?? t.symbol;
+  let stem = sym?.name && IDENT_RE.test(sym.name) && !sym.name.startsWith("__") ? sym.name : "";
+  if (!stem) {
+    const m = /\["([A-Za-z_$][\w$]*)"\][^[]*$/.exec(path);
+    stem = m ? m[1] : "Value";
+  }
+  let name = `clone${stem.charAt(0).toUpperCase()}${stem.slice(1)}`;
+  for (let n = 2; g.taken.has(name); n++)
+    name = `clone${stem.charAt(0).toUpperCase()}${stem.slice(1)}${n}`;
+  g.taken.add(name);
+  return name;
+}
+
+/**
+ * A discriminated union's clone as a helper, `const cloneX = (a: X): X => {
+ * switch (a.type) { ... } }`, with one `case` group per distinct variant body.
+ * Registered before its body is generated, so a variant that contains the
+ * union (a GeometryCollection's `geometries`) calls the helper.
+ */
+function cloneSumHelper(g: CloneGen, t: ts.UnionType, path: string): string | undefined {
+  const existing = g.helperNames.get(t);
+  if (existing) return existing;
+  const disc = cloneDiscriminant(g.ctx, t.types);
+  if (!disc) return undefined;
+  const name = cloneHelperName(g, t, path);
+  g.helperNames.set(t, name);
+  const typeText = cloneTypeText(g, t, path);
+  const savedDepth = g.depth;
+  g.depth = 0;
+  const groups: Array<{ tags: string[]; body: string }> = [];
+  try {
+    for (const v of t.types) {
+      const prop = v.getProperty(disc)!;
+      const tag = (
+        g.ctx.typeChecker.getTypeOfSymbolAtLocation(
+          prop,
+          prop.valueDeclaration ?? g.ctx.sourceFile
+        ) as ts.StringLiteralType
+      ).value;
+      const vPath = `Extract<${typeText}, { ${objKey(disc)}: ${JSON.stringify(tag)} }>`;
+      const body = cloneProduct(g, v, "a", vPath);
+      const group = groups.find((gr) => gr.body === body);
+      if (group) group.tags.push(tag);
+      else groups.push({ tags: [tag], body });
+    }
+  } finally {
+    g.depth = savedDepth;
+  }
+  const cases = groups
+    .map(
+      (gr) => `${gr.tags.map((tag) => `case ${JSON.stringify(tag)}:`).join(" ")} return ${gr.body};`
+    )
+    .join(" ");
+  g.helpers.push({
+    name,
+    fn: `(a: ${typeText}): ${typeText} => { switch (${access("a", disc)}) { ${cases} } }`,
+  });
+  return name;
+}
+
+/**
+ * An object type: `{ ...x, f: <clone of x.f>, ... }`, inline; or a call to a
+ * helper when the type contains itself.
+ */
+function cloneProduct(g: CloneGen, t: ts.Type, x: string, path: string): string {
+  const helper = g.helperNames.get(t);
+  if (helper) return helperCall(g, helper, x);
+  if (g.inProgress.includes(t)) {
+    // `t` contains itself: its clone becomes a helper, which the outermost
+    // frame for `t` emits once this frame's body is done.
+    const name = cloneHelperName(g, t, path);
+    g.helperNames.set(t, name);
+    return helperCall(g, name, x);
+  }
+  if (g.inProgress.length >= MAX_CLONE_DEPTH) {
+    cloneWarn(
+      g,
+      `types nest more than ${MAX_CLONE_DEPTH} deep at '${g.ctx.typeChecker.typeToString(t)}'; ` +
+        `it is copied with a spread, and its fields are not cloned.`
+    );
+    return `{ ...${x} }`;
+  }
+  g.inProgress.push(t);
+  let body: string;
+  try {
+    body = cloneProductBody(g, t, x, path);
+  } finally {
+    g.inProgress.pop();
+  }
+  const name = g.helperNames.get(t);
+  if (!name) return body;
+  // Recursive: emit the helper (its body now calls `name` where `t` recurs).
+  const typeText = cloneTypeText(g, t, path);
+  const savedDepth = g.depth;
+  g.depth = 0;
+  g.inProgress.push(t);
+  try {
+    const helperBody = cloneProductBody(g, t, "a", path);
+    g.helpers.push({ name, fn: `(a: ${typeText}): ${typeText} => (${helperBody})` });
+  } finally {
+    g.inProgress.pop();
+    g.depth = savedDepth;
+  }
+  return helperCall(g, name, x);
+}
+
+function cloneProductBody(g: CloneGen, t: ts.Type, x: string, path: string): string {
+  const { ctx } = g;
+  const checker = ctx.typeChecker;
+  const parts: string[] = [`...${x}`];
+  const props = dataProperties(ctx, t, false);
+  for (const p of props) {
+    const acc = access(x, p.name);
+    const pPath = `${path}[${JSON.stringify(p.name)}]`;
+    if (p.optional) {
+      // Overridden only when present, so an absent field stays absent.
+      const present = checker.getNonNullableType(p.type);
+      const inner = cloneValue(g, present, acc, `NonNullable<${pPath}>`);
+      if (inner === undefined) continue;
+      const guard = isObjectOnly(present) ? acc : `${acc} != null`;
+      parts.push(`...(${guard} && { ${objKey(p.name)}: ${inner} })`);
+      continue;
+    }
+    const c = cloneValue(g, p.type, acc, pPath);
+    if (c !== undefined) parts.push(`${objKey(p.name)}: ${c}`);
+  }
+  if (props.length === 0) {
+    // `{ [k: string]: V }` / `Record<string, V>`: values cloned through V's Clone.
+    const index = checker.getIndexInfosOfType(t).find((i) => i.keyType.flags & ts.TypeFlags.String);
+    if (index) {
+      const k = lambdaName(g, "k");
+      const v = lambdaName(g, "v");
+      g.depth++;
+      let cv: string | undefined;
+      try {
+        cv = cloneValue(g, index.type, v, `${path}[string]`);
+      } finally {
+        g.depth--;
+      }
+      if (cv !== undefined) {
+        return `Object.fromEntries(Object.entries(${x}).map(([${k}, ${v}]) => [${k}, ${cv}]))`;
+      }
+    }
+  }
+  return `{ ${parts.join(", ")} }`;
+}
+
+/** Field-wise clone from type STRINGS (registered GenericMeta without ts.Types). */
+function cloneFromText(ft: string, x: string, depth: number): string | undefined {
+  const stripped = stripNullableText(ft);
+  if (PRIMITIVE_NAMES.has(stripped)) return undefined;
+  const m =
+    /^(?:readonly\s+)?(.+)\[\]$/.exec(stripped) ?? /^(?:Readonly)?Array<(.+)>$/.exec(stripped);
+  if (!m) return undefined; // nothing known about the type: copied as is
+  const p = depth === 0 ? "e" : `e${depth}`;
+  const inner = cloneFromText(m[1].trim(), p, depth + 1);
+  return inner === undefined ? `${x}.slice()` : `${x}.map((${p}) => ${inner})`;
+}
+
+function deriveClone(ctx: MacroContext, typeName: string, meta: GenericMeta): string | null {
+  const types = mirrorTypes.get(meta);
+  if (!types) {
+    if (meta.kind !== "product" || !meta.fieldNames || !meta.fieldTypes) return null;
+    const parts = ["...a"];
+    meta.fieldNames.forEach((name, i) => {
+      const acc = access("a", name);
+      const c = cloneFromText(meta.fieldTypes![i], acc, 0);
+      if (c === undefined) return;
+      // Optionality is unknown here: override only when present.
+      parts.push(
+        stripNullableText(meta.fieldTypes![i]) === meta.fieldTypes![i].trim()
+          ? `${objKey(name)}: ${c}`
+          : `...(${acc} && { ${objKey(name)}: ${c} })`
+      );
+    });
+    if (parts.length > 1) structureDependence++;
+    return `({ clone: (a: ${typeName}): ${typeName} => ({ ${parts.join(", ")} }) })`;
+  }
+
+  const g: CloneGen = {
+    ctx,
+    rootTypeName: typeName,
+    helpers: [],
+    helperRefs: new Map(),
+    helperNames: new Map(),
+    inProgress: [],
+    taken: identifiersOf(ctx.sourceFile),
+    depth: 0,
+    warned: new Set(),
+  };
+  const root = types.self;
+  // The instance's `clone` member: an arrow function, or a helper's name.
+  let member: string;
+  if (meta.kind === "sum") {
+    if (!root.isUnion()) return null;
+    const helper = cloneSumHelper(g, root, typeName);
+    if (!helper) return null;
+    member = helper;
+  } else {
+    const expr = cloneProduct(g, root, "a", typeName);
+    member = g.helperNames.get(root) ?? `(a: ${typeName}): ${typeName} => (${expr})`;
+  }
+  // A helper referenced only as the member (a union that doesn't contain
+  // itself) is the member itself: `({ clone: (a: T): T => { switch ... } })`.
+  const own = g.helpers.find((h) => h.name === member);
+  if (own && !g.helperRefs.get(own.name)) {
+    g.helpers.splice(g.helpers.indexOf(own), 1);
+    member = own.fn;
+  }
+  const code =
+    g.helpers.length > 0
+      ? `(() => { ${g.helpers.map((h) => `const ${h.name} = ${h.fn};`).join(" ")} return { clone: ${member} }; })()`
+      : `({ clone: ${member} })`;
+  if (code !== `({ clone: (a: ${typeName}): ${typeName} => ({ ...a }) })`) structureDependence++;
+  return code;
+}
 
 registerGenericDerivation("Clone", {
   typeclassName: "Clone",
@@ -1273,14 +1896,14 @@ registerGenericDerivation("Clone", {
 
   hasFieldInstance: () => true,
 
-  deriveProduct(_ctx, typeName, meta) {
+  deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
-    return cloneBySpread(typeName);
+    return deriveClone(ctx, typeName, meta);
   },
 
-  deriveSum(_ctx, typeName, meta) {
+  deriveSum(ctx, typeName, meta) {
     if (!meta.variants) return null;
-    return cloneBySpread(typeName);
+    return deriveClone(ctx, typeName, meta);
   },
 });
 

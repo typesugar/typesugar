@@ -2422,6 +2422,40 @@ function summonTargetType(ctx: MacroContext, innerType: ts.TypeNode): ts.Type {
   return checker.getTypeFromTypeNode(innerType);
 }
 
+/**
+ * `Feature` written with no type arguments, for `interface Feature<G =
+ * Geometry, P = Props>`, means `Feature<Geometry, Props>` to TypeScript. The
+ * derivation would otherwise mirror the declared type `Feature<G, P>`, whose
+ * fields are the type parameters. Returns that defaulted type for a bare
+ * reference to a generic type whose type parameters ALL have defaults (a
+ * generic without defaults, `Box<A>`, can't be written bare, so it keeps the
+ * declared-type behaviour), else undefined.
+ */
+function defaultedGenericType(ctx: MacroContext, typeNode: ts.TypeNode): ts.Type | undefined {
+  if (!ts.isTypeReferenceNode(typeNode) || typeNode.typeArguments?.length) return undefined;
+  if (isSyntheticNode(typeNode)) return undefined; // outside the checker's contract
+  try {
+    let sym = ctx.typeChecker.getSymbolAtLocation(typeNode.typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = ctx.typeChecker.getAliasedSymbol(sym);
+    const generic = sym?.declarations?.find(
+      (d): d is ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration =>
+        (ts.isInterfaceDeclaration(d) ||
+          ts.isTypeAliasDeclaration(d) ||
+          ts.isClassDeclaration(d)) &&
+        (d.typeParameters?.length ?? 0) > 0
+    );
+    if (!generic || !generic.typeParameters!.every((tp) => tp.default)) return undefined;
+    return ctx.typeChecker.getTypeFromTypeNode(typeNode);
+  } catch (e) {
+    ctx.reportWarning(
+      typeNode,
+      `could not resolve the default type arguments of '${typeNode.getText()}' ` +
+        `(${e instanceof Error ? e.message : String(e)}); deriving for its declared type.`
+    );
+    return undefined;
+  }
+}
+
 /** If `typeNode` names a type parameter in scope (`A` in `Show<A>`), its name. */
 function typeParameterName(ctx: MacroContext, typeNode: ts.TypeNode): string | undefined {
   if (!ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) return undefined;
@@ -2542,7 +2576,13 @@ export function summonInstanceExpression(
   try {
     const { tryDeriveViaGeneric } =
       require("./auto-derive.js") as typeof import("./auto-derive.js");
-    derivationResult = tryDeriveViaGeneric(ctx, tcName, typeName);
+    derivationResult = tryDeriveViaGeneric(
+      ctx,
+      tcName,
+      typeName,
+      undefined,
+      defaultedGenericType(ctx, innerType)
+    );
   } catch {
     derivationResult = {
       expression: null,

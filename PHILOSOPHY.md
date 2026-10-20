@@ -251,7 +251,7 @@ interface Point {
 
 p1 === p2; // Auto-derived: p1.x === p2.x && p1.y === p2.y
 p1.show(); // Auto-derived: `Point(x = ${p1.x}, y = ${p1.y})`
-p1.clone(); // Auto-derived: { x: p1.x, y: p1.y }
+p1.clone(); // Auto-derived: ({ ...p1 }), each field cloned through its own Clone
 ```
 
 `@derive(Eq, Show, Clone)` still exists, but its role is **documentation**, not activation. It says "this type supports these capabilities" to human readers. The compiler would derive them anyway.

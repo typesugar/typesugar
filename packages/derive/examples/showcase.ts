@@ -73,8 +73,9 @@ assert(sorted[2] === v110);
 // 3. Clone DERIVE — Deep copying
 // ============================================================================
 
-// @derive(Clone) generates a function that creates a new object
-// with the same field values (shallow copy of each field).
+// @derive(Clone) generates a function that creates a new object, cloning
+// each field through its own Clone (arrays element by element, nested
+// objects recursively), like Rust's #[derive(Clone)].
 
 @derive(Clone)
 interface Color {

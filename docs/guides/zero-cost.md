@@ -80,7 +80,7 @@ class Point {
   };
 })(Point || (Point = {}));
 (function (Point) {
-  Point.Clone = { clone: (a) => ({ x: a.x, y: a.y }) };
+  Point.Clone = { clone: (a) => ({ ...a }) };
 })(Point || (Point = {}));
 const a = new Point(1, 2);
 const b = new Point(1, 2);
