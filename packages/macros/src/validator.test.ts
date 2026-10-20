@@ -166,3 +166,33 @@ describe("validator<T>() unsupported field types", () => {
     expect(validate({ g: 1, both: 5, x: 1 }).success).toBe(false);
   });
 });
+
+// Turf case study (Stage 1): `validator<string | number>()` emitted an
+// object-shape validator (`typeof value !== "object"` → fail, then a check per
+// apparent member: toString, valueOf, toLocaleString), so it rejected every
+// string and number it was written to accept.
+describe("validator<T>() on a non-object T", () => {
+  it("validates a primitive union by its members", () => {
+    const { validate } = buildValidator(`export const v = validator<string | number>();`);
+    expect(validate("a")).toEqual({ success: true, value: "a" });
+    expect(validate(1)).toEqual({ success: true, value: 1 });
+    const r = validate({});
+    expect(r.success).toBe(false);
+    expect((r as { errors: string[] }).errors).toEqual(["Expected string | number, got object"]);
+    expect(validate(null).success).toBe(false);
+  });
+
+  it("validates a primitive and literal unions", () => {
+    expect(buildValidator(`export const v = validator<number>();`).validate(2).success).toBe(true);
+    expect(buildValidator(`export const v = validator<number>();`).validate("2").success).toBe(
+      false
+    );
+    const lit = buildValidator(`export const v = validator<"a" | "b">();`).validate;
+    expect(lit("b").success).toBe(true);
+    expect(lit("c").success).toBe(false);
+    const opt = buildValidator(`export const v = validator<boolean | undefined>();`).validate;
+    expect(opt(undefined).success).toBe(true);
+    expect(opt(false).success).toBe(true);
+    expect(opt(0).success).toBe(false);
+  });
+});

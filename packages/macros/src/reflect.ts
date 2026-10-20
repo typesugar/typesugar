@@ -615,7 +615,25 @@ export const validatorMacro = defineExpressionMacro({
 
     const checker = ctx.typeChecker;
     const type = checker.getTypeFromTypeNode(typeArgs[0]);
-    const properties = checker.getPropertiesOfType(type);
+
+    // A primitive or literal T (`string | number`, `"a" | "b"`, `boolean |
+    // undefined`) is checked as a whole, below. The object path would demand
+    // `typeof value === "object"` and then check T's apparent members
+    // (toString, valueOf, ...), so it rejected every value T allows.
+    const PRIMITIVE_FLAGS =
+      ts.TypeFlags.StringLike |
+      ts.TypeFlags.NumberLike |
+      ts.TypeFlags.BooleanLike |
+      ts.TypeFlags.BigIntLike |
+      ts.TypeFlags.ESSymbolLike |
+      ts.TypeFlags.EnumLike |
+      ts.TypeFlags.Null |
+      ts.TypeFlags.Undefined |
+      ts.TypeFlags.Void;
+    const topIsPrimitive = (type.isUnion() ? type.types : [type]).every(
+      (m) => (m.flags & PRIMITIVE_FLAGS) !== 0
+    );
+    const properties = topIsPrimitive ? [] : checker.getPropertiesOfType(type);
 
     const valueId = () => factory.createIdentifier("value");
     const or = (l: ts.Expression, r: ts.Expression) =>
@@ -839,6 +857,76 @@ export const validatorMacro = defineExpressionMacro({
       ]),
     ]);
 
+    // "Expected <what>, got " + (value === null ? "null" : typeof value)
+    const expectedGot = (what: string) =>
+      factory.createBinaryExpression(
+        factory.createStringLiteral(`Expected ${what}, got `),
+        factory.createToken(ts.SyntaxKind.PlusToken),
+        factory.createParenthesizedExpression(
+          factory.createConditionalExpression(
+            strictEq(valueId(), factory.createNull()),
+            factory.createToken(ts.SyntaxKind.QuestionToken),
+            factory.createStringLiteral("null"),
+            factory.createToken(ts.SyntaxKind.ColonToken),
+            factory.createTypeOfExpression(valueId())
+          )
+        )
+      );
+
+    // Primitive / literal T: one check of the whole value.
+    const primitiveFail = topIsPrimitive ? failCheck(type, valueId) : undefined;
+    const primitiveChecks: ts.Statement[] =
+      primitiveFail && primitiveFail !== "any"
+        ? [
+            factory.createIfStatement(
+              primitiveFail,
+              factory.createBlock([
+                factory.createExpressionStatement(
+                  factory.createCallExpression(
+                    factory.createPropertyAccessExpression(
+                      factory.createIdentifier("errors"),
+                      "push"
+                    ),
+                    undefined,
+                    [expectedGot(checker.typeToString(type))]
+                  )
+                ),
+              ])
+            ),
+          ]
+        : [];
+
+    // Object T: if (typeof value !== "object" || value === null) return failure
+    const objectGuard = factory.createIfStatement(
+      factory.createBinaryExpression(
+        factory.createBinaryExpression(
+          factory.createTypeOfExpression(factory.createIdentifier("value")),
+          factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
+          factory.createStringLiteral("object")
+        ),
+        factory.createToken(ts.SyntaxKind.BarBarToken),
+        factory.createBinaryExpression(
+          factory.createIdentifier("value"),
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          factory.createNull()
+        )
+      ),
+      factory.createBlock([
+        factory.createReturnStatement(
+          factory.createObjectLiteralExpression(
+            [
+              factory.createPropertyAssignment("success", factory.createFalse()),
+              factory.createPropertyAssignment(
+                "errors",
+                factory.createArrayLiteralExpression([expectedGot("object")])
+              ),
+            ],
+            true
+          )
+        ),
+      ])
+    );
+
     // Build the validator function
     return factory.createArrowFunction(
       undefined,
@@ -873,51 +961,7 @@ export const validatorMacro = defineExpressionMacro({
               ts.NodeFlags.Const
             )
           ),
-          // Type check: if (typeof value !== "object" || value === null)
-          factory.createIfStatement(
-            factory.createBinaryExpression(
-              factory.createBinaryExpression(
-                factory.createTypeOfExpression(factory.createIdentifier("value")),
-                factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-                factory.createStringLiteral("object")
-              ),
-              factory.createToken(ts.SyntaxKind.BarBarToken),
-              factory.createBinaryExpression(
-                factory.createIdentifier("value"),
-                factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-                factory.createNull()
-              )
-            ),
-            factory.createBlock([
-              factory.createReturnStatement(
-                factory.createObjectLiteralExpression(
-                  [
-                    factory.createPropertyAssignment("success", factory.createFalse()),
-                    factory.createPropertyAssignment(
-                      "errors",
-                      // ["Expected object, got " + (value === null ? "null" : typeof value)]
-                      factory.createArrayLiteralExpression([
-                        factory.createBinaryExpression(
-                          factory.createStringLiteral("Expected object, got "),
-                          factory.createToken(ts.SyntaxKind.PlusToken),
-                          factory.createParenthesizedExpression(
-                            factory.createConditionalExpression(
-                              strictEq(valueId(), factory.createNull()),
-                              factory.createToken(ts.SyntaxKind.QuestionToken),
-                              factory.createStringLiteral("null"),
-                              factory.createToken(ts.SyntaxKind.ColonToken),
-                              factory.createTypeOfExpression(valueId())
-                            )
-                          )
-                        ),
-                      ])
-                    ),
-                  ],
-                  true
-                )
-              ),
-            ])
-          ),
+          ...(topIsPrimitive ? primitiveChecks : [objectGuard]),
           ...checks,
           // Return result
           factory.createReturnStatement(
