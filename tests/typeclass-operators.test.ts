@@ -258,4 +258,14 @@ describe("multiple @op tags per method", () => {
     expect(getOperatorCandidates(prog, active, "===").map((c) => c.method)).toEqual(["same"]);
     expect(getOperatorCandidates(prog, active, "!=").map((c) => c.method)).toEqual(["differ"]);
   });
+
+  it("the built-in Eq seed maps == and != too", () => {
+    // A program with no Eq declaration falls back to the built-in seed.
+    const { program: prog } = program();
+    const eq = getOpMapForTypeclass(prog, "Eq")!;
+    expect(eq.opToMethod.get("==")).toBe("equals");
+    expect(eq.opToMethod.get("===")).toBe("equals");
+    expect(eq.opToMethod.get("!=")).toBe("notEquals");
+    expect(eq.opToMethod.get("!==")).toBe("notEquals");
+  });
 });

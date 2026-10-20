@@ -283,6 +283,15 @@ describe("TS9804: equality operators", () => {
     expect(result.code).toContain("r2 = v.x === w.x && v.y === w.y");
   });
 
+  it("names Object.is in the help for equality operators only", () => {
+    const eq = hintsOf(transform([PRELUDE, `export const r = [v === w, v == w];`].join("\n")));
+    expect(eq).toHaveLength(2);
+    for (const h of eq) expect(h.message).toContain("`Object.is(a, b)`");
+    const plus = hintsOf(transform([PRELUDE, `export const r = v + w;`].join("\n")));
+    expect(plus).toHaveLength(1);
+    expect(plus[0].message).not.toContain("Object.is");
+  });
+
   it("is silenced on a line by // @ts-no-typesugar operators", () => {
     const main = [PRELUDE, `export const r = v === w; // @ts-no-typesugar operators`].join("\n");
     expect(hintsOf(transform(main))).toEqual([]);

@@ -190,14 +190,31 @@ export function emitOperatorSyntaxNotActivatedHint(
   match: { typeclass: string; method: string }
 ): void {
   const specifier = operatorActivationSpecifier(ctx, match.typeclass);
+  const activate = specifier
+    ? `Add \`import "${specifier}";\` to rewrite it to ${match.typeclass}.${match.method}(...). Without it the operator stays native JavaScript.`
+    : `Import a module carrying a \`@syntax-operators ${match.typeclass}\` marker to rewrite it to ${match.typeclass}.${match.method}(...). Without it the operator stays native JavaScript.`;
   ctx
     .diagnostic(TS9804)
     .at(anchor)
     .withArgs({ operator, type: typeName, typeclass: match.typeclass, method: match.method })
-    .help(
-      specifier
-        ? `Add \`import "${specifier}";\` to rewrite it to ${match.typeclass}.${match.method}(...). Without it the operator stays native JavaScript.`
-        : `Import a module carrying a \`@syntax-operators ${match.typeclass}\` marker to rewrite it to ${match.typeclass}.${match.method}(...). Without it the operator stays native JavaScript.`
-    )
+    .help(activate + identityAlternative(operator))
     .emit();
+}
+
+/**
+ * For the equality operators only: how to say "reference identity" in a way
+ * that survives activation. `Object.is` is a call, so no operator rewrite
+ * ever touches it.
+ */
+function identityAlternative(operator: string): string {
+  switch (operator) {
+    case "===":
+    case "==":
+      return " If reference equality is intended, use `Object.is(a, b)`, which is never rewritten.";
+    case "!==":
+    case "!=":
+      return " If reference inequality is intended, use `!Object.is(a, b)`, which is never rewritten.";
+    default:
+      return "";
+  }
 }

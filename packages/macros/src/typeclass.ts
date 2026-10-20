@@ -791,6 +791,7 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
         returnType: "boolean",
         isSelfMethod: false,
         operatorSymbol: "===",
+        operatorSymbols: ["===", "=="],
       },
       {
         name: "notEquals",
@@ -801,13 +802,16 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
         returnType: "boolean",
         isSelfMethod: false,
         operatorSymbol: "!==",
+        operatorSymbols: ["!==", "!="],
       },
     ],
     canDeriveProduct: true,
     canDeriveSum: true,
     syntax: new Map([
       ["===", "equals"],
+      ["==", "equals"],
       ["!==", "notEquals"],
+      ["!=", "notEquals"],
     ]),
   },
   {
@@ -2945,9 +2949,15 @@ export function generateStandardTypeclasses(): string {
 /** Equality typeclass - Scala 3: trait Eq[A] */
 
 interface Eq<A> {
-  /** @op === */
+  /**
+   * @op ===
+   * @op ==
+   */
   equals(a: A, b: A): boolean;
-  /** @op !== */
+  /**
+   * @op !==
+   * @op !=
+   */
   notEquals(a: A, b: A): boolean;
 }
 typeclass("Eq");
