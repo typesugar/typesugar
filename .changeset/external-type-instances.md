@@ -17,7 +17,7 @@ everywhere:
 - `summon` in an instance's own initializer no longer resolves to that
   instance (`const cloneFeature = cloneFeature`, a ReferenceError at load), so
   `/** @impl Clone<Feature> */ export const cloneFeature =
-  summon<Clone<Feature>>();` derives it once, for importers to use.
+summon<Clone<Feature>>();` derives it once, for importers to use.
 
 TS9101's explanation and the error-messages guide no longer tell you to wrap
 a library type in a newtype; they point to the typeclasses guide's new
