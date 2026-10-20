@@ -30,7 +30,9 @@ interface MyEq<A> {
 
     const result = transformCode(code, { fileName: "jsdoc-typeclass.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
 
     // Non-exported typeclasses are zero-cost: no companion object, no runtime registry,
     // no extension helpers (since they rely on the runtime registry)
@@ -69,7 +71,9 @@ interface MyNumeric<A> {
 
     const result = transformCode(code, { fileName: "jsdoc-numeric.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     // Non-exported: no companion object, no extension helpers
     expect(result.code).not.toContain("const MyNumeric");
     expect(result.code).not.toContain("myNumericAdd");
@@ -102,7 +106,9 @@ interface Marker<A> {}
     const result = transformCode(code, { fileName: "jsdoc-marker.ts" });
 
     // Non-exported marker interface: zero-cost, no companion object
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     expect(result.code).not.toContain("const Marker");
   });
 
@@ -171,7 +177,9 @@ interface MyNumeric<A> {
 
     const result = transformCode(code, { fileName: "jsdoc-op-internal.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     // Non-exported: no companion object, no extension helpers
     expect(result.code).not.toContain("const MyNumeric");
     expect(result.code).not.toContain("myNumericAdd");
@@ -187,7 +195,9 @@ interface MyShow<A> {
 
     const result = transformCode(code, { fileName: "jsdoc-show.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     // Non-exported: no extension helpers
     expect(result.code).not.toContain("myShowShow");
   });
@@ -209,7 +219,9 @@ const numEq: MyEq<number> = { equals: (a, b) => a === b };
 
     const result = transformCode(code, { fileName: "jsdoc-impl.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
 
     // Non-exported typeclass: no runtime registration (zero-cost)
     expect(result.code).not.toContain("registerInstance");
@@ -247,7 +259,9 @@ const arrayNumEq: MyEq<Array<number>> = {
 
     const result = transformCode(code, { fileName: "jsdoc-impl-generic.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     // Non-exported: no registerInstance (zero-cost)
     expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("arrayNumEq");
@@ -323,9 +337,12 @@ interface SimplePoint { x: number; y: number; }
   });
 
   it("handles multiple derives in @deriving tag", () => {
+    // Not `Range`: that merges with the DOM's global Range, whose fields
+    // have no Eq/Ord, so both derives failed (hidden while every file was
+    // reprinted and so counted as changed).
     const code = `
 /** @deriving Eq, Ord */
-interface Range { start: number; end: number; }
+interface Span { start: number; end: number; }
     `.trim();
 
     const result = transformCode(code, { fileName: "jsdoc-multi-deriving.ts" });

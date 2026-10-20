@@ -1017,6 +1017,19 @@ class MacroTransformer {
       }
     }
 
+    // Nothing in this container changed: return the node itself. The
+    // factory's update* functions compare the NodeArray by reference, so a
+    // fresh array of the same statements would make a new node, and a new
+    // SourceFile makes the pipeline reprint a file that has no macros (losing
+    // its formatting and making every editor position go through a source map
+    // instead of identity).
+    if (
+      cleanedStatements.length === node.statements.length &&
+      cleanedStatements.every((s, i) => s === node.statements[i])
+    ) {
+      return node;
+    }
+
     const factory = this.ctx.factory;
     if (ts.isSourceFile(node)) {
       return factory.updateSourceFile(node, cleanedStatements);
@@ -1797,8 +1810,18 @@ class MacroTransformer {
       // `@deriving(...)` is the deprecated alias (expandDeriveDecorator warns).
       if (isDerive) {
         const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
-        if (derives) {
-          extraStatements.push(...derives);
+        if (derives) extraStatements.push(...derives);
+        // Handled even when it generated nothing (each failure is reported):
+        // drop the decorator, which is not valid TypeScript on an interface
+        // or type alias and would be an undefined decorator on a class. The
+        // reprint of every file used to drop it by accident; a file nothing
+        // changed is no longer reprinted.
+        if (
+          derives ||
+          ts.isInterfaceDeclaration(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isTypeAliasDeclaration(node)
+        ) {
           wasTransformed = true;
           continue;
         }

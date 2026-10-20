@@ -14,9 +14,10 @@ import * as ts from "typescript";
 // Load macro definitions (registers macros in the global registry)
 import "@typesugar/macros";
 
-// HKT syntax (`F<_>`) is rewritten by the kept transformer path — a real
-// transformation, so cache/source-map assertions are non-vacuous.
-const HKT_SRC = `type F<_> = { value: 1 };\ntype A = F<string>;`;
+// A `@derive(Eq)` expansion — a real transformation, so cache/source-map
+// assertions are non-vacuous. (This used `type F<_> = ...`, which only counted
+// as "changed" because every file used to be reprinted, macros or not.)
+const MACRO_SRC = `/** @derive(Eq) */\ninterface Box { value: 1 }\n`;
 
 function createPipelineFromFiles(files: Map<string, string>): TransformationPipeline {
   return new TransformationPipeline(
@@ -61,8 +62,7 @@ const c: Container<string> = { value: "hello" };
 
 describe("Pipeline E2E: source map accuracy", () => {
   it("produces a source map for transformed files", () => {
-    // HKT syntax (`F<_>`) is rewritten by the kept transformer path.
-    const input = `type F<_> = { value: number };\ntype Applied = F<string>;`;
+    const input = MACRO_SRC;
 
     const result = transformCode(input, { fileName: "map-test.ts" });
 
@@ -160,7 +160,7 @@ export const result = double(21);
 describe("Pipeline E2E: cache invalidation", () => {
   it("returns cached result on repeated transforms", () => {
     const files = new Map<string, string>();
-    files.set("/test/main.ts", HKT_SRC);
+    files.set("/test/main.ts", MACRO_SRC);
 
     const pipeline = createPipelineFromFiles(files);
 
@@ -174,14 +174,14 @@ describe("Pipeline E2E: cache invalidation", () => {
 
   it("returns fresh result after invalidation", () => {
     const files = new Map<string, string>();
-    files.set("/test/main.ts", HKT_SRC);
+    files.set("/test/main.ts", MACRO_SRC);
 
     const pipeline = createPipelineFromFiles(files);
 
     const result1 = pipeline.transform("/test/main.ts");
 
     // Update file content
-    files.set("/test/main.ts", `type F<_> = { value: 99 };\ntype A = F<string>;`);
+    files.set("/test/main.ts", `/** @derive(Eq) */\ninterface Box { value: 99 }\n`);
 
     // Invalidate cache
     pipeline.invalidate("/test/main.ts");
@@ -215,7 +215,7 @@ describe("Pipeline E2E: cache invalidation", () => {
 
   it("tracks cache statistics", () => {
     const files = new Map<string, string>();
-    files.set("/test/main.ts", HKT_SRC);
+    files.set("/test/main.ts", MACRO_SRC);
 
     const pipeline = createPipelineFromFiles(files);
 
