@@ -632,6 +632,48 @@ export interface PipelineOptions {
   emitJs?: boolean;
 }
 
+/** Leaf token classes `generateASTSourceMap` matches between the AST and the output. */
+type LeafKind = "identifier" | "string" | "template" | "literal" | "keyword";
+
+/**
+ * A leaf token for source-map matching: its class and its cooked text (the
+ * identifier name, a string's contents), or undefined for an inner node.
+ * String-like literals share a class because the printer may change quotes.
+ */
+function leafOf(node: ts.Node): { kind: LeafKind; text: string } | undefined {
+  if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) {
+    return { kind: "identifier", text: node.text };
+  }
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return { kind: "string", text: node.text };
+  }
+  if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
+    return { kind: "template", text: `${node.kind}:${node.text}` };
+  }
+  if (
+    ts.isNumericLiteral(node) ||
+    ts.isBigIntLiteral(node) ||
+    ts.isRegularExpressionLiteral(node)
+  ) {
+    return { kind: "literal", text: node.text };
+  }
+  switch (node.kind) {
+    case ts.SyntaxKind.ThisKeyword:
+      return { kind: "keyword", text: "this" };
+    case ts.SyntaxKind.SuperKeyword:
+      return { kind: "keyword", text: "super" };
+    case ts.SyntaxKind.TrueKeyword:
+      return { kind: "keyword", text: "true" };
+    case ts.SyntaxKind.FalseKeyword:
+      return { kind: "keyword", text: "false" };
+    case ts.SyntaxKind.NullKeyword:
+      return { kind: "keyword", text: "null" };
+    case ts.SyntaxKind.UndefinedKeyword:
+      return { kind: "keyword", text: "undefined" };
+  }
+  return undefined;
+}
+
 /**
  * Generate a source map by walking the transformed AST and reading
  * `getSourceMapRange()` from each node. Correlates AST nodes with output
@@ -644,11 +686,19 @@ export interface PipelineOptions {
  * - **No fallbacks**: single code path for all cases
  *
  * Algorithm:
- * 1. Tokenize the output with ts.createScanner() → exact token positions
+ * 1. Parse the output and collect its leaf tokens (identifiers, literals,
+ *    template parts, `this`/`true`/...) in document order, with positions
  * 2. Walk the transformed AST depth-first in source order
- * 3. Match each leaf node to the next output token with matching text
+ * 3. Match each leaf node to the next output leaf of the same kind and text
  * 4. Read getSourceMapRange(node) for the original source position
- * 5. Build source map via MagicString from the collected mappings
+ * 5. Encode the collected mappings as a VLQ source map
+ *
+ * Step 1 parses rather than running a bare scanner over the output: a scanner
+ * without the parser's context reads the `}` that ends a template
+ * substitution as a brace and the next backtick as the start of a new
+ * template, swallowing the rest of the file into one bogus token (and a
+ * regular expression can do the same). Every position after the first
+ * `${...}` was then unmapped (PEP-060 item 5).
  */
 function generateASTSourceMap(
   originalCode: string,
@@ -658,25 +708,20 @@ function generateASTSourceMap(
 ): RawSourceMap | null {
   if (originalCode === outputCode) return null;
 
-  // Tokenize the output to get exact token positions (avoids substring matching bugs)
-  const outputTokens: Array<{ text: string; pos: number }> = [];
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    /* skipTrivia */ false,
-    ts.LanguageVariant.Standard,
-    outputCode
-  );
-  while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) {
-    const kind = scanner.getToken();
-    // Skip whitespace and newlines — we only need meaningful tokens
-    if (kind === ts.SyntaxKind.WhitespaceTrivia || kind === ts.SyntaxKind.NewLineTrivia) {
-      continue;
+  // The output's leaves, in document order. `text` is the cooked value
+  // (identifier name, string contents), so matching doesn't depend on the
+  // quote style or escapes the printer chose.
+  const outputTokens: Array<{ kind: LeafKind; text: string; pos: number }> = [];
+  const outputSF = ts.createSourceFile(fileName, outputCode, ts.ScriptTarget.Latest, false);
+  const collectLeaves = (node: ts.Node): void => {
+    const leaf = leafOf(node);
+    if (leaf) {
+      outputTokens.push({ ...leaf, pos: node.getStart(outputSF) });
+      return;
     }
-    outputTokens.push({
-      text: scanner.getTokenText(),
-      pos: scanner.getTokenStart(),
-    });
-  }
+    ts.forEachChild(node, collectLeaves);
+  };
+  collectLeaves(outputSF);
 
   if (outputTokens.length === 0) return null;
 
@@ -714,9 +759,9 @@ function generateASTSourceMap(
   // Token cursor — advances as we match AST nodes to output tokens
   let tokenCursor = 0;
 
-  function findNextToken(text: string): { pos: number } | null {
+  function findNextToken(kind: LeafKind, text: string): { pos: number } | null {
     for (let i = tokenCursor; i < outputTokens.length; i++) {
-      if (outputTokens[i].text === text) {
+      if (outputTokens[i].kind === kind && outputTokens[i].text === text) {
         tokenCursor = i + 1;
         return outputTokens[i];
       }
@@ -729,69 +774,6 @@ function generateASTSourceMap(
     const gen = offsetToLineCol(outLineStarts, outPos);
     const orig = offsetToLineCol(origLineStarts, origPos);
     mappings.push({ genLine: gen.line, genCol: gen.col, origLine: orig.line, origCol: orig.col });
-  }
-
-  // Determine if a node is a leaf for source map purposes
-  function isLeafNode(node: ts.Node): boolean {
-    return (
-      ts.isIdentifier(node) ||
-      ts.isPrivateIdentifier(node) ||
-      ts.isNumericLiteral(node) ||
-      ts.isStringLiteral(node) ||
-      ts.isBigIntLiteral(node) ||
-      ts.isRegularExpressionLiteral(node) ||
-      ts.isNoSubstitutionTemplateLiteral(node) ||
-      node.kind === ts.SyntaxKind.ThisKeyword ||
-      node.kind === ts.SyntaxKind.SuperKeyword ||
-      node.kind === ts.SyntaxKind.TrueKeyword ||
-      node.kind === ts.SyntaxKind.FalseKeyword ||
-      node.kind === ts.SyntaxKind.NullKeyword ||
-      node.kind === ts.SyntaxKind.UndefinedKeyword
-    );
-  }
-
-  // Get the text that the scanner would see for this leaf node.
-  // For string literals, we don't know the quote style the printer used,
-  // so we return null and let the caller match by node kind instead.
-  function getLeafTokenText(node: ts.Node): string | null {
-    if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) return node.text;
-    if (ts.isNumericLiteral(node)) return node.text;
-    if (ts.isBigIntLiteral(node)) return node.text;
-    if (ts.isRegularExpressionLiteral(node)) return node.text;
-    if (ts.isNoSubstitutionTemplateLiteral(node)) return null; // backtick matching is complex
-    if (ts.isStringLiteral(node)) return null; // quote style varies — match by content below
-    switch (node.kind) {
-      case ts.SyntaxKind.ThisKeyword:
-        return "this";
-      case ts.SyntaxKind.SuperKeyword:
-        return "super";
-      case ts.SyntaxKind.TrueKeyword:
-        return "true";
-      case ts.SyntaxKind.FalseKeyword:
-        return "false";
-      case ts.SyntaxKind.NullKeyword:
-        return "null";
-      case ts.SyntaxKind.UndefinedKeyword:
-        return "undefined";
-    }
-    return null;
-  }
-
-  // Find next token matching by content (for string/template literals
-  // where we don't know the exact quote style the printer used)
-  function findNextStringToken(content: string): { pos: number } | null {
-    for (let i = tokenCursor; i < outputTokens.length; i++) {
-      const t = outputTokens[i].text;
-      // Match if the token's inner content matches (strip quotes)
-      if (
-        (t.startsWith('"') || t.startsWith("'") || t.startsWith("`")) &&
-        t.slice(1, -1) === content
-      ) {
-        tokenCursor = i + 1;
-        return outputTokens[i];
-      }
-    }
-    return null;
   }
 
   // Skip trivia (whitespace, comments) to find the actual token start.
@@ -837,24 +819,15 @@ function generateASTSourceMap(
   function walkNode(node: ts.Node): void {
     const range = ts.getSourceMapRange(node);
 
-    if (isLeafNode(node)) {
+    const leaf = leafOf(node);
+    if (leaf) {
       // Only map nodes that have a valid source position
       if (range.pos < 0 || range.end < 0) return;
 
       // Skip leading trivia to get the actual token start in the original
       const origPos = skipTrivia(range.pos);
 
-      // String/template literals: match by inner content (quote style varies)
-      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-        const token = findNextStringToken(node.text);
-        if (token) addMapping(token.pos, origPos);
-        return;
-      }
-
-      const text = getLeafTokenText(node);
-      if (!text) return;
-
-      const token = findNextToken(text);
+      const token = findNextToken(leaf.kind, leaf.text);
       if (token) {
         addMapping(token.pos, origPos);
       }
