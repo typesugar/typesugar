@@ -52,6 +52,8 @@ features:
     linkText: How it works
 ---
 
+**Rust, Scala and Zig's best ideas, as macros that compile to plain TypeScript.**
+
 ## Quick Example
 
 ```typescript
