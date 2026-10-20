@@ -2,7 +2,7 @@
 
 > 📖 **Full documentation:** [Getting Started](https://typesugar.org/getting-started/). The microsite is the canonical reference; this README is a quickstart.
 
-> TypeScript that F\*cks! Compile-time macros for TypeScript.
+> Syntactic sugar for TypeScript with zero calories. Operators and methods that just work, compiled to exactly what you'd write by hand.
 
 ## Overview
 

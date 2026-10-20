@@ -1,6 +1,6 @@
 # typesugar
 
-**TypeScript that F\*cks! Compile-time macros. Zero runtime. Full type safety.**
+**Syntactic sugar for TypeScript with zero calories.** Operators and methods that just work, compiled to exactly what you'd write by hand.
 
 > _What if `===` just knew how to compare your types? What if `.clone()` worked on any struct? What if it all compiled to exactly what you'd write by hand?_
 
