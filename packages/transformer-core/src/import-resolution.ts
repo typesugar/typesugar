@@ -121,6 +121,37 @@ function collectValueReferences(statements: readonly ts.Statement[]): Set<string
 }
 
 /**
+ * Collect every identifier text used in `statements` (imports excluded), in
+ * value AND type positions. Deliberately over-inclusive -- only the name side
+ * of `a.b` and `A.B` is skipped -- because it decides when an import is KEPT:
+ * a false hit keeps an import, which is the pre-existing behaviour.
+ */
+function collectAllReferences(statements: readonly ts.Statement[]): Set<string> {
+  const refs = new Set<string>();
+  const walk = (node: ts.Node, parent: ts.Node | undefined): void => {
+    if (ts.isIdentifier(node)) {
+      if (parent && ts.isPropertyAccessExpression(parent) && parent.name === node) return;
+      if (parent && ts.isQualifiedName(parent) && parent.right === node) return;
+      refs.add(node.text);
+      return;
+    }
+    ts.forEachChild(node, (child) => walk(child, node));
+  };
+  for (const stmt of statements) {
+    if (ts.isImportDeclaration(stmt) || ts.isImportEqualsDeclaration(stmt)) continue;
+    walk(stmt, undefined);
+  }
+  return refs;
+}
+
+/** The original SourceFile an (original, parented) node belongs to, if any. */
+function originalSourceFile(node: ts.Node): ts.SourceFile | undefined {
+  let n: ts.Node | undefined = node;
+  while (n && !ts.isSourceFile(n)) n = n.parent;
+  return n;
+}
+
+/**
  * Remove or trim import declarations whose specifiers resolved to macros.
  *
  * A specifier is only removed when no value reference to its local name
@@ -129,6 +160,14 @@ function collectValueReferences(statements: readonly ts.Statement[]): Set<string
  * `export { pipe }`) or a call left unexpanded still needs the runtime
  * binding (deep-review core #11). Name-based, so a same-named shadowing local
  * also keeps the import -- a harmless false positive.
+ *
+ * In the same declaration, a NON-macro specifier is removed when the original
+ * file used its name but the transformed statements no longer do, in any
+ * position: every use was inside a macro call that expanded away (`Clone` in
+ * `import { summon, Clone } from "typesugar"; summon<Clone<P>>()`). tsc and
+ * esbuild would elide it anyway, except under `verbatimModuleSyntax`, where it
+ * stayed in the emitted JS as a runtime import of the macro package. A
+ * specifier the original file never used is left alone.
  */
 /**
  * A statement that prints nothing but `stmt`'s leading comments (copied as
@@ -162,6 +201,21 @@ export function cleanupMacroImports(
   if (macroImportSpecifiers.size === 0) return statements;
 
   const stillReferenced = collectValueReferences(statements);
+  let usedAfter: Set<string> | undefined;
+  const usedBefore = new Map<ts.SourceFile, Set<string>>();
+  /** True when the original file used `name` and the transformed code does not. */
+  const consumedByExpansion = (decl: ts.ImportDeclaration, name: string): boolean => {
+    const sf = originalSourceFile(decl);
+    if (!sf) return false;
+    let before = usedBefore.get(sf);
+    if (!before) {
+      before = collectAllReferences(sf.statements);
+      usedBefore.set(sf, before);
+    }
+    if (!before.has(name)) return false;
+    usedAfter ??= collectAllReferences(statements);
+    return !usedAfter.has(name);
+  };
   const result: ts.Statement[] = [];
 
   for (const stmt of statements) {
@@ -198,8 +252,10 @@ export function cleanupMacroImports(
           newNamedBindings = namedBindings;
         }
       } else if (ts.isNamedImports(namedBindings)) {
-        const remainingSpecifiers = namedBindings.elements.filter(
-          (spec) => !tracked.has(spec) || stillReferenced.has(spec.name.text)
+        const remainingSpecifiers = namedBindings.elements.filter((spec) =>
+          tracked.has(spec)
+            ? stillReferenced.has(spec.name.text)
+            : !consumedByExpansion(stmt, spec.name.text)
         );
 
         if (remainingSpecifiers.length === namedBindings.elements.length) {
