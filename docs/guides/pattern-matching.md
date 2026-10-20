@@ -401,13 +401,15 @@ match(bigUnion)
 
 ### Runtime Safety Net
 
-Even with compile-time exhaustiveness, the generated code includes a terminal throw:
+When the patterns can't prove a value matched, the generated code ends in a terminal throw:
 
 ```typescript
 throw new MatchError(__m); // "Non-exhaustive match: <value>"
 ```
 
-`MatchError` extends `Error` and has a `.value` property with the unmatched value. This catches cases where the type is widened at runtime (e.g. via `any` or external data).
+`MatchError` extends `Error` and has a `.value` property with the unmatched value. This catches cases where the type is widened at runtime (e.g. via `any` or external data). It is imported from `@typesugar/std`, so code that keeps the throw depends on that package at runtime.
+
+A literal union that literal arms cover completely gets no throw: the last arm is unconditional, as in `x === "ok" ? 200 : 500` below, so a value outside the type takes that arm. Discriminated-union matches and the 7+ literal `switch` keep the throw.
 
 ---
 
@@ -454,13 +456,15 @@ error: Pattern "pending" can never match type "ok" | "fail"
 
 ### Code Generation Strategies
 
-| Shape                                                     | Output                                           |
-| --------------------------------------------------------- | ------------------------------------------------ |
-| Scrutinee type is a single literal (see above)            | The chosen arm's expression, nothing else        |
-| One plain literal arm + `.else()`                         | Ternary: `x === lit ? a : b`                     |
-| 7+ plain literal arms                                     | `switch` in an IIFE                              |
-| Object patterns sharing one literal discriminant property | `switch` on the discriminant in an IIFE          |
-| Anything else                                             | `if` chain in an IIFE (scrutinee evaluated once) |
+| Shape                                                                                            | Output                                                         |
+| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| Scrutinee type is a single literal (see above)                                                   | The chosen arm's expression, nothing else                      |
+| Plain literal arms (`.or()` allowed) ending in `.else()`, `_` or full coverage, on an identifier | Conditional chain: `x === a ? r1 : x === b ? r2 : r3`, no IIFE |
+| 7+ plain literal arms                                                                            | `switch` in an IIFE                                            |
+| Object patterns sharing one literal discriminant property                                        | `switch` on the discriminant in an IIFE                        |
+| Anything else                                                                                    | `if` chain in an IIFE (scrutinee evaluated once)               |
+
+The conditional chain needs an identifier (or `this`) scrutinee when it tests more than one literal, because it reads the scrutinee once per test; a property access could be a getter, so `match(obj.kind)` with several literal arms keeps the IIFE, which reads it once. Bind it to a local first (`const k = obj.kind`) to get the chain.
 
 If any arm, guard, `.else()` or the scrutinee contains `await`, the IIFE becomes `await (async () => { ... })()`. A `yield` can't be moved into an arrow function, so a `yield` in a match that needs an IIFE is a compile error — compute the value before the match.
 

@@ -55,6 +55,83 @@ describe("fast path: ternary", () => {
   });
 });
 
+// Turf case study, Stage 3: flattenEach's multi→single type mapping is a
+// literal match on a local. It compiled to an IIFE (a closure per call in a
+// hot callback) with a dead `throw new MatchError` after the last arm, which
+// pulled a runtime import of @typesugar/std into the library's output. The
+// guide documents `x === "ok" ? 200 : 500` for this shape.
+describe("fast path: literal conditional chain (no IIFE)", () => {
+  const noIIFE = (code: string) => expect(code).not.toMatch(/\}\)\(\)/);
+
+  it("several literal arms + else on an identifier", () => {
+    const r = run(`export const f = (t: string) =>
+  match(t).case("MultiPoint").then("Point").case("MultiLineString").then("LineString")
+    .case("MultiPolygon").then("Polygon").else(undefined);`);
+    expect(r.errors).toEqual([]);
+    noIIFE(r.code);
+    const f = r.exports.f as Fn;
+    expect(f("MultiPoint")).toBe("Point");
+    expect(f("MultiLineString")).toBe("LineString");
+    expect(f("MultiPolygon")).toBe("Polygon");
+    expect(f("Point")).toBe(undefined);
+  });
+
+  it("a fully covered literal union: no else, no MatchError, no runtime import", () => {
+    const r = run(
+      `export const f = (x: "ok" | "fail") => match(x).case("ok").then(200).case("fail").then(500);`
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.code).toContain(`x === "ok" ? 200 : 500`);
+    expect(r.code).not.toContain("MatchError");
+    expect(r.code).not.toContain("@typesugar/std");
+    const f = r.exports.f as Fn;
+    expect(f("ok")).toBe(200);
+    expect(f("fail")).toBe(500);
+  });
+
+  it(".or() alternatives and a wildcard arm", () => {
+    const r = run(`export const f = (c: "a" | "b" | "c" | "d") =>
+  match(c).case("a").or("b").then(1).case("c").then(2).case(_).then(3);`);
+    expect(r.errors).toEqual([]);
+    noIIFE(r.code);
+    expect(r.code).toContain(`c === "a" || c === "b" ? 1 : c === "c" ? 2 : 3`);
+    const f = r.exports.f as Fn;
+    expect([f("a"), f("b"), f("c"), f("d")]).toEqual([1, 1, 2, 3]);
+  });
+
+  it("await in a result stays in the enclosing function (no async IIFE)", async () => {
+    const r = run(`async function load(n: number): Promise<string> { return "L" + n; }
+export async function f(x: 1 | 2) {
+  return match(x).case(1).then(await load(1)).case(2).then(await load(2));
+}`);
+    noIIFE(r.code);
+    const f = r.exports.f as Fn;
+    await expect(f(1)).resolves.toBe("L1");
+    await expect(f(2)).resolves.toBe("L2");
+  });
+
+  it("a property scrutinee is still read once (IIFE kept), with no dead MatchError", () => {
+    const r = run(`let reads = 0;
+const o = { get t(): "a" | "b" | "c" { reads++; return "c"; } };
+export const v = match(o.t).case("a").then(1).case("b").then(2).case("c").then(3);
+export const n = () => reads;`);
+    expect(r.errors).toEqual([]);
+    expect(r.exports.v).toBe(3);
+    expect((r.exports.n as Fn)()).toBe(1);
+    expect(r.code).not.toContain("MatchError");
+  });
+
+  it("with an else, values outside the arms reach it", () => {
+    const r = run(
+      `export const f = (t: string) => match(t).case("a").then(1).case("b").then(2).else(0);`
+    );
+    expect(r.errors).toEqual([]);
+    noIIFE(r.code);
+    const f = r.exports.f as Fn;
+    expect([f("a"), f("b"), f("z")]).toEqual([1, 2, 0]);
+  });
+});
+
 describe("fast path: 7+ pure literal switch", () => {
   it("dispatches each value and falls to else", () => {
     const arms = [1, 2, 3, 4, 5, 6, 7].map((n) => `.case(${n}).then("v${n}")`).join("");
@@ -217,9 +294,11 @@ export async function f(x: number) {
   });
 
   it("yield inside an arm is a compile error, not a SyntaxError (#4)", () => {
+    // The guard keeps this off the literal conditional-chain path (which has
+    // no IIFE, so a yield there is fine — see the test below).
     const r = transformAndRun(`import { match } from "@typesugar/std";
 export function* g(x: number) {
-  const v = match(x).case(1).then(yield 1).case(2).then(2).else(0);
+  const v = match(x).case(1).then(yield 1).case(n).if(n > 1).then(2).else(0);
   return v;
 }`);
     expect(r.errors.join("\n")).toMatch(/yield/);

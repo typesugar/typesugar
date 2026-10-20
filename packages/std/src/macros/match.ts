@@ -1643,21 +1643,14 @@ function expandFluentMatchInner(
   const directResult = tryDirectEmit(ctx, scrutinee, arms, elseResult);
   if (directResult !== undefined) return directResult;
 
-  // Optimization: single literal arm + else, no guard, no or, no as → ternary
-  if (arms.length === 1 && elseResult !== undefined) {
-    const arm = arms[0];
-    if (arm.alternatives.length === 0 && !arm.asPattern) {
-      const pattern = analyzePattern(arm.pattern);
-      if (pattern.kind === "literal" && !arm.guard) {
-        return generateTernary(ctx, scrutinee, arm, pattern.node, elseResult);
-      }
-    }
-  }
-
   // Wave 5: Switch optimization for 7+ pure literal arms
   if (arms.length >= SWITCH_THRESHOLD && isAllPureLiteralArms(arms)) {
     return generateSwitchIIFE(ctx, chainExpr, scrutinee, arms, elseResult);
   }
+
+  // Literal arms with a terminal value → `x === a ? r1 : x === b ? r2 : r3`
+  const chain = tryGenerateConditionalChain(ctx, scrutinee, arms, elseResult);
+  if (chain !== undefined) return chain;
 
   // PEP-019 Wave 3: Discriminant switch for object patterns sharing a discriminant key
   const discMatch = analyzeDiscriminantPattern(arms);
@@ -1668,22 +1661,94 @@ function expandFluentMatchInner(
   return generateIIFE(ctx, chainExpr, scrutinee, arms, elseResult);
 }
 
-function generateTernary(
+/**
+ * Compile a match whose arms are all plain literals (each `.case(lit)` with
+ * any number of literal `.or(lit)`s, no guard, no `.as()`), optionally ending
+ * in a `_` arm, to a conditional chain with no IIFE:
+ *
+ *   match(t).case("a").or("b").then(1).case("c").then(2).else(3)
+ *   → t === "a" || t === "b" ? 1 : t === "c" ? 2 : 3
+ *
+ * This is what a person writes, and what the guide documents
+ * (`x === "ok" ? 200 : 500`). Before the Turf case study (Stage 3) only a
+ * single arm + `.else()` got it; anything longer became an arrow IIFE — a
+ * closure per evaluation — with a dead `throw new MatchError` after a fully
+ * covering last arm, which added a runtime import of `@typesugar/std`.
+ *
+ * Taken only when it is provably equivalent to the IIFE:
+ * - The chain ends in a value that needs no throw: `.else()`, a `_` arm, or
+ *   an arm after which the scrutinee's literal union is fully covered (that
+ *   arm is unconditional, as in the IIFE). Otherwise the IIFE's MatchError
+ *   is needed and it is used.
+ * - Reading the scrutinee in every test is the same as reading it once: it
+ *   is an identifier or `this`, or it is read by exactly one test. A
+ *   property access is not enough — it may be a getter (the IIFE reads it
+ *   once into a const). With no test at all it must be side-effect free,
+ *   since the chain would not evaluate it.
+ * The results move nowhere (no arrow), so `await`/`yield` in them keep
+ * their meaning.
+ */
+function tryGenerateConditionalChain(
   ctx: MacroContext,
   scrutinee: ts.Expression,
-  arm: CaseArm,
-  literalNode: ts.Expression,
-  elseResult: ts.Expression
-): ts.Expression {
+  arms: CaseArm[],
+  elseResult: ts.Expression | undefined
+): ts.Expression | undefined {
   const f = ctx.factory;
-  const condition = literalCheck(f, scrutinee, literalNode);
-  return f.createConditionalExpression(
-    condition,
-    f.createToken(ts.SyntaxKind.QuestionToken),
-    arm.result,
-    f.createToken(ts.SyntaxKind.ColonToken),
-    elseResult
-  );
+  const tests: { literals: ts.Expression[]; result: ts.Expression }[] = [];
+  let terminal: ts.Expression | undefined;
+
+  let fullyCoveredIdx: number | undefined;
+  const coveredAt = () => (fullyCoveredIdx ??= findFullyCoveredArmIndex(ctx, scrutinee, arms));
+
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
+    if (arm.guard || arm.asPattern) return undefined;
+    const pattern = analyzePattern(arm.pattern);
+    if (pattern.kind === "wildcard" && arm.alternatives.length === 0) {
+      terminal = arm.result;
+      break;
+    }
+    const literals: ts.Expression[] = [];
+    for (const p of [pattern, ...arm.alternatives.map(analyzePattern)]) {
+      if (p.kind !== "literal") return undefined;
+      literals.push(p.node);
+    }
+    if (coveredAt() === i) {
+      terminal = arm.result;
+      break;
+    }
+    tests.push({ literals, result: arm.result });
+  }
+  terminal ??= elseResult;
+  if (terminal === undefined) return undefined;
+
+  const reads = tests.reduce((n, t) => n + t.literals.length, 0);
+  const rereadable = ts.isIdentifier(scrutinee) || scrutinee.kind === ts.SyntaxKind.ThisKeyword;
+  if (reads > 1 && !rereadable) return undefined;
+  if (reads === 0 && !isSideEffectFree(scrutinee)) return undefined;
+  // One node per read, as the IIFE path does with its `_m` references.
+  const read = (): ts.Expression =>
+    reads <= 1
+      ? scrutinee
+      : ts.isIdentifier(scrutinee)
+        ? f.createIdentifier(scrutinee.text)
+        : f.createThis();
+
+  let result = terminal;
+  for (let i = tests.length - 1; i >= 0; i--) {
+    const condition = tests[i].literals
+      .map((lit) => literalCheck(f, read(), lit))
+      .reduce((a, b) => f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b));
+    result = f.createConditionalExpression(
+      condition,
+      f.createToken(ts.SyntaxKind.QuestionToken),
+      tests[i].result,
+      f.createToken(ts.SyntaxKind.ColonToken),
+      result
+    );
+  }
+  return result;
 }
 
 // ============================================================================
@@ -2729,7 +2794,8 @@ function generateIIFE(
         statements.push(...bindings);
       }
       statements.push(f.createReturnStatement(arm.result));
-      continue;
+      // Every later arm (and the else / MatchError) is unreachable.
+      break;
     }
 
     // OR patterns: build || chain of conditions
@@ -2760,8 +2826,13 @@ function generateIIFE(
     statements.push(...armStatements);
   }
 
-  // else clause or MatchError
-  if (elseResult !== undefined) {
+  // else clause or MatchError — unless an arm already returns unconditionally
+  // (a fully covering arm, or an unguarded `_` / binding). A dead
+  // `throw new MatchError` there still imported `@typesugar/std` at runtime.
+  const last = statements[statements.length - 1];
+  if (last !== undefined && ts.isReturnStatement(last)) {
+    // terminated
+  } else if (elseResult !== undefined) {
     statements.push(f.createReturnStatement(elseResult));
   } else {
     statements.push(createMatchErrorThrow(ctx, f.createIdentifier(scrutineeName.text)));
