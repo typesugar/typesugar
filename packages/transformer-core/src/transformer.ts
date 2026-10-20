@@ -1613,7 +1613,11 @@ class MacroTransformer {
       const before = cacheKey ? this.sideEffectSnapshot() : undefined;
       const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, node.arguments));
 
-      if (this.expansionTracker) {
+      // A macro that hands back the call itself (comptime with evaluation
+      // switched off in the editor, a macro that reported an error) expanded
+      // nothing: recording the call as its own "expansion" made the editor
+      // show `= comptime(...)` as if it were a value (PEP-060 item 5).
+      if (this.expansionTracker && result !== node) {
         const expandedText = this.printNodeSafe(result);
         if (expandedText) {
           this.expansionTracker.recordExpansion(macroName, node, this.ctx.sourceFile, expandedText);

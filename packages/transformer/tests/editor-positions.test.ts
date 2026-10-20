@@ -14,7 +14,7 @@ import { describe, it, expect } from "vitest";
 import { transformCode } from "../src/pipeline.js";
 
 // Load macro definitions (registers macros in the global registry)
-import "@typesugar/macros";
+import { setComptimeEvaluationEnabled } from "@typesugar/macros";
 
 /** Original offset of `needle` (+ delta) → transformed offset → back. */
 function roundTrip(
@@ -81,5 +81,21 @@ describe("pipeline source map (what the editor plugin maps positions through)", 
     expect(transformed).not.toBeNull();
     expect(result.code.slice(transformed!, transformed! + "after".length)).toBe("after");
     expect(back).toBe(original);
+  });
+
+  it("records no expansion for a macro that hands back the call (comptime switched off)", () => {
+    const code =
+      `import { comptime } from "@typesugar/macros";\n` +
+      `/** @derive(Eq) */\n` +
+      `interface Point { x: number; y: number; }\n` +
+      `export const a = comptime(() => 40 + 2);\n`;
+    setComptimeEvaluationEnabled(false);
+    try {
+      const result = transformCode(code, { fileName: "comptime-off.ts" });
+      expect(result.code).toContain("comptime(");
+      expect(result.expansions?.map((e) => e.macroName) ?? []).not.toContain("comptime");
+    } finally {
+      setComptimeEvaluationEnabled(true);
+    }
   });
 });
