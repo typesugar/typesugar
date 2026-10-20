@@ -78,6 +78,10 @@ in a worker thread and covers `import` only.
 - `.tsx` needs tsx. Node cannot run JSX.
 - The type checker is not run. Use `typesugar check` for type errors.
 - No expansion cache is written. Each process expands the files it imports.
+- The loader keeps a TypeScript program in the process: about 0.5 s of startup and
+  roughly 165 MB per process. That can shift microbenchmarks on its own, so when you
+  benchmark code with and without typesugar, run the loader on both sides (or on
+  neither, comparing built output).
 
 ## Logging
 
