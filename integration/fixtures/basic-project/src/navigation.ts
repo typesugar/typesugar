@@ -1,10 +1,6 @@
-// Integration test fixture: navigation (go-to-def, references, rename)
-//
-// Test positions:
-//   Line 7, "greet" call: goto-def → should jump to line 0
-//   Line 7, "greet" call: find-references → should find lines 0 and 7
-//   Line 11, "add" call: goto-def → should jump to line 9
-//   Rename "greet" → "sayHello": should rename at both lines 0 and 7
+// Integration test fixture: navigation (go-to-definition, references, rename)
+// in a file with no macros. The template literal matters: positions after it
+// don't map back (see tests/navigation.test.ts).
 
 export function greet(name: string): string {
   return `Hello, ${name}!`;

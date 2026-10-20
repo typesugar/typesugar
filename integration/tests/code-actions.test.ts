@@ -1,17 +1,34 @@
 /**
- * Integration test: Code actions through the LSP server.
- *
- * Verifies that quick fixes and refactoring actions are available
- * at the expected positions.
+ * Integration test: quick fixes (tsserver `getCodeFixes`) through the
+ * typesugar plugin. TypeScript's own fixes must edit the right text in a file
+ * whose @derive and pipe() expansions change the code above the error.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prepareFixture, type PreparedFixture } from "../lib/fixture-manager.js";
-import { initSession, openFile, getCodeActions, type LspSession } from "../lib/assertions.js";
+import {
+  initSession,
+  openFile,
+  locate,
+  toPos,
+  getDiagnostics,
+  assertDiagnosticAt,
+  type Location,
+  type TsSession,
+} from "../lib/assertions.js";
+
+interface CodeFix {
+  fixName: string;
+  description: string;
+  changes: Array<{
+    fileName: string;
+    textChanges: Array<{ start: Location; end: Location; newText: string }>;
+  }>;
+}
 
 describe("code actions (basic-project)", () => {
   let fixture: PreparedFixture;
-  let session: LspSession;
+  let session: TsSession;
 
   beforeAll(async () => {
     fixture = await prepareFixture("basic-project");
@@ -23,22 +40,42 @@ describe("code actions (basic-project)", () => {
     fixture?.cleanup();
   });
 
-  it("provides code actions at error position", async () => {
-    const { uri } = await openFile(session, "src/diagnostics.ts");
-    await new Promise((r) => setTimeout(r, 500));
+  // PEP-060 item 5 (one diagnostics and position model): the plugin's
+  // getCodeFixesAtPosition hands the ORIGINAL span to TypeScript, which looks
+  // for the error at that offset in the EXPANDED text, finds none and offers
+  // nothing. Flip to `it` when that is fixed.
+  it.fails(
+    "offers TypeScript's spelling fix and its edit lands on the misspelled name (PEP-060 item 5)",
+    async () => {
+      const { file, text } = openFile(session, "src/code-actions.ts");
+      const diagnostics = await getDiagnostics(session, file);
+      const error = assertDiagnosticAt(
+        diagnostics,
+        locate(text, "greetng"),
+        "Cannot find name 'greetng'",
+        "misspelled call"
+      );
 
-    // Line 6: type error position — should have TS quick fixes
-    const actions = await getCodeActions(session, uri, 6, 0, 6, 30);
-    // May have zero actions if TS doesn't offer fixes for this error, but shouldn't throw
-    expect(Array.isArray(actions), "code actions should return an array").toBe(true);
-  });
+      const fixes = await session.client.request<CodeFix[]>("getCodeFixes", {
+        file,
+        startLine: error.start.line,
+        startOffset: error.start.offset,
+        endLine: error.end.line,
+        endOffset: error.end.offset,
+        errorCodes: [error.code],
+      });
+      const spelling = fixes.find((f) => f.fixName === "spelling");
+      expect(spelling?.description).toBe("Change spelling to 'greeting'");
 
-  it("provides code actions at macro position", async () => {
-    const { uri } = await openFile(session, "src/macros.ts");
-    await new Promise((r) => setTimeout(r, 500));
-
-    // Line 6: comptime() call — may have "Expand macro" action
-    const actions = await getCodeActions(session, uri, 6, 0, 6, 40);
-    expect(Array.isArray(actions), "code actions should return an array").toBe(true);
-  });
+      // Apply the fix to the ORIGINAL text: it must change exactly that name.
+      const changes = spelling!.changes.flatMap((c) => c.textChanges);
+      expect(changes).toHaveLength(1);
+      const [change] = changes;
+      const fixed =
+        text.slice(0, toPos(text, change.start)) +
+        change.newText +
+        text.slice(toPos(text, change.end));
+      expect(fixed).toBe(text.replace('greetng("there")', 'greeting("there")'));
+    }
+  );
 });
