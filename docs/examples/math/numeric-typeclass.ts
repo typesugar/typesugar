@@ -2,6 +2,9 @@
 //! Complex, Rational, Matrix — with Numeric typeclass operator overloading
 
 import { complex, numericComplex, complexEquals, complexToString, complexMagnitude, rat, rational, matrix, interval } from "@typesugar/math";
+// Operator syntax is opt-in per file: this activates `+ - *` for Numeric types.
+// Without it, `a + b` stays native JavaScript and typesugar warns (TS9804).
+import "@typesugar/std/syntax/numeric/ops";
 
 // @typesugar/math provides Numeric instances with @op annotations.
 // 👀 Check JS Output — a + b and a * b rewrite to numericComplex.add/mul!

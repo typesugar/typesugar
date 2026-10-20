@@ -60,6 +60,9 @@ importers:
       '@typesugar/mapper':
         specifier: workspace:*
         version: link:packages/mapper
+      '@typesugar/math':
+        specifier: workspace:*
+        version: link:packages/math
       '@typesugar/parser':
         specifier: workspace:*
         version: link:packages/parser
