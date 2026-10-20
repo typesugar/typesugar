@@ -273,6 +273,22 @@ export function transformImplicitsCall(
         const paramTypeStr = ctx.typeChecker.typeToString(paramType);
 
         const declParam = decl.parameters[j];
+        // `a: A`: the resolved signature's parameter type IS the inferred `A`
+        // (or the explicit type argument). Keep the ts.Type, so the instance
+        // is resolved by type below: the name-based fallback can't match an
+        // instance for a type whose name prints with type arguments
+        // (`Feature<Geometry, GeoJsonProperties>` for a bare `Feature`).
+        if (
+          declParam?.type &&
+          ts.isTypeReferenceNode(declParam.type) &&
+          !declParam.type.typeArguments &&
+          ts.isIdentifier(declParam.type.typeName) &&
+          typeParamNames.has(declParam.type.typeName.text) &&
+          !typeParamTypeMap.has(declParam.type.typeName.text) &&
+          ctx.isTypeReliable(paramType)
+        ) {
+          typeParamTypeMap.set(declParam.type.typeName.text, paramType);
+        }
         if (declParam?.type) {
           // Try to extract type arguments for each type parameter from this parameter
           for (const tpName of typeParamNames) {
