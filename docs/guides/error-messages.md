@@ -78,7 +78,11 @@ typeclass instance for a type that doesn't have one (see the example at the top 
 
 - Add `@derive(...)` to the type (and to the field types it lists as lacking the instance)
 - Provide a manual `@impl` instance for the problematic field type
-- If it's a third-party type, create a newtype wrapper
+- If it's a type you don't own (from a library, such as `Feature` from
+  `@types/geojson`), write its instance in a module of your own and import
+  that module: by hand, or derived with
+  `/** @impl Clone<Feature> */ export const cloneFeature = summon<Clone<Feature>>();`.
+  See [Instances for types you don't own](./typeclasses.md#external-types).
 
 ### Derive Field Error
 

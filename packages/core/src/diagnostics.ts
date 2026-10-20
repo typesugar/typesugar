@@ -577,8 +577,10 @@ Field \`{field}\` has type \`{fieldType}\`, which has no {typeclass} instance.
 
 Solutions:
 1. Add @derive({typeclass}) to {fieldType}
-2. Provide a manual @instance {typeclass}<{fieldType}>
-3. If {fieldType} is external, create a newtype wrapper`,
+2. Provide a manual @impl {typeclass}<{fieldType}> instance
+3. If {fieldType} comes from a library, write that instance in a module of
+   your own and import it (see "Instances for types you don't own" in the
+   typeclasses guide)`,
   seeAlso: "https://typesugar.org/errors/TS9101",
 };
 

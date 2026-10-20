@@ -154,6 +154,61 @@ declaration is ignored with a warning, and `summon<Show<number[]>>()` then fails
 with TS9001. Write a concrete instance per element type (`Show<number[]>`) or
 pass the element instance explicitly.
 
+## Instances for Types You Don't Own {#external-types}
+
+A type from a library, such as `Feature` from `@types/geojson`, can't carry
+`@derive`, but its instances can live in a module of your own, exported like
+any other value. Write them in one file and import that file where you use
+them; `summon`, `= implicit()` and method syntax all find them there.
+
+```typescript
+// geo-instances.ts
+import type { Feature } from "geojson";
+import type { Clone, Eq } from "@typesugar/std";
+import { summon } from "typesugar";
+
+// Derived from Feature's structure, as @derive(Clone) would derive it:
+/** @impl Clone<Feature> */
+export const cloneFeature = summon<Clone<Feature>>();
+
+// Or written by hand:
+/** @impl Eq<Feature> */
+export const eqFeature: Eq<Feature> = {
+  equals: (a, b) => a.id === b.id,
+  notEquals: (a, b) => a.id !== b.id,
+};
+```
+
+```typescript
+// use.ts
+import type { Feature } from "geojson";
+import type { Clone } from "@typesugar/std";
+import { summon, implicit } from "typesugar";
+import "@typesugar/std/syntax/clone"; // f.clone()
+import "./geo-instances"; // or: import { cloneFeature } from "./geo-instances";
+
+declare const f: Feature;
+function dup<A>(a: A, C: Clone<A> = implicit()): A {
+  return C.clone(a);
+}
+
+summon<Clone<Feature>>(); // → cloneFeature (the import is added if needed)
+dup(f); // → dup(f, cloneFeature)
+f.clone(); // → cloneFeature.clone(f)
+```
+
+- A `summon` in an instance's own initializer never resolves to that
+  instance, so `cloneFeature = summon<Clone<Feature>>()` derives it.
+- Keep each instance in one module. A `summon` with no instance in scope
+  derives a new copy of the instance in place, at every call site; one
+  exported instance is one definition, and two instances for the same type in
+  scope are an ambiguity error at the call site.
+- The `Clone` that `typesugar` exports is the `@derive` marker, a value; to
+  write `Clone<Feature>` as a type, import it from `@typesugar/std`.
+- `@derive(Clone)` on a local alias (`type MyFeature = Feature`) generates
+  `MyFeature.Clone`, which you can call directly, but `summon`, `implicit()`
+  and method syntax in other files don't find it. Use the `@impl` form.
+
 ## Extension Methods
 
 Typeclass methods are available as extension methods (`a.equals(b)` instead of
