@@ -628,7 +628,10 @@ describe("Red Team: Type Safety", () => {
     });
 
     // Finding TS-43: Clone derivation generates shallow copy
-    it("Generic Clone deriveProduct generates field copy", () => {
+    // A spread copy since the Turf case study (Stage 1): listing the fields
+    // added `undefined` keys for absent optional fields and dropped
+    // undeclared properties.
+    it("Generic Clone deriveProduct generates a spread copy", () => {
       const cloneDerivation = getGenericDerivation("Clone");
       expect(cloneDerivation).toBeDefined();
 
@@ -643,8 +646,7 @@ describe("Red Team: Type Safety", () => {
 
       expect(result).toBeDefined();
       expect(result).toContain("clone");
-      expect(result).toContain("a.data");
-      expect(result).toContain("a.count");
+      expect(result).toContain("({ ...a })");
     });
   });
 
