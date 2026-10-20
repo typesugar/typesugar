@@ -3,7 +3,7 @@
  *
  * A generic, registry-free source of typeclass operator/method metadata. Given a
  * `ts.Program`, it discovers every `@typeclass`-annotated interface in scope and
- * reads each member's `@op <token>` JSDoc tag, producing a per-typeclass map from
+ * reads each member's `@op <token>` JSDoc tags (one or more), producing a per-typeclass map from
  * operator token → method name (and the set of method names).
  *
  * This replaces the hardcoded `STANDARD_TYPECLASS_DEFS` + global `typeclassRegistry`
@@ -17,7 +17,7 @@
 
 import * as ts from "typescript";
 import {
-  extractOpFromJSDoc,
+  extractOpsFromJSDoc,
   getStandardTypeclassOpInfos,
   buildTypeclassInfoFromInterface,
   type TypeclassInfo,
@@ -97,15 +97,16 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
     const methodName = member.name.text;
     methodNames.add(methodName);
 
-    const op = extractOpFromJSDoc(member);
-    if (!op) continue;
+    // A member may carry several `@op` tags (equivalent spellings such as
+    // `@op ===` + `@op ==` on Eq.equals); each maps to this member.
+    const ops = extractOpsFromJSDoc(member);
+    if (ops.length === 0) continue;
     const params = memberParameters(member);
     if (params && params.length === 1) {
       // `/** @op - */ negate(a: A): A` -- the prefix-unary form `-a`.
-      unaryOpToMethod.set(op, methodName);
+      for (const op of ops) unaryOpToMethod.set(op, methodName);
       continue;
     }
-    opToMethod.set(op, methodName);
     const right = params?.[1]?.type;
     const rightIsSelf =
       !!right &&
@@ -114,7 +115,10 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
       ts.isIdentifier(right.typeName) &&
       right.typeName.text === typeParamName &&
       !right.typeArguments;
-    if (params && params.length >= 2 && !rightIsSelf) mixedOperandOps.add(op);
+    for (const op of ops) {
+      opToMethod.set(op, methodName);
+      if (params && params.length >= 2 && !rightIsSelf) mixedOperandOps.add(op);
+    }
   }
 
   const def = buildTypeclassInfoFromInterface(iface);

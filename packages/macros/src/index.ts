@@ -97,6 +97,7 @@ export {
   tryExtractSumType,
   getTypeclassesForMethod,
   extractOpFromJSDoc,
+  extractOpsFromJSDoc,
   registerInstanceWithMeta,
   type TypeclassInfo,
   type TypeclassMethod,

@@ -23,7 +23,10 @@ import "@typesugar/macros";
 import { transformCode, type TransformCodeResult } from "../src/transform.js";
 import { resetDtsDiscovery } from "../src/dts-opaque-discovery.js";
 
-/** A typeclass library with binary and unary `@op` tags, plus its `/ops` marker. */
+/**
+ * A typeclass library with binary and unary `@op` tags (one method carrying two,
+ * `===` and `==`), plus its `/ops` marker.
+ */
 const LIB = [
   `export interface Vec2 { x: number; y: number }`,
   `export interface Plain { n: number }`,
@@ -33,7 +36,10 @@ const LIB = [
   `  add(a: A, b: A): A;`,
   `  /** @op - */`,
   `  negate(a: A): A;`,
-  `  /** @op === */`,
+  `  /**`,
+  `   * @op ===`,
+  `   * @op ==`,
+  `   */`,
   `  same(a: A, b: A): boolean;`,
   `}`,
   `/** @impl VecOps<Vec2> */`,
@@ -252,6 +258,29 @@ describe("TS9804: equality operators", () => {
     const hints = hintsOf(transform(main));
     expect(hints).toHaveLength(1); // VecOps maps === only, not !==
     expect(hints[0].message).toContain("VecOps.same");
+  });
+
+  it("warns for each spelling a method's @op tags map (=== and ==)", () => {
+    const main = [PRELUDE, `export const r = [v == w, v != w];`].join("\n");
+    const hints = hintsOf(transform(main));
+    expect(hints).toHaveLength(1); // VecOps maps == (second tag on same), not !=
+    expect(hints[0].message).toContain("'=='");
+    expect(hints[0].message).toContain("VecOps.same");
+    expect(hints[0].start).toBe(main.indexOf("v == w") + 2);
+  });
+
+  it("rewrites both spellings once activated", () => {
+    const result = transform(
+      [
+        PRELUDE,
+        `import "./syntax/vec-ops";`,
+        `export const r1 = v === w;`,
+        `export const r2 = v == w;`,
+      ].join("\n")
+    );
+    expect(hintsOf(result)).toEqual([]);
+    expect(result.code).toContain("r1 = v.x === w.x && v.y === w.y");
+    expect(result.code).toContain("r2 = v.x === w.x && v.y === w.y");
   });
 
   it("is silenced on a line by // @ts-no-typesugar operators", () => {
