@@ -10,6 +10,7 @@ export default defineConfig({
     esbuild: "src/esbuild.ts",
     rollup: "src/rollup.ts",
     cli: "src/cli.ts",
+    register: "src/register.ts",
   },
   format: ["cjs", "esm"],
   dts: !process.env.TYPESUGAR_SKIP_DTS,

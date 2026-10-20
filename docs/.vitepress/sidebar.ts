@@ -53,6 +53,10 @@ export const sidebar: DefaultTheme.SidebarItem[] = [
           },
           { text: "Jest", link: "/getting-started/environments/jest" },
           {
+            text: "Node.js / tsx",
+            link: "/getting-started/environments/node",
+          },
+          {
             text: "Monorepo",
             link: "/getting-started/environments/monorepo",
           },

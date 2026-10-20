@@ -93,6 +93,16 @@
         "types": "./dist/rollup.d.cts",
         "default": "./dist/rollup.cjs"
       }
+    },
+    "./register": {
+      "import": {
+        "types": "./dist/register.d.ts",
+        "default": "./dist/register.js"
+      },
+      "require": {
+        "types": "./dist/register.d.cts",
+        "default": "./dist/register.cjs"
+      }
     }
   },
   "typesugar": {
@@ -135,5 +145,8 @@
     "dist",
     "src"
   ],
-  "sideEffects": false
+  "sideEffects": [
+    "./dist/register.js",
+    "./dist/register.cjs"
+  ]
 }

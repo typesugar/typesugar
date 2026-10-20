@@ -20,6 +20,11 @@ export default defineConfig([
       "dts-transform": "src/dts-transform.ts",
       "dts-transform-cli": "src/dts-transform-cli.ts",
       "dts-opaque-discovery": "src/dts-opaque-discovery.ts",
+      // Node loader: `register` and `register-hooks` bundle only the light
+      // hook plumbing; `node-loader-compile` (the pipeline) is required lazily.
+      register: "src/register.ts",
+      "register-hooks": "src/register-hooks.ts",
+      "node-loader-compile": "src/node-loader-compile.ts",
     },
     format: ["cjs", "esm"],
     dts: !process.env.TYPESUGAR_SKIP_DTS,

@@ -104,10 +104,11 @@ Once you've followed your persona guide, you may need environment-specific confi
 | tsc (ts-patch) | [tsc Setup](./environments/tsc.md)         |
 | Bun            | [Bun Setup](./environments/bun.md)         |
 
-| Testing | Guide                                    |
-| ------- | ---------------------------------------- |
-| Vitest  | [Vitest Setup](./environments/vitest.md) |
-| Jest    | [Jest Setup](./environments/jest.md)     |
+| Testing / running                | Guide                                     |
+| -------------------------------- | ----------------------------------------- |
+| Vitest                           | [Vitest Setup](./environments/vitest.md)  |
+| Jest                             | [Jest Setup](./environments/jest.md)      |
+| Node.js, tsx, node:test, scripts | [Node.js and tsx](./environments/node.md) |
 
 | Monorepo          | Guide                                        |
 | ----------------- | -------------------------------------------- |

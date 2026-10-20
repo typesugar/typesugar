@@ -945,7 +945,12 @@ export function transpileExpanded(
   code: string,
   fileName: string,
   compilerOptions: ts.CompilerOptions,
-  options?: { sourceMap?: boolean; jsx?: ts.JsxEmit }
+  options?: {
+    sourceMap?: boolean;
+    jsx?: ts.JsxEmit;
+    /** Module system to emit (default ESNext: imports/exports kept). */
+    module?: ts.ModuleKind;
+  }
 ): {
   outputText: string;
   sourceMapText?: string;
@@ -962,7 +967,7 @@ export function transpileExpanded(
   const result = ts.transpileModule(code, {
     compilerOptions: {
       ...compilerOptions,
-      module: ts.ModuleKind.ESNext,
+      module: options?.module ?? ts.ModuleKind.ESNext,
       target: compilerOptions.target ?? ts.ScriptTarget.ESNext,
       sourceMap: emitSourceMap,
       declaration: false,
@@ -1745,6 +1750,11 @@ export class TransformationPipeline {
    */
   getFileNames(): string[] {
     return this.fileNames;
+  }
+
+  /** The compiler options this pipeline's Program is built with. */
+  getCompilerOptions(): ts.CompilerOptions {
+    return this.compilerOptions;
   }
 
   /**
