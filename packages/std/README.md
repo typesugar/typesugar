@@ -91,16 +91,17 @@ rangeToArray(rangeInclusive(1, 10)); // [1, 2, ..., 10]
 
 `@typesugar/std` exports core typeclasses that power operator dispatch and auto-derivation:
 
-| Typeclass                      | Purpose                                              |
-| ------------------------------ | ---------------------------------------------------- |
-| `Eq<A>`                        | Equality with `===` `!==` `==` `!=` dispatch         |
-| `Hash<A>`                      | Hashing for HashMap/HashSet                          |
-| `Ord<A>`                       | Total ordering with `<` / `<=` / `>` / `>=` dispatch |
-| `Semigroup<A>`                 | Associative combine with `+` dispatch                |
-| `Monoid<A>`                    | Semigroup with identity element                      |
-| `Numeric<A>`                   | Arithmetic with `+` / `-` / `*` dispatch             |
-| `Fractional<A>`, `Integral<A>` | `/` (and `%` for `Integral`) dispatch                |
-| `FlatMap<F>`                   | Sequencing for do-notation                           |
+| Typeclass                      | Purpose                                                  |
+| ------------------------------ | -------------------------------------------------------- |
+| `Eq<A>`                        | Equality with `===` `!==` `==` `!=` dispatch             |
+| `Hash<A>`                      | Hashing for HashMap/HashSet                              |
+| `Ord<A>`                       | Total ordering with `<` / `<=` / `>` / `>=` dispatch     |
+| `Semigroup<A>`                 | Associative combine with `+` dispatch                    |
+| `Monoid<A>`                    | Semigroup with identity element                          |
+| `Numeric<A>`                   | Arithmetic with `+` / `-` / `*` dispatch                 |
+| `Fractional<A>`, `Integral<A>` | `/` (and `%` for `Integral`) dispatch                    |
+| `FlatMap<F>`                   | Sequencing for do-notation                               |
+| `Destructure<P, I, O>`         | Extractor patterns in `match` (`Some(v)`, `Point(x, y)`) |
 
 Operator dispatch is off until a file imports the typeclass's activation module, for
 example `import "@typesugar/std/syntax/eq/ops";` for `===` / `!==` / `==` / `!=`, or
@@ -278,7 +279,7 @@ Rich extension methods for every basic type:
 
 ## Pattern Matching
 
-Scala-style pattern matching with **compile-time exhaustiveness checking** and zero runtime overhead, via a fluent API in any `.ts` file.
+Scala-style pattern matching with **compile-time exhaustiveness checking**, via a fluent API in any `.ts` file, and a statement form (`match: switch`). Matches compile to plain conditionals, `switch`es and field reads; see the guide for what each shape compiles to.
 
 ### Fluent API
 
@@ -297,12 +298,31 @@ const area = match(shape)
   .then(s ** 2)
   .case({ kind: "rect", w, h })
   .then(w * h);
-// Compile error if you miss a variant. Zero runtime overhead.
+// Compile error if you miss a variant.
+```
+
+### Statement form
+
+When an arm needs statements (`return` from the function, `break`, a loop), put a `match:`
+label on a `switch`. The arms stay in place, and the macro adds patterns and the
+exhaustiveness check:
+
+```typescript
+import "@typesugar/std/syntax/match"; // activates match: in this file
+
+match: switch (shape.kind) {
+  case "circle":
+    return Math.PI * shape.radius ** 2;
+  case "square":
+    return shape.side ** 2;
+  case "rect":
+    return shape.w * shape.h;
+}
 ```
 
 ### Pattern Types
 
-The fluent API supports all structural patterns — literals, variable binding, wildcards, arrays/tuples, objects, discriminated unions, type patterns (`String(s)`, `Date(d)`), OR patterns (`.or()`), AS patterns (`.as()`), regex, nested patterns, and extractors via the `Destructure` typeclass.
+The fluent API supports all structural patterns — literals, variable binding, wildcards, arrays/tuples, objects, discriminated unions, type patterns (`String(s)`, `Date(d)`), OR patterns (`.or()`), AS patterns (`.as()`), regex, nested patterns, and extractors via the `Destructure` typeclass. An extractor (`Some(v)`, `Point(x, y)`) resolves its instance by the constructor's symbol: `@typesugar/fp` ships instances for its constructors, and `@derive(Destructure)` generates them for your own types.
 
 ### Exhaustiveness
 
@@ -313,7 +333,7 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue
   = help: Add the missing cases or use .else() / _ to handle remaining values.
 ```
 
-Use `.else(value)` as a catch-all. When no pattern matches at runtime, the generated code throws `MatchError`.
+Use `.else(value)` as a catch-all. When the arms can't be shown to cover the value, the generated code ends in a `throw new MatchError(value)`; a match of plain literal arms that covers its type has none.
 
 See the [Pattern Matching Guide](../../docs/guides/pattern-matching.md) for the full pattern catalogue and optimization details.
 
@@ -390,6 +410,7 @@ rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
 - `hashNumber`, `hashString`, `hashBoolean`, `hashBigInt`, `hashDate` — Primitive Hash instances
 - `makeHash(fn)`, `hashBy(f, H)`, `hashArray(H)` — Hash combinators
 - `FlatMap<F>` — Sequencing for type constructors (map, flatMap)
+- `Destructure<Pattern, Input, Output>` — The extractor protocol behind `match` patterns like `Some(v)` (Scala's `unapply`)
 - `flatMapArray`, `flatMapPromise`, `flatMapIterable`, `flatMapAsyncIterable` — Built-in instances (exported by the `@typesugar/std/syntax/do` marker; custom instances are declared with `@impl` JSDoc tags and resolved from scope, PEP-052)
 
 ### Macros
@@ -400,6 +421,7 @@ rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
 ### Data Type Exports
 
 - `MatchError` — Runtime error thrown when a match is non-exhaustive and no arm matches (extends `Error`, has `.value` property)
+- `FluentMatch<T>`, `FluentMatchCase`, `FluentMatchArms` — Types of the fluent chain, for tools that type-check unexpanded source (plain `tsc`, typedoc)
 - `Pair<A, B>`, `Triple<A, B, C>` — Tuple types with utilities
 - `Range` — Numeric ranges with iteration support
   - Creation: `to(n, end)`, `until(n, end)` (extension methods on number)

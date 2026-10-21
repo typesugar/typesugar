@@ -309,6 +309,23 @@ For `Option` this compiles to `flatMapOption.flatMap(findUser(42), user => …)`
 
 See [Do-Notation Guide](./do-notation.md).
 
+## Pattern Matching
+
+The constructors are extractor patterns for `match` from `@typesugar/std`. `@typesugar/fp`
+ships a `Destructure` instance next to each of `Some`/`None`, `Left`/`Right`, `Cons`/`Nil`
+and `Valid`/`Invalid`. A pattern compiles to an inlined test on the real representation
+and a field read (`Left(err)` is `"left" in v`, then `err = v.left`); the instance's
+`extract` is never called. Each pair covers its type, so no `.else()` is needed:
+
+```typescript
+import { match } from "@typesugar/std";
+import { Left, Right } from "@typesugar/fp";
+
+const message = match(parsed).case(Left(err)).then(`Error: ${err}`).case(Right(n)).then(`Got ${n}`);
+```
+
+See [Extractor Patterns](./pattern-matching.md#extractor-patterns).
+
 ## Comparison to Other Libraries
 
 | Feature        | typesugar/fp | fp-ts           | Effect          |

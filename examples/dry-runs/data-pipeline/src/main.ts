@@ -163,9 +163,14 @@ type EnrichedRecord = {
 
 function enrichRecord(r: SalesRecord): EnrichedRecord {
   const unitPrice = r.amount / r.quantity;
-  // NOTE: match() fluent API (.case().then().else()) returns `never` in type stubs,
-  // causing TS2339 errors at typecheck time. Using plain ternary instead.
-  const tier = r.amount >= 500 ? "premium" : r.amount >= 200 ? "standard" : "basic";
+  const tier = match(r.amount)
+    .case(n)
+    .if(n >= 500)
+    .then("premium")
+    .case(n)
+    .if(n >= 200)
+    .then("standard")
+    .else("basic");
 
   return {
     id: r.id,

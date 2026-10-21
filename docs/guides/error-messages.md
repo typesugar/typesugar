@@ -151,7 +151,8 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing a fallback: 
 
 - Add the missing `.case()` arms for literal unions and discriminated unions
 - Use `.else(value)` or `.case(_).then(value)` for catch-all
-- Runtime safety net: when no pattern matches, the generated code throws `MatchError` with `.value` set to the unmatched value
+- Runtime safety net: when the arms can't be shown to cover the value, the generated code ends in a throw of `MatchError` with `.value` set to the unmatched value ([Runtime Safety Net](./pattern-matching.md#runtime-safety-net))
+- The statement form, a `match:` label on a `switch`, reports a missing case with the same TS9226
 
 ### Import Suggestion (TS9061, TS9062)
 

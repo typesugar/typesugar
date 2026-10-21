@@ -122,11 +122,20 @@ export type FluentMatchArms<T, R> = [R] extends [never]
   : (NonNullable<R> & FluentMatch<T, R>) | Extract<R, null | undefined>;
 
 /**
- * Runtime match function.
+ * Pattern matching.
  *
- * Two forms:
+ * Two expression forms:
  * 1. `match(value, handlers)` — discriminated union or literal dispatch (runtime)
- * 2. `match(value)` — fluent chain (macro-only, requires transformer)
+ * 2. `match(value).case(...).then(...).else(...)` — fluent chain (macro-only,
+ *    requires transformer), exhaustiveness-checked. Extractor patterns
+ *    (`.case(Some(v))`) resolve a `Destructure` instance by the constructor's
+ *    symbol.
+ *
+ * For arms that need statements (`return`, `break`, loops), the statement form
+ * is a `match:` label on a `switch`, activated by
+ * `import "@typesugar/std/syntax/match"`.
+ *
+ * @see https://typesugar.org/guides/pattern-matching
  */
 // Overload: discriminated union with `kind` property
 export function match<T extends { kind: string }, R>(

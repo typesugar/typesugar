@@ -1,8 +1,8 @@
 # Pattern Matching (object form)
 
 Dispatch on a discriminated union with `match(value, handlers)`. For exhaustiveness
-checking and structural patterns, use the fluent `match().case()` API in
-[Pattern Matching](./pattern-matching.md).
+checking and structural patterns, use the fluent `match().case()` API, or its statement
+form `match: switch`, in [Pattern Matching](./pattern-matching.md).
 
 ## Quick Start
 
@@ -77,7 +77,7 @@ const name = match(shape, {
 
 ## Exhaustiveness and MatchError
 
-The fluent `match().case().then().else()` API (see [Pattern Matching](./pattern-matching.md)) enforces compile-time exhaustiveness. Missing cases produce a [TS9226](../errors/TS9226.md) error (e.g. `Non-exhaustive match — missing cases: "green", "blue"`). When no pattern matches at runtime, the generated code throws `MatchError` with the unmatched value on `.value`.
+The fluent `match().case().then().else()` API (see [Pattern Matching](./pattern-matching.md)) enforces compile-time exhaustiveness. Missing cases produce a [TS9226](../errors/TS9226.md) error (e.g. `Non-exhaustive match — missing cases: "green", "blue"`). When the arms can't be shown to cover the value, the generated code ends in a throw of `MatchError` with the unmatched value on `.value` (see [Runtime Safety Net](./pattern-matching.md#runtime-safety-net)).
 
 ## Learn More
 

@@ -12,7 +12,7 @@ const area = match(shape)
   .then(s ** 2)
   .case({ kind: "rect", w, h })
   .then(w * h);
-// Compile error if you miss a variant. Zero runtime overhead.
+// Compile error if you miss a variant. No runtime library does the matching.
 ```
 
 ## The Fluent API
@@ -29,7 +29,7 @@ const y = match(x)
   .else(0);
 ```
 
-Matches compile to optimized output with zero runtime overhead.
+Matches compile to plain conditionals, `switch`es and field reads; [Code Generation Strategies](#code-generation-strategies) shows what each shape becomes.
 
 ---
 

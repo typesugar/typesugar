@@ -171,6 +171,12 @@ consumer-side transformer reads to enable dot-syntax.
    relative imports are invalid and the types collapse to `any` for consumers.
 4. **Don't leak host globals.** e.g. use `ReturnType<typeof setInterval>` instead of
    `NodeJS.Timer` so the public `.d.ts` doesn't force `@types/node`.
+5. **Ship instances next to their types.** An exported instance (`@impl`, `@derive`d,
+   or `derived<TC<T>>()`) in the module that declares the type is found by consumers
+   who import that module. Extractors for `match` are `Destructure` instances, which
+   resolve from the module that declares the constructor, as `@typesugar/fp` ships
+   `destructureSome` next to `Some`; give each a `@destructure` tag so consumers'
+   patterns are inlined ([Custom Extractors](./pattern-matching.md#custom-extractors)).
 
 ### Worked example: `@typesugar/fp` Option
 
