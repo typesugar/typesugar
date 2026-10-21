@@ -656,8 +656,9 @@ applied to:
 On anything else (a const, a function, an enum) it derives nothing, and is
 reported instead of being ignored. A \`@derive(X)\` line followed by prose
 (\`@derive(Read) — derives a Read instance\`) on such a declaration is
-documentation, not a tag, as is one after an \`@example\` tag or in a fenced
-example. For a type you don't own, declare its instance
+documentation, not a tag, as is one in a fenced example. A line-start
+\`@derive(X)\` after an unfenced \`@example\` is a real tag: JSDoc ends the
+example there, so fence example code that shows \`@derive\`. For a type you don't own, declare its instance
 with \`export const eqT = derived<Eq<T>>();\` in a module of your own.`,
   seeAlso: "https://typesugar.org/errors/TS9102",
 };

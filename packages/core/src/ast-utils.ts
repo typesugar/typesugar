@@ -651,7 +651,8 @@ export function getRemoveComment(node: ts.Node): string | undefined {
  * Whether a JSDoc tag sits at a real tag position: the `@` starts its comment
  * line (only whitespace and the leading `*` before it, or only whitespace
  * after `/**` on the comment's first line), and the line is not inside a
- * ``` / ~~~ code fence within that comment.
+ * ``` / ~~~ code fence within that comment. A line-start tag after an
+ * `@example`'s unfenced lines is real: JSDoc ends the example there.
  *
  * TypeScript's JSDoc parser treats any whitespace-preceded `@word` as a tag,
  * so prose ("Parsed from @adt tag."), nested example comments
@@ -690,13 +691,13 @@ export function isJSDocTagAtLineStart(tag: ts.JSDocTag): boolean {
       .trimStart();
     if (line.startsWith("```") || line.startsWith("~~~")) inFence = !inFence;
   }
-  if (inFence) return false;
-
-  // After an `@example` tag, a line starting with `@` is example code (the
-  // JSDoc parser makes it a tag of its own: `@example\n@derive(X)\nclass C`).
-  const tags: readonly ts.JSDocTag[] = (jsDoc as unknown as ts.JSDoc).tags ?? [];
-  const index = tags.indexOf(tag);
-  return !tags.slice(0, index < 0 ? 0 : index).some((t) => t.tagName.text === "example");
+  // Not inside a fence: a real tag, even after an `@example` tag. In JSDoc an
+  // `@example`'s content ends at the next line-start tag (TypeScript parses
+  // it that way and an IDE renders it as a tag), so only a fence makes a
+  // line-start `@derive` example code. Treating every tag after `@example`
+  // as code silently dropped a real `@derive`/`@impl`/`@typeclass` written
+  // below an example.
+  return !inFence;
 }
 
 // =============================================================================

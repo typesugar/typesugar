@@ -48,10 +48,11 @@ ignored." `@derive` on a function, a `const` or an `enum` is an error,
 
 A tag only triggers a macro when it begins a line of the comment:
 `/** @derive(Eq) */` or ` * @derive(Eq)` on its own line. A tag mentioned
-mid-sentence (`/** Derives @derive(Eq) for you */`), inside a fenced code
-example or after an `@example` tag in the comment is treated as prose and does
-nothing, so documentation comments can talk about macros without triggering
-them. On a declaration `@derive` can't apply to (the `const` of a derive macro
+mid-sentence (`/** Derives @derive(Eq) for you */`) or inside a fenced code
+example in the comment is treated as prose and does nothing, so documentation
+comments can talk about macros without triggering them. An `@example` without a
+fence ends at the next line-start tag, as in any JSDoc: a ` * @derive(Eq)` line
+after an example's code is a real tag, so fence example code that shows one. On a declaration `@derive` can't apply to (the `const` of a derive macro
 you are writing), a `@derive(X)` line followed by more text,
 `@derive(Read) — derives a Read instance`, is documentation too.
 

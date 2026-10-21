@@ -59,7 +59,7 @@ export enum Color { Red, Green }
     expect(r.code).toContain("export enum Color");
   });
 
-  it("documentation that mentions @derive is not a tag: prose after it, or an @example", () => {
+  it("documentation that mentions @derive is not a tag: prose after it, or a fenced example", () => {
     const r = expand(`/**
  * @derive(Read) — derives a Read instance for a product type.
  */
@@ -69,24 +69,52 @@ export const deriveReadMacro = { name: "Read" };
  * Derive macro that generates validation for a class.
  *
  * @example
+ * \`\`\`typescript
  * @derive(Validation)
  * class User {
  *   @validate.email
  *   email: string;
  * }
+ * \`\`\`
  */
 export const Validation = Symbol("Validation");
 
 /**
  * A point.
  * @example
+ * \`\`\`ts
  * @derive(Eq)
  * interface Other { x: number }
+ * \`\`\`
  */
 export interface Point { x: number }
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.code).not.toContain("namespace Point");
+  });
+
+  it("a line-start @derive after an @example's plain lines is a real tag", () => {
+    // JSDoc's @example content ends at the next line-start tag; only a code
+    // fence makes a line-start tag example code. This @derive used to be
+    // ignored, leaving \`Point.Eq\` a ReferenceError at run time.
+    const r = expand(`/**
+ * A point.
+ * @example
+ * const p: Point = { x: 1, y: 2 };
+ * @derive(Eq)
+ */
+export interface Point { x: number; y: number }
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.code).toContain("export const Eq = {");
+    const onConst = expand(`/**
+ * @example
+ * use(l);
+ * @derive(Eq)
+ */
+export let l = 2;
+`);
+    expect(onConst.diagnostics.map((d) => d.code)).toEqual([9102]);
   });
 
   it("a bare @derive(Eq) line on a const is still TS9102", () => {
