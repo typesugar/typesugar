@@ -21,13 +21,17 @@ const transform = (code: string) =>
 const errors = (r: ReturnType<typeof transform>) =>
   r.diagnostics.filter((d) => d.severity === "error").map((d) => d.message);
 
-function evaluate(code: string, std: Record<string, unknown>): Record<string, unknown> {
+function evaluate(
+  code: string,
+  std: Record<string, unknown>,
+  fp: Record<string, unknown> = {}
+): Record<string, unknown> {
   const js = ts.transpileModule(code, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
   const mod = { exports: {} as Record<string, unknown> };
   new Function("module", "exports", "require", js)(mod, mod.exports, (spec: string) =>
-    spec === "@typesugar/std" ? std : {}
+    spec === "@typesugar/std" ? std : spec === "@typesugar/fp" ? fp : {}
   );
   return mod.exports;
 }
@@ -71,5 +75,28 @@ export const e = summon<Eq<symbol>>();
     expect(errs[0]).toContain("TS9001");
     expect(errs[0]).not.toContain("@derive(Eq) to symbol");
     expect(errs[0]).not.toContain('import { Eq } from "typesugar"');
+  });
+});
+
+describe("a typeclass whose package exports its instances in a namespace (fp's Show)", () => {
+  // `typesugar`'s `Show` is @typesugar/fp's, and fp's root exports its
+  // instances only inside `export * as TC from "./typeclasses"`
+  // (`TC.showNumber`), which the home-package scan didn't enter: TS9001.
+  it("summon and implicit() resolve Show<number> through the namespace", async () => {
+    const r = transform(`import { summon, implicit } from "typesugar";
+import type { Show } from "typesugar";
+function print<A>(value: A, S: Show<A> = implicit()): string { return S.show(value); }
+export const a = summon<Show<number>>().show(42);
+export const b = print("hi");
+export const c = print(true);
+`);
+    expect(errors(r)).toEqual([]);
+    expect(r.code).toMatch(/import \{[^}]*\bTC\b[^}]*\} from "@typesugar\/fp"/);
+    const fp = await import("@typesugar/fp");
+    expect(evaluate(r.code, {}, fp as Record<string, unknown>)).toMatchObject({
+      a: "42",
+      b: '"hi"',
+      c: "true",
+    });
   });
 });

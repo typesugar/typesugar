@@ -7,8 +7,10 @@ your `.js` and `.d.ts` files.
 
 The TypeScript compiler (`tsc`) doesn't run transformer plugins, so a plain `tsc`
 does not expand macros. Build with the typesugar CLI instead: `typesugar build` is a
-drop-in for `tsc` that reads the same `tsconfig.json`, expands macros, type-checks the
-expanded code and emits declarations from it. No patching is needed.
+drop-in for `tsc` that reads the same `tsconfig.json`, expands macros, type-checks your
+source (with the errors that only the unexpanded source has filtered out) and emits the
+expanded code and declarations from it. `typesugar build --strict` also type-checks the
+expanded code. No patching is needed.
 
 [ts-patch](#alternative-a-ts-patched-tsc) is an alternative if you want `tsc` itself to
 expand macros, with the caveats listed there.

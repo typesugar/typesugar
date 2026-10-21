@@ -100,8 +100,11 @@ An instance is found in this file, in what the file imports (by name, then any e
 an imported module), and last in the package that declares the typeclass. So with
 `import type { Ord } from "typesugar"`, which is `@typesugar/std`'s `Ord`,
 `summon<Ord<number>>()` finds std's `ordNumber` and imports it from `@typesugar/std`,
-though the file never imported that package. The typeclass is compared by identity: a
-renamed import (`Eq as Equal`) or a re-export is the same typeclass.
+though the file never imported that package. That includes instances the package exports
+inside a namespace: `Show` from `typesugar` is `@typesugar/fp`'s, whose instances are
+exported as `TC.ShowOps.showNumber`, so `summon<Show<number>>()` imports `TC`. The
+typeclass is compared by identity: a renamed import (`Eq as Equal`) or a re-export is the
+same typeclass.
 
 ### Generic Functions: `= implicit()`
 

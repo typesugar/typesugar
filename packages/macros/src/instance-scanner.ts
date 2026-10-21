@@ -274,6 +274,54 @@ export class InstanceScanner {
   }
 
   /**
+   * The instances a module exports inside namespace re-exports
+   * (`export * as TC from "./typeclasses"`, which may itself re-export
+   * `export * as ShowOps from "./show"` → `TC.ShowOps.showNumber`), each
+   * reachable by that path from an import of the module. Nested up to three
+   * namespaces deep; a module reached twice is scanned once. Kept apart from
+   * {@link scanModule} (which every import scan uses): a package's namespaces
+   * can hold another typeclass family's same-named instances, so this is only
+   * for the typeclass's home package (`resolveFromTypeclassHome`). Namespaces
+   * are followed by symbol (each alias's target module), not by name. A
+   * checker failure propagates: the caller, which has a MacroContext, reports
+   * it (CLAUDE.md caught-failure rule).
+   */
+  scanNamespaceReexports(
+    typeChecker: ts.TypeChecker,
+    moduleSymbol: ts.Symbol,
+    resolvedPath: string,
+    program?: ts.Program
+  ): ScannedInstance[] {
+    const cache = this.cacheFor(program);
+    const cacheKey = resolvedPath + "::namespaces";
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+    const results: ScannedInstance[] = [];
+    const visited = new Set<ts.Symbol>([moduleSymbol]);
+    const walk = (mod: ts.Symbol, prefix: string, depth: number): void => {
+      for (const sym of typeChecker.getExportsOfModule(mod)) {
+        if (!(sym.flags & ts.SymbolFlags.Alias)) continue;
+        const target = typeChecker.getAliasedSymbol(sym);
+        // `export * as Ns from "..."`: the alias's target is a module (its
+        // declaration is the source file), not a value or a type.
+        if (!(target.flags & ts.SymbolFlags.ValueModule)) continue;
+        if (!target.declarations?.some(ts.isSourceFile) || visited.has(target)) continue;
+        visited.add(target);
+        const path = `${prefix}${sym.getName()}.`;
+        for (const member of typeChecker.getExportsOfModule(target)) {
+          results.push(
+            ...this.scanExport(typeChecker, member, resolvedPath, `${path}${member.getName()}`)
+          );
+        }
+        if (depth < 3) walk(target, path, depth + 1);
+      }
+    };
+    walk(moduleSymbol, "", 1);
+    cache.set(cacheKey, results);
+    return results;
+  }
+
+  /**
    * Clear the program-less fallback cache (used by unit tests). Per-program caches
    * are invalidated automatically when their program is collected.
    */
@@ -288,10 +336,10 @@ export class InstanceScanner {
   private scanExport(
     typeChecker: ts.TypeChecker,
     sym: ts.Symbol,
-    resolvedPath: string
+    resolvedPath: string,
+    exportName: string = sym.getName()
   ): ScannedInstance[] {
     const results: ScannedInstance[] = [];
-    const exportName = sym.getName();
 
     // Follow aliased symbols (re-exports) to their original declarations
     let resolvedSym = sym;

@@ -654,7 +654,23 @@ export function resolveFromTypeclassHome(
   const checker = ctx.typeChecker;
   const moduleSymbol = checker.getSymbolAtLocation(entry);
   if (!moduleSymbol) return { result: undefined, homePackage };
-  const scanned = scanner.scanModule(checker, moduleSymbol, entry.fileName, ctx.program);
+  // The entry's exports, then (only if none matches) the instances it exports
+  // inside a namespace re-export: @typesugar/fp's root exports its instances
+  // as `TC.showNumber` (`export * as TC from "./typeclasses"`).
+  let scanned = scanner.scanModule(checker, moduleSymbol, entry.fileName, ctx.program);
+  if (
+    !scanned.some((i) => i.typeclassName === tcName && isTypeMatch(checker, forType, i.forType))
+  ) {
+    try {
+      scanned = scanner.scanNamespaceReexports(checker, moduleSymbol, entry.fileName, ctx.program);
+    } catch (e) {
+      ctx.reportWarning(
+        ctx.sourceFile,
+        `typesugar could not search ${homePackage}'s namespace exports for a ${tcName} ` +
+          `instance (${e instanceof Error ? e.message : String(e)}); they were skipped.`
+      );
+    }
+  }
   const matches = filterMatches(
     checker,
     scanned,

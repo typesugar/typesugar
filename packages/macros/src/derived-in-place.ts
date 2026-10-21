@@ -152,7 +152,8 @@ export function primitiveInstanceHelp(
   return (
     `${typeName} is a primitive, so there is nothing to derive ${typeclassName} from. Bring a ` +
     `${typeclassName}<${typeName}> instance into scope (import the module that provides it; ` +
-    `@typesugar/std's typeclasses come with instances for the primitives they support), ` +
+    `a library's typeclasses, such as @typesugar/std's and @typesugar/fp's, come with instances ` +
+    `for the primitives they support), ` +
     `or declare one: /** @impl ${typeclassName}<${typeName}> */`
   );
 }
