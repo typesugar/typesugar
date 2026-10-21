@@ -330,6 +330,18 @@ export class InstanceScanner {
   }
 
   /**
+   * The typeclass instances one value declaration declares (an `@impl` tag, a
+   * `TC<T>` annotation, `impl("TC<T>", ...)` or `derived<TC<T>>()`), read the
+   * same way a module scan reads it. Empty when the declaration is not an
+   * instance. Used by extension-method resolution to recognise an imported
+   * value as an instance and learn the type it is for.
+   */
+  scanValueDeclaration(typeChecker: ts.TypeChecker, decl: ts.Node): ScannedInstance[] {
+    const name = ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) ? decl.name.text : "";
+    return this.scanDeclaration(typeChecker, decl, name, decl.getSourceFile().fileName);
+  }
+
+  /**
    * Scan a single exported symbol for instance annotations.
    * Follows re-exports to find the original declaration with JSDoc tags.
    */

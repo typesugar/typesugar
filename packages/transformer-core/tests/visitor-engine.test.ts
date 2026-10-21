@@ -496,6 +496,48 @@ describe("native method vs imported object member", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A named import of a typeclass instance serves only receivers of the
+// instance's own type (by identity). `number` is assignable to a numeric
+// enum, and `n.show()` on `n: number` became `showColor.show(n)`.
+// ---------------------------------------------------------------------------
+describe("imported typeclass instance as an extension provider", () => {
+  const files = (main: string) => ({
+    "/inst.ts": `
+      /** @typeclass */
+      export interface Show<A> { show(a: A): string; }
+      export enum Color { Red, Green }
+      /** @impl Show<Color> */
+      export const showColor: Show<Color> = { show: (c) => Color[c] };
+    `,
+    "/main.ts": main,
+  });
+
+  it("does not serve a number receiver from an instance for a numeric enum", () => {
+    const r = run(
+      files(`
+        import { showColor } from "./inst";
+        export function f(n: number) { return n.show(); }
+      `),
+      "/main.ts"
+    );
+    expect(r.code).not.toContain("showColor.show(n)");
+  });
+
+  it("still serves a receiver of the instance's own type", () => {
+    const r = run(
+      files(`
+        import { Color, showColor } from "./inst";
+        export function f(c: Color) { return c.show(); }
+        export const g = Color.Red.show();
+      `),
+      "/main.ts"
+    );
+    expect(r.code).toContain("showColor.show(c)");
+    expect(r.code).toContain("showColor.show(Color.Red)");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Attribute macro returning several statements: every one is visited
 // ---------------------------------------------------------------------------
 describe("attribute macro results after the first are visited", () => {

@@ -18,6 +18,12 @@ import {
   isSyntheticNode,
   type StandaloneExtensionInfo,
 } from "@typesugar/core";
+import {
+  instanceScanner,
+  isHktTypeclass,
+  isTypeclassDeclared,
+  type ScannedInstance,
+} from "@typesugar/macros";
 
 // ---------------------------------------------------------------------------
 // Import tracking
@@ -1141,6 +1147,110 @@ function isUnoptedModuleNamespaceBinding(ctx: MacroContextImpl, ident: ts.Identi
 }
 
 /**
+ * May the imported value `ident` serve `receiver.method()` as an object
+ * extension provider (`ident.method(receiver)`), as far as being a typeclass
+ * instance goes?
+ *
+ * Any imported object whose member's first parameter accepts the receiver
+ * is a provider, which is right for an extension object (`EffectExt`) but
+ * not for a typeclass instance: an instance is FOR one type. With
+ * `@impl Show<Color>` on a numeric enum, `number` is assignable to `Color`,
+ * so `n.show()` on `n: number` became `showColor.show(n)`. An instance
+ * serves only receivers of its own instance type, compared by identity
+ * (CLAUDE.md "Deciding what a type is"): the same type, or the same symbol
+ * after alias resolution with identical type arguments. A literal receiver
+ * (`Color.Red`, `3`) is widened by the checker to its base type first.
+ * Assignability is not used, so enum and number never match each other. A
+ * receiver that only matches the instance's type by shape is left to the
+ * typeclass method-sugar path, which applies its own instance policy.
+ *
+ * What counts as an instance is read by the instance scanner, the same way
+ * instance resolution reads it (an `@impl`/`@instance` tag, `impl(...)`,
+ * `derived<TC<T>>()`, or a `TC<T>` annotation naming a declared typeclass);
+ * any other value is not affected. An instance of a higher-kinded typeclass
+ * (`@impl Functor<OptionF>`) is for a type constructor, not a type, so this
+ * check does not apply to it and it keeps the plain first-parameter match.
+ * An instance whose type the scanner could not resolve serves nothing here.
+ *
+ * Reads the imported declaration as written: an instance is declared in
+ * source (or a `.d.ts`) before any pass starts, so no same-pass state is
+ * involved (CLAUDE.md "Resolving things a macro just generated").
+ */
+function instanceServesReceiver(
+  ctx: MacroContextImpl,
+  ident: ts.Identifier,
+  receiverType: ts.Type
+): boolean {
+  const checker = ctx.typeChecker;
+  let instances: ScannedInstance[];
+  try {
+    let sym = checker.getSymbolAtLocation(ident);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const decl = sym?.valueDeclaration;
+    if (!decl || !ts.isVariableDeclaration(decl)) return true;
+    instances = instanceScanner
+      .scanValueDeclaration(checker, decl)
+      .filter(
+        (inst) =>
+          inst.detectedVia !== "type-annotation" ||
+          isTypeclassDeclared(ctx.program, inst.typeclassName)
+      );
+  } catch (error) {
+    ctx.reportWarning(
+      ident,
+      `typesugar could not check whether the import '${ident.text}' is a typeclass instance (${error}); treating it as an ordinary extension object.`
+    );
+    return true;
+  }
+  if (instances.length === 0) return true;
+  const receiver = widenLiteralType(checker, receiverType);
+  return instances.some((inst) => {
+    if (isHktTypeclass(ctx.program, inst.typeclassName)) return true;
+    return inst.forType !== undefined && isSameTypeByIdentity(checker, receiver, inst.forType, 0);
+  });
+}
+
+/** A literal type (or a union of literals) widened to its base type by the checker. */
+function widenLiteralType(checker: ts.TypeChecker, t: ts.Type): ts.Type {
+  const isLiteral = (m: ts.Type) => (m.flags & ts.TypeFlags.Literal) !== 0;
+  if (!(t.isUnion() ? t.types.every(isLiteral) : isLiteral(t))) return t;
+  return checker.getBaseTypeOfLiteralType(t);
+}
+
+/**
+ * Are `a` and `b` the same type by identity: the same type object, or the
+ * same declaring symbol (aliases resolved) with pairwise identical type
+ * arguments? Never assignability or printed names.
+ */
+function isSameTypeByIdentity(
+  checker: ts.TypeChecker,
+  a: ts.Type,
+  b: ts.Type,
+  depth: number
+): boolean {
+  if (a === b) return true;
+  if (depth > 8) return false;
+  const symbolOf = (t: ts.Type) => {
+    const s = t.aliasSymbol ?? t.getSymbol();
+    return s && s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s;
+  };
+  const sa = symbolOf(a);
+  if (!sa || sa !== symbolOf(b)) return false;
+  const argsOf = (t: ts.Type): readonly ts.Type[] =>
+    t.aliasSymbol
+      ? (t.aliasTypeArguments ?? [])
+      : isReferenceType(t)
+        ? checker.getTypeArguments(t)
+        : [];
+  const aa = argsOf(a);
+  const ba = argsOf(b);
+  return (
+    aa.length === ba.length &&
+    aa.every((t, i) => isSameTypeByIdentity(checker, t, ba[i], depth + 1))
+  );
+}
+
+/**
  * Scan imports for a matching extension method.
  * Collects all matching extensions for ambiguity detection.
  */
@@ -1191,6 +1301,7 @@ export function scanImportsForExtension(
   ) => {
     if (!ext) return;
     if (hasNativeMethod && ext.qualifier !== undefined) return;
+    if (ext.qualifier !== undefined && !instanceServesReceiver(ctx, ident, receiverType)) return;
     matches.push({ ext, importSource, target: extensionTarget(ctx.typeChecker, ident, ext) });
   };
 

@@ -282,6 +282,7 @@ export {
   getMethodCandidates,
   getTypeclassesDeclaringMethod,
   isHktTypeclass,
+  isTypeclassDeclared,
   type TypeclassOpInfo,
 } from "./typeclass-index.js";
 

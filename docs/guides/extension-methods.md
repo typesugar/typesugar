@@ -292,6 +292,11 @@ const price: Money = { cents: 1999 };
 price.print(); // → printableMoney.print(price) → "$19.99"
 ```
 
+An instance is used only for the type it is declared for, compared by identity. If you import
+`showColor` (an `@impl Show<Color>` for a numeric enum `Color`), `color.show()` becomes
+`showColor.show(color)`, but `n.show()` on a `number` is not rewritten to it, even though a
+`number` can be assigned to `Color`.
+
 ## Generic Extensions
 
 Extensions work with generic types:
