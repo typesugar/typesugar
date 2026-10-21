@@ -39,8 +39,6 @@ const KNOWN_BROKEN: Record<string, string> = {
   "packages/effect/examples/showcase.ts": "typeAsserts on Effect types fail (line 153+)",
   "packages/fusion/examples/showcase.ts":
     "typeAssert<Equal<typeof a, FusedVec<number>>> fails (line 199)",
-  "packages/mapper/examples/showcase.ts":
-    "transformInto imported from ../src/index.js is not expanded (runtime stub throws)",
   "packages/reflect/examples/reflect-example.ts": "result.errors is undefined at run time",
   "packages/reflect/examples/showcase.ts": "typeAssert on typeInfo's result fails (line 75)",
   "packages/sql/examples/doobie-style-example.ts":

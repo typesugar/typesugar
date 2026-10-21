@@ -415,6 +415,7 @@ export function loadMacroPackages(program: ts.Program, verbose?: boolean): void 
   // Load warnings are reported per importing file, as diagnostics, by
   // `loadMacroPackagesFromFile` (the factory calls it for every file).
   const { loaded, blocked } = loadDiscoveredPackages(importedModules, verbose);
+  loadRelativeMacroPackages(collectRelativeMacroPackages(program), verbose);
 
   if (verbose) {
     const all = globalRegistry.getAll();
@@ -452,6 +453,7 @@ export function loadMacroPackagesFromFile(
   const basePkgs = new Map<string, string | undefined>();
   const importOf = new Map<string, ts.ImportDeclaration>();
   const fromDir = importerDir(sourceFile.fileName);
+  const relative = new Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>();
 
   for (const stmt of sourceFile.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
@@ -462,6 +464,9 @@ export function loadMacroPackagesFromFile(
           basePkgs.set(basePkg, fromDir);
           if (!importOf.has(basePkg)) importOf.set(basePkg, stmt);
         }
+      } else {
+        const rel = addRelative(relative, sourceFile.fileName, mod);
+        if (rel && !importOf.has(rel.pkg)) importOf.set(rel.pkg, stmt);
       }
     }
   }
@@ -472,6 +477,7 @@ export function loadMacroPackagesFromFile(
     throw new UnapprovedMacroPackagesError(blocked);
   }
 
+  warnings.push(...loadRelativeMacroPackages(relative, verbose));
   return warnings.map((w) => ({ ...w, node: importOf.get(w.pkg)! }));
 }
 
@@ -483,6 +489,7 @@ export function resetLoadedPackages(): void {
   manifestFieldCache.clear();
   failedLoads.clear();
   projectRequireCache.clear();
+  relativePackageCache.clear();
 }
 
 function loadPackage(pkg: string, verbose?: boolean, fromDir?: string): boolean {
@@ -585,6 +592,125 @@ function isMacroDefinition(value: unknown): value is MacroDefinition {
 }
 
 /**
+ * A macro package reached by a RELATIVE import: the package a relative
+ * specifier lands in, when that package declares `typesugar.macros`.
+ * `packages/mapper/examples/showcase.ts` imports `transformInto` from
+ * "../src/index.js" -- the defining module itself -- and a workspace sibling
+ * may be imported the same way. Decided by the imported FILE's own package
+ * (the nearest package.json above it), not by the specifier's text.
+ */
+interface RelativeMacroPackage {
+  pkg: string;
+  /** The package's directory (where its package.json is). */
+  dir: string;
+  info: ManifestFieldInfo;
+}
+
+/** Nearest-package.json lookups, per directory (null: none, or not a macro package). */
+const relativePackageCache = new Map<string, RelativeMacroPackage | null>();
+
+function macroPackageOfRelativeImport(
+  fromDir: string,
+  specifier: string
+): RelativeMacroPackage | undefined {
+  const target = path.resolve(fromDir, specifier);
+  let dir: string;
+  try {
+    dir = fs.statSync(target).isDirectory() ? target : path.dirname(target);
+  } catch {
+    dir = path.dirname(target); // "../src/index.js" for a .ts file: its directory exists
+  }
+  const visited: string[] = [];
+  let found: RelativeMacroPackage | null = null;
+  for (;;) {
+    const cached = relativePackageCache.get(dir);
+    if (cached !== undefined) {
+      found = cached;
+      break;
+    }
+    visited.push(dir);
+    const pkgJson = path.join(dir, "package.json");
+    if (fs.existsSync(pkgJson)) {
+      // The nearest package.json decides, macro package or not.
+      found = readRelativeMacroPackage(dir, pkgJson);
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir || path.basename(dir) === "node_modules") break;
+    dir = parent;
+  }
+  for (const d of visited) relativePackageCache.set(d, found);
+  return found ?? undefined;
+}
+
+function readRelativeMacroPackage(dir: string, pkgJson: string): RelativeMacroPackage | null {
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const name = data.name;
+  const field = (data.typesugar as { macros?: unknown } | undefined)?.macros;
+  if (typeof name !== "string" || typeof field !== "string") return null;
+  const target = resolveManifestTarget(name, field);
+  if (!target) return null;
+  // Loaded from the package itself: `${name}/macros` resolves through its own
+  // `exports` map (a package may import itself by name), else from the
+  // node_modules above it.
+  return { pkg: name, dir, info: { target, req: createRequire(pkgJson) } };
+}
+
+/**
+ * Load the trusted macro packages reached by relative imports (see
+ * {@link macroPackageOfRelativeImport}). An untrusted one is left alone, as
+ * before (relative imports were never scanned, and `approve-macros` lists
+ * bare imports only). A load failure is a warning, except for a file inside
+ * the package itself: that is the package's own build (its macros entry may
+ * not be built yet), where its bare-name load is silent too.
+ */
+function loadRelativeMacroPackages(
+  found: Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>,
+  verbose?: boolean
+): MacroPackageWarning[] {
+  const warnings: MacroPackageWarning[] = [];
+  for (const [pkg, { rel, insideOnly }] of found) {
+    if (!isTrusted(pkg)) continue;
+    const error = tryLoadModule(pkg, rel.info.target, verbose, rel.info.req);
+    if (error === undefined || insideOnly) continue;
+    warnings.push({
+      pkg,
+      message:
+        `macro package '${pkg}' (imported by a relative path, from ${rel.dir}) declares macros at ` +
+        `'${rel.info.target}' but loading it failed: ${error}. Its macros will not be expanded.`,
+    });
+  }
+  return warnings;
+}
+
+/** Is `file` inside directory `dir`? */
+function isInside(file: string, dir: string): boolean {
+  const rel = path.relative(dir, file);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/** Record the macro package a relative import in `fileName` reaches, if any. */
+function addRelative(
+  found: Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>,
+  fileName: string,
+  specifier: string
+): RelativeMacroPackage | undefined {
+  const fromDir = importerDir(fileName);
+  if (!fromDir) return undefined;
+  const rel = macroPackageOfRelativeImport(fromDir, specifier);
+  if (!rel) return undefined;
+  const inside = isInside(fileName, rel.dir);
+  const prev = found.get(rel.pkg);
+  found.set(rel.pkg, { rel, insideOnly: (prev?.insideOnly ?? true) && inside });
+  return rel;
+}
+
+/**
  * Collect all non-relative module specifiers imported across the program.
  * Only scans user source files (skips node_modules and .d.ts files).
  */
@@ -632,6 +758,27 @@ function collectImportedModulesWithDirs(program: ts.Program): Map<string, string
   }
 
   return modules;
+}
+
+/** The macro packages the program's own files reach by relative imports. */
+function collectRelativeMacroPackages(
+  program: ts.Program
+): Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }> {
+  const found = new Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>();
+  for (const sourceFile of program.getSourceFiles()) {
+    if (sourceFile.fileName.includes("node_modules") || sourceFile.isDeclarationFile) continue;
+    for (const stmt of sourceFile.statements) {
+      if (
+        (ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt)) &&
+        stmt.moduleSpecifier &&
+        ts.isStringLiteral(stmt.moduleSpecifier) &&
+        stmt.moduleSpecifier.text.startsWith(".")
+      ) {
+        addRelative(found, sourceFile.fileName, stmt.moduleSpecifier.text);
+      }
+    }
+  }
+  return found;
 }
 
 /**

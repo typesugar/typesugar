@@ -227,6 +227,15 @@ Say this in your README, so consumers aren't surprised by the first failed build
 The same mechanism works for macros inside your own repository: put them in a workspace
 package with a `typesugar.macros` field, depend on it from the app, and approve it once.
 
+An import by relative path counts too: when `import { myMacro } from "../src/index.js"`
+(your package's own examples or tests) or `"../my-macro-package/src"` lands in a package
+whose `package.json` declares `typesugar.macros`, that package's macro entry is loaded,
+under the same trust rules. An unapproved package is not loaded this way and nothing
+fails: approve it with `typesugar approve-macros` from a file that imports it by name.
+The entry is the built one (`./macros` through your `exports` map), so build the package
+first; in a file inside the package itself a missing build is silent (it is the
+package's own build), anywhere else it is a warning.
+
 ## Documentation
 
 ### README.md
