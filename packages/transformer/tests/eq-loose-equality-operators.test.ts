@@ -12,7 +12,8 @@
 
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { transformCode } from "@typesugar/transformer/pipeline";
+import * as path from "node:path";
+import { transformCode, TransformationPipeline } from "@typesugar/transformer/pipeline";
 
 const MARKER = `import "@typesugar/std/syntax/eq/ops";`;
 
@@ -182,5 +183,105 @@ describe("Eq: == and != cases that stay native", () => {
     });
     expect(hints(r)).toEqual([]);
     expect(r.code).toContain("[a == b, a != b, a === b]");
+  });
+});
+
+describe("comparison operators on a nullable operand (strictNullChecks)", () => {
+  // transformCode's program is non-strict; nullability needs strictNullChecks.
+  const strictRun = (body: string): Result => {
+    const fileName = path.resolve(`eq-nullable-${counter++}.ts`);
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      `import "@typesugar/std/syntax/ord/ops";`,
+      `import { derive, Eq, Ord } from "typesugar";`,
+      `@derive(Eq, Ord)`,
+      `interface P { x: number }`,
+      `const a: P = { x: 1 };`,
+      `const b: P = { x: 2 };`,
+      `let calls = 0;`,
+      `function get(p: P | undefined): P | undefined { calls++; return p; }`,
+      body,
+      `export const callCount = () => calls;`,
+    ].join("\n");
+    const pipeline = new TransformationPipeline(
+      {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: true,
+        skipLibCheck: true,
+      },
+      [fileName],
+      {
+        readFile: (f) => (f === fileName ? code : ts.sys.readFile(f)),
+        fileExists: (f) => f === fileName || ts.sys.fileExists(f),
+      }
+    );
+    return pipeline.transform(fileName) as Result;
+  };
+
+  it("=== / !== / == / != keep the native result when an operand is null or undefined", () => {
+    const r = strictRun(
+      [
+        `const c: P | undefined = Math.random() > 2 ? a : undefined;`,
+        `const d: P | null = Math.random() > 2 ? a : null;`,
+        `const e: P | undefined = { x: 1 };`,
+        `export const r = [c === a, c !== a, c == a, c != a, c === c, d == c, d === c, a === b, e! === a];`,
+        `export const viaCall = get(a) === get({ x: 1 });`,
+      ].join("\n")
+    );
+    expect(errors(r)).toEqual([]);
+    // Non-null operands: the plain call, zero-cost.
+    expect(r.code).toContain("P.Eq.equals(a, b)");
+    const out = evaluate(r.code) as { r: boolean[]; viaCall: boolean; callCount: () => number };
+    expect(out.r).toEqual([false, true, false, true, true, true, false, false, true]);
+    // Structural, and each operand evaluated once.
+    expect(out.viaCall).toBe(true);
+    expect(out.callCount()).toBe(2);
+  });
+
+  it("< <= > >= with a nullish operand give the native result instead of throwing", () => {
+    const r = strictRun(
+      [
+        `const c = (Math.random() > 2 ? a : undefined) as P | undefined;`,
+        // tsc reports TS18048 here; the rewrite must not turn it into a throw.
+        `export const r = [c < a, c <= a, a > c, a >= c, a < b, b > a];`,
+      ].join("\n")
+    );
+    expect(errors(r)).toEqual([]);
+    const out = evaluate(r.code) as { r: boolean[] };
+    expect(out.r).toEqual([false, false, false, false, true, true]);
+  });
+});
+
+describe("a derived union narrowed to one variant by assignment", () => {
+  it("=== still dispatches to the union's Eq (the variable's declared type)", () => {
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      `/** @derive(Eq) */`,
+      `type Shape = { kind: "c"; r: number } | { kind: "s"; side: number };`,
+      `const s1: Shape = { kind: "c", r: 1 }, s2: Shape = { kind: "c", r: 1 };`,
+      `const s3: Shape = { kind: "s", side: 1 };`,
+      `const holder: { s: Shape } = { s: { kind: "c", r: 1 } };`,
+      `export const same = s1 === s2;`,
+      `export const differ = s1 !== s3;`,
+      `export const viaProperty = holder.s === s1;`,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-narrowed-${counter++}.ts` });
+    expect(errors(r)).toEqual([]);
+    expect(r.code).toContain("same = Shape.Eq.equals(s1, s2)");
+    expect(evaluate(r.code)).toEqual({ same: true, differ: true, viaProperty: true });
+  });
+
+  it("without the Eq import, TS9804 names the union's Eq", () => {
+    const code = [
+      `/** @derive(Eq) */`,
+      `type Shape = { kind: "c"; r: number } | { kind: "s"; side: number };`,
+      `const s1: Shape = { kind: "c", r: 1 }, s2: Shape = { kind: "c", r: 1 };`,
+      `export const same = s1 === s2;`,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-narrowed-${counter++}.ts` });
+    expect(hints(r)).toHaveLength(1);
+    expect(hints(r)[0].message).toContain("Eq.equals");
   });
 });

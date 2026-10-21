@@ -120,6 +120,20 @@ A comparison with `null` or `undefined` (`a == null`, `a !== undefined`) is neve
 rewritten, so the usual nullish checks keep their JavaScript meaning. To compare
 references in a file that activates Eq, use `Object.is(a, b)`.
 
+An operand whose type admits `null` or `undefined` (`c: Point | undefined`) is
+dispatched to the instance only when it holds a value; when it is nullish, the
+comparison gives the native operator's result, so the instance is never called with
+`null` and a comparison that never threw before the rewrite doesn't throw after it:
+
+```typescript
+c === p; // c == null ? c === p : Point.Eq.equals(c, p)
+f() === p; // ((l, r) => l == null ? l === r : Point.Eq.equals(l, r))(f(), p): f() runs once
+```
+
+Operands with non-null types compile to the plain call. This follows the checker, so it
+needs `strictNullChecks` (part of `strict`): without it TypeScript sees no type as
+nullable, and every operand is passed to the instance as it is.
+
 ### Bitwise
 
 | Operator | Typical Method | Example  |

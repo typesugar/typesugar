@@ -689,20 +689,61 @@ export function tryRewriteTypeclassOperator(
     return undefined;
   }
 
+  // An operand whose type admits null/undefined (`P | undefined`, visible
+  // under strictNullChecks): the instance is resolved for the non-null type,
+  // and a comparison keeps the native result when that operand is nullish at
+  // run time (see buildNullSafeComparison), instead of passing it to the
+  // instance, which would throw. Decided by the type's flags, not its text.
+  const nullableLeft = admitsNullish(leftType);
+  const nullableRight = admitsNullish(rightType);
+  try {
+    if (nullableLeft) {
+      leftType = ctx.typeChecker.getNonNullableType(leftType);
+      typeName = ctx.typeChecker.typeToString(leftType);
+    }
+    if (nullableRight) rightType = ctx.typeChecker.getNonNullableType(rightType);
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar skipped typeclass operator rewrite of '${opString}': ` +
+        `the operands' non-null types could not be resolved (${error}).`
+    );
+    return undefined;
+  }
+
   if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
 
+  // The operand's type at the operator may be NARROWED: `const s: Shape =
+  // { kind: "c", r: 1 }` makes `s` the "c" variant there, and the instance is
+  // `Shape`'s. When the narrowed type has none, the operands' declared types
+  // (the variable's or property's, by symbol) are tried, left then right.
+  let dispatchTypes: ts.Type[] | undefined;
+  const typesToTry = (): ts.Type[] => {
+    if (dispatchTypes) return dispatchTypes;
+    dispatchTypes = [];
+    for (const operand of [node.left, node.right]) {
+      const declared = declaredOperandType(ctx, operand);
+      if (declared && declared !== leftType && !dispatchTypes.includes(declared)) {
+        dispatchTypes.push(declared);
+      }
+    }
+    return dispatchTypes;
+  };
   /** No activated typeclass rewrote this: warn if an inactive one would have. */
   const hintIfInactiveMatch = (): undefined => {
     if (!mayHint) return undefined;
     let inactive: { typeclass: string; method: string } | undefined;
     try {
-      inactive = findInactiveOperatorMatch(ctx, {
-        operator: opString,
-        arity: "binary",
-        activated: activatedForOps,
-        operandType: leftType,
-        rightType,
-      });
+      for (const operandType of [leftType, ...typesToTry()]) {
+        inactive = findInactiveOperatorMatch(ctx, {
+          operator: opString,
+          arity: "binary",
+          activated: activatedForOps,
+          operandType,
+          rightType,
+        });
+        if (inactive) break;
+      }
     } catch (error) {
       ctx.reportWarning(
         node,
@@ -722,7 +763,13 @@ export function tryRewriteTypeclassOperator(
     | { typeclass: string; method: string; rightOperandIsSelf: boolean; resolved: ResolvedInstance }
     | undefined;
   for (const candidate of candidates) {
-    const result = resolveInstance(ctx, candidate.typeclass, leftType);
+    let result = resolveInstance(ctx, candidate.typeclass, leftType);
+    if (!result) {
+      for (const t of typesToTry()) {
+        result = resolveInstance(ctx, candidate.typeclass, t);
+        if (result) break;
+      }
+    }
     if (!result) continue;
     if (result.kind === "ambiguous") {
       ctx.reportError(
@@ -809,11 +856,150 @@ export function tryRewriteTypeclassOperator(
   }
   const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
+  if ((nullableLeft || nullableRight) && COMPARISON_OPERATORS.has(node.operatorToken.kind)) {
+    return preserveSourceMap(
+      buildNullSafeComparison(
+        ctx,
+        node.operatorToken.kind as ts.BinaryOperator,
+        methodAccess,
+        cloneWithoutComments(left),
+        cloneWithoutComments(right),
+        nullableLeft,
+        nullableRight
+      ),
+      node
+    );
+  }
   const rewritten = factory.createCallExpression(methodAccess, undefined, [
     cloneWithoutComments(left),
     cloneWithoutComments(right),
   ]);
   return preserveSourceMap(rewritten, node);
+}
+
+/**
+ * The declared (un-narrowed) type of an operand that names a variable,
+ * parameter or property, without null/undefined, or undefined. Read from the
+ * symbol, not the expression, so assignment narrowing doesn't apply. A
+ * synthetic node is outside the checker's contract (CLAUDE.md): undefined.
+ */
+function declaredOperandType(ctx: MacroContextImpl, operand: ts.Expression): ts.Type | undefined {
+  let e = operand;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  const named = ts.isIdentifier(e) ? e : ts.isPropertyAccessExpression(e) ? e.name : undefined;
+  if (!named || isSyntheticNode(named)) return undefined;
+  const checker = ctx.typeChecker;
+  try {
+    let sym = checker.getSymbolAtLocation(named);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!sym || !(sym.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property))) {
+      return undefined;
+    }
+    const declared = checker.getTypeOfSymbol(sym);
+    return checker.getNonNullableType(declared);
+  } catch (error) {
+    ctx.reportWarning(
+      operand,
+      `typesugar could not read the declared type of '${e.getText()}' for an operator ` +
+        `rewrite (${error}); its narrowed type is used.`
+    );
+    return undefined;
+  }
+}
+
+/** Operators whose native result on a nullish operand is a boolean, never a throw. */
+const COMPARISON_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+]);
+
+/** `t` is, or is a union with, `null`/`undefined`/`void` (only visible under strictNullChecks). */
+function admitsNullish(t: ts.Type): boolean {
+  const nullish = ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void;
+  return t.isUnion() ? t.types.some((m) => (m.flags & nullish) !== 0) : (t.flags & nullish) !== 0;
+}
+
+/** Reading it again has no effect and gives the same value (no getter, no call). */
+function isRereadable(e: ts.Expression): boolean {
+  return (
+    ts.isIdentifier(e) ||
+    e.kind === ts.SyntaxKind.ThisKeyword ||
+    ts.isStringLiteral(e) ||
+    ts.isNumericLiteral(e) ||
+    ts.isBigIntLiteral(e) ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+/**
+ * `l OP r` dispatched to `method(l, r)`, except when a nullable operand is
+ * null or undefined, where it is the native `l OP r`:
+ *
+ *   c === a   →   c == null ? c === a : P.Eq.equals(c, a)
+ *
+ * So `===` on two nullish values, or on one, gives exactly what it gave
+ * before the rewrite, and the instance is only ever called with non-null
+ * values. Operands are evaluated once, in order: anything other than an
+ * identifier, `this` or a literal is passed as an argument of an arrow
+ * function, `((l, r) => ...)(f(), g())`.
+ */
+function buildNullSafeComparison(
+  ctx: MacroContextImpl,
+  op: ts.BinaryOperator,
+  method: ts.Expression,
+  left: ts.Expression,
+  right: ts.Expression,
+  nullableLeft: boolean,
+  nullableRight: boolean
+): ts.Expression {
+  const f = ctx.factory;
+  const inline = isRereadable(left) && isRereadable(right);
+  // The arrow's body references only its parameters and the instance, so a
+  // parameter needs only to differ from the instance reference's root name.
+  let root: ts.Expression = method;
+  while (ts.isPropertyAccessExpression(root)) root = root.expression;
+  const taken = ts.isIdentifier(root) ? root.text : "";
+  const param = (base: string) => (base === taken ? `${base}_` : base);
+  const lName = inline ? undefined : param("l");
+  const rName = inline ? undefined : param("r");
+  const l = (): ts.Expression => (lName ? f.createIdentifier(lName) : cloneWithoutComments(left));
+  const r = (): ts.Expression => (rName ? f.createIdentifier(rName) : cloneWithoutComments(right));
+  const isNullish = (e: ts.Expression) =>
+    f.createBinaryExpression(e, ts.SyntaxKind.EqualsEqualsToken, f.createNull());
+  const tests = [
+    ...(nullableLeft ? [isNullish(l())] : []),
+    ...(nullableRight ? [isNullish(r())] : []),
+  ];
+  const anyNullish = tests.reduce((acc, t) =>
+    f.createBinaryExpression(acc, ts.SyntaxKind.BarBarToken, t)
+  );
+  const body = f.createConditionalExpression(
+    anyNullish,
+    f.createToken(ts.SyntaxKind.QuestionToken),
+    f.createBinaryExpression(l(), op, r()),
+    f.createToken(ts.SyntaxKind.ColonToken),
+    f.createCallExpression(method, undefined, [l(), r()])
+  );
+  if (inline) return f.createParenthesizedExpression(body);
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    [
+      f.createParameterDeclaration(undefined, undefined, lName!),
+      f.createParameterDeclaration(undefined, undefined, rName!),
+    ],
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    body
+  );
+  return f.createCallExpression(f.createParenthesizedExpression(arrow), undefined, [left, right]);
 }
 
 /** Prefix-unary operator tokens that `@op` on a one-parameter method can map. */
