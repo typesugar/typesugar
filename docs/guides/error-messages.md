@@ -37,7 +37,6 @@ src/palette.ts(15,17): error TS9001: [typesugar] [TS9001] No instance found for 
   = note:       field-check: field `y`: number — ok — number has Eq
   = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
   = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
-    Add: import { Eq } from "typesugar";
 ```
 
 The CLI (`typesugar build` / `check`) prints each diagnostic in the familiar `tsc` layout —
