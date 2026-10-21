@@ -56,6 +56,10 @@ after an example's code is a real tag, so fence example code that shows one. On 
 you are writing), a `@derive(X)` line followed by more text,
 `@derive(Read) — derives a Read instance`, is documentation too.
 
+A `@derive` tag's list is the parenthesized names, or the comma-separated names that start the
+tag (`@derive Eq, Clone`). Text after the list, on the same line or the lines below it, is
+description: a typeclass named there is not derived.
+
 ```typescript
 /**
  * A 2D point.

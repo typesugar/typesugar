@@ -23,6 +23,7 @@ import {
   getOrCreateWeak,
   globalRegistry,
   isJSDocTagAtLineStart,
+  deriveTagNames,
 } from "@typesugar/core";
 import { hasGenericDerivation } from "./auto-derive.js";
 
@@ -858,15 +859,8 @@ export function deriveNamesOf(decl: ts.Node): string[] {
     const tagName = tag.tagName.text;
     if (tagName !== "derive" && tagName !== "deriving") continue;
     if (!isJSDocTagAtLineStart(tag)) continue;
-    const comment =
-      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-    const trimmed = comment?.trim() ?? "";
-    const close = trimmed.indexOf(")");
-    const inner = trimmed.startsWith("(")
-      ? trimmed.slice(1, close === -1 ? undefined : close)
-      : trimmed;
-    for (const part of inner.split(",")) {
-      const name = part.trim();
+    // The shared parser: the leading list only, never prose after it.
+    for (const name of deriveTagNames(tag)) {
       if (/^[A-Za-z_$][\w$]*$/.test(name)) names.push(name);
     }
   }

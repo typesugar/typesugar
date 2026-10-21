@@ -73,7 +73,7 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { isSyntheticNode } from "@typesugar/core";
+import { isSyntheticNode, isJSDocTagAtLineStart, deriveTagNames } from "@typesugar/core";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
 import type { ResolutionAttempt } from "@typesugar/core";
 // Static: instance-resolver imports nothing from this module, so there is no
@@ -965,14 +965,12 @@ function arrayElementType(ctx: MacroContext, t: ts.Type): ts.Type | undefined {
 /** Does `t`'s declaration carry `@derive(TC)` / `@deriving(TC)`? */
 function declaresDerive(t: ts.Type, tc: string): ts.Declaration | undefined {
   const sym = t.aliasSymbol ?? t.symbol;
-  const word = new RegExp(`\\b${tc}\\b`);
   for (const d of sym?.declarations ?? []) {
     for (const tag of ts.getJSDocTags(d)) {
       const n = tag.tagName.text;
       if (n !== "derive" && n !== "deriving") continue;
-      const c =
-        typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-      if (c && word.test(c)) return d;
+      // The shared parser: the tag's list only, never prose after it.
+      if (isJSDocTagAtLineStart(tag) && deriveTagNames(tag).includes(tc)) return d;
     }
     if (ts.canHaveDecorators(d)) {
       for (const dec of ts.getDecorators(d) ?? []) {

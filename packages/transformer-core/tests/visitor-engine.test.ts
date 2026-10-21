@@ -538,6 +538,51 @@ describe("imported typeclass instance as an extension provider", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Method sugar reads a `@derive` tag's list, not its prose: a typeclass named
+// in the description after the tag is not derived (the regex over the whole
+// tag comment made `p.show()` a call on a `Point.Show` that never exists).
+// ---------------------------------------------------------------------------
+describe("method sugar and a @derive tag followed by prose", () => {
+  it("does not treat a typeclass named in the prose as derived", () => {
+    const r = run(
+      {
+        "/main.ts": `
+          /** @typeclass */
+          export interface Show<A> { show(a: A): string; }
+          /**
+           * @derive(Eq)
+           * Points compare by value; Show them with toString.
+           */
+          export interface Point { x: number; }
+          export function f(p: Point) { return p.show(); }
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).not.toContain("Point.Show");
+  });
+
+  it("still treats a typeclass in the list as derived", () => {
+    const r = run(
+      {
+        "/main.ts": `
+          /** @typeclass */
+          export interface Show<A> { show(a: A): string; }
+          /**
+           * @derive Eq, Show
+           * Points compare by value.
+           */
+          export interface Point { x: number; }
+          export function f(p: Point) { return p.show(); }
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).toContain("Point.Show.show(p)");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Attribute macro returning several statements: every one is visited
 // ---------------------------------------------------------------------------
 describe("attribute macro results after the first are visited", () => {

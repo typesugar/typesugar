@@ -701,6 +701,41 @@ export function isJSDocTagAtLineStart(tag: ts.JSDocTag): boolean {
 }
 
 // =============================================================================
+// deriveTagNames — the derive list of a @derive / @deriving JSDoc tag
+// =============================================================================
+
+/**
+ * The names a `@derive` / `@deriving` JSDoc tag lists: `@derive(Eq, Clone)`,
+ * `@derive Eq, Clone` or `@deriving (Show, Eq)`. A tag's comment runs to the
+ * next tag, so only the leading list is the derive list: the parenthesized
+ * part, or the comma-separated names that start the comment. Prose after it
+ * ("@derive(Meta)" then a description line that mentions "Show") is
+ * documentation, not more derives. The one parser for this syntax: the
+ * derive macro's JSDoc arguments, instance scanning and method sugar all
+ * read a tag through it, so they agree on what a type derives. This reads
+ * the tag's syntax (which names the annotation lists), not what any type is.
+ * Whether the tag is at a real tag position is the caller's check
+ * ({@link isJSDocTagAtLineStart}).
+ */
+export function deriveTagNames(tag: ts.JSDocTag): string[] {
+  const comment =
+    typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+  return parseDeriveList(comment ?? "");
+}
+
+/** {@link deriveTagNames} over a tag's comment text. */
+export function parseDeriveList(comment: string): string[] {
+  const trimmed = comment.trim();
+  if (!trimmed) return [];
+  const list = /^\(([^)]*)\)|^([A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*)/.exec(trimmed);
+  const inner = list ? (list[1] ?? list[2]) : trimmed;
+  return inner
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// =============================================================================
 // opaqueTypesAsUnderlying — the runtime view of @opaque types, for type-checking expanded output
 // =============================================================================
 

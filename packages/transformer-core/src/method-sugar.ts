@@ -28,6 +28,8 @@ import {
   preserveSourceMap,
   cloneWithoutComments,
   stripTypeArguments,
+  isJSDocTagAtLineStart,
+  deriveTagNames,
 } from "@typesugar/core";
 
 import {
@@ -515,13 +517,16 @@ function typeDerivesTypeclass(
         if (deriveDecoratorNames(ctx, dec.expression, typeclass)) return true;
       }
     }
-    // JSDoc form: `/** @derive(Eq) */`
+    // JSDoc form: `/** @derive(Eq) */`, read by the parser the derive macro
+    // uses (deriveTagNames): the tag's list, not prose after it, and not a
+    // tag in prose or a fenced example. A derive name is syntax (which
+    // typeclass the annotation names); the typeclass here is the one method
+    // syntax resolved for the method name, so the two are compared as names.
     for (const tag of ts.getJSDocTags(decl)) {
       const name = tag.tagName.text;
       if (name !== "derive" && name !== "deriving") continue;
-      const comment =
-        typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-      if (comment && new RegExp(`\\b${typeclass}\\b`).test(comment)) return true;
+      if (!isJSDocTagAtLineStart(tag)) continue;
+      if (deriveTagNames(tag).includes(typeclass)) return true;
     }
   }
   return false;

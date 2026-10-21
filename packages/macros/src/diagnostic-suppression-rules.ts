@@ -37,6 +37,8 @@ import {
   ResolutionScopeTracker,
   scanImportsForScope,
   globalRegistry,
+  isJSDocTagAtLineStart,
+  deriveTagNames,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
 import { getOperatorCandidates } from "./typeclass-index.js";
@@ -313,10 +315,9 @@ function deriveNamesFromDeclaration(decl: ts.Node): string[] {
   for (const tag of ts.getJSDocTags(decl)) {
     const tagName = tag.tagName.text;
     if (tagName !== "derive" && tagName !== "deriving") continue;
-    const comment = typeof tag.comment === "string" ? tag.comment : "";
-    for (const ident of comment.matchAll(/[A-Za-z_$][\w$]*/g)) {
-      names.push(ident[0]);
-    }
+    if (!isJSDocTagAtLineStart(tag)) continue;
+    // The shared parser: the tag's list only, never prose after it.
+    names.push(...deriveTagNames(tag));
   }
 
   return names;

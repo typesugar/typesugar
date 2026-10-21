@@ -33,6 +33,7 @@ import {
   TS9103,
   TS9104,
   isJSDocTagAtLineStart,
+  deriveTagNames,
 } from "@typesugar/core";
 
 // Moved to @typesugar/core (the instance scanner in @typesugar/macros needs it
@@ -400,23 +401,10 @@ export function parseJSDocMacroArgs(
       return [ctx.factory.createStringLiteral(trimmed)];
 
     case "derive":
-    case "deriving": {
-      // @derive Eq, Clone or @deriving (Show, Eq, Ord) — optional wrapping
-      // parens are stripped so both forms parse the same. A tag's comment
-      // runs to the next tag, so only the leading list is the derive list:
-      // the parenthesized part, or the comma-separated names that start the
-      // comment; prose after it ("@derive(Meta)" then a description line) is
-      // documentation, not more derives (it was "Unknown derive: '(Meta)\n
-      // User table schema ...'"). This reads the tag's syntax, not code.
-      if (!trimmed) return [];
-      const list = /^\(([^)]*)\)|^([A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*)/.exec(trimmed);
-      const inner = list ? (list[1] ?? list[2]) : trimmed;
-      const tcNames = inner
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      return tcNames.map((name) => ctx.factory.createIdentifier(name));
-    }
+    case "deriving":
+      // @derive Eq, Clone or @deriving (Show, Eq, Ord): only the leading list
+      // is read, never prose after it (the shared parser, deriveTagNames).
+      return deriveTagNames(tag).map((name) => ctx.factory.createIdentifier(name));
 
     default:
       return [];

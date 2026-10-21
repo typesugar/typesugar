@@ -228,6 +228,8 @@ export {
   isRemoveExpression,
   getRemoveComment,
   isJSDocTagAtLineStart,
+  deriveTagNames,
+  parseDeriveList,
   opaqueTypesAsUnderlying,
   type JsValueContext,
 } from "./ast-utils.js";
