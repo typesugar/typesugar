@@ -147,7 +147,7 @@ npx typesugar run src/main.ts   # compile + run in one step
 
 Or explore in the browser: **[Interactive Playground →](https://typesugar.org/playground)** (no install).
 
-📖 **Full setup** — Vite, esbuild, Webpack, tsc/ts-patch, Bun, Vitest, editor setup, and CI — lives on the microsite: **[Getting Started → typesugar.org](https://typesugar.org/getting-started/)**.
+📖 **Full setup** — Vite, esbuild, tsup, Webpack, tsc/ts-patch, Bun, Vitest, Node/tsx (`node --import typesugar/register`), editor setup, and CI — lives on the microsite: **[Getting Started → typesugar.org](https://typesugar.org/getting-started/)**.
 
 ## Features
 
@@ -184,6 +184,10 @@ const p2: Point = { x: 1, y: 2 };
 p1 === p2;    // Compiles to: Point.Eq.equals(p1, p2)  → true
 p1.clone();   // Compiles to: Point.Clone.clone(p1)    → { x: 1, y: 2 }
 ```
+
+For a type you can't annotate (one from a library), declare the derived instance once in
+a module of your own, `export const cloneFeature = derived<Clone<Feature>>();`, and import
+that module where it's used.
 
 ### Type Reflection
 

@@ -732,6 +732,12 @@ If no instance is found, you get a compile error (TS9001). For now `summon`
 and `= implicit()` first try to derive one in place, with a TS9009 warning;
 that fallback is deprecated.
 
+TypeScript's types are structural, so an instance for one type can also match a
+different type of the same shape (two classes with the same fields, `UserId` and
+`Email`, both with `@derive(Eq)`). That is not ambiguous: the instance declared for
+the value's own type wins. A same-shape instance is used only for a type with no
+instance of its own.
+
 ## Coherence
 
 Keep to one instance per type per typeclass.

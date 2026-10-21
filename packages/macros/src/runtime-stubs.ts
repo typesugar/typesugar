@@ -151,6 +151,14 @@ export function extension(
 /**
  * Resolve a typeclass instance at compile time (Scala 3-like summon).
  *
+ * The instance comes from scope: the type's `@derive` companion (`Point.Show`),
+ * or an `@impl`/typed instance `const` (hand-written, or `derived<TC<T>>()`)
+ * declared in this file or in a module it imports. The call compiles to a
+ * reference to it. With no instance in scope, `summon` still derives one in
+ * place, a new copy at each call, but that is deprecated and warns (TS9009):
+ * declare the instance with `@derive`, or `derived<TC<T>>()` for a type you
+ * don't own.
+ *
  * @example
  * ```typescript
  * const showPoint = summon<Show<Point>>();
@@ -178,7 +186,11 @@ export function summonAll<T extends readonly unknown[]>(): T {
  * can't put `@derive` on (one from a library). The expansion is the code
  * `@derive(TC)` generates, and the const it initializes is the instance:
  * `summon`, `= implicit()` and method syntax find it in every file that
- * imports the module. Must initialize a top-level `const`.
+ * imports the module. Must initialize a top-level `const` (TS9010), for a
+ * concrete type (TS9011). `const x: TC<T> = derived()` is the same instance,
+ * typed by its annotation. Works for every typeclass `@derive` supports
+ * structurally (Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard, Show,
+ * Semigroup, Monoid), not `Destructure`.
  *
  * @example
  * ```typescript
@@ -271,7 +283,10 @@ export function registerExtension<F extends Function>(_typeName: string, _fn: F)
  * Marker for implicit typeclass parameter resolution.
  *
  * Used as a default parameter value to indicate the transformer should
- * resolve and inject the appropriate typeclass instance at call sites.
+ * resolve and inject the appropriate typeclass instance at call sites. The
+ * instance is found as `summon` finds one (a `@derive` companion, or an
+ * `@impl`/`derived` const in scope at the call site); deriving one in place
+ * when none is in scope is deprecated and warns (TS9009).
  *
  * @deprecated This is a compile-time placeholder — if you see a strikethrough,
  * the typesugar transformer is not configured.
@@ -355,17 +370,17 @@ export function comptime(..._args: unknown[]): unknown {
  * - Sum types: derive variant-by-variant if all variants have instances
  *
  * All derived instances integrate with `summon()` and operator overloading.
+ * For a type you can't annotate (a library's), use `derived<TC<T>>()`.
  *
  * @param typeclasses - Typeclass names to derive
  *
  * @example
  * ```typescript
  * @derive(Show, Eq, Ord, Clone, Debug, Json)
- * interface Point {
- *   x: number;
- *   y: number;
+ * class Point {
+ *   constructor(public x: number, public y: number) {}
  * }
- * // Generates: showPoint, eqPoint, ordPoint, clonePoint, debugPoint, jsonPoint instances
+ * // Generates the companions Point.Show, Point.Eq, Point.Ord, Point.Clone, Point.Debug, Point.Json
  * ```
  */
 export function derive(

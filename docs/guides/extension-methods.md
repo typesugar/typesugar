@@ -202,7 +202,7 @@ When the transformer encounters `value.method()`:
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
 4. **Extension functions in scope**: Imported functions with matching first parameter
-5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
+5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` or `derived<TC<T>>()` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.
 
@@ -250,7 +250,8 @@ dateA.format(date, pattern); // Explicit choice
 ## Typeclass Extensions
 
 Typeclass methods also work as extension methods on types that have an instance — a
-`@derive`d companion or an `@impl` value. For the standard typeclasses, the method syntax is
+`@derive`d companion, an `@impl` value, or a `derived<TC<T>>()` const for a type you don't
+own. For the standard typeclasses, the method syntax is
 off until you import the typeclass's activation module (PEP-052):
 
 ```typescript

@@ -22,6 +22,9 @@ TypeScript developers often face a choice between expressive, type-safe code and
 ### What it looks like in practice
 
 ```typescript
+import "@typesugar/std/syntax/eq/ops"; // === means Eq in this file
+
+/** @derive(Eq) */
 interface Point {
   x: number;
   y: number;
@@ -34,10 +37,10 @@ const p2: Point = { x: 1, y: 2 };
 p1 === p2;
 
 // Compiles to:
-p1.x === p2.x && p1.y === p2.y;
+Point.Eq.equals(p1, p2); // Point.Eq.equals is (a, b) => a.x === b.x && a.y === b.y
 ```
 
-No `Eq` instance was declared. No `@derive` annotation was written. The compiler saw `===` on a `Point`, auto-derived structural equality from the type's fields, and inlined the comparison directly. The typeclass abstraction exists at author-time. At runtime, it's gone.
+No `Eq` instance was written by hand. One annotation asked for it; the compiler read the type's fields, generated the structural comparison, and rewrote `===` to a direct call on it. The typeclass abstraction exists at author-time. At runtime, what's left is the function you would have written.
 
 The same applies to generic code:
 
@@ -230,33 +233,36 @@ function describe(s: Status): string {
 
 No runtime wrapper. No tag boilerplate. Just types and field presence.
 
-### Auto-derivation as the default
+### Deriving is one annotation away
 
-In Haskell and Scala 3, deriving typeclass instances requires explicit annotation (`deriving` clauses, `derives` keywords). typesugar goes further: **auto-derivation is the default, not opt-in**.
+In Haskell and Scala 3, deriving a typeclass instance takes an explicit annotation (`deriving` clauses, `derives` keywords). typesugar works the same way: instances are never ambient. `p1 === p2` on a `Point` with no `Eq<Point>` in scope stays JavaScript's `===`; it doesn't quietly become a structural comparison because the compiler could have derived one.
 
-The compiler treats every type as derivable unless told otherwise. When it sees `p1 === p2` on a `Point`, it doesn't look for an explicit `Eq<Point>` instance first and give up if there isn't one. Instead:
-
-1. Check for an explicit `@instance` -- use it if found (custom behavior wins)
-2. Check for an explicit `@deriving` -- use the generated instance if found
-3. **Auto-derive via the type checker** -- inspect the type's fields, verify all fields have instances, synthesize an implementation on the spot
-4. Report a compile error with a resolution trace if derivation is impossible
-
-Step 3 is what makes typesugar feel different. The programmer never writes `@derive(Eq)` on `Point`. They just use `===`, and the compiler figures it out:
+What reflection removes is the work, not the annotation. One line asks for an instance, and the type checker writes it from the type's structure:
 
 ```typescript
+import "@typesugar/std/syntax/eq/ops"; // === means Eq in this file
+import "@typesugar/std/syntax/clone"; // .clone() means Clone
+
+/** @derive(Eq, Show, Clone) */
 interface Point {
   x: number;
   y: number;
 }
 
-p1 === p2; // Auto-derived: p1.x === p2.x && p1.y === p2.y
-p1.show(); // Auto-derived: `Point(x = ${p1.x}, y = ${p1.y})`
-p1.clone(); // Auto-derived: ({ ...p1 }), each field cloned through its own Clone
+p1 === p2; // Point.Eq.equals(p1, p2): p1.x === p2.x && p1.y === p2.y
+Point.Show.show(p1); // `Point(x = ${p1.x}, y = ${p1.y})`
+p1.clone(); // Point.Clone.clone(p1): each field cloned through its own Clone
 ```
 
-`@derive(Eq, Show, Clone)` still exists, but its role is **documentation**, not activation. It says "this type supports these capabilities" to human readers. The compiler would derive them anyway.
+For a type you can't annotate, one from a library, `derived<TC<T>>()` runs the same derivation once, in a module of your own, and the `const` it initializes is the instance:
 
-This is the Scala 3 Mirror model taken to its logical conclusion: if the type checker can see the structure of a type, and all its constituent parts have the required instances, the compiler should just do it.
+```typescript
+export const cloneFeature = derived<Clone<Feature>>();
+```
+
+Resolution then looks in scope: the type's own `@derive` companion, an `@impl` or typed instance `const` (hand-written, or `derived`) declared in the file or in a module it imports. If none is found, it reports an error with a resolution trace. (`summon` and `= implicit()` still derive an instance in place when none is in scope, but that fallback is deprecated and warns with TS9009.)
+
+This is the Scala 3 Mirror model: the type checker sees the structure of a type, and when all its constituent parts have the required instances, it writes the instance for you. You decide where it exists.
 
 ---
 
@@ -293,7 +299,7 @@ The dictionary parameter exists for the type checker. The macro eliminates it, s
 
 ### Auto-specialization as the default
 
-Auto-derivation answers "where does the instance come from?" Auto-specialization answers "what happens to it at the call site?"
+Instance resolution answers "where does the instance come from?" Auto-specialization answers "what happens to it at the call site?"
 
 In a traditional dictionary-passing FP system, even after resolving the correct instance, the runtime still calls methods through an object: `Point.Eq.equals(p1, p2)`. The object allocation exists. The method dispatch is indirect. The abstraction has a cost.
 
@@ -312,7 +318,7 @@ This is what Rust calls monomorphization, applied to typeclass dispatch. The abs
 
 ### Progressive disclosure
 
-The defaults (auto-derive, auto-specialize, implicit resolution) mean most users never think about the machinery. But for library authors or performance-sensitive code, every layer is accessible:
+The defaults (one-line derives, auto-specialization, implicit resolution) mean most users never think about the machinery. But for library authors or performance-sensitive code, every layer is accessible:
 
 | Level                     | What you write                      | Who it's for                          |
 | ------------------------- | ----------------------------------- | ------------------------------------- |
@@ -428,7 +434,7 @@ In production (`import-scoped`), you must import a typeclass for it to activate:
 ```typescript
 import { Eq } from "@typesugar/std";
 
-p1 === p2; // Eq is in scope → auto-derives and rewrites
+p1 === p2; // Eq is in scope → rewrites to Point.Eq.equals(p1, p2), for a Point with an Eq instance
 ```
 
 Without the import, `===` is plain JavaScript identity comparison. This is the Scala 3 model: **imports are activation**. No surprise behavior from features you didn't ask for.
@@ -452,7 +458,7 @@ This cascades to everything that depends on `findInstance()`:
 
 - **Operator overloading** (`@op`) — if the typeclass is locally defined, its operator syntax works
 - **Instance lookup** (`@impl`) — instances for locally-defined typeclasses are found
-- **Auto-derivation** (`@derive`) — locally-defined typeclasses can auto-derive
+- **Derivation** (`@derive`) — locally-defined typeclasses can be derived
 - **Do-notation** (`let:`, `par:`) — if `FlatMap` is locally defined, comprehensions work
 
 The rationale: requiring you to import from yourself would be absurd. This also makes single-file compilation (playground, scripts, tests) work naturally.
@@ -547,9 +553,7 @@ When you write `x.foo()` or `a + b`, the compiler resolves in a fixed order:
 2. **Type rewrite methods** — If `x` is an `@opaque` type with a rewrite for `foo`, apply it
 3. **Extension functions** — If an imported or registered function matches the receiver type
 4. **Typeclass instances** — If an in-scope typeclass provides the method/operator
-5. **Auto-derivation** — If the type's structure supports synthesizing the instance
-
-Each step is more specific than the next. Native properties always win. Type rewrites are explicit (you defined the `@opaque` type). Extensions require import or `@extension`. Typeclasses require scope resolution. Auto-derivation is the most "magical" — it only triggers when everything else fails and the type's structure permits it.
+   Each step is more specific than the next. Native properties always win. Type rewrites are explicit (you defined the `@opaque` type). Extensions require import or `@extension`. Typeclasses require scope resolution: an instance exists only where you declared one (`@derive`, `@impl`, or `derived<TC<T>>()` for a type you don't own).
 
 ### Why scoping matters
 
@@ -753,7 +757,7 @@ The lesson isn't "don't build ambitious features." It's "be honest about what yo
 
 typesugar exists to prove that TypeScript developers don't have to choose between expressiveness and performance. Through compile-time transformation:
 
-- **Everything works by default** -- Auto-derivation and auto-specialization mean you write `p1 === p2` and the compiler handles the rest. No annotations, no imports, no ceremony.
+- **Little ceremony** -- One `@derive` (or `derived<TC<T>>()`) and one activation import, and `p1 === p2` compiles to a direct call on the generated instance; auto-specialization inlines it where the body is visible.
 - **Abstract code becomes concrete** -- Generics resolve, dictionaries inline, method bodies are substituted at call sites. The abstraction exists at author-time and is gone at runtime.
 - **Type information drives code generation** -- The compiler reads your types and generates optimal code from their structure. Reflection replaces boilerplate.
 - **The type system does more work** -- Native encodings over complex tricks. If TypeScript already handles it, don't build machinery around it.

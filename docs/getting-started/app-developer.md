@@ -227,16 +227,16 @@ npx typesugar doctor
 
 ## Package Reference
 
-| Package                | Features                                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `typesugar`            | `comptime()`, `derive`, derive markers, `summon` (umbrella; authoring APIs at `typesugar/core`) |
-| `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`              |
-| `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                                |
-| `@typesugar/sql`       | `sql` tagged template                                                                           |
-| `@typesugar/typeclass` | `@typeclass`, `@instance`, `@derive`, `summon<T>()`                                             |
-| `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                           |
-| `@typesugar/std`       | `match()` (fluent pattern matching), extension methods                                          |
-| `@typesugar/fp`        | `Option`, `Either`, `IO`, `List`                                                                |
+| Package                | Features                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `typesugar`            | `comptime()`, `derive`, derive markers, `summon`, `derived` (umbrella; authoring APIs at `typesugar/core`) |
+| `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`                         |
+| `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                                           |
+| `@typesugar/sql`       | `sql` tagged template                                                                                      |
+| `@typesugar/typeclass` | `@typeclass`, `@instance`, `@derive`, `summon<T>()`, `derived<T>()`                                        |
+| `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                                      |
+| `@typesugar/std`       | `match()` (fluent pattern matching, `match: switch`), extension methods                                    |
+| `@typesugar/fp`        | `Option`, `Either`, `IO`, `List`                                                                           |
 
 ## What's Next?
 

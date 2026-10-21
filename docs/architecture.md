@@ -152,7 +152,8 @@ Import-scoped resolution tracks the `module` and `exportName` fields on `MacroDe
 Labeled-block macros (`let:`/`seq:`, `par:`/`all:`) and attribute-macro trigger
 labels (`requires:`/`ensures:` implicitly applying `@contract`) are gated on
 activation (PEP-052), the same rule as operator and method sugar. When
-`visitStatementContainer()` encounters `label: { ... }`:
+`visitStatementContainer()` encounters `label: { ... }` (or `label: switch (...) { ... }`
+for a macro registered with `statement: "switch"`, such as std's `match:`):
 
 1. Look up the label text in the registry (`globalRegistry.getLabeledBlock(label)`).
 2. Check activation: the macro only expands when the current file imports a
@@ -168,8 +169,8 @@ activation (PEP-052), the same rule as operator and method sugar. When
    file") with a help hint naming the macro's `syntaxModule` import to add.
 
 Ordinary loop labels that collide with a macro label name (e.g.
-`all: for (...) { ... }`) are never hijacked — only block-shaped labels are
-candidates — and produce no warning. The explicit `@contract` decorator form
+`all: for (...) { ... }`) are never hijacked — only labels on the statement kind the
+macro declares (a block by default) are candidates — and produce no warning. The explicit `@contract` decorator form
 needs no marker: importing the `contract` symbol is the opt-in; only the bare
 `requires:`/`ensures:` block form is gated.
 
@@ -391,13 +392,14 @@ The typeclass system implements Scala 3-style typeclasses with zero-cost special
 
 ### Key Macros
 
-| Macro                | Kind       | Purpose                            |
-| -------------------- | ---------- | ---------------------------------- |
-| `@typeclass`         | Attribute  | Declares a typeclass interface     |
-| `@instance`          | Attribute  | Registers a typeclass instance     |
-| `@derive`            | Attribute  | Auto-derives typeclass instances   |
-| `summon<TC<T>>()`    | Expression | Resolves a typeclass instance      |
-| `value.method(args)` | Expression | Extension method syntax (implicit) |
+| Macro                | Kind       | Purpose                                                                           |
+| -------------------- | ---------- | --------------------------------------------------------------------------------- |
+| `@typeclass`         | Attribute  | Declares a typeclass interface                                                    |
+| `@instance`          | Attribute  | Registers a typeclass instance                                                    |
+| `@derive`            | Attribute  | Auto-derives typeclass instances                                                  |
+| `summon<TC<T>>()`    | Expression | Resolves a typeclass instance                                                     |
+| `derived<TC<T>>()`   | Expression | Declares a derived instance on a top-level `const`, for a type declared elsewhere |
+| `value.method(args)` | Expression | Extension method syntax (implicit)                                                |
 
 ### Extension Method Resolution Order
 
@@ -537,9 +539,9 @@ Beyond the core typeclass and specialization macros, typesugar provides several 
 
 The derive system generates implementations from type structure, similar to Rust's `#[derive()]`.
 
-**Built-in Derives:** `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `Builder`, `TypeGuard`
+**Built-in Derives:** `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`, `Show`, `Semigroup`, `Monoid`, and `Destructure` (extractor functions and instances for `match`, in `@typesugar/std`)
 
-All derives handle both product types (records/interfaces) and sum types (discriminated unions). For sum types, the `DeriveTypeInfo.discriminant` field specifies the tag property name.
+All derives handle both product types (records/interfaces) and sum types (discriminated unions). For sum types, the `DeriveTypeInfo.discriminant` field specifies the tag property name. `derived<TC<T>>()` runs the same structural derivation for a type that can't carry `@derive` (one from a library), once, as the initializer of a top-level `const` that is then an ordinary instance in scope.
 
 **Custom Derive API:**
 

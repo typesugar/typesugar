@@ -325,7 +325,7 @@ This enables Scala 3-style implicit extension methods. When the transformer sees
 
 - Method syntax for the typeclass is active in the file: import its `@syntax-methods` marker module (`@typesugar/std/syntax/eq`, `…/clone`, `…/json`, `@typesugar/fp/syntax/show`, …) or declare the typeclass in the same file. Without it the call is left alone and fails at runtime.
 - For a typeclass from a package other than `@typesugar/std`, the typeclass itself must also be imported (a type-only import is enough), as `Show` is above.
-- The type has an instance in scope (`@derive`, or an explicit `@impl`/`@instance`). Instances are never ambient.
+- The type has an instance in scope (`@derive`, an explicit `@impl`/`@instance`, or a `derived<TC<T>>()` const). Instances are never ambient.
 - The method is declared in the typeclass.
 
 **Transformer Location:** `tryRewriteExtensionMethod()` in `packages/transformer-core/src/rewriting.ts`

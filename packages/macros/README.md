@@ -18,8 +18,8 @@ npm install @typesugar/macros
 
 This package provides implementations for:
 
-- **Typeclass system**: `@typeclass`, `@impl`, `@derive`, `summon()`, `extend()`
-- **Derivation**: `@derive()`, built-in derives (Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard)
+- **Typeclass system**: `@typeclass`, `@impl`, `@derive`, `summon()`, `derived()`, `extend()`
+- **Derivation**: `@derive()`, built-in derives (Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard, Show, Semigroup, Monoid), and `derived<TC<T>>()` for types you don't own
 - **Specialization**: always-on compile-time dictionary inlining (no API — `// @no-specialize` to opt out)
 - **Compile-time evaluation**: `comptime()`
 - **Reflection**: `@reflect`, `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`
@@ -64,9 +64,10 @@ the parsed JSON as an object literal, and `pipe` becomes nested calls.
 ## What Remains at Runtime
 
 Macros expand at compile time, but their output is ordinary code, and some of it is
-runtime code by design: derives emit companion objects (`Point.Eq`), `match` emits an
-expression that can throw `MatchError` (imported from `@typesugar/std`), and some macros
-emit imports of small runtime helpers.
+runtime code by design: derives emit companion objects (`Point.Eq`), a `match` whose arms
+the macro can't prove cover the value ends in a `throw new MatchError(...)` (imported from
+`@typesugar/std`; a match of plain literal arms compiles to a conditional and imports
+nothing), and some macros emit imports of small runtime helpers.
 
 ## API Reference
 

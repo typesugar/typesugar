@@ -279,13 +279,17 @@ export const TS9001: DiagnosticDescriptor = {
   explanation: `The typeclass system could not find or auto-derive an instance.
 
 Possible causes:
-1. The type has no @impl/@instance declaration for this typeclass
+1. The type has no @derive, @impl/@instance or derived<...>() instance for this
+   typeclass in scope (declared in this file or in a module it imports)
 2. Auto-derivation failed (e.g., a field lacks a required instance)
 3. The type is opaque or from a library without typeclass support
 
 Solutions:
-- Add @deriving({typeclass}) JSDoc tag to the type definition
+- Add @derive({typeclass}) to the type definition
 - Provide an explicit @impl implementation (JSDoc: /** @impl Typeclass<Type> */)
+- For a type you don't own (from a library), declare its instance once in a
+  module of your own and import that module: by hand with @impl, or derived with
+  export const x = derived<Typeclass<Type>>();
 - Check that all fields have the required instances`,
   seeAlso: "https://typesugar.org/errors/TS9001",
 };
@@ -1119,16 +1123,18 @@ export const TS9226: DiagnosticDescriptor = {
   severity: "error",
   category: DiagnosticCategory.MacroSyntax,
   messageTemplate: "Non-exhaustive match — missing {what}: {missing}",
-  explanation: `A fluent match(value).case(...).then(...) chain does not cover every
-value of the scrutinee's type, and has no fallback arm. The macro checks
-literal unions (including booleans and null/undefined members) and
-discriminated unions, and lists the cases or variants no arm handles. A
+  explanation: `A fluent match(value).case(...).then(...) chain, or a match: switch
+statement, does not cover every value of the scrutinee's type, and has no
+fallback arm. The macro checks literal unions (including booleans and
+null/undefined members) and discriminated unions, and lists the cases or
+variants no arm handles. A
 scrutinee whose values can't be enumerated (number, string, object types
 without a discriminant) always needs a fallback.
 
 Fix one of:
 1. Add an arm for each missing case or variant.
-2. End the chain with .else(handler) to handle every remaining value.
+2. End the chain with .else(handler) to handle every remaining value
+   (in a match: switch, add a default: that does more than throw).
 3. Add a catch-all .case(_).then(...) arm.
 
 The object-handler form match(value, { Variant: handler }) is not
