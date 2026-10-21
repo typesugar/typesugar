@@ -657,23 +657,20 @@ export function tryRewriteTypeclassOperator(
   const sfn = ctx.sourceFile.fileName;
   const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
   const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+  // PEP-052 activation gate: rewrite only if the file activated a typeclass that
+  // maps this operator (imported `@syntax-operators` marker or in-file `@typeclass`).
+  const activatedForOps =
+    definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
   let chainType: ts.Type | undefined;
   if (isPrimitiveTypedBinary(node.left)) {
-    if (activatedOps.size === 0 && definedTcs.size === 0) return undefined;
-    const activated =
-      definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
-    chainType = rewrittenChainType(ctx, node.left, activated);
+    if (activatedForOps.size === 0) return undefined;
+    chainType = rewrittenChainType(ctx, node.left, activatedForOps);
     if (!chainType) return undefined;
   }
   if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getOperatorString(node.operatorToken.kind);
   if (!opString) return undefined;
-
-  // PEP-052 activation gate: rewrite only if the file activated a typeclass that
-  // maps this operator (imported `@syntax-operators` marker or in-file `@typeclass`).
-  const activatedForOps =
-    definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
 
   const candidates =
     activatedForOps.size === 0 ? [] : getOperatorCandidates(ctx.program, activatedForOps, opString);
@@ -726,9 +723,16 @@ export function tryRewriteTypeclassOperator(
     return undefined;
   }
 
+  // The right operand may be a rewritten operator too (`a + b * 2`: `b * 2`
+  // becomes `scale(b, 2)`, a V, though TypeScript types it number): its type
+  // is the one the rewrite gives it, as for the left (rewrittenChainType).
   let rightType: ts.Type;
   try {
-    rightType = ctx.typeChecker.getTypeAtLocation(node.right);
+    const rightChain =
+      isPrimitiveTypedBinary(node.right) && activatedForOps.size > 0
+        ? rewrittenChainType(ctx, node.right, activatedForOps)
+        : undefined;
+    rightType = rightChain ?? ctx.typeChecker.getTypeAtLocation(node.right);
   } catch (error) {
     return operandTypeFailed(error);
   }
@@ -1091,13 +1095,16 @@ const chainTypeCache = new WeakMap<ts.Node, ts.Type | null>();
  * JavaScript's own (`add(a, b) + c`, string concatenation) (PEP-052 deferred
  * item 6). Undefined when it isn't such an expression.
  *
- * Decided as the rewrite decides it, bottom-up along the left operands: the
- * innermost left operand's type (by the checker), then at each operator an
- * activated candidate whose method returns the type parameter
- * (`resultIsSelf`, from the typeclass declaration), exactly one instance for
- * the type from scope (resolveInstance), and a right operand that fits.
- * Walked iteratively and memoized per node, so `1 + 1 + ... + 1` costs one
- * walk of the chain and no checker call on a binary expression (whose type
+ * Decided as the rewrite decides it, bottom-up: a leaf operand's type (by
+ * the checker), then at each operator an activated candidate whose method
+ * returns the type parameter (`resultIsSelf`, from the typeclass
+ * declaration), exactly one instance for the left operand's type from scope
+ * (resolveInstance), and a right operand that fits -- itself possibly a
+ * rewritten operator (`a + b * 2`, `a - (b - c)`), so both operands of every
+ * operator in the tree are typed this way. Walked iteratively (an explicit
+ * post-order stack, so neither a long left-nested chain nor a deep
+ * right-nested one recurses) and memoized per node, so `1 + 1 + ... + 1`
+ * costs one walk and no checker call on a binary expression (whose type
  * TypeScript doesn't cache).
  */
 function rewrittenChainType(
@@ -1105,29 +1112,42 @@ function rewrittenChainType(
   expr: ts.Expression,
   activated: ReadonlySet<string>
 ): ts.Type | undefined {
-  const spine: ts.BinaryExpression[] = [];
-  let cur: ts.Expression = expr;
-  let type: ts.Type | null;
-  for (;;) {
-    while (ts.isParenthesizedExpression(cur)) cur = cur.expression;
-    if (ts.isBinaryExpression(cur) && PRIMITIVE_RESULT_OPERATORS.has(cur.operatorToken.kind)) {
-      const cached = chainTypeCache.get(cur);
-      if (cached !== undefined) {
-        type = cached;
-        break;
-      }
-      spine.push(cur);
-      cur = cur.left;
+  const stack: Array<{ node: ts.BinaryExpression; expanded: boolean }> = [];
+  const push = (e: ts.Expression) => {
+    const b = chainBinary(e);
+    if (b && !chainTypeCache.has(b)) stack.push({ node: b, expanded: false });
+  };
+  push(expr);
+  while (stack.length > 0) {
+    const top = stack[stack.length - 1];
+    if (!top.expanded) {
+      top.expanded = true;
+      push(top.node.right);
+      push(top.node.left);
       continue;
     }
-    type = chainLeafType(ctx, cur);
-    break;
+    stack.pop();
+    if (chainTypeCache.has(top.node)) continue;
+    const left = chainOperandType(ctx, top.node.left);
+    chainTypeCache.set(top.node, left ? chainStepType(ctx, top.node, left, activated) : null);
   }
-  for (let i = spine.length - 1; i >= 0; i--) {
-    if (type) type = chainStepType(ctx, spine[i], type, activated);
-    chainTypeCache.set(spine[i], type);
-  }
-  return type ?? undefined;
+  return chainOperandType(ctx, expr) ?? undefined;
+}
+
+/** `e` without parentheses, when it is an operator expression TypeScript types as a primitive. */
+function chainBinary(e: ts.Expression): ts.BinaryExpression | undefined {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return ts.isBinaryExpression(e) && PRIMITIVE_RESULT_OPERATORS.has(e.operatorToken.kind)
+    ? e
+    : undefined;
+}
+
+/** An operand's type in a chain: computed (and cached) for an operator, the checker's for a leaf. */
+function chainOperandType(ctx: MacroContextImpl, e: ts.Expression): ts.Type | null {
+  const b = chainBinary(e);
+  if (b) return chainTypeCache.get(b) ?? null;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return chainLeafType(ctx, e);
 }
 
 /** The innermost left operand's type, when it is an object type that could have an instance. */
@@ -1171,8 +1191,9 @@ function chainStepType(
     }
     if (!found) return null;
     if (found.rightOperandIsSelf) {
+      // An operator operand was typed first (post-order in rewrittenChainType).
       const right = isPrimitiveTypedBinary(node.right)
-        ? rewrittenChainType(ctx, node.right, activated)
+        ? chainOperandType(ctx, node.right)
         : isSyntheticNode(node.right)
           ? undefined
           : ctx.typeChecker.getTypeAtLocation(node.right);

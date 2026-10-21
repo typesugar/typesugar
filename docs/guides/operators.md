@@ -110,7 +110,12 @@ operator dispatches on it too:
 ```typescript
 a + b + c; // numericRational.add(numericRational.add(a, b), c)
 a + b < c; // ordRational.lessThan(numericRational.add(a, b), c)
+a + b * c; // numericRational.add(a, numericRational.mul(b, c))
+a - (b - c); // numericRational.sub(a, numericRational.sub(b, c))
 ```
+
+Either operand can be such an expression, so precedence and parentheses work as
+they do for numbers.
 
 A method that returns something else (`equals(a: A, b: A): boolean`) ends the
 chain: `(a === b) === flag` compares booleans natively.

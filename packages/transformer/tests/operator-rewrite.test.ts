@@ -256,6 +256,46 @@ export const n = 1 + 2 + 3;
     });
   });
 
+  it("rewrites a chain whose right operand is a rewritten operator (precedence, parentheses)", () => {
+    // review 5, item 5: only the left spine used the rewritten type, so the
+    // right operand `b * 2` was typed number and `a + b * 2` was a bogus
+    // "right operand must also be 'V'" error.
+    const prelude2 = prelude
+      .replace("/** @op < */", "/** @op - */ sub(a: A, b: A): A;\n  /** @op < */")
+      .replace(
+        "same: (a, b) => a.x === b.x,",
+        "same: (a, b) => a.x === b.x,\n  sub: (a, b) => ({ x: a.x - b.x }),"
+      );
+    const code = `${prelude2}
+export const p1 = a + b * 2;
+export const p2 = a * 2 + b * 3;
+export const p3 = a - (b - c);
+export const p4 = a + (b + c) * 2;
+export const p5 = a < b * 2;
+export const p6 = (a + b) * 2 + (c - a);
+`;
+    const result = transformCode(code, { fileName: "op-chain-right.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(evaluate(result.code)).toMatchObject({
+      p1: { x: 5 },
+      p2: { x: 8 },
+      p3: { x: 2 },
+      p4: { x: 11 },
+      p5: true,
+      p6: { x: 8 },
+    });
+  });
+
+  it("a right operand that is a primitive expression is still reported", () => {
+    const code = `${prelude}
+export const bad = a + (1 + 2);
+`;
+    const result = transformCode(code, { fileName: "op-chain-right-bad.ts" });
+    const errs = result.diagnostics.filter((d) => d.severity === "error");
+    expect(errs).toHaveLength(1);
+    expect(errs[0].message).toMatch(/right operand must also be/);
+  });
+
   it("a comparison result (boolean) is not taken as the instance type", () => {
     const code = `${prelude}
 declare const flag: boolean;
