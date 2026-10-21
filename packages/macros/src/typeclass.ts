@@ -1676,47 +1676,41 @@ function hasTopLevelComma(text: string): boolean {
 /**
  * Decide whether `@impl TC<typeName>` may emit a `namespace typeName { export
  * const TC = ... }` companion. Only a plain identifier naming an interface,
- * type alias, class or (non-const, non-ambient) enum declared at the top
- * level of THIS file qualifies (an enum merges with a namespace like a class
- * does, and its runtime object carries the companion):
+ * type alias or class declared at the top level of THIS file qualifies:
  * anything else either doesn't parse as a namespace name (`Pair<number,
  * string>`, `number[]`, `string | null`) or would create a NEW runtime value
  * that shadows an imported or global binding (`import { Point }` →
  * `var Point = {}` → `new Point()` is no longer a constructor). Returns the
- * declaration, a reason string for a warning (not a plain type name, or a
- * type declared in this file that can't carry a companion: a const or ambient
- * enum), or `undefined` when the type isn't declared here at all.
+ * declaration, a reason string for a warning (not a plain type name), or
+ * `undefined` for no companion and no warning: the type isn't declared here,
+ * or it is an enum.
  *
- * No warning for that last case: it is how every instance for a type you
- * don't own is written (a library's
- * `@impl FlatMap<Effect>`, `@impl Functor<Array>`), nothing at the `@impl`
- * can give the type a companion, and a `Type.TC` written anywhere is
- * TypeScript's own error where it is written. Warning there fired on every
- * library instance (effect, fusion) in every build that transformed them.
+ * Not declared here: it is how every instance for a type you don't own is
+ * written (a library's `@impl FlatMap<Effect>`, `@impl Functor<Array>`),
+ * nothing at the `@impl` can give the type a companion, and a `Type.TC`
+ * written anywhere is TypeScript's own error where it is written. Warning
+ * there fired on every library instance (effect, fusion) in every build that
+ * transformed them.
+ *
+ * An enum (any kind) never gets one either. Its runtime object is the user's
+ * data: a merged `namespace Op { export const Eq = eqOp }` overwrites the
+ * member `Op.Eq`, and a string enum's `Object.values(Status)` lists the
+ * instance (review 5, item 2). The companion is not needed for resolution --
+ * the `@impl` const is found by its declared type (`resolveInstance`'s
+ * enum-first lookup in instance-resolver.ts) -- so leaving it out costs only
+ * the `Op.Eq` spelling, and a use of that is TypeScript's own "no property"
+ * error.
  */
 function findCompanionHost(
   sourceFile: ts.SourceFile,
   typeName: string
-):
-  | ts.InterfaceDeclaration
-  | ts.TypeAliasDeclaration
-  | ts.ClassDeclaration
-  | ts.EnumDeclaration
-  | string
-  | undefined {
+): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration | string | undefined {
   if (!/^[A-Za-z_$][\w$]*$/.test(typeName)) {
     return `'${typeName}' is not a plain type name`;
   }
   for (const stmt of sourceFile.statements) {
     if (ts.isEnumDeclaration(stmt) && stmt.name.text === typeName) {
-      const mods = ts.getCombinedModifierFlags(stmt);
-      if (mods & ts.ModifierFlags.Const) {
-        return `'${typeName}' is a const enum (it has no runtime object to carry a companion)`;
-      }
-      if (mods & ts.ModifierFlags.Ambient) {
-        return `'${typeName}' is a declared (ambient) enum (a companion namespace would replace its runtime object)`;
-      }
-      return stmt;
+      return undefined;
     }
     if (
       (ts.isInterfaceDeclaration(stmt) ||
@@ -1988,8 +1982,8 @@ export const implAttribute = defineAttributeMacro({
         !isSyntheticNode(target) &&
         host.pos > target.pos;
       if (host === undefined) {
-        // Not declared in this file: no companion, and nothing to warn about
-        // (see findCompanionHost).
+        // Not declared in this file, or an enum: no companion, and nothing to
+        // warn about (see findCompanionHost).
       } else if (typeof host === "string" || hostAfterImpl) {
         const why =
           typeof host === "string"

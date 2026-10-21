@@ -765,9 +765,11 @@ An enum is assignable to and from `number` (or `string`), so a `Show<number>`
 instance matches an enum value too. A value of an enum type, or one of its
 members (`Color.Green.show()`), uses the enum's own instance (`@impl
 Show<Color>`) when one is in scope, wherever it is declared, and the
-primitive's only when the enum has none. `@impl` on an enum declared in the same
-file also adds the `Color.Show` companion, as it does for an interface or class
-(not for a `const enum`, which has no runtime object to carry it). Operators on
+primitive's only when the enum has none. `@impl` on an enum generates no
+`Color.Show` companion, and says nothing about it: the enum's object is your
+data, and a merged companion would overwrite a member of the same name
+(`Op.Eq` beside `@impl Eq<Op>`) and show up in `Object.values(Status)`. Use the
+instance by its own name (`showColor`), or let resolution find it. Operators on
 enum values stay the native ones (`c === Color.Green`).
 
 ## Coherence

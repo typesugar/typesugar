@@ -748,6 +748,17 @@ function resolveCompanionInstanceExpression(
   const typeName = expr.expression.text;
   const tcName = expr.name.text;
   if (!PASCAL_CASE.test(typeName) || !PASCAL_CASE.test(tcName)) return undefined;
+  // A reference the checker cannot resolve is a generated companion
+  // (`Point.Eq` from a same-pass `@derive`/`@impl`, absent from the program
+  // the checker was built from). One it CAN resolve is whatever it resolves
+  // to: the name lookup below is used only when that is the instance const
+  // it finds (`export const Point = { Numeric: numericPoint }`). The enum
+  // member `Op.Eq` beside an `@impl Eq<Op>` is that member, not the instance.
+  // Compared by symbol, not by the dotted name.
+  const checker = ctx.typeChecker;
+  const propSym = isSyntheticNode(expr) ? undefined : checker.getSymbolAtLocation(expr.name);
+  const propDecl = propSym?.declarations?.length ? propSym.valueDeclaration : undefined;
+  if (propSym?.declarations?.length && !propDecl) return undefined;
 
   const hit = findInstanceInScopeByName(ctx, tcName, typeName);
   if (!hit) return undefined;
@@ -760,11 +771,38 @@ function resolveCompanionInstanceExpression(
     if (!ts.isVariableStatement(stmt)) continue;
     for (const decl of stmt.declarationList.declarations) {
       if (ts.isIdentifier(decl.name) && decl.name.text === hit.exportName && decl.initializer) {
+        if (propDecl && !propertyIsValueOf(checker, propDecl, decl.name)) return undefined;
         return decl.name;
       }
     }
   }
   return undefined;
+}
+
+/**
+ * Does the property declaration `prop` (`Numeric: numericPoint`, a shorthand
+ * `{ numericPoint }`, or a namespace's `export const Numeric = numericPoint`)
+ * hold the value declared as `constName`? By symbol identity; an enum member
+ * or any other declaration holds no instance const.
+ */
+function propertyIsValueOf(
+  checker: ts.TypeChecker,
+  prop: ts.Declaration,
+  constName: ts.Identifier
+): boolean {
+  let valueSym: ts.Symbol | undefined;
+  if (ts.isShorthandPropertyAssignment(prop)) {
+    valueSym = checker.getShorthandAssignmentValueSymbol(prop);
+  } else if (
+    (ts.isPropertyAssignment(prop) || ts.isVariableDeclaration(prop)) &&
+    prop.initializer &&
+    ts.isIdentifier(prop.initializer)
+  ) {
+    valueSym = checker.getSymbolAtLocation(prop.initializer);
+  }
+  if (!valueSym) return false;
+  if (valueSym.flags & ts.SymbolFlags.Alias) valueSym = checker.getAliasedSymbol(valueSym);
+  return valueSym === checker.getSymbolAtLocation(constName);
 }
 
 /**

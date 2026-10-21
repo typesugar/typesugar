@@ -8,8 +8,9 @@
  *    the member's own enum (by symbol) first, and falls back to the
  *    primitive's instance only when the enum has none.
  * 2. `@impl Show<Color>` on an enum declared in the same file warned
- *    "'Color' is not declared in this file" and generated no `Color.Show`:
- *    an enum merges with a namespace, so it hosts the companion.
+ *    "'Color' is not declared in this file". It now generates no companion
+ *    and says nothing: a companion merged into the enum object overwrote a
+ *    same-named member and polluted `Object.values` (review 5, item 2).
  *
  * Each test transforms a real on-disk program and executes the output.
  */
@@ -216,32 +217,69 @@ describe("an enum member resolves its enum's instance before the primitive's", (
   });
 });
 
-describe("@impl on a same-file enum generates the companion", () => {
-  it("Color.Show is generated and usable, with no warning", () => {
+describe("@impl on an enum generates no companion (the enum object is user data)", () => {
+  // 592d66b4 merged `namespace Color { export const Show = showColor }` into
+  // the enum: an `@impl Eq<Op>` overwrote the member `Op.Eq` with the
+  // instance, and a string enum's `Object.values` listed the instance
+  // (review 5, item 2). The instance resolves by its declared type, so no
+  // companion is needed, and none is generated; nothing is reported.
+  const EQ = [
+    `declare function log(v: unknown): void;`,
+    `/** @typeclass */`,
+    `interface Eq<A> {`,
+    `  equals(a: A, b: A): boolean;`,
+    `}`,
+  ].join("\n");
+
+  it("an @impl Eq<Op> leaves the member Op.Eq alone", () => {
     const result = transform(
-      [SHOW, COLOR, SHOW_COLOR, `log(Color.Show.show(Color.Blue));`, `log(Color.Red);`].join("\n")
+      [
+        EQ,
+        `export enum Op { Eq, Ne }`,
+        `/** @impl Eq<Op> */`,
+        `export const eqOp: Eq<Op> = { equals: (a, b) => a === b };`,
+        `log(Op.Eq);`,
+        `log(Op.Ne);`,
+        `log(Op[0]);`,
+      ].join("\n")
     );
-    expect(errors(result)).toEqual([]);
+    expect(errors(result).map((d) => d.message)).toEqual([]);
     expect(warnings(result).map((d) => d.message)).toEqual([]);
-    expect(run(result.code, TYPESUGAR_STUBS)).toEqual(["color:Blue", 0]);
+    expect(result.code).not.toMatch(/namespace Op/);
+    expect(run(result.code)).toEqual([0, 1, "Eq"]);
   });
 
-  it("an exported enum gets an exported companion", () => {
+  it("a string enum's Object.values holds only its members", () => {
     const result = transform(
       [
         SHOW,
-        `export enum Color { Red, Green, Blue }`,
-        SHOW_COLOR,
-        `log(Color.Show.show(Color.Green));`,
+        `enum Status { Active = "active", Done = "done" }`,
+        `/** @impl Show<Status> */`,
+        `const showStatus: Show<Status> = { show: (s) => "status:" + s };`,
+        `log(Object.values(Status));`,
+        `log(Status.Done.show());`,
       ].join("\n")
     );
     expect(errors(result)).toEqual([]);
     expect(warnings(result).map((d) => d.message)).toEqual([]);
-    expect(result.code).toMatch(/export namespace Color/);
-    expect(run(result.code, TYPESUGAR_STUBS)).toEqual(["color:Green"]);
+    expect(run(result.code, TYPESUGAR_STUBS)).toEqual([["active", "done"], "status:done"]);
   });
 
-  it("a const enum has no runtime object: the warning says so", () => {
+  it("the instance still resolves, with no companion and no warning", () => {
+    const result = transform([SHOW, SHOW_NUMBER, COLOR, SHOW_COLOR, USES].join("\n"));
+    expect(errors(result)).toEqual([]);
+    expect(warnings(result).map((d) => d.message)).toEqual([]);
+    expect(result.code).not.toMatch(/namespace Color/);
+    expect(run(result.code, TYPESUGAR_STUBS)).toEqual([
+      "color:Green",
+      "color:Blue",
+      "color:Green",
+      "color:Blue",
+      "color:Red",
+    ]);
+  });
+
+  it("a const enum is quiet too", () => {
     const result = transform(
       [
         SHOW,
@@ -250,10 +288,7 @@ describe("@impl on a same-file enum generates the companion", () => {
         `const showColor: Show<Color> = { show: (c) => "color:" + c };`,
       ].join("\n")
     );
-    const msgs = warnings(result).map((d) => d.message);
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0]).toMatch(/const enum/);
-    expect(msgs[0]).not.toMatch(/not declared in this file/);
+    expect(warnings(result).map((d) => d.message)).toEqual([]);
     expect(result.code).not.toMatch(/namespace Color/);
   });
 });
