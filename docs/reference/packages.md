@@ -281,7 +281,7 @@ instance(); // decorator
 derive(); // decorator (generates typeclass instances)
 summon<T>();
 derived<T>(); // export const cloneFeature = derived<Clone<Feature>>(): an instance for a type you don't own
-extend();
+extend(value).method(); // a call form: extend(p).show() → showPoint.show(p); not storable
 implicit(); // default parameter marker
 ```
 

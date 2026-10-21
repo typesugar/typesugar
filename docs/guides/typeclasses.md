@@ -308,6 +308,12 @@ Without the `@typesugar/std/syntax/eq` import, `.equals()` stays a plain
 (`@typesugar/std/syntax/eq/ops`, enabling `===` and `==`) implies the method form (tier
 3 ⊇ tier 2). See [Operator Syntax](#operator-syntax) below.
 
+Method syntax works on literals too: `(7).show()` and `"a".show()` use the `Show<number>` and
+`Show<string>` instances. `extend(value).method(args)` is the explicit spelling of the same call;
+it must be called in one expression (`const e = extend(p)` is an error, since it compiles to a
+direct call on the instance and there is no wrapper value to store). See
+[When to use `extend()`](./extension-methods.md#when-to-use-extend).
+
 ## Zero-Cost Specialization
 
 Specialization is an always-on compiler optimization (PEP-053) — there is no

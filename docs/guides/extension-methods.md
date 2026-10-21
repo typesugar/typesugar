@@ -320,7 +320,8 @@ import { first, mapTo } from "./generic-ext";
 
 ## When to Use `extend()`
 
-The `extend()` wrapper exists but is rarely needed. It wraps a value so that all typeclass methods become callable:
+`extend(value).method(args)` is rarely needed. It calls `method` on `value` through a typeclass
+instance or an extension, the same as method syntax does:
 
 ```typescript
 import "@typesugar/std/syntax/eq";
@@ -333,11 +334,19 @@ extend(point).equals(other); // → Point.Eq.equals(point, other)
 point.equals(other);
 ```
 
-Use `extend()` when:
+`extend(value).method(args)` is a call form, not a wrapper: it compiles to a direct call on the
+instance or extension (`Point.Eq.equals(point, other)`), and no object exists at run time that
+could stand for `extend(point)`. So `extend()` must be followed by the method call in the same
+expression. `const e = extend(point); e.equals(other)` is an error that says what to write
+instead: `extend(point).equals(other)`, method syntax `point.equals(other)`, or the instance
+itself, `const E = summon<Eq<Point>>(); E.equals(point, other)`.
 
-- **Generic contexts**: Type parameter isn't concrete at the call site
-- **Explicit intent**: Documentation or teaching
-- **IDE exploration**: See all available typeclass methods via autocomplete
+It works on concrete types only. On an unconstrained type parameter (`function f<T>(x: T)`)
+there is no instance to choose, and `extend(x).show()` is an error. Take the instance as a
+parameter instead (`S: Show<T> = implicit()`; see [Generic Functions](./typeclasses.md#generic-functions-implicit)).
+
+Use `extend()` when you want the typeclass dispatch to be explicit at the call site, for example
+in documentation or teaching.
 
 ## Legacy: registerExtensions() (Deprecated)
 

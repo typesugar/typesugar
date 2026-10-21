@@ -328,7 +328,12 @@ class MacroTransformer {
     methodName: string,
     receiverType: ts.Type
   ): StandaloneExtensionInfo | undefined {
-    const sourceFile = node.getSourceFile();
+    // The file being transformed, not `node.getSourceFile()`: a call that a
+    // macro rebuilt with `factory.update*` (extend()'s fallback, a re-visited
+    // macro result) keeps its source range but has no parent chain, so
+    // getSourceFile() returned undefined and import-scoped extensions were
+    // never found for it.
+    const sourceFile = this.ctx.sourceFile;
 
     let methodCache = this.importExtensionCache.get(receiverType);
     if (!methodCache) {

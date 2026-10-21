@@ -214,6 +214,11 @@ export function derived<T>(): T {
  * 1. Typeclass extensions — `extend(point).show()` resolves via Show<Point>
  * 2. Standalone extensions — `extend(42).clamp(0, 100)` resolves to a direct function call
  *
+ * A call form, not a wrapper: `extend(x)` must be followed by the method call
+ * in the same expression (`const e = extend(x)` is a compile error), and `x`
+ * must have a concrete type (in generic code take the instance as
+ * `S: Show<T> = implicit()`).
+ *
  * @example
  * ```typescript
  * // Typeclass extension

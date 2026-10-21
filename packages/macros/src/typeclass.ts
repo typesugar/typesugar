@@ -3377,6 +3377,87 @@ function derivedInstanceExpression(
 // // Resolves to: eqPoint.equals(point, otherPoint)
 // ============================================================================
 
+/**
+ * The error for `extend(x)` not called as `extend(x).method(...)` -- typically
+ * `const e = extend(x); e.show()`. By design that is not supported:
+ * `extend(x).m(args)` compiles to `instance.m(x, args)`, so there is no
+ * wrapper object to store (a runtime wrapper would cost what extend() exists
+ * to avoid, and would need to know every method it will be used with). The
+ * message names the user's own value and, when `extend(x)` initialises a
+ * variable, the first method called on that variable, with the three things
+ * to write instead.
+ */
+function extendWithoutMethodMessage(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression,
+  value: ts.Expression
+): string {
+  const real = !isSyntheticNode(value);
+  const valueText = real ? value.getText(ctx.sourceFile) : "value";
+
+  // `const e = extend(x)`: find the first `e.m(...)` call in the file, by the
+  // variable's SYMBOL (checker identity), not by its name.
+  let methodName: string | undefined;
+  const decl = callExpr.parent;
+  if (
+    real &&
+    !isSyntheticNode(callExpr) &&
+    ts.isVariableDeclaration(decl) &&
+    decl.initializer === callExpr &&
+    ts.isIdentifier(decl.name)
+  ) {
+    try {
+      const varSym = ctx.typeChecker.getSymbolAtLocation(decl.name);
+      const find = (n: ts.Node): void => {
+        if (methodName) return;
+        if (
+          ts.isCallExpression(n) &&
+          ts.isPropertyAccessExpression(n.expression) &&
+          ts.isIdentifier(n.expression.expression) &&
+          !isSyntheticNode(n.expression.expression) &&
+          varSym !== undefined &&
+          ctx.typeChecker.getSymbolAtLocation(n.expression.expression) === varSym
+        ) {
+          methodName = n.expression.name.text;
+          return;
+        }
+        ts.forEachChild(n, find);
+      };
+      find(ctx.sourceFile);
+    } catch (e) {
+      ctx.reportWarning(
+        callExpr,
+        `extend(): could not look up how '${decl.name.text}' is used ` +
+          `(${e instanceof Error ? e.message : String(e)}); the help below uses a placeholder method.`
+      );
+    }
+  }
+  const m = methodName ?? "method";
+
+  let typeText = "T";
+  if (real) {
+    try {
+      typeText = ctx.typeChecker.typeToString(
+        ctx.typeChecker.getBaseTypeOfLiteralType(ctx.typeChecker.getTypeAtLocation(value))
+      );
+    } catch {
+      // Display only: the placeholder `T` is shown instead.
+    }
+  }
+  const tc = methodName
+    ? (getTypeclassesDeclaringMethod(ctx.program, methodName)[0]?.typeclass ?? "TC")
+    : "TC";
+
+  return (
+    `extend(${valueText}) must be called as a method in the same expression: ` +
+    `extend(${valueText}).${m}(). It compiles to a direct call on the ` +
+    `${tc === "TC" ? "typeclass" : tc} instance, so there is no wrapper value to store in a ` +
+    `variable. Write extend(${valueText}).${m}(), or method syntax ` +
+    `${valueText}.${m}(), or keep the instance itself: ` +
+    `const S = summon<${tc}<${typeText}>>(); S.${m}(${valueText}).`
+  );
+}
+
 export const extendMacro = defineExpressionMacro({
   name: "extend",
   module: "@typesugar/typeclass",
@@ -3408,10 +3489,7 @@ export const extendMacro = defineExpressionMacro({
     // Its `.expression` is the `.method` property access on `extend(value)`.
     const methodAccess = callExpr.expression;
     if (!ts.isPropertyAccessExpression(methodAccess)) {
-      ctx.reportError(
-        callExpr,
-        "extend() must be followed by a method call, e.g., extend(value).show()"
-      );
+      ctx.reportError(callExpr, extendWithoutMethodMessage(ctx, callExpr, args[0]));
       return callExpr;
     }
 
@@ -3480,13 +3558,44 @@ export const extendMacro = defineExpressionMacro({
       return buildStandaloneExtensionCall(ctx.factory, standaloneExt, value, extraArgs);
     }
 
-    // No match in registries — strip the extend() wrapper and emit
-    // value.method(args) so the transformer's implicit extension rewriting
-    // (which includes import-scoped resolution) can handle it.
-    return f.createCallExpression(
-      f.createPropertyAccessExpression(value, methodName),
-      undefined,
-      extraArgs
+    // An unconstrained type parameter has no instance or extension to
+    // dispatch to here, and `x.show()` would fail at run time: say how
+    // generic code gets one. (A constrained one, `T extends number`, is left
+    // to the method-call rewrite below, which can use the constraint.)
+    const constraint =
+      valueType && valueType.flags & ts.TypeFlags.TypeParameter
+        ? ctx.typeChecker.getBaseConstraintOfType(valueType)
+        : undefined;
+    if (
+      valueType &&
+      valueType.flags & ts.TypeFlags.TypeParameter &&
+      (!constraint || constraint.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any))
+    ) {
+      const valueText = value.getText(ctx.sourceFile);
+      const tc = getTypeclassesDeclaringMethod(ctx.program, methodName)[0]?.typeclass ?? "TC";
+      ctx.reportError(
+        callExpr,
+        `extend(${valueText}).${methodName}(): '${typeName}' is a type parameter, so no ` +
+          `${tc} instance can be chosen for it here. Take the instance as a parameter ` +
+          `(S: ${tc}<${typeName}> = implicit()) and call S.${methodName}(${valueText}); ` +
+          `typesugar fills it in at each call site with a concrete type.`
+      );
+      return callExpr;
+    }
+
+    // No instance and no registered standalone extension: emit
+    // value.method(args) for the transformer's own method-call rewriting
+    // (import-scoped extensions, typeclass method syntax). It must be an
+    // UPDATE of the written call, keeping its source range: the visitor never
+    // rewrites a synthetic call, so a fresh `value.method(args)` node was left
+    // as is (`extend(150).clamp(0, 100)` -> `150..clamp(0, 100)`, a run-time
+    // "is not a function"). The checker is only asked about `value`, which is
+    // the user's own node.
+    return f.updateCallExpression(
+      callExpr,
+      f.updatePropertyAccessExpression(methodAccess, value, methodAccess.name),
+      callExpr.typeArguments,
+      callExpr.arguments
     );
   },
 });
