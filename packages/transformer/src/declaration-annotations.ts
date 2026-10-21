@@ -209,19 +209,23 @@ function annotateMember(
  */
 function exportedDeclarations(checker: ts.TypeChecker, file: ts.SourceFile): Set<ts.Node> {
   const out = new Set<ts.Node>();
-  let moduleSymbol: ts.Symbol | undefined;
   try {
-    moduleSymbol = checker.getSymbolAtLocation(file);
-  } catch {
-    return out;
-  }
-  if (!moduleSymbol) return out;
-  for (const exported of checker.getExportsOfModule(moduleSymbol)) {
-    const symbol =
-      exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
-    for (const decl of symbol.declarations ?? []) {
-      if (decl.getSourceFile() === file) out.add(decl);
+    const moduleSymbol = checker.getSymbolAtLocation(file);
+    if (!moduleSymbol) return out;
+    for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+      const symbol =
+        exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
+      for (const decl of symbol.declarations ?? []) {
+        if (decl.getSourceFile() === file) out.add(decl);
+      }
     }
+  } catch (e) {
+    // Degrade to the expanded program's own inference, visibly (as typeFor does).
+    console.warn(
+      `[typesugar] declarations: could not read the exports of ${file.fileName}, so its ` +
+        `declarations keep their expanded types: ${e instanceof Error ? e.message : String(e)}`
+    );
+    return new Set();
   }
   // `export default <expr>`
   for (const stmt of file.statements) {

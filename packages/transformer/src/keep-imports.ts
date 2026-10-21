@@ -220,6 +220,20 @@ export function keepMacroReferencedImports(
  * `localNames` are the local bindings a kept `export { Vec }` (no module
  * specifier) refers to, so their imports are kept too.
  */
+/**
+ * A re-export's check failed, so it is emitted as TypeScript decides alone:
+ * a re-export of a value only `@derive` creates may be dropped. Said once,
+ * visibly (CLAUDE.md: a degraded expansion leaves a trace).
+ */
+function warnReExport(stmt: ts.ExportDeclaration, what: string, e: unknown): void {
+  console.warn(
+    `[typesugar] emit: could not check ${what} in the re-export ` +
+      `'${stmt.getText()}' (${stmt.getSourceFile().fileName}): ` +
+      `${e instanceof Error ? e.message : String(e)}. It is emitted as TypeScript elides it, ` +
+      `which may drop a value a derive creates.`
+  );
+}
+
 function keepDerivedReExports(
   statements: readonly ts.Statement[],
   factory: ts.NodeFactory,
@@ -242,7 +256,8 @@ function keepDerivedReExports(
         if (target && !target.isDeclarationFile) {
           generatedNames = generatedValueNames(checker, target, true);
         }
-      } catch {
+      } catch (e) {
+        warnReExport(stmt, "its module's derived values", e);
         return stmt;
       }
     }
@@ -252,7 +267,8 @@ function keepDerivedReExports(
       try {
         const symbol = checker.getExportSpecifierLocalTargetSymbol(s);
         return symbol !== undefined && isDerivedValueSymbol(checker, symbol);
-      } catch {
+      } catch (e) {
+        warnReExport(stmt, `'${name.text}'`, e);
         return false;
       }
     };
