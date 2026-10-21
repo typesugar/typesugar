@@ -222,6 +222,7 @@ not get worse.
 12. **Grouped implicits: tuple and object parameters** (Dean, 2026-10-21). One
     implicit parameter can carry several instances, destructured where it is declared.
     Both forms are already valid TypeScript:
+
     ```ts
     function parse<F>(s: string, [ME, S]: [MonadThrow<F>, Show<Config>] = implicit()) { … }
     function parse<F>(s: string, { ME, S }: { ME: MonadThrow<F>; S: Show<Config> } = implicit()) { … }
@@ -307,6 +308,15 @@ implicit()`) is specialized per call site, and do-notation's error recovery can 
   two-parameter constructors (`Result<_, E>`), which Wave 2 must prove first.
 
 ## Open questions
+
+- **Structural vs nominal instance matching** (raised 2026-10-21, examples work on
+  `case-study-fixes`). A type with no instance of its own can still use another type's
+  instance when the two have the same shape: `Email` (a branded string with no Eq) would
+  use `UserId`'s Eq. `case-study-fixes` made a type's own instance win over a same-shape
+  one, but the structural fallback itself remains. It is the same family as "match by
+  type, not by name": identity should decide, not shape. Options: nominal only (a missing
+  instance is an error, and `derived<…>()` is one line); nominal first with a warning
+  when falling back to a same-shape instance; or keep structural. Dean to decide.
 
 - **Context bounds for implicits.** The boilerplate in `ME: MonadError<F, E> = implicit()`
   is the whole parameter, not the typeclass name. Scala 3 writes `def parse[F[_]: MonadThrow]`.
