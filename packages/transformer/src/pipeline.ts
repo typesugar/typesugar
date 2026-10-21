@@ -730,15 +730,14 @@ function generateASTSourceMap(
   // quote style or escapes the printer chose.
   const outputTokens: Array<{ kind: LeafKind; text: string; pos: number }> = [];
   const outputSF = ts.createSourceFile(fileName, outputCode, ts.ScriptTarget.Latest, false);
-  const collectLeaves = (node: ts.Node): void => {
+  // Iterative, in forEachChild (document) order: an expression in the output
+  // can be thousands of levels deep (a long generated chain).
+  forEachDescendant(outputSF, (node) => {
     const leaf = leafOf(node);
-    if (leaf) {
-      outputTokens.push({ ...leaf, pos: node.getStart(outputSF) });
-      return;
-    }
-    ts.forEachChild(node, collectLeaves);
-  };
-  collectLeaves(outputSF);
+    if (!leaf) return;
+    outputTokens.push({ ...leaf, pos: node.getStart(outputSF) });
+    return false;
+  });
 
   if (outputTokens.length === 0) return null;
 

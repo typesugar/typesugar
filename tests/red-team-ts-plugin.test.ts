@@ -366,6 +366,23 @@ describe("TS Plugin Error Recovery", () => {
       expect(Date.now() - started).toBeLessThan(20_000);
     });
 
+    it("a 20,000-term chain in a file with a macro expansion (a source map is generated)", () => {
+      // review 5, item 7: with an expansion the output differs from the input,
+      // so generateASTSourceMap runs, and its output-token collection
+      // recursed once per level ("Maximum call stack size exceeded").
+      const code =
+        'import { comptime } from "typesugar";\n' +
+        "export const c = comptime(() => 40 + 2);\n" +
+        "export const n = " +
+        "1 + ".repeat(20000) +
+        "1;\n";
+      const result = transformCode(code, { fileName: "chain-with-macro.ts" });
+      expect(result.diagnostics).toEqual([]);
+      expect(result.code).toContain("c = 42");
+      expect(result.code.split("1 + ").length).toBe(20001);
+      expect(result.sourceMap).toBeTruthy();
+    });
+
     it("transforms a 400-term arithmetic chain and a 300-term comparison chain quickly, cleanly", () => {
       const sum = "const y = " + "1 + ".repeat(400) + "1;";
       const cmp = "const z = " + "(1 < 2) === ".repeat(300) + "true;";

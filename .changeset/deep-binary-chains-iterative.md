@@ -13,4 +13,6 @@ loop (same steps, same order, same output), and the operator rewrite rejects an
 arithmetic operand before the checks that walk up the node's ancestors. A
 20,000-term concatenation transforms in well under a second; plain tsc handles
 that depth too. `@typesugar/core` exports the iterative walker,
-`forEachDescendant`.
+`forEachDescendant`. In a file with a macro expansion
+too: the import cleanup's reference scans and the source map's output-token pass recursed
+once per level and overflowed on such a chain.

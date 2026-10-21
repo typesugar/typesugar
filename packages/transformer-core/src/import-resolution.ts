@@ -100,29 +100,35 @@ export function recordMacroImport(
  */
 function collectValueReferences(statements: readonly ts.Statement[]): Set<string> {
   const refs = new Set<string>();
-  const walk = (node: ts.Node, parent: ts.Node | undefined): void => {
+  // Iterative (an explicit stack of node/parent pairs): a transformed
+  // expression can be thousands of levels deep (a long generated chain).
+  const stack: Array<[ts.Node, ts.Node | undefined]> = [];
+  for (const stmt of statements) {
+    if (ts.isImportDeclaration(stmt)) continue;
+    if (ts.isImportEqualsDeclaration(stmt)) continue;
+    stack.push([stmt, undefined]);
+  }
+  while (stack.length > 0) {
+    const [node, parent] = stack.pop()!;
     if (ts.isIdentifier(node)) {
       if (parent && (parent as { name?: ts.Node }).name === node) {
         if (ts.isShorthandPropertyAssignment(parent)) refs.add(node.text);
         else if (ts.isExportSpecifier(parent) && !parent.propertyName) refs.add(node.text);
-        return;
+        continue;
       }
       refs.add(node.text);
-      return;
+      continue;
     }
-    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
-    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
+    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) continue;
+    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) continue;
     if (ts.isPropertyAccessExpression(node)) {
-      walk(node.expression, node);
-      return;
+      stack.push([node.expression, node]);
+      continue;
     }
-    if (ts.isQualifiedName(node)) return;
-    ts.forEachChild(node, (child) => walk(child, node));
-  };
-  for (const stmt of statements) {
-    if (ts.isImportDeclaration(stmt)) continue;
-    if (ts.isImportEqualsDeclaration(stmt)) continue;
-    walk(stmt, undefined);
+    if (ts.isQualifiedName(node)) continue;
+    ts.forEachChild(node, (child) => {
+      stack.push([child, node]);
+    });
   }
   return refs;
 }
@@ -135,18 +141,23 @@ function collectValueReferences(statements: readonly ts.Statement[]): Set<string
  */
 function collectAllReferences(statements: readonly ts.Statement[]): Set<string> {
   const refs = new Set<string>();
-  const walk = (node: ts.Node, parent: ts.Node | undefined): void => {
-    if (ts.isIdentifier(node)) {
-      if (parent && ts.isPropertyAccessExpression(parent) && parent.name === node) return;
-      if (parent && ts.isQualifiedName(parent) && parent.right === node) return;
-      refs.add(node.text);
-      return;
-    }
-    ts.forEachChild(node, (child) => walk(child, node));
-  };
+  // Iterative, as collectValueReferences.
+  const stack: Array<[ts.Node, ts.Node | undefined]> = [];
   for (const stmt of statements) {
     if (ts.isImportDeclaration(stmt) || ts.isImportEqualsDeclaration(stmt)) continue;
-    walk(stmt, undefined);
+    stack.push([stmt, undefined]);
+  }
+  while (stack.length > 0) {
+    const [node, parent] = stack.pop()!;
+    if (ts.isIdentifier(node)) {
+      if (parent && ts.isPropertyAccessExpression(parent) && parent.name === node) continue;
+      if (parent && ts.isQualifiedName(parent) && parent.right === node) continue;
+      refs.add(node.text);
+      continue;
+    }
+    ts.forEachChild(node, (child) => {
+      stack.push([child, node]);
+    });
   }
   return refs;
 }
