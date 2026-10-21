@@ -94,6 +94,8 @@ describe.skipIf(!hasBuild)("package examples run with `typesugar run`", () => {
   for (const rel of all) {
     const reason = KNOWN_BROKEN[rel];
     if (reason) {
+      // Known broken (reason in KNOWN_BROKEN), tracked on PR #83: expected to
+      // fail until fixed, then this flips to a failure and the entry goes.
       it.fails(
         `${rel} (known broken: ${reason}; remove it from KNOWN_BROKEN once it runs)`,
         () => {
