@@ -164,7 +164,33 @@ function spawn(args: string[], cwd: string) {
 
 type Builder = "typesugar build" | "tsup withTypesugar";
 
-function buildLibrary(builder: Builder): string {
+/**
+ * A type whose derives generate only its companion (no Destructure
+ * constructor, not a class): only the companion namespace makes `Vec` a
+ * value, and `typesugar build` dropped the index's `export { Vec }`.
+ */
+const VEC_LIBRARY = {
+  "src/shape.ts": `/** @derive(Eq, Clone) */
+export interface Vec {
+  x: number;
+  y: number;
+}
+`,
+  "src/index.ts": `export { Vec } from "./shape.js";
+`,
+};
+
+const VEC_MAIN = `import "@typesugar/std/syntax/eq/ops";
+import { Vec } from "geo-lib";
+const a: Vec = { x: 1, y: 2 };
+const b: Vec = { x: 1, y: 2 };
+console.log(JSON.stringify([a === b, Vec.Clone.clone(a)]));
+`;
+
+function buildLibrary(
+  builder: Builder,
+  sources: Record<string, string> = { "src/point.ts": LIBRARY, "src/index.ts": LIBRARY_INDEX }
+): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-geo-lib-"));
   dirs.push(dir);
   linkModules(dir);
@@ -178,8 +204,7 @@ function buildLibrary(builder: Builder): string {
     "tsconfig.json": TSCONFIG(
       builder === "typesugar build" ? { declaration: true, outDir: "dist" } : {}
     ),
-    "src/point.ts": LIBRARY,
-    "src/index.ts": LIBRARY_INDEX,
+    ...sources,
     "tsup.config.ts": `import { defineConfig } from "tsup";
 import { withTypesugar } from "unplugin-typesugar/tsup";
 export default defineConfig(
@@ -285,6 +310,22 @@ describe.skipIf(!hasBuild)("a library's @derive companions, from its .d.ts", () 
             expect(run.status, run.output).toBe(0);
             expect(run.output.trim()).toBe(expected);
           }
+        }
+      );
+
+      it(
+        "a type with only companion derives (Eq, Clone) is re-exported from the index",
+        { timeout: 180_000 },
+        () => {
+          const lib = buildLibrary(builder, VEC_LIBRARY);
+          expect(read(lib, "dist/index.js")).toMatch(/\bVec\b/);
+          const { dir, build } = buildConsumer(lib, { "src/main.ts": VEC_MAIN });
+          expect(build.output).toBe("");
+          expect(build.status).toBe(0);
+          expect(read(dir, "dist/main.js")).toContain("Vec.Eq.equals(a, b)");
+          const run = spawn([path.join(dir, "dist", "main.js")], dir);
+          expect(run.status, run.output).toBe(0);
+          expect(JSON.parse(run.output)).toEqual([true, { x: 1, y: 2 }]);
         }
       );
     });

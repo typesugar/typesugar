@@ -189,7 +189,11 @@ consumer-side transformer reads to enable dot-syntax.
    who import that module, or an index that re-exports it: their `===`, `summon`,
    `= implicit()` and method syntax use it. A `@derive` companion is declared as a member
    of the type's namespace with an `/** @impl Eq<Point> */` tag (`Point.Eq`), so the
-   declarations must come from typesugar (the table above), not plain `tsc`. Extractors for `match` are `Destructure` instances, which
+   declarations must come from typesugar (the table above), not plain `tsc`. Re-export
+   the type by name as a value (`export { Point } from "./point.js"`), not with
+   `export type`: the companion is part of the value `Point`, and `export type` leaves it
+   out of the JavaScript. `typesugar check` and `build` accept the value form under
+   `verbatimModuleSyntax` and `isolatedModules` too. Extractors for `match` are `Destructure` instances, which
    resolve from the module that declares the constructor, as `@typesugar/fp` ships
    `destructureSome` next to `Some`; give each a `@destructure` tag so consumers'
    patterns are inlined ([Custom Extractors](./pattern-matching.md#custom-extractors)).

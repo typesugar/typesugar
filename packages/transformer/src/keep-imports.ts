@@ -27,7 +27,7 @@
  */
 
 import * as ts from "typescript";
-import { generatedValueNames } from "@typesugar/macros";
+import { generatedValueNames, isDerivedValueSymbol } from "@typesugar/macros";
 
 interface EmitResolverLike {
   isReferencedAliasDeclaration(node: ts.Node, checkChildren?: boolean): boolean;
@@ -151,9 +151,14 @@ export function keepMacroReferencedImports(
     const reExports = checker
       ? keepDerivedReExports(sourceFile.statements, context.factory, resolver, checker)
       : undefined;
-    if (reExports) sourceFile = context.factory.updateSourceFile(sourceFile, reExports);
+    if (reExports) sourceFile = context.factory.updateSourceFile(sourceFile, reExports.statements);
     if (importNames.size === 0) return sourceFile;
     const generated = expandedValueReferences(sourceFile, importNames, checker);
+    // `import { Vec } from "./vec"; export { Vec };`: the kept export clause
+    // needs its import too.
+    for (const name of reExports?.localNames ?? []) {
+      if (importNames.has(name)) generated.add(name);
+    }
     if (generated.size === 0) return sourceFile;
 
     const kept = (node: ts.Node): boolean => resolver.isReferencedAliasDeclaration(node);
@@ -200,51 +205,77 @@ export function keepMacroReferencedImports(
 }
 
 /**
- * `export { Circle, Point } from "./shapes"`: TypeScript keeps a re-exported
- * name only if it is a value in the source, and the values a derive declares
- * (`@derive(Destructure)`'s constructors and instances) are not, until
- * expansion. Keep those the target module's derives declare.
+ * `export { Circle, Point } from "./shapes"`, `export { Vec }`: TypeScript
+ * keeps a re-exported name only if it is a value in the source, and the
+ * values a derive declares are not, until expansion: `@derive(Destructure)`'s
+ * constructors and instances, and the companion `namespace Vec { export const
+ * Eq = ... }` that makes an interface with `@derive(Eq)` a value. Keep:
+ *
+ * - a name the target module's derives declare (`generatedNames`: `Circle`
+ *   exists nowhere in the source, so this is the derive's own list of names);
+ * - a name that resolves, through any chain of re-exports and imports, to a
+ *   type a derive makes a value: by identity, the symbol the checker resolves
+ *   the specifier to ({@link isDerivedValueSymbol}).
+ *
+ * `localNames` are the local bindings a kept `export { Vec }` (no module
+ * specifier) refers to, so their imports are kept too.
  */
 function keepDerivedReExports(
   statements: readonly ts.Statement[],
   factory: ts.NodeFactory,
   resolver: EmitResolverLike,
   checker: ts.TypeChecker
-): ts.Statement[] | undefined {
+): { statements: ts.Statement[]; localNames: Set<string> } | undefined {
   let changed = false;
+  const localNames = new Set<string>();
   const out = statements.map((stmt) => {
-    if (!ts.isExportDeclaration(stmt) || stmt.isTypeOnly || !stmt.moduleSpecifier) return stmt;
+    if (!ts.isExportDeclaration(stmt) || stmt.isTypeOnly) return stmt;
     if (ts.getParseTreeNode(stmt) !== stmt) return stmt;
     const clause = stmt.exportClause;
     if (!clause || !ts.isNamedExports(clause)) return stmt;
-    let target: ts.SourceFile | undefined;
-    try {
-      target = checker
-        .getSymbolAtLocation(stmt.moduleSpecifier)
-        ?.declarations?.find((d): d is ts.SourceFile => ts.isSourceFile(d));
-    } catch {
-      return stmt;
+    let generatedNames: ReadonlySet<string> = new Set();
+    if (stmt.moduleSpecifier) {
+      try {
+        const target = checker
+          .getSymbolAtLocation(stmt.moduleSpecifier)
+          ?.declarations?.find((d): d is ts.SourceFile => ts.isSourceFile(d));
+        if (target && !target.isDeclarationFile) {
+          generatedNames = generatedValueNames(checker, target, true);
+        }
+      } catch {
+        return stmt;
+      }
     }
-    if (!target || target.isDeclarationFile) return stmt;
-    const derived = generatedValueNames(checker, target, true);
-    if (derived.size === 0) return stmt;
-    const isDerived = (s: ts.ExportSpecifier) => {
+    const isDerived = (s: ts.ExportSpecifier): boolean => {
       const name = s.propertyName ?? s.name;
-      return ts.isIdentifier(name) && derived.has(name.text);
+      if (ts.isIdentifier(name) && generatedNames.has(name.text)) return true;
+      try {
+        const symbol = checker.getExportSpecifierLocalTargetSymbol(s);
+        return symbol !== undefined && isDerivedValueSymbol(checker, symbol);
+      } catch {
+        return false;
+      }
     };
     const kept = (s: ts.ExportSpecifier) => resolver.isValueAliasDeclaration(s);
-    if (!clause.elements.some((s) => !s.isTypeOnly && !kept(s) && isDerived(s))) return stmt;
+    const rescued = clause.elements.filter((s) => !s.isTypeOnly && !kept(s) && isDerived(s));
+    if (rescued.length === 0) return stmt;
+    if (!stmt.moduleSpecifier) {
+      for (const s of rescued) {
+        const local = s.propertyName ?? s.name;
+        if (ts.isIdentifier(local)) localNames.add(local.text);
+      }
+    }
     changed = true;
     return factory.updateExportDeclaration(
       stmt,
       stmt.modifiers,
       false,
       factory.createNamedExports(
-        clause.elements.filter((s) => !s.isTypeOnly && (kept(s) || isDerived(s)))
+        clause.elements.filter((s) => !s.isTypeOnly && (kept(s) || rescued.includes(s)))
       ),
       stmt.moduleSpecifier,
       stmt.attributes
     );
   });
-  return changed ? out : undefined;
+  return changed ? { statements: out, localNames } : undefined;
 }

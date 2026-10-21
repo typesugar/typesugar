@@ -450,6 +450,121 @@ export function f(geom: Geometry): number {
     for (const d of binders) expect(suppressed(d)).toBe(false);
   });
 
+  const SHAPE = `type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+`;
+
+  it("suppresses TS2366 / TS7030 when the function ends in a match: switch every case of which returns", () => {
+    const { diags, suppressed, text } = check(
+      `import "./match.js";
+${SHAPE}
+export function area(s: Shape): number {
+  match: switch (s) {
+    case { kind: "circle", r }:
+      return Math.PI * r * r;
+    case { kind: "rect", w, h }: {
+      if (w < 0) throw new Error("negative");
+      return w * h;
+    }
+  }
+}
+export const arrow = (s: Shape): number => {
+  match: switch (s) {
+    case { kind: "circle", r }:
+      return r;
+    case { kind: "rect" }:
+      throw new Error("not a circle");
+  }
+};
+`
+    );
+    const fallsOff = diags.filter((d) => d.code === 2366);
+    expect(fallsOff.map(text)).toEqual(["number", "number"]);
+    for (const d of fallsOff) expect(suppressed(d)).toBe(true);
+
+    // Without strictNullChecks, noImplicitReturns reports TS7030 instead.
+    const loose = check(
+      `import "./match.js";
+${SHAPE}
+export class C {
+  name(s: Shape): string {
+    match: switch (s) {
+      case { kind: "circle" }:
+      case { kind: "rect" }:
+        return s.kind;
+    }
+  }
+}
+`,
+      { strict: false, noImplicitReturns: true }
+    );
+    const notAll = loose.diags.filter((d) => d.code === 7030);
+    expect(notAll.map(loose.text)).toEqual(["string"]);
+    expect(loose.suppressed(notAll[0])).toBe(true);
+  });
+
+  it("does NOT suppress TS2366 when the match: switch can complete: a break, a case that falls off, code after it", () => {
+    const { diags, suppressed } = check(`import "./match.js";
+${SHAPE}
+export function brk(s: Shape): number {
+  match: switch (s) {
+    case { kind: "circle", r }:
+      if (r > 1) break;
+      return r;
+    case { kind: "rect", w }:
+      return w;
+  }
+}
+export function labelled(s: Shape): number {
+  match: switch (s) {
+    case { kind: "circle", r }:
+      for (;;) {
+        if (r > 1) break match;
+        return r;
+      }
+    case { kind: "rect", w }:
+      return w;
+  }
+}
+export function fallsOff(s: Shape): number {
+  match: switch (s) {
+    case { kind: "circle", r }:
+      return r;
+    case { kind: "rect", w }:
+      console.log(w);
+  }
+}
+export function nested(s: Shape, c: boolean): number {
+  if (c) {
+    match: switch (s) {
+      case { kind: "circle", r }:
+        return r;
+      case { kind: "rect", w }:
+        return w;
+    }
+  } else return 0;
+}
+`);
+    const fallsOff = diags.filter((d) => d.code === 2366);
+    expect(fallsOff.length).toBe(4);
+    for (const d of fallsOff) expect(suppressed(d)).toBe(false);
+  });
+
+  it("does NOT suppress TS2366 in a file that doesn't activate match:", () => {
+    const { diags, suppressed } = check(`${SHAPE}
+export function area(s: Shape): number {
+  match: switch (s) {
+    case { kind: "circle", r }:
+      return r;
+    case { kind: "rect", w }:
+      return w;
+  }
+}
+`);
+    const fallsOff = diags.filter((d) => d.code === 2366);
+    expect(fallsOff.length).toBe(1);
+    expect(suppressed(fallsOff[0])).toBe(false);
+  });
+
   it("suppresses TS7028 (unused label) on the match label only", () => {
     const { diags, suppressed, text } = check(
       `import "./match.js";

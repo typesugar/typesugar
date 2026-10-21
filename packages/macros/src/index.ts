@@ -383,6 +383,7 @@ export {
   createDerivedCompanionAccessRule,
   createDerivedDeclarationReferenceRule,
   generatedValueNames,
+  isDerivedValueSymbol,
 } from "./diagnostic-suppression-rules.js";
 
 // --- Unified Diagnostic Suppression Registration (PEP-034) ---

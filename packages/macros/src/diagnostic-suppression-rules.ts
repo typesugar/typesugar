@@ -43,6 +43,8 @@ import { getInstanceOrIntrinsicMethods } from "./specialize.js";
 import { getOperatorCandidates } from "./typeclass-index.js";
 import { getOperatorString } from "./operators.js";
 import { resolveInstance } from "./instance-resolver.js";
+import { deriveNamesOf } from "./instance-scanner.js";
+import { hasGenericDerivation } from "./auto-derive.js";
 
 /**
  * Create the ExtensionMethodCall diagnostic suppression rule.
@@ -301,11 +303,22 @@ export function createDerivedCompanionAccessRule(): DiagnosticSuppressionRule {
       if (!node || !ts.isIdentifier(node)) return false;
 
       // TS2693 is on the receiver (`Point` in `Point.Eq`), TS2339 on the name.
+      // In a type position (`typeof Point.Eq`) the access is a qualified name.
       const access = node.parent;
-      if (!access || !ts.isPropertyAccessExpression(access)) return false;
-      const receiver = access.expression;
+      if (!access) return false;
+      let receiver: ts.Expression | ts.EntityName;
+      let accessed: ts.Identifier | ts.PrivateIdentifier;
+      if (ts.isPropertyAccessExpression(access)) {
+        receiver = access.expression;
+        accessed = access.name;
+      } else if (ts.isQualifiedName(access) && diagnostic.code === 2693) {
+        receiver = access.left;
+        accessed = access.right;
+      } else {
+        return false;
+      }
       if (!ts.isIdentifier(receiver)) return false;
-      if (diagnostic.code === 2693 ? access.expression !== node : access.name !== node) {
+      if (diagnostic.code === 2693 ? receiver !== node : accessed !== node) {
         return false;
       }
 
@@ -318,7 +331,7 @@ export function createDerivedCompanionAccessRule(): DiagnosticSuppressionRule {
         }
         return false;
       }
-      const tcName = access.name.text;
+      const tcName = accessed.text;
       return (symbol?.getDeclarations() ?? []).some((d) =>
         deriveNamesFromDeclaration(d).includes(tcName)
       );
@@ -339,17 +352,28 @@ export function createDerivedCompanionAccessRule(): DiagnosticSuppressionRule {
  *   emit, which stops on errors in the source, fail);
  * - TS2693 "'Point' only refers to a type" on `Point(1, 2)`, the product's
  *   constructor, which merges with the interface;
- * - TS2304 "Cannot find name" on `Circle(2)` in the file that derives it.
+ * - TS2304 "Cannot find name" on `Circle(2)` in the file that derives it;
+ * - under `verbatimModuleSyntax` / `isolatedModules`, TS1484 ("'Vec' is a
+ *   type and must be imported using a type-only import") on `import { Vec }`
+ *   and TS1205 ("Re-exporting a type ... requires using 'export type'") on
+ *   `export { Vec } from "./vec"`, for a type whose derives make it a value:
+ *   its companion (`namespace Vec { export const Eq = ... }`) or a value of
+ *   its own name (`@derive(Destructure)`'s constructor). `export type` would
+ *   remove the companion from the JavaScript, so the value form is the right
+ *   one.
  *
  * Suppressed only for a name the derive itself says it declares (its
  * `generatedNames`, from the same plan its expansion uses) on the declaration
  * the reference resolves to: the module the specifier imports from, the
- * interface the identifier names, or this file's own derived types.
+ * interface the identifier names, or this file's own derived types. TS1484 /
+ * TS1205 are decided by identity: the symbol the checker resolves the
+ * specifier to, followed through every alias, is a derived type declared in
+ * source ({@link isDerivedValueSymbol}).
  */
 export function createDerivedDeclarationReferenceRule(): DiagnosticSuppressionRule {
   return {
     name: "DerivedDeclarationReference",
-    errorCodes: [2304, 2305, 2614, 2693, 2724],
+    errorCodes: [1205, 1484, 2304, 2305, 2614, 2693, 2724],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
@@ -358,7 +382,23 @@ export function createDerivedDeclarationReferenceRule(): DiagnosticSuppressionRu
     ): boolean {
       if (diagnostic.start === undefined || diagnostic.length === undefined) return false;
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
-      if (!node || !ts.isIdentifier(node)) return false;
+      if (!node) return false;
+      if (diagnostic.code === 1205 || diagnostic.code === 1484) {
+        // Reported on the specifier (`Vec as V`), or its only identifier.
+        const spec = ts.isIdentifier(node) ? node.parent : node;
+        if (!spec || (!ts.isImportSpecifier(spec) && !ts.isExportSpecifier(spec))) return false;
+        if (spec.isTypeOnly || isSyntheticNode(spec)) return false;
+        try {
+          const symbol = ts.isImportSpecifier(spec)
+            ? checker.getSymbolAtLocation(spec.name)
+            : checker.getExportSpecifierLocalTargetSymbol(spec);
+          return symbol !== undefined && isDerivedValueSymbol(checker, symbol);
+        } catch (e) {
+          reportCheckerFailure("DerivedDeclarationReference", e);
+          return false;
+        }
+      }
+      if (!ts.isIdentifier(node)) return false;
       try {
         if (diagnostic.code === 2693) {
           // Resolved by the identifier's own scope (syntax), then asked of
@@ -417,9 +457,48 @@ function namesGeneratedBy(checker: ts.TypeChecker, decl: DerivableDeclaration): 
 }
 
 /**
+ * Does a derive on `decl` make the type's own name a value? Either a derive
+ * generates its companion (`namespace Vec { export const Eq = ... }`: a
+ * typeclass with a GenericDerivation and no derive macro of the same name,
+ * the order expandDeriveDecorator tries them in, as the instance scanner
+ * decides), or a derive macro declares a value of that name
+ * (`@derive(Destructure)`'s constructor `Point`). Which typeclasses is read
+ * from the annotation (syntax), as everywhere before expansion.
+ */
+function ownNameIsDerivedValue(checker: ts.TypeChecker, decl: DerivableDeclaration): boolean {
+  const name = decl.name?.text;
+  if (!name) return false;
+  if (deriveNamesOf(decl).some((tc) => hasGenericDerivation(tc) && !globalRegistry.getDerive(tc))) {
+    return true;
+  }
+  return namesGeneratedBy(checker, decl).includes(name);
+}
+
+/**
+ * Is `symbol` (an import or export alias is followed to its target) a type
+ * that only its derives make a value, so that importing or re-exporting it as
+ * a value is right? Decided by identity: the declarations of the symbol the
+ * checker resolves, never a name. Only a declaration in source counts: in a
+ * `.d.ts` the companion is declared, so the symbol is a value already, and a
+ * symbol that is a value already (a class) needs nothing.
+ */
+export function isDerivedValueSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  let target = symbol;
+  if (target.flags & ts.SymbolFlags.Alias) target = checker.getAliasedSymbol(target);
+  if (target.flags & ts.SymbolFlags.Value) return false;
+  return (target.declarations ?? []).some(
+    (d) =>
+      isDerivableDeclaration(d) &&
+      !d.getSourceFile().isDeclarationFile &&
+      ownNameIsDerivedValue(checker, d)
+  );
+}
+
+/**
  * Every value name the derives in `file` declare at its top level (only
- * exported ones if asked), from each derive's `generatedNames`. For checks
- * and emit steps that see the source before those values exist.
+ * exported ones if asked), from each derive's `generatedNames`, plus the name
+ * of each type a derive gives a companion. For checks and emit steps that see
+ * the source before those values exist.
  */
 export function generatedValueNames(
   checker: ts.TypeChecker,
@@ -436,6 +515,7 @@ export function generatedValueNames(
       continue;
     }
     for (const name of namesGeneratedBy(checker, stmt)) names.add(name);
+    if (stmt.name && ownNameIsDerivedValue(checker, stmt)) names.add(stmt.name.text);
   }
   return names;
 }
@@ -1499,6 +1579,13 @@ function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
  *   case and used in another is still reported: it IS undeclared there.
  * - TS7028 ("Unused label", under `allowUnusedLabels: false`) on the `match`
  *   label itself, which the expansion removes.
+ * - TS2366 ("Function lacks ending return statement") / TS7030 ("Not all
+ *   code paths return a value") on a function whose body ends in a `match:`
+ *   switch that cannot complete: its last case ends in `return` or `throw`
+ *   and no `break` leaves it. The checker can't see that patterns on an
+ *   object cover its type; the macro checks that they do (TS9226 otherwise),
+ *   so the end of the function is unreachable. A switch that can complete,
+ *   or code around it, is still reported.
  *
  * Needs the program in the evaluation context (for the activation check);
  * without it nothing is suppressed.
@@ -1506,12 +1593,29 @@ function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
 export function createMatchSwitchRule(): DiagnosticSuppressionRule {
   return {
     name: "MatchSwitch",
-    errorCodes: [2304, 18004, 7028],
+    errorCodes: [2304, 18004, 7028, 2366, 7030],
 
     shouldSuppress(diagnostic, _checker, sourceFile, context): boolean {
       if (diagnostic.start === undefined || !context?.program) return false;
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
-      if (!node || isSyntheticNode(node) || !ts.isIdentifier(node)) return false;
+      if (!node || isSyntheticNode(node)) return false;
+      if (diagnostic.code === 2366 || diagnostic.code === 7030) {
+        const fn = functionOfEndDiagnostic(node);
+        const body = fn?.body;
+        if (!body || !ts.isBlock(body)) return false;
+        const last = body.statements[body.statements.length - 1];
+        if (
+          !last ||
+          !ts.isLabeledStatement(last) ||
+          last.label.text !== "match" ||
+          !ts.isSwitchStatement(last.statement)
+        ) {
+          return false;
+        }
+        if (!matchSwitchActivated(context.program, sourceFile)) return false;
+        return !switchCanComplete(last.statement, last.label.text);
+      }
+      if (!ts.isIdentifier(node)) return false;
       const labeled = enclosingMatchSwitch(node);
       if (!labeled) return false;
       if (!matchSwitchActivated(context.program, sourceFile)) return false;
@@ -1540,6 +1644,72 @@ export function createMatchSwitchRule(): DiagnosticSuppressionRule {
       return bound.has(node.text);
     },
   };
+}
+
+/**
+ * The function a "reachable end" diagnostic (TS2366, TS7030) is about: it is
+ * reported on the return type annotation, or, without one, on the function's
+ * name (an arrow function: the function itself).
+ */
+function functionOfEndDiagnostic(node: ts.Node): ts.FunctionLikeDeclaration | undefined {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (
+      ts.isFunctionDeclaration(n) ||
+      ts.isMethodDeclaration(n) ||
+      ts.isFunctionExpression(n) ||
+      ts.isArrowFunction(n) ||
+      ts.isGetAccessorDeclaration(n)
+    ) {
+      const onFunction =
+        n === node || n.name === node || (n.type !== undefined && isWithin(node, n.type));
+      return onFunction ? n : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Can control leave this switch normally (other than by no case matching,
+ * which the match macro rules out)? Cases fall through in order, so only the
+ * last case can fall off the end; any `break` that targets the switch (an
+ * unlabelled one outside nested loops and switches, or `break <label>`)
+ * leaves it. Conservative: a last statement it can't prove ends abruptly
+ * counts as completing.
+ */
+function switchCanComplete(sw: ts.SwitchStatement, label: string): boolean {
+  const clauses = sw.caseBlock.clauses;
+  const lastClause = clauses[clauses.length - 1];
+  if (!lastClause) return true;
+  const lastStatement = lastClause.statements[lastClause.statements.length - 1];
+  if (!lastStatement || !endsAbruptly(lastStatement)) return true;
+
+  const breaksOut = (node: ts.Node, nested: boolean, shadowed: boolean): boolean => {
+    if (ts.isBreakStatement(node)) {
+      return node.label ? !shadowed && node.label.text === label : !nested;
+    }
+    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return false;
+    const nowNested = nested || ts.isIterationStatement(node, false) || ts.isSwitchStatement(node);
+    const nowShadowed = shadowed || (ts.isLabeledStatement(node) && node.label.text === label);
+    return ts.forEachChild(node, (c) => breaksOut(c, nowNested, nowShadowed)) === true;
+  };
+  return clauses.some((c) => c.statements.some((st) => breaksOut(st, false, false)));
+}
+
+/** Does `statement` always end with `return` or `throw`? (Syntax only; conservative.) */
+function endsAbruptly(statement: ts.Statement): boolean {
+  if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) return true;
+  if (ts.isBlock(statement)) {
+    const last = statement.statements[statement.statements.length - 1];
+    return last !== undefined && endsAbruptly(last);
+  }
+  if (ts.isIfStatement(statement)) {
+    return (
+      statement.elseStatement !== undefined &&
+      endsAbruptly(statement.thenStatement) &&
+      endsAbruptly(statement.elseStatement)
+    );
+  }
+  return false;
 }
 
 // ===========================================================================
