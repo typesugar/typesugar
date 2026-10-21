@@ -98,136 +98,20 @@ export type PatternInfo =
 // ============================================================================
 
 /**
- * Built-in extractors for `_tag`-discriminated sum types (Effect's
- * Option/Either, hand-written `{ _tag: "Some"; value }` unions).
- * These generate inlined structural checks (zero-cost — no runtime Destructure call).
- */
-const TAGGED_EXTRACTORS: Record<string, ExtractorDef> = {
-  Some: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Some",
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  None: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "None",
-    zeroArg: true,
-  },
-  Left: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Left",
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  Right: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Right",
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  Cons: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Cons",
-    payloadFields: ["head", "tail"],
-    zeroArg: false,
-  },
-  Nil: { kind: "sum-variant", discriminantField: "_tag", discriminantValue: "Nil", zeroArg: true },
-};
-
-/**
- * Built-in extractors for @typesugar/fp's real (untagged) representations
- * (docs review 2026-10, B#1): Option<A> is `A | null` (Some(v) binds the
- * value itself), List<A> is `{ head, tail } | null`, Either<E, A> is
- * `{ left } | { right }` (fp's `isRight` is `"right" in e`).
- */
-const FP_EXTRACTORS: Record<string, ExtractorDef> = {
-  Some: { kind: "sum-variant", test: "not-null", payloadFields: [SELF_PAYLOAD], zeroArg: false },
-  None: { kind: "sum-variant", test: "null", zeroArg: true },
-  Left: { kind: "sum-variant", test: { hasKey: "left" }, payloadFields: ["left"], zeroArg: false },
-  Right: {
-    kind: "sum-variant",
-    test: { hasKey: "right" },
-    payloadFields: ["right"],
-    zeroArg: false,
-  },
-  Cons: {
-    kind: "sum-variant",
-    test: "not-null",
-    payloadFields: ["head", "tail"],
-    zeroArg: false,
-  },
-  Nil: { kind: "sum-variant", test: "null", zeroArg: true },
-};
-
-/** `ok`-discriminated results (fp's zero-cost Result): one representation. */
-const RESULT_EXTRACTORS: Record<string, ExtractorDef> = {
-  Ok: {
-    kind: "sum-variant",
-    discriminantField: "ok",
-    discriminantValue: true,
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  Err: {
-    kind: "sum-variant",
-    discriminantField: "ok",
-    discriminantValue: false,
-    payloadFields: ["error"],
-    zeroArg: false,
-  },
-};
-
-/**
- * Which representation the built-in Some/None/Left/Right/Cons/Nil
- * extractors use for the match currently being expanded: `_tag`-based when
- * the scrutinee's type has a `_tag` property, fp's untagged one otherwise.
- * Set (and restored) by {@link expandFluentMatch} around each expansion.
- */
-let taggedBuiltinExtractors = false;
-
-/**
  * The context of the match being expanded, for resolving extractor names to
- * `Destructure` instances (match-extractors.ts). Set with the representation
- * above by {@link withBuiltinExtractorsFor}.
+ * `Destructure` instances (match-extractors.ts). Set by
+ * {@link withBuiltinExtractorsFor} around each expansion.
  */
 let extractorContext: MacroContext | undefined;
 
 /**
- * The extractor `name` stands for: a `Destructure` instance in scope for it
- * first, then the built-in table.
+ * The extractor `name` stands for: the `Destructure` instance in scope for
+ * it (match-extractors.ts). There are no name-based built-ins: Some/None,
+ * Left/Right, Cons/Nil and Valid/Invalid are instances shipped by
+ * @typesugar/fp next to the types, and any other type brings its own.
  */
 function extractorFor(name: ts.Identifier): ExtractorDef | undefined {
-  if (extractorContext) {
-    const fromInstance = resolveExtractor(extractorContext, name);
-    if (fromInstance) return fromInstance;
-  }
-  return knownExtractor(name.text);
-}
-
-function knownExtractor(name: string): ExtractorDef | undefined {
-  if (Object.prototype.hasOwnProperty.call(RESULT_EXTRACTORS, name)) {
-    return RESULT_EXTRACTORS[name];
-  }
-  const table = taggedBuiltinExtractors ? TAGGED_EXTRACTORS : FP_EXTRACTORS;
-  return Object.prototype.hasOwnProperty.call(table, name) ? table[name] : undefined;
-}
-
-/** Does any non-nullish constituent of the scrutinee's type have a `_tag` property? */
-function scrutineeUsesTags(ctx: MacroContext, scrutinee: ts.Expression): boolean {
-  const type = getScrutineeType(ctx, scrutinee);
-  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
-  const parts = type.isUnion() ? type.types : [type];
-  return parts.some(
-    (t) =>
-      !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) &&
-      ctx.typeChecker.getPropertyOfType(t, "_tag") !== undefined
-  );
+  return extractorContext ? resolveExtractor(extractorContext, name) : undefined;
 }
 
 /**
@@ -884,17 +768,19 @@ export function findMissingCases(
     return { kind: "complete" };
   }
 
-  // fp's untagged extractors: `Some(v)`/`Cons(h, t)` + `None`/`Nil` cover
-  // non-null + null; `Left(e)` + `Right(a)` cover both Either variants.
+  // Untagged extractor tests (fp's Option/List/Either/Validated): `not-null`
+  // + `null` cover everything; `has k` tests cover the scrutinee's union when
+  // every non-nullish member has a required `k` from the set (and a nullish
+  // member, if any, is covered by a `null` test).
   const fpCovered = new Set<string>();
+  const hasKeys = new Set<string>();
   for (const p of patterns) {
     if (p.kind !== "extractor" || !p.def.test || !p.bindings.every(patternCoversAll)) continue;
-    fpCovered.add(typeof p.def.test === "string" ? p.def.test : `has:${p.def.test.hasKey}`);
+    if (typeof p.def.test === "string") fpCovered.add(p.def.test);
+    else hasKeys.add(p.def.test.hasKey);
   }
-  if (
-    (fpCovered.has("not-null") && fpCovered.has("null")) ||
-    (fpCovered.has("has:left") && fpCovered.has("has:right"))
-  ) {
+  if (fpCovered.has("not-null") && fpCovered.has("null")) return { kind: "complete" };
+  if (hasKeys.size > 0 && coveredByKeyTests(ctx, scrutinee, hasKeys, fpCovered.has("null"))) {
     return { kind: "complete" };
   }
 
@@ -938,6 +824,31 @@ export function findMissingCases(
 
     case "unknown":
       return { kind: "complete" };
+  }
+}
+
+/** Does every member of the scrutinee's union have a required key from `keys`? */
+function coveredByKeyTests(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  keys: ReadonlySet<string>,
+  nullCovered: boolean
+): boolean {
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const members = type.isUnion() ? type.types : [type];
+  try {
+    return members.every((m) => {
+      if (m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) {
+        return nullCovered;
+      }
+      return [...keys].some((k) => {
+        const prop = ctx.typeChecker.getPropertyOfType(m, k);
+        return prop !== undefined && (prop.flags & ts.SymbolFlags.Optional) === 0;
+      });
+    });
+  } catch {
+    return false;
   }
 }
 
@@ -1575,23 +1486,19 @@ export function expandFluentMatch(
 }
 
 /**
- * Run `fn` with the built-in Some/None/Left/Right/Cons/Nil extractors set to
- * the representation `scrutinee`'s type uses (`_tag`-based or fp's untagged).
+ * Run `fn` with `ctx` as the context extractor names are resolved in.
  * @internal shared with match-switch.ts
  */
 export function withBuiltinExtractorsFor<T>(
   ctx: MacroContext,
-  scrutinee: ts.Expression | undefined,
+  _scrutinee: ts.Expression | undefined,
   fn: () => T
 ): T {
-  const prev = taggedBuiltinExtractors;
   const prevCtx = extractorContext;
-  taggedBuiltinExtractors = scrutinee !== undefined && scrutineeUsesTags(ctx, scrutinee);
   extractorContext = ctx;
   try {
     return fn();
   } finally {
-    taggedBuiltinExtractors = prev;
     extractorContext = prevCtx;
   }
 }

@@ -70,6 +70,34 @@ export function Cons<A>(head: A, tail: List<A>): Cons<A> {
  */
 export const Nil: Nil = null;
 
+// ============================================================================
+// Pattern matching: Destructure instances (std's match(), match: switch)
+// ============================================================================
+//
+// `match(o).case(Cons(h, t))` resolves these by the constructor's symbol. The
+// `@destructure` descriptor is what the macro inlines (zero cost: a null
+// test and a direct binding); `extract` is the same logic as a function.
+
+/**
+ * `Cons(head, tail)` in a pattern: matches a non-empty List.
+ *
+ * @impl Destructure<typeof Cons, List<unknown>, [unknown, List<unknown>]>
+ * @destructure not-null -> head, tail
+ */
+export const destructureCons = {
+  extract: <A>(l: List<A>): [A, List<A>] | undefined => (l != null ? [l.head, l.tail] : undefined),
+};
+
+/**
+ * `Nil` in a pattern: matches the empty List (`null`).
+ *
+ * @impl Destructure<typeof Nil, List<unknown>, []>
+ * @destructure null
+ */
+export const destructureNil = {
+  extract: <A>(l: List<A>): [] | undefined => (l == null ? [] : undefined),
+};
+
 /**
  * Create a list from variadic arguments
  */

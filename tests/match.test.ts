@@ -1749,20 +1749,8 @@ describe("Code review fixes", () => {
     expect(text).toContain("return");
   });
 
-  it("H1: zero-arg extractor with arguments should report error", () => {
-    const { ctx } = createTestContext();
-    const nilCall = f.createCallExpression(ident("Nil"), undefined, [ident("v")]);
-    const { outermost, rootArgs } = buildChain(
-      ident("x"),
-      { method: "case", args: [nilCall] },
-      { method: "then", args: [ident("v")] }
-    );
-
-    expandFluentMatch(ctx, outermost, rootArgs);
-    const diagnostics = ctx.getDiagnostics();
-    const errors = diagnostics.filter((d) => d.severity === "error");
-    expect(errors.some((e) => e.message.includes("zero-arg"))).toBe(true);
-  });
+  // H1 (a zero-arg extractor called with arguments) needs a Destructure
+  // instance in scope: packages/std/tests/match-destructure-instances.test.ts.
 
   it("H3: computed property key in object pattern should report error", () => {
     const { ctx } = createTestContext();

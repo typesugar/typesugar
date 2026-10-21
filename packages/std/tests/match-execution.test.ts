@@ -316,6 +316,14 @@ export function* g(x: number) {
 
   it("Option-like | null scrutinee does not throw on null (#14)", () => {
     const r = run(`type O = { _tag: "Some"; value: number } | { _tag: "None" };
+declare function Some(value: number): O;
+declare const None: O;
+/** @impl Destructure<typeof Some, O, number>
+ * @destructure _tag = "Some" -> value */
+const destructureSome = { extract: (o: O) => (o._tag === "Some" ? o.value : undefined) };
+/** @impl Destructure<typeof None, O, []>
+ * @destructure _tag = "None" */
+const destructureNone = { extract: (o: O) => (o._tag === "None" ? [] : undefined) };
 export const f = (o: O | null) => match(o).case(Some(v)).then(v).case(None).then(0).else(-1);`);
     const f = r.exports.f as Fn;
     expect(f({ _tag: "Some", value: 4 })).toBe(4);

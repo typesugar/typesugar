@@ -102,6 +102,34 @@ export function Right<E = never, A = unknown>(right: A): Either<E, A> {
   return { right };
 }
 
+// ============================================================================
+// Pattern matching: Destructure instances (std's match(), match: switch)
+// ============================================================================
+//
+// `match(o).case(Left(e))` resolves these by the constructor's symbol. The
+// `@destructure` descriptor is what the macro inlines (zero cost: a key
+// test and a direct binding); `extract` is the same logic as a function.
+
+/**
+ * `Left(e)` in a pattern: matches a Left and binds its value.
+ *
+ * @impl Destructure<typeof Left, Either<unknown, unknown>, unknown>
+ * @destructure has left -> left
+ */
+export const destructureLeft = {
+  extract: <E, A>(e: Either<E, A>): E | undefined => ("left" in e ? (e.left as E) : undefined),
+};
+
+/**
+ * `Right(a)` in a pattern: matches a Right and binds its value.
+ *
+ * @impl Destructure<typeof Right, Either<unknown, unknown>, unknown>
+ * @destructure has right -> right
+ */
+export const destructureRight = {
+  extract: <E, A>(e: Either<E, A>): A | undefined => ("right" in e ? (e.right as A) : undefined),
+};
+
 /**
  * Create a Right value (alias)
  */

@@ -113,6 +113,34 @@ export function Invalid<E, A = never>(error: E): Validated<E, A> {
   return { error };
 }
 
+// ============================================================================
+// Pattern matching: Destructure instances (std's match(), match: switch)
+// ============================================================================
+//
+// `match(o).case(Valid(a))` resolves these by the constructor's symbol. The
+// `@destructure` descriptor is what the macro inlines (zero cost: a key
+// test and a direct binding); `extract` is the same logic as a function.
+
+/**
+ * `Valid(a)` in a pattern: matches a Valid and binds its value.
+ *
+ * @impl Destructure<typeof Valid, Validated<unknown, unknown>, unknown>
+ * @destructure has value -> value
+ */
+export const destructureValid = {
+  extract: <E, A>(v: Validated<E, A>): A | undefined => ("value" in v ? (v.value as A) : undefined),
+};
+
+/**
+ * `Invalid(e)` in a pattern: matches an Invalid and binds its errors.
+ *
+ * @impl Destructure<typeof Invalid, Validated<unknown, unknown>, unknown>
+ * @destructure has error -> error
+ */
+export const destructureInvalid = {
+  extract: <E, A>(v: Validated<E, A>): E | undefined => ("error" in v ? (v.error as E) : undefined),
+};
+
 /**
  * Create a Valid value (alias)
  */

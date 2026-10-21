@@ -271,3 +271,71 @@ export const f = (p: Point) => match(p).case(Point(a, b, c)).then(a).else(0);
     ]);
   });
 });
+
+describe("the built-in extractors are @typesugar/fp's instances", () => {
+  it("Some/None from @typesugar/fp: inlined from fp's .d.ts, no import of the instances", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+import { Some, None, type Option } from "@typesugar/fp";
+export const f = (o: Option<number>) => match(o).case(Some(v)).then(v + 1).case(None).then(0);
+`,
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.code["main.ts"]).toContain("if (_o != null) {\n        const v = _o;");
+    expect(r.code["main.ts"]).not.toContain("destructure");
+    expect((r.exports.f as Fn)(4 as never)).toBe(5);
+    expect((r.exports.f as Fn)(null as never)).toBe(0);
+  });
+
+  it("Valid/Invalid from @typesugar/fp, exhaustive with no .else()", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+import { Valid, Invalid, type Validated } from "@typesugar/fp";
+export const f = (v: Validated<string, number>) =>
+  match(v).case(Valid(n)).then(n * 2).case(Invalid(e)).then(e.length);
+`,
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.code["main.ts"]).toContain('"value" in _v');
+    expect((r.exports.f as Fn)({ value: 21 } as never)).toBe(42);
+    expect((r.exports.f as Fn)({ error: "bad" } as never)).toBe(3);
+  });
+
+  it("a guard and a nested literal still combine with the inlined test", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+import { Some, type Option } from "@typesugar/fp";
+export const f = (o: Option<number>) =>
+  match(o).case(Some(0)).then("zero").case(Some(n)).if(n > 0).then("pos").else("other");
+`,
+    });
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as Fn;
+    expect(f(0 as never)).toBe("zero");
+    expect(f(5 as never)).toBe("pos");
+    expect(f(-5 as never)).toBe("other");
+    expect(f(null as never)).toBe("other");
+  });
+
+  it("a zero-argument extractor called with arguments is an error", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+import { Nil, type List } from "@typesugar/fp";
+export const f = (l: List<number>) => match(l).case(Nil(v)).then(v).else(0);
+`,
+    });
+    expect(r.errors).toEqual([expect.stringContaining("zero-arg extractor")]);
+  });
+
+  it("a name-alike with no instance is not an extractor any more (it was name-based)", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+type O = { _tag: "Some"; value: number } | { _tag: "None" };
+class Some { constructor(public value: number) {} }
+export const f = (o: O | Some) => match(o).case(Some(s)).then(1).else(0);
+`,
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.code["main.ts"]).toContain("instanceof Some");
+  });
+});

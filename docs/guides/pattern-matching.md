@@ -313,10 +313,12 @@ match(data)
 
 ### Extractor Patterns
 
-Match `@typesugar/fp`'s `Option`, `Either` and `List` with the built-in extractors —
-typesugar's equivalent of Scala's `unapply`. They test fp's real representations:
-`Some(v)` matches a non-null value and binds it, `None` matches `null`, `Left(e)` /
-`Right(v)` test for a `left` / `right` field.
+Match `@typesugar/fp`'s `Option`, `Either`, `List` and `Validated` with their
+constructors — typesugar's equivalent of Scala's `unapply`. Each constructor's extractor
+is a `Destructure` instance that fp ships next to the type (see
+[Custom Extractors](#custom-extractors)), so it tests fp's real representation: `Some(v)`
+matches a non-null value and binds it, `None` matches `null`, `Left(e)` / `Right(v)` test
+for a `left` / `right` field. The test is inlined; nothing is called at run time.
 
 ```typescript
 import { match } from "@typesugar/std";
@@ -344,25 +346,27 @@ match(either)
 // eith(Left("bad")) → "Error: bad", eith(Right(3)) → "Positive: 3"
 ```
 
-Some + None, Left + Right and Cons + Nil each cover their type, so these matches need no
-`.else()`.
+Some + None, Left + Right, Cons + Nil and Valid + Invalid each cover their type, so these
+matches need no `.else()`.
 
-Built-in extractors:
+`@typesugar/fp`'s extractors:
 
-| Extractor   | Input                     | Extracts        |
-| ----------- | ------------------------- | --------------- |
-| `Some(v)`   | `Option<T>`               | `T`             |
-| `None`      | `Option<T>`               | (boolean match) |
-| `Left(v)`   | `Either<L, R>`            | `L`             |
-| `Right(v)`  | `Either<L, R>`            | `R`             |
-| `Cons(h,t)` | `List<T>`                 | `T`, `List<T>`  |
-| `Nil`       | `List<T>`                 | (boolean match) |
-| `Ok(v)`     | `{ ok: true; value: T }`  | `T`             |
-| `Err(e)`    | `{ ok: false; error: E }` | `E`             |
+| Extractor    | Input             | Test           | Extracts       |
+| ------------ | ----------------- | -------------- | -------------- |
+| `Some(v)`    | `Option<T>`       | `v != null`    | `T`            |
+| `None`       | `Option<T>`       | `v == null`    | (nothing)      |
+| `Left(e)`    | `Either<E, A>`    | `"left" in v`  | `E`            |
+| `Right(a)`   | `Either<E, A>`    | `"right" in v` | `A`            |
+| `Cons(h, t)` | `List<T>`         | `v != null`    | `T`, `List<T>` |
+| `Nil`        | `List<T>`         | `v == null`    | (nothing)      |
+| `Valid(a)`   | `Validated<E, A>` | `"value" in v` | `A`            |
+| `Invalid(e)` | `Validated<E, A>` | `"error" in v` | `E`            |
 
-When the scrutinee's type has a `_tag` property (Effect's `Option`/`Either`, or your own
-`{ _tag: "Some"; value }` union), `Some`/`None`/`Left`/`Right`/`Cons`/`Nil` test `_tag`
-instead and read the payload from `value` (`head`/`tail` for `Cons`).
+The extractor follows the constructor, not its name: a `Some` from another library (or
+your own) needs its own instance, and a name with no instance in scope is a type pattern
+(`instanceof Some`). For a `_tag` union (Effect-style) or an `{ ok: true; value }` result,
+declare instances with `@destructure _tag = "Some" -> value` or
+`@destructure ok = true -> value`, or use an object pattern (`{ _tag: "Some", value: v }`).
 
 ---
 
@@ -455,8 +459,9 @@ switch (geom.type) {
 - There are no guards: `case P if cond` isn't valid syntax, and `case P: if (!cond) break;`
   would leave the switch rather than try the next case. Test the condition in the body.
 
-**Built-in extractors** work as in the fluent form: `case Some(v):` / `case None:`,
-`Left`/`Right`, `Ok`/`Err`, `Cons`/`Nil`. A tagged representation (`_tag`, `ok`) uses the
+**Extractors** work as in the fluent form: `case Some(v):` / `case None:`, `Left`/`Right`,
+`Cons`/`Nil`, `Valid`/`Invalid`, and your own instances. One whose descriptor tests a
+discriminant (`_tag = "Some"`, `ok = true`) uses the
 discriminant switch. fp's untagged ones (Option is `A | null`) have no discriminant, and
 neither do patterns mixed with `case null:` or patterns with no shared literal property.
 Those compile to `switch (true)`, an if/else chain that keeps switch semantics:
@@ -473,9 +478,10 @@ match: switch (opt) {
 // switch (true) { case opt != null: { const v = opt; use(v); break; } case opt == null: skip(); break; }
 ```
 
-Extractors for your own types (`case Point(x, y):`) are not supported yet; use an object
-pattern. Array patterns at the top level (test a length) and type tests (`String(s)`) are
-fluent-only.
+`case Point(x, y):` works for any constructor with a `Destructure` instance in scope (see
+[Custom Extractors](#custom-extractors)); one without a descriptor has its `extract` called
+once per test. Array patterns at the top level (test a length) and type tests (`String(s)`)
+are fluent-only.
 
 The label without the import is an ordinary JavaScript label on a plain switch, and the
 transformer warns (TS9224). Plain `tsc` accepts the literal form as written (a labelled

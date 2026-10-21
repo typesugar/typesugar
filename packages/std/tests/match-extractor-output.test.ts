@@ -3,14 +3,24 @@
  * Cons/Nil over fp's untagged representations and over `_tag` unions;
  * Ok/Err), in the fluent form and in the `match:` switch, pinned exactly.
  *
- * A planned change makes these extractors `Destructure` instances owned by
- * the packages that own the types instead of special cases in match.ts.
- * Zero cost must hold through that change: the output here must stay
- * identical, or the difference must be explained where it is updated.
+ * These were special cases in match.ts; they are now `Destructure` instances
+ * owned by the packages that own the types (@typesugar/fp ships fp's), and
+ * the fixtures below declare the same instances. The output was pinned
+ * before that change and is identical after it: the descriptors inline to
+ * the same tests and field reads.
  */
 import { describe, it, expect } from "vitest";
 import { transformAndRun } from "./match-exec-helpers.js";
 
+/** A `Destructure` instance that only carries a descriptor, as a library ships them. */
+const inst = (ctor: string, input: string, descriptor: string) => `
+/**
+ * @impl Destructure<typeof ${ctor}, ${input}, unknown>
+ * @destructure ${descriptor}
+ */
+const destructure${ctor} = { extract: (v: ${input}): unknown => v };`;
+
+/** fp's untagged representations, with the instances @typesugar/fp ships. */
 const FP = `import { match } from "@typesugar/std";
 type Option<A> = A | null;
 declare function Some<A>(value: A): Option<A>;
@@ -27,10 +37,36 @@ declare const Nil: List<never>;
 type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 declare function Ok<T>(v: T): Result<T, never>;
 declare function Err<E>(e: E): Result<never, E>;
+${inst("Some", "Option<unknown>", "not-null -> self")}
+${inst("None", "Option<unknown>", "null")}
+${inst("Left", "Either<unknown, unknown>", "has left -> left")}
+${inst("Right", "Either<unknown, unknown>", "has right -> right")}
+${inst("Cons", "List<unknown>", "not-null -> head, tail")}
+${inst("Nil", "List<unknown>", "null")}
+${inst("Ok", "Result<unknown, unknown>", "ok = true -> value")}
+${inst("Err", "Result<unknown, unknown>", "ok = false -> error")}
+`;
+
+/** \`_tag\` unions (Effect-style), each with its own instances. */
+const TAGGED = `import { match } from "@typesugar/std";
 type TOption<A> = { _tag: "Some"; value: A } | { _tag: "None" };
 type TEither<E, A> = { _tag: "Left"; value: E } | { _tag: "Right"; value: A };
 type TList<A> = { _tag: "Cons"; head: A; tail: TList<A> } | { _tag: "Nil" };
+declare function Some<A>(value: A): TOption<A>;
+declare const None: TOption<never>;
+declare function Left<E>(value: E): TEither<E, never>;
+declare function Right<A>(value: A): TEither<never, A>;
+declare function Cons<A>(head: A, tail: TList<A>): TList<A>;
+declare const Nil: TList<never>;
+${inst("Some", "TOption<unknown>", '_tag = "Some" -> value')}
+${inst("None", "TOption<unknown>", '_tag = "None"')}
+${inst("Left", "TEither<unknown, unknown>", '_tag = "Left" -> value')}
+${inst("Right", "TEither<unknown, unknown>", '_tag = "Right" -> value')}
+${inst("Cons", "TList<unknown>", '_tag = "Cons" -> head, tail')}
+${inst("Nil", "TList<unknown>", '_tag = "Nil"')}
 `;
+
+const fixture = (name: string) => (name.startsWith("tagged") ? TAGGED : FP);
 
 const SW = (t: string, a: string, b: string) =>
   `export function g(x: ${t}): unknown {\n  match: switch (x) {\n    case ${a}:\n      return 1;\n    case ${b}:\n      return 2;\n  }\n}`;
@@ -97,7 +133,7 @@ function emitted(code: string, from: string): string {
 describe("built-in extractor output, fluent match()", () => {
   for (const [name, code] of Object.entries(CASES)) {
     it(name, () => {
-      expect(emitted(FP + code, "export const f")).toBe(FLUENT_OUTPUT[name]);
+      expect(emitted(fixture(name) + code, "export const f")).toBe(FLUENT_OUTPUT[name]);
     });
   }
 });
@@ -106,7 +142,10 @@ describe("built-in extractor output, match: switch", () => {
   for (const [name, code] of Object.entries(SWITCHES)) {
     it(name, () => {
       expect(
-        emitted('import "@typesugar/std/syntax/match";\n' + FP + code, "export function g")
+        emitted(
+          'import "@typesugar/std/syntax/match";\n' + fixture(name) + code,
+          "export function g"
+        )
       ).toBe(SWITCH_OUTPUT[name]);
     });
   }
