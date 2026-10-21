@@ -74,3 +74,37 @@ export interface Segment {
     expect(t.code["segment.ts"]).toContain("Point.Eq.equals(a.from, b.from)");
   });
 });
+
+describe("one derived type reached through two import bindings", () => {
+  it("the same companion under two names is one instance, not an ambiguity", () => {
+    // Before: "Ambiguous Eq instance for type 'Vec': Vec.Eq, Vec.Eq" — the
+    // two bindings were two candidates although both are vec.ts's `Vec`.
+    const t = transformAll({
+      "vec.ts": `/** @derive(Eq) */
+export interface Vec {
+  x: number;
+  y: number;
+}
+`,
+      "idx.ts": `export { Vec } from "./vec";
+`,
+      "reexp.ts": `import { Vec } from "./vec";
+export { Vec };
+`,
+      "use.ts": `import "@typesugar/std/syntax/eq/ops";
+import { Vec } from "./idx";
+import { Vec as V2 } from "./reexp";
+const a: Vec = { x: 1, y: 2 };
+const b: V2 = { x: 1, y: 2 };
+const c: V2 = { x: 3, y: 4 };
+export const r = [a === b, b === c];
+`,
+    });
+    expect(t.diagnostics["use.ts"]).toEqual([]);
+    expect(t.code["use.ts"]).toMatch(
+      /export const r = \[(Vec|V2)\.Eq\.equals\(a, b\), (Vec|V2)\.Eq\.equals\(b, c\)\];/
+    );
+    expect(typecheck(t.code)).toEqual([]);
+    expect(run(t.code, "use.ts").r).toEqual([true, false]);
+  });
+});

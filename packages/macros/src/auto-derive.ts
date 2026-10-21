@@ -382,6 +382,13 @@ function declKey(sym: ts.Symbol | undefined, typeName: string): string {
  *   `interface Feature<G = Geometry, P = Props>` means `Feature<Geometry,
  *   Props>`, while the declared type is `Feature<G, P>`, whose fields are
  *   type parameters.
+ * @param knownSymbol - The type's symbol, when the caller has it by identity
+ *   (resolved at the request site through imports and scopes). Without it the
+ *   symbol is looked up by `typeName` among the names in scope at the top of
+ *   the file, which is a name match (CLAUDE.md "Deciding what a type is"):
+ *   a type declared in a function, or reached as `ns.T`, is not found that way,
+ *   and an outer type of the same name is found instead. Callers with a type
+ *   node pass it.
  * @returns DerivationResult with expression (if successful) and trace (always)
  */
 export function tryDeriveViaGeneric(
@@ -389,7 +396,8 @@ export function tryDeriveViaGeneric(
   typeclassName: string,
   typeName: string,
   node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
-  concreteType?: ts.Type
+  concreteType?: ts.Type,
+  knownSymbol?: ts.Symbol
 ): DerivationResult {
   const trace: ResolutionAttempt[] = [];
 
@@ -414,7 +422,9 @@ export function tryDeriveViaGeneric(
   const caches = cachesFor(ctx.program);
   const registeredMeta = getGenericMeta(typeName);
   let typeSymbol: ts.Symbol | undefined;
-  if (!registeredMeta) {
+  if (!registeredMeta && knownSymbol) {
+    typeSymbol = knownSymbol;
+  } else if (!registeredMeta) {
     try {
       // `Feature<Point>` with its concrete type (derived<Clone<Feature<Point>>>()):
       // the symbol is `Feature`'s; the mirror reads the instantiation.

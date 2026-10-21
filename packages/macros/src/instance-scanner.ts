@@ -44,6 +44,15 @@ export interface ScannedInstance {
   detectedVia: "impl-tag" | "type-annotation" | "derived" | "derived-call";
   /** Do-notation emission metadata from a `@do-methods` JSDoc tag, if present */
   doMeta?: DoNotationMeta;
+  /**
+   * The declaration this instance comes from, after following re-exports:
+   * the variable declaration of a value, or the type's declaration for a
+   * `@derive` companion. Two scan hits with the same origin (and typeclass)
+   * are one instance reached through two bindings (`import { Vec }` and
+   * `import { Vec as V2 }` from two re-exporting modules), compared by node
+   * identity, not by the names they were reached by.
+   */
+  origin?: ts.Node;
 }
 
 /**
@@ -423,6 +432,7 @@ export class InstanceScanner {
       ) {
         implResult.forType = typeResult.forType;
       }
+      implResult.origin = varDecl ?? decl;
       results.push(implResult);
       return results; // @impl tag takes precedence
     }
@@ -430,6 +440,11 @@ export class InstanceScanner {
     // Strategy 2: Type annotation on variable declaration
     if (typeResult) {
       if (doMeta) typeResult.doMeta = doMeta;
+      // `const x: TC<T> = derived()`: the annotation says what the instance
+      // is, and the initializer that it is derived (so a resolver can drop it
+      // when its derivation fails, as for `derived<TC<T>>()`).
+      if (varDecl && derivedCallOf(varDecl)) typeResult.detectedVia = "derived-call";
+      typeResult.origin = varDecl;
       results.push(typeResult);
       return results;
     }
@@ -460,6 +475,7 @@ export class InstanceScanner {
             detectedVia: "impl-tag",
           };
           if (doMeta) callResult.doMeta = doMeta;
+          callResult.origin = varDecl;
           results.push(callResult);
         }
       }
@@ -496,11 +512,8 @@ export class InstanceScanner {
     exportName: string,
     resolvedPath: string
   ): ScannedInstance | null {
-    let init = decl.initializer;
-    while (init && ts.isParenthesizedExpression(init)) init = init.expression;
-    if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return null;
-    if (!(decl.parent.flags & ts.NodeFlags.Const)) return null;
-    if (!importsDerivedAs(decl.getSourceFile(), init.expression.text)) return null;
+    const init = derivedCallOf(decl);
+    if (!init) return null;
     const typeArg = init.typeArguments?.length === 1 ? init.typeArguments[0] : undefined;
     if (
       !typeArg ||
@@ -525,6 +538,7 @@ export class InstanceScanner {
       exportName,
       sourceModule: resolvedPath,
       detectedVia: "derived-call",
+      origin: decl,
     };
   }
 
@@ -705,6 +719,7 @@ function deriveCompanionInstances(
       exportName: `${exportName}.${tc}`,
       sourceModule: resolvedPath,
       detectedVia: "derived",
+      origin: decl,
     });
   }
   return results;
@@ -748,6 +763,20 @@ export function deriveNamesOf(decl: ts.Node): string[] {
     }
   }
   return names;
+}
+
+/**
+ * The `derived<...>()` call initializing the const `decl`
+ * (`const x = derived<TC<T>>()` or `const x: TC<T> = derived()`), where
+ * `derived` is imported from typesugar; undefined otherwise.
+ */
+export function derivedCallOf(decl: ts.VariableDeclaration): ts.CallExpression | undefined {
+  let init = decl.initializer;
+  while (init && ts.isParenthesizedExpression(init)) init = init.expression;
+  if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return undefined;
+  if (!(decl.parent.flags & ts.NodeFlags.Const)) return undefined;
+  if (!importsDerivedAs(decl.getSourceFile(), init.expression.text)) return undefined;
+  return init;
 }
 
 /** Does `sf` import typesugar's `derived` under the local name `local`? */

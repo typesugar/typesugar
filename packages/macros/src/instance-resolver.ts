@@ -23,6 +23,7 @@
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
 import { getOrCreateWeak } from "@typesugar/core";
+import { getDerivedCallCheck } from "./derived-call-check.js";
 import {
   InstanceScanner,
   instanceScanner as defaultScanner,
@@ -60,6 +61,8 @@ export interface ResolvedInstance {
    * a tie between structurally identical types (see {@link pickResult}).
    */
   sameTypeIdentity?: boolean;
+  /** The declaration the instance comes from ({@link ScannedInstance.origin}). */
+  origin?: ts.Node;
 }
 
 export interface AmbiguousInstances {
@@ -310,6 +313,24 @@ export function resolveInstance(
   return resolveFromImports(ctx, tcName, forType, forTypeString, scanner);
 }
 
+/**
+ * The scan hits minus `derived<TC<T>>()` consts whose derivation failed: the
+ * scanner registers such a const by its call, before (or without) its
+ * expansion, and a failed one is the un-expanded stub, not an instance
+ * (summon resolved to it and emitted `const s = m`).
+ */
+function dropFailedDerivations(ctx: MacroContext, scanned: ScannedInstance[]): ScannedInstance[] {
+  const check = getDerivedCallCheck();
+  if (!check || !scanned.some((i) => i.detectedVia === "derived-call")) return scanned;
+  return scanned.filter(
+    (inst) =>
+      inst.detectedVia !== "derived-call" ||
+      !inst.origin ||
+      !ts.isVariableDeclaration(inst.origin) ||
+      check(ctx, inst.origin)
+  );
+}
+
 function resolveFromLocalScope(
   ctx: MacroContext,
   tcName: string,
@@ -325,7 +346,10 @@ function resolveFromLocalScope(
   // a `@impl`/`@instance` const that is in local scope but NOT exported is still
   // found — and found independent of declaration order. This is the registry-free
   // replacement for instances the global registry used to provide.
-  const allScanned = scanner.scanLocalFile(typeChecker, sourceFile, ctx.program);
+  const allScanned = dropFailedDerivations(
+    ctx,
+    scanner.scanLocalFile(typeChecker, sourceFile, ctx.program)
+  );
   const scanned =
     excludeLocal === undefined
       ? allScanned
@@ -369,7 +393,10 @@ function resolveFromImports(
     const moduleSymbol = typeChecker.getSymbolAtLocation(moduleSourceFile);
     if (!moduleSymbol) continue;
 
-    const scanned = scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath, ctx.program);
+    const scanned = dropFailedDerivations(
+      ctx,
+      scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath, ctx.program)
+    );
     const allMatches = filterMatches(
       typeChecker,
       scanned,
@@ -570,6 +597,7 @@ function filterMatches(
       source,
       importSpecifier,
       sameTypeIdentity: isSameTypeIdentity(typeChecker, forType, inst.forType),
+      origin: inst.origin,
     });
   }
 
@@ -890,12 +918,25 @@ function pickResult(
   if (matches.length === 0) return undefined;
   if (matches.length === 1) return matches[0];
 
-  // Deduplicate by (module, exportName) — the same instance reached through
-  // different paths. Keyed by module too: two DIFFERENT modules exporting a
-  // same-named instance are genuinely ambiguous, not one instance.
-  const seen = new Map<string, ResolvedInstance>();
+  // Deduplicate: the same instance reached through different paths is one
+  // instance. By identity (CLAUDE.md "Deciding what a type is"): the
+  // declaration it comes from, after re-exports are followed (`import { Vec }`
+  // from one module and `import { Vec as V2 }` from another are both vec.ts's
+  // `Vec.Eq`). Without an origin, by (module, exportName): keyed by module
+  // too, since two DIFFERENT modules exporting a same-named instance are
+  // genuinely ambiguous, not one instance.
+  const seen = new Map<unknown, ResolvedInstance>();
+  const originKeys = new Map<ts.Node, Map<string, object>>();
+  const keyOf = (m: ResolvedInstance): unknown => {
+    if (!m.origin) return `${m.sourceModule}\0${m.exportName}`;
+    let byTc = originKeys.get(m.origin);
+    if (!byTc) originKeys.set(m.origin, (byTc = new Map()));
+    let key = byTc.get(m.typeclassName);
+    if (!key) byTc.set(m.typeclassName, (key = {}));
+    return key;
+  };
   for (const m of matches) {
-    const key = `${m.sourceModule}\0${m.exportName}`;
+    const key = keyOf(m);
     if (!seen.has(key)) {
       seen.set(key, m);
     }

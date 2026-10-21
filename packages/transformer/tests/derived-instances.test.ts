@@ -561,6 +561,32 @@ export const d = derived<Eq<Date>>();
     expect(t.code["builtins.ts"]).not.toContain("__@");
   });
 
+  it("summon doesn't resolve to a derived const whose derivation failed", () => {
+    // Before: `s` resolved to `m` (the scanner registers `derived<...>()`
+    // consts by their call), so the output was `const s = m` with `m` the
+    // un-expanded stub, and the only error was at `m`'s line.
+    for (const order of ["derived first", "summon first"]) {
+      const lines = [
+        "export const m = derived<Eq<Map<string, number>>>();",
+        "export const s = summon<Eq<Map<string, number>>>();",
+      ];
+      if (order === "summon first") lines.reverse();
+      const t = transformAll({
+        "builtins.ts": `import type { Eq } from "@typesugar/std";
+import { derived, summon } from "typesugar";
+${lines.join("\n")}
+`,
+      });
+      const errs = transformErrors(t)["builtins.ts"] ?? [];
+      expect(errs, order).toHaveLength(2);
+      expect(
+        errs.some((e) => e.includes("TS9106")),
+        order
+      ).toBe(true);
+      expect(t.code["builtins.ts"], order).not.toMatch(/const s = m\b/);
+    }
+  });
+
   it("summon's help for a built-in type doesn't point at derived<...>()", () => {
     const t = transformAll({
       "use.ts": `import type { Eq } from "@typesugar/std";
@@ -598,5 +624,57 @@ export const eqPt = derived<Eq<Pt>>();
 `,
     });
     expect(transformErrors(differ)["bad.ts"]?.[0]).toMatch(/@impl Eq<Qt>.*derived<Eq<Pt>>\(\)/s);
+  });
+});
+
+describe("derivation finds the type by identity, not by name", () => {
+  // tryDeriveViaGeneric looked the type up by its NAME among the names in
+  // scope at the top of the file, so a type declared in a function derived
+  // the outer (or global) type of the same name, and `ns.T` wasn't found.
+  it("summon in a function: a local type shadowing a top-level one and a DOM global", () => {
+    const t = transformAll({
+      "local.ts": `import type { Eq } from "@typesugar/std";
+import { summon } from "typesugar";
+export interface Point { x: number }
+export function points(): boolean[] {
+  interface Point { a: string; b: string }
+  const E = summon<Eq<Point>>();
+  return [E.equals({ a: "1", b: "2" }, { a: "1", b: "3" }), E.equals({ a: "1", b: "2" }, { a: "1", b: "2" })];
+}
+export function ranges(): boolean[] {
+  interface Range { lo: number; hi: number }
+  const E = summon<Eq<Range>>();
+  return [E.equals({ lo: 1, hi: 2 }, { lo: 1, hi: 3 }), E.equals({ lo: 1, hi: 2 }, { lo: 1, hi: 2 })];
+}
+export const r = [points(), ranges()];
+`,
+    });
+    expect(transformErrors(t)).toEqual({});
+    const out = t.code["local.ts"];
+    expect(out).toContain("a.a === b.a");
+    expect(out).toContain("a.lo === b.lo");
+    expect(out).not.toContain("a.x === b.x");
+    expect(typecheck(t.code)).toEqual([]);
+    expect(run(t.code, "local.ts").r).toEqual([
+      [false, true],
+      [false, true],
+    ]);
+  });
+
+  it("derived<Eq<geo.Point>>() through a namespace import, beside an unrelated Point", () => {
+    const t = transformAll({
+      "ns.ts": `import type * as geo from "geojson";
+import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+export interface Point { z: string }
+export const eqGeoPoint = derived<Eq<geo.Point>>();
+const p = (x: number): geo.Point => ({ type: "Point", coordinates: [x, 0] });
+export const r = [eqGeoPoint.equals(p(1), p(1)), eqGeoPoint.equals(p(1), p(2))];
+`,
+    });
+    expect(transformErrors(t)).toEqual({});
+    expect(t.code["ns.ts"]).not.toContain("a.z === b.z");
+    expect(typecheck(t.code)).toEqual([]);
+    expect(run(t.code, "ns.ts").r).toEqual([true, false]);
   });
 });

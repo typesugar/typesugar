@@ -79,6 +79,7 @@ import {
 } from "./specialize.js";
 // Static: instance-extraction imports only specialize and instance-resolver.
 import { containsMacroCall } from "./instance-extraction.js";
+import { derivedCallOf } from "./instance-scanner.js";
 import {
   warnDerivedInPlace,
   notOwnedTypeHelp,
@@ -115,6 +116,7 @@ import {
   hasInstanceInScopeByName,
   buildInstanceReference,
 } from "./instance-resolver.js";
+import { setDerivedCallCheck } from "./derived-call-check.js";
 // Circular by design (typeclass-index seeds from this module's STANDARD_TYPECLASS_DEFS);
 // only referenced inside macro `expand` bodies, so the binding is resolved at call time.
 import {
@@ -2743,12 +2745,20 @@ export function summonInstanceExpression(
   try {
     const { tryDeriveViaGeneric } =
       require("./auto-derive.js") as typeof import("./auto-derive.js");
+    // The type by identity (CLAUDE.md): the symbol `innerType` names here,
+    // so a local type shadowing an outer one of the same name is the local
+    // one. Not for an instantiation (`Box<number>`), which summon doesn't
+    // derive (its concrete type isn't passed; the declared type's fields are
+    // type parameters).
+    const isInstantiation =
+      ts.isTypeReferenceNode(innerType) && (innerType.typeArguments?.length ?? 0) > 0;
     derivationResult = tryDeriveViaGeneric(
       ctx,
       tcName,
       typeName,
       undefined,
-      defaultedGenericType(ctx, innerType)
+      defaultedGenericType(ctx, innerType),
+      isInstantiation ? undefined : typeSymbolOfReference(ctx, innerType)
     );
   } catch {
     derivationResult = {
@@ -2883,9 +2893,152 @@ export const derivedMacro = defineExpressionMacro({
     callExpr: ts.CallExpression,
     args: readonly ts.Expression[]
   ): ts.Expression {
-    return derivedInstanceExpression(ctx, callExpr, args) ?? callExpr;
+    const decl = topLevelConstInitialized(callExpr);
+    const outcomes = derivedOutcomesFor(ctx.program);
+    // A reference to the const from inside its own derivation (a type that
+    // contains itself) is to the instance being declared.
+    if (decl) outcomes.set(decl, "expanding");
+    const expr = derivedInstanceExpression(ctx, callExpr, args);
+    if (decl) outcomes.set(decl, expr ? "ok" : "failed");
+    return expr ?? callExpr;
   },
 });
+
+/**
+ * The outcome of each `derived<TC<T>>()` const's derivation, per program.
+ * Registry shape (CLAUDE.md "Resolving things a macro just generated"): live,
+ * same-pass state, written when the macro expands and read by the instance
+ * resolver, which must not resolve to a const whose derivation failed (it is
+ * the un-expanded stub). Keyed by the declaration node.
+ */
+type DerivedOutcome = "expanding" | "ok" | "failed";
+const derivedOutcomes = new WeakMap<ts.Program, Map<ts.VariableDeclaration, DerivedOutcome>>();
+function derivedOutcomesFor(program: ts.Program): Map<ts.VariableDeclaration, DerivedOutcome> {
+  let m = derivedOutcomes.get(program);
+  if (!m) derivedOutcomes.set(program, (m = new Map()));
+  return m;
+}
+
+/**
+ * Whether the `derived<...>()` const `decl` is an instance: its derivation
+ * didn't fail. Read from the expansion's recorded outcome; for a const of the
+ * file being transformed that is used ABOVE its declaration (not expanded
+ * yet), the derivation is tried here, with the same arguments the expansion
+ * uses (tryDeriveViaGeneric caches the result, so the expansion reuses it). A
+ * const in another file that hasn't been transformed yet counts: that file
+ * reports its own failure.
+ */
+function derivedCallSucceeds(ctx: MacroContext, decl: ts.VariableDeclaration): boolean {
+  const outcomes = derivedOutcomesFor(ctx.program);
+  const known = outcomes.get(decl);
+  if (known) return known !== "failed";
+  if (decl.getSourceFile().fileName !== ctx.sourceFile.fileName) return true;
+  const call = derivedCallOf(decl);
+  const typeArg = call?.typeArguments?.length === 1 ? call.typeArguments[0] : decl.type;
+  if (
+    !call ||
+    !typeArg ||
+    !ts.isTypeReferenceNode(typeArg) ||
+    !ts.isIdentifier(typeArg.typeName) ||
+    typeArg.typeArguments?.length !== 1 ||
+    isSyntheticNode(typeArg)
+  ) {
+    return true; // the expansion reports the shape error
+  }
+  outcomes.set(decl, "expanding");
+  let ok = true;
+  try {
+    const { tryDeriveViaGeneric } =
+      require("./auto-derive.js") as typeof import("./auto-derive.js");
+    const subject = derivedSubject(ctx, typeArg.typeArguments[0]);
+    ok =
+      !subject ||
+      tryDeriveViaGeneric(
+        ctx,
+        typeclassNameOf(ctx, typeArg.typeName),
+        subject.typeName,
+        undefined,
+        subject.concrete,
+        subject.symbol
+      ).expression !== null;
+  } catch (e) {
+    // Visible degrade (CLAUDE.md): keep the instance; its expansion reports.
+    ctx.reportWarning(
+      decl,
+      `couldn't check whether this derived<...>() instance derives ` +
+        `(${e instanceof Error ? e.message : String(e)}); using it.`
+    );
+  } finally {
+    outcomes.delete(decl);
+  }
+  if (!ok) outcomes.set(decl, "failed");
+  return ok;
+}
+setDerivedCallCheck(derivedCallSucceeds);
+
+/**
+ * The symbol a type reference names, by identity (CLAUDE.md "Deciding what a
+ * type is"): imports and renames followed to the declaration, as the checker
+ * resolves the name at the reference, so a local type shadowing an outer or
+ * global one of the same name is the local one. Undefined for a synthetic
+ * node (outside the checker's contract), a non-reference, or a name that
+ * isn't a type; a checker failure is warned about and is undefined too.
+ */
+function typeSymbolOfReference(ctx: MacroContext, typeNode: ts.TypeNode): ts.Symbol | undefined {
+  if (!ts.isTypeReferenceNode(typeNode) || isSyntheticNode(typeNode)) return undefined;
+  try {
+    const checker = ctx.typeChecker;
+    let sym = checker.getSymbolAtLocation(typeNode.typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!sym) return undefined;
+    if (sym.flags & ts.SymbolFlags.Type) return sym;
+    const exported = checker.getExportSymbolOfSymbol(sym);
+    return exported.flags & ts.SymbolFlags.Type ? exported : undefined;
+  } catch (e) {
+    ctx.reportWarning(
+      typeNode,
+      `could not resolve '${getNodeText(typeNode)}' with the type checker ` +
+        `(${e instanceof Error ? e.message : String(e)}); looking it up by name.`
+    );
+    return undefined;
+  }
+}
+
+/**
+ * What `derived<TC<T>>()` derives for: `T`'s name (as the derivation writes
+ * it in generated code), its concrete type when that differs from the
+ * declared one, and its symbol by identity. Undefined (after reporting) when
+ * the checker can't resolve `T`.
+ */
+function derivedSubject(
+  ctx: MacroContext,
+  innerType: ts.TypeNode,
+  report?: { at: ts.Node; tcName: string }
+): { typeName: string; concrete?: ts.Type; symbol?: ts.Symbol } | undefined {
+  const typeText = getNodeText(innerType).replace(/\s+/g, " ").trim();
+  const bare = !ts.isTypeReferenceNode(innerType) || !innerType.typeArguments?.length;
+  const symbol = typeSymbolOfReference(ctx, innerType);
+  if (ts.isTypeReferenceNode(innerType) && bare) {
+    // As summon: the bare name of a generic with defaults means its defaults.
+    return {
+      typeName: getNodeText(innerType.typeName),
+      concrete: defaultedGenericType(ctx, innerType),
+      symbol,
+    };
+  }
+  try {
+    return { typeName: typeText, concrete: ctx.typeChecker.getTypeFromTypeNode(innerType), symbol };
+  } catch (e) {
+    if (report) {
+      ctx.reportError(
+        report.at,
+        `derived<${report.tcName}<${typeText}>>(): the type checker could not resolve '${typeText}' ` +
+          `(${e instanceof Error ? e.message : String(e)}).`
+      );
+    }
+    return undefined;
+  }
+}
 
 /** The names of type parameters `typeNode` refers to (`G` in `Feature<G>`). */
 function freeTypeParameters(ctx: MacroContext, typeNode: ts.TypeNode): string[] {
@@ -3141,28 +3294,19 @@ function derivedInstanceExpression(
 
   const { tryDeriveViaGeneric, hasGenericDerivation } =
     require("./auto-derive.js") as typeof import("./auto-derive.js");
-  const bare = !ts.isTypeReferenceNode(innerType) || !innerType.typeArguments?.length;
-  let concrete: ts.Type | undefined;
-  let typeName: string;
-  if (ts.isTypeReferenceNode(innerType) && bare) {
-    // As summon: the bare name of a generic with defaults means its defaults.
-    typeName = getNodeText(innerType.typeName);
-    concrete = defaultedGenericType(ctx, innerType);
-  } else {
-    typeName = typeText;
-    try {
-      concrete = ctx.typeChecker.getTypeFromTypeNode(innerType);
-    } catch (e) {
-      ctx.reportError(
-        callExpr,
-        `derived<${tcName}<${typeText}>>(): the type checker could not resolve '${typeText}' ` +
-          `(${e instanceof Error ? e.message : String(e)}).`
-      );
-      return undefined;
-    }
-  }
+  const subject = derivedSubject(ctx, innerType, { at: callExpr, tcName });
+  if (!subject) return undefined;
 
-  const result = tryDeriveViaGeneric(ctx, tcName, typeName, undefined, concrete);
+  // The type by identity, not by name (CLAUDE.md): `subject.symbol` is what
+  // `T` resolves to at this reference.
+  const result = tryDeriveViaGeneric(
+    ctx,
+    tcName,
+    subject.typeName,
+    undefined,
+    subject.concrete,
+    subject.symbol
+  );
   if (result.expression) {
     // As @derive's companion const: the initializer needs no parentheses.
     let expr = result.expression;
