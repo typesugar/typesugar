@@ -41,6 +41,7 @@ import {
   TS9226,
 } from "@typesugar/core";
 import {
+  extractorErrorReported,
   resolveExtractor,
   SELF_PAYLOAD,
   type ExtractorDef,
@@ -117,6 +118,72 @@ let extractorContext: MacroContext | undefined;
  */
 function extractorFor(name: ts.Identifier): ExtractorDef | undefined {
   return extractorContext ? resolveExtractor(extractorContext, name) : undefined;
+}
+
+/** Built-ins a type-constructor pattern tests without `instanceof`. */
+const NON_INSTANCEOF_CONSTRUCTORS = new Set([
+  "String",
+  "Number",
+  "Boolean",
+  "BigInt",
+  "Symbol",
+  "Function",
+  "Object",
+  "Array",
+]);
+
+/**
+ * Why `Name(...)`, which has no `Destructure` instance, can't be a
+ * type-constructor pattern, or undefined when it can. That pattern is a type
+ * test, `value instanceof Name`, binding the whole value to its one argument:
+ * a second argument would be silently dropped (and whatever it names left
+ * unbound, or captured from an outer scope), and a `Name` that is not a class
+ * makes the `instanceof` throw or test nothing. Whether it is a class is
+ * decided through the checker (the symbol, alias-resolved: a class, or a
+ * value with construct signatures such as `Date`), not by name.
+ */
+function typeConstructorProblem(pattern: ts.CallExpression): string | undefined {
+  const callee = pattern.expression as ts.Identifier;
+  const name = callee.text;
+  if (extractorErrorReported(callee)) return undefined; // already an error
+  const noInstance =
+    `no Destructure instance for ${name} is in scope, so ${name}(...) is a type test ` +
+    `(\`value instanceof ${name}\`) that binds the whole value to one name`;
+  if (pattern.arguments.length > 1) {
+    return (
+      `${name}(...) has ${pattern.arguments.length} arguments, but ${noInstance}. ` +
+      `Bind the whole value, ${name}(v), and read its fields; or give ${name} a Destructure ` +
+      `instance (@derive(Destructure) on its declaration) to bind them in the pattern.`
+    );
+  }
+  if (NON_INSTANCEOF_CONSTRUCTORS.has(name)) return undefined;
+  const ctx = extractorContext;
+  if (!ctx || isSyntheticNode(callee)) return undefined;
+  const checker = ctx.typeChecker;
+  let sym: ts.Symbol | undefined;
+  try {
+    sym = checker.getSymbolAtLocation(callee);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (sym && sym.flags & ts.SymbolFlags.Class) return undefined;
+    const valueType =
+      sym && sym.flags & ts.SymbolFlags.Value
+        ? checker.getTypeOfSymbolAtLocation(sym, callee)
+        : undefined;
+    if (valueType && valueType.getConstructSignatures().length > 0) return undefined;
+  } catch (e) {
+    // Degrade to the type test, visibly (CLAUDE.md).
+    ctx.reportWarning(
+      callee,
+      `match: could not check that ${name} is a class (${e instanceof Error ? e.message : String(e)}); ` +
+        `${name}(...) is compiled to \`instanceof ${name}\`.`
+    );
+    return undefined;
+  }
+  return sym
+    ? `${name} is not a class, and ${noInstance}, which needs a class (or a built-in ` +
+        `constructor such as Date). Give ${name} a Destructure instance (@derive(Destructure) ` +
+        `on its declaration) to match its fields.`
+    : `${name} is not in scope: ${name}(...) needs a class, or a Destructure instance for ${name}.`;
 }
 
 /**
@@ -445,6 +512,8 @@ export function analyzePattern(pattern: ts.Expression): PatternInfo {
     }
 
     // Fall through to type-constructor for String, Date, etc.
+    const problem = typeConstructorProblem(pattern);
+    if (problem) return { kind: "unsupported", node: pattern, reason: problem };
     const binding =
       pattern.arguments.length >= 1
         ? analyzePattern(pattern.arguments[0])

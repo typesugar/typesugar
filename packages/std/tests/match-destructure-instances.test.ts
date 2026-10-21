@@ -272,6 +272,46 @@ export const f = (p: Point) => match(p).case(Point(a, b, c)).then(a).else(0);
   });
 });
 
+describe("a call pattern with no Destructure instance (review round 2)", () => {
+  it("a class with several arguments is an error, not a silent one-argument instanceof", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+class Money { constructor(public amount: number, public cur: string) {} }
+const c = "outer";
+export const f = (m: Money) => match(m).case(Money(a, c)).then(\`\${a}\${c}\`).else("");
+`,
+    });
+    expect(r.errors).toEqual([
+      expect.stringMatching(/Money\(\.\.\.\) has 2 arguments.*no Destructure instance/s),
+    ]);
+  });
+
+  it("a callee that is not a class (an interface plus a declared function) is an error", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+interface Pt { x: number; y: number }
+declare function Pt(x: number, y: number): Pt;
+export const f = (q: Pt) => match(q).case(Pt(p)).then(p.x).else(0);
+`,
+    });
+    expect(r.errors).toEqual([expect.stringMatching(/Pt is not a class.*instanceof/s)]);
+  });
+
+  it("a class or built-in with one argument is still a type test that binds the value", () => {
+    const r = run({
+      "main.ts": `import { match } from "@typesugar/std";
+class Money { constructor(public amount: number) {} }
+export const f = (v: Money | Date | string) =>
+  match(v).case(Money(m)).then(m.amount).case(Date(d)).then(d.getTime()).case(String(s)).then(s.length).else(-1);
+`,
+    });
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (v: unknown) => number;
+    expect(f(new Date(5))).toBe(5);
+    expect(f("abc")).toBe(3);
+  });
+});
+
 describe("the built-in extractors are @typesugar/fp's instances", () => {
   it("Some/None from @typesugar/fp: inlined from fp's .d.ts, no import of the instances", () => {
     const r = run({

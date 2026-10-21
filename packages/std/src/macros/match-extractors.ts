@@ -210,7 +210,11 @@ function instanceTarget(
   return undefined;
 }
 
-function instancesIn(ctx: MacroContext, file: ts.SourceFile): DestructureInstance[] {
+/**
+ * `at`: the extractor name being resolved, where a checker failure while
+ * reading an instance is reported (the instance may be in another file).
+ */
+function instancesIn(ctx: MacroContext, file: ts.SourceFile, at: ts.Node): DestructureInstance[] {
   let perProgram = instanceCache.get(ctx.program);
   if (!perProgram) {
     perProgram = new Map();
@@ -232,7 +236,13 @@ function instancesIn(ctx: MacroContext, file: ts.SourceFile): DestructureInstanc
       let target: ts.Symbol | undefined;
       try {
         target = instanceTarget(checker, stmt, decl);
-      } catch {
+      } catch (e) {
+        // Degrade (the declaration is not used as an instance), visibly (CLAUDE.md).
+        ctx.reportWarning(
+          at,
+          `match: could not read '${decl.name.text}' in ${file.fileName} as a Destructure ` +
+            `instance (${e instanceof Error ? e.message : String(e)}); it is not used.`
+        );
         target = undefined;
       }
       if (!target) continue;
@@ -255,6 +265,17 @@ function instancesIn(ctx: MacroContext, file: ts.SourceFile): DestructureInstanc
 
 const resolvedCache = new WeakMap<ts.Node, { def?: ExtractorDef }>();
 
+/** Names whose instance lookup already reported an error (a bad descriptor). */
+const reportedNames = new WeakSet<ts.Node>();
+
+/**
+ * Whether resolving `name` already reported an error, so a caller that falls
+ * back on "no instance" doesn't report a second one for the same pattern.
+ */
+export function extractorErrorReported(name: ts.Identifier): boolean {
+  return reportedNames.has(name);
+}
+
 /**
  * The extractor `name` (the callee of `Name(...)`, or a bare `Name`) stands
  * for, from a `Destructure` instance in scope; undefined if there is none.
@@ -266,7 +287,14 @@ export function resolveExtractor(ctx: MacroContext, name: ts.Identifier): Extrac
   let def: ExtractorDef | undefined;
   try {
     def = resolveUncached(ctx, name);
-  } catch {
+  } catch (e) {
+    // Degrade to "no instance", visibly (CLAUDE.md): `Name(...)` then falls
+    // back to a type-constructor pattern, which the user should know.
+    ctx.reportWarning(
+      name,
+      `match: looking up a Destructure instance for ${name.text} failed ` +
+        `(${e instanceof Error ? e.message : String(e)}); ${name.text}(...) is treated as having none.`
+    );
     def = undefined;
   }
   resolvedCache.set(name, { def });
@@ -300,7 +328,7 @@ function resolveUncached(ctx: MacroContext, name: ts.Identifier): ExtractorDef |
 
   const matches: DestructureInstance[] = [];
   for (const file of files) {
-    for (const inst of instancesIn(ctx, file)) {
+    for (const inst of instancesIn(ctx, file, name)) {
       if (inst.target === target && !matches.includes(inst)) matches.push(inst);
     }
   }
@@ -319,6 +347,7 @@ function resolveUncached(ctx: MacroContext, name: ts.Identifier): ExtractorDef |
       name,
       `match: the @destructure descriptor of ${inst.exportName} is invalid: ${inst.descriptor}`
     );
+    reportedNames.add(name);
     return undefined;
   }
   if (inst.descriptor) return withPayloadTyping(ctx, name, inst.descriptor, inst);

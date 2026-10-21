@@ -222,6 +222,11 @@ match(value)
 | `MyClass(v)`    | `__m instanceof MyClass`                                                |
 | `Some(v)`       | Built-in extractor (see below)                                          |
 
+A type pattern takes one argument, the whole value. `MyClass(a, b)` binds fields only when
+`MyClass` has a `Destructure` instance (see [Custom Extractors](#custom-extractors)); without
+one it is an error, as is a type pattern whose name is not a class or built-in constructor (an
+interface with a factory function, say), whose `instanceof` would throw or test nothing.
+
 ### OR Patterns
 
 Match multiple alternatives with the same handler:
@@ -397,7 +402,9 @@ match: switch (geom.type) {
 **Literal cases** (literals, `const`s, enum members) compile to the same switch with the
 label removed. Nothing is added, so the JavaScript is byte-for-byte the hand-written
 switch, and the activation import is removed from the output too. `break`, `return`,
-`continue`, `throw` and fallthrough mean what they always mean.
+`continue`, `throw` and fallthrough mean what they always mean. `break match;` (from a loop
+inside a case, say) leaves the switch: when a case names the label, the output keeps it, in
+every form below.
 
 **`default:`** covers the remaining values and turns the check off, as `.else()` does. A
 `default:` that only `throw`s is a safety net for values outside the type (untyped input),
@@ -740,8 +747,9 @@ match(input).case(Email({ user, domain })).then(`${user} at ${domain}`).else("in
 // const _ext = destructureEmail.extract(_input); if (_ext !== undefined) { const user = _ext.user; ... }
 ```
 
-The instance is imported where it is needed. A name with no instance in scope is a type
-pattern (`instanceof Name`), as before. Both forms work in a `match:` switch.
+The instance is imported where it is needed. A class with no instance in scope is a type
+pattern (`instanceof Name`) with one argument; more arguments, or a name that is not a class,
+are an error. Both forms work in a `match:` switch.
 
 ---
 
