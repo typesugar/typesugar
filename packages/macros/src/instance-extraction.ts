@@ -18,7 +18,12 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { cloneNodeDeep, extractTypeArgumentsContent } from "@typesugar/core";
+import {
+  cloneNodeDeep,
+  extractTypeArgumentsContent,
+  globalRegistry,
+  isSyntheticNode,
+} from "@typesugar/core";
 import {
   type DictMethod,
   type DictMethodMap,
@@ -553,6 +558,58 @@ function isModuleScopeDeclaration(decl: ts.Declaration): boolean {
  * here, keyed by name, so each call site can verify the same names resolve to
  * the same symbols there (tc#18). Returns undefined when unsafe.
  */
+/**
+ * Is `node` a call (or tagged template) of a macro: a callee named like a
+ * registered expression or tagged-template macro that is not a declaration of
+ * the user's own (it is imported, declared only in a `.d.ts`, or unresolved)?
+ * A false positive only costs an inlining: the method is then called through
+ * its dictionary, which is always correct.
+ */
+function callsMacro(checker: ts.TypeChecker, node: ts.Node): boolean {
+  const callee = ts.isCallExpression(node)
+    ? node.expression
+    : ts.isTaggedTemplateExpression(node)
+      ? node.tag
+      : undefined;
+  if (!callee || !ts.isIdentifier(callee)) return false;
+  const name = callee.text;
+  if (
+    globalRegistry.getCandidates(name, "expression").length === 0 &&
+    globalRegistry.getCandidates(name, "tagged-template").length === 0
+  ) {
+    return false;
+  }
+  // A synthetic callee is outside the checker's contract (CLAUDE.md): by name.
+  if (isSyntheticNode(callee)) return true;
+  let symbol: ts.Symbol | undefined;
+  try {
+    symbol = checker.getSymbolAtLocation(callee);
+  } catch {
+    return true; // can't tell: treat it as the macro
+  }
+  if (!symbol || symbol.flags & ts.SymbolFlags.Alias) return true;
+  const decls = symbol.getDeclarations() ?? [];
+  return decls.length === 0 || decls.every((d) => d.getSourceFile().isDeclarationFile);
+}
+
+/**
+ * Does `node` (an instance method's body) contain a macro call? Such a method
+ * is never inlined from its source: see {@link callsMacro}.
+ */
+export function containsMacroCall(checker: ts.TypeChecker, node: ts.Node): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found || ts.isTypeNode(n)) return;
+    if (callsMacro(checker, n)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
 function isSafeToInlineMethod(
   checker: ts.TypeChecker,
   methodNode: ts.Node,
@@ -595,6 +652,14 @@ function isSafeToInlineMethod(
   const visit = (node: ts.Node): void => {
     if (!safe) return;
     if (ts.isTypeNode(node)) return; // types are erased
+    if (callsMacro(checker, node)) {
+      // The transformer expands this call in the instance's OWN file; the
+      // source is what was written, not what runs. Inlining it would copy the
+      // raw macro call (`summon<Clone<Tree>>()`) into the call site, where it
+      // is never expanded and throws at run time.
+      safe = false;
+      return;
+    }
     if (ts.isPropertyAccessExpression(node)) {
       visit(node.expression); // `.name` resolves to a type member — skip it
       return;

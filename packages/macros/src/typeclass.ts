@@ -72,7 +72,13 @@ import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
   buildStandaloneExtensionCall,
 } from "./extension.js";
-import { registerInstanceMethodsFromAST, extractMethodsFromObjectLiteral } from "./specialize.js";
+import {
+  registerInstanceMethodsFromAST,
+  extractMethodsFromObjectLiteral,
+  type DictMethod,
+} from "./specialize.js";
+// Static: instance-extraction imports only specialize and instance-resolver.
+import { containsMacroCall } from "./instance-extraction.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -1879,7 +1885,11 @@ export const implAttribute = defineAttributeMacro({
     }
 
     if (objLiteral) {
-      const methods = extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene);
+      const methods = withoutMacroCalls(
+        ctx,
+        extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene),
+        objLiteral
+      );
       if (methods.size > 0) {
         registerInstanceMethodsFromAST(varName, typeName, methods, ctx.program, decl);
       }
@@ -2423,6 +2433,32 @@ function summonTargetType(ctx: MacroContext, innerType: ts.TypeNode): ts.Type {
 }
 
 /**
+ * `methods` without those whose body calls a macro (`summon<Clone<Tree>>()`
+ * in a recursive instance). This registry feeds inlining at call sites, and
+ * a method's source still holds the macro call that the transformer expands
+ * only in the instance's own file, so inlining it would copy an unexpanded
+ * call that throws at run time. Such a method is called through its
+ * dictionary instead. The check reads the ORIGINAL object literal's members
+ * (real nodes, for the checker); `methods` are copies.
+ */
+function withoutMacroCalls(
+  ctx: MacroContext,
+  methods: Map<string, DictMethod>,
+  objLiteral: ts.ObjectLiteralExpression
+): Map<string, DictMethod> {
+  for (const prop of objLiteral.properties) {
+    const name =
+      prop.name && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+        ? prop.name.text
+        : undefined;
+    if (name && methods.has(name) && containsMacroCall(ctx.typeChecker, prop)) {
+      methods.delete(name);
+    }
+  }
+  return methods;
+}
+
+/**
  * The top-level `const` whose initializer evaluates `node` while it is being
  * initialized (no function in between): `export const cloneFeature =
  * summon<Clone<Feature>>()`. Such a const is never the instance `node`
@@ -2921,7 +2957,11 @@ export const implMacro = defineExpressionMacro({
 
     // Extract and register methods for specialization (if object literal)
     if (ts.isObjectLiteralExpression(objectLiteralArg)) {
-      const methods = extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene);
+      const methods = withoutMacroCalls(
+        ctx,
+        extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene),
+        objectLiteralArg
+      );
       if (methods.size > 0) {
         registerInstanceMethodsFromAST(instanceName, forType, methods, ctx.program, varDecl);
       }
