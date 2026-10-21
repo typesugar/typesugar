@@ -18,10 +18,8 @@ import { derive, Eq, Clone, Debug } from "typesugar";
 import { typeInfo, fieldNames } from "typesugar";
 // Import-scoped activation (PEP-052): @derive(Eq)'s structural equality only
 // rewrites `.equals()`/`.notEquals()` method calls in files that explicitly
-// opt in to Eq method syntax. (The `===`/`/ops` operator tier does not
-// currently rewrite for a companion @derive'd in this same file — only for
-// instances imported from elsewhere — so this demo uses method sugar, the
-// form that's known-working today.)
+// opt in to Eq method syntax. (`import "@typesugar/std/syntax/eq/ops"` would
+// also rewrite `===`; this demo uses the method form.)
 import "@typesugar/std/syntax/eq";
 import { Some, None, Left, Right, isLeft, isRight } from "@typesugar/fp";
 import { map as mapEither, fold as foldEither, getOrElse as getOrElseEither } from "@typesugar/fp/data/either";

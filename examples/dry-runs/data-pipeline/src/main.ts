@@ -19,6 +19,7 @@
 // ============================================================================
 
 import { comptime, pipe, staticAssert, derive, Eq, Clone, Debug } from "typesugar";
+import "@typesugar/std/syntax/eq/ops";
 import { Some, None, Right, Left, isRight, isLeft, isSome } from "@typesugar/fp";
 import type { Option, Either } from "@typesugar/fp";
 import { match } from "@typesugar/std";

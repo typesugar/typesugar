@@ -16,6 +16,7 @@
 // === Core imports ===
 import { comptime, staticAssert, pipe } from "typesugar";
 import { derive, Eq, Clone, Debug, Json } from "@typesugar/derive";
+import "@typesugar/std/syntax/eq/ops";
 import { Some, None, Right, Left, isLeft, isRight } from "@typesugar/fp";
 import type { Option, Either } from "@typesugar/fp";
 import { match } from "@typesugar/std";
