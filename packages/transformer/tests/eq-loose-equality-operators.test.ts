@@ -287,6 +287,37 @@ describe("a derived union narrowed to one variant by assignment", () => {
     expect(r.code).toContain("r = 1 === n");
   });
 
+  it("number and literal operands stay native with two @op typeclasses for number (std's recip)", () => {
+    // std's own source: Integral and Fractional both map `/` and have number
+    // instances; `recip: (a) => 1 / a` was "Ambiguous operator '/' for type
+    // '1'" once the literal borrowed `a`'s declared type (the CI build break).
+    const code = [
+      `import { typeclass } from "@typesugar/macros";`,
+      `export interface Integral<A> { /** @op / */ div(a: A, b: A): A; /** @op < */ lt(a: A, b: A): boolean; /** @op === */ eq(a: A, b: A): boolean }`,
+      `typeclass("Integral");`,
+      `export interface Fractional<A> { /** @op / */ div(a: A, b: A): A; /** @op < */ lt(a: A, b: A): boolean; /** @op === */ eq(a: A, b: A): boolean; recip(a: A): A }`,
+      `typeclass("Fractional");`,
+      `export const integralNumber: Integral<number> = { div: (a, b) => Math.trunc(a / b), lt: (a, b) => a < b, eq: (a, b) => a === b };`,
+      `export const fractionalNumber: Fractional<number> = {`,
+      `  div: (a, b) => a / b, lt: (a, b) => a < b, eq: (a, b) => a === b,`,
+      `  recip: (a) => 1 / a,`,
+      `};`,
+      `export const recip = (a: number) => 1 / a;`,
+      `export const half = (a: number) => a / 2;`,
+      `export const both = (a: number, b: number) => a / b;`,
+      `export const less = (a: number) => [1 < a, a < 2];`,
+      `export const same = (a: number) => [1 === a, a === 1];`,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `op-literal-${counter++}.ts` });
+    expect(errors(r)).toEqual([]);
+    expect(r.code).toContain("recip: (a) => 1 / a");
+    expect(r.code).toContain("recip = (a: number) => 1 / a");
+    expect(r.code).toContain("half = (a: number) => a / 2");
+    expect(r.code).toContain("both = (a: number, b: number) => a / b");
+    expect(r.code).toContain("less = (a: number) => [1 < a, a < 2]");
+    expect(r.code).toContain("same = (a: number) => [1 === a, a === 1]");
+  });
+
   it("without the Eq import, TS9804 names the union's Eq", () => {
     const code = [
       `/** @derive(Eq) */`,
