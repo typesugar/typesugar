@@ -1180,40 +1180,48 @@ match(expr, {
 - [x] Build and tests pass (no conversions applied)
 - [ ] **Future:** Fix type signature to support readonly interface unions
 
-### Wave 10: Statement Form and Library Builds (in progress, 2026-10-21)
+### Wave 10: Statement Form and Library Builds (implemented on `case-study-fixes`, PR #83)
 
 Found by the Turf case study ([typesugar/turf-typesugar](https://github.com/typesugar/turf-typesugar),
 `CASE-STUDY.md` F20–F22): only 1 of `turf-meta`'s 11 `switch` statements could become
 `match()`, because the arms loop, `return` from the enclosing function, `break` or
 `throw`; and plain `tsc` rejected every fluent `match()`, which broke `.d.ts` builds.
 
-- [ ] `match()` type-checks under plain `tsc` where it can (non-binding patterns), and
+- [x] `match()` type-checks under plain `tsc` where it can (non-binding patterns), and
       libraries get `.d.ts` from the expanded program (tsup and tsc paths documented).
-- [ ] Statement form, a labelled switch (valid TypeScript, like `let:` / `requires:`):
+- [x] Statement form, a labelled switch (valid TypeScript, like `let:` / `requires:`):
       `ts
-  match: switch (geom) {
-    case { type: "Point", coordinates: [x, y] }: use(x, y); break;
-    case { type: "LineString", coordinates }: ...; break;
-  }
-  `
+match: switch (geom) {
+  case { type: "Point", coordinates: [x, y] }: use(x, y); break;
+  case { type: "LineString", coordinates }: ...; break;
+}
+`
       Literal cases emit the same switch with the label stripped (byte-identical); a
       missing case is TS9226. Object and array patterns compile to a switch on the
       discriminant plus block-scoped destructuring. Control flow keeps switch semantics.
 
-### Wave 11: Destructure, for Real (in progress, 2026-10-21)
+### Wave 11: Destructure, for Real (implemented on `case-study-fixes` / `case-study-fixes-2`, PR #83)
 
-- [ ] Extractor calls in patterns (`.case(Point(x, y))`, `case Point(x, y):`) resolve a
+- [x] Extractor calls in patterns (`.case(Point(x, y))`, `case Point(x, y):`) resolve a
       `Destructure` instance from scope by normal typeclass resolution (PEP-052).
-- [ ] Instances come from `@derive(Destructure)` on owned types, `derived<Destructure<…>>()`
-      for types you don't own (PEP-060 follow-up, "option B"), or a hand-written `@impl`.
-- [ ] Retrofit the built-ins as instances shipped by the packages that own the types:
+- [x] Instances come from `@derive(Destructure)` on owned types (products get a
+      constructor function `Point(x, y)` that is also the pattern's extractor; unions get
+      one per variant, named from the variant's interface or its tag in PascalCase; every
+      ambiguity is a compile error), or from a hand-written `@impl`.
+      `derived<Destructure<…>>()` is **not** supported: an extractor needs a value to name
+      in the pattern (one per variant) and a `@destructure` descriptor on its declaration,
+      which an expression macro can't write, so types you don't own use a hand-written
+      instance (TS9106 says so).
+- [x] Retrofit the built-ins as instances shipped by the packages that own the types:
       `Some`/`None`, `Left`/`Right`, `Ok`/`Err`, Validated `Valid`/`Invalid`, List
       `Cons`/`Nil`. The extractor follows the scrutinee's type, so std's and fp's
       representations, and a user's own Option-like type, each bring their own `extract`.
-- [ ] Zero cost: derived and inline instances compile to direct field reads and
+      Done for Some/None, Left/Right, Cons/Nil and Valid/Invalid. The name-based `Ok`/`Err`
+      were removed; `Result`'s instance arrives with its move to std (PEP-062).
+- [x] Zero cost: derived and inline instances compile to direct field reads and
       discriminant checks (no tuple built and unpacked); today's emitted output for each
       built-in is pinned before the change and must not get worse.
-- [ ] Deprecate or remove the name-only registries.
+- [x] Deprecate or remove the name-only registries (removed; only tests used them).
 
 ### Wave 12: Extractors for JavaScript's Built-in Types (proposed)
 
