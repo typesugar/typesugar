@@ -267,6 +267,81 @@ function deriveNamesFromDeclaration(decl: ts.Node): string[] {
   return names;
 }
 
+/**
+ * Create the DerivedCompanionAccess diagnostic suppression rule.
+ *
+ * `@derive(Eq)` on `Point` generates a companion `namespace Point { export
+ * const Eq = ... }`, and the docs tell users to call it directly
+ * (`Point.Eq.equals(a, b)`). Before expansion the companion does not exist,
+ * so the pre-transform program reports:
+ * - TS2339 "Property 'Eq' does not exist on type 'typeof Point'" for a class;
+ * - TS2693 "'Point' only refers to a type" for an interface or type alias.
+ *
+ * Suppressed only when the receiver resolves (through the checker's symbol
+ * for the identifier, following an import alias) to a declaration that
+ * derives the accessed typeclass. Which typeclasses a declaration derives is
+ * read from its `@derive` decorator / JSDoc tag, as
+ * {@link resolveTypeclassInstanceMethod} does (the registry is empty under
+ * `typesugar check`). `Point.Ord` on a type that derives only `Eq` stays an
+ * error.
+ */
+export function createDerivedCompanionAccessRule(): DiagnosticSuppressionRule {
+  return {
+    name: "DerivedCompanionAccess",
+    errorCodes: [2339, 2693],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined || diagnostic.length === undefined) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      if (!node || !ts.isIdentifier(node)) return false;
+
+      // TS2693 is on the receiver (`Point` in `Point.Eq`), TS2339 on the name.
+      const access = node.parent;
+      if (!access || !ts.isPropertyAccessExpression(access)) return false;
+      const receiver = access.expression;
+      if (!ts.isIdentifier(receiver)) return false;
+      if (diagnostic.code === 2693 ? access.expression !== node : access.name !== node) {
+        return false;
+      }
+
+      let symbol: ts.Symbol | undefined;
+      try {
+        symbol = declaredSymbolOf(checker, receiver);
+      } catch (e) {
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] DerivedCompanionAccess: ${e}`);
+        }
+        return false;
+      }
+      const tcName = access.name.text;
+      return (symbol?.getDeclarations() ?? []).some((d) =>
+        deriveNamesFromDeclaration(d).includes(tcName)
+      );
+    },
+  };
+}
+
+/**
+ * The symbol an identifier in a value position names, following an import
+ * alias. A type-only name (an interface used as `Point.Eq`, TS2693) has no
+ * value meaning, so it is looked up among the TYPE symbols in scope at that
+ * identifier: name resolution of the identifier itself (syntax), not a type
+ * compared by name.
+ */
+function declaredSymbolOf(checker: ts.TypeChecker, id: ts.Identifier): ts.Symbol | undefined {
+  let symbol =
+    checker.getSymbolAtLocation(id) ??
+    checker
+      .getSymbolsInScope(id, ts.SymbolFlags.Type | ts.SymbolFlags.Alias)
+      .find((s) => s.name === id.text);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  return symbol;
+}
+
 // ---------------------------------------------------------------------------
 // Standalone registry lookup with type widening
 // ---------------------------------------------------------------------------

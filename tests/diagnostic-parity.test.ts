@@ -104,7 +104,7 @@ describe("Diagnostic Parity — unified diagnostic suppression pipeline", () => 
     const expected = [...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES];
     // Note: we can't easily reflect on create*Rule exports, but ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES
     // is maintained alongside the registration function in the same file.
-    expect(expected).toHaveLength(7);
+    expect(expected).toHaveLength(8);
   });
 
   it("OperatorOverload: suppresses TS2365 only where an @op instance rewrites it", () => {
@@ -289,22 +289,23 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
       "MacroDecorator", // from @typesugar/macros
       "OperatorOverload", // from @typesugar/macros
       "TypeRewriteAssignment", // from @typesugar/macros
+      "DerivedCompanionAccess", // from @typesugar/macros
     ]);
 
     const actualNames = new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES);
     expect(actualNames).toEqual(expectedNames);
   });
 
-  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 7 rules", () => {
+  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 8 rules", () => {
     const dummyMapFn = () => null;
     const registered = registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
-    expect(registered).toHaveLength(7);
+    expect(registered).toHaveLength(8);
     expect(new Set(registered)).toEqual(new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES));
   });
 
-  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 6 rules", () => {
+  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 7 rules", () => {
     const registered = registerAllDiagnosticSuppressionRules();
-    expect(registered).toHaveLength(6);
+    expect(registered).toHaveLength(7);
     expect(registered).not.toContain("MacroGenerated");
   });
 });

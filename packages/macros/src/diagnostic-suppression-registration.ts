@@ -15,6 +15,7 @@ import {
   type PositionMapFn,
 } from "@typesugar/core";
 import {
+  createDerivedCompanionAccessRule,
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
@@ -71,6 +72,9 @@ export function registerAllDiagnosticSuppressionRules(
   if (registerDiagnosticSuppressionRuleOnce(createTypeRewriteAssignmentRule())) {
     registered.push("TypeRewriteAssignment");
   }
+  if (registerDiagnosticSuppressionRuleOnce(createDerivedCompanionAccessRule())) {
+    registered.push("DerivedCompanionAccess");
+  }
 
   return registered;
 }
@@ -87,4 +91,5 @@ export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "MacroDecorator",
   "OperatorOverload",
   "TypeRewriteAssignment",
+  "DerivedCompanionAccess",
 ] as const;
