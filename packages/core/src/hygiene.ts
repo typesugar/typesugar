@@ -578,6 +578,18 @@ export class FileBindingCache {
   }
 
   /**
+   * The import registered this pass (by {@link ensureImport}) that binds
+   * `localName`, if any: what a generated reference to `localName` will
+   * refer to once the import is injected.
+   */
+  getPendingImport(localName: string): { symbol: string; from: string } | undefined {
+    for (const entry of this.pendingAliases.values()) {
+      if (entry.alias === localName) return { symbol: entry.symbol, from: entry.from };
+    }
+    return undefined;
+  }
+
+  /**
    * Get or create an aliased import for a conflicting symbol.
    * Deduped: same (symbol, from) pair reuses existing alias.
    */

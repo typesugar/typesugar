@@ -252,6 +252,7 @@ warning TS9602: [typesugar] [TS9602] Auto-specialization of processItems skipped
 Common reasons for skipping:
 
 - **Function body not resolvable**: Can't find the function definition (for example, it comes from a compiled package). Use `const fn = ...` or named `function` in your own code.
+- **Instance only visible as a declaration**: The instance comes from a package's compiled `.d.ts` (`ordNumber` from `@typesugar/std`, a library's `Point.Eq`), whether you pass it or `= implicit()` fills it in, so there are no method bodies to inline. Declare the instance in your own source if the call is hot.
 - **Early return**: Multiple return paths prevent inlining. Extract into helpers.
 - **try/catch**: Error handling blocks inlining. Handle errors at a higher level.
 - **Loops**: Iteration prevents inlining. Use Array methods or recursive helpers.

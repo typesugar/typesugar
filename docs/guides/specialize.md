@@ -63,12 +63,16 @@ showNumber)` specializes on both at once.
   (`eitherFunctor<E>()`), members that reference other instances
   (`map: optionFunctor.map`, shorthand `{ map }`), and companion paths
   (`Point.Numeric`).
-- The std/fp/effect instances (Array/Option/Either/Promise functors and
-  monads, FlatMap instances, etc.) are recognized the same way — from their
-  source declarations, with no special-casing (the compiler's former
-  hard-coded builtin table was removed in PEP-053).
-- Primitive instances (`eqNumber`, `ordString`, ...) inline to native
-  operators (`a === b`, `a < b`) rather than function calls.
+- An instance the compiler only sees as a declaration, because it comes from
+  a package's compiled `.d.ts`, is **not** specialized: the declaration has
+  no method bodies to inline. That covers the instances `@typesugar/std`,
+  `@typesugar/fp` and `@typesugar/effect` ship (`ordNumber`, `eqString`,
+  `optionFunctor`, ...) and a library's `@derive` companions (`Point.Eq`).
+  The call keeps dictionary passing, which is correct, and warns
+  [TS9602](/guides/error-messages#auto-specialization-skipped-ts9602) so the
+  cost is visible. For a hot path, declare the instance in your own source
+  (`/** @impl Ord<number> */ const numberOrd = { ... }`, or
+  `derived<Eq<Point>>()` for a type you don't own).
 
 One safety rule for cross-module instances: a method body that references its
 own module's local helpers or imports is not inlined (the identifiers wouldn't
@@ -94,7 +98,18 @@ sortWith([3, 1, 2]);
 __typesugar___sortWith_number_0__([3, 1, 2]);
 ```
 
-The same fallbacks and opt-outs apply as for an explicit call.
+The same fallbacks and opt-outs apply as for an explicit call. In
+particular, an instance `= implicit()` finds in a package's `.d.ts` is passed
+but not inlined, with the same TS9602 warning:
+
+```typescript
+import { type Ord } from "@typesugar/std";
+
+sortWith([3, 1, 2]);
+// Compiles to sortWith([3, 1, 2], ordNumber), with `import { ordNumber } from
+// "@typesugar/std"` added, and warns TS9602: 'ordNumber' is only visible as a
+// declaration (from a .d.ts)
+```
 
 There is one extra fallback. Suppose a function's body calls another
 `= implicit()` function without passing the dictionary, and relies on its own
@@ -123,6 +138,9 @@ when the function body:
   (simple guard-clause chains _are_ flattened into ternaries);
 - calls an `= implicit()` function without passing its instance argument
   (see [With `= implicit()`](#with-implicit)).
+
+It also warns TS9602 when the instance itself is only a declaration (from a
+package's `.d.ts`; see [Which instances are recognized](#which-instances-are-recognized)).
 
 Result-returning functions get one extra trick: **return-type-driven
 specialization** rewrites `ok()`/`err()` constructors when a `Result`-typed

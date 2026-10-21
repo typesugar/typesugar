@@ -796,14 +796,22 @@ function typeNodeRefsAny(typeNode: ts.TypeNode, names: ReadonlySet<string>): boo
  * (`Functor<OptionF>`, `Pretty<number>`)? This check keeps ordinary
  * declaration-only values (config objects, lib globals) from producing noise.
  */
-function isDeclarationOnlyTypeclassInstance(ctx: MacroContextImpl, arg: ts.Expression): boolean {
-  if (isSyntheticNode(arg)) return false;
+function isDeclarationOnlyTypeclassInstance(
+  ctx: MacroContextImpl,
+  arg: ts.Expression,
+  callLocation: ts.Node | undefined
+): boolean {
   let e = arg;
   while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression;
   if (!ts.isIdentifier(e) && !ts.isPropertyAccessExpression(e)) return false;
   try {
     const checker = ctx.typeChecker;
-    let sym = checker.getSymbolAtLocation(e);
+    // An argument `= implicit()` filled in is a generated reference with no
+    // position: resolve it by name where the call is (its import, or a local
+    // binding), then read a companion path's members off that symbol.
+    let sym = isSyntheticNode(e)
+      ? callLocation && resolveGeneratedReference(ctx, e, callLocation)
+      : checker.getSymbolAtLocation(e);
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     const decls = sym?.declarations ?? [];
     if (decls.length === 0 || !decls.every((d) => d.getSourceFile().isDeclarationFile)) {
@@ -819,13 +827,73 @@ function isDeclarationOnlyTypeclassInstance(ctx: MacroContextImpl, arg: ts.Expre
       return true;
     }
     // ... or typed as a known typeclass (`Functor<OptionF>`).
-    const type = checker.getTypeAtLocation(e);
+    const type = isSyntheticNode(e) ? checker.getTypeOfSymbol(sym!) : checker.getTypeAtLocation(e);
     const tcName = (type.aliasSymbol ?? type.getSymbol())?.getName();
     return !!tcName && getOpMapForTypeclass(ctx.program, tcName) !== undefined;
   } catch (error) {
     warnCheckerFailure(ctx, arg, "auto-specialization (declaration-only instance check)", error);
     return false;
   }
+}
+
+/**
+ * The symbol a generated reference (`ordNumber`, `Point.Eq`) names at
+ * `location`: its first segment resolved by name in that scope (as the
+ * emitted code will be), the rest read as exported members.
+ */
+function resolveGeneratedReference(
+  ctx: MacroContextImpl,
+  e: ts.Identifier | ts.PropertyAccessExpression,
+  location: ts.Node
+): ts.Symbol | undefined {
+  if (ts.isIdentifier(e)) {
+    // An import the expansion is adding (`import { ordNumber } from
+    // "@typesugar/std"`): the export of that module.
+    const pending = ctx.fileBindingCache.getPendingImport(e.text);
+    if (pending) return moduleExport(ctx, pending.from, pending.symbol);
+    const r = resolveNameAt(ctx, e.text, location);
+    return r === "error" ? undefined : r;
+  }
+  if (!ts.isIdentifier(e.expression) && !ts.isPropertyAccessExpression(e.expression)) {
+    return undefined;
+  }
+  let base = resolveGeneratedReference(ctx, e.expression, location);
+  if (base && base.flags & ts.SymbolFlags.Alias) base = ctx.typeChecker.getAliasedSymbol(base);
+  return base?.exports?.get(ts.escapeLeadingUnderscores(e.name.text));
+}
+
+/** The export `name` of the module `specifier` resolves to from this file. */
+function moduleExport(
+  ctx: MacroContextImpl,
+  specifier: string,
+  name: string
+): ts.Symbol | undefined {
+  // The file's own import of that module, if it has one (it does for the
+  // usual `import type { Ord } from "@typesugar/std"`); else module
+  // resolution, where there is a file system (not in the browser).
+  let moduleSymbol: ts.Symbol | undefined;
+  for (const stmt of ctx.sourceFile.statements) {
+    if (
+      ts.isImportDeclaration(stmt) &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      stmt.moduleSpecifier.text === specifier
+    ) {
+      moduleSymbol = ctx.typeChecker.getSymbolAtLocation(stmt.moduleSpecifier);
+      if (moduleSymbol) break;
+    }
+  }
+  if (!moduleSymbol && typeof ts.sys !== "undefined") {
+    const resolved = ts.resolveModuleName(
+      specifier,
+      ctx.sourceFile.fileName,
+      ctx.program.getCompilerOptions(),
+      ts.sys
+    ).resolvedModule;
+    const file = resolved && ctx.program.getSourceFile(resolved.resolvedFileName);
+    moduleSymbol = file && ctx.typeChecker.getSymbolAtLocation(file);
+  }
+  if (!moduleSymbol) return undefined;
+  return ctx.typeChecker.getExportsOfModule(moduleSymbol).find((s) => s.name === name);
 }
 
 function argResolvesToDeclaration(ctx: MacroContextImpl, arg: ts.Expression): boolean {
@@ -1097,7 +1165,7 @@ export function tryAutoSpecialize(
 
     if (methods) {
       instanceArgs.push({ index: i, name: argName, methods });
-    } else if (isDeclarationOnlyTypeclassInstance(ctx, arg)) {
+    } else if (isDeclarationOnlyTypeclassInstance(ctx, arg, realLocation(node))) {
       declarationOnlyArgs.push(argName);
     }
   }
@@ -1114,7 +1182,7 @@ export function tryAutoSpecialize(
           ? node.expression.name.text
           : "<anonymous>";
       ctx.reportWarning(
-        node,
+        markerNode,
         `[TS9602] Auto-specialization of ${fn} skipped — instance ` +
           `${declarationOnlyArgs.map((n) => `'${n}'`).join(", ")} is only visible as a ` +
           `declaration (from a .d.ts), so its method bodies cannot be inlined; ` +
