@@ -212,8 +212,9 @@ jobs:
   # workspace example's `check`, `build` and `start` scripts, where it has them
   # (examples/basic, examples/implicits, examples/dry-runs/*; each `start`
   # prints a fixed demo in about two seconds), then installs, checks and builds
-  # examples/standalone/* against this checkout's packages, packed as a publish
-  # would pack them (scripts/build-standalone-examples.mjs).
+  # examples/standalone/* and a library from `typesugar create library`
+  # against this checkout's packages, packed as a publish would pack them
+  # (scripts/build-standalone-examples.mjs).
   examples:
     name: Examples
     runs-on: ubuntu-latest
@@ -247,7 +248,7 @@ jobs:
       - name: Run the workspace examples
         run: pnpm -r --workspace-concurrency=1 --filter 'typesugar-example-*' run start
 
-      - name: Standalone examples against this checkout
+      - name: Standalone examples and the library template against this checkout
         run: node scripts/build-standalone-examples.mjs
 
   # PEP-060 item 1: the packages peer `typescript >=5.9.0 <7.0.0`, but the lockfile
