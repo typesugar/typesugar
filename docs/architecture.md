@@ -701,13 +701,13 @@ typesugar supports two extension mechanisms:
 When a typeclass instance is registered, its methods become available as extension methods:
 
 ```typescript
-@instance
+/** @impl Show<Point> */
 const ShowPoint: Show<Point> = {
-  show: (p) => `Point(${p.x}, ${p.y})`
+  show: (p) => `Point(${p.x}, ${p.y})`,
 };
 
 // Enables:
-point.show()  // Rewritten to ShowPoint.show(point)
+point.show(); // Rewritten to ShowPoint.show(point)
 ```
 
 The transformer detects these calls via `tryRewriteExtensionMethod()` and rewrites them to static calls.

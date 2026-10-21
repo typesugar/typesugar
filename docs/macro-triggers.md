@@ -15,10 +15,10 @@ The transformer recognizes several distinct trigger patterns:
 | Type Macro          | `TypeReference`            | `Add<3, 4>`               | `defineTypeMacro()`                             |
 | Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`                     |
 | HKT Syntax          | `TypeParameter`            | `F<A>`                    | Auto-detected                                   |
-| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`                            |
+| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@impl`                                |
 | Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `@op` JSDoc on typeclass methods            |
 | Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker                           |
-| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@instance`                            |
+| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@impl`                                |
 
 ---
 
@@ -76,15 +76,17 @@ interface Show<A> {
 
 // Operator overloading via @op JSDoc on typeclass methods
 
-@instance("Show<Point>")
-const showPoint = {
+// A const takes the JSDoc trigger: TypeScript has no decorators on variables.
+/** @impl Show<Point> */
+const showPoint: Show<Point> = {
   show: (p) => `(${p.x}, ${p.y})`,
 };
 ```
 
 > On interfaces, functions, and type aliases the equivalent JSDoc trigger
 > (`/** @typeclass */`) is preferred — plain `tsc` flags the decorator form with
-> TS1206 (TypeSugar suppresses it). See
+> TS1206 (TypeSugar suppresses it). On a `const` only the JSDoc trigger works
+> (`/** @impl Show<Point> */`). See
 > [JSDoc vs Decorator Syntax](./guides/jsdoc-vs-decorators.md).
 
 **Registration:**

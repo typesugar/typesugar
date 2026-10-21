@@ -13,14 +13,14 @@ npm install @typesugar/typeclass
 ## Quick Start
 
 ```typescript
-import { instance, summon } from "@typesugar/typeclass";
+import { summon } from "@typesugar/typeclass";
 
 /** @typeclass */
 interface Show<A> {
   show(a: A): string;
 }
 
-@instance("Show<number>")
+/** @impl Show<number> */
 const showNumber: Show<number> = { show: (n) => `#${n}` };
 
 summon<Show<number>>().show(42); // "#42" — instance resolved at compile time

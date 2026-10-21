@@ -301,20 +301,13 @@ export const TS9002: DiagnosticDescriptor = {
   messageTemplate: "@impl/@instance must annotate a const declaration",
   explanation: `@impl (or @instance) is used to register a typeclass instance.
 
-Preferred JSDoc syntax:
+Correct (a JSDoc tag on a const; decorators are not valid on a const in TypeScript):
   /** @impl Show<Point> */
   const showPoint: Show<Point> = { show: (p) => \`(\${p.x}, \${p.y})\` };
 
-Legacy decorator syntax:
-  @impl("Show<Point>")
-  const showPoint: Show<Point> = { show: (p) => \`(\${p.x}, \${p.y})\` };
-
 Incorrect:
-  @impl  // ✗ Not a const
-  function showPoint() { ... }
-
-  @impl  // ✗ Missing type annotation
-  const showPoint = { ... };`,
+  /** @impl Show<Point> */  // ✗ Not a const
+  function showPoint() { ... }`,
   seeAlso: "https://typesugar.org/errors/TS9002",
 };
 
@@ -325,15 +318,11 @@ export const TS9003: DiagnosticDescriptor = {
   messageTemplate: "@impl/@instance requires explicit type annotation (e.g., Typeclass<Type>)",
   explanation: `The @impl/@instance macro needs to know both the typeclass and the type.
 
-Preferred JSDoc syntax:
+Correct (a JSDoc tag on a const; decorators are not valid on a const in TypeScript):
   /** @impl Show<Point> */
   const showPoint: Show<Point> = { ... };
 
 The JSDoc comment specifies the typeclass and type directly.
-
-Legacy decorator syntax:
-  @impl("Show<Point>")
-  const showPoint: Show<Point> = { ... };
 
 Incorrect:
   /** @impl */
@@ -387,7 +376,7 @@ This creates ambiguity in instance resolution. The transformer will use
 the first registered instance, but this may not be the intended behavior.
 
 To fix:
-1. Remove duplicate @instance declarations
+1. Remove duplicate @impl declarations
 2. Or use explicit instance selection with summon()`,
   seeAlso: "https://typesugar.org/errors/TS9006",
 };
@@ -501,8 +490,8 @@ export const TS9050: DiagnosticDescriptor = {
 
 Typesugar requires coherence: each (typeclass, type) pair must have exactly one instance.
 This error occurs when:
-1. Two @instance declarations exist for the same typeclass and type
-2. Both @derive and @instance are used for the same pair
+1. Two @impl declarations exist for the same typeclass and type
+2. Both @derive and @impl are used for the same pair
 3. Two libraries provide conflicting instances
 
 The error shows both instance locations. To fix:
@@ -701,7 +690,7 @@ because there's nothing to compare, hash, clone, etc.
 
 Solutions:
 1. Add fields to the type
-2. Provide a manual @instance implementation
+2. Provide a manual @impl instance
 3. Use a singleton pattern if the type is intentionally empty`,
   seeAlso: "https://typesugar.org/errors/TS9104",
 };
@@ -1251,7 +1240,7 @@ export const TS9401: DiagnosticDescriptor = {
   explanation: `The called method is not available as an extension on this type.
 
 Extension methods come from:
-1. Typeclass instances (@instance, @derive)
+1. Typeclass instances (@impl, @derive)
 2. Explicit registerExtensions() calls
 3. Import-scoped extension namespaces
 
@@ -1411,7 +1400,7 @@ They cannot be registered with @operator because @operator is for standard JavaS
 
 To overload an operator for your own type:
 - Annotate a typeclass method with @op (e.g. /** @op + */ add(b: A): A)
-- Provide an @instance so the transformer can resolve the operator to that method`,
+- Provide an instance (/** @impl Typeclass<Type> */ or @derive) so the transformer can resolve the operator to that method`,
   seeAlso: "https://typesugar.org/errors/TS9802",
 };
 
@@ -1422,11 +1411,11 @@ export const TS9803: DiagnosticDescriptor = {
   messageTemplate: "Operator '{operator}' has no registered overload for the operand type",
   explanation: `The transformer encountered an operator expression it cannot resolve:
 - No typeclass method is annotated with @op for this operator on the operand type
-- No @instance provides that behavior for the type
+- No instance (@impl or @derive) provides that behavior for the type
 
 The expression will be left as-is, which may cause a type or runtime error.
 
-To overload an operator, annotate a typeclass method with @op and provide an @instance:
+To overload an operator, annotate a typeclass method with @op and provide an instance (@impl or @derive):
   /** @op + */
   add(b: A): A { ... }`,
   seeAlso: "https://typesugar.org/errors/TS9803",
