@@ -454,46 +454,116 @@ interface Destructure<Pattern, Input, Output> {
 
 We use `T | undefined` instead of `Option<T>` to avoid a circular dependency (Option itself needs Destructure) and to align with TypeScript conventions where `undefined` signals absence.
 
-### Auto-Derivation via Product/Sum
+### Deriving: `@derive(Destructure)` (decided 2026-10-21, Wave 11)
 
-The key insight: **Destructure auto-derives for any type with a Product or Sum generic instance.** This mirrors how Scala case classes automatically get `unapply`.
+The original sketch had Destructure **auto**-derive for every Product/Sum type. That would
+be ambient sugar (PEP-052: "sugar is never ambient"), and `case Point(x, y)` needs a
+**value** named `Point`, which an interface doesn't have. So the derive is explicit, and
+it generates that value.
 
-**Product types** (interfaces, classes, records):
-
-```typescript
-interface Point { x: number; y: number }
-// Auto-derived:
-// Destructure<typeof Point, Point, [number, number]>
-// extract(p) → [p.x, p.y]
-
-// Use in patterns:
-match(point)
-| Point(x, y) if x > 0 => `positive x: ${x}`
-```
-
-The derived `extract` for a product returns a tuple of field values in declaration order.
-
-**Sum types** (discriminated unions):
+**What it generates.** For each extractor, a constructor function (the value the pattern
+names, and Scala's `apply`) and a `Destructure` instance with a `@destructure` descriptor:
 
 ```typescript
-type Option<T> = { _tag: "Some"; value: T } | { _tag: "None" };
-// Auto-derived for each variant:
-// Destructure<typeof Some, Option<T>, T>     — extract(o) → o._tag === "Some" ? o.value : undefined
-// Destructure<typeof None, Option<T>, void>  — extract(o) → o._tag === "None" ? undefined as void : undefined
+/** @derive(Destructure) */
+export interface Point {
+  x: number;
+  y: number;
+}
+// generates:
+export function Point(x: number, y: number): Point {
+  return { x, y };
+}
+/**
+ * @impl Destructure<typeof Point, Point, [number, number]>
+ * @destructure always -> x, y
+ */
+export const destructurePoint = { extract: (v: Point): [number, number] => [v.x, v.y] };
+
+/** @derive(Destructure) */
+export type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+// generates, per variant:
+export function Circle(r: number): { kind: "circle"; r: number } {
+  return { kind: "circle", r };
+}
+/**
+ * @impl Destructure<typeof Circle, Shape, number>
+ * @destructure kind = "circle" -> r
+ */
+export const destructureCircle = {
+  extract: (v: Shape): number | undefined => (v.kind === "circle" ? v.r : undefined),
+};
+// ... and Rect(w, h), destructureRect
 ```
 
-The derived `extract` for a sum variant checks the discriminant and returns the variant's payload.
+Generic types get generic functions and instances (`function Just<A>(value: A)`). An
+optional field is an optional trailing parameter, left absent when `undefined`
+(`exactOptionalPropertyTypes`).
 
-### Derivation Rules
+**Naming and fields.**
 
-| Type Kind                            | Has Generic?       | Destructure Derived? | Extract Returns       |
-| ------------------------------------ | ------------------ | -------------------- | --------------------- |
-| Product (interface/class)            | Yes (fields)       | Auto                 | Tuple of field values |
-| Sum variant                          | Yes (discriminant) | Auto per variant     | Variant payload       |
-| Primitive (`number`, `string`, etc.) | Identity           | Identity             | The value itself      |
-| Newtype / branded type               | Via unwrap         | Via unwrap           | Inner value           |
-| Class with explicit `extract`        | N/A                | Manual instance      | Custom                |
-| Regex pattern                        | Built-in           | Built-in             | `RegExpMatchArray`    |
+- A product (interface or object type alias): one extractor named after the type; its
+  fields in declaration order.
+- A discriminated union: one extractor per variant; the variant's fields other than the
+  discriminant, in declaration order. A variant declared as its own interface or object
+  type alias keeps its name (`type Result = Ok | Err`); an inline variant is named from its
+  string tag in PascalCase, splitting on `-` and `_` (`"circle"` → `Circle`,
+  `"line-string"` → `LineString`).
+- The discriminant is the one field with a distinct string or boolean literal type in every
+  variant.
+
+**Ambiguities are compile errors**, never guesses: more than one discriminant candidate;
+an inline variant with a boolean tag, a tag that makes no identifier (`"2d"`), or two tags
+that make one name; `extends` clauses and merged interfaces (field order); a method,
+call or construct signature (a constructor can't build it); a class (it has a constructor;
+hand-write the instance); a variant declared in another module (the function must merge
+with its declaration); and a name that already names a value in scope, globals included (a
+variant `"error"` would shadow `Error` in the module), except a namespace declared after
+the type, which merges.
+
+**Namespace decision.** The extractor is a top-level function, not a member of the derive
+companion namespace (`Point.Eq`). A namespace compiles to an IIFE that bundlers keep
+(checked with esbuild: the IIFE survives tree-shaking; an unused function and `const`
+object literal don't). A function merges with the interface, with a type alias, and with
+the companion namespace other derives emit, provided the function comes first (TS2434):
+the transformer orders derive-generated function declarations before the rest of a
+declaration's derive output (`functionsFirst` in transformer-core's `macro-helpers.ts`).
+The one case it can't order is a named variant whose own `@derive`s come before the union
+(its namespace is emitted at its own declaration): that is an error asking to declare the
+union first.
+
+**Resolution.** In the program the macros check, the generated function doesn't exist, so
+the pattern's `Point` has no value symbol. `match` resolves what it will bind to by the
+checker's scope lookup, by identity: the type the function merges with (product or named
+variant, directly or through an import), nothing at all (an inline variant of this file),
+or an import its module doesn't export yet (an inline variant of that module). The current
+file's plans come first from a live same-pass registry the derive fills
+(`registerSynthesizedDestructure`, per CLAUDE.md "Resolving things a macro just
+generated"); the `@derive` annotations are planned too, by the same pure function
+(`planDestructure`), which covers a match above the declaration and other source files.
+A library's `.d.ts` declares the functions and the instances, with the descriptor in the
+JSDoc, so consumers resolve them as hand-written instances.
+
+**Zero cost.** Patterns inline the descriptor: `.case(Circle(r))` is
+`if (_s.kind === "circle") { const r = _s.r; … }`, and `match: switch` is
+`switch (s.kind) { case "circle": { const r = s.r; … } }`. Neither references the function
+or the instance, so a bundle that only matches drops both (the shapes module disappears
+from an esbuild bundle entirely). A product in `match: switch` keeps the `switch (true) {
+case true: … }` shell every always-matching case gets, so `break` in the case body keeps
+its meaning. Pinned in `packages/std/tests/derive-destructure.test.ts`.
+
+**`derived<Destructure<T>>()`** (option B, types you don't own) is not supported. It makes
+one value from a type's structure, while an extractor needs a value to name in the pattern
+(one per variant for a union) and a `@destructure` tag on that value's declaration, which
+an expression macro can't write, so a library's `.d.ts` would lose the zero-cost path.
+`Destructure<Pattern, Input, Output>` also takes three type arguments, the first being the
+extractor's own type. Hand-written instances (two declarations) cover these types; the
+guide shows one for GeoJSON's `Point`.
+
+**Wave 11 status (2026-10-21).** Done: extractor patterns resolve `Destructure` instances
+by symbol, with descriptors (`7340c04e`); fp's built-ins are instances (`95602ac7`);
+`@derive(Destructure)` for products and discriminated unions (this section). Not done:
+`derived<Destructure<…>>()`, see above.
 
 ### Manual Instances
 
