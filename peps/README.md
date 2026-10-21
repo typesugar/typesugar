@@ -69,3 +69,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [059](PEP-059-1.0-readiness.md)                         | 1.0 Readiness — Deep Review Outcome and the Road to 1.0   | Draft (review fixes on `deep-review-1.0`)                                    |
 | [060](PEP-060-architecture-for-1.0.md)                  | Architecture for 1.0 — What to Settle Before the Freeze   | Draft (decisions pending)                                                    |
 | [061](PEP-061-wasm-and-rust-backed-libraries.md)        | WebAssembly Interop and Rust-Backed Libraries             | Draft (backlog, exploration; not a 1.0 item)                                 |
+| [062](PEP-062-typeclass-dispatch-everywhere.md)         | Typeclass Dispatch Everywhere                             | Draft (audit + plan; `match()` part in PEP-008 Waves 10–11)                  |
