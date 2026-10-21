@@ -79,6 +79,7 @@ import type { ResolutionAttempt } from "@typesugar/core";
 // Static: instance-resolver imports nothing from this module, so there is no
 // cycle (a lazy require() of it doesn't resolve when tests run the sources).
 import { resolveInstance, buildInstanceReference } from "./instance-resolver.js";
+import { isBuiltinObjectSymbol, isBuiltinObjectType } from "./derived-in-place.js";
 
 /**
  * Parse cached/generated derivation text (the string cache contract — see the
@@ -445,14 +446,20 @@ export function tryDeriveViaGeneric(
   // A built-in type (Array, Map, Date, ... from TypeScript's lib) has no
   // fields to derive from: its properties are methods and internals
   // (`__@unscopables@22`, `__@toStringTag@35`), and a "derivation" from them
-  // compared those. Decided by where the type's symbol is declared.
-  const subjectSymbol = concreteType
-    ? (concreteType.aliasSymbol ?? concreteType.symbol)
-    : typeSymbol;
-  const subjectDecls = subjectSymbol?.declarations ?? [];
-  // `some`: a library may augment a built-in (`declare global { interface
-  // Array<T> ... }`), which doesn't make it a type with fields.
-  if (subjectDecls.some((d) => ctx.program.isSourceFileDefaultLibrary(d.getSourceFile()))) {
+  // compared those. Decided by the resolved type's own symbol (an interface
+  // or class declared in the lib), not its alias: `Readonly<Point>` and
+  // `Record<K, V>` are lib ALIASES of ordinary object types and derive from
+  // their fields, while `type Nums = number[]` is an Array.
+  const subjectType =
+    concreteType ??
+    (typeSymbol && typeSymbol.flags & ts.SymbolFlags.TypeAlias
+      ? ctx.typeChecker.getDeclaredTypeOfSymbol(typeSymbol)
+      : undefined);
+  if (
+    subjectType
+      ? isBuiltinObjectType(ctx.program, subjectType)
+      : isBuiltinObjectSymbol(ctx.program, typeSymbol)
+  ) {
     trace.push({
       step: "generic-meta",
       target: `GenericMeta for ${typeName}`,
@@ -1623,10 +1630,7 @@ function isArrayLike(ctx: MacroContext, t: ts.Type): boolean {
  * not: they describe ordinary objects, cloned structurally.
  */
 function isLibType(ctx: MacroContext, t: ts.Type): boolean {
-  const sym = t.symbol;
-  if (!sym || !(sym.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.Class))) return false;
-  const decl = sym.declarations?.[0];
-  return !!decl && ctx.program.isSourceFileDefaultLibrary(decl.getSourceFile());
+  return isBuiltinObjectType(ctx.program, t);
 }
 
 /**

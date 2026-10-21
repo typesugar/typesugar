@@ -95,6 +95,32 @@ export function notOwnedTypeHelp(
 }
 
 /**
+ * `sym` is a built-in object type: an interface or class declared in
+ * TypeScript's default lib (`Array`, `ReadonlyArray`, `Map`, `Date`,
+ * `Promise`, ...), whose properties are methods and internals rather than
+ * fields. Decided by the symbol's kind and where it is declared, not by its
+ * name. `some`: a library may augment a built-in (`declare global { interface
+ * Array<T> ... }`), which doesn't make it a type with fields.
+ */
+export function isBuiltinObjectSymbol(program: ts.Program, sym: ts.Symbol | undefined): boolean {
+  if (!sym || !(sym.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.Class))) return false;
+  return (sym.declarations ?? []).some((d) =>
+    program.isSourceFileDefaultLibrary(d.getSourceFile())
+  );
+}
+
+/**
+ * {@link isBuiltinObjectSymbol} for a resolved type: reads the type's OWN
+ * symbol, never its alias. So `type Nums = number[]` is a built-in (Array),
+ * while the lib's utility aliases (`Readonly<Point>`, `Partial<Point>`,
+ * `Record<"a", number>`, `Pick<...>`) are not: they resolve to mapped or
+ * anonymous object types whose symbol is a type literal, with ordinary fields.
+ */
+export function isBuiltinObjectType(program: ts.Program, type: ts.Type): boolean {
+  return isBuiltinObjectSymbol(program, type.symbol);
+}
+
+/**
  * Help for a missing instance whose type is a primitive (`number`, `string`,
  * `boolean`, `bigint`, `symbol`, or a literal of one), which no `@derive` or
  * `derived<...>()` can build: the instance has to come from a module. Decided
@@ -115,12 +141,7 @@ export function primitiveInstanceHelp(
   if (!type) return undefined;
   // A built-in object type (Array, Map, Date, ...: declared in TypeScript's
   // lib) isn't derived either; derived<...>() rejects it.
-  const decls = (type.aliasSymbol ?? type.symbol)?.declarations ?? [];
-  if (
-    program &&
-    !(type.flags & primitive) &&
-    decls.some((d) => program.isSourceFileDefaultLibrary(d.getSourceFile()))
-  ) {
+  if (program && !(type.flags & primitive) && isBuiltinObjectType(program, type)) {
     return (
       `${typeName} is a built-in type, which derivation doesn't take apart. Bring a ` +
       `${typeclassName}<${typeName}> instance into scope (a library's, such as @typesugar/std's ` +

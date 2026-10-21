@@ -620,6 +620,48 @@ ${lines.join("\n")}
     }
   });
 
+  it("lib utility types (Readonly, Partial, Record, Pick) are derived from their fields", () => {
+    // They're type aliases declared in TypeScript's lib, but what they
+    // resolve to is an ordinary object type: the built-in check reads the
+    // resolved type's own symbol, not the alias.
+    const t = transformAll({
+      "util.ts": `import type { Eq, Clone } from "@typesugar/std";
+import { derived } from "typesugar";
+interface Point { x: number; y: number }
+export const eqRP = derived<Eq<Readonly<Point>>>();
+export const eqPart = derived<Eq<Partial<Point>>>();
+export const eqRec = derived<Eq<Record<"a" | "b", number>>>();
+export const clPick = derived<Clone<Pick<Point, "x">>>();
+`,
+    });
+    expect(transformErrors(t)).toEqual({});
+    expect(typecheck(t.code)).toEqual([]);
+    const m = run(t.code, "util.ts");
+    expect(m.eqRP.equals({ x: 1, y: 2 }, { x: 1, y: 2 })).toBe(true);
+    expect(m.eqRP.equals({ x: 1, y: 2 }, { x: 1, y: 3 })).toBe(false);
+    expect(m.eqPart.equals({ x: 1 }, { x: 2 })).toBe(false);
+    expect(m.eqPart.equals({ x: 1 }, { x: 1 })).toBe(true);
+    expect(m.eqRec.equals({ a: 1, b: 2 }, { a: 1, b: 2 })).toBe(true);
+    const src = { x: 1 };
+    const c = m.clPick.clone(src);
+    expect(c).toEqual(src);
+    expect(c).not.toBe(src);
+  });
+
+  it("an alias of a built-in, or a lib utility over one, is still a built-in", () => {
+    const t = transformAll({
+      "alias.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+type Nums = number[];
+export const a = derived<Eq<Nums>>();
+export const r = derived<Eq<Readonly<number[]>>>();
+`,
+    });
+    const errs = transformErrors(t)["alias.ts"] ?? [];
+    expect(errs).toHaveLength(2);
+    for (const e of errs) expect(e).toMatch(/TS9106[\s\S]*built-in/);
+  });
+
   it("summon's help for a built-in type doesn't point at derived<...>()", () => {
     const t = transformAll({
       "use.ts": `import type { Eq } from "@typesugar/std";
