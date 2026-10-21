@@ -3131,11 +3131,27 @@ function tagTypeMatches(
       ? node.type.elementType
       : undefined;
   const parsed = parseTypeInstantiation(t);
+  const unalias = (sym: ts.Symbol | undefined): ts.Symbol | undefined =>
+    sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+  // A name in scope at the tag, resolved through the checker; a qualified
+  // one (`geo.Point` with `import * as geo`, or a namespace member) by its
+  // first segment in scope, then each member of the module or namespace.
   const lookup = (name: string): ts.Symbol | undefined => {
-    let sym = checker
-      .getSymbolsInScope(location, ts.SymbolFlags.Type | ts.SymbolFlags.Alias)
-      .find((x) => x.name === name);
-    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const [first, ...rest] = name.split(".");
+    let sym = unalias(
+      checker
+        .getSymbolsInScope(
+          location,
+          rest.length > 0
+            ? ts.SymbolFlags.Namespace | ts.SymbolFlags.Alias
+            : ts.SymbolFlags.Type | ts.SymbolFlags.Alias
+        )
+        .find((x) => x.name === first)
+    );
+    for (const member of rest) {
+      if (!sym) return undefined;
+      sym = unalias(checker.getExportsOfModule(sym).find((x) => x.name === member));
+    }
     return sym;
   };
   const nodeSymbol = (n: ts.TypeReferenceNode): ts.Symbol | undefined => {

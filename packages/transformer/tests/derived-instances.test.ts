@@ -700,6 +700,49 @@ export const eqPt = derived<Eq<Pt>>();
     });
     expect(transformErrors(differ)["bad.ts"]?.[0]).toMatch(/@impl Eq<Qt>.*derived<Eq<Pt>>\(\)/s);
   });
+
+  it("a qualified name in the tag (a namespace import's member) is resolved through the checker", () => {
+    // `/** @impl Eq<geo.Point> */` on `derived<Eq<geo.Point>>()` was "the tag
+    // names a different type": the tag's name was looked up whole in scope.
+    const t = transformAll({
+      "geo.ts": `export interface Point { x: number; y: number }\nexport interface Other { z: number }\n`,
+      "ok.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+import * as geo from "./geo";
+import type { Point as P2 } from "./geo";
+/** @impl Eq<geo.Point> */
+export const eqGeo = derived<Eq<geo.Point>>();
+/** @impl Eq<P2> */
+export const eqGeo2 = derived<Eq<geo.Point>>();
+`,
+      "hand.ts": `import type { Eq } from "@typesugar/std";
+import * as geo from "./geo";
+/** @impl Eq<geo.Other> */
+export const eqOther: Eq<geo.Other> = {
+  equals: (a, b) => a.z === b.z,
+  notEquals: (a, b) => a.z !== b.z,
+};
+`,
+      "use.ts": `import type { Eq } from "@typesugar/std";
+import { summon } from "typesugar";
+import type { Other } from "./geo";
+import { eqOther } from "./hand";
+export const e = summon<Eq<Other>>();
+`,
+    });
+    expect(transformErrors(t)).toEqual({});
+    expect(t.code["use.ts"]).toContain("e = eqOther");
+    const differ = transformAll({
+      "geo.ts": `export interface Point { x: number; y: number }\nexport interface Other { z: number }\n`,
+      "bad.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+import * as geo from "./geo";
+/** @impl Eq<geo.Other> */
+export const eqGeo = derived<Eq<geo.Point>>();
+`,
+    });
+    expect(transformErrors(differ)["bad.ts"]?.[0]).toMatch(/@impl Eq<geo\.Other>/);
+  });
 });
 
 describe("derivation finds the type by identity, not by name", () => {
