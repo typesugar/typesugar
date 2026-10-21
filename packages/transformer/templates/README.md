@@ -43,7 +43,9 @@ A publishable library with:
 - Custom `Printable` typeclass
 - Domain types with derives
 - Generic functions using typeclasses
-- Test setup with Vitest
+- Test setup with Vitest (tests run the expanded code)
+- `withTypesugar()` in `tsup.config.ts`, so the published JavaScript and `.d.ts` files
+  are expanded
 
 **Stack:** tsup, TypeScript, Vitest, typesugar
 

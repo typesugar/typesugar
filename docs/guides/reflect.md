@@ -170,7 +170,11 @@ type ValidationResult<T> = { success: true; value: T } | { success: false; error
 
 - The generated function returns a `ValidationResult<T>` object — it is **not** a type guard. The
   result is always truthy; check `result.success`.
-- Only the **top level** of `T` is checked. Per field:
+- A `T` made only of primitives and literals (`string | number`, `"a" | "b"`,
+  `boolean | undefined`, an enum) is checked as a whole: `validator<string | number>()`
+  accepts any string or number and fails anything else with
+  `Expected string | number, got object`.
+- For an object type, only the **top level** of `T` is checked. Per field:
   - `string`, `number`, `boolean`, `bigint`, `symbol` — `typeof` check;
   - string/number/boolean literal types, literal unions and enums — `===` against each allowed value;
   - `null` / `undefined` members of a union (e.g. `string | null`) are accepted;

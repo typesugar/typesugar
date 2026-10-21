@@ -74,7 +74,9 @@ One safety rule for cross-module instances: a method body that references its
 own module's local helpers or imports is not inlined (the identifiers wouldn't
 exist at your call site) — that call keeps dictionary passing, which is always
 correct, just not zero-cost. Methods with self-contained bodies still
-specialize.
+specialize. The same goes for a method whose body calls a macro (say, a
+recursive `clone` that calls `summon<Clone<Tree>>()`): its source is not yet
+expanded, so it is called through the instance instead of inlined.
 
 ### With `= implicit()`
 
