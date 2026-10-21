@@ -16,9 +16,10 @@ the work, and no runtime cost.
 
 1. **Keep the build plugin wired up.** Either `unplugin-typesugar` in the
    bundler config (`plugins: [typesugar(), ...]`; for tsup, the config wrapped
-   in `withTypesugar(...)` from `typesugar/tsup`), `ts-patch` for a raw `tsc`
-   build, or `--import typesugar/register` for scripts and tests run directly
-   in Node or tsx. Removing it does not "simplify the build" — it silently
+   in `withTypesugar(...)` from `typesugar/tsup`), `typesugar build` in place
+   of a raw `tsc` (or `ts-patch`, if the project patches `tsc`), or
+   `--import typesugar/register` for scripts and tests run directly in Node
+   or tsx. Removing it does not "simplify the build" — it silently
    stops every macro from expanding, and the code will fail at runtime or emit
    nonsense. A library's `.d.ts` must come from the expanded program
    (`withTypesugar` with `dts: true`, or `typesugar build`), not from plain
@@ -127,8 +128,9 @@ npx typesugar check             # type-check with pre-transform noise filtered
 
 - **"My macro didn't expand"** → the emitted code still contains
   `comptime(...)`/`@derive`, or a stub threw at runtime. Check, in order: is
-  the plugin in the bundler config? did `ts-patch` run (`doctor` says)? is the
-  macro's package imported? Then `expand --diff` to confirm.
+  the plugin in the bundler config? is the build `typesugar build` rather than a
+  plain `tsc` (or, if the project patches `tsc`, did `ts-patch` run; `doctor`
+  says)? is the macro's package imported? Then `expand --diff` to confirm.
 - **A `TS9xxx` diagnostic** → every code has a page:
   `https://typesugar.org/errors/TS9001` (etc.), with a worked example and
   fix. Read it rather than guessing.

@@ -19,7 +19,7 @@ Select "I want to write custom macros or extensions" when prompted. This install
 ```bash
 # Core packages for macro authoring
 npm install typesugar @typesugar/core
-npm install --save-dev @typesugar/transformer @typesugar/testing ts-patch
+npm install --save-dev @typesugar/transformer @typesugar/testing
 ```
 
 ### Step 2: Configure tsconfig.json
@@ -41,11 +41,15 @@ npm install --save-dev @typesugar/transformer @typesugar/testing ts-patch
 }
 ```
 
-### Step 3: Install ts-patch
+### Step 3: Choose a build
 
-```bash
-npx ts-patch install
-```
+The macro entry itself is ordinary TypeScript, so any build works for it (the
+[Publishing Macros](../writing-macros/publishing-macros.md) guide uses tsup). Code that
+_uses_ macros, such as a runtime entry with a `/** @typeclass */` or `@derive`, or
+an example app, needs a build that expands them. A plain `tsc` doesn't: use
+`typesugar build` in its place (and `typesugar check` for `tsc --noEmit`), or wrap a
+tsup config in `withTypesugar()` from `typesugar/tsup`. A ts-patched `tsc` is an
+[alternative](./environments/tsc.md#alternative-a-ts-patched-tsc).
 
 ## Macro Types Overview
 

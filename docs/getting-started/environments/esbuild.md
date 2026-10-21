@@ -5,7 +5,7 @@ This guide covers setting up typesugar with esbuild.
 ## Installation
 
 ```bash
-npm install --save-dev unplugin-typesugar @typesugar/transformer ts-patch esbuild
+npm install --save-dev unplugin-typesugar @typesugar/transformer esbuild
 ```
 
 ## Configuration

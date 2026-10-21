@@ -29,12 +29,10 @@ my-monorepo/
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
-    "prepare": "ts-patch install -s"
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
     "@typesugar/transformer": "^0.1.0",
-    "ts-patch": "^3.0.0",
     "typescript": "^6.0.0"
   }
 }
@@ -312,7 +310,10 @@ turbo typecheck
 
 ## ts-patch in Monorepos
 
-ts-patch needs to patch the TypeScript installation. In monorepos:
+You only need ts-patch for a patched `tsc --build` with
+[project references](#typescript-project-references); `typesugar build` and the
+bundler plugins don't use it. ts-patch needs to patch the TypeScript installation. In
+monorepos:
 
 ### Option 1: Root-level ts-patch
 

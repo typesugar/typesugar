@@ -125,7 +125,10 @@ Other variables typesugar reads:
 
 ### Transformer Plugin
 
-Used by ts-patch (`tsc`) and read by the typesugar CLI:
+Used by a ts-patched `tsc`. The typesugar CLI (`typesugar build`, `check`, `run`) and the
+bundler plugins don't read this entry's options: pass options to the bundler plugin, and
+for the CLI set `cfg()` conditions with `TYPESUGAR_CFG_*` variables (see
+[Conditional Compilation](#conditional-compilation-cfg)).
 
 ```json
 {
@@ -266,8 +269,8 @@ export default {
 `cfg()` and `@cfgAttr` read their conditions from one of two sources:
 
 - the `cfgConfig` option — of the bundler plugin, or of the tsconfig transformer
-  entry. When it is set, it **replaces** the environment variables below; they are
-  not merged.
+  entry under a ts-patched `tsc` (the typesugar CLI doesn't read it). When it is
+  set, it **replaces** the environment variables below; they are not merged.
 - otherwise, `TYPESUGAR_CFG_<NAME>` environment variables — `TYPESUGAR_CFG_DEBUG=1`
   sets `debug: true`; `__` nests (`TYPESUGAR_CFG_TARGET__PLATFORM=web` sets
   `target.platform`)
@@ -335,6 +338,9 @@ registers it), so it has one setting, in `.vscode/settings.json` or user setting
 | `comptimeInEditor` | boolean | `false` | Evaluate `comptime(...)` in the editor (trusted workspaces only). Sent to the plugin by the extension; `tsconfig.json` can't set it |
 
 ## ts-patch
+
+Only needed if you want a plain `tsc` to expand macros, as an alternative to
+`typesugar build` (see [tsc Setup](../getting-started/environments/tsc.md#alternative-a-ts-patched-tsc)).
 
 ### Installation
 

@@ -85,7 +85,7 @@ The rewriter uses `magic-string` to track source positions through transformatio
 
 ## 2. AST Transformer (`@typesugar/transformer`)
 
-The transformer is a TypeScript compiler plugin (ts-patch) that expands macros during compilation.
+The transformer is a TypeScript program transformer that expands macros during compilation. The bundler plugins (`unplugin-typesugar`), the `typesugar` CLI (`build`, `check`, `run`) and the Node loader (`typesugar/register`) run it; a ts-patched `tsc` can also load it as a `tsconfig.json` plugin.
 
 ### Location
 
@@ -799,10 +799,13 @@ typesugar follows the standard TypeScript ecosystem pattern: **fast builds, back
 ```
 Build tool (Vite, esbuild, …)    →  Macros expand, types stripped, NO typecheck
 IDE (tsserver + language service) →  Background incremental typecheck
-CI (tsc --noEmit)                 →  Full correctness gate
+CI (typesugar check)              →  Full correctness gate
 ```
 
-The only exception is `tsc` with ts-patch, where transformation and typechecking happen in the same pass.
+`typesugar build` and `typesugar check` expand macros first and then type-check, filtering
+out the errors the unexpanded source produces. A plain `tsc --noEmit` never expands
+macros, so it is not a useful gate. A ts-patched `tsc` type-checks the **unexpanded**
+source and transforms only at emit (see [tsc Setup](./getting-started/environments/tsc.md#typechecking)).
 
 ### Why Pre-Macro Code Is Type-Incomplete
 

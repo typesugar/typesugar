@@ -1,42 +1,38 @@
 # tsc (TypeScript Compiler) Setup
 
-This guide covers setting up typesugar with the TypeScript compiler directly, using ts-patch.
+This guide covers tsc-style builds, where the TypeScript compiler (not a bundler) writes
+your `.js` and `.d.ts` files.
 
 ## Overview
 
-The TypeScript compiler (`tsc`) doesn't natively support transformer plugins. ts-patch modifies the installed TypeScript to enable this feature.
+The TypeScript compiler (`tsc`) doesn't run transformer plugins, so a plain `tsc`
+does not expand macros. Build with the typesugar CLI instead: `typesugar build` is a
+drop-in for `tsc` that reads the same `tsconfig.json`, expands macros, type-checks the
+expanded code and emits declarations from it. No patching is needed.
+
+[ts-patch](#alternative-a-ts-patched-tsc) is an alternative if you want `tsc` itself to
+expand macros, with the caveats listed there.
 
 ## Installation
 
 ```bash
-npm install --save-dev @typesugar/transformer ts-patch typescript
+npm install --save-dev @typesugar/transformer typescript
 ```
 
-## Step 1: Install ts-patch
+(The `typesugar` umbrella package also provides the `typesugar` command.)
 
-```bash
-npx ts-patch install
-```
-
-This patches your local `node_modules/typescript` installation.
-
-## Step 2: Add Prepare Script
-
-Add ts-patch to your `prepare` script so it persists after `npm install`:
+## Step 1: Add Scripts
 
 ```json
 {
   "scripts": {
-    "prepare": "ts-patch install -s",
     "build": "typesugar build",
     "check": "typesugar check"
   }
 }
 ```
 
-The `-s` flag makes ts-patch silent (no output on success).
-
-## Step 3: Configure tsconfig.json
+## Step 2: Configure tsconfig.json
 
 ```json
 {
@@ -57,9 +53,15 @@ The `-s` flag makes ts-patch silent (no output on success).
 }
 ```
 
+The `language-service` entry gives your editor the expanded types. The `transform`
+entry is what a ts-patched `tsc` runs; `typesugar build` doesn't need it, but
+`typesugar doctor` checks for it and plain `tsc` ignores it, so keeping it does no harm.
+
 ### Plugin Configuration
 
-The transformer plugin accepts options:
+Under a [ts-patched `tsc`](#alternative-a-ts-patched-tsc), the `transform` entry
+accepts options (`typesugar build` doesn't read them; set `cfg()` conditions for it
+with `TYPESUGAR_CFG_*` variables):
 
 ```json
 {
@@ -78,8 +80,8 @@ See [Configuration](../../reference/config.md#transformer-plugin) for every opti
 
 ### Typechecking
 
-ts-patch runs the transformer at **emit** time, after TypeScript has already
-type-checked the file. So a patched `tsc`:
+A [ts-patched `tsc`](#alternative-a-ts-patched-tsc) runs the transformer at **emit**
+time, after TypeScript has already type-checked the file. So a patched `tsc`:
 
 - type-checks the **original, unexpanded** source. Code that is valid only after
   expansion produces phantom errors — for example `@derive(Eq) interface P {…}`
@@ -113,24 +115,10 @@ With `declaration: true` in the tsconfig, `typesugar build` writes both the `.js
 `.d.ts` files. To write only the declarations (the JavaScript comes from a bundler), run
 `typesugar build --emitDeclarationOnly`.
 
-## Using tspc Instead of tsc
-
-ts-patch provides `tspc` as an alternative to `tsc`:
-
-```json
-{
-  "scripts": {
-    "build": "tspc"
-  }
-}
-```
-
-`tspc` is a patched version of `tsc` that doesn't require modifying `node_modules/typescript`. This is useful if you can't or don't want to patch TypeScript globally.
-
 ## Using the typesugar CLI
 
-typesugar provides its own CLI, built on the TypeScript API (recommended over plain
-`tsc`; see [Typechecking](#typechecking)):
+The typesugar CLI is built on the TypeScript API (recommended over a patched `tsc`;
+see [Typechecking](#typechecking)):
 
 ```bash
 # Build with macro expansion
@@ -164,8 +152,6 @@ export const buildTime = comptime(new Date().toISOString());
 
 ```bash
 npx typesugar build
-# or, with ts-patch installed
-npx tsc
 ```
 
 3. Check `dist/test.js` for the expanded timestamp.
@@ -182,33 +168,15 @@ npx typesugar build --project tsconfig.dev.json
 npx typesugar build --project tsconfig.prod.json
 ```
 
-Each config can have different transformer options.
+Each config can have its own compiler options (`outDir`, `target`, `include`, …).
 
 ## Troubleshooting
 
-### "Transform not found" Error
-
-1. Verify ts-patch is installed: `npx ts-patch check`
-2. Reinstall: `npx ts-patch install`
-3. Check that `@typesugar/transformer` is in `node_modules`
-
-### ts-patch Resets After npm install
-
-Add to your prepare script:
-
-```json
-{
-  "scripts": {
-    "prepare": "ts-patch install -s"
-  }
-}
-```
-
 ### Macros Not Expanding
 
-1. Ensure the `plugins` array is in `compilerOptions`
-2. Check the transform path is correct
-3. Verify the file is included in `include`
+1. Build with `typesugar build`: a plain `tsc` doesn't expand macros
+2. Verify the file is included in `include`
+3. Run `npx typesugar expand src/file.ts` to see what the macros produce
 
 ### IDE Shows Errors
 
@@ -218,20 +186,54 @@ Add to your prepare script:
 
 ## CI/CD Considerations
 
-In CI environments, run ts-patch after installing dependencies:
-
 ```yaml
 # GitHub Actions example
 steps:
   - uses: actions/checkout@v4
   - uses: actions/setup-node@v4
   - run: npm ci
-  - run: npx ts-patch install
   - run: npx typesugar check
   - run: npm run build
 ```
 
-Or rely on the `prepare` script (runs automatically after `npm ci`).
+## Alternative: a ts-patched tsc
+
+[ts-patch](https://github.com/nonara/ts-patch) modifies the installed TypeScript so
+that `tsc` runs the `transform` plugins in `tsconfig.json`. Use it only if you need
+`tsc` itself to expand macros; read [Typechecking](#typechecking) and
+[Declarations](#declarations) first, since a patched `tsc` checks and declares the
+unexpanded source.
+
+```bash
+npm install --save-dev ts-patch
+npx ts-patch install
+```
+
+`ts-patch install` patches `node_modules/typescript`, and a reinstall undoes it, so add
+it to your `prepare` script (`-s` makes it silent on success):
+
+```json
+{
+  "scripts": {
+    "prepare": "ts-patch install -s"
+  }
+}
+```
+
+ts-patch also provides `tspc`, a patched `tsc` that doesn't modify
+`node_modules/typescript`:
+
+```json
+{
+  "scripts": {
+    "build": "tspc"
+  }
+}
+```
+
+If a patched build reports "Transform not found", check with `npx ts-patch check`,
+re-run `npx ts-patch install`, and make sure `@typesugar/transformer` is in
+`node_modules`.
 
 ## Next Steps
 

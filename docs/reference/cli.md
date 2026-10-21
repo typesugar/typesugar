@@ -275,7 +275,8 @@ typesugar init [options]
 2. Installs required packages
 3. Configures tsconfig.json
 4. Patches build configs
-5. Sets up ts-patch
+5. Installs ts-patch and adds a `prepare` script for it (only needed if you build with a
+   patched `tsc`; `typesugar build` and the bundler plugins don't use it)
 6. Writes an example file (`src/typesugar-example.ts`)
 
 **Examples:**
@@ -351,9 +352,8 @@ typesugar doctor [options]
 - tsconfig.json exists
 - Transformer plugin configured
 - Language service plugin configured
-- ts-patch installed
-- ts-patch active (TypeScript patched)
-- prepare script configured
+- ts-patch installed, ts-patch active (TypeScript patched) and prepare script configured
+  (skipped when `unplugin-typesugar` is a dependency)
 - `@typesugar/transformer` installed
 - `skipLibCheck` enabled (warning only)
 - Macro registration
@@ -455,8 +455,7 @@ typesugar approve-macros --yes
     "build:prod": "typesugar build -p tsconfig.prod.json",
     "watch": "typesugar watch",
     "check": "typesugar check",
-    "expand": "typesugar expand",
-    "prepare": "ts-patch install -s"
+    "expand": "typesugar expand"
   }
 }
 ```

@@ -18,8 +18,10 @@ npx typesugar init
 
 `init` detects your stack (package manager, bundler, TypeScript), installs the
 packages, configures `tsconfig.json` (the transformer **and** the editor plugin),
-wires up `ts-patch`, patches your bundler config, and drops a runnable example at
-`src/typesugar-example.ts`.
+patches your bundler config, and drops a runnable example at
+`src/typesugar-example.ts`. It also installs `ts-patch` and adds a
+`"prepare": "ts-patch install -s"` script; you only need those if you build with a
+patched `tsc` (see [Build](#how-typesugar-works) below), and can remove them otherwise.
 
 Run the example and see its output:
 
@@ -54,11 +56,15 @@ ship at runtime.
 Because the work happens at compile time, typesugar plugs into three layers —
 and `typesugar init` wires all three for you:
 
-| Layer      | What it gives you                                  | How                                                                         |
-| ---------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
-| **Build**  | macros expand when you compile or bundle           | `@typesugar/transformer` (via ts-patch, or the Vite/esbuild/Webpack plugin) |
-| **Editor** | your IDE sees the expanded types — no false errors | the `@typesugar/transformer/language-service` TypeScript plugin             |
-| **CI**     | the build fails on real type errors                | `typesugar check`                                                           |
+| Layer      | What it gives you                                  | How                                                                                                                                       |
+| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Build**  | macros expand when you compile, bundle or run      | a [bundler plugin](#environment-specific-guides), `typesugar build` in place of `tsc`, or `node --import typesugar/register` to run files |
+| **Editor** | your IDE sees the expanded types — no false errors | the `@typesugar/transformer/language-service` TypeScript plugin                                                                           |
+| **CI**     | the build fails on real type errors                | `typesugar check`                                                                                                                         |
+
+A plain `tsc` does not expand macros. If you want it to, [ts-patch](./environments/tsc.md#alternative-a-ts-patched-tsc)
+is an alternative to `typesugar build`, with caveats (it type-checks the unexpanded source
+and declares unexpanded types).
 
 If your editor flags valid macro code as an error, the **Editor** layer isn't
 active — see [Editor Setup](./editor-setup.md). For the full model and how to
@@ -96,14 +102,14 @@ You want to create custom macros, syntax extensions, or publish a typesugar-powe
 
 Once you've followed your persona guide, you may need environment-specific configuration:
 
-| Build Tool     | Guide                                            |
-| -------------- | ------------------------------------------------ |
-| Vite           | [Vite Setup](./environments/vite.md)             |
-| Webpack        | [Webpack Setup](./environments/webpack.md)       |
-| esbuild        | [esbuild Setup](./environments/esbuild.md)       |
-| tsup           | [With tsup](./environments/esbuild.md#with-tsup) |
-| tsc (ts-patch) | [tsc Setup](./environments/tsc.md)               |
-| Bun            | [Bun Setup](./environments/bun.md)               |
+| Build Tool              | Guide                                            |
+| ----------------------- | ------------------------------------------------ |
+| Vite                    | [Vite Setup](./environments/vite.md)             |
+| Webpack                 | [Webpack Setup](./environments/webpack.md)       |
+| esbuild                 | [esbuild Setup](./environments/esbuild.md)       |
+| tsup                    | [With tsup](./environments/esbuild.md#with-tsup) |
+| tsc / `typesugar build` | [tsc Setup](./environments/tsc.md)               |
+| Bun                     | [Bun Setup](./environments/bun.md)               |
 
 | Testing / running                | Guide                                     |
 | -------------------------------- | ----------------------------------------- |
@@ -134,9 +140,11 @@ npx typesugar doctor
 
 This checks:
 
-- TypeScript, ts-patch and `@typesugar/transformer` installation
+- TypeScript and `@typesugar/transformer` installation
 - tsconfig.json transformer and language-service plugin configuration
-- `skipLibCheck`, the `prepare` script and macro registration
+- `skipLibCheck` and macro registration
+- ts-patch and its `prepare` script (skipped when `unplugin-typesugar` is a
+  dependency; they only matter if you build with a patched `tsc`)
 - Package version consistency
 - Bundler plugin setup
 

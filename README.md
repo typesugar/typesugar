@@ -65,7 +65,7 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 | [typesugar](packages/typesugar)                   | Umbrella package                                    |
 | [@typesugar/core](packages/core)                  | Macro registration and types                        |
 | [@typesugar/macros](packages/macros)              | Built-in macro implementations                      |
-| [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch, CLI)              |
+| [@typesugar/transformer](packages/transformer)    | TypeScript transformer, CLI and Node loader         |
 | [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack)    |
 | [@typesugar/ts-plugin](packages/ts-plugin)        | TypeScript language service plugin (editor support) |
 
@@ -147,7 +147,7 @@ npx typesugar run src/main.ts   # compile + run in one step
 
 Or explore in the browser: **[Interactive Playground →](https://typesugar.org/playground)** (no install).
 
-📖 **Full setup** — Vite, esbuild, tsup, Webpack, tsc/ts-patch, Bun, Vitest, Node/tsx (`node --import typesugar/register`), editor setup, and CI — lives on the microsite: **[Getting Started → typesugar.org](https://typesugar.org/getting-started/)**.
+📖 **Full setup** — Vite, esbuild, tsup, Webpack, tsc-style builds (`typesugar build`), Bun, Vitest, Node/tsx (`node --import typesugar/register`), editor setup, and CI — lives on the microsite: **[Getting Started → typesugar.org](https://typesugar.org/getting-started/)**.
 
 ## Features
 

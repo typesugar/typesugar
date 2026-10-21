@@ -165,7 +165,7 @@ interface Functor<F extends URIS> { map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) 
 const Functor: Functor1<URI> = { URI, map: (fa, f) => ... };
 ```
 
-The `F<A>` rewrite works in IDE, bundlers, and `tsc` + ts-patch. For raw `tsc` without ts-patch, users can write `Kind<F, A>` directly.
+The `F<A>` rewrite runs wherever typesugar reads the source before TypeScript does: the editor plugin, the bundler plugins, `typesugar build`/`check` and the Node loader. A plain or ts-patched `tsc` type-checks the source as written, so there, write `Kind<F, A>` directly.
 
 ---
 
@@ -787,7 +787,7 @@ Zero-cost abstractions aren't a feature. They're the philosophy.
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  TypeScript Compiler (tsc)                   │
-│  (with ts-patch for transformer integration)                │
+│  (via a bundler plugin, the typesugar CLI, or ts-patch)     │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -879,4 +879,4 @@ const reflect = defineAttributeMacro({
 1. No runtime side effects in comptime (sandboxed — no fs, net, process)
 2. Compile-time evaluation has a 5-second timeout
 3. Decorators only work on classes (not interfaces or type aliases) — use expression macros for those
-4. Depends on ts-patch for transformer integration (or the unplugin/Vite integration)
+4. Needs a typesugar-aware build (a bundler plugin, `typesugar build`, or the `typesugar/register` Node loader); a plain `tsc` doesn't expand macros

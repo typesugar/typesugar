@@ -14,9 +14,9 @@ description: >-
 
 typesugar is a **compile-time macro system** for TypeScript. Source files are
 valid TypeScript, but they must be compiled through a typesugar-aware pipeline
-(the `unplugin-typesugar` bundler plugin, `withTypesugar()` for tsup, `ts-patch`
-for raw `tsc`, or `node --import typesugar/register` for scripts and tests) for
-macros to expand. Everything expands at build time to plain TypeScript — no
+(the `unplugin-typesugar` bundler plugin, `withTypesugar()` for tsup,
+`typesugar build` in place of raw `tsc`, or `node --import typesugar/register`
+for scripts and tests) for macros to expand. Everything expands at build time to plain TypeScript — no
 runtime library, no runtime cost.
 
 **Authoritative docs, machine-readable:**
@@ -40,19 +40,20 @@ npx typesugar check                     # type-check, pre-transform noise filter
 
 Most "typesugar is broken" reports are one of:
 
-| Symptom                                          | Cause                                                       | Check                                      |
-| ------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------ |
-| Macro call survives into the output; stub throws | The plugin is not in the bundler config, or ts-patch is off | `typesugar doctor`                         |
-| Editor errors on valid macro code                | tsconfig `plugins` entry missing / wrong TS version         | `typesugar doctor`, then reload the editor |
-| `tsc --noEmit` errors but the build is fine      | Raw `tsc` sees pre-expansion code (e.g. `TS1206`)           | Use `typesugar check` instead              |
-| A `TS9xxx` error                                 | A real macro-level diagnostic                               | Read `typesugar.org/errors/TS9xxx`         |
-| Instance "not found" for a type in another file  | Resolution is scope-based — it must be **imported**         | `typesugar expand --diff`                  |
+| Symptom                                          | Cause                                                                                          | Check                                      |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Macro call survives into the output; stub throws | The plugin is not in the bundler config, or the build is a plain `tsc` (not `typesugar build`) | `typesugar doctor`                         |
+| Editor errors on valid macro code                | tsconfig `plugins` entry missing / wrong TS version                                            | `typesugar doctor`, then reload the editor |
+| `tsc --noEmit` errors but the build is fine      | Raw `tsc` sees pre-expansion code (e.g. `TS1206`)                                              | Use `typesugar check` instead              |
+| A `TS9xxx` error                                 | A real macro-level diagnostic                                                                  | Read `typesugar.org/errors/TS9xxx`         |
+| Instance "not found" for a type in another file  | Resolution is scope-based — it must be **imported**                                            | `typesugar expand --diff`                  |
 
 ## Setup invariants — violating these silently breaks expansion
 
 1. **The build plugin must stay in the bundler config** (`plugins: [typesugar(), …]`,
-   or `withTypesugar(…)` around a tsup config), ts-patch must stay installed for
-   `tsc` builds, and `--import typesugar/register` must stay on Node/tsx
+   or `withTypesugar(…)` around a tsup config), `typesugar build` must stay in
+   place of `tsc` (or ts-patch installed, if the project patches `tsc`), and
+   `--import typesugar/register` must stay on Node/tsx
    commands that run TypeScript directly. Removing it does not simplify the
    build; it turns every macro into dead code. A library's `.d.ts` must come
    from the expanded program (`withTypesugar` with `dts: true`, or
