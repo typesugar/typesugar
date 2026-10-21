@@ -123,6 +123,24 @@ you're building on and say so in a comment. Silence on this point reads as
 "the author didn't think about it," because in every instance found so far,
 that's exactly what it was.
 
+## Deciding what a type is: by identity, not by name
+
+When macro code needs to know what a type _is_ (to pick an instance, a
+derivation strategy, an extractor, a monad for do-notation), compare types
+through the checker: symbol identity after alias resolution, assignability,
+or HKT unification. Do not compare names or printed text
+(`typeToString(t) === "Result"`, `symbol.name === "Option"`, `getText()` on a
+type node). Names lie both ways: aliases, re-exports, renamed imports and
+default type arguments make one type print differently, and unrelated types
+share names (the DOM's `Range` silently absorbed a test interface's derives).
+The 2026-10 audit in PEP-062 found this pattern behind many bugs, and PEP-062
+Wave 11 is removing it.
+
+Name checks are fine for syntax: which macro a call names, which label a
+block has, which JSDoc tag is present. If you add type dispatch, resolve a
+typeclass instance from scope (PEP-062's principle) rather than a table
+keyed by type name, and say in a comment which comparison you used.
+
 ## Calling the type checker on macro-generated nodes
 
 A synthesized AST node (`pos`/`end` of `-1`, never part of the `Program`

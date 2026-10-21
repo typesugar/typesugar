@@ -35,6 +35,20 @@ instances shipped by the packages that own them. Fast paths for known types are 
 _behind_ a resolvable instance (an inlined instance is how zero cost works), but never
 instead of one.
 
+A second principle follows from it (Dean, 2026-10-21): **match by type, not by name.**
+Deciding what a type _is_ by its printed or declared name (`typeToString(t) === "Result"`,
+`symbol.name === "Option"`, comparing type text) is an anti-pattern wherever it appears,
+including inside instance resolution itself. Names lie in both directions:
+
+- aliases (`type R<A> = Result<A, E>`), re-exports, `import { Effect as E }`, and
+  default type arguments make the same type print differently;
+- two unrelated types can share a name (the DOM's `Range` swallowed a test interface's
+  derives, and global registries keyed by name collide).
+
+Resolution compares types through the checker (symbol identity after alias resolution,
+assignability, or HKT unification), never through their spelling. Name checks remain
+legitimate only for syntax: which macro a call names, which label a block has.
+
 ## Audit findings
 
 Classes:
@@ -151,7 +165,10 @@ not get worse.
    - Fix the companion fallback's `getBaseType`.
 4. **Return-type specialization** (row 10): `ok`/`err` through `ApplicativeError`
    instances (see Decisions); delete `ResultAlgebra` and its registry; remove the by-name
-   intrinsic fallback.
+   intrinsic fallback. Add `MonadThrow<F>` = `MonadError<F, unknown>` and
+   `ApplicativeThrow<F>`, the aliases cats uses, which drop the error type argument for
+   the exceptions and Promise instances. Test that instance resolution sees through
+   aliases (it must, by the principle above).
 5. **sql** (rows 8–9): column types through `Meta`/`Get`/`Put` instances from scope;
    import-scoped registries; delete the never-filled one.
 6. **Effect Schema derive** (row 11): a `Schema` instance from scope, with instances for
@@ -193,6 +210,14 @@ not get worse.
       ```
     - Not planned: checked exceptions (`@throws` verified at compile time). TypeScript
       can't see what a call throws, so the check would be noisy and unreliable.
+
+11. **Resolve by type identity everywhere.** Sweep every resolution path (instance
+    lookup, `implicit()`, specialization, derive field checks, extractor lookup) for
+    name-based type comparison and replace it with checker-based comparison. Known
+    cases: `implicit()` matched by printed name until `case-study-fixes`; derive field
+    checks on type text (rows 5–7, the GeoJSON `Position` failure); `summon` resolving a
+    bare `Feature` to the declared `Feature<G, P>`. Add a lint or test that fails on new
+    `typeToString(…) ===` comparisons in resolution code.
 
 Waves 2 and 3 matter most for 1.0: every `let:` and every `@derive` user is affected.
 Waves 4–7 are smaller and can follow.
@@ -257,6 +282,12 @@ implicit()`) is specialized per call site, and do-notation's error recovery can 
   two-parameter constructors (`Result<_, E>`), which Wave 2 must prove first.
 
 ## Open questions
+
+- **Context bounds for implicits.** The boilerplate in `ME: MonadError<F, E> = implicit()`
+  is the whole parameter, not the typeclass name. Scala 3 writes `def parse[F[_]: MonadThrow]`.
+  A typesugar equivalent would declare the requirement on the type parameter and add
+  the hidden parameter, but it has to be valid TypeScript and it changes the function's
+  visible signature in `.d.ts`. That is a design of its own, not part of this PEP's waves.
 
 - Unification cost. Resolving do-notation instances by unification runs per `<<`
   binding. It needs measuring on a large file; the instance index is per program, so it
