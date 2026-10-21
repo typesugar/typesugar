@@ -25,7 +25,11 @@ import {
   opaqueTypesAsUnderlying,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
-import { MacroTransformer, discoverOpaqueTypesFromImports } from "@typesugar/transformer-core";
+import {
+  MacroTransformer,
+  discoverOpaqueTypesFromImports,
+  registerProgramOpaqueTypes,
+} from "@typesugar/transformer-core";
 import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
@@ -428,7 +432,10 @@ export function macroTransformerFactory(
       // Scan for imports and opt-out directives
       scanImportsForScope(sourceFile, globalResolutionScope, program);
 
-      // Discover @opaque types from imported .d.ts files (external libraries).
+      // @opaque types declared in this program's source files, whichever
+      // file is transformed first (once per program), and those of imported
+      // .d.ts files (external libraries).
+      registerProgramOpaqueTypes(program, verbose);
       discoverOpaqueTypesFromImports(sourceFile, program, verbose);
 
       // Check for file-level opt-out

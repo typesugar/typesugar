@@ -367,7 +367,7 @@ export {
 } from "./extension.js";
 
 // --- Opaque type macro (PEP-012) ---
-export { opaqueAttribute } from "./opaque.js";
+export { opaqueAttribute, registerOpaqueInterface } from "./opaque.js";
 
 // --- ADT macro (PEP-014) ---
 export { adtAttribute } from "./adt.js";

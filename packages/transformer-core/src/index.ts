@@ -126,3 +126,5 @@ export {
   resetDtsDiscovery,
   type DtsFileAccess,
 } from "./dts-opaque-discovery.js";
+// The same for @opaque types declared in the program's own source files.
+export { registerProgramOpaqueTypes } from "./project-opaque-discovery.js";

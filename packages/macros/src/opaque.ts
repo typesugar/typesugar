@@ -25,7 +25,12 @@
 
 import ts from "typescript";
 import type { MacroContext, AttributeMacro } from "@typesugar/core";
-import { defineAttributeMacro, globalRegistry, hasExportModifier } from "@typesugar/core";
+import {
+  defineAttributeMacro,
+  globalRegistry,
+  hasExportModifier,
+  isJSDocTagAtLineStart,
+} from "@typesugar/core";
 import {
   registerTypeRewrite,
   type TypeRewriteEntry,
@@ -41,7 +46,7 @@ import {
 function extractOpaqueTag(node: ts.InterfaceDeclaration): string | undefined {
   const tags = ts.getJSDocTags(node);
   for (const tag of tags) {
-    if (tag.tagName.text === "opaque") {
+    if (tag.tagName.text === "opaque" && isJSDocTagAtLineStart(tag)) {
       const comment =
         typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
       return comment?.trim() || undefined;
@@ -287,76 +292,84 @@ export const opaqueAttribute: AttributeMacro = defineAttributeMacro({
       ctx.reportError(target, "@opaque can only be applied to interface declarations");
       return target;
     }
-
-    const typeName = target.name.text;
-
-    // 1. Parse @opaque tag from JSDoc
-    const underlyingTypeText = extractOpaqueTag(target);
-    if (!underlyingTypeText) {
-      ctx.reportError(
-        target,
-        `@opaque interface '${typeName}' is missing the underlying type in its JSDoc. ` +
-          `Use: /** @opaque <underlying-type> */`
-      );
-      return target;
-    }
-
-    // 2. Collect method signatures from the interface
-    const methodNames = collectInterfaceMethods(target);
-    const methodNameSet = new Set(methodNames);
-
-    // 3. Find companion functions in the same file
-    const exportedFunctions = findExportedFunctions(ctx.sourceFile);
-
-    // 4. Match interface methods to standalone functions
-    const methods = new Map<string, string>();
-    for (const methodName of methodNames) {
-      if (exportedFunctions.has(methodName)) {
-        methods.set(methodName, methodName);
-      }
-    }
-
-    // 5. Find constructors (PascalCase functions/constants that return the type)
-    const fnConstructors = findFunctionConstructors(
-      ctx.sourceFile,
-      ctx.typeChecker,
-      typeName,
-      methodNameSet
-    );
-    const constConstructors = findConstantConstructors(
-      ctx.sourceFile,
-      ctx.typeChecker,
-      typeName,
-      methodNameSet
-    );
-    const constructors = new Map<string, ConstructorRewrite>([
-      ...fnConstructors,
-      ...constConstructors,
-    ]);
-
-    // 6. Collect accessor rewrites from property signatures
-    const accessors = collectInterfaceAccessors(target);
-
-    // 7. Register the TypeRewriteEntry
-    const entry: TypeRewriteEntry = {
-      typeName,
-      underlyingTypeText,
-      sourceModule: resolveSourceModule(ctx.sourceFile),
-      // Exact declaring file: lets the erasure pass match references by
-      // resolved symbol instead of bare name (deep review #3).
-      declarationFile: ctx.sourceFile.fileName,
-      methods: methods.size > 0 ? methods : undefined,
-      constructors: constructors.size > 0 ? constructors : undefined,
-      accessors: accessors.size > 0 ? accessors : undefined,
-      transparent: true,
-    };
-
-    registerTypeRewrite(entry);
+    const error = registerOpaqueInterface(target, ctx.sourceFile, ctx.typeChecker);
+    if (error) ctx.reportError(target, error);
 
     // The interface declaration is returned unchanged — @opaque is metadata-only
     return target;
   },
 });
+
+/**
+ * Register the {@link TypeRewriteEntry} an `@opaque` interface declares: its
+ * methods mapped to the companion standalone functions exported from
+ * `sourceFile` (the declaring file), its constructors and accessors. What the
+ * `@opaque` attribute macro does when the declaring file is transformed, and
+ * what `registerProgramOpaqueTypes` (transformer-core) does for every
+ * `@opaque` interface of a program before any file is, so that a consumer's
+ * erasure doesn't depend on which file is transformed first.
+ *
+ * @returns an error message when the tag has no underlying type, else undefined.
+ */
+export function registerOpaqueInterface(
+  target: ts.InterfaceDeclaration,
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker
+): string | undefined {
+  const typeName = target.name.text;
+
+  // 1. Parse @opaque tag from JSDoc
+  const underlyingTypeText = extractOpaqueTag(target);
+  if (!underlyingTypeText) {
+    return (
+      `@opaque interface '${typeName}' is missing the underlying type in its JSDoc. ` +
+      `Use: /** @opaque <underlying-type> */`
+    );
+  }
+
+  // 2. Collect method signatures from the interface
+  const methodNames = collectInterfaceMethods(target);
+  const methodNameSet = new Set(methodNames);
+
+  // 3. Find companion functions in the same file
+  const exportedFunctions = findExportedFunctions(sourceFile);
+
+  // 4. Match interface methods to standalone functions
+  const methods = new Map<string, string>();
+  for (const methodName of methodNames) {
+    if (exportedFunctions.has(methodName)) {
+      methods.set(methodName, methodName);
+    }
+  }
+
+  // 5. Find constructors (PascalCase functions/constants that return the type)
+  const fnConstructors = findFunctionConstructors(sourceFile, checker, typeName, methodNameSet);
+  const constConstructors = findConstantConstructors(sourceFile, checker, typeName, methodNameSet);
+  const constructors = new Map<string, ConstructorRewrite>([
+    ...fnConstructors,
+    ...constConstructors,
+  ]);
+
+  // 6. Collect accessor rewrites from property signatures
+  const accessors = collectInterfaceAccessors(target);
+
+  // 7. Register the TypeRewriteEntry
+  const entry: TypeRewriteEntry = {
+    typeName,
+    underlyingTypeText,
+    sourceModule: resolveSourceModule(sourceFile),
+    // Exact declaring file: lets the erasure pass match references by
+    // resolved symbol instead of bare name (deep review #3).
+    declarationFile: sourceFile.fileName,
+    methods: methods.size > 0 ? methods : undefined,
+    constructors: constructors.size > 0 ? constructors : undefined,
+    accessors: accessors.size > 0 ? accessors : undefined,
+    transparent: true,
+  };
+
+  registerTypeRewrite(entry);
+  return undefined;
+}
 
 // ============================================================================
 // Registration

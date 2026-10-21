@@ -1446,6 +1446,71 @@ function isWithinSourceModule(filePath: string, sourceModule: string): boolean {
 }
 
 /**
+ * The module specifier the file being transformed imports `entry`'s companion
+ * functions from: the entry's own `sourceModule` (a package subpath such as
+ * `@typesugar/fp/data/option`), except when that is the absolute path of a
+ * project source file (`resolveSourceModule`'s fallback), which put `import {
+ * map } from "/home/…/src/opt.ts"` into JavaScript. For that file, the
+ * specifier this file already imports it by (resolved by the checker), else a
+ * relative path in the style of this file's other relative imports
+ * (`./opt.js`).
+ */
+function companionModuleSpecifier(
+  ctx: MacroContextImpl,
+  entry: TypeRewriteEntry
+): string | undefined {
+  const declarationFile = entry.declarationFile && normalizeSlashes(entry.declarationFile);
+  if (
+    !entry.sourceModule ||
+    !isAbsolutePath(normalizeSlashes(entry.sourceModule)) ||
+    !declarationFile ||
+    /\.d\.[cm]?ts$/.test(declarationFile) ||
+    !isAbsolutePath(declarationFile)
+  ) {
+    return entry.sourceModule;
+  }
+  const target = stripScriptExtension(declarationFile);
+  let relativeStyle: string | undefined;
+  for (const stmt of ctx.sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt)) continue;
+    const spec = stmt.moduleSpecifier;
+    if (!spec || !ts.isStringLiteral(spec) || isSyntheticNode(spec)) continue;
+    if (spec.text.startsWith(".")) {
+      relativeStyle ??= /\.[cm]?js$/.test(spec.text)
+        ? ".js"
+        : /\.[cm]?tsx?$/.test(spec.text)
+          ? ".ts"
+          : "";
+    }
+    let resolved: string | undefined;
+    try {
+      resolved = ctx.typeChecker
+        .getSymbolAtLocation(spec)
+        ?.declarations?.find((d): d is ts.SourceFile => ts.isSourceFile(d))?.fileName;
+    } catch {
+      resolved = undefined;
+    }
+    if (resolved && stripScriptExtension(normalizeSlashes(resolved)) === target) return spec.text;
+  }
+  const options = ctx.program.getCompilerOptions();
+  const nodeEsm =
+    options.moduleResolution === ts.ModuleResolutionKind.Node16 ||
+    options.moduleResolution === ts.ModuleResolutionKind.NodeNext;
+  const extension = relativeStyle ?? (nodeEsm ? ".js" : "");
+  return relativeModulePath(normalizeSlashes(ctx.sourceFile.fileName), target) + extension;
+}
+
+/** `./x` / `../x` from the directory of `fromFile` to `toPath` (both absolute, `/`-separated). */
+function relativeModulePath(fromFile: string, toPath: string): string {
+  const from = fromFile.split("/").slice(0, -1);
+  const to = toPath.split("/");
+  let common = 0;
+  while (common < from.length && common < to.length - 1 && from[common] === to[common]) common++;
+  const up = from.length - common;
+  return (up === 0 ? "./" : "../".repeat(up)) + to.slice(common).join("/");
+}
+
+/**
  * Rewrite a method call on an @opaque type.
  *
  * When a `methodInlines` pattern is registered for the method, the call is
@@ -1519,8 +1584,9 @@ export function tryRewriteOpaqueMethodCall(
   // uses the shared reference-hygiene mechanism (ctx.ensureImport) and the
   // identifier IT RETURNS (which may be a conflict-safe alias), matching the
   // pattern already used by method-sugar.ts / tryRewriteTypeclassOperator.
-  const resolvedFnName = entry.sourceModule
-    ? ctx.ensureImport(standaloneFnName, entry.sourceModule).text
+  const companionModule = companionModuleSpecifier(ctx, entry);
+  const resolvedFnName = companionModule
+    ? ctx.ensureImport(standaloneFnName, companionModule).text
     : standaloneFnName;
 
   if (verbose) {
