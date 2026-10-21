@@ -103,7 +103,8 @@ export function notOwnedTypeHelp(
 export function primitiveInstanceHelp(
   type: ts.Type | undefined,
   typeclassName: string,
-  typeName: string
+  typeName: string,
+  program?: ts.Program
 ): string | undefined {
   const primitive =
     ts.TypeFlags.NumberLike |
@@ -111,7 +112,22 @@ export function primitiveInstanceHelp(
     ts.TypeFlags.BooleanLike |
     ts.TypeFlags.BigIntLike |
     ts.TypeFlags.ESSymbolLike;
-  if (!type || !(type.flags & primitive)) return undefined;
+  if (!type) return undefined;
+  // A built-in object type (Array, Map, Date, ...: declared in TypeScript's
+  // lib) isn't derived either; derived<...>() rejects it.
+  const decls = (type.aliasSymbol ?? type.symbol)?.declarations ?? [];
+  if (
+    program &&
+    !(type.flags & primitive) &&
+    decls.some((d) => program.isSourceFileDefaultLibrary(d.getSourceFile()))
+  ) {
+    return (
+      `${typeName} is a built-in type, which derivation doesn't take apart. Bring a ` +
+      `${typeclassName}<${typeName}> instance into scope (a library's, such as @typesugar/std's ` +
+      `instances and instance constructors, or your own: /** @impl ${typeclassName}<${typeName}> */).`
+    );
+  }
+  if (!(type.flags & primitive)) return undefined;
   return (
     `${typeName} is a primitive, so there is nothing to derive ${typeclassName} from. Bring a ` +
     `${typeclassName}<${typeName}> instance into scope (import the module that provides it; ` +

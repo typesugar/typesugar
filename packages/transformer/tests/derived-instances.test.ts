@@ -539,3 +539,64 @@ ${std.map((tc) => `export const ${uncap(tc)}Money = derived<${tc}<Money>>();`).j
     expect(typecheck(t.code)).toEqual([]);
   });
 });
+
+describe("derived<TC<T>>() for a built-in type (review round 2)", () => {
+  it("Array, Map, Date: a clear TS9106, not a derivation from lib internals", () => {
+    const t = transformAll({
+      "builtins.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+export const a = derived<Eq<Array<number>>>();
+export const m = derived<Eq<Map<string, number>>>();
+export const d = derived<Eq<Date>>();
+`,
+    });
+    const errs = transformErrors(t)["builtins.ts"] ?? [];
+    expect(errs).toHaveLength(3);
+    for (const e of errs) {
+      expect(e).toContain("TS9106");
+      expect(e).toMatch(/built-in/);
+      expect(e).not.toMatch(/__@/);
+    }
+    // Nothing was generated from Map's lib members.
+    expect(t.code["builtins.ts"]).not.toContain("__@");
+  });
+
+  it("summon's help for a built-in type doesn't point at derived<...>()", () => {
+    const t = transformAll({
+      "use.ts": `import type { Eq } from "@typesugar/std";
+import { summon } from "typesugar";
+export const a = summon<Eq<Map<string, number>>>();
+`,
+    });
+    const errs = transformErrors(t)["use.ts"] ?? [];
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).not.toContain("derived<Eq<Map");
+    expect(errs[0]).toMatch(/built-in/);
+  });
+});
+
+describe("derived<TC<T>>() with an @impl tag: the tag and the call compared as types", () => {
+  it("an alias of the type is the same type; another type is an error", () => {
+    const t = transformAll({
+      "ok.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+/** @derive(Eq) */
+export interface Pt { x: number }
+type P2 = Pt;
+/** @impl Eq<P2> */
+export const eqPt = derived<Eq<Pt>>();
+`,
+    });
+    expect(transformErrors(t)).toEqual({});
+    const differ = transformAll({
+      "bad.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+export interface Pt { x: number }
+export interface Qt { y: number }
+/** @impl Eq<Qt> */
+export const eqPt = derived<Eq<Pt>>();
+`,
+    });
+    expect(transformErrors(differ)["bad.ts"]?.[0]).toMatch(/@impl Eq<Qt>.*derived<Eq<Pt>>\(\)/s);
+  });
+});

@@ -424,7 +424,15 @@ export function resolveTypeclassSymbol(
   checker: ts.TypeChecker,
   typeName: ts.EntityName
 ): ts.Symbol | undefined {
-  let sym = checker.getSymbolAtLocation(typeName);
+  return followTypeclassSymbol(checker, checker.getSymbolAtLocation(typeName));
+}
+
+/** {@link resolveTypeclassSymbol} from a symbol already looked up (import aliases followed). */
+export function followTypeclassSymbol(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol | undefined
+): ts.Symbol | undefined {
+  let sym = symbol;
   if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
   if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return undefined;
   // `type Clone<A> = std.Clone<A>` → std's `Clone` (bounded: aliases of aliases).

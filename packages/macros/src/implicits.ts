@@ -520,7 +520,7 @@ export function transformImplicitsCall(
       const tcSuggestions = getSuggestionsForTypeclass(typeclassName);
       const notOwned = notOwnedTypeHelp(ctx, concreteTsType, typeclassName, concreteType);
       const help =
-        primitiveInstanceHelp(concreteTsType, typeclassName, concreteType) ??
+        primitiveInstanceHelp(concreteTsType, typeclassName, concreteType, ctx.program) ??
         (notOwned ? `${helpMessage}\n    ${notOwned}` : helpMessage);
       if (tcSuggestions.length > 0 && !typeclassSymbol) {
         // Only when the typeclass itself isn't in scope (the instance is what's missing).

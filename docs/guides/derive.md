@@ -488,7 +488,7 @@ export const cloneFeature = derived<Clone<Feature>>(); // what @derive(Clone) wo
 export const eqPoint = derived<Eq<Point>>();
 ```
 
-It supports every typeclass in the table above, and field instances come from scope where it is written. See [Instances for types you don't own](./typeclasses.md#external-types) for the details: the `.d.ts`, generic types, and the errors.
+It supports every typeclass in the table above, and field instances come from scope where it is written. A built-in type from TypeScript's lib (`Array<number>`, `Map<K, V>`, `Date`) is not derived: its properties are methods and internals, not fields, so `derived<Eq<Array<number>>>()` is [TS9106](/errors/TS9106). Fields of those types are handled inside a derived instance; for the built-in itself, use a library's instance (`@typesugar/std` has them, and instance constructors such as `eqArray(eqNumber)`) or write one with `@impl`. An `@impl` tag on a `derived<...>()` const is optional; when present it must name the same type, compared as types (an alias of the type agrees). See [Instances for types you don't own](./typeclasses.md#external-types) for the details: the `.d.ts`, generic types, and the errors.
 
 `summon<Clone<Feature>>()` with no instance in scope still derives one in place, a new copy at each call, with a [TS9009](/errors/TS9009) warning. That fallback is deprecated; declare the instance with `@derive` or `derived` instead.
 

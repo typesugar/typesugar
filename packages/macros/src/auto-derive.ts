@@ -130,6 +130,8 @@ export interface DerivationResult {
    * belongs to). `derived<TC<T>>()` reports it as TS9107.
    */
   failedField?: { name: string; type: string; variant?: string };
+  /** The type is a built-in (TypeScript's lib), which is never derived. */
+  builtin?: boolean;
 }
 
 // ============================================================================
@@ -428,6 +430,32 @@ export function tryDeriveViaGeneric(
           `(${e instanceof Error ? e.message : String(e)})`
       );
     }
+  }
+
+  // A built-in type (Array, Map, Date, ... from TypeScript's lib) has no
+  // fields to derive from: its properties are methods and internals
+  // (`__@unscopables@22`, `__@toStringTag@35`), and a "derivation" from them
+  // compared those. Decided by where the type's symbol is declared.
+  const subjectSymbol = concreteType
+    ? (concreteType.aliasSymbol ?? concreteType.symbol)
+    : typeSymbol;
+  const subjectDecls = subjectSymbol?.declarations ?? [];
+  // `some`: a library may augment a built-in (`declare global { interface
+  // Array<T> ... }`), which doesn't make it a type with fields.
+  if (subjectDecls.some((d) => ctx.program.isSourceFileDefaultLibrary(d.getSourceFile()))) {
+    trace.push({
+      step: "generic-meta",
+      target: `GenericMeta for ${typeName}`,
+      result: "rejected",
+      reason:
+        `${typeName} is a built-in type (TypeScript's lib): derivation builds an instance ` +
+        `from a type's own fields, and a built-in's properties are its methods and internals. ` +
+        `A field of this type is handled inside a derived instance; for ${typeName} itself, ` +
+        `put an instance in scope (a library's, such as @typesugar/std's instances and ` +
+        `instance constructors like eqArray(eqNumber), or your own /** @impl ` +
+        `${typeclassName}<${typeName}> */).`,
+    });
+    return { expression: null, trace, builtin: true };
   }
 
   // L1 fast path: return in-memory cached derivation

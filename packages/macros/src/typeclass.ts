@@ -111,6 +111,7 @@ import {
   resolveInstance,
   resolveFromTypeclassHome,
   resolveTypeclassSymbol,
+  followTypeclassSymbol,
   hasInstanceInScopeByName,
   buildInstanceReference,
 } from "./instance-resolver.js";
@@ -2812,7 +2813,7 @@ export function summonInstanceExpression(
     if (typeParam || isSyntheticNode(innerType)) return undefined;
     try {
       const target = summonTargetType(ctx, innerType);
-      const primitive = primitiveInstanceHelp(target, tcName, typeName);
+      const primitive = primitiveInstanceHelp(target, tcName, typeName, ctx.program);
       return primitive ? { replace: primitive } : notOwnedTypeHelp(ctx, target, tcName, typeName);
     } catch (e) {
       ctx.reportWarning(
@@ -2912,6 +2913,114 @@ function implTagText(decl: ts.VariableDeclaration): string | undefined {
   return undefined;
 }
 
+/** Split a type-argument list at its top-level commas: `A, B<C, D>` → `["A", "B<C, D>"]`. */
+function splitTypeArgs(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "<" || c === "(" || c === "[" || c === "{") depth++;
+    else if ((c === ">" && text[i - 1] !== "=") || c === ")" || c === "]" || c === "}") depth--;
+    else if (c === "," && depth === 0) {
+      out.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start).trim());
+  return out.filter((t) => t.length > 0);
+}
+
+/**
+ * Whether the type text of an `@impl` tag (`number[]`, `P2`, `Box<number>`)
+ * denotes the same type as `node`, the type argument of `derived<TC<T>>()`,
+ * as seen from `location`. By identity, not spelling (CLAUDE.md): names are
+ * resolved in scope through imports and aliases, and compared by declared
+ * type (so `type P2 = Pt` is `Pt`); `X[]` and `Array<X>` are one type;
+ * keywords by the checker's intrinsic type; type arguments recursively. A
+ * form this doesn't model (a union, an object literal) falls back to the
+ * text with whitespace removed.
+ */
+function tagTypeMatches(
+  checker: ts.TypeChecker,
+  text: string,
+  node: ts.TypeNode,
+  location: ts.Node,
+  warn: (message: string) => void
+): boolean {
+  const t = text.trim();
+  const sameText = () => t.replace(/\s+/g, "") === getNodeText(node).replace(/\s+/g, "");
+  // Normalize `X[]` / `Array<X>` / `ReadonlyArray<X>` on both sides.
+  const textElem = /^(.*)\[\]$/.exec(t)?.[1];
+  const nodeElem = ts.isArrayTypeNode(node)
+    ? node.elementType
+    : ts.isTypeOperatorNode(node) &&
+        node.operator === ts.SyntaxKind.ReadonlyKeyword &&
+        ts.isArrayTypeNode(node.type)
+      ? node.type.elementType
+      : undefined;
+  const parsed = parseTypeInstantiation(t);
+  const lookup = (name: string): ts.Symbol | undefined => {
+    let sym = checker
+      .getSymbolsInScope(location, ts.SymbolFlags.Type | ts.SymbolFlags.Alias)
+      .find((x) => x.name === name);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    return sym;
+  };
+  const nodeSymbol = (n: ts.TypeReferenceNode): ts.Symbol | undefined => {
+    let sym = checker.getSymbolAtLocation(n.typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    return sym;
+  };
+  const sameDeclaredType = (a: ts.Symbol | undefined, b: ts.Symbol | undefined) =>
+    !!a &&
+    !!b &&
+    (a === b || checker.getDeclaredTypeOfSymbol(a) === checker.getDeclaredTypeOfSymbol(b));
+  const isArraySymbol = (sym: ts.Symbol | undefined) =>
+    !!sym && (sym === lookup("Array") || sym === lookup("ReadonlyArray"));
+  try {
+    if (textElem !== undefined || nodeElem) {
+      const tElem =
+        textElem ??
+        (parsed && isArraySymbol(lookup(parsed.base)) ? splitTypeArgs(parsed.args)[0] : undefined);
+      const nElem =
+        nodeElem ??
+        (ts.isTypeReferenceNode(node) &&
+        node.typeArguments?.length === 1 &&
+        isArraySymbol(nodeSymbol(node))
+          ? node.typeArguments[0]
+          : undefined);
+      if (tElem !== undefined && nElem) {
+        return tagTypeMatches(checker, tElem, nElem, location, warn);
+      }
+      return sameText();
+    }
+    if (ts.isTypeReferenceNode(node)) {
+      const base = parsed ? parsed.base : t;
+      if (!/^[A-Za-z_$][\w$.]*$/.test(base)) return sameText();
+      const tArgs = parsed ? splitTypeArgs(parsed.args) : [];
+      const nArgs = node.typeArguments ?? [];
+      if (!sameDeclaredType(lookup(base), nodeSymbol(node))) {
+        // `Array<number>` vs `number[]` is handled above; anything else differs.
+        return false;
+      }
+      return (
+        tArgs.length === nArgs.length &&
+        tArgs.every((a, i) => tagTypeMatches(checker, a, nArgs[i], location, warn))
+      );
+    }
+    // Keywords (`number`): the checker's intrinsic types are singletons.
+    if (ts.SyntaxKind.FirstKeyword <= node.kind && node.kind <= ts.SyntaxKind.LastKeyword) {
+      return t === getNodeText(node).trim();
+    }
+    return sameText();
+  } catch (e) {
+    // Visible degrade (CLAUDE.md): the comparison falls back to the text.
+    warn(`(${e instanceof Error ? e.message : String(e)}); comparing the @impl tag as text.`);
+    return sameText();
+  }
+}
+
 function derivedInstanceExpression(
   ctx: MacroContext,
   callExpr: ts.CallExpression,
@@ -2993,8 +3102,33 @@ function derivedInstanceExpression(
   const tag = implTagText(decl);
   if (tag !== undefined) {
     const parsed = parseTypeInstantiation(tag);
+    // Compared through the checker (tagTypeMatches): the tag's typeclass by
+    // identity (alias-resolved, as `tcName` is), and its type argument as a
+    // type, so `@impl Eq<number[]>` agrees with derived<Eq<Array<number>>>()
+    // and an alias of the type agrees with the type.
+    const tagArgs = parsed ? splitTypeArgs(parsed.args) : [];
+    let tagTc = parsed?.base;
+    if (parsed && /^[A-Za-z_$][\w$]*$/.test(parsed.base)) {
+      try {
+        const sym = ctx.typeChecker
+          .getSymbolsInScope(decl, ts.SymbolFlags.Type | ts.SymbolFlags.Alias)
+          .find((x) => x.name === parsed.base);
+        tagTc = followTypeclassSymbol(ctx.typeChecker, sym)?.name ?? tagTc;
+      } catch (e) {
+        ctx.reportWarning(
+          decl,
+          `couldn't resolve the typeclass of @impl ${tag} with the type checker ` +
+            `(${e instanceof Error ? e.message : String(e)}); comparing it by name.`
+        );
+      }
+    }
     const same =
-      parsed?.base === tcName && parsed.args.replace(/\s+/g, "") === typeText.replace(/\s+/g, "");
+      parsed !== undefined &&
+      tagTc === tcName &&
+      tagArgs.length === 1 &&
+      tagTypeMatches(ctx.typeChecker, tagArgs[0], innerType, decl, (m) =>
+        ctx.reportWarning(decl, `couldn't compare @impl ${tag} with the type checker ${m}`)
+      );
     if (!same) {
       ctx.reportError(
         callExpr,
