@@ -94,16 +94,16 @@ console.log("\n--- Detailed Validation ---");
 
 function validateWithDetails<T>(
   data: unknown,
-  validate: (data: unknown) => ValidationResult
+  validate: (data: unknown) => ValidationResult<T>
 ): void {
   const result = validate(data);
 
-  if (result.valid) {
+  if (result.success) {
     console.log("✓ Valid");
   } else {
     console.log("✗ Invalid:");
     result.errors.forEach((error) => {
-      console.log(`  - ${error.path}: ${error.message}`);
+      console.log(`  - ${error}`);
     });
   }
 }

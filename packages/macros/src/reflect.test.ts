@@ -24,7 +24,8 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { createMacroContext, type MacroContext } from "@typesugar/core";
-import { reflectAttribute, typeInfoMacro } from "./reflect.js";
+import { reflectAttribute, typeInfoMacro, type TypeInfo } from "./reflect.js";
+import { typeInfo as typeInfoStub } from "./runtime-stubs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -557,6 +558,23 @@ describe("typeInfoMacro (expression form)", () => {
     expect(fields.elements).toHaveLength(2);
   });
 
+  it("an optional field's type is its declared type, without the undefined optionality adds", () => {
+    // Before: `age?: number` reported type "number | undefined" (the checker's
+    // type of the optional property under strict), beside optional: true.
+    const source =
+      STUB +
+      `interface U { age?: number; nick?: string | null; id: number | undefined }\nconst t = typeInfo<U>();`;
+    const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
+    const fields = getArrayProp(expanded as ts.ObjectLiteralExpression, "fields")!;
+    const types = Object.fromEntries(
+      fields.elements.map((e) => {
+        const o = e as ts.ObjectLiteralExpression;
+        return [getStringProp(o, "name"), getStringProp(o, "type")];
+      })
+    );
+    expect(types).toEqual({ age: "number", nick: "string | null", id: "number | undefined" });
+  });
+
   it("emits empty fields for an empty interface", () => {
     const source = STUB + `interface E {}\nconst t = typeInfo<E>();`;
     const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
@@ -573,5 +591,17 @@ describe("typeInfoMacro (expression form)", () => {
     expect(diagnostics.length).toBeGreaterThanOrEqual(1);
     expect(diagnostics[0].message).toMatch(/exactly one type argument/);
     expect(ts.isCallExpression(expanded)).toBe(true);
+  });
+});
+
+describe("typeInfo<T>()'s declared type", () => {
+  it("is TypeInfo, the shape the macro emits (checked by typecheck)", () => {
+    // Before: the runtime stub declared `{ name; fields: { name; type }[] }`,
+    // so `info.kind` and `info.fields[0].optional` were type errors and a
+    // TypeInfo-typed parameter rejected the result.
+    const take = (info: TypeInfo): string => info.kind;
+    const call = (): TypeInfo => typeInfoStub<{ a: number }>();
+    expect(typeof take).toBe("function");
+    expect(() => call()).toThrow(/must be processed by the typesugar transformer/);
   });
 });

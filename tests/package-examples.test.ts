@@ -26,8 +26,6 @@ const cliPath = path.join(repoRoot, "packages", "transformer", "dist", "cli.js")
 const hasBuild = fs.existsSync(cliPath);
 
 const KNOWN_BROKEN: Record<string, string> = {
-  "packages/reflect/examples/reflect-example.ts": "result.errors is undefined at run time",
-  "packages/reflect/examples/showcase.ts": "typeAssert on typeInfo's result fails (line 75)",
   "packages/sql/examples/doobie-style-example.ts":
     "pre-PEP @deriving syntax: Unknown derive '(Meta)'",
   "packages/sql/examples/showcase.ts": "stringMeta.get.read is not a function (API drift)",

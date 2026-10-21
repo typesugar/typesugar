@@ -9,6 +9,9 @@
  * @module
  */
 
+// Type-only: erased from the emitted stub module (reflect.ts itself is build-time code).
+import type { TypeInfo } from "./reflect.js";
+
 // ============================================================================
 // Typeclass Runtime Stubs
 // ============================================================================
@@ -604,10 +607,7 @@ export function reflect(target: any, _context?: ClassDecoratorContext): any {
  * // Returns: { name: "User", fields: [...], ... }
  * ```
  */
-export function typeInfo<T>(): {
-  name: string;
-  fields: Array<{ name: string; type: string }>;
-} {
+export function typeInfo<T>(): TypeInfo {
   throw new Error("typeInfo() must be processed by the typesugar transformer at compile time");
 }
 

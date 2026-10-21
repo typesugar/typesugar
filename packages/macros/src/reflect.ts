@@ -138,6 +138,41 @@ export const reflectAttribute = defineAttributeMacro({
 /**
  * Extract type information from a declaration
  */
+/**
+ * The display type of a field: the checker's type of the property, except
+ * that an optional property of a non-generic declaration shows its DECLARED
+ * type (`age?: number` is "number", with `optional: true` beside it), not
+ * the `number | undefined` the checker gives it under strictNullChecks. Taken
+ * from the checker either way (the declared type is `getTypeFromTypeNode` on
+ * the annotation), never from the annotation's text. In a generic
+ * declaration (`value?: T`) the declared type is the type parameter, so the
+ * instantiated type is shown, undefined included.
+ */
+function fieldTypeString(checker: ts.TypeChecker, prop: ts.Symbol, location: ts.Node): string {
+  const decl = prop.getDeclarations()?.[0];
+  if (
+    prop.flags & ts.SymbolFlags.Optional &&
+    decl &&
+    (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) &&
+    decl.type &&
+    !isSyntheticNode(decl) &&
+    !insideGenericDeclaration(decl)
+  ) {
+    return checker.typeToString(checker.getTypeFromTypeNode(decl.type));
+  }
+  return checker.typeToString(checker.getTypeOfSymbolAtLocation(prop, decl ?? location));
+}
+
+/** Is `node` inside a declaration with type parameters (an interface, class, type alias, ...)? */
+function insideGenericDeclaration(node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node.parent; n && !ts.isSourceFile(n); n = n.parent) {
+    const tps = (n as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
+      .typeParameters;
+    if (tps && tps.length > 0) return true;
+  }
+  return false;
+}
+
 function extractTypeInfo(ctx: MacroContext, node: ts.Declaration): TypeInfo | null {
   if (ts.isInterfaceDeclaration(node)) {
     return extractInterfaceInfo(ctx, node);
@@ -175,8 +210,7 @@ function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration):
     const decl = decls?.[0];
     let propTypeStr = "unknown";
     try {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl || node);
-      propTypeStr = ctx.typeChecker.typeToString(propType);
+      propTypeStr = fieldTypeString(ctx.typeChecker, prop, node);
     } catch {
       // Fall back to "unknown" for unresolvable types
     }
@@ -235,8 +269,7 @@ function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInf
     const decl = decls?.[0];
     let typeStr = "unknown";
     try {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl || node);
-      typeStr = ctx.typeChecker.typeToString(propType);
+      typeStr = fieldTypeString(ctx.typeChecker, prop, node);
     } catch {
       // Fall back to "unknown" for unresolvable types
     }
@@ -307,8 +340,7 @@ function extractTypeAliasInfo(ctx: MacroContext, node: ts.TypeAliasDeclaration):
     const fields: FieldInfo[] = properties.map((prop) => {
       let propTypeStr = "unknown";
       try {
-        const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, node);
-        propTypeStr = ctx.typeChecker.typeToString(propType);
+        propTypeStr = fieldTypeString(ctx.typeChecker, prop, node);
       } catch {
         // Fall back to "unknown"
       }
@@ -498,7 +530,6 @@ export const typeInfoMacro = defineExpressionMacro({
     }
 
     const fieldsArray = properties.map((prop) => {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
       const decls = prop.getDeclarations();
       const decl = decls?.[0];
       const isReadonly =
@@ -511,7 +542,7 @@ export const typeInfoMacro = defineExpressionMacro({
           factory.createPropertyAssignment("name", factory.createStringLiteral(prop.name)),
           factory.createPropertyAssignment(
             "type",
-            factory.createStringLiteral(ctx.typeChecker.typeToString(propType))
+            factory.createStringLiteral(fieldTypeString(ctx.typeChecker, prop, callExpr))
           ),
           factory.createPropertyAssignment(
             "optional",

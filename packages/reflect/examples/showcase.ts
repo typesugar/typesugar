@@ -71,8 +71,9 @@ const ageField = userInfo.fields!.find((f) => f.name === "age")!;
 assert(ageField.optional === true);
 assert(ageField.type === "number");
 
-// TypeInfo structure is fully typed
-typeAssert<Extends<typeof userInfo, { name: string; kind: string; fields: FieldInfo[] }>>();
+// TypeInfo structure is fully typed (fields is optional: a primitive or a
+// function type has none, hence the `!`s above)
+typeAssert<Extends<typeof userInfo, { name: string; kind: string; fields?: FieldInfo[] }>>();
 
 // ============================================================================
 // 3. typeInfo<T>() ON DIFFERENT TYPE KINDS
