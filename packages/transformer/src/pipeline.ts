@@ -692,6 +692,21 @@ function leafOf(node: ts.Node): { kind: LeafKind; text: string } | undefined {
 }
 
 /**
+ * What to do about a transform that ran out of stack: something in the file
+ * nests too deeply for a recursive step (in practice, a very long chain of
+ * typeclass operators on objects, `a + a + ... + a` thousands of terms long,
+ * each rewritten level of which is rebuilt around its left operand).
+ */
+function stackOverflowHint(error: unknown): string {
+  if (!(error instanceof RangeError) || !/call stack/i.test(error.message)) return "";
+  return (
+    ". An expression in this file nests too deeply for the transformer (for example, a " +
+    "chain of thousands of typeclass operators, `a + b + ...`). Split it into intermediate " +
+    "consts (`const s1 = a + b + ...; const s2 = s1 + ...`)."
+  );
+}
+
+/**
  * Generate a source map by walking the transformed AST and reading
  * `getSourceMapRange()` from each node. Correlates AST nodes with output
  * positions using TypeScript's scanner for token-boundary precision.
@@ -2095,7 +2110,7 @@ export class TransformationPipeline {
             file: sourceFile.fileName,
             start: 0,
             length: 0,
-            message: `Transform failed: ${error}`,
+            message: `Transform failed: ${error}${stackOverflowHint(error)}`,
             severity: "error",
           },
         ],

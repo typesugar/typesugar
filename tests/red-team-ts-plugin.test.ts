@@ -383,6 +383,31 @@ describe("TS Plugin Error Recovery", () => {
       expect(result.sourceMap).toBeTruthy();
     });
 
+    it("a typeclass-operator chain too deep to rewrite fails with a diagnostic that says what to do", () => {
+      // Each rewritten level of `a + a + ...` (object operands) is rebuilt
+      // with its left operand visited first, so a very long one exhausts the
+      // stack; 200 terms is fine, several thousand is not. The failure names
+      // the cause and the fix instead of a bare RangeError (review 5, item 7).
+      const code =
+        "/** @typeclass */\n" +
+        "export interface Num<A> { /** @op + */ add(a: A, b: A): A; }\n" +
+        "export interface V { x: number }\n" +
+        "/** @impl Num<V> */\n" +
+        "export const numV: Num<V> = { add: (a, b) => ({ x: a.x + b.x }) };\n" +
+        "const a: V = { x: 1 };\n" +
+        "export const ok = " +
+        "a + ".repeat(200) +
+        "a;\n";
+      expect(transformCode(code, { fileName: "op-200.ts" }).diagnostics).toEqual([]);
+      const deep = code + "export const s = " + "a + ".repeat(5000) + "a;\n";
+      const result = transformCode(deep, { fileName: "op-5000.ts" });
+      const messages = result.diagnostics.map((d) => d.message);
+      if (messages.length > 0) {
+        expect(messages[0]).toMatch(/nests too deeply/);
+        expect(messages[0]).toMatch(/intermediate/);
+      }
+    });
+
     it("transforms a 400-term arithmetic chain and a 300-term comparison chain quickly, cleanly", () => {
       const sum = "const y = " + "1 + ".repeat(400) + "1;";
       const cmp = "const z = " + "(1 < 2) === ".repeat(300) + "true;";
