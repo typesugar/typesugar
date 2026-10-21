@@ -175,6 +175,26 @@ Waves 4–7 are smaller and can follow.
   fp's types work in std's do-notation with no extra registration. Moving them is part
   of Wave 2.
 
+- **The core data types move to std too; fp becomes advanced FP on top of std** (Dean,
+  2026-10-21: "Do the split", choosing it over merging all of fp into std).
+  - **Moves to `@typesugar/std`:** Option, Either/Result, Validated and NonEmptyList, with
+    their instances and their `Destructure` extractors, plus Foldable and Traverse
+    alongside the typeclasses above.
+  - **Stays in `@typesugar/fp`, now depending on std:** IO and the effect helpers, Reader,
+    State, Writer, Id, List, RemoteData, the law checkers, the advanced HKT helpers and the
+    examples.
+  - **Compatibility:** fp re-exports everything that moved, so existing imports keep
+    working.
+  - **The test bar:** a type moves only with tests up to std's standard. That also settles
+    PEP-048's coverage condition on fp for the moved parts.
+  - **Why:** std's own features (`match()` extractors, do-notation, the `Some(x)` →
+    `x != null` zero-cost path) already depend on Option; Rust and Scala keep
+    Option/Either/Result in their standard libraries; std has no Option of its own to
+    reconcile; and std is tree-shaken ESM, so an unused type costs nothing.
+  - **Sequencing:** part of Wave 2. It starts after PEP-008 Wave 11 (the `Destructure`
+    retrofit) and the `derived<TC<T>>()` work land, because both touch fp's Option and
+    Either.
+
 ## Open questions
 
 - Unification cost. Resolving do-notation instances by unification runs per `<<`
