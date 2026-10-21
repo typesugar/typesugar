@@ -97,7 +97,7 @@ import {
   unique,
   zip,
   partition,
-  arrayGroupBy,
+  groupBy,
   sortBy,
   intersperse,
   takeWhile,
@@ -212,7 +212,7 @@ assert(copyableNumber.copy(42) === 42);
 const now = new Date();
 const copied = copyableDate.copy(now);
 assert(copied.getTime() === now.getTime());
-assert(copied !== now); // different object
+assert(!Object.is(copied, now)); // different object (reference inequality, never rewritten to Eq)
 
 const arrCopier = copyableArray(copyableNumber);
 const original = [1, 2, 3];
@@ -440,7 +440,8 @@ assert((merged as any).theme.font === "mono");
 const p = pair(1, "hello");
 assert(fst(p) === 1);
 assert(snd(p) === "hello");
-typeAssert<Equal<typeof p, readonly [1, "hello"]>>();
+// pair<A, B> infers widened element types, like any generic call.
+typeAssert<Equal<typeof p, readonly [number, string]>>();
 
 const swapped = swap(p);
 assert(fst(swapped) === "hello");
