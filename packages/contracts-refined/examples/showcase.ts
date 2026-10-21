@@ -48,7 +48,9 @@ import {
   widen,
 } from "../src/index.js";
 
-import { requires, tryProve, type TypeFact, trySimpleLinearProof } from "@typesugar/contracts";
+import { requires, type TypeFact, trySimpleLinearProof } from "@typesugar/contracts";
+// The proof engine imports `typescript`: it is exported from the macros entry.
+import { tryProve } from "@typesugar/contracts/macros";
 // Byte, Int, NonEmpty used only as brand strings in hasRefinementPredicate() calls
 import { Positive, NonNegative, Port, Percentage } from "@typesugar/type-system";
 
@@ -185,16 +187,15 @@ console.log("4. Subtyping rules: Positive→NonNegative, Byte→Int, custom chai
 // Built-in decidability annotations are registered for all built-in types
 const allDecidability = getAllDecidabilityInfo();
 
-// Query decidability for specific brands
+// Query decidability for specific brands (the queries take the brand name)
 const posDecidability = getDecidability("Positive");
 if (posDecidability) {
-  const strategy = getPreferredStrategy(posDecidability);
-  const canProve = isCompileTimeDecidable(posDecidability.decidability);
-  const needsRuntime = requiresRuntimeCheck(posDecidability.decidability);
+  const strategy = getPreferredStrategy("Positive");
+  const canProve = isCompileTimeDecidable("Positive");
+  const needsRuntime = requiresRuntimeCheck("Positive");
 
-  // Positive should be decidable at compile time
-  assert(typeof canProve === "boolean");
-  assert(typeof needsRuntime === "boolean");
+  assert(typeof strategy === "string");
+  assert(canProve === !needsRuntime);
 }
 
 // Register decidability for custom types
@@ -204,7 +205,7 @@ registerDecidability({
 });
 const latDecidability = getDecidability("Latitude");
 assert(latDecidability !== undefined);
-assert(requiresRuntimeCheck(latDecidability!.decidability) === true);
+assert(requiresRuntimeCheck("Latitude") === true);
 
 registerDecidability({
   brand: "PositiveEven",

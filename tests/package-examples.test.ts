@@ -26,11 +26,6 @@ const cliPath = path.join(repoRoot, "packages", "transformer", "dist", "cli.js")
 const hasBuild = fs.existsSync(cliPath);
 
 const KNOWN_BROKEN: Record<string, string> = {
-  "packages/contracts-refined/examples/showcase.ts":
-    "imports tryProve, which contracts no longer exports",
-  "packages/contracts/examples/showcase.ts": "imports tryProve, which contracts no longer exports",
-  "packages/contracts/examples/contracts-example.ts":
-    "old() outside an ensures: block (pre-PEP syntax)",
   "packages/core/examples/showcase.ts": "typeAssert on DiagnosticCategory fails (line 222)",
   "packages/derive/examples/derive-example.ts": "p1.debug is not a function at run time",
   "packages/derive/examples/showcase.ts":

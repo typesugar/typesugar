@@ -115,11 +115,23 @@ export const invariantAttribute = defineAttributeMacro({
     // The old expansion appended the check after the body — dead code after
     // any `return` — and also instrumented static methods, where `this` is
     // the class and the check always threw (deep review 2026-10, #9).
+    //
+    // The method's leading `requires:`/`ensures:` blocks stay first, outside
+    // the try: @contract (or the labels' auto-detection) expands the method
+    // AFTER this class macro, and only reads contract blocks that are
+    // top-level statements of the body. Wrapped inside the try they were
+    // left behind, and old() in them was an error. Kept first, the method
+    // checks its preconditions, runs the (invariant-checked) body, then its
+    // postconditions. A JS label is syntax, so the label name is what
+    // identifies it (as parseContractBlocks does).
     const wrap = (body: ts.Block): ts.Block => {
       const threw = ctx.generateUniqueName("threw");
       const err = ctx.generateUniqueName("e");
+      let lead = 0;
+      while (lead < body.statements.length && isContractBlock(body.statements[lead])) lead++;
       return ctx.factory.createBlock(
         [
+          ...body.statements.slice(0, lead),
           ctx.factory.createVariableStatement(
             undefined,
             ctx.factory.createVariableDeclarationList(
@@ -135,7 +147,7 @@ export const invariantAttribute = defineAttributeMacro({
             )
           ),
           ctx.factory.createTryStatement(
-            ctx.factory.createBlock(body.statements, true),
+            ctx.factory.createBlock(body.statements.slice(lead), true),
             ctx.factory.createCatchClause(
               err,
               ctx.factory.createBlock(
@@ -273,6 +285,13 @@ export const invariantAttribute = defineAttributeMacro({
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/** A `requires:` / `ensures:` labeled statement (a contract block). */
+function isContractBlock(stmt: ts.Statement): boolean {
+  return (
+    ts.isLabeledStatement(stmt) && (stmt.label.text === "requires" || stmt.label.text === "ensures")
+  );
+}
 
 /** Public (no private/protected modifier, no `#name`), non-static member. */
 function isPublicInstance(member: ts.MethodDeclaration | ts.SetAccessorDeclaration): boolean {

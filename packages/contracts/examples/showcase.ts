@@ -29,10 +29,9 @@ import {
   getContractConfig,
   shouldEmitCheck,
 
-  // Prover
+  // Prover types (the engine itself is in "@typesugar/contracts/macros")
   type ProofResult,
   type TypeFact,
-  tryProve,
 
   // Algebraic rules
   tryAlgebraicProof,
@@ -67,7 +66,12 @@ import {
   defineLaw,
   verifyLaw,
   type Law,
-} from "../src/index.js";
+} from "@typesugar/contracts";
+// The proof engine imports `typescript`, so it is exported from
+// "@typesugar/contracts/macros", not the runtime entry.
+import { tryProve } from "@typesugar/contracts/macros";
+// Enables the requires:/ensures: block labels.
+import "@typesugar/contracts/syntax";
 
 // ============================================================================
 // 1. BASIC PRECONDITIONS - requires() Guards Function Entry
@@ -117,10 +121,14 @@ interface Counter {
   value: number;
 }
 
+// old() is snapshotted at entry and the ensures: block checked at exit, so
+// postconditions that use it are written as a block (an inline ensures(...)
+// call runs where it is written).
 function increment(counter: Counter): void {
-  const oldValue = old(counter.value);
+  ensures: {
+    (counter.value === old(counter.value) + 1, "Value must increase by 1");
+  }
   counter.value++;
-  ensures(counter.value === oldValue + 1, "Value must increase by 1");
 }
 
 const counter = { value: 10 };
