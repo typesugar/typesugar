@@ -26,10 +26,6 @@ const cliPath = path.join(repoRoot, "packages", "transformer", "dist", "cli.js")
 const hasBuild = fs.existsSync(cliPath);
 
 const KNOWN_BROKEN: Record<string, string> = {
-  "packages/core/examples/showcase.ts": "typeAssert on DiagnosticCategory fails (line 222)",
-  "packages/derive/examples/derive-example.ts": "p1.debug is not a function at run time",
-  "packages/derive/examples/showcase.ts":
-    "typeAssert<Equal<typeof unknown, ApiResponse>> fails (line 221)",
   "packages/effect/examples/effect-adapter-example.ts": "imports gen$/map$/flatMap$, not exported",
   "packages/effect/examples/showcase.ts": "typeAsserts on Effect types fail (line 153+)",
   "packages/fusion/examples/showcase.ts":

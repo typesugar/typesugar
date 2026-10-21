@@ -31,13 +31,13 @@ interface Point {
   y: number;
 }
 
-// The derive generates: pointEq(a: Point, b: Point): boolean
+// The derive generates the companion Point.Eq: { equals(a, b), notEquals(a, b) }
 const p1: Point = { x: 1, y: 2 };
 const p2: Point = { x: 1, y: 2 };
 const p3: Point = { x: 3, y: 4 };
 
-assert(pointEq(p1, p2) === true);
-assert(pointEq(p1, p3) === false);
+assert(Point.Eq.equals(p1, p2) === true);
+assert(Point.Eq.equals(p1, p3) === false);
 
 // ============================================================================
 // 2. Ord DERIVE — Lexicographic ordering
@@ -57,14 +57,14 @@ const v100: Version = { major: 1, minor: 0, patch: 0 };
 const v110: Version = { major: 1, minor: 1, patch: 0 };
 const v101: Version = { major: 1, minor: 0, patch: 1 };
 
-assert(versionCompare(v100, v110) === -1);
-assert(versionCompare(v110, v100) === 1);
-assert(versionCompare(v100, v100) === 0);
-assert(versionCompare(v100, v101) === -1);
+assert(Version.Ord.compare(v100, v110) === -1);
+assert(Version.Ord.compare(v110, v100) === 1);
+assert(Version.Ord.compare(v100, v100) === 0);
+assert(Version.Ord.compare(v100, v101) === -1);
 
 // Use with Array.sort
 const versions = [v110, v100, v101];
-const sorted = versions.slice().sort(versionCompare);
+const sorted = versions.slice().sort(Version.Ord.compare);
 assert(sorted[0] === v100);
 assert(sorted[1] === v101);
 assert(sorted[2] === v110);
@@ -85,7 +85,7 @@ interface Color {
 }
 
 const red: Color = { r: 255, g: 0, b: 0 };
-const redCopy = cloneColor(red);
+const redCopy = Color.Clone.clone(red);
 
 assert(redCopy.r === 255 && redCopy.g === 0 && redCopy.b === 0);
 assert(redCopy !== red); // different object reference
@@ -105,7 +105,7 @@ interface User {
 }
 
 const alice: User = { id: 1, name: "Alice", active: true };
-const debugStr = debugUser(alice);
+const debugStr = User.Debug.debug(alice);
 
 assert(debugStr.includes("User"));
 assert(debugStr.includes("id"));
@@ -130,9 +130,9 @@ const key1: CacheKey = { namespace: "users", id: 42 };
 const key2: CacheKey = { namespace: "users", id: 42 };
 const key3: CacheKey = { namespace: "posts", id: 42 };
 
-const h1 = hashCacheKey(key1);
-const h2 = hashCacheKey(key2);
-const h3 = hashCacheKey(key3);
+const h1 = CacheKey.Hash.hash(key1);
+const h2 = CacheKey.Hash.hash(key2);
+const h3 = CacheKey.Hash.hash(key3);
 
 assert(h1 === h2); // same inputs → same hash
 assert(h1 !== h3); // different namespace → different hash
@@ -153,7 +153,7 @@ interface Settings {
   notifications: boolean;
 }
 
-const defaults = defaultSettings();
+const defaults = Settings.Default.default();
 
 assert(defaults.theme === "");
 assert(defaults.fontSize === 0);
@@ -163,8 +163,9 @@ assert(defaults.notifications === false);
 // 7. Json DERIVE — Serialization and validated deserialization
 // ============================================================================
 
-// @derive(Json) generates toJson() and fromJson() functions.
-// fromJson() validates required fields and types.
+// @derive(Json) generates ApiConfig.Json: toJson(value) gives a plain
+// object (JSON.stringify it for the wire) and fromJson(parsed) validates the
+// required fields and their types.
 
 @derive(Json)
 interface ApiConfig {
@@ -175,11 +176,11 @@ interface ApiConfig {
 
 const config: ApiConfig = { endpoint: "https://api.example.com", timeout: 5000, retries: 3 };
 
-const json = apiConfigToJson(config);
+const json = JSON.stringify(ApiConfig.Json.toJson(config));
 assert(typeof json === "string");
 assert(json.includes("api.example.com"));
 
-const parsed = apiConfigFromJson(json);
+const parsed = ApiConfig.Json.fromJson(JSON.parse(json));
 assert(parsed.endpoint === config.endpoint);
 assert(parsed.timeout === config.timeout);
 assert(parsed.retries === config.retries);
@@ -187,7 +188,7 @@ assert(parsed.retries === config.retries);
 // Validation on deserialization — missing required fields throw
 let threw = false;
 try {
-  apiConfigFromJson('{"endpoint": "http://localhost"}');
+  ApiConfig.Json.fromJson(JSON.parse('{"endpoint": "http://localhost"}'));
 } catch (e: unknown) {
   threw = true;
   assert((e as Error).message.includes("timeout") || (e as Error).message.includes("retries"));
@@ -198,8 +199,9 @@ assert(threw);
 // 8. TypeGuard DERIVE — Runtime type guards
 // ============================================================================
 
-// @derive(TypeGuard) generates an isTypeName() function that performs
-// runtime structural validation, suitable for validating API responses.
+// @derive(TypeGuard) generates the `ApiResponse.TypeGuard` companion, whose
+// is(value) performs runtime structural validation, suitable for validating
+// API responses.
 
 @derive(TypeGuard)
 interface ApiResponse {
@@ -208,6 +210,8 @@ interface ApiResponse {
   success: boolean;
 }
 
+const isApiResponse = (value: unknown): boolean => ApiResponse.TypeGuard.is(value);
+
 assert(isApiResponse({ status: 200, message: "OK", success: true }) === true);
 assert(isApiResponse({ status: "200", message: "OK", success: true }) === false);
 assert(isApiResponse({ status: 200 }) === false); // missing fields
@@ -215,11 +219,12 @@ assert(isApiResponse(null) === false);
 assert(isApiResponse(42) === false);
 assert(isApiResponse("string") === false);
 
-// Type narrowing: after the guard, the value is typed as ApiResponse
+// is() returns a boolean, not a `value is ApiResponse` predicate, so it does
+// not narrow; cast after the check.
 const unknown: unknown = { status: 200, message: "OK", success: true };
 if (isApiResponse(unknown)) {
-  typeAssert<Equal<typeof unknown, ApiResponse>>();
-  assert(unknown.status === 200);
+  const response = unknown as ApiResponse;
+  assert(response.status === 200);
 }
 
 // ============================================================================
@@ -240,50 +245,53 @@ const phone: Product = { sku: "PHN-001", name: "Phone", price: 699 };
 const laptopCopy: Product = { sku: "LAP-001", name: "Laptop", price: 999 };
 
 // Eq: structural equality
-assert(productEq(laptop, laptopCopy) === true);
-assert(productEq(laptop, phone) === false);
+assert(Product.Eq.equals(laptop, laptopCopy) === true);
+assert(Product.Eq.equals(laptop, phone) === false);
 
 // Ord: lexicographic by field order (sku first)
-assert(productCompare(laptop, phone) !== 0);
+assert(Product.Ord.compare(laptop, phone) !== 0);
 
 // Clone: independent copy
-const cloned = cloneProduct(laptop);
+const cloned = Product.Clone.clone(laptop);
 assert(cloned !== laptop);
-assert(productEq(cloned, laptop) === true);
+assert(Product.Eq.equals(cloned, laptop) === true);
 
 // Debug: readable representation
-assert(debugProduct(laptop).includes("Product"));
-assert(debugProduct(laptop).includes("LAP-001"));
+assert(Product.Debug.debug(laptop).includes("Product"));
+assert(Product.Debug.debug(laptop).includes("LAP-001"));
 
 // Hash: deterministic
-assert(hashProduct(laptop) === hashProduct(laptopCopy));
+assert(Product.Hash.hash(laptop) === Product.Hash.hash(laptopCopy));
 
 // Json: round-trip serialization
-const productJson = productToJson(laptop);
-const restored = productFromJson(productJson);
-assert(productEq(restored, laptop) === true);
+const productJson = JSON.stringify(Product.Json.toJson(laptop));
+const restored = Product.Json.fromJson(JSON.parse(productJson));
+assert(Product.Eq.equals(restored, laptop) === true);
 
 // TypeGuard: runtime validation
-assert(isProduct(laptop) === true);
-assert(isProduct({ sku: 123, name: "bad", price: "free" }) === false);
+assert(Product.TypeGuard.is(laptop) === true);
+assert(Product.TypeGuard.is({ sku: 123, name: "bad", price: "free" }) === false);
 
 // ============================================================================
 // 10. DERIVE NAMING CONVENTIONS
 // ============================================================================
 
-// Each derive produces predictably named functions:
+// Each derive adds one companion instance to the type's namespace:
 //
-//   @derive(Eq)        → pointEq(a, b): boolean
-//   @derive(Ord)       → pointCompare(a, b): -1 | 0 | 1
-//   @derive(Clone)     → clonePoint(value): Point
-//   @derive(Debug)     → debugPoint(value): string
-//   @derive(Hash)      → hashPoint(value): number
-//   @derive(Default)   → defaultPoint(): Point
-//   @derive(Json)      → pointToJson(value): string
-//                        pointFromJson(json): Point
-//   @derive(TypeGuard)  → isPoint(value): value is Point
+//   @derive(Eq)        → Point.Eq.equals(a, b): boolean
+//   @derive(Ord)       → Point.Ord.compare(a, b): -1 | 0 | 1
+//   @derive(Clone)     → Point.Clone.clone(value): Point
+//   @derive(Debug)     → Point.Debug.debug(value): string
+//   @derive(Hash)      → Point.Hash.hash(value): number
+//   @derive(Default)   → Point.Default.default(): Point
+//   @derive(Json)      → Point.Json.toJson(value) / Point.Json.fromJson(parsed)
+//   @derive(TypeGuard) → Point.TypeGuard.is(value): boolean
+//
+// Method syntax (p.equals(q), p.clone(), ...) is opt-in per file through the
+// @typesugar/std/syntax/* activation imports.
 
-// The createDerivedFunctionName helper encodes these conventions:
+// createDerivedFunctionName gives the conventional name of a standalone
+// derived function, for macros that generate one:
 import { createDerivedFunctionName } from "@typesugar/derive";
 
 assert(createDerivedFunctionName("eq", "Point") === "pointEq");
@@ -319,20 +327,20 @@ assert(profile.username === "alice");
 assert(profile.verified === true);
 
 // Clone and modify (immutable update pattern)
-const updated = { ...cloneUserProfile(profile), verified: false };
+const updated = { ...UserProfile.Clone.clone(profile), verified: false };
 assert(updated.verified === false);
 assert(profile.verified === true); // original unchanged
 
 // Serialize for API transport
-const wire = userProfileToJson(profile);
-const received = userProfileFromJson(wire);
-assert(userProfileEq(profile, received) === true);
+const wire = JSON.stringify(UserProfile.Json.toJson(profile));
+const received = UserProfile.Json.fromJson(JSON.parse(wire));
+assert(UserProfile.Eq.equals(profile, received) === true);
 
 // Validate incoming data at API boundary
 const untrusted: unknown = JSON.parse(wire);
-assert(isUserProfile(untrusted) === true);
+assert(UserProfile.TypeGuard.is(untrusted) === true);
 
 // Debug logging
-const log = debugUserProfile(profile);
+const log = UserProfile.Debug.debug(profile);
 assert(log.includes("UserProfile"));
 assert(log.includes("alice"));

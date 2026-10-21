@@ -20,6 +20,15 @@ import {
   Json,
   TypeGuard,
 } from "typesugar";
+// Method syntax on derived instances is opt-in per file (PEP-052): each import
+// activates one typeclass's methods (`p.debug()` -> `Point.Debug.debug(p)`).
+import "@typesugar/std/syntax/eq"; // p.equals(q)
+import "@typesugar/std/syntax/ord"; // a.compare(b)
+import "@typesugar/std/syntax/clone"; // p.clone()
+import "@typesugar/std/syntax/debug"; // p.debug()
+import "@typesugar/std/syntax/json"; // user.toJson(), User.fromJson(json)
+import "@typesugar/std/syntax/default"; // Settings.default()
+import "@typesugar/std/syntax/type-guard"; // ApiResponse.is(x)
 
 console.log("=== Derive Macro Example ===\n");
 
@@ -104,6 +113,8 @@ class Settings {
 
 console.log("\n--- Settings with Default ---");
 
+// Default is each field type's zero value ("", 0, false), not the class's
+// field initializers, and a plain object, not a Settings instance.
 const defaultSettings = Settings.default();
 console.log("Default settings:", defaultSettings);
 
@@ -121,10 +132,10 @@ console.log("\n--- ApiResponse with TypeGuard ---");
 const validResponse = { success: true, data: { id: 1 } };
 const invalidResponse = { success: "true", data: null }; // success should be boolean
 
-console.log("Is valid ApiResponse?", ApiResponse.isApiResponse(validResponse));
+console.log("Is valid ApiResponse?", ApiResponse.is(validResponse));
 console.log(
   "Is invalid ApiResponse?",
-  ApiResponse.isApiResponse(invalidResponse),
+  ApiResponse.is(invalidResponse),
 );
 
 // --- Hash Derivation ---
@@ -143,7 +154,9 @@ const key1 = new CacheKey("users", 42);
 const key2 = new CacheKey("users", 42);
 const key3 = new CacheKey("posts", 42);
 
-console.log("key1.hash():", key1.hash());
-console.log("key2.hash():", key2.hash());
-console.log("key3.hash():", key3.hash());
-console.log("key1.hash() === key2.hash():", key1.hash() === key2.hash());
+// Hash has no method-syntax marker; call its companion instance directly.
+const hash = (k: CacheKey) => CacheKey.Hash.hash(k);
+console.log("hash(key1):", hash(key1));
+console.log("hash(key2):", hash(key2));
+console.log("hash(key3):", hash(key3));
+console.log("hash(key1) === hash(key2):", hash(key1) === hash(key2));
