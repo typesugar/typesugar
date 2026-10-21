@@ -587,6 +587,39 @@ ${lines.join("\n")}
     }
   });
 
+  it("implicit()'s by-name fallback doesn't resolve to a derived const whose derivation failed", () => {
+    // Before: resolveInstance dropped the failed `eqInner`, but implicit()'s
+    // name-based fallback (findScannedInScope) did not, so the call became
+    // `same(x, x, eqInner)` with `eqInner` the un-expanded stub, and the only
+    // error was at `eqInner`'s line.
+    for (const order of ["derived first", "use first"]) {
+      const lines = [
+        "export const eqInner = derived<Eq<Inner>>();",
+        "export const r = same(x, x);",
+      ];
+      if (order === "use first") lines.reverse();
+      const t = transformAll({
+        "inner.ts": `import type { Eq } from "@typesugar/std";
+import { derived, implicit } from "typesugar";
+export interface Inner { m: Map<string, number> }
+function same<A>(a: A, b: A, E: Eq<A> = implicit()): boolean {
+  return E.equals(a, b);
+}
+const x: Inner = { m: new Map() };
+${lines.join("\n")}
+`,
+      });
+      const errs = transformErrors(t)["inner.ts"] ?? [];
+      expect(t.code["inner.ts"], order).not.toMatch(/same\(x, x, eqInner\)/);
+      // The derived const's own failure, and the call's missing instance.
+      expect(errs, order).toHaveLength(2);
+      expect(
+        errs.some((e) => e.includes("TS9001")),
+        order
+      ).toBe(true);
+    }
+  });
+
   it("summon's help for a built-in type doesn't point at derived<...>()", () => {
     const t = transformAll({
       "use.ts": `import type { Eq } from "@typesugar/std";

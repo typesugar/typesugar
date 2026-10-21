@@ -360,9 +360,12 @@ function enumTypeOf(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined {
  * expansion, and a failed one is the un-expanded stub, not an instance
  * (summon resolved to it and emitted `const s = m`).
  */
-function dropFailedDerivations(ctx: MacroContext, scanned: ScannedInstance[]): ScannedInstance[] {
+function dropFailedDerivations(
+  ctx: MacroContext,
+  scanned: readonly ScannedInstance[]
+): ScannedInstance[] {
   const check = getDerivedCallCheck();
-  if (!check || !scanned.some((i) => i.detectedVia === "derived-call")) return scanned;
+  if (!check || !scanned.some((i) => i.detectedVia === "derived-call")) return [...scanned];
   return scanned.filter(
     (inst) =>
       inst.detectedVia !== "derived-call" ||
@@ -691,7 +694,7 @@ export function resolveInstanceInScopeByName(
  * pass is visible.
  */
 export function findEmittableInstanceByName(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   typeName: string,
   scanner: InstanceScanner = defaultScanner
@@ -767,7 +770,7 @@ export function buildDottedReference(factory: ts.NodeFactory, name: string): ts.
  * imported-module instances as in scope unconditionally.
  */
 export function findInstanceInScopeByName(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   typeName: string,
   scanner: InstanceScanner = defaultScanner
@@ -805,11 +808,19 @@ function baseTypeName(s: string): string {
  * widened in PEP-056 Wave 5 cleanup).
  */
 function findScannedInScope(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   match: (inst: ScannedInstance) => boolean,
   scanner: InstanceScanner = defaultScanner,
   includeNonExportedImports = true
 ): { instance: ScannedInstance; modulePath?: string; specifier?: string } | undefined {
+  // A `derived<TC<T>>()` const whose derivation failed is the un-expanded
+  // stub, not an instance: dropped here exactly as resolveInstance drops it
+  // (dropFailedDerivations, which reads the live per-program outcome
+  // registry the `derived` macro writes), so every consumer of this walk
+  // (implicit()'s by-name fallback, companion-path extraction, do-notation)
+  // agrees with the type-based resolver.
+  const live = (scanned: readonly ScannedInstance[]): ScannedInstance[] =>
+    dropFailedDerivations(ctx, scanned.filter(match));
   // Local file (includes non-exported @impl/@instance values). Also check
   // instances synthesized during THIS transform pass (e.g. a `@derive(Eq)`
   // companion) — invisible to the scan above, since that reads the
@@ -819,7 +830,7 @@ function findScannedInScope(
   // pass itself is in the middle of generating.
   const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
   const synthesized = scanner.getSynthesized(ctx.program, ctx.sourceFile.fileName);
-  const localHit = local.find(match) ?? synthesized.find(match);
+  const localHit = live(local)[0] ?? live(synthesized)[0];
   if (localHit) return { instance: localHit };
 
   // Imported modules.
@@ -835,9 +846,9 @@ function findScannedInScope(
       ctx.program
     );
     const hit =
-      scanned.find(match) ??
+      live(scanned)[0] ??
       (includeNonExportedImports
-        ? scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program).find(match)
+        ? live(scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program))[0]
         : undefined);
     if (hit) return { instance: hit, modulePath: entry.resolvedPath, specifier: entry.specifier };
   }
@@ -900,7 +911,7 @@ const doNotationResolutionCache = new WeakMap<
 >();
 
 export function resolveDoNotationInstance(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   brand: string,
   scanner: InstanceScanner = defaultScanner
@@ -925,7 +936,7 @@ export function resolveDoNotationInstance(
 }
 
 function resolveDoNotationInstanceUncached(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   brand: string,
   scanner: InstanceScanner

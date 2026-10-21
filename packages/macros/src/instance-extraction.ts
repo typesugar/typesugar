@@ -35,13 +35,13 @@ import {
 import { findInstanceInScopeByName } from "./instance-resolver.js";
 
 /**
- * The slice of MacroContext extraction needs. Both transformer pipelines'
- * context implementations satisfy this structurally.
+ * The context extraction needs: a full MacroContext, since resolving a
+ * companion path (`Point.Numeric`) goes through the instance resolver's scope
+ * walk, which asks the `derived` macro whether a `derived<TC<T>>()` const
+ * derived (and may try the derivation). Both transformer pipelines' contexts
+ * are one.
  */
-export type InstanceExtractionContext = Pick<
-  MacroContext,
-  "typeChecker" | "program" | "sourceFile" | "hygiene"
->;
+export type InstanceExtractionContext = MacroContext;
 
 /** Alias/identifier chains longer than this bail out (cycle guard). */
 const MAX_RESOLUTION_DEPTH = 5;
