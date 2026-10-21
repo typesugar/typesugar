@@ -149,11 +149,16 @@ function typeConstructorProblem(pattern: ts.CallExpression): string | undefined 
   const noInstance =
     `no Destructure instance for ${name} is in scope, so ${name}(...) is a type test ` +
     `(\`value instanceof ${name}\`) that binds the whole value to one name`;
+  // How to give `name` an instance: @derive(Destructure) takes an interface,
+  // object type or union, not a class (whose instance is written by hand).
+  const giveInstance =
+    `a Destructure instance (@derive(Destructure) on an interface or type alias, or ` +
+    `/** @impl Destructure<typeof ${name}, ...> */ written by hand for a class)`;
   if (pattern.arguments.length > 1) {
     return (
       `${name}(...) has ${pattern.arguments.length} arguments, but ${noInstance}. ` +
-      `Bind the whole value, ${name}(v), and read its fields; or give ${name} a Destructure ` +
-      `instance (@derive(Destructure) on its declaration) to bind them in the pattern.`
+      `Bind the whole value, ${name}(v), and read its fields; or give ${name} ${giveInstance} ` +
+      `to bind them in the pattern.`
     );
   }
   if (NON_INSTANCEOF_CONSTRUCTORS.has(name)) return undefined;
@@ -181,8 +186,7 @@ function typeConstructorProblem(pattern: ts.CallExpression): string | undefined 
   }
   return sym
     ? `${name} is not a class, and ${noInstance}, which needs a class (or a built-in ` +
-        `constructor such as Date). Give ${name} a Destructure instance (@derive(Destructure) ` +
-        `on its declaration) to match its fields.`
+        `constructor such as Date). Give ${name} ${giveInstance} to match its fields.`
     : `${name} is not in scope: ${name}(...) needs a class, or a Destructure instance for ${name}.`;
 }
 
