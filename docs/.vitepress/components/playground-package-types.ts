@@ -198,28 +198,32 @@ export type Schedule<out Env, in In, out Out> = { readonly _tag: "Schedule" };
 });
 
 // ---------------------------------------------------------------------------
-// 5. Globals (typeclass interfaces + primitive instances)
+// 5. Globals (typeclass types + primitive instances)
 //    These are emitted by the transformer without explicit imports.
+//    The types are ALIASES of the real typeclasses' .d.ts (loaded above as
+//    virtual node_modules), never copies: a hand-written copy drifted
+//    (eq/neq, compare(): number). Kept in step with
+//    api/playground-declarations.ts by tests/playground-globals.test.ts.
 // ---------------------------------------------------------------------------
 
 const GLOBALS_CONTENT = `
-interface Eq<A> { eq(a: A, b: A): boolean; neq(a: A, b: A): boolean; equals?(a: A, b: A): boolean; notEquals?(a: A, b: A): boolean; }
+type Eq<A> = import("@typesugar/std").Eq<A>;
 declare namespace Eq {}
-interface Ord<A> extends Eq<A> { compare(a: A, b: A): number; lt(a: A, b: A): boolean; gt(a: A, b: A): boolean; lte(a: A, b: A): boolean; gte(a: A, b: A): boolean; }
+type Ord<A> = import("@typesugar/std").Ord<A>;
 declare namespace Ord {}
-interface Clone<A> { clone(a: A): A; }
+type Clone<A> = import("@typesugar/std").Clone<A>;
 declare namespace Clone {}
-interface Debug<A> { debug(a: A): string; }
+type Debug<A> = import("@typesugar/std").Debug<A>;
 declare namespace Debug {}
-interface Hash<A> { hash(a: A): number; }
+type Hash<A> = import("@typesugar/std").Hash<A>;
 declare namespace Hash {}
-interface Show<A> { show(a: A): string; }
+type Show<A> = import("@typesugar/fp").Show<A>;
 declare namespace Show {}
-declare const eqNumber: Eq<number>;
-declare const eqString: Eq<string>;
-declare const eqBoolean: Eq<boolean>;
-declare const ordNumber: Ord<number>;
-declare const ordString: Ord<string>;
+declare const eqNumber: typeof import("@typesugar/std").eqNumber;
+declare const eqString: typeof import("@typesugar/std").eqString;
+declare const eqBoolean: typeof import("@typesugar/std").eqBoolean;
+declare const ordNumber: typeof import("@typesugar/std").ordNumber;
+declare const ordString: typeof import("@typesugar/std").ordString;
 declare function __typesugar_createStateMachineInstance(def: any): any;
 declare const __typesugar_parser: { grammar(text: string): any };
 `;
