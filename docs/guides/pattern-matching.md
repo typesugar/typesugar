@@ -543,7 +543,108 @@ A literal union that literal arms cover completely gets no throw: the last arm i
 An extractor is a `Destructure` instance (`@typesugar/std`; Scala's `unapply`) for a
 constructor. `Name(...)` in a pattern resolves the instance for `Name` by its symbol, from
 the current file, the modules it imports, or the module that declares `Name` itself, so an
-instance that ships next to its type needs no import of its own:
+instance that ships next to its type needs no import of its own.
+
+### Deriving them: `@derive(Destructure)`
+
+For your own types, derive the extractors:
+
+```typescript
+/** @derive(Destructure) */
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** @derive(Destructure) */
+export type Shape =
+  | { kind: "circle"; r: number }
+  | { kind: "rect"; w: number; h: number }
+  | { kind: "empty" };
+
+const area = (s: Shape) =>
+  match(s)
+    .case(Circle(r))
+    .then(Math.PI * r * r)
+    .case(Rect(w, h))
+    .then(w * h)
+    .case(Empty)
+    .then(0);
+
+const p = Point(1, 2); // the extractor also builds one
+```
+
+The derive adds, next to the type, a **constructor function** per extractor (the value the
+pattern names, like a Scala case class's `apply`) and its `Destructure` instance:
+
+```typescript
+export function Point(x: number, y: number): Point {
+  return { x, y };
+}
+/**
+ * @impl Destructure<typeof Point, Point, [number, number]>
+ * @destructure always -> x, y
+ */
+export const destructurePoint = { extract: (v: Point): [number, number] => [v.x, v.y] };
+
+export function Circle(r: number): { kind: "circle"; r: number } {
+  return { kind: "circle", r };
+}
+/**
+ * @impl Destructure<typeof Circle, Shape, number>
+ * @destructure kind = "circle" -> r
+ */
+export const destructureCircle = { extract: (v: Shape): number | undefined => ... };
+// ... Rect(w, h), Empty()
+```
+
+Patterns compile to the field reads and discriminant tests, and never reference the
+function or the instance, so a bundler drops both when only patterns use them:
+
+```typescript
+// match(s).case(Circle(r)).then(...)        →  if (_s.kind === "circle") { const r = _s.r; ... }
+// match: switch (s) { case Circle(r): ... }  →  switch (s.kind) { case "circle": { const r = s.r; ... } }
+```
+
+The rules:
+
+- **A product** (an interface or an object type alias) gets one extractor named after the
+  type, binding its fields in declaration order. Methods aren't fields: a type with methods
+  is an error, since a constructor function couldn't build one.
+- **A discriminated union** gets one extractor per variant, binding the variant's fields
+  other than the discriminant, in declaration order. A variant declared as its own
+  interface (`type Result = Ok | Err`) keeps its name. An inline variant is named from its
+  tag in PascalCase: `"circle"` is `Circle`, `"line-string"` and `"line_string"` are
+  `LineString`.
+- **The discriminant** is the one field that has a different string or boolean literal type
+  in every variant.
+- Matches over the union are exhaustive without `.else()` when every variant has a case.
+
+Anything ambiguous is a compile error, not a guess:
+
+- two discriminant candidates (`kind` and `type`);
+- an inline variant with a boolean tag (name it with an interface), or a tag that makes no
+  name (`"2d"`), or two tags that make the same name;
+- an `extends` clause (do inherited fields come first?);
+- a name that something already has, including a global: a variant `{ kind: "error" }`
+  would shadow `Error` in the module;
+- a named variant with `@derive`s of its own declared before the union: TypeScript requires
+  the function to come before the namespace those derives add (TS2434), so declare the
+  union first;
+- a class (it has a constructor already: write its instance by hand, below).
+
+The function merges with the type and with the companion namespace other derives add
+(`@derive(Eq, Destructure)` gives `Point(1, 2)` and `Point.Eq`). The extractors work from
+other files (`import { Circle } from "./shape"`), and a library's `.d.ts` declares the
+functions and the instances with their `@destructure` tags, so its consumers' patterns
+are inlined too.
+
+**Types you don't own** (a library's `Feature`, `Point`, ...) can't take a derive, and
+`derived<Destructure<T>>()` doesn't apply: an extractor needs a value to name in the
+pattern and a descriptor on that value's declaration, which an expression can't provide.
+Write the instance by hand instead.
+
+### Writing them by hand
 
 ```typescript
 export interface Point {
@@ -580,6 +681,28 @@ emit and works for a library's instances, whose bodies a consumer's build can't 
 | `always -> x, y`       | none                  | `v.x`, `v.y` (a product) |
 
 The descriptor must agree with `extract`: the macro trusts it.
+
+For a type from another package, name the extractor yourself:
+
+```typescript
+import type { Geometry, Point, Position } from "geojson";
+
+export function GeoPoint(coordinates: Position): Point {
+  return { type: "Point", coordinates };
+}
+/**
+ * @impl Destructure<typeof GeoPoint, Geometry, Position>
+ * @destructure type = "Point" -> coordinates
+ */
+export const destructureGeoPoint = {
+  extract: (g: Geometry) => (g.type === "Point" ? g.coordinates : undefined),
+};
+
+match(geometry)
+  .case(GeoPoint([x, y]))
+  .then(x + y)
+  .else(0);
+```
 
 **Without a descriptor** the instance's `extract` is called once, and the result is
 destructured (a tuple for several arguments, the value itself for one):

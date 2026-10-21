@@ -219,6 +219,7 @@ export function tryExpandJSDocMacros(
 
   const tags = ts.getJSDocTags(node);
   const results: ts.Node[] = [];
+  let derived = false;
 
   let targetDecl: ts.Declaration;
   if (ts.isVariableStatement(node)) {
@@ -252,6 +253,7 @@ export function tryExpandJSDocMacros(
         const derives = expandDeriveDecorator(ctx, verbose, syntheticDecorator, currentNode, args);
         if (derives) {
           results.push(...derives);
+          derived = true;
         }
       } else if (ts.isFunctionDeclaration(currentNode)) {
         reportUnsupportedOnFunction(ctx, tag);
@@ -307,6 +309,9 @@ export function tryExpandJSDocMacros(
       }
     }
   }
+
+  // Several @derive tags: their functions before any of their namespaces.
+  if (derived) results.splice(0, results.length, ...functionsFirst(results));
 
   const wasExpanded = currentNode !== targetDecl || results.length > 0;
   if (!wasExpanded) {
@@ -769,7 +774,21 @@ export function expandDeriveDecorator(
     ctx.reportError(arg, message);
   }
 
-  return statements.length > 0 ? statements : undefined;
+  return statements.length > 0 ? functionsFirst(statements) : undefined;
+}
+
+/**
+ * Derive output with its function declarations first. A derive may emit a
+ * function named like the type (`@derive(Destructure)`'s `function Point`)
+ * and another a companion `namespace Point` (`@derive(Eq)`); they merge only
+ * when the function comes first (TS2434). Function declarations are hoisted,
+ * so moving them up changes nothing at run time. Stable otherwise.
+ */
+export function functionsFirst<T extends ts.Node>(nodes: T[]): T[] {
+  return [
+    ...nodes.filter((n) => ts.isFunctionDeclaration(n)),
+    ...nodes.filter((n) => !ts.isFunctionDeclaration(n)),
+  ];
 }
 
 // ---------------------------------------------------------------------------

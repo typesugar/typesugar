@@ -84,6 +84,7 @@ import {
   parseDecorator,
   sortDecoratorsByDependency,
   expandDeriveDecorator,
+  functionsFirst,
 } from "./macro-helpers.js";
 
 import {
@@ -1875,7 +1876,11 @@ class MacroTransformer {
       // `@deriving(...)` is the deprecated alias (expandDeriveDecorator warns).
       if (isDerive) {
         const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
-        if (derives) extraStatements.push(...derives);
+        if (derives) {
+          extraStatements.push(...derives);
+          // Several @derive decorators: functions before namespaces (TS2434).
+          extraStatements.splice(0, extraStatements.length, ...functionsFirst(extraStatements));
+        }
         // Handled even when it generated nothing (each failure is reported):
         // drop the decorator, which is not valid TypeScript on an interface
         // or type alias and would be an undefined decorator on a class. The

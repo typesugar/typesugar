@@ -435,6 +435,22 @@ export const frobFeature = derived<Frob<Feature>>();
     });
     expect(transformErrors(t)["geo.ts"]?.[0]).toMatch(/Cannot derive Frob for 'Feature'/);
   });
+
+  it("Destructure: its derive needs the type's declaration (and makes a value per extractor)", () => {
+    // derived<...>() makes ONE value from a type's structure; @derive(Destructure)
+    // makes a constructor function per extractor plus an instance whose
+    // @destructure descriptor sits on its declaration, which an expression macro
+    // can't write. For a type you don't own, write the instance by hand
+    // (docs/guides/pattern-matching.md, Custom Extractors).
+    const t = transformAll({
+      "geo.ts": `import type { Point } from "geojson";
+import type { Destructure } from "@typesugar/std";
+import { derived } from "typesugar";
+export const destructurePoint = derived<Destructure<Point>>();
+`,
+    });
+    expect(transformErrors(t)["geo.ts"]?.[0]).toMatch(/Cannot derive Destructure for 'Point'/);
+  });
 });
 
 describe("every typeclass @derive supports, through the same derivation", () => {
