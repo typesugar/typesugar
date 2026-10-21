@@ -16,6 +16,7 @@ import {
 } from "@typesugar/core";
 import {
   createDerivedCompanionAccessRule,
+  createDerivedDeclarationReferenceRule,
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
@@ -75,6 +76,9 @@ export function registerAllDiagnosticSuppressionRules(
   if (registerDiagnosticSuppressionRuleOnce(createDerivedCompanionAccessRule())) {
     registered.push("DerivedCompanionAccess");
   }
+  if (registerDiagnosticSuppressionRuleOnce(createDerivedDeclarationReferenceRule())) {
+    registered.push("DerivedDeclarationReference");
+  }
 
   return registered;
 }
@@ -92,4 +96,5 @@ export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "OperatorOverload",
   "TypeRewriteAssignment",
   "DerivedCompanionAccess",
+  "DerivedDeclarationReference",
 ] as const;

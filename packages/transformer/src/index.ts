@@ -15,11 +15,13 @@ import {
   type MacroTransformerConfig,
   type TsPatchTransformerExtras,
 } from "./pipeline.js";
+import { keepMacroReferencedImports } from "./keep-imports.js";
 
 // The Node-host macro transformer factory (config/state/cache plumbing
 // around transformer-core's shared MacroTransformer) now lives in
 // pipeline.ts -- see its doc comment for what it reconstructs that
 // transformer-core's browser-safe createTransformerFactory can't.
+export { keepMacroReferencedImports } from "./keep-imports.js";
 export {
   macroTransformerFactory,
   type MacroTransformerConfig,
@@ -43,7 +45,15 @@ export default function typesugarTsPatchTransformer(
   pluginConfig?: MacroTransformerConfig,
   extras?: TsPatchTransformerExtras
 ): ts.TransformerFactory<ts.SourceFile> {
-  return macroTransformerFactory(program, pluginConfig, extras);
+  const macros = macroTransformerFactory(program, pluginConfig, extras);
+  // ts-patch runs this inside tsc's JavaScript emit: keep the imports the
+  // expanded code references (keep-imports.ts).
+  const keep = keepMacroReferencedImports(program);
+  return (context) => {
+    const expand = macros(context);
+    const keepImports = keep(context);
+    return (sourceFile) => keepImports(expand(sourceFile));
+  };
 }
 
 // TypeScript-major guard (PEP-060 item 1), re-exported for hosts that only

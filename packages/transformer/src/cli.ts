@@ -29,6 +29,7 @@ import {
   withoutDeclarations,
 } from "./declarations.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
+import { keepMacroReferencedImports } from "./keep-imports.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
 import { UnapprovedMacroPackagesError } from "./macro-loader.js";
 import { readTsConfig } from "./tsconfig-utils.js";
@@ -765,8 +766,12 @@ function build(options: CliOptions): void {
     profiler.start("cli.build.emit");
     const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
       before: emitDeclarations
-        ? [transformerFactory, captureExpandedSource(program, expandedSources)]
-        : [transformerFactory],
+        ? [
+            transformerFactory,
+            captureExpandedSource(program, expandedSources),
+            keepMacroReferencedImports(program),
+          ]
+        : [transformerFactory, keepMacroReferencedImports(program)],
     });
     profiler.end("cli.build.emit");
     tsDiagnostics = filterTsDiagnostics([
@@ -955,7 +960,11 @@ function watch(options: CliOptions): void {
     ) => {
       const result = origEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
         ...customTransformers,
-        before: [transformerFactory, ...(customTransformers?.before ?? [])],
+        before: [
+          transformerFactory,
+          keepMacroReferencedImports(program),
+          ...(customTransformers?.before ?? []),
+        ],
       });
       // Macro diagnostics never reach `result.diagnostics` (TS drops what a
       // `before` transformer adds), so report them from the state's side

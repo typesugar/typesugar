@@ -381,6 +381,8 @@ export {
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
   createDerivedCompanionAccessRule,
+  createDerivedDeclarationReferenceRule,
+  generatedValueNames,
 } from "./diagnostic-suppression-rules.js";
 
 // --- Unified Diagnostic Suppression Registration (PEP-034) ---

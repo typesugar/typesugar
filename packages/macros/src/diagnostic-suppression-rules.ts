@@ -36,6 +36,7 @@ import {
   globalResolutionScope,
   ResolutionScopeTracker,
   scanImportsForScope,
+  globalRegistry,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
 import { getInstanceOrIntrinsicMethods } from "./specialize.js";
@@ -323,6 +324,120 @@ export function createDerivedCompanionAccessRule(): DiagnosticSuppressionRule {
       );
     },
   };
+}
+
+/**
+ * Create the DerivedDeclarationReference diagnostic suppression rule.
+ *
+ * A derive that declares values next to the type (`@derive(Destructure)`:
+ * the constructor function `Point` or `Circle` and the instance
+ * `destructurePoint`) declares them only in the expanded program. Checked as
+ * written, the source reports them:
+ * - TS2305 / TS2614 / TS2724 "Module has no exported member" on
+ *   `import { Circle } from "./shapes"` and `export { Circle } from
+ *   "./shapes"` (re-exporting them from an index file made the declaration
+ *   emit, which stops on errors in the source, fail);
+ * - TS2693 "'Point' only refers to a type" on `Point(1, 2)`, the product's
+ *   constructor, which merges with the interface;
+ * - TS2304 "Cannot find name" on `Circle(2)` in the file that derives it.
+ *
+ * Suppressed only for a name the derive itself says it declares (its
+ * `generatedNames`, from the same plan its expansion uses) on the declaration
+ * the reference resolves to: the module the specifier imports from, the
+ * interface the identifier names, or this file's own derived types.
+ */
+export function createDerivedDeclarationReferenceRule(): DiagnosticSuppressionRule {
+  return {
+    name: "DerivedDeclarationReference",
+    errorCodes: [2304, 2305, 2614, 2693, 2724],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined || diagnostic.length === undefined) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      if (!node || !ts.isIdentifier(node)) return false;
+      try {
+        if (diagnostic.code === 2693) {
+          // Resolved by the identifier's own scope (syntax), then asked of
+          // the declaration it names.
+          const symbol = declaredSymbolOf(checker, node);
+          return (symbol?.getDeclarations() ?? []).some(
+            (d) => isDerivableDeclaration(d) && namesGeneratedBy(checker, d).includes(node.text)
+          );
+        }
+        if (diagnostic.code === 2304) {
+          return generatedValueNames(checker, sourceFile, false).has(node.text);
+        }
+        const spec = node.parent;
+        if (!spec || (!ts.isImportSpecifier(spec) && !ts.isExportSpecifier(spec))) return false;
+        const exported = spec.propertyName ?? spec.name;
+        if (!ts.isIdentifier(exported)) return false;
+        const declaration = ts.isImportSpecifier(spec)
+          ? spec.parent.parent.parent
+          : spec.parent.parent;
+        const moduleSpecifier = declaration.moduleSpecifier;
+        if (!moduleSpecifier) return false;
+        const target = checker
+          .getSymbolAtLocation(moduleSpecifier)
+          ?.declarations?.find((d): d is ts.SourceFile => ts.isSourceFile(d));
+        // A .d.ts already declares what its derives generated.
+        if (!target || target.isDeclarationFile) return false;
+        return generatedValueNames(checker, target, true).has(exported.text);
+      } catch (e) {
+        if (isDiagnosticSuppressionAuditEnabled()) {
+          console.error(`[DiagnosticSuppression] DerivedDeclarationReference: ${e}`);
+        }
+        return false;
+      }
+    },
+  };
+}
+
+type DerivableDeclaration = ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration;
+
+function isDerivableDeclaration(node: ts.Node): node is DerivableDeclaration {
+  return (
+    ts.isInterfaceDeclaration(node) ||
+    ts.isClassDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node)
+  );
+}
+
+/** The value names the derives on `decl` declare (each derive's `generatedNames`). */
+function namesGeneratedBy(checker: ts.TypeChecker, decl: DerivableDeclaration): string[] {
+  const names: string[] = [];
+  for (const derive of deriveNamesFromDeclaration(decl)) {
+    const macro = globalRegistry.getDerive(derive);
+    if (macro?.generatedNames) names.push(...macro.generatedNames(checker, decl));
+  }
+  return names;
+}
+
+/**
+ * Every value name the derives in `file` declare at its top level (only
+ * exported ones if asked), from each derive's `generatedNames`. For checks
+ * and emit steps that see the source before those values exist.
+ */
+export function generatedValueNames(
+  checker: ts.TypeChecker,
+  file: ts.SourceFile,
+  exportedOnly: boolean
+): Set<string> {
+  const names = new Set<string>();
+  for (const stmt of file.statements) {
+    if (!isDerivableDeclaration(stmt)) continue;
+    if (
+      exportedOnly &&
+      !ts.getModifiers(stmt)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      continue;
+    }
+    for (const name of namesGeneratedBy(checker, stmt)) names.add(name);
+  }
+  return names;
 }
 
 /**

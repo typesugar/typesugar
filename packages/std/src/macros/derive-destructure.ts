@@ -77,6 +77,17 @@ export const destructureDeriveMacro = defineDeriveMacro({
       instanceConst(ctx, plan, e),
     ]);
   },
+
+  // The constructor functions and instances `expand` declares, from the same
+  // plan, so the source can import, re-export and call them before expansion.
+  generatedNames(checker, target) {
+    try {
+      const plan = planDestructure(checker, target);
+      return "error" in plan ? [] : plan.extractors.flatMap((e) => [e.name, e.instanceName]);
+    } catch {
+      return []; // the derive itself reports a checker failure where it runs
+    }
+  },
 });
 
 globalRegistry.register(destructureDeriveMacro);

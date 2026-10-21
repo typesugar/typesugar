@@ -403,6 +403,18 @@ export interface DeriveMacro extends MacroDefinitionBase {
     target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[];
+
+  /**
+   * The value names this derive declares next to the type (functions,
+   * consts), for checks of the source as written, before they exist: an
+   * `import { Circle }` from the module, `export { Circle } from` it, or a
+   * call `Circle(2)` is not an error there. Optional: a derive that only
+   * generates the `Type.TC` companion declares no names of its own.
+   */
+  generatedNames?(
+    checker: ts.TypeChecker,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+  ): readonly string[];
 }
 
 /** Information about a type for derive macros */
