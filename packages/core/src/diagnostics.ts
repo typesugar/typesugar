@@ -729,8 +729,8 @@ Common causes:
 3. The type's shape could not be read (no fields, or an unsupported type form)
 4. The type can't be built field by field at all, and the note says why: a built-in
    type from TypeScript's lib (Array, Map, Date: use a library's instance; the lib's
-   utility types such as Readonly<T>, Partial<T> and Record<K, V> are ordinary object
-   types and do derive), or Clone of
+   utility types such as Readonly<T>, Partial<T> and Record<K, V> over an ordinary
+   object type do derive; over a built-in, as in Readonly<Map<K, V>>, they are built-ins too), or Clone of
    a class with #private members or one that extends a built-in such as Map
 
 Solutions:

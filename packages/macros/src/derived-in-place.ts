@@ -115,9 +115,28 @@ export function isBuiltinObjectSymbol(program: ts.Program, sym: ts.Symbol | unde
  * while the lib's utility aliases (`Readonly<Point>`, `Partial<Point>`,
  * `Record<"a", number>`, `Pick<...>`) are not: they resolve to mapped or
  * anonymous object types whose symbol is a type literal, with ordinary fields.
+ *
+ * A mapped type over a built-in (`Readonly<Map<K, V>>`, `Partial<Date>`,
+ * `Pick<Map<K, V>, "size">`, or an alias of one) is a built-in too: its own
+ * symbol is the mapped type's literal, but its properties are the built-in's
+ * methods and internals, and a homomorphic mapped type's property carries
+ * the declaration it was mapped from. So it is one when any property is
+ * declared as a member of an interface or class in TypeScript's default lib
+ * -- decided by where the members are declared, not by any name.
  */
 export function isBuiltinObjectType(program: ts.Program, type: ts.Type): boolean {
-  return isBuiltinObjectSymbol(program, type.symbol);
+  if (isBuiltinObjectSymbol(program, type.symbol)) return true;
+  if (!(type.flags & ts.TypeFlags.Object)) return false;
+  if (!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped)) return false;
+  return type
+    .getProperties()
+    .some((prop) =>
+      (prop.declarations ?? []).some(
+        (d) =>
+          (ts.isInterfaceDeclaration(d.parent) || ts.isClassDeclaration(d.parent)) &&
+          program.isSourceFileDefaultLibrary(d.getSourceFile())
+      )
+    );
 }
 
 /**

@@ -662,6 +662,27 @@ export const r = derived<Eq<Readonly<number[]>>>();
     for (const e of errs) expect(e).toMatch(/TS9106[\s\S]*built-in/);
   });
 
+  it("a lib utility over a built-in object type (Readonly<Map>, Partial<Date>) is a built-in", () => {
+    // review 5, item 3: the mapped type's own symbol is a type literal, so
+    // Readonly<Map<string, number>> was derived from Map's internals
+    // (`a.size === b.size && a["__@toStringTag@24"] ...`).
+    const t = transformAll({
+      "mapped.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+type RM = Readonly<Map<string, number>>;
+export const a = derived<Eq<Readonly<Map<string, number>>>>();
+export const b = derived<Eq<Readonly<Set<string>>>>();
+export const c = derived<Eq<RM>>();
+export const d = derived<Eq<Partial<Date>>>();
+export const e = derived<Eq<Readonly<Date>>>();
+`,
+    });
+    const errs = transformErrors(t)["mapped.ts"] ?? [];
+    expect(errs).toHaveLength(5);
+    for (const e of errs) expect(e).toMatch(/TS9106[\s\S]*built-in/);
+    expect(JSON.stringify(t.code)).not.toMatch(/__@/);
+  });
+
   it("summon's help for a built-in type doesn't point at derived<...>()", () => {
     const t = transformAll({
       "use.ts": `import type { Eq } from "@typesugar/std";
