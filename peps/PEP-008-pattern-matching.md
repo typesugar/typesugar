@@ -1,6 +1,6 @@
 # PEP-008: Scala-Style Pattern Matching
 
-**Status:** Waves 1-9 Complete
+**Status:** Waves 1-9 Complete; Waves 10-12 proposed (2026-10-21, from the Turf case study)
 **Date:** 2026-03-15
 **Author:** Dean Povey
 
@@ -959,6 +959,14 @@ Core macro infrastructure: parse `.case().if().then()` chains, extract pattern v
 - [x] Custom Destructure instance works: `Email({ user, domain })`
 - [x] Inlined extraction for auto-derived types: no runtime Destructure call
 
+**Status note (2026-10-21).** Wave 4's boxes overstate what shipped. The `Destructure`
+typeclass exists, but nothing resolves it: extractor patterns go through two
+process-global, name-only registries in `match.ts` (`registerProductExtractor`,
+`registerCustomExtractor`), and the built-ins (`Some`, `Left`, `Ok`, `Cons`, ...) are
+hard-coded there. Custom extractors are not reachable by users (the pattern-matching
+guide says "not yet supported"), and nothing is scoped by import as PEP-052 requires.
+Wave 11 does what this wave described.
+
 ### Wave 5: Exhaustiveness Analysis + Optimization (~4 files)
 
 **Depends on:** Wave 4
@@ -1171,6 +1179,62 @@ match(expr, {
 - [x] Discovered imperative control flow incompatibility
 - [x] Build and tests pass (no conversions applied)
 - [ ] **Future:** Fix type signature to support readonly interface unions
+
+### Wave 10: Statement Form and Library Builds (in progress, 2026-10-21)
+
+Found by the Turf case study ([typesugar/turf-typesugar](https://github.com/typesugar/turf-typesugar),
+`CASE-STUDY.md` F20–F22): only 1 of `turf-meta`'s 11 `switch` statements could become
+`match()`, because the arms loop, `return` from the enclosing function, `break` or
+`throw`; and plain `tsc` rejected every fluent `match()`, which broke `.d.ts` builds.
+
+- [ ] `match()` type-checks under plain `tsc` where it can (non-binding patterns), and
+      libraries get `.d.ts` from the expanded program (tsup and tsc paths documented).
+- [ ] Statement form, a labelled switch (valid TypeScript, like `let:` / `requires:`):
+      `ts
+    match: switch (geom) {
+      case { type: "Point", coordinates: [x, y] }: use(x, y); break;
+      case { type: "LineString", coordinates }: ...; break;
+    }
+    `
+      Literal cases emit the same switch with the label stripped (byte-identical); a
+      missing case is TS9226. Object and array patterns compile to a switch on the
+      discriminant plus block-scoped destructuring. Control flow keeps switch semantics.
+
+### Wave 11: Destructure, for Real (in progress, 2026-10-21)
+
+- [ ] Extractor calls in patterns (`.case(Point(x, y))`, `case Point(x, y):`) resolve a
+      `Destructure` instance from scope by normal typeclass resolution (PEP-052).
+- [ ] Instances come from `@derive(Destructure)` on owned types, `derived<Destructure<…>>()`
+      for types you don't own (PEP-060 follow-up, "option B"), or a hand-written `@impl`.
+- [ ] Retrofit the built-ins as instances shipped by the packages that own the types:
+      `Some`/`None`, `Left`/`Right`, `Ok`/`Err`, Validated `Valid`/`Invalid`, List
+      `Cons`/`Nil`. The extractor follows the scrutinee's type, so std's and fp's
+      representations, and a user's own Option-like type, each bring their own `extract`.
+- [ ] Zero cost: derived and inline instances compile to direct field reads and
+      discriminant checks (no tuple built and unpacked); today's emitted output for each
+      built-in is pinned before the change and must not get worse.
+- [ ] Deprecate or remove the name-only registries.
+
+### Wave 12: Extractors for JavaScript's Built-in Types (proposed)
+
+**Depends on:** Wave 11.
+
+A small, curated set of `Destructure` instances in std, activated by a syntax-marker
+import like every other std feature:
+
+| Extractor                                                                          | Matches                    | Binds               | Compiles to (roughly)                                           |
+| ---------------------------------------------------------------------------------- | -------------------------- | ------------------- | --------------------------------------------------------------- |
+| a `RegExp` value, e.g. `Ymd(y, m, d)` with `const Ymd = /(\d{4})-(\d{2})-(\d{2})/` | strings the regex matches  | capture groups      | `const _m = Ymd.exec(s); if (_m) { const [, y, m, d] = _m; … }` |
+| `NonEmpty(head, tail)`                                                             | non-empty arrays           | first element, rest | `if (a.length > 0) { const head = a[0], tail = a.slice(1); … }` |
+| `Int(n)`, `Num(x)`                                                                 | strings that parse         | the number          | `parseInt` / `Number` plus an `isNaN` check                     |
+| `Url(protocol, host, …)`                                                           | strings that parse as URLs | URL parts           | `URL.canParse` + `new URL`                                      |
+| `Prefix("v", rest)`, `Suffix(".ts", stem)`                                         | strings                    | the remainder       | `startsWith` + `slice`                                          |
+| `Error(message)`                                                                   | `instanceof Error`         | `message`           | `instanceof` check + property read                              |
+
+Each must compile to the code a person would write, with no allocation beyond what that
+code allocates, and be measured that way. Scala's regex extractors
+(`case Date(y, m, d) =>`) are the model. Open questions: whether a bare regex in pattern
+position is clear enough or needs a wrapper; positional binding order for `Url`.
 
 ## Files Changed (All Waves)
 

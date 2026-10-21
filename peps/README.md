@@ -16,7 +16,7 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [005](PEP-005-type-safety-and-speed.md)                 | Type Safety and Speed — Matching the TypeScript DX        | Done                                                                         |
 | [006](PEP-006-cspell-dictionary.md)                     | cSpell Dictionary for typesugar                           | Draft                                                                        |
 | [007](PEP-007-hkt-boilerplate-reduction.md)             | HKT Boilerplate Reduction for `.ts` Files                 | Done                                                                         |
-| [008](PEP-008-pattern-matching.md)                      | Scala-Style Pattern Matching                              | Waves 1–9 Complete                                                           |
+| [008](PEP-008-pattern-matching.md)                      | Scala-Style Pattern Matching                              | Waves 1–9 Complete; 10–12 proposed (2026-10)                                 |
 | [009](PEP-009-diff-typeclass.md)                        | Diff Typeclass                                            | Draft                                                                        |
 | [010](PEP-010-match-type.md)                            | Type-Level Pattern Matching                               | Draft                                                                        |
 | [011](PEP-011-sfinae-diagnostic-resolution.md)          | SFINAE Diagnostic Resolution                              | Done                                                                         |
