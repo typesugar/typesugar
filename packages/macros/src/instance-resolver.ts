@@ -9,6 +9,9 @@
  * 1. Local scope — @impl-annotated values in the current file (incl. non-exported)
  * 2. Explicit imports — values imported by name
  * 3. Module-level search — scanning all exports of imported modules
+ * 4. The typeclass's own package ({@link resolveFromTypeclassHome}), for
+ *    summon/implicit: a typeclass reached through a re-export finds its
+ *    instances where it is declared
  *
  * Resolution is purely scope-based — there is no process-global registry
  * fallback (PEP-052): a file's behavior depends only on its own imports and the
