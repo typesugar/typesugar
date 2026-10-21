@@ -32,8 +32,10 @@ typesugar build [options]
 - `-v, --verbose` — Enable verbose logging
 - `--cache [dir]` — Enable disk cache for faster rebuilds (default: `.typesugar-cache/transforms`)
 - `--no-cache` — Disable disk cache
-- `--strict` — Also type-check the expanded output. Experimental: the per-file
-  expansion check may report false positives (e.g. a spurious TS2304). Off by default.
+- `--strict` — Also type-check the expanded output: the code the build emits, as a
+  program of its own. An error is reported at its position in the expanded code
+  (`typesugar expand <file>` shows it); one the source already reports is not repeated.
+  Experimental, off by default.
 - `--strict=incremental` — Like `--strict`, but only re-checks changed files
 - `--show-suppressed-diagnostics` — Also print the diagnostics typesugar's
   suppression rules filtered out (audit mode)
@@ -111,9 +113,9 @@ typesugar check [options]
 
 - `-p, --project <path>` — Path to tsconfig.json
 - `-v, --verbose` — Enable verbose logging
-- `--strict` / `--strict=incremental` — Also type-check the fully expanded output.
-  Experimental: it can surface false positives, so it is off by default and is not
-  a substitute for plain `check`.
+- `--strict` / `--strict=incremental` — Also type-check the fully expanded output,
+  reported at positions in the expanded code. Experimental and off by default; an
+  addition to plain `check`, not a substitute for it.
 - `--show-suppressed-diagnostics` — Show suppressed diagnostics (audit mode)
 
 > **`check` vs `build`:** `check` type-checks and emits nothing; `build` emits to

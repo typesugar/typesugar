@@ -741,10 +741,15 @@ export function opaqueTypesAsUnderlying(fileName: string, text: string): string 
   return out;
 }
 
-/** The underlying type text of an `@opaque` JSDoc tag, joined onto one line. */
+/**
+ * The underlying type text of an `@opaque` JSDoc tag, joined onto one line.
+ * Only a tag that starts a line: "an @opaque type" in prose is not one
+ * (typesugar's own `.d.ts` says that, and its interface became `type
+ * MethodInlinePattern = type can be inlined ...`, a syntax error).
+ */
 function opaqueTagText(node: ts.Node): string | undefined {
   for (const tag of ts.getJSDocTags(node)) {
-    if (tag.tagName.text !== "opaque") continue;
+    if (tag.tagName.text !== "opaque" || !isJSDocTagAtLineStart(tag)) continue;
     const comment =
       typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
     const value = comment?.replace(/\s+/g, " ").trim();
