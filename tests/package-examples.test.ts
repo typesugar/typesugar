@@ -26,10 +26,6 @@ const cliPath = path.join(repoRoot, "packages", "transformer", "dist", "cli.js")
 const hasBuild = fs.existsSync(cliPath);
 
 const KNOWN_BROKEN: Record<string, string> = {
-  "packages/effect/examples/effect-adapter-example.ts": "imports gen$/map$/flatMap$, not exported",
-  "packages/effect/examples/showcase.ts": "typeAsserts on Effect types fail (line 153+)",
-  "packages/fusion/examples/showcase.ts":
-    "typeAssert<Equal<typeof a, FusedVec<number>>> fails (line 199)",
   "packages/reflect/examples/reflect-example.ts": "result.errors is undefined at run time",
   "packages/reflect/examples/showcase.ts": "typeAssert on typeInfo's result fails (line 75)",
   "packages/sql/examples/doobie-style-example.ts":
