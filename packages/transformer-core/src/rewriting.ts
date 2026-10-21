@@ -650,7 +650,21 @@ export function tryRewriteTypeclassOperator(
   // `1 + 1 + ... + 1` made a 10,000-term line take tens of minutes. Checked
   // first: the opt-out and activation checks below walk up the node's
   // ancestors, which at every level of a long chain is quadratic.
-  if (isPrimitiveTypedBinary(node.left)) return undefined;
+  // The exception is an operand that is itself a typeclass operator whose
+  // method returns the instance type (`a + b` → `add(a, b): A`): `a + b + c`
+  // dispatches on that type (rewrittenChainType, memoized per node, so a
+  // long chain is walked once).
+  const sfn = ctx.sourceFile.fileName;
+  const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
+  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+  let chainType: ts.Type | undefined;
+  if (isPrimitiveTypedBinary(node.left)) {
+    if (activatedOps.size === 0 && definedTcs.size === 0) return undefined;
+    const activated =
+      definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
+    chainType = rewrittenChainType(ctx, node.left, activated);
+    if (!chainType) return undefined;
+  }
   if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getOperatorString(node.operatorToken.kind);
@@ -658,9 +672,6 @@ export function tryRewriteTypeclassOperator(
 
   // PEP-052 activation gate: rewrite only if the file activated a typeclass that
   // maps this operator (imported `@syntax-operators` marker or in-file `@typeclass`).
-  const sfn = ctx.sourceFile.fileName;
-  const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
-  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
   const activatedForOps =
     definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
 
@@ -692,7 +703,7 @@ export function tryRewriteTypeclassOperator(
   // dispatch (so a right-nested chain isn't re-checked at each level either).
   let leftType: ts.Type;
   try {
-    leftType = ctx.typeChecker.getTypeAtLocation(node.left);
+    leftType = chainType ?? ctx.typeChecker.getTypeAtLocation(node.left);
   } catch (error) {
     return operandTypeFailed(error);
   }
@@ -1061,6 +1072,120 @@ const PRIMITIVE_RESULT_OPERATORS = new Set<ts.SyntaxKind>([
 function isPrimitiveTypedBinary(e: ts.Expression): boolean {
   while (ts.isParenthesizedExpression(e)) e = e.expression;
   return ts.isBinaryExpression(e) && PRIMITIVE_RESULT_OPERATORS.has(e.operatorToken.kind);
+}
+
+/**
+ * Per operator expression: the instance type its rewrite produces, or null
+ * when it isn't rewritten to a method returning the instance type. Nodes are
+ * per program, so a WeakMap is the right lifetime.
+ */
+const chainTypeCache = new WeakMap<ts.Node, ts.Type | null>();
+
+/**
+ * The type the operator expression `expr` has once rewritten, when that is
+ * an instance type: `a + b` with an activated `/** @op + *\/ add(a: A, b: A):
+ * A` and an instance for `a`'s type becomes `add(a, b)`, a value of that
+ * type. TypeScript types `a + b` on objects by its own rules (an error, so
+ * any), so the outer operator of `a + b + c` couldn't dispatch and stayed
+ * JavaScript's own (`add(a, b) + c`, string concatenation) (PEP-052 deferred
+ * item 6). Undefined when it isn't such an expression.
+ *
+ * Decided as the rewrite decides it, bottom-up along the left operands: the
+ * innermost left operand's type (by the checker), then at each operator an
+ * activated candidate whose method returns the type parameter
+ * (`resultIsSelf`, from the typeclass declaration), exactly one instance for
+ * the type from scope (resolveInstance), and a right operand that fits.
+ * Walked iteratively and memoized per node, so `1 + 1 + ... + 1` costs one
+ * walk of the chain and no checker call on a binary expression (whose type
+ * TypeScript doesn't cache).
+ */
+function rewrittenChainType(
+  ctx: MacroContextImpl,
+  expr: ts.Expression,
+  activated: ReadonlySet<string>
+): ts.Type | undefined {
+  const spine: ts.BinaryExpression[] = [];
+  let cur: ts.Expression = expr;
+  let type: ts.Type | null;
+  for (;;) {
+    while (ts.isParenthesizedExpression(cur)) cur = cur.expression;
+    if (ts.isBinaryExpression(cur) && PRIMITIVE_RESULT_OPERATORS.has(cur.operatorToken.kind)) {
+      const cached = chainTypeCache.get(cur);
+      if (cached !== undefined) {
+        type = cached;
+        break;
+      }
+      spine.push(cur);
+      cur = cur.left;
+      continue;
+    }
+    type = chainLeafType(ctx, cur);
+    break;
+  }
+  for (let i = spine.length - 1; i >= 0; i--) {
+    if (type) type = chainStepType(ctx, spine[i], type, activated);
+    chainTypeCache.set(spine[i], type);
+  }
+  return type ?? undefined;
+}
+
+/** The innermost left operand's type, when it is an object type that could have an instance. */
+function chainLeafType(ctx: MacroContextImpl, leaf: ts.Expression): ts.Type | null {
+  // A synthetic node is outside the checker's contract (CLAUDE.md).
+  if (isSyntheticNode(leaf) || isNullOrUndefinedExpr(leaf)) return null;
+  try {
+    const t = ctx.typeChecker.getTypeAtLocation(leaf);
+    return isPrimitiveByFlags(t) || admitsNullish(t) ? null : t;
+  } catch (error) {
+    ctx.reportWarning(
+      leaf,
+      `typesugar could not resolve the type of '${leaf.getText()}' at the start of an ` +
+        `operator chain (${error}); the chain's operators stay native.`
+    );
+    return null;
+  }
+}
+
+/** `node`'s type once rewritten, given its left operand's type `left`; null if it isn't rewritten to one. */
+function chainStepType(
+  ctx: MacroContextImpl,
+  node: ts.BinaryExpression,
+  left: ts.Type,
+  activated: ReadonlySet<string>
+): ts.Type | null {
+  if (isSyntheticNode(node) || isOperatorRewriteOptedOut(ctx, node)) return null;
+  const op = getOperatorString(node.operatorToken.kind);
+  if (!op) return null;
+  const candidates = getOperatorCandidates(ctx.program, activated, op);
+  let found: { rightOperandIsSelf: boolean } | undefined;
+  try {
+    for (const candidate of candidates) {
+      const r = resolveInstance(ctx, candidate.typeclass, left, undefined, undefined, node);
+      if (!r) continue;
+      // Ambiguous, or two typeclasses apply: the rewrite reports it and stays
+      // native, so the result isn't the instance type.
+      if (r.kind === "ambiguous" || found) return null;
+      if (!candidate.resultIsSelf) return null;
+      found = candidate;
+    }
+    if (!found) return null;
+    if (found.rightOperandIsSelf) {
+      const right = isPrimitiveTypedBinary(node.right)
+        ? rewrittenChainType(ctx, node.right, activated)
+        : isSyntheticNode(node.right)
+          ? undefined
+          : ctx.typeChecker.getTypeAtLocation(node.right);
+      if (!right || !ctx.typeChecker.isTypeAssignableTo(right, left)) return null;
+    }
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      `typesugar could not check the operator chain at '${node.getText()}' (${error}); ` +
+        `the operators it is an operand of stay native.`
+    );
+    return null;
+  }
+  return left;
 }
 
 /**

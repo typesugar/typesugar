@@ -103,6 +103,18 @@ spellings that mean the same thing; two different operations belong on two metho
 | `%`      | `mod`, `rem`            | `a % b`  |
 | `**`     | `pow`                   | `a ** b` |
 
+Operators chain. A method whose result is the typeclass's own type
+(`add(a: A, b: A): A`) makes its operator expression that type, so the next
+operator dispatches on it too:
+
+```typescript
+a + b + c; // numericRational.add(numericRational.add(a, b), c)
+a + b < c; // ordRational.lessThan(numericRational.add(a, b), c)
+```
+
+A method that returns something else (`equals(a: A, b: A): boolean`) ends the
+chain: `(a === b) === flag` compares booleans natively.
+
 ### Comparison
 
 | Operator | Typical Method              | Example   |

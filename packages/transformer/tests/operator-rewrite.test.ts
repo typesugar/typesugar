@@ -189,3 +189,80 @@ const c = a + b;
     expect(ambiguityDiag).toBeDefined();
   });
 });
+
+// ============================================================================
+// Chained operators: an operand that is itself a rewritten operator
+// ============================================================================
+
+describe("Chained typeclass operators (a + b + c)", () => {
+  // `a + b + c` parses as `(a + b) + c`. TypeScript types `a + b` on objects
+  // as an error (any), so the outer `+` saw no instance and stayed native:
+  // `numericV.add(a, b) + c`, string concatenation ("[object Object]...").
+  // A method whose result is the typeclass's own type parameter
+  // (`add(a: A, b: A): A`) gives its operator expression that type, so the
+  // outer operator dispatches on it too (PEP-052 deferred item 6).
+  const prelude = `
+/** @typeclass */
+export interface Num<A> {
+  /** @op + */ add(a: A, b: A): A;
+  /** @op * */ scale(a: A, k: number): A;
+  /** @op < */ lt(a: A, b: A): boolean;
+  /** @op === */ same(a: A, b: A): boolean;
+}
+export interface V { x: number }
+/** @impl Num<V> */
+export const numV: Num<V> = {
+  add: (a, b) => ({ x: a.x + b.x }),
+  scale: (a, k) => ({ x: a.x * k }),
+  lt: (a, b) => a.x < b.x,
+  same: (a, b) => a.x === b.x,
+};
+const a: V = { x: 1 }, b: V = { x: 2 }, c: V = { x: 3 };
+`;
+
+  function evaluate(code: string): Record<string, unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ts = require("typescript") as typeof import("typescript");
+    const js = ts.transpileModule(code, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const mod = { exports: {} as Record<string, unknown> };
+    new Function("module", "exports", "require", js)(mod, mod.exports, () => ({}));
+    return mod.exports;
+  }
+
+  it("rewrites every operator of a left-nested chain", () => {
+    const code = `${prelude}
+export const s = a + b + c;
+export const four = a + b + c + a;
+export const t = a + b < c;
+export const u = a * 2 + b;
+export const eq = a + b === c;
+export const paren = (a + b) + c;
+export const n = 1 + 2 + 3;
+`;
+    const result = transformCode(code, { fileName: "op-chain.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).not.toMatch(/\) \+ c|\) \+ a|\) < c|\) === c/);
+    expect(result.code).toContain("n = 1 + 2 + 3");
+    expect(evaluate(result.code)).toMatchObject({
+      s: { x: 6 },
+      four: { x: 7 },
+      t: false,
+      u: { x: 4 },
+      eq: true,
+      paren: { x: 6 },
+      n: 6,
+    });
+  });
+
+  it("a comparison result (boolean) is not taken as the instance type", () => {
+    const code = `${prelude}
+declare const flag: boolean;
+export const r = (a === b) === flag;
+`;
+    const result = transformCode(code, { fileName: "op-chain-bool.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toMatch(/\) === flag/);
+  });
+});
