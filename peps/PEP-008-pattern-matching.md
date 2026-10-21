@@ -1191,11 +1191,11 @@ Found by the Turf case study ([typesugar/turf-typesugar](https://github.com/type
       libraries get `.d.ts` from the expanded program (tsup and tsc paths documented).
 - [ ] Statement form, a labelled switch (valid TypeScript, like `let:` / `requires:`):
       `ts
-    match: switch (geom) {
-      case { type: "Point", coordinates: [x, y] }: use(x, y); break;
-      case { type: "LineString", coordinates }: ...; break;
-    }
-    `
+  match: switch (geom) {
+    case { type: "Point", coordinates: [x, y] }: use(x, y); break;
+    case { type: "LineString", coordinates }: ...; break;
+  }
+  `
       Literal cases emit the same switch with the label stripped (byte-identical); a
       missing case is TS9226. Object and array patterns compile to a switch on the
       discriminant plus block-scoped destructuring. Control flow keeps switch semantics.
@@ -1230,6 +1230,25 @@ import like every other std feature:
 | `Url(protocol, host, …)`                                                           | strings that parse as URLs | URL parts           | `URL.canParse` + `new URL`                                      |
 | `Prefix("v", rest)`, `Suffix(".ts", stem)`                                         | strings                    | the remainder       | `startsWith` + `slice`                                          |
 | `Error(message)`                                                                   | `instanceof Error`         | `message`           | `instanceof` check + property read                              |
+
+**Error subclasses** (Dean, 2026-10-21; see PEP-062 Wave 10 for `@derive(Error)`). The
+`Error(message)` extractor generalises to any `Error` subclass via `instanceof`, so a
+`catch` block can match:
+
+```ts
+try { … } catch (e) {
+  match: switch (e) {
+    case HttpError({ status: 404 }): …; break;
+    case TypeError(message): …; break;
+    default: throw e;
+  }
+}
+```
+
+This compiles to an `instanceof` chain with property reads. `e` is `unknown`, so no
+exhaustiveness check applies, and a `default` that rethrows is the usual shape. The
+error types `@derive(Error)` generates carry `Destructure` instances, so their fields
+bind by name.
 
 Each must compile to the code a person would write, with no allocation beyond what that
 code allocates, and be measured that way. Scala's regex extractors

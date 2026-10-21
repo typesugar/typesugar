@@ -162,6 +162,38 @@ not get worse.
 9. **Frozen packages** (rows 14–15): only if PEP-048's re-triage unfreezes `erased` or
    `codec`. Otherwise their docs say the capability and field-kind sets are closed.
 
+10. **Native errors** (Dean, 2026-10-21: "Add all 5"; pattern matching on errors is in
+    PEP-008 Wave 12). Depends on Wave 4's `ApplicativeError`/`MonadError` in std.
+    - **Exceptions as an instance.** A throwing instance in which a function simply
+      returns `A`: `raiseError(e)` is `throw e`, and `handleErrorWith` is `try`/`catch`. The
+      same generic code (`ME: MonadError<F, E> = implicit()`) then compiles to plain
+      throwing code with this instance, or to `Result`-returning code with Result's.
+    - **Early return on error (Rust's `?`).** In a function returning `F<A>` with an
+      `ApplicativeError` instance, a call like `const user = check(parseUser(s))` compiles
+      to `const _r = parseUser(s); if (!_r.ok) return _r; const user = _r.value;` for
+      Result, and to the equivalent for Either, Option and Promise (`await` plus rethrow).
+      There is no allocation. The name (`check`, `try_`, a `?:` label form) is open.
+    - **Bridges between exceptions and values:**
+      - `attempt(() => JSON.parse(s))` returns a `Result`, compiled to an inline
+        `try`/`catch`;
+      - `r.orThrow()` turns an `Err` into a throw;
+      - `await settle(p)` turns a Promise rejection into an `Err`.
+
+      Each compiles to the hand-written code.
+
+    - **`@derive(Error)`, like Rust's `thiserror`.** On a union of error variants it
+      generates real `Error` subclasses (or one per variant), with a proper `name`, a
+      `message` formatted from a per-variant template, `cause` chaining (`Error.cause`)
+      and `toJSON`. Matching on them uses PEP-008 Wave 12's `Error`-subclass extractors.
+      ```ts
+      /** @derive(Error) */
+      type ConfigError =
+        | { kind: "Missing"; key: string } // message: `missing key ${key}`
+        | { kind: "Invalid"; key: string; cause: unknown };
+      ```
+    - Not planned: checked exceptions (`@throws` verified at compile time). TypeScript
+      can't see what a call throws, so the check would be noisy and unreliable.
+
 Waves 2 and 3 matter most for 1.0: every `let:` and every `@derive` user is affected.
 Waves 4–7 are smaller and can follow.
 
