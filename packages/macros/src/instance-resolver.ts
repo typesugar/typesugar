@@ -51,6 +51,12 @@ export interface ResolvedInstance {
   localName?: string;
   /** True when the explicit import that brings it into scope is `import type`. */
   typeOnlyImport?: boolean;
+  /**
+   * The instance is declared for the requested type ITSELF (the same symbol,
+   * after alias resolution), not only for a type of the same structure. Breaks
+   * a tie between structurally identical types (see {@link pickResult}).
+   */
+  sameTypeIdentity?: boolean;
 }
 
 export interface AmbiguousInstances {
@@ -189,6 +195,30 @@ function isTypeMatch(
 
 function sameType(checker: ts.TypeChecker, a: ts.Type, b: ts.Type): boolean {
   return checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a);
+}
+
+/**
+ * Is `candidateType` the requested type itself, by identity: the same type
+ * object, or the same declaring symbol (alias, class, interface) after
+ * import-alias resolution. Compared by symbol, not by name (CLAUDE.md
+ * "Deciding what a type is"): `class UserId` and `class Email` with the same
+ * fields are mutually assignable, but they are different symbols.
+ */
+function isSameTypeIdentity(
+  checker: ts.TypeChecker,
+  fieldType: ts.Type,
+  candidateType: ts.Type | undefined
+): boolean {
+  if (!candidateType) return false;
+  if (fieldType === candidateType) return true;
+  const a = typeSymbol(checker, fieldType);
+  return a !== undefined && a === typeSymbol(checker, candidateType);
+}
+
+function typeSymbol(checker: ts.TypeChecker, t: ts.Type): ts.Symbol | undefined {
+  const sym = t.aliasSymbol ?? t.symbol;
+  if (!sym) return undefined;
+  return sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
 }
 
 /**
@@ -402,6 +432,7 @@ function filterMatches(
       sourceModule,
       source,
       importSpecifier,
+      sameTypeIdentity: isSameTypeIdentity(typeChecker, forType, inst.forType),
     });
   }
 
@@ -717,6 +748,12 @@ function pickResult(
     }
   }
   if (seen.size === 1) return seen.values().next().value;
+
+  // Several instances match structurally, but exactly one is declared for the
+  // requested type itself (`UserId.Eq` for a `UserId`, beside an `Email.Eq`
+  // for a class of the same shape): that one is meant.
+  const exact = [...seen.values()].filter((m) => m.sameTypeIdentity);
+  if (exact.length === 1) return exact[0];
 
   return {
     kind: "ambiguous",
