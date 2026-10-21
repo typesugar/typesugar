@@ -1219,9 +1219,15 @@ export function tryRewriteTypeclassUnaryOperator(
     return undefined;
   }
   if ((operandType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) return undefined;
-  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
-  const base = ctx.typeChecker.getBaseTypeOfLiteralType(operandType);
-  if (OPERATOR_PRIMITIVE_TYPES.has(ctx.typeChecker.typeToString(base))) return undefined;
+  // By flags, as for the binary form: a literal operand (`-1`, `!true`) is
+  // primitive too, which the printed name of its base type only matched
+  // for some primitives.
+  if (
+    OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName)) ||
+    isPrimitiveByFlags(operandType)
+  ) {
+    return undefined;
+  }
 
   let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
   for (const candidate of candidates) {

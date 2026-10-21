@@ -207,13 +207,22 @@ export function tryResolveTypeclassMethod(
     // Resolve the instance purely from scope (PEP-052): an imported/local
     // `@impl`/`@instance` value, or a `@derive(TC)` companion on the receiver's
     // type. No process-global instance registry.
-    const inst = resolveMethodSugarInstance(
-      ctx,
-      instanceSideType,
-      typeName,
-      baseTypeName,
-      typeclass
-    );
+    let inst = resolveMethodSugarInstance(ctx, instanceSideType, typeName, baseTypeName, typeclass);
+    // A literal receiver -- `(7).show()`, `const n = 3; n.show()`, `"s".show()`
+    // -- is typed as its literal type (`7`), which no `@impl Show<number>`
+    // is declared for: retry with its base type (`number`), widened by the
+    // checker, never by its printed text ("7").
+    const widened = widenLiteralType(ctx.typeChecker, instanceSideType);
+    if (!inst && widened !== instanceSideType) {
+      const widenedName = ctx.typeChecker.typeToString(widened);
+      inst = resolveMethodSugarInstance(
+        ctx,
+        widened,
+        widenedName,
+        stripTypeArguments(widenedName),
+        typeclass
+      );
+    }
     // Never apply instance-method sugar for instances on a built-in receiver
     // (Promise/Array/Map/...). Those carry native methods (map, then, ...) that
     // collide with typeclass method names; rewriting `arr.map(fn)` into a
@@ -350,11 +359,17 @@ export function inferMethodSugarCallType(
   if (activated.size === 0) return undefined;
 
   let found: string | undefined;
+  // A literal receiver is retried with its base type, as in
+  // tryResolveTypeclassMethod.
+  const widened = widenLiteralType(ctx.typeChecker, receiverType);
   for (const { typeclass } of getMethodCandidates(ctx.program, activated, methodName)) {
     let has = false;
     try {
       const r = resolveInstance(ctx, typeclass, receiverType);
       has = r?.kind === "resolved";
+      if (!has && widened !== receiverType) {
+        has = resolveInstance(ctx, typeclass, widened)?.kind === "resolved";
+      }
     } catch {
       // Quiet: the call's own rewrite reports a resolution failure.
       has = false;
@@ -372,6 +387,18 @@ export function inferMethodSugarCallType(
   const typeName = stripTypeArguments(ctx.typeChecker.typeToString(receiverType));
   if (BUILTIN_METHOD_RECEIVER_NAMES.has(typeName)) return undefined;
   return receiverType;
+}
+
+/**
+ * The base type of a literal type (`7` -> `number`, `"s"` -> `string`,
+ * `true` -> `boolean`, an enum member -> its enum), or of a union of literals;
+ * any other type is returned unchanged. Decided by the checker
+ * (`getBaseTypeOfLiteralType`, keyed on type flags), not by printed text.
+ */
+function widenLiteralType(checker: ts.TypeChecker, t: ts.Type): ts.Type {
+  const isLiteral = (m: ts.Type) => (m.flags & ts.TypeFlags.Literal) !== 0;
+  if (!(t.isUnion() ? t.types.every(isLiteral) : isLiteral(t))) return t;
+  return checker.getBaseTypeOfLiteralType(t);
 }
 
 /**

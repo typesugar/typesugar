@@ -578,3 +578,36 @@ describe("a .d.ts instance marked /** @impl */ (validate nativeSchema)", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Method syntax on a literal receiver (round-2 docs finding)
+// ---------------------------------------------------------------------------
+
+describe("typeclass method syntax on a literal receiver", () => {
+  it("(7).show(), const n = 3; n.show(), 'a'.show(), true.show() and a literal prefix operand are rewritten and run", () => {
+    const result = transform(
+      [
+        `declare function log(v: unknown): void;`,
+        `/** @typeclass */`,
+        `interface Show<A> { show(a: A): string }`,
+        `/** @impl Show<number> */`,
+        "const showNumber: Show<number> = { show: (n) => `n${n}` };",
+        `/** @impl Show<string> */`,
+        "const showString: Show<string> = { show: (s) => `s${s}` };",
+        `/** @impl Show<boolean> */`,
+        "const showBoolean: Show<boolean> = { show: (b) => `b${b}` };",
+        `const n = 3;`,
+        `let m: number = 4;`,
+        `log((7).show());`,
+        `log(n.show());`,
+        `log(m.show());`,
+        `log("a".show());`,
+        `log(true.show());`,
+        `log((-1).show());`,
+      ].join("\n")
+    );
+    expect(errors(result)).toEqual([]);
+    expect(result.code).not.toMatch(/\)\.show\(\)|\bn\.show\(\)|"a"\.show\(\)|true\.show\(\)/);
+    expect(run(result.code)).toEqual(["n7", "n3", "n4", "sa", "btrue", "n-1"]);
+  });
+});
