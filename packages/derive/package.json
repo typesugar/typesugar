@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/derive",
   "version": "0.1.1",
-  "description": "Auto-derive common implementations (Eq, Ord, Clone, etc.) for typesugar",
+  "description": "@derive macros that generate common implementations (Eq, Ord, Clone, etc.) for typesugar",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

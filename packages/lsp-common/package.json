@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/lsp-common",
   "version": "0.1.1",
-  "description": "Shared IDE infrastructure for typesugar LSP server and TS plugin",
+  "description": "Shared IDE helpers (position mapping, AST helpers, code actions) for the typesugar TypeScript language-service plugin",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",
