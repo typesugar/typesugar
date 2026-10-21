@@ -33,7 +33,6 @@ const KNOWN_BROKEN: Record<string, string> = {
     "pre-PEP @deriving syntax: Unknown derive '(Read'",
   "packages/testing/examples/basic.ts":
     "a vitest file (describe/it), and typeAssert<Equal<typeof result, number>> fails (line 143)",
-  "packages/transformer/examples/showcase.ts": "typeAsserts on diagnostic shapes fail (line 118+)",
   "packages/typesugar/examples/showcase.ts":
     "imports config/invariant/unreachable from typesugar's src, not exported",
 };
