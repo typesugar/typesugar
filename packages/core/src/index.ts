@@ -226,6 +226,7 @@ export {
   createRemoveExpression,
   isRemoveExpression,
   getRemoveComment,
+  opaqueTypesAsUnderlying,
   type JsValueContext,
 } from "./ast-utils.js";
 

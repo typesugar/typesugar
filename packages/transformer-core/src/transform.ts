@@ -26,6 +26,7 @@ import {
   globalResolutionScope,
   assertSupportedTypeScript,
   type RawSourceMap,
+  opaqueTypesAsUnderlying,
 } from "@typesugar/core";
 
 /**
@@ -557,7 +558,12 @@ function typecheckOutputCode(
     skipLibCheck: true,
   };
 
-  const host = createInMemoryCompilerHost(outputCode, fileName, checkOptions);
+  // Expanded code is written against the runtime view of @opaque types.
+  const host = createInMemoryCompilerHost(
+    opaqueTypesAsUnderlying(fileName, outputCode),
+    fileName,
+    checkOptions
+  );
   const program = ts.createProgram([fileName], checkOptions, host);
   const sourceFile = program.getSourceFile(fileName);
   if (!sourceFile) return [];

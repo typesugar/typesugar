@@ -234,8 +234,12 @@ const name: Option<string> = findUser("1").map((u) => u.name);
 // Compiled: const name = map(findUser("1"), u => u.name)
 ```
 
-Type annotations are preserved for library-imported opaque types (since the `.d.ts` alias is valid):
-`const x: Option<number> = Some(42)` → `const x: Option<number> = 42`
+Type annotations are kept as written, in every position (variables, parameters, returns,
+properties, type arguments), for library and same-project opaque types alike:
+`const x: Option<number> = Some(42)` → `const x: Option<number> = 42`. Expanded code is written
+against the runtime view of an opaque type (`Option<number>` is `number | null`), which is how
+`typesugar build --strict` and `strictOutput` check it, and the declarations emitted from the
+expanded program keep `Option<number>`.
 
 Add to your library's `package.json`:
 

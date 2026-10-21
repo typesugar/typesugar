@@ -606,3 +606,83 @@ export function isRemoveExpression(node: ts.Node): boolean {
 export function getRemoveComment(node: ts.Node): string | undefined {
   return (node as any)[REMOVE_COMMENT];
 }
+
+// =============================================================================
+// opaqueTypesAsUnderlying — the runtime view of @opaque types, for type-checking expanded output
+// =============================================================================
+
+/**
+ * `text` with each `/** @opaque U *\/ interface T<…> { … }` declaration
+ * replaced by `type T<…> = U;`: the view of `@opaque` types the EXPANDED code
+ * is written against. Expansion erases `Some(x)` to `x` and `opt.map(f)` to
+ * `map(opt, f)`, so in expanded code an `Option<number>` is a `number | null`
+ * wherever it appears (a parameter, a variable, a return, a property, a type
+ * argument), and the companions that take one take that. Checking expanded
+ * code against the interface reported every such position as an error (or,
+ * where an annotation had been stripped to avoid that, typed the value as the
+ * raw payload, or `any` for a parameter, and changed the declarations emitted
+ * from the expanded program).
+ *
+ * Used only to serve source text to a checker of expanded output
+ * (`strictOutput`, `typesugar build --strict`); nothing is emitted from it.
+ * Text in, text out, because a compiler host serves text: each replacement is
+ * padded to the declaration's length with the same number of line breaks, so
+ * every diagnostic position after it is unchanged. Returns `text` itself when
+ * there is no `@opaque` interface.
+ */
+export function opaqueTypesAsUnderlying(fileName: string, text: string): string {
+  if (!text.includes("@opaque")) return text;
+  const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
+  const edits: { start: number; end: number; text: string }[] = [];
+  const visitStatements = (statements: readonly ts.Statement[]): void => {
+    for (const stmt of statements) {
+      if (ts.isModuleDeclaration(stmt) && stmt.body && ts.isModuleBlock(stmt.body)) {
+        visitStatements(stmt.body.statements);
+        continue;
+      }
+      if (!ts.isInterfaceDeclaration(stmt)) continue;
+      const underlying = opaqueTagText(stmt);
+      if (!underlying) continue;
+      const start = stmt.getStart(sourceFile);
+      const keywords = (ts.getModifiers(stmt) ?? [])
+        .filter(
+          (m) => m.kind === ts.SyntaxKind.ExportKeyword || m.kind === ts.SyntaxKind.DeclareKeyword
+        )
+        .map((m) => m.getText(sourceFile) + " ")
+        .join("");
+      const params = stmt.typeParameters
+        ? `<${stmt.typeParameters.map((p) => p.getText(sourceFile)).join(", ")}>`
+        : "";
+      edits.push({
+        start,
+        end: stmt.end,
+        text: `${keywords}type ${stmt.name.text}${params} = ${underlying};`,
+      });
+    }
+  };
+  visitStatements(sourceFile.statements);
+  if (edits.length === 0) return text;
+
+  let out = text;
+  for (const edit of edits.reverse()) {
+    const original = out.slice(edit.start, edit.end);
+    const lineBreaks = original.split("\n").length - 1;
+    const room = original.length - edit.text.length - lineBreaks;
+    const replacement =
+      room >= 0 ? edit.text + " ".repeat(room) + "\n".repeat(lineBreaks) : edit.text;
+    out = out.slice(0, edit.start) + replacement + out.slice(edit.end);
+  }
+  return out;
+}
+
+/** The underlying type text of an `@opaque` JSDoc tag, joined onto one line. */
+function opaqueTagText(node: ts.Node): string | undefined {
+  for (const tag of ts.getJSDocTags(node)) {
+    if (tag.tagName.text !== "opaque") continue;
+    const comment =
+      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+    const value = comment?.replace(/\s+/g, " ").trim();
+    if (value) return value;
+  }
+  return undefined;
+}

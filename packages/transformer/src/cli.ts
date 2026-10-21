@@ -45,6 +45,7 @@ import {
 import {
   filterDiagnostics,
   getDiagnosticSuppressionRules,
+  opaqueTypesAsUnderlying,
   setDiagnosticSuppressionAuditMode,
   profiler,
   PROFILING_ENABLED,
@@ -648,13 +649,12 @@ function build(options: CliOptions): void {
     // Create a virtual host serving expanded files
     const expandedHost = ts.createCompilerHost(compilerOptions);
     const origExpandedReadFile = expandedHost.readFile.bind(expandedHost);
+    // Served in the runtime view of @opaque types, the view the expanded code
+    // is written against (opaqueTypesAsUnderlying).
     expandedHost.readFile = (fileName) => {
       const resolved = path.resolve(fileName);
-      const expanded = expandedFiles.get(resolved);
-      if (expanded !== undefined) {
-        return expanded;
-      }
-      return origExpandedReadFile(fileName);
+      const text = expandedFiles.get(resolved) ?? origExpandedReadFile(fileName);
+      return text === undefined ? undefined : opaqueTypesAsUnderlying(fileName, text);
     };
 
     // Create a new program over the EXPANDED files (served by expandedHost) for

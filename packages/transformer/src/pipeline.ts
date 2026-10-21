@@ -22,6 +22,7 @@ import {
   type FileTimings,
   config,
   assertSupportedTypeScript,
+  opaqueTypesAsUnderlying,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
 import { MacroTransformer, discoverOpaqueTypesFromImports } from "@typesugar/transformer-core";
@@ -2466,15 +2467,19 @@ function typecheckOutput(
   const origReadFile = host.readFile.bind(host);
   const origFileExists = host.fileExists.bind(host);
 
+  // Every file is served in the runtime view of @opaque types, the view the
+  // expanded code is written against (opaqueTypesAsUnderlying).
+  const serve = (f: string, text: string | undefined) =>
+    text === undefined ? undefined : opaqueTypesAsUnderlying(f, text);
   host.readFile = (f) => {
     const virtual = virtualFiles.get(f);
-    if (virtual !== undefined) return virtual;
+    if (virtual !== undefined) return serve(f, virtual);
     if (knownFiles.has(f)) {
       const custom = readFile(f);
-      if (custom !== undefined) return custom;
+      if (custom !== undefined) return serve(f, custom);
     }
     if (f.includes("lib.") && f.endsWith(".d.ts")) return origReadFile(f);
-    return readFile(f);
+    return serve(f, readFile(f));
   };
   host.fileExists = (f) => {
     if (knownFiles.has(f)) return true;
