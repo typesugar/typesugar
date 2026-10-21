@@ -312,6 +312,26 @@ export interface ExpressionMacro extends MacroDefinitionBase {
   chainable?: boolean;
 
   /**
+   * When true, the transformer expands every macro / rewrite inside the
+   * call's arguments FIRST and passes the expanded arguments as `args`
+   * (`callExpr` is still the call as written, for its source text and
+   * diagnostics). The result is then not visited again: the arguments in it
+   * are already expanded, and re-running rewrites on them could apply one
+   * twice.
+   *
+   * Use it for a macro that restructures its argument in a way that would
+   * hide the macros inside it, e.g. `assert()`, which wraps every
+   * sub-expression as `(values[i] = sub)`: done before expansion, that turned
+   * `summon<Show<number>>()` into `(values[i] = summon)()` and gave
+   * extension-method receivers a synthetic node the checker cannot type.
+   *
+   * In the expanded arguments, nodes a nested macro generated are synthetic
+   * (`isSyntheticNode`); the rest keep their source positions. Not applied to
+   * `chainable` macros.
+   */
+  expandArgumentsFirst?: boolean;
+
+  /**
    * Expand the macro call into new AST nodes
    * @param ctx - The macro context
    * @param callExpr - The macro call expression (or outermost chain call if chainable)

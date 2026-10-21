@@ -1646,6 +1646,50 @@ class MacroTransformer {
 
     try {
       const before = cacheKey ? this.sideEffectSnapshot() : undefined;
+
+      // `expandArgumentsFirst` macros (assert()) get their arguments already
+      // expanded, and their result is NOT visited again: the arguments in it
+      // are done, and a second visit could re-run a rewrite that kept its
+      // node's source position (an implicits fill, an updated call).
+      if (macro.expandArgumentsFirst) {
+        const expandedArgs = node.arguments.map(
+          (a) => ts.visitNode(a, this.visit.bind(this)) as ts.Expression
+        );
+        const argsChanged = expandedArgs.some((a, i) => a !== node.arguments[i]);
+        const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, expandedArgs));
+        if (result === node) {
+          return argsChanged
+            ? this.ctx.factory.updateCallExpression(
+                node,
+                node.expression,
+                node.typeArguments,
+                expandedArgs
+              )
+            : node;
+        }
+        if (this.expansionTracker) {
+          const expandedText = this.printNodeSafe(result);
+          if (expandedText) {
+            this.expansionTracker.recordExpansion(
+              macroName,
+              node,
+              this.ctx.sourceFile,
+              expandedText
+            );
+          }
+        }
+        if (cacheKey && before && !argsChanged) {
+          const after = this.sideEffectSnapshot();
+          if (
+            after.diagnostics === before.diagnostics &&
+            after.pendingImports === before.pendingImports
+          ) {
+            this.cacheExpression(cacheKey, result);
+          }
+        }
+        return preserveSourceMap(result, node);
+      }
+
       const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, node.arguments));
 
       // A macro that hands back the call itself (comptime with evaluation

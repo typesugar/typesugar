@@ -187,6 +187,15 @@ globalRegistry.register(
 `args` is the same list as `callExpr.arguments`. (For a `chainable` macro, `callExpr` is the
 outermost call of the chain and `args` are the root call's arguments.)
 
+By default the macros inside the arguments (`summon<…>()`, extension methods, operators) expand
+after your macro, on the expression it returns. That works while the arguments come back
+unchanged somewhere in the result. A macro that takes its argument apart and rebuilds it can hide
+them: `assert()` wraps every sub-expression as `(values[i] = sub)`, which made
+`summon<Show<number>>()` into `(values[i] = summon)()`. Set `expandArgumentsFirst: true` for a
+macro like that. `args` are then the arguments with their macros already expanded (nodes a
+nested macro generated are synthetic, see `isSyntheticNode`), `callExpr` is still the call as
+written, for its source text, and the expression you return is not visited again.
+
 ## Type-Aware Macros
 
 Use the type checker for conditional behavior:

@@ -197,27 +197,40 @@ function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
 function instrumentAssertion(
   factory: ts.NodeFactory,
   expr: ts.Expression,
+  source: ts.Expression,
   sourceFile: ts.SourceFile,
   values: ts.Identifier
 ): { instrumented: ts.Expression; positions: number[] } {
-  const exprStart = expr.getStart(sourceFile);
+  const exprStart = source.getStart(sourceFile);
+  const exprEnd = source.getEnd();
   const positions: number[] = [];
 
   // Column where this sub-expression's value indicator appears in the diagram:
   // at the property name for property access, the operator for binary ops,
   // otherwise the start.
+  const startOf = (n: ts.Node, fallback: ts.Node): number =>
+    (isSyntheticNode(n) ? fallback : n).getStart(sourceFile);
   const displayOffset = (n: ts.Expression): number => {
-    if (ts.isPropertyAccessExpression(n)) return n.name.getStart(sourceFile) - exprStart;
-    if (ts.isBinaryExpression(n)) return n.operatorToken.getStart(sourceFile) - exprStart;
+    if (ts.isPropertyAccessExpression(n)) return startOf(n.name, n) - exprStart;
+    if (ts.isBinaryExpression(n)) return startOf(n.operatorToken, n) - exprStart;
     return n.getStart(sourceFile) - exprStart;
   };
 
+  // `expr` has already been macro-expanded (assert is `expandArgumentsFirst`):
+  // a node a nested macro generated is synthetic and has no column to draw a
+  // value at, so it is not recorded -- but its children are still visited by
+  // the same rules, so source nodes it kept (the receiver and arguments of a
+  // rewritten `n.show()`, the operands of a rewritten `a === b`) still are.
+  // A source node from outside the assertion (reused by an expansion) has no
+  // column in this diagram either.
+  const hasColumn = (n: ts.Expression): boolean =>
+    !isSyntheticNode(n) && n.getStart(sourceFile) >= exprStart && n.getEnd() <= exprEnd;
+
   const inChain = (n: ts.Node): boolean => (n.flags & ts.NodeFlags.OptionalChain) !== 0;
 
-  const visit = (n: ts.Expression, record: boolean): ts.Expression => {
+  const visit = (n: ts.Expression, wantRecord: boolean): ts.Expression => {
     if (isSelfExplanatoryLiteral(n) || n.kind === ts.SyntaxKind.SuperKeyword) return n;
-    // A macro-generated sub-tree has no source position to draw a column for.
-    if (isSyntheticNode(n)) return n;
+    const record = wantRecord && hasColumn(n);
 
     // Allocate the index before visiting children: pre-order, matching the
     // left-to-right reading order of the diagram.
@@ -296,6 +309,11 @@ export const assertMacro = defineExpressionMacro({
   module: "@typesugar/testing",
   description:
     "Assert with sub-expression capture — on failure, shows the value of every sub-expression",
+  // Instrumenting first wrapped `summon` in `summon<Show<number>>()` as
+  // `(values[i] = summon)()` (so it never expanded and threw at run time) and
+  // hid extension-method receivers from the checker: expand the argument's
+  // macros first, then instrument what they produced.
+  expandArgumentsFirst: true,
 
   expand(
     ctx: MacroContext,
@@ -310,7 +328,9 @@ export const assertMacro = defineExpressionMacro({
       return callExpr;
     }
 
+    // `args` are already macro-expanded; `callExpr.arguments` is the source.
     const expr = args[0];
+    const source = callExpr.arguments[0] ?? expr;
     const customMessage = args.length === 2 ? args[1] : undefined;
     const factory = ctx.factory;
     const sourceFile = ctx.sourceFile;
@@ -330,7 +350,7 @@ export const assertMacro = defineExpressionMacro({
     let instrumented: ts.Expression;
     let positions: number[];
     let exprSource: string;
-    if (isSyntheticNode(expr)) {
+    if (isSyntheticNode(source)) {
       // A macro-generated argument has no source text or positions to draw a
       // diagram from: assert it plainly (still evaluated once).
       ctx.reportWarning(
@@ -343,8 +363,14 @@ export const assertMacro = defineExpressionMacro({
         .createPrinter({ removeComments: true })
         .printNode(ts.EmitHint.Expression, expr, sourceFile);
     } else {
-      ({ instrumented, positions } = instrumentAssertion(factory, expr, sourceFile, values));
-      exprSource = expr.getText(sourceFile);
+      ({ instrumented, positions } = instrumentAssertion(
+        factory,
+        expr,
+        source,
+        sourceFile,
+        values
+      ));
+      exprSource = source.getText(sourceFile);
     }
 
     const failArgs: ts.Expression[] = [

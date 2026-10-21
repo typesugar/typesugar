@@ -272,6 +272,56 @@ describe("assert() — evaluates each sub-expression once (finding #17)", () => 
     expect(exports.getCalls()).toBe(0);
   });
 
+  // Round-2 docs finding: the argument used to be instrumented BEFORE the
+  // macros inside it expanded, so `summon<…>()` became `(vals[i] = summon)()`
+  // and threw "summon() must be processed by the typesugar transformer" at
+  // run time, and a receiver wrapped in `(vals[i] = xs)` lost the type that
+  // extension / method-syntax rewriting needs. No diagnostic either way.
+  it("expands summon, extend, typeclass method syntax and @extension calls inside the argument", () => {
+    const { code, diagnostics } = compile(
+      [
+        `import { assert } from "@typesugar/testing";`,
+        `import { summon, extend } from "typesugar";`,
+        `/** @typeclass */`,
+        `interface Show<A> { show(a: A): string }`,
+        `/** @impl Show<number> */`,
+        "const showNumber: Show<number> = { show: (n) => `#${n}` };",
+        `/** @extension */`,
+        `function twice(n: number): number { return n * 2; }`,
+        `function showAll<A>(xs: A[], S: Show<A>): string { return xs.map((x) => S.show(x)).join(","); }`,
+        `const xs = [1, 2];`,
+        `const n = 3;`,
+        `export function viaSummon() { assert(showAll(xs, summon<Show<number>>()) === "#1,#2"); }`,
+        `export function viaExtend() { assert(extend(n).show() === "#3"); }`,
+        `export function viaMethodSyntax() { assert(n.show() === "#3"); }`,
+        `export function viaExtension() { assert(n.twice() === 6); }`,
+        `export function failing() { assert(n.twice() === summon<Show<number>>().show(n).length); }`,
+      ].join("\n")
+    );
+    expect(diagnostics).toEqual([]);
+    expect(code).not.toMatch(/=\s*summon\)|=\s*extend\)/);
+    const { exports } = run(code);
+    expect(() => exports.viaSummon()).not.toThrow();
+    expect(() => exports.viaExtend()).not.toThrow();
+    expect(() => exports.viaMethodSyntax()).not.toThrow();
+    expect(() => exports.viaExtension()).not.toThrow();
+    // Still a power assertion: the diagram shows the user's source and the
+    // values of the source sub-expressions the expansion kept (`n`, the
+    // `.length` of the summoned instance's result). A call a macro rewrote
+    // (`n.twice()` -> `twice(n)`) has no source column, so no value.
+    let message = "";
+    try {
+      exports.failing();
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(/Power Assert Failed/);
+    expect(message).toContain("assert(n.twice() === summon<Show<number>>().show(n).length)");
+    expect(message).toContain('"#3"');
+    expect(message).toMatch(/\b3\s+2\b/);
+    expect(message).toContain("false");
+  });
+
   it("supports await inside the assertion", async () => {
     const { code, diagnostics } = compile(
       [
