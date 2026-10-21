@@ -1330,6 +1330,14 @@ function substituteParamRefs(
     // and must stay checker-resolvable), and never share one node between
     // two positions.
     const node = cloneNodeDeep(arg);
+    // cloneNodeDeep severs the copy's `original` link (a callee body may come
+    // from another file). An ARGUMENT that is, or copies, a node of the file
+    // being transformed keeps that link, so the copy still says which source
+    // expression it is (power-assert draws an operand's value at its column).
+    const source = ts.getOriginalNode(arg);
+    if (source.pos >= 0 && source.getSourceFile?.() === ctx.sourceFile) {
+      ts.setOriginalNode(node, source);
+    }
     return needsParens(node) ? f.createParenthesizedExpression(node) : node;
   };
 

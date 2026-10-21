@@ -205,26 +205,39 @@ function instrumentAssertion(
   const exprEnd = source.getEnd();
   const positions: number[] = [];
 
-  // Column where this sub-expression's value indicator appears in the diagram:
-  // at the property name for property access, the operator for binary ops,
-  // otherwise the start.
-  const startOf = (n: ts.Node, fallback: ts.Node): number =>
-    (isSyntheticNode(n) ? fallback : n).getStart(sourceFile);
-  const displayOffset = (n: ts.Expression): number => {
-    if (ts.isPropertyAccessExpression(n)) return startOf(n.name, n) - exprStart;
-    if (ts.isBinaryExpression(n)) return startOf(n.operatorToken, n) - exprStart;
-    return n.getStart(sourceFile) - exprStart;
+  // `expr` has already been macro-expanded (assert is `expandArgumentsFirst`).
+  // A node a nested macro generated is synthetic: it has no column of its
+  // own. If it is a COPY of a source node (an expansion that reuses an
+  // operand clones it, keeping an `original` link: the operands of a
+  // rewritten `a === b`, the receiver of a rewritten `n.show()`), it is drawn
+  // at that source node's column; anything else synthetic is not recorded,
+  // but its children are still visited by the same rules. A source node from
+  // outside the assertion (reused by an expansion) has no column in this
+  // diagram either. One source node is drawn once: an expansion that reads an
+  // operand twice (`c === p || (c != null && ...)`) records the first read,
+  // which is always evaluated.
+  const sourceOf = (n: ts.Node): ts.Node | undefined => {
+    if (!isSyntheticNode(n)) return n;
+    const original = ts.getOriginalNode(n);
+    return original !== n && !isSyntheticNode(original) ? original : undefined;
+  };
+  const drawn = new Set<ts.Node>();
+  const hasColumn = (n: ts.Expression): boolean => {
+    const src = sourceOf(n);
+    return (
+      !!src && !drawn.has(src) && src.getStart(sourceFile) >= exprStart && src.getEnd() <= exprEnd
+    );
   };
 
-  // `expr` has already been macro-expanded (assert is `expandArgumentsFirst`):
-  // a node a nested macro generated is synthetic and has no column to draw a
-  // value at, so it is not recorded -- but its children are still visited by
-  // the same rules, so source nodes it kept (the receiver and arguments of a
-  // rewritten `n.show()`, the operands of a rewritten `a === b`) still are.
-  // A source node from outside the assertion (reused by an expansion) has no
-  // column in this diagram either.
-  const hasColumn = (n: ts.Expression): boolean =>
-    !isSyntheticNode(n) && n.getStart(sourceFile) >= exprStart && n.getEnd() <= exprEnd;
+  // Column where this sub-expression's value indicator appears in the diagram:
+  // at the property name for property access, the operator for binary ops,
+  // otherwise the start. Read from the source node (see sourceOf).
+  const displayOffset = (n: ts.Expression): number => {
+    const src = sourceOf(n) ?? n;
+    if (ts.isPropertyAccessExpression(src)) return src.name.getStart(sourceFile) - exprStart;
+    if (ts.isBinaryExpression(src)) return src.operatorToken.getStart(sourceFile) - exprStart;
+    return src.getStart(sourceFile) - exprStart;
+  };
 
   const inChain = (n: ts.Node): boolean => (n.flags & ts.NodeFlags.OptionalChain) !== 0;
 
@@ -236,6 +249,7 @@ function instrumentAssertion(
     // left-to-right reading order of the diagram.
     let index = -1;
     if (record) {
+      drawn.add(sourceOf(n)!);
       index = positions.length;
       positions.push(displayOffset(n) + ASSERT_PREFIX_LEN);
     }

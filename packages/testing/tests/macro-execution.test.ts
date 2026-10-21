@@ -48,6 +48,8 @@ function run(code: string, extraGlobals: Record<string, unknown> = {}): RunResul
   const modules: Record<string, unknown> = {
     "@typesugar/testing": runtime,
     typesugar: {},
+    // An activation marker: imported for its effect on the transform only.
+    "@typesugar/std/syntax/eq/ops": {},
   };
   const requireFn = (id: string) => {
     if (id in modules) return modules[id];
@@ -320,6 +322,60 @@ describe("assert() — evaluates each sub-expression once (finding #17)", () => 
     expect(message).toContain('"#3"');
     expect(message).toMatch(/\b3\s+2\b/);
     expect(message).toContain("false");
+  });
+
+  it("a typeclass operator inside the argument: the diagram shows the operands' values", () => {
+    // The operator rewrite (`p === q` -> `eqP.equals(p, q)`) passes copies of
+    // the operands, which have no source position; the diagram was empty
+    // (`__powerAssertFail("p === q", [], ...)`). A copy is drawn at its
+    // original's column.
+    const cases = {
+      // A derived companion from std's Eq: `P.Eq.equals(p, q)`.
+      derived: [
+        `import { assert } from "@typesugar/testing";`,
+        `import "@typesugar/std/syntax/eq/ops";`,
+        `/** @derive(Eq) */`,
+        `interface P { x: number }`,
+      ],
+      // An in-file instance, whose method is inlined: `p.x === q.x`.
+      inlined: [
+        `import { assert } from "@typesugar/testing";`,
+        `/** @typeclass */`,
+        `interface Same<A> {`,
+        `  /** @op === */ same(a: A, b: A): boolean;`,
+        `}`,
+        `interface P { x: number }`,
+        `/** @impl Same<P> */`,
+        `const sameP: Same<P> = { same: (a, b) => a.x === b.x };`,
+      ],
+    };
+    for (const [name, head] of Object.entries(cases)) {
+      const { code, diagnostics } = compile(
+        [
+          ...head,
+          `const p: P = { x: 1 }, q: P = { x: 2 };`,
+          `export function go() { assert(p === q); }`,
+          `export function ok() { assert(p === { x: 1 }); }`,
+        ].join("\n"),
+        // In the repo, so `@typesugar/std/syntax/eq/ops` resolves.
+        `${process.cwd()}/__power_assert_operator_${name}__.test.ts`
+      );
+      expect(diagnostics, name).toEqual([]);
+      expect(code, name).not.toMatch(/p === q;?\s*\)/);
+      expect(code, name).not.toMatch(/__powerAssertFail\("p === q", \[\]/);
+      const { exports } = run(code);
+      expect(() => exports.ok(), name).not.toThrow();
+      let message = "";
+      try {
+        exports.go();
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message, name).toMatch(/Power Assert Failed/);
+      expect(message, name).toContain("assert(p === q)");
+      expect(message, name).toMatch(/x.*1/);
+      expect(message, name).toMatch(/x.*2/);
+    }
   });
 
   it("supports await inside the assertion", async () => {
