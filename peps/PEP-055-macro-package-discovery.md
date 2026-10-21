@@ -309,6 +309,20 @@ approval for everything else — modeled on pnpm's `approve-builds`.**
   is the same bar `postinstall` scripts, Babel plugins, and bundler plugins
   already clear via explicit dependency+approval steps — this brings macro
   packages to parity with that norm, not below it.
+- **Relative imports (added 2026-10, PR #83).** A macro package can also be
+  reached by a relative import (a package's own examples importing
+  `../src`, a workspace sibling). Every rule above trusts a _name_, and a name
+  is only meaningful for the package it resolves to: npm scope ownership is
+  what backs `@typesugar/*` auto-trust, and a relative path bypasses it (a
+  vendored directory claiming `"@typesugar/totally-official"` was executed).
+  So a relatively reached package is trusted under its claimed name only when
+  that name, resolved as a bare specifier from the project, lands in the same
+  directory by real path (from the package's parent directory for a file
+  inside it, since a package's own files self-resolve its name), or when the
+  build runs inside the package (cwd at or below it). Otherwise it is skipped
+  with a warning. Loaded macro entries are keyed by real path, not by name.
+  This is a first, narrow step toward issue #14's "trust from the resolution
+  graph": it only applies where the name was never verified at all.
 
 ### What does NOT change
 

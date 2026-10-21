@@ -71,11 +71,22 @@ function importerDir(fileName: string): string | undefined {
 }
 
 /**
- * Tracks which packages have already been loaded in this process.
- * Prevents redundant require() calls across multiple transformer
- * factory invocations (e.g., in watch mode).
+ * Macro entry modules already require()d in this process, by the REAL path
+ * of the resolved entry file. Prevents redundant require() calls across
+ * multiple transformer factory invocations (e.g., in watch mode). Keyed by
+ * path, not package name: a name is only what a package.json claims, and a
+ * directory claiming `@typesugar/std` must not stand in for the real one.
  */
-const loadedPackages = new Set<string>();
+const loadedEntries = new Set<string>();
+
+/**
+ * Package names whose macros are loaded from the package that name resolves
+ * to (a bare specifier, or a relative import verified to land in the same
+ * directory -- see `relativePackageIdentity`). A later load of the same name
+ * is skipped. A package loaded on a claim alone (the cwd case) never enters
+ * this set.
+ */
+const loadedPackageNames = new Set<string>();
 
 /**
  * Thrown when the manifest-based discovery scan (PEP-055) finds a package
@@ -453,7 +464,8 @@ export function loadMacroPackagesFromFile(
   const basePkgs = new Map<string, string | undefined>();
   const importOf = new Map<string, ts.ImportDeclaration>();
   const fromDir = importerDir(sourceFile.fileName);
-  const relative = new Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>();
+  const relative = new Map<string, RelativeImport>();
+  const relativeImportOf = new Map<string, ts.ImportDeclaration>();
 
   for (const stmt of sourceFile.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
@@ -466,7 +478,7 @@ export function loadMacroPackagesFromFile(
         }
       } else {
         const rel = addRelative(relative, sourceFile.fileName, mod);
-        if (rel && !importOf.has(rel.pkg)) importOf.set(rel.pkg, stmt);
+        if (rel && !relativeImportOf.has(rel.dir)) relativeImportOf.set(rel.dir, stmt);
       }
     }
   }
@@ -477,23 +489,28 @@ export function loadMacroPackagesFromFile(
     throw new UnapprovedMacroPackagesError(blocked);
   }
 
-  warnings.push(...loadRelativeMacroPackages(relative, verbose));
-  return warnings.map((w) => ({ ...w, node: importOf.get(w.pkg)! }));
+  const result = warnings.map((w) => ({ ...w, node: importOf.get(w.pkg)! }));
+  for (const { dir, ...w } of loadRelativeMacroPackages(relative, verbose)) {
+    result.push({ ...w, node: relativeImportOf.get(dir)! });
+  }
+  return result;
 }
 
 /**
  * Reset the loaded-packages tracker. For testing only.
  */
 export function resetLoadedPackages(): void {
-  loadedPackages.clear();
+  loadedEntries.clear();
+  loadedPackageNames.clear();
   manifestFieldCache.clear();
   failedLoads.clear();
   projectRequireCache.clear();
   relativePackageCache.clear();
+  relativeIdentityCache.clear();
 }
 
 function loadPackage(pkg: string, verbose?: boolean, fromDir?: string): boolean {
-  if (loadedPackages.has(pkg)) return true;
+  if (loadedPackageNames.has(pkg)) return true;
 
   // Prefer the dedicated `./macros` entry (PEP-050 Case-1 isolation): macro
   // definitions import `typescript` and must NOT live in the `.` runtime entry.
@@ -521,16 +538,24 @@ function tryLoadModule(
   pkg: string,
   target: string,
   verbose: boolean | undefined,
-  req: NodeRequire
+  req: NodeRequire,
+  /** False for a package loaded on its package.json's claim alone (see `loadedPackageNames`). */
+  byName = true
 ): string | undefined {
-  if (loadedPackages.has(pkg)) return undefined;
+  if (byName && loadedPackageNames.has(pkg)) return undefined;
   let failedForReq = failedLoads.get(req);
   if (!failedForReq) failedLoads.set(req, (failedForReq = new Map()));
   const failed = failedForReq.get(target);
   if (failed !== undefined) return failed;
   try {
+    const entry = realPath(req.resolve(target));
+    if (loadedEntries.has(entry)) {
+      if (byName) loadedPackageNames.add(pkg);
+      return undefined;
+    }
     const loaded = req(target);
-    loadedPackages.add(pkg);
+    loadedEntries.add(entry);
+    if (byName) loadedPackageNames.add(pkg);
 
     // Convention: __typesugar_macros__ exports an array of MacroDefinition
     // objects that should be registered. This is the preferred pattern for
@@ -598,16 +623,60 @@ function isMacroDefinition(value: unknown): value is MacroDefinition {
  * "../src/index.js" -- the defining module itself -- and a workspace sibling
  * may be imported the same way. Decided by the imported FILE's own package
  * (the nearest package.json above it), not by the specifier's text.
+ *
+ * Its package.json `name` is only a claim: a relative path reaches any
+ * directory, so `@typesugar/*` auto-trust (which rests on npm scope
+ * ownership) and `allowedMacroPackages` approval (which names a package)
+ * apply to it only once the name is shown to be this package's -- see
+ * `relativePackageIdentity`.
  */
 interface RelativeMacroPackage {
+  /** The name its package.json claims. */
   pkg: string;
-  /** The package's directory (where its package.json is). */
+  /** The package's directory (where its package.json is), by real path. */
   dir: string;
   info: ManifestFieldInfo;
 }
 
+/** A relative macro package and what the importing files established about it. */
+interface RelativeImport {
+  rel: RelativeMacroPackage;
+  /** Every importing file is inside the package (its own build/examples/tests). */
+  insideOnly: boolean;
+  /** How the claimed name was established, from the most convincing importer. */
+  identity: RelativeIdentity;
+}
+
+/**
+ * - `resolved`: the claimed name, as a bare specifier from the project, resolves
+ *   to this very directory (same real path) -- a workspace link, a `file:`
+ *   dependency, or the installed package itself. Trusted exactly as a bare
+ *   import of that name is.
+ * - `cwd`: the build runs inside the package (cwd at or below its directory):
+ *   the package's own build, examples and tests, where nothing links its name.
+ *   Its name is trusted as the project's own package.
+ * - `unverified`: neither. Not loaded, whatever it claims.
+ */
+type RelativeIdentity =
+  | { kind: "resolved" }
+  | { kind: "cwd" }
+  | { kind: "unverified"; from: string };
+
+const IDENTITY_RANK = { unverified: 0, cwd: 1, resolved: 2 } as const;
+
 /** Nearest-package.json lookups, per directory (null: none, or not a macro package). */
 const relativePackageCache = new Map<string, RelativeMacroPackage | null>();
+
+/** `relativePackageIdentity` results, per (resolution base, package dir). */
+const relativeIdentityCache = new Map<string, RelativeIdentity>();
+
+function realPath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
 
 function macroPackageOfRelativeImport(
   fromDir: string,
@@ -658,30 +727,113 @@ function readRelativeMacroPackage(dir: string, pkgJson: string): RelativeMacroPa
   // Loaded from the package itself: `${name}/macros` resolves through its own
   // `exports` map (a package may import itself by name), else from the
   // node_modules above it.
-  return { pkg: name, dir, info: { target, req: createRequire(pkgJson) } };
+  return { pkg: name, dir: realPath(dir), info: { target, req: createRequire(pkgJson) } };
 }
 
 /**
- * Load the trusted macro packages reached by relative imports (see
- * {@link macroPackageOfRelativeImport}). An untrusted one is left alone, as
- * before (relative imports were never scanned, and `approve-macros` lists
- * bare imports only). A load failure is a warning, except for a file inside
- * the package itself: that is the package's own build (its macros entry may
- * not be built yet), where its bare-name load is silent too.
+ * Establish whether a relatively imported package is the package its
+ * claimed name stands for (see `RelativeIdentity`), for an import in
+ * `importer`.
+ *
+ * The bare name is resolved from the importing file's directory -- or, for a
+ * file inside the package itself, from the package's PARENT directory: from
+ * inside, Node's package self-reference would resolve the name to the
+ * package whatever it claims, and being inside a package is no evidence of
+ * its name (a vendored package's own `.ts` files are pulled into the program
+ * by the project's import of it). Only the project's resolution chain is
+ * used, not the transformer's own install.
+ */
+function relativePackageIdentity(rel: RelativeMacroPackage, importer: string): RelativeIdentity {
+  const importerDirReal = realPath(path.dirname(importer));
+  const from =
+    isInside(importerDirReal, rel.dir) || importerDirReal === rel.dir
+      ? path.dirname(rel.dir)
+      : importerDirReal;
+  const key = `${from}\0${rel.dir}`;
+  const cached = relativeIdentityCache.get(key);
+  if (cached) return cached;
+
+  let identity: RelativeIdentity = { kind: "unverified", from };
+  const req = _requireOverride ?? createRequire(path.join(from, "__typesugar_macro_resolver__.js"));
+  const resolvedDir = resolvePackageJson(rel.pkg, req)?.dir ?? findInNodeModules(rel.pkg, from);
+  const cwd = realPath(process.cwd());
+  if (resolvedDir && realPath(resolvedDir) === rel.dir) {
+    identity = { kind: "resolved" };
+  } else if (cwd === rel.dir || isInside(cwd, rel.dir)) {
+    identity = { kind: "cwd" };
+  }
+  relativeIdentityCache.set(key, identity);
+  return identity;
+}
+
+/**
+ * The directory `node_modules/<pkg>` above `from` (Node's directory lookup,
+ * without the package's `exports` map, which may expose neither its
+ * package.json nor a built entry yet).
+ */
+function findInNodeModules(pkg: string, from: string): string | undefined {
+  for (let dir = from; ; ) {
+    const candidate = path.join(dir, "node_modules", ...pkg.split("/"));
+    if (fs.existsSync(path.join(candidate, "package.json"))) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * Load the macro packages reached by relative imports (see
+ * {@link macroPackageOfRelativeImport}), when trusted: the claimed name must
+ * be established (`relativePackageIdentity`), and then pass the usual
+ * trust rules (`isTrusted`). Every package left unloaded is a warning naming
+ * its directory and how to allow it. A load failure is a warning, except for
+ * a file inside the package itself: that is the package's own build (its
+ * macros entry may not be built yet), where its bare-name load is silent too.
  */
 function loadRelativeMacroPackages(
-  found: Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>,
+  found: Map<string, RelativeImport>,
   verbose?: boolean
-): MacroPackageWarning[] {
-  const warnings: MacroPackageWarning[] = [];
-  for (const [pkg, { rel, insideOnly }] of found) {
-    if (!isTrusted(pkg)) continue;
-    const error = tryLoadModule(pkg, rel.info.target, verbose, rel.info.req);
+): Array<MacroPackageWarning & { dir: string }> {
+  const warnings: Array<MacroPackageWarning & { dir: string }> = [];
+  for (const { rel, insideOnly, identity } of found.values()) {
+    const { pkg, dir } = rel;
+    if (identity.kind === "unverified") {
+      warnings.push({
+        pkg,
+        dir,
+        message:
+          `the package at ${dir} declares macros under the name '${pkg}', but it is imported by ` +
+          `a relative path and '${pkg}' does not resolve to that directory from ${identity.from}, ` +
+          `so the name is not trusted and its macros were not loaded. To use them, make it the ` +
+          `package that name resolves to (a dependency such as "${pkg}": "file:<path>" or a ` +
+          `workspace link) and, if it is not @typesugar/*, approve it with ` +
+          `\`typesugar approve-macros\`.`,
+      });
+      continue;
+    }
+    if (!isTrusted(pkg)) {
+      warnings.push({
+        pkg,
+        dir,
+        message:
+          `macro package '${pkg}' (imported by a relative path, from ${dir}) is not approved, so ` +
+          `its macros were not loaded. Run \`typesugar approve-macros\` to review and approve it.`,
+      });
+      continue;
+    }
+    const error = tryLoadModule(
+      pkg,
+      rel.info.target,
+      verbose,
+      rel.info.req,
+      identity.kind === "resolved"
+    );
     if (error === undefined || insideOnly) continue;
     warnings.push({
       pkg,
+      dir,
       message:
-        `macro package '${pkg}' (imported by a relative path, from ${rel.dir}) declares macros at ` +
+        `macro package '${pkg}' (imported by a relative path, from ${dir}) declares macros at ` +
         `'${rel.info.target}' but loading it failed: ${error}. Its macros will not be expanded.`,
     });
   }
@@ -696,7 +848,7 @@ function isInside(file: string, dir: string): boolean {
 
 /** Record the macro package a relative import in `fileName` reaches, if any. */
 function addRelative(
-  found: Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>,
+  found: Map<string, RelativeImport>,
   fileName: string,
   specifier: string
 ): RelativeMacroPackage | undefined {
@@ -704,10 +856,38 @@ function addRelative(
   if (!fromDir) return undefined;
   const rel = macroPackageOfRelativeImport(fromDir, specifier);
   if (!rel) return undefined;
-  const inside = isInside(fileName, rel.dir);
-  const prev = found.get(rel.pkg);
-  found.set(rel.pkg, { rel, insideOnly: (prev?.insideOnly ?? true) && inside });
+  const inside = isInside(realPath(fromDir), rel.dir) || realPath(fromDir) === rel.dir;
+  const identity = relativePackageIdentity(rel, fileName);
+  // Keyed by directory: two directories may claim one name.
+  const prev = found.get(rel.dir);
+  found.set(rel.dir, {
+    rel,
+    insideOnly: (prev?.insideOnly ?? true) && inside,
+    identity:
+      prev && IDENTITY_RANK[prev.identity.kind] >= IDENTITY_RANK[identity.kind]
+        ? prev.identity
+        : identity,
+  });
   return rel;
+}
+
+/**
+ * The macro packages a program's own files reach by relative imports whose
+ * name is established (see `relativePackageIdentity`) but not trusted --
+ * what `typesugar approve-macros` lists alongside bare imports -- and those
+ * whose name is not established, which approval cannot fix.
+ */
+export function classifyRelativeMacroPackages(program: ts.Program): {
+  blocked: string[];
+  unverified: Array<{ pkg: string; dir: string }>;
+} {
+  const blocked: string[] = [];
+  const unverified: Array<{ pkg: string; dir: string }> = [];
+  for (const { rel, identity } of collectRelativeMacroPackages(program).values()) {
+    if (identity.kind === "unverified") unverified.push({ pkg: rel.pkg, dir: rel.dir });
+    else if (!isTrusted(rel.pkg) && !blocked.includes(rel.pkg)) blocked.push(rel.pkg);
+  }
+  return { blocked, unverified };
 }
 
 /**
@@ -761,10 +941,8 @@ function collectImportedModulesWithDirs(program: ts.Program): Map<string, string
 }
 
 /** The macro packages the program's own files reach by relative imports. */
-function collectRelativeMacroPackages(
-  program: ts.Program
-): Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }> {
-  const found = new Map<string, { rel: RelativeMacroPackage; insideOnly: boolean }>();
+function collectRelativeMacroPackages(program: ts.Program): Map<string, RelativeImport> {
+  const found = new Map<string, RelativeImport>();
   for (const sourceFile of program.getSourceFiles()) {
     if (sourceFile.fileName.includes("node_modules") || sourceFile.isDeclarationFile) continue;
     for (const stmt of sourceFile.statements) {

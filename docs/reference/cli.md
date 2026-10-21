@@ -412,6 +412,12 @@ confirmation writes them into that list. It creates `typesugar.config.ts` if the
 none, and otherwise edits only the `allowedMacroPackages` value, leaving the rest of
 the file as you wrote it. Commit the file.
 
+A macro package imported by a relative path is listed too when its `package.json` name
+resolves to it from the project (a workspace link, a `file:` dependency). One whose name
+resolves elsewhere, or nowhere, is shown separately: approving a name can't make it
+trustworthy, so it is never written to the list (see
+[Publishing macros](../writing-macros/publishing-macros.md)).
+
 **Options:**
 
 - `-p, --project <path>` — Path to tsconfig.json (default: tsconfig.json). The config

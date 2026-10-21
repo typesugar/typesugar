@@ -13,7 +13,11 @@ import * as readline from "readline";
 import * as ts from "typescript";
 import { config as typesugarConfig } from "@typesugar/core";
 import { readTsConfig } from "./tsconfig-utils.js";
-import { classifyManifestPackages, collectImportedModules } from "./macro-loader.js";
+import {
+  classifyManifestPackages,
+  classifyRelativeMacroPackages,
+  collectImportedModules,
+} from "./macro-loader.js";
 import { writeApprovedMacroPackages } from "./config-writer.js";
 
 export interface ApproveMacrosOptions {
@@ -80,7 +84,25 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
   // `blocked` here is exactly "declares typesugar.macros, not
   // @typesugar/*-scoped, not already approved," i.e. what needs approval.
   // Resolve from the project (the tsconfig's directory), as the build does.
-  const { blocked: newlyBlocked } = classifyManifestPackages(importedModules, projectRoot);
+  const { blocked: bareBlocked } = classifyManifestPackages(importedModules, projectRoot);
+  // Packages reached by a relative path (a workspace sibling, a package's own
+  // examples): approvable by name only when that name resolves to the
+  // imported directory; the others are listed, since approval can't help.
+  const relative = classifyRelativeMacroPackages(program);
+  const newlyBlocked = [...new Set([...bareBlocked, ...relative.blocked])];
+
+  if (relative.unverified.length > 0) {
+    console.log(
+      `${COLORS.bright}Not loaded, and not approvable by name:${COLORS.reset} these are imported ` +
+        `by a relative path, and the name in their package.json does not resolve to them ` +
+        `from this project. Make each one the package its name resolves to (a dependency ` +
+        `such as "name": "file:<path>", or a workspace link), then run this again.\n`
+    );
+    for (const { pkg, dir } of relative.unverified) {
+      console.log(`  ${COLORS.red}✗${COLORS.reset} ${pkg} ${COLORS.dim}(${dir})${COLORS.reset}`);
+    }
+    console.log("");
+  }
 
   if (newlyBlocked.length === 0) {
     console.log(`${COLORS.green}✓${COLORS.reset} No new macro packages need approval.`);

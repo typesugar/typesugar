@@ -80,6 +80,15 @@ These are real, tested boundaries — not advisory guidance:
   pnpm's `approve-builds` mechanism works for lifecycle scripts). See the
   ["Getting discovered"](./guides/authoring-libraries.md#getting-discovered)
   section of the library-authoring guide for the package-author side of this.
+- **A package's name is trusted only for the package that name resolves to.**
+  `@typesugar/*` auto-trust rests on npm scope ownership, and approval names a
+  package. A package reached by a relative import (`"../vendor/x/index.js"`) can
+  put any name in its `package.json`, so its macros load only when that name,
+  resolved from the project as a bare import, lands in the same directory (a
+  workspace link or `file:` dependency), or when the build runs inside the
+  package itself. Otherwise it is skipped with a warning naming its directory.
+  Loaded macro entries are tracked by real path, so a directory claiming
+  `@typesugar/std`'s name cannot stand in for the real one.
 
 ## Known limitations (not yet enforced)
 

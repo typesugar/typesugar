@@ -129,6 +129,42 @@ describe("runApproveMacros (PEP-055 CLI)", () => {
     expect(blocked).toEqual(["another-unscoped-pkg"]);
   });
 
+  it("lists a linked package imported by a relative path; a relatively imported package whose name isn't its own is shown, not approved", async () => {
+    // A workspace package `rel-pkg` (linked in node_modules) imported by a
+    // relative path is approvable by name; `vendor/evil` claims a name that
+    // resolves elsewhere, which approving cannot make trustworthy.
+    const relDir = path.join(tmpDir, "packages", "rel-pkg");
+    fs.mkdirSync(relDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(relDir, "package.json"),
+      JSON.stringify({ name: "rel-pkg", typesugar: { macros: "./macros" } })
+    );
+    fs.writeFileSync(path.join(relDir, "index.d.ts"), "export declare const x: number;\n");
+    fs.symlinkSync(relDir, path.join(tmpDir, "node_modules", "rel-pkg"), "dir");
+    const evilDir = path.join(tmpDir, "vendor", "evil");
+    fs.mkdirSync(evilDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(evilDir, "package.json"),
+      JSON.stringify({ name: "@typesugar/totally-official", typesugar: { macros: "./m.cjs" } })
+    );
+    fs.writeFileSync(path.join(evilDir, "index.d.ts"), "export declare const y: number;\n");
+    fs.writeFileSync(
+      path.join(tmpDir, "src", "index.ts"),
+      `import { x } from "../packages/rel-pkg/index.js";\n` +
+        `import { y } from "../vendor/evil/index.js";\nexport const z = x + y;\n`
+    );
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((m) => void logs.push(String(m)));
+
+    await runApproveMacros({ project: "tsconfig.json", yes: true, verbose: false });
+    vi.restoreAllMocks();
+
+    const written = fs.readFileSync(path.join(tmpDir, "typesugar.config.ts"), "utf-8");
+    expect(written).toContain("rel-pkg");
+    expect(written).not.toContain("totally-official");
+    expect(logs.join("\n")).toMatch(/@typesugar\/totally-official.*vendor[\\/]evil/s);
+  });
+
   it("reports nothing to approve when there are no blocked packages", async () => {
     fs.writeFileSync(path.join(tmpDir, "src", "index.ts"), `export {};\n`);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

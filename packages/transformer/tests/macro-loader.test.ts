@@ -341,10 +341,21 @@ describe("a macro package imported by a relative path (its own examples, a works
   // "../src/index.js": the loader only looked at bare specifiers, so
   // @typesugar/mapper's macros were never loaded and the call ran its
   // runtime stub ("transformInto() was called at runtime").
+  //
+  // Trust: a package reached by a relative path is trusted under its
+  // package.json name only when that name resolves (as a bare specifier,
+  // from the project) to the same directory, or when the build runs inside
+  // the package itself (cwd). `@typesugar/*` auto-trust rests on npm scope
+  // ownership, which a relative path bypasses (review 5, item 1).
   let tmpDir: string;
+  let originalCwd: string;
   const macrosJs = (pkg: string) =>
     `module.exports.__typesugar_macros__ = [{ kind: "expression", name: "relAnswer", ` +
     `module: ${JSON.stringify(pkg)}, description: "fixture", expand: (_ctx, call) => call }];`;
+  /** A macros entry whose only effect is to write a marker file next to itself. */
+  const pwnedJs =
+    `require("fs").writeFileSync(require("path").join(__dirname, "PWNED"), "executed");\n` +
+    `module.exports = { __typesugar_macros__: [] };`;
 
   function writeWorkspacePackage(
     dir: string,
@@ -369,8 +380,16 @@ describe("a macro package imported by a relative path (its own examples, a works
       path.join(pkgDir, "src", "index.ts"),
       "export declare function relAnswer(): number;\n"
     );
+    fs.writeFileSync(path.join(pkgDir, "src", "index.js"), "export {};\n");
     if (macros !== undefined) fs.writeFileSync(path.join(pkgDir, "macros.js"), macros);
     return pkgDir;
+  }
+
+  /** Link `name` in `<tmp>/<at>/node_modules` to `target` (a pnpm workspace link). */
+  function link(at: string, name: string, target: string): void {
+    const linkPath = path.join(tmpDir, at, "node_modules", ...name.split("/"));
+    fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+    fs.symlinkSync(target, linkPath, "dir");
   }
 
   function loadFrom(file: string, imports: string[]): string[] {
@@ -385,19 +404,30 @@ describe("a macro package imported by a relative path (its own examples, a works
 
   beforeEach(() => {
     tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-macro-rel-")));
+    originalCwd = process.cwd();
     resetLoadedPackages();
     config.reset();
   });
 
   afterEach(() => {
+    process.chdir(originalCwd);
     resetLoadedPackages();
     config.reset();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("loads the package's macros for its own example importing ../src", () => {
+  it("loads the package's macros for its own example importing ../src (workspace-linked)", () => {
     const pkg = "@typesugar/fixture-rel-a";
     const dir = writeWorkspacePackage("packages/fixture-rel-a", pkg, macrosJs(pkg));
+    link(".", pkg, dir);
+    expect(loadFrom(path.join(dir, "examples", "use.ts"), ["../src/index.js"])).toEqual([]);
+    expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
+  });
+
+  it("loads the package's macros for its own example when the build runs inside the package", () => {
+    const pkg = "@typesugar/fixture-rel-cwd";
+    const dir = writeWorkspacePackage("my-macros", pkg, macrosJs(pkg));
+    process.chdir(dir);
     expect(loadFrom(path.join(dir, "examples", "use.ts"), ["../src/index.js"])).toEqual([]);
     expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
   });
@@ -405,6 +435,7 @@ describe("a macro package imported by a relative path (its own examples, a works
   it("loadMacroPackages finds it through the program's files too", () => {
     const pkg = "@typesugar/fixture-rel-b";
     const dir = writeWorkspacePackage("packages/fixture-rel-b", pkg, macrosJs(pkg));
+    link(".", pkg, dir);
     const use = path.join(dir, "examples", "use.ts");
     fs.writeFileSync(use, `import { relAnswer } from "../src/index.js";\nrelAnswer();\n`);
     const program = ts.createProgram([use], { noEmit: true, allowJs: false });
@@ -412,20 +443,117 @@ describe("a macro package imported by a relative path (its own examples, a works
     expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
   });
 
-  it("a sibling workspace package's broken macros are reported; an unapproved one is left alone", () => {
+  it("a linked sibling's broken macros are reported; an unapproved one is reported, not loaded", () => {
     const broken = "@typesugar/fixture-rel-c";
-    writeWorkspacePackage("packages/fixture-rel-c", broken, `throw new Error("boom");`);
-    writeWorkspacePackage("packages/rel-untrusted", "rel-untrusted", macrosJs("rel-untrusted"));
+    const brokenDir = writeWorkspacePackage(
+      "packages/fixture-rel-c",
+      broken,
+      `throw new Error("boom");`
+    );
+    const untrustedDir = writeWorkspacePackage(
+      "packages/rel-untrusted",
+      "rel-untrusted",
+      macrosJs("rel-untrusted")
+    );
+    link("app", broken, brokenDir);
+    link("app", "rel-untrusted", untrustedDir);
     const app = path.join(tmpDir, "app", "main.ts");
-    fs.mkdirSync(path.dirname(app), { recursive: true });
     const warnings = loadFrom(app, [
       "../packages/fixture-rel-c/src/index.js",
       "../packages/rel-untrusted/src/index.js",
     ]);
-    expect(warnings).toHaveLength(1);
+    expect(warnings).toHaveLength(2);
     expect(warnings[0]).toMatch(/fixture-rel-c.*boom/);
+    expect(warnings[1]).toMatch(/'rel-untrusted'.*not approved.*approve-macros/s);
     expect(globalRegistry.getByModuleExport("rel-untrusted", "relAnswer", "expression")).toBe(
       undefined
     );
+  });
+
+  it("does not run a relatively imported package that merely claims an @typesugar/* name", () => {
+    // review5/sec: vendor/evil/package.json says "@typesugar/totally-official".
+    fs.mkdirSync(path.join(tmpDir, "app", "src"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "app", "package.json"), `{"name":"app"}`);
+    const evil = path.join(tmpDir, "app", "vendor", "evil");
+    fs.mkdirSync(evil, { recursive: true });
+    fs.writeFileSync(
+      path.join(evil, "package.json"),
+      JSON.stringify({
+        name: "@typesugar/totally-official",
+        typesugar: { macros: "./macros.cjs" },
+        exports: { ".": "./index.js", "./macros.cjs": "./macros.cjs" },
+      })
+    );
+    fs.writeFileSync(path.join(evil, "index.d.ts"), "export declare const helper: number;\n");
+    fs.writeFileSync(path.join(evil, "macros.cjs"), pwnedJs);
+    const use = path.join(tmpDir, "app", "src", "use.ts");
+    fs.writeFileSync(
+      use,
+      `import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`
+    );
+
+    const warnings = loadFrom(use, ["../vendor/evil/index.js"]);
+    loadMacroPackages(ts.createProgram([use], { noEmit: true }));
+
+    expect(fs.existsSync(path.join(evil, "PWNED"))).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(evil);
+    expect(warnings[0]).toMatch(/@typesugar\/totally-official.*not loaded/s);
+  });
+
+  it("does not run it either when the package's own .ts files are in the program", () => {
+    // The importing file is inside the spoofing package (its index.ts, pulled
+    // into the program by the project's import): being inside a package is
+    // not evidence of its name.
+    fs.mkdirSync(path.join(tmpDir, "app", "src"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "app", "package.json"), `{"name":"app"}`);
+    const evil = path.join(tmpDir, "app", "vendor", "evil");
+    fs.mkdirSync(evil, { recursive: true });
+    fs.writeFileSync(
+      path.join(evil, "package.json"),
+      JSON.stringify({ name: "@typesugar/totally-official", typesugar: { macros: "./macros.cjs" } })
+    );
+    fs.writeFileSync(path.join(evil, "index.ts"), `export { helper } from "./helper.js";\n`);
+    fs.writeFileSync(path.join(evil, "helper.ts"), `export const helper = 1;\n`);
+    fs.writeFileSync(path.join(evil, "macros.cjs"), pwnedJs);
+    const use = path.join(tmpDir, "app", "src", "use.ts");
+    fs.writeFileSync(
+      use,
+      `import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`
+    );
+
+    const program = ts.createProgram([use], { noEmit: true });
+    expect(program.getSourceFile(path.join(evil, "index.ts"))).toBeDefined();
+    loadMacroPackages(program);
+    loadFrom(path.join(evil, "index.ts"), ["./helper.js"]);
+
+    expect(fs.existsSync(path.join(evil, "PWNED"))).toBe(false);
+  });
+
+  it("a spoof of a real package's name doesn't shadow the real one", () => {
+    const pkg = "@typesugar/fixture-genuine";
+    const real = writeWorkspacePackage(
+      "app/node_modules/@typesugar/fixture-genuine",
+      pkg,
+      macrosJs(pkg)
+    );
+    const fake = writeWorkspacePackage("app/vendor/fake", pkg, pwnedJs);
+    const use = path.join(tmpDir, "app", "src", "use.ts");
+    const warnings = loadFrom(use, ["../vendor/fake/src/index.js", pkg]);
+    expect(fs.existsSync(path.join(fake, "PWNED"))).toBe(false);
+    expect(warnings.join("\n")).toContain(fake);
+    expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
+    expect(real).toBeTruthy();
+  });
+
+  it("an unlinked sibling claiming an @typesugar/* name is reported, not loaded", () => {
+    const pkg = "@typesugar/fixture-rel-d";
+    const dir = writeWorkspacePackage("packages/fixture-rel-d", pkg, pwnedJs);
+    const warnings = loadFrom(path.join(tmpDir, "app", "main.ts"), [
+      "../packages/fixture-rel-d/src/index.js",
+    ]);
+    expect(fs.existsSync(path.join(dir, "PWNED"))).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/does not resolve to/);
   });
 });

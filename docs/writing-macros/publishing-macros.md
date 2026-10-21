@@ -229,12 +229,23 @@ package with a `typesugar.macros` field, depend on it from the app, and approve 
 
 An import by relative path counts too: when `import { myMacro } from "../src/index.js"`
 (your package's own examples or tests) or `"../my-macro-package/src"` lands in a package
-whose `package.json` declares `typesugar.macros`, that package's macro entry is loaded,
-under the same trust rules. An unapproved package is not loaded this way and nothing
-fails: approve it with `typesugar approve-macros` from a file that imports it by name.
-The entry is the built one (`./macros` through your `exports` map), so build the package
-first; in a file inside the package itself a missing build is silent (it is the
-package's own build), anywhere else it is a warning.
+whose `package.json` declares `typesugar.macros`, that package's macro entry is loaded.
+A relative path can reach any directory, though, so the `name` in that `package.json` is
+only a claim, and it is trusted only when one of these holds:
+
+- the name resolves to that same directory from the project, as a bare import would (a
+  workspace link or a `"my-macro-package": "file:../my-macro-package"` dependency); for a
+  file inside the package, the name is resolved from the package's parent directory,
+  since a package always resolves its own name from inside;
+- the build runs inside the package (the current directory is at or below it): the
+  package's own build, examples and tests.
+
+Then the usual rules apply to the name: `@typesugar/*` is trusted, anything else must be
+approved, and `typesugar approve-macros` lists it. A package that meets neither condition
+is not loaded, whatever its name, and each importing file gets a warning naming its
+directory. Nothing fails either way. The entry is the built one (`./macros` through your
+`exports` map), so build the package first; in a file inside the package itself a
+missing build is silent (it is the package's own build), anywhere else it is a warning.
 
 ## Documentation
 
