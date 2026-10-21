@@ -291,3 +291,70 @@ export const bad2 = U("x");
     ]);
   });
 });
+
+describe("MacroCallChain — 'possibly null' on a chain continued after a nullish arm (F20)", () => {
+  // With the typed fluent chain in @typesugar/std (it used to be `never`), an
+  // arm whose result may be null/undefined, followed by more arms, makes the
+  // chain "possibly null" to the checker (the result type can't carry the
+  // chain's methods on its nullish part). The macro consumes the chain, so
+  // typesugar's own checks hide exactly that error, on that receiver.
+  const rule = createMacroCallChainRule();
+  const runtimeModule = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../std/src/macros/match-runtime.ts"
+  );
+
+  function check(code: string) {
+    const fileName = path.join(path.dirname(runtimeModule), "__match_chain_probe__.ts");
+    const full = `import { match } from "./match-runtime.js";\n${code}`;
+    const options: ts.CompilerOptions = {
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const orig = { getSourceFile: host.getSourceFile, fileExists: host.fileExists };
+    host.getSourceFile = (fn, lv, ...rest) =>
+      fn === fileName
+        ? ts.createSourceFile(fn, full, lv, true)
+        : orig.getSourceFile.call(host, fn, lv, ...rest);
+    host.fileExists = (fn) => fn === fileName || orig.fileExists.call(host, fn);
+    const program = ts.createProgram([fileName], options, host);
+    const sf = program.getSourceFile(fileName)!;
+    return { sf, checker: program.getTypeChecker(), diags: program.getSemanticDiagnostics(sf) };
+  }
+
+  it("suppresses TS2531 on the receiver of the next .case()", () => {
+    const { sf, checker, diags } = check(
+      `declare const k: "a" | "b" | "c";\n` +
+        `export const r = match(k).case("a").then(null).case("b").then(undefined).case("c").then(1);\n`
+    );
+    const nullish = diags.filter((d) => [2531, 2532, 2533, 18047, 18048, 18049].includes(d.code));
+    expect(nullish.length).toBeGreaterThan(0); // sanity: the stub types really report it
+    expect(rule.errorCodes).toEqual(expect.arrayContaining(nullish.map((d) => d.code)));
+    for (const d of nullish) expect(rule.shouldSuppress(d, checker, sf)).toBe(true);
+  });
+
+  it("does NOT suppress a genuine 'possibly null' outside a match chain", () => {
+    const { sf, checker, diags } = check(
+      `declare const o: { case(): number } | null;\nexport const n = o.case();\n`
+    );
+    const nullish = diags.filter((d) => [2531, 18047].includes(d.code));
+    expect(nullish.length).toBe(1);
+    expect(rule.shouldSuppress(nullish[0], checker, sf)).toBe(false);
+  });
+
+  it("does NOT suppress 'possibly null' inside an arm's own result expression", () => {
+    const { sf, checker, diags } = check(
+      `declare const k: "a" | "b";\ndeclare const o: { n: number } | null;\n` +
+        `export const r = match(k).case("a").then(o.n).else(0);\n`
+    );
+    const nullish = diags.filter((d) => [2531, 18047].includes(d.code));
+    expect(nullish.length).toBe(1);
+    expect(rule.shouldSuppress(nullish[0], checker, sf)).toBe(false);
+  });
+});

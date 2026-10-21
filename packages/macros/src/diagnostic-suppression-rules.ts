@@ -1014,6 +1014,9 @@ export function createMacroDecoratorRule(): DiagnosticSuppressionRule {
 // Rule 7: MacroCallChain — suppress errors inside typesugar match() chains
 // ===========================================================================
 
+/** "Object is possibly 'null'" and friends (TS2531-2533, TS18047-18049). */
+const POSSIBLY_NULLISH_CODES: readonly number[] = [2531, 2532, 2533, 18047, 18048, 18049];
+
 /** The chain methods the `match` macro parses (std/src/macros/match.ts parseArms). */
 const MATCH_CHAIN_METHODS = new Set(["case", "or", "as", "if", "then", "else"]);
 
@@ -1033,11 +1036,18 @@ const MATCH_CHAIN_METHODS = new Set(["case", "or", "as", "if", "then", "else"]);
  *   `.case([p, ...rest])`, `.case(Some(x))`, `.as(name)`), used in that arm's
  *   pattern, `.as`, `.if` or `.then`. The transformer emits `const r = ...`
  *   for exactly those names. Any other unknown name is a real error.
+ * - "possibly null/undefined" (TS2531-2533, TS18047-18049) reported on the
+ *   receiver of a chain link (`.case` / `.else` / ...). The fluent chain's
+ *   stub types (`FluentMatchArms` in match-runtime.ts) keep a nullish arm
+ *   result beside the chain rather than inside it, so continuing after
+ *   `.then(null)` makes the receiver possibly null to the checker. The macro
+ *   consumes the whole chain, so that receiver never exists at run time.
+ *   The same error inside an arm's own argument is real and is not touched.
  */
 export function createMacroCallChainRule(): DiagnosticSuppressionRule {
   return {
     name: "MacroCallChain",
-    errorCodes: [2339, 2304, 18004],
+    errorCodes: [2339, 2304, 18004, ...POSSIBLY_NULLISH_CODES],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
@@ -1051,6 +1061,15 @@ export function createMacroCallChainRule(): DiagnosticSuppressionRule {
 
       if (diagnostic.code === 2339) {
         return isMatchChainMethodName(node, checker, sourceFile);
+      }
+
+      if (POSSIBLY_NULLISH_CODES.includes(diagnostic.code)) {
+        // The span is the receiver expression: `<receiver>.case(...)`.
+        const access = node.parent;
+        if (!access || !ts.isPropertyAccessExpression(access) || access.expression !== node) {
+          return false;
+        }
+        return isMatchChainMethodName(access.name, checker, sourceFile);
       }
 
       if (!ts.isIdentifier(node)) return false;

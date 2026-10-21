@@ -595,11 +595,30 @@ function evaluate(expr: Expr, env: Record<string, number>): number {
 
 ---
 
-## IDE Experience
+## Editors and tools that read unexpanded source
 
-The fluent API uses compile-time macros, so your editor's TypeScript language service won't recognise pattern variables (`r`, `s`, `w`, `h` in the examples above) as declared bindings. **You'll see red squiggles on those identifiers — this is expected.** The macro rewrites them into valid JavaScript at build time.
+With typesugar's language-service plugin, the editor checks the expanded code, so pattern
+variables (`r`, `s`, `w`, `h` above) are declared bindings there: no red squiggles, and
+hover shows their types. `typesugar check` and `typesugar build` hide the same errors.
 
----
+Plain `tsc`, typescript-eslint, typedoc and similar tools type-check the source **as
+written**. For them `@typesugar/std` types the fluent chain, so that:
+
+- a match with literal arms and `.else()` type-checks, and its value is the union of the
+  arm results (literal for a `const`, widened for a `let`, as for the conditional the
+  macro emits);
+- a chain that ends in `.then()` is typed `R & FluentMatch<…>`, because TypeScript can't
+  tell which `.then()` is the last. It is assignable wherever `R` is. A `null` or
+  `undefined` result stays in the type, so `match(t).case("A").then("a").case("B").then(undefined)`
+  is `… | undefined`;
+- after an arm whose result may be `null` or `undefined`, the next `.case()` is "possibly
+  null" (TS2531 / TS18047) to plain `tsc`. Put that arm last, or end with `.else()`;
+- names bound by a pattern are undeclared identifiers to plain `tsc` (TS2304), whatever the
+  types say. Exhaustiveness is checked only by the macro.
+
+So code that plain `tsc` must accept should use literal arms and `.else()`. Check code with
+binding patterns with `typesugar check`, and check a library's public types against its
+emitted `.d.ts` rather than its source.
 
 ## Learn More
 
