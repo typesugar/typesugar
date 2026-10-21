@@ -93,3 +93,29 @@ export function notOwnedTypeHelp(
     `/** @impl ${typeclassName}<${typeName}> */.`
   );
 }
+
+/**
+ * Help for a missing instance whose type is a primitive (`number`, `string`,
+ * `boolean`, `bigint`, `symbol`, or a literal of one), which no `@derive` or
+ * `derived<...>()` can build: the instance has to come from a module. Decided
+ * by the type's flags, not its printed name. Undefined for any other type.
+ */
+export function primitiveInstanceHelp(
+  type: ts.Type | undefined,
+  typeclassName: string,
+  typeName: string
+): string | undefined {
+  const primitive =
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.ESSymbolLike;
+  if (!type || !(type.flags & primitive)) return undefined;
+  return (
+    `${typeName} is a primitive, so there is nothing to derive ${typeclassName} from. Bring a ` +
+    `${typeclassName}<${typeName}> instance into scope (import the module that provides it; ` +
+    `@typesugar/std's typeclasses come with instances for the primitives they support), ` +
+    `or declare one: /** @impl ${typeclassName}<${typeName}> */`
+  );
+}

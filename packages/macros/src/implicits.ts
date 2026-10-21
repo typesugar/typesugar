@@ -48,19 +48,21 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, isSyntheticNode } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { TS9001 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import {
   resolveInstance,
+  resolveFromTypeclassHome,
+  resolveTypeclassSymbol,
   findEmittableInstanceByName,
   buildInstanceReference,
   buildImportedReference,
   buildDottedReference,
 } from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
-import { warnDerivedInPlace, notOwnedTypeHelp } from "./derived-in-place.js";
+import { warnDerivedInPlace, notOwnedTypeHelp, primitiveInstanceHelp } from "./derived-in-place.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -378,7 +380,22 @@ export function transformImplicitsCall(
       continue;
     }
 
-    const typeclassName = typeName.text;
+    // The typeclass by identity, not by its local spelling: a renamed import
+    // (`Eq as Equal`) or a re-exported alias (`typesugar`'s `Eq`, which is
+    // `@typesugar/std`'s) is the same typeclass (CLAUDE.md "by identity").
+    let typeclassSymbol: ts.Symbol | undefined;
+    if (!isSyntheticNode(typeName)) {
+      try {
+        typeclassSymbol = resolveTypeclassSymbol(ctx.typeChecker, typeName);
+      } catch (e) {
+        ctx.reportWarning(
+          callExpr,
+          `implicit(): couldn't resolve the typeclass ${typeName.text} with the type checker ` +
+            `(${e instanceof Error ? e.message : String(e)}); using the name as written.`
+        );
+      }
+    }
+    const typeclassName = typeclassSymbol?.name ?? typeName.text;
     const typeArgs = param.type.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
       newArgs.push(factory.createIdentifier("undefined"));
@@ -411,7 +428,11 @@ export function transformImplicitsCall(
     let instanceExpr: ts.Expression | undefined;
     if (concreteTsType) {
       try {
-        const r = resolveInstance(ctx, typeclassName, concreteTsType);
+        let r = resolveInstance(ctx, typeclassName, concreteTsType);
+        // Then the typeclass's own package (see resolveFromTypeclassHome).
+        if (!r && typeclassSymbol) {
+          r = resolveFromTypeclassHome(ctx, typeclassSymbol, typeclassName, concreteTsType).result;
+        }
         if (r && r.kind === "resolved") instanceExpr = buildInstanceReference(ctx, r);
         if (r && r.kind === "ambiguous") {
           ctx.reportError(
@@ -498,8 +519,11 @@ export function transformImplicitsCall(
 
       const tcSuggestions = getSuggestionsForTypeclass(typeclassName);
       const notOwned = notOwnedTypeHelp(ctx, concreteTsType, typeclassName, concreteType);
-      const help = notOwned ? `${helpMessage}\n    ${notOwned}` : helpMessage;
-      if (tcSuggestions.length > 0) {
+      const help =
+        primitiveInstanceHelp(concreteTsType, typeclassName, concreteType) ??
+        (notOwned ? `${helpMessage}\n    ${notOwned}` : helpMessage);
+      if (tcSuggestions.length > 0 && !typeclassSymbol) {
+        // Only when the typeclass itself isn't in scope (the instance is what's missing).
         builder.help(`${help}\n    Add: ${tcSuggestions[0].importStatement}`);
       } else {
         builder.help(help);

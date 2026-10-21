@@ -96,6 +96,13 @@ const showStr = summon<Show<string>>();
 showStr.show("hello"); // "\"hello\""
 ```
 
+An instance is found in this file, in what the file imports (by name, then any export of
+an imported module), and last in the package that declares the typeclass. So with
+`import type { Ord } from "typesugar"`, which is `@typesugar/std`'s `Ord`,
+`summon<Ord<number>>()` finds std's `ordNumber` and imports it from `@typesugar/std`,
+though the file never imported that package. The typeclass is compared by identity: a
+renamed import (`Eq as Equal`) or a re-export is the same typeclass.
+
 ### Generic Functions: `= implicit()`
 
 In a generic function, mark typeclass parameters with `= implicit()` to have

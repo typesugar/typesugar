@@ -79,7 +79,12 @@ import {
 } from "./specialize.js";
 // Static: instance-extraction imports only specialize and instance-resolver.
 import { containsMacroCall } from "./instance-extraction.js";
-import { warnDerivedInPlace, notOwnedTypeHelp, suggestedInstanceName } from "./derived-in-place.js";
+import {
+  warnDerivedInPlace,
+  notOwnedTypeHelp,
+  primitiveInstanceHelp,
+  suggestedInstanceName,
+} from "./derived-in-place.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -104,6 +109,8 @@ import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 import {
   resolveInstance,
+  resolveFromTypeclassHome,
+  resolveTypeclassSymbol,
   hasInstanceInScopeByName,
   buildInstanceReference,
 } from "./instance-resolver.js";
@@ -2597,30 +2604,29 @@ function typeParameterName(ctx: MacroContext, typeNode: ts.TypeNode): string | u
  * macro-generated node the checker can't see) keeps its written spelling.
  */
 function typeclassNameOf(ctx: MacroContext, typeName: ts.EntityName): string {
+  return typeclassOf(ctx, typeName).name;
+}
+
+/**
+ * {@link typeclassNameOf} plus the typeclass's symbol (undefined when the name
+ * isn't a type here), for searching the typeclass's own package.
+ */
+export function typeclassOf(
+  ctx: MacroContext,
+  typeName: ts.EntityName
+): { name: string; symbol?: ts.Symbol } {
   const written = getNodeText(typeName);
-  if (isSyntheticNode(typeName)) return written;
+  if (isSyntheticNode(typeName)) return { name: written };
   try {
-    const checker = ctx.typeChecker;
-    let sym = checker.getSymbolAtLocation(typeName);
-    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-    if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return written;
-    // `type Clone<A> = std.Clone<A>` → std's `Clone` (bounded: aliases of aliases).
-    for (let i = 0; i < 8 && sym.flags & ts.SymbolFlags.TypeAlias; i++) {
-      const t = checker.getDeclaredTypeOfSymbol(sym);
-      const next: ts.Symbol | undefined =
-        t.aliasSymbol && t.aliasSymbol !== sym ? t.aliasSymbol : t.symbol;
-      const named = ts.SymbolFlags.Interface | ts.SymbolFlags.Class | ts.SymbolFlags.TypeAlias;
-      if (!next || next === sym || !(next.flags & named)) break;
-      sym = next;
-    }
-    return sym.name;
+    const sym = resolveTypeclassSymbol(ctx.typeChecker, typeName);
+    return sym ? { name: sym.name, symbol: sym } : { name: written };
   } catch (e) {
     ctx.reportWarning(
       typeName,
       `couldn't resolve the typeclass ${written} with the type checker ` +
         `(${e instanceof Error ? e.message : String(e)}); using the name as written.`
     );
-    return written;
+    return { name: written };
   }
 }
 
@@ -2638,7 +2644,8 @@ export function summonInstanceExpression(
     return undefined;
   }
 
-  const tcName = typeclassNameOf(ctx, typeArg.typeName);
+  const typeclass = typeclassOf(ctx, typeArg.typeName);
+  const tcName = typeclass.name;
   const innerTypeArgs = typeArg.typeArguments;
 
   if (!innerTypeArgs || innerTypeArgs.length === 0) {
@@ -2691,13 +2698,18 @@ export function summonInstanceExpression(
   } else {
     try {
       const forType = summonTargetType(ctx, innerType);
-      const scopeResult = resolveInstance(
+      let scopeResult = resolveInstance(
         ctx,
         tcName,
         forType,
         undefined,
         initializedDeclarationName(errorNode)
       );
+      // Then the typeclass's own package (`Ord` imported from `typesugar` is
+      // `@typesugar/std`'s, whose instances the file doesn't import).
+      if (!scopeResult && typeclass.symbol) {
+        scopeResult = resolveFromTypeclassHome(ctx, typeclass.symbol, tcName, forType).result;
+      }
       if (scopeResult && scopeResult.kind === "resolved") {
         return buildInstanceReference(ctx, scopeResult);
       }
@@ -2799,7 +2811,9 @@ export function summonInstanceExpression(
   const notOwned = (() => {
     if (typeParam || isSyntheticNode(innerType)) return undefined;
     try {
-      return notOwnedTypeHelp(ctx, summonTargetType(ctx, innerType), tcName, typeName);
+      const target = summonTargetType(ctx, innerType);
+      const primitive = primitiveInstanceHelp(target, tcName, typeName);
+      return primitive ? { replace: primitive } : notOwnedTypeHelp(ctx, target, tcName, typeName);
     } catch (e) {
       ctx.reportWarning(
         errorNode,
@@ -2809,7 +2823,12 @@ export function summonInstanceExpression(
       return undefined;
     }
   })();
-  const helpText = notOwned ? `${helpMessage}\n    ${notOwned}` : helpMessage;
+  const helpText =
+    typeof notOwned === "object"
+      ? notOwned.replace
+      : notOwned
+        ? `${helpMessage}\n    ${notOwned}`
+        : helpMessage;
   if (typeParam) {
     // `function f<A>(x: A, S: Show<A> = summon<Show<A>>())`: summon resolves
     // at the definition site, where `A` is still abstract. The supported form
@@ -2823,7 +2842,10 @@ export function summonInstanceExpression(
       `For an instance parameter, use \`= implicit()\` instead (the caller supplies the instance): ` +
         `\`${tcName.charAt(0)}: ${tcName}<${typeName}> = implicit()\``
     );
-  } else if (tcSuggestions.length > 0) {
+  } else if (tcSuggestions.length > 0 && !typeclass.symbol) {
+    // Only when the typeclass itself isn't in scope: suggesting an import of
+    // the `Eq` the file already imported (the instance is what's missing)
+    // was wrong.
     builder.help(`${helpText}\n    Add: ${tcSuggestions[0].importStatement}`);
   } else {
     builder.help(helpText);

@@ -406,6 +406,128 @@ function resolveFromImports(
 }
 
 // ============================================================================
+// The typeclass's own package (implicit scope of the typeclass)
+// ============================================================================
+
+/**
+ * The typeclass a type reference's name denotes, by identity: the checker
+ * follows imports, renames (`Eq as Equal`) and type aliases that forward to
+ * another type (`typesugar`'s `type Ord<A> = import("@typesugar/std").Ord<A>`)
+ * to the typeclass's own declaration. Undefined when the name is not a type
+ * here. Throws when the checker does (callers warn and degrade); the caller
+ * skips synthetic nodes (CLAUDE.md).
+ */
+export function resolveTypeclassSymbol(
+  checker: ts.TypeChecker,
+  typeName: ts.EntityName
+): ts.Symbol | undefined {
+  let sym = checker.getSymbolAtLocation(typeName);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return undefined;
+  // `type Clone<A> = std.Clone<A>` → std's `Clone` (bounded: aliases of aliases).
+  for (let i = 0; i < 8 && sym.flags & ts.SymbolFlags.TypeAlias; i++) {
+    const t = checker.getDeclaredTypeOfSymbol(sym);
+    const next: ts.Symbol | undefined =
+      t.aliasSymbol && t.aliasSymbol !== sym ? t.aliasSymbol : t.symbol;
+    const named = ts.SymbolFlags.Interface | ts.SymbolFlags.Class | ts.SymbolFlags.TypeAlias;
+    if (!next || next === sym || !(next.flags & named)) break;
+    sym = next;
+  }
+  return sym;
+}
+
+const packageNameCache = new Map<string, string | null>();
+
+/** The `name` of the nearest package.json at or above `dir`, if any. */
+function packageNameAt(dir: string): string | undefined {
+  const seen: string[] = [];
+  let d = dir;
+  for (;;) {
+    const cached = packageNameCache.get(d);
+    if (cached !== undefined) {
+      for (const s of seen) packageNameCache.set(s, cached);
+      return cached ?? undefined;
+    }
+    seen.push(d);
+    const pj = `${d}/package.json`;
+    if (ts.sys.fileExists(pj)) {
+      let name: string | null = null;
+      try {
+        const parsed = JSON.parse(ts.sys.readFile(pj) ?? "{}") as { name?: unknown };
+        if (typeof parsed.name === "string") name = parsed.name;
+      } catch {
+        name = null; // an unreadable package.json names no package
+      }
+      for (const s of seen) packageNameCache.set(s, name);
+      return name ?? undefined;
+    }
+    const parent = d.replace(/\/[^/]*$/, "");
+    if (!parent || parent === d) {
+      for (const s of seen) packageNameCache.set(s, null);
+      return undefined;
+    }
+    d = parent;
+  }
+}
+
+/**
+ * Where a typeclass's own instances are, when the file reaches the typeclass
+ * through another module: `import type { Ord } from "typesugar"` names
+ * `@typesugar/std`'s `Ord`, whose instances (`ordNumber`, ...) are exported
+ * by `@typesugar/std`, which the file doesn't import, so the import scan
+ * never sees them. Like Scala's implicit scope, which includes the
+ * typeclass's companion, the package that declares the typeclass is searched
+ * as if the file imported it: its entry, resolved FROM THIS FILE (so an
+ * emitted import of it resolves the same way), scanned like an imported
+ * module. Tried after the file's own scope and imports.
+ *
+ * `homePackage` names that package even when it can't be searched from here
+ * (not resolvable from this file, or not in the program), for the help text.
+ */
+export function resolveFromTypeclassHome(
+  ctx: MacroContext,
+  typeclass: ts.Symbol,
+  tcName: string,
+  forType: ts.Type,
+  scanner: InstanceScanner = defaultScanner
+): { result: ResolutionResult; homePackage?: string } {
+  const decl = typeclass.declarations?.[0];
+  if (!decl) return { result: undefined };
+  const declFile = decl.getSourceFile();
+  if (declFile === ctx.sourceFile) return { result: undefined };
+  const fileName = declFile.fileName.replace(/\\/g, "/");
+  const homePackage = packageNameAt(fileName.slice(0, fileName.lastIndexOf("/")));
+  if (!homePackage) return { result: undefined };
+  const resolved = ts.resolveModuleName(
+    homePackage,
+    ctx.sourceFile.fileName,
+    ctx.program.getCompilerOptions(),
+    ts.sys
+  ).resolvedModule?.resolvedFileName;
+  const entry = resolved ? ctx.program.getSourceFile(resolved) : undefined;
+  if (!entry || entry === ctx.sourceFile) return { result: undefined, homePackage };
+  // Already searched: the file imports the package itself.
+  if (getImportMap(ctx).some((e) => e.resolvedPath === entry.fileName)) {
+    return { result: undefined, homePackage };
+  }
+  const checker = ctx.typeChecker;
+  const moduleSymbol = checker.getSymbolAtLocation(entry);
+  if (!moduleSymbol) return { result: undefined, homePackage };
+  const scanned = scanner.scanModule(checker, moduleSymbol, entry.fileName, ctx.program);
+  const matches = filterMatches(
+    checker,
+    scanned,
+    tcName,
+    forType,
+    checker.typeToString(forType),
+    entry.fileName,
+    "module-scan",
+    homePackage
+  );
+  return { result: pickResult(matches, tcName, forType), homePackage };
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
