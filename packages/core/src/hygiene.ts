@@ -58,6 +58,7 @@
  */
 
 import * as ts from "typescript";
+import { forEachDescendant } from "./ast-utils.js";
 
 // =============================================================================
 // Known Globals (Tier 0)
@@ -411,9 +412,10 @@ export class FileBindingCache {
       } else if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node)) {
         this.localDecls.add(node.name.text);
       }
-      ts.forEachChild(node, visit);
     };
-    visit(root);
+    // Iterative: a statement can be thousands of levels deep (a long
+    // `"a" + "b" + ...` chain), which a recursive walk overflows.
+    forEachDescendant(root, visit);
   }
 
   /**

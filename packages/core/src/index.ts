@@ -213,6 +213,7 @@ export {
   cloneWithoutPositions,
   cloneWithoutComments,
   cloneNodeDeep,
+  forEachDescendant,
   jsValueToExpression,
   numberToExpression,
   bigintToExpression,

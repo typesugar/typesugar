@@ -149,6 +149,32 @@ export function hasSourceText(node: ts.Node): boolean {
 }
 
 // =============================================================================
+// forEachDescendant — whole-tree walks without one stack frame per level
+// =============================================================================
+
+/**
+ * Call `fn` on `root` and each of its descendants, in the order a recursive
+ * `ts.forEachChild` walk visits them (pre-order, children in source order),
+ * with an explicit stack instead of one recursion per level. A recursive walk
+ * over a whole file overflows the call stack on a deep expression (a
+ * 5,000-term `"a" + "b" + ...` chain is 5,000 levels deep), which tsc itself
+ * handles. `fn` returning `false` skips that node's children.
+ */
+export function forEachDescendant(root: ts.Node, fn: (node: ts.Node) => boolean | void): void {
+  const stack: ts.Node[] = [root];
+  const children: ts.Node[] = [];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (fn(node) === false) continue;
+    children.length = 0;
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
+}
+
+// =============================================================================
 // stripPositions — Mark AST nodes as synthetic
 // =============================================================================
 

@@ -335,12 +335,34 @@ describe("TS Plugin Error Recovery", () => {
       // whole subtree below it every time (cubic: 18-40 minutes on CI). An
       // operand that is itself an arithmetic expression is primitive-typed and
       // is now skipped without the checker; the budget catches a regression.
-      // (Nesting this deep exceeds the transformer's recursion depth, which it
-      // reports as "Transform failed"; it must not hang.)
+      // The visitor used to recurse once per level and failed at ~2,000
+      // levels (~1,500 under vitest) with "Transform failed: RangeError:
+      // Maximum call stack size exceeded"; tsc itself handles this depth.
       const longLine = "const x = " + "1 + ".repeat(10000) + "1;";
       const started = Date.now();
       const result = transformCode(longLine, { fileName: "long.ts" });
-      expect(result).toBeDefined();
+      expect(result.diagnostics).toEqual([]);
+      expect(result.code.split("1 + ").length).toBe(10001);
+      expect(Date.now() - started).toBeLessThan(20_000);
+    });
+
+    it("a 20,000-term string concatenation in a file that activates operators", () => {
+      // Generated code (long concatenations, big literal tables) nests this
+      // deep; every whole-file walk on the way (the macro visitor, hygiene's
+      // binding scan, the source-map walk, the scratch-token pass) must not
+      // recurse once per level.
+      const code =
+        'import "@typesugar/std/syntax/eq/ops";\n' +
+        "export const s = " +
+        '"ab" + '.repeat(20000) +
+        '"ab";\nexport const n = ' +
+        "1 - ".repeat(20000) +
+        "1;\n";
+      const started = Date.now();
+      const result = transformCode(code, { fileName: "concat.ts" });
+      expect(result.diagnostics).toEqual([]);
+      expect(result.code.split('"ab" + ').length).toBe(20001);
+      expect(result.code.split("1 - ").length).toBe(20001);
       expect(Date.now() - started).toBeLessThan(20_000);
     });
 

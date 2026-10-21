@@ -399,7 +399,62 @@ class MacroTransformer {
       return this.simplifyComprehensionArrow(this.visitDispatch(node));
     }
 
+    if (ts.isBinaryExpression(node) && ts.isBinaryExpression(node.left)) {
+      return this.visitLeftNestedBinary(node);
+    }
+
     return this.visitDispatch(node);
+  }
+
+  /**
+   * A left-nested binary chain (`"a" + "b" + ... + "z"`, `1 + 1 + ... + 1`:
+   * each level's LEFT operand is the next binary expression), visited with a
+   * loop instead of one recursion per level. Recursing through `visit` →
+   * `visitDispatch` → `ts.visitEachChild` → `visitNode` for each level
+   * overflowed the stack at a depth of about 2,000 (generated code — long
+   * string concatenations, big literal tables — goes deeper, and tsc's own
+   * checker and printer handle such chains iteratively).
+   *
+   * Same steps, in the same order, as the recursive visit: top-down, each
+   * level gets `visitDispatch`'s per-node step (`tryTransform`; a binary
+   * expression has no implicit parameters or trigger labels) before any of
+   * its children are visited, and the first level something transforms (or
+   * one `visit` treats specially: pre-visited, synthetic, or not a binary
+   * expression) ends the descent and is visited as usual. Then bottom-up,
+   * each level's right operand is visited after its whole left subtree, as
+   * `visitEachChild` does, and the level is rebuilt with
+   * `updateBinaryExpression` (which returns the original node when nothing
+   * changed).
+   */
+  private visitLeftNestedBinary(root: ts.BinaryExpression): ts.Node | ts.Node[] {
+    const visitor = this.visit.bind(this);
+    const spine: ts.BinaryExpression[] = [];
+    let n: ts.Expression = root;
+    let bottom: ts.Expression;
+    for (;;) {
+      if (
+        !ts.isBinaryExpression(n) ||
+        n.pos === -1 ||
+        (spine.length > 0 && this.preVisitedArgs.has(n))
+      ) {
+        bottom = ts.visitNode(n, visitor, ts.isExpression)!;
+        break;
+      }
+      const transformed = this.tryTransform(n);
+      if (transformed !== undefined) {
+        bottom = ts.visitNode(n, () => transformed, ts.isExpression)!;
+        break;
+      }
+      spine.push(n);
+      n = n.left;
+    }
+    let result = bottom;
+    for (let i = spine.length - 1; i >= 0; i--) {
+      const level = spine[i];
+      const right = ts.visitNode(level.right, visitor, ts.isExpression)!;
+      result = this.ctx.factory.updateBinaryExpression(level, result, level.operatorToken, right);
+    }
+    return result;
   }
 
   private visitDispatch(node: ts.Node): ts.Node | ts.Node[] {

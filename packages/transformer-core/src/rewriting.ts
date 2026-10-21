@@ -639,6 +639,15 @@ export function tryRewriteTypeclassOperator(
 ): ts.Expression | undefined {
   // Skip synthetic nodes (from macro-generated code) — the checker can crash.
   if (isSyntheticNode(node)) return undefined;
+  // An operand that is itself `a + b`, `a < b`, ... is typed number, bigint,
+  // string, boolean or any by TypeScript's own rules, never an instance type,
+  // so it can't dispatch (nor need a TS9804 hint). Decided without the
+  // checker: its type of a binary expression is not cached, so asking for it
+  // re-checks the whole subtree, and doing that at every level of
+  // `1 + 1 + ... + 1` made a 10,000-term line take tens of minutes. Checked
+  // first: the opt-out and activation checks below walk up the node's
+  // ancestors, which at every level of a long chain is quadratic.
+  if (isPrimitiveTypedBinary(node.left)) return undefined;
   if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getOperatorString(node.operatorToken.kind);
@@ -663,13 +672,6 @@ export function tryRewriteTypeclassOperator(
   if (isNullOrUndefinedExpr(node.right) || isNullOrUndefinedExpr(node.left)) return undefined;
 
   if (isSyntheticNode(node.left) || isSyntheticNode(node.right)) return undefined;
-  // An operand that is itself `a + b`, `a < b`, ... is typed number, bigint,
-  // string, boolean or any by TypeScript's own rules, never an instance type,
-  // so it can't dispatch (nor need a TS9804 hint). Decided without the
-  // checker: its type of a binary expression is not cached, so asking for it
-  // re-checks the whole subtree, and doing that at every level of
-  // `1 + 1 + ... + 1` made a 10,000-term line take tens of minutes.
-  if (isPrimitiveTypedBinary(node.left)) return undefined;
 
   const operandTypeFailed = (error: unknown): undefined => {
     ctx.reportWarning(

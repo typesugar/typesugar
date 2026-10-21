@@ -23,6 +23,7 @@ import {
   config,
   assertSupportedTypeScript,
   opaqueTypesAsUnderlying,
+  forEachDescendant,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
 import {
@@ -298,12 +299,12 @@ function clampSyntheticPositions<T extends ts.Node>(node: T): T {
  * printed output (review finding #5), which corrupted string/template
  * literals.
  */
-function detachScratchArrowTokens(node: ts.Node): void {
-  if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
-    ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
-  }
-  ts.forEachChild(node, (child) => {
-    detachScratchArrowTokens(child);
+function detachScratchArrowTokens(root: ts.Node): void {
+  // Iterative: a file can hold an expression thousands of levels deep.
+  forEachDescendant(root, (node) => {
+    if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
+      ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
+    }
   });
 }
 
@@ -832,13 +833,15 @@ function generateASTSourceMap(
   // Walk the transformed AST depth-first, matching leaves to output tokens.
   // For statements, also emit a statement-level mapping at the start so that
   // positions between tokens (whitespace, operators) map to the correct line.
-  function walkNode(node: ts.Node): void {
+  // Iterative (forEachDescendant visits in the same order as a recursive
+  // forEachChild walk): an expression can be thousands of levels deep.
+  function walkNode(node: ts.Node): false | void {
     const range = ts.getSourceMapRange(node);
 
     const leaf = leafOf(node);
     if (leaf) {
       // Only map nodes that have a valid source position
-      if (range.pos < 0 || range.end < 0) return;
+      if (range.pos < 0 || range.end < 0) return false;
 
       // Skip leading trivia to get the actual token start in the original
       const origPos = skipTrivia(range.pos);
@@ -847,15 +850,14 @@ function generateASTSourceMap(
       if (token) {
         addMapping(token.pos, origPos);
       }
-      return;
+      return false;
     }
 
-    // Non-leaf: recurse into children (forEachChild visits in source order)
-    ts.forEachChild(node, walkNode);
+    // Non-leaf: its children next (forEachChild order, source order)
   }
 
   // Walk the full AST for token-level precision
-  walkNode(transformedSF);
+  forEachDescendant(transformedSF, walkNode);
 
   // Add line-start mappings: for each output line that has at least one
   // token mapping, add a col-0 mapping pointing to the same original line.
