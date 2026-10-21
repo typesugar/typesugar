@@ -15,8 +15,7 @@ import { globalResolutionScope } from "@typesugar/core";
  * `noLib`/`noResolve` keep it self-contained. The MacroCallChain rule accepts an
  * unresolvable `match` import when its specifier is `@typesugar/std`.
  */
-function diagnose(code: string) {
-  const fileName = "t.ts";
+function diagnose(code: string, fileName = "t.ts") {
   const sf = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true);
   const host: ts.CompilerHost = {
     getSourceFile: (fn) => (fn === fileName ? sf : undefined),
@@ -30,7 +29,12 @@ function diagnose(code: string) {
     readFile: (fn) => (fn === fileName ? code : undefined),
   };
   const program = ts.createProgram([fileName], { noLib: true, noResolve: true }, host);
-  return { sf, checker: program.getTypeChecker(), diags: program.getSemanticDiagnostics(sf) };
+  return {
+    sf,
+    program,
+    checker: program.getTypeChecker(),
+    diags: program.getSemanticDiagnostics(sf),
+  };
 }
 
 describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance method sugar (PEP-033 N3)", () => {
@@ -39,10 +43,13 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance
   beforeAll(() => {
     // Populate the typeclass registry so getTypeclassesForMethod("equals") finds Eq.
     registerTypeclassMacros();
+    // The transformer rewrites `p.equals(q)` only where Eq method syntax is
+    // activated (an `@typesugar/std/syntax/eq` import), so the rule does too.
+    globalResolutionScope.activateMethodSyntax("t.ts", "Eq");
   });
 
-  function ts2339(code: string) {
-    const { sf, checker, diags } = diagnose(code);
+  function ts2339(code: string, fileName?: string) {
+    const { sf, checker, diags } = diagnose(code, fileName);
     return {
       sf,
       checker,
@@ -88,6 +95,25 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance
     );
     expect(equalsDiag).toBeDefined();
     expect(rule.shouldSuppress(equalsDiag!, checker, sf)).toBe(true);
+  });
+
+  it("does NOT suppress `.equals` on a @derive(Eq) type where Eq method syntax isn't activated", () => {
+    // No `@typesugar/std/syntax/eq` import: the transformer leaves
+    // `u1.equals(u2)` as written (a TypeError at run time), so the error stays.
+    const code = [
+      `/** @derive(Eq) */`,
+      `interface User { id: number }`,
+      `declare const u1: User, u2: User;`,
+      `const r = u1.equals(u2);`,
+    ].join("\n");
+    const { sf, checker, diags } = ts2339(code, "derive-eq-not-activated.ts");
+    const equalsDiag = diags.find((d) =>
+      (typeof d.messageText === "string" ? d.messageText : d.messageText.messageText).includes(
+        "'equals'"
+      )
+    );
+    expect(equalsDiag).toBeDefined();
+    expect(rule.shouldSuppress(equalsDiag!, checker, sf)).toBe(false);
   });
 
   it("does NOT suppress `.equals` on a type that doesn't derive Eq", () => {
@@ -138,22 +164,49 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass method s
             typeof d.messageText === "string" ? d.messageText : d.messageText.messageText
           )
       );
-    return { sf, checker: program.getTypeChecker(), diags };
+    return { sf, program, checker: program.getTypeChecker(), diags };
   }
 
-  it("suppresses TS2339 for `.equals` on a number when Eq method syntax is activated", () => {
+  it("suppresses TS2339 for `.equals` on a number when Eq method syntax is activated and an Eq<number> is in scope", () => {
     const fileName = "primitive-eq-on.ts";
     globalResolutionScope.activateMethodSyntax(fileName, "Eq");
 
+    const code = [
+      `/** @impl Eq<number> */`,
+      `const eqNum = { equals: (a: number, b: number) => a === b };`,
+      `declare const n: number;`,
+      `const r = n.equals(5);`,
+      `const lit = (7).equals(7);`,
+    ].join("\n");
+    const { sf, checker, diags, program } = ts2339(code, fileName);
+    const equalsDiags = diags.filter((d) =>
+      (typeof d.messageText === "string" ? d.messageText : d.messageText.messageText).includes(
+        "'equals'"
+      )
+    );
+    expect(equalsDiags).toHaveLength(2);
+    for (const d of equalsDiags) {
+      expect(rule.shouldSuppress(d, checker, sf, { program })).toBe(true);
+    }
+  });
+
+  it("does NOT suppress `.equals` on a number with Eq method syntax activated but no Eq<number> in scope", () => {
+    // `import "@typesugar/std/syntax/eq"` without importing an instance: the
+    // transformer finds none and leaves `n.equals(5)` as written, so `build`
+    // emitted a TypeError at run time while `check` reported TS2339. The
+    // rule now resolves the instance as the rewrite does.
+    const fileName = "primitive-eq-no-instance.ts";
+    globalResolutionScope.activateMethodSyntax(fileName, "Eq");
+
     const code = `declare const n: number;\nconst r = n.equals(5);`;
-    const { sf, checker, diags } = ts2339(code, fileName);
+    const { sf, checker, diags, program } = ts2339(code, fileName);
     const equalsDiag = diags.find((d) =>
       (typeof d.messageText === "string" ? d.messageText : d.messageText.messageText).includes(
         "'equals'"
       )
     );
     expect(equalsDiag).toBeDefined();
-    expect(rule.shouldSuppress(equalsDiag!, checker, sf)).toBe(true);
+    expect(rule.shouldSuppress(equalsDiag!, checker, sf, { program })).toBe(false);
   });
 
   it("does NOT suppress `.equals` on a number without the Eq syntax-activation import", () => {

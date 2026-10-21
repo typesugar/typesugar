@@ -39,7 +39,6 @@ import {
   globalRegistry,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
-import { getInstanceOrIntrinsicMethods } from "./specialize.js";
 import { getOperatorCandidates } from "./typeclass-index.js";
 import { getOperatorString } from "./operators.js";
 import { resolveInstance } from "./instance-resolver.js";
@@ -63,7 +62,8 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
     shouldSuppress(
       diagnostic: ts.Diagnostic,
       checker: ts.TypeChecker,
-      sourceFile: ts.SourceFile
+      sourceFile: ts.SourceFile,
+      context?: DiagnosticSuppressionContext
     ): boolean {
       if (diagnostic.start === undefined || diagnostic.length === undefined) {
         return false;
@@ -112,22 +112,28 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
 
       // 3. Typeclass instance method (derived / @instance): e.g. `p.equals(q)` is
       // rewritten by the transformer to `Point.Eq.equals(p, q)`. Suppress the
-      // pre-transform TS2339 when the method belongs to a typeclass that has an
-      // instance for the receiver type.
+      // pre-transform TS2339 when the method belongs to a typeclass whose
+      // method syntax is active here (as the rewrite requires) and that the
+      // receiver's type derives.
       if (
         resolveTypeclassInstanceMethod(propertyName, typeName, receiverType, checker, sourceFile)
       ) {
         return true;
       }
 
-      // 4. Typeclass instance method over a PRIMITIVE via a built-in intrinsic
-      // (Wave 7): e.g. `n.equals(m)` for `n: number` is rewritten to
-      // `Eq.summon<number>("number").equals(n, m)` using the reflected
-      // `eqNumber` intrinsic — there's no user declaration to inspect the
-      // way there is for @derive'd classes, so this checks the intrinsic
-      // registry and import-scoped method-syntax activation instead.
+      // 4. Typeclass instance method over a PRIMITIVE: e.g. `n.equals(m)` for
+      // `n: number` is rewritten to `eqNumber.equals(n, m)` when Eq method
+      // syntax is active AND an Eq<number> instance is in scope; decided by
+      // the same scope resolution the rewrite uses.
       if (
-        resolvePrimitiveTypeclassMethod(propertyName, typeName, receiverType, checker, sourceFile)
+        resolvePrimitiveTypeclassMethod(
+          propertyName,
+          typeName,
+          receiverType,
+          checker,
+          sourceFile,
+          context?.program
+        )
       ) {
         return true;
       }
@@ -137,65 +143,70 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
   };
 }
 
-const PRIMITIVE_TYPE_NAMES = new Set(["number", "string", "boolean", "bigint"]);
-
-function normalizePrimitiveTypeName(typeName: string): string | undefined {
-  const lower = typeName.toLowerCase();
-  return PRIMITIVE_TYPE_NAMES.has(lower) ? lower : undefined;
-}
-
 /**
- * Check whether `methodName` is a typeclass method with a registered
- * built-in intrinsic instance (PEP-052 Wave 7: eq/ord/show/hash over
- * number/string/boolean/bigint, reflected from primitives.ts) for a
- * PRIMITIVE receiver type — i.e. the transformer will rewrite
- * `recv.methodName(...)` to `TC.summon<Type>("Type").methodName(recv, ...)`.
- *
- * Unlike `resolveTypeclassInstanceMethod` (@derive'd classes, decided purely
- * from a source annotation on the receiver's own declaration), a primitive
- * has no user-authored declaration to inspect. So this checks two
- * independent conditions instead: an intrinsic instance actually exists for
- * `tcName<typeName>` (naming convention `${tc}${Type}`, e.g. "eqNumber"),
- * AND method syntax for that typeclass is activated in this file (PEP-052's
- * import-scoped activation gate — `globalResolutionScope` is populated by
- * the transform pass that always runs before diagnostic suppression filtering, both in the
- * CLI's `program.emit()` and the language service's `getTransformResult()`).
- * Without the activation check, a stray `(5).equals(6)` with no
- * `@typesugar/std/syntax/eq` import would be wrongly suppressed instead of
- * flagged as the real error it is.
+ * Check whether `methodName` is a typeclass method the transformer will
+ * rewrite for a PRIMITIVE receiver: `n.equals(m)` for `n: number` becomes
+ * `eqNumber.equals(n, m)` when Eq method syntax is active in this file AND an
+ * `Eq<number>` instance resolves from its scope, the same resolution the
+ * rewrite uses (method-sugar.ts: `resolveInstance`, literal receivers widened
+ * by the checker). Activation alone isn't enough: with
+ * `import "@typesugar/std/syntax/eq"` and no instance in scope the call is
+ * left as written, a TypeError at run time, and `typesugar build` used to
+ * hide its TS2339 while `typesugar check` reported it. Primitive by the
+ * type's flags, not its printed name.
  */
 function resolvePrimitiveTypeclassMethod(
   methodName: string,
-  typeName: string,
+  _typeName: string,
   receiverType: ts.Type,
   checker: ts.TypeChecker,
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
+  program: ts.Program | undefined
 ): boolean {
+  // The rewrite resolves the instance from scope (method-sugar.ts), so this
+  // does too: without the program it can't, and suppresses nothing.
+  if (!program) return false;
   const candidates = getTypeclassesForMethod(methodName);
   if (!candidates) return false;
 
-  let primitiveName = normalizePrimitiveTypeName(typeName);
-  if (!primitiveName) {
-    // Widen literal types: 42 → number, "hello" → string
+  const primitive =
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.BigIntLike;
+  if (!(receiverType.flags & primitive)) return false;
+  const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+
+  for (const candidate of candidates) {
+    const tcName = candidate.typeclass;
+    if (!isMethodSyntaxActive(sourceFile, tcName)) continue;
     try {
-      const baseType = checker.getBaseTypeOfLiteralType(receiverType);
-      primitiveName = normalizePrimitiveTypeName(checker.typeToString(baseType));
+      // A literal receiver (`(7).equals(7)`) is retried with its base type,
+      // widened by the checker, as the rewrite does.
+      let r = resolveInstance(ctx, tcName, receiverType);
+      const widened = checker.getBaseTypeOfLiteralType(receiverType);
+      if (!r && widened !== receiverType) r = resolveInstance(ctx, tcName, widened);
+      if (r?.kind === "resolved") return true;
     } catch (e) {
       if (isDiagnosticSuppressionAuditEnabled()) {
         console.error(`[DiagnosticSuppression] resolvePrimitiveTypeclassMethod: ${e}`);
       }
     }
   }
-  if (!primitiveName) return false;
-  const capitalized = primitiveName[0].toUpperCase() + primitiveName.slice(1);
-
-  for (const candidate of candidates) {
-    const tcName = candidate.typeclass;
-    if (!globalResolutionScope.isMethodSyntaxActivated(sourceFile.fileName, tcName)) continue;
-    const dictName = `${tcName.toLowerCase()}${capitalized}`;
-    if (getInstanceOrIntrinsicMethods(dictName)) return true;
-  }
   return false;
+}
+
+/**
+ * Whether `tcName`'s method syntax is active in `sourceFile`, as the rewrite
+ * decides it (method-sugar.ts): an activation import, or the typeclass
+ * defined in the file. The transformer leaves the method call as written
+ * otherwise, so its TS2339 is real.
+ */
+function isMethodSyntaxActive(sourceFile: ts.SourceFile, tcName: string): boolean {
+  return (
+    globalResolutionScope.isMethodSyntaxActivated(sourceFile.fileName, tcName) ||
+    globalResolutionScope.getDefinedTypeclasses(sourceFile.fileName).has(tcName)
+  );
 }
 
 /**
@@ -219,7 +230,10 @@ function resolveTypeclassInstanceMethod(
 ): boolean {
   const candidates = getTypeclassesForMethod(methodName);
   if (!candidates) return false;
-  const candidateNames = new Set(candidates.map((c) => c.typeclass));
+  const candidateNames = new Set(
+    candidates.map((c) => c.typeclass).filter((tc) => isMethodSyntaxActive(_sourceFile, tc))
+  );
+  if (candidateNames.size === 0) return false;
 
   const symbol = receiverType.getSymbol() ?? receiverType.aliasSymbol;
   const declarations = symbol?.getDeclarations();
