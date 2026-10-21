@@ -94,6 +94,25 @@ For type-checking, and as your CI gate, use the typesugar CLI: `typesugar check`
 the phantom errors the unexpanded source produces. To also type-check the expanded
 output, add `--strict` (experimental).
 
+### Declarations
+
+TypeScript emits `.d.ts` files from the program it type-checked, so a patched `tsc`
+declares the **unexpanded** types: an exported function that returns a fluent
+`match()` is declared `: any`. `typesugar build` emits declarations from the expanded
+program instead. Build a library with it:
+
+```json
+{
+  "scripts": {
+    "build": "typesugar build"
+  }
+}
+```
+
+With `declaration: true` in the tsconfig, `typesugar build` writes both the `.js` and the
+`.d.ts` files. To write only the declarations (the JavaScript comes from a bundler), run
+`typesugar build --emitDeclarationOnly`.
+
 ## Using tspc Instead of tsc
 
 ts-patch provides `tspc` as an alternative to `tsc`:

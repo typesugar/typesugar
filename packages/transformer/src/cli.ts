@@ -20,6 +20,14 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
+import {
+  captureExpandedSource,
+  emitExpandedDeclarations,
+  expandProgramSources,
+  preprocessHKTForProgram as preprocessForProgram,
+  wantsDeclarations,
+  withoutDeclarations,
+} from "./declarations.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
 import { UnapprovedMacroPackagesError } from "./macro-loader.js";
@@ -74,6 +82,10 @@ interface CliOptions {
   strict?: boolean | "incremental";
   /** Show suppressed diagnostics for debugging */
   showSuppressedDiagnostics?: boolean;
+  /** build: write only `.d.ts` files (from the expanded program) */
+  emitDeclarationOnly?: boolean;
+  /** build: directory for `.d.ts` files (overrides the tsconfig) */
+  declarationDir?: string;
   /** approve-macros: skip the confirmation prompt (for CI use) */
   yes?: boolean;
   /** init: scaffold AI-assistant context (AGENTS.md). undefined = ask. */
@@ -183,6 +195,8 @@ function parseArgs(args: string[]): CliOptions {
   let ai: boolean | undefined;
   let yes = false;
   let persona: CliOptions["persona"];
+  let emitDeclarationOnly = false;
+  let declarationDir: string | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -213,6 +227,14 @@ function parseArgs(args: string[]): CliOptions {
       strict = true;
     } else if (arg === "--show-suppressed-diagnostics") {
       showSuppressedDiagnostics = true;
+    } else if (arg === "--emitDeclarationOnly" || arg === "--emit-declaration-only") {
+      emitDeclarationOnly = true;
+    } else if (arg === "--declarationDir" || arg === "--declaration-dir") {
+      declarationDir = args[++i];
+      if (!declarationDir) {
+        console.error(`${arg} needs a directory`);
+        process.exit(1);
+      }
     } else if (arg === "--ai") {
       ai = true;
     } else if (arg === "--no-ai") {
@@ -246,6 +268,8 @@ function parseArgs(args: string[]): CliOptions {
     cache,
     strict,
     showSuppressedDiagnostics,
+    emitDeclarationOnly,
+    declarationDir,
     ai,
     yes,
     persona,
@@ -284,6 +308,8 @@ OPTIONS:
                          checker hits synthetic node positions. Off by default.
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
   --show-suppressed-diagnostics  Show suppressed diagnostics (audit mode)
+  --emitDeclarationOnly  Write only .d.ts files, from the expanded program [build]
+  --declarationDir <dir> Directory for .d.ts files (overrides tsconfig) [build]
   -h, --help             Show this help message
 
 APPROVE-MACROS OPTIONS:
@@ -318,6 +344,7 @@ EXAMPLES:
   typesugar build --project tsconfig.build.json
   typesugar build --strict                     # Typecheck expanded output (full)
   typesugar build --strict=incremental          # Incremental strict typecheck
+  typesugar build --emitDeclarationOnly         # .d.ts only (after tsup/esbuild/vite)
   typesugar watch --verbose
   typesugar check --strict
   typesugar expand src/main.ts
@@ -346,17 +373,6 @@ EXAMPLES:
  */
 function loadProjectConfig(tsconfigPath: string): void {
   typesugarConfig.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
-}
-
-/**
- * HKT `F<_>` preprocessing for a file served to a ts.Program (build/watch).
- * Returns the rewritten text, or `undefined` when the file is left as-is.
- */
-function preprocessForProgram(fileName: string, source: string): string | undefined {
-  if (!/\.[jt]sx?$/.test(fileName) || /node_modules/.test(fileName)) return undefined;
-  if (!hasHKTPatterns(source)) return undefined;
-  const result = rewriteHKTTypeReferences(source, fileName);
-  return result.changed ? result.code : undefined;
 }
 
 /** Stable identity for de-duplicating a diagnostic reported by two passes. */
@@ -438,10 +454,28 @@ function build(options: CliOptions): void {
   }
 
   const noEmit = options.command === "check";
-  const compilerOptions: ts.CompilerOptions = {
+  const configDir = path.dirname(path.resolve(options.project));
+  const projectOptions: ts.CompilerOptions = {
     ...config.options,
-    ...(noEmit ? { noEmit: true } : {}),
+    ...(options.declarationDir ? { declarationDir: path.resolve(options.declarationDir) } : {}),
   };
+  // Declarations come from the EXPANDED program (declarations.ts): the program
+  // the macros run against is built with declaration emit switched off.
+  const declarationOnly =
+    !noEmit &&
+    (options.emitDeclarationOnly === true || projectOptions.emitDeclarationOnly === true);
+  const emitDeclarations =
+    !noEmit &&
+    (declarationOnly || (wantsDeclarations(projectOptions) && projectOptions.noEmit !== true));
+  if (declarationOnly && !projectOptions.declarationDir && !projectOptions.outDir) {
+    console.error(
+      `🧊 --emitDeclarationOnly needs somewhere to write: set "declarationDir" or "outDir" in ${options.project}, or pass --declarationDir <dir>.`
+    );
+    process.exit(1);
+  }
+  const compilerOptions: ts.CompilerOptions = emitDeclarations
+    ? withoutDeclarations(projectOptions, configDir)
+    : { ...projectOptions, ...(noEmit ? { noEmit: true } : {}) };
 
   // Initialize disk cache if enabled
   const diskCache = options.cache
@@ -706,24 +740,33 @@ function build(options: CliOptions): void {
   };
 
   let tsDiagnostics: readonly ts.Diagnostic[];
-  if (noEmit) {
+  // Expanded text of the files the macros changed, for the declaration emit.
+  let expandedSources = new Map<string, string>();
+  if (noEmit || declarationOnly) {
     // `check`: program.emit() is a no-op under noEmit, so the macro
     // transformer would never run and macro errors would go unreported.
     // Run it explicitly over every file emit would have transformed.
     tsDiagnostics = filterTsDiagnostics([...preEmitDiagnostics, ...strictDiagnostics]);
     profiler.start("cli.build.checkExpand");
-    for (const sourceFile of program.getSourceFiles()) {
-      if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
-        continue;
+    if (declarationOnly) {
+      // No JavaScript: expand every file and keep the printed result.
+      expandedSources = expandProgramSources(program, transformerFactory);
+    } else {
+      for (const sourceFile of program.getSourceFiles()) {
+        if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
+          continue;
+        }
+        const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
+        transformResult.dispose();
       }
-      const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
-      transformResult.dispose();
     }
     profiler.end("cli.build.checkExpand");
   } else {
     profiler.start("cli.build.emit");
     const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
-      before: [transformerFactory],
+      before: emitDeclarations
+        ? [transformerFactory, captureExpandedSource(program, expandedSources)]
+        : [transformerFactory],
     });
     profiler.end("cli.build.emit");
     tsDiagnostics = filterTsDiagnostics([
@@ -733,10 +776,36 @@ function build(options: CliOptions): void {
     ]);
   }
 
+  // `.d.ts` from the expanded program. Its diagnostics (declaration-emit
+  // errors such as isolatedDeclarations) are about the expanded code, so they
+  // bypass the suppression filter too. noEmitOnError is decided here, on the
+  // filtered diagnostics: the expanded program itself never blocks its emit.
+  const declarationDiagnostics: ts.Diagnostic[] = [];
+  if (emitDeclarations) {
+    const hasErrors = [...tsDiagnostics, ...macroDiagnostics].some(
+      (d) => d.category === ts.DiagnosticCategory.Error
+    );
+    if (!(projectOptions.noEmitOnError && hasErrors)) {
+      profiler.start("cli.build.declarations");
+      const result = emitExpandedDeclarations({
+        rootNames: config.fileNames,
+        options: projectOptions,
+        host,
+        expanded: expandedSources,
+      });
+      declarationDiagnostics.push(...result.diagnostics);
+      profiler.end("cli.build.declarations");
+    }
+  }
+
   // Macro diagnostics are real errors, never phantom ones: they bypass the
   // suppression filter (which exists for TS errors caused by typesugar
   // rewrites — extension methods, newtype assignment, opaque types).
-  const allDiagnostics = dedupeDiagnostics([...tsDiagnostics, ...macroDiagnostics]);
+  const allDiagnostics = dedupeDiagnostics([
+    ...tsDiagnostics,
+    ...macroDiagnostics,
+    ...declarationDiagnostics,
+  ]);
 
   const errorCount = reportDiagnostics(allDiagnostics);
 

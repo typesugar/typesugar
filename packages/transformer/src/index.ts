@@ -86,6 +86,18 @@ export {
 
 export { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
 
+// .d.ts from the expanded program (`typesugar build`, the tsup helper).
+export {
+  emitDeclarations,
+  emitExpandedDeclarations,
+  expandProgramSources,
+  captureExpandedSource,
+  createExpandedHost,
+  formatDiagnosticsForConsole,
+  type EmitDeclarationsOptions,
+  type EmitDeclarationsResult,
+} from "./declarations.js";
+
 export {
   type PositionMapper,
   SourceMapPositionMapper,

@@ -37,9 +37,20 @@ typesugar build [options]
 - `--strict=incremental` — Like `--strict`, but only re-checks changed files
 - `--show-suppressed-diagnostics` — Also print the diagnostics typesugar's
   suppression rules filtered out (audit mode)
+- `--emitDeclarationOnly` — Write only `.d.ts` files. Use it after a bundler (tsup,
+  esbuild, Vite) has built the JavaScript.
+- `--declarationDir <dir>` — Directory for the `.d.ts` files, overriding the tsconfig.
+  `--emitDeclarationOnly` needs this, `declarationDir` or `outDir`.
 
 `build` emits `.js`/`.d.ts` and exits non-zero if any diagnostics (including macro
 errors) are found.
+
+The `.d.ts` files are emitted from the **expanded** program, so they describe what the
+macros produce: an exported `function area(s: Shape) { return match(s)… }` is declared
+`area(s: Shape): number`, and the declarations import nothing from typesugar. (Plain `tsc`
+and tsup's own `dts` step see the unexpanded source instead.) Declaration-emit errors are
+reported against the expanded code. `noEmitOnError` is decided on the same diagnostics
+`build` reports.
 
 **Examples:**
 
@@ -58,6 +69,9 @@ typesugar build --cache
 
 # Build with strict mode (typecheck expanded output)
 typesugar build --strict
+
+# Only the .d.ts files, into types/
+typesugar build --emitDeclarationOnly --declarationDir types
 ```
 
 ### watch
