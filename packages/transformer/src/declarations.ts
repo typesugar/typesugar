@@ -27,6 +27,7 @@ import {
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 import { macroTransformerFactory } from "./pipeline.js";
 import { hasHKTPatterns, rewriteHKTTypeReferences } from "./hkt-rewriter.js";
+import { annotateInferredOpaqueTypes } from "./declaration-annotations.js";
 
 /** Does the parsed config ask for declarations at all? */
 export function wantsDeclarations(options: ts.CompilerOptions): boolean {
@@ -95,8 +96,15 @@ export function captureExpandedSource(
 ): ts.TransformerFactory<ts.SourceFile> {
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
   return () => (sourceFile) => {
-    if (sourceFile !== program.getSourceFile(sourceFile.fileName)) {
-      expanded.set(path.resolve(sourceFile.fileName), printer.printFile(sourceFile));
+    const original = program.getSourceFile(sourceFile.fileName);
+    if (sourceFile !== original) {
+      // Inferred @opaque types, erased by the expansion, are written as
+      // annotations on the printed copy (declaration-annotations.ts); the
+      // tree returned to the emit is unchanged.
+      const printed = original
+        ? annotateInferredOpaqueTypes(program, original, sourceFile)
+        : sourceFile;
+      expanded.set(path.resolve(sourceFile.fileName), printer.printFile(printed));
     }
     return sourceFile;
   };

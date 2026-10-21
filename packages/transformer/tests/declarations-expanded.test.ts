@@ -191,3 +191,73 @@ describe("emitDeclarations() API", () => {
     expect(fs.existsSync(path.join(dir, "out"))).toBe(false);
   });
 });
+
+/**
+ * An `@opaque` type is erased in the expanded program (`Some(3)` → `3`), so a
+ * declaration whose type was inferred lost it: `declare const a = 3;`,
+ * `mk(n: number): number | null`. Its inferred type now comes from the
+ * source as written, where it is the opaque type.
+ */
+const OPAQUE = `import { Some, None, type Option } from "@typesugar/fp";
+import { match } from "@typesugar/std";
+export const a = Some(3);
+export function mk(n: number) {
+  return n > 0 ? Some(n) : None;
+}
+export const b: Option<number> = Some(4);
+export const c = mk(2).map((x) => x + 1);
+export const pair = { o: Some("x"), n: 1 };
+export const toOpt = (n: number) => (n > 0 ? Some(n) : None);
+export class Box {
+  get value() {
+    return Some(1);
+  }
+  wrap(n: number) {
+    return Some(n);
+  }
+}
+const local = Some(5);
+export { local };
+export const label = (k: "a" | "b") => match(k).case("a").then("A").else("B");
+`;
+
+/** The opaque type is not imported by name here. */
+const OPAQUE_UNNAMED = `import { Some } from "@typesugar/fp";
+export const z = Some(true);
+`;
+
+function expectOpaqueDeclarations(dts: string, unnamed: string): void {
+  expect(dts).toContain("export declare const a: Option<number>;");
+  expect(dts).toContain("export declare function mk(n: number): Option<number>;");
+  expect(dts).toContain("export declare const b: Option<number>;");
+  expect(dts).toContain("export declare const c: Option<number>;");
+  expect(dts).toMatch(/export declare const pair: \{\s*o: Option<string>;\s*n: number;\s*\};/);
+  expect(dts).toContain("export declare const toOpt: (n: number) => Option<number>;");
+  expect(dts).toContain("get value(): Option<number>;");
+  expect(dts).toContain("wrap(n: number): Option<number>;");
+  expect(dts).toContain("declare const local: Option<number>;");
+  expect(dts).toContain('export declare const label: (k: "a" | "b") => "A" | "B";');
+  expect(unnamed).toContain('export declare const z: import("@typesugar/fp").Option<boolean>;');
+}
+
+describe("declarations keep an @opaque type the source infers", () => {
+  it.skipIf(!hasBuild)("typesugar build", () => {
+    const dir = makeProject(
+      { declaration: true, outDir: "out" },
+      { "src/index.ts": OPAQUE, "src/unnamed.ts": OPAQUE_UNNAMED }
+    );
+    const { status, output } = runCli(["build"], dir);
+    expect(output).toBe("");
+    expect(status).toBe(0);
+    expectOpaqueDeclarations(read(dir, "out/index.d.ts"), read(dir, "out/unnamed.d.ts"));
+    // The JavaScript is still erased.
+    expect(read(dir, "out/index.js")).toContain("export const a = 3;");
+  });
+
+  it("emitDeclarations() (tsup's withTypesugar dts)", () => {
+    const dir = makeProject({}, { "src/index.ts": OPAQUE, "src/unnamed.ts": OPAQUE_UNNAMED });
+    const result = emitDeclarations({ cwd: dir, declarationDir: "dts" });
+    expect(result.diagnostics.map((d) => d.code)).toEqual([]);
+    expectOpaqueDeclarations(read(dir, "dts/index.d.ts"), read(dir, "dts/unnamed.d.ts"));
+  });
+});

@@ -135,6 +135,15 @@ typesugar:
 | any other bundler | `typesugar build --emitDeclarationOnly --declarationDir dist` after it                                                                                      |
 | a script          | `emitDeclarations({ project, declarationDir })` from `@typesugar/transformer`                                                                               |
 
+An `@opaque` type is erased in the expanded code (`Some(3)` is `3`), so an exported
+declaration whose type is inferred is declared with the type the source infers when that
+type involves an `@opaque` type: `export const a = Some(3)` is `declare const a:
+Option<number>`, and `function mk(n: number) { return n > 0 ? Some(n) : None }` returns
+`Option<number>`. This covers exported variables, functions, `export default`, and the
+public members of exported classes. A type the module has no way to name (not exported
+from anything the file imports, nor from a source file of the project) keeps the expanded
+type; annotate such a declaration yourself.
+
 tsup bundles the declarations into one `.d.ts` per entry. That is fine for instances,
 derives and extractors, but not for `@opaque` types, whose companions consumers find per
 module: see rule 1 under Case 2 below.

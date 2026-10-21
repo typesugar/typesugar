@@ -239,7 +239,9 @@ properties, type arguments), for library and same-project opaque types alike:
 `const x: Option<number> = Some(42)` → `const x: Option<number> = 42`. Expanded code is written
 against the runtime view of an opaque type (`Option<number>` is `number | null`), which is how
 `typesugar build --strict` and `strictOutput` check it, and the declarations emitted from the
-expanded program keep `Option<number>`.
+expanded program keep `Option<number>`. An exported declaration whose type is inferred keeps it
+too: `export const a = Some(3)` is declared `a: Option<number>`, not `a: 3` (see
+[Declarations for a library that uses macros](./authoring-libraries.md#declarations-for-a-library-that-uses-macros)).
 
 Add to your library's `package.json`:
 
