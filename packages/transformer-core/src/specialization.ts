@@ -694,11 +694,12 @@ function arrayElement(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined 
 }
 
 /**
- * `t` as a type node that means `t` at `location`, or undefined. The checker's
- * own node builder first; it gives up on a type argument that has no name in
- * scope at `location` (`Feature<Geometry, ...>` where `Geometry` isn't
- * imported), so a generic instantiated with exactly its defaults is written
- * by its bare name when that name resolves to it here (`Feature`).
+ * `t` as a type node that means `t` at `location`, or undefined. A generic
+ * instantiated with exactly its defaults is written by its bare name when that
+ * name resolves to it here (`Feature`, not `Feature<Geometry, ...>`: TS 5.9's
+ * node builder gives up when `Geometry` has no name in scope, and TS 6 writes
+ * `import("geojson").Geometry`). Anything else goes through the checker's
+ * node builder.
  */
 function typeNodeAt(
   checker: ts.TypeChecker,
@@ -706,8 +707,18 @@ function typeNodeAt(
   t: ts.Type,
   location: ts.Node
 ): ts.TypeNode | undefined {
-  const built = checker.typeToTypeNode(t, location, ts.NodeBuilderFlags.NoTruncation);
-  if (built) return built;
+  return (
+    bareDefaultInstantiation(checker, f, t, location) ??
+    checker.typeToTypeNode(t, location, ts.NodeBuilderFlags.NoTruncation)
+  );
+}
+
+function bareDefaultInstantiation(
+  checker: ts.TypeChecker,
+  f: ts.NodeFactory,
+  t: ts.Type,
+  location: ts.Node
+): ts.TypeNode | undefined {
   const sym = t.aliasSymbol ?? t.symbol;
   const decl = sym?.declarations?.find(
     (d): d is ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration =>
