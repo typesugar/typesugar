@@ -2585,6 +2585,45 @@ function typeParameterName(ctx: MacroContext, typeNode: ts.TypeNode): string | u
  * resolution trace. Reports ambiguity instead of picking one. Returns
  * undefined after reporting a diagnostic. Shared by `summon` and `summonAll`.
  */
+/**
+ * The typeclass the `TC` of `summon<TC<T>>()` / `derived<TC<T>>()` denotes,
+ * by identity: the checker follows imports, renames (`Clone as Copyable`) and
+ * type aliases that forward to another type (`typesugar`'s `type Clone<A> =
+ * import("@typesugar/std").Clone<A>`, next to its derive marker) to the
+ * typeclass's own declaration, never comparing spellings. Instances and
+ * derivations are still keyed by that declaration's NAME (module-qualified
+ * identity is PEP-060 item 13), so its name is what this returns. A name
+ * that isn't a type here (a value-only marker, an unresolved name, a
+ * macro-generated node the checker can't see) keeps its written spelling.
+ */
+function typeclassNameOf(ctx: MacroContext, typeName: ts.EntityName): string {
+  const written = getNodeText(typeName);
+  if (isSyntheticNode(typeName)) return written;
+  try {
+    const checker = ctx.typeChecker;
+    let sym = checker.getSymbolAtLocation(typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return written;
+    // `type Clone<A> = std.Clone<A>` → std's `Clone` (bounded: aliases of aliases).
+    for (let i = 0; i < 8 && sym.flags & ts.SymbolFlags.TypeAlias; i++) {
+      const t = checker.getDeclaredTypeOfSymbol(sym);
+      const next: ts.Symbol | undefined =
+        t.aliasSymbol && t.aliasSymbol !== sym ? t.aliasSymbol : t.symbol;
+      const named = ts.SymbolFlags.Interface | ts.SymbolFlags.Class | ts.SymbolFlags.TypeAlias;
+      if (!next || next === sym || !(next.flags & named)) break;
+      sym = next;
+    }
+    return sym.name;
+  } catch (e) {
+    ctx.reportWarning(
+      typeName,
+      `couldn't resolve the typeclass ${written} with the type checker ` +
+        `(${e instanceof Error ? e.message : String(e)}); using the name as written.`
+    );
+    return written;
+  }
+}
+
 export function summonInstanceExpression(
   ctx: MacroContext,
   typeArg: ts.TypeNode,
@@ -2599,7 +2638,7 @@ export function summonInstanceExpression(
     return undefined;
   }
 
-  const tcName = getNodeText(typeArg.typeName);
+  const tcName = typeclassNameOf(ctx, typeArg.typeName);
   const innerTypeArgs = typeArg.typeArguments;
 
   if (!innerTypeArgs || innerTypeArgs.length === 0) {
@@ -2883,7 +2922,7 @@ function derivedInstanceExpression(
     return undefined;
   }
 
-  const tcName = typeArg.typeName.text;
+  const tcName = typeclassNameOf(ctx, typeArg.typeName);
   const innerType = typeArg.typeArguments[0];
   const typeText = getNodeText(innerType).replace(/\s+/g, " ").trim();
   const withArgs = { typeclass: tcName, type: typeText };

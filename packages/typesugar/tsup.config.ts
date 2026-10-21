@@ -26,6 +26,9 @@ export default defineConfig({
     "@typesugar/derive",
     "@typesugar/typeclass",
     "unplugin-typesugar",
+    // Type-only: the derive markers' typeclass aliases (src/derive-markers.ts).
+    "@typesugar/std",
+    "@typesugar/fp",
     "tsup",
   ],
 });
