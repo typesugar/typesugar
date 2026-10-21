@@ -79,7 +79,7 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 | Package                                    | Description                                          |
 | ------------------------------------------ | ---------------------------------------------------- |
-| [@typesugar/typeclass](packages/typeclass) | `@typeclass`, `@instance`, `summon()`                |
+| [@typesugar/typeclass](packages/typeclass) | `@typeclass`, `@impl`, `summon()`                    |
 | [@typesugar/derive](packages/derive)       | `@derive(Eq, Clone, Debug, Json, ...)`               |
 | [@typesugar/reflect](packages/reflect)     | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 
@@ -378,7 +378,7 @@ src/palette.ts(15,17): error TS9001: [typesugar] [TS9001] No instance found for 
   = note:       field-check: field `x`: number — ok — number has Eq
   = note:       field-check: field `y`: number — ok — number has Eq
   = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
-  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+  = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 Every error has a code (TS9001-TS9999) with an explanation page at `https://typesugar.org/errors/<code>`, and many carry machine-applicable fixes that your IDE can apply.

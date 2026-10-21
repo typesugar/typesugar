@@ -41,7 +41,8 @@ const debug = summon<Debug<User>>().debug(u1);
 ### Imports and Activation
 
 - The `@derive` decorator, `summon` and `implicit`, and the markers `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json` and `TypeGuard` come from `typesugar`.
-- The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (they are values; `@derive(Show)` works even without importing one, because the transformer reads the name). To name the type in `summon<Show<Point>>()`, import `type Show` from `@typesugar/fp`, and `type Semigroup` / `type Monoid` from `@typesugar/std`.
+- The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (`@derive(Show)` works even without importing one, because the transformer reads the name).
+- Each marker is also its typeclass as a type, so one import serves `@derive(Clone)` and `summon<Clone<Point>>()`: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Json`, `Semigroup` and `Monoid` are `@typesugar/std`'s, `Show` is `@typesugar/fp`'s. `Default` and `TypeGuard` have no typeclass interface yet, so they are values only.
 - Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` (and `u1 == u2`) stays reference equality and `u1 < u2` is a plain JavaScript comparison, and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add:
 
 | Sugar                      | Activation import                               |
@@ -52,7 +53,7 @@ const debug = summon<Debug<User>>().debug(u1);
 
 `summon<...>()` and the companion (`User.Eq.equals(a, b)`) need no activation import.
 
-The markers exported by `typesugar` are values, so plain `tsc` reports TS2749 ("refers to a value, but is being used as a type") on `summon<Eq<User>>()`; the transformer resolves it by name either way. In your own type signatures, import the typeclass type instead, e.g. `import type { Eq } from "@typesugar/std"`.
+Because the markers are types too, plain `tsc` types `summon<Clone<User>>()` as a `Clone<User>`, so `summon<Clone<User>>().clone(u1)` is a `User` and `===` on it is the derived `Eq` with no annotation. `Default` and `TypeGuard` are still values only: plain `tsc` reports TS2749 ("refers to a value, but is being used as a type") on `summon<Default<Options>>()`, which the transformer resolves by name either way.
 
 ## Supported Typeclasses
 
@@ -230,8 +231,7 @@ summon<Json<User>>().fromJson({}); // throws: Missing required field id
 Human-readable string representation, as opposed to Debug's developer-focused format.
 
 ```typescript
-import { derive, summon } from "typesugar";
-import type { Show } from "@typesugar/fp";
+import { derive, summon, Show } from "typesugar";
 
 @derive(Show)
 class Point {

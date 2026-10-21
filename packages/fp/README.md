@@ -36,13 +36,19 @@ The constructors are also extractor patterns for `match` from `@typesugar/std`: 
 ```typescript
 import { match } from "@typesugar/std";
 
+declare const opt: Option<number>;
 match(opt)
   .case(Some(v))
   .then(v * 2)
   .case(None)
   .then(0);
-// if (_opt != null) { const v = _opt; return v * 2; } if (_opt == null) { return 0; }
+// if (_opt != null) { const v = _opt as unknown as number; return v * 2; } return 0;
 ```
+
+`Some` and `None` cover `Option`, so the `None` arm needs no test and there is no
+`MatchError` (nor an import of `@typesugar/std`) in the output. `Option` is `@opaque`, so
+`v` is asserted to the payload type `number`, which `_opt != null` alone doesn't give the
+type checker.
 
 ## Documentation
 

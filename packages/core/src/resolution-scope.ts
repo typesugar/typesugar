@@ -1,12 +1,12 @@
 /**
  * Resolution Scope Tracking
  *
- * Tracks which typeclasses and extensions are "in scope" for a given file,
- * based on imports and the configured resolution mode.
+ * Tracks which typeclasses and extensions are "in scope" for a given file:
+ * the typeclasses it defines, and the operator / method / label syntax its
+ * `@syntax-*` marker imports activate (PEP-052).
  *
- * In "import-scoped" mode, only imported typeclasses are resolved.
- * In "automatic" mode, all registered typeclasses plus prelude are available.
- * In "explicit" mode, no implicit resolution happens.
+ * Each file's scope still records the configured `resolution.mode`, but
+ * nothing reads it: 1.0 has no "automatic" or "explicit" modes and no prelude.
  */
 
 import * as ts from "typescript";

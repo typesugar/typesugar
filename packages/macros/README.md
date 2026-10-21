@@ -66,8 +66,9 @@ the parsed JSON as an object literal, and `pipe` becomes nested calls.
 Macros expand at compile time, but their output is ordinary code, and some of it is
 runtime code by design: derives emit companion objects (`Point.Eq`), a `match` whose arms
 the macro can't prove cover the value ends in a `throw new MatchError(...)` (imported from
-`@typesugar/std`; a match of plain literal arms compiles to a conditional and imports
-nothing), and some macros emit imports of small runtime helpers.
+`@typesugar/std`; a match whose literal or extractor arms cover its type, such as
+`Some`/`None`, ends in its last arm and imports nothing), and some macros emit imports of
+small runtime helpers.
 
 ## API Reference
 

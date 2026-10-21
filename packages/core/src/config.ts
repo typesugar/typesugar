@@ -55,12 +55,16 @@ export interface ContractsConfig {
 }
 
 /**
- * Resolution mode for typeclass and operator lookup.
+ * Resolution mode for typeclass and operator lookup. Accepted for
+ * compatibility but not read in 1.0: resolution is always import-scoped
+ * (PEP-052), with no "automatic" or "explicit" behaviour.
  */
 export type ResolutionMode = "automatic" | "import-scoped" | "explicit";
 
 /**
- * Resolution configuration.
+ * Resolution configuration. The 1.0 macros don't read it: resolution is
+ * always import-scoped, with no prelude (PEP-052). `config.isInPrelude` and
+ * `config.isTracingEnabled` still answer from it for callers of their own.
  */
 export interface ResolutionConfig {
   /** Global resolution mode */

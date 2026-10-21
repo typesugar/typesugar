@@ -1331,12 +1331,13 @@ export const TS9702: DiagnosticDescriptor = {
   severity: "warning",
   category: DiagnosticCategory.ImportResolution,
   messageTemplate: "Operator `{operator}` on {type} is not rewritten in explicit mode",
-  explanation: `In explicit resolution mode, operators are only rewritten when
-the typeclass is explicitly imported and used.
+  explanation: `Reserved: not emitted. It belonged to the "explicit" resolution mode,
+which 1.0 doesn't have (the config's resolution.mode is not read; see PEP-052).
 
-To enable automatic rewriting:
-1. Import the typeclass: import { Eq } from "@typesugar/std"
-2. Or switch to automatic mode in typesugar.config.json`,
+An operator on a type with an instance is rewritten only in a file that
+activates the typeclass's operator syntax, e.g.
+  import "@typesugar/std/syntax/eq/ops";
+Without that import the operator stays native and TS9804 says which import to add.`,
   seeAlso: "https://typesugar.org/errors/TS9702",
 };
 

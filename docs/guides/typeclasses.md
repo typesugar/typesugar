@@ -78,8 +78,9 @@ const ShowBoolean: Show<boolean> = {
 };
 ```
 
-A bare `@instance` decorator on a `const` is an error ("@impl requires
-arguments"); the JSDoc tag has to name the typeclass and type. A `const` whose
+Decorators are not valid on a `const` in TypeScript, so an instance is always
+the JSDoc tag, and the tag has to name the typeclass and type (a bare
+`/** @impl */` is an error, "@impl requires arguments"). A `const` whose
 type annotation is `Show<number>` also counts as a `Show<number>` instance for
 resolution, tagged or not.
 
@@ -262,8 +263,9 @@ export const cloneFeature = (() => {
   `Clone<Feature<Geometry, GeoJsonProperties>>`, the same type. To publish it
   as written, annotate the const and leave out the type argument:
   `export const cloneFeature: Clone<Feature> = derived();`.
-- The `Clone` that `typesugar` exports is the `@derive` marker, a value; to
-  write `Clone<Feature>` as a type, import it from `@typesugar/std`.
+- The `Clone` that `typesugar` exports is both the `@derive` marker (a value)
+  and `@typesugar/std`'s `Clone` typeclass (a type alias of it), so
+  `Clone<Feature>` works with either import.
 - `@derive(Clone)` on a local alias (`type MyFeature = Feature`) generates
   `MyFeature.Clone`, which you can call directly, but `summon`, `implicit()`
   and method syntax in other files don't find it. Use `derived`.

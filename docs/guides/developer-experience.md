@@ -25,7 +25,7 @@ error[TS9001]: No instance found for `Eq<Color>`
    |   --------- field `primary` has type `Color`
    |
    = note: Auto-derivation requires Eq instances for all fields
-   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+   = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 Every error includes:
@@ -169,7 +169,7 @@ const x = comptime(() => 1 + 1); // Still transformed → 2
 | `macros`      | Expression macros, tagged templates, type macros, labeled blocks |
 | `derive`      | `@derive()` decorator expansion                                  |
 | `extensions`  | Standalone extension method rewriting                            |
-| `typeclasses` | `@typeclass`, `@instance`, `summon()`                            |
+| `typeclasses` | `@typeclass`, `@impl`, `summon()`                                |
 | `operators`   | Operator overloading                                             |
 
 Full details: [Opt-Out Guide](./opt-out.md)

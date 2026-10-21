@@ -36,7 +36,7 @@ src/palette.ts(15,17): error TS9001: [typesugar] [TS9001] No instance found for 
   = note:       field-check: field `x`: number — ok — number has Eq
   = note:       field-check: field `y`: number — ok — number has Eq
   = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
-  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+  = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
     Add: import { Eq } from "typesugar";
 ```
 
@@ -175,11 +175,11 @@ Two instances for the same (typeclass, type) pair would be reported like this:
 error[TS9050]: Conflicting instance of `Show` for type `Point`
   --> src/rendering.ts:10:1
    |
- 4 |   @instance const debugShow: Show<Point> = { ... };
-   |   --------- first instance defined here
+ 4 |   const debugShow: Show<Point> = { ... }; // /** @impl Show<Point> */ above
+   |         --------- first instance defined here
    |
-10 |   @instance const prettyShow: Show<Point> = { ... };
-   |   ^^^^^^^^^ conflicting instance
+10 |   const prettyShow: Show<Point> = { ... }; // /** @impl Show<Point> */ above
+   |         ^^^^^^^^^^ conflicting instance
    |
    = note: Each (typeclass, type) pair must have exactly one instance
    = help: Remove one instance, or use a newtype wrapper for different behaviors
@@ -286,7 +286,7 @@ When typeclass resolution fails (e.g., `summon<Eq<Point>>()` can't find an insta
 = note:       field-check: field `x`: number — ok — number has Eq
 = note:       field-check: field `y`: number — ok — number has Eq
 = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
-= help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+= help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 The trace shows:

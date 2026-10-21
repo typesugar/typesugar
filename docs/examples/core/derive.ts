@@ -26,11 +26,10 @@ const p3 = new Point(3, 4);
 console.log("p1 === p2:", p1 === p2); // true
 console.log("p1 === p3:", p1 === p3); // false
 
-// summon() retrieves the derived instance
+// summon() retrieves the derived instance. The Clone imported here is both the
+// derive marker and the Clone typeclass, so the copy is typed as a Point.
 const cloneTC = summon<Clone<Point>>();
-// The Clone imported here is the derive marker (a value), so the checker can't type
-// summon<Clone<Point>>(). Annotate the copy, so === knows it is a Point.
-const p1Copy: Point = cloneTC.clone(p1);
+const p1Copy = cloneTC.clone(p1);
 console.log("clone(p1):", p1Copy);
 console.log("clone === original:", p1Copy === p1); // true (same values, compared by Point.Eq)
 

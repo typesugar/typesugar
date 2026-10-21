@@ -114,7 +114,7 @@ error[TS9001]: No instance found for `Eq<Color>`
    |     ^^^ Eq<Palette> requires Eq<Color>
    |
    = note: field `primary` has type `Color` which lacks Eq
-   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+   = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 These diagnostics use typesugar's error code range (TS9001–TS9999). They work like regular TypeScript errors in the IDE and CLI.

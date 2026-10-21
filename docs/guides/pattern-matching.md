@@ -467,6 +467,7 @@ neither do patterns mixed with `case null:` or patterns with no shared literal p
 Those compile to `switch (true)`, an if/else chain that keeps switch semantics:
 
 ```typescript
+// opt: Option<number>
 match: switch (opt) {
   case Some(v):
     use(v);
@@ -475,8 +476,13 @@ match: switch (opt) {
     skip();
     break;
 }
-// switch (true) { case opt != null: { const v = opt; use(v); break; } case opt == null: skip(); break; }
+// switch (true) { case opt != null: { const v = opt as unknown as number; use(v); break; } case opt == null: skip(); break; }
 ```
+
+fp's `Option` is `@opaque`: to the type checker it is an interface, which `opt != null`
+doesn't narrow, so `Some(v)` asserts `v` to the payload type that the instance's `extract`
+declares (`number` here). Without that, `v` would be an `Option<number>` in the expanded
+code and `v * 2` would fail strict type-checking.
 
 `case Point(x, y):` works for any constructor with a `Destructure` instance in scope (see
 [Custom Extractors](#custom-extractors)); one without a descriptor has its `extract` called
@@ -526,7 +532,7 @@ match(bigUnion)
 
 ### Runtime Safety Net
 
-When the patterns can't prove a value matched, the generated code ends in a terminal throw:
+When the patterns can't prove that every value of the type matched, the generated code ends in a terminal throw:
 
 ```typescript
 throw new MatchError(__m); // "Non-exhaustive match: <value>"
@@ -534,7 +540,18 @@ throw new MatchError(__m); // "Non-exhaustive match: <value>"
 
 `MatchError` extends `Error` and has a `.value` property with the unmatched value. This catches cases where the type is widened at runtime (e.g. via `any` or external data). It is imported from `@typesugar/std`, so code that keeps the throw depends on that package at runtime.
 
-A literal union that literal arms cover completely gets no throw: the last arm is unconditional, as in `x === "ok" ? 200 : 500` below, so a value outside the type takes that arm. Discriminated-union matches and the 7+ literal `switch` keep the throw.
+Arms that cover the type get no throw: the arm that completes the coverage has no test and nothing follows it, so a value outside the type takes that arm. That covers a literal union matched by literal arms (`x === "ok" ? 200 : 500` below; in the 7+ literal `switch` the last arm is the `default:`) and extractors that cover their type: `Some`/`None`, `Left`/`Right`, `Cons`/`Nil`, `Valid`/`Invalid`, and one derived extractor per variant of a union. For example:
+
+```typescript
+match(o)
+  .case(Some(v))
+  .then(v * 2)
+  .case(None)
+  .then(0);
+// (() => { const _o = o; if (_o != null) { const v = _o as unknown as number; return v * 2; } return 0; })()
+```
+
+Object patterns on a discriminated union (`{ kind: "circle", r }`, compiled to the discriminant switch) keep the throw: each arm still tests its named properties with `in`.
 
 ---
 
@@ -673,12 +690,15 @@ emit and works for a library's instances, whose bodies a consumer's build can't 
 
 | Descriptor             | Test                  | Binds                    |
 | ---------------------- | --------------------- | ------------------------ |
-| `not-null -> self`     | `v != null`           | the value itself         |
+| `not-null -> self`     | `v != null`           | the value itself¹        |
 | `null`                 | `v == null`           | nothing (`None`)         |
 | `has left -> left`     | `"left" in v`         | `v.left`                 |
 | `kind = "circle" -> r` | `v.kind === "circle"` | `v.r`                    |
 | `ok = true -> value`   | `v.ok === true`       | `v.value`                |
 | `always -> x, y`       | none                  | `v.x`, `v.y` (a product) |
+
+¹ Asserted to the payload type `extract` returns (`v as unknown as A`) when the value's
+own type doesn't narrow to it, as with an `@opaque` type like fp's `Option`.
 
 The descriptor must agree with `extract`: the macro trusts it.
 
@@ -759,15 +779,17 @@ error: Pattern "pending" can never match type "ok" | "fail"
 
 ### Code Generation Strategies
 
-| Shape                                                                                            | Output                                                         |
-| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| Scrutinee type is a single literal (see above)                                                   | The chosen arm's expression, nothing else                      |
-| Plain literal arms (`.or()` allowed) ending in `.else()`, `_` or full coverage, on an identifier | Conditional chain: `x === a ? r1 : x === b ? r2 : r3`, no IIFE |
-| 7+ plain literal arms                                                                            | `switch` in an IIFE                                            |
-| Object patterns sharing one literal discriminant property                                        | `switch` on the discriminant in an IIFE                        |
-| Anything else                                                                                    | `if` chain in an IIFE (scrutinee evaluated once)               |
+| Shape                                                                               | Output                                                         |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Scrutinee type is a single literal (see above)                                      | The chosen arm's expression, nothing else                      |
+| Arms that bind nothing, ending in `.else()`, `_` or full coverage, on an identifier | Conditional chain: `x === a ? r1 : x === b ? r2 : r3`, no IIFE |
+| 7+ plain literal arms                                                               | `switch` in an IIFE                                            |
+| Object patterns sharing one literal discriminant property                           | `switch` on the discriminant in an IIFE                        |
+| Anything else                                                                       | `if` chain in an IIFE (scrutinee evaluated once)               |
 
-The conditional chain needs an identifier (or `this`) scrutinee when it tests more than one literal, because it reads the scrutinee once per test; a property access could be a getter, so `match(obj.kind)` with several literal arms keeps the IIFE, which reads it once. Bind it to a local first (`const k = obj.kind`) to get the chain.
+"Arms that bind nothing" are plain literals (`.or()` allowed) and extractors with no bindings (`None`, `Nil`, `Some(_)`), with no guard or `.as()`: `match(o).case(None).then("none").case(Some(_)).then("some")` compiles to `o == null ? "none" : "some"`. An arm that binds a name needs a block for its `const`, so it keeps the IIFE.
+
+The conditional chain needs an identifier (or `this`) scrutinee when it tests more than one literal, or tests an extractor at all (an extractor's test may read it more than once), because it reads the scrutinee once per test; a property access could be a getter, so `match(obj.kind)` with several literal arms keeps the IIFE, which reads it once. Bind it to a local first (`const k = obj.kind`) to get the chain.
 
 If any arm, guard, `.else()` or the scrutinee contains `await`, the IIFE becomes `await (async () => { ... })()`. A `yield` can't be moved into an arrow function, so a `yield` in a match that needs an IIFE is a compile error — compute the value before the match.
 

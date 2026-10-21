@@ -333,7 +333,7 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue
   = help: Add the missing cases or use .else() / _ to handle remaining values.
 ```
 
-Use `.else(value)` as a catch-all. When the arms can't be shown to cover the value, the generated code ends in a `throw new MatchError(value)`; a match of plain literal arms that covers its type has none.
+Use `.else(value)` as a catch-all. When the arms can't be shown to cover the value, the generated code ends in a `throw new MatchError(value)`. A match whose literal arms, or extractors (`Some`/`None`, `Left`/`Right`, `Cons`/`Nil`, `Valid`/`Invalid`, derived variant extractors), cover its type has none: the last arm takes the value without a test.
 
 See the [Pattern Matching Guide](../../docs/guides/pattern-matching.md) for the full pattern catalogue and optimization details.
 

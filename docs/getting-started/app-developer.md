@@ -233,7 +233,7 @@ npx typesugar doctor
 | `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`                         |
 | `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                                           |
 | `@typesugar/sql`       | `sql` tagged template                                                                                      |
-| `@typesugar/typeclass` | `@typeclass`, `@instance`, `@derive`, `summon<T>()`, `derived<T>()`                                        |
+| `@typesugar/typeclass` | `@typeclass`, `@impl`, `@derive`, `summon<T>()`, `derived<T>()`                                            |
 | `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                                      |
 | `@typesugar/std`       | `match()` (fluent pattern matching, `match: switch`), extension methods                                    |
 | `@typesugar/fp`        | `Option`, `Either`, `IO`, `List`                                                                           |
