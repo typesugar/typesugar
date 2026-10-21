@@ -352,10 +352,12 @@ typesugar doctor [options]
 - package.json exists
 - TypeScript installed and in the supported range `>=5.9.0 <7.0.0` (fails on TypeScript 7, warns below 5.9)
 - tsconfig.json exists
-- Transformer plugin configured
 - Language service plugin configured
-- ts-patch installed, ts-patch active (TypeScript patched) and prepare script configured
-  (skipped when `unplugin-typesugar` is a dependency)
+- Transformer plugin configured, ts-patch installed, ts-patch active (TypeScript patched) and
+  prepare script configured: only for a project that compiles through a patched `tsc`
+  (ts-patch installed, or the tsconfig `transform` plugin with a `tsc`/`tspc` script). A
+  project that builds with `typesugar build`, runs under `node --import typesugar/register`
+  or uses a bundler plugin shows them as skipped.
 - `@typesugar/transformer` installed
 - `skipLibCheck` enabled (warning only)
 - Macro registration
