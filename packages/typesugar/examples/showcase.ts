@@ -21,12 +21,33 @@
 
 import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
 
+// The umbrella's runtime entry ("typesugar") is TypeScript-free: the macro
+// call stubs, the derive markers, defineConfig, and core's TYPES. The value
+// APIs of @typesugar/core (config, the registries, diagnostics) load the
+// compiler and live at "typesugar/core".
 import {
-  // ======================================================================
-  // Re-exported from @typesugar/core — full macro infrastructure
-  // ======================================================================
-  config,
+  // Runtime stubs: the transformer replaces these calls at compile time
+  comptime,
+  reflect,
+  typeclass,
+  summon,
+  implicit,
+  pipe,
+  compose,
+  derive,
+  Eq,
+  Clone,
   defineConfig,
+  registerAllMacros,
+
+  // Types from core (re-exported as types only)
+  type MacroContext,
+  type MacroKind,
+  type TypesugarConfig,
+} from "typesugar";
+
+import {
+  config,
   invariant,
   unreachable,
   debugOnly,
@@ -36,95 +57,53 @@ import {
   DiagnosticCategory,
   DIAGNOSTIC_CATALOG,
   createGenericRegistry,
-
-  // ======================================================================
-  // Namespace re-exports — access each macro subsystem
-  // These are the full module namespaces with registration functions
-  // ======================================================================
-  reflectNamespace,
-  deriveNamespace,
-  typeclassNamespace,
-  specializeNamespace,
-
-  // ======================================================================
-  // Runtime stub re-exports — decorator/function placeholders
-  // These are replaced by the transformer at compile time
-  // ======================================================================
-  comptime,
-  reflect,
-  typeclass,
-  specialize,
-
-  // ======================================================================
-  // Direct callable re-exports — commonly used macros
-  // ======================================================================
-  pipe,
-  compose,
-
-  // ======================================================================
-  // Decorator placeholder
-  // ======================================================================
-  derive,
-
-  // ======================================================================
-  // Registration
-  // ======================================================================
-  registerAllMacros,
-
-  // ======================================================================
-  // Types from core (re-exported for convenience)
-  // ======================================================================
-  type MacroContext,
-  type MacroKind,
-  type TypesugarConfig,
-} from "../src/index.js";
+} from "typesugar/core";
 
 // ============================================================================
-// 1. ONE IMPORT TO RULE THEM ALL - Everything From One Package
+// 1. ONE PACKAGE - Runtime Stubs From "typesugar", Core APIs From "typesugar/core"
 // ============================================================================
 
-// The umbrella re-exports all of @typesugar/core
+// "typesugar/core" re-exports all of @typesugar/core
 assert(config !== undefined, "config from @typesugar/core");
 assert(globalRegistry !== undefined, "globalRegistry from @typesugar/core");
 assert(typeof defineExpressionMacro === "function", "defineExpressionMacro from @typesugar/core");
 assert(typeof invariant === "function", "invariant from @typesugar/core");
 assert(typeof unreachable === "function", "unreachable from @typesugar/core");
 assert(typeof debugOnly === "function", "debugOnly from @typesugar/core");
+assert(typeof DiagnosticBuilder === "function", "DiagnosticBuilder from @typesugar/core");
+assert(DiagnosticCategory.TypeclassResolution === "typeclass");
 assert(DIAGNOSTIC_CATALOG.size > 0, "Diagnostics catalog from @typesugar/core");
-assert(typeof pipe === "function", "pipe from @typesugar/macros");
 
-// Types are also available
+// Types are available from "typesugar" itself
 typeAssert<Extends<"expression", MacroKind>>();
 typeAssert<Extends<{ debug?: boolean }, TypesugarConfig>>();
+typeAssert<Not<Equal<MacroContext, unknown>>>();
 
 // ============================================================================
-// 2. MACRO NAMESPACES - Organized Access to Each Subsystem
+// 2. RUNTIME STUBS - Placeholders the Transformer Replaces
 // ============================================================================
 
-// Each built-in macro module is available as a full namespace
-// These provide access to internals, registration functions, and types
-assert(reflectNamespace !== undefined, "reflect namespace");
-assert(deriveNamespace !== undefined, "derive namespace");
-assert(typeclassNamespace !== undefined, "typeclass namespace");
-assert(specializeNamespace !== undefined, "specialize namespace");
-
-// Runtime stubs are also available as direct imports
-// These are placeholders that the transformer replaces at compile time
+// Runtime stubs are the direct imports; a call left unexpanded throws, saying
+// the transformer isn't configured
 assert(typeof comptime === "function", "comptime runtime stub");
 assert(typeof reflect === "function", "reflect runtime stub");
 assert(typeof typeclass === "function", "typeclass runtime stub");
-assert(typeof specialize === "function", "specialize runtime stub");
+assert(typeof summon === "function", "summon runtime stub");
+assert(typeof implicit === "function", "implicit runtime stub");
+
+// The derive markers are values too (`@derive(Eq, Clone)`), and the types of
+// their typeclasses
+assert(Eq !== undefined && Clone !== undefined);
 
 // ============================================================================
-// 3. REGISTER ALL MACROS - One Call to Enable Everything
+// 3. MACRO REGISTRATION - Done by the Transformer
 // ============================================================================
 
-// registerAllMacros() enables all built-in macros at once
+// The transformer loads macro packages itself (every @typesugar/* package's
+// "typesugar.macros" entry); importing "typesugar" registers nothing.
+// registerAllMacros() is a deprecated no-op kept for old callers.
 assert(typeof registerAllMacros === "function");
 registerAllMacros();
-
-// After registration, macros are available in the global registry
-assert(globalRegistry.getAll().length > 0, "Macros are registered");
 
 // ============================================================================
 // 4. DIRECT CALLABLE MACROS - No Namespace Needed
@@ -163,10 +142,9 @@ assert(typeof derive === "function");
 // @derive(Eq, Clone, Debug)
 // interface Point { x: number; y: number; }
 //
-// This generates at compile time:
-//   pointEquals(a: Point, b: Point): boolean
-//   clonePoint(p: Point): Point
-//   debugPoint(p: Point): string
+// This generates at compile time the companion instances
+//   Point.Eq, Point.Clone, Point.Debug
+// (Point.Eq.equals(a, b), Point.Clone.clone(p), Point.Debug.debug(p)).
 
 // ============================================================================
 // 6. QUICK START - How Users Get Started
@@ -190,7 +168,8 @@ assert(typeof derive === "function");
 //   export default { plugins: [typesugar()] };
 
 // Step 4: Write code with macros
-//   import { derive, pipe, invariant } from "typesugar";
+//   import { derive, Eq, Debug, Clone, pipe } from "typesugar";
+//   import { invariant } from "typesugar/core";
 //
 //   @derive(Eq, Debug, Clone)
 //   interface User {
@@ -219,13 +198,13 @@ assert(typeof derive === "function");
 // import typesugar from "typesugar/rollup";    → Rollup plugin
 // import { ... } from "typesugar/core";        → Core APIs only
 // import { ... } from "typesugar/transformer"; → Transformer only
-// import { ... } from "typesugar";             → Everything (default)
+// import { ... } from "typesugar";             → Macro stubs, derive markers, types
 
 // ============================================================================
 // 8. CONFIGURATION THROUGH THE UMBRELLA - Config API Works Too
 // ============================================================================
 
-// Configuration is available directly from the umbrella import
+// Configuration is available from "typesugar/core"
 config.reset();
 config.set({
   debug: false,

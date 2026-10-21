@@ -138,9 +138,14 @@ describe("typeAssert<>() — Type-Level Assertions", () => {
   it("generic type checking", () => {
     const identity = <T>(x: T): T => x;
 
-    // Call with number
+    // Call with number: T is inferred as the literal type 42 (a type
+    // parameter returned as-is keeps the literal)...
     const result = identity(42);
-    typeAssert<Equal<typeof result, number>>();
+    typeAssert<Equal<typeof result, 42>>();
+
+    // ...and as number when asked for
+    const widened = identity<number>(42);
+    typeAssert<Equal<typeof widened, number>>();
   });
 
   it("object shape checking", () => {
