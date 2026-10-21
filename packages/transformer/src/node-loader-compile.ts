@@ -83,7 +83,9 @@ export function createLoaderCompiler(options: LoaderCompilerOptions = {}): Loade
     const errors: string[] = [];
     for (const d of result.diagnostics) {
       const { line, column } = lineColumn(result.original, d.start);
-      const text = `${fileName}:${line}:${column}: [typesugar] ${d.message}`;
+      // Macro diagnostics from the pipeline already carry the prefix.
+      const message = d.message.startsWith("[typesugar]") ? d.message : `[typesugar] ${d.message}`;
+      const text = `${fileName}:${line}:${column}: ${message}`;
       if (d.severity === "error") errors.push(text);
       else warn(`warning ${text}`);
     }

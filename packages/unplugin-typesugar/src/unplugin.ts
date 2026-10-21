@@ -313,11 +313,13 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
       let firstErrorLoc: { line: number; column: number; file: string } | undefined;
       for (const d of result.diagnostics) {
         const loc = { ...lineColumn(result.original || code, d.start), file };
+        // Macro diagnostics from the pipeline already carry the prefix.
+        const text = d.message.startsWith("[typesugar]") ? d.message : `[typesugar] ${d.message}`;
         if (d.severity === "error") {
           firstErrorLoc ??= loc;
-          errors.push(`${file}:${loc.line}:${loc.column + 1}: [typesugar] ${d.message}`);
+          errors.push(`${file}:${loc.line}:${loc.column + 1}: ${text}`);
         } else {
-          this?.warn?.({ id: file, message: `[typesugar] ${d.message}`, loc, plugin: "typesugar" });
+          this?.warn?.({ id: file, message: text, loc, plugin: "typesugar" });
         }
       }
       if (errors.length > 0) {

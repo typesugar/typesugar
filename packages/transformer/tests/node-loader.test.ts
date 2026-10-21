@@ -296,6 +296,18 @@ describe("createLoaderCompiler", () => {
     );
   });
 
+  it("prefixes the message with [typesugar] once", () => {
+    const file = path.join(project, "bad.ts");
+    let message = "";
+    try {
+      createLoaderCompiler().compile(file, "module");
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(/bad\.ts:2:\d+: \[typesugar\] \[TS\d+\]/);
+    expect(message).not.toContain("[typesugar] [typesugar]");
+  });
+
   it("detects the format from the syntax when the package has no type", () => {
     const dir = makeProject(
       {
