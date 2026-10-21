@@ -7,10 +7,11 @@ export default defineConfig({
     webpack: "src/webpack.ts",
     esbuild: "src/esbuild.ts",
     rollup: "src/rollup.ts",
+    tsup: "src/tsup.ts",
   },
   format: ["cjs", "esm"],
   dts: !process.env.TYPESUGAR_SKIP_DTS,
   sourcemap: true,
   clean: true,
-  external: ["typescript", "@typesugar/transformer", "unplugin"],
+  external: ["typescript", "@typesugar/transformer", "unplugin", "tsup"],
 });

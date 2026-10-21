@@ -9,6 +9,7 @@ export default defineConfig({
     webpack: "src/webpack.ts",
     esbuild: "src/esbuild.ts",
     rollup: "src/rollup.ts",
+    tsup: "src/tsup.ts",
     cli: "src/cli.ts",
     register: "src/register.ts",
   },
@@ -25,5 +26,6 @@ export default defineConfig({
     "@typesugar/derive",
     "@typesugar/typeclass",
     "unplugin-typesugar",
+    "tsup",
   ],
 });

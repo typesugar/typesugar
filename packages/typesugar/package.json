@@ -84,6 +84,16 @@
         "default": "./dist/esbuild.cjs"
       }
     },
+    "./tsup": {
+      "import": {
+        "types": "./dist/tsup.d.ts",
+        "default": "./dist/tsup.js"
+      },
+      "require": {
+        "types": "./dist/tsup.d.cts",
+        "default": "./dist/tsup.cjs"
+      }
+    },
     "./rollup": {
       "import": {
         "types": "./dist/rollup.d.ts",

@@ -180,6 +180,8 @@ export interface EmitDeclarationsOptions {
 export interface EmitDeclarationsResult {
   /** Absolute paths of the `.d.ts` (and `.d.ts.map`) files written. */
   files: string[];
+  /** Absolute source path → absolute path of the `.d.ts` written for it. */
+  declarationsBySource: Map<string, string>;
   /** Errors and warnings: original-source (suppression-filtered), macro, and declaration emit. */
   diagnostics: ts.Diagnostic[];
   /** Number of error-category diagnostics. Nothing is written when it is > 0. */
@@ -260,23 +262,32 @@ export function emitDeclarations(opts: EmitDeclarationsOptions = {}): EmitDeclar
   const diagnostics = [...sourceDiagnostics, ...macroDiagnostics];
   const errorsBefore = diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error);
   if (errorsBefore.length > 0) {
-    return { files: [], diagnostics, errorCount: errorsBefore.length };
+    return {
+      files: [],
+      declarationsBySource: new Map(),
+      diagnostics,
+      errorCount: errorsBefore.length,
+    };
   }
 
   const files: string[] = [];
+  const declarationsBySource = new Map<string, string>();
   const result = emitExpandedDeclarations({
     rootNames: parsed.fileNames,
     options: { ...parsed.options, declarationDir },
     host,
     expanded,
-    writeFile: (fileName, text, bom) => {
+    writeFile: (fileName, text, bom, _onError, sourceFiles) => {
       ts.sys.writeFile(fileName, text, bom);
       files.push(path.resolve(fileName));
+      if (/\.d\.[cm]?ts$/.test(fileName) && sourceFiles?.length === 1) {
+        declarationsBySource.set(path.resolve(sourceFiles[0].fileName), path.resolve(fileName));
+      }
     },
   });
   diagnostics.push(...result.diagnostics);
   const errorCount = diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error).length;
-  return { files, diagnostics, errorCount };
+  return { files, declarationsBySource, diagnostics, errorCount };
 }
 
 /** A compiler host that applies the HKT `F<_>` preprocessing, as `typesugar build` does. */

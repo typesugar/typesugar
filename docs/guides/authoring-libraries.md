@@ -119,6 +119,26 @@ src/macros.ts   →  the `./macros` entry: regexMacro/htmlMacro/fmtMacro/rawMacr
 
 `tsup.config.ts`: `entry: ["src/index.ts", "src/macros.ts"]`.
 
+### Declarations for a library that uses macros
+
+Your `.d.ts` files must describe the **expanded** code: a consumer's `tsc` never sees
+your source. TypeScript computes declarations from the program it type-checked, so
+anything that checks the unexpanded source (plain `tsc`, tsup's own `dts` step) gets them
+wrong: a pattern-bound name in a `match()` is undeclared, and an exported function that
+returns one is typed from the stub types instead of the result. Emit them through
+typesugar:
+
+| Build             | Declarations                                                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| tsup              | `defineConfig(withTypesugar({ …, dts: true }))` from `unplugin-typesugar/tsup` ([esbuild/tsup guide](../getting-started/environments/esbuild.md#with-tsup)) |
+| `tsc` / ts-patch  | `typesugar build` with `declaration: true` ([tsc guide](../getting-started/environments/tsc.md#declarations))                                               |
+| any other bundler | `typesugar build --emitDeclarationOnly --declarationDir dist` after it                                                                                      |
+| a script          | `emitDeclarations({ project, declarationDir })` from `@typesugar/transformer`                                                                               |
+
+Check the result: the `.d.ts` files should import nothing from typesugar packages unless
+your public types really use them. Type tests that run plain `tsc` should import the
+built declarations (or run under `typesugar check`), not the source.
+
 The transformer's macro-loader `require()`s exactly the specifier your
 `typesugar.macros` field names — `"./macros"` resolves to `your-pkg/macros`
 through your own `exports` map, so the split above is what actually gets
@@ -140,8 +160,9 @@ consumer-side transformer reads to enable dot-syntax.
 1. **Emit per-module declarations, never a bundled `.d.ts`.** Bundlers
    (rollup-plugin-dts) collapse modules into chunks and rename colliding symbols
    (`map` → `map$1`), which destroys consumer-side discovery and stable import names.
-   Use `tsc --emitDeclarationOnly`; for JS, prefer `tsup` `bundle:false` so every
-   module is a real importable file.
+   Use `tsc --emitDeclarationOnly` (`typesugar build --emitDeclarationOnly` if the
+   source uses macros); for JS, prefer `tsup` `bundle:false` so every module is a real
+   importable file.
 2. **Companions must be importable and collision-free.** Same-named companions for
    different types (Option's `map` vs Either's `map`) can't be one top-level export —
    give each type its own subpath (`@your-pkg/data/option`) or namespace.
@@ -204,6 +225,9 @@ and document that dot-syntax requires the transformer.
       one-time `typesugar approve-macros` step consumers will hit.
 - [ ] `typescript`/`@typesugar/core` are peer/dev deps, not runtime deps.
 - [ ] Declarations are emitted per-module (`tsc --emitDeclarationOnly`), not bundled.
+- [ ] If the source uses macros, the declarations come from the expanded program
+      (`withTypesugar` for tsup, `typesugar build` otherwise) and import nothing from
+      typesugar.
 - [ ] Relative imports in source use `.js` extensions (NodeNext-safe `.d.ts`).
 - [ ] Companions are importable from a collision-free subpath/namespace.
 - [ ] No host-global types (`NodeJS.*`) leak into the public `.d.ts`.
