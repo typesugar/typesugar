@@ -50,6 +50,55 @@ export function makePoint() {
     );
   });
 
+  it("a JSDoc @derive on an enum is the same error, not silence", () => {
+    const r = expand(`/** @derive(Eq) */
+export enum Color { Red, Green }
+`);
+    expect(r.diagnostics.map((d) => [d.severity, d.code])).toEqual([["error", 9102]]);
+    expect(r.diagnostics[0].message).toContain("this is an enum");
+    expect(r.code).toContain("export enum Color");
+  });
+
+  it("documentation that mentions @derive is not a tag: prose after it, or an @example", () => {
+    const r = expand(`/**
+ * @derive(Read) — derives a Read instance for a product type.
+ */
+export const deriveReadMacro = { name: "Read" };
+
+/**
+ * Derive macro that generates validation for a class.
+ *
+ * @example
+ * @derive(Validation)
+ * class User {
+ *   @validate.email
+ *   email: string;
+ * }
+ */
+export const Validation = Symbol("Validation");
+
+/**
+ * A point.
+ * @example
+ * @derive(Eq)
+ * interface Other { x: number }
+ */
+export interface Point { x: number }
+`);
+    expect(r.diagnostics).toEqual([]);
+    expect(r.code).not.toContain("namespace Point");
+  });
+
+  it("a bare @derive(Eq) line on a const is still TS9102", () => {
+    const r = expand(`/**
+ * Some docs.
+ * @derive(Eq)
+ */
+export let l = 2;
+`);
+    expect(r.diagnostics.map((d) => d.code)).toEqual([9102]);
+  });
+
   it("on an interface it still derives", () => {
     const r = expand(`/** @derive(Eq) */
 export interface Point { x: number; y: number }

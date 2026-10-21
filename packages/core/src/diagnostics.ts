@@ -653,8 +653,11 @@ applied to:
 - class declarations
 - type alias declarations
 
-On anything else (a const, a function) it derives nothing, and is reported
-instead of being ignored. For a type you don't own, declare its instance
+On anything else (a const, a function, an enum) it derives nothing, and is
+reported instead of being ignored. A \`@derive(X)\` line followed by prose
+(\`@derive(Read) — derives a Read instance\`) on such a declaration is
+documentation, not a tag, as is one after an \`@example\` tag or in a fenced
+example. For a type you don't own, declare its instance
 with \`export const eqT = derived<Eq<T>>();\` in a module of your own.`,
   seeAlso: "https://typesugar.org/errors/TS9102",
 };

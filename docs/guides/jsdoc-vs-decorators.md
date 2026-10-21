@@ -41,16 +41,19 @@ diagnostic filter (see below).
 target functions, such as `/** @tailrec */` and `/** @extension */`. Any other
 macro tag on a function (`/** @typeclass */`, …) is ignored with the warning
 "JSDoc macro tag @X is not supported on a function declaration and was
-ignored." `@derive` on a function or a `const` is an error,
+ignored." `@derive` on a function, a `const` or an `enum` is an error,
 [TS9102](/errors/TS9102): it only goes on an interface, class or type alias.
 
 ### A JSDoc tag must start its own comment line
 
 A tag only triggers a macro when it begins a line of the comment:
 `/** @derive(Eq) */` or ` * @derive(Eq)` on its own line. A tag mentioned
-mid-sentence (`/** Derives @derive(Eq) for you */`) or inside a fenced code
-example in the comment is treated as prose and does nothing, so documentation
-comments can talk about macros without triggering them.
+mid-sentence (`/** Derives @derive(Eq) for you */`), inside a fenced code
+example or after an `@example` tag in the comment is treated as prose and does
+nothing, so documentation comments can talk about macros without triggering
+them. On a declaration `@derive` can't apply to (the `const` of a derive macro
+you are writing), a `@derive(X)` line followed by more text,
+`@derive(Read) — derives a Read instance`, is documentation too.
 
 ```typescript
 /**

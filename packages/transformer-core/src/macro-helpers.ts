@@ -135,8 +135,11 @@ export function isJSDocMacroTargetNode(
   | ts.TypeAliasDeclaration
   | ts.VariableStatement
   | ts.VariableDeclaration
-  | ts.FunctionDeclaration {
+  | ts.FunctionDeclaration
+  | ts.EnumDeclaration {
   return (
+    // An enum carries no macro, but a `@derive` on one is reported (TS9102).
+    ts.isEnumDeclaration(node) ||
     ts.isFunctionDeclaration(node) ||
     ts.isInterfaceDeclaration(node) ||
     ts.isClassDeclaration(node) ||
@@ -215,12 +218,21 @@ export function tryExpandJSDocMacros(
           results.push(...derives);
           derived = true;
         }
-      } else {
-        // A const, a function: not a type, so nothing to derive. Said so
-        // (TS9102) rather than dropping the tag — a `/** @derive(Eq) */
+      } else if (!isDeriveProse(tag)) {
+        // A const, a function, an enum: not a type, so nothing to derive. Said
+        // so (TS9102) rather than dropping the tag — a `/** @derive(Eq) */
         // const p = ...` used to be ignored without a word.
         reportDeriveOnNonType(ctx, tag, args, currentNode);
       }
+      continue;
+    }
+
+    // An enum carries no other macro tag.
+    if (ts.isEnumDeclaration(currentNode)) {
+      ctx.reportWarning(
+        tag,
+        `JSDoc macro tag @${tag.tagName.text} is not supported on an enum and was ignored.`
+      );
       continue;
     }
 
@@ -296,6 +308,27 @@ export function tryExpandJSDocMacros(
 }
 
 /**
+ * A `@derive(...)` line followed by prose, `@derive(Read) — derives a Read
+ * instance`, is documentation of a derive macro (written on the macro's
+ * `const`), not a request to derive: its argument list is followed by more
+ * text. Only consulted where `@derive` can't apply (TS9102); on a type
+ * declaration the tag derives as before.
+ */
+function isDeriveProse(tag: ts.JSDocTag): boolean {
+  const comment =
+    typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+  const text = (comment ?? "").trim();
+  // The unparenthesized form, `@derive Eq, Clone`: anything but a name list is prose.
+  if (!text.startsWith("(")) return !/^([A-Za-z_$][\w$]*(\s*,\s*[A-Za-z_$][\w$]*)*)?$/.test(text);
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "(") depth++;
+    else if (text[i] === ")" && --depth === 0) return text.slice(i + 1).trim().length > 0;
+  }
+  return false;
+}
+
+/**
  * TS9102 for `@derive` on something that is not a type declaration. On a
  * variable, the help points at what the author likely wanted: the type's own
  * declaration, or `derived<TC<T>>()` for a type they don't own.
@@ -318,7 +351,11 @@ export function reportDeriveOnNonType(
           `you don't own, declare its instance: \`export const instance = derived<${first}<Type>>();\``
       );
   } else {
-    const what = ts.isFunctionDeclaration(target) ? "a function" : "not a type declaration";
+    const what = ts.isFunctionDeclaration(target)
+      ? "a function"
+      : ts.isEnumDeclaration(target)
+        ? "an enum, whose values are numbers or strings (compared and copied as they are)"
+        : "not a type declaration";
     builder
       .note(`@derive was ignored: this is ${what}.`)
       .help(`Put @derive(${typeclass}) on an interface, class or type alias.`);

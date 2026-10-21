@@ -664,7 +664,13 @@ export function isJSDocTagAtLineStart(tag: ts.JSDocTag): boolean {
       .trimStart();
     if (line.startsWith("```") || line.startsWith("~~~")) inFence = !inFence;
   }
-  return !inFence;
+  if (inFence) return false;
+
+  // After an `@example` tag, a line starting with `@` is example code (the
+  // JSDoc parser makes it a tag of its own: `@example\n@derive(X)\nclass C`).
+  const tags: readonly ts.JSDocTag[] = (jsDoc as unknown as ts.JSDoc).tags ?? [];
+  const index = tags.indexOf(tag);
+  return !tags.slice(0, index < 0 ? 0 : index).some((t) => t.tagName.text === "example");
 }
 
 // =============================================================================
