@@ -28,7 +28,7 @@
  * Output:
  * - **Literal cases** (literals, constants, enum members): the switch itself,
  *   label removed. Nothing is added, so the JavaScript is the hand-written
- *   switch.
+ *   switch. (In every form, the label is kept when a case uses `break match;`.)
  * - **Patterns sharing one discriminant** (`{ type: "Point", ... }`, or a
  *   `_tag`/`ok`-tagged built-in extractor such as Effect's `Some(v)`):
  *   `switch (geom.type) { case "Point": { const [x, y] = geom.coordinates; ... } }`.
@@ -519,6 +519,72 @@ function analyzeCustomCase(
   };
 }
 
+/**
+ * Walk `node`'s statements within the label's reach: not into functions or
+ * classes (a label doesn't cross them) or a nested statement with the same
+ * label (which a `break` there means instead).
+ */
+function forEachInLabelScope(
+  node: ts.Node,
+  label: string,
+  visit: (n: ts.Node) => boolean | void
+): boolean {
+  const walk = (n: ts.Node): boolean => {
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return false;
+    if (visit(n)) return true;
+    if (ts.isLabeledStatement(n) && n.label.text === label) return false;
+    return ts.forEachChild(n, walk) ?? false;
+  };
+  return ts.forEachChild(node, walk) ?? false;
+}
+
+/**
+ * Keep the `match:` label on the expanded switch when its body names it
+ * (`break match;`): removing the label left the `break` pointing at nothing,
+ * a SyntaxError. The label stays `match` unless the body nests another
+ * `match:` statement (JavaScript rejects a label inside one of the same name),
+ * in which case it is renamed and its `break`s with it.
+ */
+function relabel(
+  ctx: MacroContext,
+  labeled: ts.LabeledStatement
+): {
+  wrap: (sw: ts.SwitchStatement) => ts.Statement;
+  /** Renames the label in `break`s, when it is renamed. */
+  rewrite?: (s: ts.Statement) => ts.Statement;
+} {
+  const label = labeled.label.text;
+  const sw = labeled.statement;
+  const referenced = forEachInLabelScope(
+    sw,
+    label,
+    (n) => (ts.isBreakStatement(n) || ts.isContinueStatement(n)) && n.label?.text === label
+  );
+  if (!referenced) return { wrap: (s) => s };
+  const nested = forEachInLabelScope(
+    sw,
+    label,
+    (n) => ts.isLabeledStatement(n) && n.label.text === label
+  );
+  const f = ctx.factory;
+  if (!nested) {
+    return { wrap: (s) => f.createLabeledStatement(f.createIdentifier(label), s) };
+  }
+  const renamed = ctx.generateUniqueName(label).text;
+  const visit = (n: ts.Node): ts.Node => {
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return n;
+    if (ts.isLabeledStatement(n) && n.label.text === label) return n;
+    if (ts.isBreakStatement(n) && n.label?.text === label) {
+      return ts.setTextRange(f.createBreakStatement(renamed), n);
+    }
+    return ts.visitEachChild(n, visit, ctx.transformContext);
+  };
+  return {
+    wrap: (s) => f.createLabeledStatement(f.createIdentifier(renamed), s),
+    rewrite: (s) => visit(s) as ts.Statement,
+  };
+}
+
 function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.Statement[] {
   const f = ctx.factory;
   const sw = labeled.statement as ts.SwitchStatement;
@@ -529,14 +595,26 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
     | undefined;
   const values = clauses.flatMap((c) => (c.kind === "value" ? [c.clause] : []));
 
+  const { wrap, rewrite } = relabel(ctx, labeled);
+
   // Literal form: the switch itself, unchanged.
   if (!clauses.some((c) => c.kind === "pattern")) {
     checkCoverage(ctx, labeled, scrutinee, literalCoverage(ctx, scrutinee, values), defaultClause);
     // The same switch node's children, in a node that carries the label's
     // leading comments (the switch's own range starts after `match:`).
-    const same = ts.setTextRange(f.createSwitchStatement(sw.expression, sw.caseBlock), sw);
+    const caseBlock = !rewrite
+      ? sw.caseBlock
+      : f.updateCaseBlock(
+          sw.caseBlock,
+          sw.caseBlock.clauses.map((c) =>
+            ts.isDefaultClause(c)
+              ? f.updateDefaultClause(c, c.statements.map(rewrite))
+              : f.updateCaseClause(c, c.expression, c.statements.map(rewrite))
+          )
+        );
+    const same = ts.setTextRange(f.createSwitchStatement(sw.expression, caseBlock), sw);
     ts.setOriginalNode(same, sw);
-    return [withLeadingComments(same, labeled)];
+    return [withLeadingComments(wrap(same), labeled)];
   }
 
   // Pattern form.
@@ -602,10 +680,11 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
 
   const body = (clause: ts.CaseClause, pc: PatternCase | undefined): ts.Statement[] => {
     const binds = pc ? pc.bind(ref) : [];
-    return binds.length > 0
-      ? [f.createBlock([...binds, ...clause.statements], true)]
-      : [...clause.statements];
+    const statements = rewrite ? clause.statements.map(rewrite) : [...clause.statements];
+    return binds.length > 0 ? [f.createBlock([...binds, ...statements], true)] : statements;
   };
+  const defaultClauseOf = (clause: ts.DefaultClause): ts.DefaultClause =>
+    rewrite ? f.updateDefaultClause(clause, clause.statements.map(rewrite)) : clause;
 
   if (discriminantSwitch) {
     // switch (geom.type) { case "Point": { const [x, y] = geom.coordinates; ... } }
@@ -613,12 +692,12 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
     if (anyBinds && !rereadable) hoist();
     const discriminantExpr = f.createPropertyAccessExpression(anyBinds ? ref() : scrutinee, field);
     const newClauses = sw.caseBlock.clauses.map((clause) => {
-      if (ts.isDefaultClause(clause)) return clause;
+      if (ts.isDefaultClause(clause)) return defaultClauseOf(clause);
       const pc = cases.get(clause)!;
       return f.createCaseClause(pc.discriminant!.label, body(clause, pc));
     });
     return withLeadingCommentsOnFirst(
-      [...prelude, f.createSwitchStatement(discriminantExpr, f.createCaseBlock(newClauses))],
+      [...prelude, wrap(f.createSwitchStatement(discriminantExpr, f.createCaseBlock(newClauses)))],
       labeled
     );
   }
@@ -628,13 +707,13 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
   if (!rereadable) hoist();
   const guardNullish = !isGuaranteedObject(ctx, scrutinee);
   const newClauses = sw.caseBlock.clauses.map((clause) => {
-    if (ts.isDefaultClause(clause)) return clause;
+    if (ts.isDefaultClause(clause)) return defaultClauseOf(clause);
     const pc = cases.get(clause);
     const test = pc ? pc.test(ref, guardNullish) : literalCheck(f, ref(), clause.expression);
     return f.createCaseClause(test, body(clause, pc));
   });
   return withLeadingCommentsOnFirst(
-    [...prelude, f.createSwitchStatement(f.createTrue(), f.createCaseBlock(newClauses))],
+    [...prelude, wrap(f.createSwitchStatement(f.createTrue(), f.createCaseBlock(newClauses)))],
     labeled
   );
 }

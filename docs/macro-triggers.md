@@ -253,7 +253,7 @@ match: switch (geom) {
 // Compiles to: switch (geom.type) { case "Point": { const [x, y] = geom.coordinates; ... } ... }
 ```
 
-With only literal cases the output is the switch itself, label removed; the macro adds the
+With only literal cases the output is the switch itself, label removed (kept when a case uses `break match;`); the macro adds the
 exhaustiveness check (TS9226). See [Pattern Matching → Statement form](./guides/pattern-matching.md#statement-form-match-switch).
 
 **Activation (PEP-052):** label syntax is import-scoped. A matching label only expands in files that import a module carrying a `@syntax-labels <macroName>` marker — `import "@typesugar/std/syntax/do";` for the `let:`/`seq:`/`par:`/`all:` comprehensions, `import "@typesugar/std/syntax/match";` for `match:` switches, `import "@typesugar/contracts/syntax";` for the `requires:`/`ensures:` contract trigger labels. Without the import the label is left as plain JavaScript and the transformer warns (TS9224) with a hint naming the `syntaxModule` import to add. Ordinary loop labels that collide with a macro label produce no warning (a label is a candidate only on the statement its macro expects: a block, or a switch for `match:`). A macro whose `syntaxModule` has nothing to run sets `erasableSyntaxModule: true`, and the transformer removes that side-effect import from its output (`syntax/match` does; `syntax/do` also provides instances, so it stays).

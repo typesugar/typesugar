@@ -202,6 +202,82 @@ export function run(items: ("skip" | "stop" | "boom" | "a" | "b")[]): string {
     expect(() => run(["b", "boom"])).toThrow("boom:b.");
   });
 
+  it("`break match;` leaves the switch: the label is kept when the body names it", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function g(xs: ("c" | "r" | "t")[]): number {
+  let n = 0;
+  for (const x of xs) {
+    match: switch (x) {
+      case "c":
+        continue;
+      case "r":
+        n++;
+        break;
+      case "t":
+        for (let i = 0; i < 3; i++) {
+          if (n > 5) break match;
+          n += 10;
+        }
+        n += 100;
+        break;
+    }
+    n += 1000;
+  }
+  return n;
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.runError).toBeUndefined();
+    const g = r.exports.g as (xs: string[]) => number;
+    // "r": 1, +1000; "t": n > 5 at once, so break match skips the +100; +1000; "c": continue.
+    expect(g(["r", "t", "c"])).toBe(2001);
+    // "t" first: n += 10 once, then n > 5, break match: no +100.
+    expect(g(["t"])).toBe(1010);
+  });
+
+  it("`break match;` in a pattern switch and in nested match: switches targets its own switch", () => {
+    const r = transformAndRun(`${ACTIVATE}${GEOMETRY}
+export function f(gs: Geometry[], stop: boolean): string {
+  let log = "";
+  for (const geom of gs) {
+    match: switch (geom) {
+      case { type: "Point", coordinates }:
+        if (stop) break match;
+        log += "P" + coordinates.length;
+        break;
+      case { type: "LineString", coordinates }:
+        match: switch (coordinates.length > 1 ? "many" : "one") {
+          case "many":
+            if (stop) break match;
+            log += "M";
+            break;
+          case "one":
+            log += "O";
+            break;
+        }
+        log += "L";
+        break;
+      case { type: "Polygon" }:
+        log += "G";
+        break;
+    }
+    log += ".";
+  }
+  return log;
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.runError).toBeUndefined();
+    const f = r.exports.f as (gs: unknown[], stop: boolean) => string;
+    const gs = [
+      { type: "Point", coordinates: [1, 2] },
+      { type: "LineString", coordinates: [[1], [2]] },
+      { type: "Polygon", coordinates: [] },
+    ];
+    expect(f(gs, false)).toBe("P2.ML.G.");
+    expect(f(gs, true)).toBe(".L.G.");
+  });
+
   it("without the activation import it is a plain labelled switch, with the TS9224 hint", () => {
     const r = transformAndRun(`
 export function f(t: "a" | "b"): number {
