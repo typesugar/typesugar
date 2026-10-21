@@ -644,6 +644,9 @@ import { toSnakeCase } from "@typesugar/sql";
 toSnakeCase("createdAt"); // "created_at"
 toSnakeCase("userId"); // "user_id"
 toSnakeCase("firstName"); // "first_name"
+// A run of capitals is one word
+toSnakeCase("userID"); // "user_id"
+toSnakeCase("HTMLParser"); // "html_parser"
 ```
 
 ### Runtime Registries

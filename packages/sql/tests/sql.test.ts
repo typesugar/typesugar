@@ -4,6 +4,7 @@
  * Comprehensive tests for the Doobie-style typed SQL DSL.
  */
 import { describe, it, expect, vi } from "vitest";
+import { toSnakeCase as macroToSnakeCase } from "../src/derive-common.js";
 import {
   // Core types
   Fragment,
@@ -638,6 +639,20 @@ describe("derivation helpers", () => {
     expect(toSnakeCase("createdAt")).toBe("created_at");
     expect(toSnakeCase("firstName")).toBe("first_name");
     expect(toSnakeCase("id")).toBe("id");
+  });
+
+  it("converts acronyms and leading capitals to snake_case (runtime and macro copies)", () => {
+    // Before: every capital got its own underscore, so "HTMLParser" was
+    // "_h_t_m_l_parser" and "userID" was "user_i_d".
+    for (const convert of [toSnakeCase, macroToSnakeCase]) {
+      expect(convert("HTMLParser")).toBe("html_parser");
+      expect(convert("userID")).toBe("user_id");
+      expect(convert("URL")).toBe("url");
+      expect(convert("Id")).toBe("id");
+      expect(convert("parseHTTPResponse")).toBe("parse_http_response");
+      expect(convert("address2Line")).toBe("address2_line");
+      expect(convert("createdAt")).toBe("created_at");
+    }
   });
 
   it("derives Read from config", () => {

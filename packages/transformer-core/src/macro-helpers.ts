@@ -402,10 +402,15 @@ export function parseJSDocMacroArgs(
     case "derive":
     case "deriving": {
       // @derive Eq, Clone or @deriving (Show, Eq, Ord) — optional wrapping
-      // parens are stripped so both forms parse the same.
+      // parens are stripped so both forms parse the same. A tag's comment
+      // runs to the next tag, so only the leading list is the derive list:
+      // the parenthesized part, or the comma-separated names that start the
+      // comment; prose after it ("@derive(Meta)" then a description line) is
+      // documentation, not more derives (it was "Unknown derive: '(Meta)\n
+      // User table schema ...'"). This reads the tag's syntax, not code.
       if (!trimmed) return [];
-      const inner =
-        trimmed.startsWith("(") && trimmed.endsWith(")") ? trimmed.slice(1, -1) : trimmed;
+      const list = /^\(([^)]*)\)|^([A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*)/.exec(trimmed);
+      const inner = list ? (list[1] ?? list[2]) : trimmed;
       const tcNames = inner
         .split(",")
         .map((s) => s.trim())

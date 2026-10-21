@@ -25,13 +25,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const cliPath = path.join(repoRoot, "packages", "transformer", "dist", "cli.js");
 const hasBuild = fs.existsSync(cliPath);
 
-const KNOWN_BROKEN: Record<string, string> = {
-  "packages/sql/examples/doobie-style-example.ts":
-    "pre-PEP @deriving syntax: Unknown derive '(Meta)'",
-  "packages/sql/examples/showcase.ts": "stringMeta.get.read is not a function (API drift)",
-  "packages/sql/examples/typeclasses-example.ts":
-    "pre-PEP @deriving syntax: Unknown derive '(Read'",
-};
+const KNOWN_BROKEN: Record<string, string> = {};
 
 function examples(): string[] {
   const out: string[] = [];

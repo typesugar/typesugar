@@ -10,6 +10,7 @@
  * 5. Zero-cost specialization — Inline operations at compile time
  */
 
+import { summon } from "typesugar";
 import {
   // Core typeclasses
   Get,
@@ -33,7 +34,7 @@ import {
   // Fragment system
   TypedFragment,
   TypedQuery,
-} from "../src/index.js";
+} from "@typesugar/sql";
 
 // ============================================================================
 // 1. Primitive Instances
@@ -130,7 +131,9 @@ interface User {
   updatedAt: Date | null;
 }
 
-// Manually derive Read using the helper
+// Manually derive Read using the helper. The @impl tag makes it THE
+// Read<User> instance: summon<Read<User>>() resolves to it (section 10).
+/** @impl Read<User> */
 const ReadUser = deriveRead<User>({
   id: { meta: Meta.number },
   name: { meta: Meta.string },
@@ -160,6 +163,7 @@ console.log("ReadUser.columns:", ReadUser.columns);
 // ["id", "name", "email", "created_at", "updated_at"]
 
 // Manually derive Write
+/** @impl Write<User> */
 const WriteUser = deriveWrite<User>({
   id: { meta: Meta.number },
   name: { meta: Meta.string },
@@ -176,10 +180,11 @@ console.log("WriteUser.write:", params);
 // 5. Auto-Derivation with @deriving (Compile-Time)
 // ============================================================================
 
-/**
- * With the macro transformer, you can use @deriving decorator:
+/*
+ * With the macro transformer, you can derive them instead:
  *
- * @deriving(Read, Write)
+ * ```typescript
+ * /** @derive(Read, Write) *\/
  * interface Post {
  *   id: number;
  *   title: string;
@@ -195,9 +200,10 @@ console.log("WriteUser.write:", params);
  * // With column mappings:
  * // - authorId -> author_id
  * // - publishedAt -> published_at
+ * ```
  */
 
-// Simulated generated code:
+// Written out by hand here (what the derive generates):
 interface Post {
   id: number;
   title: string;
@@ -359,12 +365,12 @@ console.log("\n=== Implicit Resolution ===");
  * ```
  */
 
-// Access instances via companion namespace (compile-time resolution)
-const summonedReader = User.Read;
+// summon resolves to the @impl instance in scope, at compile time
+const summonedReader = summon<Read<User>>();
 console.log("Summoned Read<User>:", summonedReader ? "Found!" : "Not found");
 console.log("Summoned Read<User>.columns:", summonedReader?.columns);
 
-const summonedWriter = User.Write;
+const summonedWriter = summon<Write<User>>();
 console.log("Summoned Write<User>:", summonedWriter ? "Found!" : "Not found");
 console.log("Summoned Write<User>.columns:", summonedWriter?.columns);
 

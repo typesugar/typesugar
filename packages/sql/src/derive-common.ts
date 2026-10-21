@@ -127,7 +127,15 @@ export function buildInstanceExpr(
 
 /** camelCase → snake_case */
 export function toSnakeCase(str: string): string {
-  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  // A word starts at a capital after a lowercase letter or digit
+  // ("userId" -> "user_Id"), and at the last capital of a run followed by a
+  // lowercase letter ("HTMLParser" -> "HTML_Parser"); a run of capitals is one
+  // word ("userID" -> "user_id", "URL" -> "url"). It used to put an
+  // underscore before every capital ("_h_t_m_l_parser").
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase();
 }
 
 /**
