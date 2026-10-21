@@ -149,8 +149,9 @@ not get worse.
    - Add a TypeGuard typeclass.
    - Fix the `bigint` crashes and nested `fromJson` validation.
    - Fix the companion fallback's `getBaseType`.
-4. **Return-type specialization** (row 10): `ResultAlgebra` as an instance; sources
-   resolved by instance, not name; remove the by-name intrinsic fallback.
+4. **Return-type specialization** (row 10): `ok`/`err` through `ApplicativeError`
+   instances (see Decisions); delete `ResultAlgebra` and its registry; remove the by-name
+   intrinsic fallback.
 5. **sql** (rows 8–9): column types through `Meta`/`Get`/`Put` instances from scope;
    import-scoped registries; delete the never-filled one.
 6. **Effect Schema derive** (row 11): a `Schema` instance from scope, with instances for
@@ -194,6 +195,34 @@ Waves 4–7 are smaller and can follow.
   - **Sequencing:** part of Wave 2. It starts after PEP-008 Wave 11 (the `Destructure`
     retrofit) and the `derived<TC<T>>()` work land, because both touch fp's Option and
     Either.
+
+- **Both Result and Either go to std, one Option** (Dean, 2026-10-21: "there is space
+  for both result and either").
+  - `Result<T, E>` (`{ ok: true; value } | { ok: false; error }`, today fp's
+    `ZeroCostResult`) is the error type.
+  - `Either<E, A>` (field-presence `Left`/`Right`, today fp's `data/either`) is the
+    general two-way union.
+  - Both get full instances and `Destructure` extractors, with conversions between them.
+  - fp's two Options (`data/option` and `zero-cost`'s `ZeroCostOption`, both `T | null`)
+    merge into one std `Option`.
+- **`ApplicativeError` and `MonadError` move to std and replace `ResultAlgebra`** (Dean,
+  2026-10-21). Return-type specialization (row 10) is `pure` plus `raiseError` with the
+  typeclass taken out, keyed by type name. Instead, `ok(x)` / `err(e)` in a function
+  returning `F<A>` resolve `ApplicativeError<F, E>` from scope and inline it:
+
+  | Type      | Instance                                   | E              | `err(e)` compiles to      |
+  | --------- | ------------------------------------------ | -------------- | ------------------------- |
+  | Result    | MonadError                                 | its error type | `{ ok: false, error: e }` |
+  | Either    | MonadError                                 | its Left type  | `{ left: e }`             |
+  | Option    | MonadError                                 | `void`         | `null`                    |
+  | Validated | ApplicativeError only (accumulates errors) | its error type | `Invalid(e)`              |
+  | Promise   | MonadError                                 | `unknown`      | `Promise.reject(e)`       |
+
+  Effect's instance lives in `@typesugar/effect`, and IO's stays in fp. Third-party result
+  types take part by providing an instance. Generic code (`ME: MonadError<F, E> =
+implicit()`) is specialized per call site, and do-notation's error recovery can use
+  `handleErrorWith`. This needs the HKT machinery to resolve partially applied
+  two-parameter constructors (`Result<_, E>`), which Wave 2 must prove first.
 
 ## Open questions
 
