@@ -7,7 +7,13 @@
  * second instance (TS9009).
  */
 import { describe, it, expect } from "vitest";
-import { transformAll, typecheck, run, type Files } from "./external-types-harness.js";
+import {
+  transformAll,
+  transformErrors,
+  typecheck,
+  run,
+  type Files,
+} from "./external-types-harness.js";
 
 const POINT = `/** @derive(Eq, Ord, Clone) */
 export interface Point {
@@ -107,4 +113,50 @@ export const r = [a === b, b === c];
     expect(typecheck(t.code)).toEqual([]);
     expect(run(t.code, "use.ts").r).toEqual([true, false]);
   });
+});
+
+describe("operators find the instances summon finds (review round 2)", () => {
+  // Reviewer repro: `s1 === s2` on a derived union alias and `a === b` on a
+  // `Box<number>` whose `@derive(Eq) interface Box<T>` can't derive (generic
+  // types aren't supported yet, docs/guides/derive.md "Generic Types": TS9106
+  // at the declaration) both stayed reference comparisons, silently at the
+  // use site, although summon<Eq<...>>() found Shape's instance and reported
+  // TS9001 for Box's.
+  const BOX = `/** @derive(Eq) */
+export interface Box<T> { value: T }
+/** @derive(Eq) */
+export type Shape = { kind: "c"; r: number } | { kind: "s"; side: number };
+`;
+  const MAIN = `import "@typesugar/std/syntax/eq/ops";
+import { summon } from "typesugar";
+import type { Eq } from "@typesugar/std";
+import { Box, Shape } from "./box";
+const a: Box<number> = { value: 1 }, b: Box<number> = { value: 1 };
+const s1: Shape = { kind: "c", r: 1 }, s2: Shape = { kind: "c", r: 1 };
+export const boxes = a === b;
+export const shapes = [s1 === s2, summon<Eq<Shape>>().equals(s1, s2)];
+console.log(s1 === s2, summon<Eq<Shape>>().equals(s1, s2));
+`;
+  for (const order of [
+    ["main.ts", "box.ts"],
+    ["box.ts", "main.ts"],
+  ]) {
+    it(`Shape compares by Eq; Box<number> with no instance is TS9001 at the operator (${order.join(" then ")})`, () => {
+      const t = transformAll({ "box.ts": BOX, "main.ts": MAIN }, order);
+      expect(transformErrors(t)["box.ts"]).toEqual([
+        expect.stringMatching(/\[TS9106\] Cannot derive Eq for 'Box'/),
+      ]);
+      const mainErrs = t.located["main.ts"].filter((d) => d.severity === "error");
+      expect(mainErrs).toHaveLength(1);
+      expect(mainErrs[0].message).toMatch(/\[TS9001\] No instance found for `Eq<Box<number>>`/);
+      expect(mainErrs[0].message).toContain("derived<Eq<Box<number>>>()");
+      expect(mainErrs[0].text).toBe("===");
+      expect(mainErrs[0].line).toBe(7);
+      const out = t.code["main.ts"];
+      expect(out).toContain(
+        "export const shapes = [Shape.Eq.equals(s1, s2), Shape.Eq.equals(s1, s2)];"
+      );
+      expect(out).toContain("console.log(Shape.Eq.equals(s1, s2), Shape.Eq.equals(s1, s2));");
+    });
+  }
 });

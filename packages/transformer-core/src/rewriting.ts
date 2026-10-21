@@ -14,6 +14,7 @@ import {
   transformHKTDeclaration,
   getOperatorCandidates,
   resolveInstance,
+  deriveNamesOf,
   type ResolvedInstance,
 } from "@typesugar/macros";
 
@@ -28,6 +29,7 @@ import {
   ExpressionMacro,
   TaggedTemplateMacroDef,
   TypeMacro,
+  TS9001,
   globalResolutionScope,
   isInOptedOutScope,
   isSyntheticNode,
@@ -819,7 +821,17 @@ export function tryRewriteTypeclassOperator(
     };
   }
 
-  if (!matched) return hintIfInactiveMatch();
+  if (!matched) {
+    if (
+      reportDerivedWithoutInstance(ctx, node, opString, typeName, candidates, [
+        leftType,
+        ...typesToTry(),
+      ])
+    ) {
+      return undefined;
+    }
+    return hintIfInactiveMatch();
+  }
 
   // The instance was resolved from the LEFT operand only. For a method whose
   // right parameter is the typeclass's type parameter (`add(a: A, b: A)`), the
@@ -896,6 +908,63 @@ export function tryRewriteTypeclassOperator(
     cloneWithoutComments(right),
   ]);
   return preserveSourceMap(rewritten, node);
+}
+
+/**
+ * An activated operator found no instance for an operand whose type DECLARES
+ * `@derive(TC)` for the operator's typeclass (`a === b` on a `Box<number>`
+ * where `@derive(Eq) interface Box<T>`): left alone, the operator would stay
+ * JavaScript's own (a reference comparison for objects) on a type whose author
+ * asked for TC's, silently, while `summon<TC<...>>()` reports TS9001. Report
+ * the same TS9001 here, at the operator. Which type is decided by identity
+ * (CLAUDE.md "Deciding what a type is"): the operand type's own symbol and its
+ * declarations' `@derive` annotations, never its printed name. Returns
+ * whether it reported.
+ */
+function reportDerivedWithoutInstance(
+  ctx: MacroContextImpl,
+  node: ts.BinaryExpression,
+  opString: string,
+  typeName: string,
+  candidates: ReadonlyArray<{ typeclass: string }>,
+  operandTypes: readonly ts.Type[]
+): boolean {
+  for (const t of operandTypes) {
+    const sym = t.aliasSymbol ?? t.symbol;
+    for (const decl of sym?.declarations ?? []) {
+      if (
+        !ts.isInterfaceDeclaration(decl) &&
+        !ts.isClassDeclaration(decl) &&
+        !ts.isTypeAliasDeclaration(decl)
+      ) {
+        continue;
+      }
+      const derives = deriveNamesOf(decl);
+      const tc = candidates.find((c) => derives.includes(c.typeclass))?.typeclass;
+      if (!tc) continue;
+      const declName = decl.name?.text ?? sym!.name;
+      const generic = (decl.typeParameters?.length ?? 0) > 0;
+      ctx
+        .diagnostic(TS9001)
+        .at(node.operatorToken)
+        .withArgs({ typeclass: tc, type: typeName })
+        .note(
+          `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
+            `@derive(${tc}), but no ${tc}<${typeName}> instance is in scope, so it was left ` +
+            `as JavaScript's own '${opString}'.`
+        )
+        .help(
+          generic
+            ? `@derive on a generic type doesn't derive an instance for its instantiations yet. ` +
+                `Declare one for this instantiation as a top-level const of a module of your own, ` +
+                `\`derived<${tc}<${typeName}>>()\`, and import it here (or write it with @impl).`
+            : `See the error at '${declName}''s @derive(${tc}), or put a ${tc}<${typeName}> instance in scope.`
+        )
+        .emit();
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

@@ -497,7 +497,7 @@ It supports every typeclass in the table above, and field instances come from sc
 
 ## Generic Types
 
-Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `TS9106: Cannot derive Eq for 'Box'` (the trace notes `T lacks Eq`), and `summon<Eq<Box<number>>>()` is TS9001. Write those instances by hand for now. `derived<Eq<Box<number>>>()` derives one for a single instantiation; with a free type parameter it is [TS9011](/errors/TS9011).
+Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `TS9106: Cannot derive Eq for 'Box'` (the trace notes `T lacks Eq`), and `summon<Eq<Box<number>>>()` is TS9001, as is `a === b` on two `Box<number>` values in a file that activates Eq's operators (the type asks for `Eq` with its `@derive`, so the comparison is not left as reference equality silently). Write those instances by hand for now. `derived<Eq<Box<number>>>()` derives one for a single instantiation; with a free type parameter it is [TS9011](/errors/TS9011).
 
 ## See Expanded Code
 

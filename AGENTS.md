@@ -154,7 +154,8 @@ packages/
 | Auto-derivation          | Synthesizes an instance on demand for an explicit request | Deprecated (TS9009): declare one instead    |
 
 Instances are never ambient: with operator syntax activated but no `@derive`/`@impl`/`derived`,
-`p1 === p2` stays native `===`. Auto-derivation only answers explicit requests
+`p1 === p2` stays native `===` (a type that declares `@derive(Eq)` whose derive failed is TS9001
+at the operator instead). Auto-derivation only answers explicit requests
 (`summon`, `implicit()`), only when every field already has an instance, and warns
 with TS9009, naming the `derived` declaration to write; a later release removes it.
 
