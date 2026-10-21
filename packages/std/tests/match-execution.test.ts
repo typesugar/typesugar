@@ -411,6 +411,35 @@ export const f = (s: "x" | "y") => match(s).case(String(t)).then(t);`);
     expect((r.exports.f as Fn)("y")).toBe("y");
   });
 
+  // std showcase (round-2 docs finding): `const circle: Shape = { kind: "circle", ... }`
+  // narrows `circle` to the circle variant -- one object type, not a union --
+  // and a match over it reported TS9226 "the scrutinee type is not enumerable"
+  // although its first arm covers that variant.
+  it("a scrutinee narrowed to one variant is covered by that variant's arm", () => {
+    const r = transformAndRun(`import { match } from "@typesugar/std";
+type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
+const circle: Shape = { kind: "circle", radius: 2 };
+export const area = match(circle)
+  .case({ kind: "circle", radius }).then(radius * 10)
+  .case({ kind: "square", side }).then(side * side);
+type Circle = { kind: "circle"; radius: number };
+export const f = (c: Circle | null) => match(c).case({ kind: "circle", radius }).then(radius).case(null).then(-1);
+export const g = (c: Circle) => match(c).case({ kind: "circle", radius }).then(radius);`);
+    if (r.runError) throw new Error(`${String(r.runError)}\n--- emitted ---\n${r.code}`);
+    expect(r.errors).toEqual([]);
+    expect(r.exports.area).toBe(20);
+    expect((r.exports.f as Fn)(null)).toBe(-1);
+    expect((r.exports.f as Fn)({ kind: "circle", radius: 3 })).toBe(3);
+    expect((r.exports.g as Fn)({ kind: "circle", radius: 4 })).toBe(4);
+  });
+
+  it("a single-variant scrutinee still needs its variant covered", () => {
+    const r = transformAndRun(`import { match } from "@typesugar/std";
+type Circle = { kind: "circle"; radius: number };
+export const g = (c: Circle) => match(c).case({ kind: "circle", radius: 1 }).then(1);`);
+    expect(r.errors.join("\n")).toMatch(/Non-exhaustive/);
+  });
+
   it("an arm with an extra literal constraint does not cover its variant", () => {
     const r = transformAndRun(`import { match } from "@typesugar/std";
 type V = { kind: "a"; extra: number } | { kind: "b" };

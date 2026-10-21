@@ -153,7 +153,10 @@ match(obj)
 ```
 
 An object or tuple scrutinee isn't enumerable, so these matches need a final `.else()`
-(or `_`) even when the last arm looks like a catch-all.
+(or `_`) even when the last arm looks like a catch-all. The exception is an object type with a
+literal-typed property, which counts as a one-variant discriminated union: a scrutinee
+`const c: Shape = { kind: "circle", radius: 5 }` (narrowed by TypeScript to the circle variant)
+is covered by its `.case({ kind: "circle", radius })` arm.
 
 **Pattern semantics:**
 
@@ -515,14 +518,15 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue
 
 ### How It Works
 
-| Pattern Domain                   | Exhaustiveness Rule            |
-| -------------------------------- | ------------------------------ |
-| Discriminated union              | All variants must be covered   |
-| Literal union (`"a" \| "b"`)     | All values must be covered     |
-| Boolean                          | Both `true` and `false`        |
-| Option / Either / List           | All variant extractors present |
-| `string`, `number`, arrays, etc. | Requires `_` or `.else()`      |
-| `unknown` / `any`                | Requires `_` or `.else()`      |
+| Pattern Domain                        | Exhaustiveness Rule            |
+| ------------------------------------- | ------------------------------ |
+| Discriminated union                   | All variants must be covered   |
+| One variant (`{ kind: "circle"; … }`) | Its arm must cover it          |
+| Literal union (`"a" \| "b"`)          | All values must be covered     |
+| Boolean                               | Both `true` and `false`        |
+| Option / Either / List                | All variant extractors present |
+| `string`, `number`, arrays, etc.      | Requires `_` or `.else()`      |
+| `unknown` / `any`                     | Requires `_` or `.else()`      |
 
 ### The `.else()` Escape Hatch
 

@@ -600,7 +600,8 @@ export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): Sc
       return { kind: "literal-union", literalMembers: litMembers };
     }
 
-    const disc = members.length >= 2 ? findDiscriminant(checker, members) : undefined;
+    // One object member (`Circle | null`) is a one-variant discriminated union.
+    const disc = members.length >= 1 ? findDiscriminant(checker, members) : undefined;
     if (disc) {
       return {
         kind: "discriminated-union",
@@ -620,6 +621,21 @@ export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): Sc
 
   if (type.flags & (ts.TypeFlags.String | ts.TypeFlags.Number | ts.TypeFlags.BigInt)) {
     return { kind: "non-enumerable" };
+  }
+
+  // A single object type with a literal-typed property is a one-variant
+  // discriminated union: `const c: Shape = { kind: "circle", ... }` narrows
+  // `c` to the circle variant, which an arm `{ kind: "circle", radius }`
+  // covers completely (it was "not enumerable", TS9226).
+  if (type.flags & ts.TypeFlags.Object) {
+    const disc = findDiscriminant(checker, [type]);
+    if (disc) {
+      return {
+        kind: "discriminated-union",
+        discriminantField: disc.field,
+        variantValues: disc.values,
+      };
+    }
   }
 
   if (type.flags & (ts.TypeFlags.Object | ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
