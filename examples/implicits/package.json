@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "check": "typesugar check",
+    "start": "typesugar run basic.ts",
     "expand": "typesugar expand basic.ts --diff"
   },
   "dependencies": {
