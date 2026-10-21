@@ -99,6 +99,12 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
     good = makeProject("typesugar-cli-good-", {
       ...GOOD_FILES,
       "src/kill.ts": `process.kill(process.pid, "SIGKILL");\n`,
+      // Top-level await (sql's showcase): the run bundle targeted es2020.
+      "src/tla.ts": `const v = await Promise.resolve(7);\nconsole.log("TLA", v);\nexport {};\n`,
+      // A CommonJS dependency that require()s a Node builtin (unplugin's
+      // showcase): esbuild's ESM bundle has no `require` for it.
+      "src/legacy.cjs": `const path = require("path");\nmodule.exports = { sep: path.sep };\n`,
+      "src/cjs-dep.ts": `// @ts-ignore -- untyped CJS fixture\nimport legacy from "./legacy.cjs";\nconsole.log("SEP", legacy.sep);\n`,
     });
   });
 
@@ -143,6 +149,18 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
     const { status, output } = runCli(["run", "src/main.ts"], good);
     expect(status, output).toBe(0);
     expect(output).toContain('RESULT ["x","y"] 42');
+  }, 120_000);
+
+  it("run: top-level await works (the bundle targets the Node it runs on)", () => {
+    const { status, output } = runCli(["run", "src/tla.ts"], good);
+    expect(status, output).toBe(0);
+    expect(output).toContain("TLA 7");
+  }, 120_000);
+
+  it("run: a bundled CommonJS module can require() a Node builtin", () => {
+    const { status, output } = runCli(["run", "src/cjs-dep.ts"], good);
+    expect(status, output).toBe(0);
+    expect(output).toContain(`SEP ${path.sep}`);
   }, 120_000);
 
   it("run: a child killed by a signal is a failure, not exit 0", () => {

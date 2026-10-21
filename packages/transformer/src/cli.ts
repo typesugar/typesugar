@@ -1186,7 +1186,15 @@ async function run(options: CliOptions): Promise<void> {
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "es2020",
+      // The bundle runs on this Node (engines: >=20), so target it: es2020
+      // rejected top-level await, which an ESM entry may use.
+      target: "node20",
+      // A bundled CommonJS module's require() of a Node builtin goes through
+      // esbuild's __require shim, which throws "Dynamic require of 'path' is
+      // not supported" in an ESM bundle unless a `require` is in scope.
+      banner: {
+        js: 'import { createRequire as __typesugarCreateRequire } from "node:module";\nconst require = __typesugarCreateRequire(import.meta.url);',
+      },
       outfile: tempFile,
       logLevel: options.verbose ? "info" : "silent",
       absWorkingDir: fileDir,
