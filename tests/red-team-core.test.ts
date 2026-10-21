@@ -48,7 +48,10 @@ describe("Core Edge Cases", () => {
   // Attack 1: Registry Name Collisions
   // ==========================================================================
   describe("Registry Name Collisions", () => {
-    it("should throw on duplicate macro with different definition", () => {
+    // PEP-060 item 8 (commit 3709f720): a legacy (module-less) macro may share
+    // a name with module-qualified ones. Bare-name lookup returns the legacy
+    // one; module-qualified resolution is never shadowed by it.
+    it("should let a legacy macro and a module-qualified macro share a name", () => {
       const registry = createRegistry();
       const macro1 = defineExpressionMacro({
         name: "testMacro",
@@ -61,7 +64,54 @@ describe("Core Edge Cases", () => {
       });
 
       registry.register(macro1);
-      expect(() => registry.register(macro2)).toThrow(/already registered/);
+      expect(() => registry.register(macro2)).not.toThrow();
+
+      expect(registry.getExpression("testMacro")).toBe(macro1);
+      expect(registry.getByModuleExport("different-module", "testMacro", "expression")).toBe(
+        macro2
+      );
+      expect(registry.getCandidates("testMacro", "expression")).toEqual([macro1, macro2]);
+    });
+
+    it("should throw on a different definition for the same identity", () => {
+      const registry = createRegistry();
+      // Two different legacy macros with one name: same identity (kind + name).
+      registry.register(
+        defineExpressionMacro({
+          name: "testMacro",
+          description: "first",
+          expand: () => ts.factory.createNull(),
+        })
+      );
+      expect(() =>
+        registry.register(
+          defineExpressionMacro({
+            name: "testMacro",
+            description: "second",
+            expand: () => ts.factory.createTrue(),
+          })
+        )
+      ).toThrow(/already registered/);
+
+      // Two different module-qualified macros with one (module, name).
+      registry.register(
+        defineExpressionMacro({
+          name: "testMacro",
+          module: "different-module",
+          description: "first",
+          expand: () => ts.factory.createNull(),
+        })
+      );
+      expect(() =>
+        registry.register(
+          defineExpressionMacro({
+            name: "testMacro",
+            module: "different-module",
+            description: "second",
+            expand: () => ts.factory.createTrue(),
+          })
+        )
+      ).toThrow(/already registered/);
     });
 
     it("should allow idempotent registration of same macro", () => {

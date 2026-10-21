@@ -1,6 +1,6 @@
 # typesugar
 
-**TypeScript that F\*cks! Compile-time macros. Zero runtime. Full type safety.**
+**Syntactic sugar for TypeScript with zero calories.** Typeclasses, operator overloading, pattern matching and more through compile-time macros and zero-cost abstractions.
 
 > _What if `===` just knew how to compare your types? What if `.clone()` worked on any struct? What if it all compiled to exactly what you'd write by hand?_
 
@@ -60,14 +60,14 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 ### Build Infrastructure
 
-| Package                                           | Description                                      |
-| ------------------------------------------------- | ------------------------------------------------ |
-| [typesugar](packages/typesugar)                   | Umbrella package                                 |
-| [@typesugar/core](packages/core)                  | Macro registration and types                     |
-| [@typesugar/macros](packages/macros)              | Built-in macro implementations                   |
-| [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch)                |
-| [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack) |
-| [@typesugar/ts-plugin](packages/ts-plugin)        | TypeScript language service plugin               |
+| Package                                           | Description                                         |
+| ------------------------------------------------- | --------------------------------------------------- |
+| [typesugar](packages/typesugar)                   | Umbrella package                                    |
+| [@typesugar/core](packages/core)                  | Macro registration and types                        |
+| [@typesugar/macros](packages/macros)              | Built-in macro implementations                      |
+| [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch, CLI)              |
+| [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack)    |
+| [@typesugar/ts-plugin](packages/ts-plugin)        | TypeScript language service plugin (editor support) |
 
 ### Standard Library
 
@@ -110,11 +110,11 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 ### Developer Experience
 
-| Package                                            | Description                        |
-| -------------------------------------------------- | ---------------------------------- |
-| [@typesugar/vscode](packages/vscode)               | VS Code/Cursor extension           |
-| [@typesugar/eslint-plugin](packages/eslint-plugin) | ESLint processor and rules         |
-| [@typesugar/testing](packages/testing)             | Power assertions, property testing |
+| Package                                            | Description                           |
+| -------------------------------------------------- | ------------------------------------- |
+| [typesugar-vscode](packages/vscode)                | VS Code/Cursor extension (not on npm) |
+| [@typesugar/eslint-plugin](packages/eslint-plugin) | ESLint processor and rules            |
+| [@typesugar/testing](packages/testing)             | Power assertions, property testing    |
 
 ### Frozen
 
@@ -131,7 +131,6 @@ actively maintained surface.
 | [@typesugar/collections](packages/collections) | HashSet/HashMap (still released — `@typesugar/graph` depends on it) |
 | [@typesugar/erased](packages/erased)           | Type erasure / dyn Trait                                            |
 | [@typesugar/strings](packages/strings)         | `regex`, `html`, `raw` tagged templates                             |
-| [@typesugar/lsp-server](packages/lsp-server)   | Standalone LSP server (use `@typesugar/ts-plugin` instead)          |
 
 ## Getting Started
 
@@ -235,15 +234,12 @@ export function distance(p: Point, other: Point): number {
 
 ```typescript
 import { sql, Fragment } from "@typesugar/sql";
-import { regex, html } from "@typesugar/strings";
-import { units } from "@typesugar/units";
 
 const query = sql`SELECT * FROM ${Fragment.ident(table)} WHERE id = ${id}`;
 // → { text: 'SELECT * FROM "users" WHERE id = $1', params: [5] }
-const pattern = regex`^[a-zA-Z]+$`; // Validated at compile time
-const markup = html`<div>${userInput}</div>`; // XSS-safe
-const speed = units`100 km/h`; // Dimensional analysis
 ```
+
+Tagged templates are a first-class macro kind, so you can [write your own](https://typesugar.org/writing-macros/tagged-template-macros).
 
 ### Typeclasses (Advanced)
 
@@ -365,27 +361,20 @@ The canonical docs live on the microsite: **[typesugar.org](https://typesugar.or
 
 ### Rust-Style Error Messages
 
-When something goes wrong, typesugar tells you exactly what happened, where, and how to fix it:
+When something goes wrong, typesugar tells you exactly what happened, where, and how to fix it.
+For `summon<Eq<Point>>()` where `Point` has a field of type `Color` with no `Eq`:
 
 ```
-error[TS9001]: No instance found for `Eq<Color>`
-  --> src/palette.ts:12:5
-   |
-10 |   interface Palette { primary: Color; accent: Color }
-11 |
-12 |   p1 === p2
-   |      ^^^ Eq<Palette> requires Eq for all fields
-   |
- 8 |   interface Color { r: number; g: number; b: number }
-   |   --------- field `primary` has type `Color`
-   |
-   = note: Auto-derivation requires Eq instances for all fields
-   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
-   = suggestion: add-derive-eq
-     + @derive(Eq)
-     + interface Color { r: number; g: number; b: number }
-
-For more information, see: https://typesugar.org/errors/TS9001
+src/palette.ts(15,17): error TS9001: [typesugar] [TS9001] No instance found for `Eq<Point>`
+  = note: resolution trace for Eq<Point>:
+  = note:   1. explicit-instance: Eq<Point> — not found — no @impl/@instance value for this type in scope
+  = note:   2. auto-derive via Generic: Eq<Point> — FAILED — see child attempts
+  = note:     derivation-strategy: Eq — ok
+  = note:     generic-meta: GenericMeta for Point: { x: number, y: number, color: Color } — FAILED — one or more fields lack required instance
+  = note:       field-check: field `x`: number — ok — number has Eq
+  = note:       field-check: field `y`: number — ok — number has Eq
+  = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
+  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
 ```
 
 Every error has a code (TS9001-TS9999) with an explanation page at `https://typesugar.org/errors/<code>`, and many carry machine-applicable fixes that your IDE can apply.

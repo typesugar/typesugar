@@ -2,6 +2,8 @@
 
 Compile-time parser generation from PEG grammars — define grammars inline with tagged templates or build parsers programmatically with combinators.
 
+> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** `@typesugar/parser` is not under active development. It is still published to npm and builds, but is not part of typesugar's actively-maintained surface.
+
 ## Quick Start
 
 ```bash

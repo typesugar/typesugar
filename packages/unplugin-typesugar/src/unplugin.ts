@@ -11,6 +11,7 @@ import * as path from "path";
 import { createUnplugin, type UnpluginFactory } from "unplugin";
 import { createFilter } from "@rollup/pluginutils";
 import { createPipeline, type TransformationPipeline } from "@typesugar/transformer";
+import { assertSupportedTypeScript } from "@typesugar/core";
 
 export interface TypesugarPluginOptions {
   /** Path to tsconfig.json (default: auto-detected) */
@@ -192,6 +193,9 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
   options = {},
   meta
 ) => {
+  // PEP-060 item 1: fail at plugin creation (config load), not mid-build, when
+  // the project's TypeScript is 7 (no JS compiler API). Memoized.
+  assertSupportedTypeScript(ts);
   warnAboutPlainPatterns(options?.include, options?.exclude);
   let pipeline: TransformationPipeline | undefined;
   /** Error from creating the pipeline; reported (fatally) by buildStart/transform. */

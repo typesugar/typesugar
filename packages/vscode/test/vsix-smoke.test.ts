@@ -131,10 +131,6 @@ describe("VSIX Packaging Smoke Tests", () => {
       expect(pkg.bundledDependencies).toContain("@typesugar/ts-plugin");
     });
 
-    it("bundles @typesugar/lsp-server", () => {
-      expect(pkg.bundledDependencies).toContain("@typesugar/lsp-server");
-    });
-
     it("all bundled deps are also in dependencies", () => {
       for (const dep of pkg.bundledDependencies ?? []) {
         expect(pkg.dependencies?.[dep]).toBeDefined();
@@ -143,23 +139,6 @@ describe("VSIX Packaging Smoke Tests", () => {
   });
 
   describe("extension.js bundling (post-build)", () => {
-    it("vscode-languageclient is inlined (no external require)", () => {
-      const distPath = path.join(VSCODE_PKG_PATH, "dist", "extension.js");
-      if (!fs.existsSync(distPath)) return; // skip if not built
-      const code = fs.readFileSync(distPath, "utf-8");
-      // Must NOT have an external require for vscode-languageclient —
-      // it must be bundled in, or the extension can't load in VS Code
-      expect(code).not.toMatch(/require\(["']vscode-languageclient/);
-    });
-
-    it("extension.js is > 100KB (proves vscode-languageclient is bundled)", () => {
-      const distPath = path.join(VSCODE_PKG_PATH, "dist", "extension.js");
-      if (!fs.existsSync(distPath)) return; // skip if not built
-      const stats = fs.statSync(distPath);
-      // vscode-languageclient alone is ~700KB bundled; 8KB means it's missing
-      expect(stats.size).toBeGreaterThan(100_000);
-    });
-
     it("only vscode and builtins are external requires", () => {
       const distPath = path.join(VSCODE_PKG_PATH, "dist", "extension.js");
       if (!fs.existsSync(distPath)) return;
@@ -189,49 +168,47 @@ describe("VSIX Packaging Smoke Tests", () => {
     });
   });
 
-  describe("prepackage bundles all required packages", () => {
-    it("inject script includes lsp-server", () => {
-      const script = fs.readFileSync(
-        path.join(VSCODE_PKG_PATH, "scripts", "inject-ts-plugin.js"),
-        "utf-8"
-      );
-      expect(script).toContain("lsp-server");
-    });
-
-    it("bundle script includes lsp-server", () => {
-      const script = fs.readFileSync(
-        path.join(VSCODE_PKG_PATH, "scripts", "bundle-ts-plugin.js"),
-        "utf-8"
-      );
-      expect(script).toContain("lsp-server");
-    });
+  describe("prepackage bundles the tsserver plugin only", () => {
+    for (const script of ["inject-ts-plugin.js", "bundle-ts-plugin.js"]) {
+      it(`${script} ships ts-plugin + transformer`, () => {
+        const code = fs.readFileSync(path.join(VSCODE_PKG_PATH, "scripts", script), "utf-8");
+        expect(code).toContain("ts-plugin");
+        expect(code).toContain("transformer");
+      });
+    }
   });
 
-  describe("no command registration conflicts", () => {
-    it("extension.ts does not registerCommand for LSP executeCommandProvider commands", () => {
-      const srcPath = path.join(VSCODE_PKG_PATH, "src", "extension.ts");
-      const code = fs.readFileSync(srcPath, "utf-8");
-      // These commands are declared in the server's executeCommandProvider.
-      // vscode-languageclient auto-registers them — the extension must NOT
-      // also call registerCommand for them, or "already exists" error occurs.
-      const lspCommands = [
-        "typesugar.expandMacro",
-        "typesugar.showTransformed",
-        "typesugar.refreshManifest",
-      ];
-      for (const cmd of lspCommands) {
-        const registerPattern = new RegExp(
-          `registerCommand\\([^)]*["']${cmd.replace(".", "\\.")}["']`
-        );
-        expect(code).not.toMatch(registerPattern);
+  describe("contributions", () => {
+    const pkg = readJson<{
+      contributes: {
+        commands: Array<{ command: string }>;
+        configuration: { properties: Record<string, unknown> };
+        typescriptServerPlugins: Array<{ name: string }>;
+        semanticTokenTypes?: unknown;
+      };
+    }>("package.json");
+
+    it("registers the tsserver plugin", () => {
+      expect(pkg.contributes.typescriptServerPlugins.map((p) => p.name)).toEqual([
+        "@typesugar/ts-plugin",
+      ]);
+    });
+
+    it("every contributed command is registered by extension.ts", () => {
+      const code = fs.readFileSync(path.join(VSCODE_PKG_PATH, "src", "extension.ts"), "utf-8");
+      for (const { command } of pkg.contributes.commands) {
+        expect(code).toContain(`registerCommand("${command}"`);
       }
     });
 
-    it("extension.ts uses middleware for LSP command interception", () => {
-      const srcPath = path.join(VSCODE_PKG_PATH, "src", "extension.ts");
-      const code = fs.readFileSync(srcPath, "utf-8");
-      expect(code).toContain("middleware");
-      expect(code).toContain("executeCommand");
+    it("declares only settings the extension reads", () => {
+      expect(Object.keys(pkg.contributes.configuration.properties)).toEqual([
+        "typesugar.comptimeInEditor",
+      ]);
+    });
+
+    it("declares no LSP-only semantic token types", () => {
+      expect(pkg.contributes.semanticTokenTypes).toBeUndefined();
     });
   });
 

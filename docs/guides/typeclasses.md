@@ -178,7 +178,7 @@ new Point(1, 2).equals(new Point(1, 2)); // true
 
 Without the `@typesugar/std/syntax/eq` import, `.equals()` stays a plain
 (missing) method call — sugar is never ambient. The louder operator form
-(`@typesugar/std/syntax/eq/ops`, enabling `===`) implies the method form (tier
+(`@typesugar/std/syntax/eq/ops`, enabling `===` and `==`) implies the method form (tier
 3 ⊇ tier 2). See [Operator Syntax](#operator-syntax) below.
 
 ## Zero-Cost Specialization
@@ -311,8 +311,16 @@ interface Numeric<A> {
 
 /** @typeclass */
 interface Eq<A> {
-  /** @op === */ equals(a: A, b: A): boolean;
-  /** @op !== */ notEquals(a: A, b: A): boolean;
+  /**
+   * @op ===
+   * @op ==
+   */
+  equals(a: A, b: A): boolean;
+  /**
+   * @op !==
+   * @op !=
+   */
+  notEquals(a: A, b: A): boolean;
 }
 
 /** @typeclass */
@@ -324,11 +332,19 @@ interface Ord<A> {
 }
 ```
 
+A method may carry several `@op` tags, one per operator, when the operators are
+equivalent spellings of the same operation: the `Eq` above (like std's) maps both
+`===` and `==` to `equals`, and both `!==` and `!=` to `notEquals`. Each tag maps
+its operator to the method. A comparison with `null` or `undefined` is never
+rewritten, and `Object.is(a, b)` (a call, not an operator) always compares
+references.
+
 ### Using Operators
 
-Once you have a typeclass with `@op` annotations and an instance for your type, standard operators automatically rewrite:
+Once you have a typeclass with `@op` annotations and an instance for your type, standard operators rewrite in any file that activates the typeclass's operator syntax: a file that declares the typeclass (as below, in the same file as the declarations above), or one that imports its `@syntax-operators` marker module, e.g. `import "@typesugar/std/syntax/numeric/ops";` for std's `Numeric`. Anywhere else the operator stays native JavaScript and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add.
 
 ```typescript
+// Same file as the typeclass declarations above, so their operators are active.
 interface Point {
   x: number;
   y: number;

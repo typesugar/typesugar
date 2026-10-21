@@ -1,109 +1,226 @@
 # Editor Setup
 
-This guide covers setting up your editor for the best typesugar development experience.
+typesugar's editor support is a **TypeScript server plugin**, `@typesugar/transformer/language-service`.
+It runs inside your editor's own TypeScript server (tsserver), serves macro-expanded code to
+TypeScript, and maps every position back to your source. Diagnostics (TypeScript's and
+typesugar's TS9xxx), completions, hover, go-to-definition, references, rename, signature help and
+quick fixes then work through macros in any editor whose TypeScript support is tsserver-based.
 
-## VSCode / Cursor
+The plugin is typesugar's only editor engine.
 
-### Install the Extension
+## Set up the project (every editor)
 
-Install the typesugar extension from the marketplace:
+1. Install the transformer as a direct devDependency, so the TypeScript server can find the
+   plugin in your project's `node_modules` (with pnpm, a transitive install through `typesugar`
+   is not enough):
+
+   ```bash
+   npm install --save-dev @typesugar/transformer
+   ```
+
+2. Add the plugin to `tsconfig.json`:
+
+   ```json
+   {
+     "compilerOptions": {
+       "plugins": [{ "name": "@typesugar/transformer/language-service" }]
+     }
+   }
+   ```
+
+   Plugins in `tsconfig.json` only affect editors; `tsc` ignores them. Use the same `name`
+   everywhere. The VS Code extension registers the same engine under the wrapper name
+   `@typesugar/ts-plugin`; you don't need to list that one.
+
+3. Make the editor use the project's TypeScript (`node_modules/typescript`), not one bundled with
+   the editor. TypeScript looks for `tsconfig.json` plugins next to the TypeScript it runs from,
+   so with a bundled TypeScript the plugin isn't found. The sections below say how per editor.
+
+The plugin's only option is `"verbose": true` (or `TYPESUGAR_VERBOSE=1` in the TypeScript
+server's environment), which logs what it does to the TypeScript server log.
+
+::: warning TypeScript 7
+TypeScript 7 (the native port) has no tsserver plugin API, so typesugar's editor support doesn't
+work with it yet. Use TypeScript 6 (or 5.9+) as typesugar's `typescript` devDependency. On
+TypeScript 7 the plugin refuses to load with a
+["TypeScript 7.x is not supported"](./troubleshooting.md#typescript-7) message.
+:::
+
+## VS Code / Cursor
+
+Install the typesugar extension:
 
 1. Open Extensions (Cmd/Ctrl+Shift+X)
 2. Search for "typesugar"
 3. Click Install
 
-Or install from the command line:
+Or from the command line:
 
 ```bash
 code --install-extension typesugar.typesugar-vscode
 ```
 
-### Extension Features
+The extension bundles the plugin and registers it with VS Code's TypeScript server, so the
+language features work without the `tsconfig.json` entry and with either VS Code's TypeScript or
+the workspace version. If `tsconfig.json` does list the plugin (for other editors on your team),
+the project's installed copy is used and the bundled one stands down; to use the project's copy,
+select the workspace TypeScript ("TypeScript: Select TypeScript Version" → "Use Workspace
+Version", or `"typescript.tsdk": "node_modules/typescript/lib"` in `.vscode/settings.json`).
 
-**Syntax Highlighting:**
+The extension adds:
 
-- Macro invocations are highlighted distinctly
-- Extension methods show their typeclass origin
-- Comprehension syntax (`let:`, `yield:`, `<<`) gets special treatment
+- **typesugar: Expand Macro at Cursor**: opens the expansion of the macro under the cursor in a
+  side editor.
+- **typesugar: Show Transformed Source**: a diff of the file against what TypeScript sees after
+  expansion.
+- **Inlay hints** after expression-macro calls, showing the expansion
+  (`fieldNames<User>()  = ["id", "name"]`). VS Code only asks the TypeScript server for inlay
+  hints when at least one `typescript.inlayHints.*` setting is on, for example
+  `"typescript.inlayHints.variableTypes.enabled": true`.
+- Syntax highlighting for `let:`/`yield:` blocks, the `<<` bind operator, `comptime` and unit
+  literals.
 
-**CodeLens:**
+Both commands are in the command palette and in the editor's context menu.
 
-- Inline expansion previews above macro calls
-- Click to see the full expanded code
-
-**Inlay Hints:**
-
-- Bind variable types in comprehensions
-- Compile-time evaluation results (only with `typesugar.comptimeInEditor` on; see below)
-
-**Code Actions:**
-
-- "Expand macro" at cursor position
-- "Wrap in comptime()"
-- "Add @derive() decorator"
-
-**Diagnostics:**
-
-- Macro-specific errors with context
-- Errors point to your source code, not generated code
-
-### Extension Configuration
-
-Open Settings (Cmd/Ctrl+,) and search for "typesugar":
+One setting:
 
 ```json
 {
-  // Show expansion previews as CodeLens
-  "typesugar.enableCodeLens": true,
-
-  // Show inlay hints for types
-  "typesugar.enableInlayHints": true,
-
-  // Show macro-specific diagnostics
-  "typesugar.enableDiagnostics": true,
-
-  // Path to manifest file (auto-generated)
-  "typesugar.manifestPath": "typesugar.manifest.json",
-
   // Evaluate comptime(...) blocks in the editor (trusted workspaces only).
-  // Off by default: comptime code runs with editor privileges.
+  // Off by default: comptime code runs with the editor's privileges.
   "typesugar.comptimeInEditor": false
 }
 ```
 
-### Language Service Plugin
+A repository can't turn `comptimeInEditor` on from its own `tsconfig.json`; only this setting or
+`TYPESUGAR_COMPTIME_IN_EDITOR=1` in the editor's environment can. See
+[Compile-Time Evaluation](../guides/comptime.md).
 
-For full IDE integration, add the language service plugin to `tsconfig.json`:
+## Other editors
+
+Other editors reach tsserver through
+[`typescript-language-server`](https://github.com/typescript-language-server/typescript-language-server)
+or [`vtsls`](https://github.com/yioneko/vtsls), and both load tsserver plugins. Set up the project
+as above, then make sure the server uses the project's TypeScript. The snippets below follow each
+editor's standard TypeScript configuration. We test the plugin inside tsserver loaded from
+`tsconfig.json` (what these servers run) and the VS Code extension, not each editor's own setup, so
+please [report](https://github.com/typesugar/typesugar/issues) what
+works or doesn't. The expansion commands are VS Code only; elsewhere, run
+`npx typesugar expand <file>` (add `--diff` for a diff).
+
+### Neovim
+
+**`ts_ls` (typescript-language-server)** loads `tsconfig.json` plugins and prefers the project's
+`node_modules/typescript` when it exists, so the project setup is enough:
+
+```lua
+-- nvim-lspconfig
+require("lspconfig").ts_ls.setup({})
+-- Neovim 0.11+: vim.lsp.enable("ts_ls")
+```
+
+**vtsls** uses its bundled TypeScript unless told otherwise. Either let it use the workspace
+version (the `tsconfig.json` entry is then picked up):
+
+```lua
+require("lspconfig").vtsls.setup({
+  settings = {
+    vtsls = { autoUseWorkspaceTsdk = true },
+  },
+})
+```
+
+or load the plugin as a global plugin, which works with the bundled TypeScript too.
+`location` is the directory whose `node_modules` contains `@typesugar/transformer`:
+
+```lua
+require("lspconfig").vtsls.setup({
+  settings = {
+    vtsls = {
+      tsserver = {
+        globalPlugins = {
+          {
+            name = "@typesugar/transformer/language-service",
+            location = vim.fn.getcwd(),
+            enableForWorkspaceTypeScriptVersions = true,
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+### Zed
+
+Unverified: we haven't confirmed that Zed's vtsls loads the plugin; please
+[report](https://github.com/typesugar/typesugar/issues) whether it does. Zed's TypeScript support
+uses vtsls by default. With the project setup above, tell vtsls to use the workspace TypeScript in
+`.zed/settings.json`:
 
 ```json
 {
-  "compilerOptions": {
-    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
+  "lsp": {
+    "vtsls": {
+      "settings": {
+        "vtsls": { "autoUseWorkspaceTsdk": true }
+      }
+    }
   }
 }
 ```
 
-This provides:
+The `globalPlugins` alternative from the Neovim section works here too, under
+`lsp.vtsls.settings.vtsls.tsserver.globalPlugins`.
 
-- Accurate type information for macro-generated code
-- Proper go-to-definition for derived methods
-- Autocomplete for typeclass methods
+### Sublime Text
 
-### Using Workspace TypeScript
-
-Ensure VSCode uses the workspace TypeScript, not the built-in version:
-
-1. Open a TypeScript file
-2. Click the TypeScript version in the status bar (bottom right)
-3. Select "Use Workspace Version"
-
-Or add to `.vscode/settings.json`:
+Install [LSP](https://packagecontrol.io/packages/LSP) and
+[LSP-typescript](https://packagecontrol.io/packages/LSP-typescript) (typescript-language-server).
+It uses the project's TypeScript when there is one, so the project setup is enough. To load the
+plugin globally instead, add it in Preferences → Package Settings → LSP → Servers →
+LSP-typescript:
 
 ```json
 {
-  "typescript.tsdk": "node_modules/typescript/lib"
+  "initializationOptions": {
+    "plugins": [
+      { "name": "@typesugar/transformer/language-service", "location": "/path/to/project" }
+    ]
+  }
 }
 ```
+
+### Helix
+
+Helix runs `typescript-language-server` for TypeScript by default, which picks up the
+`tsconfig.json` plugin from the project's TypeScript; the project setup is enough. To pass the
+plugin explicitly, in `languages.toml`:
+
+```toml
+[language-server.typescript-language-server.config]
+plugins = [{ name = "@typesugar/transformer/language-service", location = "/path/to/project" }]
+```
+
+### Emacs
+
+Both **lsp-mode** (its `ts-ls` client) and **eglot** run `typescript-language-server`, which picks
+up the `tsconfig.json` plugin from the project's TypeScript, so the project setup is enough. With
+lsp-mode you can also register the plugin globally:
+
+```elisp
+(setq lsp-clients-typescript-plugins
+      (vector (list :name "@typesugar/transformer/language-service"
+                    :location "/path/to/project")))
+```
+
+### JetBrains IDEs (WebStorm, IntelliJ)
+
+Unverified: it may work if WebStorm uses the project's TypeScript (Settings → Languages &
+Frameworks → TypeScript → TypeScript: the project's `node_modules/typescript`), since WebStorm runs
+tsserver for its TypeScript service. Please [report](https://github.com/typesugar/typesugar/issues)
+whether it does. `typesugar check` and `typesugar expand <file>` work from the terminal either
+way.
 
 ## ESLint
 
@@ -172,92 +289,45 @@ typesugar works with Prettier out of the box — all source is standard TypeScri
 }
 ```
 
-## Other Editors
-
-### Neovim
-
-Use the TypeScript language server with the typesugar plugin configured in `tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
-  }
-}
-```
-
-Configure your LSP to use the workspace TypeScript:
-
-```lua
--- init.lua (nvim-lspconfig)
-require("lspconfig").tsserver.setup({
-  init_options = {
-    preferences = {
-      includePackageJsonAutoImports = "on",
-    },
-    plugins = {
-      { name = "@typesugar/transformer/language-service" },
-    },
-  },
-})
-```
-
-### JetBrains IDEs (WebStorm, IntelliJ)
-
-JetBrains IDEs use their own TypeScript service and don't support TypeScript language service plugins directly.
-
-For WebStorm users:
-
-1. Configure the transformer in `tsconfig.json`
-2. Use external tools for macro expansion: `typesugar expand <file>`
-3. Type checking works, but some IDE features won't recognize derived methods
-
-### Sublime Text
-
-Use the LSP package with typescript-language-server:
-
-1. Install Package Control
-2. Install "LSP" and "LSP-typescript"
-3. Configure to use workspace TypeScript
-4. Add the language service plugin to `tsconfig.json`
-
 ## Verify IDE Setup
 
-### Check 1: Expansion Preview
+### Check 1: No false errors
 
-In a file with macros, you should see:
-
-- CodeLens showing expansion previews (VSCode)
-- No red squiggles on macro calls
-- Proper types for derived methods
+In a file with macros there should be no red squiggles on macro calls, and derived methods should
+have proper types. In VS Code, **typesugar: Show Transformed Source** shows what TypeScript sees.
 
 ### Check 2: Go to Definition
 
-For a derived method like `.equals()`:
-
-- Go-to-definition should work
-- It should point to the generated code or the derive macro
+For a derived method like `.equals()`, go-to-definition should work and point to your source or
+the derive macro.
 
 ### Check 3: Autocomplete
 
-Type `user.` on a derived class and verify:
-
-- Autocomplete suggests derived methods
-- Method signatures are correct
+Type `user.` on a derived class and check that autocomplete suggests the derived methods with
+correct signatures.
 
 ## Troubleshooting
+
+### Macros show as errors, or nothing is typesugar-aware
+
+1. Check that the TypeScript server loaded the plugin: its log has `[typesugar]` lines (VS Code:
+   "TypeScript: Open TS Server Log"; with `"verbose": true` in the plugin entry there are more).
+2. Outside VS Code, check that the server uses the project's TypeScript and that
+   `@typesugar/transformer` is a direct devDependency.
+3. Check the TypeScript version: TypeScript 7 is not supported yet.
+4. Restart the TypeScript server (VS Code: "TypeScript: Restart TS Server").
 
 ### "Cannot find name 'comptime'"
 
 1. Ensure `typesugar` is installed
 2. Add the import: `import { comptime } from "typesugar"`
-3. Check that the language service plugin is configured
+3. Check that the plugin is loaded (above)
 
-### No CodeLens / Inlay Hints
+### No inlay hints
 
-1. Verify the extension is installed and enabled
-2. Check extension settings are enabled
-3. Restart the editor
+VS Code: turn on at least one `typescript.inlayHints.*` setting (and keep
+`editor.inlayHints.enabled` on). Other editors: enable inlay hints in the editor and in the
+TypeScript server's preferences.
 
 ### ESLint shows false positives
 

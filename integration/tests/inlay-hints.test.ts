@@ -1,27 +1,44 @@
 /**
- * Integration test: Inlay hints through the LSP server.
- *
- * Verifies that comptime evaluation results and bind variable types
- * appear as inline hints.
+ * Integration test: inlay hints (tsserver `provideInlayHints`) through the
+ * typesugar plugin: the expansion preview after an expression macro, and
+ * TypeScript's own hints mapped back to source positions.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prepareFixture, type PreparedFixture } from "../lib/fixture-manager.js";
-import { initSession, openFile, type LspSession } from "../lib/assertions.js";
+import {
+  initSession,
+  openFile,
+  locate,
+  PLUGIN_NAME,
+  type Location,
+  type TsSession,
+} from "../lib/assertions.js";
 
-interface LspInlayHint {
-  position: { line: number; character: number };
-  label: string | Array<{ value: string }>;
-  kind?: number;
+interface InlayHint {
+  text: string;
+  position: Location;
+  kind: string;
 }
 
 describe("inlay hints (basic-project)", () => {
   let fixture: PreparedFixture;
-  let session: LspSession;
+  let session: TsSession;
+  let file: string;
+  let text: string;
+
+  const hints = () =>
+    session.client.request<InlayHint[]>("provideInlayHints", {
+      file,
+      start: 0,
+      length: text.length,
+    });
+  const COMPTIME_CALL = "comptime(() => 6 * 7)";
 
   beforeAll(async () => {
     fixture = await prepareFixture("basic-project");
     session = await initSession(fixture);
+    ({ file, text } = openFile(session, "src/macros.ts"));
   }, 60000);
 
   afterAll(async () => {
@@ -29,26 +46,37 @@ describe("inlay hints (basic-project)", () => {
     fixture?.cleanup();
   });
 
-  it("returns inlay hints for file with macros", async () => {
-    const { uri } = await openFile(session, "src/macros.ts");
-    await new Promise((r) => setTimeout(r, 1000));
+  it("does not evaluate comptime for a hint unless the editor enables it", async () => {
+    const texts = (await hints()).map((h) => h.text);
+    expect(texts).not.toContain("= 42");
+    // An unevaluated call has no value to show (it used to repeat the call).
+    expect(texts.filter((t) => t.startsWith("= comptime"))).toEqual([]);
+  });
 
-    const hints = await session.client.request<LspInlayHint[] | null>("textDocument/inlayHint", {
-      textDocument: { uri },
-      range: {
-        start: { line: 0, character: 0 },
-        end: { line: 20, character: 0 },
-      },
+  // The requested span (the whole file here) starts in a comment, which has
+  // no mapping of its own; the plugin maps it as a range (PEP-060 item 5).
+  it("shows TypeScript's variable-type hint at the source position", async () => {
+    await session.client.request("configure", {
+      preferences: { includeInlayVariableTypeHints: true },
     });
-
-    // If hints are returned, they should have valid positions
-    if (hints && hints.length > 0) {
-      for (const hint of hints) {
-        expect(hint.position.line).toBeGreaterThanOrEqual(0);
-        const label =
-          typeof hint.label === "string" ? hint.label : hint.label.map((p) => p.value).join("");
-        expect(label.length, "hint label should be non-empty").toBeGreaterThan(0);
-      }
+    try {
+      const typeHint = (await hints()).find((h) => h.text === ": number");
+      // `const answer = comptime(...)`: the hint goes right after `answer`.
+      expect(typeHint?.position).toEqual(locate(text, "answer =", { delta: "answer".length }));
+    } finally {
+      await session.client.request("configure", {
+        preferences: { includeInlayVariableTypeHints: false },
+      });
     }
+  });
+
+  it("shows `= 42` after the comptime call once the editor enables comptimeInEditor", async () => {
+    // What the VS Code extension sends for `typesugar.comptimeInEditor: true`.
+    await session.client.request("configurePlugin", {
+      pluginName: PLUGIN_NAME,
+      configuration: { comptimeInEditor: true },
+    });
+    const hint = (await hints()).find((h) => h.text === "= 42");
+    expect(hint?.position).toEqual(locate(text, COMPTIME_CALL, { delta: COMPTIME_CALL.length }));
   });
 });

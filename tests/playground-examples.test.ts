@@ -303,8 +303,19 @@ describe("all examples transform without strictOutput type errors", () => {
 // Tier 3: Macros fire — output differs from source
 // ============================================================================
 
+// Examples that use no macros (library-only demos): their output is the
+// source. Every file used to be reprinted, so these counted as "changed" too.
+const NO_MACRO_EXAMPLES = new Set(["fp/either.ts"]);
+
 describe("macros fire (output differs from source)", () => {
   for (const ex of examples) {
+    const rel = ex.relPath.replace(/\\/g, "/");
+    if (NO_MACRO_EXAMPLES.has(rel)) {
+      it(`${ex.relPath} (no macros: output is the source)`, () => {
+        expect(transform(ex).changed).toBe(false);
+      });
+      continue;
+    }
     it(`${ex.relPath}`, () => {
       const result = transform(ex);
       expect(result.changed, `${ex.relPath}: output identical to source — no macros fired`).toBe(
@@ -349,6 +360,26 @@ describe("operators: a + b rewrites to typeclass method calls", () => {
     const result = transform(findExample("core/operators"));
     expect(result.code).toContain(".add(");
   });
+
+  // Operator syntax is opt-in per file (PEP-052): this example used to lack
+  // its `@typesugar/std/syntax/numeric/ops` import, so `a + b` stayed native
+  // and printed `undefined + undefinedi` with no diagnostic.
+  it("math/numeric-typeclass.ts — Complex + and * dispatch to numericComplex", () => {
+    const result = transform(findExample("math/numeric-typeclass"));
+    expect(result.code).toContain("numericComplex.add(a, b)");
+    expect(result.code).toContain("numericComplex.mul(a, b)");
+  });
+});
+
+// No example may use an operator on a typeclass type without activating its
+// operator syntax: TS9804 is exactly that mistake.
+describe("no example leaves typeclass operator syntax un-activated (TS9804)", () => {
+  for (const ex of examples) {
+    it(`${ex.relPath}`, () => {
+      const hints = transform(ex).diagnostics.filter((d) => d.code === 9804);
+      expect(hints.map((d) => d.message)).toEqual([]);
+    });
+  }
 });
 
 describe("pipe() inlines to nested function calls", () => {

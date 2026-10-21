@@ -43,11 +43,11 @@
     "@typesugar/testing": "^0.1.0",
     "ts-patch": "^3.3.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.8.3",
+    "typescript": "^5.9.3",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
     "@typesugar/transformer": ">=0.1.0",
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.9.0 <7.0.0"
   }
 }

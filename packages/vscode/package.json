@@ -1,7 +1,7 @@
 {
   "name": "typesugar-vscode",
   "version": "0.1.1",
-  "description": "IDE support for typesugar — syntax highlighting, expansion preview, and diagnostics for compile-time macros",
+  "description": "IDE support for typesugar — macro-aware TypeScript through the bundled TypeScript server plugin, syntax highlighting, and macro expansion views",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "private": true,
   "repository": {
@@ -26,8 +26,7 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:**/node_modules/typesugar/package.json",
-    "workspaceContains:**/typesugar.manifest.json"
+    "workspaceContains:**/node_modules/typesugar/package.json"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -49,113 +48,6 @@
         ]
       }
     ],
-    "semanticTokenTypes": [
-      {
-        "id": "macro",
-        "superType": "function",
-        "description": "A compile-time macro invocation"
-      },
-      {
-        "id": "macroDecorator",
-        "superType": "decorator",
-        "description": "A compile-time macro decorator"
-      },
-      {
-        "id": "macroTemplate",
-        "superType": "function",
-        "description": "A tagged template macro tag"
-      },
-      {
-        "id": "extensionMethod",
-        "superType": "method",
-        "description": "An implicit typeclass extension method"
-      },
-      {
-        "id": "deriveArg",
-        "superType": "type",
-        "description": "A derive macro argument (e.g., Eq, Ord)"
-      },
-      {
-        "id": "bindVariable",
-        "superType": "variable",
-        "description": "A monadic bind variable in a comprehension"
-      },
-      {
-        "id": "comptimeBlock",
-        "superType": "function",
-        "description": "A compile-time evaluation block"
-      }
-    ],
-    "semanticTokenModifiers": [
-      {
-        "id": "macro",
-        "description": "Indicates a macro-related token"
-      },
-      {
-        "id": "comptime",
-        "description": "Indicates compile-time evaluation"
-      }
-    ],
-    "semanticTokenScopes": [
-      {
-        "language": "typescript",
-        "scopes": {
-          "macro": [
-            "entity.name.function.macro.typesugar"
-          ],
-          "macroDecorator": [
-            "entity.name.function.decorator.macro.typesugar"
-          ],
-          "macroTemplate": [
-            "entity.name.tag.macro.typesugar"
-          ],
-          "extensionMethod": [
-            "entity.name.function.extension.typesugar"
-          ],
-          "deriveArg": [
-            "entity.name.type.derive.typesugar"
-          ],
-          "bindVariable": [
-            "variable.other.bind.typesugar"
-          ],
-          "comptimeBlock": [
-            "entity.name.function.comptime.typesugar"
-          ]
-        }
-      }
-    ],
-    "configurationDefaults": {
-      "editor.semanticTokenColorCustomizations": {
-        "rules": {
-          "macro": {
-            "foreground": "#C586C0",
-            "bold": true
-          },
-          "macroDecorator": {
-            "foreground": "#DCDCAA",
-            "bold": true
-          },
-          "macroTemplate": {
-            "foreground": "#CE9178",
-            "italic": true
-          },
-          "extensionMethod": {
-            "foreground": "#4EC9B0",
-            "italic": true
-          },
-          "deriveArg": {
-            "foreground": "#4FC1FF"
-          },
-          "bindVariable": {
-            "foreground": "#9CDCFE",
-            "bold": true
-          },
-          "comptimeBlock": {
-            "fontStyle": "italic"
-          }
-        }
-      }
-    },
     "commands": [
       {
         "command": "typesugar.expandMacro",
@@ -164,20 +56,32 @@
       {
         "command": "typesugar.showTransformed",
         "title": "typesugar: Show Transformed Source"
-      },
-      {
-        "command": "typesugar.refreshManifest",
-        "title": "typesugar: Refresh Macro Manifest"
-      },
-      {
-        "command": "typesugar.generateManifest",
-        "title": "typesugar: Generate Macro Manifest"
-      },
-      {
-        "command": "typesugar.addDerive",
-        "title": "typesugar: Add @derive(...)"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "typesugar.expandMacro",
+          "when": "editorLangId == typescript || editorLangId == typescriptreact",
+          "group": "typesugar@1"
+        },
+        {
+          "command": "typesugar.showTransformed",
+          "when": "editorLangId == typescript || editorLangId == typescriptreact",
+          "group": "typesugar@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "typesugar.expandMacro",
+          "when": "editorLangId == typescript || editorLangId == typescriptreact"
+        },
+        {
+          "command": "typesugar.showTransformed",
+          "when": "editorLangId == typescript || editorLangId == typescriptreact"
+        }
+      ]
+    },
     "typescriptServerPlugins": [
       {
         "name": "@typesugar/ts-plugin",
@@ -187,26 +91,6 @@
     "configuration": {
       "title": "typesugar",
       "properties": {
-        "typesugar.enableCodeLens": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show CodeLens with macro expansion previews"
-        },
-        "typesugar.enableInlayHints": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show inlay hints for bind types and comptime results"
-        },
-        "typesugar.enableDiagnostics": {
-          "type": "boolean",
-          "default": true,
-          "description": "Run background macro expansion for diagnostics"
-        },
-        "typesugar.manifestPath": {
-          "type": "string",
-          "default": "typesugar.manifest.json",
-          "description": "Path to the macro manifest file (relative to workspace root)"
-        },
         "typesugar.comptimeInEditor": {
           "type": "boolean",
           "default": false,
@@ -240,12 +124,9 @@
   },
   "dependencies": {
     "@typesugar/core": "workspace:*",
-    "@typesugar/lsp-server": "workspace:*",
-    "@typesugar/ts-plugin": "workspace:*",
-    "vscode-languageclient": "^9.0.1"
+    "@typesugar/ts-plugin": "workspace:*"
   },
   "bundledDependencies": [
-    "@typesugar/lsp-server",
     "@typesugar/ts-plugin"
   ],
   "sideEffects": true

@@ -476,47 +476,4 @@ const pct: Percentage = 0.5;
       expect(evaluateDiagnosticSuppression(assignDiags[0], checker, sourceFile)).toBe(true);
     });
   });
-
-  describe("coexistence with NewtypeAssignment rule", () => {
-    it("both rules can be active without interference", async () => {
-      const { createNewtypeAssignmentRule } = await import("@typesugar/macros");
-
-      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
-      registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
-      registerMockOpaqueTypes();
-
-      // Newtype case (handled by NewtypeAssignment)
-      const newtypeResult = createProgram({
-        "/test.ts": `
-declare const __brand: unique symbol;
-type Newtype<Base, Brand extends string> = Base & {
-  readonly [__brand]: Brand;
-};
-type UserId = Newtype<number, "UserId">;
-type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
-declare function wrap<T>(value: UnwrapNewtype<T>): T;
-const id = wrap<UserId>(42);
-`,
-      });
-
-      const newtypeDiags = getAssignmentDiagnostics(newtypeResult.diagnostics, "/test.ts");
-      expect(newtypeDiags.length).toBeGreaterThan(0);
-      expect(
-        evaluateDiagnosticSuppression(newtypeDiags[0], newtypeResult.checker, newtypeDiags[0].file!)
-      ).toBe(true);
-
-      // Opaque type case (handled by TypeRewriteAssignment)
-      const opaqueResult = createProgram({
-        "/test.ts": `${OPAQUE_PREAMBLE}
-const email: Email = "user@test.com";
-`,
-      });
-
-      const opaqueDiags = getAssignmentDiagnostics(opaqueResult.diagnostics, "/test.ts");
-      expect(opaqueDiags.length).toBeGreaterThan(0);
-      expect(
-        evaluateDiagnosticSuppression(opaqueDiags[0], opaqueResult.checker, opaqueDiags[0].file!)
-      ).toBe(true);
-    });
-  });
 });

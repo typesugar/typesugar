@@ -56,6 +56,10 @@ const user = assertUser(data); // throws if invalid
 console.log(user.name); // user is typed as User
 ```
 
+`assertType<T>()` is the same macro under another name (the name typescript-is and
+typia use). Use it in files that also import `@typesugar/testing`'s `assert`; see
+[Using validate and testing together](#using-validate-and-testing-together).
+
 ### Validation with Error Accumulation
 
 Collect all validation errors instead of failing fast:
@@ -82,6 +86,49 @@ if (isValid(result)) {
 
 (`isValid` and `List` come from `@typesugar/fp`. `Validated` values are plain
 data — there is no `.fold` method.)
+
+### Checking a Value Directly
+
+Pass the value as an argument to check it on the spot instead of getting a function back
+(typia's `is<T>(input)` form). The argument is evaluated once.
+
+```typescript
+import { is, assert, validate } from "@typesugar/validate";
+
+if (is<User>(data)) {
+  console.log(data.name); // data is typed as User
+}
+
+const user = assert<User>(data); // returns data typed as User, or throws
+const result = validate<User>(data); // ValidatedNel<ValidationError, User>
+```
+
+Passing more than one argument is a compile-time error.
+
+## Using validate and testing together
+
+`@typesugar/validate` and `@typesugar/testing` both have an `assert` macro:
+validate's `assert<T>()` checks `unknown` data against a type, testing's
+`assert(cond)` is a power assertion. Both packages can be loaded in one project
+(for example validate in the app and testing in its tests). Each call expands the
+macro of the package it was imported from, whichever package loaded first.
+
+In a file that needs both, import validate's under its other name, `assertType`:
+
+```typescript
+import { assert } from "@typesugar/testing";
+import { assertType } from "@typesugar/validate";
+
+const assertUser = assertType<User>(); // validate's assertion function
+assert(assertUser(data).name === "Ada"); // testing's power assert
+```
+
+Renaming the import (`import { assert as assertValid } from "@typesugar/validate"`)
+or using a namespace (`import * as v from "@typesugar/validate"; v.assert<User>()`)
+works too.
+
+`@typesugar/testing` also has an `assertType<T>(value)` macro, a type-driven
+assertion for tests. As with `assert`, the import decides which one a call uses.
 
 ## Schema Typeclass
 
@@ -245,11 +292,16 @@ package's `.d.ts` has no method bodies to inline.
 
 ### Macros
 
-| Macro           | Description                                                       |
-| --------------- | ----------------------------------------------------------------- |
-| `is<T>()`       | Generate a type guard `(x: unknown) => x is T`                    |
-| `assert<T>()`   | Generate an assertion `(x: unknown) => T` that throws on failure  |
-| `validate<T>()` | Generate a validator returning `ValidatedNel<ValidationError, T>` |
+| Macro             | Description                                                       |
+| ----------------- | ----------------------------------------------------------------- |
+| `is<T>()`         | Generate a type guard `(x: unknown) => x is T`                    |
+| `assert<T>()`     | Generate an assertion `(x: unknown) => T` that throws on failure  |
+| `assertType<T>()` | Alias of `assert<T>()`                                            |
+| `validate<T>()`   | Generate a validator returning `ValidatedNel<ValidationError, T>` |
+
+Each macro also takes the value to check as its one argument: `is<T>(x)` returns
+a boolean that narrows `x`, `assert<T>(x)` and `assertType<T>(x)` return `x` typed
+as `T` or throw, and `validate<T>(x)` returns the `ValidatedNel`.
 
 ### Types
 

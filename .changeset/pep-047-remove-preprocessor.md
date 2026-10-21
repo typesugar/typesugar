@@ -2,7 +2,6 @@
 "@typesugar/playground": minor
 "@typesugar/transformer": patch
 "@typesugar/eslint-plugin": patch
-"@typesugar/lsp-server": patch
 "unplugin-typesugar": patch
 ---
 

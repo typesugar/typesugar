@@ -1,40 +1,35 @@
 /**
- * Integration test: Diagnostic positions through the LSP server.
+ * Integration test: diagnostic positions through tsserver + the typesugar plugin.
  *
- * Verifies that red squigglies appear at the correct lines for both
- * TypeScript type errors and typesugar macro errors, including after
- * macro expansions that change code size.
+ * Red squiggles must land on the right line and column for TypeScript errors
+ * and typesugar macro errors, including after expansions that change the size
+ * of the code.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prepareFixture, type PreparedFixture } from "../lib/fixture-manager.js";
-import { initSession, openFile, assertDiagnosticAt, type LspSession } from "../lib/assertions.js";
-import type { LspDiagnostic } from "../lib/lsp-client.js";
+import {
+  initSession,
+  openFile,
+  locate,
+  getDiagnostics,
+  assertDiagnosticAt,
+  type TsSession,
+  type TsDiagnostic,
+} from "../lib/assertions.js";
 
 describe("diagnostic positions (basic-project)", () => {
   let fixture: PreparedFixture;
-  let session: LspSession;
-  let diagDiagnostics: LspDiagnostic[] = [];
-  let diagUri: string;
+  let session: TsSession;
+  let file: string;
+  let text: string;
+  let diagnostics: TsDiagnostic[] = [];
 
   beforeAll(async () => {
     fixture = await prepareFixture("basic-project");
     session = await initSession(fixture);
-
-    // Open diagnostics.ts and collect ALL diagnostic batches (TS + macro)
-    const result = await openFile(session, "src/diagnostics.ts");
-    diagUri = result.uri;
-    diagDiagnostics = result.diagnostics;
-
-    // Wait for additional batches (macro diagnostics may arrive later)
-    for (let i = 0; i < 10; i++) {
-      const more = await session.client.waitForNotification<{
-        uri: string;
-        diagnostics: LspDiagnostic[];
-      }>("textDocument/publishDiagnostics", (p) => (p as { uri: string }).uri === diagUri, 1000);
-      if (more) diagDiagnostics = more.diagnostics;
-      if (diagDiagnostics.some((d) => d.message.includes("Static assertion"))) break;
-    }
+    ({ file, text } = openFile(session, "src/diagnostics.ts"));
+    diagnostics = await getDiagnostics(session, file);
   }, 60000);
 
   afterAll(async () => {
@@ -42,68 +37,97 @@ describe("diagnostic positions (basic-project)", () => {
     fixture?.cleanup();
   });
 
-  it("TS type error before @derive maps to correct line", () => {
-    // Line 4 (0-indexed): const x: number = "wrong"
-    assertDiagnosticAt(diagDiagnostics, 4, "not assignable", "type error before @derive");
+  it("TS type error before @derive maps to the declared name", () => {
+    const d = assertDiagnosticAt(
+      diagnostics,
+      locate(text, "x: number"),
+      "not assignable",
+      "type error before @derive"
+    );
+    expect(d.code).toBe(2322);
   });
 
-  it("TS type error after @derive expansion maps to correct line", () => {
-    // Line 10 (0-indexed): const y: string = 42
-    assertDiagnosticAt(diagDiagnostics, 10, "not assignable", "type error after @derive");
+  it("TS type error after @derive expansion maps to the declared name", () => {
+    const d = assertDiagnosticAt(
+      diagnostics,
+      locate(text, "y: string"),
+      "not assignable",
+      "type error after @derive"
+    );
+    expect(d.code).toBe(2322);
   });
 
-  it("staticAssert macro error points to call site (if macro transformer activates)", () => {
-    // Line 13 (0-indexed): staticAssert(false, "intentional failure")
-    // The macro transformer may not activate in the standalone integration test setup
-    // because shouldTransform() checks differ from a real workspace. When it does
-    // activate, verify the diagnostic is on the correct line.
-    const found = diagDiagnostics.find((d) => d.message.includes("Static assertion"));
-    if (found) {
-      expect(found.range.start.line).toBe(13);
-    } else {
-      console.log(
-        "Note: staticAssert diagnostic not received — macro transformer did not activate. " +
-          "This is expected in standalone /tmp fixture mode. Verify manually in editor."
+  it("staticAssert macro error points to the call and spans it", () => {
+    const d = assertDiagnosticAt(
+      diagnostics,
+      locate(text, "staticAssert(false"),
+      "Static assertion failed: intentional failure",
+      "staticAssert"
+    );
+    expect(d.code).toBe(9217);
+    const call = 'staticAssert(false, "intentional failure")';
+    expect(d.end).toEqual(locate(text, call, { delta: call.length }));
+  });
+
+  it("reports exactly the three expected errors", () => {
+    expect(
+      diagnostics.map((d) => d.code).sort(),
+      diagnostics.map((d) => `${d.start.line}:${d.start.offset} ${d.text}`).join("\n")
+    ).toEqual([2322, 2322, 9217]);
+  });
+
+  it("diagnostic spans have non-zero length", () => {
+    for (const d of diagnostics) {
+      const nonEmpty =
+        d.end.line > d.start.line || (d.end.line === d.start.line && d.end.offset > d.start.offset);
+      expect(nonEmpty, `diagnostic "${d.text.slice(0, 40)}" should have a non-empty span`).toBe(
+        true
       );
     }
   });
 
-  it("diagnostic spans have non-zero length", () => {
-    for (const d of diagDiagnostics) {
-      const spanLength =
-        d.range.end.line === d.range.start.line
-          ? d.range.end.character - d.range.start.character
-          : 1;
-      expect(
-        spanLength,
-        `diagnostic "${d.message.slice(0, 40)}" should have non-zero span`
-      ).toBeGreaterThan(0);
-    }
+  it("pipe() expansion: type error after a multi-line pipe maps to the right name", async () => {
+    const pipe = openFile(session, "src/pipe-chain.ts");
+    const pipeDiagnostics = await getDiagnostics(session, pipe.file);
+    const d = assertDiagnosticAt(
+      pipeDiagnostics,
+      locate(pipe.text, "pipeBad"),
+      "not assignable",
+      "type error after pipe"
+    );
+    expect(d.end).toEqual(locate(pipe.text, "pipeBad", { delta: "pipeBad".length }));
+    expect(pipeDiagnostics).toHaveLength(1);
   });
 
-  it("pipe() expansion — type error after multi-line pipe maps correctly", async () => {
-    const { diagnostics } = await openFile(session, "src/pipe-chain.ts");
-
-    const typeError = diagnostics.find((d) => d.message.includes("not assignable"));
-    expect(typeError, "should have type error after pipe").toBeDefined();
-    expect(typeError!.range.start.line).toBeGreaterThan(10);
+  // A file without macros is served as written (positions map by identity),
+  // and the source map of an expanded file maps tokens after a `${...}`
+  // template (PEP-060 item 5).
+  it("type error after a template literal is reported", async () => {
+    const tpl = openFile(session, "src/template-literal.ts");
+    const tplDiagnostics = await getDiagnostics(session, tpl.file);
+    assertDiagnosticAt(tplDiagnostics, locate(tpl.text, "notANumber"), "not assignable");
   });
 
-  it("diagnostics clear when error is fixed", async () => {
-    expect(diagDiagnostics.length).toBeGreaterThan(0);
+  it("diagnostics clear when the error is fixed (geterr after an edit)", async () => {
+    expect(diagnostics.length).toBeGreaterThan(0);
+    const lines = text.split("\n");
 
-    // "Fix" the file by sending new content without errors
-    session.client.clearNotifications();
-    await session.client.notify("textDocument/didChange", {
-      textDocument: { uri: diagUri, version: 2 },
-      contentChanges: [{ text: "const x = 1;\n" }],
+    // Replace the whole file, as an editor sends a change.
+    session.client.notify("change", {
+      file,
+      line: 1,
+      offset: 1,
+      endLine: lines.length,
+      endOffset: lines[lines.length - 1].length + 1,
+      insertString: "export const fixed = 1;\n",
     });
+    session.client.clearEvents();
+    session.client.notify("geterr", { files: [file], delay: 0 });
 
-    const updated = await session.client.waitForNotification<{
-      uri: string;
-      diagnostics: Array<{ message: string }>;
-    }>("textDocument/publishDiagnostics", (p) => (p as { uri: string }).uri === diagUri, 10000);
-
-    expect(updated).not.toBeNull();
+    const semantic = await session.client.waitForEvent<{
+      file: string;
+      diagnostics: TsDiagnostic[];
+    }>("semanticDiag", (b) => b.file === file);
+    expect(semantic.diagnostics).toEqual([]);
   });
 });

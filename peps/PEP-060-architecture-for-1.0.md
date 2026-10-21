@@ -1,6 +1,8 @@
 # PEP-060: Architecture for 1.0 — What to Settle Before the Freeze
 
-**Status:** Draft (2026-10-19) — proposals and decisions only; nothing here is implemented.
+**Status:** Draft (2026-10-19) — proposals and decisions. Implemented on branch
+`decisions-1.0`: item 1's packaging part (see its status note), D5 (editor engine), and
+item 8's module-qualified macro identity (see its status note). The rest is not.
 **Date:** 2026-10-19
 **Author:** Claude (with Dean Povey)
 **Depends on:** [PEP-059](PEP-059-1.0-readiness.md) (deep review outcome, 1.0 task list),
@@ -55,6 +57,38 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
    actionable message; fix the init templates. Record the post-1.0 direction:
    **typesugar owns a pinned JS TypeScript (6.x) and expands source-to-source**, handing
    expanded TS to whatever compiler the user runs, including tsgo. (S R1)
+
+   _Status (2026-10-19, packaging part landed on `ts-range-1.0`):_
+   - Peer range is **`>=5.9.0 <7.0.0`**, not `>=5.0.0 <7`. Measured per version
+     (build, `pnpm typecheck`, core/transformer-core/macros/transformer/std/fp suites):
+     5.0.4 fails to build (no `checker.isTypeAssignableTo` before 5.4, no
+     `Scanner.getTokenStart`/`ImportDeclaration.attributes` before 5.1/5.3, and many
+     inference errors in fp/std); 5.4.5 builds partly but every ESM entry dies on
+     `ts.ScriptTarget` because TypeScript only ships Node-ESM named exports from 5.5;
+     5.5.4 and 5.8.3 build and type-check but `@impl X<unknown>` / `X<object>` never
+     resolve (`getUnknownType` arrives in 5.8, `getNonPrimitiveType` in 5.9). 5.9.3
+     and 6.0.3 pass, apart from failures that also occur on 5.9.3 and come from
+     unrelated work in progress. Supporting 5.0–5.8 would mean replacing those checker
+     calls and the `import * as ts` ESM entries; not worth it for 1.0.
+   - TypeScript 6 needed only test-harness and repo-config fixes: `types: ["node"]`
+     (TS 6 defaults `types` to `[]`), `ignoreDeprecations: "6.0"` for tsup's
+     hard-coded `baseUrl` in the repo's own declaration build (CI adds it in the 6.x
+     cell only, since 5.x rejects the value), and two tests that evaluated
+     `transpileModule` output with `return ${js}` (TS 6 prefixes `"use strict";`).
+   - `typescript` is an optional peer of the 13 packages whose `.` entry never loads it
+     (codec, collections, contracts, erased, fp, fusion, mapper, parser, strings,
+     testing, units, validate, typesugar); `check:runtime-purity` enforces it. effect
+     was on the review's list but its root loads `@typesugar/core`, so it stays
+     required (item 10).
+   - Guard: `assertSupportedTypeScript` in `@typesugar/core`, run first at
+     `@typesugar/macros` load and by every host before its first compiler-API access;
+     TS 7 (and < 5.9, or a module without `ts.factory`/`ts.createProgram`) gets one
+     message linking to `getting-started/troubleshooting#typescript-7`.
+   - CI: `typescript-compat` job in `ci.yml` (matrix 5.9.2 / 6.0.3, pnpm override,
+     build + typecheck + the suites above), gating nothing.
+   - Not done here: the post-1.0 "typesugar owns its TS" direction (b) and the
+     MacroContext tiering (c).
+
 2. **One engine, thin hosts** — BLOCKS 1.0 for host parity and for which transformer
    exports are public; L. PEP-056 unified the dispatcher, not the pipeline: there are
    **12 paths** from `.ts` to output, with HKT preprocessing implemented 5×, diagnostic
@@ -85,6 +119,18 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
    The Engine is the only producer, emitting diagnostics in original coordinates plus
    one composed map; one `PositionMapper` with one documented unmappable-position policy;
    one source-map generator. (E R7)
+   _Status (2026-10-20, `decisions-1.0`):_ the editor position bugs the integration
+   suite recorded as `it.fails` are fixed, and none remain. A file no macro changes is
+   no longer reprinted (the statement visitor rebuilt every container from a fresh
+   array), so its positions map by identity; the source-map generator finds output
+   tokens by parsing rather than with a bare scanner, which lost every mapping after a
+   `${...}` template; and the plugin's span translation now has one policy, in
+   `@typesugar/lsp-common`: a span that must be the user's text (an edit, a rename
+   location, a reference) maps only when the source has the same text there, so code a
+   macro generated (which the map attributes to the macro call) is dropped rather than
+   mapped onto it; a request span is mapped as a range, so its ends may fall in
+   comments; and line/column conversion (`toLineColumnOffset`) runs on the source text.
+   The Engine-as-only-producer and composed-map parts of this item are still open.
 
 ### State and cross-file semantics
 
@@ -120,6 +166,14 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
    part of the context (`getTypeOf`, `isAssignableTo`, `reportError`, `ensureImport`, …)
    as the stable tier and document raw `ts.*` handles as bound to the engine's TS
    version, which is safe once item 1's "typesugar owns its TS" holds. (E R5, S R1c)
+
+   _Status (2026-10-19, Dean's decision):_ module-qualified identity is implemented —
+   the registry keys module-qualified macros by (kind, module, exportName ?? name), so
+   same-named macros from different packages coexist and the user's import decides which
+   expands (motivating bug: `@typesugar/validate` and `@typesugar/testing` both register
+   `assert`; validate also gained `assertType<T>()`). Declarative registration,
+   `apiVersion`, the peer dependency and the context cleanup are not done.
+
 9. **Curate and freeze the public surface** — BLOCKS 1.0; L (mechanical). `.` = stable,
    `./internal` = cross-package engine API documented unstable, api-extractor reports in
    CI (extends PEP-059 P0 #5). Delete dead modules (`prelude`, core `manifest`,
@@ -190,6 +244,10 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
     macro definitions (mark the involved exports `@internal` at 1.0). (E R11)
 21. Hygiene from the checker (`resolveName` at the use site) instead of a top-level
     binding scan; one root cause behind six review findings. (E R12)
+22. TypeScript 7 host prototype: prototype one host against the TS 7.1 API when its beta
+    ships (overlay + `createProgram` + checker over IPC); measure per-call checker cost —
+    the key risk, since macros make many checker calls per file. Feeds the separate TS 7
+    PEP that D4 calls for.
 
 ## Decisions for Dean
 
@@ -216,6 +274,24 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
   plugin for 1.0 only if D4 keeps users on TS ≤ 6 for the 1.x line; if 1.x must support
   TS 7 projects, the LSP is the only engine that can, and it needs multi-project and
   project references before 1.0.
+  **Decided (Dean, 2026-10-19): the tsserver plugin is the single editor engine for
+  1.0; TS 7 via TypeScript 7.1's content mappers; the LSP server is deprecated**
+  (and then removed from the repo).
+  Implemented on `decisions-1.0`: the VS Code extension no longer starts
+  `@typesugar/lsp-server` and keeps only UI (Expand Macro / Show Transformed, answered
+  by the plugin through the custom tsserver requests `_typesugar.expandMacro` and
+  `_typesugar.showTransformed`); the plugin gained macro-expansion inlay hints, the
+  trusted `comptimeInEditor` setting via `configurePlugin`, and a guard against loading
+  twice per project. CodeLens, macro semantic tokens, the status bar and the
+  manifest commands were dropped. `@typesugar/lsp-server` is removed from the repo
+  (0.1.1 stays on npm, with no further releases). The editor integration suite
+  (`integration/`) now drives tsserver with the plugin loaded from `tsconfig.json`; it
+  found that tsserver couldn't load the plugin by its documented name (fixed) and
+  several position-mapping bugs, kept as `it.fails` tests under item 5 (since fixed).
+  Editor docs
+  are plugin-first for every editor (`docs/getting-started/editor-setup.md`). TS 7 has no tsserver
+  plugins; the TS 7 editor path is a follow-up PEP on 7.1 content mappers, not the
+  LSP.
 - **D6. Is the Engine/Session refactor (items 2, 7) in 1.0 or 1.1?** _Recommended:_ in
   1.0 ship the `@internal` marking, one public entry-point name (so
   `TransformationPipeline` doesn't freeze), and build/watch routed through the existing

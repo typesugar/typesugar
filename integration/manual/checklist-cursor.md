@@ -3,9 +3,11 @@
 ## Setup
 
 1. Open Cursor
-2. Open the fixture project: `File → Open Folder → /tmp/typesugar-integ-basic-project-*`
-   (or run `cd integration && TYPESUGAR_TEST_MODE=local npx vitest run` first to create the /tmp project, then open it)
-3. Wait for "$(zap) typesugar" to appear in the status bar (LSP server started)
+2. Copy `integration/fixtures/basic-project` somewhere outside the repo, install its
+   dependencies (`npm install`), and open that folder (`File → Open Folder`). The automated
+   suite deletes its temp copies when it finishes, so make your own.
+3. Open a `.ts` file and check that the TypeScript server loaded the plugin: "TypeScript: Open TS
+   Server Log" has `[typesugar]` lines.
 
 ## Category 1: Error Positioning (Red Squigglies)
 
@@ -57,26 +59,27 @@
 
 ### src/macros.ts
 
-- [ ] CodeLens appears above `comptime(() => 6 * 7)` — click shows expansion
-- [ ] CodeLens appears above `/** @derive(Eq, Show) */` — click shows expansion
-- [ ] Inlay hint after `comptime(() => 6 * 7)` shows `= 42` (if inlay hints enabled)
+- [ ] Right-click inside `comptime(() => 6 * 7)` → "typesugar: Expand Macro at Cursor" — opens the
+      expansion in a side editor (needs `typesugar.comptimeInEditor: true` to show `42`)
+- [ ] Inlay hint after `comptime(() => 6 * 7)` shows `= 42` (with `typesugar.comptimeInEditor`
+      on and at least one `typescript.inlayHints.*` setting on)
 - [ ] Cmd+Shift+P → "typesugar: Show Transformed Source" — opens diff view showing original vs expanded
 
 ## Category 6: Syntax Highlighting
 
 ### src/macros.ts
 
-- [ ] `comptime` keyword highlighted in purple/bold
-- [ ] `@derive` decorator highlighted in yellow/bold
-- [ ] `Eq`, `Show` derive args highlighted in light blue
-- [ ] `staticAssert` highlighted as macro
+- [ ] `comptime` highlighted by the extension's grammar (the macro semantic tokens were removed
+      with the LSP server in PEP-060 D5; only the TextMate grammar colours remain)
 
 ## Category 7: Code Actions
 
 ### src/macros.ts
 
-- [ ] Click lightbulb on `comptime()` line — "Expand macro" action available
-- [ ] Click lightbulb on `@derive` line — "Expand macro" action available
+### src/code-actions.ts
+
+- [ ] Click the lightbulb on `greetng("there")` — "Change spelling to 'greeting'" is offered and
+      applying it edits that call
 
 ## Pass Criteria
 

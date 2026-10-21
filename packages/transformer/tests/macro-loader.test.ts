@@ -8,10 +8,11 @@ import * as os from "os";
 import * as path from "path";
 import { createRequire } from "module";
 import * as ts from "typescript";
-import { config } from "@typesugar/core";
+import { config, globalRegistry } from "@typesugar/core";
 import {
   classifyManifestPackages,
   loadMacroPackages,
+  loadMacroPackagesFromFile,
   resetLoadedPackages,
   __setRequireForTesting,
   UnapprovedMacroPackagesError,
@@ -246,5 +247,91 @@ describe("manifest discovery against the real workspace packages (PEP-055 Phase 
     for (const pkg of facades) {
       expect(toLoad.get(pkg)).toBe("@typesugar/macros");
     }
+  });
+});
+
+describe("macro identity across packages (PEP-060 item 8)", () => {
+  let tmpDir: string;
+  const macrosJs = (entries: Array<Record<string, string>>) =>
+    `module.exports.__typesugar_macros__ = ${JSON.stringify(entries)}.map(` +
+    `(m) => ({ ...m, expand: (_ctx, call) => call }));`;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-macro-identity-"));
+    const nodeModules = path.join(tmpDir, "node_modules");
+    // Two packages registering the same macro name, each under its own module.
+    for (const pkg of ["@typesugar/fixture-ida", "@typesugar/fixture-idb"]) {
+      writeFixturePackage(
+        nodeModules,
+        pkg,
+        { typesugar: { macros: "./macros" } },
+        {
+          "macros.js": macrosJs([
+            { kind: "expression", name: "pep060Shared", module: pkg, description: pkg },
+          ]),
+        }
+      );
+    }
+    // A package whose first macro genuinely conflicts (a different legacy,
+    // module-less definition of a name already taken) — its later macro must
+    // still register, and the conflict must be reported.
+    writeFixturePackage(
+      nodeModules,
+      "@typesugar/fixture-idc",
+      { typesugar: { macros: "./macros" } },
+      {
+        "macros.js": macrosJs([
+          { kind: "expression", name: "pep060Legacy", description: "second definition" },
+          {
+            kind: "expression",
+            name: "pep060After",
+            module: "@typesugar/fixture-idc",
+            description: "after the conflict",
+          },
+        ]),
+      }
+    );
+    fs.writeFileSync(path.join(tmpDir, "entry.js"), "");
+    __setRequireForTesting(createRequire(path.join(tmpDir, "entry.js")));
+    resetLoadedPackages();
+    config.reset();
+  });
+
+  afterEach(() => {
+    __setRequireForTesting(undefined);
+    resetLoadedPackages();
+    config.reset();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function load(imports: string[]) {
+    const sf = ts.createSourceFile(
+      path.join(tmpDir, "main.ts"),
+      imports.map((m) => `import "${m}";`).join("\n"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    return loadMacroPackagesFromFile(sf).map((w) => w.message);
+  }
+
+  it("two packages' same-named macros both load, without a warning", () => {
+    expect(load(["@typesugar/fixture-ida", "@typesugar/fixture-idb"])).toEqual([]);
+    for (const pkg of ["@typesugar/fixture-ida", "@typesugar/fixture-idb"]) {
+      expect(globalRegistry.getByModuleExport(pkg, "pep060Shared", "expression")?.module).toBe(pkg);
+    }
+  });
+
+  it("a genuine conflict is reported, and the package's later macros still register", () => {
+    globalRegistry.register({
+      kind: "expression",
+      name: "pep060Legacy",
+      description: "first definition",
+      expand: (_ctx, call) => call,
+    });
+    const warnings = load(["@typesugar/fixture-idc"]);
+    expect(warnings.join("\n")).toMatch(/fixture-idc.*'pep060Legacy'.*already registered/s);
+    expect(
+      globalRegistry.getByModuleExport("@typesugar/fixture-idc", "pep060After", "expression")
+    ).toBeDefined();
   });
 });

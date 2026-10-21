@@ -51,7 +51,11 @@ describe("MacroRegistry", () => {
       expect(() => registry.register(macro)).not.toThrow();
     });
 
-    it("should throw when registering a different macro with the same name", () => {
+    // PEP-060 item 8 (commit 3709f720): a macro's identity is its module plus
+    // export name, so same-named macros from different modules coexist and are
+    // told apart by the import that names them. Only a different definition
+    // for the SAME identity is a conflict.
+    it("should let same-named macros from different modules coexist", () => {
       const macro1 = defineExpressionMacro({
         name: "duplicate",
         module: "module-a",
@@ -64,7 +68,33 @@ describe("MacroRegistry", () => {
       });
 
       registry.register(macro1);
+      expect(() => registry.register(macro2)).not.toThrow();
+
+      expect(registry.getByModuleExport("module-a", "duplicate", "expression")).toBe(macro1);
+      expect(registry.getByModuleExport("module-b", "duplicate", "expression")).toBe(macro2);
+      expect(registry.getCandidates("duplicate", "expression")).toEqual([macro1, macro2]);
+      // Two providers and no import to choose between them: the bare-name
+      // getter refuses to guess rather than returning whichever loaded first.
+      expect(registry.getExpression("duplicate")).toBeUndefined();
+    });
+
+    it("should throw when a different macro claims the same module and name", () => {
+      const macro1 = defineExpressionMacro({
+        name: "duplicate",
+        module: "module-a",
+        description: "first",
+        expand: (_ctx, callExpr) => callExpr,
+      });
+      const macro2 = defineExpressionMacro({
+        name: "duplicate",
+        module: "module-a",
+        description: "second",
+        expand: (_ctx, callExpr) => callExpr,
+      });
+
+      registry.register(macro1);
       expect(() => registry.register(macro2)).toThrow(/already registered/);
+      expect(registry.getByModuleExport("module-a", "duplicate", "expression")).toBe(macro1);
     });
   });
 

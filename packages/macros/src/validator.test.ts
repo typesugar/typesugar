@@ -63,10 +63,13 @@ function buildValidator(source: string): {
         return (s) => s;
       },
     ]);
-    const js = ts.transpileModule(`(${printed})`, {
+    // Bind to a name and return that, rather than `return ${js}`: TypeScript 6
+    // prefixes the output with a "use strict"; directive, which `return` would
+    // have returned instead of the expression.
+    const js = ts.transpileModule(`const __value = (${printed});`, {
       compilerOptions: { target: ts.ScriptTarget.ES2022 },
     }).outputText;
-    const validate = new Function(`return ${js}`)() as (v: unknown) => Result;
+    const validate = new Function(`${js}\nreturn __value;`)() as (v: unknown) => Result;
     return { validate, warnings, printed };
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

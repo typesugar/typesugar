@@ -2,7 +2,6 @@
 "@typesugar/core": minor
 "@typesugar/macros": minor
 "@typesugar/transformer": minor
-"@typesugar/lsp-server": patch
 "@typesugar/playground": patch
 ---
 

@@ -1,8 +1,7 @@
 /**
- * Integration test: Navigation (go-to-definition, references, highlights).
- *
- * Verifies that navigation features map positions correctly
- * through the source map pipeline.
+ * Integration test: go-to-definition and find-references through tsserver +
+ * the typesugar plugin. Positions must map through the macro expansions in
+ * both directions.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -10,14 +9,15 @@ import { prepareFixture, type PreparedFixture } from "../lib/fixture-manager.js"
 import {
   initSession,
   openFile,
+  locate,
   getDefinition,
   getReferences,
-  type LspSession,
+  type TsSession,
 } from "../lib/assertions.js";
 
 describe("navigation (basic-project)", () => {
   let fixture: PreparedFixture;
-  let session: LspSession;
+  let session: TsSession;
 
   beforeAll(async () => {
     fixture = await prepareFixture("basic-project");
@@ -29,59 +29,59 @@ describe("navigation (basic-project)", () => {
     fixture?.cleanup();
   });
 
-  it("go-to-definition on function call jumps to declaration", async () => {
-    const { uri } = await openFile(session, "src/navigation.ts");
-    await new Promise((r) => setTimeout(r, 1000));
+  describe("across @derive and pipe() expansions", () => {
+    // tsserver turns a definition's offset into line/offset with the language
+    // service's `toLineColumnOffset`; the plugin converts it on the source
+    // text, not the expanded code (PEP-060 item 5).
+    it("go-to-definition on a call after the expansions jumps to the declaration", async () => {
+      const { file, text } = openFile(session, "src/navigation-macros.ts");
+      const defs = await getDefinition(session, file, locate(text, "scale(doubled", { delta: 1 }));
+      expect(defs).toHaveLength(1);
+      expect(defs[0].file).toBe(file);
+      expect(defs[0].start).toEqual(locate(text, "scale(v: Vec"));
+    });
 
-    // Line 12 (0-indexed), char 14: "greet" in `const msg = greet("world")`
-    const def = await getDefinition(session, uri, 12, 14);
+    it("go-to-definition inside a pipe() argument jumps to the declaration", async () => {
+      const { file, text } = openFile(session, "src/navigation-macros.ts");
+      const defs = await getDefinition(session, file, locate(text, "scale(v, 2)", { delta: 1 }));
+      expect(defs.map((d) => d.start)).toEqual([locate(text, "scale(v: Vec")]);
+    });
 
-    if (!def) {
-      console.log(
-        "Note: go-to-definition returned null — language service may need more init time"
-      );
-      return;
-    }
-
-    const loc = Array.isArray(def) ? def[0] : def;
-    // Should jump to line 8 (0-indexed): `export function greet(...)`
-    expect(loc.range.start.line, "greet definition line").toBe(8);
+    it("find-references returns the declaration and both calls", async () => {
+      const { file, text } = openFile(session, "src/navigation-macros.ts");
+      const refs = await getReferences(session, file, locate(text, "scale(v: Vec", { delta: 1 }));
+      expect(refs.map((r) => r.start)).toEqual([
+        locate(text, "scale(v: Vec"),
+        locate(text, "scale(v, 2)"),
+        locate(text, "scale(doubled"),
+      ]);
+      expect(refs.find((r) => r.isDefinition)?.start).toEqual(locate(text, "scale(v: Vec"));
+    });
   });
 
-  it("go-to-definition on second function call works", async () => {
-    const { uri } = await openFile(session, "src/navigation.ts");
-    await new Promise((r) => setTimeout(r, 500));
+  // A file without macros is served as written, so positions map by identity
+  // (navigation.ts has a `${...}` template inside greet(), after which the old
+  // reprint's source map had no mappings; PEP-060 item 5).
+  describe("in a file without macros", () => {
+    it("go-to-definition on `greet(...)` jumps to its declaration", async () => {
+      const { file, text } = openFile(session, "src/navigation.ts");
+      const defs = await getDefinition(session, file, locate(text, 'greet("world")', { delta: 1 }));
+      expect(defs.map((d) => d.start)).toEqual([locate(text, "greet(name")]);
+    });
 
-    // Line 18 (0-indexed), char 14: "add" in `const sum = add(1, 2)`
-    const def = await getDefinition(session, uri, 18, 14);
+    it("go-to-definition on `add(...)` jumps to its declaration", async () => {
+      const { file, text } = openFile(session, "src/navigation.ts");
+      const defs = await getDefinition(session, file, locate(text, "add(1, 2)", { delta: 1 }));
+      expect(defs.map((d) => d.start)).toEqual([locate(text, "add(a: number")]);
+    });
 
-    if (!def) {
-      console.log(
-        "Note: go-to-definition returned null — language service may need more init time"
-      );
-      return;
-    }
-
-    const loc = Array.isArray(def) ? def[0] : def;
-    expect(loc.range.start.line, "add definition line").toBe(14);
-  });
-
-  it("find-references includes both declaration and usage", async () => {
-    const { uri } = await openFile(session, "src/navigation.ts");
-    await new Promise((r) => setTimeout(r, 500));
-
-    // Line 8, char 17: "greet" in function declaration
-    const refs = await getReferences(session, uri, 8, 17);
-
-    if (refs.length < 2) {
-      console.log(
-        `Note: find-references returned ${refs.length} refs — language service may need more init time`
-      );
-      return;
-    }
-
-    const lines = refs.map((r) => r.range.start.line);
-    expect(lines, "should include declaration line").toContain(8);
-    expect(lines, "should include call line").toContain(12);
+    it("find-references includes the declaration and the call", async () => {
+      const { file, text } = openFile(session, "src/navigation.ts");
+      const refs = await getReferences(session, file, locate(text, "greet(name", { delta: 1 }));
+      expect(refs.map((r) => r.start)).toEqual([
+        locate(text, "greet(name"),
+        locate(text, 'greet("world")'),
+      ]);
+    });
   });
 });

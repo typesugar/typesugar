@@ -93,7 +93,7 @@ rangeToArray(rangeInclusive(1, 10)); // [1, 2, ..., 10]
 
 | Typeclass                      | Purpose                                              |
 | ------------------------------ | ---------------------------------------------------- |
-| `Eq<A>`                        | Equality with `===` / `!==` operator dispatch        |
+| `Eq<A>`                        | Equality with `===` `!==` `==` `!=` dispatch         |
 | `Hash<A>`                      | Hashing for HashMap/HashSet                          |
 | `Ord<A>`                       | Total ordering with `<` / `<=` / `>` / `>=` dispatch |
 | `Semigroup<A>`                 | Associative combine with `+` dispatch                |
@@ -103,10 +103,12 @@ rangeToArray(rangeInclusive(1, 10)); // [1, 2, ..., 10]
 | `FlatMap<F>`                   | Sequencing for do-notation                           |
 
 Operator dispatch is off until a file imports the typeclass's activation module, for
-example `import "@typesugar/std/syntax/eq/ops";` for `===` / `!==`, or
+example `import "@typesugar/std/syntax/eq/ops";` for `===` / `!==` / `==` / `!=`, or
 `import "@typesugar/std/syntax/semigroup/ops";` for `+`. Without it, `a === b` stays a
 plain reference comparison. The method forms (`a.equals(b)`) need
-`import "@typesugar/std/syntax/eq";`.
+`import "@typesugar/std/syntax/eq";`. Comparisons with `null`/`undefined` (`a == null`)
+are never rewritten; for reference identity in a file with the Eq import, use
+`Object.is(a, b)`, which is a call and is never rewritten.
 
 ### Hash (NEW)
 
@@ -379,7 +381,7 @@ rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
 
 ### Typeclasses
 
-- `Eq<A>` — Equality comparison (`===` / `!==`)
+- `Eq<A>` — Equality comparison (`===` / `!==` / `==` / `!=`)
 - `Hash<A>` — Hash codes for hash-based collections
 - `Ord<A>` — Total ordering (`<` / `<=` / `>` / `>=`)
 - `Semigroup<A>` — Associative binary operation (`+`)

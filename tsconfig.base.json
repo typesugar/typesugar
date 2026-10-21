@@ -4,6 +4,9 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022"],
+    // Explicit since TypeScript 6.0, whose default for `types` is [] (5.x
+    // auto-included every @types package): the sources use Node globals.
+    "types": ["node"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

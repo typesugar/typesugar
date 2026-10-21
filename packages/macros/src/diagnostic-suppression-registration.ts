@@ -18,7 +18,6 @@ import {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
-  createNewtypeAssignmentRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
 } from "./diagnostic-suppression-rules.js";
@@ -62,9 +61,6 @@ export function registerAllDiagnosticSuppressionRules(
   if (registerDiagnosticSuppressionRuleOnce(createMacroDecoratorRule())) {
     registered.push("MacroDecorator");
   }
-  if (registerDiagnosticSuppressionRuleOnce(createNewtypeAssignmentRule())) {
-    registered.push("NewtypeAssignment");
-  }
   if (registerDiagnosticSuppressionRuleOnce(createOperatorOverloadRule())) {
     registered.push("OperatorOverload");
   }
@@ -84,7 +80,6 @@ export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "ExtensionMethodCall",
   "MacroCallChain",
   "MacroDecorator",
-  "NewtypeAssignment",
   "OperatorOverload",
   "TypeRewriteAssignment",
 ] as const;

@@ -24,6 +24,7 @@ import {
   HygieneContext,
   scanImportsForScope,
   globalResolutionScope,
+  assertSupportedTypeScript,
   type RawSourceMap,
 } from "@typesugar/core";
 
@@ -202,6 +203,9 @@ export function transformCode(
   code: string,
   options: TransformCodeOptions = {}
 ): TransformCodeResult {
+  // PEP-060 item 1: reject TypeScript 7 (no JS compiler API) with one clear
+  // message before the first ts.* access below. Memoized; costs nothing after.
+  assertSupportedTypeScript(ts);
   const fileName = options.fileName ?? inferFileName(code);
   const verbose = options.verbose ?? false;
   const trackExpansions = options.trackExpansions ?? false;

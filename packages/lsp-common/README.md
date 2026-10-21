@@ -3,18 +3,19 @@
 Shared IDE infrastructure for the typesugar language tooling.
 
 This is an **internal support package**: it carries the position-mapping,
-AST-helper, and code-action utilities shared by
-[`@typesugar/lsp-server`](https://github.com/typesugar/typesugar/tree/main/packages/lsp-server),
-[`@typesugar/ts-plugin`](https://github.com/typesugar/typesugar/tree/main/packages/ts-plugin),
-and [`@typesugar/transformer`](https://github.com/typesugar/typesugar/tree/main/packages/transformer).
+AST-helper, and code-action utilities used by the TypeScript language-service
+plugin in
+[`@typesugar/transformer`](https://github.com/typesugar/typesugar/tree/main/packages/transformer)
+(which [`@typesugar/ts-plugin`](https://github.com/typesugar/typesugar/tree/main/packages/ts-plugin)
+wraps for the VS Code extension).
 
 You should not need to depend on this package directly — it is published
-because the packages above depend on it at runtime.
+because `@typesugar/transformer` depends on it at runtime.
 
 ## What's inside
 
-- **Position helpers** — offset/line-column conversions shared by the LSP
-  server and the TS language-service plugin.
+- **Position helpers** — offset/line-column conversions for the TS
+  language-service plugin.
 - **Position mapping** — translating diagnostic positions between original
   and macro-expanded source.
 - **AST helpers** — small `ts.Node` utilities used by IDE features.

@@ -45,11 +45,14 @@ function run(
       out,
       ts.createSourceFile("o.ts", "", ts.ScriptTarget.Latest)
     );
-  const js = ts.transpileModule(`(${printed})`, {
+  // Bind to a name and return that, rather than `return ${js}`: TypeScript 6
+  // prefixes the output with a "use strict"; directive, which `return` would
+  // have returned instead of the expression.
+  const js = ts.transpileModule(`const __value = (${printed});`, {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText;
   const names = Object.keys(env);
-  const value = new Function(...names, `return ${js}`)(...names.map((k) => env[k]));
+  const value = new Function(...names, `${js}\nreturn __value;`)(...names.map((k) => env[k]));
   return { value, printed };
 }
 

@@ -29,13 +29,13 @@ playground: `typesugar` / `@typesugar/macros`, `@typesugar/std`, `@typesugar/fp`
 `@typesugar/effect`, `@typesugar/contracts`, `@typesugar/type-system`,
 `@typesugar/units`, `@typesugar/sql`, `@typesugar/parser`, `@typesugar/graph`,
 `@typesugar/codec`, `@typesugar/mapper`, `@typesugar/strings`,
-`@typesugar/testing`, `@typesugar/erased` and `@typesugar/fusion`. The
-`typeInfo<T>()` macro of `@typesugar/reflect` is registered by
-`@typesugar/macros`, so it expands too.
+`@typesugar/testing`, `@typesugar/validate`, `@typesugar/erased` and
+`@typesugar/fusion`. The `typeInfo<T>()` macro of `@typesugar/reflect` is
+registered by `@typesugar/macros`, so it expands too.
 
-`@typesugar/validate`'s `is<T>()` and `validate<T>()` are not loaded: its
-`assert` macro has the same name as `@typesugar/testing`'s, and the macro
-registry rejects the duplicate, so they are left unexpanded.
+`@typesugar/validate` and `@typesugar/testing` both have an `assert` macro.
+Both are loaded, and the one you import is the one that expands (see
+[Using validate and testing together](./validate.md#using-validate-and-testing-together)).
 
 ## Examples
 

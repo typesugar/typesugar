@@ -694,8 +694,20 @@ interface TypeclassMethod {
   returnType: string;
   /** Whether the first parameter is the "self" type (for extension methods) */
   isSelfMethod: boolean;
-  /** Operator symbol declared via `@op` JSDoc tag, if any. */
+  /**
+   * Operator symbol declared via `@op` JSDoc tag, if any. When the method has
+   * several `@op` tags this is the first; see {@link operatorSymbols}.
+   */
   operatorSymbol?: string;
+  /**
+   * Every operator symbol declared via `@op` JSDoc tags, in source order. A
+   * method may carry more than one tag to map equivalent spellings of the same
+   * operation (`@op ===` and `@op ==` on `Eq.equals`). Set whenever a method is
+   * read from a declaration (`operatorSymbols[0] === operatorSymbol`); a
+   * hand-built method may set only `operatorSymbol`, which then counts as the
+   * single symbol.
+   */
+  operatorSymbols?: string[];
 }
 
 interface InstanceInfo {
@@ -779,6 +791,7 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
         returnType: "boolean",
         isSelfMethod: false,
         operatorSymbol: "===",
+        operatorSymbols: ["===", "=="],
       },
       {
         name: "notEquals",
@@ -789,13 +802,16 @@ const STANDARD_TYPECLASS_DEFS: StandardTypeclassDef[] = [
         returnType: "boolean",
         isSelfMethod: false,
         operatorSymbol: "!==",
+        operatorSymbols: ["!==", "!="],
       },
     ],
     canDeriveProduct: true,
     canDeriveSum: true,
     syntax: new Map([
       ["===", "equals"],
+      ["==", "equals"],
       ["!==", "notEquals"],
+      ["!=", "notEquals"],
     ]),
   },
   {
@@ -1159,7 +1175,40 @@ export function getStandardTypeclassOpInfos(): Array<{
 }
 
 /**
- * Extract an operator symbol from a JSDoc `@op` tag on a method signature.
+ * Extract every operator symbol from the JSDoc `@op` tags on a method
+ * signature, in source order, without duplicates. A method carries one tag per
+ * operator it handles, so equivalent spellings map to the same method:
+ *
+ * @param member - The method signature node to check
+ * @returns The operator symbols of all non-empty `@op` tags (empty if none)
+ *
+ * @example
+ * ```typescript
+ * interface Eq<A> {
+ *   /**
+ *    * @op ===
+ *    * @op ==
+ *    *\/
+ *   equals(a: A, b: A): boolean;
+ * }
+ * ```
+ */
+export function extractOpsFromJSDoc(member: ts.Node): string[] {
+  const ops: string[] = [];
+  for (const tag of ts.getJSDocTags(member)) {
+    if (tag.tagName.text !== "op") continue;
+    const comment =
+      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+    const trimmed = comment?.trim();
+    if (trimmed && !ops.includes(trimmed)) ops.push(trimmed);
+  }
+  return ops;
+}
+
+/**
+ * Extract the first operator symbol from a method signature's JSDoc `@op`
+ * tags. A method may carry several `@op` tags; use
+ * {@link extractOpsFromJSDoc} to read all of them.
  *
  * @param member - The method signature node to check
  * @returns The operator symbol if a valid @op tag is found, undefined otherwise
@@ -1173,17 +1222,7 @@ export function getStandardTypeclassOpInfos(): Array<{
  * ```
  */
 export function extractOpFromJSDoc(member: ts.Node): string | undefined {
-  const tags = ts.getJSDocTags(member);
-  for (const tag of tags) {
-    if (tag.tagName.text === "op") {
-      const comment =
-        typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-
-      const trimmed = comment?.trim();
-      if (trimmed) return trimmed;
-    }
-  }
-  return undefined;
+  return extractOpsFromJSDoc(member)[0];
 }
 
 // ============================================================================
@@ -1402,10 +1441,18 @@ export function buildTypeclassInfoFromInterface(
         params.push({ name: paramName, typeString: paramType });
       }
 
-      const operatorSymbol = extractOpFromJSDoc(member);
+      const operatorSymbols = extractOpsFromJSDoc(member);
       const returnType = member.type ? member.type.getText() : "void";
 
-      methods.push({ name: methodName, params, returnType, isSelfMethod, operatorSymbol });
+      methods.push({
+        name: methodName,
+        params,
+        returnType,
+        isSelfMethod,
+        ...(operatorSymbols.length > 0
+          ? { operatorSymbol: operatorSymbols[0], operatorSymbols }
+          : {}),
+      });
     } else if (ts.isPropertySignature(member) && member.name) {
       const methodName = ts.isIdentifier(member.name) ? member.name.text : member.name.getText();
       methods.push({
@@ -1423,8 +1470,9 @@ export function buildTypeclassInfoFromInterface(
   // Syntax map from @op JSDoc tags on methods.
   const syntax = new Map<string, string>();
   for (const method of methods) {
-    if (method.operatorSymbol) {
-      syntax.set(method.operatorSymbol, method.name);
+    const ops = method.operatorSymbols ?? (method.operatorSymbol ? [method.operatorSymbol] : []);
+    for (const op of ops) {
+      syntax.set(op, method.name);
     }
   }
 
@@ -2901,9 +2949,15 @@ export function generateStandardTypeclasses(): string {
 /** Equality typeclass - Scala 3: trait Eq[A] */
 
 interface Eq<A> {
-  /** @op === */
+  /**
+   * @op ===
+   * @op ==
+   */
   equals(a: A, b: A): boolean;
-  /** @op !== */
+  /**
+   * @op !==
+   * @op !=
+   */
   notEquals(a: A, b: A): boolean;
 }
 typeclass("Eq");

@@ -1,18 +1,23 @@
 /**
- * Integration test: Completions through the LSP server.
+ * Integration test: completions through tsserver + the typesugar plugin.
  *
- * Verifies that autocomplete works correctly after macro expansions.
- * Note: @derive companion namespace creates "Cannot redeclare" errors
- * in standalone fixture mode which may prevent completions from working.
+ * Member completions must work in a file whose `@derive` expansion adds code
+ * above the cursor.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prepareFixture, type PreparedFixture } from "../lib/fixture-manager.js";
-import { initSession, openFile, getCompletions, type LspSession } from "../lib/assertions.js";
+import {
+  initSession,
+  openFile,
+  locate,
+  getCompletionNames,
+  type TsSession,
+} from "../lib/assertions.js";
 
 describe("completions (basic-project)", () => {
   let fixture: PreparedFixture;
-  let session: LspSession;
+  let session: TsSession;
 
   beforeAll(async () => {
     fixture = await prepareFixture("basic-project");
@@ -24,24 +29,17 @@ describe("completions (basic-project)", () => {
     fixture?.cleanup();
   });
 
-  it("provides property completions for typed object", async () => {
-    const { uri } = await openFile(session, "src/completions.ts");
-    await new Promise((r) => setTimeout(r, 1000));
+  it("offers the members of a @derive'd interface after `c.`", async () => {
+    const { file, text } = openFile(session, "src/completions.ts");
+    const names = await getCompletionNames(session, file, locate(text, "c.\n", { delta: 2 }));
+    expect(names).toEqual(expect.arrayContaining(["r", "g", "b"]));
+  });
 
-    // Line 9, char 2: after "c." — should include r, g, b
-    const items = await getCompletions(session, uri, 9, 2);
-
-    if (items.length === 0) {
-      // Known limitation: @derive companion may break type resolution in standalone mode
-      console.log(
-        "Note: No completions returned — @derive companion may break type context in standalone mode"
-      );
-      return;
-    }
-
-    const labels = items.map((i) => i.label);
-    expect(labels).toContain("r");
-    expect(labels).toContain("g");
-    expect(labels).toContain("b");
+  it("offers in-scope names after the expansions in a macro file", async () => {
+    const { file, text } = openFile(session, "src/macros.ts");
+    // At the start of `trailing`'s initializer: the names declared above the
+    // expansions (a comptime result and a @derive'd interface) are in scope.
+    const names = await getCompletionNames(session, file, locate(text, '"end"'));
+    expect(names).toEqual(expect.arrayContaining(["answer", "Metric"]));
   });
 });

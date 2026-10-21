@@ -7,7 +7,9 @@
  * before TypeScript processes them. This enables accurate type checking,
  * completions, and go-to-definition for custom syntax and macros.
  *
- * Install: npm install @typesugar/ts-plugin
+ * Most projects list the engine this package wraps instead:
+ *   npm install --save-dev @typesugar/transformer
+ *   tsconfig.json: { "name": "@typesugar/transformer/language-service" }
  */
 
 // ============================================================================
@@ -19,13 +21,14 @@
 //   {
 //     "compilerOptions": {
 //       "plugins": [
-//         { "name": "@typesugar/ts-plugin" }
+//         { "name": "@typesugar/transformer/language-service" }
 //       ]
 //     }
 //   }
 //
-// The plugin delegates to @typesugar/transformer's language service
-// implementation, which handles all the heavy lifting.
+// `{ "name": "@typesugar/ts-plugin" }` (with this package installed) loads the
+// same engine: this package delegates to @typesugar/transformer's language
+// service implementation, which handles all the heavy lifting.
 
 // ============================================================================
 // 2. VS CODE INTEGRATION — Automatic registration

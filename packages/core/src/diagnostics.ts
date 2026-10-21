@@ -1335,6 +1335,38 @@ To overload an operator, annotate a typeclass method with @op and provide an @in
   seeAlso: "https://typesugar.org/errors/TS9803",
 };
 
+export const TS9804: DiagnosticDescriptor = {
+  code: 9804,
+  severity: "warning",
+  category: DiagnosticCategory.Operator,
+  messageTemplate:
+    "Operator '{operator}' on '{type}' matches {typeclass}.{method}, but {typeclass} operator syntax is not activated in this file",
+  explanation: `An operator's operand type has an instance, in scope, of a typeclass whose
+method carries a matching \`@op\` tag, but the file never imports a module that
+activates that typeclass's operator syntax (PEP-052). Operator syntax is opt-in
+per file, so the operator was left as native JavaScript, which on an object
+almost never does what the expression was written to do (\`a + b\` on two
+complex numbers concatenates strings; \`a * b\` gives NaN).
+
+Activate the syntax with a side-effect import of the typeclass's \`/ops\` marker
+module, e.g.:
+
+  import "@typesugar/std/syntax/numeric/ops";   // + - * on Numeric types
+  import "@typesugar/std/syntax/ord/ops";       // < <= > >= on Ord types
+
+A file that declares the typeclass itself (\`/** @typeclass */\`) is always
+activated for it. If the native operator is intended, silence the warning for
+one line with a \`// @ts-no-typesugar operators\` comment, or for a whole file
+with a \`"use no typesugar operators"\` directive.
+
+This includes \`===\`/\`!==\` and \`==\`/\`!=\` on a type with an Eq instance:
+without \`import "@typesugar/std/syntax/eq/ops";\` they compare references, not
+structure. If reference equality is what you mean, write \`Object.is(a, b)\`
+(negate it for \`!==\`/\`!=\`): it is a call, so it is never rewritten, and it
+still compares references after the Eq import is added.`,
+  seeAlso: "https://typesugar.org/errors/TS9804",
+};
+
 // ============================================================================
 // Error Catalog: Internal Errors (9900-9999)
 // ============================================================================
@@ -1441,6 +1473,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9801, TS9801],
   [9802, TS9802],
   [9803, TS9803],
+  [9804, TS9804],
 
   // Internal Errors (9900-9999)
   [9999, TS9999],

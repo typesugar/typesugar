@@ -18,7 +18,11 @@ function init(modules: { typescript: typeof ts }) {
 
   try {
     transformerPlugin = require("@typesugar/transformer/language-service");
-  } catch {
+  } catch (err) {
+    // The TypeScript-major guard (PEP-060 item 1) fails the load on TS 7 with
+    // the one actionable message; don't bury it under the fallback's
+    // "Cannot find module" below.
+    if ((err as { name?: unknown } | null)?.name === "UnsupportedTypeScriptError") throw err;
     // Fallback: resolve from the workspace node_modules via tsserver's own path.
     // The TS server process runs from the workspace's typescript installation,
     // so its executing file path gives us the workspace node_modules location.
