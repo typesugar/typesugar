@@ -104,6 +104,8 @@ npm update @typesugar/transformer @typesugar/core @typesugar/macros
 2. ts-patch not installed
 3. Using Bun/Deno directly (needs build step)
 4. Bundler plugin missing
+5. Running the source with `node`, `tsx`, `ts-node` or `node --test`, which don't expand
+   macros on their own
 
 **Fix:**
 
@@ -132,6 +134,9 @@ export default defineConfig({
   plugins: [typesugar()],
 });
 ```
+
+4. For Node and tsx, add the loader: `node --import typesugar/register src/main.ts`
+   (see [Node.js, tsx and node:test](./environments/node.md)).
 
 ### Macros Expand But Output is Wrong
 
@@ -296,6 +301,14 @@ See [Jest](./environments/jest.md).
 **Fix:** Use Webpack mode. In Next.js 16 and later, Turbopack is the default, so pass
 `--webpack` (`next dev --webpack`, `next build --webpack`); in Next.js 13–15, don't
 pass `--turbo`. See [Webpack Setup](./environments/webpack.md#important-turbopack-limitation).
+
+### tsup: `dts` Fails with TS2304 on Pattern Variables
+
+**Cause:** tsup's own `dts` step type-checks the unexpanded source, where names bound
+by a `match()` pattern are undeclared.
+
+**Fix:** Wrap the config in `withTypesugar()` from `typesugar/tsup`, which emits the
+declarations from the expanded program. See [With tsup](./environments/esbuild.md#with-tsup).
 
 ### esbuild: No Type Checking
 

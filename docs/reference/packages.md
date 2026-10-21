@@ -12,7 +12,8 @@ Umbrella package. Its root (`typesugar`) is runtime-only: the macro placeholders
 users import (`comptime`, `derive` and the derive markers, `summon`, `derived`, `implicit`,
 `typeInfo`, `cfg`, `includeStr`, `tailrec`, `defineConfig`, …). The macro-authoring
 APIs are at `typesugar/core`, and `typesugar/vite`, `/webpack`, `/esbuild`,
-`/rollup` and `/transformer` re-export the build integrations. It depends on core,
+`/rollup`, `/tsup` (`withTypesugar`) and `/transformer` re-export the build integrations;
+`typesugar/register` is the Node loader (`node --import typesugar/register`). It depends on core,
 macros, transformer, reflect, derive, typeclass, type-system and unplugin-typesugar;
 install `@typesugar/std` separately for the standard typeclasses and syntax imports.
 
@@ -110,10 +111,14 @@ npm install --save-dev @typesugar/transformer
 
 - Default export: transformer factory
 - CLI: `typesugar` command
+- `emitDeclarations({ project, declarationDir })`: `.d.ts` files from the expanded program
+  (`typesugar build --emitDeclarationOnly` as a function)
+- `@typesugar/transformer/register`: the Node loader, `node --import @typesugar/transformer/register`
+  ([Node.js guide](/getting-started/environments/node))
 
 ### unplugin-typesugar {#unplugin}
 
-Bundler plugins for Vite, Webpack, esbuild, Rollup.
+Bundler plugins for Vite, Webpack, esbuild, Rollup, and a tsup config helper.
 
 ```bash
 npm install --save-dev unplugin-typesugar
@@ -126,6 +131,7 @@ import typesugar from "unplugin-typesugar/vite";
 import typesugar from "unplugin-typesugar/webpack";
 import typesugar from "unplugin-typesugar/esbuild";
 import typesugar from "unplugin-typesugar/rollup";
+import { withTypesugar } from "unplugin-typesugar/tsup"; // defineConfig(withTypesugar({ ..., dts: true }))
 ```
 
 ### @typesugar/ts-plugin {#ts-plugin}
@@ -230,6 +236,9 @@ npm install @typesugar/std
 // Pattern matching — fluent API (PEP-008)
 match(); // Fluent: match(v).case(...).then(...).else(...)
 MatchError; // Runtime error when no pattern matches (extends Error, has .value)
+Destructure; // typeclass behind extractor patterns: case Some(v), case Point(x, y)
+(FluentMatch, FluentMatchCase, FluentMatchArms); // types of the fluent chain, for plain tsc
+// Statement form: `match: switch (x) { ... }`, activated by import "@typesugar/std/syntax/match"
 
 // FlatMap for do-notation — built-in instances (flatMapArray, flatMapPromise,
 // flatMapIterable, flatMapAsyncIterable) come with the
@@ -511,6 +520,10 @@ IO;
 (Functor, Applicative, Monad);
 (Semigroup, Monoid);
 (Eq, Ord, Show);
+
+// Destructure instances for the constructors, so match(o).case(Some(v)) works
+(destructureSome, destructureNone, destructureLeft, destructureRight);
+(destructureCons, destructureNil, destructureValid, destructureInvalid);
 ```
 
 **Inspired by:** Scala fp-ts, Haskell Prelude

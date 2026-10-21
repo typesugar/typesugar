@@ -96,13 +96,14 @@ You want to create custom macros, syntax extensions, or publish a typesugar-powe
 
 Once you've followed your persona guide, you may need environment-specific configuration:
 
-| Build Tool     | Guide                                      |
-| -------------- | ------------------------------------------ |
-| Vite           | [Vite Setup](./environments/vite.md)       |
-| Webpack        | [Webpack Setup](./environments/webpack.md) |
-| esbuild        | [esbuild Setup](./environments/esbuild.md) |
-| tsc (ts-patch) | [tsc Setup](./environments/tsc.md)         |
-| Bun            | [Bun Setup](./environments/bun.md)         |
+| Build Tool     | Guide                                            |
+| -------------- | ------------------------------------------------ |
+| Vite           | [Vite Setup](./environments/vite.md)             |
+| Webpack        | [Webpack Setup](./environments/webpack.md)       |
+| esbuild        | [esbuild Setup](./environments/esbuild.md)       |
+| tsup           | [With tsup](./environments/esbuild.md#with-tsup) |
+| tsc (ts-patch) | [tsc Setup](./environments/tsc.md)               |
+| Bun            | [Bun Setup](./environments/bun.md)               |
 
 | Testing / running                | Guide                                     |
 | -------------------------------- | ----------------------------------------- |

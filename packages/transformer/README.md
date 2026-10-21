@@ -38,6 +38,20 @@ pnpm add @typesugar/transformer
    }
    ```
 
+A patched `tsc` emits `.d.ts` files from the **unexpanded** program, so a library should
+emit its declarations with `typesugar build` instead (see
+[Declarations](https://typesugar.org/getting-started/environments/tsc#declarations)).
+
+### In Node (scripts, tsx, `node --test`)
+
+```bash
+node --import @typesugar/transformer/register src/main.ts   # or typesugar/register
+node --import @typesugar/transformer/register --test "src/**/*.test.ts"
+```
+
+Node module hooks expand each TypeScript module before it runs, alone (Node 22.18+ /
+23.6+) or with tsx. See [Node.js, tsx and node:test](https://typesugar.org/getting-started/environments/node).
+
 ### Transformer Options
 
 ```typescript
@@ -114,6 +128,9 @@ npx typesugar build --cache
 # Build with strict mode (typecheck expanded output)
 npx typesugar build --strict
 
+# Only the .d.ts files, from the expanded program (after a bundler built the JS)
+npx typesugar build --emitDeclarationOnly --declarationDir dist
+
 # Watch mode (automatically reuses state across rebuilds)
 npx typesugar watch
 
@@ -158,6 +175,9 @@ const transformer = macroTransformerFactory(program, {
 
 // Use with ts.transform() or a custom emit pipeline
 ```
+
+`emitDeclarations({ project, declarationDir })` writes `.d.ts` files from the expanded
+program, as `typesugar build --emitDeclarationOnly` does.
 
 ## Import-Scoped Macro Resolution
 

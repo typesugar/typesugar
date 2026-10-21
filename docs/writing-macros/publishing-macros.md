@@ -121,6 +121,11 @@ export default defineConfig({
 Build both formats. The transformer loads the macro entry with `require()`, so the
 `require` condition of `./macros` must work.
 
+This config doesn't expand macros: the macro entry defines them and the runtime entry
+holds placeholders. If your runtime entry also _uses_ macros (a `/** @typeclass */`, a
+`@derive`), wrap the config in `withTypesugar()` from `typesugar/tsup`, so the JavaScript
+and the `.d.ts` files are expanded ([With tsup](../getting-started/environments/esbuild.md#with-tsup)).
+
 ## Source Structure
 
 ### src/index.ts

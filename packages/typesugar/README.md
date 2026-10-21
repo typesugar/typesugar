@@ -124,7 +124,15 @@ import typesugar from "typesugar/esbuild";
 
 // Rollup
 import typesugar from "typesugar/rollup";
+
+// tsup: the esbuild plugin, plus `dts: true` from the expanded program
+import { withTypesugar } from "typesugar/tsup";
+export default defineConfig(withTypesugar({ entry: ["src/index.ts"], dts: true }));
 ```
+
+To run TypeScript with macros in Node (scripts, tsx, `node --test`), use the module
+hooks: `node --import typesugar/register src/main.ts`. See
+[Node.js, tsx and node:test](https://typesugar.org/getting-started/environments/node).
 
 ## CLI
 

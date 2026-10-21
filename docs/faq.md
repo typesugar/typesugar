@@ -32,8 +32,12 @@ No. Macros expand at compile time. The output is plain JavaScript with no typesu
 - Vite
 - Webpack
 - esbuild
+- tsup (`withTypesugar()`, which also makes `dts: true` work on macro code)
 - Rollup
-- tsc (via ts-patch)
+- tsc (via ts-patch; declarations for a library come from `typesugar build`)
+
+To run TypeScript directly in Node (scripts, tsx, `node --test`), use
+`node --import typesugar/register` ([Node.js, tsx and node:test](/getting-started/environments/node)).
 
 ### Do I need to configure TypeScript?
 

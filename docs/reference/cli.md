@@ -211,6 +211,11 @@ typesugar run examples/showcase.ts --cache
 typesugar run src/script.ts --verbose
 ```
 
+To run TypeScript through Node itself (tsx, `node --test`, tape, benchmarks, several
+entry points, other Node flags), use the module hooks instead:
+`node --import typesugar/register src/main.ts`. See
+[Node.js, tsx and node:test](/getting-started/environments/node).
+
 ### preprocess
 
 Preprocess files for HKT syntax only (`F<A>` → `Kind<F, A>`), with no macro expansion. Useful for debugging.

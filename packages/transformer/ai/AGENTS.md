@@ -15,10 +15,14 @@ the work, and no runtime cost.
 ### Setup invariants — do not break these
 
 1. **Keep the build plugin wired up.** Either `unplugin-typesugar` in the
-   bundler config (`plugins: [typesugar(), ...]`) or `ts-patch` for a raw
-   `tsc` build. Removing it does not "simplify the build" — it silently stops
-   every macro from expanding, and the code will fail at runtime or emit
-   nonsense.
+   bundler config (`plugins: [typesugar(), ...]`; for tsup, the config wrapped
+   in `withTypesugar(...)` from `typesugar/tsup`), `ts-patch` for a raw `tsc`
+   build, or `--import typesugar/register` for scripts and tests run directly
+   in Node or tsx. Removing it does not "simplify the build" — it silently
+   stops every macro from expanding, and the code will fail at runtime or emit
+   nonsense. A library's `.d.ts` must come from the expanded program
+   (`withTypesugar` with `dts: true`, or `typesugar build`), not from plain
+   `tsc`.
 2. **Keep the `plugins` entry in `tsconfig.json`.** It powers the editor
    (`typesugar/language-service`); without it the IDE reports errors on
    perfectly valid macro code.
@@ -61,6 +65,7 @@ class Point {
 | `comptime(expr)`           | Evaluates `expr` at build time; the result is inlined as a literal.                            |
 | `/** @derive(Eq, ...) */`  | Generates typeclass instances for a type (`Eq`, `Ord`, `Clone`, `Debug`, `Json`, `Hash`, ...). |
 | `/** @impl Show<Point> */` | Registers a hand-written instance on a `const`.                                                |
+| `derived<Eq<Point>>()`     | Declares a derived instance once, on a top-level `const`, for a type you don't own.            |
 | `summon<Eq<Point>>()`      | Retrieves an instance at a call site.                                                          |
 | `match(value)...`          | Pattern matching (see below).                                                                  |
 | `/** @typeclass */`        | Declares a new typeclass.                                                                      |
@@ -84,8 +89,14 @@ const area = match(shape)
   .then(Math.PI * r ** 2) // an expression, not a callback
   .case({ kind: "square", side: s })
   .then(s ** 2);
-// Missing a variant is a compile error. Zero runtime overhead.
+// Missing a variant is a compile error.
 ```
+
+For arms that need statements (`return`, `break`, loops), use the statement
+form: a `match:` label on a `switch`, activated by
+`import "@typesugar/std/syntax/match"`. Extractor patterns such as
+`.case(Some(v))` work through `Destructure` instances (fp ships them for its
+constructors; `@derive(Destructure)` makes them for your types).
 
 An object-literal form also exists for tagged unions:
 
@@ -97,7 +108,11 @@ const msg = match(result, {
 ```
 
 **Instance resolution is scope-based** (imports), not a global registry. If an
-instance lives in another module, it must be imported to be found.
+instance lives in another module, it must be imported to be found. For a type
+from a library, declare its instance once in a module of your own
+(`export const cloneFeature = derived<Clone<Feature>>();`) and import that
+module. A TS9009 warning means `summon`/`implicit()` derived an instance in
+place, which is deprecated: declare it that way instead.
 
 ### Debugging: what to do when something is wrong
 

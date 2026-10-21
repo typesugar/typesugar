@@ -38,7 +38,7 @@ export const sidebar: DefaultTheme.SidebarItem[] = [
         items: [
           { text: "Vite", link: "/getting-started/environments/vite" },
           {
-            text: "esbuild",
+            text: "esbuild / tsup",
             link: "/getting-started/environments/esbuild",
           },
           {
