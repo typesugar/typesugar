@@ -109,11 +109,12 @@ When something goes wrong, you should know exactly what happened and how to get 
 // Standard library
 import { clamp, abs, match } from "@typesugar/std";
 
-// Derive macros
-import { derive, Eq, Ord, Clone, Debug, Json } from "@typesugar/derive";
+// Derive macros (also exported by "@typesugar/derive")
+import { derive, Eq, Ord, Clone, Debug, Json } from "typesugar";
 
-// Typeclasses
-import { typeclass, instance, derive, summon } from "@typesugar/typeclass";
+// Typeclasses: /** @typeclass */ and /** @impl TC<T> */ are JSDoc tags, no import
+// (also exported by "@typesugar/typeclass")
+import { summon, derived, implicit } from "typesugar";
 
 // Operators (pipe, compose)
 import { pipe, compose } from "typesugar";

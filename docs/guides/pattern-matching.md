@@ -248,7 +248,7 @@ match(status)
 
 Alternatives inside `.or()` can't bind variables (same restriction as Scala) — doing so is a compile error. Bind the matched value with `.as()` instead: `.case(200).or(201).as(code).then(code)`.
 
-**Compiles to:** `if (__m === 200 || __m === 201 || __m === 204) return "success";` inside the match IIFE.
+**Compiles to:** `if (__m === 200 || __m === 201 || __m === 204) return "success";` inside an IIFE (this match needs one because its last arm binds `code`; an `.or()` match whose arms bind nothing becomes a conditional chain, see [Code Generation Strategies](#code-generation-strategies)).
 
 ### AS Patterns (Bind Whole While Destructuring)
 
