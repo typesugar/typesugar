@@ -976,7 +976,7 @@ function reportDerivedWithoutInstance(
       const generic = (decl.typeParameters?.length ?? 0) > 0;
       // The companion exists, but is declared below this module-top-level
       // use, which runs before it is assigned (companionAssignedBefore).
-      const below = !generic && !companionAssignedBefore(node, decl);
+      const below = !generic && !companionAssignedBefore(node, decl, ctx.typeChecker);
       ctx
         .diagnostic(TS9001)
         .at(node.operatorToken)
@@ -985,7 +985,8 @@ function reportDerivedWithoutInstance(
           below
             ? `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
                 `@derive(${tc}), but its companion ${declName}.${tc} is declared below this ` +
-                `line, at module top level, so it isn't assigned yet when this runs. It was ` +
+                `line, and this can run before that (at module top level, or in a function ` +
+                `called or passed to a call above it), when it isn't assigned yet. It was ` +
                 `left as JavaScript's own '${opString}'.`
             : `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
                 `@derive(${tc}), but no ${tc}<${typeName}> instance is in scope, so it was left ` +
@@ -994,7 +995,7 @@ function reportDerivedWithoutInstance(
         .help(
           below
             ? `Move the declaration of '${declName}' above this line, or use '${opString}' ` +
-                `inside a function.`
+                `inside a function that is only called below it.`
             : generic
               ? `@derive on a generic type doesn't derive an instance for its instantiations yet. ` +
                 `Declare one for this instantiation as a top-level const of a module of your own, ` +

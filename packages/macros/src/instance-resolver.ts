@@ -22,7 +22,7 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { getOrCreateWeak } from "@typesugar/core";
+import { getOrCreateWeak, isSyntheticNode } from "@typesugar/core";
 import { getDerivedCallCheck } from "./derived-call-check.js";
 import {
   InstanceScanner,
@@ -427,7 +427,7 @@ function resolveFromLocalScope(
             !synthesized.some(
               (s) => s.typeclassName === inst.typeclassName && s.exportName === inst.exportName
             ) &&
-            (!inst.origin || companionAssignedBefore(useSite, inst.origin))
+            (!inst.origin || companionAssignedBefore(useSite, inst.origin, typeChecker))
         )
     : [];
   const candidates =
@@ -451,21 +451,151 @@ function resolveFromLocalScope(
 
 /**
  * Whether the `@derive` companion generated right after `typeDecl` (in the
- * same file) holds its value when `useSite` runs: the use is below the
- * declaration, or inside a function, method, accessor or instance property
- * initializer, which runs later (a static initializer or block runs with the
- * class declaration, so it counts as top level). A use at module top level above the declaration runs before
- * the companion's namespace is assigned (`P` is still undefined there), so a
- * reference to it would throw.
+ * same file) holds its value when `useSite` runs.
+ *
+ * A use below the declaration always does. A use above it does only when it
+ * cannot run before the declaration is reached -- conservatively, when some
+ * function enclosing it is DEFERRED (see `isDeferredFunction`): bound to a
+ * name (a function declaration, a `const f = () => ...`, a class's method,
+ * accessor, constructor or instance property initializer -- bound through
+ * its class), and that name is not referenced anywhere above the
+ * declaration except from inside another deferred function. An immediately
+ * invoked function (`(() => a === b)()`), a callback passed to a call at top
+ * level (`xs.filter(v => v === q)`) and a function called above the
+ * declaration all run before the companion's namespace is assigned (`P` is
+ * still undefined there), so a reference to it would throw at run time: those
+ * get "not assigned yet" (TS9001) at compile time instead (review 5, item 4).
+ *
+ * The references are found through the checker, by symbol, not by name. An
+ * `export { f }` above the declaration does not count (it doesn't call `f`);
+ * a call through a circular import during module evaluation is not modelled.
  */
-export function companionAssignedBefore(useSite: ts.Node, typeDecl: ts.Node): boolean {
-  if (useSite.getSourceFile() !== typeDecl.getSourceFile()) return true;
-  if (useSite.pos >= typeDecl.end) return true;
-  for (let n: ts.Node | undefined = useSite.parent; n; n = n.parent) {
-    if (ts.isFunctionLike(n)) return true;
-    if (ts.isPropertyDeclaration(n) && !ts.getModifiers(n)?.some(isStaticModifier)) return true;
+export function companionAssignedBefore(
+  useSite: ts.Node,
+  typeDecl: ts.Node,
+  checker: ts.TypeChecker
+): boolean {
+  const site = isSyntheticNode(useSite) ? ts.getOriginalNode(useSite) : useSite;
+  const sourceFile = typeDecl.getSourceFile();
+  // A generated node with no original has no position to judge: as before.
+  if (isSyntheticNode(site) || site.getSourceFile() !== sourceFile) return true;
+  if (site.pos >= typeDecl.end) return true;
+  return runsOnlyLater(site, { checker, sourceFile, declEnd: typeDecl.end, verdicts: new Map() });
+}
+
+interface DeferralCheck {
+  checker: ts.TypeChecker;
+  sourceFile: ts.SourceFile;
+  /** End of the type declaration the companion follows. */
+  declEnd: number;
+  /** Per function binding: settled, or `"pending"` while being checked (a cycle). */
+  verdicts: Map<ts.Symbol, boolean | "pending">;
+}
+
+/** Some function enclosing `node` (innermost first) is deferred. */
+function runsOnlyLater(node: ts.Node, check: DeferralCheck): boolean {
+  for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+    if (ts.isSourceFile(n)) break;
+    if (ts.isFunctionLike(n) || isInstancePropertyDeclaration(n)) {
+      if (isDeferredFunction(n, check)) return true;
+    }
   }
   return false;
+}
+
+function isInstancePropertyDeclaration(n: ts.Node): n is ts.PropertyDeclaration {
+  return ts.isPropertyDeclaration(n) && !ts.getModifiers(n)?.some(isStaticModifier);
+}
+
+/**
+ * The function `fn` doesn't run before `check.declEnd`: it has a binding (see
+ * `functionBinding`), and every reference to that binding above the
+ * declaration is itself inside a deferred function. A reference cycle with
+ * nothing else calling into it never starts, so a binding being checked
+ * counts as deferred where it recurs.
+ */
+function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
+  const binding = functionBinding(fn, check.checker);
+  if (!binding) return false;
+  const { symbol, declaration } = binding;
+  const verdict = check.verdicts.get(symbol);
+  if (verdict === "pending") return true;
+  if (verdict !== undefined) return verdict;
+  check.verdicts.set(symbol, "pending");
+  let deferred = true;
+  const visit = (node: ts.Node): void => {
+    if (!deferred || node.pos >= check.declEnd) return;
+    // Its own body (recursion) and its own name don't call it from outside.
+    if (node === declaration) return;
+    if (
+      ts.isIdentifier(node) &&
+      node.text === symbol.name &&
+      referencesSymbol(node, symbol, check)
+    ) {
+      if (!runsOnlyLater(node, check)) deferred = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(check.sourceFile, visit);
+  check.verdicts.set(symbol, deferred);
+  return deferred;
+}
+
+function referencesSymbol(id: ts.Identifier, symbol: ts.Symbol, check: DeferralCheck): boolean {
+  if (ts.isExportSpecifier(id.parent)) return false;
+  const sym = ts.isShorthandPropertyAssignment(id.parent)
+    ? check.checker.getShorthandAssignmentValueSymbol(id.parent)
+    : check.checker.getSymbolAtLocation(id);
+  return sym === symbol;
+}
+
+/**
+ * The name a function runs through, and the declaration that binds it: a
+ * named function declaration; a function or arrow that initializes a
+ * variable (`const f = () => ...`); or a member (method, accessor,
+ * constructor, instance property) of a class that is declared, or bound to a
+ * variable, by name -- it runs once the class is used. Anything else (an
+ * argument, an IIFE, an object literal's method) has none: it may run at once.
+ */
+function functionBinding(
+  fn: ts.Node,
+  checker: ts.TypeChecker
+): { symbol: ts.Symbol; declaration: ts.Node } | undefined {
+  const named = (name: ts.Node | undefined, declaration: ts.Node) => {
+    const symbol = name && ts.isIdentifier(name) ? checker.getSymbolAtLocation(name) : undefined;
+    return symbol ? { symbol, declaration } : undefined;
+  };
+  if (ts.isFunctionDeclaration(fn)) return named(fn.name, fn);
+  if (ts.isFunctionExpression(fn) || ts.isArrowFunction(fn)) {
+    let p: ts.Node = fn.parent;
+    while (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isSatisfiesExpression(p)) {
+      p = p.parent;
+    }
+    return ts.isVariableDeclaration(p) && p.initializer && skipParens(p.initializer) === fn
+      ? named(p.name, p)
+      : undefined;
+  }
+  const isMember =
+    ts.isMethodDeclaration(fn) ||
+    ts.isGetAccessorDeclaration(fn) ||
+    ts.isSetAccessorDeclaration(fn) ||
+    ts.isConstructorDeclaration(fn) ||
+    isInstancePropertyDeclaration(fn);
+  if (!isMember) return undefined;
+  const cls = fn.parent;
+  if (ts.isClassDeclaration(cls)) return named(cls.name, cls);
+  if (ts.isClassExpression(cls) && ts.isVariableDeclaration(cls.parent)) {
+    return named(cls.parent.name, cls.parent);
+  }
+  return undefined;
+}
+
+function skipParens(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) {
+    e = e.expression;
+  }
+  return e;
 }
 
 function isStaticModifier(m: ts.ModifierLike): boolean {

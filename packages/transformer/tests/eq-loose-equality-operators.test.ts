@@ -478,3 +478,62 @@ describe("an operator before its type's @derive declaration", () => {
     expect(errs[0].message).toMatch(/declared below/);
   });
 });
+
+describe("a use above its type's @derive that runs before the companion is assigned", () => {
+  // review 5, item 4: companionAssignedBefore treated ANY enclosing function
+  // as "runs later", so these resolved to P.Eq and threw at run time
+  // ("Cannot read properties of undefined (reading 'Eq')"). Each must be a
+  // compile error or run correctly, never a runtime TypeError.
+  const decl = [`/** @derive(Eq) */`, `interface P { x: number }`];
+  const vals = `const a = { x: 1 } as P, b = { x: 1 } as P;`;
+
+  /** Transform, then run: the result is the exports, or the compile errors. */
+  function outcome(lines: string[]): { errors: string[]; exports?: Record<string, unknown> } {
+    const code = [`import "@typesugar/std/syntax/eq/ops";`, ...lines].join("\n");
+    const r = transformCode(code, { fileName: `eq-early-${counter++}.ts` });
+    const errs = errors(r).map((d) => d.message);
+    if (errs.length > 0) return { errors: errs };
+    return { errors: [], exports: evaluate(r.code) };
+  }
+
+  it("an immediately invoked function at module top level", () => {
+    const o = outcome([vals, `export const early = (() => a === b)();`, ...decl]);
+    if (o.errors.length === 0) expect(o.exports!.early).toBe(true);
+    else expect(o.errors[0]).toMatch(/declared below/);
+  });
+
+  it("a function declared and called above the declaration", () => {
+    const o = outcome([
+      vals,
+      `function same(p: P, q: P) { return p === q; }`,
+      `export const early = same(a, b);`,
+      ...decl,
+    ]);
+    if (o.errors.length === 0) expect(o.exports!.early).toBe(true);
+    else expect(o.errors[0]).toMatch(/declared below/);
+  });
+
+  it("a callback passed to a call at module top level", () => {
+    const o = outcome([vals, `export const early = [a].filter((v) => v === b);`, ...decl]);
+    if (o.errors.length === 0) expect(o.exports!.early).toEqual([{ x: 1 }]);
+    else expect(o.errors[0]).toMatch(/declared below/);
+  });
+
+  it("a function only called below the declaration (directly, or through another) still rewrites", () => {
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      vals,
+      `function same(p: P, q: P) { return p === q; }`,
+      `function viaHelper(p: P, q: P) { return same(p, q); }`,
+      `class Box { constructor(readonly p: P) {} is(q: P) { return this.p === q; } }`,
+      ...decl,
+      `export const later = viaHelper(a, b);`,
+      `export const boxed = new Box(a).is(b);`,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-early-${counter++}.ts` });
+    expect(errors(r)).toEqual([]);
+    expect(r.code).toContain("return P.Eq.equals(p, q);");
+    expect(r.code).toContain("return P.Eq.equals(this.p, q);");
+    expect(evaluate(r.code)).toEqual({ later: true, boxed: true });
+  });
+});
