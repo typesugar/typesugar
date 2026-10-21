@@ -422,22 +422,42 @@ const circle: Shape = { kind: "circle", radius: 2 };
 export const area = match(circle)
   .case({ kind: "circle", radius }).then(radius * 10)
   .case({ kind: "square", side }).then(side * side);
-type Circle = { kind: "circle"; radius: number };
-export const f = (c: Circle | null) => match(c).case({ kind: "circle", radius }).then(radius).case(null).then(-1);
-export const g = (c: Circle) => match(c).case({ kind: "circle", radius }).then(radius);`);
+export const only = match(circle).case({ kind: "circle", radius }).then(radius);`);
     if (r.runError) throw new Error(`${String(r.runError)}\n--- emitted ---\n${r.code}`);
     expect(r.errors).toEqual([]);
     expect(r.exports.area).toBe(20);
-    expect((r.exports.f as Fn)(null)).toBe(-1);
-    expect((r.exports.f as Fn)({ kind: "circle", radius: 3 })).toBe(3);
-    expect((r.exports.g as Fn)({ kind: "circle", radius: 4 })).toBe(4);
+    expect(r.exports.only).toBe(2);
   });
 
-  it("a single-variant scrutinee still needs its variant covered", () => {
+  it("a scrutinee narrowed to one variant still needs its variant covered", () => {
     const r = transformAndRun(`import { match } from "@typesugar/std";
-type Circle = { kind: "circle"; radius: number };
-export const g = (c: Circle) => match(c).case({ kind: "circle", radius: 1 }).then(1);`);
+type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
+const circle: Shape = { kind: "circle", radius: 2 };
+export const g = match(circle).case({ kind: "circle", radius: 1 }).then(1);`);
     expect(r.errors.join("\n")).toMatch(/Non-exhaustive/);
+  });
+
+  // The one-variant treatment is for a scrutinee NARROWED from a
+  // discriminated union. A plain object type with a literal-typed field
+  // (`version: 1`) isn't a variant of anything: "missing variants: 1
+  // (discriminant: \"version\")" for arms on `name` was misleading.
+  it("a plain object type with a literal-typed field keeps the object diagnostics", () => {
+    const r = transformAndRun(`import { match } from "@typesugar/std";
+interface Cfg { version: 1; name: string }
+const cfg: Cfg = { version: 1, name: "a" };
+export const n = match(cfg).case({ name: "a" }).then(1).case({ name: "b" }).then(2);`);
+    const text = r.errors.join("\n");
+    expect(text).toMatch(/TS9226/);
+    expect(text).not.toMatch(/missing variants|discriminant/);
+    const withElse = transformAndRun(`import { match } from "@typesugar/std";
+interface Cfg { version: 1; name: string }
+type Circle = { kind: "circle"; radius: number };
+const cfg: Cfg = { version: 1, name: "a" };
+export const n = match(cfg).case({ name: "a" }).then(1).else(0);
+export const g = (c: Circle | null) => match(c).case({ kind: "circle", radius }).then(radius).else(-1);`);
+    expect(withElse.errors).toEqual([]);
+    expect(withElse.exports.n).toBe(1);
+    expect((withElse.exports.g as Fn)(null)).toBe(-1);
   });
 
   it("an arm with an extra literal constraint does not cover its variant", () => {

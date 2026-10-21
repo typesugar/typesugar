@@ -566,7 +566,20 @@ export function nullishKeyOfType(type: ts.Type): string | undefined {
   return undefined;
 }
 
-export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): ScrutineeAnalysis {
+/**
+ * @param narrowedFromUnion - The scrutinee is a variable or property whose
+ *   DECLARED type is a discriminated union, narrowed here (by assignment or
+ *   control flow) to fewer variants. Only then is a single object type (or
+ *   one object type plus null/undefined) a one-variant discriminated union:
+ *   `const c: Shape = { kind: "circle", ... }` is the circle variant. A plain
+ *   object type with a literal-typed field (`interface Cfg { version: 1 }`)
+ *   is not a variant of anything and stays non-enumerable.
+ */
+export function analyzeScrutineeType(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  narrowedFromUnion = false
+): ScrutineeAnalysis {
   if (type.flags & ts.TypeFlags.Boolean) {
     return { kind: "boolean", literalMembers: new Set(["true", "false"]) };
   }
@@ -600,8 +613,12 @@ export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): Sc
       return { kind: "literal-union", literalMembers: litMembers };
     }
 
-    // One object member (`Circle | null`) is a one-variant discriminated union.
-    const disc = members.length >= 1 ? findDiscriminant(checker, members) : undefined;
+    // One object member (`Circle | null`) is a one-variant discriminated
+    // union only when narrowed from a declared one (see narrowedFromUnion).
+    const disc =
+      members.length >= 2 || (members.length === 1 && narrowedFromUnion)
+        ? findDiscriminant(checker, members)
+        : undefined;
     if (disc) {
       return {
         kind: "discriminated-union",
@@ -623,11 +640,11 @@ export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): Sc
     return { kind: "non-enumerable" };
   }
 
-  // A single object type with a literal-typed property is a one-variant
-  // discriminated union: `const c: Shape = { kind: "circle", ... }` narrows
-  // `c` to the circle variant, which an arm `{ kind: "circle", radius }`
+  // A single object type narrowed from a declared discriminated union is a
+  // one-variant discriminated union: `const c: Shape = { kind: "circle", ... }`
+  // narrows `c` to the circle variant, which an arm `{ kind: "circle", radius }`
   // covers completely (it was "not enumerable", TS9226).
-  if (type.flags & ts.TypeFlags.Object) {
+  if (narrowedFromUnion && type.flags & ts.TypeFlags.Object) {
     const disc = findDiscriminant(checker, [type]);
     if (disc) {
       return {
@@ -714,6 +731,37 @@ export function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): t
   return type;
 }
 
+/**
+ * Whether `scrutinee` names a variable, parameter or property whose DECLARED
+ * type (read from its symbol, so narrowing doesn't apply) is a discriminated
+ * union of two or more object types, and its type here is narrower. Decided
+ * through the checker (the declared type's members and their literal-typed
+ * fields), not by names.
+ */
+function isNarrowedFromUnion(ctx: MacroContext, scrutinee: ts.Expression, type: ts.Type): boolean {
+  let e = scrutinee;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  const named = ts.isIdentifier(e) ? e : ts.isPropertyAccessExpression(e) ? e.name : undefined;
+  if (!named || isSyntheticNode(named)) return false;
+  const checker = ctx.typeChecker;
+  try {
+    let sym = checker.getSymbolAtLocation(named);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!sym || !(sym.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property))) return false;
+    const declared = checker.getNonNullableType(checker.getTypeOfSymbol(sym));
+    if (declared === checker.getNonNullableType(type) || !declared.isUnion()) return false;
+    const objects = declared.types.filter((t) => (t.flags & ts.TypeFlags.Object) !== 0);
+    return objects.length >= 2 && findDiscriminant(checker, objects) !== undefined;
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: could not read the scrutinee's declared type (${e instanceof Error ? e.message : String(e)}); ` +
+        `it is checked as its narrowed type, without the one-variant rule.`
+    );
+    return false;
+  }
+}
+
 /** Scrutinee analysis, or undefined for any/unknown/unavailable types. */
 /** @internal shared with match-switch.ts */
 export function getScrutineeAnalysis(
@@ -723,7 +771,7 @@ export function getScrutineeAnalysis(
   const type = getScrutineeType(ctx, scrutinee);
   if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
   try {
-    return analyzeScrutineeType(ctx.typeChecker, type);
+    return analyzeScrutineeType(ctx.typeChecker, type, isNarrowedFromUnion(ctx, scrutinee, type));
   } catch (e) {
     ctx.reportWarning(
       scrutinee,

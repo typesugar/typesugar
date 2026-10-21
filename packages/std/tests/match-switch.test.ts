@@ -171,6 +171,26 @@ export function net(t: "a" | "b"): number {
     expect(r.warnings).toEqual([expect.stringContaining("unreachable default")]);
   });
 
+  it("a default after a case on a plain object's literal-typed field is not 'unreachable'", () => {
+    // `version: 1` made Cfg a "one-variant discriminated union", so the
+    // default was reported unreachable: it is a defensive branch on a plain
+    // object type, which isn't enumerable.
+    const r = transformAndRun(`${ACTIVATE}
+interface Cfg { version: 1; name: string }
+export function g(c: Cfg): string {
+  match: switch (c) {
+    case { version: 1, name }:
+      return name;
+    default:
+      return "other";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.warnings).toEqual([]);
+    expect((r.exports.g as (c: unknown) => string)({ version: 1, name: "a" })).toBe("a");
+  });
+
   it("keeps every control-flow form: break, return, continue, throw, fallthrough", () => {
     const r = transformAndRun(`${ACTIVATE}
 export function run(items: ("skip" | "stop" | "boom" | "a" | "b")[]): string {
