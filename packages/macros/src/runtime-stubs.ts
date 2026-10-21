@@ -174,6 +174,27 @@ export function summonAll<T extends readonly unknown[]>(): T {
 }
 
 /**
+ * Derive a typeclass instance once, from the type's structure, for a type you
+ * can't put `@derive` on (one from a library). The expansion is the code
+ * `@derive(TC)` generates, and the const it initializes is the instance:
+ * `summon`, `= implicit()` and method syntax find it in every file that
+ * imports the module. Must initialize a top-level `const`.
+ *
+ * @example
+ * ```typescript
+ * // geo-instances.ts
+ * import type { Feature } from "geojson";
+ * import type { Clone } from "@typesugar/std";
+ * import { derived } from "typesugar";
+ *
+ * export const cloneFeature = derived<Clone<Feature>>();
+ * ```
+ */
+export function derived<T>(): T {
+  throw new Error("derived() must be processed by the typesugar transformer at compile time");
+}
+
+/**
  * Call extension methods on a value via typeclass instances or standalone extensions.
  * Scala 3-like extension method syntax.
  *

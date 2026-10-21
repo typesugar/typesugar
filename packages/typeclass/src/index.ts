@@ -36,7 +36,16 @@
 // Re-export everything from @typesugar/macros that relates to typeclasses
 
 // Runtime stubs (user-facing functions)
-export { typeclass, instance, derive, deriving, summon, extend, implicit } from "@typesugar/macros";
+export {
+  typeclass,
+  instance,
+  derive,
+  deriving,
+  summon,
+  derived,
+  extend,
+  implicit,
+} from "@typesugar/macros";
 
 // Macro definitions (for programmatic use)
 export {
@@ -44,6 +53,7 @@ export {
   implAttribute,
   implMacro,
   summonMacro,
+  derivedMacro,
   extendMacro,
 } from "@typesugar/macros";
 

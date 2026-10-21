@@ -421,6 +421,71 @@ Incorrect:
   seeAlso: "https://typesugar.org/errors/TS9008",
 };
 
+export const TS9009: DiagnosticDescriptor = {
+  code: 9009,
+  severity: "warning",
+  category: DiagnosticCategory.TypeclassResolution,
+  messageTemplate: "No instance for `{typeclass}<{type}>` in scope; derived one here",
+  explanation: `\`summon<{typeclass}<{type}>>()\` (or an \`= implicit()\` parameter) found no
+instance for {type} in scope, so it derived one from the type's structure,
+right here. Each such call site gets its own copy of the instance, and
+nothing else in the program can find it.
+
+This fallback is deprecated: a later release makes \`summon\` and
+\`implicit()\` find instances only, and this call will then fail with TS9001.
+
+Declare the instance once instead, in a module of your own, and import that
+module where the instance is used:
+
+  \`export const cloneFeature = derived<Clone<Feature>>();\`   // instances.ts
+
+\`derived<TC<T>>()\` emits the same code that \`@derive(TC)\` generates, and the
+const it initializes is an instance that \`summon\`, \`= implicit()\` and method
+syntax find in every file that imports the module. For a type you own,
+\`@derive(TC)\` on its declaration does the same.
+
+When the warning points at a summon that initializes a top-level const
+(\`export const cloneFeature = summon<Clone<Feature>>()\`), that const is
+already the declaration: write \`derived<Clone<Feature>>()\` there instead.`,
+  seeAlso: "https://typesugar.org/errors/TS9009",
+};
+
+export const TS9010: DiagnosticDescriptor = {
+  code: 9010,
+  severity: "error",
+  category: DiagnosticCategory.TypeclassResolution,
+  messageTemplate: "derived<{typeclass}<{type}>>() must initialize a top-level const",
+  explanation: `\`derived<TC<T>>()\` declares an instance: the const it initializes is the
+instance that \`summon\`, \`= implicit()\` and method syntax find. So it must be
+the whole initializer of a \`const\` at the top level of a module:
+
+  \`export const cloneFeature = derived<Clone<Feature>>();\`
+  \`export const cloneFeature: Clone<Feature> = derived();\`   // the same, typed by the annotation
+
+Anywhere else (inside a function, an array or an object, or as a \`let\` or
+\`var\`) there would be no declaration for other code to find, and each
+evaluation would build a new copy. To get an instance as a value, summon it.`,
+  seeAlso: "https://typesugar.org/errors/TS9010",
+};
+
+export const TS9011: DiagnosticDescriptor = {
+  code: 9011,
+  severity: "error",
+  category: DiagnosticCategory.TypeclassResolution,
+  messageTemplate:
+    "derived<{typeclass}<{type}>>(): instances for generic types are not supported yet",
+  explanation: `The type argument names a type parameter, so there is no concrete type to
+derive the instance for. typesugar 1.0 has no generic instances (one
+\`Clone<Feature<G>>\` for every \`G\`), so \`derived<...>()\` takes a concrete type:
+
+  \`export const cloneFeature = derived<Clone<Feature>>();\`               // Feature's defaults
+  \`export const clonePointFeature = derived<Clone<Feature<Point>>>();\`   // one instantiation
+
+Declare one instance per concrete type you need, or write the generic
+function by hand and pass its instances explicitly.`,
+  seeAlso: "https://typesugar.org/errors/TS9011",
+};
+
 // Coherence Checking (9050-9059)
 
 export const TS9050: DiagnosticDescriptor = {
@@ -670,6 +735,30 @@ Solutions:
 - Use a concrete field type, or add @derive({typeclass}) / an @impl to the field's type
 - Write the {typeclass} instance by hand with /** @impl {typeclass}<{type}> */`,
   seeAlso: "https://typesugar.org/errors/TS9106",
+};
+
+export const TS9107: DiagnosticDescriptor = {
+  code: 9107,
+  severity: "error",
+  category: DiagnosticCategory.DeriveFailed,
+  messageTemplate:
+    "Cannot derive {typeclass}<{type}>: field `{field}` has type `{fieldType}`, which has no {typeclass} instance and can't be derived",
+  explanation: `\`derived<{typeclass}<{type}>>()\` builds the instance field by field. For the
+field named in the message there is no {typeclass} instance in scope, and
+{typeclass}'s derivation can't build one from the field's type: it compares or
+combines primitives, arrays and tuples inline, and everything else through an
+instance.
+
+Give the field's type an instance, in scope where \`derived<...>()\` is
+written, and it is used for that field:
+
+  \`export const eqProperties: Eq<GeoJsonProperties> = { equals, notEquals };\`
+  \`export const eqFeature = derived<Eq<Feature>>();\`   // compares properties with eqProperties
+
+or derive one for it first (\`derived<{typeclass}<FieldType>>()\`, or \`@derive\` on
+a type you own), or write the whole instance by hand with
+\`/** @impl {typeclass}<{type}> */\`.`,
+  seeAlso: "https://typesugar.org/errors/TS9107",
 };
 
 // ============================================================================
@@ -1402,6 +1491,9 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9006, TS9006],
   [9007, TS9007],
   [9008, TS9008],
+  [9009, TS9009],
+  [9010, TS9010],
+  [9011, TS9011],
 
   // Coherence Checking (9050-9059)
   [9050, TS9050],
@@ -1421,6 +1513,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9104, TS9104],
   [9105, TS9105],
   [9106, TS9106],
+  [9107, TS9107],
 
   // Macro Syntax (9200-9299)
   [9201, TS9201],

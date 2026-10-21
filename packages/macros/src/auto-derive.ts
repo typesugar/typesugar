@@ -43,7 +43,11 @@
  * No `@derive(Generic)` is needed — the TypeChecker provides the Mirror.
  * (`@derive(Generic)` can still be used to pre-cache the metadata, but
  * summon will synthesize it on demand if absent.)
-
+ *
+ * The same derivation backs `@derive(TC)` and `derived<TC<T>>()` (an
+ * instance declared once, for a type you don't own). `summon`'s and
+ * `= implicit()`'s use of it, deriving in place when no instance is in scope,
+ * is deprecated (TS9009).
  *
  * ## Usage
  *

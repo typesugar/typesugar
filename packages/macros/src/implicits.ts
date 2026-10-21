@@ -59,6 +59,7 @@ import {
   buildDottedReference,
 } from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
+import { warnDerivedInPlace, notOwnedTypeHelp } from "./derived-in-place.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -448,8 +449,10 @@ export function transformImplicitsCall(
     }
 
     // 3. Try auto-derivation via Generic (Scala 3-style)
+    // Deprecated (TS9009): implicit() will find instances only.
     const derivationResult = tryDeriveViaGeneric(ctx, typeclassName, concreteType);
     if (derivationResult.expression) {
+      warnDerivedInPlace(ctx, callExpr, typeclassName, concreteType, false);
       newArgs.push(derivationResult.expression);
       continue;
     }
@@ -493,10 +496,12 @@ export function transformImplicitsCall(
       builder.note(`implicit parameter: ${paramName}`);
 
       const tcSuggestions = getSuggestionsForTypeclass(typeclassName);
+      const notOwned = notOwnedTypeHelp(ctx, concreteTsType, typeclassName, concreteType);
+      const help = notOwned ? `${helpMessage}\n    ${notOwned}` : helpMessage;
       if (tcSuggestions.length > 0) {
-        builder.help(`${helpMessage}\n    Add: ${tcSuggestions[0].importStatement}`);
+        builder.help(`${help}\n    Add: ${tcSuggestions[0].importStatement}`);
       } else {
-        builder.help(helpMessage);
+        builder.help(help);
       }
 
       builder.emit();

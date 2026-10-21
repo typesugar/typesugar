@@ -107,6 +107,7 @@ export {
   deriving,
   summon,
   summonAll,
+  derived,
   extend,
   implicit,
   // Extension method decorator

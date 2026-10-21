@@ -1059,6 +1059,15 @@ class MacroTransformer {
       }
     }
 
+    // `export const cloneFeature = derived<Clone<Feature>>();` expands to the
+    // derived object; the declaration keeps the instance type as its
+    // annotation, so the expanded program (and a `.d.ts` emitted from it)
+    // types the const `Clone<Feature>`, not the object literal's shape.
+    if (ts.isVariableDeclaration(node) && !node.type && node.initializer) {
+      const annotated = this.tryAnnotateDerivedInstance(node);
+      if (annotated !== undefined) return annotated;
+    }
+
     if (ts.isParameter(node)) {
       const stripped = tryStripOpaqueParamAnnotationFn(
         this.ctx,
@@ -1539,6 +1548,43 @@ class MacroTransformer {
   // ---------------------------------------------------------------------------
   // Expression macro expansion (kept here due to cache interaction)
   // ---------------------------------------------------------------------------
+
+  /**
+   * `const x = derived<TC<T>>()` (no annotation): visit the declaration, and
+   * when the call was expanded, annotate it with the call's type argument
+   * `TC<T>` (the original node; it is in this file). Undefined when the
+   * initializer is not a `derived` call, so the caller visits as usual.
+   */
+  private tryAnnotateDerivedInstance(
+    node: ts.VariableDeclaration
+  ): ts.VariableDeclaration | undefined {
+    let init = node.initializer!;
+    while (ts.isParenthesizedExpression(init)) init = init.expression;
+    if (
+      !ts.isCallExpression(init) ||
+      !ts.isIdentifier(init.expression) ||
+      init.typeArguments?.length !== 1 ||
+      isSyntheticNode(init)
+    ) {
+      return undefined;
+    }
+    const macro = this.resolveMacroFromSymbol(init.expression, init.expression.text, "expression");
+    if (macro?.name !== "derived" || macro.module !== "@typesugar/typeclass") return undefined;
+    const visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    let out = visited.initializer;
+    while (out && ts.isParenthesizedExpression(out)) out = out.expression;
+    // Not expanded (an error was reported): leave the declaration as written.
+    if (!out || out === init || (ts.isCallExpression(out) && out.expression === init.expression)) {
+      return visited;
+    }
+    return this.ctx.factory.updateVariableDeclaration(
+      visited,
+      visited.name,
+      visited.exclamationToken,
+      init.typeArguments[0],
+      visited.initializer
+    );
+  }
 
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
     // Skip synthetic nodes (created by macro expansion) to avoid re-expansion loops.

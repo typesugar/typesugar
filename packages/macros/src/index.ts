@@ -84,6 +84,7 @@ export {
   implAttribute,
   implMacro,
   summonMacro,
+  derivedMacro,
   extendMacro,
   withDerivationContext,
   resolveFieldInstance,
@@ -423,6 +424,7 @@ export {
   deriving,
   summon,
   summonAll,
+  derived,
   extend,
   // Extension method decorator
   extension,

@@ -4,6 +4,8 @@
  * Scans a module's exports for typeclass instances by detecting:
  * 1. `@impl("TC<Type>")` JSDoc tags (primary)
  * 2. Explicit type annotations matching `TC<Type>` (secondary fallback)
+ * 3. Call-form initializers: `impl("TC<Type>", {...})`, and
+ *    `derived<TC<Type>>()` (a derived instance, declared once)
  *
  * This enables @derive and summon to resolve instances by searching imports
  * rather than relying on a central registry — any package can provide
@@ -30,7 +32,7 @@ export interface ScannedInstance {
   /** Resolved file path of the source module */
   sourceModule: string;
   /** How this instance was detected */
-  detectedVia: "impl-tag" | "type-annotation" | "derived";
+  detectedVia: "impl-tag" | "type-annotation" | "derived" | "derived-call";
   /** Do-notation emission metadata from a `@do-methods` JSDoc tag, if present */
   doMeta?: DoNotationMeta;
 }
@@ -387,7 +389,67 @@ export class InstanceScanner {
       }
     }
 
+    // Strategy 4: `const x = derived<TC<T>>()` declares a derived instance;
+    // the initializer says what it is, so no @impl tag is needed. In emitted
+    // `.d.ts` it is `x: TC<T>`, which Strategy 2 finds. Shape (CLAUDE.md
+    // "Resolving things a macro just generated"): this reads the source as
+    // written, and that is enough here — the declaration and its
+    // `derived<...>()` initializer are in the source before the pass starts;
+    // only the initializer's expansion is generated mid-pass, and nothing
+    // here depends on it.
+    if (results.length === 0 && varDecl) {
+      const derivedResult = this.extractFromDerivedCall(
+        typeChecker,
+        varDecl,
+        exportName,
+        resolvedPath
+      );
+      if (derivedResult) results.push(derivedResult);
+    }
+
     return results;
+  }
+
+  /**
+   * `const x = derived<TC<T>>()`, where `derived` is imported from typesugar
+   * (`typesugar` or an `@typesugar/*` package, possibly renamed).
+   */
+  private extractFromDerivedCall(
+    typeChecker: ts.TypeChecker,
+    decl: ts.VariableDeclaration,
+    exportName: string,
+    resolvedPath: string
+  ): ScannedInstance | null {
+    let init = decl.initializer;
+    while (init && ts.isParenthesizedExpression(init)) init = init.expression;
+    if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return null;
+    if (!(decl.parent.flags & ts.NodeFlags.Const)) return null;
+    if (!importsDerivedAs(decl.getSourceFile(), init.expression.text)) return null;
+    const typeArg = init.typeArguments?.length === 1 ? init.typeArguments[0] : undefined;
+    if (
+      !typeArg ||
+      !ts.isTypeReferenceNode(typeArg) ||
+      !ts.isIdentifier(typeArg.typeName) ||
+      typeArg.typeArguments?.length !== 1
+    ) {
+      return null;
+    }
+    let forType: ts.Type | undefined;
+    let forTypeString: string;
+    try {
+      forType = typeChecker.getTypeFromTypeNode(typeArg.typeArguments[0]);
+      forTypeString = typeChecker.typeToString(forType);
+    } catch {
+      forTypeString = typeArg.typeArguments[0].getText();
+    }
+    return {
+      typeclassName: typeArg.typeName.text,
+      forTypeString,
+      forType,
+      exportName,
+      sourceModule: resolvedPath,
+      detectedVia: "derived-call",
+    };
   }
 
   /**
@@ -507,6 +569,21 @@ export class InstanceScanner {
       detectedVia: "type-annotation",
     };
   }
+}
+
+/** Does `sf` import typesugar's `derived` under the local name `local`? */
+function importsDerivedAs(sf: ts.SourceFile, local: string): boolean {
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const spec = stmt.moduleSpecifier.text;
+    if (spec !== "typesugar" && !spec.startsWith("@typesugar/")) continue;
+    const nb = stmt.importClause?.namedBindings;
+    if (!nb || !ts.isNamedImports(nb) || stmt.importClause!.isTypeOnly) continue;
+    for (const el of nb.elements) {
+      if (el.name.text === local && (el.propertyName ?? el.name).text === "derived") return true;
+    }
+  }
+  return false;
 }
 
 // ============================================================================

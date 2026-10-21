@@ -79,6 +79,7 @@ import {
 } from "./specialize.js";
 // Static: instance-extraction imports only specialize and instance-resolver.
 import { containsMacroCall } from "./instance-extraction.js";
+import { warnDerivedInPlace, notOwnedTypeHelp, suggestedInstanceName } from "./derived-in-place.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -87,7 +88,18 @@ import {
 } from "@typesugar/core";
 import type { DerivationResult } from "./auto-derive.js";
 import { globalResolutionScope } from "@typesugar/core";
-import { TS9001, TS9005, TS9008, TS9101, TS9106, TS9203, TS9305 } from "@typesugar/core";
+import {
+  TS9001,
+  TS9005,
+  TS9008,
+  TS9010,
+  TS9011,
+  TS9101,
+  TS9106,
+  TS9107,
+  TS9203,
+  TS9305,
+} from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 import {
@@ -2374,6 +2386,7 @@ export function tryExtractSumType(
 // Resolution order:
 // 1. Explicit instance (@instance or @deriving) → inline reference
 // 2. Auto-derivation via TypeChecker → inspect A's fields, derive if possible
+//    (deprecated: warns TS9009; declare the instance with derived<TC<A>>())
 // 3. Compile error — no silent runtime fallback
 // ============================================================================
 
@@ -2483,6 +2496,25 @@ function initializedDeclarationName(node: ts.Node): string | undefined {
     n = parent;
   }
   return undefined;
+}
+
+/**
+ * The declaration whose WHOLE initializer is `node` (parentheses aside), when
+ * it is a `const` at the top level of its module: `export const cloneFeature
+ * = derived<Clone<Feature>>()`. The instance scanner discovers exactly these
+ * declarations (top-level variable statements), so this is where a
+ * `derived<...>()` instance can be declared.
+ */
+function topLevelConstInitialized(node: ts.Node): ts.VariableDeclaration | undefined {
+  let n: ts.Node = node;
+  while (n.parent && ts.isParenthesizedExpression(n.parent)) n = n.parent;
+  const decl = n.parent;
+  if (!decl || !ts.isVariableDeclaration(decl) || decl.initializer !== n) return undefined;
+  if (!ts.isIdentifier(decl.name)) return undefined;
+  const list = decl.parent;
+  if (!ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const)) return undefined;
+  const stmt = list.parent;
+  return ts.isVariableStatement(stmt) && ts.isSourceFile(stmt.parent) ? decl : undefined;
 }
 
 /**
@@ -2678,6 +2710,15 @@ export function summonInstanceExpression(
   }
 
   if (derivationResult.expression) {
+    // Deprecated (TS9009): summon will find instances only. The instance
+    // belongs in a declaration, `derived<TC<T>>()`, which other files find.
+    warnDerivedInPlace(
+      ctx,
+      errorNode,
+      tcName,
+      typeName,
+      ts.isCallExpression(errorNode) && topLevelConstInitialized(errorNode) !== undefined
+    );
     return derivationResult.expression;
   }
 
@@ -2702,6 +2743,20 @@ export function summonInstanceExpression(
 
   const tcSuggestions = getSuggestionsForTypeclass(tcName);
   const typeParam = typeParameterName(ctx, innerType);
+  const notOwned = (() => {
+    if (typeParam || isSyntheticNode(innerType)) return undefined;
+    try {
+      return notOwnedTypeHelp(ctx, summonTargetType(ctx, innerType), tcName, typeName);
+    } catch (e) {
+      ctx.reportWarning(
+        errorNode,
+        `summon<${tcName}<${typeName}>>(): could not tell where '${typeName}' is declared ` +
+          `(${e instanceof Error ? e.message : String(e)}); the help below omits derived<...>().`
+      );
+      return undefined;
+    }
+  })();
+  const helpText = notOwned ? `${helpMessage}\n    ${notOwned}` : helpMessage;
   if (typeParam) {
     // `function f<A>(x: A, S: Show<A> = summon<Show<A>>())`: summon resolves
     // at the definition site, where `A` is still abstract. The supported form
@@ -2716,12 +2771,244 @@ export function summonInstanceExpression(
         `\`${tcName.charAt(0)}: ${tcName}<${typeName}> = implicit()\``
     );
   } else if (tcSuggestions.length > 0) {
-    builder.help(`${helpMessage}\n    Add: ${tcSuggestions[0].importStatement}`);
+    builder.help(`${helpText}\n    Add: ${tcSuggestions[0].importStatement}`);
   } else {
-    builder.help(helpMessage);
+    builder.help(helpText);
   }
 
   builder.emit();
+  return undefined;
+}
+
+// ============================================================================
+// derived<TC<T>>() - Expression Macro: declare a derived instance, once
+// ============================================================================
+// `export const cloneFeature = derived<Clone<Feature>>();` derives the
+// instance from Feature's structure, in place of the call, with the same
+// derivation `@derive(Clone)` and summon's fallback use (tryDeriveViaGeneric).
+// The const is the instance: the instance scanner registers a top-level const
+// initialized by `derived<TC<T>>()` (no @impl tag needed). The checker types
+// it `TC<T>` from the stub's signature, so a `.d.ts` emitted from the source
+// declares it with that type, which the scanner finds by its annotation; the
+// transformer annotates the expanded declaration with `TC<T>` too
+// (`tryAnnotateDerivedInstance`), so the expanded program agrees.
+// ============================================================================
+
+export const derivedMacro = defineExpressionMacro({
+  name: "derived",
+  module: "@typesugar/typeclass",
+  description:
+    "Derive a typeclass instance once, from a type's structure, as the initializer of a top-level const",
+  // Field instances are resolved from THIS file's scope.
+  cacheable: false,
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[]
+  ): ts.Expression {
+    return derivedInstanceExpression(ctx, callExpr, args) ?? callExpr;
+  },
+});
+
+/** The names of type parameters `typeNode` refers to (`G` in `Feature<G>`). */
+function freeTypeParameters(ctx: MacroContext, typeNode: ts.TypeNode): string[] {
+  const names: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isTypeReferenceNode(n) && ts.isIdentifier(n.typeName) && !isSyntheticNode(n)) {
+      const sym = ctx.typeChecker.getSymbolAtLocation(n.typeName);
+      if (sym && sym.flags & ts.SymbolFlags.TypeParameter && !names.includes(n.typeName.text)) {
+        names.push(n.typeName.text);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(typeNode);
+  return names;
+}
+
+/** The `@impl`/`@instance` tag text on the statement declaring `decl`, if any. */
+function implTagText(decl: ts.VariableDeclaration): string | undefined {
+  for (const tag of ts.getJSDocTags(decl.parent.parent)) {
+    if (tag.tagName.text !== "impl" && tag.tagName.text !== "instance") continue;
+    const c = typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+    if (c) return c.replace(/^["'()\s]+|["'()\s]+$/g, "").trim();
+  }
+  return undefined;
+}
+
+function derivedInstanceExpression(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression,
+  args: readonly ts.Expression[]
+): ts.Expression | undefined {
+  // `derived<Clone<Feature>>()`, or `const cloneFeature: Clone<Feature> =
+  // derived()`, which takes the instance type from the annotation (and whose
+  // `.d.ts` is then that annotation, as written).
+  const typeArg = callExpr.typeArguments?.length
+    ? callExpr.typeArguments.length === 1
+      ? callExpr.typeArguments[0]
+      : undefined
+    : topLevelConstInitialized(callExpr)?.type;
+  if (
+    !typeArg ||
+    !ts.isTypeReferenceNode(typeArg) ||
+    !ts.isIdentifier(typeArg.typeName) ||
+    typeArg.typeArguments?.length !== 1
+  ) {
+    ctx.reportError(
+      callExpr,
+      "derived() needs the instance type, a typeclass (by its name) applied to one type: " +
+        "derived<Clone<Feature>>(), or an annotated const: " +
+        "`export const cloneFeature: Clone<Feature> = derived();`"
+    );
+    return undefined;
+  }
+  if (args.length > 0) {
+    ctx.reportError(callExpr, "derived<...>() takes no arguments: the type argument says it all");
+    return undefined;
+  }
+
+  const tcName = typeArg.typeName.text;
+  const innerType = typeArg.typeArguments[0];
+  const typeText = getNodeText(innerType).replace(/\s+/g, " ").trim();
+  const withArgs = { typeclass: tcName, type: typeText };
+
+  // A synthetic type argument is outside the checker's contract (CLAUDE.md).
+  if (isSyntheticNode(innerType)) {
+    ctx.reportError(
+      callExpr,
+      `derived<${tcName}<${typeText}>>(): the type argument is macro-generated, so its type ` +
+        `can't be read; write derived<...>() with a type of your own source.`
+    );
+    return undefined;
+  }
+
+  const typeParams = freeTypeParameters(ctx, innerType);
+  if (typeParams.length > 0) {
+    ctx
+      .diagnostic(TS9011)
+      .at(callExpr)
+      .withArgs(withArgs)
+      .note(
+        `${typeParams.map((n) => `\`${n}\``).join(", ")} ${typeParams.length === 1 ? "is a type parameter" : "are type parameters"}, ` +
+          `so there is no concrete type to derive ${tcName} for.`
+      )
+      .help(`Declare one instance per concrete type, e.g. derived<${tcName}<Feature<Point>>>()`)
+      .emit();
+    return undefined;
+  }
+
+  const decl = topLevelConstInitialized(callExpr);
+  if (!decl) {
+    ctx
+      .diagnostic(TS9010)
+      .at(callExpr)
+      .withArgs(withArgs)
+      .help(
+        `Declare it as \`export const ${suggestedInstanceName(tcName, typeText)} = derived<${tcName}<${typeText}>>();\` ` +
+          `at the top level of a module, or summon<${tcName}<${typeText}>>() an instance that is in scope.`
+      )
+      .emit();
+    return undefined;
+  }
+
+  // An @impl tag is optional (the initializer says what the instance is), but
+  // one that names something else is a contradiction.
+  const tag = implTagText(decl);
+  if (tag !== undefined) {
+    const parsed = parseTypeInstantiation(tag);
+    const same =
+      parsed?.base === tcName && parsed.args.replace(/\s+/g, "") === typeText.replace(/\s+/g, "");
+    if (!same) {
+      ctx.reportError(
+        callExpr,
+        `@impl ${tag} doesn't match derived<${tcName}<${typeText}>>(): the instance is the ` +
+          `one derived<...>() names. Remove the tag (it is optional), or make it @impl ${tcName}<${typeText}>.`
+      );
+      return undefined;
+    }
+  }
+
+  const { tryDeriveViaGeneric, hasGenericDerivation } =
+    require("./auto-derive.js") as typeof import("./auto-derive.js");
+  const bare = !ts.isTypeReferenceNode(innerType) || !innerType.typeArguments?.length;
+  let concrete: ts.Type | undefined;
+  let typeName: string;
+  if (ts.isTypeReferenceNode(innerType) && bare) {
+    // As summon: the bare name of a generic with defaults means its defaults.
+    typeName = getNodeText(innerType.typeName);
+    concrete = defaultedGenericType(ctx, innerType);
+  } else {
+    typeName = typeText;
+    try {
+      concrete = ctx.typeChecker.getTypeFromTypeNode(innerType);
+    } catch (e) {
+      ctx.reportError(
+        callExpr,
+        `derived<${tcName}<${typeText}>>(): the type checker could not resolve '${typeText}' ` +
+          `(${e instanceof Error ? e.message : String(e)}).`
+      );
+      return undefined;
+    }
+  }
+
+  const result = tryDeriveViaGeneric(ctx, tcName, typeName, undefined, concrete);
+  if (result.expression) {
+    // As @derive's companion const: the initializer needs no parentheses.
+    let expr = result.expression;
+    while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+    return expr;
+  }
+
+  if (result.failedField) {
+    const f = result.failedField;
+    const builder = ctx
+      .diagnostic(TS9107)
+      .at(callExpr)
+      .withArgs({
+        ...withArgs,
+        field: f.variant ? `${f.variant}.${f.name}` : f.name,
+        fieldType: f.type,
+      });
+    for (const n of formatResolutionTrace({
+      sought: `${tcName}<${typeText}>`,
+      attempts: result.trace,
+      finalResult: "failed",
+    })) {
+      builder.note(n);
+    }
+    builder
+      .help(
+        `Put a ${tcName}<${f.type}> instance in scope here (declare one, or derived<${tcName}<${f.type}>>() ` +
+          `when it can be derived), or write ${tcName}<${typeText}> by hand with /** @impl ${tcName}<${typeText}> */.`
+      )
+      .emit();
+    return undefined;
+  }
+
+  const builder = ctx.diagnostic(TS9106).at(callExpr).withArgs(withArgs);
+  if (!hasGenericDerivation(tcName)) {
+    builder.note(
+      globalRegistry.getDerive(tcName)
+        ? `${tcName} is derived by a @derive macro, which needs the type's own declaration; ` +
+            `derived<...>() works for the typeclasses with a structural derivation ` +
+            `(Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard, Show, Semigroup, Monoid).`
+        : `No derivation is registered for ${tcName}, so there is nothing to derive it with.`
+    );
+  }
+  builder
+    .note(
+      formatResolutionTrace({
+        sought: `${tcName}<${typeText}>`,
+        attempts: result.trace,
+        finalResult: "failed",
+      }).join("\n")
+    )
+    .help(
+      `Write the ${tcName}<${typeText}> instance by hand with /** @impl ${tcName}<${typeText}> */`
+    )
+    .emit();
   return undefined;
 }
 
@@ -3275,6 +3562,7 @@ export function registerTypeclassMacros(): void {
     })
   );
   globalRegistry.register(summonMacro);
+  globalRegistry.register(derivedMacro);
   globalRegistry.register(extendMacro);
 }
 
