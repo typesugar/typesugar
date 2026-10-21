@@ -337,7 +337,7 @@ Both the instance name (`numericPoint`) and companion-path access
 (`Point.Numeric`) specialize.
 If the transformer can't prove the inlining is sound (e.g. the function body
 has a loop or try/catch), it falls back to dictionary passing — always
-correct, just not zero-cost — and emits a TS9602 warning. Opt a call out
+correct, just not zero-cost — and emits a [TS9602](/errors/TS9602) warning. Opt a call out
 entirely with `// @no-specialize`. See the
 [Specialization Guide](/guides/specialize) for details.
 

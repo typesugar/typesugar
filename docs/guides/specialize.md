@@ -69,7 +69,7 @@ showNumber)` specializes on both at once.
   `@typesugar/fp` and `@typesugar/effect` ship (`ordNumber`, `eqString`,
   `optionFunctor`, ...) and a library's `@derive` companions (`Point.Eq`).
   The call keeps dictionary passing, which is correct, and warns
-  [TS9602](/guides/error-messages#auto-specialization-skipped-ts9602) so the
+  [TS9602](/errors/TS9602) so the
   cost is visible. For a hot path, declare the instance in your own source
   (`/** @impl Ord<number> */ const numberOrd = { ... }`, or
   `derived<Eq<Point>>()` for a type you don't own).
@@ -128,7 +128,7 @@ sortTwice([3, 1, 2]); // compiles to sortTwice([3, 1, 2], numberOrd)
 
 The transformer only inlines what it can prove sound. A call falls back to
 dictionary passing — semantically identical, just not inlined — and emits a
-[TS9602](/guides/error-messages#auto-specialization-skipped-ts9602) warning
+[TS9602](/errors/TS9602) warning
 when the function body:
 
 - can't be resolved (e.g. the function comes from an untyped/dynamic source —
@@ -176,6 +176,7 @@ dictionary parameter to confirm it's gone.
 ## Learn More
 
 - [Typeclasses Guide](/guides/typeclasses) — defining typeclasses and instances
+- [TS9602](/errors/TS9602) — auto-specialization skipped
 - [Error Messages Guide](/guides/error-messages) — TS9602 and friends
 - [Macro Triggers Reference](/macro-triggers) — where auto-specialization runs
   in the pipeline

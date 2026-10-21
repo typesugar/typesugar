@@ -1317,6 +1317,38 @@ Incorrect:
 };
 
 // ============================================================================
+// Error Catalog: Specialization (9600-9699)
+// ============================================================================
+
+export const TS9602: DiagnosticDescriptor = {
+  code: 9602,
+  severity: "warning",
+  category: DiagnosticCategory.MacroExpansion,
+  messageTemplate: "Auto-specialization of {fn} skipped — {reason}",
+  explanation: `A call that passes a typeclass instance (explicitly, or filled in by
+= implicit()) is normally specialized: the function body is copied with the
+instance's methods inlined, so no dictionary is passed at run time. When the
+transformer can't do that soundly, the call keeps dictionary passing. The
+result is correct, just not zero-cost, and this warning makes the cost visible.
+
+Reasons:
+- The instance is only visible as a declaration (it comes from a package's
+  .d.ts, passed explicitly or found by = implicit()), so its method bodies
+  can't be inlined. For a hot path, declare the instance in your own source.
+- The function body can't be resolved: declare the function as a const arrow
+  function or a named function.
+- The body can't be inlined as an expression: a loop, try/catch, a throw,
+  mutable let bindings, or early returns that can't be flattened.
+- The body calls another = implicit() function without passing its instance,
+  relying on it being propagated; the specialized copy couldn't pass it on.
+
+Opt-outs (same line before the call, or a comment line directly above):
+  // @no-specialize        keep dictionary passing, no specialization
+  // @no-specialize-warn   keep specializing, but don't warn when skipped`,
+  seeAlso: "https://typesugar.org/errors/TS9602",
+};
+
+// ============================================================================
 // Error Catalog: Import/Module Resolution (9700-9799)
 // ============================================================================
 
@@ -1559,6 +1591,9 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   // Comptime (9500-9599)
   [9501, TS9501],
   [9502, TS9502],
+
+  // Specialization (9600-9699)
+  [9602, TS9602],
 
   // Import/Module Resolution (9700-9799)
   [9701, TS9701],

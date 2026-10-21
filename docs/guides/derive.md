@@ -71,7 +71,7 @@ export declare namespace User {
 
 Build the library's declarations with typesugar (see [Authoring Libraries](./authoring-libraries.md)),
 so the `.d.ts` has the companions at all. An instance from a `.d.ts` has no method bodies to
-inline, so a generic call that takes it keeps dictionary passing ([TS9602](./specialize.md)).
+inline, so a generic call that takes it keeps dictionary passing ([TS9602](../errors/TS9602.md)).
 
 ## Supported Typeclasses
 

@@ -41,6 +41,7 @@ import {
   cloneWithoutComments,
   cloneNodeDeep,
   extractTypeArgumentsContent,
+  TS9602,
 } from "@typesugar/core";
 
 // ---------------------------------------------------------------------------
@@ -1181,10 +1182,11 @@ export function tryAutoSpecialize(
         : ts.isPropertyAccessExpression(node.expression)
           ? node.expression.name.text
           : "<anonymous>";
-      ctx.reportWarning(
+      skippedSpecialization(
+        ctx,
         markerNode,
-        `[TS9602] Auto-specialization of ${fn} skipped — instance ` +
-          `${declarationOnlyArgs.map((n) => `'${n}'`).join(", ")} is only visible as a ` +
+        fn,
+        `instance ${declarationOnlyArgs.map((n) => `'${n}'`).join(", ")} is only visible as a ` +
           `declaration (from a .d.ts), so its method bodies cannot be inlined; ` +
           `falling back to dictionary passing.`
       );
@@ -1201,10 +1203,11 @@ export function tryAutoSpecialize(
   const fnBody = resolveAutoSpecFunctionBody(ctx.typeChecker, node.expression);
   if (!fnBody) {
     if (!suppressWarnings) {
-      ctx.reportWarning(
+      skippedSpecialization(
+        ctx,
         node,
-        `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-          `function body not resolvable. ` +
+        fnName,
+        `function body not resolvable. ` +
           `Declare it as a const arrow function or named function so its body can be resolved.`
       );
     }
@@ -1232,10 +1235,11 @@ export function tryAutoSpecialize(
   const unfilledImplicitCall = findUnfilledImplicitCall(ctx, fnBody);
   if (unfilledImplicitCall) {
     if (!suppressWarnings) {
-      ctx.reportWarning(
+      skippedSpecialization(
+        ctx,
         node,
-        `[TS9602] Auto-specialization of ${fnName} skipped — its body calls ` +
-          `${unfilledImplicitCall}() without its = implicit() argument, which the ` +
+        fnName,
+        `its body calls ${unfilledImplicitCall}() without its = implicit() argument, which the ` +
           `specialized copy could not pass on; falling back to dictionary passing.`
       );
     }
@@ -1253,11 +1257,7 @@ export function tryAutoSpecialize(
         !(classification.reason === "no return statement" && isVoidFunction)
       ) {
         const help = getInlineFailureHelp(classification.reason);
-        ctx.reportWarning(
-          node,
-          `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-            `${classification.reason}. ${help}`
-        );
+        skippedSpecialization(ctx, node, fnName, `${classification.reason}. ${help}`);
       }
       return undefined;
     }
@@ -1329,20 +1329,17 @@ export function tryAutoSpecialize(
       return ctx.factory.createCallExpression(hoistedIdent, undefined, remainingArgs);
     } else {
       if (!suppressWarnings) {
-        ctx.reportWarning(
+        skippedSpecialization(
+          ctx,
           node,
-          `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-            `inlining returned no result; falling back to dictionary passing.`
+          fnName,
+          `inlining returned no result; falling back to dictionary passing.`
         );
       }
     }
   } catch (error) {
     if (!suppressWarnings) {
-      ctx.reportWarning(
-        node,
-        `[TS9602] Auto-specialization of ${fnName} skipped — ` +
-          `${error}. Falling back to dictionary passing.`
-      );
+      skippedSpecialization(ctx, node, fnName, `${error}. Falling back to dictionary passing.`);
     }
     if (verbose) {
       console.log(`[typesugar] Auto-specialization failed: ${error}`);
@@ -1350,6 +1347,16 @@ export function tryAutoSpecialize(
   }
 
   return undefined;
+}
+
+/** Warn TS9602 (from the diagnostic catalog): `fn`'s call keeps dictionary passing, because `reason`. */
+function skippedSpecialization(
+  ctx: MacroContextImpl,
+  node: ts.Node,
+  fn: string,
+  reason: string
+): void {
+  ctx.diagnostic(TS9602).at(node).withArgs({ fn, reason }).emit();
 }
 
 // ---------------------------------------------------------------------------

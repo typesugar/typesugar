@@ -100,6 +100,12 @@ compiler.
 | [TS9501](./TS9501.md) *(reserved)* | Error | `Compile-time evaluation failed: {error}` |
 | [TS9502](./TS9502.md) *(reserved)* | Error | `comptime() requires exactly 1 argument (a function to evaluate)` |
 
+## Macro Expansion
+
+| Code | Severity | Message |
+| --- | --- | --- |
+| [TS9602](./TS9602.md) | Warning | `Auto-specialization of {fn} skipped — {reason}` |
+
 ## Import Resolution
 
 | Code | Severity | Message |

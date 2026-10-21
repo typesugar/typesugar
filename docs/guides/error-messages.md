@@ -230,7 +230,8 @@ Rewrite with an accumulator — `function factorial(n: number, acc = 1): number`
 Specialization is an always-on compiler optimization (PEP-053) — there is no
 macro to call for it. When a call passes a known typeclass instance but the
 transformer can't prove the inlining is sound, it falls back to dictionary
-passing (always correct, just not zero-cost) and emits a TS9602 warning:
+passing (always correct, just not zero-cost) and emits a
+[TS9602](/errors/TS9602) warning:
 
 ```typescript
 function processItems<A>(M: Mapper<A>, items: A): A {
