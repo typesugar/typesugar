@@ -662,15 +662,16 @@ export function tryRewriteTypeclassOperator(
 
   if (isNullOrUndefinedExpr(node.right) || isNullOrUndefinedExpr(node.left)) return undefined;
 
-  let leftType: ts.Type;
-  let rightType: ts.Type;
-  let typeName: string;
   if (isSyntheticNode(node.left) || isSyntheticNode(node.right)) return undefined;
-  try {
-    leftType = ctx.typeChecker.getTypeAtLocation(node.left);
-    rightType = ctx.typeChecker.getTypeAtLocation(node.right);
-    typeName = ctx.typeChecker.typeToString(leftType);
-  } catch (error) {
+  // An operand that is itself `a + b`, `a < b`, ... is typed number, bigint,
+  // string, boolean or any by TypeScript's own rules, never an instance type,
+  // so it can't dispatch (nor need a TS9804 hint). Decided without the
+  // checker: its type of a binary expression is not cached, so asking for it
+  // re-checks the whole subtree, and doing that at every level of
+  // `1 + 1 + ... + 1` made a 10,000-term line take tens of minutes.
+  if (isPrimitiveTypedBinary(node.left)) return undefined;
+
+  const operandTypeFailed = (error: unknown): undefined => {
     ctx.reportWarning(
       node,
       candidates.length > 0
@@ -680,14 +681,17 @@ export function tryRewriteTypeclassOperator(
             `operator-syntax import: the operand types could not be resolved (${error}).`
     );
     return undefined;
-  }
+  };
 
-  if (
-    (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
-    (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
-  ) {
-    return undefined;
+  // The left operand first: the right one is only needed when the left can
+  // dispatch (so a right-nested chain isn't re-checked at each level either).
+  let leftType: ts.Type;
+  try {
+    leftType = ctx.typeChecker.getTypeAtLocation(node.left);
+  } catch (error) {
+    return operandTypeFailed(error);
   }
+  if ((leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) return undefined;
 
   // An operand whose type admits null/undefined (`P | undefined`, visible
   // under strictNullChecks): the instance is resolved for the non-null type,
@@ -695,23 +699,28 @@ export function tryRewriteTypeclassOperator(
   // run time (see buildNullSafeComparison), instead of passing it to the
   // instance, which would throw. Decided by the type's flags, not its text.
   const nullableLeft = admitsNullish(leftType);
+  let typeName: string;
+  try {
+    if (nullableLeft) leftType = ctx.typeChecker.getNonNullableType(leftType);
+    typeName = ctx.typeChecker.typeToString(leftType);
+  } catch (error) {
+    return operandTypeFailed(error);
+  }
+  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
+
+  let rightType: ts.Type;
+  try {
+    rightType = ctx.typeChecker.getTypeAtLocation(node.right);
+  } catch (error) {
+    return operandTypeFailed(error);
+  }
+  if ((rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) return undefined;
   const nullableRight = admitsNullish(rightType);
   try {
-    if (nullableLeft) {
-      leftType = ctx.typeChecker.getNonNullableType(leftType);
-      typeName = ctx.typeChecker.typeToString(leftType);
-    }
     if (nullableRight) rightType = ctx.typeChecker.getNonNullableType(rightType);
   } catch (error) {
-    ctx.reportWarning(
-      node,
-      `typesugar skipped typeclass operator rewrite of '${opString}': ` +
-        `the operands' non-null types could not be resolved (${error}).`
-    );
-    return undefined;
+    return operandTypeFailed(error);
   }
-
-  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
 
   // The operand's type at the operator may be NARROWED: `const s: Shape =
   // { kind: "c", r: 1 }` makes `s` the "c" variant there, and the instance is
@@ -905,6 +914,42 @@ function declaredOperandType(ctx: MacroContextImpl, operand: ts.Expression): ts.
     );
     return undefined;
   }
+}
+
+/**
+ * Binary operators whose result TypeScript types as number, bigint, string,
+ * boolean or any whatever the operands (arithmetic, bitwise, comparison,
+ * `in`, `instanceof`): never a type with an instance.
+ */
+const PRIMITIVE_RESULT_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.PlusToken,
+  ts.SyntaxKind.MinusToken,
+  ts.SyntaxKind.AsteriskToken,
+  ts.SyntaxKind.SlashToken,
+  ts.SyntaxKind.PercentToken,
+  ts.SyntaxKind.AsteriskAsteriskToken,
+  ts.SyntaxKind.LessThanLessThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
+  ts.SyntaxKind.AmpersandToken,
+  ts.SyntaxKind.BarToken,
+  ts.SyntaxKind.CaretToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.InKeyword,
+  ts.SyntaxKind.InstanceOfKeyword,
+]);
+
+/** `e` (parentheses aside) is a binary expression whose TypeScript type is primitive or any. */
+function isPrimitiveTypedBinary(e: ts.Expression): boolean {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return ts.isBinaryExpression(e) && PRIMITIVE_RESULT_OPERATORS.has(e.operatorToken.kind);
 }
 
 /** Operators whose native result on a nullish operand is a boolean, never a throw. */

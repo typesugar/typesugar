@@ -330,9 +330,27 @@ describe("TS Plugin Error Recovery", () => {
     });
 
     it("handles extremely long single line", () => {
+      // 10,001 terms: a left-nested chain of 10,000 `+` nodes. The operator
+      // rewrite asked the checker for each `+`'s left operand, re-checking the
+      // whole subtree below it every time (cubic: 18-40 minutes on CI). An
+      // operand that is itself an arithmetic expression is primitive-typed and
+      // is now skipped without the checker; the budget catches a regression.
+      // (Nesting this deep exceeds the transformer's recursion depth, which it
+      // reports as "Transform failed"; it must not hang.)
       const longLine = "const x = " + "1 + ".repeat(10000) + "1;";
+      const started = Date.now();
       const result = transformCode(longLine, { fileName: "long.ts" });
       expect(result).toBeDefined();
+      expect(Date.now() - started).toBeLessThan(20_000);
+    });
+
+    it("transforms a 400-term arithmetic chain and a 300-term comparison chain quickly, cleanly", () => {
+      const sum = "const y = " + "1 + ".repeat(400) + "1;";
+      const cmp = "const z = " + "(1 < 2) === ".repeat(300) + "true;";
+      const started = Date.now();
+      expect(transformCode(sum, { fileName: "sum.ts" }).diagnostics).toEqual([]);
+      expect(transformCode(cmp, { fileName: "cmp.ts" }).diagnostics).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(20_000);
     });
   });
 
