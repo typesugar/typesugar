@@ -732,6 +732,9 @@ export function tryRewriteTypeclassOperator(
   // { kind: "c", r: 1 }` makes `s` the "c" variant there, and the instance is
   // `Shape`'s. When the narrowed type has none, the operands' declared types
   // (the variable's or property's, by symbol) are tried, left then right.
+  // A declared type is only tried when BOTH operands are assignable to it
+  // (checker assignability): `a === b` with `a: Foo` and `b: Bar` must not
+  // borrow `b`'s type and call Bar's instance with a Foo.
   let dispatchTypes: ts.Type[] | undefined;
   const typesToTry = (): ts.Type[] => {
     if (dispatchTypes) return dispatchTypes;
@@ -742,13 +745,26 @@ export function tryRewriteTypeclassOperator(
       // primitive one (`n: number` in `1 / n`) would dispatch a literal
       // operand to the primitive's instances.
       if (
-        declared &&
-        declared !== leftType &&
-        !isPrimitiveByFlags(declared) &&
-        !dispatchTypes.includes(declared)
+        !declared ||
+        declared === leftType ||
+        isPrimitiveByFlags(declared) ||
+        dispatchTypes.includes(declared)
       ) {
-        dispatchTypes.push(declared);
+        continue;
       }
+      let bothFit = false;
+      try {
+        bothFit =
+          ctx.typeChecker.isTypeAssignableTo(leftType, declared) &&
+          ctx.typeChecker.isTypeAssignableTo(rightType, declared);
+      } catch (error) {
+        ctx.reportWarning(
+          node,
+          `typesugar could not check whether the operands of '${opString}' fit ` +
+            `'${ctx.typeChecker.typeToString(declared)}' (${error}); its instance was not tried.`
+        );
+      }
+      if (bothFit) dispatchTypes.push(declared);
     }
     return dispatchTypes;
   };

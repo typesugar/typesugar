@@ -354,6 +354,25 @@ describe("a derived union narrowed to one variant by assignment", () => {
     expect(evaluate(r.code)).toEqual({ same: true, differ: true, viaProperty: true });
   });
 
+  it("the right operand's declared type is borrowed only when the left operand is one too", () => {
+    // `a === b` with `a: Foo` and `b: Bar` (Bar derives Eq, Foo has none)
+    // became `Bar.Eq.equals(a, b)`: Bar's instance called with a Foo.
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      `interface Foo { x: number }`,
+      `/** @derive(Eq) */`,
+      `interface Bar { x: number; y: number }`,
+      `const a: Foo = { x: 1 };`,
+      `const b: Bar = { x: 1, y: 2 };`,
+      `export const mixed = a === b;`,
+      `export const mixedRev = b === a;`,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-mixed-${counter++}.ts` });
+    expect(r.code).toContain("mixed = a === b");
+    expect(r.code).not.toContain("Bar.Eq.equals(a, b)");
+    expect(evaluate(r.code)).toMatchObject({ mixed: false });
+  });
+
   it("a literal operand stays native: a primitive declared type is not borrowed", () => {
     // `recip: (a) => 1 / a` in std (two @op / typeclasses in scope) became
     // "Ambiguous operator '/' for type '1'" when the right operand's declared
