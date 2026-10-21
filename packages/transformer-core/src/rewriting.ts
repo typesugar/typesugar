@@ -14,6 +14,7 @@ import {
   transformHKTDeclaration,
   getOperatorCandidates,
   resolveInstance,
+  companionAssignedBefore,
   deriveNamesOf,
   type ResolvedInstance,
 } from "@typesugar/macros";
@@ -802,10 +803,12 @@ export function tryRewriteTypeclassOperator(
     | { typeclass: string; method: string; rightOperandIsSelf: boolean; resolved: ResolvedInstance }
     | undefined;
   for (const candidate of candidates) {
-    let result = resolveInstance(ctx, candidate.typeclass, leftType);
+    // `node` as the use site: a companion of a type declared below the
+    // operator in this file is found from its `@derive` annotation.
+    let result = resolveInstance(ctx, candidate.typeclass, leftType, undefined, undefined, node);
     if (!result) {
       for (const t of typesToTry()) {
-        result = resolveInstance(ctx, candidate.typeclass, t);
+        result = resolveInstance(ctx, candidate.typeclass, t, undefined, undefined, node);
         if (result) break;
       }
     }
@@ -960,21 +963,32 @@ function reportDerivedWithoutInstance(
       if (!tc) continue;
       const declName = decl.name?.text ?? sym!.name;
       const generic = (decl.typeParameters?.length ?? 0) > 0;
+      // The companion exists, but is declared below this module-top-level
+      // use, which runs before it is assigned (companionAssignedBefore).
+      const below = !generic && !companionAssignedBefore(node, decl);
       ctx
         .diagnostic(TS9001)
         .at(node.operatorToken)
         .withArgs({ typeclass: tc, type: typeName })
         .note(
-          `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
-            `@derive(${tc}), but no ${tc}<${typeName}> instance is in scope, so it was left ` +
-            `as JavaScript's own '${opString}'.`
+          below
+            ? `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
+                `@derive(${tc}), but its companion ${declName}.${tc} is declared below this ` +
+                `line, at module top level, so it isn't assigned yet when this runs. It was ` +
+                `left as JavaScript's own '${opString}'.`
+            : `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
+                `@derive(${tc}), but no ${tc}<${typeName}> instance is in scope, so it was left ` +
+                `as JavaScript's own '${opString}'.`
         )
         .help(
-          generic
-            ? `@derive on a generic type doesn't derive an instance for its instantiations yet. ` +
+          below
+            ? `Move the declaration of '${declName}' above this line, or use '${opString}' ` +
+                `inside a function.`
+            : generic
+              ? `@derive on a generic type doesn't derive an instance for its instantiations yet. ` +
                 `Declare one for this instantiation as a top-level const of a module of your own, ` +
                 `\`derived<${tc}<${typeName}>>()\`, and import it here (or write it with @impl).`
-            : `See the error at '${declName}''s @derive(${tc}), or put a ${tc}<${typeName}> instance in scope.`
+              : `See the error at '${declName}''s @derive(${tc}), or put a ${tc}<${typeName}> instance in scope.`
         )
         .emit();
       return true;

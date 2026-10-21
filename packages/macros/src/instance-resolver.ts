@@ -287,13 +287,21 @@ function isDefaultInstantiation(
  *   out: the instance whose initializer is being expanded (`/** @impl
  *   Clone<Feature> *\/ export const cloneFeature = summon<Clone<Feature>>()`
  *   must not resolve to `cloneFeature` itself, which would be `const x = x`).
+ * @param useSite - The expression that will reference the instance (an
+ *   operator, a `summon`/`implicit()` call). Given, a `@derive` companion of a
+ *   type declared in this file is found from its annotation even before the
+ *   derive has expanded (a use above the declaration), unless the use runs
+ *   at module top level before the companion is assigned (see
+ *   {@link companionAssignedBefore}). Without it, only an already-expanded
+ *   companion is found (`getSynthesized`), as before.
  */
 export function resolveInstance(
   ctx: MacroContext,
   tcName: string,
   forType: ts.Type,
   scanner: InstanceScanner = defaultScanner,
-  excludeLocal?: string
+  excludeLocal?: string,
+  useSite?: ts.Node
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
 
@@ -307,10 +315,10 @@ export function resolveInstance(
   // primitive's.
   const enumType = enumTypeOf(typeChecker, forType);
   if (enumType) {
-    const own = resolveInStages(ctx, tcName, enumType, scanner, excludeLocal, true);
+    const own = resolveInStages(ctx, tcName, enumType, scanner, excludeLocal, true, useSite);
     if (own) return own;
   }
-  return resolveInStages(ctx, tcName, forType, scanner, excludeLocal, false);
+  return resolveInStages(ctx, tcName, forType, scanner, excludeLocal, false, useSite);
 }
 
 function resolveInStages(
@@ -319,7 +327,8 @@ function resolveInStages(
   forType: ts.Type,
   scanner: InstanceScanner,
   excludeLocal: string | undefined,
-  identityOnly: boolean
+  identityOnly: boolean,
+  useSite?: ts.Node
 ): ResolutionResult {
   const forTypeString = ctx.typeChecker.typeToString(forType);
 
@@ -331,7 +340,8 @@ function resolveInStages(
     forTypeString,
     scanner,
     excludeLocal,
-    identityOnly
+    identityOnly,
+    useSite
   );
   if (localResult) return localResult;
 
@@ -382,7 +392,8 @@ function resolveFromLocalScope(
   forTypeString: string,
   scanner: InstanceScanner,
   excludeLocal?: string,
-  identityOnly = false
+  identityOnly = false,
+  useSite?: ts.Node
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
@@ -403,9 +414,29 @@ function resolveFromLocalScope(
   // `@derive(Eq)` companion) — invisible to the scan above, since that reads
   // the pre-transform source text and the companion doesn't exist there yet.
   const synthesized = scanner.getSynthesized(ctx.program, sourceFile.fileName);
+  // And, for a use site, the companions this file's `@derive` annotations
+  // will generate, so a use ABOVE the declaration (visited before the derive
+  // expands) finds `P.Eq` as a use below it does. One already synthesized is
+  // the same instance: not added twice.
+  const annotated = useSite
+    ? scanner
+        .scanLocalDeriveCompanions(typeChecker, sourceFile, ctx.program)
+        .filter(
+          (inst) =>
+            inst.typeclassName === tcName &&
+            !synthesized.some(
+              (s) => s.typeclassName === inst.typeclassName && s.exportName === inst.exportName
+            ) &&
+            (!inst.origin || companionAssignedBefore(useSite, inst.origin))
+        )
+    : [];
+  const candidates =
+    synthesized.length > 0 || annotated.length > 0
+      ? [...scanned, ...synthesized, ...annotated]
+      : scanned;
   const matches = filterMatches(
     typeChecker,
-    synthesized.length > 0 ? [...scanned, ...synthesized] : scanned,
+    candidates,
     tcName,
     forType,
     forTypeString,
@@ -416,6 +447,29 @@ function resolveFromLocalScope(
   );
 
   return pickResult(matches, tcName, forType);
+}
+
+/**
+ * Whether the `@derive` companion generated right after `typeDecl` (in the
+ * same file) holds its value when `useSite` runs: the use is below the
+ * declaration, or inside a function, method, accessor or instance property
+ * initializer, which runs later (a static initializer or block runs with the
+ * class declaration, so it counts as top level). A use at module top level above the declaration runs before
+ * the companion's namespace is assigned (`P` is still undefined there), so a
+ * reference to it would throw.
+ */
+export function companionAssignedBefore(useSite: ts.Node, typeDecl: ts.Node): boolean {
+  if (useSite.getSourceFile() !== typeDecl.getSourceFile()) return true;
+  if (useSite.pos >= typeDecl.end) return true;
+  for (let n: ts.Node | undefined = useSite.parent; n; n = n.parent) {
+    if (ts.isFunctionLike(n)) return true;
+    if (ts.isPropertyDeclaration(n) && !ts.getModifiers(n)?.some(isStaticModifier)) return true;
+  }
+  return false;
+}
+
+function isStaticModifier(m: ts.ModifierLike): boolean {
+  return m.kind === ts.SyntaxKind.StaticKeyword;
 }
 
 function resolveFromImports(

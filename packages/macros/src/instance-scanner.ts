@@ -583,6 +583,54 @@ export class InstanceScanner {
   }
 
   /**
+   * The `@derive` companions of this file's own top-level type declarations
+   * (`/** @derive(Eq) *\/ interface P` → `P.Eq`), exported or not, read from
+   * the annotations as {@link scanModule} reads another file's
+   * ({@link deriveCompanionInstances}).
+   *
+   * Registry shape (CLAUDE.md "Resolving things a macro just generated"):
+   * this reads the pass-start source, which is enough here because the
+   * `@derive` annotation is there before the pass starts and the companion's
+   * name and type follow from it; a use ABOVE the declaration is visited
+   * before the derive expands, so the live `getSynthesized` table can't
+   * have it yet. Whether the companion is assigned when the use runs is the
+   * caller's question (see `resolveInstance`'s `useSite`).
+   */
+  scanLocalDeriveCompanions(
+    typeChecker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    program?: ts.Program
+  ): ScannedInstance[] {
+    const cache = this.cacheFor(program);
+    const cacheKey = sourceFile.fileName + "::local-derive";
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+    const results: ScannedInstance[] = [];
+    for (const stmt of sourceFile.statements) {
+      if (
+        !ts.isInterfaceDeclaration(stmt) &&
+        !ts.isClassDeclaration(stmt) &&
+        !ts.isTypeAliasDeclaration(stmt)
+      ) {
+        continue;
+      }
+      if (!stmt.name) continue;
+      let sym: ts.Symbol | undefined;
+      try {
+        sym = typeChecker.getSymbolAtLocation(stmt.name);
+      } catch {
+        sym = undefined;
+      }
+      if (!sym) continue;
+      results.push(
+        ...deriveCompanionInstances(typeChecker, sym, stmt, stmt.name.text, sourceFile.fileName)
+      );
+    }
+    cache.set(cacheKey, results);
+    return results;
+  }
+
+  /**
    * Extract instance info from an @impl or @instance JSDoc tag.
    */
   private extractFromImplTag(

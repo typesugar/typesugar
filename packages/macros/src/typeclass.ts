@@ -2723,7 +2723,8 @@ export function summonInstanceExpression(
         tcName,
         forType,
         undefined,
-        initializedDeclarationName(errorNode)
+        initializedDeclarationName(errorNode),
+        errorNode
       );
       // Then the typeclass's own package (`Ord` imported from `typesugar` is
       // `@typesugar/std`'s, whose instances the file doesn't import).

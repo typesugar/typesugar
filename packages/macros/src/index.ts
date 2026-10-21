@@ -261,6 +261,7 @@ export {
 } from "./instance-scanner.js";
 export {
   resolveInstance,
+  companionAssignedBefore,
   buildInstanceReference,
   buildImportedReference,
   clearResolverCache,

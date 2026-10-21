@@ -428,7 +428,7 @@ export function transformImplicitsCall(
     let instanceExpr: ts.Expression | undefined;
     if (concreteTsType) {
       try {
-        let r = resolveInstance(ctx, typeclassName, concreteTsType);
+        let r = resolveInstance(ctx, typeclassName, concreteTsType, undefined, undefined, callExpr);
         // Then the typeclass's own package (see resolveFromTypeclassHome).
         if (!r && typeclassSymbol) {
           r = resolveFromTypeclassHome(ctx, typeclassSymbol, typeclassName, concreteTsType).result;

@@ -430,3 +430,51 @@ describe("a derived union narrowed to one variant by assignment", () => {
     expect(hints(r)[0].message).toContain("Eq.equals");
   });
 });
+
+describe("an operator before its type's @derive declaration", () => {
+  // The local scope only saw a companion once the @derive had expanded
+  // (registerSynthesized), so an operator ABOVE the declaration found none
+  // and TS9001 pointed at a derive that had succeeded.
+  const decl = [`/** @derive(Eq) */`, `interface P { x: number }`];
+  const use = [
+    `export function f(a: P, b: P) { return a === b; }`,
+    `export function g(a: P, b: P) { return a !== b; }`,
+  ];
+  for (const order of ["use first", "declaration first"]) {
+    it(`rewrites to P.Eq (${order})`, () => {
+      const body = order === "use first" ? [...use, ...decl] : [...decl, ...use];
+      const code = [`import "@typesugar/std/syntax/eq/ops";`, ...body].join("\n");
+      const r = transformCode(code, { fileName: `eq-order-${counter++}.ts` });
+      expect(r.diagnostics).toEqual([]);
+      expect(r.code).toContain("return P.Eq.equals(a, b);");
+      expect(r.code).toContain("return P.Eq.notEquals(a, b);");
+      const out = evaluate(r.code) as Record<string, (a: unknown, b: unknown) => boolean>;
+      expect([out.f({ x: 1 }, { x: 1 }), out.g({ x: 1 }, { x: 1 })]).toEqual([true, false]);
+    });
+  }
+
+  it("summon above the declaration resolves to the companion too, not an in-place derivation", () => {
+    const code = [
+      `import { summon, type Eq } from "typesugar";`,
+      `export function g() { return summon<Eq<P>>(); }`,
+      ...decl,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-order-${counter++}.ts` });
+    expect(r.diagnostics).toEqual([]);
+    expect(r.code).toContain("return P.Eq;");
+  });
+
+  it("at module top level above the declaration (the companion isn't assigned yet): an error that says so", () => {
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      `const a = { x: 1 } as P, b = { x: 1 } as P;`,
+      `export const r = a === b;`,
+      ...decl,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-order-${counter++}.ts` });
+    expect(r.code).toContain("r = a === b");
+    const errs = errors(r);
+    expect(errs).toHaveLength(1);
+    expect(errs[0].message).toMatch(/declared below/);
+  });
+});
