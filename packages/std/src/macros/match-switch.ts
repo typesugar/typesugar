@@ -276,6 +276,8 @@ interface PatternCase {
   test: (scrutinee: () => ts.Expression, guardNullish: boolean) => ts.Expression;
   /** Discriminant the discriminant switch can use: field and case label. */
   discriminant?: { field: string; label: ts.Expression };
+  /** A declaration to put before the switch (a custom extractor's result variable). */
+  prelude?: ts.Statement;
   /** The pattern as exhaustiveness sees it (sub-patterns are bindings, not tests). */
   coverage: PatternInfo;
   bindsNames: boolean;
@@ -377,11 +379,11 @@ function analyzeCase(
 
   if (pattern.kind === "extractor") {
     const { def } = pattern;
+    if (def.kind === "custom") return analyzeCustomCase(ctx, clause, pattern);
     if (def.kind !== "sum-variant") {
       ctx.reportError(
         node,
-        `match: ${pattern.extractorName}(...) is not a built-in extractor; a match: switch supports ` +
-          `Some/None/Left/Right/Ok/Err/Cons/Nil and object patterns.`
+        `match: ${pattern.extractorName}(...) can't be used in a match: switch.`
       );
       return undefined;
     }
@@ -455,6 +457,71 @@ function withLeadingCommentsOnFirst(
   return stmts;
 }
 
+/**
+ * A `Destructure` instance without a descriptor: its `extract` is called once
+ * per test, into a variable declared before the switch, and the bindings
+ * destructure the result: `case (_ext = destructureEmail.extract(s)) !== undefined:
+ * { const { user, domain } = _ext; ... }`.
+ */
+function analyzeCustomCase(
+  ctx: MacroContext,
+  clause: ts.CaseClause,
+  pattern: PatternInfo & { kind: "extractor" }
+): PatternCase | undefined {
+  const f = ctx.factory;
+  const bindings: (ts.BindingName | undefined)[] = [];
+  for (const b of pattern.bindings) {
+    const name = toBinding(f, b);
+    if (name === false) {
+      ctx.reportError(
+        clause.expression,
+        `match: in a match: switch, ${pattern.extractorName}(...)'s arguments are bindings, not ` +
+          `tests. Bind the value and test it in the case body, or use the fluent match().`
+      );
+      return undefined;
+    }
+    bindings.push(name);
+  }
+  const temp = ctx.tryShortName("_ext");
+  const ref = () => f.createIdentifier(temp.text);
+  const named = bindings.some((b) => b !== undefined);
+  return {
+    literals: [],
+    prelude: f.createVariableStatement(
+      undefined,
+      f.createVariableDeclarationList([f.createVariableDeclaration(temp)], ts.NodeFlags.Let)
+    ),
+    bind: () => {
+      if (!named) return [];
+      if (bindings.length === 1) return [constDecl(f, bindings[0]!, ref())];
+      const elements = bindings.map((b) =>
+        b === undefined
+          ? f.createOmittedExpression()
+          : f.createBindingElement(undefined, undefined, b)
+      );
+      return [constDecl(f, f.createArrayBindingPattern(elements), ref())];
+    },
+    test: (s) =>
+      f.createBinaryExpression(
+        f.createParenthesizedExpression(
+          f.createAssignment(
+            ref(),
+            f.createCallExpression(
+              f.createPropertyAccessExpression(pattern.def.instance!(ctx), "extract"),
+              undefined,
+              [s()]
+            )
+          )
+        ),
+        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+        f.createIdentifier("undefined")
+      ),
+    // It can fail on any value, so for exhaustiveness it covers nothing.
+    coverage: pattern,
+    bindsNames: named,
+  };
+}
+
 function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.Statement[] {
   const f = ctx.factory;
   const sw = labeled.statement as ts.SwitchStatement;
@@ -496,6 +563,7 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
     cases.set(c.clause, pc);
   }
   if (failed) return [sw];
+  const casePreludes = [...cases.values()].flatMap((pc) => (pc.prelude ? [pc.prelude] : []));
 
   const coverage = findMissingCases(ctx, scrutinee, [
     ...[...cases.values()].map((pc) => pc.coverage),
@@ -509,7 +577,7 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
   // The scrutinee is read more than once: keep it in a const unless it is an
   // identifier or `this` (a property may be a getter, a call has effects).
   const rereadable = ts.isIdentifier(scrutinee) || scrutinee.kind === ts.SyntaxKind.ThisKeyword;
-  const prelude: ts.Statement[] = [];
+  const prelude: ts.Statement[] = [...casePreludes];
   let ref: () => ts.Expression = () =>
     ts.isIdentifier(scrutinee) ? f.createIdentifier(scrutinee.text) : f.createThis();
   const hoist = () => {

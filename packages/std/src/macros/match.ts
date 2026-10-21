@@ -40,6 +40,7 @@ import {
   TS9216,
   TS9226,
 } from "@typesugar/core";
+import { resolveExtractor, SELF_PAYLOAD, type ExtractorDef } from "./match-extractors.js";
 
 // ============================================================================
 // Chain Parsing
@@ -77,31 +78,8 @@ export interface ObjectPropertyPattern {
   isRest: boolean;
 }
 
-/**
- * Defines how an extractor pattern checks and binds values.
- *
- * - `sum-variant`: Tagged union variant (e.g. Some, Left). Checks a discriminant
- *   field and extracts payload fields.
- * - `product`: Structural type (e.g. Point). Checks required fields exist and
- *   maps positional bindings to field names.
- * - `custom`: User-defined Destructure instance. Generates an `extract()` call
- *   with undefined check.
- */
-/** @internal shared with match-switch.ts */
-export interface ExtractorDef {
-  kind: "sum-variant" | "product" | "custom";
-  /**
-   * A presence test used INSTEAD of the discriminant check — for
-   * @typesugar/fp's untagged representations (Option = `A | null`, List =
-   * `Cons | null`, Either = `{ left } | { right }`).
-   */
-  test?: "not-null" | "null" | { hasKey: string };
-  discriminantField?: string;
-  discriminantValue?: string | boolean;
-  payloadFields?: string[];
-  productFields?: string[];
-  zeroArg: boolean;
-}
+// ExtractorDef and SELF_PAYLOAD live in match-extractors.ts (Destructure instances).
+export { SELF_PAYLOAD, type ExtractorDef } from "./match-extractors.js";
 
 /** @internal shared with match-switch.ts */
 export type PatternInfo =
@@ -118,10 +96,6 @@ export type PatternInfo =
 // ============================================================================
 // Extractor Registry
 // ============================================================================
-
-/** A payload field name meaning "the matched value itself" (fp's `Some(v)`). */
-/** @internal shared with match-switch.ts */
-export const SELF_PAYLOAD = "";
 
 /**
  * Built-in extractors for `_tag`-discriminated sum types (Effect's
@@ -217,6 +191,25 @@ const RESULT_EXTRACTORS: Record<string, ExtractorDef> = {
  */
 let taggedBuiltinExtractors = false;
 
+/**
+ * The context of the match being expanded, for resolving extractor names to
+ * `Destructure` instances (match-extractors.ts). Set with the representation
+ * above by {@link withBuiltinExtractorsFor}.
+ */
+let extractorContext: MacroContext | undefined;
+
+/**
+ * The extractor `name` stands for: a `Destructure` instance in scope for it
+ * first, then the built-in table.
+ */
+function extractorFor(name: ts.Identifier): ExtractorDef | undefined {
+  if (extractorContext) {
+    const fromInstance = resolveExtractor(extractorContext, name);
+    if (fromInstance) return fromInstance;
+  }
+  return knownExtractor(name.text);
+}
+
 function knownExtractor(name: string): ExtractorDef | undefined {
   if (Object.prototype.hasOwnProperty.call(RESULT_EXTRACTORS, name)) {
     return RESULT_EXTRACTORS[name];
@@ -235,45 +228,6 @@ function scrutineeUsesTags(ctx: MacroContext, scrutinee: ts.Expression): boolean
       !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) &&
       ctx.typeChecker.getPropertyOfType(t, "_tag") !== undefined
   );
-}
-
-const registeredProductExtractors: Map<string, string[]> = new Map();
-const registeredCustomExtractors: Set<string> = new Set();
-
-/**
- * Register a product type extractor for pattern matching.
- * Maps positional bindings to field names in declaration order.
- *
- * @example
- * ```typescript
- * registerProductExtractor("Point", ["x", "y"]);
- * // Now match(p).case(Point(x, y)).then(x + y) works
- * ```
- */
-export function registerProductExtractor(name: string, fields: string[]): void {
-  registeredProductExtractors.set(name, fields);
-}
-
-/**
- * Register a custom Destructure extractor for pattern matching.
- * The extractor must have a static `extract(input): Output | undefined` method.
- *
- * @example
- * ```typescript
- * registerCustomExtractor("Email");
- * // Now match(s).case(Email({ user, domain })).then(...) works
- * ```
- */
-export function registerCustomExtractor(name: string): void {
-  registeredCustomExtractors.add(name);
-}
-
-/**
- * Clear all registered extractors. Useful for test isolation.
- */
-export function clearRegisteredExtractors(): void {
-  registeredProductExtractors.clear();
-  registeredCustomExtractors.clear();
 }
 
 /**
@@ -490,7 +444,7 @@ export function analyzePattern(pattern: ts.Expression): PatternInfo {
     if (pattern.text === "undefined" || pattern.text === "NaN" || pattern.text === "Infinity") {
       return { kind: "literal", node: pattern };
     }
-    const zeroArgDef = knownExtractor(pattern.text);
+    const zeroArgDef = extractorFor(pattern);
     if (zeroArgDef && zeroArgDef.zeroArg) {
       return { kind: "extractor", extractorName: pattern.text, bindings: [], def: zeroArgDef };
     }
@@ -576,9 +530,7 @@ export function analyzePattern(pattern: ts.Expression): PatternInfo {
     const name = pattern.expression.text;
 
     // Check extractor registries before falling back to type-constructor
-    const knownDef = knownExtractor(name);
-    const productFields = registeredProductExtractors.get(name);
-    const isCustom = registeredCustomExtractors.has(name);
+    const knownDef = extractorFor(pattern.expression);
 
     // Zero-arg extractors (e.g. None, Nil) should not be called with arguments
     if (knownDef && knownDef.zeroArg && pattern.arguments.length > 0) {
@@ -592,21 +544,15 @@ export function analyzePattern(pattern: ts.Expression): PatternInfo {
     if (knownDef && !knownDef.zeroArg) {
       const bindings =
         pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
+      const extracted = knownDef.payloadFields ?? knownDef.productFields;
+      if (extracted && bindings.length > extracted.length) {
+        return {
+          kind: "unsupported",
+          node: pattern,
+          reason: `${name}(...) binds ${bindings.length} values, but its extractor yields ${extracted.length}`,
+        };
+      }
       return { kind: "extractor", extractorName: name, bindings, def: knownDef };
-    }
-
-    if (productFields) {
-      const def: ExtractorDef = { kind: "product", productFields, zeroArg: false };
-      const bindings =
-        pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
-      return { kind: "extractor", extractorName: name, bindings, def };
-    }
-
-    if (isCustom) {
-      const def: ExtractorDef = { kind: "custom", zeroArg: false };
-      const bindings =
-        pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
-      return { kind: "extractor", extractorName: name, bindings, def };
     }
 
     // Fall through to type-constructor for String, Date, etc.
@@ -928,6 +874,15 @@ export function findMissingCases(
   patterns: readonly PatternInfo[]
 ): MatchCoverage {
   if (patterns.some(patternCoversAll)) return { kind: "complete" };
+  // A product extractor (`@destructure always -> x, y`) whose bindings bind
+  // everything matches every value.
+  if (
+    patterns.some(
+      (p) => p.kind === "extractor" && p.def.test === "always" && p.bindings.every(patternCoversAll)
+    )
+  ) {
+    return { kind: "complete" };
+  }
 
   // fp's untagged extractors: `Some(v)`/`Cons(h, t)` + `None`/`Nil` cover
   // non-null + null; `Left(e)` + `Right(a)` cover both Either variants.
@@ -1630,11 +1585,14 @@ export function withBuiltinExtractorsFor<T>(
   fn: () => T
 ): T {
   const prev = taggedBuiltinExtractors;
+  const prevCtx = extractorContext;
   taggedBuiltinExtractors = scrutinee !== undefined && scrutineeUsesTags(ctx, scrutinee);
+  extractorContext = ctx;
   try {
     return fn();
   } finally {
     taggedBuiltinExtractors = prev;
+    extractorContext = prevCtx;
   }
 }
 
@@ -2154,6 +2112,8 @@ export function buildCondition(
           parts.push(nullCmp(ts.SyntaxKind.ExclamationEqualsToken));
         } else if (def.test === "null") {
           parts.push(nullCmp(ts.SyntaxKind.EqualsEqualsToken));
+        } else if (def.test === "always") {
+          // a product type: every value matches; only the payload's own tests apply
         } else {
           // `in` throws on primitives: test for an object first (#14).
           if (!skipObjectGuard) {
@@ -2187,6 +2147,7 @@ export function buildCondition(
           );
           if (nested) parts.push(nested);
         }
+        if (parts.length === 0) return undefined;
         return parts.reduce((a, b) =>
           f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
         );
@@ -2557,9 +2518,10 @@ function generateCustomExtractorArm(
   const extName = pattern.extractorName;
   const tempName = ctx.tryShortName("_ext");
 
-  // const __ext = ExtractorName.extract(__m)
+  // const _ext = destructureX.extract(_m) — the Destructure instance, called once
+  const instance = pattern.def.instance?.(ctx) ?? f.createIdentifier(extName);
   const extractCall = f.createCallExpression(
-    f.createPropertyAccessExpression(f.createIdentifier(extName), "extract"),
+    f.createPropertyAccessExpression(instance, "extract"),
     undefined,
     [scrutineeRef]
   );
@@ -2823,6 +2785,7 @@ function generateIIFE(
 
   // Wave 5: Find the arm index where the type is fully narrowed
   const fullyCoveredIdx = findFullyCoveredArmIndex(ctx, scrutinee, arms);
+  let terminated = false;
 
   for (let i = 0; i < arms.length; i++) {
     const arm = arms[i];
@@ -2871,13 +2834,24 @@ function generateIIFE(
       skipObjectGuard
     );
     statements.push(...armStatements);
+    // An unguarded product extractor that binds without testing
+    // (`@destructure always`) always returns: nothing after it can run.
+    if (
+      !arm.guard &&
+      pattern.kind === "extractor" &&
+      pattern.def.test === "always" &&
+      pattern.bindings.every((b) => b.kind === "variable" || b.kind === "wildcard")
+    ) {
+      terminated = true;
+      break;
+    }
   }
 
   // else clause or MatchError — unless an arm already returns unconditionally
   // (a fully covering arm, or an unguarded `_` / binding). A dead
   // `throw new MatchError` there still imported `@typesugar/std` at runtime.
   const last = statements[statements.length - 1];
-  if (last !== undefined && ts.isReturnStatement(last)) {
+  if (terminated || (last !== undefined && ts.isReturnStatement(last))) {
     // terminated
   } else if (elseResult !== undefined) {
     statements.push(f.createReturnStatement(elseResult));

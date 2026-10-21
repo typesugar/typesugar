@@ -1652,6 +1652,17 @@ function getOrCreateCompanionSet(ctx: MacroContext): Map<string, string> {
   return m;
 }
 
+/** Does a type-argument list have more than one argument (`A, B<C, D>`)? */
+function hasTopLevelComma(text: string): boolean {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "<" || ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ">" || ch === ")" || ch === "]" || ch === "}") depth--;
+    else if (ch === "," && depth === 0) return true;
+  }
+  return false;
+}
+
 /**
  * Decide whether `@impl TC<typeName>` may emit a `namespace typeName { export
  * const TC = ... }` companion. Only a plain identifier naming an interface,
@@ -1926,7 +1937,10 @@ export const implAttribute = defineAttributeMacro({
       "any",
       "object",
     ];
-    if (!primitives.includes(typeName)) {
+    // A multi-parameter typeclass (`@impl Destructure<typeof Some, Option<A>, A>`)
+    // has no single type to hang a companion on; the instance is found by its
+    // own resolver (std match-extractors.ts), so there is nothing to warn about.
+    if (!primitives.includes(typeName) && !hasTopLevelComma(typeName)) {
       const host = findCompanionHost(ctx.sourceFile, typeName);
       const emitted = getOrCreateCompanionSet(ctx);
       const key = `${typeName}.${tcName}`;

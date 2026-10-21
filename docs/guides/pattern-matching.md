@@ -534,10 +534,65 @@ A literal union that literal arms cover completely gets no throw: the last arm i
 
 ## Custom Extractors
 
-Not yet supported: user-defined extractors (a `Destructure` instance such as
-`Email({ user, domain })`, or an auto-derived `Point(x, y)` for an interface) are not
-recognised. `Name(...)` with an unknown `Name` compiles to an `instanceof Name` type
-pattern. Use an object pattern (`.case({ x, y })`) or a guard instead.
+An extractor is a `Destructure` instance (`@typesugar/std`; Scala's `unapply`) for a
+constructor. `Name(...)` in a pattern resolves the instance for `Name` by its symbol, from
+the current file, the modules it imports, or the module that declares `Name` itself, so an
+instance that ships next to its type needs no import of its own:
+
+```typescript
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+export function Point(x: number, y: number): Point {
+  return { x, y };
+}
+
+/**
+ * @impl Destructure<typeof Point, Point, [number, number]>
+ * @destructure always -> x, y
+ */
+export const destructurePoint = { extract: (p: Point): [number, number] => [p.x, p.y] };
+
+match(p)
+  .case(Point(x, y))
+  .then(x + y);
+// const x = _p.x; const y = _p.y; return x + y;  (no extract() call)
+```
+
+**`@destructure`** tells the macro what `extract` does, so it inlines the test and the
+field reads and never calls the instance. It is data in a JSDoc tag, so it survives `.d.ts`
+emit and works for a library's instances, whose bodies a consumer's build can't see:
+
+| Descriptor             | Test                  | Binds                    |
+| ---------------------- | --------------------- | ------------------------ |
+| `not-null -> self`     | `v != null`           | the value itself         |
+| `null`                 | `v == null`           | nothing (`None`)         |
+| `has left -> left`     | `"left" in v`         | `v.left`                 |
+| `kind = "circle" -> r` | `v.kind === "circle"` | `v.r`                    |
+| `ok = true -> value`   | `v.ok === true`       | `v.value`                |
+| `always -> x, y`       | none                  | `v.x`, `v.y` (a product) |
+
+The descriptor must agree with `extract`: the macro trusts it.
+
+**Without a descriptor** the instance's `extract` is called once, and the result is
+destructured (a tuple for several arguments, the value itself for one):
+
+```typescript
+/** @impl Destructure<typeof Email, string, { user: string; domain: string }> */
+export const destructureEmail = {
+  extract(s: string) {
+    const at = s.indexOf("@");
+    return at > 0 ? { user: s.slice(0, at), domain: s.slice(at + 1) } : undefined;
+  },
+};
+
+match(input).case(Email({ user, domain })).then(`${user} at ${domain}`).else("invalid");
+// const _ext = destructureEmail.extract(_input); if (_ext !== undefined) { const user = _ext.user; ... }
+```
+
+The instance is imported where it is needed. A name with no instance in scope is a type
+pattern (`instanceof Name`), as before. Both forms work in a `match:` switch.
 
 ---
 

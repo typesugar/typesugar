@@ -3,8 +3,8 @@
  *
  * Covers:
  * - Sum-variant extractors: Some(v), None, Left(l), Right(r), Ok(v), Err(e), Cons(h, t), Nil
- * - Product extractors: Point(x, y), registered via registerProductExtractor
- * - Custom Destructure extractors: Email({ user, domain }), registered via registerCustomExtractor
+ * - (Product and custom extractors from Destructure instances:
+ *   packages/std/tests/match-destructure-instances.test.ts)
  * - Zero-arg extractors: None, Nil as bare identifiers
  * - Nested extractor patterns: Some({ x, y })
  * - Guard combinations with extractors
@@ -13,12 +13,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as ts from "typescript";
 import { MacroContextImpl, createMacroContext, clearTypeRewrites } from "@typesugar/core";
-import {
-  expandFluentMatch,
-  registerProductExtractor,
-  registerCustomExtractor,
-  clearRegisteredExtractors,
-} from "../packages/std/src/macros/match.js";
+import { expandFluentMatch } from "../packages/std/src/macros/match.js";
 
 // ============================================================================
 // Test Helpers
@@ -147,7 +142,6 @@ function call(name: string, ...args: ts.Expression[]): ts.CallExpression {
 
 describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
   beforeEach(() => {
-    clearRegisteredExtractors();
     // Reset the global type-rewrite registry so a prior test file that registered
     // Option/Either as @opaque (None → null constant constructor) can't leak in
     // and change this file's extractor codegen. These tests assert the default,
@@ -357,106 +351,8 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
     });
   });
 
-  // --------------------------------------------------------------------------
-  // Gate: match(point).case(Point(x, y)).then(x + y) works with auto-derived Product
-  // --------------------------------------------------------------------------
-  describe("Product extractors (auto-derived)", () => {
-    it("should compile Point(x, y) with structural field checks", () => {
-      registerProductExtractor("Point", ["x", "y"]);
-
-      const { ctx, printExpr } = createTestContext();
-      const addExpr = f.createBinaryExpression(ident("x"), ts.SyntaxKind.PlusToken, ident("y"));
-
-      const { outermost, rootArgs } = buildChain(
-        ident("point"),
-        { method: "case", args: [call("Point", ident("x"), ident("y"))] },
-        { method: "then", args: [addExpr] },
-        { method: "else", args: [num(0)] }
-      );
-
-      const result = expandFluentMatch(ctx, outermost, rootArgs);
-      const text = printExpr(result);
-
-      // Inlined structural checks: "x" in __m && "y" in __m
-      expect(text).toContain('"x" in');
-      expect(text).toContain('"y" in');
-      // Field access bindings
-      expect(text).toContain(".x");
-      expect(text).toContain(".y");
-      // No runtime Destructure call
-      expect(text).not.toContain("extract");
-    });
-
-    it("should handle product with wildcard bindings", () => {
-      registerProductExtractor("Rect", ["width", "height", "color"]);
-
-      const { ctx, printExpr } = createTestContext();
-      const { outermost, rootArgs } = buildChain(
-        ident("rect"),
-        { method: "case", args: [call("Rect", ident("w"), ident("_"), ident("c"))] },
-        { method: "then", args: [ident("w")] },
-        { method: "else", args: [num(0)] }
-      );
-
-      const result = expandFluentMatch(ctx, outermost, rootArgs);
-      const text = printExpr(result);
-
-      // Structural checks for all fields
-      expect(text).toContain('"width" in');
-      expect(text).toContain('"height" in');
-      expect(text).toContain('"color" in');
-      // Only binds w and c, not _
-      expect(text).toContain(".width");
-      expect(text).toContain(".color");
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // Gate: Custom Destructure instance works: Email({ user, domain })
-  // --------------------------------------------------------------------------
-  describe("Custom Destructure extractors", () => {
-    it("should compile Email({ user, domain }) with extract() call", () => {
-      registerCustomExtractor("Email");
-
-      const { ctx, printExpr } = createTestContext();
-      const objPat = f.createObjectLiteralExpression([
-        f.createShorthandPropertyAssignment("user"),
-        f.createShorthandPropertyAssignment("domain"),
-      ]);
-
-      const { outermost, rootArgs } = buildChain(
-        ident("input"),
-        { method: "case", args: [call("Email", objPat)] },
-        { method: "then", args: [ident("user")] },
-        { method: "else", args: [str("invalid")] }
-      );
-
-      const result = expandFluentMatch(ctx, outermost, rootArgs);
-      const text = printExpr(result);
-
-      // Uses extract() — runtime call for custom extractors
-      expect(text).toContain("Email.extract");
-      expect(text).toContain("!== undefined");
-    });
-
-    it("should compile custom extractor with simple variable binding", () => {
-      registerCustomExtractor("ParseInt");
-
-      const { ctx, printExpr } = createTestContext();
-      const { outermost, rootArgs } = buildChain(
-        ident("s"),
-        { method: "case", args: [call("ParseInt", ident("n"))] },
-        { method: "then", args: [ident("n")] },
-        { method: "else", args: [f.createPrefixUnaryExpression(ts.SyntaxKind.MinusToken, num(1))] }
-      );
-
-      const result = expandFluentMatch(ctx, outermost, rootArgs);
-      const text = printExpr(result);
-
-      expect(text).toContain("ParseInt.extract");
-      expect(text).toContain("!== undefined");
-    });
-  });
+  // Product and custom extractors come from Destructure instances in scope,
+  // which need a real program: packages/std/tests/match-destructure-instances.test.ts.
 
   // --------------------------------------------------------------------------
   // Gate: Inlined extraction for auto-derived types: no runtime Destructure call
@@ -478,27 +374,6 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
 
       expect(text).not.toContain("extract");
       expect(text).not.toContain("Destructure");
-    });
-
-    it("should not generate extract() calls for product extractors", () => {
-      registerProductExtractor("Vec3", ["x", "y", "z"]);
-
-      const { ctx, printExpr } = createTestContext();
-      const { outermost, rootArgs } = buildChain(
-        ident("v"),
-        { method: "case", args: [call("Vec3", ident("x"), ident("y"), ident("z"))] },
-        { method: "then", args: [ident("x")] },
-        { method: "else", args: [num(0)] }
-      );
-
-      const result = expandFluentMatch(ctx, outermost, rootArgs);
-      const text = printExpr(result);
-
-      expect(text).not.toContain("extract");
-      expect(text).not.toContain("Destructure");
-      expect(text).toContain('"x" in');
-      expect(text).toContain('"y" in');
-      expect(text).toContain('"z" in');
     });
   });
 
