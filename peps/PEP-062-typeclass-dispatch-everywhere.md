@@ -135,7 +135,7 @@ not get worse.
 
 1. **`match()` and `Destructure`.** Tracked in PEP-008 Waves 10–11 (in progress).
 2. **do-notation on typeclasses.**
-   - One `FlatMap` definition.
+   - One definition of each functional typeclass, owned by std (see Decisions).
    - Promise/Array/Iterable/AsyncIterable instances in std, and Effect's in
      `@typesugar/effect`.
    - Instance-by-unification as above.
@@ -164,6 +164,17 @@ not get worse.
 Waves 2 and 3 matter most for 1.0: every `let:` and every `@derive` user is affected.
 Waves 4–7 are smaller and can follow.
 
+## Decisions
+
+- **std owns the core functional typeclasses** (Dean, 2026-10-21: "std gets some FP
+  typeclasses? That's okay"). The typeclasses that std features dispatch on move to
+  `@typesugar/std`: Functor, Apply, Applicative, FlatMap, SemigroupK, MonoidK,
+  Alternative and ParCombine, with the instances for JavaScript's own types (Promise,
+  Array, Iterable, AsyncIterable). `@typesugar/fp` extends and re-exports them and adds
+  its data types and their instances, so one definition of each typeclass exists and
+  fp's types work in std's do-notation with no extra registration. Moving them is part
+  of Wave 2.
+
 ## Open questions
 
 - Unification cost. Resolving do-notation instances by unification runs per `<<`
@@ -171,5 +182,3 @@ Waves 4–7 are smaller and can follow.
   should be cheap, but nothing confirms that yet.
 - `Promise` is not a lawful monad: `then` flattens nested promises. Its `FlatMap`
   instance is a pragmatic one. Document that, as fp libraries do.
-- Should the std and fp typeclass hierarchies (FlatMap, Applicative, Alternative) merge
-  into one, with fp extending std's? Wave 2 forces at least FlatMap to be shared.
