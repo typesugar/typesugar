@@ -195,6 +195,9 @@ describe("generateHelpFromTrace", () => {
 
     expect(help).toContain("@derive(Eq)");
     expect(help).toContain("Color");
+    // The JSDoc form: a decorator on a const is not valid TypeScript.
+    expect(help).toContain("/** @impl Eq<Color> */");
+    expect(help).not.toContain("@instance");
   });
 
   it("should suggest registering derivation strategy when none exists", () => {
@@ -213,8 +216,8 @@ describe("generateHelpFromTrace", () => {
 
     const help = generateHelpFromTrace(trace, "MyTC", "Point");
 
-    expect(help).toContain("@instance");
-    expect(help).toContain("MyTC<Point>");
+    expect(help).toContain("/** @impl MyTC<Point> */");
+    expect(help).not.toContain("@instance");
   });
 
   it("should provide generic fallback help when trace is ambiguous", () => {
@@ -234,6 +237,7 @@ describe("generateHelpFromTrace", () => {
 
     expect(help).toContain("@derive(Eq)");
     expect(help).toContain("Point");
+    expect(help).toContain("/** @impl Eq<Point> */");
   });
 
   it("should suggest ensuring type is in scope when GenericMeta not found", () => {

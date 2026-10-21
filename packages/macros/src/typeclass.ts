@@ -1755,7 +1755,7 @@ export const implAttribute = defineAttributeMacro({
     if (args.length === 0) {
       ctx.reportError(
         target,
-        '@impl requires arguments: @impl("Type"), @impl("Typeclass<Type>"), or @impl(Typeclass, Type)'
+        "@impl requires arguments: the typeclass and type, as /** @impl Typeclass<Type> */ on a const"
       );
       return target;
     }

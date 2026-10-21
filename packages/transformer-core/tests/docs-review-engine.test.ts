@@ -507,6 +507,10 @@ describe("each diagnostic is reported once per site (docs C#27, S#29)", () => {
       { fileName: "/virtual/impl-no-args.ts" }
     );
     expect(count(result, /@impl requires arguments/)).toBe(1);
+    // ...and suggests the JSDoc form, not a decorator (invalid on a const).
+    const message = result.diagnostics.find((d) => /@impl requires/.test(d.message))!.message;
+    expect(message).toContain("/** @impl Typeclass<Type> */");
+    expect(message).not.toContain('@impl("');
   });
 
   it("a duplicate @impl warns once (TS9006 page)", () => {
