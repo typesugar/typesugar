@@ -43,6 +43,11 @@
 
 import * as ts from "typescript";
 import { isSyntheticNode, type MacroContext } from "@typesugar/core";
+import {
+  annotatedDestructures,
+  synthesizedDestructures,
+  type ExtractorPlan,
+} from "./destructure-plan.js";
 
 /** A payload field name meaning "the matched value itself" (fp's `Some(v)`). */
 export const SELF_PAYLOAD = "";
@@ -247,8 +252,10 @@ function resolveUncached(ctx: MacroContext, name: ts.Identifier): ExtractorDef |
   if (isSyntheticNode(name)) return undefined;
   const checker = ctx.typeChecker;
   const local = checker.getSymbolAtLocation(name);
-  if (!local) return undefined;
+  if (!local) return resolveDerived(ctx, name);
   const target = resolveAlias(checker, local);
+  // An import of a name its module doesn't declare (yet): a derived extractor?
+  if (!target.declarations?.length) return resolveDerived(ctx, name);
 
   // Scope: this file, the modules it imports, the module that declares Name.
   const files: ts.SourceFile[] = [ctx.sourceFile];
@@ -290,6 +297,100 @@ function resolveUncached(ctx: MacroContext, name: ts.Identifier): ExtractorDef |
   }
   if (inst.descriptor) return inst.descriptor;
   return { kind: "custom", zeroArg: false, instance: (c) => instanceReference(c, name, inst) };
+}
+
+// ---------------------------------------------------------------------------
+// @derive(Destructure) in source
+// ---------------------------------------------------------------------------
+
+/**
+ * The extractor a `@derive(Destructure)` in SOURCE generates for `name`.
+ *
+ * The derived constructor function doesn't exist in the program the macros
+ * check against (it is generated), so `name` has no value symbol. It binds,
+ * after expansion, to the function generated for the declaration it names
+ * now — resolved by the checker's own scope lookup, so identity, not
+ * spelling, decides:
+ *
+ * - the type the function merges with (a product, or a variant declared as an
+ *   interface), here or through an import;
+ * - nothing at all, for an inline variant of a union in this file (the
+ *   module-level function will be the only binding of that name);
+ * - an import the module doesn't export yet, for an inline variant of a
+ *   union in that module.
+ *
+ * Which shape (CLAUDE.md "Resolving things a macro just generated"): the
+ * current file's plans come first from the live same-pass registry the
+ * derive fills as it expands; the `@derive` annotations themselves are
+ * planned too (destructure-plan.ts is pure), which covers a match above the
+ * declaration and other source files, whose generated code no pass here
+ * ever sees. A library's `.d.ts` has the real function and instance, found
+ * by the instance scan above.
+ */
+function resolveDerived(ctx: MacroContext, name: ts.Identifier): ExtractorDef | undefined {
+  const checker = ctx.typeChecker;
+  const sym = checker.resolveName(
+    name.text,
+    name,
+    ts.SymbolFlags.Type | ts.SymbolFlags.Alias,
+    false
+  );
+  if (!sym) {
+    const found = derivedIn(ctx, ctx.sourceFile).find((e) => e.name === name.text && !e.merges);
+    return found && defOf(ctx, name, found);
+  }
+  let target = sym;
+  if (sym.flags & ts.SymbolFlags.Alias) {
+    const aliased = checker.getAliasedSymbol(sym);
+    if (!aliased.declarations?.length) {
+      // `import { Circle } from "./shape"`: not exported until shape.ts expands.
+      const spec = sym.declarations?.find(ts.isImportSpecifier);
+      if (!spec) return undefined;
+      const file = moduleFileOf(checker, spec.parent.parent.parent.moduleSpecifier);
+      const exported = (spec.propertyName ?? spec.name).text;
+      const found =
+        file && derivedIn(ctx, file).find((e) => e.name === exported && !e.merges && e.exported);
+      return found ? defOf(ctx, name, found) : undefined;
+    }
+    target = aliased;
+  }
+  for (const decl of target.declarations ?? []) {
+    const file = decl.getSourceFile();
+    if (file.isDeclarationFile) continue;
+    const found = derivedIn(ctx, file).find((e) => e.merges === decl);
+    if (found) return defOf(ctx, name, found);
+  }
+  return undefined;
+}
+
+function moduleFileOf(
+  checker: ts.TypeChecker,
+  specifier: ts.Expression
+): ts.SourceFile | undefined {
+  const mod = checker.getSymbolAtLocation(specifier);
+  return mod?.declarations?.find(ts.isSourceFile);
+}
+
+/** The derived extractors of `file`: this pass's first, then the annotations. */
+function derivedIn(ctx: MacroContext, file: ts.SourceFile): ExtractorPlan[] {
+  const plans =
+    file === ctx.sourceFile
+      ? [
+          ...synthesizedDestructures(ctx.program, file.fileName),
+          ...annotatedDestructures(ctx.program, ctx.typeChecker, file),
+        ]
+      : annotatedDestructures(ctx.program, ctx.typeChecker, file);
+  return plans.flatMap((p) => p.extractors);
+}
+
+function defOf(ctx: MacroContext, name: ts.Identifier, e: ExtractorPlan): ExtractorDef | undefined {
+  const def = parseDestructureDescriptor(e.descriptor);
+  if (typeof def === "string") {
+    // The plan wrote it; a bad one is a bug here, not in user code.
+    ctx.reportError(name, `match: the derived descriptor of ${e.name} is invalid: ${def}`);
+    return undefined;
+  }
+  return def;
 }
 
 /** An expression for `inst` in the current file, importing it if needed. */

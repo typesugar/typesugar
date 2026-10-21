@@ -296,6 +296,26 @@ class Stats {
 summon<Monoid<Stats>>().empty(); // { count: 0, total: 0 }
 ```
 
+### Destructure — Extractor Patterns
+
+On an interface or a discriminated union (not a class), `@derive(Destructure)` generates a
+constructor function per extractor and its `Destructure` instance, so patterns can name
+the type or its variants: `case Point(x, y)`, `.case(Circle(r))`. The patterns compile to
+field reads and discriminant checks. See
+[Pattern Matching: Custom Extractors](./pattern-matching.md#custom-extractors).
+
+```typescript
+/** @derive(Destructure) */
+export type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+
+match(s)
+  .case(Circle(r))
+  .then(r * r)
+  .case(Rect(w, h))
+  .then(w * h);
+Circle(2); // { kind: "circle", r: 2 }
+```
+
 ### Not Derivable
 
 - **Functor** (and other typeclasses over type constructors) has no derivation: `@derive(Functor)` is a compile error, `Unknown derive: 'Functor'`. Write the instance by hand with `/** @impl Functor<Box> */`.
