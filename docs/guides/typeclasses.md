@@ -130,6 +130,8 @@ print(42, { show: (n: number) => `#${n}` }); // "#42"
 
 `= implicit()` is a default parameter marker — you can see from the signature which params are implicit, and override any of them by passing an argument explicitly. It's valid TypeScript even without the transformer (it just throws at runtime).
 
+When TypeScript infers a literal type from the arguments (`max(3, 7)` with `max<A>(a: A, b: A, O: Ord<A> = implicit())` makes `A` the type `3 | 7`), the instance is looked up for its base type, so `Ord<number>` fills `O`.
+
 ## Deriving Instances
 
 Nothing is ambient (PEP-052): a type gets an instance only when you ask for

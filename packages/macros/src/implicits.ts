@@ -428,10 +428,22 @@ export function transformImplicitsCall(
     let instanceExpr: ts.Expression | undefined;
     if (concreteTsType) {
       try {
-        let r = resolveInstance(ctx, typeclassName, concreteTsType, undefined, undefined, callExpr);
-        // Then the typeclass's own package (see resolveFromTypeclassHome).
-        if (!r && typeclassSymbol) {
-          r = resolveFromTypeclassHome(ctx, typeclassSymbol, typeclassName, concreteTsType).result;
+        const lookUp = (t: ts.Type) => {
+          let found = resolveInstance(ctx, typeclassName, t, undefined, undefined, callExpr);
+          // Then the typeclass's own package (see resolveFromTypeclassHome).
+          if (!found && typeclassSymbol) {
+            found = resolveFromTypeclassHome(ctx, typeclassSymbol, typeclassName, t).result;
+          }
+          return found;
+        };
+        let r = lookUp(concreteTsType);
+        // Literal arguments infer a literal type (`max(3, 7)`: `A` is `3 | 7`),
+        // which no instance is declared for: retry with its base type
+        // (`number`), widened by the checker (by the type's flags, not its
+        // text), as method syntax widens a literal receiver.
+        if (!r) {
+          const widened = ctx.typeChecker.getBaseTypeOfLiteralType(concreteTsType);
+          if (widened !== concreteTsType) r = lookUp(widened);
         }
         if (r && r.kind === "resolved") instanceExpr = buildInstanceReference(ctx, r);
         if (r && r.kind === "ambiguous") {
