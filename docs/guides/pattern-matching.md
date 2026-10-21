@@ -366,6 +366,125 @@ instead and read the payload from `value` (`head`/`tail` for `Cons`).
 
 ---
 
+## Statement form: `match: switch`
+
+`match()` is an expression, so an arm can't loop, `return` from the enclosing function,
+`break`, `continue` or `throw`. For code like that, put a `match:` label on a `switch`. The
+arm bodies stay where they are, with plain switch control flow, and the macro adds the
+exhaustiveness check and patterns:
+
+```typescript
+import "@typesugar/std/syntax/match"; // activates match: in this file
+
+match: switch (geom.type) {
+  case "Point":
+    callback(geom.coordinates);
+    break;
+  case "LineString":
+  case "MultiPoint":
+    for (const c of geom.coordinates) if (callback(c) === false) return false;
+    break;
+  case "Polygon":
+    return polygon(geom);
+}
+// error TS9226: Non-exhaustive match — missing cases: "MultiLineString", "MultiPolygon", ...
+```
+
+**Literal cases** (literals, `const`s, enum members) compile to the same switch with the
+label removed. Nothing is added, so the JavaScript is byte-for-byte the hand-written
+switch, and the activation import is removed from the output too. `break`, `return`,
+`continue`, `throw` and fallthrough mean what they always mean.
+
+**`default:`** covers the remaining values and turns the check off, as `.else()` does. A
+`default:` that only `throw`s is a safety net for values outside the type (untyped input),
+so it keeps the check on: a member added to the union later is still a compile error, not a
+runtime throw. A `default:` that does more, after cases that already cover the type, is
+reported as unreachable (a warning).
+
+### Destructuring cases
+
+Switch on the whole value and write a pattern in each `case`:
+
+```typescript
+match: switch (geom) {
+  case { type: "Point", coordinates: [x, y] }:
+    draw(x, y);
+    break;
+  case { type: "LineString", coordinates }:
+    for (const [x, y] of coordinates) draw(x, y);
+    break;
+  case { type: "Polygon" }:
+    fill(geom);
+    break;
+}
+```
+
+Patterns that share a discriminant compile to a switch on it, with the bindings in a block
+per case:
+
+```typescript
+switch (geom.type) {
+  case "Point": {
+    const [x, y] = geom.coordinates;
+    draw(x, y);
+    break;
+  }
+  case "LineString": {
+    const coordinates = geom.coordinates;
+    for (const [x, y] of coordinates) draw(x, y);
+    break;
+  }
+  case "Polygon":
+    fill(geom);
+    break;
+}
+```
+
+- The discriminant is the only thing tested. The rest of the pattern **destructures**:
+  `coordinates: [x, y]` reads the first two elements whatever the length, as
+  `const [x, y] = …` does. So a literal below the top level (`{ kind: "a", inner: { tag: "x" } }`)
+  is an error; test it in the case body, or use the fluent `match()`, which tests every
+  sub-pattern.
+- Several names, rest and nesting go in one declaration: `case { kind: "rect", w, h, style: { fill } }:`
+  becomes `const { w, h, style: { fill } } = s;`, and `{ kind: "circle", ...rest }` binds the
+  properties other than `kind`.
+- Bindings are scoped to their case. A case that binds names must have its own statements
+  (one that falls through with no body would never see them).
+- A scrutinee that isn't an identifier or `this` is read once into a `const` first
+  (`match: switch (feature.geometry)` → `const _geometry = feature.geometry;`).
+- There are no guards: `case P if cond` isn't valid syntax, and `case P: if (!cond) break;`
+  would leave the switch rather than try the next case. Test the condition in the body.
+
+**Built-in extractors** work as in the fluent form: `case Some(v):` / `case None:`,
+`Left`/`Right`, `Ok`/`Err`, `Cons`/`Nil`. A tagged representation (`_tag`, `ok`) uses the
+discriminant switch. fp's untagged ones (Option is `A | null`) have no discriminant, and
+neither do patterns mixed with `case null:` or patterns with no shared literal property.
+Those compile to `switch (true)`, an if/else chain that keeps switch semantics:
+
+```typescript
+match: switch (opt) {
+  case Some(v):
+    use(v);
+    break;
+  case None:
+    skip();
+    break;
+}
+// switch (true) { case opt != null: { const v = opt; use(v); break; } case opt == null: skip(); break; }
+```
+
+Extractors for your own types (`case Point(x, y):`) are not supported yet; use an object
+pattern. Array patterns at the top level (test a length) and type tests (`String(s)`) are
+fluent-only.
+
+The label without the import is an ordinary JavaScript label on a plain switch, and the
+transformer warns (TS9224). Plain `tsc` accepts the literal form as written (a labelled
+switch is valid JavaScript; under `allowUnusedLabels: false` it reports TS7028). Names bound
+by destructuring cases are undeclared to plain `tsc` (TS2304), as in the fluent form; the
+editor plugin and `typesugar check` don't report them.
+
+---
+
 ## Exhaustiveness
 
 Every `match()` is **always exhaustive** — like Rust, not like Scala. Missing cases produce a compile error:

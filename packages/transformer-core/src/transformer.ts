@@ -41,7 +41,11 @@ import {
   withStandaloneExtensionFile,
 } from "@typesugar/core";
 
-import { getActivatedLabeledBlock, emitLabelSyntaxNotActivatedHint } from "./label-activation.js";
+import {
+  getActivatedLabeledBlock,
+  emitLabelSyntaxNotActivatedHint,
+  isLabeledBlockShaped,
+} from "./label-activation.js";
 
 import {
   createMacroErrorExpression as createMacroErrorExpr,
@@ -55,6 +59,7 @@ import {
 import {
   recordMacroImport,
   cleanupMacroImports,
+  removeErasableSyntaxImports,
   resolveModuleSpecifier,
   findImportModuleForName,
   moduleMatchesMacro,
@@ -743,10 +748,11 @@ class MacroTransformer {
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
-        // Only block-shaped labels are dispatch candidates — an ordinary loop
+        // Only labels on the statement their macro expects (a block, or a
+        // switch for `match:`) are dispatch candidates — an ordinary loop
         // label that collides with a macro label (`all: for (…)`) must never
         // be hijacked, activated or not.
-        const macro = ts.isBlock(stmt.statement)
+        const macro = isLabeledBlockShaped(stmt)
           ? getActivatedLabeledBlock(this.ctx, labelName, stmt)
           : undefined;
 
@@ -918,6 +924,15 @@ class MacroTransformer {
     let cleanedStatements = ts.isSourceFile(node)
       ? cleanupMacroImports(this.ctx.factory, this.macroImportSpecifiers, collapsed, this.verbose)
       : collapsed;
+    // Only in a file that changed anyway (a nested expansion counts): an
+    // unchanged file must stay byte-identical, never reprinted.
+    if (
+      ts.isSourceFile(node) &&
+      (cleanedStatements.length !== node.statements.length ||
+        cleanedStatements.some((s, i) => s !== node.statements[i]))
+    ) {
+      cleanedStatements = removeErasableSyntaxImports(this.ctx.factory, cleanedStatements);
+    }
 
     if (ts.isSourceFile(node)) {
       const pendingImports = this.ctx.fileBindingCache.getPendingImports();

@@ -374,6 +374,7 @@ export { adtAttribute } from "./adt.js";
 export {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
+  createMatchSwitchRule,
   createMacroDecoratorRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,

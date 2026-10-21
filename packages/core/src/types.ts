@@ -519,6 +519,15 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   continuationLabels?: string[];
 
   /**
+   * The statement the label must be attached to for the macro to apply:
+   * `"block"` (the default, `let: { ... }`) or `"switch"` (`match: switch
+   * (x) { ... }`). A label on any other statement is an ordinary JavaScript
+   * label and is never a dispatch candidate (`all: for (...)` must not be
+   * hijacked).
+   */
+  statement?: "block" | "switch";
+
+  /**
    * Whether the expansion produces a value (vs. a side-effecting block).
    *
    * Comprehensions like `let:/yield:`, `par:/yield:` evaluate to a value
@@ -543,9 +552,19 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   syntaxModule?: string;
 
   /**
+   * The {@link syntaxModule} only activates the label and has nothing to run
+   * (a marker constant). In a file the transformer changed, its side-effect
+   * import (`import "<syntaxModule>";`) is removed from the output, so the
+   * label syntax costs no runtime import. Leave unset for a module with real
+   * runtime content (`@typesugar/std/syntax/do` also provides instances).
+   */
+  erasableSyntaxModule?: boolean;
+
+  /**
    * Expand the labeled block macro
    * @param ctx - The macro context
-   * @param mainBlock - The main labeled statement (e.g., `let: { ... }`)
+   * @param mainBlock - The main labeled statement (e.g., `let: { ... }`, or
+   *   `match: switch (...) { ... }` for a `statement: "switch"` macro)
    * @param continuation - The optional continuation labeled statement (e.g., `yield: { ... }`)
    */
   expand(

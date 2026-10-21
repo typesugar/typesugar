@@ -104,7 +104,7 @@ describe("Diagnostic Parity — unified diagnostic suppression pipeline", () => 
     const expected = [...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES];
     // Note: we can't easily reflect on create*Rule exports, but ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES
     // is maintained alongside the registration function in the same file.
-    expect(expected).toHaveLength(6);
+    expect(expected).toHaveLength(7);
   });
 
   it("OperatorOverload: suppresses TS2365 only where an @op instance rewrites it", () => {
@@ -285,6 +285,7 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
       "MacroGenerated", // from @typesugar/core
       "ExtensionMethodCall", // from @typesugar/macros
       "MacroCallChain", // from @typesugar/macros
+      "MatchSwitch", // from @typesugar/macros
       "MacroDecorator", // from @typesugar/macros
       "OperatorOverload", // from @typesugar/macros
       "TypeRewriteAssignment", // from @typesugar/macros
@@ -294,16 +295,16 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
     expect(actualNames).toEqual(expectedNames);
   });
 
-  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 6 rules", () => {
+  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 7 rules", () => {
     const dummyMapFn = () => null;
     const registered = registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
-    expect(registered).toHaveLength(6);
+    expect(registered).toHaveLength(7);
     expect(new Set(registered)).toEqual(new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES));
   });
 
-  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 5 rules", () => {
+  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 6 rules", () => {
     const registered = registerAllDiagnosticSuppressionRules();
-    expect(registered).toHaveLength(5);
+    expect(registered).toHaveLength(6);
     expect(registered).not.toContain("MacroGenerated");
   });
 });

@@ -1261,6 +1261,98 @@ function isTypesugarMatch(
 }
 
 // ===========================================================================
+// Rule 8: MatchSwitch — the `match:` statement form (std match-switch.ts)
+// ===========================================================================
+
+/** The labeled-block macro behind `match: switch`, as registered by @typesugar/std. */
+const MATCH_SWITCH_MACRO = "matchSwitch";
+
+const labelActivationCache = new WeakMap<ts.Program, Map<string, boolean>>();
+
+/** Does `sourceFile` activate `match:` (imports a `@syntax-labels matchSwitch` marker)? */
+function matchSwitchActivated(program: ts.Program, sourceFile: ts.SourceFile): boolean {
+  let perFile = labelActivationCache.get(program);
+  if (!perFile) {
+    perFile = new Map();
+    labelActivationCache.set(program, perFile);
+  }
+  const cached = perFile.get(sourceFile.fileName);
+  if (cached !== undefined) return cached;
+  const tracker = new ResolutionScopeTracker();
+  scanImportsForScope(sourceFile, tracker, program);
+  const result = tracker.isLabelSyntaxActivated(sourceFile.fileName, MATCH_SWITCH_MACRO);
+  perFile.set(sourceFile.fileName, result);
+  return result;
+}
+
+/** The `match:`-labelled switch `node` is the label of, or a part of. */
+function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (ts.isLabeledStatement(n) && n.label.text === "match" && ts.isSwitchStatement(n.statement)) {
+      return n;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Create the MatchSwitch diagnostic suppression rule.
+ *
+ * In a file that activates `match:` (`import "@typesugar/std/syntax/match"`),
+ * a `match: switch` is expanded by the macro, so the checker's view of the
+ * unexpanded switch has errors the expansion removes:
+ *
+ * - TS2304 / TS18004 for a name a case's pattern binds
+ *   (`case { type: "Point", coordinates: [x, y] }:`), used in that case's
+ *   pattern or its own statements. The expansion declares exactly those
+ *   names, in a block around exactly those statements. A name bound by one
+ *   case and used in another is still reported: it IS undeclared there.
+ * - TS7028 ("Unused label", under `allowUnusedLabels: false`) on the `match`
+ *   label itself, which the expansion removes.
+ *
+ * Needs the program in the evaluation context (for the activation check);
+ * without it nothing is suppressed.
+ */
+export function createMatchSwitchRule(): DiagnosticSuppressionRule {
+  return {
+    name: "MatchSwitch",
+    errorCodes: [2304, 18004, 7028],
+
+    shouldSuppress(diagnostic, _checker, sourceFile, context): boolean {
+      if (diagnostic.start === undefined || !context?.program) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      if (!node || isSyntheticNode(node) || !ts.isIdentifier(node)) return false;
+      const labeled = enclosingMatchSwitch(node);
+      if (!labeled) return false;
+      if (!matchSwitchActivated(context.program, sourceFile)) return false;
+
+      if (diagnostic.code === 7028) return node === labeled.label;
+
+      const clause = (() => {
+        for (let n: ts.Node | undefined = node; n && n !== labeled; n = n.parent) {
+          if (ts.isCaseClause(n) && n.parent.parent === labeled.statement) return n;
+        }
+        return undefined;
+      })();
+      if (!clause) return false;
+      // Only a pattern binds (an object/array pattern or an extractor call);
+      // a bare identifier case is a value, and an unknown one is a real error.
+      const pattern = clause.expression;
+      if (
+        !ts.isObjectLiteralExpression(pattern) &&
+        !ts.isArrayLiteralExpression(pattern) &&
+        !ts.isCallExpression(pattern)
+      ) {
+        return false;
+      }
+      const bound = new Set<string>();
+      collectPatternBindings(pattern, bound);
+      return bound.has(node.text);
+    },
+  };
+}
+
+// ===========================================================================
 // Rule 6: OperatorOverload — suppress TS2365 for @op operator overloading
 // ===========================================================================
 

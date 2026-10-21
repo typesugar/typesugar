@@ -32,6 +32,7 @@ export default defineConfig({
     "syntax/json": "src/syntax/json.ts",
     "syntax/type-guard": "src/syntax/type-guard.ts",
     "syntax/do": "src/syntax/do.ts",
+    "syntax/match": "src/syntax/match.ts",
   },
   format: ["cjs", "esm"],
   dts: !process.env.TYPESUGAR_SKIP_DTS,

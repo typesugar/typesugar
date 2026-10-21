@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import {
   createMacroCallChainRule,
   createExtensionMethodCallRule,
+  createMatchSwitchRule,
 } from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
@@ -356,5 +357,121 @@ describe("MacroCallChain — 'possibly null' on a chain continued after a nullis
     const nullish = diags.filter((d) => [2531, 18047].includes(d.code));
     expect(nullish.length).toBe(1);
     expect(rule.shouldSuppress(nullish[0], checker, sf)).toBe(false);
+  });
+});
+
+describe("MatchSwitch — names bound by a match: switch case (F21)", () => {
+  const rule = createMatchSwitchRule();
+  const markerDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../std/src/syntax"
+  );
+
+  function check(code: string, options: ts.CompilerOptions = {}) {
+    const fileName = path.join(markerDir, "__match_switch_probe__.ts");
+    const compilerOptions: ts.CompilerOptions = {
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      types: [],
+      ...options,
+    };
+    const host = ts.createCompilerHost(compilerOptions);
+    const orig = { getSourceFile: host.getSourceFile, fileExists: host.fileExists };
+    host.getSourceFile = (fn, lv, ...rest) =>
+      fn === fileName
+        ? ts.createSourceFile(fn, code, lv, true)
+        : orig.getSourceFile.call(host, fn, lv, ...rest);
+    host.fileExists = (fn) => fn === fileName || orig.fileExists.call(host, fn);
+    const program = ts.createProgram([fileName], compilerOptions, host);
+    const sf = program.getSourceFile(fileName)!;
+    const diags = program.getSemanticDiagnostics(sf);
+    const suppressed = (d: ts.Diagnostic) =>
+      rule.shouldSuppress(d, program.getTypeChecker(), sf, { program });
+    const text = (d: ts.Diagnostic) => code.slice(d.start!, d.start! + d.length!);
+    return { diags, suppressed, text };
+  }
+
+  const GEOMETRY = `type Geometry =
+  | { type: "Point"; coordinates: number[] }
+  | { type: "LineString"; coordinates: number[][] };
+`;
+
+  it("suppresses TS2304/TS18004 for a case's own bindings, in its pattern and statements", () => {
+    const { diags, suppressed, text } = check(`import "./match.js";
+${GEOMETRY}
+export function f(geom: Geometry): number {
+  match: switch (geom) {
+    case { type: "Point", coordinates: [x, y] }:
+      return x + y;
+    case { type: "LineString", coordinates }:
+      return coordinates.length;
+  }
+}
+`);
+    const binders = diags.filter((d) => d.code === 2304 || d.code === 18004);
+    expect(binders.map(text).sort()).toEqual(["coordinates", "coordinates", "x", "x", "y", "y"]);
+    for (const d of binders) expect(suppressed(d)).toBe(true);
+  });
+
+  it("does NOT suppress a name bound by a different case, or an unknown value case", () => {
+    const { diags, suppressed, text } = check(`import "./match.js";
+${GEOMETRY}
+export function f(geom: Geometry): number {
+  match: switch (geom) {
+    case { type: "Point", coordinates: [x] }:
+      return x;
+    case { type: "LineString" }:
+      return x;
+    case typo:
+      return 0;
+  }
+}
+`);
+    const reported = diags.filter((d) => d.code === 2304 && !suppressed(d)).map(text);
+    expect(reported).toEqual(["x", "typo"]);
+  });
+
+  it("does NOT suppress anything in a file that doesn't activate match:", () => {
+    const { diags, suppressed } = check(`${GEOMETRY}
+export function f(geom: Geometry): number {
+  match: switch (geom) {
+    case { type: "Point", coordinates: [x] }:
+      return x;
+  }
+  return 0;
+}
+`);
+    const binders = diags.filter((d) => d.code === 2304);
+    expect(binders.length).toBe(2);
+    for (const d of binders) expect(suppressed(d)).toBe(false);
+  });
+
+  it("suppresses TS7028 (unused label) on the match label only", () => {
+    const { diags, suppressed, text } = check(
+      `import "./match.js";
+export function f(t: "a" | "b"): number {
+  match: switch (t) {
+    case "a":
+      return 1;
+    case "b":
+      return 2;
+  }
+}
+export function g(): void {
+  other: switch (1) {
+    case 1:
+      break;
+  }
+}
+`,
+      { allowUnusedLabels: false }
+    );
+    const unused = diags.filter((d) => d.code === 7028);
+    expect(unused.map(text)).toEqual(["match", "other"]);
+    expect(unused.map(suppressed)).toEqual([true, false]);
   });
 });

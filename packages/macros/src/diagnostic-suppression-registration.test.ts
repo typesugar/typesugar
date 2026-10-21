@@ -33,6 +33,7 @@ describe("registerAllDiagnosticSuppressionRules", () => {
     expect(registered).toEqual([
       "ExtensionMethodCall",
       "MacroCallChain",
+      "MatchSwitch",
       "MacroDecorator",
       "OperatorOverload",
       "TypeRewriteAssignment",
@@ -48,7 +49,7 @@ describe("registerAllDiagnosticSuppressionRules", () => {
 
     expect(registered).toContain("MacroGenerated");
     expect(ruleNames).toContain("MacroGenerated");
-    expect(rules).toHaveLength(6);
+    expect(rules).toHaveLength(7);
   });
 
   it("returns empty array on duplicate registration", () => {
@@ -56,7 +57,7 @@ describe("registerAllDiagnosticSuppressionRules", () => {
     const second = registerAllDiagnosticSuppressionRules();
     expect(second).toEqual([]);
     // Rules should still be there, just not re-registered
-    expect(getDiagnosticSuppressionRules()).toHaveLength(5);
+    expect(getDiagnosticSuppressionRules()).toHaveLength(6);
   });
 
   it("ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES contains every rule", () => {

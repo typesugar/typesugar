@@ -127,6 +127,36 @@ describe.skipIf(!hasBuild)("typesugar build: declarations from the expanded prog
     expect(fs.existsSync(path.join(dir, "src/index.d.ts"))).toBe(false);
   });
 
+  it("declares the expanded types of a match: switch, and drops its activation import", () => {
+    const dir = makeProject(
+      { declaration: true, outDir: "out", allowUnusedLabels: false },
+      {
+        "src/index.ts": `import "@typesugar/std/syntax/match";
+export type Geometry =
+  | { type: "Point"; coordinates: number[] }
+  | { type: "LineString"; coordinates: number[][] };
+export function size(geom: Geometry) {
+  match: switch (geom) {
+    case { type: "Point", coordinates: [x, y] }:
+      return x + y;
+    case { type: "LineString", coordinates }:
+      return coordinates.length;
+  }
+}
+`,
+      }
+    );
+    const { status, output } = runCli(["build"], dir);
+    expect(output).toBe("");
+    expect(status).toBe(0);
+    expect(read(dir, "out/index.d.ts")).toContain(
+      "export declare function size(geom: Geometry): number;"
+    );
+    const js = read(dir, "out/index.js");
+    expect(js).toContain("const [x, y] = geom.coordinates;");
+    expect(js).not.toContain("typesugar");
+  });
+
   it("noEmitOnError: a real type error writes no declarations", () => {
     const dir = makeProject(
       { declaration: true, emitDeclarationOnly: true, outDir: "out", noEmitOnError: true },

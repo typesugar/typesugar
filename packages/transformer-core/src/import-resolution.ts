@@ -189,6 +189,40 @@ function commentPlaceholderFor(factory: ts.NodeFactory, stmt: ts.Statement): ts.
   return placeholder;
 }
 
+/**
+ * Remove side-effect imports of label-activation modules that have nothing to
+ * run (`LabeledBlockMacro.erasableSyntaxModule`, e.g.
+ * `import "@typesugar/std/syntax/match";`). The import only switched the
+ * label syntax on for the transformer; left in the output it would be a
+ * runtime import of a package a library may only have as a devDependency.
+ */
+export function removeErasableSyntaxImports(
+  factory: ts.NodeFactory,
+  statements: ts.Statement[]
+): ts.Statement[] {
+  const erasable = new Set<string>();
+  for (const macro of globalRegistry.getAll()) {
+    if (macro.kind === "labeled-block" && macro.erasableSyntaxModule && macro.syntaxModule) {
+      erasable.add(macro.syntaxModule);
+    }
+  }
+  if (erasable.size === 0) return statements;
+  let changed = false;
+  const out = statements.map((stmt) => {
+    if (
+      ts.isImportDeclaration(stmt) &&
+      !stmt.importClause &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      erasable.has(stmt.moduleSpecifier.text)
+    ) {
+      changed = true;
+      return commentPlaceholderFor(factory, stmt);
+    }
+    return stmt;
+  });
+  return changed ? out : statements;
+}
+
 export function cleanupMacroImports(
   factory: ts.NodeFactory,
   macroImportSpecifiers: Map<

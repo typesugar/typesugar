@@ -51,7 +51,8 @@ interface ChainLink {
   node: ts.CallExpression;
 }
 
-interface CaseArm {
+/** @internal shared with match-switch.ts */
+export interface CaseArm {
   pattern: ts.Expression;
   alternatives: ts.Expression[];
   guard?: ts.Expression;
@@ -63,12 +64,14 @@ interface CaseArm {
 // Pattern Types
 // ============================================================================
 
-interface ArrayElementPattern {
+/** @internal shared with match-switch.ts */
+export interface ArrayElementPattern {
   pattern: PatternInfo;
   isRest: boolean;
 }
 
-interface ObjectPropertyPattern {
+/** @internal shared with match-switch.ts */
+export interface ObjectPropertyPattern {
   key: string;
   pattern: PatternInfo;
   isRest: boolean;
@@ -84,7 +87,8 @@ interface ObjectPropertyPattern {
  * - `custom`: User-defined Destructure instance. Generates an `extract()` call
  *   with undefined check.
  */
-interface ExtractorDef {
+/** @internal shared with match-switch.ts */
+export interface ExtractorDef {
   kind: "sum-variant" | "product" | "custom";
   /**
    * A presence test used INSTEAD of the discriminant check — for
@@ -99,7 +103,8 @@ interface ExtractorDef {
   zeroArg: boolean;
 }
 
-type PatternInfo =
+/** @internal shared with match-switch.ts */
+export type PatternInfo =
   | { kind: "literal"; node: ts.Expression }
   | { kind: "wildcard" }
   | { kind: "variable"; name: string }
@@ -115,7 +120,8 @@ type PatternInfo =
 // ============================================================================
 
 /** A payload field name meaning "the matched value itself" (fp's `Some(v)`). */
-const SELF_PAYLOAD = "";
+/** @internal shared with match-switch.ts */
+export const SELF_PAYLOAD = "";
 
 /**
  * Built-in extractors for `_tag`-discriminated sum types (Effect's
@@ -408,7 +414,8 @@ function parseArms(
 // ============================================================================
 
 /** `NaN` never equals itself — literal checks on it must use `Number.isNaN`. */
-function isNaNLiteral(node: ts.Expression): boolean {
+/** @internal shared with match-switch.ts */
+export function isNaNLiteral(node: ts.Expression): boolean {
   return ts.isIdentifier(node) && node.text === "NaN";
 }
 
@@ -416,7 +423,8 @@ function isNaNLiteral(node: ts.Expression): boolean {
  * The runtime test for a literal pattern: `accessor === lit`, or
  * `Number.isNaN(accessor)` for `NaN`.
  */
-function literalCheck(
+/** @internal shared with match-switch.ts */
+export function literalCheck(
   f: ts.NodeFactory,
   accessor: ts.Expression,
   lit: ts.Expression
@@ -449,7 +457,8 @@ function patternHasBindings(p: PatternInfo): boolean {
   }
 }
 
-function analyzePattern(pattern: ts.Expression): PatternInfo {
+/** @internal shared with match-switch.ts */
+export function analyzePattern(pattern: ts.Expression): PatternInfo {
   // Literals
   if (ts.isNumericLiteral(pattern)) {
     return { kind: "literal", node: pattern };
@@ -632,7 +641,8 @@ export interface ScrutineeAnalysis {
   nullishMembers?: Set<string>;
 }
 
-function getLiteralValueFromType(type: ts.Type): string | undefined {
+/** @internal shared with match-switch.ts */
+export function getLiteralValueFromType(type: ts.Type): string | undefined {
   if (type.isStringLiteral()) return JSON.stringify(type.value);
   if (type.isNumberLiteral()) return String(type.value);
   if (type.flags & ts.TypeFlags.BooleanLiteral) {
@@ -641,7 +651,8 @@ function getLiteralValueFromType(type: ts.Type): string | undefined {
   return undefined;
 }
 
-function nullishKeyOfType(type: ts.Type): string | undefined {
+/** @internal shared with match-switch.ts */
+export function nullishKeyOfType(type: ts.Type): string | undefined {
   if (type.flags & ts.TypeFlags.Null) return "null";
   if (type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return "undefined";
   return undefined;
@@ -759,7 +770,8 @@ function findDiscriminant(
  */
 const scrutineeTypeCache = new WeakMap<ts.Node, { type?: ts.Type }>();
 
-function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): ts.Type | undefined {
+/** @internal shared with match-switch.ts */
+export function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): ts.Type | undefined {
   const cached = scrutineeTypeCache.get(scrutinee);
   if (cached) return cached.type;
   let type: ts.Type | undefined;
@@ -779,7 +791,8 @@ function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): ts.Type 
 }
 
 /** Scrutinee analysis, or undefined for any/unknown/unavailable types. */
-function getScrutineeAnalysis(
+/** @internal shared with match-switch.ts */
+export function getScrutineeAnalysis(
   ctx: MacroContext,
   scrutinee: ts.Expression
 ): ScrutineeAnalysis | undefined {
@@ -801,7 +814,8 @@ function getScrutineeAnalysis(
 // Wave 5: Exhaustiveness Checking
 // ============================================================================
 
-function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
+/** @internal shared with match-switch.ts */
+export function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
   if (pattern.kind !== "literal") return undefined;
   const node = pattern.node;
   if (ts.isStringLiteral(node)) return JSON.stringify(node.text);
@@ -817,7 +831,8 @@ function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
   return undefined;
 }
 
-function patternCoversAll(pattern: PatternInfo): boolean {
+/** @internal shared with match-switch.ts */
+export function patternCoversAll(pattern: PatternInfo): boolean {
   return pattern.kind === "wildcard" || pattern.kind === "variable";
 }
 
@@ -889,103 +904,117 @@ function checkExhaustiveness(
   hasElse: boolean
 ): void {
   if (hasElse) return;
+  const patterns = arms
+    .filter((arm) => !arm.guard)
+    .flatMap((arm) => [arm.pattern, ...arm.alternatives].map(analyzePattern));
+  reportMissingCases(ctx, chainExpr, findMissingCases(ctx, scrutinee, patterns), ".else() / _");
+}
 
-  for (const arm of arms) {
-    if (arm.guard) continue;
-    const pattern = analyzePattern(arm.pattern);
-    if (patternCoversAll(pattern)) return;
-    for (const alt of arm.alternatives) {
-      if (patternCoversAll(analyzePattern(alt))) return;
-    }
-  }
+/**
+ * What a set of unguarded patterns leaves uncovered of the scrutinee's type.
+ * `complete` also when the type can't be analysed (any/unknown/unavailable),
+ * which the callers treat as "nothing to report".
+ * @internal shared with the `match:` switch (match-switch.ts)
+ */
+export type MatchCoverage =
+  | { kind: "complete" }
+  | { kind: "missing"; what: "cases" | "variants"; missing: string }
+  | { kind: "not-enumerable" };
+
+/** @internal shared with the `match:` switch (match-switch.ts) */
+export function findMissingCases(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  patterns: readonly PatternInfo[]
+): MatchCoverage {
+  if (patterns.some(patternCoversAll)) return { kind: "complete" };
 
   // fp's untagged extractors: `Some(v)`/`Cons(h, t)` + `None`/`Nil` cover
   // non-null + null; `Left(e)` + `Right(a)` cover both Either variants.
   const fpCovered = new Set<string>();
-  for (const arm of arms) {
-    if (arm.guard) continue;
-    for (const pat of [arm.pattern, ...arm.alternatives]) {
-      const p = analyzePattern(pat);
-      if (p.kind !== "extractor" || !p.def.test || !p.bindings.every(patternCoversAll)) continue;
-      fpCovered.add(typeof p.def.test === "string" ? p.def.test : `has:${p.def.test.hasKey}`);
-    }
+  for (const p of patterns) {
+    if (p.kind !== "extractor" || !p.def.test || !p.bindings.every(patternCoversAll)) continue;
+    fpCovered.add(typeof p.def.test === "string" ? p.def.test : `has:${p.def.test.hasKey}`);
   }
   if (
     (fpCovered.has("not-null") && fpCovered.has("null")) ||
     (fpCovered.has("has:left") && fpCovered.has("has:right"))
   ) {
-    return;
+    return { kind: "complete" };
   }
 
   const analysis = getScrutineeAnalysis(ctx, scrutinee);
-  if (!analysis) return;
+  if (!analysis) return { kind: "complete" };
 
   switch (analysis.kind) {
     case "literal-union":
     case "boolean": {
-      if (!analysis.literalMembers) return;
+      if (!analysis.literalMembers) return { kind: "complete" };
       const covered = new Set<string>();
-      for (const arm of arms) {
-        if (arm.guard) continue;
-        for (const pat of [arm.pattern, ...arm.alternatives]) {
-          for (const k of coveredLiteralKeys(analyzePattern(pat), analysis.literalMembers)) {
-            covered.add(k);
-          }
-        }
+      for (const p of patterns) {
+        for (const k of coveredLiteralKeys(p, analysis.literalMembers)) covered.add(k);
       }
-
       const missing = [...analysis.literalMembers].filter((m) => !covered.has(m));
-      if (missing.length > 0) {
-        ctx
-          .diagnostic(TS9226)
-          .at(chainExpr)
-          .withArgs({ what: "cases", missing: missing.join(", ") })
-          .help("Add the missing cases or use .else() / _ to handle remaining values.")
-          .emit();
-      }
-      break;
+      return missing.length > 0
+        ? { kind: "missing", what: "cases", missing: missing.join(", ") }
+        : { kind: "complete" };
     }
 
     case "discriminated-union": {
-      if (!analysis.variantValues || !analysis.discriminantField) return;
+      if (!analysis.variantValues || !analysis.discriminantField) return { kind: "complete" };
       const covered = new Set<string>();
-
-      for (const arm of arms) {
-        if (arm.guard) continue;
-        for (const pat of [arm.pattern, ...arm.alternatives]) {
-          const key = coveredVariantKey(analyzePattern(pat), analysis.discriminantField);
-          if (key !== undefined) covered.add(key);
-        }
+      for (const p of patterns) {
+        const key = coveredVariantKey(p, analysis.discriminantField);
+        if (key !== undefined) covered.add(key);
       }
-
       const expected = [...analysis.variantValues, ...(analysis.nullishMembers ?? [])];
       const missing = expected.filter((m) => !covered.has(m));
-      if (missing.length > 0) {
-        ctx
-          .diagnostic(TS9226)
-          .at(chainExpr)
-          .withArgs({
+      return missing.length > 0
+        ? {
+            kind: "missing",
             what: "variants",
             missing: `${missing.join(", ")} (discriminant: "${analysis.discriminantField}")`,
-          })
-          .help("Add the missing cases or use .else() / _ to handle remaining values.")
-          .emit();
-      }
-      break;
+          }
+        : { kind: "complete" };
     }
 
-    case "non-enumerable": {
-      ctx
-        .diagnostic(TS9226)
-        .at(chainExpr)
-        .withArgs({ what: "a fallback", missing: "the scrutinee type is not enumerable" })
-        .help("Add .else() or a _ wildcard to handle all remaining values.")
-        .emit();
-      break;
-    }
+    case "non-enumerable":
+      return { kind: "not-enumerable" };
 
     case "unknown":
-      break;
+      return { kind: "complete" };
+  }
+}
+
+/**
+ * Emit TS9226 for an incomplete {@link MatchCoverage}; `fallback` names the
+ * construct that covers the rest (`.else() / _`, `default:`).
+ * @internal shared with the `match:` switch (match-switch.ts)
+ */
+export function reportMissingCases(
+  ctx: MacroContext,
+  at: ts.Node,
+  coverage: MatchCoverage,
+  fallback: string
+): void {
+  if (coverage.kind === "missing") {
+    ctx
+      .diagnostic(TS9226)
+      .at(at)
+      .withArgs({ what: coverage.what, missing: coverage.missing })
+      .help(`Add the missing cases or use ${fallback} to handle remaining values.`)
+      .emit();
+  } else if (coverage.kind === "not-enumerable") {
+    ctx
+      .diagnostic(TS9226)
+      .at(at)
+      .withArgs({ what: "a fallback", missing: "the scrutinee type is not enumerable" })
+      .help(
+        fallback === ".else() / _"
+          ? "Add .else() or a _ wildcard to handle all remaining values."
+          : `Add ${fallback} to handle all remaining values.`
+      )
+      .emit();
   }
 }
 
@@ -993,7 +1022,8 @@ function checkExhaustiveness(
 // Wave 5: Dead Arm & Unreachable Pattern Detection
 // ============================================================================
 
-function checkUnreachablePatterns(ctx: MacroContext, arms: CaseArm[]): void {
+/** @internal shared with match-switch.ts */
+export function checkUnreachablePatterns(ctx: MacroContext, arms: CaseArm[]): void {
   const seenLiterals = new Set<string>();
   let seenCatchAll = false;
 
@@ -1584,10 +1614,25 @@ export function expandFluentMatch(
   chainExpr: ts.CallExpression,
   rootArgs: readonly ts.Expression[]
 ): ts.Expression {
+  return withBuiltinExtractorsFor(ctx, rootArgs[0], () =>
+    expandFluentMatchInner(ctx, chainExpr, rootArgs)
+  );
+}
+
+/**
+ * Run `fn` with the built-in Some/None/Left/Right/Cons/Nil extractors set to
+ * the representation `scrutinee`'s type uses (`_tag`-based or fp's untagged).
+ * @internal shared with match-switch.ts
+ */
+export function withBuiltinExtractorsFor<T>(
+  ctx: MacroContext,
+  scrutinee: ts.Expression | undefined,
+  fn: () => T
+): T {
   const prev = taggedBuiltinExtractors;
-  taggedBuiltinExtractors = rootArgs[0] !== undefined && scrutineeUsesTags(ctx, rootArgs[0]);
+  taggedBuiltinExtractors = scrutinee !== undefined && scrutineeUsesTags(ctx, scrutinee);
   try {
-    return expandFluentMatchInner(ctx, chainExpr, rootArgs);
+    return fn();
   } finally {
     taggedBuiltinExtractors = prev;
   }
@@ -1966,7 +2011,8 @@ function collectBindings(
  * Build the structural condition expression for a pattern.
  * Returns undefined for patterns that always match (wildcard, variable).
  */
-function buildCondition(
+/** @internal shared with match-switch.ts */
+export function buildCondition(
   f: ts.NodeFactory,
   pattern: PatternInfo,
   accessor: ts.Expression,
@@ -2722,7 +2768,8 @@ function generateArmStatements(
  * Check if a type is guaranteed to be a non-null object (no null, undefined, or primitives).
  * When true, per-arm `typeof === "object" && != null` guards can be skipped.
  */
-function isGuaranteedObject(ctx: MacroContext, scrutinee: ts.Expression): boolean {
+/** @internal shared with match-switch.ts */
+export function isGuaranteedObject(ctx: MacroContext, scrutinee: ts.Expression): boolean {
   const type = getScrutineeType(ctx, scrutinee);
   if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
 

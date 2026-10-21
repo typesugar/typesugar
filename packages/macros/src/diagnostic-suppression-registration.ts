@@ -18,6 +18,7 @@ import {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
+  createMatchSwitchRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
 } from "./diagnostic-suppression-rules.js";
@@ -58,6 +59,9 @@ export function registerAllDiagnosticSuppressionRules(
   if (registerDiagnosticSuppressionRuleOnce(createMacroCallChainRule())) {
     registered.push("MacroCallChain");
   }
+  if (registerDiagnosticSuppressionRuleOnce(createMatchSwitchRule())) {
+    registered.push("MatchSwitch");
+  }
   if (registerDiagnosticSuppressionRuleOnce(createMacroDecoratorRule())) {
     registered.push("MacroDecorator");
   }
@@ -79,6 +83,7 @@ export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "MacroGenerated",
   "ExtensionMethodCall",
   "MacroCallChain",
+  "MatchSwitch",
   "MacroDecorator",
   "OperatorOverload",
   "TypeRewriteAssignment",
