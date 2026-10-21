@@ -43,6 +43,7 @@
  * No `@derive(Generic)` is needed — the TypeChecker provides the Mirror.
  * (`@derive(Generic)` can still be used to pre-cache the metadata, but
  * summon will synthesize it on demand if absent.)
+
  *
  * ## Usage
  *
@@ -112,6 +113,12 @@ export interface DerivationResult {
   expression: ts.Expression | null;
   /** Resolution attempts made, regardless of success/failure */
   trace: ResolutionAttempt[];
+  /**
+   * When derivation failed because a field has no instance and none can be
+   * derived: the first such field (`variant` names the sum-type member it
+   * belongs to). `derived<TC<T>>()` reports it as TS9107.
+   */
+  failedField?: { name: string; type: string; variant?: string };
 }
 
 // ============================================================================
@@ -324,6 +331,10 @@ function findTypeSymbol(
       }
     }
     if (sym.flags & ts.SymbolFlags.Type) return sym;
+    // `export class Box` in this file: the local symbol is only the export's
+    // stand-in (ExportValue/ExportType); the type is on the export symbol.
+    const exported = typeChecker.getExportSymbolOfSymbol(sym);
+    if (exported !== sym && exported.flags & ts.SymbolFlags.Type) return exported;
   }
   return undefined;
 }
@@ -392,7 +403,13 @@ export function tryDeriveViaGeneric(
   let typeSymbol: ts.Symbol | undefined;
   if (!registeredMeta) {
     try {
-      typeSymbol = findTypeSymbol(ctx, typeName, node);
+      // `Feature<Point>` with its concrete type (derived<Clone<Feature<Point>>>()):
+      // the symbol is `Feature`'s; the mirror reads the instantiation.
+      const symbolName =
+        concreteType && typeName.includes("<")
+          ? typeName.slice(0, typeName.indexOf("<"))
+          : typeName;
+      typeSymbol = findTypeSymbol(ctx, symbolName.trim(), node);
     } catch (e) {
       ctx.reportWarning(
         node ?? ctx.sourceFile,
@@ -467,51 +484,79 @@ export function tryDeriveViaGeneric(
   // Step 3: Check all fields have the required instances (product types only —
   // sum types are checked per variant during code generation)
   const types = mirrorTypes.get(meta);
+  let failedField: DerivationResult["failedField"];
+  /**
+   * Whether the strategy can build the field (by the same code that generates
+   * it, when the mirror has its `ts.Type`), recorded in the trace. A field's
+   * type TEXT is not enough: `Position` is an alias of `number[]`, which Eq
+   * compares element by element (F12).
+   */
+  const checkField = (
+    fieldName: string,
+    fieldType: string,
+    fieldTsType: ts.Type | undefined,
+    variant?: string
+  ): boolean => {
+    const tc = strategy.fieldTypeclass!;
+    let hasInstance = strategy.hasFieldInstance(fieldType);
+    let via = "";
+    const probe = FIELD_PROBES[strategy.typeclassName];
+    if (!hasInstance && fieldTsType && probe) {
+      hasInstance = probe(ctx, fieldTsType);
+      // Name the instance the field goes through, when it is one from scope.
+      const ref = hasInstance ? fieldInstanceRef(ctx, tc, fieldTsType, true) : undefined;
+      if (ref) via = ` (instance ${ref})`;
+    }
+    genericMetaAttempt.children!.push({
+      step: "field-check",
+      target: `field \`${variant ? `${variant}.` : ""}${fieldName}\`: ${fieldType}`,
+      result: hasInstance ? "found" : "rejected",
+      reason: hasInstance ? `${fieldType} has ${tc}${via}` : `${fieldType} lacks ${tc}`,
+    });
+    if (!hasInstance && !failedField) failedField = { name: fieldName, type: fieldType, variant };
+    return hasInstance;
+  };
+
   if (strategy.fieldTypeclass && meta.kind === "product" && meta.fieldTypes && meta.fieldNames) {
     let allFieldsOk = true;
     for (let i = 0; i < meta.fieldTypes.length; i++) {
-      const fieldType = meta.fieldTypes[i];
-      const fieldName = meta.fieldNames[i];
-      let hasInstance = strategy.hasFieldInstance(fieldType);
-      let via = "";
-      // A non-primitive field can still be satisfied by an instance in scope
-      // (an `@impl` value, or a `@derive`d companion) when the strategy
-      // composes field instances (Eq/Semigroup/Monoid).
-      if (
-        !hasInstance &&
-        types &&
-        strategy.typeclassName === "Eq" &&
-        isPrimitiveLike(splitNullable(ctx, types.fieldTypes[i]).base)
-      ) {
-        hasInstance = true; // literal/enum/primitive unions compare with ===
-      }
-      if (!hasInstance && types && FIELD_INSTANCE_STRATEGIES.has(strategy.typeclassName)) {
-        const ref = fieldInstanceRef(ctx, strategy.fieldTypeclass, types.fieldTypes[i], true);
-        if (ref) {
-          hasInstance = true;
-          via = ` (instance ${ref})`;
-        }
-      }
-
-      genericMetaAttempt.children!.push({
-        step: "field-check",
-        target: `field \`${fieldName}\`: ${fieldType}`,
-        result: hasInstance ? "found" : "rejected",
-        reason: hasInstance
-          ? `${fieldType} has ${strategy.fieldTypeclass}${via}`
-          : `${fieldType} lacks ${strategy.fieldTypeclass}`,
-      });
-
-      if (!hasInstance) {
+      if (!checkField(meta.fieldNames[i], meta.fieldTypes[i], types?.fieldTypes[i])) {
         allFieldsOk = false;
       }
     }
-
     if (!allFieldsOk) {
       genericMetaAttempt.result = "rejected";
       genericMetaAttempt.reason = "one or more fields lack required instance";
       trace.push(genericMetaAttempt);
-      return { expression: null, trace };
+      return { expression: null, trace, failedField };
+    }
+  }
+
+  // Sum types whose strategy compares each variant's fields inline (Eq): the
+  // same check per variant, so a failure names the field instead of only
+  // "the strategy returned null". A variant with an instance in scope is
+  // compared through it.
+  if (
+    strategy.fieldTypeclass &&
+    meta.kind === "sum" &&
+    meta.discriminant &&
+    types?.variantTypes &&
+    SUM_FIELD_PROBES.has(strategy.typeclassName)
+  ) {
+    let allFieldsOk = true;
+    types.variantTypes.forEach((vt, vi) => {
+      if (fieldInstanceRef(ctx, strategy.fieldTypeclass!, vt, true)) return;
+      const variant = meta.variants?.[vi]?.typeName;
+      for (const f of variantFields(ctx, vt, meta.discriminant!)) {
+        const text = ctx.typeChecker.typeToString(f.type);
+        if (!checkField(f.name, text, f.type, variant)) allFieldsOk = false;
+      }
+    });
+    if (!allFieldsOk) {
+      genericMetaAttempt.result = "rejected";
+      genericMetaAttempt.reason = "one or more variant fields lack required instance";
+      trace.push(genericMetaAttempt);
+      return { expression: null, trace, failedField };
     }
   }
 
@@ -757,8 +802,21 @@ function extractMetaFromSymbol(
 // stores strings — the auto-derive.ts exception in CLAUDE.md)
 // ============================================================================
 
-/** Strategies whose product derivation composes FIELD instances from scope. */
-const FIELD_INSTANCE_STRATEGIES = new Set(["Eq", "Semigroup", "Monoid"]);
+/**
+ * Per strategy that builds each field from its `ts.Type` (Eq, Semigroup,
+ * Monoid): can it build a field of this type? Each probe runs the generator
+ * itself, without side effects (no import injected), so the field check
+ * accepts exactly what code generation can emit.
+ */
+const FIELD_PROBES: Record<string, (ctx: MacroContext, t: ts.Type) => boolean> = {
+  Eq: (ctx, t) => eqExpr(ctx, t, "a", "b", true) !== null,
+  Semigroup: (ctx, t) => combineExpr(ctx, "Semigroup", t, "a", "b", true) !== null,
+  Monoid: (ctx, t) =>
+    combineExpr(ctx, "Monoid", t, "a", "b", true) !== null && emptyExpr(ctx, t, true) !== null,
+};
+
+/** Strategies whose sum derivation compares each variant's fields inline. */
+const SUM_FIELD_PROBES = new Set(["Eq"]);
 
 const IDENT_RE = /^[A-Za-z_$][\w$]*$/;
 
@@ -916,15 +974,39 @@ let lambdaDepth = 0;
  * otherwise; nullable values are guarded. Returns null when no Eq is
  * available.
  */
-function eqExpr(ctx: MacroContext, t: ts.Type, x: string, y: string): string | null {
+function eqExpr(
+  ctx: MacroContext,
+  t: ts.Type,
+  x: string,
+  y: string,
+  /** Only check that a comparison can be built: no import injected. */
+  probe = false
+): string | null {
   const { base, nullable } = splitNullable(ctx, t);
   if (isPrimitiveLike(t)) return `${x} === ${y}`;
+  // An instance for the type as written, null included (`Eq<GeoJsonProperties>`
+  // for `{ [k: string]: any } | null`), compares it whole.
+  if (nullable && !arrayLikeElementTypes(ctx, base)) {
+    const exact = fieldInstanceRef(ctx, "Eq", t, probe, true);
+    if (exact) return `${exact}.equals(${x}, ${y})`;
+  }
   let inner: string | null;
-  const elem = arrayElementType(ctx, base);
-  if (elem) {
+  const elems = arrayLikeElementTypes(ctx, base);
+  if (elems) {
+    // Arrays, tuples, and unions of them (GeoJSON's BBox): same length, and
+    // equal element by element. Elements of several types are all compared
+    // by one expression, so they must all be primitive.
+    const elem = elems.length === 1 ? elems[0] : undefined;
+    // Inside the callback, TypeScript no longer narrows a nullable `y` by the
+    // `!= null` guard around it.
+    const yi = `${nullable ? `${y}!` : y}[__i${lambdaDepth}]`;
     const d = lambdaDepth++;
     try {
-      const e = eqExpr(ctx, elem, `__e${d}`, `${y}[__i${d}]`);
+      const e = elem
+        ? eqExpr(ctx, elem, `__e${d}`, yi, probe)
+        : elems.every(isPrimitiveLike)
+          ? `__e${d} === ${yi}`
+          : null;
       inner =
         e === null
           ? null
@@ -935,11 +1017,31 @@ function eqExpr(ctx: MacroContext, t: ts.Type, x: string, y: string): string | n
   } else if (isPrimitiveLike(base)) {
     inner = `${x} === ${y}`;
   } else {
-    const ref = fieldInstanceRef(ctx, "Eq", base);
+    const ref = fieldInstanceRef(ctx, "Eq", base, probe);
     inner = ref ? `${ref}.equals(${x}, ${y})` : null;
   }
   if (inner === null) return null;
   return nullable ? `(${x} === ${y} || (${x} != null && ${y} != null && ${inner}))` : inner;
+}
+
+/**
+ * The element types of an array, a tuple, or a union of arrays and tuples
+ * (distinct types, in order), or undefined when `t` is none of these.
+ */
+function arrayLikeElementTypes(ctx: MacroContext, t: ts.Type): ts.Type[] | undefined {
+  const members = t.isUnion() ? t.types : [t];
+  const out: ts.Type[] = [];
+  for (const m of members) {
+    const elem = arrayElementType(ctx, m);
+    const elems = elem
+      ? [elem]
+      : ctx.typeChecker.isTupleType(m)
+        ? ctx.typeChecker.getTypeArguments(m as ts.TypeReference)
+        : undefined;
+    if (!elems) return undefined;
+    for (const e of elems) if (!out.includes(e)) out.push(e);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** String fallback (registered GenericMeta without ts.Types). */
@@ -1013,7 +1115,9 @@ function combineExpr(
   tc: string,
   t: ts.Type,
   x: string,
-  y: string
+  y: string,
+  /** Only check that a combination can be built: no import injected. */
+  probe = false
 ): string | null {
   const { base, nullable } = splitNullable(ctx, t);
   let inner: string | null;
@@ -1022,7 +1126,7 @@ function combineExpr(
   else if (base.flags & ts.TypeFlags.BooleanLike) inner = `(${x} && ${y})`;
   else if (arrayElementType(ctx, base)) inner = `[...${x}, ...${y}]`;
   else {
-    const ref = fieldInstanceRef(ctx, tc, base);
+    const ref = fieldInstanceRef(ctx, tc, base, probe);
     inner = ref ? `${ref}.combine(${x}, ${y})` : null;
   }
   if (inner === null) return null;
@@ -1041,7 +1145,7 @@ function combineExprFromText(ft: string, x: string, y: string): string | null {
   return stripped === ft.trim() ? inner : `(${x} == null ? ${y} : ${y} == null ? ${x} : ${inner})`;
 }
 
-function emptyExpr(ctx: MacroContext, t: ts.Type): string | null {
+function emptyExpr(ctx: MacroContext, t: ts.Type, probe = false): string | null {
   const { base, nullable } = splitNullable(ctx, t);
   if (nullable) return "undefined";
   if (base.flags & ts.TypeFlags.NumberLike) return "0";
@@ -1049,7 +1153,7 @@ function emptyExpr(ctx: MacroContext, t: ts.Type): string | null {
   if (base.flags & ts.TypeFlags.StringLike) return '""';
   if (base.flags & ts.TypeFlags.BooleanLike) return "true";
   if (arrayElementType(ctx, base)) return "[]";
-  const ref = fieldInstanceRef(ctx, "Monoid", base);
+  const ref = fieldInstanceRef(ctx, "Monoid", base, probe);
   return ref ? `${ref}.empty()` : null;
 }
 
@@ -1165,25 +1269,30 @@ registerGenericDerivation("Eq", {
       // An Eq instance for the variant type in scope wins; otherwise compare
       // the variant's fields inline (no per-variant companion is generated).
       const ref = fieldInstanceRef(ctx, "Eq", vt);
-      let body: string | null;
       if (ref) {
-        body = `${ref}.equals(a as any, b as any)`;
-      } else {
-        const fields = variantFields(ctx, vt, disc);
-        const checks: string[] = [];
-        for (const f of fields) {
-          const c = eqExpr(ctx, f.type, access("(a as any)", f.name), access("(b as any)", f.name));
-          if (c === null) return null;
-          checks.push(c);
-        }
-        body = checks.length > 0 ? checks.join(" && ") : "true";
+        cases.push(`case ${JSON.stringify(v.tag)}: return ${ref}.equals(a as any, b as any);`);
+        continue;
       }
-      cases.push(`case ${JSON.stringify(v.tag)}: return ${body}`);
+      // The variant's fields, through locals of the variant's type, so each
+      // comparison is type-checked (and array callbacks are typed).
+      const fields = variantFields(ctx, vt, disc);
+      const checks: string[] = [];
+      for (const f of fields) {
+        const c = eqExpr(ctx, f.type, access("__a", f.name), access("__b", f.name));
+        if (c === null) return null;
+        checks.push(c);
+      }
+      cases.push(
+        checks.length === 0
+          ? `case ${JSON.stringify(v.tag)}: return true;`
+          : `case ${JSON.stringify(v.tag)}: { const __a = a as Extract<${typeName}, { ${objKey(disc)}: ${JSON.stringify(v.tag)} }>; ` +
+              `const __b = b as typeof __a; return ${checks.join(" && ")}; }`
+      );
     }
 
     const tagA = access("(a as any)", disc);
     const tagB = access("(b as any)", disc);
-    return `(() => { const equals = (a: ${typeName}, b: ${typeName}): boolean => { if (${tagA} !== ${tagB}) return false; switch (${tagA}) { ${cases.join("; ")}; default: return false; } }; return { equals, notEquals: (a: ${typeName}, b: ${typeName}): boolean => !equals(a, b) }; })()`;
+    return `(() => { const equals = (a: ${typeName}, b: ${typeName}): boolean => { if (${tagA} !== ${tagB}) return false; switch (${tagA}) { ${cases.join(" ")} default: return false; } }; return { equals, notEquals: (a: ${typeName}, b: ${typeName}): boolean => !equals(a, b) }; })()`;
   },
 });
 
@@ -1498,7 +1607,11 @@ function cloneNonNull(g: CloneGen, t: ts.Type, x: string, path: string): string 
   }
   if (checker.isTupleType(t)) return cloneTuple(g, t as ts.TupleTypeReference, x, path);
 
-  if (t.isUnion()) return cloneUnion(g, t, x, path);
+  if (t.isUnion()) {
+    // A union with an instance in scope (`derived<Clone<Geometry>>()`) is
+    // cloned through it, like any other type that has one.
+    return cloneInstanceCall(g, t, x, false) ?? cloneUnion(g, t, x, path);
+  }
 
   // Built-in object types.
   if (isLibType(ctx, t)) {
@@ -2085,7 +2198,9 @@ registerGenericDerivation("Monoid", {
 function ordFromCompare(typeName: string, compareBody: string): string {
   const sig = `(a: ${typeName}, b: ${typeName}): boolean =>`;
   return (
-    `(() => { const compare = (a: ${typeName}, b: ${typeName}): number => { ${compareBody} }; ` +
+    // `-1 | 0 | 1`: the `Ordering` of std's and fp's `Ord` (not `number`,
+    // which isn't assignable to it), written out so no import is needed.
+    `(() => { const compare = (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => { ${compareBody} }; ` +
     `return { compare, ` +
     `equals: ${sig} compare(a, b) === 0, notEquals: ${sig} compare(a, b) !== 0, ` +
     `lessThan: ${sig} compare(a, b) < 0, lessThanOrEqual: ${sig} compare(a, b) <= 0, ` +
