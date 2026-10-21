@@ -135,6 +135,10 @@ typesugar:
 | any other bundler | `typesugar build --emitDeclarationOnly --declarationDir dist` after it                                                                                      |
 | a script          | `emitDeclarations({ project, declarationDir })` from `@typesugar/transformer`                                                                               |
 
+tsup bundles the declarations into one `.d.ts` per entry. That is fine for instances,
+derives and extractors, but not for `@opaque` types, whose companions consumers find per
+module: see rule 1 under Case 2 below.
+
 Check the result: the `.d.ts` files should import nothing from typesugar packages unless
 your public types really use them. Type tests that run plain `tsc` should import the
 built declarations (or run under `typesugar check`), not the source.
@@ -157,12 +161,21 @@ consumer-side transformer reads to enable dot-syntax.
 
 ### Rules
 
-1. **Emit per-module declarations, never a bundled `.d.ts`.** Bundlers
-   (rollup-plugin-dts) collapse modules into chunks and rename colliding symbols
-   (`map` → `map$1`), which destroys consumer-side discovery and stable import names.
-   Use `tsc --emitDeclarationOnly` (`typesugar build --emitDeclarationOnly` if the
-   source uses macros); for JS, prefer `tsup` `bundle:false` so every module is a real
-   importable file.
+1. **Ship `@opaque` types with per-module declarations and JavaScript, not a bundled
+   `.d.ts`.** A consumer's transformer finds an `@opaque` type's companions in the
+   `.d.ts` module that declares it: `export`ed function declarations named after the
+   methods, imported from that module's own path (`@your-pkg/data/option`). A bundled
+   `.d.ts` (rollup-plugin-dts, which tsup's `dts` uses) declares them as
+   `declare function map` with one `export { … }` list at the end, renames colliding
+   symbols (`map` → `map$1`) and has no per-module path, so the consumer's `opt.map(f)` is not rewritten
+   and throws at run time. Use `typesugar build --emitDeclarationOnly`
+   (`tsc --emitDeclarationOnly` if the source has no macros), `tsup` `bundle:false` so
+   every module is a real importable file, and a `"./*"` export.
+   Instances (`@impl`, `@derive` companions, `derived<…>()`) and `Destructure`
+   extractors don't need this: their JSDoc tags survive bundling, and an instance is
+   imported by its exported name even when the bundler renamed its declaration. A
+   library without `@opaque` types can use `withTypesugar({ dts: true })`, as the
+   `typesugar create library` template does.
 2. **Companions must be importable and collision-free.** Same-named companions for
    different types (Option's `map` vs Either's `map`) can't be one top-level export —
    give each type its own subpath (`@your-pkg/data/option`) or namespace.
@@ -230,7 +243,8 @@ and document that dot-syntax requires the transformer.
 - [ ] If publishing outside the `@typesugar/` scope, your README mentions the
       one-time `typesugar approve-macros` step consumers will hit.
 - [ ] `typescript`/`@typesugar/core` are peer/dev deps, not runtime deps.
-- [ ] Declarations are emitted per-module (`tsc --emitDeclarationOnly`), not bundled.
+- [ ] If you ship `@opaque` types: declarations and JS are per-module, with an export
+      for each module's path (not a bundled `.d.ts`).
 - [ ] If the source uses macros, the declarations come from the expanded program
       (`withTypesugar` for tsup, `typesugar build` otherwise) and import nothing from
       typesugar.
