@@ -168,9 +168,19 @@ export function stripPositions<T extends ts.Node>(node: T): T {
   // `:`, `=>`, operators), which visitEachChild without a tokenVisitor skips --
   // those kept their temp-file offsets, and the printer emitted the user's
   // comments found at the same offsets in the real file.
-  ts.forEachChild(node, (child) => {
-    stripPositions(child);
-  });
+  // NodeArrays too: the printer places a list's closing token (and the
+  // comments before it) by the ARRAY's `end`, so an empty argument list
+  // (`v.slice()`) printed whatever comment the real file had at that offset.
+  ts.forEachChild(
+    node,
+    (child) => {
+      stripPositions(child);
+    },
+    (children) => {
+      ts.setTextRange(children, { pos: -1, end: -1 });
+      children.forEach((child) => stripPositions(child));
+    }
+  );
   return node;
 }
 

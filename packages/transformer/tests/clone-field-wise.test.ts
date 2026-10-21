@@ -634,3 +634,104 @@ export interface Shape {
     );
   });
 });
+
+describe("derived Clone on classes, and generated code free of user comments (review round 2)", () => {
+  it("a class's clone keeps its prototype: methods work and instanceof holds", () => {
+    const t = transformAll({
+      "money.ts": `import { derive, Clone } from "typesugar";
+
+@derive(Clone)
+export class Money {
+  constructor(
+    public amount: number,
+    public cur: string,
+    public tags: string[]
+  ) {}
+  show() {
+    return \`\${this.amount}\${this.cur}\`;
+  }
+}
+
+class Base { constructor(public id: number) {} kind() { return "base"; } }
+@derive(Clone)
+export class Sub extends Base {
+  constructor(id: number, public xs: number[]) { super(id); }
+  override kind() { return "sub"; }
+}
+
+const m = new Money(1, "AUD", ["a"]);
+const c = Money.Clone.clone(m);
+c.tags.push("b");
+export const isMoney = c instanceof Money;
+export const shown = c.show();
+export const tagsShared = c.tags === m.tags;
+export const origTags = m.tags.length;
+const s = new Sub(7, [1]);
+const sc = Sub.Clone.clone(s);
+export const subKind = sc.kind();
+export const subId = sc.id;
+export const subXsShared = sc.xs === s.xs;
+`,
+    });
+    expect(t.diagnostics["money.ts"]).toEqual([]);
+    expect(typecheck(t.code)).toEqual([]);
+    expect(t.code["money.ts"]).toContain("Object.create(Object.getPrototypeOf(a))");
+    const m = run(t.code, "money.ts");
+    expect(m.isMoney).toBe(true);
+    expect(m.shown).toBe("1AUD");
+    expect(m.tagsShared).toBe(false);
+    expect(m.origTags).toBe(1);
+    expect(m.subKind).toBe("sub");
+    expect(m.subId).toBe(7);
+    expect(m.subXsShared).toBe(false);
+  });
+
+  it("a class with #private members can't be cloned field-wise: a clear error", () => {
+    const t = transformAll({
+      "priv.ts": `import { derive, Clone } from "typesugar";
+
+@derive(Clone)
+export class Counter {
+  #n = 0;
+  constructor(public label: string) {}
+  inc() { return ++this.#n; }
+}
+`,
+    });
+    const errs = transformErrors(t)["priv.ts"] ?? [];
+    expect(errs.length).toBe(1);
+    expect(errs[0]).toMatch(/Clone<Counter>.*#n/s);
+    expect(errs[0]).toMatch(/@impl Clone<Counter>/);
+  });
+
+  it("a class that extends a built-in can't be cloned field-wise: a clear error", () => {
+    const t = transformAll({
+      "builtin.ts": `import { derive, Clone } from "typesugar";
+
+@derive(Clone)
+export class Registry extends Map<string, number> {
+  constructor(public name: string) { super(); }
+}
+`,
+    });
+    const errs = transformErrors(t)["builtin.ts"] ?? [];
+    expect(errs.length).toBe(1);
+    expect(errs[0]).toMatch(/Clone<Registry>.*Map/s);
+  });
+
+  it("no comment from the user's file leaks into a derived Map clone", () => {
+    const t = transformAll({
+      "bag.ts": `/** @derive(Clone) */
+export interface Bag {
+  d: Date;
+  mp: Map<string, number[]>;
+  t: [number, string];
+}
+`,
+    });
+    expect(t.diagnostics["bag.ts"]).toEqual([]);
+    const companion = t.code["bag.ts"].slice(t.code["bag.ts"].indexOf("export const Clone"));
+    expect(companion).not.toContain("/**");
+    expect(companion).toContain("[k, v.slice()] as const");
+  });
+});

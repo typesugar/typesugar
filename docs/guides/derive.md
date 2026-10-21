@@ -139,7 +139,7 @@ Like Rust's `#[derive(Clone)]`: each field is cloned through its own `Clone`, so
 | `any`, `unknown`, `object`, type parameters     | By reference: there is no type to clone by. A `Clone<any>`/`Clone<unknown>` instance in scope is used if there is one |
 | A class with no `Clone` instance                | By reference, with a warning: give it `@derive(Clone)` or an `@impl Clone<...>`                                       |
 
-The copy starts as a spread of the original and then sets the fields that need cloning, so an optional field that is absent stays absent, and properties the type doesn't declare are kept (by reference). The result is a plain object, not a class instance (`c2 instanceof Config` is false).
+The copy starts as a spread of the original and then sets the fields that need cloning, so an optional field that is absent stays absent, and properties the type doesn't declare are kept (by reference). A class's clone is an instance of the same class: it is created with the original's prototype (`Object.create(Object.getPrototypeOf(a))`) and its own fields are copied onto it, so methods, getters, `instanceof` and a subclass's overrides all work on the copy, and no constructor runs.
 
 ```typescript
 /** @derive(Clone) */
@@ -169,7 +169,12 @@ class Config {
 
 const c1 = new Config("localhost", 3000);
 const c2 = summon<Clone<Config>>().clone(c1);
+c2 instanceof Config; // true
+// Config.Clone compiles to:
+// { clone: (a: Config): Config => (Object.assign(Object.create(Object.getPrototypeOf(a)), a)) }
 ```
+
+Some classes can't be copied field by field, and `@derive(Clone)` on them is an error ([TS9106](/errors/TS9106)) that says why: a class with a `#private` member (field, method or accessor, or an `accessor` field), whose copy, made outside the class, could not have it; and a class that extends a built-in such as `Map`, `Date` or `Error`, whose state lives in internal slots. Write their `Clone` by hand with `/** @impl Clone<T> */`.
 
 ### Debug — Developer-Facing String Representation
 

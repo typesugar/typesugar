@@ -94,10 +94,17 @@ import { resolveInstance, buildInstanceReference } from "./instance-resolver.js"
  */
 function parseDerivedExpression(ctx: MacroContext, code: string): ts.Expression {
   const expr = ctx.parseExpression(code);
+  // NodeArrays too: the printer places a list's closing token, and the
+  // comments before it, by the ARRAY's `end` (`v.slice()`'s empty argument
+  // list printed the user's `/** @derive(Clone) */` found at that offset).
+  const resetArray = (arr: ts.NodeArray<ts.Node>): void => {
+    ts.setTextRange(arr, { pos: -1, end: -1 });
+    arr.forEach(reset);
+  };
   const reset = (n: ts.Node): void => {
     ts.setTextRange(n, { pos: -1, end: -1 });
     ts.setCommentRange(n, { pos: -1, end: -1 });
-    ts.forEachChild(n, reset);
+    ts.forEachChild(n, reset, resetArray);
   };
   reset(expr);
   return expr;
@@ -244,7 +251,7 @@ export function hasGenericDerivation(typeclassName: string): boolean {
  * shape changes, so persisted derivations from an older version (e.g. an
  * `Ord` instance with only `compare`) are never served again.
  */
-const DERIVATION_OUTPUT_FORMAT = 4;
+const DERIVATION_OUTPUT_FORMAT = 5;
 
 interface DerivationCaches {
   /** Keyed by the type's symbol, or by the concrete type when one was given. */
@@ -605,7 +612,19 @@ export function tryDeriveViaGeneric(
   // Generate the derivation code
   const before = scopeDependence;
   const beforeStructure = structureDependence;
-  const code = generateDerivationCode(strategy, ctx, typeName, meta);
+  let code: string | null;
+  try {
+    code = generateDerivationCode(strategy, ctx, typeName, meta);
+  } catch (e) {
+    if (!(e instanceof DerivationRefused)) throw e;
+    trace.push({
+      step: "code-generation",
+      target: `${typeclassName}<${typeName}>`,
+      result: "rejected",
+      reason: e.reason,
+    });
+    return { expression: null, trace };
+  }
   const dependsOnScope = scopeDependence !== before;
   // Output that depends on nested types' structure isn't determined by the
   // disk-cache key (top-level field type TEXT): in memory only.
@@ -636,6 +655,18 @@ export function tryDeriveViaGeneric(
   });
 
   return { expression: parseDerivedExpression(ctx, code), trace };
+}
+
+/**
+ * Thrown by a derivation strategy that can see the type cannot be derived
+ * soundly (a class with `#private` members has no field-wise Clone): the
+ * reason becomes the trace entry, so the TS9106 the caller reports says why.
+ */
+export class DerivationRefused extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "DerivationRefused";
+  }
 }
 
 /**
@@ -1911,9 +1942,79 @@ function cloneProduct(g: CloneGen, t: ts.Type, x: string, path: string): string 
   return helperCall(g, name, x);
 }
 
+/**
+ * Why a class's instances can't be cloned field-wise, or undefined when they
+ * can: a `#private` member (field, method or accessor; also an `accessor`
+ * field, whose storage is one) is brand-checked, so a copy made outside the
+ * class has none and every use of it throws; a class that extends a built-in
+ * (`Map`, `Date`, `Error`, ...) keeps its state in internal slots that no
+ * property copy reaches. Checked through the class and all its base classes.
+ */
+function classCloneProblem(ctx: MacroContext, t: ts.Type): string | undefined {
+  const checker = ctx.typeChecker;
+  const seen = new Set<ts.Type>();
+  let cls: ts.Type | undefined = t;
+  while (cls && !seen.has(cls)) {
+    seen.add(cls);
+    const sym = cls.symbol;
+    if (!sym) break;
+    // Before the class check: the lib declares `Map`, `Error`, ... as an
+    // interface plus a constructor variable, not as a class.
+    if (isLibType(ctx, cls)) {
+      return (
+        `it extends the built-in '${sym.name}', whose state lives in internal slots ` +
+        `that a field-wise copy can't reproduce`
+      );
+    }
+    if (!(sym.flags & ts.SymbolFlags.Class)) break;
+    for (const decl of sym.declarations ?? []) {
+      if (!ts.isClassLike(decl)) continue;
+      for (const m of decl.members) {
+        const isStatic = ts.getCombinedModifierFlags(m as ts.Declaration) & ts.ModifierFlags.Static;
+        if (isStatic) continue;
+        if (m.name && ts.isPrivateIdentifier(m.name)) {
+          return (
+            `its member '${m.name.text}' (in class ${sym.name}) is #private, and a copy made ` +
+            `outside the class can't have it`
+          );
+        }
+        if (
+          ts.isPropertyDeclaration(m) &&
+          m.modifiers?.some((mod) => mod.kind === ts.SyntaxKind.AccessorKeyword)
+        ) {
+          return (
+            `its 'accessor' field '${m.name.getText()}' (in class ${sym.name}) is stored in a ` +
+            `#private slot, which a copy made outside the class can't have`
+          );
+        }
+      }
+    }
+    const bases: ts.BaseType[] = cls.isClassOrInterface() ? checker.getBaseTypes(cls) : [];
+    cls = bases[0];
+  }
+  return undefined;
+}
+
+/** `t` is the instance type of a (non-lib) class: its clone keeps the prototype. */
+function isClassInstanceType(ctx: MacroContext, t: ts.Type): boolean {
+  const sym = t.symbol;
+  return !!sym && (sym.flags & ts.SymbolFlags.Class) !== 0 && !isLibType(ctx, t);
+}
+
 function cloneProductBody(g: CloneGen, t: ts.Type, x: string, path: string): string {
   const { ctx } = g;
   const checker = ctx.typeChecker;
+  const isClass = isClassInstanceType(ctx, t);
+  if (isClass) {
+    const problem = classCloneProblem(ctx, t);
+    if (problem) {
+      const name = checker.typeToString(t);
+      throw new DerivationRefused(
+        `Clone<${name}> can't be derived field-wise: ${problem}. ` +
+          `Write it by hand with /** @impl Clone<${name}> */ (for example with a copy constructor).`
+      );
+    }
+  }
   const parts: string[] = [`...${x}`];
   const props = dataProperties(ctx, t, false);
   for (const p of props) {
@@ -1930,6 +2031,17 @@ function cloneProductBody(g: CloneGen, t: ts.Type, x: string, path: string): str
     }
     const c = cloneValue(g, p.type, acc, pPath);
     if (c !== undefined) parts.push(`${objKey(p.name)}: ${c}`);
+  }
+  if (isClass) {
+    // A class instance: a new object with the same prototype (methods,
+    // accessors, `instanceof`, a subclass's overrides), then its own fields,
+    // with the cloned ones set on top. Object.create returns `any`; the
+    // instance's `clone` is annotated with the class type.
+    const proto = `Object.create(Object.getPrototypeOf(${x}))`;
+    const overrides = parts.slice(1);
+    return overrides.length > 0
+      ? `Object.assign(${proto}, ${x}, { ${overrides.join(", ")} })`
+      : `Object.assign(${proto}, ${x})`;
   }
   if (props.length === 0) {
     // `{ [k: string]: V }` / `Record<string, V>`: values cloned through V's Clone.
