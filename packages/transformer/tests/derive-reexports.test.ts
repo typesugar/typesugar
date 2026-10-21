@@ -140,6 +140,64 @@ describe("derived values, imported, called and re-exported by name", () => {
     }
   );
 
+  it.skipIf(!fs.existsSync(cliPath))(
+    "a program that imports no typesugar package can @derive(Destructure)",
+    () => {
+      // @derive is a built-in tag, so a library can use it without importing
+      // anything; Destructure comes from @typesugar/std's macros, which were
+      // loaded only for a program importing some typesugar package
+      // ("Unknown derive: 'Destructure'").
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-reexport-"));
+      dirs.push(dir);
+      fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(dir, "node_modules"), "dir");
+      fs.writeFileSync(path.join(dir, "package.json"), `{"type":"module"}`);
+      fs.writeFileSync(
+        path.join(dir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: {
+            target: "ES2022",
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            strict: true,
+            skipLibCheck: true,
+            types: [],
+            declaration: true,
+            outDir: "out",
+          },
+          include: ["src"],
+        })
+      );
+      fs.mkdirSync(path.join(dir, "src"));
+      fs.writeFileSync(
+        path.join(dir, "src", "point.ts"),
+        `/** @derive(Destructure, Eq) */
+export interface Point {
+  x: number;
+  y: number;
+}
+export const p = Point(1, 2);
+console.log(JSON.stringify([p, Point.Eq.equals(p, Point(1, 2))]));
+`
+      );
+      const r = spawnSync(process.execPath, [cliPath, "build"], {
+        cwd: dir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 120_000,
+      });
+      expect((r.stdout ?? "") + (r.stderr ?? "")).toBe("");
+      expect(r.status).toBe(0);
+      expect(read(dir, "out/point.d.ts")).toContain(
+        "export declare function Point(x: number, y: number): Point;"
+      );
+      const run = spawnSync(process.execPath, [path.join(dir, "out", "point.js")], {
+        encoding: "utf-8",
+      });
+      expect(run.status, run.stderr).toBe(0);
+      expect(JSON.parse(run.stdout)).toEqual([{ x: 1, y: 2 }, true]);
+    }
+  );
+
   it("a name the derive does not declare is still an error", () => {
     const dir = makeProject({});
     fs.writeFileSync(

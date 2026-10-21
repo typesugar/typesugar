@@ -400,6 +400,17 @@ function loadDiscoveredPackages(
  * Must be called before the visitor pass begins.
  */
 export function loadMacroPackages(program: ts.Program, verbose?: boolean): void {
+  // @typesugar/std's macros are part of the built-in set (the derive macro
+  // behind `@derive(Destructure)`): `@derive` is a built-in tag, so a file
+  // names that derive without importing anything, and a program that imports
+  // no typesugar package at all got "Unknown derive: 'Destructure'". A
+  // program that imports one loads std anyway (loadDiscoveredPackages), so
+  // this is the same set either way. Resolved from the program's own root,
+  // then from typesugar's install; when neither has it, the derive is
+  // reported as unknown, as before.
+  const root = program.getRootFileNames()[0];
+  loadPackage("@typesugar/std", verbose, root ? importerDir(path.resolve(root)) : undefined);
+
   const importedModules = collectImportedModulesWithDirs(program);
   // Load warnings are reported per importing file, as diagnostics, by
   // `loadMacroPackagesFromFile` (the factory calls it for every file).

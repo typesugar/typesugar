@@ -326,6 +326,9 @@ constructor function per extractor and its `Destructure` instance, so patterns c
 the type or its variants: `case Point(x, y)`, `.case(Circle(r))`. The patterns compile to
 field reads and discriminant checks. See
 [Pattern Matching: Custom Extractors](./pattern-matching.md#custom-extractors).
+The derive comes with `@typesugar/std` (installed with `typesugar`) and needs no import,
+like the others; a project that installs only `@typesugar/transformer` needs `@typesugar/std`
+as well, or `Destructure` is an unknown derive.
 
 ```typescript
 /** @derive(Destructure) */
