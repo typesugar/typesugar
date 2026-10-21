@@ -219,6 +219,31 @@ not get worse.
     bare `Feature` to the declared `Feature<G, P>`. Add a lint or test that fails on new
     `typeToString(…) ===` comparisons in resolution code.
 
+12. **Grouped implicits: tuple and object parameters** (Dean, 2026-10-21). One
+    implicit parameter can carry several instances, destructured where it is declared.
+    Both forms are already valid TypeScript:
+    ```ts
+    function parse<F>(s: string, [ME, S]: [MonadThrow<F>, Show<Config>] = implicit()) { … }
+    function parse<F>(s: string, { ME, S }: { ME: MonadThrow<F>; S: Show<Config> } = implicit()) { … }
+    parse(s, { S: customShow }); // object form: override one, the rest are filled implicitly
+    ```
+
+    - `implicit()` on a tuple- or object-typed parameter resolves each element or member
+      as it would a single implicit, with the same errors per member.
+    - Zero cost:
+      - when the call is specialized, the instances are inlined and the parameter
+        disappears;
+      - when it falls back to dictionary passing (TS9602), the call site references a
+        module-level constant for that combination of instances rather than building
+        `[a, b]` on every call.
+    - Partial override: an object argument that omits members has the missing ones filled
+      at the call site. A tuple argument is all or nothing.
+    - Why: adding a typeclass requirement doesn't add a parameter, so signatures stay
+      stable; this is close to Scala 3's `(using A, B)` clause; and it removes most of the
+      boilerplate that context bounds (open question below) would.
+    - Docs recommend single implicit parameters for one or two instances, and the object
+      form for more.
+
 Waves 2 and 3 matter most for 1.0: every `let:` and every `@derive` user is affected.
 Waves 4–7 are smaller and can follow.
 
