@@ -133,6 +133,67 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance
   });
 });
 
+describe("ExtensionMethodCall: method-syntax activation read from the program (typesugar check)", () => {
+  // `typesugar check` filters diagnostics BEFORE it runs the transform, so
+  // the global activation scope has no entry for the file yet; the rule
+  // reads the activation from the file's imports as the transform does.
+  const rule = createExtensionMethodCallRule();
+  beforeAll(() => registerTypeclassMacros());
+
+  function realProgram(code: string, name: string) {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const fileName = path.join(here, `__${name}__.ts`);
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      skipLibCheck: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const readFile = host.readFile.bind(host);
+    const fileExists = host.fileExists.bind(host);
+    const getSourceFile = host.getSourceFile.bind(host);
+    host.readFile = (f) => (f === fileName ? code : readFile(f));
+    host.fileExists = (f) => f === fileName || fileExists(f);
+    host.getSourceFile = (f, v, ...rest) =>
+      f === fileName ? ts.createSourceFile(f, code, v, true) : getSourceFile(f, v, ...rest);
+    const program = ts.createProgram([fileName], options, host);
+    const sf = program.getSourceFile(fileName)!;
+    const diags = program
+      .getSemanticDiagnostics(sf)
+      .filter(
+        (d) =>
+          d.code === 2339 && ts.flattenDiagnosticMessageText(d.messageText, "").includes("'equals'")
+      );
+    return { program, sf, checker: program.getTypeChecker(), diags };
+  }
+
+  const derived = [
+    `/** @derive(Eq) */`,
+    `interface P { x: number }`,
+    `declare const p: P;`,
+    `export const r = p.equals(p);`,
+  ];
+
+  it("suppresses with the activation import, nothing in the global scope", () => {
+    const { program, sf, checker, diags } = realProgram(
+      [`import "@typesugar/std/syntax/eq";`, ...derived].join("\n"),
+      "activated-by-import"
+    );
+    expect(globalResolutionScope.isMethodSyntaxActivated(sf.fileName, "Eq")).toBe(false);
+    expect(diags).toHaveLength(1);
+    expect(rule.shouldSuppress(diags[0], checker, sf, { program })).toBe(true);
+  });
+
+  it("does not suppress without it", () => {
+    const { program, sf, checker, diags } = realProgram(derived.join("\n"), "not-activated");
+    expect(diags).toHaveLength(1);
+    expect(rule.shouldSuppress(diags[0], checker, sf, { program })).toBe(false);
+  });
+});
+
 describe("ExtensionMethodCall diagnostic suppression rule — typeclass method sugar over primitives (PEP-052)", () => {
   const rule = createExtensionMethodCallRule();
 

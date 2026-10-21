@@ -116,7 +116,14 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
       // method syntax is active here (as the rewrite requires) and that the
       // receiver's type derives.
       if (
-        resolveTypeclassInstanceMethod(propertyName, typeName, receiverType, checker, sourceFile)
+        resolveTypeclassInstanceMethod(
+          propertyName,
+          typeName,
+          receiverType,
+          checker,
+          sourceFile,
+          context?.program
+        )
       ) {
         return true;
       }
@@ -179,7 +186,7 @@ function resolvePrimitiveTypeclassMethod(
 
   for (const candidate of candidates) {
     const tcName = candidate.typeclass;
-    if (!isMethodSyntaxActive(sourceFile, tcName)) continue;
+    if (!isMethodSyntaxActive(sourceFile, tcName, program)) continue;
     try {
       // A literal receiver (`(7).equals(7)`) is retried with its base type,
       // widened by the checker, as the rewrite does.
@@ -202,11 +209,41 @@ function resolvePrimitiveTypeclassMethod(
  * defined in the file. The transformer leaves the method call as written
  * otherwise, so its TS2339 is real.
  */
-function isMethodSyntaxActive(sourceFile: ts.SourceFile, tcName: string): boolean {
+function isMethodSyntaxActive(
+  sourceFile: ts.SourceFile,
+  tcName: string,
+  program: ts.Program | undefined
+): boolean {
+  // `typesugar check` filters diagnostics BEFORE it runs the transform, so
+  // the global scope may not have this file yet: with the program, the
+  // activation is computed the way the transform pass computes it.
+  if (program && activatedMethodTypeclasses(program, sourceFile).has(tcName)) return true;
   return (
     globalResolutionScope.isMethodSyntaxActivated(sourceFile.fileName, tcName) ||
     globalResolutionScope.getDefinedTypeclasses(sourceFile.fileName).has(tcName)
   );
+}
+
+/** Per-program method-syntax activation, computed the way the transform pass does. */
+const methodActivationCache = new WeakMap<ts.Program, Map<string, Set<string>>>();
+
+function activatedMethodTypeclasses(program: ts.Program, sourceFile: ts.SourceFile): Set<string> {
+  let perFile = methodActivationCache.get(program);
+  if (!perFile) {
+    perFile = new Map();
+    methodActivationCache.set(program, perFile);
+  }
+  const cached = perFile.get(sourceFile.fileName);
+  if (cached) return cached;
+  // A private tracker, as activatedOperatorTypeclasses uses.
+  const tracker = new ResolutionScopeTracker();
+  scanImportsForScope(sourceFile, tracker, program);
+  const result = new Set([
+    ...tracker.getActivatedMethodSyntax(sourceFile.fileName),
+    ...tracker.getDefinedTypeclasses(sourceFile.fileName),
+  ]);
+  perFile.set(sourceFile.fileName, result);
+  return result;
 }
 
 /**
@@ -226,12 +263,13 @@ function resolveTypeclassInstanceMethod(
   _typeName: string,
   receiverType: ts.Type,
   _checker: ts.TypeChecker,
-  _sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
+  program: ts.Program | undefined
 ): boolean {
   const candidates = getTypeclassesForMethod(methodName);
   if (!candidates) return false;
   const candidateNames = new Set(
-    candidates.map((c) => c.typeclass).filter((tc) => isMethodSyntaxActive(_sourceFile, tc))
+    candidates.map((c) => c.typeclass).filter((tc) => isMethodSyntaxActive(sourceFile, tc, program))
   );
   if (candidateNames.size === 0) return false;
 
