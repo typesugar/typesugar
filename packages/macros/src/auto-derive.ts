@@ -857,10 +857,24 @@ function splitNullable(ctx: MacroContext, t: ts.Type): { base: ts.Type; nullable
   return { base: t, nullable: isNullish(t) };
 }
 
-/** Every constituent is a primitive/literal/enum type (`===`-comparable). */
+/**
+ * Every constituent is a primitive/literal/enum type (`===`-comparable), or a
+ * branded primitive. Decided by the checker's type flags, not by name.
+ */
 function isPrimitiveLike(t: ts.Type): boolean {
   if (t.isUnion()) return t.types.every(isPrimitiveLike);
-  return (t.flags & PRIMITIVE_FLAGS) !== 0;
+  return (t.flags & PRIMITIVE_FLAGS) !== 0 || isBrandedPrimitive(t);
+}
+
+/**
+ * A primitive intersected with an object type: a brand
+ * (`number & { readonly __brand: "ProductId" }`, typesugar's `Newtype`,
+ * `string & {}`). Its values ARE primitives (the object part is phantom), so
+ * `===` compares them and a copy is the value itself. Spreading one as an
+ * object (`{ ...id }`) would turn the number into `{}`.
+ */
+function isBrandedPrimitive(t: ts.Type): boolean {
+  return t.isIntersection() && t.types.some((m) => (m.flags & PRIMITIVE_FLAGS) !== 0);
 }
 
 /** Element type of `T[]` / `Array<T>` / `ReadonlyArray<T>`, if `t` is one. */
@@ -1525,8 +1539,9 @@ function typeOfText(x: string, path: string): string {
 function isObjectOnly(t: ts.Type): boolean {
   const notObject =
     PRIMITIVE_FLAGS | ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter;
-  if (t.isUnion()) return t.types.every((m) => (m.flags & notObject) === 0);
-  return (t.flags & notObject) === 0;
+  if (t.isUnion())
+    return t.types.every((m) => (m.flags & notObject) === 0 && !isBrandedPrimitive(m));
+  return (t.flags & notObject) === 0 && !isBrandedPrimitive(t);
 }
 
 function isArrayLike(ctx: MacroContext, t: ts.Type): boolean {
