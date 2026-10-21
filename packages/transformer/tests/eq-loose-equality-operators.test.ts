@@ -240,6 +240,87 @@ describe("comparison operators on a nullable operand (strictNullChecks)", () => 
     expect(out.callCount()).toBe(2);
   });
 
+  /** Semantic errors of the EXPANDED code, type-checked under `strict` (as `build --strict`). */
+  const strictOutputErrors = (code: string): string[] => {
+    const fileName = path.resolve(`eq-nullable-out-${counter++}.ts`);
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const readFile = host.readFile.bind(host);
+    const fileExists = host.fileExists.bind(host);
+    host.readFile = (f) => (f === fileName ? code : readFile(f));
+    host.fileExists = (f) => f === fileName || fileExists(f);
+    const program = ts.createProgram([fileName], options, host);
+    return program
+      .getSemanticDiagnostics(program.getSourceFile(fileName))
+      .map((d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
+  };
+
+  it("the expansion keeps TypeScript's narrowing (build --strict type-checks it)", () => {
+    // `c == null ? c === p : P.Eq.equals(c, p)` lost the narrowing of `c` that
+    // `c === p` gives, so `return c.x` in the true branch was TS18048 in the
+    // expanded code: `typesugar build --strict` failed on ordinary code.
+    const r = strictRun(
+      [
+        `export function eq(c: P | undefined, p: P) { if (c === p) return c.x; return 0; }`,
+        `export function ne(c: P | undefined, p: P) { if (c !== p) return 0; return c.x; }`,
+        `export function looseEq(c: P | undefined, p: P) { if (c == p) return c.x; return 0; }`,
+        `export function looseNe(c: P | undefined, p: P) { if (c != p) return 0; return c.x; }`,
+        `export function rightNullable(p: P, c: P | null) { if (p === c) return c.x; return 0; }`,
+        `export class Holder {`,
+        `  p?: P;`,
+        `  same(o: P) { if (this.p === o) return this.p.x; return -1; }`,
+        `}`,
+        `export function viaCall(i: number) { return get(i > 0 ? a : undefined) === get(a); }`,
+      ].join("\n")
+    );
+    expect(errors(r)).toEqual([]);
+    expect(strictOutputErrors(r.code)).toEqual([]);
+    const out = evaluate(r.code) as Record<string, any>;
+    const p = { x: 7 };
+    // Structural equality for values, the native result for undefined/null.
+    expect([out.eq(undefined, p), out.eq({ x: 7 }, p), out.eq({ x: 8 }, p)]).toEqual([0, 7, 0]);
+    expect([out.ne(undefined, p), out.ne({ x: 7 }, p), out.ne({ x: 8 }, p)]).toEqual([0, 7, 0]);
+    expect([out.looseEq(undefined, p), out.looseEq({ x: 7 }, p)]).toEqual([0, 7]);
+    expect([out.looseNe(undefined, p), out.looseNe({ x: 7 }, p)]).toEqual([0, 7]);
+    expect([out.rightNullable(p, null), out.rightNullable(p, { x: 7 })]).toEqual([0, 7]);
+    const h = new out.Holder();
+    expect(h.same(p)).toBe(-1);
+    h.p = { x: 7 };
+    expect(h.same(p)).toBe(7);
+    // Each operand of a call is evaluated once.
+    const before = out.callCount();
+    expect([out.viaCall(1), out.viaCall(0)]).toEqual([true, false]);
+    expect(out.callCount() - before).toBe(4);
+  });
+
+  it("=== / == on two nullish operands give the native result", () => {
+    const r = strictRun(
+      [
+        `const u: P | undefined = Math.random() > 2 ? a : undefined;`,
+        `const n: P | null = Math.random() > 2 ? a : null;`,
+        `export const r = [u === u, u == n, u === n, u !== n, u != n, n === n];`,
+      ].join("\n")
+    );
+    expect(errors(r)).toEqual([]);
+    expect(strictOutputErrors(r.code)).toEqual([]);
+    expect((evaluate(r.code) as { r: boolean[] }).r).toEqual([
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+    ]);
+  });
+
   it("< <= > >= with a nullish operand give the native result instead of throwing", () => {
     const r = strictRun(
       [

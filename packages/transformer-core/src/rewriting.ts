@@ -1075,8 +1075,17 @@ function admitsNullish(t: ts.Type): boolean {
   return t.isUnion() ? t.types.some((m) => (m.flags & nullish) !== 0) : (t.flags & nullish) !== 0;
 }
 
-/** Reading it again has no effect and gives the same value (no getter, no call). */
+/**
+ * Reading it again gives the same value with no effect: an identifier,
+ * `this`, a literal, or a property-access chain on one of those (`this.p`,
+ * `a.b.c`, not `a?.b`). Property reads are taken as stable the way
+ * TypeScript's narrowing takes them (it narrows `this.p` by `this.p === o`);
+ * a getter is read again, as it would be by code that tests and then uses it.
+ * Anything else (a call, `new`, an index with a computed key) is evaluated
+ * once by the arrow in {@link buildNullSafeComparison}.
+ */
 function isRereadable(e: ts.Expression): boolean {
+  if (ts.isPropertyAccessExpression(e) && !e.questionDotToken) return isRereadable(e.expression);
   return (
     ts.isIdentifier(e) ||
     e.kind === ts.SyntaxKind.ThisKeyword ||
@@ -1089,16 +1098,31 @@ function isRereadable(e: ts.Expression): boolean {
 }
 
 /**
- * `l OP r` dispatched to `method(l, r)`, except when a nullable operand is
- * null or undefined, where it is the native `l OP r`:
+ * `l OP r` dispatched to `method(l, r)` when an operand's type admits
+ * null/undefined, with the native result whenever an operand is nullish at
+ * run time, in a shape that keeps TypeScript's narrowing (the expanded code
+ * type-checks under `strict`, as `typesugar build --strict` checks it):
  *
- *   c === a   →   c == null ? c === a : P.Eq.equals(c, a)
+ *   c === p   →   c === p || (c != null && P.Eq.equals(c, p))
+ *   c !== p   →   c !== p && (c == null || P.Eq.notEquals(c, p))
+ *   c < p     →   c != null && P.Ord.lessThan(c, p)
  *
- * So `===` on two nullish values, or on one, gives exactly what it gave
- * before the rewrite, and the instance is only ever called with non-null
- * values. Operands are evaluated once, in order: anything other than an
- * identifier, `this` or a literal is passed as an argument of an arrow
- * function, `((l, r) => ...)(f(), g())`.
+ * (`==` / `!=` the same with the loose operator.) Equality: the leading native
+ * comparison is the operator itself, so a nullish operand gets exactly its
+ * native result, and in the branch where the whole is true (false for `!==`)
+ * TypeScript narrows `c` as it narrowed the original `c === p`: by the native
+ * disjunct, or by `c != null` in the other. The short-circuit on the native
+ * result is sound for a lawful Eq: `===` implies equal (reflexivity), and
+ * `!==` is decided by `notEquals` whenever both are values. Ordering: a
+ * nullish operand gives false. Natively it is a coercion (`undefined < x` is
+ * false, `null <= null` true) that TypeScript rejects under strictNullChecks
+ * (TS18048), so no checked program relies on it; it never reaches the
+ * instance, which would throw. Only the nullable operands are tested.
+ *
+ * Operands are evaluated in order, and once unless re-reading is free
+ * ({@link isRereadable}): otherwise both are passed to an arrow,
+ * `((l, r) => ...)(f(), g())`, whose parameters TypeScript types from the
+ * arguments.
  */
 function buildNullSafeComparison(
   ctx: MacroContextImpl,
@@ -1121,22 +1145,39 @@ function buildNullSafeComparison(
   const rName = inline ? undefined : param("r");
   const l = (): ts.Expression => (lName ? f.createIdentifier(lName) : cloneWithoutComments(left));
   const r = (): ts.Expression => (rName ? f.createIdentifier(rName) : cloneWithoutComments(right));
-  const isNullish = (e: ts.Expression) =>
-    f.createBinaryExpression(e, ts.SyntaxKind.EqualsEqualsToken, f.createNull());
-  const tests = [
-    ...(nullableLeft ? [isNullish(l())] : []),
-    ...(nullableRight ? [isNullish(r())] : []),
+  const and = (a: ts.Expression, b: ts.Expression) =>
+    f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b);
+  const or = (a: ts.Expression, b: ts.Expression) =>
+    f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b);
+  const nullTest = (e: ts.Expression, isNull: boolean) =>
+    f.createBinaryExpression(
+      e,
+      isNull ? ts.SyntaxKind.EqualsEqualsToken : ts.SyntaxKind.ExclamationEqualsToken,
+      f.createNull()
+    );
+  /** The nullable operands' tests: `l != null`, ... (`l == null` with `isNull`). */
+  const tests = (isNull: boolean): ts.Expression[] => [
+    ...(nullableLeft ? [nullTest(l(), isNull)] : []),
+    ...(nullableRight ? [nullTest(r(), isNull)] : []),
   ];
-  const anyNullish = tests.reduce((acc, t) =>
-    f.createBinaryExpression(acc, ts.SyntaxKind.BarBarToken, t)
-  );
-  const body = f.createConditionalExpression(
-    anyNullish,
-    f.createToken(ts.SyntaxKind.QuestionToken),
-    f.createBinaryExpression(l(), op, r()),
-    f.createToken(ts.SyntaxKind.ColonToken),
-    f.createCallExpression(method, undefined, [l(), r()])
-  );
+  const call = () => f.createCallExpression(method, undefined, [l(), r()]);
+  const native = () => f.createBinaryExpression(l(), op, r());
+  let body: ts.Expression;
+  switch (op) {
+    case ts.SyntaxKind.EqualsEqualsEqualsToken:
+    case ts.SyntaxKind.EqualsEqualsToken:
+      // l === r || (l != null && r != null && method(l, r))
+      body = or(native(), f.createParenthesizedExpression([...tests(false), call()].reduce(and)));
+      break;
+    case ts.SyntaxKind.ExclamationEqualsEqualsToken:
+    case ts.SyntaxKind.ExclamationEqualsToken:
+      // l !== r && (l == null || r == null || method(l, r))
+      body = and(native(), f.createParenthesizedExpression([...tests(true), call()].reduce(or)));
+      break;
+    default:
+      // l != null && r != null && method(l, r)
+      body = [...tests(false), call()].reduce(and);
+  }
   if (inline) return f.createParenthesizedExpression(body);
   const arrow = f.createArrowFunction(
     undefined,

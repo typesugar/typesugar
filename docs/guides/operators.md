@@ -121,15 +121,22 @@ rewritten, so the usual nullish checks keep their JavaScript meaning. To compare
 references in a file that activates Eq, use `Object.is(a, b)`.
 
 An operand whose type admits `null` or `undefined` (`c: Point | undefined`) is
-dispatched to the instance only when it holds a value; when it is nullish, the
-comparison gives the native operator's result, so the instance is never called with
-`null` and a comparison that never threw before the rewrite doesn't throw after it:
+dispatched to the instance only when it holds a value, so the instance is never called
+with `null` and a comparison that never threw before the rewrite doesn't throw after it.
+When an operand is nullish, `===`, `!==`, `==` and `!=` give the native operator's
+result; `<`, `<=`, `>` and `>=` give `false` (TypeScript rejects those comparisons on a
+possibly-nullish operand anyway). The expansion keeps TypeScript's narrowing, so
+`if (c === p) return c.x;` still type-checks after it (`typesugar build --strict`):
 
 ```typescript
-c === p; // c == null ? c === p : Point.Eq.equals(c, p)
-f() === p; // ((l, r) => l == null ? l === r : Point.Eq.equals(l, r))(f(), p): f() runs once
+c === p; // c === p || (c != null && Point.Eq.equals(c, p))
+c !== p; // c !== p && (c == null || Point.Eq.notEquals(c, p))
+c < p; // c != null && Point.Ord.lessThan(c, p)
+f() === p; // ((l, r) => l === r || (l != null && Point.Eq.equals(l, r)))(f(), p): f() runs once
 ```
 
+The native comparison first is the instance's own answer when it holds (a lawful `Eq`
+is reflexive), so the result is the same as calling the instance with two values.
 Operands with non-null types compile to the plain call. This follows the checker, so it
 needs `strictNullChecks` (part of `strict`): without it TypeScript sees no type as
 nullable, and every operand is passed to the instance as it is.
