@@ -963,10 +963,15 @@ export function transpileExpanded(
   fixMap?: RawSourceMap | null;
 } {
   const emitSourceMap = options?.sourceMap ?? true;
+  // `code` is already expanded. Leave out the project's `plugins`: a
+  // ts-patched TypeScript applies each `{ "transform": ... }` entry in
+  // transpileModule too, which would run the typesugar transformer a second
+  // time over its own output (a @typeclass companion emitted twice).
+  const { plugins: _plugins, ...transpileOptions } = compilerOptions;
 
   const result = ts.transpileModule(code, {
     compilerOptions: {
-      ...compilerOptions,
+      ...transpileOptions,
       module: options?.module ?? ts.ModuleKind.ESNext,
       target: compilerOptions.target ?? ts.ScriptTarget.ESNext,
       sourceMap: emitSourceMap,
