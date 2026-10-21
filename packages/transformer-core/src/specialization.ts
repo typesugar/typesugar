@@ -39,6 +39,7 @@ import {
   isSyntheticNode,
   preserveSourceMap,
   cloneWithoutComments,
+  cloneNodeDeep,
   extractTypeArgumentsContent,
 } from "@typesugar/core";
 
@@ -424,7 +425,14 @@ export function inlineAutoSpecializeForHoisting(
   ctx: MacroContextImpl,
   fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
   instanceArgs: { index: number; name: string; methods: DictMethodMap }[],
-  _fnName: string
+  _fnName: string,
+  /**
+   * The call's types for the annotations that name the function's type
+   * parameters (see {@link instantiatedAnnotations}): the hoisted copy has no
+   * type parameters, so `a: A` becomes `a: Feature`. Without them such an
+   * annotation is dropped, which leaves the parameter implicitly `any`.
+   */
+  instantiated?: InstantiatedAnnotations
 ): ts.Expression | undefined {
   const params = Array.from(fn.parameters);
   if (params.length === 0) return undefined;
@@ -467,22 +475,28 @@ export function inlineAutoSpecializeForHoisting(
     for (const tp of typeParams) fnTypeParamNames.add(tp.name.text);
   }
 
-  // Strip type annotations that reference unresolvable type parameters
+  // An annotation that names a type parameter gets the call's type instead
+  // (or, with none known, is dropped).
   const remainingParams = params
-    .filter((_, i) => !dictParamIndices.has(i))
-    .map((p) => {
+    .map((p, i) => ({ p, i }))
+    .filter(({ i }) => !dictParamIndices.has(i))
+    .map(({ p, i }) => {
       if (p.type && fnTypeParamNames.size > 0 && typeNodeRefsAny(p.type, fnTypeParamNames)) {
         return ctx.factory.createParameterDeclaration(
           undefined,
           p.dotDotDotToken,
           p.name,
           p.questionToken,
-          undefined,
+          instantiated?.params.get(i),
           p.initializer
         );
       }
       return p;
     });
+  // The return type is inferred from the body, unless the declared one names
+  // a type parameter (`: A`): then it is the call's (`: Feature`), so the
+  // call's type is what it was.
+  const returnType = instantiated?.returnType;
 
   const modifiers = fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
     ? [ctx.factory.createModifier(ts.SyntaxKind.AsyncKeyword)]
@@ -491,7 +505,7 @@ export function inlineAutoSpecializeForHoisting(
     modifiers,
     undefined,
     remainingParams,
-    undefined,
+    returnType,
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     specializedBody as ts.ConciseBody
   );
@@ -506,6 +520,216 @@ export function inlineAutoSpecializeForHoisting(
   if (leftover) return undefined;
 
   return specialized;
+}
+
+/** Type annotations of a hoisted specialization, instantiated at one call. */
+export interface InstantiatedAnnotations {
+  /** By parameter index: the call's type for a parameter annotated with a type parameter. */
+  params: Map<number, ts.TypeNode>;
+  /** The call's return type, when the declared one names a type parameter. */
+  returnType?: ts.TypeNode;
+  /** The instantiated types' text, for the specialization cache key. */
+  key: string[];
+}
+
+/**
+ * The call's types for the annotations of `fn` that name its type parameters:
+ * `dup<A>(a: A, C: Clone<A> = implicit()): A` called as `dup(sample)` gives
+ * `a: Feature` and `: Feature`; `tag<A, B>(...): [A, B]` gives `[Feature,
+ * number]`. Each type parameter's type at this call is read from the
+ * checker's resolved signature at the ORIGINAL call (a real node: CLAUDE.md,
+ * never the checker on a synthetic one), by matching each parameter's
+ * declared type against its type at the call ({@link bindTypeParameters}),
+ * and substituted into the annotations.
+ *
+ * An annotation that names a type parameter whose type isn't known (or can't
+ * be written as a type node at the call) is left out of the result, and the
+ * copy drops it, as it always did. Undefined when there is nothing to
+ * instantiate, or no real call to read the types at.
+ */
+function instantiatedAnnotations(
+  ctx: MacroContextImpl,
+  fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+  call: ts.Node | undefined,
+  dictParamIndices: ReadonlySet<number>
+): InstantiatedAnnotations | undefined {
+  const typeParamNames = new Set((fn.typeParameters ?? []).map((tp) => tp.name.text));
+  if (typeParamNames.size === 0) return undefined;
+  const named = fn.parameters
+    .map((p, i) => ({ p, i }))
+    .filter(
+      ({ p, i }) => !dictParamIndices.has(i) && p.type && typeNodeRefsAny(p.type, typeParamNames)
+    );
+  const returnNamed = !!fn.type && typeNodeRefsAny(fn.type, typeParamNames);
+  if (named.length === 0 && !returnNamed) return undefined;
+  if (!call || !ts.isCallExpression(call)) return undefined;
+
+  const checker = ctx.typeChecker;
+  try {
+    const sig = checker.getResolvedSignature(call);
+    if (!sig) return undefined;
+    // Each type parameter's type at this call.
+    const bound = new Map<string, ts.Type>();
+    fn.parameters.forEach((p, i) => {
+      if (!p.type || p.dotDotDotToken || !sig.parameters[i]) return;
+      const t = checker.getTypeOfSymbolAtLocation(sig.parameters[i], call);
+      bindTypeParameters(
+        checker,
+        p.type,
+        p.questionToken ? checker.getNonNullableType(t) : t,
+        typeParamNames,
+        bound
+      );
+    });
+    const byName = new Map<string, ts.TypeNode>();
+    const key: string[] = [];
+    const unconstrained = new Set(
+      (fn.typeParameters ?? []).filter((tp) => !tp.constraint).map((tp) => tp.name.text)
+    );
+    for (const [name, inferred] of bound) {
+      // `myEq(eq, 1, 2)` infers `T = 1 | 2`; the copy takes `number`, so calls
+      // with other numbers share it. A constrained parameter keeps its literal
+      // type, which the body may rely on.
+      const t = unconstrained.has(name) ? checker.getBaseTypeOfLiteralType(inferred) : inferred;
+      const node = typeNodeAt(checker, ctx.factory, t, call);
+      if (!node) continue;
+      byName.set(name, node);
+      key.push(`${name}=${checker.typeToString(t)}`);
+    }
+    const substitute = (n: ts.TypeNode): ts.TypeNode | undefined => {
+      let missing = false;
+      const visit = (node: ts.Node): ts.Node => {
+        if (
+          ts.isTypeReferenceNode(node) &&
+          ts.isIdentifier(node.typeName) &&
+          !node.typeArguments &&
+          typeParamNames.has(node.typeName.text)
+        ) {
+          const replacement = byName.get(node.typeName.text);
+          if (!replacement) missing = true;
+          return replacement ?? node;
+        }
+        return ts.visitEachChild(node, visit, ctx.transformContext);
+      };
+      const result = ts.visitNode(n, visit) as ts.TypeNode;
+      // A copy with no positions: the annotation may come from another file.
+      return missing ? undefined : cloneNodeDeep(result);
+    };
+    const out: InstantiatedAnnotations = { params: new Map(), key };
+    for (const { p, i } of named) {
+      const node = substitute(p.type!);
+      if (node) out.params.set(i, node);
+    }
+    if (returnNamed) out.returnType = substitute(fn.type!);
+    return out;
+  } catch (error) {
+    warnCheckerFailure(ctx, call, "typing an auto-specialized copy (resolved signature)", error);
+    return undefined;
+  }
+}
+
+/**
+ * Learn the type parameters in `declared` (a parameter's annotation) from
+ * `actual` (that parameter's type at the call): `A` from `a: A`, from `xs:
+ * A[]`, from `x: A | null`, and from a function type's parameters and return
+ * type (`parse: (s: string) => A | null`). A shape it doesn't know teaches
+ * nothing; the first binding of a name wins.
+ */
+function bindTypeParameters(
+  checker: ts.TypeChecker,
+  declared: ts.TypeNode,
+  actual: ts.Type,
+  names: ReadonlySet<string>,
+  out: Map<string, ts.Type>
+): void {
+  if (ts.isParenthesizedTypeNode(declared)) {
+    bindTypeParameters(checker, declared.type, actual, names, out);
+  } else if (
+    ts.isTypeReferenceNode(declared) &&
+    ts.isIdentifier(declared.typeName) &&
+    !declared.typeArguments &&
+    names.has(declared.typeName.text)
+  ) {
+    if (!out.has(declared.typeName.text)) out.set(declared.typeName.text, actual);
+  } else if (ts.isArrayTypeNode(declared)) {
+    const elem = arrayElement(checker, actual);
+    if (elem) bindTypeParameters(checker, declared.elementType, elem, names, out);
+  } else if (ts.isUnionTypeNode(declared)) {
+    // `A | null` / `A | undefined`: the one generic member is the rest of `actual`.
+    const generic = declared.types.filter((m) => typeNodeRefsAny(m, names));
+    const nullish = declared.types.every(
+      (m) =>
+        generic.includes(m) ||
+        m.kind === ts.SyntaxKind.UndefinedKeyword ||
+        (ts.isLiteralTypeNode(m) && m.literal.kind === ts.SyntaxKind.NullKeyword)
+    );
+    if (generic.length === 1 && nullish) {
+      bindTypeParameters(checker, generic[0], checker.getNonNullableType(actual), names, out);
+    }
+  } else if (ts.isFunctionTypeNode(declared)) {
+    const sig = actual.getCallSignatures()[0];
+    if (!sig) return;
+    declared.parameters.forEach((p, i) => {
+      const ps = sig.parameters[i];
+      if (p.type && ps && !p.dotDotDotToken) {
+        const decl = ps.valueDeclaration;
+        bindTypeParameters(
+          checker,
+          p.type,
+          decl ? checker.getTypeOfSymbolAtLocation(ps, decl) : checker.getTypeOfSymbol(ps),
+          names,
+          out
+        );
+      }
+    });
+    bindTypeParameters(checker, declared.type, sig.getReturnType(), names, out);
+  }
+}
+
+function arrayElement(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined {
+  const name = t.symbol?.name;
+  return (name === "Array" || name === "ReadonlyArray") && (t as ts.TypeReference).target
+    ? checker.getTypeArguments(t as ts.TypeReference)[0]
+    : undefined;
+}
+
+/**
+ * `t` as a type node that means `t` at `location`, or undefined. The checker's
+ * own node builder first; it gives up on a type argument that has no name in
+ * scope at `location` (`Feature<Geometry, ...>` where `Geometry` isn't
+ * imported), so a generic instantiated with exactly its defaults is written
+ * by its bare name when that name resolves to it here (`Feature`).
+ */
+function typeNodeAt(
+  checker: ts.TypeChecker,
+  f: ts.NodeFactory,
+  t: ts.Type,
+  location: ts.Node
+): ts.TypeNode | undefined {
+  const built = checker.typeToTypeNode(t, location, ts.NodeBuilderFlags.NoTruncation);
+  if (built) return built;
+  const sym = t.aliasSymbol ?? t.symbol;
+  const decl = sym?.declarations?.find(
+    (d): d is ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration =>
+      (ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d) || ts.isClassDeclaration(d)) &&
+      (d.typeParameters?.length ?? 0) > 0
+  );
+  const params = decl?.typeParameters;
+  if (!sym || !params || !params.every((tp) => tp.default)) return undefined;
+  const args = t.aliasSymbol
+    ? t.aliasTypeArguments
+    : (t as ts.TypeReference).target
+      ? checker.getTypeArguments(t as ts.TypeReference)
+      : undefined;
+  if (!args || args.length < params.length) return undefined;
+  const same = (a: ts.Type, b: ts.Type) =>
+    checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a);
+  if (!params.every((tp, i) => same(args[i], checker.getTypeFromTypeNode(tp.default!)))) {
+    return undefined;
+  }
+  let inScope = checker.resolveName(sym.name, location, ts.SymbolFlags.Type, false);
+  if (inScope && inScope.flags & ts.SymbolFlags.Alias) inScope = checker.getAliasedSymbol(inScope);
+  return inScope === sym ? f.createTypeReferenceNode(sym.name) : undefined;
 }
 
 /** Every binding name (variables, parameters, function/class names, catch vars) declared within `node`. */
@@ -532,7 +756,7 @@ function collectBindingNames(node: ts.Node, out: Set<string>): void {
   visit(node);
 }
 
-function typeNodeRefsAny(typeNode: ts.TypeNode, names: Set<string>): boolean {
+function typeNodeRefsAny(typeNode: ts.TypeNode, names: ReadonlySet<string>): boolean {
   let found = false;
   function visit(node: ts.Node): void {
     if (found) return;
@@ -610,6 +834,21 @@ function argResolvesToDeclaration(ctx: MacroContextImpl, arg: ts.Expression): bo
 const symbolIds = new WeakMap<ts.Symbol, number>();
 let nextSymbolId = 0;
 
+/**
+ * A stable, unique-per-symbol id for cache keys. Not the checker's internal
+ * `symbol.id`: that is 0 until something asks the checker for it, so two
+ * functions not yet given one would share a specialization, and one function
+ * would change key once it got one.
+ */
+function stableSymbolId(sym: ts.Symbol): number {
+  let id = symbolIds.get(sym);
+  if (id === undefined) {
+    id = nextSymbolId++;
+    symbolIds.set(sym, id);
+  }
+  return id;
+}
+
 /** A stable identity for the instance an argument denotes (its resolved declaration). */
 function instanceIdentity(ctx: MacroContextImpl, arg: ts.Expression, fallback: string): string {
   let e = arg;
@@ -619,14 +858,7 @@ function instanceIdentity(ctx: MacroContextImpl, arg: ts.Expression, fallback: s
     try {
       let sym = ctx.typeChecker.getSymbolAtLocation(e);
       if (sym && sym.flags & ts.SymbolFlags.Alias) sym = ctx.typeChecker.getAliasedSymbol(sym);
-      if (sym) {
-        let id = symbolIds.get(sym);
-        if (id === undefined) {
-          id = nextSymbolId++;
-          symbolIds.set(sym, id);
-        }
-        return `#${id}`;
-      }
+      if (sym) return `#${stableSymbolId(sym)}`;
     } catch (error) {
       // Never share a cache entry by bare name when the identity is unknown:
       // two different same-named instances would get one specialization.
@@ -961,18 +1193,26 @@ export function tryAutoSpecialize(
   let fnSymbolId = fnName;
   try {
     const fnSymbol = ctx.typeChecker.getSymbolAtLocation(node.expression);
-    if (fnSymbol) {
-      fnSymbolId = (fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName;
-    }
+    if (fnSymbol) fnSymbolId = `fn#${stableSymbolId(fnSymbol)}`;
   } catch {
     // TypeChecker may throw on unresolvable symbols — use fnName as fallback
   }
   const dictBrands = instanceArgs.map((a) => a.methods.brand);
+  // The hoisted copy has no type parameters: its annotations get this call's
+  // types (`a: A` → `a: Feature`), so the expanded TypeScript type-checks.
+  const instantiated = instantiatedAnnotations(
+    ctx,
+    fnBody,
+    realLocation(node),
+    new Set(instanceArgs.map((a) => a.index))
+  );
   // Key by WHICH instance sits at WHICH position — two different Show<Point>
-  // instances (or the same two swapped) must not share a body (tc#9).
+  // instances (or the same two swapped) must not share a body (tc#9) — and by
+  // the types the copy is annotated with (`tag(x, 1)` and `tag(x, "s")`).
   const dictIdentities = instanceArgs.map(
     (a) => `${a.index}:${instanceIdentity(ctx, node.arguments[a.index], a.name)}`
   );
+  if (instantiated) dictIdentities.push(...instantiated.key.map((k) => `type ${k}`));
   const cacheKey = SpecializationCache.computeKey(fnSymbolId, dictIdentities);
 
   const cachedEntry = specCache.get(cacheKey);
@@ -986,7 +1226,13 @@ export function tryAutoSpecialize(
   }
 
   try {
-    const specialized = inlineAutoSpecializeForHoisting(ctx, fnBody, instanceArgs, fnName);
+    const specialized = inlineAutoSpecializeForHoisting(
+      ctx,
+      fnBody,
+      instanceArgs,
+      fnName,
+      instantiated
+    );
 
     if (specialized) {
       const hoistedIdent = SpecializationCache.generateHoistedName(fnName, dictBrands, ctx.hygiene);
@@ -1246,9 +1492,7 @@ export function tryReturnTypeDrivenSpecialize(
   let fnSymbolId = fnName;
   try {
     const fnSymbol = ctx.typeChecker.getSymbolAtLocation(node.expression);
-    if (fnSymbol) {
-      fnSymbolId = (fnSymbol as unknown as { id?: number }).id?.toString() ?? fnName;
-    }
+    if (fnSymbol) fnSymbolId = `fn#${stableSymbolId(fnSymbol)}`;
   } catch {
     // TypeChecker may throw on unresolvable symbols — use fnName as fallback
   }
