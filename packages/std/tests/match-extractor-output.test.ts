@@ -8,6 +8,12 @@
  * the fixtures below declare the same instances. The output was pinned
  * before that change and is identical after it: the descriptors inline to
  * the same tests and field reads.
+ *
+ * Every fluent case below covers its type (Some/None, Left/Right, Cons/Nil,
+ * Ok/Err, and the `_tag` variants), so its last arm has no test and nothing
+ * follows it. These used to end in `if (<last test>) { ... }` and a dead
+ * `throw new MatchError(...)`, whose import of `@typesugar/std` stayed in the
+ * output at runtime. The `match: switch` form never emitted a throw.
  */
 import { describe, it, expect } from "vitest";
 import { transformAndRun } from "./match-exec-helpers.js";
@@ -91,19 +97,19 @@ const CASES = {
 
 const FLUENT_OUTPUT: Record<string, string> = {
   fpOption:
-    "export const f = (o: Option<number>) => (() => {\n    const _o = o;\n    if (_o != null) {\n        const v = _o;\n        return v + 1;\n    }\n    if (_o == null) {\n        return 0;\n    }\n    throw new MatchError(_o);\n})();",
+    "export const f = (o: Option<number>) => (() => {\n    const _o = o;\n    if (_o != null) {\n        const v = _o;\n        return v + 1;\n    }\n    return 0;\n})();",
   fpEither:
-    'export const f = (e: Either<string, number>) => (() => {\n    const _e = e;\n    if ("left" in _e) {\n        const l = _e.left;\n        return l.length;\n    }\n    if ("right" in _e) {\n        const r = _e.right;\n        return r;\n    }\n    throw new MatchError(_e);\n})();',
+    'export const f = (e: Either<string, number>) => (() => {\n    const _e = e;\n    if ("left" in _e) {\n        const l = _e.left;\n        return l.length;\n    }\n    const r = _e.right;\n    return r;\n})();',
   fpList:
-    "export const f = (xs: List<number>) => (() => {\n    const _xs = xs;\n    if (_xs != null) {\n        const h = _xs.head;\n        const t = _xs.tail;\n        return h;\n    }\n    if (_xs == null) {\n        return 0;\n    }\n    throw new MatchError(_xs);\n})();",
+    "export const f = (xs: List<number>) => (() => {\n    const _xs = xs;\n    if (_xs != null) {\n        const h = _xs.head;\n        const t = _xs.tail;\n        return h;\n    }\n    return 0;\n})();",
   result:
-    "export const f = (r: Result<number, string>) => (() => {\n    const _r = r;\n    if (_r.ok === true) {\n        const v = _r.value;\n        return v;\n    }\n    if (_r.ok === false) {\n        const e = _r.error;\n        return e.length;\n    }\n    throw new MatchError(_r);\n})();",
+    "export const f = (r: Result<number, string>) => (() => {\n    const _r = r;\n    if (_r.ok === true) {\n        const v = _r.value;\n        return v;\n    }\n    const e = _r.error;\n    return e.length;\n})();",
   taggedOption:
-    'export const f = (o: TOption<number>) => (() => {\n    const _o = o;\n    if (_o._tag === "Some") {\n        const v = _o.value;\n        return v + 1;\n    }\n    if (_o._tag === "None") {\n        return 0;\n    }\n    throw new MatchError(_o);\n})();',
+    'export const f = (o: TOption<number>) => (() => {\n    const _o = o;\n    if (_o._tag === "Some") {\n        const v = _o.value;\n        return v + 1;\n    }\n    return 0;\n})();',
   taggedEither:
-    'export const f = (e: TEither<string, number>) => (() => {\n    const _e = e;\n    if (_e._tag === "Left") {\n        const l = _e.value;\n        return l.length;\n    }\n    if (_e._tag === "Right") {\n        const r = _e.value;\n        return r;\n    }\n    throw new MatchError(_e);\n})();',
+    'export const f = (e: TEither<string, number>) => (() => {\n    const _e = e;\n    if (_e._tag === "Left") {\n        const l = _e.value;\n        return l.length;\n    }\n    const r = _e.value;\n    return r;\n})();',
   taggedList:
-    'export const f = (xs: TList<number>) => (() => {\n    const _xs = xs;\n    if (_xs._tag === "Cons") {\n        const h = _xs.head;\n        const t = _xs.tail;\n        return h;\n    }\n    if (_xs._tag === "Nil") {\n        return 0;\n    }\n    throw new MatchError(_xs);\n})();',
+    'export const f = (xs: TList<number>) => (() => {\n    const _xs = xs;\n    if (_xs._tag === "Cons") {\n        const h = _xs.head;\n        const t = _xs.tail;\n        return h;\n    }\n    return 0;\n})();',
 };
 
 const SWITCH_OUTPUT: Record<string, string> = {

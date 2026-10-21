@@ -75,6 +75,32 @@ export interface ExtractorDef {
   zeroArg: boolean;
   /** For `custom`: an expression referring to the instance (`destructureEmail`). */
   instance?: (ctx: MacroContext) => ts.Expression;
+  /**
+   * For `sum-variant`: how the payload is typed when the matched value has
+   * type `valueType` (see {@link PayloadTyping}). Set by resolution, which
+   * has the checker; a parsed descriptor alone has none.
+   */
+  payloadTyping?: (valueType: ts.Type) => PayloadTyping | undefined;
+}
+
+/**
+ * The static types of an extractor's payload, for the expanded code to
+ * type-check (`typesugar build --strict`, the playground's `strictOutput`).
+ *
+ * The descriptor inlines the test and the reads, and the output relies on
+ * TypeScript narrowing them: after `"right" in e`, `e.right` has the Right's
+ * type. That fails for a `self` payload of an `@opaque` type: fp's
+ * `Option<A>` is an interface to the checker (its `A | null` representation
+ * is hidden), so `o != null` doesn't narrow it and `const v = o` would be an
+ * `Option<number>`, not a `number`. The instance's `extract` signature says
+ * what the payload is (`<A>(o: Option<A>) => A | undefined`), so the binding
+ * is asserted to that type: `const v = o as unknown as number`.
+ */
+export interface PayloadTyping {
+  /** The type of each payload position, for nested patterns (undefined: unknown). */
+  types: (ts.Type | undefined)[];
+  /** For a `self` payload the value's type doesn't narrow to: the type to assert it to. */
+  selfCast?: ts.TypeNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,8 +321,215 @@ function resolveUncached(ctx: MacroContext, name: ts.Identifier): ExtractorDef |
     );
     return undefined;
   }
-  if (inst.descriptor) return inst.descriptor;
+  if (inst.descriptor) return withPayloadTyping(ctx, name, inst.descriptor, inst);
   return { kind: "custom", zeroArg: false, instance: (c) => instanceReference(c, name, inst) };
+}
+
+// ---------------------------------------------------------------------------
+// Payload types
+// ---------------------------------------------------------------------------
+
+/** `def` (shared by every use of the instance: not mutated) with its payload typing. */
+function withPayloadTyping(
+  ctx: MacroContext,
+  name: ts.Identifier,
+  def: ExtractorDef,
+  inst: DestructureInstance | undefined
+): ExtractorDef {
+  if (def.kind !== "sum-variant" || !def.payloadFields?.length) return def;
+  // The test and the bindings ask for the same value type: work it out once.
+  const cache = new Map<ts.Type, PayloadTyping | undefined>();
+  return {
+    ...def,
+    payloadTyping: (valueType) => {
+      if (cache.has(valueType)) return cache.get(valueType);
+      let typing: PayloadTyping | undefined;
+      try {
+        typing = payloadTypingFor(ctx, name, def, inst, valueType);
+      } catch (e) {
+        // Degrade to the untyped binding, visibly (CLAUDE.md).
+        ctx.reportWarning(
+          name,
+          `match: couldn't work out the type of ${name.text}'s payload ` +
+            `(${e instanceof Error ? e.message : String(e)}); its bindings keep the matched value's type.`
+        );
+      }
+      cache.set(valueType, typing);
+      return typing;
+    },
+  };
+}
+
+function payloadTypingFor(
+  ctx: MacroContext,
+  name: ts.Identifier,
+  def: ExtractorDef,
+  inst: DestructureInstance | undefined,
+  valueType: ts.Type
+): PayloadTyping {
+  const checker = ctx.typeChecker;
+  const narrowed = narrowByTest(checker, def, valueType);
+  const out: PayloadTyping = { types: [] };
+  for (const field of def.payloadFields ?? []) {
+    if (field !== SELF_PAYLOAD) {
+      // As the output's narrowing sees it: `e.right` after `"right" in e`.
+      const prop = narrowed && checker.getPropertyOfType(checker.getApparentType(narrowed), field);
+      out.types.push(prop ? checker.getTypeOfSymbolAtLocation(prop, name) : undefined);
+      continue;
+    }
+    // The value itself: what the instance says it is, when it says.
+    const declared = inst && extractedType(checker, inst, valueType);
+    if (!declared) {
+      out.types.push(narrowed);
+      continue;
+    }
+    out.types.push(declared);
+    // Only for tests whose narrowing is worked out here (`!= null`, none);
+    // the output narrows the others itself.
+    const known = def.test === "not-null" || def.test === "always";
+    if (known && narrowed && !checker.isTypeAssignableTo(narrowed, declared)) {
+      out.selfCast = checker.typeToTypeNode(declared, name, ts.NodeBuilderFlags.NoTruncation);
+    }
+  }
+  return out;
+}
+
+/**
+ * `valueType` narrowed by the extractor's test, as TypeScript narrows the
+ * inlined test in the output; undefined where that isn't worked out here.
+ */
+function narrowByTest(
+  checker: ts.TypeChecker,
+  def: ExtractorDef,
+  valueType: ts.Type
+): ts.Type | undefined {
+  if (def.test === "not-null") return checker.getNonNullableType(valueType);
+  if (def.test === "always") return valueType;
+  const members = valueType.isUnion() ? valueType.types : [valueType];
+  let kept: ts.Type[];
+  if (def.test && typeof def.test === "object") {
+    const key = def.test.hasKey;
+    kept = members.filter((m) => {
+      const p = checker.getPropertyOfType(m, key);
+      return p !== undefined && (p.flags & ts.SymbolFlags.Optional) === 0;
+    });
+  } else if (def.discriminantField !== undefined && def.discriminantValue !== undefined) {
+    const field = def.discriminantField;
+    const want = def.discriminantValue;
+    kept = members.filter((m) => {
+      const p = checker.getPropertyOfType(m, field);
+      if (!p) return false;
+      const t = checker.getTypeOfSymbol(p);
+      return (t.isUnion() ? t.types : [t]).some((lit) => literalIs(lit, want));
+    });
+  } else {
+    return undefined;
+  }
+  // Several members left: their union isn't constructible through the
+  // public checker API, so it is left unknown.
+  return kept.length === 1 ? kept[0] : undefined;
+}
+
+function literalIs(t: ts.Type, value: string | boolean): boolean {
+  if (typeof value === "string") return t.isStringLiteral() && t.value === value;
+  return (
+    (t.flags & ts.TypeFlags.BooleanLiteral) !== 0 &&
+    (t as ts.Type & { intrinsicName?: string }).intrinsicName === String(value)
+  );
+}
+
+/**
+ * The payload type `inst.extract` returns for a value of type `valueType`
+ * (its return type without `undefined`), or undefined when that can't be
+ * read off its signature.
+ *
+ * `extract: <A>(o: Option<A>) => A | undefined` for `Option<number>`: `A`
+ * is learnt by matching the declared parameter type against `valueType` BY
+ * IDENTITY (the same generic interface or type alias on both sides, then
+ * its type arguments pairwise), never by name; the payload is what `A` was
+ * bound to. A non-generic `extract` returns its payload type as written.
+ */
+function extractedType(
+  checker: ts.TypeChecker,
+  inst: DestructureInstance,
+  valueType: ts.Type
+): ts.Type | undefined {
+  const at = inst.declaration;
+  const extract = checker.getPropertyOfType(checker.getTypeAtLocation(at.name), "extract");
+  if (!extract) return undefined;
+  const sig = checker.getTypeOfSymbolAtLocation(extract, at).getCallSignatures()[0];
+  const param = sig?.parameters[0];
+  if (!sig || !param) return undefined;
+  const ret = withoutUndefined(sig.getReturnType());
+  if (!ret) return undefined;
+  const typeParams: readonly ts.Type[] = sig.getTypeParameters() ?? [];
+  if (typeParams.length === 0) return ret;
+  if (!typeParams.includes(ret)) return undefined;
+  const bound = new Map<ts.Type, ts.Type>();
+  bindTypeParameters(
+    checker,
+    checker.getTypeOfSymbolAtLocation(param, at),
+    valueType,
+    new Set(typeParams),
+    bound
+  );
+  return bound.get(ret);
+}
+
+/** `t` without `undefined` (extract's "no match"); undefined if that leaves a union. */
+function withoutUndefined(t: ts.Type): ts.Type | undefined {
+  if (!t.isUnion()) return t;
+  const rest = t.types.filter((m) => !(m.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)));
+  return rest.length === 1 ? rest[0] : undefined;
+}
+
+/**
+ * Learn `params` in `declared` (a parameter's type) from `actual` (the
+ * value's). A type parameter binds to `actual`. The same generic type alias
+ * (`Either<E, A>`) or the same generic interface/class (`Option<A>`) on both
+ * sides — the same alias symbol or target type object, i.e. identity —
+ * pairs their type arguments. `A | null` binds `A` from `actual` without its
+ * nullish members. Any other shape teaches nothing; the first binding wins.
+ */
+function bindTypeParameters(
+  checker: ts.TypeChecker,
+  declared: ts.Type,
+  actual: ts.Type,
+  params: ReadonlySet<ts.Type>,
+  out: Map<ts.Type, ts.Type>
+): void {
+  if (params.has(declared)) {
+    if (!out.has(declared)) out.set(declared, actual);
+    return;
+  }
+  const pair = (ds: readonly ts.Type[] | undefined, as: readonly ts.Type[] | undefined) => {
+    if (!ds || !as || ds.length !== as.length) return;
+    ds.forEach((d, i) => bindTypeParameters(checker, d, as[i], params, out));
+  };
+  if (declared.aliasSymbol && declared.aliasSymbol === actual.aliasSymbol) {
+    pair(declared.aliasTypeArguments, actual.aliasTypeArguments);
+    return;
+  }
+  const dRef = asTypeReference(declared);
+  const aRef = asTypeReference(actual);
+  if (dRef && aRef && dRef.target === aRef.target) {
+    pair(checker.getTypeArguments(dRef), checker.getTypeArguments(aRef));
+    return;
+  }
+  if (declared.isUnion()) {
+    const nullish = ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void;
+    const rest = declared.types.filter((m) => !(m.flags & nullish));
+    if (rest.length === 1) {
+      bindTypeParameters(checker, rest[0], checker.getNonNullableType(actual), params, out);
+    }
+  }
+}
+
+function asTypeReference(t: ts.Type): ts.TypeReference | undefined {
+  return t.flags & ts.TypeFlags.Object &&
+    (t as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference
+    ? (t as ts.TypeReference)
+    : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +623,9 @@ function defOf(ctx: MacroContext, name: ts.Identifier, e: ExtractorPlan): Extrac
     ctx.reportError(name, `match: the derived descriptor of ${e.name} is invalid: ${def}`);
     return undefined;
   }
-  return def;
+  // No instance in the program to read an `extract` from: the payload is
+  // typed by narrowing alone (fields of a transparent type).
+  return withPayloadTyping(ctx, name, def, undefined);
 }
 
 /** An expression for `inst` in the current file, importing it if needed. */

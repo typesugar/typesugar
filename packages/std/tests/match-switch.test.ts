@@ -365,7 +365,11 @@ export function show(o: Option<number>): string {
 }
 `);
     expect(r.errors).toEqual([]);
-    expect(r.code).toMatch(/switch \(true\) \{\s*case o != null: \{\s*const v = o;/);
+    // fp's Option is @opaque: `o != null` doesn't narrow it for the checker,
+    // so `v` is asserted to the payload type destructureSome declares.
+    expect(r.code).toMatch(
+      /switch \(true\) \{\s*case o != null: \{\s*const v = o as unknown as number;/
+    );
     expect(r.code).toMatch(/case o == null:\s*return "none";/);
   });
 

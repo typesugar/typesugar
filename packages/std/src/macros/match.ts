@@ -40,7 +40,12 @@ import {
   TS9216,
   TS9226,
 } from "@typesugar/core";
-import { resolveExtractor, SELF_PAYLOAD, type ExtractorDef } from "./match-extractors.js";
+import {
+  resolveExtractor,
+  SELF_PAYLOAD,
+  type ExtractorDef,
+  type PayloadTyping,
+} from "./match-extractors.js";
 
 // ============================================================================
 // Chain Parsing
@@ -747,7 +752,8 @@ function checkExhaustiveness(
  * @internal shared with the `match:` switch (match-switch.ts)
  */
 export type MatchCoverage =
-  | { kind: "complete" }
+  /** `unanalysed`: the type couldn't be analysed, so nothing is reported — and nothing proven. */
+  | { kind: "complete"; unanalysed?: true }
   | { kind: "missing"; what: "cases" | "variants"; missing: string }
   | { kind: "not-enumerable" };
 
@@ -785,12 +791,12 @@ export function findMissingCases(
   }
 
   const analysis = getScrutineeAnalysis(ctx, scrutinee);
-  if (!analysis) return { kind: "complete" };
+  if (!analysis) return { kind: "complete", unanalysed: true };
 
   switch (analysis.kind) {
     case "literal-union":
     case "boolean": {
-      if (!analysis.literalMembers) return { kind: "complete" };
+      if (!analysis.literalMembers) return { kind: "complete", unanalysed: true };
       const covered = new Set<string>();
       for (const p of patterns) {
         for (const k of coveredLiteralKeys(p, analysis.literalMembers)) covered.add(k);
@@ -802,7 +808,9 @@ export function findMissingCases(
     }
 
     case "discriminated-union": {
-      if (!analysis.variantValues || !analysis.discriminantField) return { kind: "complete" };
+      if (!analysis.variantValues || !analysis.discriminantField) {
+        return { kind: "complete", unanalysed: true };
+      }
       const covered = new Set<string>();
       for (const p of patterns) {
         const key = coveredVariantKey(p, analysis.discriminantField);
@@ -823,8 +831,39 @@ export function findMissingCases(
       return { kind: "not-enumerable" };
 
     case "unknown":
-      return { kind: "complete" };
+      return { kind: "complete", unanalysed: true };
   }
+}
+
+/**
+ * The index of the first unguarded arm after which the unguarded arms so far
+ * PROVABLY cover the scrutinee's type (-1 if none): from there on, the arm
+ * needs no test and nothing after it — no later arm, no `.else()`, no
+ * `MatchError` — can run. "Provably" is {@link findMissingCases} saying
+ * complete for a type it could analyse: a literal union whose members are
+ * all matched, a discriminated union whose variants are, `null` + `not-null`
+ * extractors (Some/None, Cons/Nil), `has` extractors covering every member
+ * (Left/Right, Valid/Invalid), derived variant extractors covering every tag.
+ * An arm that is itself a catch-all (`_`, a binding) is left to the normal
+ * path, which already ends there. A value outside the static type (an `any`
+ * cast) takes the last arm, as in TypeScript's own exhaustive switch.
+ */
+function findCoveringArmIndex(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  arms: CaseArm[]
+): number {
+  const patterns: PatternInfo[] = [];
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
+    if (arm.guard) continue;
+    const own = [arm.pattern, ...arm.alternatives].map(analyzePattern);
+    if (own.some(patternCoversAll)) return -1;
+    patterns.push(...own);
+    const coverage = findMissingCases(ctx, scrutinee, patterns);
+    if (coverage.kind === "complete" && !coverage.unanalysed) return i;
+  }
+  return -1;
 }
 
 /** Does every member of the scrutinee's union have a required key from `keys`? */
@@ -1080,16 +1119,24 @@ function generateSwitchIIFE(
   const scrutineeName = scrutineeShortName(ctx, scrutinee);
 
   const clauses: ts.CaseOrDefaultClause[] = [];
+  // With the literal union covered, the covering arm is the `default:` and
+  // there is no MatchError (as in the conditional chain and the IIFE).
+  const coveringIdx = elseResult === undefined ? findCoveringArmIndex(ctx, scrutinee, arms) : -1;
 
-  for (const arm of arms) {
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
     const pattern = analyzePattern(arm.pattern);
     if (pattern.kind !== "literal") continue;
+    if (i === coveringIdx) {
+      clauses.push(f.createDefaultClause([f.createReturnStatement(arm.result)]));
+      break;
+    }
     clauses.push(f.createCaseClause(pattern.node, [f.createReturnStatement(arm.result)]));
   }
 
   if (elseResult !== undefined) {
     clauses.push(f.createDefaultClause([f.createReturnStatement(elseResult)]));
-  } else {
+  } else if (coveringIdx === -1) {
     clauses.push(
       f.createDefaultClause([createMatchErrorThrow(ctx, f.createIdentifier(scrutineeName.text))])
     );
@@ -1415,44 +1462,6 @@ function tryDirectEmit(
   return undefined;
 }
 
-/**
- * For union scrutinees, check if after all preceding arms the remaining type
- * is fully covered by the current arm, allowing unconditional emit.
- * Returns the index of the first arm that can be emitted unconditionally
- * (covers all remaining type slots), or -1 if none.
- */
-function findFullyCoveredArmIndex(
-  ctx: MacroContext,
-  scrutinee: ts.Expression,
-  arms: CaseArm[]
-): number {
-  const analysis = getScrutineeAnalysis(ctx, scrutinee);
-  if (!analysis) return -1;
-
-  if (
-    (analysis.kind === "literal-union" || analysis.kind === "boolean") &&
-    analysis.literalMembers
-  ) {
-    const remaining = new Set(analysis.literalMembers);
-    for (let i = 0; i < arms.length; i++) {
-      const arm = arms[i];
-      if (arm.guard) continue;
-      const pattern = analyzePattern(arm.pattern);
-      const key = getPatternLiteralKey(pattern);
-      if (key !== undefined) remaining.delete(key);
-      for (const alt of arm.alternatives) {
-        const altKey = getPatternLiteralKey(analyzePattern(alt));
-        if (altKey !== undefined) remaining.delete(altKey);
-      }
-      if (remaining.size === 0) {
-        return i;
-      }
-    }
-  }
-
-  return -1;
-}
-
 // ============================================================================
 // Code Generation
 // ============================================================================
@@ -1572,12 +1581,15 @@ function expandFluentMatchInner(
 }
 
 /**
- * Compile a match whose arms are all plain literals (each `.case(lit)` with
- * any number of literal `.or(lit)`s, no guard, no `.as()`), optionally ending
- * in a `_` arm, to a conditional chain with no IIFE:
+ * Compile a match whose arms bind nothing — plain literals (each `.case(lit)`
+ * with any number of literal `.or(lit)`s) and extractors with no bindings
+ * (`None`, `Nil`, `Some(_)`), no guard, no `.as()` — optionally ending in a
+ * `_` arm, to a conditional chain with no IIFE:
  *
  *   match(t).case("a").or("b").then(1).case("c").then(2).else(3)
  *   → t === "a" || t === "b" ? 1 : t === "c" ? 2 : 3
+ *   match(o).case(None).then("none").case(Some(_)).then("some")
+ *   → o == null ? "none" : "some"
  *
  * This is what a person writes, and what the guide documents
  * (`x === "ok" ? 200 : 500`). Before the Turf case study (Stage 3) only a
@@ -1587,14 +1599,17 @@ function expandFluentMatchInner(
  *
  * Taken only when it is provably equivalent to the IIFE:
  * - The chain ends in a value that needs no throw: `.else()`, a `_` arm, or
- *   an arm after which the scrutinee's literal union is fully covered (that
- *   arm is unconditional, as in the IIFE). Otherwise the IIFE's MatchError
- *   is needed and it is used.
+ *   an arm after which the arms provably cover the scrutinee's type
+ *   ({@link findCoveringArmIndex}; that arm is unconditional, as in the
+ *   IIFE). Otherwise the IIFE's MatchError is needed and it is used.
  * - Reading the scrutinee in every test is the same as reading it once: it
- *   is an identifier or `this`, or it is read by exactly one test. A
- *   property access is not enough — it may be a getter (the IIFE reads it
- *   once into a const). With no test at all it must be side-effect free,
- *   since the chain would not evaluate it.
+ *   is an identifier or `this`, or (literal arms only) it is read by exactly
+ *   one test. A property access is not enough — it may be a getter (the
+ *   IIFE reads it once into a const). An extractor's test may read it more
+ *   than once (`x != null && "left" in x`), so it needs an identifier or
+ *   `this`. With no test at all it must be side-effect free, since the chain
+ *   would not evaluate it.
+ * Arms that bind names need a block for their `const`s, so they keep the IIFE.
  * The results move nowhere (no arrow), so `await`/`yield` in them keep
  * their meaning.
  */
@@ -1605,11 +1620,11 @@ function tryGenerateConditionalChain(
   elseResult: ts.Expression | undefined
 ): ts.Expression | undefined {
   const f = ctx.factory;
-  const tests: { literals: ts.Expression[]; result: ts.Expression }[] = [];
+  const tests: { patterns: PatternInfo[]; result: ts.Expression }[] = [];
   let terminal: ts.Expression | undefined;
 
-  let fullyCoveredIdx: number | undefined;
-  const coveredAt = () => (fullyCoveredIdx ??= findFullyCoveredArmIndex(ctx, scrutinee, arms));
+  let coveringIdx: number | undefined;
+  const coveredAt = () => (coveringIdx ??= findCoveringArmIndex(ctx, scrutinee, arms));
 
   for (let i = 0; i < arms.length; i++) {
     const arm = arms[i];
@@ -1619,36 +1634,48 @@ function tryGenerateConditionalChain(
       terminal = arm.result;
       break;
     }
-    const literals: ts.Expression[] = [];
-    for (const p of [pattern, ...arm.alternatives.map(analyzePattern)]) {
-      if (p.kind !== "literal") return undefined;
-      literals.push(p.node);
+    const patterns = [pattern, ...arm.alternatives.map(analyzePattern)];
+    for (const p of patterns) {
+      const testOnly =
+        p.kind === "literal" ||
+        (p.kind === "extractor" &&
+          (p.def.kind === "sum-variant" || p.def.kind === "product") &&
+          !patternHasBindings(p));
+      if (!testOnly) return undefined;
     }
     if (coveredAt() === i) {
       terminal = arm.result;
       break;
     }
-    tests.push({ literals, result: arm.result });
+    tests.push({ patterns, result: arm.result });
   }
   terminal ??= elseResult;
   if (terminal === undefined) return undefined;
 
-  const reads = tests.reduce((n, t) => n + t.literals.length, 0);
+  const literalOnly = tests.every((t) => t.patterns.every((p) => p.kind === "literal"));
+  const reads = tests.reduce((n, t) => n + t.patterns.length, 0);
   const rereadable = ts.isIdentifier(scrutinee) || scrutinee.kind === ts.SyntaxKind.ThisKeyword;
-  if (reads > 1 && !rereadable) return undefined;
+  if (!rereadable && (reads > 1 || (reads === 1 && !literalOnly))) return undefined;
   if (reads === 0 && !isSideEffectFree(scrutinee)) return undefined;
   // One node per read, as the IIFE path does with its `_m` references.
   const read = (): ts.Expression =>
-    reads <= 1
+    !rereadable
       ? scrutinee
       : ts.isIdentifier(scrutinee)
         ? f.createIdentifier(scrutinee.text)
         : f.createThis();
 
+  const skipObjectGuard = !literalOnly && isGuaranteedObject(ctx, scrutinee);
+  const scrutineeType = literalOnly ? undefined : getScrutineeType(ctx, scrutinee);
+  const test = (p: PatternInfo): ts.Expression =>
+    p.kind === "literal"
+      ? literalCheck(f, read(), p.node)
+      : (buildCondition(f, p, read(), skipObjectGuard, scrutineeType) ?? f.createTrue());
+
   let result = terminal;
   for (let i = tests.length - 1; i >= 0; i--) {
-    const condition = tests[i].literals
-      .map((lit) => literalCheck(f, read(), lit))
+    const condition = tests[i].patterns
+      .map(test)
       .reduce((a, b) => f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b));
     result = f.createConditionalExpression(
       condition,
@@ -1666,13 +1693,42 @@ function tryGenerateConditionalChain(
 // ============================================================================
 
 /**
+ * The expression an extractor's payload position reads: the value itself
+ * (`self`), asserted to its payload type when the value's type doesn't
+ * narrow to it (`o as unknown as number` for an `@opaque` Option, see
+ * `PayloadTyping`), or one of its fields.
+ * @internal shared with match-switch.ts
+ */
+export function payloadAccess(
+  f: ts.NodeFactory,
+  accessor: ts.Expression,
+  field: string,
+  typing: PayloadTyping | undefined
+): ts.Expression {
+  if (field !== SELF_PAYLOAD) return f.createPropertyAccessExpression(accessor, field);
+  if (!typing?.selfCast) return accessor;
+  return f.createAsExpression(
+    f.createAsExpression(accessor, f.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)),
+    typing.selfCast
+  );
+}
+
+/** `(x as unknown as T)` where a test uses it as an operand, for the reader. */
+function asOperand(f: ts.NodeFactory, e: ts.Expression): ts.Expression {
+  return ts.isAsExpression(e) ? f.createParenthesizedExpression(e) : e;
+}
+
+/**
  * Collect all variable bindings from a pattern tree (for nested patterns).
  * Returns binding statements that destructure from the given accessor expression.
+ * `accessorType` is the accessor's static type when known (the scrutinee's,
+ * or an extractor payload's), which types extractor payloads under it.
  */
 function collectBindings(
   f: ts.NodeFactory,
   pattern: PatternInfo,
-  accessor: ts.Expression
+  accessor: ts.Expression,
+  accessorType?: ts.Type
 ): ts.Statement[] {
   switch (pattern.kind) {
     case "variable":
@@ -1829,7 +1885,7 @@ function collectBindings(
     }
 
     case "type-constructor":
-      return collectBindings(f, pattern.binding, accessor);
+      return collectBindings(f, pattern.binding, accessor, accessorType);
 
     case "extractor": {
       const { def, bindings } = pattern;
@@ -1837,13 +1893,19 @@ function collectBindings(
 
       if (def.kind === "sum-variant") {
         const payloadFields = def.payloadFields ?? [];
+        const typing = accessorType && def.payloadTyping?.(accessorType);
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
           const field = payloadFields[i];
           if (field === undefined) continue;
-          const fieldAccess =
-            field === SELF_PAYLOAD ? accessor : f.createPropertyAccessExpression(accessor, field);
-          stmts.push(...collectBindings(f, binding, fieldAccess));
+          stmts.push(
+            ...collectBindings(
+              f,
+              binding,
+              payloadAccess(f, accessor, field, typing),
+              typing?.types[i]
+            )
+          );
         }
       } else if (def.kind === "product") {
         const fields = def.productFields ?? [];
@@ -1881,7 +1943,8 @@ export function buildCondition(
   f: ts.NodeFactory,
   pattern: PatternInfo,
   accessor: ts.Expression,
-  skipObjectGuard = false
+  skipObjectGuard = false,
+  accessorType?: ts.Type
 ): ts.Expression | undefined {
   switch (pattern.kind) {
     case "literal":
@@ -2002,7 +2065,7 @@ export function buildCondition(
       const ctorCheck = buildTypeConstructorCheck(f, pattern.constructorName, accessor);
       const inner = patternCoversAll(pattern.binding)
         ? undefined
-        : buildCondition(f, pattern.binding, accessor);
+        : buildCondition(f, pattern.binding, accessor, false, accessorType);
       return inner
         ? f.createBinaryExpression(ctorCheck, ts.SyntaxKind.AmpersandAmpersandToken, inner)
         : ctorCheck;
@@ -2042,6 +2105,7 @@ export function buildCondition(
           );
         }
         const payloadFields = def.payloadFields ?? [];
+        const typing = accessorType && def.payloadTyping?.(accessorType);
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
           const field = payloadFields[i];
@@ -2050,7 +2114,9 @@ export function buildCondition(
           const nested = buildCondition(
             f,
             binding,
-            field === SELF_PAYLOAD ? accessor : f.createPropertyAccessExpression(accessor, field)
+            asOperand(f, payloadAccess(f, accessor, field, typing)),
+            false,
+            typing?.types[i]
           );
           if (nested) parts.push(nested);
         }
@@ -2089,14 +2155,18 @@ export function buildCondition(
 
         // Recurse into nested patterns on payload fields
         const payloadFields = def.payloadFields ?? [];
+        const typing = accessorType && def.payloadTyping?.(accessorType);
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
           const field = payloadFields[i];
-          if (!field || binding.kind === "wildcard" || binding.kind === "variable") continue;
+          if (field === undefined || binding.kind === "wildcard" || binding.kind === "variable")
+            continue;
           const nested = buildCondition(
             f,
             binding,
-            f.createPropertyAccessExpression(accessor, field)
+            asOperand(f, payloadAccess(f, accessor, field, typing)),
+            false,
+            typing?.types[i]
           );
           if (nested) parts.push(nested);
         }
@@ -2265,7 +2335,8 @@ function generateOrArmStatements(
   f: ts.NodeFactory,
   arm: CaseArm,
   scrutineeRef: ts.Expression,
-  skipObjectGuard = false
+  skipObjectGuard = false,
+  scrutineeType?: ts.Type
 ): ts.Statement[] {
   const allPatterns = [arm.pattern, ...arm.alternatives];
   const conditions: ts.Expression[] = [];
@@ -2277,7 +2348,7 @@ function generateOrArmStatements(
       hasUnconditional = true;
       break;
     }
-    const cond = buildCondition(f, analyzed, scrutineeRef, skipObjectGuard);
+    const cond = buildCondition(f, analyzed, scrutineeRef, skipObjectGuard, scrutineeType);
     if (cond) {
       conditions.push(cond);
     }
@@ -2506,7 +2577,8 @@ function generateArmStatements(
   guard: ts.Expression | undefined,
   result: ts.Expression,
   asPattern?: ts.Expression,
-  skipObjectGuard = false
+  skipObjectGuard = false,
+  scrutineeType?: ts.Type
 ): ts.Statement[] {
   const asBindings = asPattern ? generateAsBindings(f, asPattern, scrutineeRef) : [];
 
@@ -2571,8 +2643,8 @@ function generateArmStatements(
     case "array":
     case "object":
     case "type-constructor": {
-      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard);
-      const bindings = collectBindings(f, pattern, scrutineeRef);
+      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard, scrutineeType);
+      const bindings = collectBindings(f, pattern, scrutineeRef, scrutineeType);
 
       const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
       if (guard) {
@@ -2597,8 +2669,8 @@ function generateArmStatements(
       }
 
       // Sum-variant and product extractors: inlined structural checks (zero-cost)
-      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard);
-      const bindings = collectBindings(f, pattern, scrutineeRef);
+      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard, scrutineeType);
+      const bindings = collectBindings(f, pattern, scrutineeRef, scrutineeType);
 
       const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
       if (guard) {
@@ -2690,24 +2762,27 @@ function generateIIFE(
     )
   );
 
-  // Wave 5: Find the arm index where the type is fully narrowed
-  const fullyCoveredIdx = findFullyCoveredArmIndex(ctx, scrutinee, arms);
+  // The extractor payloads under the scrutinee are typed from its type.
+  const scrutineeType = getScrutineeType(ctx, scrutinee);
+
+  // Wave 5: the arm after which the arms provably cover the scrutinee's type
+  const coveringIdx = findCoveringArmIndex(ctx, scrutinee, arms);
   let terminated = false;
 
   for (let i = 0; i < arms.length; i++) {
     const arm = arms[i];
     const scrutineeRef = f.createIdentifier(scrutineeName.text);
 
-    // Wave 5: Emit unconditional return when type is fully narrowed
-    // Still generate bindings for AS patterns and complex patterns that need destructuring
-    if (fullyCoveredIdx !== -1 && i >= fullyCoveredIdx && !arm.guard) {
+    // Wave 5: the covering arm returns unconditionally: no test, only its
+    // bindings (AS patterns and destructuring), and nothing after it.
+    if (i === coveringIdx) {
       if (arm.asPattern) {
         const asBindings = generateAsBindings(f, arm.asPattern, scrutineeRef);
         statements.push(...asBindings);
       }
       const armPattern = analyzePattern(arm.pattern);
       if (armPattern.kind !== "literal" && armPattern.kind !== "wildcard") {
-        const bindings = collectBindings(f, armPattern, scrutineeRef);
+        const bindings = collectBindings(f, armPattern, scrutineeRef, scrutineeType);
         statements.push(...bindings);
       }
       statements.push(f.createReturnStatement(arm.result));
@@ -2717,7 +2792,9 @@ function generateIIFE(
 
     // OR patterns: build || chain of conditions
     if (arm.alternatives.length > 0) {
-      statements.push(...generateOrArmStatements(ctx, f, arm, scrutineeRef, skipObjectGuard));
+      statements.push(
+        ...generateOrArmStatements(ctx, f, arm, scrutineeRef, skipObjectGuard, scrutineeType)
+      );
       continue;
     }
 
@@ -2738,7 +2815,8 @@ function generateIIFE(
       arm.guard,
       arm.result,
       arm.asPattern,
-      skipObjectGuard
+      skipObjectGuard,
+      scrutineeType
     );
     statements.push(...armStatements);
     // An unguarded product extractor that binds without testing

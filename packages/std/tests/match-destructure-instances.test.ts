@@ -281,7 +281,13 @@ export const f = (o: Option<number>) => match(o).case(Some(v)).then(v + 1).case(
 `,
     });
     expect(r.errors).toEqual([]);
-    expect(r.code["main.ts"]).toContain("if (_o != null) {\n        const v = _o;");
+    // fp's Option is @opaque (an interface to the checker), so `_o != null`
+    // doesn't narrow it: the binding is asserted to the payload type that
+    // destructureSome's `extract` declares. Some/None cover Option, so the
+    // None arm has no test and there is no MatchError.
+    expect(r.code["main.ts"]).toContain(
+      "if (_o != null) {\n        const v = _o as unknown as number;\n        return v + 1;\n    }\n    return 0;\n})();"
+    );
     expect(r.code["main.ts"]).not.toContain("destructure");
     expect((r.exports.f as Fn)(4 as never)).toBe(5);
     expect((r.exports.f as Fn)(null as never)).toBe(0);

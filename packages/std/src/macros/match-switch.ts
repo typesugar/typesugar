@@ -70,7 +70,7 @@ import {
   nullishKeyOfType,
   reportMissingCases,
   withBuiltinExtractorsFor,
-  SELF_PAYLOAD,
+  payloadAccess,
   type MatchCoverage,
   type PatternInfo,
 } from "./match.js";
@@ -287,7 +287,8 @@ interface PatternCase {
 function analyzeCase(
   ctx: MacroContext,
   clause: ts.CaseClause,
-  pattern: PatternInfo
+  pattern: PatternInfo,
+  scrutineeType: ts.Type | undefined
 ): PatternCase | undefined {
   const f = ctx.factory;
   const node = clause.expression;
@@ -406,16 +407,12 @@ function analyzeCase(
       bindings: pattern.bindings.map(() => ({ kind: "wildcard" }) as PatternInfo),
     };
     const discValue = def.discriminantValue;
+    // `self` of an @opaque type is asserted to its payload type (PayloadTyping).
+    const typing = scrutineeType && def.payloadTyping?.(scrutineeType);
     return {
       literals: [],
       bind: (s) =>
-        bindings.map(({ field, name }) =>
-          constDecl(
-            f,
-            name,
-            field === SELF_PAYLOAD ? s() : f.createPropertyAccessExpression(s(), field)
-          )
-        ),
+        bindings.map(({ field, name }) => constDecl(f, name, payloadAccess(f, s(), field, typing))),
       test: (s, guardNullish) =>
         buildCondition(f, wildcarded, s(), !guardNullish) ?? f.createTrue(),
       discriminant:
@@ -543,11 +540,12 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
   }
 
   // Pattern form.
+  const scrutineeType = getScrutineeType(ctx, scrutinee);
   const cases = new Map<ts.CaseClause, PatternCase>();
   let failed = false;
   for (const c of clauses) {
     if (c.kind !== "pattern") continue;
-    const pc = analyzeCase(ctx, c.clause, c.pattern);
+    const pc = analyzeCase(ctx, c.clause, c.pattern, scrutineeType);
     if (!pc) {
       failed = true;
       continue;
@@ -588,7 +586,7 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
     ref = () => f.createIdentifier(name.text);
   };
 
-  const type = getScrutineeType(ctx, scrutinee);
+  const type = scrutineeType;
   const mayBeNullish =
     type !== undefined &&
     (type.isUnion() ? type.types : [type]).some(

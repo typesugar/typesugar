@@ -142,9 +142,24 @@ describe("fast path: 7+ pure literal switch", () => {
     expect(f(8)).toBe("none");
   });
 
-  it("throws MatchError without else", () => {
+  // The arms cover the literal union, so the last one is the `default:`,
+  // as in the conditional chain: no MatchError, no runtime @typesugar/std
+  // import. A value outside the type (9) takes the last arm. This used to
+  // end in `default: throw new MatchError(_n)`.
+  it("covering the literal union: the last arm is the default, no MatchError", () => {
     const arms = [1, 2, 3, 4, 5, 6, 7].map((n) => `.case(${n}).then("v${n}")`).join("");
     const r = run(`export const f = (n: 1|2|3|4|5|6|7) => match(n)${arms};`);
+    expect(r.code).toContain("switch");
+    expect(r.code).toContain(`default: return "v7";`);
+    expect(r.code).not.toContain("MatchError");
+    const f = r.exports.f as Fn;
+    expect(f(7)).toBe("v7");
+    expect(f(9)).toBe("v7");
+  });
+
+  it("throws MatchError without else when the type proves nothing (any)", () => {
+    const arms = [1, 2, 3, 4, 5, 6, 7].map((n) => `.case(${n}).then("v${n}")`).join("");
+    const r = run(`export const f = (n: any) => match(n)${arms};`);
     expect(r.code).toContain("switch");
     const f = r.exports.f as Fn;
     expect(f(7)).toBe("v7");
