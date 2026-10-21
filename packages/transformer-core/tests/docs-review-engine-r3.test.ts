@@ -611,3 +611,32 @@ describe("typeclass method syntax on a literal receiver", () => {
     expect(run(result.code)).toEqual(["n7", "n3", "n4", "sa", "btrue", "n-1"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A primitive-typed import is not an extension namespace (std showcase)
+// ---------------------------------------------------------------------------
+
+describe("an imported number constant does not provide its global-augmentation stubs", () => {
+  // std exports `LT`/`EQ_ORD`/`GT` (numbers) and augments `interface Number`
+  // with `clamp` so that `(150).clamp(0, 100)` type-checks. `LT.clamp` -- the
+  // stub, seen through LT's apparent type -- was offered as an extension next
+  // to the real `clamp` import: "Ambiguous extension method 'clamp'".
+  it("(0).to(10) with `LT` imported from the same module resolves to `to`", () => {
+    const result = transform(
+      [
+        `import { to, toArray, LT } from "fakerange";`,
+        `declare function log(v: unknown): void;`,
+        `log(toArray((0).to(2)));`,
+        `log(LT);`,
+      ].join("\n"),
+      {
+        ...FAKE_RANGE,
+        "node_modules/fakerange/index.d.ts":
+          FAKE_RANGE["node_modules/fakerange/index.d.ts"] + "\nexport declare const LT: -1;",
+      }
+    );
+    expect(errors(result)).toEqual([]);
+    expect(result.code).toContain("to((0), 2)");
+    expect(run(result.code, { fakerange: { ...RANGE_RUNTIME, LT: -1 } })).toEqual([[0, 1, 2], -1]);
+  });
+});

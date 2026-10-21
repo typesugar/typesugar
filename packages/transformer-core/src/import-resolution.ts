@@ -960,6 +960,12 @@ export function checkImportedSymbolForExtension(
   // provided by the import: `describe.bind` / `head.bind` must never become
   // candidates for `fn.bind(x)`.
   if (isDefaultLibMember(prop)) return undefined;
+  // Nor is a `declare global` stub seen through the value's apparent type:
+  // std's `LT` (a number) has `clamp` only because std augments
+  // `interface Number { clamp(...) }` so that `(150).clamp(0, 100)`
+  // type-checks, and `LT.clamp` made that call ambiguous with the real
+  // `clamp` import.
+  if (isGlobalAugmentationStub(prop)) return undefined;
 
   const propType = typeChecker.getTypeOfSymbolAtLocation(prop, ident);
   for (const sig of propType.getCallSignatures()) {

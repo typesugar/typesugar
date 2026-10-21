@@ -231,7 +231,7 @@ npm install @typesugar/std
 // Extension methods (import functions, call as methods)
 (abs, ceil, floor, sqrt, clamp, isEven, isPrime); // number
 (capitalize, truncate, words); // string
-(head, tail, chunk, unique, arrayGroupBy); // array
+(head, tail, chunk, unique, groupBy); // array
 
 // Pattern matching — fluent API (PEP-008)
 match(); // Fluent: match(v).case(...).then(...).else(...)

@@ -144,13 +144,13 @@ import { capitalize, camelCase, kebabCase, truncate } from "@typesugar/std";
 ### Array Extensions
 
 ```typescript
-import { head, tail, chunk, unique, arrayGroupBy } from "@typesugar/std";
+import { head, tail, chunk, unique, groupBy } from "@typesugar/std";
 
 [1, 2, 3].head(); // 1
 [1, 2, 3].tail(); // [2, 3]
 [1, 2, 3, 4, 5].chunk(2); // [[1, 2], [3, 4], [5]]
 [1, 1, 2, 2, 3].unique(); // [1, 2, 3]
-[1, 2, 3].arrayGroupBy((x) => x % 2); // { 0: [2], 1: [1, 3] }
+[1, 2, 3].groupBy((x) => x % 2); // { 0: [2], 1: [1, 3] }
 ```
 
 ### Range Extensions (Scala/Kotlin-style)
