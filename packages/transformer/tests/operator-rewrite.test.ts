@@ -286,6 +286,19 @@ export const p6 = (a + b) * 2 + (c - a);
     });
   });
 
+  it("a const bound to a rewritten operator is an operand of its type (TypeScript types it number)", () => {
+    const code = `${prelude}
+const twice = a * 2;
+const alias = twice;
+export const l = twice + b;
+export const r = b + alias;
+export const t = twice < c;
+`;
+    const result = transformCode(code, { fileName: "op-chain-const.ts" });
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(evaluate(result.code)).toMatchObject({ l: { x: 4 }, r: { x: 4 }, t: true });
+  });
+
   it("a right operand that is a primitive expression is still reported", () => {
     const code = `${prelude}
 export const bad = a + (1 + 2);

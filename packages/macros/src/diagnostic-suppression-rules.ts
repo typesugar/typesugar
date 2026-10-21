@@ -40,6 +40,7 @@ import {
   isJSDocTagAtLineStart,
   deriveTagNames,
   receiverMatchesFirstParam,
+  isInOptedOutScope,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
 import { getOperatorCandidates, getTypeclassesDeclaringMethod } from "./typeclass-index.js";
@@ -47,6 +48,12 @@ import { getOperatorString } from "./operators.js";
 import { resolveInstance } from "./instance-resolver.js";
 import { deriveNamesOf } from "./instance-scanner.js";
 import { hasGenericDerivation } from "./auto-derive.js";
+import {
+  chainBinary,
+  operatorRewriteResult,
+  rewrittenOperandType,
+  type OperatorChainHooks,
+} from "./operator-chain-types.js";
 
 /**
  * Create the ExtensionMethodCall diagnostic suppression rule.
@@ -1978,9 +1985,15 @@ const OPERATOR_PRIMITIVE_TYPES = new Set([
 ]);
 
 /** Per-program operator-syntax activation, computed the way the transform pass does. */
-const operatorActivationCache = new WeakMap<ts.Program, Map<string, Set<string>>>();
+const operatorActivationCache = new WeakMap<
+  ts.Program,
+  Map<string, { activated: Set<string>; tracker: ResolutionScopeTracker }>
+>();
 
-function activatedOperatorTypeclasses(program: ts.Program, sourceFile: ts.SourceFile): Set<string> {
+function operatorActivation(
+  program: ts.Program,
+  sourceFile: ts.SourceFile
+): { activated: Set<string>; tracker: ResolutionScopeTracker } {
   let perFile = operatorActivationCache.get(program);
   if (!perFile) {
     perFile = new Map();
@@ -1992,12 +2005,58 @@ function activatedOperatorTypeclasses(program: ts.Program, sourceFile: ts.Source
   // without depending on whether (or for which program) a transform ran.
   const tracker = new ResolutionScopeTracker();
   scanImportsForScope(sourceFile, tracker, program);
-  const result = new Set([
+  const activated = new Set([
     ...tracker.getActivatedOperatorSyntax(sourceFile.fileName),
     ...tracker.getDefinedTypeclasses(sourceFile.fileName),
   ]);
+  const result = { activated, tracker };
   perFile.set(sourceFile.fileName, result);
   return result;
+}
+
+function activatedOperatorTypeclasses(program: ts.Program, sourceFile: ts.SourceFile): Set<string> {
+  return operatorActivation(program, sourceFile).activated;
+}
+
+/**
+ * The operator-chain typing's hooks for the diagnostic filter: the opt-out
+ * scopes from this file's own scan (as the rewrite's `isOperatorRewriteOptedOut`
+ * reads them from the transform's), and checker failures reported once.
+ */
+function filterChainHooks(
+  sourceFile: ts.SourceFile,
+  tracker: ResolutionScopeTracker,
+  rule: string
+): OperatorChainHooks {
+  return {
+    optedOut: (node) =>
+      isInOptedOutScope(sourceFile, node, tracker, "operators") ||
+      isInOptedOutScope(sourceFile, node, tracker, "extensions"),
+    warn: (_node, message) => reportCheckerFailure(rule, message),
+  };
+}
+
+/**
+ * The binary expression whose LEFT (TS2362) or RIGHT (TS2363) operand is
+ * exactly the diagnostic's span: TypeScript reports those at the operand.
+ * By position, from the innermost node there up, so `a * b - c`'s TS2362 at
+ * `a` is the inner `*`, not the outer `-`.
+ */
+function binaryOfOperandDiagnostic(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  start: number,
+  length: number,
+  side: "left" | "right"
+): ts.BinaryExpression | undefined {
+  for (let cur: ts.Node | undefined = node; cur; cur = cur.parent) {
+    if (ts.isBinaryExpression(cur)) {
+      const operand = side === "left" ? cur.left : cur.right;
+      if (operand.getStart(sourceFile) === start && operand.end === start + length) return cur;
+    }
+    if (ts.isStatement(cur) || ts.isSourceFile(cur)) break;
+  }
+  return undefined;
 }
 
 /**
@@ -2019,7 +2078,12 @@ function activatedOperatorTypeclasses(program: ts.Program, sourceFile: ts.Source
 export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
   return {
     name: "OperatorOverload",
-    errorCodes: [2365],
+    // 2365: `+`, comparisons ("Operator 'X' cannot be applied to types");
+    // 2362/2363: the arithmetic operators' left/right operand ("must be of
+    // type 'any', 'number', 'bigint' or an enum type"), reported at the
+    // operand -- suppressed exactly when the operator is rewritten
+    // (operatorRewriteResult, the rewrite's own decision).
+    errorCodes: [2365, 2362, 2363],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
@@ -2035,6 +2099,27 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
 
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
       if (!node) return false;
+
+      if (diagnostic.code === 2362 || diagnostic.code === 2363) {
+        const operandOf = binaryOfOperandDiagnostic(
+          node,
+          sourceFile,
+          diagnostic.start,
+          diagnostic.length,
+          diagnostic.code === 2362 ? "left" : "right"
+        );
+        if (!operandOf) return false;
+        const { activated, tracker } = operatorActivation(program, sourceFile);
+        const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+        return (
+          operatorRewriteResult(
+            ctx,
+            operandOf,
+            activated,
+            filterChainHooks(sourceFile, tracker, "OperatorOverload")
+          ) !== undefined
+        );
+      }
 
       let binary: ts.BinaryExpression | undefined;
       for (let cur: ts.Node | undefined = node, i = 0; cur && i < 5; cur = cur.parent, i++) {
@@ -2052,6 +2137,24 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
       if (activated.size === 0) return false;
       const candidates = getOperatorCandidates(program, activated, op);
       if (candidates.length === 0) return false;
+
+      // An operand that is itself rewritten (`a * 2 + b`: TypeScript types
+      // `a * 2` as number): the rewrite's decision, with operands typed as
+      // rewritten.
+      if (chainBinary(binary.left) || chainBinary(binary.right)) {
+        const { tracker } = operatorActivation(program, sourceFile);
+        const chainCtx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+        if (
+          operatorRewriteResult(
+            chainCtx,
+            binary,
+            activated,
+            filterChainHooks(sourceFile, tracker, "OperatorOverload")
+          ) !== undefined
+        ) {
+          return true;
+        }
+      }
 
       try {
         const leftType = checker.getTypeAtLocation(binary.left);
@@ -2080,6 +2183,94 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
       return false;
     },
   };
+}
+
+// ===========================================================================
+// RewrittenOperatorResult — TS2322/TS2345 on the value of a rewritten operator
+// ===========================================================================
+
+/**
+ * Create the RewrittenOperatorResult diagnostic suppression rule.
+ *
+ * TypeScript types `a * b` on two objects as `number` (an arithmetic
+ * operator's result, whatever the operands), so the value of a rewritten
+ * operator that returns the instance type (`numericRational.mul(a, b)`, a
+ * `Rational`) fails where a `Rational` is expected:
+ * `rationalToString(a * b)` (TS2345), `const p: Rational = a * b`, `return
+ * a * b` (TS2322). Suppressed only when the value is such an operator
+ * expression -- or a same-file `const` with no annotation bound to one
+ * (`const product = a * b; rationalToString(product)`), whose type is its
+ * initializer's -- the operator is rewritten (operatorRewriteResult, the
+ * rewrite's own decision), and its rewritten type is assignable to the
+ * target. `const n: number = a * b` is still an error.
+ *
+ * Other uses of such a const (`product.num`) are still typed `number` by
+ * TypeScript and are not covered: annotate the const (`const product:
+ * Rational = a * b`) to give them the right type.
+ */
+export function createRewrittenOperatorResultRule(): DiagnosticSuppressionRule {
+  return {
+    name: "RewrittenOperatorResult",
+    errorCodes: [2322, 2345],
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile,
+      context?: DiagnosticSuppressionContext
+    ): boolean {
+      const program = context?.program;
+      if (!program || diagnostic.start === undefined || diagnostic.length === undefined) {
+        return false;
+      }
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      if (!node) return false;
+      const value = assignedValueExpression(node, diagnostic.code);
+      if (!value) return false;
+      const { activated, tracker } = operatorActivation(program, sourceFile);
+      if (activated.size === 0) return false;
+      const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+      const hooks = filterChainHooks(sourceFile, tracker, "RewrittenOperatorResult");
+      try {
+        const rewritten = rewrittenOperandType(ctx, value, activated, hooks);
+        if (!rewritten) return false;
+        const types = extractAssignmentTypes(node, checker);
+        if (!types) return false;
+        return checker.isTypeAssignableTo(rewritten, types.targetType);
+      } catch (e) {
+        reportCheckerFailure("RewrittenOperatorResult", e);
+        return false;
+      }
+    },
+  };
+}
+
+/**
+ * The expression whose value a TS2322/TS2345 at `node` is about: the call
+ * argument containing it (TS2345), or a variable's initializer, an
+ * assignment's right side, a return value (TS2322).
+ */
+function assignedValueExpression(node: ts.Node, code: number): ts.Expression | undefined {
+  for (let cur: ts.Node | undefined = node, i = 0; cur && i < 10; cur = cur.parent, i++) {
+    if (code === 2345) {
+      const parent: ts.Node | undefined = cur.parent;
+      if (
+        parent &&
+        (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
+        parent.arguments?.includes(cur as ts.Expression)
+      ) {
+        return cur as ts.Expression;
+      }
+      continue;
+    }
+    if (ts.isVariableDeclaration(cur)) return cur.initializer;
+    if (ts.isReturnStatement(cur)) return cur.expression;
+    if (ts.isBinaryExpression(cur) && cur.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      return cur.right;
+    }
+    if (ts.isStatement(cur)) return undefined;
+  }
+  return undefined;
 }
 
 /**

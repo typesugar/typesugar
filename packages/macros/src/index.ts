@@ -67,6 +67,18 @@ export {
 } from "./derive.js";
 export { pipeMacro, composeMacro, getOperatorString } from "./operators.js";
 export {
+  rewrittenChainType,
+  rewrittenOperandType,
+  operatorRewriteResult,
+  isPrimitiveTypedBinary,
+  isPrimitiveByFlags,
+  admitsNullish,
+  isNullOrUndefinedExpr,
+  chainBinary,
+  PRIMITIVE_RESULT_OPERATORS,
+  type OperatorChainHooks,
+} from "./operator-chain-types.js";
+export {
   reflectAttribute,
   typeInfoMacro,
   fieldNamesMacro,
@@ -382,6 +394,7 @@ export {
   createContractBlockRule,
   createMacroDecoratorRule,
   createOperatorOverloadRule,
+  createRewrittenOperatorResultRule,
   createTypeRewriteAssignmentRule,
   createDerivedCompanionAccessRule,
   createDerivedDeclarationReferenceRule,

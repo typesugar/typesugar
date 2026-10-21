@@ -17,6 +17,12 @@ import {
   companionAssignedBefore,
   deriveNamesOf,
   type ResolvedInstance,
+  rewrittenOperandType,
+  isPrimitiveTypedBinary,
+  isPrimitiveByFlags,
+  admitsNullish,
+  isNullOrUndefinedExpr,
+  type OperatorChainHooks,
 } from "@typesugar/macros";
 
 import {
@@ -602,13 +608,6 @@ export function tryTransformHKTDeclaration(
 // Operator rewriting entry point (PEP-052: import-scoped, registry-free)
 // ---------------------------------------------------------------------------
 
-function isNullOrUndefinedExpr(node: ts.Expression): boolean {
-  if (node.kind === ts.SyntaxKind.NullKeyword) return true;
-  if (ts.isIdentifier(node) && node.text === "undefined") return true;
-  if (ts.isVoidExpression(node)) return true;
-  return false;
-}
-
 /**
  * Whether operator rewriting is opted out at `node`: the whole file
  * (`"use no typesugar"`), the documented `operators` feature
@@ -621,6 +620,14 @@ function isOperatorRewriteOptedOut(ctx: MacroContextImpl, node: ts.Node): boolea
     isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "operators") ||
     isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")
   );
+}
+
+/** The operator-chain typing's hooks (`@typesugar/macros` operator-chain-types) for this file. */
+function chainHooks(ctx: MacroContextImpl): OperatorChainHooks {
+  return {
+    optedOut: (node) => isOperatorRewriteOptedOut(ctx, node),
+    warn: (node, message) => ctx.reportWarning(node, message),
+  };
 }
 
 const OPERATOR_PRIMITIVE_TYPES = new Set([
@@ -652,7 +659,7 @@ export function tryRewriteTypeclassOperator(
   // ancestors, which at every level of a long chain is quadratic.
   // The exception is an operand that is itself a typeclass operator whose
   // method returns the instance type (`a + b` → `add(a, b): A`): `a + b + c`
-  // dispatches on that type (rewrittenChainType, memoized per node, so a
+  // dispatches on that type (rewrittenOperandType, memoized per node, so a
   // long chain is walked once).
   const sfn = ctx.sourceFile.fileName;
   const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
@@ -664,7 +671,7 @@ export function tryRewriteTypeclassOperator(
   let chainType: ts.Type | undefined;
   if (isPrimitiveTypedBinary(node.left)) {
     if (activatedForOps.size === 0) return undefined;
-    chainType = rewrittenChainType(ctx, node.left, activatedForOps);
+    chainType = rewrittenOperandType(ctx, node.left, activatedForOps, chainHooks(ctx));
     if (!chainType) return undefined;
   }
   if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
@@ -698,9 +705,16 @@ export function tryRewriteTypeclassOperator(
 
   // The left operand first: the right one is only needed when the left can
   // dispatch (so a right-nested chain isn't re-checked at each level either).
+  // A const bound to a rewritten operator (`const p = a * b`, typed number by
+  // TypeScript) has the rewritten type too.
   let leftType: ts.Type;
   try {
-    leftType = chainType ?? ctx.typeChecker.getTypeAtLocation(node.left);
+    leftType =
+      chainType ??
+      (ts.isIdentifier(node.left)
+        ? rewrittenOperandType(ctx, node.left, activatedForOps, chainHooks(ctx))
+        : undefined) ??
+      ctx.typeChecker.getTypeAtLocation(node.left);
   } catch (error) {
     return operandTypeFailed(error);
   }
@@ -725,13 +739,10 @@ export function tryRewriteTypeclassOperator(
 
   // The right operand may be a rewritten operator too (`a + b * 2`: `b * 2`
   // becomes `scale(b, 2)`, a V, though TypeScript types it number): its type
-  // is the one the rewrite gives it, as for the left (rewrittenChainType).
+  // is the one the rewrite gives it, as for the left (rewrittenOperandType).
   let rightType: ts.Type;
   try {
-    const rightChain =
-      isPrimitiveTypedBinary(node.right) && activatedForOps.size > 0
-        ? rewrittenChainType(ctx, node.right, activatedForOps)
-        : undefined;
+    const rightChain = rewrittenOperandType(ctx, node.right, activatedForOps, chainHooks(ctx));
     rightType = rightChain ?? ctx.typeChecker.getTypeAtLocation(node.right);
   } catch (error) {
     return operandTypeFailed(error);
@@ -1043,197 +1054,6 @@ function declaredOperandType(ctx: MacroContextImpl, operand: ts.Expression): ts.
   }
 }
 
-/**
- * Binary operators whose result TypeScript types as number, bigint, string,
- * boolean or any whatever the operands (arithmetic, bitwise, comparison,
- * `in`, `instanceof`): never a type with an instance.
- */
-const PRIMITIVE_RESULT_OPERATORS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.PlusToken,
-  ts.SyntaxKind.MinusToken,
-  ts.SyntaxKind.AsteriskToken,
-  ts.SyntaxKind.SlashToken,
-  ts.SyntaxKind.PercentToken,
-  ts.SyntaxKind.AsteriskAsteriskToken,
-  ts.SyntaxKind.LessThanLessThanToken,
-  ts.SyntaxKind.GreaterThanGreaterThanToken,
-  ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
-  ts.SyntaxKind.AmpersandToken,
-  ts.SyntaxKind.BarToken,
-  ts.SyntaxKind.CaretToken,
-  ts.SyntaxKind.LessThanToken,
-  ts.SyntaxKind.LessThanEqualsToken,
-  ts.SyntaxKind.GreaterThanToken,
-  ts.SyntaxKind.GreaterThanEqualsToken,
-  ts.SyntaxKind.EqualsEqualsToken,
-  ts.SyntaxKind.EqualsEqualsEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsEqualsToken,
-  ts.SyntaxKind.InKeyword,
-  ts.SyntaxKind.InstanceOfKeyword,
-]);
-
-/** `e` (parentheses aside) is a binary expression whose TypeScript type is primitive or any. */
-function isPrimitiveTypedBinary(e: ts.Expression): boolean {
-  while (ts.isParenthesizedExpression(e)) e = e.expression;
-  return ts.isBinaryExpression(e) && PRIMITIVE_RESULT_OPERATORS.has(e.operatorToken.kind);
-}
-
-/**
- * Per operator expression: the instance type its rewrite produces, or null
- * when it isn't rewritten to a method returning the instance type. Nodes are
- * per program, so a WeakMap is the right lifetime.
- */
-const chainTypeCache = new WeakMap<ts.Node, ts.Type | null>();
-
-/**
- * The type the operator expression `expr` has once rewritten, when that is
- * an instance type: `a + b` with an activated `/** @op + *\/ add(a: A, b: A):
- * A` and an instance for `a`'s type becomes `add(a, b)`, a value of that
- * type. TypeScript types `a + b` on objects by its own rules (an error, so
- * any), so the outer operator of `a + b + c` couldn't dispatch and stayed
- * JavaScript's own (`add(a, b) + c`, string concatenation) (PEP-052 deferred
- * item 6). Undefined when it isn't such an expression.
- *
- * Decided as the rewrite decides it, bottom-up: a leaf operand's type (by
- * the checker), then at each operator an activated candidate whose method
- * returns the type parameter (`resultIsSelf`, from the typeclass
- * declaration), exactly one instance for the left operand's type from scope
- * (resolveInstance), and a right operand that fits -- itself possibly a
- * rewritten operator (`a + b * 2`, `a - (b - c)`), so both operands of every
- * operator in the tree are typed this way. Walked iteratively (an explicit
- * post-order stack, so neither a long left-nested chain nor a deep
- * right-nested one recurses) and memoized per node, so `1 + 1 + ... + 1`
- * costs one walk and no checker call on a binary expression (whose type
- * TypeScript doesn't cache).
- */
-function rewrittenChainType(
-  ctx: MacroContextImpl,
-  expr: ts.Expression,
-  activated: ReadonlySet<string>
-): ts.Type | undefined {
-  const stack: Array<{ node: ts.BinaryExpression; expanded: boolean }> = [];
-  const push = (e: ts.Expression) => {
-    const b = chainBinary(e);
-    if (b && !chainTypeCache.has(b)) stack.push({ node: b, expanded: false });
-  };
-  push(expr);
-  while (stack.length > 0) {
-    const top = stack[stack.length - 1];
-    if (!top.expanded) {
-      top.expanded = true;
-      push(top.node.right);
-      push(top.node.left);
-      continue;
-    }
-    stack.pop();
-    if (chainTypeCache.has(top.node)) continue;
-    const left = chainOperandType(ctx, top.node.left);
-    chainTypeCache.set(top.node, left ? chainStepType(ctx, top.node, left, activated) : null);
-  }
-  return chainOperandType(ctx, expr) ?? undefined;
-}
-
-/** `e` without parentheses, when it is an operator expression TypeScript types as a primitive. */
-function chainBinary(e: ts.Expression): ts.BinaryExpression | undefined {
-  while (ts.isParenthesizedExpression(e)) e = e.expression;
-  return ts.isBinaryExpression(e) && PRIMITIVE_RESULT_OPERATORS.has(e.operatorToken.kind)
-    ? e
-    : undefined;
-}
-
-/** An operand's type in a chain: computed (and cached) for an operator, the checker's for a leaf. */
-function chainOperandType(ctx: MacroContextImpl, e: ts.Expression): ts.Type | null {
-  const b = chainBinary(e);
-  if (b) return chainTypeCache.get(b) ?? null;
-  while (ts.isParenthesizedExpression(e)) e = e.expression;
-  return chainLeafType(ctx, e);
-}
-
-/** The innermost left operand's type, when it is an object type that could have an instance. */
-function chainLeafType(ctx: MacroContextImpl, leaf: ts.Expression): ts.Type | null {
-  // A synthetic node is outside the checker's contract (CLAUDE.md).
-  if (isSyntheticNode(leaf) || isNullOrUndefinedExpr(leaf)) return null;
-  try {
-    const t = ctx.typeChecker.getTypeAtLocation(leaf);
-    return isPrimitiveByFlags(t) || admitsNullish(t) ? null : t;
-  } catch (error) {
-    ctx.reportWarning(
-      leaf,
-      `typesugar could not resolve the type of '${leaf.getText()}' at the start of an ` +
-        `operator chain (${error}); the chain's operators stay native.`
-    );
-    return null;
-  }
-}
-
-/** `node`'s type once rewritten, given its left operand's type `left`; null if it isn't rewritten to one. */
-function chainStepType(
-  ctx: MacroContextImpl,
-  node: ts.BinaryExpression,
-  left: ts.Type,
-  activated: ReadonlySet<string>
-): ts.Type | null {
-  if (isSyntheticNode(node) || isOperatorRewriteOptedOut(ctx, node)) return null;
-  const op = getOperatorString(node.operatorToken.kind);
-  if (!op) return null;
-  const candidates = getOperatorCandidates(ctx.program, activated, op);
-  let found: { rightOperandIsSelf: boolean } | undefined;
-  try {
-    for (const candidate of candidates) {
-      const r = resolveInstance(ctx, candidate.typeclass, left, undefined, undefined, node);
-      if (!r) continue;
-      // Ambiguous, or two typeclasses apply: the rewrite reports it and stays
-      // native, so the result isn't the instance type.
-      if (r.kind === "ambiguous" || found) return null;
-      if (!candidate.resultIsSelf) return null;
-      found = candidate;
-    }
-    if (!found) return null;
-    if (found.rightOperandIsSelf) {
-      // An operator operand was typed first (post-order in rewrittenChainType).
-      const right = isPrimitiveTypedBinary(node.right)
-        ? chainOperandType(ctx, node.right)
-        : isSyntheticNode(node.right)
-          ? undefined
-          : ctx.typeChecker.getTypeAtLocation(node.right);
-      if (!right || !ctx.typeChecker.isTypeAssignableTo(right, left)) return null;
-    }
-  } catch (error) {
-    ctx.reportWarning(
-      node,
-      `typesugar could not check the operator chain at '${node.getText()}' (${error}); ` +
-        `the operators it is an operand of stay native.`
-    );
-    return null;
-  }
-  return left;
-}
-
-/**
- * `t` is a primitive, a literal of one, an enum, or a union of those (or
- * any/unknown/never/null/undefined): by its flags, so the literal type `1`
- * counts, which the printed-name check (`"1"`) missed.
- */
-function isPrimitiveByFlags(t: ts.Type): boolean {
-  const primitive =
-    ts.TypeFlags.NumberLike |
-    ts.TypeFlags.StringLike |
-    ts.TypeFlags.BooleanLike |
-    ts.TypeFlags.BigIntLike |
-    ts.TypeFlags.ESSymbolLike |
-    ts.TypeFlags.EnumLike |
-    ts.TypeFlags.Null |
-    ts.TypeFlags.Undefined |
-    ts.TypeFlags.Void |
-    ts.TypeFlags.Any |
-    ts.TypeFlags.Unknown |
-    ts.TypeFlags.Never;
-  return t.isUnion()
-    ? t.types.every((m) => (m.flags & primitive) !== 0)
-    : (t.flags & primitive) !== 0;
-}
-
 /** Operators whose native result on a nullish operand is a boolean, never a throw. */
 const COMPARISON_OPERATORS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.EqualsEqualsEqualsToken,
@@ -1245,12 +1065,6 @@ const COMPARISON_OPERATORS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.GreaterThanToken,
   ts.SyntaxKind.GreaterThanEqualsToken,
 ]);
-
-/** `t` is, or is a union with, `null`/`undefined`/`void` (only visible under strictNullChecks). */
-function admitsNullish(t: ts.Type): boolean {
-  const nullish = ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void;
-  return t.isUnion() ? t.types.some((m) => (m.flags & nullish) !== 0) : (t.flags & nullish) !== 0;
-}
 
 /**
  * Reading it again gives the same value with no effect: an identifier,

@@ -23,6 +23,7 @@ import {
   createMatchSwitchRule,
   createContractBlockRule,
   createOperatorOverloadRule,
+  createRewrittenOperatorResultRule,
   createTypeRewriteAssignmentRule,
 } from "./diagnostic-suppression-rules.js";
 
@@ -74,6 +75,9 @@ export function registerAllDiagnosticSuppressionRules(
   if (registerDiagnosticSuppressionRuleOnce(createOperatorOverloadRule())) {
     registered.push("OperatorOverload");
   }
+  if (registerDiagnosticSuppressionRuleOnce(createRewrittenOperatorResultRule())) {
+    registered.push("RewrittenOperatorResult");
+  }
   if (registerDiagnosticSuppressionRuleOnce(createTypeRewriteAssignmentRule())) {
     registered.push("TypeRewriteAssignment");
   }
@@ -99,6 +103,7 @@ export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "ContractBlock",
   "MacroDecorator",
   "OperatorOverload",
+  "RewrittenOperatorResult",
   "TypeRewriteAssignment",
   "DerivedCompanionAccess",
   "DerivedDeclarationReference",

@@ -95,8 +95,12 @@ time, after TypeScript has already type-checked the file. So a patched `tsc`:
 
 For type-checking, and as your CI gate, use the typesugar CLI: `typesugar check`
 (no output) or `typesugar build` (emits). They expand macros first and filter out
-the phantom errors the unexpanded source produces. To also type-check the expanded
-output, add `--strict` (experimental).
+the phantom errors the unexpanded source produces, including TypeScript's errors on a
+typeclass operator that is rewritten (`a * b` on two `Rational`s) and on passing or
+assigning its value. A use the filter can't see through is still reported: TypeScript
+types `const p = a * b` as `number`, so `p.num` is an error until you annotate
+`const p: Rational = a * b` (see [Operators](../../guides/operators.md)). To also
+type-check the expanded output, add `--strict` (experimental).
 
 ### Declarations
 

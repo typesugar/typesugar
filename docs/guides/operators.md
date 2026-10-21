@@ -22,7 +22,16 @@ const comparison = a < b; // Compiles to: ordRational.lessThan(a, b)
 rationalToString(sum); // "5/6"
 ```
 
-The instances (`numericRational`, …) are imported for you. The activation modules are
+The instances (`numericRational`, …) are imported for you. TypeScript checks the
+source as written, where `a * b` on two objects is an error (TS2362/TS2363, or TS2365
+for `+` and comparisons) whose result it types as `number`. `typesugar check` and
+`typesugar build` drop those errors where the operator is rewritten, and the TS2345 /
+TS2322 of passing or assigning its value where the instance type is expected
+(`rationalToString(product)`). Other uses of `const product = a * b` are still typed
+`number` by TypeScript (`product.num` is an error in the editor): annotate it,
+`const product: Rational = a * b`.
+
+The activation modules are
 `@typesugar/std/syntax/<typeclass>/ops` for `eq` (`===`, `!==`, `==`, `!=`), `ord`, `semigroup`,
 `monoid`, `group` (`+`), `numeric` (`+ - *`), `integral` (`/ %`) and `fractional` (`/`).
 A typeclass you define in the same file with `@op` tags needs no activation import.
