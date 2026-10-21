@@ -754,6 +754,15 @@ different type of the same shape (two classes with the same fields, `UserId` and
 the value's own type wins. A same-shape instance is used only for a type with no
 instance of its own.
 
+An enum is assignable to and from `number` (or `string`), so a `Show<number>`
+instance matches an enum value too. A value of an enum type, or one of its
+members (`Color.Green.show()`), uses the enum's own instance (`@impl
+Show<Color>`) when one is in scope, wherever it is declared, and the
+primitive's only when the enum has none. `@impl` on an enum declared in the same
+file also adds the `Color.Show` companion, as it does for an interface or class
+(not for a `const enum`, which has no runtime object to carry it). Operators on
+enum values stay the native ones (`c === Color.Green`).
+
 ## Coherence
 
 Keep to one instance per type per typeclass.

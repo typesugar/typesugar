@@ -296,7 +296,32 @@ export function resolveInstance(
   excludeLocal?: string
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
-  const forTypeString = typeChecker.typeToString(forType);
+
+  // An enum, or a member of one (`Color.Green`, a `c: Color` narrowed to
+  // `Color.Blue`), is mutually assignable with `number` (or `string`), so the
+  // primitive's instance "matches" it too, and for a member it was the ONLY
+  // match: `Color.Green.show()` became `showNumber.show(...)` beside an `@impl
+  // Show<Color>`. The enum's own instance is looked for first, by symbol
+  // identity (CLAUDE.md "by identity"), in every stage; only when there is
+  // none does the ordinary (assignability) search below fall back to the
+  // primitive's.
+  const enumType = enumTypeOf(typeChecker, forType);
+  if (enumType) {
+    const own = resolveInStages(ctx, tcName, enumType, scanner, excludeLocal, true);
+    if (own) return own;
+  }
+  return resolveInStages(ctx, tcName, forType, scanner, excludeLocal, false);
+}
+
+function resolveInStages(
+  ctx: MacroContext,
+  tcName: string,
+  forType: ts.Type,
+  scanner: InstanceScanner,
+  excludeLocal: string | undefined,
+  identityOnly: boolean
+): ResolutionResult {
+  const forTypeString = ctx.typeChecker.typeToString(forType);
 
   // Stage 1: Local scope
   const localResult = resolveFromLocalScope(
@@ -305,12 +330,28 @@ export function resolveInstance(
     forType,
     forTypeString,
     scanner,
-    excludeLocal
+    excludeLocal,
+    identityOnly
   );
   if (localResult) return localResult;
 
   // Stage 2 & 3: Imports (explicit and module-level)
-  return resolveFromImports(ctx, tcName, forType, forTypeString, scanner);
+  return resolveFromImports(ctx, tcName, forType, forTypeString, scanner, identityOnly);
+}
+
+/**
+ * The enum `t` is, or whose member(s) it is: the enum type itself, an enum
+ * member's literal type, or a union of one enum's members. Decided by the
+ * type's flags and the checker's own widening (`getBaseTypeOfLiteralType`
+ * maps an enum member to its enum), not by printed text. Undefined for
+ * anything else, including a union spanning two enums.
+ */
+function enumTypeOf(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined {
+  const isEnumLike = (m: ts.Type) => (m.flags & ts.TypeFlags.EnumLike) !== 0;
+  if (!(isEnumLike(t) || (t.isUnion() && t.types.every(isEnumLike)))) return undefined;
+  const base = checker.getBaseTypeOfLiteralType(t);
+  const sym = base.symbol;
+  return sym && sym.flags & ts.SymbolFlags.Enum ? base : undefined;
 }
 
 /**
@@ -337,7 +378,8 @@ function resolveFromLocalScope(
   forType: ts.Type,
   forTypeString: string,
   scanner: InstanceScanner,
-  excludeLocal?: string
+  excludeLocal?: string,
+  identityOnly = false
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
@@ -365,7 +407,9 @@ function resolveFromLocalScope(
     forType,
     forTypeString,
     sourceFile.fileName,
-    "local-scope"
+    "local-scope",
+    undefined,
+    identityOnly
   );
 
   return pickResult(matches, tcName, forType);
@@ -376,7 +420,8 @@ function resolveFromImports(
   tcName: string,
   forType: ts.Type,
   forTypeString: string,
-  scanner: InstanceScanner
+  scanner: InstanceScanner,
+  identityOnly = false
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
   const importMap = getImportMap(ctx);
@@ -405,7 +450,8 @@ function resolveFromImports(
       forTypeString,
       entry.resolvedPath,
       "module-scan",
-      entry.specifier
+      entry.specifier,
+      identityOnly
     );
 
     for (const match of allMatches) {
@@ -577,7 +623,8 @@ function filterMatches(
   forTypeString: string,
   sourceModule: string,
   source: ResolutionSource,
-  importSpecifier?: string
+  importSpecifier?: string,
+  identityOnly = false
 ): ResolvedInstance[] {
   const results: ResolvedInstance[] = [];
 
@@ -586,6 +633,11 @@ function filterMatches(
 
     // Type-based matching: use ts.Type directly from scanner
     if (!isTypeMatch(typeChecker, forType, inst.forType)) continue;
+
+    // `identityOnly`: only an instance declared for this very type (by
+    // symbol), not one that merely matches by assignability.
+    const sameTypeIdentity = isSameTypeIdentity(typeChecker, forType, inst.forType);
+    if (identityOnly && !sameTypeIdentity) continue;
 
     results.push({
       kind: "resolved",
@@ -596,7 +648,7 @@ function filterMatches(
       sourceModule,
       source,
       importSpecifier,
-      sameTypeIdentity: isSameTypeIdentity(typeChecker, forType, inst.forType),
+      sameTypeIdentity,
       origin: inst.origin,
     });
   }

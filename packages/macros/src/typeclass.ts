@@ -1676,7 +1676,9 @@ function hasTopLevelComma(text: string): boolean {
 /**
  * Decide whether `@impl TC<typeName>` may emit a `namespace typeName { export
  * const TC = ... }` companion. Only a plain identifier naming an interface,
- * type alias or class declared at the top level of THIS file qualifies:
+ * type alias, class or (non-const, non-ambient) enum declared at the top
+ * level of THIS file qualifies (an enum merges with a namespace like a class
+ * does, and its runtime object carries the companion):
  * anything else either doesn't parse as a namespace name (`Pair<number,
  * string>`, `number[]`, `string | null`) or would create a NEW runtime value
  * that shadows an imported or global binding (`import { Point }` →
@@ -1686,11 +1688,26 @@ function hasTopLevelComma(text: string): boolean {
 function findCompanionHost(
   sourceFile: ts.SourceFile,
   typeName: string
-): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration | string {
+):
+  | ts.InterfaceDeclaration
+  | ts.TypeAliasDeclaration
+  | ts.ClassDeclaration
+  | ts.EnumDeclaration
+  | string {
   if (!/^[A-Za-z_$][\w$]*$/.test(typeName)) {
     return `'${typeName}' is not a plain type name`;
   }
   for (const stmt of sourceFile.statements) {
+    if (ts.isEnumDeclaration(stmt) && stmt.name.text === typeName) {
+      const mods = ts.getCombinedModifierFlags(stmt);
+      if (mods & ts.ModifierFlags.Const) {
+        return `'${typeName}' is a const enum (it has no runtime object to carry a companion)`;
+      }
+      if (mods & ts.ModifierFlags.Ambient) {
+        return `'${typeName}' is a declared (ambient) enum (a companion namespace would replace its runtime object)`;
+      }
+      return stmt;
+    }
     if (
       (ts.isInterfaceDeclaration(stmt) ||
         ts.isTypeAliasDeclaration(stmt) ||
