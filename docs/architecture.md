@@ -484,7 +484,7 @@ interface ArrayF extends TypeFunction {
 }
 ```
 
-The underlying encoding uses phantom kind markers: `type Kind<F, A> = F & { readonly __kind__: A }`. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
+The underlying encoding uses phantom kind markers: `type Kind<F, A> = F & { readonly __kind__: A }`. Nothing rewrites `Kind<OptionF, number>` to `Option<number>` (the preprocessor that did was removed in PEP-047): `Apply<OptionF, number>` computes it, and `@impl` expands an instance's signatures to the concrete types.
 
 ---
 

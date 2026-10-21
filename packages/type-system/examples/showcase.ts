@@ -28,7 +28,8 @@ import {
   type IsUnknown,
 
   // HKT
-  type $,
+  type Kind,
+  type Apply,
   type ArrayF,
   type PromiseF,
   type SetF,
@@ -126,17 +127,19 @@ console.log("1. Type-level boolean utilities: all type assertions passed");
 // 2. HIGHER-KINDED TYPES (HKT) - Type Constructors as Parameters
 // ============================================================================
 
-// Kind<F, A> applies a type constructor F to argument A
-type StringArray = Kind<ArrayF, string>;
+// Apply<F, A> applies a type-level function F to argument A, computing the
+// type. Kind<F, A> (below, in Functor's signature) is the phantom marker for
+// "F applied to A" that generic HKT code uses; it is not computed.
+type StringArray = Apply<ArrayF, string>;
 typeAssert<Equal<StringArray, string[]>>();
 
-type NumPromise = Kind<PromiseF, number>;
+type NumPromise = Apply<PromiseF, number>;
 typeAssert<Equal<NumPromise, Promise<number>>>();
 
-type StringSet = Kind<SetF, string>;
+type StringSet = Apply<SetF, string>;
 typeAssert<Equal<StringSet, Set<string>>>();
 
-type StringNumMap = Kind<MapF<string>, number>;
+type StringNumMap = Apply<MapF<string>, number>;
 typeAssert<Equal<StringNumMap, Map<string, number>>>();
 
 // HKT enables generic programming over type constructors
@@ -152,7 +155,7 @@ const mapped = arrayFunctor.map([1, 2, 3], (x) => x.toString());
 assert(mapped[0] === "1");
 assert(mapped.length === 3);
 
-console.log("2. HKT encoding: Kind<ArrayF, string> = string[], functor map works");
+console.log("2. HKT encoding: Apply<ArrayF, string> = string[], functor map works");
 
 // ============================================================================
 // 3. REFINEMENT TYPES - Values with Compile-Time Validated Predicates
