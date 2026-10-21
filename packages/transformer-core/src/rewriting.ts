@@ -706,7 +706,9 @@ export function tryRewriteTypeclassOperator(
   } catch (error) {
     return operandTypeFailed(error);
   }
-  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
+  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName)) || isPrimitiveByFlags(leftType)) {
+    return undefined;
+  }
 
   let rightType: ts.Type;
   try {
@@ -732,7 +734,15 @@ export function tryRewriteTypeclassOperator(
     dispatchTypes = [];
     for (const operand of [node.left, node.right]) {
       const declared = declaredOperandType(ctx, operand);
-      if (declared && declared !== leftType && !dispatchTypes.includes(declared)) {
+      // Only an object type can be a narrowed union's declared type; a
+      // primitive one (`n: number` in `1 / n`) would dispatch a literal
+      // operand to the primitive's instances.
+      if (
+        declared &&
+        declared !== leftType &&
+        !isPrimitiveByFlags(declared) &&
+        !dispatchTypes.includes(declared)
+      ) {
         dispatchTypes.push(declared);
       }
     }
@@ -950,6 +960,30 @@ const PRIMITIVE_RESULT_OPERATORS = new Set<ts.SyntaxKind>([
 function isPrimitiveTypedBinary(e: ts.Expression): boolean {
   while (ts.isParenthesizedExpression(e)) e = e.expression;
   return ts.isBinaryExpression(e) && PRIMITIVE_RESULT_OPERATORS.has(e.operatorToken.kind);
+}
+
+/**
+ * `t` is a primitive, a literal of one, an enum, or a union of those (or
+ * any/unknown/never/null/undefined): by its flags, so the literal type `1`
+ * counts, which the printed-name check (`"1"`) missed.
+ */
+function isPrimitiveByFlags(t: ts.Type): boolean {
+  const primitive =
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.ESSymbolLike |
+    ts.TypeFlags.EnumLike |
+    ts.TypeFlags.Null |
+    ts.TypeFlags.Undefined |
+    ts.TypeFlags.Void |
+    ts.TypeFlags.Any |
+    ts.TypeFlags.Unknown |
+    ts.TypeFlags.Never;
+  return t.isUnion()
+    ? t.types.every((m) => (m.flags & primitive) !== 0)
+    : (t.flags & primitive) !== 0;
 }
 
 /** Operators whose native result on a nullish operand is a boolean, never a throw. */

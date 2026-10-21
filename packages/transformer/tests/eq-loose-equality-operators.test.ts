@@ -273,6 +273,20 @@ describe("a derived union narrowed to one variant by assignment", () => {
     expect(evaluate(r.code)).toEqual({ same: true, differ: true, viaProperty: true });
   });
 
+  it("a literal operand stays native: a primitive declared type is not borrowed", () => {
+    // `recip: (a) => 1 / a` in std (two @op / typeclasses in scope) became
+    // "Ambiguous operator '/' for type '1'" when the right operand's declared
+    // type, number, was tried for the literal `1`.
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      `const n: number = 2;`,
+      `export const r = 1 === n;`,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-literal-${counter++}.ts` });
+    expect(r.diagnostics).toEqual([]);
+    expect(r.code).toContain("r = 1 === n");
+  });
+
   it("without the Eq import, TS9804 names the union's Eq", () => {
     const code = [
       `/** @derive(Eq) */`,
