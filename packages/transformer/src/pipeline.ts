@@ -476,6 +476,14 @@ export function macroTransformerFactory(
             }
           }
         }
+        // A synthetic node (a JSDoc tag's parsed arguments) has no position:
+        // getStart() returns -1, and a negative start crashed the CLI's
+        // diagnostic printer ("position cannot precede the beginning of the
+        // file") instead of reporting the error.
+        if (start < 0 || length < 0) {
+          start = 0;
+          length = 0;
+        }
 
         const errorCode =
           diag.code ??

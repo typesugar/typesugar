@@ -3828,19 +3828,23 @@ export function tryExpandGenericDerive(
       )
     );
 
-    const reExport = ts.factory.createVariableStatement(
-      [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-      ts.factory.createVariableDeclarationList(
-        [
-          ts.factory.createVariableDeclaration(
-            deriveName,
-            undefined,
-            typeAnnotation,
-            ts.factory.createIdentifier(hoistedName)
-          ),
-        ],
-        ts.NodeFlags.Const
-      )
+    const reExport = withImplTag(
+      ts.factory.createVariableStatement(
+        [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+        ts.factory.createVariableDeclarationList(
+          [
+            ts.factory.createVariableDeclaration(
+              deriveName,
+              undefined,
+              typeAnnotation,
+              ts.factory.createIdentifier(hoistedName)
+            ),
+          ],
+          ts.NodeFlags.Const
+        )
+      ),
+      deriveName,
+      typeName
     );
 
     const namespaceDecl = ts.factory.createModuleDeclaration(
@@ -3854,12 +3858,16 @@ export function tryExpandGenericDerive(
     statements.push(namespaceDecl);
   } else {
     // Standard path: wrap in namespace directly (no shadowing risk).
-    const companionProperty = ts.factory.createVariableStatement(
-      [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-      ts.factory.createVariableDeclarationList(
-        [ts.factory.createVariableDeclaration(deriveName, undefined, typeAnnotation, expr)],
-        ts.NodeFlags.Const
-      )
+    const companionProperty = withImplTag(
+      ts.factory.createVariableStatement(
+        [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+        ts.factory.createVariableDeclarationList(
+          [ts.factory.createVariableDeclaration(deriveName, undefined, typeAnnotation, expr)],
+          ts.NodeFlags.Const
+        )
+      ),
+      deriveName,
+      typeName
     );
 
     const namespaceDecl = ts.factory.createModuleDeclaration(
@@ -3882,6 +3890,23 @@ export function tryExpandGenericDerive(
       derived: true,
     },
   };
+}
+
+/**
+ * `/** @impl TC<Type> *\/` on a derive companion member. The tag says what
+ * the member is wherever only its declaration is visible: a library's
+ * `.d.ts` keeps it (declaration emit copies JSDoc), and a consumer's instance
+ * scanner finds `Type.TC` by it. A decorator `@derive(TC)` leaves no trace in
+ * a `.d.ts` otherwise. Nothing transforms the expanded output again, so the
+ * tag never dispatches the `@impl` macro.
+ */
+function withImplTag(stmt: ts.VariableStatement, tcName: string, typeName: string) {
+  return ts.addSyntheticLeadingComment(
+    stmt,
+    ts.SyntaxKind.MultiLineCommentTrivia,
+    `* @impl ${tcName}<${typeName}> `,
+    true
+  );
 }
 
 // ============================================================================

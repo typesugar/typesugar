@@ -379,12 +379,16 @@ function resolveFromImports(
     );
 
     for (const match of allMatches) {
-      const binding = entry.namedImports.find((b) => b.exportName === match.exportName);
+      // A companion (`Point.Eq`) is imported through its type's binding
+      // (`import { Point as P }` → `P.Eq`).
+      const dot = match.exportName.indexOf(".");
+      const importedName = dot === -1 ? match.exportName : match.exportName.slice(0, dot);
+      const binding = entry.namedImports.find((b) => b.exportName === importedName);
       if (binding) {
         explicitMatches.push({
           ...match,
           source: "explicit-import",
-          localName: binding.localName,
+          localName: binding.localName + (dot === -1 ? "" : match.exportName.slice(dot)),
           typeOnlyImport: binding.typeOnly,
         });
       } else {
@@ -505,12 +509,28 @@ export function buildInstanceReference(
 ): ts.Expression {
   const f = ctx.factory;
   if (resolved.source === "explicit-import" && resolved.localName && !resolved.typeOnlyImport) {
-    return f.createIdentifier(resolved.localName);
+    return buildDottedReference(f, resolved.localName);
   }
   if (resolved.source !== "local-scope" && resolved.importSpecifier) {
-    return ctx.ensureImport(resolved.exportName, resolved.importSpecifier);
+    return buildImportedReference(ctx, resolved.exportName, resolved.importSpecifier);
   }
   return buildDottedReference(f, resolved.exportName);
+}
+
+/**
+ * A reference to `exportName` of the module `specifier`, importing it (via
+ * `ctx.ensureImport`, aliased if the name is taken). A companion path
+ * (`"Point.Eq"`) imports its first segment and reads the rest from it.
+ */
+export function buildImportedReference(
+  ctx: Pick<MacroContext, "factory" | "ensureImport">,
+  exportName: string,
+  specifier: string
+): ts.Expression {
+  const [base, ...rest] = exportName.split(".");
+  let expr: ts.Expression = ctx.ensureImport(base, specifier);
+  for (const part of rest) expr = ctx.factory.createPropertyAccessExpression(expr, part);
+  return expr;
 }
 
 /** `"Point.Eq"` → `Point.Eq` property access; a plain name → identifier. */

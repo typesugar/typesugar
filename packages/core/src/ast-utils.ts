@@ -608,6 +608,56 @@ export function getRemoveComment(node: ts.Node): string | undefined {
 }
 
 // =============================================================================
+// isJSDocTagAtLineStart — real JSDoc tags vs. prose and fenced examples
+// =============================================================================
+
+/**
+ * Whether a JSDoc tag sits at a real tag position: the `@` starts its comment
+ * line (only whitespace and the leading `*` before it, or only whitespace
+ * after `/**` on the comment's first line), and the line is not inside a
+ * ``` / ~~~ code fence within that comment.
+ *
+ * TypeScript's JSDoc parser treats any whitespace-preceded `@word` as a tag,
+ * so prose ("Parsed from @adt tag."), nested example comments
+ * (` * /** @hkt *\/`) and fenced examples (` * @derive(Read)` between ```)
+ * all come back from `ts.getJSDocTags`. Those must not dispatch macros.
+ *
+ * A tag with no real source position (synthetic) is accepted, as before.
+ */
+export function isJSDocTagAtLineStart(tag: ts.JSDocTag): boolean {
+  if (tag.pos < 0) return true;
+  let jsDoc: ts.Node | undefined = tag.parent;
+  while (jsDoc && jsDoc.kind !== ts.SyntaxKind.JSDoc) jsDoc = jsDoc.parent;
+  let root: ts.Node | undefined = jsDoc;
+  while (root && root.kind !== ts.SyntaxKind.SourceFile) root = root.parent;
+  if (!jsDoc || !root || jsDoc.pos < 0) return true;
+  const text = (root as ts.SourceFile).text;
+  const commentStart = jsDoc.pos;
+  const tagPos = tag.pos;
+  if (text.charCodeAt(tagPos) !== 64 /* @ */) return true;
+
+  // Prefix of the tag's own line.
+  const lineStart = text.lastIndexOf("\n", tagPos - 1) + 1;
+  const prefix =
+    lineStart <= commentStart
+      ? text.slice(commentStart, tagPos).replace(/^\/\*\*/, "")
+      : text.slice(lineStart, tagPos).replace(/^[ \t]*\*/, "");
+  if (!/^[ \t]*$/.test(prefix)) return false;
+
+  // Code-fence state over the comment lines BEFORE the tag's line.
+  let inFence = false;
+  const before = text.slice(commentStart, lineStart);
+  for (const rawLine of before.split("\n")) {
+    const line = rawLine
+      .replace(/^[ \t]*\/\*\*/, "")
+      .replace(/^[ \t]*\*/, "")
+      .trimStart();
+    if (line.startsWith("```") || line.startsWith("~~~")) inFence = !inFence;
+  }
+  return !inFence;
+}
+
+// =============================================================================
 // opaqueTypesAsUnderlying — the runtime view of @opaque types, for type-checking expanded output
 // =============================================================================
 

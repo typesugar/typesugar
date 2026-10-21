@@ -120,7 +120,11 @@ console.log(User.Eq.equals(alice, { id: 1, name: "Alice" }), User.Ord.compare(al
 `);
     expect(r.errors).toEqual([]);
     const generated = r.code.slice(r.code.indexOf("namespace User"));
-    expect(generated.slice(0, generated.indexOf("const alice"))).not.toMatch(/\/\/|\/\*/);
+    // Each companion carries its own `/** @impl TC<User> */` tag (for a
+    // library's .d.ts); no other comment belongs there.
+    const companions = generated.slice(0, generated.indexOf("const alice"));
+    expect(companions.match(/\/\*\* @impl \w+<User> \*\//g)).toHaveLength(4);
+    expect(companions.replace(/\/\*\* @impl \w+<User> \*\//g, "")).not.toMatch(/\/\/|\/\*/);
     expect(r.logs).toEqual([true]);
   });
 

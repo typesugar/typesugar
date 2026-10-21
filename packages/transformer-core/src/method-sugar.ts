@@ -250,7 +250,7 @@ export function tryResolveTypeclassMethod(
   // per-transformer pending-import tracking -- and, importantly, uses the
   // identifier IT RETURNS (which may be a conflict-safe alias) rather than a
   // fresh, possibly-wrong bare identifier.
-  const importName = matched.companionPath ? matched.companionPath.split(".")[0] : instName;
+  const importName = instName.split(".")[0];
 
   // A derived companion lives next to the receiver's type. If that type comes
   // from a module this file doesn't import at all (e.g. only reached through

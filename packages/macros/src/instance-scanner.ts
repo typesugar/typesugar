@@ -6,6 +6,9 @@
  * 2. Explicit type annotations matching `TC<Type>` (secondary fallback)
  * 3. Call-form initializers: `impl("TC<Type>", {...})`, and
  *    `derived<TC<Type>>()` (a derived instance, declared once)
+ * 4. `@derive(TC)` companions (`Type.TC`) of an exported type: from the
+ *    type's `@derive` annotation, or, in a `.d.ts`, from the `@impl` tag the
+ *    derive puts on each companion member
  *
  * This enables @derive and summon to resolve instances by searching imports
  * rather than relying on a central registry — any package can provide
@@ -15,7 +18,13 @@
  */
 
 import * as ts from "typescript";
-import { parseTypeInstantiation, getOrCreateWeak } from "@typesugar/core";
+import {
+  parseTypeInstantiation,
+  getOrCreateWeak,
+  globalRegistry,
+  isJSDocTagAtLineStart,
+} from "@typesugar/core";
+import { hasGenericDerivation } from "./auto-derive.js";
 
 /**
  * Result of scanning a module export for typeclass instance information.
@@ -289,9 +298,69 @@ export class InstanceScanner {
     if (!declarations || declarations.length === 0) return results;
 
     for (const decl of declarations) {
-      results.push(...this.scanDeclaration(typeChecker, decl, exportName, resolvedPath));
+      if (ts.isModuleDeclaration(decl)) {
+        results.push(...this.scanNamespaceMembers(typeChecker, decl, exportName, resolvedPath));
+      } else if (
+        ts.isInterfaceDeclaration(decl) ||
+        ts.isClassDeclaration(decl) ||
+        ts.isTypeAliasDeclaration(decl)
+      ) {
+        results.push(
+          ...deriveCompanionInstances(typeChecker, resolvedSym, decl, exportName, resolvedPath)
+        );
+      } else {
+        results.push(...this.scanDeclaration(typeChecker, decl, exportName, resolvedPath));
+      }
     }
 
+    // A derive companion is found twice in a `.d.ts`: from the type's
+    // `@derive` tag and from the companion member's own `@impl` tag.
+    const seen = new Set<string>();
+    return results.filter((r) => {
+      const key = `${r.typeclassName}\0${r.exportName}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
+   * Instances declared as members of an exported namespace, reachable as
+   * `Ns.member`: chiefly the companions `@derive` generates (`namespace Point
+   * { export const Eq = ... }`), which carry an `@impl Eq<Point>` tag so that
+   * a library's `.d.ts` says what they are. Only members a consumer can
+   * reach: exported ones, or every member of an ambient (`declare`)
+   * namespace, as in a `.d.ts`.
+   */
+  private scanNamespaceMembers(
+    typeChecker: ts.TypeChecker,
+    decl: ts.ModuleDeclaration,
+    exportName: string,
+    resolvedPath: string
+  ): ScannedInstance[] {
+    const body = decl.body;
+    if (!body || !ts.isModuleBlock(body)) return [];
+    const ambient =
+      decl.getSourceFile().isDeclarationFile ||
+      (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0;
+    const results: ScannedInstance[] = [];
+    for (const stmt of body.statements) {
+      if (!ts.isVariableStatement(stmt)) continue;
+      const exported =
+        ambient || (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false);
+      if (!exported) continue;
+      for (const member of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(member.name)) continue;
+        results.push(
+          ...this.scanDeclaration(
+            typeChecker,
+            member,
+            `${exportName}.${member.name.text}`,
+            resolvedPath
+          )
+        );
+      }
+    }
     return results;
   }
 
@@ -308,6 +377,13 @@ export class InstanceScanner {
     resolvedPath: string
   ): ScannedInstance[] {
     const results: ScannedInstance[] = [];
+
+    // An instance is a value: a variable. A function or class that happens to
+    // carry an `@impl` tag is not one — typesugar's own `impl()` declaration
+    // has a fenced `/** @impl Eq<Point> */` example in its JSDoc, which
+    // `ts.getJSDocTags` reports as a tag, and the name-based fallback in
+    // implicit() used to emit a reference to `impl` as an `Eq<Point>`.
+    if (!ts.isVariableDeclaration(decl) && !ts.isVariableStatement(decl)) return results;
 
     // JSDoc attaches to the VariableStatement, not the VariableDeclaration.
     // Walk up if needed.
@@ -505,6 +581,8 @@ export class InstanceScanner {
     for (const tag of tags) {
       const tagName = tag.tagName.text;
       if (tagName !== "impl" && tagName !== "instance") continue;
+      // A tag in prose or a fenced example is not this declaration's tag.
+      if (!isJSDocTagAtLineStart(tag)) continue;
 
       const comment =
         typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
@@ -569,6 +647,107 @@ export class InstanceScanner {
       detectedVia: "type-annotation",
     };
   }
+}
+
+/**
+ * The companions `@derive` gives an exported type, as instances:
+ * `/** @derive(Eq) *\/ export interface Point` has `Point.Eq`, an `Eq<Point>`.
+ *
+ * - In a `.d.ts` (a published library), the companion is a member of the
+ *   type's merged namespace. Only a member that is really there counts: the
+ *   tag says which typeclasses, the declaration file says what exists (a
+ *   derive that failed, or one that emits something other than a companion,
+ *   has no member). The member's own `@impl` tag finds it too (the decorator
+ *   form leaves no `@derive` in a `.d.ts`); {@link InstanceScanner.scanExport}
+ *   drops the duplicate.
+ * - In source, the companion does not exist yet: it is generated when the
+ *   declaring file is transformed, which may be before or after the file
+ *   asking. Registry shape (CLAUDE.md "Resolving things a macro just
+ *   generated"): this reads the source as written, which is enough, because
+ *   the `@derive` annotation is in the source before any pass starts and the
+ *   companion's name and type follow from it (`Type.TC`, for the type
+ *   itself). Only derives that generate a companion count: a typeclass with
+ *   a GenericDerivation and no derive macro of the same name (the order
+ *   expandDeriveDecorator tries them in).
+ *
+ * The instance's type is the declared type of the type's own symbol (by
+ * identity, CLAUDE.md "Deciding what a type is"), never a type looked up by
+ * the tag's text.
+ */
+function deriveCompanionInstances(
+  typeChecker: ts.TypeChecker,
+  typeSymbol: ts.Symbol,
+  decl: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+  exportName: string,
+  resolvedPath: string
+): ScannedInstance[] {
+  const names = deriveNamesOf(decl);
+  if (names.length === 0) return [];
+  const inDeclarationFile = decl.getSourceFile().isDeclarationFile;
+  let forType: ts.Type | undefined;
+  try {
+    forType = typeChecker.getDeclaredTypeOfSymbol(typeSymbol);
+  } catch {
+    return [];
+  }
+  const results: ScannedInstance[] = [];
+  for (const tc of new Set(names)) {
+    if (inDeclarationFile) {
+      const member = typeSymbol.exports?.get(ts.escapeLeadingUnderscores(tc));
+      if (!member || !(member.flags & ts.SymbolFlags.Value)) continue;
+    } else if (!hasGenericDerivation(tc) || globalRegistry.getDerive(tc)) {
+      continue;
+    }
+    results.push({
+      typeclassName: tc,
+      forTypeString: decl.name?.text ?? exportName,
+      forType,
+      exportName: `${exportName}.${tc}`,
+      sourceModule: resolvedPath,
+      detectedVia: "derived",
+    });
+  }
+  return results;
+}
+
+/**
+ * The typeclass names a type declaration derives, from either form:
+ * `@derive(Eq, Clone)` as a decorator, or a `/** @derive(Eq, Clone) *\/` /
+ * `@derive Eq, Clone` / `@deriving ...` JSDoc tag. Tags in prose or fenced
+ * examples don't count. Reading the names is syntax (which typeclasses the
+ * annotation names), not a decision about what a type is.
+ */
+export function deriveNamesOf(decl: ts.Node): string[] {
+  const names: string[] = [];
+  if (ts.canHaveDecorators(decl)) {
+    for (const dec of ts.getDecorators(decl) ?? []) {
+      const e = dec.expression;
+      if (
+        ts.isCallExpression(e) &&
+        ts.isIdentifier(e.expression) &&
+        (e.expression.text === "derive" || e.expression.text === "deriving")
+      ) {
+        for (const arg of e.arguments) if (ts.isIdentifier(arg)) names.push(arg.text);
+      }
+    }
+  }
+  for (const tag of ts.getJSDocTags(decl)) {
+    const tagName = tag.tagName.text;
+    if (tagName !== "derive" && tagName !== "deriving") continue;
+    if (!isJSDocTagAtLineStart(tag)) continue;
+    const comment =
+      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+    const trimmed = comment?.trim() ?? "";
+    const close = trimmed.indexOf(")");
+    const inner = trimmed.startsWith("(")
+      ? trimmed.slice(1, close === -1 ? undefined : close)
+      : trimmed;
+    for (const part of inner.split(",")) {
+      const name = part.trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) names.push(name);
+    }
+  }
+  return names;
 }
 
 /** Does `sf` import typesugar's `derived` under the local name `local`? */

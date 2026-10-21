@@ -517,3 +517,119 @@ export const ordNumber = { compare: (a: number, b: number) => 0 };
     expect(forTypes.size).toBe(4);
   });
 });
+
+describe("@derive companions of an exported type (a library's instances)", () => {
+  it("in a .d.ts: each companion member the @derive tag names, typed by the type itself", () => {
+    const mod = createTestModule(
+      `/** @derive(Eq, Ord) */
+export interface Point { x: number; y: number }
+export declare namespace Point {
+  const Eq: { equals: (a: Point, b: Point) => boolean };
+}
+`,
+      "lib.d.ts"
+    );
+    const results = new InstanceScanner().scanModule(
+      mod.typeChecker,
+      mod.moduleSymbol,
+      mod.resolvedPath
+    );
+    // Ord is named but has no member (its derive failed): not an instance.
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      typeclassName: "Eq",
+      exportName: "Point.Eq",
+      forTypeString: "Point",
+      detectedVia: "derived",
+    });
+    const sf = mod.program.getSourceFile(mod.resolvedPath)!;
+    const pointSym = mod.typeChecker.getSymbolAtLocation(
+      (sf.statements[0] as ts.InterfaceDeclaration).name
+    )!;
+    expect(results[0].forType).toBe(mod.typeChecker.getDeclaredTypeOfSymbol(pointSym));
+  });
+
+  it("in a .d.ts: a namespace member's own @impl tag (the decorator form leaves no @derive)", () => {
+    const mod = createTestModule(
+      `export declare class Money { amount: number }
+export declare namespace Money {
+  /** @impl Eq<Money> */
+  const Eq: { equals: (a: Money, b: Money) => boolean };
+  const notAnInstance: number;
+}
+`,
+      "money.d.ts"
+    );
+    const results = new InstanceScanner().scanModule(
+      mod.typeChecker,
+      mod.moduleSymbol,
+      mod.resolvedPath
+    );
+    expect(results).toEqual([
+      expect.objectContaining({
+        typeclassName: "Eq",
+        exportName: "Money.Eq",
+        forTypeString: "Money",
+      }),
+    ]);
+    expect(results[0].forType).toBeDefined();
+  });
+
+  it("a .d.ts with both the @derive tag and the member's @impl tag: one instance", () => {
+    const mod = createTestModule(
+      `/** @derive(Eq) */
+export interface Point { x: number }
+export declare namespace Point {
+  /** @impl Eq<Point> */
+  const Eq: { equals: (a: Point, b: Point) => boolean };
+}
+`,
+      "both.d.ts"
+    );
+    const results = new InstanceScanner().scanModule(
+      mod.typeChecker,
+      mod.moduleSymbol,
+      mod.resolvedPath
+    );
+    expect(results.map((r) => r.exportName)).toEqual(["Point.Eq"]);
+  });
+
+  it("in source: the companion a GenericDerivation will generate (it doesn't exist yet)", () => {
+    const mod = createTestModule(`
+/** @derive(Eq, NotATypeclass) */
+export interface Point { x: number }
+/**
+ * Docs only:
+ * \`\`\`
+ * @derive(Ord)
+ * \`\`\`
+ */
+export interface Other { y: number }
+`);
+    const results = new InstanceScanner().scanModule(
+      mod.typeChecker,
+      mod.moduleSymbol,
+      mod.resolvedPath
+    );
+    expect(results.map((r) => `${r.typeclassName}:${r.exportName}`)).toEqual(["Eq:Point.Eq"]);
+  });
+
+  it("a function whose JSDoc shows an @impl example is not an instance", () => {
+    const mod = createTestModule(`
+/**
+ * Register an instance:
+ * \`\`\`typescript
+ * /** @impl Eq<Point> *\\/
+ * export const pointEq = { ... };
+ * \`\`\`
+ */
+export declare function impl<T>(desc: string, body: T): T;
+`);
+    const results = new InstanceScanner().scanModule(
+      mod.typeChecker,
+      mod.moduleSymbol,
+      mod.resolvedPath
+    );
+    expect(results).toEqual([]);
+  });
+});

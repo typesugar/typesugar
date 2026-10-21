@@ -56,6 +56,7 @@ import {
   resolveInstance,
   findEmittableInstanceByName,
   buildInstanceReference,
+  buildImportedReference,
   buildDottedReference,
 } from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
@@ -439,7 +440,7 @@ export function transformImplicitsCall(
       if (hit) {
         instanceExpr =
           hit.specifier && hit.modulePath
-            ? ctx.ensureImport(hit.exportName, hit.specifier)
+            ? buildImportedReference(ctx, hit.exportName, hit.specifier)
             : buildDottedReference(factory, hit.exportName);
       }
     }

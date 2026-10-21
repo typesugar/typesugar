@@ -253,6 +253,7 @@ export {
 export {
   InstanceScanner,
   instanceScanner,
+  deriveNamesOf,
   parseDoMethodsTag,
   DEFAULT_DO_METHODS,
   type ScannedInstance,
@@ -261,6 +262,7 @@ export {
 export {
   resolveInstance,
   buildInstanceReference,
+  buildImportedReference,
   clearResolverCache,
   findInstanceInScopeByName,
   resolveDoNotationInstance,
