@@ -123,18 +123,18 @@ Like Rust's `#[derive(Clone)]`: each field is cloned through its own `Clone`, so
 The copy starts as a spread of the original and then sets the fields that need cloning, so an optional field that is absent stays absent, and properties the type doesn't declare are kept (by reference). The result is a plain object, not a class instance (`c2 instanceof Config` is false).
 
 ```typescript
-interface Shape {
+/** @derive(Clone) */
+export interface Shape {
   id: number;
   points: number[][];
   bbox?: [number, number, number, number];
 }
-summon<Clone<Shape>>();
-// Compiles to:
-// ({ clone: (a: Shape): Shape => ({
+// Shape.Clone compiles to:
+// { clone: (a: Shape): Shape => ({
 //   ...a,
 //   points: a.points.map(e => e.slice()),
 //   ...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }),
-// }) })
+// }) }
 ```
 
 A discriminated union becomes a `switch` on its discriminant, and a type that contains itself (a tree, or GeoJSON's `GeometryCollection` inside `Geometry`) becomes a local helper that calls itself; derivation itself never loops. A _value_ that contains itself (a cycle such as `node.parent.child === node`) is cloned until the stack overflows, as any field-wise clone would be; give such a type a hand-written `Clone`.
@@ -431,9 +431,27 @@ summon<Eq<Person>>().equals(p1, p2); // true
 p2.address === p1.address; // false — the Address is cloned through Address.Clone
 ```
 
+## Types You Don't Own: `derived<TC<T>>()`
+
+`@derive` goes on a declaration, so it can't be used on a type from a library (`Feature` from `@types/geojson`). `derived<TC<T>>()` runs the same derivation for such a type, once, in a module of your own; the `const` it initializes is the instance, which `summon`, `= implicit()` and method syntax find in every file that imports the module:
+
+```typescript
+// geo-instances.ts
+import type { Feature, Point } from "geojson";
+import type { Clone, Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+
+export const cloneFeature = derived<Clone<Feature>>(); // what @derive(Clone) would generate
+export const eqPoint = derived<Eq<Point>>();
+```
+
+It supports every typeclass in the table above, and field instances come from scope where it is written. See [Instances for types you don't own](./typeclasses.md#external-types) for the details: the `.d.ts`, generic types, and the errors.
+
+`summon<Clone<Feature>>()` with no instance in scope still derives one in place, a new copy at each call, with a [TS9009](/errors/TS9009) warning. That fallback is deprecated; declare the instance with `@derive` or `derived` instead.
+
 ## Generic Types
 
-Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `TS9106: Cannot derive Eq for 'Box'` (the trace notes `T lacks Eq`), and `summon<Eq<Box<number>>>()` is TS9001. Write those instances by hand for now.
+Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `TS9106: Cannot derive Eq for 'Box'` (the trace notes `T lacks Eq`), and `summon<Eq<Box<number>>>()` is TS9001. Write those instances by hand for now. `derived<Eq<Box<number>>>()` derives one for a single instantiation; with a free type parameter it is [TS9011](/errors/TS9011).
 
 ## See Expanded Code
 

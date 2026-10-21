@@ -249,6 +249,24 @@ Tags: **BLOCKS 1.0** (shape users or macro authors would depend on) or **POST-1.
     the key risk, since macros make many checker calls per file. Feeds the separate TS 7
     PEP that D4 calls for.
 
+### Deprecations scheduled for removal
+
+- **`summon` / `= implicit()` deriving in place** (deprecated on
+  `case-study-fixes`, PR #83). With no instance in scope they still derive one
+  from the type's structure at the call site, a new copy per call that no
+  other file can find, and warn TS9009 once per (typeclass, type) per file.
+  The replacement is a declared instance: `@derive(TC)` on a type you own,
+  `export const x = derived<TC<T>>()` for one you don't (Turf case study F10,
+  "option B"). **Removal:** a later release (1.x minor or 2.0, Dean's call)
+  makes `summon` and `implicit()` find-only: the `tryDeriveViaGeneric` steps
+  in `summonInstanceExpression` and `transformImplicitsCall` go, a derivable
+  type with no instance becomes TS9001 (whose help already suggests
+  `derived<...>()` for a type declared outside the project), and the tests
+  that pin the fallback (`external-type-instances.test.ts`, "no instance
+  anywhere") flip to expect TS9001. Expanded-program emit (item 3) is
+  already accounted for: the expansion annotates the `derived` const with its
+  instance type, so its `.d.ts` stays `x: TC<T>`.
+
 ## Decisions for Dean
 
 - **D1. Type-checking model.** (a) Check the expanded program everywhere (≈2× check

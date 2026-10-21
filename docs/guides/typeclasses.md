@@ -122,11 +122,19 @@ print(42, { show: (n: number) => `#${n}` }); // "#42"
 ## Deriving Instances
 
 Nothing is ambient (PEP-052): a type gets an instance only when you ask for
-one, either with `@derive` or by writing an `@impl` instance by hand. There
-is no "the compiler noticed a typeclass operation on a `Point` and synthesized
-an instance from its fields" behavior — that would mean a type's behavior
-depended on which files happen to import which typeclasses, which is exactly
-the non-local, order-dependent resolution typesugar is designed to avoid.
+one: with `@derive` on a type you own, with `derived<TC<T>>()` for a type you
+don't ([below](#external-types)), or by writing an `@impl` instance by hand.
+There is no "the compiler noticed a typeclass operation on a `Point` and
+synthesized an instance from its fields" behavior — that would mean a type's
+behavior depended on which files happen to import which typeclasses, which is
+exactly the non-local, order-dependent resolution typesugar is designed to
+avoid.
+
+> **Deprecated: `summon` deriving in place.** When no instance is in scope,
+> `summon<TC<T>>()` and `= implicit()` still derive one from the type's
+> structure at the call site, a new copy at every call, and warn with
+> [TS9009](/errors/TS9009). A later release makes them find instances only;
+> declare the instance once with `@derive` or `derived<TC<T>>()` instead.
 
 ### `@derive` (Required)
 
@@ -158,21 +166,23 @@ pass the element instance explicitly.
 
 A type from a library, such as `Feature` from `@types/geojson`, can't carry
 `@derive`, but its instances can live in a module of your own, exported like
-any other value. Write them in one file and import that file where you use
-them; `summon`, `= implicit()` and method syntax all find them there.
+any other value. Declare them once, in one file, and import that file where
+you use them; `summon`, `= implicit()` and method syntax all find them there.
+
+`derived<TC<T>>()` derives an instance from the type's structure: the same
+code `@derive(TC)` generates for a type you own, emitted once, where you
+write it. Or write the instance by hand.
 
 ```typescript
 // geo-instances.ts
 import type { Feature } from "geojson";
 import type { Clone, Eq } from "@typesugar/std";
-import { summon } from "typesugar";
+import { derived } from "typesugar";
 
 // Derived from Feature's structure, as @derive(Clone) would derive it:
-/** @impl Clone<Feature> */
-export const cloneFeature = summon<Clone<Feature>>();
+export const cloneFeature = derived<Clone<Feature>>();
 
-// Or written by hand:
-/** @impl Eq<Feature> */
+// Written by hand (a typed const is an instance):
 export const eqFeature: Eq<Feature> = {
   equals: (a, b) => a.id === b.id,
   notEquals: (a, b) => a.id !== b.id,
@@ -197,17 +207,69 @@ dup(f); // → dup(f, cloneFeature)
 f.clone(); // → cloneFeature.clone(f)
 ```
 
-- A `summon` in an instance's own initializer never resolves to that
-  instance, so `cloneFeature = summon<Clone<Feature>>()` derives it.
-- Keep each instance in one module. A `summon` with no instance in scope
-  derives a new copy of the instance in place, at every call site; one
-  exported instance is one definition, and two instances for the same type in
-  scope are an ambiguity error at the call site.
+`export const cloneFeature = derived<Clone<Feature>>();` compiles to the
+derivation, in place of the call (shortened):
+
+```typescript
+export const cloneFeature = (() => {
+  const cloneGeometry = (a: Feature["geometry"]): Feature["geometry"] => {
+    switch (a.type) {
+      case "Point":
+        return {
+          ...a,
+          coordinates: a.coordinates.slice(),
+          ...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }),
+        };
+      // ... a case per geometry type; a GeometryCollection's geometries.map(cloneGeometry)
+    }
+  };
+  return {
+    clone: (a: Feature): Feature => ({
+      ...a,
+      geometry: cloneGeometry(a.geometry),
+      properties: a.properties && { ...a.properties },
+      ...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }),
+    }),
+  };
+})();
+```
+
+- **The const is the instance.** An `@impl` tag is optional: the initializer
+  says what the instance is, as a type annotation does. If you add one, it
+  must name the same typeclass and type.
+- **Field instances come from scope.** A field whose type has an instance
+  where `derived` is written goes through it, so a hand-written
+  `Clone<GeoJsonProperties>` (say, a deep copy) declared above
+  `cloneFeature` is used for `properties`, and a `derived<Clone<Geometry>>()`
+  for `geometry`. A field with no instance that can't be derived is an error at
+  the `derived` line that names the field and its type
+  ([TS9107](/errors/TS9107)): `derived<Eq<Feature>>()` needs an `Eq` for
+  `GeoJsonProperties` in scope.
+- **Every typeclass `@derive` supports**: `Eq`, `Ord`, `Clone`, `Debug`,
+  `Hash`, `Default`, `Json`, `TypeGuard`, `Show`, `Semigroup`, `Monoid`.
+- **Concrete types only.** `derived<Clone<Feature<Point>>>()` is one instance
+  for `Feature<Point>` (and not for `Feature`); a type with free type
+  parameters, `derived<Clone<Feature<G>>>()`, is not supported yet
+  ([TS9011](/errors/TS9011)).
+- **A top-level `const` only** ([TS9010](/errors/TS9010)), so that there is a
+  declaration for other files to find.
+- **One instance per type.** Two instances for the same type in scope are an
+  ambiguity error at the call site that needs one.
+- **The published `.d.ts`** types the const as its instance type, with no
+  import of `typesugar` (only of the typeclass's type, here from
+  `@typesugar/std`). TypeScript writes an inferred type out in full, so for a
+  generic with defaults the declaration spells out the defaults:
+  `Clone<Feature<Geometry, GeoJsonProperties>>`, the same type. To publish it
+  as written, annotate the const and leave out the type argument:
+  `export const cloneFeature: Clone<Feature> = derived();`.
 - The `Clone` that `typesugar` exports is the `@derive` marker, a value; to
   write `Clone<Feature>` as a type, import it from `@typesugar/std`.
 - `@derive(Clone)` on a local alias (`type MyFeature = Feature`) generates
   `MyFeature.Clone`, which you can call directly, but `summon`, `implicit()`
-  and method syntax in other files don't find it. Use the `@impl` form.
+  and method syntax in other files don't find it. Use `derived`.
+- `summon<Clone<Feature>>()` with nothing in scope still derives a copy in
+  place at that call, with a [TS9009](/errors/TS9009) warning that suggests
+  the `derived` declaration; that fallback will be removed.
 
 ## Extension Methods
 
@@ -662,11 +724,13 @@ Existing `TypeFunction` interfaces still work — this is backwards compatible. 
 
 Instances are resolved at compile time:
 
-1. Exact match for the type (an `@impl` instance, or a `const` annotated with
-   the instance type)
+1. Exact match for the type (an `@impl` instance, a `const` annotated with
+   the instance type, or a `const` initialized by `derived<TC<T>>()`)
 2. Derived instance from `@derive`
 
-If no instance is found, you get a compile error.
+If no instance is found, you get a compile error (TS9001). For now `summon`
+and `= implicit()` first try to derive one in place, with a TS9009 warning;
+that fallback is deprecated.
 
 ## Coherence
 

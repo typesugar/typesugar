@@ -9,7 +9,7 @@ Packages marked 🧊 **Frozen** ([PEP-048](https://github.com/typesugar/typesuga
 ### typesugar {#typesugar}
 
 Umbrella package. Its root (`typesugar`) is runtime-only: the macro placeholders
-users import (`comptime`, `derive` and the derive markers, `summon`, `implicit`,
+users import (`comptime`, `derive` and the derive markers, `summon`, `derived`, `implicit`,
 `typeInfo`, `cfg`, `includeStr`, `tailrec`, `defineConfig`, …). The macro-authoring
 APIs are at `typesugar/core`, and `typesugar/vite`, `/webpack`, `/esbuild`,
 `/rollup` and `/transformer` re-export the build integrations. It depends on core,
@@ -271,6 +271,7 @@ typeclass(); // decorator
 instance(); // decorator
 derive(); // decorator (generates typeclass instances)
 summon<T>();
+derived<T>(); // export const cloneFeature = derived<Clone<Feature>>(): an instance for a type you don't own
 extend();
 implicit(); // default parameter marker
 ```

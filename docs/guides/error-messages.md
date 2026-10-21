@@ -79,10 +79,28 @@ typeclass instance for a type that doesn't have one (see the example at the top 
 - Add `@derive(...)` to the type (and to the field types it lists as lacking the instance)
 - Provide a manual `@impl` instance for the problematic field type
 - If it's a type you don't own (from a library, such as `Feature` from
-  `@types/geojson`), write its instance in a module of your own and import
-  that module: by hand, or derived with
-  `/** @impl Clone<Feature> */ export const cloneFeature = summon<Clone<Feature>>();`.
-  See [Instances for types you don't own](./typeclasses.md#external-types).
+  `@types/geojson`), declare its instance once in a module of your own and
+  import that module: by hand, or derived with
+  `export const cloneFeature = derived<Clone<Feature>>();`. The TS9001 help
+  says so for such a type. See
+  [Instances for types you don't own](./typeclasses.md#external-types).
+
+### Instance Derived in Place (TS9009, warning)
+
+When no instance is in scope, `summon<TC<T>>()` and `= implicit()` still
+derive one from the type's structure, a new copy at each call site, and warn
+once per type per file:
+
+```
+warning TS9009: [typesugar] [TS9009] No instance for `Clone<Feature>` in scope; derived one here
+  = help: Declare it once with `export const cloneFeature = derived<Clone<Feature>>();` in a module of your own, and import that module where the instance is used. summon and implicit() will stop deriving instances in a future release.
+```
+
+This fallback is deprecated. Declare the instance once, with `@derive` on a
+type you own or `derived<TC<T>>()` for one you don't. A summon that is itself
+the initializer of a top-level const (`export const cloneFeature =
+summon<Clone<Feature>>()`) is already that declaration: write
+`derived<Clone<Feature>>()` there.
 
 ### Derive Field Error
 
@@ -287,6 +305,7 @@ Resolution traces appear in error messages from:
 | ------------------ | -------------------------------------------------------------- |
 | `summon<TC<T>>()`  | No explicit or auto-derived instance found                     |
 | `= implicit()`     | Implicit parameter resolution failed                           |
+| `derived<TC<T>>()` | The type, or one of its fields, can't be derived               |
 | Operator rewriting | No typeclass with `Op<"+">` found (verbose mode only)          |
 | Extension methods  | No typeclass or standalone extension found (verbose mode only) |
 

@@ -22,6 +22,9 @@ compiler.
 | [TS9006](./TS9006.md) *(reserved)* | Warning | `Duplicate instance {typeclass}<{type}> registered` |
 | [TS9007](./TS9007.md) *(reserved)* | Error | `summon type argument '{typeArg}' is not a registered typeclass` |
 | [TS9008](./TS9008.md) | Error | `summon type argument must be a type reference like Show<Point>` |
+| [TS9009](./TS9009.md) | Warning | ``No instance for `{typeclass}<{type}>` in scope; derived one here`` |
+| [TS9010](./TS9010.md) | Error | `derived<{typeclass}<{type}>>() must initialize a top-level const` |
+| [TS9011](./TS9011.md) | Error | `derived<{typeclass}<{type}>>(): instances for generic types are not supported yet` |
 | [TS9050](./TS9050.md) | Error | `` Conflicting instance of `{typeclass}` for type `{type}` `` |
 | [TS9051](./TS9051.md) | Warning | ``Instance of `{typeclass}` for `{type}` shadows imported instance`` |
 | [TS9052](./TS9052.md) *(reserved)* | Error | `` Ambiguous instance resolution for `{typeclass}<{type}>` `` |
@@ -70,6 +73,7 @@ compiler.
 | [TS9104](./TS9104.md) | Error | `Cannot derive {typeclass}: type {type} has no fields` |
 | [TS9105](./TS9105.md) *(reserved)* | Warning | `@derive(Builder) is not applicable to sum types` |
 | [TS9106](./TS9106.md) | Error | `Cannot derive {typeclass} for '{type}'` |
+| [TS9107](./TS9107.md) | Error | ``Cannot derive {typeclass}<{type}>: field `{field}` has type `{fieldType}`, which has no {typeclass} instance and can't be derived`` |
 
 ## Higher-Kinded Types
 

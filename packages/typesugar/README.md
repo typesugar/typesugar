@@ -88,7 +88,8 @@ Operators (`+`, `-`, `*`, `/`, etc.) dispatch to typeclass methods via `@op` JSD
 
 ### Typeclasses (`@typesugar/typeclass`)
 
-Scala 3-style typeclass system with `@typeclass`, `@instance`, `@derive`, and `summon()`.
+Scala 3-style typeclass system with `@typeclass`, `@instance`, `@derive`, `derived()`
+(for types you don't own) and `summon()`.
 
 ### Zero-Cost Abstractions
 
@@ -152,11 +153,15 @@ npx typesugar expand src/file.ts
 ### Root entry (`typesugar`)
 
 - Placeholders for the built-in macros: `comptime`, `derive`, `pipe`, `compose`, `flow`,
-  `typeclass`, `impl`, `instance`, `summon`, `summonAll`, `extend`, `implicit`,
+  `typeclass`, `impl`, `instance`, `summon`, `summonAll`, `derived`, `extend`, `implicit`,
   `extension`, `reflect`, `typeInfo`, `fieldNames`, `validator`, `cfg`, `cfgAttr`,
   `includeStr`, `includeText`, `includeBytes`, `includeJson`, `staticAssert`,
   `compileError`, `compileWarning`, `tailrec`, `hkt`. These are runtime stubs the
   transformer replaces; they are functions, not namespaces.
+- `derived<TC<T>>()` declares an instance derived from a type's structure, for a type you
+  can't put `@derive` on (one from a library):
+  `export const cloneFeature = derived<Clone<Feature>>();`. The const is the instance, found
+  by `summon`, `= implicit()` and method syntax wherever its module is imported.
 - Derive markers: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`.
 - `defineConfig(cfg)` — typed helper for `typesugar.config.ts`.
 - All `@typesugar/core` types (`MacroContext`, `MacroDefinition`, ...), as types only.
