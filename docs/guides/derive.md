@@ -55,6 +55,24 @@ const debug = summon<Debug<User>>().debug(u1);
 
 Because the markers are types too, plain `tsc` types `summon<Clone<User>>()` as a `Clone<User>`, so `summon<Clone<User>>().clone(u1)` is a `User` and `===` on it is the derived `Eq` with no annotation. `Default` and `TypeGuard` are still values only: plain `tsc` reports TS2749 ("refers to a value, but is being used as a type") on `summon<Default<Options>>()`, which the transformer resolves by name either way.
 
+### In Other Files and Packages
+
+The instances go wherever the type goes. A file that imports `User` (from another file of the
+project, or from a published library's `.d.ts`) gets `u1 === u2`, `summon<Eq<User>>()`,
+`= implicit()` and method syntax through `User.Eq`, with the same activation imports. In a
+library's `.d.ts`, each companion carries the tag that says what it is:
+
+```typescript
+export declare namespace User {
+  /** @impl Eq<User> */
+  const Eq: { equals: (a: User, b: User) => boolean; notEquals: (a: User, b: User) => boolean };
+}
+```
+
+Build the library's declarations with typesugar (see [Authoring Libraries](./authoring-libraries.md)),
+so the `.d.ts` has the companions at all. An instance from a `.d.ts` has no method bodies to
+inline, so a generic call that takes it keeps dictionary passing ([TS9602](./specialize.md)).
+
 ## Supported Typeclasses
 
 ### Eq — Structural Equality

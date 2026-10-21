@@ -266,9 +266,10 @@ export const cloneFeature = (() => {
 - The `Clone` that `typesugar` exports is both the `@derive` marker (a value)
   and `@typesugar/std`'s `Clone` typeclass (a type alias of it), so
   `Clone<Feature>` works with either import.
-- `@derive(Clone)` on a local alias (`type MyFeature = Feature`) generates
-  `MyFeature.Clone`, which you can call directly, but `summon`, `implicit()`
-  and method syntax in other files don't find it. Use `derived`.
+- `@derive(Clone)` on a local alias (`export type MyFeature = Feature`)
+  generates `MyFeature.Clone`, and files that import the alias's module find
+  it as the `Clone<Feature>` (the alias is the same type). `derived` says what
+  it is more plainly, and needs no alias.
 - `summon<Clone<Feature>>()` with nothing in scope still derives a copy in
   place at that call, with a [TS9009](/errors/TS9009) warning that suggests
   the `derived` declaration; that fallback will be removed.

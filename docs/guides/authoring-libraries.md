@@ -186,7 +186,10 @@ consumer-side transformer reads to enable dot-syntax.
    `NodeJS.Timer` so the public `.d.ts` doesn't force `@types/node`.
 5. **Ship instances next to their types.** An exported instance (`@impl`, `@derive`d,
    or `derived<TC<T>>()`) in the module that declares the type is found by consumers
-   who import that module. Extractors for `match` are `Destructure` instances, which
+   who import that module, or an index that re-exports it: their `===`, `summon`,
+   `= implicit()` and method syntax use it. A `@derive` companion is declared as a member
+   of the type's namespace with an `/** @impl Eq<Point> */` tag (`Point.Eq`), so the
+   declarations must come from typesugar (the table above), not plain `tsc`. Extractors for `match` are `Destructure` instances, which
    resolve from the module that declares the constructor, as `@typesugar/fp` ships
    `destructureSome` next to `Some`; give each a `@destructure` tag so consumers'
    patterns are inlined ([Custom Extractors](./pattern-matching.md#custom-extractors)).
