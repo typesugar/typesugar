@@ -68,7 +68,7 @@ compiler.
 | Code | Severity | Message |
 | --- | --- | --- |
 | [TS9101](./TS9101.md) | Error | ``Cannot auto-derive {typeclass}<{type}>: field `{field}` has type `{fieldType}` which lacks {typeclass}`` |
-| [TS9102](./TS9102.md) *(reserved)* | Error | `@derive({typeclass}) requires an interface, class, or type alias` |
+| [TS9102](./TS9102.md) | Error | `@derive({typeclass}) requires an interface, class, or type alias` |
 | [TS9103](./TS9103.md) | Error | `@deriving on union types requires a discriminant field` |
 | [TS9104](./TS9104.md) | Error | `Cannot derive {typeclass}: type {type} has no fields` |
 | [TS9105](./TS9105.md) *(reserved)* | Warning | `@derive(Builder) is not applicable to sum types` |

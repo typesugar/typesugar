@@ -360,13 +360,17 @@ describe("JSDoc attribute tags on function declarations (docs B#4)", () => {
     expect(run(result.code)).toEqual([24, 24]);
   });
 
-  it("a JSDoc tag whose macro does not target functions warns instead of vanishing", () => {
+  it("a JSDoc @derive on a function is reported (TS9102) instead of vanishing", () => {
     const result = virtual(
       [`/** @derive(Eq) */`, `export function f(): number { return 1; }`].join("\n"),
       "derive-on-function"
     );
     expect(
-      result.diagnostics.some((d) => /@derive/.test(d.message) && /function/.test(d.message))
+      result.diagnostics.some(
+        (d) =>
+          d.severity === "error" &&
+          /@derive\(Eq\) requires an interface, class, or type alias/.test(d.message)
+      )
     ).toBe(true);
   });
 

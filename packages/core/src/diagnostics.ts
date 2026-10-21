@@ -647,15 +647,15 @@ export const TS9102: DiagnosticDescriptor = {
   severity: "error",
   category: DiagnosticCategory.DeriveFailed,
   messageTemplate: "@derive({typeclass}) requires an interface, class, or type alias",
-  explanation: `The @derive decorator can only be applied to:
+  explanation: `@derive (the JSDoc tag or the decorator) describes a type, so it can only be
+applied to:
 - interface declarations
 - class declarations
 - type alias declarations
 
-It cannot be applied to:
-- function declarations
-- variable declarations
-- other kinds of declarations`,
+On anything else (a const, a function) it derives nothing, and is reported
+instead of being ignored. For a type you don't own, declare its instance
+with \`export const eqT = derived<Eq<T>>();\` in a module of your own.`,
   seeAlso: "https://typesugar.org/errors/TS9102",
 };
 

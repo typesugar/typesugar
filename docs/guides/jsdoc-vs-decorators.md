@@ -39,9 +39,10 @@ diagnostic filter (see below).
 
 † On a function declaration, JSDoc dispatches only the attribute macros that
 target functions, such as `/** @tailrec */` and `/** @extension */`. Any other
-macro tag on a function (`/** @typeclass */`, `/** @derive(Eq) */`, …) is
-ignored with the warning "JSDoc macro tag @X is not supported on a function
-declaration and was ignored."
+macro tag on a function (`/** @typeclass */`, …) is ignored with the warning
+"JSDoc macro tag @X is not supported on a function declaration and was
+ignored." `@derive` on a function or a `const` is an error,
+[TS9102](/errors/TS9102): it only goes on an interface, class or type alias.
 
 ### A JSDoc tag must start its own comment line
 

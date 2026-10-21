@@ -29,6 +29,7 @@ import {
   getSuggestionsForSymbol,
   formatSuggestionsMessage,
   TS9101,
+  TS9102,
   TS9103,
   TS9104,
 } from "@typesugar/core";
@@ -255,8 +256,11 @@ export function tryExpandJSDocMacros(
           results.push(...derives);
           derived = true;
         }
-      } else if (ts.isFunctionDeclaration(currentNode)) {
-        reportUnsupportedOnFunction(ctx, tag);
+      } else {
+        // A const, a function: not a type, so nothing to derive. Said so
+        // (TS9102) rather than dropping the tag — a `/** @derive(Eq) */
+        // const p = ...` used to be ignored without a word.
+        reportDeriveOnNonType(ctx, tag, args, currentNode);
       }
       continue;
     }
@@ -330,6 +334,37 @@ export function tryExpandJSDocMacros(
   }
 
   return results.length > 0 ? [currentNode, ...results] : currentNode;
+}
+
+/**
+ * TS9102 for `@derive` on something that is not a type declaration. On a
+ * variable, the help points at what the author likely wanted: the type's own
+ * declaration, or `derived<TC<T>>()` for a type they don't own.
+ */
+export function reportDeriveOnNonType(
+  ctx: MacroContextImpl,
+  at: ts.Node,
+  args: readonly ts.Expression[],
+  target: ts.Node
+): void {
+  const names = args.filter(ts.isIdentifier).map((a) => a.text);
+  const typeclass = names.join(", ") || "...";
+  const first = names[0] ?? "Eq";
+  const builder = ctx.diagnostic(TS9102).at(at).withArgs({ typeclass });
+  if (ts.isVariableDeclaration(target) || ts.isVariableStatement(target)) {
+    builder
+      .note("@derive was ignored: this is a variable, and a variable has no fields to derive from.")
+      .help(
+        `Put @derive(${typeclass}) on the declaration of the variable's type, or, for a type ` +
+          `you don't own, declare its instance: \`export const instance = derived<${first}<Type>>();\``
+      );
+  } else {
+    const what = ts.isFunctionDeclaration(target) ? "a function" : "not a type declaration";
+    builder
+      .note(`@derive was ignored: this is ${what}.`)
+      .help(`Put @derive(${typeclass}) on an interface, class or type alias.`);
+  }
+  builder.emit();
 }
 
 function reportUnsupportedOnFunction(ctx: MacroContextImpl, tag: ts.JSDocTag): void {
@@ -628,10 +663,7 @@ export function expandDeriveDecorator(
     !ts.isClassDeclaration(node) &&
     !ts.isTypeAliasDeclaration(node)
   ) {
-    ctx.reportError(
-      decorator,
-      "@derive can only be applied to interfaces, classes, or type aliases"
-    );
+    reportDeriveOnNonType(ctx, decorator, args, node);
     return undefined;
   }
 

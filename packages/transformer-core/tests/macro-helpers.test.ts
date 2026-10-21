@@ -635,9 +635,13 @@ describe("expandDeriveDecorator", () => {
         expect(result).toBeUndefined();
         const diags = ctx.getDiagnostics();
         expect(diags.some((d) => d.severity === "error")).toBe(true);
-        expect(diags.some((d) => /interfaces, classes, or type aliases/.test(d.message))).toBe(
-          true
-        );
+        expect(
+          diags.some(
+            (d) =>
+              d.severity === "error" &&
+              /@derive\(Eq\) requires an interface, class, or type alias/.test(d.message)
+          )
+        ).toBe(true);
       }
     );
   });
