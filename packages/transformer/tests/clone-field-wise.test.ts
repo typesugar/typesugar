@@ -2,13 +2,15 @@
  * Field-wise derived Clone on `@types/geojson`, the Turf case study's shape
  * (CASE-STUDY.md F8/F9, `case-study/experiments/stage-1-derived-clone.ts`).
  *
- * `clone.ts` is that experiment: `summon<Clone<...>>()` instances for the
+ * `clone.ts` is that experiment: `derived<Clone<...>>()` instances for the
  * GeoJSON types, which typesugar derives from their structure, behind Turf's
- * `clone()` dispatcher. Two changes, both about what the TYPES say:
+ * `clone()` dispatcher (the experiment used `summon<Clone<...>>()`, which
+ * still derives when no instance is in scope, with a TS9009 warning). Two
+ * changes, both about what the TYPES say:
  *
  * - Turf's data has features with `geometry: null`, which `Feature`'s default
  *   type argument (`Geometry`) excludes. A clone that follows the types
- *   would call the geometry clone on `null`, so the features are summoned as
+ *   would call the geometry clone on `null`, so the features are derived as
  *   `Feature<Geometry | null>`, the type that admits them.
  * - `properties` is `{ [name: string]: any } | null`: its values are `any`,
  *   which name no Clone, so a derived clone copies them by reference. Turf
@@ -60,7 +62,7 @@ const cloneModule = (withPropertiesInstance: boolean) => `import type {
   GeoJsonProperties,
 } from "geojson";
 import type { Clone } from "@typesugar/std";
-import { summon } from "typesugar";
+import { derived } from "typesugar";
 
 ${CLONE_PROPERTIES}
 ${
@@ -73,15 +75,15 @@ const clonePropertiesInstance: Clone<GeoJsonProperties> = { clone: cloneProperti
 type NullableFeature = Feature<Geometry | null>;
 type NullableFeatureCollection = FeatureCollection<Geometry | null>;
 
-const clonePoint = summon<Clone<Point>>();
-const cloneLineString = summon<Clone<LineString>>();
-const clonePolygon = summon<Clone<Polygon>>();
-const cloneMultiPoint = summon<Clone<MultiPoint>>();
-const cloneMultiLineString = summon<Clone<MultiLineString>>();
-const cloneMultiPolygon = summon<Clone<MultiPolygon>>();
-const cloneGeometryCollection = summon<Clone<GeometryCollection>>();
-const cloneFeature = summon<Clone<NullableFeature>>();
-const cloneFeatureCollection = summon<Clone<NullableFeatureCollection>>();
+const clonePoint = derived<Clone<Point>>();
+const cloneLineString = derived<Clone<LineString>>();
+const clonePolygon = derived<Clone<Polygon>>();
+const cloneMultiPoint = derived<Clone<MultiPoint>>();
+const cloneMultiLineString = derived<Clone<MultiLineString>>();
+const cloneMultiPolygon = derived<Clone<MultiPolygon>>();
+const cloneGeometryCollection = derived<Clone<GeometryCollection>>();
+const cloneFeature = derived<Clone<NullableFeature>>();
+const cloneFeatureCollection = derived<Clone<NullableFeatureCollection>>();
 
 export function clone(geojson: any): any {
   if (!geojson) {
@@ -495,7 +497,9 @@ describe("field-wise derived Clone on @types/geojson (Turf case study)", () => {
   it("transforms and type-checks with no errors", () => {
     const { t } = build();
     expect(transformErrors(t)).toEqual({});
-    expect(t.code["clone.ts"]).not.toContain("summon");
+    // Declared with derived<...>(), nothing is derived in place (no TS9009).
+    expect(t.diagnostics["clone.ts"].filter((d) => d.includes("[TS9009]"))).toEqual([]);
+    expect(t.code["clone.ts"]).not.toMatch(/\bderived\b/);
     expect(typecheck(t.code)).toEqual([]);
   });
 
@@ -551,8 +555,8 @@ describe("field-wise derived Clone on @types/geojson (Turf case study)", () => {
     const out = t.code["clone.ts"];
     // Point: the coordinates are sliced in place.
     expect(out).toContain(
-      "const clonePoint = ({ clone: (a: Point): Point => ({ ...a, coordinates: a.coordinates.slice(), " +
-        "...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }) }) });"
+      "const clonePoint: Clone<Point> = { clone: (a: Point): Point => ({ ...a, coordinates: a.coordinates.slice(), " +
+        "...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }) }) };"
     );
     // MultiPolygon: one .map per level, like Turf's deepSlice.
     expect(out).toContain(
@@ -563,7 +567,9 @@ describe("field-wise derived Clone on @types/geojson (Turf case study)", () => {
     // Feature: the nullable geometry, and properties through the supplied instance.
     expect(out).toContain("geometry: a.geometry && cloneGeometry(a.geometry)");
     expect(out).toContain("properties: clonePropertiesInstance.clone(a.properties)");
-    // The only instance call left is the hand-written one for properties.
+    // A FeatureCollection's features go through the declared Feature instance.
+    expect(out).toContain("features: a.features.map(e => cloneFeature.clone(e))");
+    // The only other instance call is the hand-written one for properties.
     expect(out.match(/[\w.]+\.clone\(a\./g)).toEqual(["clonePropertiesInstance.clone(a."]);
   });
 
@@ -613,19 +619,18 @@ export const sameAddress = p2.address === p1.address;
 
   it("Clone section: the Shape example compiles to what the guide shows", () => {
     const t = transformAll({
-      "shape.ts": `import { summon, Clone } from "typesugar";
-interface Shape {
+      "shape.ts": `/** @derive(Clone) */
+export interface Shape {
   id: number;
   points: number[][];
   bbox?: [number, number, number, number];
 }
-export const c = summon<Clone<Shape>>();
 `,
     });
-    expect(transformErrors(t)).toEqual({});
+    expect(t.diagnostics["shape.ts"]).toEqual([]);
     expect(t.code["shape.ts"]).toContain(
-      "({ clone: (a: Shape): Shape => ({ ...a, points: a.points.map(e => e.slice()), " +
-        "...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }) }) })"
+      "export const Clone = { clone: (a: Shape): Shape => ({ ...a, points: a.points.map(e => e.slice()), " +
+        "...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }) }) };"
     );
   });
 });

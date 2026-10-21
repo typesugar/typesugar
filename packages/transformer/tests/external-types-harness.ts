@@ -9,6 +9,9 @@
  *   each of them, as a build does.
  * - {@link typecheck} type-checks the transformed files together.
  * - {@link run} executes the transformed modules (CommonJS, in memory).
+ * - {@link emitDeclarations} emits the `.d.ts` files of the ORIGINAL sources,
+ *   as tsc and tsup's dts step do for a typesugar project (their declaration
+ *   emit reads the checker's types of the unexpanded source).
  */
 import * as ts from "typescript";
 import * as path from "node:path";
@@ -58,6 +61,8 @@ export interface Transformed {
   code: Files;
   /** `severity: message` per file. */
   diagnostics: Record<string, string[]>;
+  /** Per file: each diagnostic with the 1-based line and the source text it spans. */
+  located: Record<string, Array<{ severity: string; message: string; line: number; text: string }>>;
 }
 
 const compilerOptions: ts.CompilerOptions = {
@@ -69,14 +74,14 @@ const compilerOptions: ts.CompilerOptions = {
   skipLibCheck: true,
 };
 
-function createProgram(files: Files): ts.Program {
+function createProgram(files: Files, options: ts.CompilerOptions = compilerOptions): ts.Program {
   const byAbs: Files = {
     [path.join(ROOT, "node_modules/@types/geojson/index.d.ts")]: GEOJSON,
     [path.join(ROOT, "node_modules/@types/geojson/package.json")]:
       `{"name":"@types/geojson","version":"7946.0.14","types":"index.d.ts"}`,
   };
   for (const [k, v] of Object.entries(files)) byAbs[path.join(ROOT, k)] = v;
-  const host = ts.createCompilerHost(compilerOptions);
+  const host = ts.createCompilerHost(options);
   const orig = host.getSourceFile.bind(host);
   host.getSourceFile = (f, lv, ...r) =>
     byAbs[f] !== undefined ? ts.createSourceFile(f, byAbs[f], lv, true) : orig(f, lv, ...r);
@@ -86,21 +91,30 @@ function createProgram(files: Files): ts.Program {
     Object.keys(byAbs).some((k) => k.startsWith(d + path.sep)) || ts.sys.directoryExists(d);
   return ts.createProgram(
     Object.keys(files).map((f) => path.join(ROOT, f)),
-    compilerOptions,
+    options,
     host
   );
 }
 
-/** Build ONE program over all files and transform each of them. */
-export function transformAll(files: Files): Transformed {
+/**
+ * Build ONE program over all files and transform each of them (or only the
+ * files named in `only`: a `.d.ts` stands for a published package and is not
+ * transformed).
+ */
+export function transformAll(files: Files, only?: string[]): Transformed {
   const program = createProgram(files);
-  const out: Transformed = { code: {}, diagnostics: {} };
-  for (const f of Object.keys(files)) {
+  const out: Transformed = { code: {}, diagnostics: {}, located: {} };
+  for (const f of only ?? Object.keys(files)) {
     const r = transformCode(files[f], { fileName: path.join(ROOT, f), program });
     out.code[f] = r.code;
-    out.diagnostics[f] = (r.diagnostics ?? []).map(
-      (d: { severity: unknown; message: string }) => `${String(d.severity)}: ${d.message}`
-    );
+    const ds = r.diagnostics ?? [];
+    out.diagnostics[f] = ds.map((d) => `${String(d.severity)}: ${d.message}`);
+    out.located[f] = ds.map((d) => ({
+      severity: String(d.severity),
+      message: d.message,
+      line: files[f].slice(0, d.start).split("\n").length,
+      text: files[f].slice(d.start, d.start + d.length),
+    }));
   }
   return out;
 }
@@ -128,6 +142,21 @@ export function typecheck(code: Files): string[] {
       out.push(`${f}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
     }
   }
+  return out;
+}
+
+/** The `.d.ts` that declaration emit writes for each of `files` (keyed `x.d.ts`). */
+export function emitDeclarations(files: Files): Files {
+  const program = createProgram(files, {
+    ...compilerOptions,
+    noEmit: false,
+    declaration: true,
+    emitDeclarationOnly: true,
+  });
+  const out: Files = {};
+  program.emit(undefined, (name, text) => {
+    out[path.relative(ROOT, name)] = text;
+  });
   return out;
 }
 

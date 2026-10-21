@@ -634,15 +634,13 @@ describe("tryDeriveViaGeneric — TypeChecker mirror synthesis", () => {
     expect(rendered).toContain('"square"');
   });
 
-  it("scope-search fallback (no AST node) currently yields no usable meta for interfaces — known limitation", () => {
-    // BUG/LIMITATION discovered while writing this test:
-    //   extractMetaFromTypeChecker's fallback path uses getSymbolsInScope(...)
-    //   and then getDeclaredTypeOfSymbol(sym). For interface symbols obtained
-    //   that way, getDeclaredTypeOfSymbol returns the empty "any" type, so the
-    //   property scan yields zero data fields and the function returns null.
-    //   In practice, summon/implicits always pass the declaring AST node, which
-    //   avoids the issue. This test pins the current behaviour so we'll notice
-    //   if it changes (intended or otherwise).
+  it("scope-search fallback (no AST node) finds an interface exported from the same file", () => {
+    // This used to be a pinned limitation: getSymbolsInScope returns the
+    // LOCAL symbol of `export interface X`, which is only the export's
+    // stand-in (ExportType), so it was skipped and derivation failed with a
+    // generic-meta miss. The scope search now follows it to the export
+    // symbol, so derived<TC<X>>() / summon<TC<X>>() work for a type
+    // exported from the file they are written in.
     const name = `${TEST_TC_PREFIX}ScopeFallback`;
     let invoked = false;
     makeStrategy(name, {
@@ -657,14 +655,11 @@ describe("tryDeriveViaGeneric — TypeChecker mirror synthesis", () => {
     `;
     withMacroContext(source, (ctx) => {
       const result = tryDeriveViaGeneric(ctx, name, "AdScopeIface");
-      // Current behavior: the scope-search path can't materialize an interface's
-      // properties without the AST node, so derivation fails with a generic-meta miss.
-      expect(result.expression).toBeNull();
+      expect(result.expression).not.toBeNull();
       const metaStep = result.trace.find((t) => t.step === "generic-meta");
-      expect(metaStep?.result).toBe("not-found");
+      expect(metaStep?.result).toBe("found");
     });
-    // deriveProduct is never called because meta extraction failed.
-    expect(invoked).toBe(false);
+    expect(invoked).toBe(true);
   });
 
   it("scope-search fallback DOES work when the AST node is passed (interface path)", () => {

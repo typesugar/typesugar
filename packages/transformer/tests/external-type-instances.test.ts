@@ -11,6 +11,10 @@
  * with, an `@impl Clone<Feature>` matched `summon<Clone<Feature>>()` but not
  * a value typed `Feature` (implicit(), `f.clone()` with a bare import), and
  * `@impl ... = summon<Clone<Feature>>()` resolved to itself (`const x = x`).
+ *
+ * Deriving an instance for such a type is `derived<Clone<Feature>>()`
+ * (derived-instances.test.ts). `summon` still derives when nothing is in
+ * scope, with a TS9009 warning; the tests that pin that fallback are here.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -52,20 +56,16 @@ export const viaImplicit = dup(sample);
 export const viaMethod = sample.clone();
 `;
 
-/**
- * implicit() auto-specialization inlines an instance whose methods are an
- * object literal into a `__typesugar___dup_Feature_0__ = a => ...` copy of
- * the function, and that parameter has no type annotation, so the expanded
- * TypeScript fails noImplicitAny (a separate, pre-existing gap: reported, not
- * fixed here). Tests that hit it say so.
- */
-const SPECIALIZED_ANY = "use.ts: Parameter 'a' implicitly has an 'any' type.";
-
-function check(files: Files, entry = "use.ts", expectedTypeErrors: string[] = []) {
+function check(files: Files, entry = "use.ts") {
   const t = transformAll(files);
   expect(transformErrors(t)).toEqual({});
-  expect(typecheck(t.code)).toEqual(expectedTypeErrors);
+  expect(typecheck(t.code)).toEqual([]);
   return { t, m: run(t.code, entry) };
+}
+
+/** The TS9009 warnings ("derived one here") in a file. */
+function derivedHere(t: ReturnType<typeof transformAll>, file: string) {
+  return t.located[file].filter((d) => d.message.includes("[TS9009]"));
 }
 
 /** No object or array is shared between `copy` and `original`. */
@@ -79,30 +79,26 @@ function expectIndependent(copy: any, original: any) {
 
 describe("a hand-written @impl Clone<Feature> in instances.ts", () => {
   it("imported by name: summon, implicit() and f.clone() all use it", () => {
-    const { t, m } = check(
-      {
-        "instances.ts": HAND_WRITTEN,
-        "use.ts": use(`import { cloneFeature } from "./instances";`),
-      },
-      "use.ts",
-      [SPECIALIZED_ANY]
-    );
+    const { t, m } = check({
+      "instances.ts": HAND_WRITTEN,
+      "use.ts": use(`import { cloneFeature } from "./instances";`),
+    });
     const out = t.code["use.ts"];
     expect(out).not.toContain("summon<");
+    // implicit() auto-specialization inlines the instance into a copy of
+    // `dup`, whose parameter keeps a type (it used to be a bare `a =>`, which
+    // failed noImplicitAny in the expanded TypeScript).
+    expect(out).toMatch(/__typesugar___dup_\w+ = \/\*#__PURE__\*\/ \(a: Feature\): Feature =>/);
     expect(out).toContain("export const viaSummon = cloneFeature.clone(sample)");
     expect(out).toContain("export const viaMethod = cloneFeature.clone(sample)");
     for (const k of ["viaSummon", "viaImplicit", "viaMethod"]) expect(m[k].label).toBe("hand");
   });
 
   it("imported for its side effects only: the instance is still found, and imported", () => {
-    const { t, m } = check(
-      {
-        "instances.ts": HAND_WRITTEN,
-        "use.ts": use(`import "./instances";`),
-      },
-      "use.ts",
-      [SPECIALIZED_ANY]
-    );
+    const { t, m } = check({
+      "instances.ts": HAND_WRITTEN,
+      "use.ts": use(`import "./instances";`),
+    });
     expect(t.code["use.ts"]).toContain(`import { cloneFeature } from "./instances";`);
     for (const k of ["viaSummon", "viaImplicit", "viaMethod"]) expect(m[k].label).toBe("hand");
   });
@@ -111,18 +107,19 @@ describe("a hand-written @impl Clone<Feature> in instances.ts", () => {
 describe("a derived instance for Feature, exported from instances.ts", () => {
   const derived = (decl: string) => `import type { Feature } from "geojson";
 import type { Clone } from "@typesugar/std";
-import { summon } from "typesugar";
+import { derived, summon } from "typesugar";
 ${decl}
 `;
 
   for (const [name, decl] of [
+    ["derived<Clone<Feature>>()", `export const cloneFeature = derived<Clone<Feature>>();`],
     [
-      "@impl Clone<Feature> = summon<Clone<Feature>>()",
-      `/** @impl Clone<Feature> */\nexport const cloneFeature = summon<Clone<Feature>>();`,
+      "@impl Clone<Feature> = derived<Clone<Feature>>()",
+      `/** @impl Clone<Feature> */\nexport const cloneFeature = derived<Clone<Feature>>();`,
     ],
     [
-      ": Clone<Feature> = summon<Clone<Feature>>()",
-      `export const cloneFeature: Clone<Feature> = summon<Clone<Feature>>();`,
+      ": Clone<Feature> = derived<Clone<Feature>>()",
+      `export const cloneFeature: Clone<Feature> = derived<Clone<Feature>>();`,
     ],
   ] as const) {
     it(`${name}: derived once, structurally, and used everywhere`, () => {
@@ -130,7 +127,7 @@ ${decl}
         "instances.ts": derived(decl),
         "use.ts": use(`import { cloneFeature } from "./instances";`),
       });
-      // Derived in place of the summon, not resolved to itself.
+      expect(derivedHere(t, "instances.ts")).toEqual([]);
       const inst = t.code["instances.ts"];
       expect(inst).not.toMatch(/cloneFeature\s*(:\s*Clone<Feature>\s*)?=\s*cloneFeature/);
       expect(inst).toContain("coordinates: a.coordinates.map(");
@@ -148,6 +145,22 @@ ${decl}
       }
     });
   }
+
+  it("@impl Clone<Feature> = summon<Clone<Feature>>() still derives, and warns to use derived", () => {
+    const { t, m } = check({
+      "instances.ts": derived(
+        `/** @impl Clone<Feature> */\nexport const cloneFeature = summon<Clone<Feature>>();`
+      ),
+      "use.ts": use(`import { cloneFeature } from "./instances";`),
+    });
+    expect(t.code["instances.ts"]).toContain("coordinates: a.coordinates.map(");
+    const [w] = derivedHere(t, "instances.ts");
+    expect(w.severity).toBe("warning");
+    expect(w.text).toBe("summon<Clone<Feature>>()");
+    expect(w.message).toContain("No instance for `Clone<Feature>` in scope; derived one here");
+    expect(w.message).toContain("Write `derived<Clone<Feature>>()` here instead of summon");
+    expect(m.viaSummon).toEqual(m.sample);
+  });
 });
 
 describe("@derive(Clone) on a local alias of Feature", () => {
@@ -170,20 +183,67 @@ export const copy = MyFeature.Clone.clone(sample);
 });
 
 describe("no instance anywhere (F10: summon derives from the type's structure)", () => {
-  it("summon derives in place at each call site", () => {
+  it("summon derives in place at each call site, and warns once per type per file", () => {
     const { t, m } = check({
-      "use.ts": `import type { Feature } from "geojson";
+      "use.ts": `import type { Feature, Point } from "geojson";
 import type { Clone } from "@typesugar/std";
 import { summon } from "typesugar";
 ${SAMPLE}
-export const a = summon<Clone<Feature>>();
-export const b = summon<Clone<Feature>>();
-export const copy = a.clone(sample);
+export const copy = summon<Clone<Feature>>().clone(sample);
+export const again = summon<Clone<Feature>>().clone(sample);
+export const clonePoint = summon<Clone<Point>>();
 `,
     });
     // Each summon gets its own copy of the derived instance.
     expect(t.code["use.ts"].match(/const cloneGeometry = /g)).toHaveLength(2);
     expectIndependent(m.copy.geometry, m.sample.geometry);
+    // One warning for Clone<Feature> (at the first summon), one for Clone<Point>.
+    const ws = derivedHere(t, "use.ts");
+    expect(ws.map((w) => [w.severity, w.line, w.text])).toEqual([
+      ["warning", 10, "summon<Clone<Feature>>()"],
+      ["warning", 12, "summon<Clone<Point>>()"],
+    ]);
+    expect(ws[0].message).toContain("No instance for `Clone<Feature>` in scope; derived one here");
+    expect(ws[0].message).toContain(
+      "Declare it once with `export const cloneFeature = derived<Clone<Feature>>();`"
+    );
+    // A summon that initializes a top-level const declares an instance: write derived there.
+    expect(ws[1].message).toContain("Write `derived<Clone<Point>>()` here instead of summon");
+  });
+
+  it("implicit() derives the same way, with the same warning", () => {
+    const { t, m } = check({
+      "use.ts": `import type { Clone } from "@typesugar/std";
+import { implicit } from "typesugar";
+interface Pt { x: number; ys: number[] }
+function dup<A>(a: A, C: Clone<A> = implicit()): A {
+  return C.clone(a);
+}
+const p: Pt = { x: 1, ys: [2] };
+export const copy = dup(p);
+export const again = dup(p);
+export const shared = copy.ys === p.ys;
+`,
+    });
+    const ws = derivedHere(t, "use.ts");
+    expect(ws.map((w) => [w.line, w.text])).toEqual([[8, "dup(p)"]]);
+    expect(ws[0].message).toContain("`export const clonePt = derived<Clone<Pt>>();`");
+    expect(m.copy).toEqual({ x: 1, ys: [2] });
+    expect(m.shared).toBe(false);
+  });
+
+  it("TS9001 for a type from a library suggests derived<...>()", () => {
+    const t = transformAll({
+      "use.ts": `import type { Feature } from "geojson";
+import type { Eq } from "@typesugar/std";
+import { summon } from "typesugar";
+export const e = summon<Eq<Feature>>();
+`,
+    });
+    const [err] = transformErrors(t)["use.ts"];
+    expect(err).toMatch(/\[TS9001\] No instance found for `Eq<Feature>`/);
+    expect(err).toContain("`Feature` is declared outside this project");
+    expect(err).toContain("export const eqFeature = derived<Eq<Feature>>();");
   });
 });
 
@@ -208,27 +268,70 @@ export const keep = cloneFeature;
   });
 
   it("a summon inside a function of its own instance still resolves to that instance", () => {
-    const { t, m } = check(
-      {
-        "tree.ts": `import type { Clone } from "@typesugar/std";
-import { summon } from "typesugar";
+    const tree = `import type { Clone } from "@typesugar/std";
+import { summon, implicit } from "typesugar";
 export interface Tree { value: number; children: Tree[] }
 /** @impl Clone<Tree> */
 export const cloneTree: Clone<Tree> = {
   clone: (t) => ({ ...t, children: t.children.map((c) => summon<Clone<Tree>>().clone(c)) }),
 };
+export function dup<A>(a: A, C: Clone<A> = implicit()): A {
+  return C.clone(a);
+}
+const original: Tree = { value: 1, children: [{ value: 2, children: [] }] };
+export const direct = cloneTree.clone(original);
+export const viaImplicit = dup(original);
+`;
+    const { t, m } = check(
+      {
+        "tree.ts": tree,
+        "use.ts": `import { cloneTree, dup, type Tree } from "./tree";
+const original: Tree = { value: 1, children: [{ value: 2, children: [] }] };
+export const direct = cloneTree.clone(original);
+export const viaImplicit = dup(original);
 `,
       },
       "tree.ts"
     );
     expect(t.code["tree.ts"]).toContain("t.children.map((c) => cloneTree.clone(c))");
-    // Called from here, not from the program: a `cloneTree.clone(x)` call in
-    // the program is inlined from the instance's SOURCE, which still holds
-    // the unexpanded summon (a separate, pre-existing bug: reported).
+    // A call of the instance is not inlined from its unexpanded SOURCE, which
+    // would leave the raw summon in the output ("summon is not a function").
+    for (const f of ["tree.ts", "use.ts"]) expect(t.code[f]).not.toContain("summon<");
+    const u = run(t.code, "use.ts");
+    for (const r of [m, u]) {
+      for (const k of ["direct", "viaImplicit"]) {
+        expect(r[k]).toEqual({ value: 1, children: [{ value: 2, children: [] }] });
+      }
+    }
     const original = { value: 1, children: [{ value: 2, children: [] }] };
     const copy = m.cloneTree.clone(original);
     expect(copy).toEqual(original);
     expect(copy.children[0]).not.toBe(original.children[0]);
+  });
+
+  it("implicit() specialization keeps a type for every parameter it keeps", () => {
+    const { t, m } = check({
+      "instances.ts": HAND_WRITTEN,
+      "use.ts": `import type { Feature } from "geojson";
+import type { Clone } from "@typesugar/std";
+import { implicit } from "typesugar";
+import "./instances";
+${SAMPLE}
+function tag<A, B>(a: A, b: B, C: Clone<A> = implicit()): [A, B] {
+  return [C.clone(a), b];
+}
+export const t1 = tag(sample, 1);
+export const t2 = tag(sample, "x");
+export const t3 = tag(sample, 2);
+`,
+    });
+    const out = t.code["use.ts"].replace(/\s+/g, " ");
+    // One copy per instantiation (tag(sample, 1) and tag(sample, 2) share one).
+    expect(out).toContain("= /*#__PURE__*/ (a: Feature, b: number): [ Feature, number ] =>");
+    expect(out).toContain("= /*#__PURE__*/ (a: Feature, b: string): [ Feature, string ] =>");
+    expect(out.match(/const __typesugar___tag_\w+ = /g)).toHaveLength(2);
+    expect([m.t1[1], m.t2[1], m.t3[1]]).toEqual([1, "x", 2]);
+    expect(m.t1[0].label).toBe("hand");
   });
 });
 
@@ -237,12 +340,12 @@ describe("docs/guides/typeclasses.md: Instances for Types You Don't Own", () => 
     const { t, m } = check({
       "geo-instances.ts": `import type { Feature } from "geojson";
 import type { Clone, Eq } from "@typesugar/std";
-import { summon } from "typesugar";
+import { derived } from "typesugar";
 
-/** @impl Clone<Feature> */
-export const cloneFeature = summon<Clone<Feature>>();
+// Derived from Feature's structure, as @derive(Clone) would derive it:
+export const cloneFeature = derived<Clone<Feature>>();
 
-/** @impl Eq<Feature> */
+// Or written by hand (a typed const is an instance):
 export const eqFeature: Eq<Feature> = {
   equals: (a, b) => a.id === b.id,
   notEquals: (a, b) => a.id !== b.id,
@@ -263,6 +366,7 @@ export const viaImplicit = dup(sample);
 export const viaMethod = sample.clone();
 `,
     });
+    expect(t.diagnostics).toEqual({ "geo-instances.ts": [], "use.ts": [] });
     const out = t.code["use.ts"];
     expect(out).toContain(`import { cloneFeature } from "./geo-instances";`);
     expect(out).toContain("export const s = cloneFeature;");
