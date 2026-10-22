@@ -700,8 +700,10 @@ const arrayFunctor = {
 summon<Functor<Array>>().map([1, 2, 3], (x) => x * 2); // [2, 4, 6]
 ```
 
-Because `Array` is a global, no `Array.Functor` companion is generated (you get
-a warning saying so); refer to the instance as `arrayFunctor`.
+Because `Array` is a global, no `Array.Functor` companion is generated; refer to
+the instance as `arrayFunctor`. (An `@impl` for a type declared in another file
+or package never gets a companion, so it isn't warned about: an `Array.Functor`
+written anywhere is a TypeScript error where it is written.)
 
 ## Migrating from `TypeFunction` to `@impl`
 

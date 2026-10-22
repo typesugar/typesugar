@@ -1683,7 +1683,16 @@ function hasTopLevelComma(text: string): boolean {
  * string>`, `number[]`, `string | null`) or would create a NEW runtime value
  * that shadows an imported or global binding (`import { Point }` →
  * `var Point = {}` → `new Point()` is no longer a constructor). Returns the
- * declaration, or a reason string for the warning.
+ * declaration, a reason string for a warning (not a plain type name, or a
+ * type declared in this file that can't carry a companion: a const or ambient
+ * enum), or `undefined` when the type isn't declared here at all.
+ *
+ * No warning for that last case: it is how every instance for a type you
+ * don't own is written (a library's
+ * `@impl FlatMap<Effect>`, `@impl Functor<Array>`), nothing at the `@impl`
+ * can give the type a companion, and a `Type.TC` written anywhere is
+ * TypeScript's own error where it is written. Warning there fired on every
+ * library instance (effect, fusion) in every build that transformed them.
  */
 function findCompanionHost(
   sourceFile: ts.SourceFile,
@@ -1693,7 +1702,8 @@ function findCompanionHost(
   | ts.TypeAliasDeclaration
   | ts.ClassDeclaration
   | ts.EnumDeclaration
-  | string {
+  | string
+  | undefined {
   if (!/^[A-Za-z_$][\w$]*$/.test(typeName)) {
     return `'${typeName}' is not a plain type name`;
   }
@@ -1717,7 +1727,7 @@ function findCompanionHost(
       return stmt;
     }
   }
-  return `'${typeName}' is not declared in this file (a companion namespace would shadow the imported or global '${typeName}')`;
+  return undefined;
 }
 
 // ============================================================================
@@ -1972,11 +1982,15 @@ export const implAttribute = defineAttributeMacro({
       const emitted = getOrCreateCompanionSet(ctx);
       const key = `${typeName}.${tcName}`;
       const hostAfterImpl =
+        host !== undefined &&
         typeof host !== "string" &&
         ts.isClassDeclaration(host) &&
         !isSyntheticNode(target) &&
         host.pos > target.pos;
-      if (typeof host === "string" || hostAfterImpl) {
+      if (host === undefined) {
+        // Not declared in this file: no companion, and nothing to warn about
+        // (see findCompanionHost).
+      } else if (typeof host === "string" || hostAfterImpl) {
         const why =
           typeof host === "string"
             ? host
