@@ -32,7 +32,10 @@ import { VirtualCompilerHost } from "./virtual-host.js";
 import { keepMacroReferencedImports } from "./keep-imports.js";
 import { typecheckExpandedProgram } from "./strict-check.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
-import { UnapprovedMacroPackagesError } from "./macro-loader.js";
+import {
+  UnapprovedMacroPackagesError,
+  loadProjectConfig as loadOwnedConfig,
+} from "./macro-loader.js";
 import {
   isComprehensionSyntaxActivatedIn,
   mapRewrittenDiagnostic,
@@ -58,7 +61,6 @@ import {
   setDiagnosticSuppressionAuditMode,
   profiler,
   PROFILING_ENABLED,
-  config as typesugarConfig,
 } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 
@@ -377,10 +379,11 @@ EXAMPLES:
 /**
  * Load the project's `typesugar.config.*` from the tsconfig's directory (not
  * the process cwd), so `typesugar build -p some/dir/tsconfig.json` honours
- * that project's config.
+ * that project's config -- read only from directories the project owns
+ * (macro-loader's `loadProjectConfig`).
  */
 function loadProjectConfig(tsconfigPath: string): void {
-  typesugarConfig.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
+  loadOwnedConfig(path.dirname(path.resolve(tsconfigPath)));
 }
 
 /** Stable identity for de-duplicating a diagnostic reported by two passes. */
@@ -962,6 +965,69 @@ function watch(options: CliOptions): void {
   ts.createWatchProgram(host);
 }
 
+/**
+ * A syntax tree as plain JSON for `expand --ast`: each node's kind (and its
+ * name), its own primitive fields (`escapedText`, `text`, operator tokens'
+ * kinds, ...), and its syntactic children under the property that holds
+ * them. Only children reached through `ts.forEachChild` are followed, so the
+ * checker's and binder's back-pointers (`parent`, `flowNode`, `original`,
+ * `symbol`, ...) are never visited: they are cyclic ("Converting circular
+ * structure to JSON", review 7) and not part of the tree anyway.
+ */
+/** SyntaxKind names, preferring the real name over a `First*`/`Last*` range marker. */
+const syntaxKindNames = (() => {
+  const isMarker = (name: string) => /^(First|Last)[A-Z]/.test(name);
+  const names = new Map<number, string>();
+  for (const [name, value] of Object.entries(ts.SyntaxKind)) {
+    if (typeof value !== "number") continue;
+    const seen = names.get(value);
+    if (seen === undefined || (isMarker(seen) && !isMarker(name))) names.set(value, name);
+  }
+  return names;
+})();
+
+function syntaxTreeToJson(node: ts.Node): unknown {
+  const children = new Set<unknown>();
+  ts.forEachChild(
+    node,
+    (child) => void children.add(child),
+    (array) => void children.add(array)
+  );
+  const SKIP = new Set([
+    "pos",
+    "end",
+    "flags",
+    "parent",
+    "id",
+    "transformFlags",
+    "modifierFlagsCache",
+  ]);
+  const out: Record<string, unknown> = {
+    kind: node.kind,
+    kindName: syntaxKindNames.get(node.kind) ?? ts.SyntaxKind[node.kind],
+  };
+  if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) out.text = ts.idText(node);
+  // A source file's own fields are bookkeeping (and `text` is the source
+  // BEFORE expansion); its name and its statements are the tree.
+  if (ts.isSourceFile(node)) out.fileName = node.fileName;
+  for (const [key, value] of Object.entries(node)) {
+    if (SKIP.has(key)) continue;
+    if (ts.isSourceFile(node) && !children.has(value)) continue;
+    if (children.has(value)) {
+      out[key] = Array.isArray(value)
+        ? (value as readonly ts.Node[]).map(syntaxTreeToJson)
+        : syntaxTreeToJson(value as ts.Node);
+    } else if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 function expand(options: CliOptions): void {
   if (!options.file) {
     console.error("Error: expand command requires a file argument");
@@ -997,36 +1063,19 @@ function expand(options: CliOptions): void {
       process.exit(1);
     }
 
+    // Macro diagnostics (an unverified macro package that was not loaded, a
+    // macro error) go to stderr; stdout stays the JSON tree.
+    const macroDiagnostics: ts.Diagnostic[] = [];
     const transformerFactory = macroTransformerFactory(program, {
       verbose: options.verbose,
+      onDiagnostic: (d) => macroDiagnostics.push(d),
     });
 
     const result = ts.transform(sourceFile, [transformerFactory]);
     const transformedSourceFile = result.transformed[0];
+    reportDiagnostics(dedupeDiagnostics(macroDiagnostics));
 
-    const ast = JSON.stringify(
-      transformedSourceFile,
-      (key, value) => {
-        if (
-          key === "parent" ||
-          key === "pos" ||
-          key === "end" ||
-          key === "flags" ||
-          key === "symbol" ||
-          key === "emitNode"
-        ) {
-          return undefined;
-        }
-        if (typeof value === "object" && value !== null && "kind" in value) {
-          return {
-            ...value,
-            kindName: ts.SyntaxKind[value.kind],
-          };
-        }
-        return value;
-      },
-      2
-    );
+    const ast = JSON.stringify(syntaxTreeToJson(transformedSourceFile), null, 2);
     console.log(ast);
     result.dispose();
     return;

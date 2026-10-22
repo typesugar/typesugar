@@ -223,3 +223,64 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
     }
   }, 120_000);
 });
+
+describe.skipIf(!hasBuild)("typesugar expand --ast (review 7)", () => {
+  it("prints the tree as JSON (no 'Converting circular structure')", () => {
+    const project = makeProject("typesugar-expand-ast-", {
+      "src/a.ts": `import { comptime } from "typesugar";\nexport const n = comptime(() => 1 + 2);\n`,
+    });
+    try {
+      const r = spawnSync(process.execPath, [cliPath, "expand", "--ast", "src/a.ts"], {
+        cwd: project,
+        encoding: "utf-8",
+        timeout: 120_000,
+      });
+      expect(r.status, r.stderr).toBe(0);
+      const tree = JSON.parse(r.stdout) as { kindName: string; statements: unknown[] };
+      expect(tree.kindName).toBe("SourceFile");
+      expect(r.stdout).toContain('"kindName": "VariableStatement"');
+      // comptime expanded: the literal is in the tree, under its real kind name.
+      expect(r.stdout).toMatch(/"kindName": "NumericLiteral",\s*"text": "3"/);
+      expect(r.stdout).not.toContain("comptime(");
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("expanding a vendored file does not run the vendored package's macros (secE)", () => {
+    const project = makeProject("typesugar-expand-secE-", {
+      "src/use.ts": `import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`,
+      "vendor/evil/package.json": JSON.stringify({
+        name: "evil",
+        version: "1.0.0",
+        type: "module",
+      }),
+      "vendor/evil/index.ts": `import { y } from "@typesugar/x";\nexport const helper = y;\n`,
+      "vendor/evil/node_modules/@typesugar/x/package.json": JSON.stringify({
+        name: "@typesugar/x",
+        version: "1.0.0",
+        typesugar: { macros: "./macros.cjs" },
+        exports: { ".": "./index.js", "./macros.cjs": "./macros.cjs" },
+      }),
+      "vendor/evil/node_modules/@typesugar/x/index.js": `export const y = 1;\n`,
+      "vendor/evil/node_modules/@typesugar/x/index.d.ts": `export declare const y: number;\n`,
+      "vendor/evil/node_modules/@typesugar/x/macros.cjs":
+        `require("fs").writeFileSync(require("path").join(__dirname, "PWNED"), "executed");\n` +
+        `module.exports = { __typesugar_macros__: [] };\n`,
+    });
+    const marker = path.join(project, "vendor/evil/node_modules/@typesugar/x/PWNED");
+    try {
+      for (const args of [["--ast"], []]) {
+        const r = spawnSync(
+          process.execPath,
+          [cliPath, "expand", ...args, "vendor/evil/index.ts"],
+          { cwd: project, encoding: "utf-8", timeout: 120_000 }
+        );
+        expect(fs.existsSync(marker), `expand ${args.join(" ")}`).toBe(false);
+        expect(r.stderr).toMatch(/'@typesugar\/x'.*not verified.*not loaded/s);
+      }
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  }, 120_000);
+});
