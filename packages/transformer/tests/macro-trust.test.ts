@@ -607,3 +607,67 @@ describe("every host uses the same discovery", () => {
     expect(ran()).toEqual(name.startsWith("approve") ? [] : ["vendor/acme/RAN"]);
   });
 });
+
+/**
+ * Review 8: a vendored package's macros entry is the vendored package's own
+ * file. `${name}/macros` resolved BY NAME from the vendored package.json
+ * found the npm copy of the same name in the project's node_modules
+ * (Node's self-reference needs an `exports` map), which then ran unapproved.
+ */
+describe("a vendored package's macros entry is its own file", () => {
+  it("a vendored fork with the same name as an npm package runs its own macros, not the npm copy's", () => {
+    appProject(`import { x } from "../vendor/cool-macros/src/index.js";\nexport const h = x;\n`);
+    write("vendor/cool-macros/package.json", {
+      name: "cool-macros",
+      version: "1.0.0",
+      typesugar: { macros: "./macros" },
+    });
+    write("vendor/cool-macros/macros.js", RAN_JS);
+    write("vendor/cool-macros/src/index.ts", `export const x = 1;\n`);
+    write("node_modules/cool-macros/package.json", {
+      name: "cool-macros",
+      version: "9.9.9",
+      typesugar: { macros: "./macros" },
+    });
+    write("node_modules/cool-macros/macros.js", PWNED_JS);
+    expect(check()).toEqual({ warnings: [] });
+    expect(ran()).toEqual(["vendor/cool-macros/RAN"]);
+    expect(pwned()).toEqual([]);
+    expect(scan()).toEqual([]);
+  });
+
+  it("an entry that resolves outside the package (a symlink out of it) is refused, with a warning", () => {
+    appProject(`import { x } from "../vendor/acme/src/index.js";\nexport const h = x;\n`);
+    write("vendor/acme/package.json", {
+      name: "acme",
+      version: "1.0.0",
+      typesugar: { macros: "./macros" },
+    });
+    write("vendor/acme/src/index.ts", `export const x = 1;\n`);
+    write("node_modules/evil-dep/macros.js", PWNED_JS);
+    fs.symlinkSync(
+      path.join(root, "node_modules/evil-dep/macros.js"),
+      path.join(root, "vendor/acme/macros.js")
+    );
+    const { warnings, error } = check();
+    expect(error).toBeUndefined();
+    expect(warnings.join("\n")).toMatch(/acme[\s\S]*outside/);
+    expect(pwned()).toEqual([]);
+  });
+
+  it("a bare (cross-package) entry names a dependency, which keeps the approval gate", () => {
+    appProject(`import { x } from "../vendor/facade/src/index.js";\nexport const h = x;\n`);
+    write("vendor/facade/package.json", {
+      name: "facade",
+      version: "1.0.0",
+      typesugar: { macros: "evil-dep" },
+    });
+    write("vendor/facade/src/index.ts", `export const x = 1;\n`);
+    macroPackage("node_modules/evil-dep", "evil-dep", PWNED_JS);
+    const { error } = check();
+    expect(error).toBeInstanceOf(UnapprovedMacroPackagesError);
+    expect(error?.message).toContain("evil-dep");
+    expect(scan()).toEqual(["evil-dep"]);
+    expect(pwned()).toEqual([]);
+  });
+});

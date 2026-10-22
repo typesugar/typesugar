@@ -45,6 +45,9 @@ export function __setRequireForTesting(req: NodeRequire | undefined): void {
 //   no warning. Someone who can write files into the repository can already
 //   edit vite.config.ts, eslint.config.js or package.json scripts, which
 //   every build runs; refusing their macros adds friction, not safety.
+//   Its macros entry is its own file (`projectEntry`), never a package of
+//   the same name found by name; a bare entry naming another package is a
+//   dependency of the project package (gated below).
 // - A package inside `node_modules` is a dependency, and keeps PEP-055's
 //   gate: `@typesugar/*` (and `typesugar`) are trusted, anything else must be
 //   in `security.allowedMacroPackages` (`typesugar approve-macros`), or the
@@ -606,6 +609,15 @@ function candidateOf(fileName: string, specifier: string): ImportCandidate | und
   if (inNodeModules(dir)) return undefined; // `node_modules` itself, or `.bin`
   const rel = projectMacroPackageAt(dir);
   if (!rel) return undefined;
+  // A bare manifest value (`"@typesugar/macros"`, a facade's) names ANOTHER
+  // package: resolved by name from the package's directory, it is a
+  // dependency like any other, and keeps the approval gate (review 8).
+  if (!rel.field.startsWith(".")) {
+    return {
+      kind: "dependency",
+      candidate: { pkg: getBasePackageName(rel.field), importerDir: rel.dir },
+    };
+  }
   const from = realPath(fromDir);
   return { kind: "project", rel, inside: from === rel.dir || isInside(from, rel.dir) };
 }
@@ -786,10 +798,15 @@ function isMacroDefinition(value: unknown): value is MacroDefinition {
  * Loaded under no name check (see the section comment), keyed by real path.
  */
 interface ProjectMacroPackage {
-  /** The name its package.json gives (the `${name}/macros` self-reference). */
+  /** The name its package.json gives. */
   pkg: string;
   /** The package's directory (where its package.json is), by real path. */
   dir: string;
+  /** Its `typesugar.macros` value: `"."` or `"./…"` (see `projectEntry`), else a bare specifier. */
+  field: string;
+  /** Its package.json has an `exports` map, so a `${name}/…` self-reference resolves inside it. */
+  hasExports: boolean;
+  /** `target`: the self-reference (`${name}/macros`); `req`: from its package.json. */
   info: ManifestFieldInfo;
 }
 
@@ -881,10 +898,49 @@ function readProjectMacroPackage(dir: string, pkgJson: string): ProjectMacroPack
   if (typeof name !== "string" || typeof field !== "string") return null;
   const target = resolveManifestTarget(name, field);
   if (!target) return null;
-  // Loaded from the package itself: `${name}/macros` resolves through its own
-  // `exports` map (a package may import itself by name), else from the
-  // node_modules above it.
-  return { pkg: name, dir, info: { target, req: createRequire(pkgJson) } };
+  return {
+    pkg: name,
+    dir,
+    field,
+    hasExports: data.exports !== undefined,
+    info: { target, req: createRequire(pkgJson) },
+  };
+}
+
+/**
+ * The file a project macro package's `"."`/`"./…"` manifest value names,
+ * inside the package: through its own `exports` map when it has one (Node's
+ * self-reference), else as a path in its directory. Never by name from the
+ * node_modules above it: without an `exports` map, `${name}/macros` resolved
+ * there, so a vendored fork of an npm package ran the npm copy's macros,
+ * unapproved (review 8). An entry whose real path is outside the package
+ * (a symlink out of it) is refused. Resolved on each load, so a package's
+ * own build sees its macros entry once it is built.
+ */
+function projectEntry(rel: ProjectMacroPackage): { entry: string } | { refused: string } {
+  const candidates = rel.hasExports ? [rel.info.target] : [];
+  candidates.push(path.join(rel.dir, rel.field));
+  let outside: string | undefined;
+  for (const candidate of candidates) {
+    let resolved: string;
+    try {
+      resolved = rel.info.req.resolve(candidate);
+    } catch {
+      continue; // not exported, or not there (yet)
+    }
+    const real = realPath(resolved);
+    if (isInside(real, rel.dir)) return { entry: resolved };
+    outside ??= real;
+  }
+  if (outside !== undefined) {
+    return {
+      refused:
+        `its macros entry '${rel.field}' resolves to ${outside}, outside the package, ` +
+        `so it was not loaded`,
+    };
+  }
+  // Not resolvable: loading the path reports why.
+  return { entry: path.join(rel.dir, rel.field) };
 }
 
 /** Record a project macro package one importing file reaches. */
@@ -909,14 +965,25 @@ function loadProjectMacroPackages(
 ): Array<MacroPackageWarning & { dir: string }> {
   const warnings: Array<MacroPackageWarning & { dir: string }> = [];
   for (const { rel, insideOnly } of found.values()) {
-    const error = tryLoadModule(rel.pkg, rel.info.target, verbose, rel.info.req, false);
+    const resolved = projectEntry(rel);
+    if ("refused" in resolved) {
+      warnings.push({
+        pkg: rel.pkg,
+        dir: rel.dir,
+        message:
+          `macro package '${rel.pkg}' (imported by a relative path, from ${rel.dir}): ` +
+          `${resolved.refused}. Its macros will not be expanded.`,
+      });
+      continue;
+    }
+    const error = tryLoadModule(rel.pkg, resolved.entry, verbose, rel.info.req, false);
     if (error === undefined || insideOnly) continue;
     warnings.push({
       pkg: rel.pkg,
       dir: rel.dir,
       message:
         `macro package '${rel.pkg}' (imported by a relative path, from ${rel.dir}) declares ` +
-        `macros at '${rel.info.target}' but loading it failed: ${error}. Its macros will not ` +
+        `macros at '${rel.field}' but loading it failed: ${error}. Its macros will not ` +
         `be expanded.`,
     });
   }
