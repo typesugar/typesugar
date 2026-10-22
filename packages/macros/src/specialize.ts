@@ -1739,11 +1739,21 @@ export interface InlineOptions {
   /**
    * Declare `const <name> = <init>;` just before the statement the call is
    * in, which the caller has checked evaluates the call unconditionally,
-   * once, and with nothing evaluated before it in that statement (see the
-   * transformer's statement temporaries). Absent: such a value becomes a
-   * parameter of an IIFE.
+   * once, and with nothing that has an effect evaluated before it in that
+   * statement (see the transformer's statement temporaries). Absent: such a
+   * value becomes a parameter of an IIFE.
    */
   hoistConst?: (name: ts.Identifier, init: ts.Expression) => void;
+  /**
+   * `hoistConst` may also take an argument with an effect (`mk()` in
+   * `mk() + mk()`): the caller has checked that nothing at all in the
+   * statement is evaluated before the call, not even a read of mutable state
+   * (a `let`, a property). Without it, only effect-free values (a projected
+   * literal's reread property) are hoisted, and an effectful argument the
+   * body can't take directly makes the call an IIFE, which evaluates it in
+   * place, after whatever the statement read first.
+   */
+  hoistEffects?: boolean;
 }
 
 /**
@@ -1770,7 +1780,7 @@ function inlineFromNode(
   if (projected) return inlineFromNode(ctx, projected.fn, projected.args, options);
 
   let names = checkInlineSafety(ctx, fn, body, callArgs);
-  if (!names && options?.hoistConst) {
+  if (!names && options?.hoistConst && options.hoistEffects) {
     // In statement position, the arguments direct substitution can't take
     // (`mk() + mk()`: each read twice) are evaluated, in order, into `const`s
     // before the statement instead of into an IIFE's parameters: every

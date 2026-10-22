@@ -1666,27 +1666,33 @@ export function tryInlineDerivedInstanceCall(
   // A value the inlined body reads more than once (a rational's `a.d * b.d`
   // in `p + q + r`) is bound to a `const` before the statement when the call
   // is evaluated first and once in it (evaluatedFirstOnceIn), and committed
-  // only if the call is inlined.
+  // only if the call is inlined. An operand with an effect (`mk() + mk()`)
+  // may be hoisted only when nothing in the statement is evaluated before the
+  // call at all (nothingEvaluatedBeforeIn): in `pv + (bump() + bump())` the
+  // statement reads `pv` first, and hoisting the bumps in front of the
+  // statement would read it after them (review 7).
   const pending: ts.Statement[] = [];
-  const hoistConst =
-    temps && scopeNode && evaluatedFirstOnceIn(temps.anchor, scopeNode)
-      ? (name: ts.Identifier, init: ts.Expression): void => {
-          pending.push(
-            ctx.factory.createVariableStatement(
-              undefined,
-              ctx.factory.createVariableDeclarationList(
-                [ctx.factory.createVariableDeclaration(name, undefined, undefined, init)],
-                ts.NodeFlags.Const
-              )
+  const first = !!temps && !!scopeNode && evaluatedFirstOnceIn(temps.anchor, scopeNode);
+  const hoistEffects =
+    first && nothingEvaluatedBeforeIn(temps!.anchor, scopeNode!, ctx.typeChecker);
+  const hoistConst = first
+    ? (name: ts.Identifier, init: ts.Expression): void => {
+        pending.push(
+          ctx.factory.createVariableStatement(
+            undefined,
+            ctx.factory.createVariableDeclarationList(
+              [ctx.factory.createVariableDeclaration(name, undefined, undefined, init)],
+              ts.NodeFlags.Const
             )
-          );
-        }
-      : undefined;
+          )
+        );
+      }
+    : undefined;
   const inlined = inlineMethod(
     ctx,
     method,
     Array.from(node.arguments),
-    hoistConst ? { hoistConst } : undefined
+    hoistConst ? { hoistConst, hoistEffects } : undefined
   );
   if (!inlined) return undefined;
   temps?.declarations.push(...pending);
@@ -1755,6 +1761,83 @@ export function evaluatedFirstOnceIn(anchor: ts.Statement, node: ts.Node): boole
       );
     }
     return false;
+  }
+  return false;
+}
+
+/**
+ * Given {@link evaluatedFirstOnceIn}, is NOTHING evaluated before `node` each
+ * time `anchor` runs, except values no effect can change? The left operands
+ * passed on the way up are effect-free; this asks more: that each is
+ * constant -- literals, `this`, and names bound by `const` (checker:
+ * the symbol's declaration is a `const` variable declaration), combined by
+ * operators. A read of a `let`, a parameter, an import (a live binding) or a
+ * property (`pv`, `this.pos`, `a.x`) is evaluated before `node`, so an effect
+ * `node` has must not be moved in front of the statement: it could change
+ * what that read sees. Unresolvable or synthetic names are not constant.
+ */
+export function nothingEvaluatedBeforeIn(
+  anchor: ts.Statement,
+  node: ts.Node,
+  checker: ts.TypeChecker
+): boolean {
+  if (!evaluatedFirstOnceIn(anchor, node)) return false;
+  let child: ts.Node = node;
+  for (
+    let parent = node.parent;
+    parent && parent !== anchor;
+    child = parent, parent = parent.parent
+  ) {
+    if (ts.isBinaryExpression(parent) && child === parent.right) {
+      if (!isConstantSyntax(parent.left, checker)) return false;
+    }
+  }
+  return true;
+}
+
+function isConstantSyntax(e: ts.Expression, checker: ts.TypeChecker): boolean {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (
+    ts.isNumericLiteral(e) ||
+    ts.isStringLiteral(e) ||
+    ts.isBigIntLiteral(e) ||
+    ts.isNoSubstitutionTemplateLiteral(e) ||
+    e.kind === ts.SyntaxKind.ThisKeyword ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword ||
+    e.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return true;
+  }
+  if (ts.isIdentifier(e)) {
+    // Identity through the checker, not the name (CLAUDE.md); a synthetic
+    // node is outside the checker's contract, so it is simply not constant.
+    if (isSyntheticNode(e)) return false;
+    let symbol: ts.Symbol | undefined;
+    try {
+      symbol = checker.getSymbolAtLocation(e);
+    } catch {
+      return false;
+    }
+    const decl = symbol?.valueDeclaration;
+    return (
+      !!decl &&
+      ts.isVariableDeclaration(decl) &&
+      (ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const) !== 0
+    );
+  }
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    if (op === ts.SyntaxKind.CommaToken) return false;
+    if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) return false;
+    return isConstantSyntax(e.left, checker) && isConstantSyntax(e.right, checker);
+  }
+  if (ts.isPrefixUnaryExpression(e)) {
+    return (
+      e.operator !== ts.SyntaxKind.PlusPlusToken &&
+      e.operator !== ts.SyntaxKind.MinusMinusToken &&
+      isConstantSyntax(e.operand, checker)
+    );
   }
   return false;
 }

@@ -436,4 +436,61 @@ export const second = 0, third = mk("3") + mk("4") + a;
       return { n: 1, d: 2 };
     }
   });
+
+  // Review 7: hoisting an effectful operand moved it in front of a read the
+  // statement does first. `pv + (bump() + bump())` read pv AFTER both bumps.
+  it("an effect is not hoisted in front of an earlier read of mutable state", () => {
+    const code = `${prelude}
+let pv: V = { x: 1, y: 10 };
+function bump(): V { pv = { x: 1000, y: 1000 }; return { x: 0, y: 0 }; }
+export const t1 = pv + (bump() + bump());
+let pq: Q = { n: 1, d: 2 };
+function bq(): Q { pq = { n: 7, d: 7 }; return { n: 1, d: 3 }; }
+export const t2 = pq + (bq() + r);
+class Walker {
+  pos: V = { x: 1, y: 1 };
+  step(): V { this.pos = { x: 50, y: 50 }; return { x: 0, y: 0 }; }
+  walk(): V { return this.pos + (this.step() + this.step()); }
+}
+export const t3 = new Walker().walk();
+`;
+    const result = transformCode(code, { fileName: "op-hoist-order.ts" });
+    expect(result.diagnostics.filter((x) => x.severity === "error")).toEqual([]);
+    const out = evaluate(result.code);
+    expect(out.t1).toEqual({ x: 1, y: 10 });
+    // 1/2 + (1/3 + 1/6) = 1/2 + 9/18
+    expect(out.t2).toEqual({ n: 1 * 18 + 9 * 2, d: 36 });
+    expect(out.t3).toEqual({ x: 1, y: 1 });
+  });
+
+  it("an effect is still hoisted after a const or literal operand (nothing it can change)", () => {
+    const code = `${prelude}
+export const k = a + (mk("1") + mk("2"));
+`;
+    const result = transformCode(code, { fileName: "op-hoist-const-left.ts" });
+    expect(result.diagnostics.filter((x) => x.severity === "error")).toEqual([]);
+    expect(lineOf(result.code, "k")).not.toContain("=>");
+    const out = evaluate(result.code);
+    expect(out.k).toEqual({ x: 201, y: 2010 });
+    expect(out.log).toEqual(["1", "2"]);
+  });
+
+  it("hoisted consts go after the statement's leading comment, and its JSDoc stays on it", () => {
+    const code = `${prelude}
+// Two made-up vectors.
+/** The sum. */
+export const m2 = mk("1") + mk("2");
+`;
+    const result = transformCode(code, { fileName: "op-hoist-comment.ts" });
+    expect(result.diagnostics.filter((x) => x.severity === "error")).toEqual([]);
+    const lines = result.code.split("\n");
+    const comment = lines.findIndex((l) => l.includes("// Two made-up vectors."));
+    const firstConst = lines.findIndex((l) => /^const __typesugar_/.test(l));
+    const doc = lines.findIndex((l) => l.includes("/** The sum. */"));
+    const stmt = lines.findIndex((l) => l.startsWith("export const m2 ="));
+    expect(comment).toBeGreaterThanOrEqual(0);
+    expect(firstConst).toBeGreaterThan(comment);
+    expect(doc).toBeGreaterThan(firstConst);
+    expect(stmt).toBe(doc + 1);
+  });
 });

@@ -145,11 +145,15 @@ const sum = a + b + c;
 ```
 
 Each operand is still evaluated once, in order. A value the next method reads
-more than once (a rational's denominator), or an operand with side effects, is
-bound to a `const` just before the statement when the chain is evaluated first
-in it (a declaration's initializer, a `return`, an expression statement).
-Elsewhere (an arrow's expression body, a `?:` branch) such a level is applied as
-a function call instead.
+more than once (a rational's denominator) is bound to a `const` just before the
+statement when the chain is evaluated first in it (a declaration's initializer,
+a `return`, an expression statement). So is an operand with side effects, but
+only when nothing at all is evaluated before it in the statement except
+literals, `this` and `const` names: in `pos + (step() + step())`, where `pos`
+is a `let` or a property, the statement reads `pos` before the calls, and moving
+the calls in front of the statement could change what it reads. Elsewhere (an
+arrow's expression body, a `?:` branch, after such a read) that level is applied
+as a function call instead, in place.
 
 A method that returns something else (`equals(a: A, b: A): boolean`) ends the
 chain: `(a === b) === flag` compares booleans natively.

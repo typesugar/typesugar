@@ -558,6 +558,44 @@ class MacroTransformer {
     }
   }
 
+  /**
+   * The temporaries hoisted before `stmt` go after its leading comments, not
+   * between them and the statement (review 7): the comments move onto the
+   * first temporary -- except a JSDoc comment right before the statement,
+   * which documents the statement and stays on it (`out`, what `stmt` became).
+   * Skipped for the first statement of a file (its header comments are
+   * emitted with the file, before any temporary, and copying them would
+   * print them twice) and for an `out` with no source position (its source
+   * comments are not printed from the source range anyway).
+   */
+  private moveLeadingCommentsAbove(
+    stmt: ts.Statement,
+    out: ts.Node,
+    first: ts.Statement,
+    container: ts.SourceFile | ts.Block | ts.ModuleBlock
+  ): void {
+    if (isSyntheticNode(stmt) || isSyntheticNode(out)) return;
+    if (ts.isSourceFile(container) && container.statements[0] === stmt) return;
+    const text = this.ctx.sourceFile.text;
+    const ranges = ts.getLeadingCommentRanges(text, stmt.pos);
+    if (!ranges || ranges.length === 0) return;
+    const last = ranges[ranges.length - 1];
+    const keepDoc =
+      last.kind === ts.SyntaxKind.MultiLineCommentTrivia && text.startsWith("/**", last.pos);
+    const moved = keepDoc ? ranges.slice(0, -1) : ranges;
+    if (moved.length === 0) return;
+    for (const r of moved) {
+      const raw = text.slice(r.pos, r.end);
+      const body =
+        r.kind === ts.SyntaxKind.SingleLineCommentTrivia ? raw.slice(2) : raw.slice(2, -2);
+      ts.addSyntheticLeadingComment(first, r.kind, body, r.hasTrailingNewLine);
+    }
+    // Leading comments are printed from the comment range's start: from the
+    // JSDoc, or from the statement's first token (none).
+    const from = keepDoc ? last.pos : stmt.getStart(this.ctx.sourceFile);
+    ts.setCommentRange(out, { pos: from, end: out.end });
+  }
+
   private visitStatementContainer(
     node: ts.SourceFile | ts.Block | ts.ModuleBlock
   ): ts.SourceFile | ts.Block | ts.ModuleBlock {
@@ -944,6 +982,8 @@ class MacroTransformer {
       }
       if (temps.declarations.length > 0) {
         newStatements.push(...temps.declarations);
+        const out = Array.isArray(visited) ? visited.find((n) => ts.isStatement(n)) : visited;
+        if (out) this.moveLeadingCommentsAbove(stmt, out, temps.declarations[0], node);
         modified = true;
       }
       if (visited) {
