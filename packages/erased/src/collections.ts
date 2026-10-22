@@ -20,11 +20,14 @@ export type ErasedList<Caps extends readonly Capability[]> = ReadonlyArray<Erase
  * @param list - The erased list to map over.
  * @param f - A function applied to each erased element.
  */
-export function mapErased<Caps extends readonly Capability[], R>(
-  list: ErasedList<Caps>,
-  f: (erased: Erased<Caps>) => R
+export function mapErased<E extends Erased<readonly Capability[]>, R>(
+  list: readonly E[],
+  f: (erased: E) => R
 ): R[] {
-  return list.map(f);
+  // The element type is the list's own (`WithShow`, an `Erased<[Show, Eq]>`),
+  // so the callback keeps its capabilities: with `ErasedList<Caps>` a
+  // `WithShow[]` gave the callback a bare `Erased<Capability[]>`.
+  return list.map((e) => f(e));
 }
 
 /**
@@ -33,11 +36,11 @@ export function mapErased<Caps extends readonly Capability[], R>(
  * @param list - The erased list to filter.
  * @param predicate - Keep elements for which this returns `true`.
  */
-export function filterErased<Caps extends readonly Capability[]>(
-  list: ErasedList<Caps>,
-  predicate: (erased: Erased<Caps>) => boolean
-): ErasedList<Caps> {
-  return list.filter(predicate);
+export function filterErased<E extends Erased<readonly Capability[]>>(
+  list: readonly E[],
+  predicate: (erased: E) => boolean
+): E[] {
+  return list.filter((e) => predicate(e));
 }
 
 /**
