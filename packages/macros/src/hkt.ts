@@ -84,6 +84,15 @@ export interface TypeConstructorResolution {
   arity: number;
   /** Name of the hole type parameter (the one that varies, typically the last) */
   holeName: string;
+  /**
+   * The type is itself a type-level function of the `Kind` encoding
+   * (`interface EitherF<E> extends TypeFunction { __kind__; _: ... }`): its
+   * parameters are the FIXED ones, not the hole, so it is not a data type
+   * constructor to expand `Kind<F, A>` into. Decided by the encoding's
+   * structural contract (a `__kind__` member on the declared type), through
+   * the checker.
+   */
+  isTypeFunction?: boolean;
 }
 
 /**
@@ -250,11 +259,19 @@ function resolveTypeConstructorViaTypeCheckerUncached(
   const holeIndex = arity - 1; // Convention: hole is always the last param
   const holeName = typeParams[holeIndex].name.text;
 
+  let isTypeFunction = false;
+  try {
+    isTypeFunction = checker.getDeclaredTypeOfSymbol(symbol).getProperty("__kind__") !== undefined;
+  } catch {
+    isTypeFunction = false; // treated as a data type constructor, as before
+  }
+
   return {
     baseType: base,
     fixedArgs,
     arity,
     holeName,
+    isTypeFunction,
   };
 }
 

@@ -1873,38 +1873,82 @@ export const implAttribute = defineAttributeMacro({
     if (isHKTInstance && decl) {
       // Tier 1 implicit resolution: if typeName isn't a known type function,
       // try to resolve it via TypeChecker and auto-register
-      const { base: resolvedBase } = parseTypeConstructor(typeName);
+      const { base: resolvedBase, fixedArgs } = parseTypeConstructor(typeName);
       const expansions = hktExpansionsFor(ctx.program);
-      if (!expansions.has(typeName) && !expansions.has(resolvedBase)) {
-        let resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
-        if (resolution) {
-          // Auto-register the base type as an HKT expansion
+      const registered = expansions.has(typeName) || expansions.has(resolvedBase);
+      // False when the instance's type argument is valid but has no
+      // single-hole expansion: then no expanded type is emitted at all.
+      // Decided on every instance (resolution is memoized per program), not
+      // only the first that registers the name: `EitherF` after
+      // `EitherF<string>` registered `EitherF` → `Either` must not expand to
+      // `Either<A>`.
+      let expandable = true;
+      let resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
+      // A generic type-level function (`EitherF<E>`) is not the data type to
+      // expand into: `EitherF<A>` is not `Either<?, A>` (turf case study,
+      // round 2). It is a valid HKT argument; handle it as a `*F` name below.
+      const isTypeFunction = resolution?.isTypeFunction === true;
+      if (isTypeFunction) resolution = undefined;
+      if (resolution) {
+        // Auto-register the base type as an HKT expansion
+        if (!registered) {
           registerHKTExpansion(ctx.program, resolution.baseType, resolution.baseType);
-        } else if (resolvedBase.length > 1 && resolvedBase.endsWith("F")) {
-          // `*F` convention (replaces the old hardcoded seed table): `OptionF`
-          // names the TypeFunction encoding of `Option`. The encoding interface
-          // itself is not generic, so resolve the stripped base name instead and
-          // register the `*F` spelling as an expansion to it.
-          const strippedBase = resolvedBase.slice(0, -1);
-          resolution = resolveTypeConstructorViaTypeChecker(ctx, strippedBase);
-          if (resolution) {
-            registerHKTExpansion(ctx.program, resolvedBase, resolution.baseType);
-          }
         }
-        if (!resolution) {
-          ctx.diagnostic(TS9305).at(target).withArgs({ type: typeName }).emit();
+        // `Either` with nothing fixed has two holes: `Either<A>` would be wrong.
+        if (resolution.arity - resolution.fixedArgs.length !== 1) expandable = false;
+      } else if (resolvedBase.length > 1 && resolvedBase.endsWith("F")) {
+        // `*F` convention (replaces the old hardcoded seed table): `OptionF`
+        // names the TypeFunction encoding of `Option`. The encoding interface
+        // itself is not generic, so resolve the stripped base name instead and
+        // register the `*F` spelling as an expansion to it.
+        const strippedBase = resolvedBase.slice(0, -1);
+        resolution = resolveTypeConstructorViaTypeChecker(ctx, strippedBase);
+        if (resolution && resolution.arity - fixedArgs.length === 1) {
+          if (!registered) registerHKTExpansion(ctx.program, resolvedBase, resolution.baseType);
+        } else if (resolution) {
+          // `EitherF` (no `E` fixed) for `Either<E, A>`: no single hole to
+          // substitute, so `Either<A>` would be wrong. Leave the type alone.
+          expandable = false;
         }
       }
+      if (!resolution && isTypeFunction) expandable = false;
+      else if (!resolution && !registered) {
+        ctx.diagnostic(TS9305).at(target).withArgs({ type: typeName }).emit();
+      }
 
-      const expandedType = generateHKTExpandedType(ctx, tcName, typeName);
+      const expandedType = expandable ? generateHKTExpandedType(ctx, tcName, typeName) : undefined;
       if (expandedType) {
-        const newDecl = factory.updateVariableDeclaration(
-          decl,
-          decl.name,
-          decl.exclamationToken,
-          expandedType,
-          decl.initializer
-        );
+        // An unannotated instance keeps the type of its own initializer and
+        // `satisfies` the expanded type instead of being annotated with it
+        // (turf case study, round 2): as an annotation it dropped every member
+        // the typeclass doesn't declare (`_tag`, `orElse` on fp's
+        // `flatMapOption`) from the instance's type and .d.ts, and the
+        // expansion's check reported them as excess properties. `satisfies`
+        // still contextually types unannotated method parameters and checks
+        // the members the instance has; its members are optional and it has
+        // an index signature, so the expansion reports nothing the source as
+        // written doesn't (a partial instance, an extra helper). Erased, like
+        // the annotation: zero-cost. A user's own annotation is replaced as
+        // before.
+        const newDecl =
+          !decl.type && decl.initializer
+            ? factory.updateVariableDeclaration(
+                decl,
+                decl.name,
+                decl.exclamationToken,
+                undefined,
+                factory.createSatisfiesExpression(
+                  parenthesizeForSatisfies(factory, decl.initializer),
+                  asOpenSatisfiesTarget(factory, expandedType)
+                )
+              )
+            : factory.updateVariableDeclaration(
+                decl,
+                decl.name,
+                decl.exclamationToken,
+                expandedType,
+                decl.initializer
+              );
 
         if (ts.isVariableStatement(target)) {
           const newDeclList = factory.updateVariableDeclarationList(target.declarationList, [
@@ -1922,21 +1966,12 @@ export const implAttribute = defineAttributeMacro({
 
     // Bridge to specialization registry: extract methods from the object literal
     // and register them for zero-cost specialization
-    let objLiteral: ts.ObjectLiteralExpression | undefined;
-    if (ts.isVariableStatement(updatedTarget)) {
-      const d = (updatedTarget as ts.VariableStatement).declarationList.declarations[0];
-      if (d?.initializer && ts.isObjectLiteralExpression(d.initializer)) {
-        objLiteral = d.initializer;
-      }
-    } else if (ts.isVariableDeclaration(updatedTarget)) {
-      if (
-        (updatedTarget as ts.VariableDeclaration).initializer &&
-        ts.isObjectLiteralExpression((updatedTarget as ts.VariableDeclaration).initializer!)
-      ) {
-        objLiteral = (updatedTarget as ts.VariableDeclaration)
-          .initializer as ts.ObjectLiteralExpression;
-      }
-    }
+    // Read from the declaration as written: the expansion may have wrapped
+    // the initializer in `satisfies` (above).
+    const objLiteral =
+      decl?.initializer && ts.isObjectLiteralExpression(decl.initializer)
+        ? decl.initializer
+        : undefined;
 
     if (objLiteral) {
       const methods = inlineableMethods(
@@ -2116,6 +2151,61 @@ function getHKTExpansion(program: ts.Program, hktName: string): string {
 /** Test-only accessor for the per-program HKT expansion lookup. */
 export function getHKTExpansionForTest(program: ts.Program, hktName: string): string {
   return getHKTExpansion(program, hktName);
+}
+
+/** `e` as the left operand of `satisfies`, parenthesized unless it is a primary expression. */
+function parenthesizeForSatisfies(factory: ts.NodeFactory, e: ts.Expression): ts.Expression {
+  return ts.isObjectLiteralExpression(e) ||
+    ts.isArrayLiteralExpression(e) ||
+    ts.isIdentifier(e) ||
+    ts.isCallExpression(e) ||
+    ts.isPropertyAccessExpression(e) ||
+    ts.isParenthesizedExpression(e)
+    ? e
+    : factory.createParenthesizedExpression(e);
+}
+
+/**
+ * The `satisfies` target for an unannotated `@impl` instance: the expanded
+ * typeclass type with every member optional, plus `readonly [member: string]:
+ * unknown`, so the check contextually types and checks the members the
+ * instance has without reporting extra or missing ones (see the `@impl`
+ * handler). A non-literal expansion is intersected with the index signature.
+ */
+function asOpenSatisfiesTarget(factory: ts.NodeFactory, t: ts.TypeNode): ts.TypeNode {
+  const index = factory.createIndexSignature(
+    [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+    [
+      factory.createParameterDeclaration(
+        undefined,
+        undefined,
+        "member",
+        undefined,
+        factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword)
+      ),
+    ],
+    factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
+  );
+  if (!ts.isTypeLiteralNode(t)) {
+    return factory.createIntersectionTypeNode([t, factory.createTypeLiteralNode([index])]);
+  }
+  const optional = factory.createToken(ts.SyntaxKind.QuestionToken);
+  const members = t.members.map((m) =>
+    ts.isPropertySignature(m)
+      ? factory.updatePropertySignature(m, m.modifiers, m.name, optional, m.type)
+      : ts.isMethodSignature(m)
+        ? factory.updateMethodSignature(
+            m,
+            m.modifiers,
+            m.name,
+            optional,
+            m.typeParameters,
+            m.parameters,
+            m.type
+          )
+        : m
+  );
+  return factory.createTypeLiteralNode([...members, index]);
 }
 
 /**

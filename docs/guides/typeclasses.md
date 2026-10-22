@@ -628,7 +628,7 @@ The transformer handles the encoding behind the scenes via two mechanisms:
 
 1. **`F<A>` rewriting (Tier 0)** — In typeclass bodies and generic functions, `F<A>` where `F` is a type parameter is rewritten to `Kind<F, A>` before type-checking. This is a pure AST operation — no TypeChecker needed.
 
-2. **Implicit resolution in `@impl` (Tier 1)** — `@impl Functor<Option>` sees that `Option` is a generic type with one parameter, generates the HKT encoding internally, and registers the instance. No `OptionF` or `@hkt` annotation needed.
+2. **Implicit resolution in `@impl` (Tier 1)** — `@impl Functor<Option>` sees that `Option` is a generic type with one parameter, generates the HKT encoding internally, and registers the instance. No `OptionF` or `@hkt` annotation needed. An unannotated instance `satisfies` Functor's members with `Option<A>` in place of `Kind<F, A>`: that types the parameters of its methods, and the instance keeps its own type, extra members included.
 
 ### Partial Application
 
