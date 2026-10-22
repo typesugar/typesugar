@@ -529,35 +529,50 @@ export const typeInfoMacro = defineExpressionMacro({
       }
     }
 
-    const fieldsArray = properties.map((prop) => {
-      const decls = prop.getDeclarations();
-      const decl = decls?.[0];
-      const isReadonly =
-        decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
-          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
-          : false;
-
-      return factory.createObjectLiteralExpression(
-        [
-          factory.createPropertyAssignment("name", factory.createStringLiteral(prop.name)),
-          factory.createPropertyAssignment(
-            "type",
-            factory.createStringLiteral(fieldTypeString(ctx.typeChecker, prop, callExpr))
-          ),
-          factory.createPropertyAssignment(
-            "optional",
-            (prop.flags & ts.SymbolFlags.Optional) !== 0
-              ? factory.createTrue()
-              : factory.createFalse()
-          ),
-          factory.createPropertyAssignment(
-            "readonly",
-            isReadonly ? factory.createTrue() : factory.createFalse()
-          ),
-        ],
-        true
+    // A method (a class's method declaration, an interface's method
+    // signature) is reported in `methods`, with the signature the checker
+    // gives it, not as a field — as the `@reflect` class metadata does. A
+    // function-valued property (`onDone: () => void`) stays a field.
+    const isMethod = (prop: ts.Symbol): boolean =>
+      (prop.getDeclarations() ?? []).some(
+        (d) => ts.isMethodDeclaration(d) || ts.isMethodSignature(d)
       );
+    const methodsArray = properties.filter(isMethod).flatMap((prop) => {
+      const info = methodInfoFromChecker(ctx.typeChecker, prop, callExpr);
+      return info ? [methodInfoLiteral(factory, info)] : [];
     });
+
+    const fieldsArray = properties
+      .filter((prop) => !isMethod(prop))
+      .map((prop) => {
+        const decls = prop.getDeclarations();
+        const decl = decls?.[0];
+        const isReadonly =
+          decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
+            ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
+            : false;
+
+        return factory.createObjectLiteralExpression(
+          [
+            factory.createPropertyAssignment("name", factory.createStringLiteral(prop.name)),
+            factory.createPropertyAssignment(
+              "type",
+              factory.createStringLiteral(fieldTypeString(ctx.typeChecker, prop, callExpr))
+            ),
+            factory.createPropertyAssignment(
+              "optional",
+              (prop.flags & ts.SymbolFlags.Optional) !== 0
+                ? factory.createTrue()
+                : factory.createFalse()
+            ),
+            factory.createPropertyAssignment(
+              "readonly",
+              isReadonly ? factory.createTrue() : factory.createFalse()
+            ),
+          ],
+          true
+        );
+      });
 
     return factory.createObjectLiteralExpression(
       [
@@ -567,11 +582,99 @@ export const typeInfoMacro = defineExpressionMacro({
           "fields",
           factory.createArrayLiteralExpression(fieldsArray, true)
         ),
+        factory.createPropertyAssignment(
+          "methods",
+          factory.createArrayLiteralExpression(methodsArray, true)
+        ),
       ],
       true
     );
   },
 });
+
+/**
+ * A method's `MethodInfo` from the checker: its (first) call signature as
+ * seen from `location` — parameter and return types as the checker prints
+ * them, a parameter optional when the checker says so (`?` or a default).
+ * Undefined when the checker can't give a signature (reported as nothing,
+ * as `fieldTypeString` reports "unknown").
+ */
+function methodInfoFromChecker(
+  checker: ts.TypeChecker,
+  prop: ts.Symbol,
+  location: ts.Node
+): MethodInfo | undefined {
+  try {
+    const signature = checker
+      .getTypeOfSymbolAtLocation(prop, location)
+      .getNonNullableType()
+      .getCallSignatures()[0];
+    if (!signature) return undefined;
+    const decl = (prop.getDeclarations() ?? []).find(
+      (d): d is ts.MethodDeclaration | ts.MethodSignature =>
+        ts.isMethodDeclaration(d) || ts.isMethodSignature(d)
+    );
+    return {
+      name: prop.name,
+      parameters: signature.getParameters().map((param) => {
+        const paramDecl = param.valueDeclaration;
+        const optional =
+          !!paramDecl && ts.isParameter(paramDecl) && checker.isOptionalParameter(paramDecl);
+        // Like a field's (`fieldTypeString`): an optional parameter shows its
+        // declared type (`retries?: number` is "number", optional beside it),
+        // through the checker, not the annotation's text.
+        const declared =
+          optional && paramDecl && ts.isParameter(paramDecl) && paramDecl.type
+            ? checker.getTypeFromTypeNode(paramDecl.type)
+            : checker.getTypeOfSymbolAtLocation(param, location);
+        return { name: param.name, type: checker.typeToString(declared), optional };
+      }),
+      returnType: checker.typeToString(signature.getReturnType()),
+      isAsync: !!decl?.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+      isStatic: false, // a property of the instance type
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The object literal `typeInfo<T>()` emits for one method. */
+function methodInfoLiteral(factory: ts.NodeFactory, m: MethodInfo): ts.ObjectLiteralExpression {
+  return factory.createObjectLiteralExpression(
+    [
+      factory.createPropertyAssignment("name", factory.createStringLiteral(m.name)),
+      factory.createPropertyAssignment(
+        "parameters",
+        factory.createArrayLiteralExpression(
+          m.parameters.map((p) =>
+            factory.createObjectLiteralExpression(
+              [
+                factory.createPropertyAssignment("name", factory.createStringLiteral(p.name)),
+                factory.createPropertyAssignment("type", factory.createStringLiteral(p.type)),
+                factory.createPropertyAssignment(
+                  "optional",
+                  p.optional ? factory.createTrue() : factory.createFalse()
+                ),
+              ],
+              false
+            )
+          ),
+          true
+        )
+      ),
+      factory.createPropertyAssignment("returnType", factory.createStringLiteral(m.returnType)),
+      factory.createPropertyAssignment(
+        "isAsync",
+        m.isAsync ? factory.createTrue() : factory.createFalse()
+      ),
+      factory.createPropertyAssignment(
+        "isStatic",
+        m.isStatic ? factory.createTrue() : factory.createFalse()
+      ),
+    ],
+    true
+  );
+}
 
 // ============================================================================
 // fieldNames<T>() - Get field names as a tuple type

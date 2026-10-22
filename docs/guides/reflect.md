@@ -40,9 +40,38 @@ const meta = typeInfo<User>();
 //     { name: "id", type: "number", optional: false, readonly: false },
 //     { name: "name", type: "string", optional: false, readonly: false },
 //     { name: "email", type: "string", optional: true, readonly: false },
-//   ]
+//   ],
+//   methods: [],
 // }
 ```
+
+Methods (a class's methods, an interface's method signatures) are listed in
+`methods`, with the signature the type checker gives them, not in `fields`:
+
+```typescript
+class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+}
+
+const calc = typeInfo<Calculator>();
+// calc.methods:
+// [
+//   {
+//     name: "add",
+//     parameters: [
+//       { name: "a", type: "number", optional: false },
+//       { name: "b", type: "number", optional: false },
+//     ],
+//     returnType: "number",
+//     isAsync: false,
+//     isStatic: false,
+//   },
+// ]
+```
+
+A function-valued property (`onDone: () => void`) is a field.
 
 ### fieldNames\<T\>() — Get Field Names
 

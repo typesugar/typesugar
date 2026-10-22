@@ -113,15 +113,15 @@ const calcInfo = typeInfo<Calculator>();
 assert(calcInfo.name === "Calculator");
 assert(calcInfo.kind === "class");
 
-// Methods have parameter info and return types
-if (calcInfo.methods) {
-  const addMethod = calcInfo.methods.find((m) => m.name === "add");
-  assert(addMethod !== undefined);
-  assert(addMethod!.parameters.length === 2);
-  assert(addMethod!.returnType === "number");
+// Methods have parameter info and return types, and are not fields
+assert(calcInfo.fields!.map((f) => f.name).join() === "result");
+const addMethod = calcInfo.methods!.find((m) => m.name === "add");
+assert(addMethod !== undefined);
+assert(addMethod!.parameters.length === 2);
+assert(addMethod!.parameters[0].type === "number");
+assert(addMethod!.returnType === "number");
 
-  typeAssert<Extends<typeof addMethod, MethodInfo | undefined>>();
-}
+typeAssert<Extends<typeof addMethod, MethodInfo | undefined>>();
 
 // ============================================================================
 // 4. fieldNames<T>() — Get field names as a tuple

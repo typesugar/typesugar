@@ -575,6 +575,58 @@ describe("typeInfoMacro (expression form)", () => {
     expect(types).toEqual({ age: "number", nick: "string | null", id: "number | undefined" });
   });
 
+  it("emits a class's methods with their signatures, apart from its fields (turf r2)", () => {
+    // Before: typeInfo<Calculator>() had no `methods` (TypeInfo declares it),
+    // so reflect-example.ts printed none, and listed the methods as fields.
+    const source =
+      STUB +
+      `class Calc {
+  label = "c";
+  onDone: () => void = () => {};
+  add(a: number, b: number): number { return a + b; }
+  async load(id: string, retries?: number) { return id.length + (retries ?? 0); }
+}
+const t = typeInfo<Calc>();`;
+    const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
+    const obj = expanded as ts.ObjectLiteralExpression;
+    const fieldNames = getArrayProp(obj, "fields")!.elements.map((e) =>
+      getStringProp(e as ts.ObjectLiteralExpression, "name")
+    );
+    expect(fieldNames.sort()).toEqual(["label", "onDone"]);
+    const methods = getArrayProp(obj, "methods")!.elements.map(
+      (e) => e as ts.ObjectLiteralExpression
+    );
+    const byName = Object.fromEntries(methods.map((m) => [getStringProp(m, "name"), m]));
+    expect(Object.keys(byName).sort()).toEqual(["add", "load"]);
+    expect(getStringProp(byName.add, "returnType")).toBe("number");
+    expect(getBoolProp(byName.add, "isAsync")).toBe(false);
+    expect(getBoolProp(byName.load, "isAsync")).toBe(true);
+    expect(getStringProp(byName.load, "returnType")).toBe("Promise<number>");
+    const params = getArrayProp(byName.load, "parameters")!.elements.map((e) => {
+      const p = e as ts.ObjectLiteralExpression;
+      return [getStringProp(p, "name"), getStringProp(p, "type"), getBoolProp(p, "optional")];
+    });
+    expect(params).toEqual([
+      ["id", "string", false],
+      ["retries", "number", true],
+    ]);
+  });
+
+  it("emits an interface's method signatures as methods", () => {
+    const source =
+      STUB +
+      `interface Repo { name: string; find(id: number): string | undefined; }
+const t = typeInfo<Repo>();`;
+    const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
+    const obj = expanded as ts.ObjectLiteralExpression;
+    const methods = getArrayProp(obj, "methods")!.elements.map(
+      (e) => e as ts.ObjectLiteralExpression
+    );
+    expect(methods.map((m) => getStringProp(m, "name"))).toEqual(["find"]);
+    expect(getStringProp(methods[0], "returnType")).toBe("string | undefined");
+    expect(getArrayProp(obj, "fields")!.elements).toHaveLength(1);
+  });
+
   it("emits empty fields for an empty interface", () => {
     const source = STUB + `interface E {}\nconst t = typeInfo<E>();`;
     const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
