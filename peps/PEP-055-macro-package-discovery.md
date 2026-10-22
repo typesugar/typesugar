@@ -324,7 +324,8 @@ approval for everything else — modeled on pnpm's `approve-builds`.**
   for pnpm layouts let a vendored file's `@typesugar/x` load
   `vendor/evil/node_modules/@typesugar/x`. The rule now is: a package's
   identity is established ONLY by resolving its bare name from directories
-  the project owns — the tsconfig's directory, the build's cwd, the package
+  the project owns — the tsconfig's directory (`configFilePath`; the CLI, which
+  doesn't set it, uses the directory holding the tsconfig's files), the build's cwd, the package
   root (nearest package.json) at or above each, and the workspace package
   roots those declare (`pnpm-workspace.yaml` `packages:`, package.json
   `workspaces`). A bare import resolves from the owned directory containing

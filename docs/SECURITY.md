@@ -85,8 +85,9 @@ These are real, tested boundaries — not advisory guidance:
   package, so both apply only to the package that name stands for in _your_
   project. The transformer establishes that by resolving the name from
   directories the project owns, and nowhere else:
-  - the project itself: the tsconfig's directory, the build's current
-    directory, and the package root (nearest `package.json`) at or above each;
+  - the project itself: the tsconfig's directory (or, for the CLI, the
+    directory holding the files it lists), the build's current directory, and
+    the package root (nearest `package.json`) at or above each;
   - the workspace packages those declare (`pnpm-workspace.yaml` `packages:`, or
     `package.json` `workspaces`).
 

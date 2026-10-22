@@ -210,7 +210,7 @@ approve it once: run `npx typesugar approve-macros` (it writes
 monorepo root covers every package below it.
 
 Macro packages resolve only from directories the project owns: the package you build
-(its tsconfig's directory and package root, and the current directory) and, when you
+(its tsconfig's files and package root, and the current directory) and, when you
 build from the monorepo root, the workspace packages its `pnpm-workspace.yaml` (or
 `package.json` `workspaces`) declares, each from its own `node_modules`. A macro package
 reached only through code outside those, such as a vendored directory's own

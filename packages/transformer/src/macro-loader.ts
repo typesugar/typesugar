@@ -75,9 +75,12 @@ function isFilesystemRoot(dir: string): boolean {
 
 /**
  * The directories `program`'s project owns: its tsconfig's directory
- * (`compilerOptions.configFilePath`) and its current directory, with the
- * nearest package.json directory at or above each, plus the workspace
- * packages those declare. Without a program, the process's cwd stands in.
+ * (`compilerOptions.configFilePath`) -- or, when the host doesn't set it (the
+ * CLI doesn't: TypeScript 6 then requires an explicit `rootDir`), the
+ * directory holding the program's root files, which the tsconfig (or the
+ * host) names, not an import -- and its current directory, with the nearest
+ * package.json directory at or above each, plus the workspace packages those
+ * declare. Without a program, the process's cwd stands in.
  */
 function projectRootsOf(program?: ts.Program): ProjectRoots {
   if (program) {
@@ -86,10 +89,14 @@ function projectRootsOf(program?: ts.Program): ProjectRoots {
   }
   const bases: string[] = [];
   const configFilePath = program?.getCompilerOptions().configFilePath;
+  const cwd = path.resolve(program ? program.getCurrentDirectory() : process.cwd());
   if (typeof configFilePath === "string" && configFilePath) {
-    bases.push(path.dirname(path.resolve(configFilePath)));
+    bases.push(path.dirname(path.resolve(cwd, configFilePath)));
+  } else if (program) {
+    const rootsDir = commonDirectory(program.getRootFileNames().map((f) => path.resolve(cwd, f)));
+    if (rootsDir) bases.push(rootsDir);
   }
-  bases.push(path.resolve(program ? program.getCurrentDirectory() : process.cwd()));
+  bases.push(cwd);
   const key = bases.join("\0");
   let roots = program ? undefined : cwdRootsCache.get(key);
   if (!roots) {
@@ -111,6 +118,16 @@ function projectRootsOf(program?: ts.Program): ProjectRoots {
   }
   if (program) programRootsCache.set(program, roots);
   return roots;
+}
+
+/** The deepest directory containing every one of `files`. */
+function commonDirectory(files: string[]): string | undefined {
+  if (files.length === 0) return undefined;
+  let common = path.dirname(files[0]);
+  for (const f of files.slice(1)) {
+    while (common !== path.dirname(common) && !isInside(f, common)) common = path.dirname(common);
+  }
+  return common;
 }
 
 /** The nearest directory at or above `dir` that has a package.json. */

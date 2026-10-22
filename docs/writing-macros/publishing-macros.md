@@ -235,7 +235,8 @@ Either way, the name in a `package.json` is only a claim, so a package's name is
 only for the package the _project_ resolves it to. The transformer resolves names from the
 directories the project owns, and nowhere else:
 
-- the project itself: the tsconfig's directory, the build's current directory, and the
+- the project itself: the tsconfig's directory (or, for the CLI, the directory holding the
+  files it lists), the build's current directory, and the
   package root (nearest `package.json`) at or above each — so building inside your package
   (its own build, examples and tests) makes it the project;
 - the workspace packages those declare (`pnpm-workspace.yaml` `packages:`, or `package.json`

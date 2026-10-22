@@ -17,16 +17,10 @@ export function readTsConfig(configPath: string): ts.ParsedCommandLine {
     process.exit(1);
   }
 
-  // Passing the file name sets `compilerOptions.configFilePath`, as tsc -p
-  // does: it is how the macro loader knows which directory is the project
-  // (macro packages resolve from the project's own directories only) and the
-  // comptime/include project root (createPipeline does the same).
   const parsed = ts.parseJsonConfigFileContent(
     configFile.config,
     ts.sys,
-    path.dirname(absolutePath),
-    undefined,
-    absolutePath
+    path.dirname(absolutePath)
   );
 
   if (parsed.errors.length > 0) {

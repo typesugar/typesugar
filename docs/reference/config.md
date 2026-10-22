@@ -72,7 +72,7 @@ refused, and the build fails with "…have not been approved. Run
 `typesugar approve-macros`…", until its name is in this list.
 
 A name stands only for the package your project resolves it to, from the
-project's own directories (the tsconfig's directory, the current directory, the
+project's own directories (the tsconfig's directory or the files it lists, the current directory, the
 package root above each, and the workspace packages they declare). A macro
 package reached any other way, such as a copy in a vendored package's own
 `node_modules`, is not loaded whatever its name, and approving the name doesn't

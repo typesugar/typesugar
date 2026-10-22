@@ -1,6 +1,6 @@
 /**
  * A macro package's identity is established only by resolving its bare name
- * from directories the PROJECT owns (the tsconfig's directory, the build's
+ * from directories the PROJECT owns (the tsconfig's directory or its files', the build's
  * cwd, the package root above each, and the workspace packages those
  * declare) -- never from a directory reached by following imports into
  * vendored code, and never through the package's own `exports`

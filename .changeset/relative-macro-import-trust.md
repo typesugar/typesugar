@@ -3,7 +3,7 @@
 ---
 
 A macro package's name is trusted only for the package the project itself resolves it to.
-Names are resolved from directories the project owns — the tsconfig's directory, the build's
+Names are resolved from directories the project owns — the tsconfig's directory (or the files it lists), the build's
 current directory, the package root above each, and the workspace packages those declare
 (`pnpm-workspace.yaml`, `package.json` `workspaces`) — never from a directory reached by
 following imports into vendored code, and never through a package's own `exports`
@@ -17,5 +17,4 @@ link or `file:` dependency); the usual `@typesugar/*` / `allowedMacroPackages` r
 Anything else is skipped with a warning naming its path. `typesugar approve-macros` now runs
 exactly the build's discovery (new `scanMacroPackages`), so it lists what the build would refuse,
 including these unverified packages, which it never approves. `export … from` re-exports are
-scanned like imports. The CLI's tsconfig reading sets `compilerOptions.configFilePath`, as `tsc -p`
-does. Loaded macro entries are tracked by real path, not by claimed name.
+scanned like imports. Loaded macro entries are tracked by real path, not by claimed name.
