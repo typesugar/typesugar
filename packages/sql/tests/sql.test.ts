@@ -652,6 +652,13 @@ describe("derivation helpers", () => {
       expect(convert("parseHTTPResponse")).toBe("parse_http_response");
       expect(convert("address2Line")).toBe("address2_line");
       expect(convert("createdAt")).toBe("created_at");
+      // A plural acronym is one word (review 5): "userIDs" was "user_i_ds".
+      expect(convert("userIDs")).toBe("user_ids");
+      expect(convert("imageURLs")).toBe("image_urls");
+      expect(convert("IDsAndNames")).toBe("ids_and_names");
+      expect(convert("DVDsSold")).toBe("dvds_sold");
+      expect(convert("HTTPServer")).toBe("http_server");
+      expect(convert("HTTPSession")).toBe("http_session");
     }
   });
 

@@ -647,6 +647,9 @@ toSnakeCase("firstName"); // "first_name"
 // A run of capitals is one word
 toSnakeCase("userID"); // "user_id"
 toSnakeCase("HTMLParser"); // "html_parser"
+// ...and so is a plural one
+toSnakeCase("userIDs"); // "user_ids"
+toSnakeCase("imageURLs"); // "image_urls"
 ```
 
 ### Runtime Registries
