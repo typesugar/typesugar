@@ -190,13 +190,18 @@ function fieldTypeString(checker: ts.TypeChecker, prop: ts.Symbol, location: ts.
  * The type of an optional member (a field, a method's parameter) as the
  * checker has it where it is instantiated (`label?: T` of `Box<number>`:
  * `number | undefined` under strict), without the `undefined` its
- * optionality adds when that can be told: the annotation (`T`) has no
- * `undefined` of its own and one other type is left ("number"). Otherwise,
- * or for a member that isn't optional (`annotation` undefined), the type as
- * the checker prints it. An annotation outside a generic declaration is read
- * directly instead (see {@link fieldTypeString}); this is for one written in
- * terms of type parameters, which `getTypeFromTypeNode` would not
- * instantiate (review 8: `set(v?: T)` reported "T").
+ * optionality adds: removed from the union whatever else is in it
+ * (`Box<boolean>`'s is `undefined | false | true`, review 9), unless the
+ * annotation has an `undefined` of its own (`maybe?: T | undefined`). For a
+ * member that isn't optional (`annotation` undefined), the type as the checker
+ * prints it. An annotation outside a generic declaration is read directly
+ * instead (see {@link fieldTypeString}); this is for one written in terms of
+ * type parameters, which `getTypeFromTypeNode` would not instantiate (review
+ * 8: `set(v?: T)` reported "T").
+ *
+ * The rest of the union is printed from the checker's own type node for it
+ * (`typeToTypeNode`, its `undefined` member left out), so it reads as
+ * `typeToString` would print it (`boolean`, not `false | true`).
  */
 function optionalTypeString(
   checker: ts.TypeChecker,
@@ -210,9 +215,27 @@ function optionalTypeString(
       isUndefined(declared) || (declared.isUnion() && declared.types.some(isUndefined));
     const rest = instantiated.types.filter((t) => !isUndefined(t));
     if (!declaresUndefined && rest.length === 1) return checker.typeToString(rest[0]);
+    if (!declaresUndefined && rest.length > 1) {
+      const node = checker.typeToTypeNode(instantiated, undefined, TYPE_STRING_FLAGS);
+      if (node && ts.isUnionTypeNode(node)) {
+        const kept = node.types.filter((t) => t.kind !== ts.SyntaxKind.UndefinedKeyword);
+        if (kept.length > 0 && kept.length < node.types.length) {
+          const printed = kept.length === 1 ? kept[0] : ts.factory.createUnionTypeNode(kept);
+          return typePrinter.printNode(ts.EmitHint.Unspecified, printed, printFile);
+        }
+      }
+    }
   }
   return checker.typeToString(instantiated);
 }
+
+/** The node builder flags `typeToString` uses by default (it prints on one line, untruncated here). */
+const TYPE_STRING_FLAGS =
+  ts.NodeBuilderFlags.IgnoreErrors |
+  ts.NodeBuilderFlags.AllowUniqueESSymbolType |
+  ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope;
+const typePrinter = ts.createPrinter({ removeComments: true });
+const printFile = ts.createSourceFile("__reflect_type__.ts", "", ts.ScriptTarget.Latest);
 
 /** Is `node` inside a declaration with type parameters (an interface, class, type alias, ...)? */
 function insideGenericDeclaration(node: ts.Node): boolean {
