@@ -1,5 +1,6 @@
 /**
- * How a fluent `match()` types the value it reads.
+ * How a fluent `match()` types the value it reads, and which tests its
+ * discriminant switch keeps.
  *
  * The expansion reads the scrutinee from a const (`const _s = s;`) and
  * switches on its discriminant. When TypeScript has narrowed `s` (by
@@ -10,6 +11,11 @@
  * type-checked (`typesugar check` does that for a match chain's arms). The
  * const is now asserted to the scrutinee's declared type (`const _circle =
  * circle as Shape;`); the assertion is erased from the JavaScript.
+ *
+ * Inside `case "circle":` the discriminant already says which variant the
+ * value is, so `"radius" in _s` tested nothing the type doesn't guarantee.
+ * It is emitted only when the field is optional in that variant, or the
+ * discriminant doesn't determine one variant.
  */
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
@@ -109,5 +115,58 @@ export function f(t: Shape | null): number {
     expect(r.code).toMatch(/const _t = t as /);
     expect(expandedTypeErrors(r.code)).toEqual([]);
     expect((r.exports.f as (s: unknown) => number)({ kind: "circle", radius: 4 })).toBe(4);
+  });
+});
+
+describe("the discriminant switch tests only what the discriminant leaves open", () => {
+  it("a required field of the variant the tag selects is read without an `in` test", () => {
+    const r = transformAndRun(`${SHAPE}
+export const area = (s: Shape) =>
+  match(s).case({ kind: "circle", radius }).then(radius * 2).case({ kind: "square", side }).then(side ** 2);
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toContain("switch (_s.kind)");
+    expect(r.code).not.toContain('"radius" in');
+    expect(r.code).not.toContain('"side" in');
+    const area = r.exports.area as (s: unknown) => number;
+    expect(area({ kind: "circle", radius: 2 })).toBe(4);
+    expect(area({ kind: "square", side: 3 })).toBe(9);
+  });
+
+  it("an optional field keeps its test: an arm whose field is absent falls through", () => {
+    const r = transformAndRun(`import { match } from "@typesugar/std";
+type Opt = { kind: "a"; x?: number } | { kind: "b"; y: number };
+export const g = (o: Opt) =>
+  match(o).case({ kind: "a", x }).then(x).case({ kind: "b", y }).then(y).else(-1);
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toContain('"x" in _o');
+    expect(r.code).not.toContain('"y" in _o');
+    const g = r.exports.g as (o: unknown) => unknown;
+    expect(g({ kind: "a" })).toBe(-1);
+    expect(g({ kind: "a", x: 1 })).toBe(1);
+  });
+
+  it("a tag that more than one variant carries keeps the test", () => {
+    const r = transformAndRun(`import { match } from "@typesugar/std";
+type W = { kind: "a"; x: number } | { kind: "a"; y: string } | { kind: "b"; z: number };
+export const g = (w: W) =>
+  match(w).case({ kind: "a", x }).then(x).case({ kind: "b", z }).then(z).else(-1);
+`);
+    expect(r.code).toContain('"x" in _w');
+    expect(r.code).not.toContain('"z" in _w');
+    const g = r.exports.g as (o: unknown) => unknown;
+    expect(g({ kind: "a", y: "s" })).toBe(-1);
+  });
+
+  it("a scrutinee of unknown type keeps every test", () => {
+    const r = transformAndRun(`import { match } from "@typesugar/std";
+export const g = (v: unknown) =>
+  match(v).case({ kind: "user", name }).then(name).case({ kind: "bot", id }).then(id).else("other");
+`);
+    expect(r.code).toContain('"name" in _v');
+    expect(r.code).toContain('"id" in _v');
+    const g = r.exports.g as (o: unknown) => unknown;
+    expect(g({ kind: "user" })).toBe("other");
   });
 });

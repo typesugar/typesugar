@@ -83,6 +83,12 @@ export interface ObjectPropertyPattern {
   key: string;
   pattern: PatternInfo;
   isRest: boolean;
+  /**
+   * The scrutinee's type guarantees the field is there (a required field of
+   * the one variant a discriminant switch's `case` selects), so the test
+   * omits `"key" in x`. Set only by the discriminant switch.
+   */
+  present?: boolean;
 }
 
 // ExtractorDef and SELF_PAYLOAD live in match-extractors.ts (Destructure instances).
@@ -913,6 +919,39 @@ function readScrutinee(ctx: MacroContext, scrutinee: ts.Expression): ts.Expressi
   return node ? ctx.factory.createAsExpression(scrutinee, node) : scrutinee;
 }
 
+/**
+ * The fields a value is sure to have when its discriminant `field` is the
+ * literal `key`: the required fields of the one member of `members` whose
+ * `field` can be `key`. Undefined when the tag doesn't pick out one member
+ * (two carry it, a member's `field` isn't a literal, or a member has no such
+ * field and so could carry anything there).
+ */
+function fieldsTheTagGuarantees(
+  checker: ts.TypeChecker,
+  members: readonly ts.Type[],
+  field: string,
+  key: string
+): Set<string> | undefined {
+  let variant: ts.Type | undefined;
+  for (const member of members) {
+    if (!isObjectLike(member)) return undefined;
+    const prop = checker.getPropertyOfType(member, field);
+    if (!prop) return undefined;
+    const t = checker.getTypeOfSymbol(prop);
+    const values = (t.isUnion() ? t.types : [t]).map(getLiteralValueFromType);
+    if (values.some((v) => v === undefined)) return undefined;
+    if (!values.includes(key)) continue;
+    if (variant) return undefined;
+    variant = member;
+  }
+  if (!variant) return undefined;
+  const present = new Set<string>();
+  for (const prop of checker.getPropertiesOfType(variant)) {
+    if (!(prop.flags & ts.SymbolFlags.Optional)) present.add(prop.getName());
+  }
+  return present;
+}
+
 /** Scrutinee analysis, or undefined for any/unknown/unavailable types. */
 /** @internal shared with match-switch.ts */
 export function getScrutineeAnalysis(
@@ -1595,6 +1634,9 @@ function generateDiscriminantSwitchIIFE(
   const needsNullGuard = !(
     analysis?.kind === "discriminated-union" && analysis.nullishMembers === undefined
   );
+  // The variant each tag selects, from the type the switch reads the value
+  // at: its required fields need no `"field" in _s` test in that case.
+  const members = scrutineeReading(ctx, scrutinee).members;
 
   // Group arms by discriminant value, preserving source order. Arms with
   // different tags are mutually exclusive, so grouping keeps first-match.
@@ -1608,11 +1650,27 @@ function generateDiscriminantSwitchIIFE(
   const caseClauses: ts.CaseOrDefaultClause[] = [];
   for (const group of groups.values()) {
     const body: ts.Statement[] = [];
+    const present = members
+      ? fieldsTheTagGuarantees(
+          ctx.typeChecker,
+          members,
+          dm.discriminantKey,
+          group[0].discriminantKey
+        )
+      : undefined;
     for (const discArm of group) {
+      const residual: PatternInfo & { kind: "object" } = present
+        ? {
+            ...discArm.residualPattern,
+            properties: discArm.residualPattern.properties.map((p) =>
+              !p.isRest && present.has(p.key) ? { ...p, present: true } : p
+            ),
+          }
+        : discArm.residualPattern;
       const armStmts = generateArmStatements(
         ctx,
         f,
-        discArm.residualPattern,
+        residual,
         scrutineeRef(),
         discArm.arm.guard,
         discArm.arm.result,
@@ -2341,13 +2399,15 @@ export function buildCondition(
       }
 
       for (const prop of nonRestProps) {
-        parts.push(
-          f.createBinaryExpression(
-            f.createStringLiteral(prop.key),
-            ts.SyntaxKind.InKeyword,
-            accessor
-          )
-        );
+        if (!prop.present) {
+          parts.push(
+            f.createBinaryExpression(
+              f.createStringLiteral(prop.key),
+              ts.SyntaxKind.InKeyword,
+              accessor
+            )
+          );
+        }
 
         if (prop.pattern.kind === "literal") {
           parts.push(

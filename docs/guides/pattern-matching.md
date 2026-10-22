@@ -190,7 +190,27 @@ match(shape)
   .then(w * h);
 ```
 
-**Compiles to:** a `switch` on the discriminant field inside the match IIFE. Each arm is still tested in full inside its `case` — extra literal/array/nested sub-patterns and guards included — and an arm that doesn't match falls through to the next arm with the same tag, then to the catch-all / `.else()` / `MatchError`. Every arm's bindings live in their own block, so two arms may bind the same name.
+**Compiles to:** a `switch` on the discriminant field inside the match IIFE:
+
+```typescript
+const _shape = shape;
+switch (_shape.kind) {
+  case "circle": {
+    {
+      const r = _shape.radius;
+      return Math.PI * r ** 2;
+    }
+    break;
+  }
+  case "square": { ... }
+  case "rect": { ... }
+}
+throw new MatchError(_shape);
+```
+
+Each arm is still tested in full inside its `case` — extra literal/array/nested sub-patterns and guards included — and an arm that doesn't match falls through to the next arm with the same tag, then to the catch-all / `.else()` / `MatchError`. Every arm's bindings live in their own block, so two arms may bind the same name.
+
+The tag says which variant the value is, so a field that variant requires is read with no test (`radius` above). A field gets a `"field" in _shape` test only when it is optional in that variant, or when the tag doesn't pick out one variant (two variants share it, or the scrutinee's type isn't a discriminated union).
 
 When TypeScript has narrowed the scrutinee (`const c: Shape = { kind: "circle", radius: 1 }` is the circle variant from there on), the const is asserted back to the declared type, `const _c = c as Shape;`, so the expansion type-checks as you wrote it: the `"square"` case is not "unreachable" to TypeScript. The assertion is erased from the JavaScript.
 
