@@ -19,6 +19,7 @@ import {
   optionMonad,
 } from "../instances.js";
 import { flatMapOption, flatMapIO, flatMapList } from "../instances.js";
+import { Some, None, type Option } from "../data/option.js";
 import { fromArray, toArray } from "../data/list.js";
 import { IO, unsafeRunIO } from "../io/io.js";
 import { Left, Right, isRight } from "../data/either.js";
@@ -199,9 +200,10 @@ describe("the FlatMap bridge instances are complete FlatMaps (they have Apply's 
   // extends Apply: without `ap`, `check --strict` reported the instance, and
   // a FlatMap summoned as it had no `ap` at run time (review 8).
   it("Option", () => {
-    expect(flatMapOption.ap((n: number) => n + 1, 2)).toBe(3);
-    expect(flatMapOption.ap(null, 2)).toBe(null);
-    expect(flatMapOption.ap((n: number) => n + 1, null)).toBe(null);
+    const inc = Some((n: number) => n + 1);
+    expect(flatMapOption.ap(inc, Some(2))).toBe(3);
+    expect(flatMapOption.ap(None as Option<(n: number) => number>, Some(2))).toBe(None);
+    expect(flatMapOption.ap(inc, None as Option<number>)).toBe(None);
   });
 
   it("List", () => {
