@@ -32,6 +32,7 @@ import {
   registerProgramOpaqueTypes,
 } from "@typesugar/transformer-core";
 import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
+import { isComprehensionSyntaxActivatedIn, mayContainComprehension } from "./comprehension-gate.js";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
 import {
@@ -1836,24 +1837,14 @@ export class TransformationPipeline {
     // the transformer repeats later) is only worth paying for files that can
     // possibly contain a comprehension label. Everything else skips both the
     // scan AND the preprocessor.
-    if (!/\b(?:let|seq|par|all)\s*:/.test(code)) return false;
+    if (!mayContainComprehension(code)) return false;
     const scanFile =
       this.program?.getSourceFile(fileName) ??
       ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
-    // The comprehension macros live in a macro package (@typesugar/std)
-    // that is normally loaded lazily by the transformer factory / per-file
-    // import scan -- AFTER this gate on the first file, which then saw an
-    // empty registry and skipped the rewrite (review finding #9). Load
-    // packages first; both calls are idempotent.
+    // The program-wide macro packages first (review finding #9); the gate,
+    // shared with the CLI (comprehension-gate.ts), loads the file's own.
     this.ensureTransformerFactory();
-    loadMacroPackagesFromFile(scanFile, this.verbose, this.program ?? undefined);
-    const letMacro = globalRegistry.getLabeledBlock("let")?.name;
-    const parMacro = globalRegistry.getLabeledBlock("par")?.name;
-    if (!letMacro && !parMacro) return false;
-    scanImportsForScope(scanFile, globalResolutionScope, this.program ?? undefined);
-    return [letMacro, parMacro].some(
-      (name) => name && globalResolutionScope.isLabelSyntaxActivated(fileName, name)
-    );
+    return isComprehensionSyntaxActivatedIn(scanFile, this.program ?? undefined, this.verbose);
   }
 
   /** Drop the Program (and the factory bound to it); rebuilt lazily. */

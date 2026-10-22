@@ -215,6 +215,10 @@ A comprehension's value can be used in these positions. Every form works in ever
 
 In a `const` or `export default`, the output is the chain itself (`const r = p.then(…)`), with no temporary variable.
 
+The arrow-body, `return` and `export default` positions are rewritten as text before TypeScript parses the file. The bundler plugins (unplugin-typesugar) and `typesugar build`, `check`, `watch` and `expand` all do this. ts-patch's `tsc` can't: it hands typesugar a program that is already parsed, where `(id) => let: { … }` is a syntax error. With ts-patch, build code that uses these positions with `typesugar build` or a bundler plugin instead.
+
+`typesugar check` still reports TypeScript's own errors on a comprehension's body (`a << e`, the `let:` and `yield:` labels), in any position, at the lines you wrote. The code `typesugar build` emits for it is correct.
+
 ### Object Literals in Yield
 
 Both of these yield an object literal:

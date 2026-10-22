@@ -33,6 +33,14 @@ import { keepMacroReferencedImports } from "./keep-imports.js";
 import { typecheckExpandedProgram } from "./strict-check.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
 import { UnapprovedMacroPackagesError } from "./macro-loader.js";
+import {
+  isComprehensionSyntaxActivatedIn,
+  mapRewrittenDiagnostic,
+  mayContainComprehension,
+  preprocessorDiagnostics,
+  rewriteProgramComprehensions,
+} from "./comprehension-gate.js";
+import { preprocessExpressionComprehensions } from "./arrow-comprehension-preprocess.js";
 import { readTsConfig } from "./tsconfig-utils.js";
 import {
   TransformationPipeline,
@@ -536,8 +544,39 @@ function build(options: CliOptions): void {
 
   // Stage 2: Create program with preprocessed content and run macro transformer
   profiler.start("cli.build.createProgram");
-  const program = ts.createProgram(config.fileNames, compilerOptions, host);
+  let program = ts.createProgram(config.fileNames, compilerOptions, host);
   profiler.end("cli.build.createProgram");
+
+  // Stage 2b: expression-position comprehensions (`(id) => let: {...} yield:
+  // ...`), the pipeline's text rewrite (comprehension-gate.ts): it needs the
+  // file's activation scan, so it runs on the parsed program, and the
+  // rewritten text is served through the host to a rebuilt program, whose
+  // diagnostics are mapped back to the positions the user wrote.
+  profiler.start("cli.build.comprehensions");
+  const comprehensionRewrites = rewriteProgramComprehensions(
+    program,
+    (f) => path.resolve(f),
+    options.verbose
+  );
+  if ([...comprehensionRewrites.values()].some((rw) => rw.source !== rw.original)) {
+    for (const [resolved, rw] of comprehensionRewrites) preprocessedFiles.set(resolved, rw.source);
+    program = ts.createProgram(config.fileNames, compilerOptions, host, program);
+  }
+  profiler.end("cli.build.comprehensions");
+  const originalSourceFiles = new Map<string, ts.SourceFile>();
+  const originalFile = (fileName: string, text: string): ts.SourceFile => {
+    let sf = originalSourceFiles.get(fileName);
+    if (!sf) {
+      sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
+      originalSourceFiles.set(fileName, sf);
+    }
+    return sf;
+  };
+  const toWrittenPositions = (ds: readonly ts.Diagnostic[]): ts.Diagnostic[] =>
+    ds.flatMap(
+      (d) =>
+        mapRewrittenDiagnostic(d, comprehensionRewrites, (f) => path.resolve(f), originalFile) ?? []
+    );
 
   // Macro diagnostics side channel. TypeScript drops diagnostics a `before`
   // transformer reports via context.addDiagnostic during program.emit(), so
@@ -723,10 +762,21 @@ function build(options: CliOptions): void {
   // Macro diagnostics are real errors, never phantom ones: they bypass the
   // suppression filter (which exists for TS errors caused by typesugar
   // rewrites — extension methods, newtype assignment, opaque types).
+  // Positions in a comprehension-rewritten file are mapped back to the text
+  // as written; the --strict and declaration diagnostics are about the
+  // expanded text, which they are positioned in.
+  const comprehensionFileName = new Map(
+    program.getSourceFiles().map((sf) => [path.resolve(sf.fileName), sf.fileName] as const)
+  );
   const allDiagnostics = dedupeDiagnostics([
-    ...tsDiagnostics,
+    ...preprocessorDiagnostics(
+      comprehensionRewrites,
+      (resolved) => comprehensionFileName.get(resolved) ?? resolved,
+      originalFile
+    ),
+    ...toWrittenPositions(tsDiagnostics),
     ...strictDiagnostics,
-    ...macroDiagnostics,
+    ...toWrittenPositions(macroDiagnostics),
     ...declarationDiagnostics,
   ]);
 
@@ -804,7 +854,13 @@ function watch(options: CliOptions): void {
     readFile: (fileName, encoding) => {
       const source = ts.sys.readFile(fileName, encoding);
       if (source === undefined) return undefined;
-      return preprocessForProgram(fileName, source) ?? source;
+      const hkt = preprocessForProgram(fileName, source) ?? source;
+      // Expression-position comprehensions, as `build` rewrites them
+      // (comprehension-gate.ts). Watch reports positions in the rewritten text.
+      if (!mayContainComprehension(hkt) || !/\.[jt]sx?$/.test(fileName)) return hkt;
+      const scanFile = ts.createSourceFile(fileName, hkt, ts.ScriptTarget.Latest, false);
+      if (!isComprehensionSyntaxActivatedIn(scanFile, undefined, options.verbose)) return hkt;
+      return preprocessExpressionComprehensions(hkt, fileName).source;
     },
   };
 
@@ -1032,7 +1088,16 @@ function transformFile(
     allFiles.push(filePath);
   }
 
-  const program = ts.createProgram(allFiles, config.options, host);
+  let program = ts.createProgram(allFiles, config.options, host);
+  // Expression-position comprehensions, as `build` rewrites them.
+  const rewrites = rewriteProgramComprehensions(program, (f) => path.resolve(f), options.verbose);
+  if ([...rewrites.values()].some((rw) => rw.source !== rw.original)) {
+    for (const sf of program.getSourceFiles()) {
+      const rw = rewrites.get(path.resolve(sf.fileName));
+      if (rw) host.setContentOverride(sf.fileName, rw.source);
+    }
+    program = ts.createProgram(allFiles, config.options, host, program);
+  }
   const sourceFile = program.getSourceFile(filePath);
 
   if (!sourceFile) {

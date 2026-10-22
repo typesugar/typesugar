@@ -238,3 +238,58 @@ console.log(s < t, s * t);
     expect(narrow.output).toBe("true 2\n");
   });
 });
+
+describe.skipIf(!hasBuild)("expression-position comprehensions in typesugar check / build", () => {
+  // The CLI built its own program with only the HKT preprocessing, never the
+  // pipeline's expression-comprehension rewrite: `build` emitted
+  // `export const f = (id) => let, { user }; ...`, and `check` reported the
+  // broken parse (TS1005, TS1128). TypeScript still reports the
+  // comprehension's own bodies (`a << e`, the labels), as for a
+  // statement-position comprehension; those are at the lines as written.
+  let dir: string;
+  beforeAll(() => {
+    dir = makeProject({
+      "src/comp.ts": `import "@typesugar/std/syntax/do";
+const fetchUser = (id: number) => Promise.resolve({ id, name: "u" + id });
+const fetchAge = (_n: string) => Promise.resolve(40);
+
+export const describe = (id: number) =>
+  let: {
+    user << fetchUser(id);
+    age << fetchAge(user.name);
+  }
+  yield: \`\${user.name} is \${age}\`;
+
+export const both =
+  let: {
+    a << Promise.resolve(1);
+    b << Promise.resolve(2);
+  }
+  yield: a + b;
+
+async function main() {
+  console.log(await describe(7), await both);
+}
+main();
+`,
+    });
+    dirs.push(dir);
+  });
+
+  it("check: no parse errors, nothing about the preprocessor's tags, user lines only", () => {
+    const r = cli(dir, "check");
+    expect(r.output).not.toMatch(/error TS(1005|1128|1109)/);
+    expect(r.output).not.toMatch(/__letyield/);
+    const lines = [...r.output.matchAll(/comp\.ts\((\d+),\d+\)/g)].map((m) => Number(m[1]));
+    expect(lines.every((l) => (l >= 6 && l <= 10) || (l >= 13 && l <= 17))).toBe(true);
+  });
+
+  it("build emits code that runs", () => {
+    cli(dir, "build");
+    const out = fs.readFileSync(path.join(dir, "out", "comp.js"), "utf-8");
+    expect(out).not.toMatch(/=> let,|= let,|__letyield/);
+    const r = run(dir, "comp.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe("u7 is 40 3\n");
+  });
+});
