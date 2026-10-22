@@ -433,6 +433,46 @@ describe("forAll() — executes", () => {
   });
 });
 
+describe("forAll() — the expansion type-checks", () => {
+  it("unannotated generator and property parameters stay typed (check --strict)", () => {
+    // The expansion bound the arguments to consts (`const gen = (seed) =>
+    // seed * 2`), which lost the contextual type forAll's signature gave
+    // them: TS7006 for every unannotated `seed` / `value` under
+    // `typesugar check --strict` (testing.test.ts).
+    const { code, diagnostics } = compile(
+      [
+        `import { forAll } from "@typesugar/testing";`,
+        `export const seen: number[] = [];`,
+        `export function ok() { forAll((seed) => ({ n: seed }), 3, (value) => { seen.push(value.n); }); }`,
+      ].join("\n")
+    );
+    expect(diagnostics).toEqual([]);
+    const fileName = "/virtual/forall-typecheck.ts";
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const read = host.getSourceFile.bind(host);
+    host.getSourceFile = (f, v, ...rest) =>
+      f === fileName ? ts.createSourceFile(f, code, v, true) : read(f, v, ...rest);
+    const program = ts.createProgram([fileName], options, host);
+    const errors = ts
+      .getPreEmitDiagnostics(program, program.getSourceFile(fileName))
+      .map((d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, " ")}`)
+      // The test file's own import (no such module in this virtual program).
+      .filter((m) => !m.startsWith("TS2307"));
+    expect(errors).toEqual([]);
+    const { exports } = run(code);
+    exports.ok();
+    expect(exports.seen).toEqual([0, 1, 2]);
+  });
+});
+
 describe("createMockFn — Vitest/Jest precedence (finding #25)", () => {
   it("the latest persistent stub wins, and *Once stubs share one ordered queue", () => {
     const fn = createMockFn<() => number>();

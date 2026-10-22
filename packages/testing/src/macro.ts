@@ -1007,8 +1007,7 @@ export const forAllMacro = defineExpressionMacro({
     const plus = (a: ts.Expression, b: ts.Expression) =>
       f.createBinaryExpression(a, ts.SyntaxKind.PlusToken, b);
 
-    // (() => {
-    //   const <gen> = <generator>, <count> = <count>, <prop> = <property>;  (each evaluated once)
+    // (function <T>(<gen>: (seed: number) => T, <count>: number, <prop>: (value: T) => void): void {
     //   for (let <i> = 0; <i> < <count>; <i>++) {
     //     const <value> = <gen>(<i>);
     //     try { <prop>(<value>); }
@@ -1018,7 +1017,7 @@ export const forAllMacro = defineExpressionMacro({
     //         "Failing input: " + JSON.stringify(<value>) + "\n" + "Error: " + <err>);
     //     }
     //   }
-    // })()
+    // })(<generator>, <count>, <property>)  (each evaluated once, in order)
     const loop = f.createForStatement(
       f.createVariableDeclarationList(
         [f.createVariableDeclaration(i, undefined, undefined, f.createNumericLiteral(0))],
@@ -1095,19 +1094,40 @@ export const forAllMacro = defineExpressionMacro({
       )
     );
 
-    return iife(f, [
-      f.createVariableStatement(
+    // The arguments are passed to a generic function typed like forAll's
+    // own signature, `<T>(gen: (seed: number) => T, count: number, prop:
+    // (value: T) => void)`, rather than bound to consts: that evaluates each
+    // once, in order, as before, and keeps the contextual types the call
+    // gave unannotated parameters (`(seed) => …`, `(value) => …`), which a
+    // const loses — TS7006 under `typesugar check --strict` (turf case
+    // study, round 2). A function expression, not an arrow: `<T>(…) =>`
+    // reads as JSX in a .tsx file.
+    const tRef = () => f.createTypeReferenceNode("T");
+    const param = (name: ts.Identifier, type: ts.TypeNode) =>
+      f.createParameterDeclaration(undefined, undefined, name, undefined, type);
+    const fnType = (paramName: string, paramType: ts.TypeNode, result: ts.TypeNode) =>
+      f.createFunctionTypeNode(
         undefined,
-        f.createVariableDeclarationList(
-          [
-            f.createVariableDeclaration(gen, undefined, undefined, generatorArg),
-            f.createVariableDeclaration(count, undefined, undefined, countArg),
-            f.createVariableDeclaration(prop, undefined, undefined, propertyArg),
-          ],
-          ts.NodeFlags.Const
-        )
-      ),
-      loop,
+        [f.createParameterDeclaration(undefined, undefined, paramName, undefined, paramType)],
+        result
+      );
+    const runner = f.createFunctionExpression(
+      undefined,
+      undefined,
+      undefined,
+      [f.createTypeParameterDeclaration(undefined, "T")],
+      [
+        param(gen, fnType("seed", f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword), tRef())),
+        param(count, f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword)),
+        param(prop, fnType("value", tRef(), f.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword))),
+      ],
+      f.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword),
+      f.createBlock([loop], true)
+    );
+    return f.createCallExpression(f.createParenthesizedExpression(runner), undefined, [
+      generatorArg,
+      countArg,
+      propertyArg,
     ]);
   },
 });
