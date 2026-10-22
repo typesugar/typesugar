@@ -664,3 +664,101 @@ describe("scanLocalDeriveCompanions: a checker failure is reported, not swallowe
     expect(failures).toEqual(["P: Error: start < 0"]);
   });
 });
+
+describe("every checker failure in a scan is reported, once (CLAUDE.md caught-failure rule)", () => {
+  function throwingOn(checker: ts.TypeChecker, method: string): ts.TypeChecker {
+    return new Proxy(checker, {
+      get(target, prop, receiver) {
+        if (prop === method) {
+          return () => {
+            throw new Error("start < 0");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  }
+  function scanWith(source: string, method: string, how: "module" | "local" = "module"): string[] {
+    const mod = createTestModule(source);
+    const failures: string[] = [];
+    const sink = (node: ts.Node, error: unknown, what: string) =>
+      failures.push(`${what}: ${String(error)}`);
+    const checker = throwingOn(mod.typeChecker, method);
+    const scanner = new InstanceScanner();
+    if (how === "module") {
+      scanner.scanModule(checker, mod.moduleSymbol, mod.resolvedPath, mod.program, sink);
+      // A second scan (cache cleared, same scanner) reports nothing new.
+      scanner.scanModule(checker, mod.moduleSymbol, mod.resolvedPath, undefined, sink);
+    } else {
+      const sf = mod.program.getSourceFile(mod.resolvedPath)!;
+      scanner.scanLocalFile(checker, sf, mod.program, sink);
+    }
+    return failures;
+  }
+
+  it("a module whose exports can't be read", () => {
+    expect(scanWith(`export const n = 1;`, "getExportsOfModule")).toEqual([
+      "the exports of this module: Error: start < 0",
+    ]);
+  });
+
+  it("a re-export whose alias can't be followed", () => {
+    expect(scanWith(`const n = 1;\nexport { n as m };`, "getAliasedSymbol")).toEqual([
+      "the re-export 'm' (read as declared): Error: start < 0",
+    ]);
+  });
+
+  it("an instance's annotated type (TC<T>) and a derived<TC<T>>() type argument", () => {
+    const src = `
+import { derived } from "typesugar";
+interface Eq<A> { equals(a: A, b: A): boolean }
+export const eqA: Eq<number> = { equals: (a, b) => a === b };
+export const eqB = derived<Eq<string>>();
+`;
+    expect(scanWith(src, "getTypeFromTypeNode", "local")).toEqual([
+      "the type of the instance 'eqA' (matched by name only): Error: start < 0",
+      "the type of the derived instance 'eqB' (matched by name only): Error: start < 0",
+    ]);
+  });
+
+  it("a @derive'd type's companions, and a type an @impl tag names", () => {
+    const src = `
+/** @derive(Eq) */
+export interface P { x: number }
+/** @impl Show<P> */
+export const showP = { show: (p: P) => String(p.x) };
+`;
+    const failures = scanWith(src, "getDeclaredTypeOfSymbol");
+    expect(failures).toContain("'P's @derive companions: Error: start < 0");
+    expect(failures).toContain(
+      "the type 'P' an @impl tag names (matched by name only): Error: start < 0"
+    );
+  });
+
+  it("a keyword type an @impl tag names", () => {
+    const src = `/** @impl Show<number> */\nexport const showN = { show: (n: number) => String(n) };`;
+    // Both the intrinsic getter and the synthetic-node fallback fail: one line.
+    const mod = createTestModule(src);
+    const failures: string[] = [];
+    const checker = new Proxy(mod.typeChecker, {
+      get(target, prop, receiver) {
+        if (prop === "getNumberType" || prop === "getTypeFromTypeNode") {
+          return () => {
+            throw new Error("boom");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    new InstanceScanner().scanModule(
+      checker,
+      mod.moduleSymbol,
+      mod.resolvedPath,
+      mod.program,
+      (_n, e, what) => failures.push(`${what}: ${String(e)}`)
+    );
+    expect(failures).toEqual([
+      "the type 'number' an @impl tag names (matched by name only): Error: boom",
+    ]);
+  });
+});

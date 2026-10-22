@@ -271,6 +271,7 @@ export {
   DEFAULT_DO_METHODS,
   type ScannedInstance,
   type DoNotationMeta,
+  type ScannerCheckerFailure,
 } from "./instance-scanner.js";
 export {
   resolveInstance,
@@ -281,6 +282,7 @@ export {
   findInstanceInScopeByName,
   resolveDoNotationInstance,
   brandMatchesForType,
+  scanWarnings,
   type ResolvedDoNotationInstance,
   type ResolvedInstance,
   type AmbiguousInstances,

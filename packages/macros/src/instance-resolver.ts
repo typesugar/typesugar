@@ -29,6 +29,7 @@ import {
   instanceScanner as defaultScanner,
   type ScannedInstance,
   type DoNotationMeta,
+  type ScannerCheckerFailure,
 } from "./instance-scanner.js";
 
 // ============================================================================
@@ -370,6 +371,24 @@ function enumTypeOf(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined {
  * expansion, and a failed one is the un-expanded stub, not an instance
  * (summon resolved to it and emitted `const s = m`).
  */
+/**
+ * The scanner's checker-failure callback for a resolution in `ctx`'s file: a
+ * warning (CLAUDE.md: a caught checker failure that degrades must leave a
+ * trace), at the node when it is in this file, else at the file, naming the
+ * other file. The scanner reports each failure once.
+ */
+export function scanWarnings(ctx: MacroContext): ScannerCheckerFailure {
+  return (node, error, what) => {
+    const sf = node.getSourceFile?.();
+    const here = sf === ctx.sourceFile && !isSyntheticNode(node);
+    ctx.reportWarning(
+      here ? node : ctx.sourceFile,
+      `typesugar skipped ${what}${here || !sf ? "" : ` (in ${sf.fileName})`} while looking for ` +
+        `typeclass instances: the type checker failed (${error}).`
+    );
+  };
+}
+
 function dropFailedDerivations(
   ctx: MacroContext,
   scanned: readonly ScannedInstance[]
@@ -404,7 +423,7 @@ function resolveFromLocalScope(
   // replacement for instances the global registry used to provide.
   const allScanned = dropFailedDerivations(
     ctx,
-    scanner.scanLocalFile(typeChecker, sourceFile, ctx.program)
+    scanner.scanLocalFile(typeChecker, sourceFile, ctx.program, scanWarnings(ctx))
   );
   const scanned =
     excludeLocal === undefined
@@ -420,13 +439,7 @@ function resolveFromLocalScope(
   // the same instance: not added twice.
   const annotated = useSite
     ? scanner
-        .scanLocalDeriveCompanions(typeChecker, sourceFile, ctx.program, (node, error) =>
-          ctx.reportWarning(
-            node,
-            `typesugar skipped '${node.getText()}'s @derive companions while resolving an ` +
-              `instance: the type checker failed (${error}).`
-          )
-        )
+        .scanLocalDeriveCompanions(typeChecker, sourceFile, ctx.program, scanWarnings(ctx))
         .filter(
           (inst) =>
             inst.typeclassName === tcName &&
@@ -686,7 +699,13 @@ function resolveFromImports(
 
     const scanned = dropFailedDerivations(
       ctx,
-      scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath, ctx.program)
+      scanner.scanModule(
+        typeChecker,
+        moduleSymbol,
+        entry.resolvedPath,
+        ctx.program,
+        scanWarnings(ctx)
+      )
     );
     const allMatches = filterMatches(
       typeChecker,
@@ -890,12 +909,24 @@ export function resolveFromTypeclassHome(
   // The entry's exports, then (only if none matches) the instances it exports
   // inside a namespace re-export: @typesugar/fp's root exports its instances
   // as `TC.showNumber` (`export * as TC from "./typeclasses"`).
-  let scanned = scanner.scanModule(checker, moduleSymbol, entry.fileName, ctx.program);
+  let scanned = scanner.scanModule(
+    checker,
+    moduleSymbol,
+    entry.fileName,
+    ctx.program,
+    scanWarnings(ctx)
+  );
   if (
     !scanned.some((i) => i.typeclassName === tcName && isTypeMatch(checker, forType, i.forType))
   ) {
     try {
-      scanned = scanner.scanNamespaceReexports(checker, moduleSymbol, entry.fileName, ctx.program);
+      scanned = scanner.scanNamespaceReexports(
+        checker,
+        moduleSymbol,
+        entry.fileName,
+        ctx.program,
+        scanWarnings(ctx)
+      );
     } catch (e) {
       ctx.reportWarning(
         ctx.sourceFile,
@@ -1131,7 +1162,12 @@ function findScannedInScope(
   // See "same-pass state visibility" in CLAUDE.md: a scan of
   // sourceFile.statements is fixed at pass start and can never see what the
   // pass itself is in the middle of generating.
-  const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
+  const local = scanner.scanLocalFile(
+    ctx.typeChecker,
+    ctx.sourceFile,
+    ctx.program,
+    scanWarnings(ctx)
+  );
   const synthesized = scanner.getSynthesized(ctx.program, ctx.sourceFile.fileName);
   const localHit = live(local)[0] ?? live(synthesized)[0];
   if (localHit) return { instance: localHit };
@@ -1146,12 +1182,15 @@ function findScannedInScope(
       ctx.typeChecker,
       moduleSymbol,
       entry.resolvedPath,
-      ctx.program
+      ctx.program,
+      scanWarnings(ctx)
     );
     const hit =
       live(scanned)[0] ??
       (includeNonExportedImports
-        ? live(scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program))[0]
+        ? live(
+            scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program, scanWarnings(ctx))
+          )[0]
         : undefined);
     if (hit) return { instance: hit, modulePath: entry.resolvedPath, specifier: entry.specifier };
   }

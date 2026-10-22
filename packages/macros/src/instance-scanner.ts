@@ -182,7 +182,45 @@ export function parseDoMethodsTag(node: ts.Node): DoNotationMeta | undefined {
  * A program-less fallback partition exists for unit tests that build their own
  * one-off programs; `clearCache()` clears only that fallback.
  */
+/**
+ * Told when the checker throws on a node during a scan and the scan skips
+ * or degrades what it was reading (`what`, e.g. "the exports of a module").
+ * The resolver turns it into a warning (CLAUDE.md: a caught checker failure
+ * that degrades must leave a visible trace). The node may be in another file.
+ */
+export type ScannerCheckerFailure = (node: ts.Node, error: unknown, what: string) => void;
+
 export class InstanceScanner {
+  /** The current scan's failure callback (set for the duration of a public scan). */
+  private failureSink: ScannerCheckerFailure | undefined;
+  /** Reported (node, what) pairs: each failure is reported once. */
+  private reportedFailures = new WeakMap<ts.Node, Set<string>>();
+
+  private checkerFailed = (node: ts.Node, error: unknown, what: string): void => {
+    const seen = getOrCreateWeak(this.reportedFailures, node, () => new Set<string>());
+    if (seen.has(what)) return;
+    seen.add(what);
+    if (this.failureSink) {
+      this.failureSink(node, error, what);
+    } else {
+      // No caller to report to: still visible (never swallowed).
+      console.warn(
+        `[typesugar] instance scan skipped ${what} in ${node.getSourceFile?.()?.fileName ?? "?"}: ` +
+          `the type checker failed (${error}).`
+      );
+    }
+  };
+
+  private withFailureSink<T>(sink: ScannerCheckerFailure | undefined, run: () => T): T {
+    const prev = this.failureSink;
+    if (sink) this.failureSink = sink;
+    try {
+      return run();
+    } finally {
+      this.failureSink = prev;
+    }
+  }
+
   private cacheByProgram = new WeakMap<ts.Program, Map<string, ScannedInstance[]>>();
   private fallbackCache = new Map<string, ScannedInstance[]>();
 
@@ -249,6 +287,18 @@ export class InstanceScanner {
     typeChecker: ts.TypeChecker,
     moduleSymbol: ts.Symbol,
     resolvedPath: string,
+    program?: ts.Program,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanModuleImpl(typeChecker, moduleSymbol, resolvedPath, program)
+    );
+  }
+
+  private scanModuleImpl(
+    typeChecker: ts.TypeChecker,
+    moduleSymbol: ts.Symbol,
+    resolvedPath: string,
     program?: ts.Program
   ): ScannedInstance[] {
     const cache = this.cacheFor(program);
@@ -260,7 +310,10 @@ export class InstanceScanner {
     let exports: ts.Symbol[];
     try {
       exports = typeChecker.getExportsOfModule(moduleSymbol);
-    } catch {
+    } catch (error) {
+      const decl = moduleSymbol?.declarations?.[0];
+      if (decl) this.checkerFailed(decl, error, "the exports of this module");
+      else console.warn(`[typesugar] instance scan skipped ${resolvedPath}: ${error}`);
       cache.set(resolvedPath, []);
       return [];
     }
@@ -288,6 +341,18 @@ export class InstanceScanner {
    * it (CLAUDE.md caught-failure rule).
    */
   scanNamespaceReexports(
+    typeChecker: ts.TypeChecker,
+    moduleSymbol: ts.Symbol,
+    resolvedPath: string,
+    program?: ts.Program,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanNamespaceReexportsImpl(typeChecker, moduleSymbol, resolvedPath, program)
+    );
+  }
+
+  private scanNamespaceReexportsImpl(
     typeChecker: ts.TypeChecker,
     moduleSymbol: ts.Symbol,
     resolvedPath: string,
@@ -337,9 +402,15 @@ export class InstanceScanner {
    * instance. Used by extension-method resolution to recognise an imported
    * value as an instance and learn the type it is for.
    */
-  scanValueDeclaration(typeChecker: ts.TypeChecker, decl: ts.Node): ScannedInstance[] {
+  scanValueDeclaration(
+    typeChecker: ts.TypeChecker,
+    decl: ts.Node,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
     const name = ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) ? decl.name.text : "";
-    return this.scanDeclaration(typeChecker, decl, name, decl.getSourceFile().fileName);
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanDeclaration(typeChecker, decl, name, decl.getSourceFile().fileName)
+    );
   }
 
   /**
@@ -359,8 +430,11 @@ export class InstanceScanner {
     if (resolvedSym.flags & ts.SymbolFlags.Alias) {
       try {
         resolvedSym = typeChecker.getAliasedSymbol(resolvedSym);
-      } catch {
+      } catch (error) {
         // Can't resolve alias — use original symbol
+        const decl = sym.declarations?.[0];
+        if (decl)
+          this.checkerFailed(decl, error, `the re-export '${exportName}' (read as declared)`);
       }
     }
 
@@ -376,7 +450,14 @@ export class InstanceScanner {
         ts.isTypeAliasDeclaration(decl)
       ) {
         results.push(
-          ...deriveCompanionInstances(typeChecker, resolvedSym, decl, exportName, resolvedPath)
+          ...deriveCompanionInstances(
+            typeChecker,
+            resolvedSym,
+            decl,
+            exportName,
+            resolvedPath,
+            this.checkerFailed
+          )
         );
       } else {
         results.push(...this.scanDeclaration(typeChecker, decl, exportName, resolvedPath));
@@ -530,7 +611,7 @@ export class InstanceScanner {
           const callResult: ScannedInstance = {
             typeclassName: parsed.base,
             forTypeString: parsed.args,
-            forType: resolveTypeString(typeChecker, parsed.args, stmtNode),
+            forType: resolveTypeString(typeChecker, parsed.args, stmtNode, this.checkerFailed),
             exportName,
             sourceModule: resolvedPath,
             detectedVia: "impl-tag",
@@ -589,8 +670,13 @@ export class InstanceScanner {
     try {
       forType = typeChecker.getTypeFromTypeNode(typeArg.typeArguments[0]);
       forTypeString = typeChecker.typeToString(forType);
-    } catch {
+    } catch (error) {
       forTypeString = typeArg.typeArguments[0].getText();
+      this.checkerFailed(
+        typeArg.typeArguments[0],
+        error,
+        `the type of the derived instance '${exportName}' (matched by name only)`
+      );
     }
     return {
       typeclassName: typeArg.typeName.text,
@@ -614,6 +700,17 @@ export class InstanceScanner {
    * with the exports-only {@link scanModule} scan of the same path.
    */
   scanLocalFile(
+    typeChecker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    program?: ts.Program,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanLocalFileImpl(typeChecker, sourceFile, program)
+    );
+  }
+
+  private scanLocalFileImpl(
     typeChecker: ts.TypeChecker,
     sourceFile: ts.SourceFile,
     program?: ts.Program
@@ -666,7 +763,17 @@ export class InstanceScanner {
      * the caller makes it visible (CLAUDE.md: a degraded checker failure
      * must leave a trace). Once per declaration, as the result is cached.
      */
-    onCheckerFailure?: (node: ts.Node, error: unknown) => void
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanLocalDeriveCompanionsImpl(typeChecker, sourceFile, program)
+    );
+  }
+
+  private scanLocalDeriveCompanionsImpl(
+    typeChecker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    program?: ts.Program
   ): ScannedInstance[] {
     const cache = this.cacheFor(program);
     const cacheKey = sourceFile.fileName + "::local-derive";
@@ -686,12 +793,19 @@ export class InstanceScanner {
       try {
         sym = typeChecker.getSymbolAtLocation(stmt.name);
       } catch (error) {
-        onCheckerFailure?.(stmt.name, error);
+        this.checkerFailed(stmt.name, error, `'${stmt.name.text}'s @derive companions`);
         sym = undefined;
       }
       if (!sym) continue;
       results.push(
-        ...deriveCompanionInstances(typeChecker, sym, stmt, stmt.name.text, sourceFile.fileName)
+        ...deriveCompanionInstances(
+          typeChecker,
+          sym,
+          stmt,
+          stmt.name.text,
+          sourceFile.fileName,
+          this.checkerFailed
+        )
       );
     }
     cache.set(cacheKey, results);
@@ -726,7 +840,7 @@ export class InstanceScanner {
       return {
         typeclassName: parsed.base,
         forTypeString: parsed.args,
-        forType: resolveTypeString(typeChecker, parsed.args, node),
+        forType: resolveTypeString(typeChecker, parsed.args, node, this.checkerFailed),
         exportName,
         sourceModule: resolvedPath,
         detectedVia: "impl-tag",
@@ -764,8 +878,13 @@ export class InstanceScanner {
     try {
       resolvedType = typeChecker.getTypeFromTypeNode(typeArgs[0]);
       forTypeStr = typeChecker.typeToString(resolvedType);
-    } catch {
+    } catch (error) {
       forTypeStr = typeArgs[0].getText();
+      this.checkerFailed(
+        typeArgs[0],
+        error,
+        `the type of the instance '${exportName}' (matched by name only)`
+      );
     }
 
     return {
@@ -809,7 +928,8 @@ function deriveCompanionInstances(
   typeSymbol: ts.Symbol,
   decl: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
   exportName: string,
-  resolvedPath: string
+  resolvedPath: string,
+  onFailure: ScannerCheckerFailure
 ): ScannedInstance[] {
   const names = deriveNamesOf(decl);
   if (names.length === 0) return [];
@@ -817,7 +937,8 @@ function deriveCompanionInstances(
   let forType: ts.Type | undefined;
   try {
     forType = typeChecker.getDeclaredTypeOfSymbol(typeSymbol);
-  } catch {
+  } catch (error) {
+    onFailure(decl.name ?? decl, error, `'${exportName}'s @derive companions`);
     return [];
   }
   const results: ScannedInstance[] = [];
@@ -948,12 +1069,22 @@ const KEYWORD_TYPES: Record<string, { kind: ts.SyntaxKind; getter: string }> = {
 function resolveTypeString(
   typeChecker: ts.TypeChecker,
   typeString: string,
-  location?: ts.Node
+  location?: ts.Node,
+  onFailure?: ScannerCheckerFailure
 ): ts.Type | undefined {
   const trimmed = typeString.trim();
   if (!KEYWORD_TYPES[trimmed] && location && /^[A-Za-z_$][\w$]*$/.test(trimmed)) {
-    return resolveTypeNameInScope(typeChecker, trimmed, location);
+    return resolveTypeNameInScope(typeChecker, trimmed, location, onFailure);
   }
+  const failed = (error: unknown): void => {
+    if (location) {
+      onFailure?.(
+        location,
+        error,
+        `the type '${trimmed}' an @impl tag names (matched by name only)`
+      );
+    }
+  };
   const entry = KEYWORD_TYPES[trimmed];
   if (entry) {
     // Prefer the TypeChecker's internal intrinsic type getter: synthetic
@@ -964,8 +1095,8 @@ function resolveTypeString(
     if (typeof tc[entry.getter] === "function") {
       try {
         return tc[entry.getter]();
-      } catch {
-        /* fall through */
+      } catch (error) {
+        failed(error); // then the synthetic-node fallback below
       }
     }
     // Fallback: try synthetic node (works in some TS host configurations).
@@ -985,7 +1116,8 @@ function resolveTypeString(
         return undefined;
       }
       return resolved;
-    } catch {
+    } catch (error) {
+      failed(error);
       return undefined;
     }
   }
@@ -1001,7 +1133,8 @@ function resolveTypeString(
 function resolveTypeNameInScope(
   typeChecker: ts.TypeChecker,
   name: string,
-  location: ts.Node
+  location: ts.Node,
+  onFailure?: ScannerCheckerFailure
 ): ts.Type | undefined {
   const sourceFile = location.getSourceFile();
   if (!sourceFile) return undefined;
@@ -1011,7 +1144,8 @@ function resolveTypeNameInScope(
       if (sym && sym.flags & ts.SymbolFlags.Alias) sym = typeChecker.getAliasedSymbol(sym);
       if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return undefined;
       return typeChecker.getDeclaredTypeOfSymbol(sym);
-    } catch {
+    } catch (error) {
+      onFailure?.(nameNode, error, `the type '${name}' an @impl tag names (matched by name only)`);
       return undefined;
     }
   };
@@ -1040,7 +1174,8 @@ function resolveTypeNameInScope(
       .getSymbolsInScope(location, ts.SymbolFlags.Type)
       .find((s) => s.name === name);
     return sym ? typeChecker.getDeclaredTypeOfSymbol(sym) : undefined;
-  } catch {
+  } catch (error) {
+    onFailure?.(location, error, `the type '${name}' an @impl tag names (matched by name only)`);
     return undefined;
   }
 }
