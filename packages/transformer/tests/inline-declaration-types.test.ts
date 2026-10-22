@@ -125,4 +125,92 @@ export const p = mkP.make(1);
     expect(strict.out).toBe("");
     expect(strict.status).toBe(0);
   });
+
+  // review 9: the source's type was written even where it can't be named at
+  // the declaration (a local class: TS4060; a class expression: `typeof Cls`,
+  // circular). Those keep the expansion's inference, which was valid.
+  it("is not annotated with a type that can't be named at the declaration", () => {
+    const dir = project({
+      "src/fm.ts":
+        FM +
+        `/** @impl Mk<number> */
+export const mkN: Mk<number> = { make: (n) => n * 2 };
+`,
+      "src/main.ts": `import { mkN } from "./fm.js";
+export function loc() {
+  class L { y = mkN.make(1); }
+  return new L();
+}
+export const Cls = class { v = mkN.make(1); };
+class Shadow { outer = "outer"; }
+export const shadowUse = new Shadow();
+export function shadowed() {
+  class Shadow { inner = mkN.make(2); }
+  return new Shadow();
+}
+export function Tagged<B extends new (...args: any[]) => object>(Base: B) {
+  return class extends Base { tag = mkN.make(3); };
+}
+export async function later() {
+  return mkN.make(4);
+}
+export function gen<T>(x: T) {
+  return { x, n: mkN.make(5) };
+}
+export class Box<T> {
+  constructor(public t: T) {}
+  get pair() { return [this.t, mkN.make(6)] as const; }
+  wrap<U>(u: U) { return { t: this.t, u, n: mkN.make(7) }; }
+}
+`,
+      "src/use.ts": `import { loc, Cls, shadowed, Tagged, later, gen, Box } from "./main.js";
+export const a: number = loc().y;
+export const b: number = new Cls().v;
+export const c: number = shadowed().inner;
+class Base0 { base = "b"; }
+export const d: number = new (Tagged(Base0))().tag;
+export const e: string = new (Tagged(Base0))().base;
+export const f: Promise<number> = later();
+export const g: { x: string; n: number } = gen("s");
+export const h: readonly [string, number] = new Box("t").pair;
+export const i: { t: string; u: boolean; n: number } = new Box("t").wrap(true);
+`,
+    });
+    const build = cli(dir, "build");
+    expect(build.out).toBe("");
+    expect(build.status).toBe(0);
+    const dts = fs.readFileSync(path.join(dir, "out", "main.d.ts"), "utf-8");
+    expect(dts).not.toMatch(/typeof Cls/);
+    expect(dts).not.toMatch(/\bL\b/);
+    expect(dts).not.toMatch(/shadowed\(\): Shadow/);
+    expect(dts).toMatch(/export declare function later\(\): Promise<number>;/);
+    expect(dts).toMatch(/export declare function gen<T>\(x: T\): \{\s*x: T;\s*n: number;\s*\}/);
+    // A consumer compiled against only the declarations sees the right types.
+    fs.writeFileSync(
+      path.join(dir, "out", "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          noEmit: true,
+          types: [],
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          target: "ES2022",
+        },
+        files: ["consumer.ts"],
+      })
+    );
+    fs.copyFileSync(path.join(dir, "src", "use.ts"), path.join(dir, "out", "consumer.ts"));
+    const tsc = spawnSync(
+      process.execPath,
+      [
+        path.join(repoRoot, "node_modules", "typescript", "bin", "tsc"),
+        "-p",
+        path.join(dir, "out", "tsconfig.json"),
+      ],
+      { cwd: dir, encoding: "utf-8" }
+    );
+    expect((tsc.stdout ?? "") + (tsc.stderr ?? "")).toBe("");
+    expect(tsc.status).toBe(0);
+  });
 });

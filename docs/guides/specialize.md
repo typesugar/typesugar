@@ -102,7 +102,9 @@ ever written as `any`. An exported declaration an inlined call initializes
 (`export const r = mapArr.map(xs, f)`, or a function returning one) is
 declared with the type the source gives it, the typeclass member's (`r:
 unknown` when `map` is declared to return `unknown`), not the inlined body's
-narrower one (`number[]`). An
+narrower one (`number[]`), unless that type can't be named at the
+declaration (a class local to the function, a class expression's own
+`typeof`): then it keeps the type the expansion infers. An
 argument whose type is narrower than its parameter's (`extract(Nil)`,
 `Nil: null`, for `l: List<A>`) is substituted as it is when the body reads
 the parameter once; when the body reads it more than once, its own tests

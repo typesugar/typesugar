@@ -30,6 +30,12 @@
  * declaration then said a type the source never declares (review 8). It gets
  * the source's type, unless that is `any` (then the expansion's inference is
  * kept, as for a fluent `match()`).
+ *
+ * An annotation is only added when every name it uses can be written at the
+ * declaration (`nameableAt`): a local class (`function loc() { class L {...}
+ * return new L() }`) or a class expression's own `typeof Cls` would make the
+ * declaration invalid where the expansion's inference was fine (review 9), so
+ * such a declaration keeps that inference.
  */
 
 import * as ts from "typescript";
@@ -302,7 +308,8 @@ class Annotator {
       const keep = inlined && !(type.flags & ts.TypeFlags.Any);
       if (!keep && !this.involvesOpaque(type, 0, new Set())) return undefined;
       // Written as this file can name it (core's portable-type-node.ts).
-      return typeToPortableTypeNode(this.program, this.checker, this.file, type, enclosing);
+      const node = typeToPortableTypeNode(this.program, this.checker, this.file, type, enclosing);
+      return node && nameableAt(this.checker, node, enclosing) ? node : undefined;
     } catch (e) {
       // Degrade to the expanded program's own inference, visibly.
       console.warn(
@@ -357,4 +364,116 @@ class Annotator {
     }
     return false;
   }
+}
+
+/**
+ * Can every name `node` (a type node from the node builder) uses be written
+ * in the annotation of `declaration`, meaning the name, resolved where that
+ * annotation is, is the symbol the builder meant?
+ *
+ * The builder writes a symbol it can't reach from the declaration by its bare
+ * name anyway (a class local to a function body is `L`; a class expression's
+ * constructor is `typeof Cls`, the variable being declared). Such an
+ * annotation is not valid there, so the caller keeps the expansion's own
+ * inference instead.
+ *
+ * Each entity name's leftmost identifier is resolved by the checker
+ * (`resolveName`) in the scope the annotation is in: outside a function's
+ * body (its own type parameters are in scope, its locals aren't), the class
+ * for a member (the class's type parameters), the file for a variable. The
+ * result is compared by identity, after alias and export-symbol resolution,
+ * with the symbol the builder wrote (`symbol` on the identifiers it creates,
+ * an internal property: when it is absent, the name must at least resolve).
+ * The declaration's own symbol is never accepted (`const Cls: typeof Cls` is
+ * circular). Names the type node binds itself (type parameters of a function
+ * type, mapped and `infer` types) are not looked up. `import("…")` types are
+ * module-qualified and portable-type-node.ts has made them valid already.
+ */
+function nameableAt(checker: ts.TypeChecker, node: ts.TypeNode, declaration: ts.Node): boolean {
+  const bound = new Set<string>();
+  const collectBound = (n: ts.Node): void => {
+    if (ts.isTypeParameterDeclaration(n)) bound.add(n.name.text);
+    ts.forEachChild(n, collectBound);
+  };
+  collectBound(node);
+
+  const ownTypeParameters = new Map<string, ts.Symbol>();
+  const typeParameterHost = ts.isFunctionLike(declaration) ? declaration : undefined;
+  for (const tp of typeParameterHost?.typeParameters ?? []) {
+    const symbol = checker.getSymbolAtLocation(tp.name);
+    if (symbol) ownTypeParameters.set(tp.name.text, symbol);
+  }
+  // Where the annotation's names resolve: the scope around the declaration
+  // (a function's body locals are not in scope in its return type).
+  const scope =
+    ts.isClassElement(declaration) && ts.isClassLike(declaration.parent)
+      ? declaration.parent
+      : ts.isVariableDeclaration(declaration)
+        ? declaration.parent.parent.parent
+        : declaration.parent;
+  const selfNames =
+    (ts.isVariableDeclaration(declaration) || ts.isClassElement(declaration)) &&
+    declaration.name &&
+    !ts.isComputedPropertyName(declaration.name)
+      ? checker.getSymbolAtLocation(declaration.name)
+      : undefined;
+  const self = selfNames ? canonical(checker, selfNames) : undefined;
+
+  const resolves = (id: ts.Identifier, meaning: ts.SymbolFlags): boolean => {
+    const name = id.text;
+    if (bound.has(name)) return true;
+    const resolved =
+      ownTypeParameters.get(name) ?? checker.resolveName(name, scope, meaning, false);
+    if (!resolved) return false;
+    const actual = canonical(checker, resolved);
+    if (self && actual === self) return false;
+    const meant = (id as { symbol?: ts.Symbol }).symbol;
+    return !meant || canonical(checker, meant) === actual;
+  };
+
+  let ok = true;
+  const visit = (n: ts.Node): void => {
+    if (!ok) return;
+    if (ts.isImportTypeNode(n)) {
+      n.typeArguments?.forEach(visit);
+      return;
+    }
+    if (ts.isTypeReferenceNode(n)) {
+      const qualified = !ts.isIdentifier(n.typeName);
+      if (
+        !resolves(
+          leftmostIdentifier(n.typeName),
+          qualified ? ts.SymbolFlags.Namespace : ts.SymbolFlags.Type
+        )
+      ) {
+        ok = false;
+        return;
+      }
+    } else if (ts.isTypeQueryNode(n)) {
+      if (
+        !resolves(leftmostIdentifier(n.exprName), ts.SymbolFlags.Value | ts.SymbolFlags.Namespace)
+      ) {
+        ok = false;
+        return;
+      }
+    } else if (ts.isExpressionWithTypeArguments(n) && ts.isIdentifier(n.expression)) {
+      if (!resolves(n.expression, ts.SymbolFlags.Type | ts.SymbolFlags.Namespace)) {
+        ok = false;
+        return;
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return ok;
+}
+
+function leftmostIdentifier(name: ts.EntityName): ts.Identifier {
+  return ts.isIdentifier(name) ? name : leftmostIdentifier(name.left);
+}
+
+/** `symbol` with aliases followed and a local symbol mapped to its export. */
+function canonical(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
+  const aliased = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+  return checker.getExportSymbolOfSymbol(aliased);
 }
