@@ -783,13 +783,6 @@ function declaredTypeOfScrutinee(ctx: MacroContext, scrutinee: ts.Expression): t
   return checker.getTypeOfSymbol(sym);
 }
 
-/** Set (to "1") by the JS-identity test only: no scrutinee assertion. */
-const NO_WIDENING_ENV = "TYPESUGAR_MATCH_NO_SCRUTINEE_WIDENING";
-
-function wideningDisabled(): boolean {
-  return typeof process !== "undefined" && process.env?.[NO_WIDENING_ENV] === "1";
-}
-
 /**
  * How the generated code reads the scrutinee.
  *
@@ -897,7 +890,7 @@ function computeScrutineeReading(ctx: MacroContext, scrutinee: ts.Expression): S
     };
     // Expressible at all? Otherwise the read stays as it is.
     if (!build()) return { members };
-    return { members, assertion: wideningDisabled() ? undefined : build };
+    return { members, assertion: build };
   } catch (e) {
     ctx.reportWarning(
       scrutinee,
