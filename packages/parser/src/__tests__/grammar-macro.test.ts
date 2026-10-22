@@ -45,6 +45,54 @@ export const g = grammar\`
 \`;
 `;
 
+/** Type errors in `code` under strict (`@typesugar/parser` resolved to this package's src). */
+function typeErrors(code: string): string[] {
+  const fileName = path.resolve(__dirname, "../../__grammar_macro_typecheck.ts");
+  const pkgDir = path.resolve(__dirname, "../..");
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    types: [],
+    baseUrl: pkgDir,
+    paths: { "@typesugar/parser": ["src/index.ts"] },
+  };
+  const host = ts.createCompilerHost(options);
+  const read = host.getSourceFile.bind(host);
+  host.getSourceFile = (f, v, ...rest) =>
+    path.resolve(f) === fileName ? ts.createSourceFile(f, code, v, true) : read(f, v, ...rest);
+  const exists = host.fileExists.bind(host);
+  host.fileExists = (f) => path.resolve(f) === fileName || exists(f);
+  const program = ts.createProgram([fileName], options, host);
+  return ts
+    .getPreEmitDiagnostics(program, program.getSourceFile(fileName))
+    .map((d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, " ")}`);
+}
+
+describe("grammar macro: the expansion type-checks (check --strict)", () => {
+  // The generated parser's functions had untyped parameters (TS7006 for
+  // every `input`/`pos`/`value`), `var best = null` read as `never`
+  // (TS2339 on `best.pos`), and `parse(input, pos)` required `pos` (TS2554
+  // for `p.parse("x")`): 75 errors in parser's grammar.test.ts.
+  it("has no type errors, and parse's position is optional", () => {
+    const { code, diagnostics } = expand(`import { grammar } from "@typesugar/parser";
+export const g = grammar\`
+  start  = "(" item+ ")" | !"x" digit* | "y"?
+  item   = letter (letter | digit)*
+  letter = 'a'..'z'
+  digit  = '0'..'9'
+\`;
+export const r = g.parse("(ab1)");
+`);
+    expect(diagnostics).toEqual([]);
+    expect(typeErrors(code)).toEqual([]);
+    expect(run(code).r.ok).toBe(true);
+  });
+});
+
 describe("grammar macro: AST codegen (TSP-8)", () => {
   it("expands to an inline parser that works at runtime", () => {
     const { code, diagnostics } = expand(IDENT);
@@ -90,7 +138,13 @@ describe("grammar macro: AST codegen (TSP-8)", () => {
         out,
         ts.createSourceFile("o.ts", "", ts.ScriptTarget.Latest)
       );
-    const g = new Function(`return ${printed}`)();
+    // TypeScript (its parameters are typed): transpiled before it is run.
+    const js = ts.transpileModule(`module.exports = ${printed};`, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const mod = { exports: {} as any };
+    new Function("module", "exports", js)(mod, mod.exports);
+    const g = mod.exports;
     expect(g.parseAll("xyy")).toEqual(["x", ["y", "y"]]);
   });
 });
