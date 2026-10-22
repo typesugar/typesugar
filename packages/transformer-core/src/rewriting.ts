@@ -20,6 +20,7 @@ import {
   rewrittenOperandType,
   isPrimitiveTypedBinary,
   isPrimitiveByFlags,
+  declaredDispatchTypes,
   admitsNullish,
   isNullOrUndefinedExpr,
   type OperatorChainHooks,
@@ -630,17 +631,6 @@ function chainHooks(ctx: MacroContextImpl): OperatorChainHooks {
   };
 }
 
-const OPERATOR_PRIMITIVE_TYPES = new Set([
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "null",
-  "undefined",
-  "any",
-  "unknown",
-]);
-
 export function tryRewriteTypeclassOperator(
   ctx: MacroContextImpl,
   verbose: boolean,
@@ -733,7 +723,8 @@ export function tryRewriteTypeclassOperator(
   } catch (error) {
     return operandTypeFailed(error);
   }
-  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName)) || isPrimitiveByFlags(leftType)) {
+  // Primitive by the type's flags, not its printed name (CLAUDE.md "by identity").
+  if (isPrimitiveByFlags(leftType)) {
     return undefined;
   }
 
@@ -755,46 +746,13 @@ export function tryRewriteTypeclassOperator(
     return operandTypeFailed(error);
   }
 
-  // The operand's type at the operator may be NARROWED: `const s: Shape =
-  // { kind: "c", r: 1 }` makes `s` the "c" variant there, and the instance is
-  // `Shape`'s. When the narrowed type has none, the operands' declared types
-  // (the variable's or property's, by symbol) are tried, left then right.
-  // A declared type is only tried when BOTH operands are assignable to it
-  // (checker assignability): `a === b` with `a: Foo` and `b: Bar` must not
-  // borrow `b`'s type and call Bar's instance with a Foo.
+  // The operand's type at the operator may be NARROWED (`const s: Shape =
+  // { kind: "c", r: 1 }` makes `s` the "c" variant): the operands' declared
+  // types are tried too, the same ones the diagnostic filter tries
+  // (declaredDispatchTypes, operator-chain-types.ts).
   let dispatchTypes: ts.Type[] | undefined;
-  const typesToTry = (): ts.Type[] => {
-    if (dispatchTypes) return dispatchTypes;
-    dispatchTypes = [];
-    for (const operand of [node.left, node.right]) {
-      const declared = declaredOperandType(ctx, operand);
-      // Only an object type can be a narrowed union's declared type; a
-      // primitive one (`n: number` in `1 / n`) would dispatch a literal
-      // operand to the primitive's instances.
-      if (
-        !declared ||
-        declared === leftType ||
-        isPrimitiveByFlags(declared) ||
-        dispatchTypes.includes(declared)
-      ) {
-        continue;
-      }
-      let bothFit = false;
-      try {
-        bothFit =
-          ctx.typeChecker.isTypeAssignableTo(leftType, declared) &&
-          ctx.typeChecker.isTypeAssignableTo(rightType, declared);
-      } catch (error) {
-        ctx.reportWarning(
-          node,
-          `typesugar could not check whether the operands of '${opString}' fit ` +
-            `'${ctx.typeChecker.typeToString(declared)}' (${error}); its instance was not tried.`
-        );
-      }
-      if (bothFit) dispatchTypes.push(declared);
-    }
-    return dispatchTypes;
-  };
+  const typesToTry = (): ts.Type[] =>
+    (dispatchTypes ??= declaredDispatchTypes(ctx, node, leftType, rightType, chainHooks(ctx)));
   /** No activated typeclass rewrote this: warn if an inactive one would have. */
   const hintIfInactiveMatch = (): undefined => {
     if (!mayHint) return undefined;
@@ -1026,36 +984,6 @@ function reportDerivedWithoutInstance(
   return false;
 }
 
-/**
- * The declared (un-narrowed) type of an operand that names a variable,
- * parameter or property, without null/undefined, or undefined. Read from the
- * symbol, not the expression, so assignment narrowing doesn't apply. A
- * synthetic node is outside the checker's contract (CLAUDE.md): undefined.
- */
-function declaredOperandType(ctx: MacroContextImpl, operand: ts.Expression): ts.Type | undefined {
-  let e = operand;
-  while (ts.isParenthesizedExpression(e)) e = e.expression;
-  const named = ts.isIdentifier(e) ? e : ts.isPropertyAccessExpression(e) ? e.name : undefined;
-  if (!named || isSyntheticNode(named)) return undefined;
-  const checker = ctx.typeChecker;
-  try {
-    let sym = checker.getSymbolAtLocation(named);
-    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-    if (!sym || !(sym.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property))) {
-      return undefined;
-    }
-    const declared = checker.getTypeOfSymbol(sym);
-    return checker.getNonNullableType(declared);
-  } catch (error) {
-    ctx.reportWarning(
-      operand,
-      `typesugar could not read the declared type of '${e.getText()}' for an operator ` +
-        `rewrite (${error}); its narrowed type is used.`
-    );
-    return undefined;
-  }
-}
-
 /** Operators whose native result on a nullish operand is a boolean, never a throw. */
 const COMPARISON_OPERATORS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.EqualsEqualsEqualsToken,
@@ -1256,12 +1184,7 @@ export function tryRewriteTypeclassUnaryOperator(
   // By flags, as for the binary form: a literal operand (`-1`, `!true`) is
   // primitive too, which the printed name of its base type only matched
   // for some primitives.
-  if (
-    OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName)) ||
-    isPrimitiveByFlags(operandType)
-  ) {
-    return undefined;
-  }
+  if (isPrimitiveByFlags(operandType)) return undefined;
 
   let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
   for (const candidate of candidates) {

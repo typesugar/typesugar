@@ -278,16 +278,118 @@ function chainStepType(
   hooks: OperatorChainHooks
 ): ts.Type | null {
   const step = operatorRewriteStep(ctx, node, left, activated, hooks);
-  return step?.resultIsSelf ? left : null;
+  return step?.resultIsSelf ? step.dispatchType : null;
+}
+
+/**
+ * The type the rewrite gives the right operand of `node`: its rewritten type
+ * (an operator, or a const bound to one), else the checker's, without
+ * null/undefined. Undefined for a synthetic node (outside the checker's
+ * contract, CLAUDE.md).
+ */
+function rightOperandType(
+  ctx: MacroContext,
+  node: ts.BinaryExpression,
+  activated: ReadonlySet<string>,
+  hooks: OperatorChainHooks
+): ts.Type | undefined {
+  if (isSyntheticNode(node.right)) return undefined;
+  const t =
+    rewrittenOperandType(ctx, node.right, activated, hooks) ??
+    ctx.typeChecker.getTypeAtLocation(node.right);
+  return admitsNullish(t) ? ctx.typeChecker.getNonNullableType(t) : t;
+}
+
+/**
+ * The declared (un-narrowed) type of an operand that names a variable,
+ * parameter or property, without null/undefined, or undefined. Read from the
+ * symbol, not the expression, so assignment narrowing doesn't apply. A
+ * synthetic node is outside the checker's contract (CLAUDE.md): undefined.
+ */
+export function declaredOperandType(
+  ctx: MacroContext,
+  operand: ts.Expression,
+  hooks: OperatorChainHooks
+): ts.Type | undefined {
+  let e = operand;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  const named = ts.isIdentifier(e) ? e : ts.isPropertyAccessExpression(e) ? e.name : undefined;
+  if (!named || isSyntheticNode(named)) return undefined;
+  const checker = ctx.typeChecker;
+  try {
+    let sym = checker.getSymbolAtLocation(named);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!sym || !(sym.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property))) {
+      return undefined;
+    }
+    const declared = checker.getTypeOfSymbol(sym);
+    return checker.getNonNullableType(declared);
+  } catch (error) {
+    hooks.warn(
+      operand,
+      `typesugar could not read the declared type of '${e.getText()}' for an operator ` +
+        `rewrite (${error}); its narrowed type is used.`
+    );
+    return undefined;
+  }
+}
+
+/**
+ * The operand's type at the operator may be NARROWED: `const s: Shape =
+ * { kind: "c", r: 1 }` makes `s` the "c" variant there, and the instance is
+ * `Shape`'s. When the narrowed type has none, the operands' declared types
+ * (the variable's or property's, by symbol: {@link declaredOperandType}) are
+ * tried, left then right. A declared type is only tried when BOTH operands
+ * are assignable to it (checker assignability): `a === b` with `a: Foo` and
+ * `b: Bar` must not borrow `b`'s type and call Bar's instance with a Foo.
+ * Only an object type: a primitive one (`n: number` in `1 / n`) would
+ * dispatch a literal operand to the primitive's instances. Shared by the
+ * rewrite and the diagnostic filter, so both try the same types.
+ */
+export function declaredDispatchTypes(
+  ctx: MacroContext,
+  node: ts.BinaryExpression,
+  leftType: ts.Type,
+  rightType: ts.Type,
+  hooks: OperatorChainHooks
+): ts.Type[] {
+  const types: ts.Type[] = [];
+  for (const operand of [node.left, node.right]) {
+    const declared = declaredOperandType(ctx, operand, hooks);
+    if (
+      !declared ||
+      declared === leftType ||
+      isPrimitiveByFlags(declared) ||
+      types.includes(declared)
+    ) {
+      continue;
+    }
+    let bothFit = false;
+    try {
+      bothFit =
+        ctx.typeChecker.isTypeAssignableTo(leftType, declared) &&
+        ctx.typeChecker.isTypeAssignableTo(rightType, declared);
+    } catch (error) {
+      hooks.warn(
+        node,
+        `typesugar could not check whether the operands of '${node.operatorToken.getText()}' fit ` +
+          `'${ctx.typeChecker.typeToString(declared)}' (${error}); its instance was not tried.`
+      );
+    }
+    if (bothFit) types.push(declared);
+  }
+  return types;
 }
 
 /**
  * Whether the operator `node`, with left operand type `left` (non-nullable,
  * not primitive), is rewritten: exactly one activated candidate with an
- * instance for `left` in scope, and, when the method's right parameter is
- * the type parameter, a right operand that fits (an operator operand typed
- * as rewritten). Its method's `resultIsSelf`, or undefined when it stays
- * native. The rewrite's own decision, without its diagnostics.
+ * instance for `left` (or, when it is narrowed, for an operand's declared
+ * type: {@link declaredDispatchTypes}) in scope, and, when the method's right
+ * parameter is the type parameter, a right operand that fits (an operator
+ * operand typed as rewritten). Its method's `resultIsSelf` and the type the
+ * instance is for, or undefined when it stays native. The rewrite's own
+ * decision, without its diagnostics.
  */
 function operatorRewriteStep(
   ctx: MacroContext,
@@ -295,33 +397,55 @@ function operatorRewriteStep(
   left: ts.Type,
   activated: ReadonlySet<string>,
   hooks: OperatorChainHooks
-): { resultIsSelf: boolean } | undefined {
+): { resultIsSelf: boolean; dispatchType: ts.Type } | undefined {
   if (isSyntheticNode(node) || hooks.optedOut(node)) return undefined;
   const op = getOperatorString(node.operatorToken.kind);
   if (!op) return undefined;
   const candidates = getOperatorCandidates(ctx.program, activated, op);
   let found: { rightOperandIsSelf: boolean; resultIsSelf: boolean } | undefined;
   let forType: ts.Type | undefined;
+  let dispatchType = left;
   try {
+    let right: ts.Type | null | undefined = null;
+    const rightType = (): ts.Type | undefined => {
+      if (right === null) right = rightOperandType(ctx, node, activated, hooks);
+      return right;
+    };
+    let fallback: ts.Type[] | undefined;
+    const fallbackTypes = (): ts.Type[] => {
+      if (!fallback) {
+        const r = rightType();
+        fallback = r ? declaredDispatchTypes(ctx, node, left, r, hooks) : [];
+      }
+      return fallback;
+    };
     for (const candidate of candidates) {
-      const r = resolveInstance(ctx, candidate.typeclass, left, undefined, undefined, node);
+      let r = resolveInstance(ctx, candidate.typeclass, left, undefined, undefined, node);
+      let via = left;
+      if (!r) {
+        for (const t of fallbackTypes()) {
+          r = resolveInstance(ctx, candidate.typeclass, t, undefined, undefined, node);
+          if (r) {
+            via = t;
+            break;
+          }
+        }
+      }
       if (!r) continue;
       // Ambiguous, or two typeclasses apply: the rewrite reports it and stays native.
       if (r.kind === "ambiguous" || found) return undefined;
       found = candidate;
       forType = r.forType;
+      dispatchType = via;
     }
     if (!found) return undefined;
     if (found.rightOperandIsSelf) {
       // An operator operand: already typed inside rewrittenChainType's
       // post-order walk (a cache hit, no recursion), computed here otherwise.
-      const right = isPrimitiveTypedBinary(node.right)
-        ? (rewrittenChainType(ctx, node.right, activated, hooks) ?? null)
-        : isSyntheticNode(node.right)
-          ? undefined
-          : (rewrittenOperandType(ctx, node.right, activated, hooks) ??
-            ctx.typeChecker.getTypeAtLocation(node.right));
-      if (!right || !ctx.typeChecker.isTypeAssignableTo(right, forType ?? left)) return undefined;
+      const r = isPrimitiveTypedBinary(node.right)
+        ? (rewrittenChainType(ctx, node.right, activated, hooks) ?? undefined)
+        : rightType();
+      if (!r || !ctx.typeChecker.isTypeAssignableTo(r, forType ?? dispatchType)) return undefined;
     }
   } catch (error) {
     hooks.warn(
@@ -331,7 +455,7 @@ function operatorRewriteStep(
     );
     return undefined;
   }
-  return { resultIsSelf: found.resultIsSelf };
+  return { resultIsSelf: found.resultIsSelf, dispatchType };
 }
 
 /**
@@ -341,11 +465,10 @@ function operatorRewriteStep(
  * Mirrors `tryRewriteTypeclassOperator`'s decision: both operands typed as
  * rewritten (a chain, a const bound to a rewritten operator), the operand
  * types' nullability removed, a non-primitive left type, one instance from
- * scope, and a right operand that fits. It does not try the operands'
- * declared types for a narrowed operand (the rewrite's fallback), so it may
- * keep an error the rewrite would have removed, never the reverse. Returns
- * the result type when the method returns the instance type, else `true`;
- * `undefined` when the operator stays native.
+ * scope (trying the operands' declared types for a narrowed operand, as the
+ * rewrite does: {@link declaredDispatchTypes}), and a right operand that
+ * fits. Returns the result type when the method returns the instance type,
+ * else `true`; `undefined` when the operator stays native.
  */
 export function operatorRewriteResult(
   ctx: MacroContext,
@@ -372,5 +495,5 @@ export function operatorRewriteResult(
   if (isPrimitiveByFlags(left)) return undefined;
   const step = operatorRewriteStep(ctx, node, left, activated, hooks);
   if (!step) return undefined;
-  return step.resultIsSelf ? left : true;
+  return step.resultIsSelf ? step.dispatchType : true;
 }

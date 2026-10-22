@@ -296,6 +296,9 @@ An instance is used only for the type it is declared for, compared by identity. 
 `showColor` (an `@impl Show<Color>` for a numeric enum `Color`), `color.show()` becomes
 `showColor.show(color)`, but `n.show()` on a `number` is not rewritten to it, even though a
 `number` can be assigned to `Color`.
+An instance for a union type serves a value narrowed to its members too: with
+`@impl Describe<Shape>` and `type Shape = Circle | Square`, `t.describe()` inside
+`if (t.kind === "circle")` becomes `describeShape.describe(t)`.
 
 ## Generic Extensions
 

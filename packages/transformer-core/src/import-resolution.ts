@@ -13,17 +13,15 @@ import {
   globalRegistry,
   type MacroDefinition,
   type MacroRegistry,
-  scanImportsForScope,
   globalResolutionScope,
   isSyntheticNode,
   type StandaloneExtensionInfo,
   receiverMatchesFirstParam,
 } from "@typesugar/core";
 import {
-  instanceScanner,
-  isHktTypeclass,
-  isTypeclassDeclared,
-  type ScannedInstance,
+  findImportedExtensionMatches,
+  isExtensionEnabledIn,
+  type ExtensionImportEnv,
 } from "@typesugar/macros";
 
 // ---------------------------------------------------------------------------
@@ -886,308 +884,43 @@ export function resolveMacroFromSymbol(
 // ---------------------------------------------------------------------------
 // Extension-related helpers
 // ---------------------------------------------------------------------------
+//
+// The provider decision lives in @typesugar/macros (extension-imports.ts),
+// shared with the ExtensionMethodCall diagnostic suppression rule so the
+// rule hides TS2339 exactly when this rewrite happens.
 
-/**
- * Check if a declaration has the @extension decorator.
- */
-export function hasExtensionDecorator(node: ts.Node): boolean {
-  if (!ts.canHaveDecorators(node)) return false;
+export {
+  hasExtensionDecorator,
+  checkImportedSymbolForExtension,
+  isGlobalAugmentationStub,
+} from "@typesugar/macros";
 
-  const decorators = ts.getDecorators(node);
-  if (!decorators) return false;
-
-  for (const decorator of decorators) {
-    const expr = decorator.expression;
-    if (ts.isIdentifier(expr) && expr.text === "extension") {
-      return true;
-    }
-    if (
-      ts.isCallExpression(expr) &&
-      ts.isIdentifier(expr.expression) &&
-      expr.expression.text === "extension"
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+/** The shared decision's environment for this transform: its scope and warnings. */
+function extensionImportEnv(ctx: MacroContextImpl): ExtensionImportEnv {
+  return {
+    checker: ctx.typeChecker,
+    program: ctx.program,
+    sourceFile: ctx.sourceFile,
+    scope: globalResolutionScope,
+    warn: (node, message) => ctx.reportWarning(node, message),
+  };
 }
 
 /**
- * Check if a symbol is extension-enabled.
+ * Check if a symbol is extension-enabled (`@extension`, or a `"use
+ * extension"` module).
  */
 export function isExtensionEnabled(ctx: MacroContextImpl, symbol: ts.Symbol): boolean {
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) {
-    return false;
-  }
-
-  for (const decl of declarations) {
-    const sourceFile = decl.getSourceFile();
-    const fileName = sourceFile.fileName;
-
-    if (sourceFile.isDeclarationFile) {
-      if (hasExtensionDecorator(decl)) {
-        return true;
-      }
-      continue;
-    }
-
-    if (fileName !== ctx.sourceFile.fileName) {
-      scanImportsForScope(sourceFile, globalResolutionScope, ctx.program);
-    }
-
-    if (globalResolutionScope.hasUseExtension(fileName)) {
-      return true;
-    }
-
-    if (hasExtensionDecorator(decl)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check if an imported identifier provides an extension method.
- */
-export function checkImportedSymbolForExtension(
-  typeChecker: ts.TypeChecker,
-  ident: ts.Identifier,
-  methodName: string,
-  receiverType: ts.Type
-): StandaloneExtensionInfo | undefined {
-  const symbol = typeChecker.getSymbolAtLocation(ident);
-  if (!symbol) return undefined;
-
-  const identType = typeChecker.getTypeOfSymbolAtLocation(symbol, ident);
-
-  if (ident.text === methodName) {
-    for (const sig of identType.getCallSignatures()) {
-      if (receiverMatchesFirstParam(typeChecker, receiverType, sig, ident)) {
-        return { methodName, forType: "", qualifier: undefined };
-      }
-    }
-  }
-
-  const prop = identType.getProperty(methodName);
-  if (!prop) return undefined;
-  // A member every value has from the standard library (`Function.prototype.
-  // bind/call/apply`, `Object.prototype.toString`, ...) is not an extension
-  // provided by the import: `describe.bind` / `head.bind` must never become
-  // candidates for `fn.bind(x)`.
-  if (isDefaultLibMember(prop)) return undefined;
-  // Nor is a `declare global` stub seen through the value's apparent type:
-  // std's `LT` (a number) has `clamp` only because std augments
-  // `interface Number { clamp(...) }` so that `(150).clamp(0, 100)`
-  // type-checks, and `LT.clamp` made that call ambiguous with the real
-  // `clamp` import.
-  if (isGlobalAugmentationStub(prop)) return undefined;
-
-  const propType = typeChecker.getTypeOfSymbolAtLocation(prop, ident);
-  for (const sig of propType.getCallSignatures()) {
-    if (receiverMatchesFirstParam(typeChecker, receiverType, sig, ident)) {
-      return { methodName, forType: "", qualifier: ident.text };
-    }
-  }
-
-  return undefined;
+  return isExtensionEnabledIn(extensionImportEnv(ctx), symbol);
 }
 
 // receiverMatchesFirstParam lives in @typesugar/core (shared with the
 // ExtensionMethodCall suppression rule); re-exported for this package's users.
 export { receiverMatchesFirstParam };
 
-function isReferenceType(type: ts.Type): type is ts.TypeReference {
-  return (
-    (type.flags & ts.TypeFlags.Object) !== 0 &&
-    ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0
-  );
-}
-
-/** The declaration symbol an extension match calls (aliases resolved), for de-duplication. */
-function extensionTarget(
-  checker: ts.TypeChecker,
-  ident: ts.Identifier,
-  ext: StandaloneExtensionInfo
-): ts.Symbol | undefined {
-  const resolve = (s: ts.Symbol | undefined) =>
-    s && s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s;
-  const sym = checker.getSymbolAtLocation(ident);
-  if (!sym) return undefined;
-  if (ext.qualifier === undefined) return resolve(sym);
-  return resolve(checker.getTypeOfSymbolAtLocation(sym, ident).getProperty(ext.methodName));
-}
-
-/** Is every declaration of `prop` in a default lib file (`lib.*.d.ts`)? */
-function isDefaultLibMember(prop: ts.Symbol): boolean {
-  const decls = prop.getDeclarations();
-  if (!decls || decls.length === 0) return false;
-  return decls.every((d) => d.getSourceFile().hasNoDefaultLib);
-}
-
 /**
- * Is every declaration of `prop` inside a `declare global { ... }` block?
- *
- * Libraries like @typesugar/std declare their extension methods on the
- * built-in interfaces (`interface Number { clamp(...) }`) purely so
- * `(42).clamp(0, 100)` type-checks; those stubs never exist at runtime, so
- * they must not count as the receiver's "own" method.
- */
-export function isGlobalAugmentationStub(prop: ts.Symbol): boolean {
-  const decls = prop.getDeclarations();
-  if (!decls || decls.length === 0) return false;
-  return decls.every((d) => {
-    for (let n: ts.Node | undefined = d.parent; n; n = n.parent) {
-      if (ts.isModuleDeclaration(n) && (n.flags & ts.NodeFlags.GlobalAugmentation) !== 0)
-        return true;
-    }
-    return false;
-  });
-}
-
-/**
- * Is `ident` a NAMED (or default) import binding a whole MODULE namespace --
- * `import { Effect } from "effect"`, where the package does
- * `export * as Effect from "./Effect.js"` -- that has not opted in to being an
- * extension provider (a `"use extension"` module / `@extension`)?
- *
- * Such a namespace is an ordinary library value, not an extension object: its
- * `map(self, f)` matched every Effect receiver and made `eff.map(f)` ambiguous
- * with the `EffectExt` the user imported for exactly that (docs start #2).
- * `import * as X` stays an explicit provider (that is the opt-in form), and a
- * named import of a declared object/`namespace` (`EffectExt`) is unaffected.
- */
-function isUnoptedModuleNamespaceBinding(ctx: MacroContextImpl, ident: ts.Identifier): boolean {
-  const checker = ctx.typeChecker;
-  let target: ts.Symbol | undefined;
-  try {
-    target = checker.getSymbolAtLocation(ident);
-    if (target && target.flags & ts.SymbolFlags.Alias) target = checker.getAliasedSymbol(target);
-  } catch (error) {
-    ctx.reportWarning(
-      ident,
-      `typesugar could not resolve the import '${ident.text}' while looking for extension methods (${error}); ignoring it as an extension provider.`
-    );
-    return true;
-  }
-  const decls = target?.getDeclarations();
-  if (!target || !decls || decls.length === 0) return false;
-  const isModule = decls.every(
-    (d) => ts.isSourceFile(d) || (ts.isModuleDeclaration(d) && ts.isStringLiteral(d.name))
-  );
-  if (!isModule) return false;
-  return !isExtensionEnabled(ctx, target);
-}
-
-/**
- * May the imported value `ident` serve `receiver.method()` as an object
- * extension provider (`ident.method(receiver)`), as far as being a typeclass
- * instance goes?
- *
- * Any imported object whose member's first parameter accepts the receiver
- * is a provider, which is right for an extension object (`EffectExt`) but
- * not for a typeclass instance: an instance is FOR one type. With
- * `@impl Show<Color>` on a numeric enum, `number` is assignable to `Color`,
- * so `n.show()` on `n: number` became `showColor.show(n)`. An instance
- * serves only receivers of its own instance type, compared by identity
- * (CLAUDE.md "Deciding what a type is"): the same type, or the same symbol
- * after alias resolution with identical type arguments. A literal receiver
- * (`Color.Red`, `3`) is widened by the checker to its base type first.
- * Assignability is not used, so enum and number never match each other. A
- * receiver that only matches the instance's type by shape is left to the
- * typeclass method-sugar path, which applies its own instance policy.
- *
- * What counts as an instance is read by the instance scanner, the same way
- * instance resolution reads it (an `@impl`/`@instance` tag, `impl(...)`,
- * `derived<TC<T>>()`, or a `TC<T>` annotation naming a declared typeclass);
- * any other value is not affected. An instance of a higher-kinded typeclass
- * (`@impl Functor<OptionF>`) is for a type constructor, not a type, so this
- * check does not apply to it and it keeps the plain first-parameter match.
- * An instance whose type the scanner could not resolve serves nothing here.
- *
- * Reads the imported declaration as written: an instance is declared in
- * source (or a `.d.ts`) before any pass starts, so no same-pass state is
- * involved (CLAUDE.md "Resolving things a macro just generated").
- */
-function instanceServesReceiver(
-  ctx: MacroContextImpl,
-  ident: ts.Identifier,
-  receiverType: ts.Type
-): boolean {
-  const checker = ctx.typeChecker;
-  let instances: ScannedInstance[];
-  try {
-    let sym = checker.getSymbolAtLocation(ident);
-    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-    const decl = sym?.valueDeclaration;
-    if (!decl || !ts.isVariableDeclaration(decl)) return true;
-    instances = instanceScanner
-      .scanValueDeclaration(checker, decl)
-      .filter(
-        (inst) =>
-          inst.detectedVia !== "type-annotation" ||
-          isTypeclassDeclared(ctx.program, inst.typeclassName)
-      );
-  } catch (error) {
-    ctx.reportWarning(
-      ident,
-      `typesugar could not check whether the import '${ident.text}' is a typeclass instance (${error}); treating it as an ordinary extension object.`
-    );
-    return true;
-  }
-  if (instances.length === 0) return true;
-  const receiver = widenLiteralType(checker, receiverType);
-  return instances.some((inst) => {
-    if (isHktTypeclass(ctx.program, inst.typeclassName)) return true;
-    return inst.forType !== undefined && isSameTypeByIdentity(checker, receiver, inst.forType, 0);
-  });
-}
-
-/** A literal type (or a union of literals) widened to its base type by the checker. */
-function widenLiteralType(checker: ts.TypeChecker, t: ts.Type): ts.Type {
-  const isLiteral = (m: ts.Type) => (m.flags & ts.TypeFlags.Literal) !== 0;
-  if (!(t.isUnion() ? t.types.every(isLiteral) : isLiteral(t))) return t;
-  return checker.getBaseTypeOfLiteralType(t);
-}
-
-/**
- * Are `a` and `b` the same type by identity: the same type object, or the
- * same declaring symbol (aliases resolved) with pairwise identical type
- * arguments? Never assignability or printed names.
- */
-function isSameTypeByIdentity(
-  checker: ts.TypeChecker,
-  a: ts.Type,
-  b: ts.Type,
-  depth: number
-): boolean {
-  if (a === b) return true;
-  if (depth > 8) return false;
-  const symbolOf = (t: ts.Type) => {
-    const s = t.aliasSymbol ?? t.getSymbol();
-    return s && s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s;
-  };
-  const sa = symbolOf(a);
-  if (!sa || sa !== symbolOf(b)) return false;
-  const argsOf = (t: ts.Type): readonly ts.Type[] =>
-    t.aliasSymbol
-      ? (t.aliasTypeArguments ?? [])
-      : isReferenceType(t)
-        ? checker.getTypeArguments(t)
-        : [];
-  const aa = argsOf(a);
-  const ba = argsOf(b);
-  return (
-    aa.length === ba.length &&
-    aa.every((t, i) => isSameTypeByIdentity(checker, t, ba[i], depth + 1))
-  );
-}
-
-/**
- * Scan imports for a matching extension method.
- * Collects all matching extensions for ambiguity detection.
+ * Scan imports for a matching extension method (findImportedExtensionMatches,
+ * the decision the ExtensionMethodCall rule shares), and report an ambiguity.
  */
 export function scanImportsForExtension(
   ctx: MacroContextImpl,
@@ -1200,88 +933,11 @@ export function scanImportsForExtension(
     return undefined;
   }
 
-  const matches: Array<{
-    ext: StandaloneExtensionInfo;
-    importSource: string;
-    target: ts.Symbol | undefined;
-  }> = [];
-
-  // A receiver's OWN method (e.g. Array.prototype.map) must never be
-  // redirected to a same-named member of some imported object: an imported
-  // typeclass instance like `parCombinePromise` has a `map(fa, f)` whose first
-  // parameter accepts an array, and `arr.map(f)` was being rewritten to
-  // `parCombinePromise.map(arr, f)`. Only a bare imported function named
-  // after the method (the explicit-override form) may shadow a native method.
-  // A `declare global` extension stub (std's `interface Number { clamp }`)
-  // is not a native method: it exists only so the call type-checks.
-  // The check uses the receiver with `null | undefined` removed: for
-  // `host.directoryExists?.bind(host)` the receiver is `F | undefined`, and a
-  // union only has the properties of ALL its members, so `bind` was "not
-  // native" and the call was offered to every import's `.bind`.
-  let hasNativeMethod = false;
-  try {
-    const own = ctx.typeChecker.getPropertyOfType(
-      ctx.typeChecker.getApparentType(ctx.typeChecker.getNonNullableType(receiverType)),
-      methodName
-    );
-    hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
-  } catch {
-    const own = receiverType.getProperty(methodName);
-    hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
-  }
-  const push = (
-    ext: StandaloneExtensionInfo | undefined,
-    importSource: string,
-    ident: ts.Identifier
-  ) => {
-    if (!ext) return;
-    if (hasNativeMethod && ext.qualifier !== undefined) return;
-    if (ext.qualifier !== undefined && !instanceServesReceiver(ctx, ident, receiverType)) return;
-    matches.push({ ext, importSource, target: extensionTarget(ctx.typeChecker, ident, ext) });
-  };
-
-  for (const stmt of sourceFile.statements) {
-    if (!ts.isImportDeclaration(stmt)) continue;
-
-    const clause = stmt.importClause;
-    if (!clause) continue;
-
-    const moduleSpecifier = stmt.moduleSpecifier;
-    const importSource = ts.isStringLiteral(moduleSpecifier) ? moduleSpecifier.text : "unknown";
-
-    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const spec of clause.namedBindings.elements) {
-        if (isUnoptedModuleNamespaceBinding(ctx, spec.name)) continue;
-        const result = checkImportedSymbolForExtension(
-          ctx.typeChecker,
-          spec.name,
-          methodName,
-          receiverType
-        );
-        push(result, importSource, spec.name);
-      }
-    }
-
-    if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-      const result = checkImportedSymbolForExtension(
-        ctx.typeChecker,
-        clause.namedBindings.name,
-        methodName,
-        receiverType
-      );
-      push(result, importSource, clause.namedBindings.name);
-    }
-
-    if (clause.name && !isUnoptedModuleNamespaceBinding(ctx, clause.name)) {
-      const result = checkImportedSymbolForExtension(
-        ctx.typeChecker,
-        clause.name,
-        methodName,
-        receiverType
-      );
-      push(result, importSource, clause.name);
-    }
-  }
+  const matches = findImportedExtensionMatches(
+    { ...extensionImportEnv(ctx), sourceFile },
+    methodName,
+    receiverType
+  );
 
   if (matches.length === 0) {
     return undefined;

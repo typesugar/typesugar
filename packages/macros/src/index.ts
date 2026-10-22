@@ -70,6 +70,8 @@ export {
   rewrittenChainType,
   rewrittenOperandType,
   operatorRewriteResult,
+  declaredDispatchTypes,
+  declaredOperandType,
   isPrimitiveTypedBinary,
   isPrimitiveByFlags,
   admitsNullish,
@@ -290,6 +292,18 @@ export {
   type ResolutionSource,
 } from "./instance-resolver.js";
 export { getDoInstanceModule } from "./do-instance-index.js";
+// --- Import-scoped extension providers (shared by the rewrite and the ExtensionMethodCall rule) ---
+export {
+  findImportedExtensionMatches,
+  checkImportedSymbolForExtension,
+  isExtensionEnabledIn,
+  hasExtensionDecorator,
+  isDefaultLibMember,
+  isGlobalAugmentationStub,
+  instanceServesReceiver,
+  type ExtensionImportEnv,
+  type ImportedExtensionMatch,
+} from "./extension-imports.js";
 export {
   getOpMapForTypeclass,
   getOperatorCandidates,

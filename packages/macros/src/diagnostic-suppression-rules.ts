@@ -39,17 +39,18 @@ import {
   globalRegistry,
   isJSDocTagAtLineStart,
   deriveTagNames,
-  receiverMatchesFirstParam,
   isInOptedOutScope,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
 import { getOperatorCandidates, getTypeclassesDeclaringMethod } from "./typeclass-index.js";
 import { getOperatorString } from "./operators.js";
 import { resolveInstance } from "./instance-resolver.js";
+import { findImportedExtensionMatches, type ExtensionImportEnv } from "./extension-imports.js";
 import { deriveNamesOf } from "./instance-scanner.js";
 import { hasGenericDerivation } from "./auto-derive.js";
 import {
   chainBinary,
+  isPrimitiveByFlags,
   PRIMITIVE_RESULT_OPERATORS,
   operatorRewriteResult,
   rewrittenOperandType,
@@ -143,7 +144,9 @@ function isRewrittenMethodCall(
   }
 
   // 2. Import-scoped resolution: scan imports for a matching function
-  if (resolveExtensionFromImports(sourceFile, propertyName, receiverType, checker)) {
+  if (
+    resolveExtensionFromImports(sourceFile, propertyName, receiverType, checker, context?.program)
+  ) {
     return true;
   }
 
@@ -781,147 +784,46 @@ function findPropertyAccess(node: ts.Node): ts.PropertyAccessExpression | undefi
 }
 
 // ---------------------------------------------------------------------------
-// Import-scoped extension resolution (mirrors transformer logic)
+// Import-scoped extension resolution: the transformer's own decision
 // ---------------------------------------------------------------------------
 
 /**
- * Scan the source file's imports for a function or namespace property that
- * could serve as an extension method. This mirrors the transformer's
- * `resolveExtensionFromImports` / `checkImportedSymbolForExtension` logic
- * but operates without transformer state.
+ * Does an import of this file provide `methodName` for `receiverType`, as the
+ * transformer decides it (findImportedExtensionMatches, extension-imports.ts,
+ * which its `scanImportsForExtension` calls): unopted module namespaces,
+ * default-lib members, `declare global` stubs and typeclass instances for
+ * another type are not providers. This rule used to keep its own copy of the
+ * provider rules without those checks and suppressed TS2339 on calls the
+ * transformer then left as written. The transformer always has the program;
+ * without one the shared decision gives its stricter answer.
  */
 function resolveExtensionFromImports(
   sourceFile: ts.SourceFile,
   methodName: string,
   receiverType: ts.Type,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  program: ts.Program | undefined
 ): boolean {
-  if (!sourceFile.statements) return false;
-
-  for (const stmt of sourceFile.statements) {
-    if (!ts.isImportDeclaration(stmt)) continue;
-
-    const clause = stmt.importClause;
-    if (!clause) continue;
-
-    // Check named imports: import { clamp, NumberExt } from "..."
-    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const spec of clause.namedBindings.elements) {
-        if (checkImportedSymbol(spec.name, methodName, receiverType, checker)) {
-          return true;
-        }
-      }
-    }
-
-    // Check namespace import: import * as std from "..."
-    if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-      if (checkImportedSymbol(clause.namedBindings.name, methodName, receiverType, checker)) {
-        return true;
-      }
-    }
-
-    // Check default import: import Foo from "..."
-    if (clause.name) {
-      if (checkImportedSymbol(clause.name, methodName, receiverType, checker)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check if an imported identifier provides an extension method matching
- * `methodName` for `receiverType`. Mirrors the transformer's
- * `checkImportedSymbolForExtension`.
- *
- * Two cases:
- * 1. Bare function: identifier name === methodName, first param accepts receiverType
- * 2. Namespace: identifier has a property named methodName that is callable
- *    with first param accepting receiverType
- */
-function checkImportedSymbol(
-  ident: ts.Identifier,
-  methodName: string,
-  receiverType: ts.Type,
-  checker: ts.TypeChecker
-): boolean {
-  let symbol: ts.Symbol | undefined;
-  try {
-    symbol = checker.getSymbolAtLocation(ident);
-  } catch (e) {
-    if (isDiagnosticSuppressionAuditEnabled()) {
-      console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
-    }
-    return false;
-  }
-  if (!symbol) return false;
-
-  let identType: ts.Type;
-  try {
-    identType = checker.getTypeOfSymbolAtLocation(symbol, ident);
-  } catch (e) {
-    if (isDiagnosticSuppressionAuditEnabled()) {
-      console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
-    }
-    return false;
-  }
-
-  // Case 1: bare function import — name matches and first param is compatible
-  if (ident.text === methodName) {
-    const callSigs = identType.getCallSignatures();
-    for (const sig of callSigs) {
-      try {
-        // The transformer's own match (generic first parameters erased to
-        // their constraints), so a generic extension's TS2339 is suppressed
-        // exactly when the call is rewritten.
-        if (receiverMatchesFirstParam(checker, receiverType, sig, ident)) {
-          return true;
-        }
-      } catch (e) {
-        if (isDiagnosticSuppressionAuditEnabled()) {
-          console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
-        }
-        continue;
-      }
-    }
-  }
-
-  // Case 2: namespace — has a callable property named methodName
-  const prop = identType.getProperty(methodName);
-  if (!prop) return false;
-
-  let propType: ts.Type;
-  try {
-    propType = checker.getTypeOfSymbolAtLocation(prop, ident);
-  } catch (e) {
-    if (isDiagnosticSuppressionAuditEnabled()) {
-      console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
-    }
-    return false;
-  }
-
-  const callSigs = propType.getCallSignatures();
-  for (const sig of callSigs) {
-    try {
-      if (receiverMatchesFirstParam(checker, receiverType, sig, ident)) {
-        return true;
-      }
-    } catch (e) {
-      if (isDiagnosticSuppressionAuditEnabled()) {
-        console.error(`[DiagnosticSuppression] checkImportedSymbol: ${e}`);
-      }
-      continue;
-    }
-  }
-
-  return false;
+  const env: ExtensionImportEnv = {
+    checker,
+    program,
+    sourceFile,
+    scope: program ? operatorActivation(program, sourceFile).tracker : scopeOf(sourceFile),
+    warn: (_node, message) => reportCheckerFailure("ExtensionMethodCall", message),
+  };
+  return findImportedExtensionMatches(env, methodName, receiverType).length > 0;
 }
 
 // ===========================================================================
 // Shared helpers
 // ===========================================================================
+
+/** A file's own `"use extension"` / activation scan, for a filter called without a program. */
+function scopeOf(sourceFile: ts.SourceFile): ResolutionScopeTracker {
+  const tracker = new ResolutionScopeTracker();
+  scanImportsForScope(sourceFile, tracker);
+  return tracker;
+}
 
 /** Leave a visible trace when a checker call fails and the rule degrades (CLAUDE.md). */
 const reportedCheckerFailures = new Set<string>();
@@ -1973,18 +1875,6 @@ function endsAbruptly(statement: ts.Statement): boolean {
 // Rule 6: OperatorOverload — suppress TS2365 for @op operator overloading
 // ===========================================================================
 
-/** Mirrors OPERATOR_PRIMITIVE_TYPES in transformer-core/src/rewriting.ts. */
-const OPERATOR_PRIMITIVE_TYPES = new Set([
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "null",
-  "undefined",
-  "any",
-  "unknown",
-]);
-
 /** Per-program operator-syntax activation, computed the way the transform pass does. */
 const operatorActivationCache = new WeakMap<
   ts.Program,
@@ -2139,49 +2029,44 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
       const candidates = getOperatorCandidates(program, activated, op);
       if (candidates.length === 0) return false;
 
-      // An operand that is itself rewritten (`a * 2 + b`: TypeScript types
-      // `a * 2` as number): the rewrite's decision, with operands typed as
-      // rewritten.
-      if (chainBinary(binary.left) || chainBinary(binary.right)) {
-        const { tracker } = operatorActivation(program, sourceFile);
-        const chainCtx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
-        if (
-          operatorRewriteResult(
-            chainCtx,
-            binary,
-            activated,
-            filterChainHooks(sourceFile, tracker, "OperatorOverload")
-          ) !== undefined
-        ) {
-          return true;
-        }
+      // The rewrite's own decision (operatorRewriteResult): operands typed as
+      // rewritten (a chain `a * 2 + b`, or a const bound to one, `const p =
+      // a * b; p + a`, which TypeScript types number), a non-primitive left
+      // type by its flags, one instance from scope, the operands' declared
+      // types for a narrowed operand, and a right operand that fits.
+      const { tracker } = operatorActivation(program, sourceFile);
+      const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+      if (
+        operatorRewriteResult(
+          ctx,
+          binary,
+          activated,
+          filterChainHooks(sourceFile, tracker, "OperatorOverload")
+        ) !== undefined
+      ) {
+        return true;
       }
 
+      // Not rewritten, but the left operand's type DECLARES `@derive(TC)` for
+      // a candidate: the rewrite reports TS9001 at the operator instead
+      // (reportDerivedWithoutInstance), which replaces this error.
       try {
         const leftType = checker.getTypeAtLocation(binary.left);
         const rightType = checker.getTypeAtLocation(binary.right);
         const nullish = ts.TypeFlags.Null | ts.TypeFlags.Undefined;
         if ((leftType.flags & nullish) !== 0 || (rightType.flags & nullish) !== 0) return false;
-        const leftName = checker.typeToString(leftType).replace(/<.*>$/, "");
-        if (OPERATOR_PRIMITIVE_TYPES.has(leftName)) return false;
-        if (!(leftType.flags & ts.TypeFlags.Object)) return false;
-
-        const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+        // Primitive by the type's flags, not its printed name (CLAUDE.md).
+        if (isPrimitiveByFlags(leftType) || !(leftType.flags & ts.TypeFlags.Object)) return false;
         const declared = new Set<string>();
         const symbol = leftType.getSymbol() ?? leftType.aliasSymbol;
         for (const decl of symbol?.getDeclarations() ?? []) {
           for (const tc of deriveNamesFromDeclaration(decl)) declared.add(tc);
         }
-        for (const candidate of candidates) {
-          if (declared.has(candidate.typeclass)) return true;
-          const resolved = resolveInstance(ctx, candidate.typeclass, leftType);
-          if (resolved?.kind === "resolved") return true;
-        }
+        return candidates.some((c) => declared.has(c.typeclass));
       } catch (e) {
         reportCheckerFailure("OperatorOverload", e);
         return false;
       }
-      return false;
     },
 
     // TypeScript types the operator expression as number (an error for `+`),
