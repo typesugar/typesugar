@@ -326,7 +326,9 @@ export const f = (s: Shape2) => match(s)
   it("an optional field's test can fall through: the break and the throw stay", () => {
     const r = run(`type P = { kind: "a"; x?: number } | { kind: "b" };
 export const f = (p: P) => match(p).case({ kind: "a", x }).then(x).case({ kind: "b" }).then(0);`);
-    expect(r.errors).toEqual([]);
+    // `{ kind: "a" }` (no x) matches no arm: TS9226 says so (review 9), and
+    // the throw is what runs.
+    expect(r.errors.join("\n")).toMatch(/TS9226[\s\S]*"a"[\s\S]*optional field "x"/);
     expect(r.code).toContain(`"x" in _p`);
     expect(r.code).toContain("break;");
     expect(r.code).toContain("throw new MatchError(_p)");

@@ -367,11 +367,14 @@ function analyzeCase(
       test,
       discriminant:
         literals.length === 1 ? { field: literals[0].key, label: literals[0].node } : undefined,
+      // Only the top-level literals are tested; every other property is
+      // destructured (bound or `undefined`), not tested for presence, so it
+      // isn't part of the coverage pattern: `{ k: "b", extra }` covers the
+      // `b` variant even where `extra` is optional (the fluent match tests
+      // `"extra" in` and doesn't).
       coverage: {
         kind: "object",
-        properties: pattern.properties.map((p) =>
-          p.isRest || p.pattern.kind === "literal" ? p : { ...p, pattern: { kind: "wildcard" } }
-        ),
+        properties: pattern.properties.filter((p) => !p.isRest && p.pattern.kind === "literal"),
         hasRest: pattern.hasRest,
       },
       bindsNames: !!restProp || named.length > 0,

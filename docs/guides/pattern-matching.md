@@ -54,6 +54,11 @@ match(x)
 
 **Compiles to:** direct `===` comparisons (`Number.isNaN(x)` for `.case(NaN)`). 7+ plain literal arms (no guards, `.or()` or `.as()`) get a `switch` statement for V8 optimization.
 
+**Constants:** a qualified name whose type is a single literal value, such as an enum member, is
+matched with `===` and counts for exhaustiveness as the value it stands for:
+`.case(Color.Red)`, `.case({ kind: Kind.Circle, radius })`. A bare name is a binding, never a
+constant (see below).
+
 ### Variable Binding
 
 Bind the matched value to a name, optionally with a guard:
@@ -122,6 +127,11 @@ match(arr)
 | `[a, _, _]`       | Exactly length 3, only `a` bound |
 | `[head, ...tail]` | Length >= 1, rest captured       |
 
+Over a tuple type, an arm can't fail when it has the tuple's length and only bindings
+(`[x, y]` on `[number, number]`), or is `[head, ...tail]` on a tuple at least that long: it
+covers the type, so the match needs no `.else()`. Over `number[]`, `[x, y]` can fail, and the
+match needs a fallback.
+
 **Compiles to:**
 
 ```typescript
@@ -152,7 +162,7 @@ match(obj)
   .else(-1);
 ```
 
-An object or tuple scrutinee isn't enumerable, so these matches need a final `.else()`
+An object scrutinee isn't enumerable, so these matches need a final `.else()`
 (or `_`) even when the last arm looks like a catch-all. The exception is a variable or property
 declared as a discriminated union and narrowed by TypeScript to one variant: a scrutinee
 `const c: Shape = { kind: "circle", radius: 5 }` is the circle variant, and its
@@ -169,6 +179,15 @@ declared as a discriminated union and narrowed by TypeScript to one variant: a s
 | `{ kind: "circle" }`    | Literal property check (no bind)   |
 | `{ kind: "circle", r }` | Literal check + binding            |
 | `{ ...rest }`           | Bind all remaining properties      |
+
+Every property a pattern names is tested for presence (`"a" in x`), bound or not. Over a
+discriminated union, a field the variant requires needs no test, but a field the variant declares
+optional does: with `type V = { k: "a" } | { k: "b"; extra?: string }`, the arm
+`.case({ k: "b", extra })` matches the `b` values that have the key `extra` (`extra: undefined`
+has it), not `{ k: "b" }`. So that arm doesn't cover `b` on its own, and the match reports
+TS9226, naming the optional field. Add an arm for the rest, `.case({ k: "b" })`, after it. The
+`match: switch` form destructures instead, so there `case { k: "b", extra }:` covers `b` and
+binds `undefined` when the key is missing.
 
 ### Discriminated Union Patterns
 
@@ -481,6 +500,8 @@ switch (geom.type) {
   `const [x, y] = …` does. So a literal below the top level (`{ kind: "a", inner: { tag: "x" } }`)
   is an error; test it in the case body, or use the fluent `match()`, which tests every
   sub-pattern.
+- A field the variant declares optional is read like any other (`undefined` when missing), so
+  `case { k: "b", extra }:` covers the `b` variant. The fluent form tests that it is present.
 - Several names, rest and nesting go in one declaration: `case { kind: "rect", w, h, style: { fill } }:`
   becomes `const { w, h, style: { fill } } = s;`, and `{ kind: "circle", ...rest }` binds the
   properties other than `kind`.
@@ -547,6 +568,7 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue
 | Literal union (`"a" \| "b"`)     | All values must be covered     |
 | Boolean                          | Both `true` and `false`        |
 | Option / Either / List           | All variant extractors present |
+| Tuple (`[number, string]`)       | An arm of its length, bindings |
 | `string`, `number`, arrays, etc. | Requires `_` or `.else()`      |
 | `unknown` / `any`                | Requires `_` or `.else()`      |
 

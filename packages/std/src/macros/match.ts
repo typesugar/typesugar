@@ -96,7 +96,12 @@ export { SELF_PAYLOAD, type ExtractorDef } from "./match-extractors.js";
 
 /** @internal shared with match-switch.ts */
 export type PatternInfo =
-  | { kind: "literal"; node: ts.Expression }
+  /**
+   * `key`: the value, in `getLiteralValueFromType` form, of a constant
+   * pattern (`K.A`, an enum member) read from its type; a syntactic literal's
+   * key is read from its syntax (getPatternLiteralKey).
+   */
+  | { kind: "literal"; node: ts.Expression; key?: string }
   | { kind: "wildcard" }
   | { kind: "variable"; name: string }
   | { kind: "array"; elements: ArrayElementPattern[]; hasRest: boolean }
@@ -378,6 +383,27 @@ function patternHasBindings(p: PatternInfo): boolean {
   }
 }
 
+/** The unsupported sub-patterns of `p` (`p` itself too unless `top`). */
+function nestedUnsupportedPatterns(
+  p: PatternInfo,
+  top = false
+): Array<PatternInfo & { kind: "unsupported" }> {
+  switch (p.kind) {
+    case "unsupported":
+      return top ? [] : [p];
+    case "array":
+      return p.elements.flatMap((e) => nestedUnsupportedPatterns(e.pattern));
+    case "object":
+      return p.properties.flatMap((pr) => nestedUnsupportedPatterns(pr.pattern));
+    case "type-constructor":
+      return nestedUnsupportedPatterns(p.binding);
+    case "extractor":
+      return p.bindings.flatMap((b) => nestedUnsupportedPatterns(b));
+    default:
+      return [];
+  }
+}
+
 /** @internal shared with match-switch.ts */
 export function analyzePattern(pattern: ts.Expression): PatternInfo {
   // Literals
@@ -537,7 +563,43 @@ export function analyzePattern(pattern: ts.Expression): PatternInfo {
     return { kind: "regex", node: pattern };
   }
 
+  // Constants: `K.A` (an enum member), `Mode.Fast` on an `as const` object.
+  const constant = constantPattern(pattern);
+  if (constant) return constant;
+
   return { kind: "unsupported", node: pattern };
+}
+
+/**
+ * A qualified name (`K.A`, `ns.K.A`) whose type is a single literal value is
+ * a constant pattern: an equality test against it, with that value's key for
+ * exhaustiveness. Decided by the checker, not by the names: the type of the
+ * expression must be one string/number/boolean literal (an enum member's
+ * type is one). Undefined (an unsupported pattern) for anything else, or
+ * when no checker can be asked (a synthetic node, no expansion context).
+ */
+function constantPattern(pattern: ts.Expression): PatternInfo | undefined {
+  if (!ts.isPropertyAccessExpression(pattern) || !isQualifiedName(pattern)) return undefined;
+  const ctx = extractorContext;
+  if (!ctx || isSyntheticNode(pattern)) return undefined;
+  let key: string | undefined;
+  try {
+    key = getLiteralValueFromType(ctx.typeChecker.getTypeAtLocation(pattern));
+  } catch (e) {
+    ctx.reportWarning(
+      pattern,
+      `match: could not read the type of constant pattern '${pattern.getText()}' ` +
+        `(${e instanceof Error ? e.message : String(e)}); it is treated as unsupported.`
+    );
+    return undefined;
+  }
+  return key === undefined ? undefined : { kind: "literal", node: pattern, key };
+}
+
+/** `a.b`, `a.b.c`: property accesses on an identifier, no calls or `?.`. */
+function isQualifiedName(e: ts.Expression): boolean {
+  if (ts.isIdentifier(e)) return true;
+  return ts.isPropertyAccessExpression(e) && !e.questionDotToken && isQualifiedName(e.expression);
 }
 
 // ============================================================================
@@ -972,6 +1034,7 @@ export function getScrutineeAnalysis(
 /** @internal shared with match-switch.ts */
 export function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
   if (pattern.kind !== "literal") return undefined;
+  if (pattern.key !== undefined) return pattern.key;
   const node = pattern.node;
   if (ts.isStringLiteral(node)) return JSON.stringify(node.text);
   if (ts.isNumericLiteral(node)) return String(Number(node.text));
@@ -1021,19 +1084,44 @@ function coveredLiteralKeys(pattern: PatternInfo, members: Set<string>): string[
  * Discriminant value a pattern covers COMPLETELY for a discriminated union:
  * `{ kind: "a" }` (other props only bind), `Some(x)`, or a nullish literal.
  * `{ kind: "a", extra: 1 }` covers nothing — it only matches part of "a".
+ *
+ * An object pattern's other properties are tests too: the generated code
+ * checks `"extra" in _v` for each one the variant doesn't require
+ * (buildCondition; the discriminant switch drops the test only for a field
+ * the variant requires). So `{ kind: "b", extra }`, with `extra` optional in
+ * the `b` variant, matches only the `b` values that have it, and covers
+ * nothing: `requiredFields(key)` (the fields the variant with that tag
+ * requires, read from the scrutinee's type) decides, and the optional ones
+ * it binds are reported in `optionalBound` for the diagnostic.
  */
-function coveredVariantKey(pattern: PatternInfo, discriminantField: string): string | undefined {
+function coveredVariantKey(
+  pattern: PatternInfo,
+  discriminantField: string,
+  requiredFields?: (key: string) => ReadonlySet<string> | undefined,
+  optionalBound?: Map<string, Set<string>>
+): string | undefined {
   if (pattern.kind === "object") {
     let key: string | undefined;
+    const tested: string[] = [];
     for (const prop of pattern.properties) {
       if (prop.isRest) continue;
       if (prop.key === discriminantField && prop.pattern.kind === "literal") {
         key = getPatternLiteralKey(prop.pattern);
       } else if (!patternCoversAll(prop.pattern)) {
         return undefined;
+      } else {
+        tested.push(prop.key);
       }
     }
-    return key;
+    if (key === undefined || !requiredFields || tested.length === 0) return key;
+    // Unknown (the checker couldn't say): judged by the pattern alone, as before.
+    const required = requiredFields(key);
+    const optional = required ? tested.filter((k) => !required.has(k)) : [];
+    if (optional.length === 0) return key;
+    const names = optionalBound?.get(key) ?? new Set<string>();
+    for (const k of optional) names.add(k);
+    optionalBound?.set(key, names);
+    return undefined;
   }
   if (pattern.kind === "extractor" && pattern.def.kind === "sum-variant") {
     // fp's `None`/`Nil` are `null`: they cover the null member.
@@ -1110,6 +1198,8 @@ export function findMissingCases(
     return { kind: "complete" };
   }
 
+  if (arrayPatternsCoverType(ctx, scrutinee, patterns)) return { kind: "complete" };
+
   const analysis = getScrutineeAnalysis(ctx, scrutinee);
   if (!analysis) return { kind: "complete", unanalysed: true };
 
@@ -1131,20 +1221,46 @@ export function findMissingCases(
       if (!analysis.variantValues || !analysis.discriminantField) {
         return { kind: "complete", unanalysed: true };
       }
+      const field = analysis.discriminantField;
+      const members = variantMembers(ctx, scrutinee);
+      const required = (key: string): ReadonlySet<string> | undefined => {
+        if (!members) return undefined;
+        try {
+          return fieldsTheTagGuarantees(ctx.typeChecker, members, field, key);
+        } catch (e) {
+          ctx.reportWarning(
+            scrutinee,
+            `match: could not read which fields the ${key} variant requires ` +
+              `(${e instanceof Error ? e.message : String(e)}); its arms are checked by their patterns alone.`
+          );
+          return undefined;
+        }
+      };
+      const optionalBound = new Map<string, Set<string>>();
       const covered = new Set<string>();
       for (const p of patterns) {
-        const key = coveredVariantKey(p, analysis.discriminantField);
+        const key = coveredVariantKey(p, field, required, optionalBound);
         if (key !== undefined) covered.add(key);
       }
       const expected = [...analysis.variantValues, ...(analysis.nullishMembers ?? [])];
       const missing = expected.filter((m) => !covered.has(m));
-      return missing.length > 0
-        ? {
-            kind: "missing",
-            what: "variants",
-            missing: `${missing.join(", ")} (discriminant: "${analysis.discriminantField}")`,
-          }
-        : { kind: "complete" };
+      if (missing.length === 0) return { kind: "complete" };
+      const notes = missing
+        .filter((m) => optionalBound.has(m))
+        .map((m) => {
+          const names = [...optionalBound.get(m)!].map((n) => `"${n}"`).join(", ");
+          return (
+            `the ${m} arm matches only when optional field${optionalBound.get(m)!.size > 1 ? "s" : ""} ` +
+            `${names} ${optionalBound.get(m)!.size > 1 ? "are" : "is"} present`
+          );
+        });
+      return {
+        kind: "missing",
+        what: "variants",
+        missing:
+          `${missing.join(", ")} (discriminant: "${field}")` +
+          (notes.length > 0 ? `; ${notes.join("; ")}` : ""),
+      };
     }
 
     case "non-enumerable":
@@ -1184,6 +1300,82 @@ function findCoveringArmIndex(
     if (coverage.kind === "complete" && !coverage.unanalysed) return i;
   }
   return -1;
+}
+
+/**
+ * Do array patterns that can't fail on it cover every member of the
+ * scrutinee's type? A tuple member `[A, B]` is covered by `[x, y]` (its
+ * arity, every element a binding: `Array.isArray(_p) && _p.length === 2`
+ * always holds for it), or by `[x, ...rest]` when the tuple has at least
+ * that many elements; any array by `[...xs]`. A `null`/`undefined` member
+ * needs its own literal arm. Decided by the checker's tuple types
+ * (`isTupleType`, element flags), not by names.
+ */
+function arrayPatternsCoverType(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  patterns: readonly PatternInfo[]
+): boolean {
+  const arrays = patterns.filter((p): p is PatternInfo & { kind: "array" } => p.kind === "array");
+  if (arrays.length === 0) return false;
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const checker = ctx.typeChecker;
+  const literalKeys = new Set(patterns.map(getPatternLiteralKey));
+  try {
+    return (type.isUnion() ? type.types : [type]).every((member) => {
+      const nk = nullishKeyOfType(member);
+      if (nk) return literalKeys.has(nk);
+      return arrays.some((p) => arrayPatternCannotFail(checker, p, member));
+    });
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: could not read the scrutinee's tuple type (${e instanceof Error ? e.message : String(e)}); ` +
+        `its array patterns are not counted as covering it.`
+    );
+    return false;
+  }
+}
+
+/** Does the array pattern `p` match every value of `type` (see arrayPatternsCoverType)? */
+function arrayPatternCannotFail(
+  checker: ts.TypeChecker,
+  p: PatternInfo & { kind: "array" },
+  type: ts.Type
+): boolean {
+  const fixed = p.elements.filter((e) => !e.isRest);
+  const rest = p.elements.find((e) => e.isRest);
+  if (rest && !patternCoversAll(rest.pattern)) return false;
+  if (checker.isArrayType(type)) return !!rest && fixed.length === 0;
+  if (!checker.isTupleType(type)) return false;
+  const target = (type as ts.TypeReference).target as ts.TupleType;
+  const variable = (target.combinedFlags & ts.ElementFlags.Variable) !== 0;
+  const lengthOk = rest
+    ? fixed.length <= target.minLength
+    : !variable && target.minLength === fixed.length && target.fixedLength === fixed.length;
+  if (!lengthOk) return false;
+  const elementTypes = variable ? undefined : checker.getTypeArguments(type as ts.TypeReference);
+  return fixed.every((e, i) => {
+    if (patternCoversAll(e.pattern)) return true;
+    const elementType = elementTypes?.[i];
+    return (
+      e.pattern.kind === "array" &&
+      elementType !== undefined &&
+      arrayPatternCannotFail(checker, e.pattern, elementType)
+    );
+  });
+}
+
+/**
+ * The scrutinee type's non-nullish members (the variants of a discriminated
+ * union, or the one variant it is narrowed to), or undefined when the
+ * checker can't say.
+ */
+function variantMembers(ctx: MacroContext, scrutinee: ts.Expression): ts.Type[] | undefined {
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type) return undefined;
+  return (type.isUnion() ? type.types : [type]).filter((t) => !nullishKeyOfType(t));
 }
 
 /** Does every member of the scrutinee's union have a required key from `keys`? */
@@ -1963,6 +2155,26 @@ function expandFluentMatchInner(
       }
     }
   }
+
+  // A sub-pattern the macro can't compile has no test (buildCondition) and
+  // matched anything: `{ k: f(), n }` tested only `"n" in _m`. Report it,
+  // as an unsupported top-level pattern is.
+  let nestedUnsupported = false;
+  for (const arm of arms) {
+    for (const pat of [arm.pattern, ...arm.alternatives]) {
+      for (const bad of nestedUnsupportedPatterns(analyzePattern(pat), true)) {
+        ctx.reportError(
+          bad.node,
+          bad.reason
+            ? `match: ${bad.reason}`
+            : `match: unsupported sub-pattern (supported: literals, constants such as enum members, _, ` +
+                `identifiers, arrays, objects, type constructors, regex, and extractors)`
+        );
+        nestedUnsupported = true;
+      }
+    }
+  }
+  if (nestedUnsupported) return chainExpr;
 
   // Wave 5: Exhaustiveness check (type-driven, gracefully degrades)
   checkExhaustiveness(ctx, chainExpr, scrutinee, arms, elseResult !== undefined);
@@ -3120,7 +3332,7 @@ function generateArmStatements(
         pattern.node,
         pattern.reason
           ? `match: ${pattern.reason}`
-          : `match: unsupported pattern kind (only literals, _, identifiers, arrays, objects, type constructors, regex, and extractors supported)`
+          : `match: unsupported pattern kind (only literals, constants such as enum members, _, identifiers, arrays, objects, type constructors, regex, and extractors supported)`
       );
       return [];
   }
