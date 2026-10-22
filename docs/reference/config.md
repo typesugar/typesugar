@@ -11,9 +11,15 @@ All configuration options for typesugar. There are four places settings live:
 
 ## `typesugar.config.ts`
 
-The project config file. typesugar looks for the nearest one, walking up from the
-directory being compiled (the tsconfig directory for the CLI and `approve-macros`,
-otherwise the working directory) and stopping at the repository root.
+The project config file. typesugar looks for the nearest one in a directory the
+project owns, walking up from the directory being compiled (the tsconfig directory for
+the CLI, `approve-macros`, the editor and the bundler plugins): the workspace package
+containing it, then the project's root (see
+[Which directories the project owns](../SECURITY.md#which-directories-the-project-owns)).
+A config file in any other directory on the way, such as a vendored directory's own, is
+not read or run, and a warning names it. Code that reads the config with no host
+(`config.get()` in your own script) searches up from the working directory to the
+repository root.
 
 ```typescript
 // typesugar.config.ts

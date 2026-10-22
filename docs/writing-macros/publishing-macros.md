@@ -235,12 +235,16 @@ Either way, the name in a `package.json` is only a claim, so a package's name is
 only for the package the _project_ resolves it to. The transformer resolves names from the
 directories the project owns, and nowhere else:
 
-- the project itself: the tsconfig's directory (or, for the CLI, the directory holding the
-  files it lists), the build's current directory, and the
-  package root (nearest `package.json`) at or above each — so building inside your package
-  (its own build, examples and tests) makes it the project;
-- the workspace packages those declare (`pnpm-workspace.yaml` `packages:`, or `package.json`
-  `workspaces`).
+- the project's root: the outermost directory with a `package.json`, `tsconfig.json` or
+  `pnpm-workspace.yaml` above the tsconfig (or the files it lists) and the current
+  directory -- so building inside your package (its own build, examples and tests) makes
+  it the project when nothing above it is one, and in a monorepo the root is the
+  monorepo's;
+- the workspace packages the root declares (`pnpm-workspace.yaml` `packages:`, or
+  `package.json` `workspaces`).
+
+A directory doesn't become the project's by having its own tsconfig (see
+[Which directories the project owns](../SECURITY.md#which-directories-the-project-owns)).
 
 A bare import resolves from the owned directory containing the importing file (a pnpm
 workspace package's own `node_modules`), then from the project. A relatively imported

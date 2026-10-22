@@ -23,7 +23,8 @@
  *   through `require`'s module cache, so a reload sees the edited file.
  * - #35: the search walks UP from the start directory (nearest config wins),
  *   stopping after a directory that contains `.git` (the repository root)
- *   or at the filesystem root. cosmiconfig's own `searchStrategy` isn't used
+ *   or at the filesystem root -- or, given `onlyIn` (review 7), reading
+ *   only those directories, wherever they are on the way. cosmiconfig's own `searchStrategy` isn't used
  *   for the walk: its default (`"none"`) looks only in the start directory,
  *   and in 9.0.0 the `"project"` strategy's package.json stop check is a
  *   `break` out of the inner loop only, so it actually walks to `/`.

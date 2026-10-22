@@ -413,8 +413,9 @@ none, and otherwise edits only the `allowedMacroPackages` value, leaving the res
 the file as you wrote it. Commit the file.
 
 It uses exactly the build's discovery, so it lists everything the build would refuse.
-Names resolve only from directories the project owns (the directory holding the files the tsconfig lists, the
-current directory, the package root above each, and the workspace packages they declare).
+Names resolve only from directories the project owns: the outermost project above the
+tsconfig (and above the current directory), and the workspace packages it declares; see
+[Which directories the project owns](../SECURITY.md#which-directories-the-project-owns).
 A macro package imported by a relative path is listed when it is one of those or its
 `package.json` name resolves to it from them (a workspace link, a `file:` dependency). One
 the project doesn't resolve to — a relatively imported package whose name resolves

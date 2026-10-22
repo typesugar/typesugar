@@ -84,12 +84,9 @@ These are real, tested boundaries — not advisory guidance:
   `@typesugar/*` auto-trust rests on npm scope ownership, and approval names a
   package, so both apply only to the package that name stands for in _your_
   project. The transformer establishes that by resolving the name from
-  directories the project owns, and nowhere else:
-  - the project itself: the tsconfig's directory (or, for the CLI, the
-    directory holding the files it lists), the build's current directory, and
-    the package root (nearest `package.json`) at or above each;
-  - the workspace packages those declare (`pnpm-workspace.yaml` `packages:`, or
-    `package.json` `workspaces`).
+  directories the project owns (see
+  [Which directories the project owns](#which-directories-the-project-owns)),
+  and nowhere else.
 
   A bare import is resolved from the owned directory containing the importing
   file (so a pnpm workspace package's own `node_modules` is used), then from the
@@ -107,6 +104,74 @@ These are real, tested boundaries — not advisory guidance:
   make a copy the project doesn't resolve trustworthy). Loaded macro entries are
   tracked by real path, so a directory claiming `@typesugar/std`'s name cannot
   stand in for the real one.
+
+- **Config files are read only from directories the project owns.**
+  `typesugar.config.*`, `.typesugarrc*` and `package.json`'s `"typesugar"` are
+  code (a `.ts`/`.js` config is run) and they approve macro packages
+  (`security.allowedMacroPackages`), so the nearest one is looked for only in
+  owned directories on the way up from the project's tsconfig: its workspace
+  package, then the root. A config file in any other directory on the way (a
+  vendored directory's own) is not read or run, and a warning names it.
+
+### Which directories the project owns
+
+Every host uses the same rule: `typesugar build`, `check`, `watch`, `expand`
+and `approve-macros`, the language service in your editor, and the bundler
+plugins.
+
+1. **The root.** Start from the directory the host names: the tsconfig's
+   directory (or, when the program has no tsconfig path, the directory holding
+   its root files) and the current directory. Walk up from each, and take the
+   **highest** directory that has a `package.json`, `tsconfig.json` or
+   `pnpm-workspace.yaml`. Two bounds: the walk stops below your home directory
+   (a stray `~/package.json` is not every project's root), and a git worktree
+   checked out inside its own repository (`git worktree add` under the main
+   checkout, as Claude Code does under `.claude/worktrees/`) is its own root.
+   A `.git` directory does not make a root and does not stop the walk: a
+   submodule, or a copy of a cloned repository, has one too.
+2. **What the root owns.** The root, and each workspace package the root
+   declares (`pnpm-workspace.yaml` `packages:`, or `package.json`
+   `workspaces`). Nothing else under it, whatever it contains.
+
+A directory does not become the project's by having its own `tsconfig.json`,
+`package.json` or `.git`. That matters because the starting directory is not
+always one you chose: your editor's TypeScript server makes every directory
+with a `tsconfig.json` its own project, so opening `vendor/evil/index.ts`
+starts from `vendor/evil/` if it ships a tsconfig; and
+`typesugar expand vendor/evil/index.ts` builds a program from that one file.
+In both cases the root is still your project above it, `vendor/evil/` is not a
+workspace package of it, and the macros in `vendor/evil/node_modules` are not
+loaded (each importing file gets a warning naming the path). This is what
+makes `typesugar expand` safe to run on code you are auditing.
+
+Consequences to know about:
+
+- **Workspace globs are trust.** `packages: ["packages/**"]` (or
+  `"workspaces": ["packages/**"]`) declares every directory with a
+  `package.json` under `packages/` -- including one vendored inside a
+  package, such as `packages/app/vendor/evil/`. npm and pnpm treat those as
+  workspace packages too. Prefer one level (`packages/*`), or exclude what
+  you vendor:
+
+  ```yaml
+  # pnpm-workspace.yaml
+  packages:
+    - "packages/**"
+    - "!packages/**/vendor/**"
+  ```
+
+  typesugar reads `!` patterns in `package.json` `workspaces` the same way.
+
+- **A nested project that is not a workspace package is not owned.** A
+  separate npm project inside another one (`repo/web/` with its own
+  `package.json` and install, under a `repo/package.json` that does not list
+  it as a workspace) looks exactly like a vendored package. Its own
+  `node_modules` is not used to resolve macro packages (`@typesugar/*`
+  packages typesugar's own install can resolve still load) and its config
+  file is not read; build it as its own project, from a copy outside the
+  outer one, or declare it as a workspace package. A repository whose root
+  has no `package.json` or `tsconfig.json` (a polyglot repository's `web/`
+  being the JavaScript project) is not affected: `web/` is the root.
 
 ## Known limitations (not yet enforced)
 

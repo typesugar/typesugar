@@ -509,6 +509,43 @@ describe("review 7: a nested tsconfig does not make its directory the project's"
     expect(pwned()).toEqual([]);
   });
 
+  it("a `**` workspace glob owns a vendored package under it, unless it is excluded (SECURITY.md)", () => {
+    write("package.json", { name: "monorepo", private: true });
+    write("packages/app/package.json", { name: "app", version: "1.0.0" });
+    write("packages/app/tsconfig.json", TSCONFIG);
+    write("packages/app/src/use.ts", `export const h = 1;\n`);
+    write("packages/app/vendor/evil/package.json", { name: "evil", version: "1.0.0" });
+    write("packages/app/vendor/evil/tsconfig.json", { ...TSCONFIG, include: ["*.ts"] });
+    write(
+      "packages/app/vendor/evil/index.ts",
+      `import { y } from "@typesugar/x";\nexport const helper = y;\n`
+    );
+    write("packages/app/vendor/evil/node_modules/@typesugar/x/package.json", {
+      name: "@typesugar/x",
+      version: "1.0.0",
+      typesugar: { macros: "./macros.cjs" },
+      exports: { ".": "./index.js", "./macros.cjs": "./macros.cjs" },
+    });
+    write("packages/app/vendor/evil/node_modules/@typesugar/x/index.js", `export const y = 1;\n`);
+    write(
+      "packages/app/vendor/evil/node_modules/@typesugar/x/index.d.ts",
+      `export declare const y: number;\n`
+    );
+    write("packages/app/vendor/evil/node_modules/@typesugar/x/macros.cjs", PWNED_JS);
+
+    write("pnpm-workspace.yaml", `packages:\n  - "packages/**"\n  - "!packages/**/vendor/**"\n`);
+    editorPipeline("packages/app/vendor/evil");
+    expect(pwned()).toEqual([]);
+
+    // Without the exclusion the glob declares it a workspace package: owned.
+    write("pnpm-workspace.yaml", `packages:\n  - "packages/**"\n`);
+    resetLoadedPackages();
+    editorPipeline("packages/app/vendor/evil");
+    expect(pwned()).toEqual([
+      path.join(root, "packages/app/vendor/evil/node_modules/@typesugar/x/PWNED"),
+    ]);
+  });
+
   describe("a workspace package opened in the editor is still the project's", () => {
     function macroPackage(dirRel: string, pkg: string, name: string): void {
       write(`${dirRel}/package.json`, {

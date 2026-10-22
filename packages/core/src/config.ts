@@ -7,7 +7,9 @@
  * 1. Environment variables: TYPESUGAR_* (highest priority, for CI overrides)
  * 2. Config files: typesugar.config.ts, .typesugarrc, etc. — the nearest one
  *    found walking up from `process.cwd()` (or from the directory passed to
- *    `config.load({ searchFrom })`), stopping at the repository root
+ *    `config.load({ searchFrom })`), stopping at the repository root; with
+ *    `config.load({ searchFrom, onlyIn })` only the `onlyIn` directories
+ *    are read (the transformer's hosts pass the directories the project owns)
  * 3. Programmatic: config.set() calls
  * 4. Defaults (lowest priority)
  *
