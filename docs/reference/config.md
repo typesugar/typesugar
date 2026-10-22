@@ -101,6 +101,12 @@ config.get("contracts.mode"); // "full" | "assertions" | "none"
 config.set({ contracts: { mode: "none" } }); // programmatic override (until reload)
 ```
 
+`config.get()` reads the current config, one per process. A host that serves several
+projects keeps each one's: `config.load({ searchFrom: projectDir })`, then
+`config.capture()`, and `config.runWith(snapshot, () => …)` around that project's work. A
+`TransformationPipeline` does this when given `config: snapshot` (`createPipeline` passes
+it).
+
 `@typesugar/contracts` also has `setContractConfig({ mode, proveAtCompileTime, strip })`
 and `getContractConfig()`, which read and write the same `contracts` block.
 
