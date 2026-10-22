@@ -76,6 +76,7 @@ describe.skipIf(!hasBuild)("typesugar check: rewritten *, /, - and their results
   let bad: string;
   let args: string;
   let numeric: string;
+  let overloads: string;
 
   beforeAll(() => {
     good = makeProject({
@@ -134,10 +135,30 @@ export const ok3 = \`\${rationalToString(a * b)}\`;
 console.log(a * b, String(a + b));
 `,
     });
+    // With overloads, the contextual type is the overload TypeScript chose for
+    // the `number` it sees; another may take the rewritten Rational (review 7).
+    overloads = makeProject({
+      "src/overloads.ts": `${HEADER}
+function f(x: number): string;
+function f(x: Rational): Rational;
+function f(x: number | Rational): string | Rational { return typeof x === "number" ? String(x) : x; }
+export const s3: Rational = f(a * b);
+function g(x: number): string;
+function g(x: string): string;
+function g(x: number | string): string { return String(x); }
+export const s4 = g(a * b);
+function h(x: number): void;
+function h(x: Rational, y: string): void;
+function h(..._: unknown[]): void {}
+h(a * b, "ok");
+h(a * b, 5);
+console.log(rationalToString(s3), s4);
+`,
+    });
   });
 
   afterAll(() => {
-    for (const d of [good, bad, args, numeric]) {
+    for (const d of [good, bad, args, numeric, overloads]) {
       if (d) fs.rmSync(d, { recursive: true, force: true });
     }
   });
@@ -186,5 +207,23 @@ console.log(a * b, String(a + b));
     expect(r.output).toMatch(/numeric\.ts\(13,11\): error TS2345: Argument of type 'Rational'/);
     expect(r.output).toMatch(/rewritten by typesugar/);
     expect(errors, r.output).toHaveLength(6);
+  });
+
+  it("an overloaded callee: an error only when no overload takes the rewritten value", () => {
+    const r = check(overloads);
+    const errors = r.output.split("\n").filter((l) => / error TS/.test(l));
+    // f(a * b): the Rational overload takes it, and returns a Rational (was a
+    // false TS2345, and TypeScript's TS2322 for the string overload's result).
+    expect(r.output).not.toMatch(/overloads\.ts\(11,/);
+    // g(a * b): neither overload takes a Rational.
+    expect(r.output).toMatch(
+      /overloads\.ts\(15,\d+\): error TS2769: No overload matches this call/
+    );
+    // h(a * b, "ok") is fine; h(a * b, 5) is not.
+    expect(r.output).not.toMatch(/overloads\.ts\(19,/);
+    expect(r.output).toMatch(
+      /overloads\.ts\(20,10\): error TS2345: Argument of type '5' is not assignable to parameter of type 'string'/
+    );
+    expect(errors, r.output).toHaveLength(2);
   });
 });

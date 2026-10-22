@@ -2590,7 +2590,12 @@ export function createRewrittenOperatorResultRule(): DiagnosticSuppressionRule {
       const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
       const hooks = filterChainHooks(sourceFile, tracker, "RewrittenOperatorResult");
       try {
-        const rewritten = rewrittenOperandType(ctx, value, activated, hooks);
+        const rewritten =
+          rewrittenOperandType(ctx, value, activated, hooks) ??
+          // `f(a * b)` with `f(x: number): string; f(x: Rational): Rational`:
+          // TypeScript picked the `number` overload; the rewritten argument
+          // picks another, whose return type is the call's (review 7).
+          overloadReturnTypeWithRewrittenArguments(ctx, value, activated, hooks);
         if (!rewritten) return false;
         const types = extractAssignmentTypes(node, checker);
         if (!types) return false;
@@ -2620,6 +2625,12 @@ export function createRewrittenOperatorResultRule(): DiagnosticSuppressionRule {
       const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
       const hooks = filterChainHooks(sourceFile, tracker, "RewrittenOperatorResult");
       // Throws propagate: the framework then keeps the original diagnostic.
+      // An overloaded callee: the parameter types below are the overload
+      // TypeScript chose for the `number` it sees; when some overload takes
+      // every argument as rewritten, there is no error (review 7).
+      const typeOfArg = (arg: ts.Expression) =>
+        rewrittenOperandType(ctx, arg, activated, hooks) ?? judgedArgumentType(checker, arg);
+      if (anyOverloadAccepts(checker, call, typeOfArg) === true) return [];
       for (const arg of args.slice(args.indexOf(value) + 1)) {
         // A spread no longer lines arguments up with parameters; tsc's own
         // checks of what follows are unaffected by the suppression anyway.
@@ -2668,6 +2679,142 @@ const OPERAND_MUST_BE_PRIMITIVE: ReadonlySet<ts.SyntaxKind> = new Set(
       k !== ts.SyntaxKind.InstanceOfKeyword
   )
 );
+
+/**
+ * An argument's type for judging it against a parameter: the checker's,
+ * except where that type came from the parameter itself (a function or
+ * object literal, contextually typed by the overload TypeScript chose):
+ * undefined, "not judged" -- taken to fit.
+ */
+function judgedArgumentType(checker: ts.TypeChecker, arg: ts.Expression): ts.Type | undefined {
+  let e = arg;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isObjectLiteralExpression(e)) {
+    return undefined;
+  }
+  if (isSyntheticNode(e)) return undefined;
+  return checker.getTypeAtLocation(e);
+}
+
+/** The call or construct signatures of `call`'s callee, in declaration order. */
+function calleeSignatures(
+  checker: ts.TypeChecker,
+  call: ts.CallExpression | ts.NewExpression
+): readonly ts.Signature[] {
+  if (isSyntheticNode(call.expression)) return [];
+  const type = checker.getTypeAtLocation(call.expression);
+  return checker.getSignaturesOfType(
+    type,
+    ts.isNewExpression(call) ? ts.SignatureKind.Construct : ts.SignatureKind.Call
+  );
+}
+
+/**
+ * Does `sig` take arguments of `argTypes` (an undefined entry is not judged)?
+ * Undefined when it can't be told without inference (a generic signature, a
+ * rest parameter that isn't an array).
+ */
+function signatureAccepts(
+  checker: ts.TypeChecker,
+  sig: ts.Signature,
+  argTypes: readonly (ts.Type | undefined)[]
+): boolean | undefined {
+  if (sig.typeParameters?.length) return undefined;
+  const params = sig.getParameters();
+  const paramDecl = (p: ts.Symbol) => {
+    const d = p.valueDeclaration;
+    return d && ts.isParameter(d) ? d : undefined;
+  };
+  const last = params.length > 0 ? paramDecl(params[params.length - 1]) : undefined;
+  const hasRest = !!last?.dotDotDotToken;
+  const fixed = hasRest ? params.length - 1 : params.length;
+  let min = 0;
+  while (min < fixed) {
+    const d = paramDecl(params[min]);
+    if (!d || d.questionToken || d.initializer) break;
+    min++;
+  }
+  if (argTypes.length < min || (!hasRest && argTypes.length > fixed)) return false;
+  for (let i = 0; i < argTypes.length; i++) {
+    const actual = argTypes[i];
+    if (!actual) continue;
+    let param: ts.Type | undefined;
+    if (i < fixed) {
+      param = checker.getTypeOfSymbol(params[i]);
+    } else {
+      param = checker.getIndexTypeOfType(
+        checker.getTypeOfSymbol(params[params.length - 1]),
+        ts.IndexKind.Number
+      );
+    }
+    if (!param || containsTypeParameter(param)) return undefined;
+    if (!checker.isTypeAssignableTo(actual, param)) return false;
+  }
+  return true;
+}
+
+/** Each argument's type per `typeOf`, or undefined when an argument is spread (arguments no longer line up). */
+function argumentTypes(
+  call: ts.CallExpression | ts.NewExpression,
+  typeOf: (arg: ts.Expression) => ts.Type | undefined
+): (ts.Type | undefined)[] | undefined {
+  const args = call.arguments ?? [];
+  if (args.some((a) => ts.isSpreadElement(a))) return undefined;
+  return args.map(typeOf);
+}
+
+/**
+ * For a callee with more than one signature (overloads): does some signature
+ * take every argument, typed by `typeOf` (a rewritten operator as rewritten)?
+ * True also when one can't be judged (never invent an error). Undefined for
+ * a callee with one signature or none, where the contextual type is the
+ * parameter's.
+ */
+function anyOverloadAccepts(
+  checker: ts.TypeChecker,
+  call: ts.CallExpression | ts.NewExpression,
+  typeOf: (arg: ts.Expression) => ts.Type | undefined
+): boolean | undefined {
+  const sigs = calleeSignatures(checker, call);
+  if (sigs.length < 2) return undefined;
+  const types = argumentTypes(call, typeOf);
+  if (!types) return true;
+  return sigs.some((sig) => signatureAccepts(checker, sig, types) !== false);
+}
+
+/**
+ * `value` (parentheses aside) is a call to an overloaded callee with a
+ * rewritten operator among its arguments: the return type of the overload
+ * the expanded code resolves to (the first, in declaration order, that takes
+ * the arguments as rewritten). Undefined when no argument is rewritten, the
+ * callee isn't overloaded, or the choice can't be told.
+ */
+function overloadReturnTypeWithRewrittenArguments(
+  ctx: MacroContext,
+  value: ts.Expression,
+  activated: ReadonlySet<string>,
+  hooks: OperatorChainHooks
+): ts.Type | undefined {
+  let call = value;
+  while (ts.isParenthesizedExpression(call)) call = call.expression;
+  if (!ts.isCallExpression(call) && !ts.isNewExpression(call)) return undefined;
+  const checker = ctx.typeChecker;
+  const sigs = calleeSignatures(checker, call);
+  if (sigs.length < 2) return undefined;
+  let rewrittenAny = false;
+  const types = argumentTypes(call, (arg) => {
+    const t = rewrittenOperandType(ctx, arg, activated, hooks);
+    if (t) rewrittenAny = true;
+    return t ?? judgedArgumentType(checker, arg);
+  });
+  if (!types || !rewrittenAny) return undefined;
+  for (const sig of sigs) {
+    const accepts = signatureAccepts(checker, sig, types);
+    if (accepts === undefined) return undefined;
+    if (accepts) return checker.getReturnTypeOfSignature(sig);
+  }
+  return undefined;
+}
 
 /** `t` is, or contains at its top level, a type parameter or other not-yet-instantiated type. */
 function containsTypeParameter(t: ts.Type): boolean {
@@ -2807,6 +2954,24 @@ function rewrittenValueMisuse(
   const isArgument =
     (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
     (parent.arguments?.includes(outer) ?? false);
+  if (isArgument) {
+    // With overloads, `target` is the parameter of the overload TypeScript
+    // chose for the `number` it sees: another may take `R` (review 7,
+    // `f(x: number): string; f(x: Rational): Rational` and `f(a * b)`).
+    const typeOfArg = (arg: ts.Expression) =>
+      arg === outer
+        ? R
+        : (rewrittenOperandType(ctx, arg, activated, hooks) ?? judgedArgumentType(checker, arg));
+    const verdict = anyOverloadAccepts(
+      checker,
+      parent as ts.CallExpression | ts.NewExpression,
+      typeOfArg
+    );
+    if (verdict === true) return undefined;
+    if (verdict === false) {
+      return expandedCodeError(sourceFile, outer, 2769, `No overload matches this call.`, note);
+    }
+  }
   return isArgument
     ? expandedCodeError(
         sourceFile,

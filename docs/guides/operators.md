@@ -31,7 +31,10 @@ TS2322 of passing or assigning its value where the instance type is expected
 (`g(a * b, 5)` with a `string` parameter is an error at `5`). A rewritten value used
 as a number is an error, as it is in the compiled code: `(a * b).toFixed(2)` (TS2339),
 `const n: number = a * b` (TS2322), `Math.sqrt(a * b)` (TS2345), and `a * b > 0` when
-`>` itself isn't rewritten (TS2365). Other uses of `const product = a * b` are still
+`>` itself isn't rewritten (TS2365). An overloaded function is judged by all its
+overloads: with `f(x: number): string` and `f(x: Rational): Rational`, `f(a * b)` is
+the `Rational` one (no error, nor for `const r: Rational = f(a * b)`), and only a
+call no overload takes as rewritten is an error (TS2769). Other uses of `const product = a * b` are still
 typed `number` by TypeScript (`product.num` is an error in the editor): annotate it,
 `const product: Rational = a * b`.
 
