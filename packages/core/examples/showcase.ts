@@ -193,7 +193,9 @@ assert(area({ kind: "circle", radius: 1 }) === Math.PI);
 assert(area({ kind: "square", side: 2 }) === 4);
 
 // debugOnly — code that only runs in development, erased in production
-let debugRan = false;
+// (`as boolean`: TypeScript can't see the callback assign it, and would
+// narrow the flag to `false` at the assert below.)
+let debugRan = false as boolean;
 debugOnly(() => {
   debugRan = true;
 });
@@ -340,6 +342,7 @@ registerExport({
   name: "ShowcaseType",
   module: "@typesugar/showcase",
   kind: "type",
+  isReexport: false,
 });
 
 const suggestions = getSuggestionsForSymbol("ShowcaseType");

@@ -58,6 +58,7 @@ import {
 
   // Decidability
   registerDecidability,
+  registerRefinementPredicate,
   getDecidability,
   canProveAtCompileTime,
   mustCheckAtRuntime,
@@ -266,6 +267,9 @@ cert = addStep(cert, {
 cert = succeedCertificate(cert, "type", {
   rule: "type_identity",
   description: "Proven by type deduction",
+  justification: "the extracted fact is the goal",
+  usedFacts: assumptions,
+  subgoals: [],
 });
 
 // Format for human reading
@@ -293,22 +297,24 @@ console.log("8. Proof certificates: auditable traces with steps and outcomes");
 // ============================================================================
 
 // Register decidability metadata for custom brands
+// (the predicate itself is registered separately, by brand)
+registerRefinementPredicate("CompileTimeConst", "$ === 42");
 registerDecidability({
   brand: "CompileTimeConst",
-  predicate: "$ === 42",
   decidability: "compile-time",
   preferredStrategy: "constant",
 });
 
+registerRefinementPredicate("RuntimeOnly", "validateExternal($)");
 registerDecidability({
   brand: "RuntimeOnly",
-  predicate: "validateExternal($)",
   decidability: "runtime",
+  preferredStrategy: "type",
 });
 
+registerRefinementPredicate("AlgebraicDecidable", "$ * $ + 1 > 0");
 registerDecidability({
   brand: "AlgebraicDecidable",
-  predicate: "$ * $ + 1 > 0",
   decidability: "decidable",
   preferredStrategy: "algebra",
 });
@@ -361,7 +367,7 @@ console.log("10. Configuration: full/assertions/none modes for production stripp
 
 // Define a law for a hypothetical Monoid
 // Laws use `check` function that takes arguments based on `arity`
-const identityLaw: Law = defineLaw({
+const identityLaw: Law<[x: number]> = defineLaw({
   name: "left_identity",
   description: "empty <> x === x",
   arity: 1,

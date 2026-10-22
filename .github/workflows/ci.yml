@@ -215,8 +215,8 @@ jobs:
   # examples/standalone/* and a library from `typesugar create library`
   # against this checkout's packages, packed as a publish would pack them
   # (scripts/build-standalone-examples.mjs). The packages' own
-  # packages/*/examples/*.ts are run with `typesugar run` by
-  # tests/package-examples.test.ts, in the Test job.
+  # packages/*/examples/*.ts are run with `typesugar run` and type-checked
+  # with `typesugar check` by tests/package-examples.test.ts, in the Test job.
   examples:
     name: Examples
     runs-on: ubuntu-latest

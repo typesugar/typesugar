@@ -122,7 +122,7 @@ console.log("Default settings:", defaultSettings);
 
 @derive(TypeGuard)
 class ApiResponse {
-  success: boolean;
+  success!: boolean;
   data: unknown;
   error?: string;
 }

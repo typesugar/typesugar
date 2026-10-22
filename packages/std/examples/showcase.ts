@@ -424,7 +424,9 @@ const omitted = omit(obj, ["a", "d"]);
 assert(omitted.b === 2);
 assert(!("a" in omitted));
 
-const merged = deepMerge(
+// The sources are typed Partial<T> (shallow), so a source that adds a nested
+// key the target lacks needs T spelled out.
+const merged = deepMerge<Record<string, unknown>>(
   { theme: { color: "blue", size: 12 } },
   { theme: { color: "red", font: "mono" } }
 );
@@ -651,8 +653,8 @@ class Box<A> {
   map<B>(f: (a: A) => B): Box<B> {
     return new Box(f(this.value));
   }
-  ap<B>(this: Box<(a: A) => B>, boxA: Box<A>): Box<B> {
-    return new Box(this.value(boxA.value));
+  ap<X, B>(this: Box<(x: X) => B>, boxX: Box<X>): Box<B> {
+    return new Box(this.value(boxX.value));
   }
 }
 

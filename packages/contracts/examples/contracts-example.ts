@@ -48,11 +48,11 @@
 import "@typesugar/contracts-refined";
 
 import "@typesugar/contracts/syntax"; // activates the requires:/ensures: block labels
+import { comptime } from "typesugar";
 import {
   requires,
   ensures,
   old,
-  comptime,
   contract,
   invariant,
   registerAlgebraicRule,
@@ -850,6 +850,7 @@ console.log("\n=== Section 6: Coq-Inspired Extensions ===\n");
 // Import additional Coq-inspired APIs
 import {
   registerDecidability,
+  registerRefinementPredicate,
   getDecidability,
   canProveAtCompileTime,
   mustCheckAtRuntime,
@@ -876,22 +877,23 @@ import {
  */
 
 // Register decidability for custom brands
+registerRefinementPredicate("AlwaysProvable", "$ === 42");
 registerDecidability({
   brand: "AlwaysProvable",
-  predicate: "$ === 42",  // Trivially constant
   decidability: "compile-time",
   preferredStrategy: "constant",
 });
 
+registerRefinementPredicate("NeedsRuntime", "validateAtRuntime($)");
 registerDecidability({
   brand: "NeedsRuntime",
-  predicate: "validateAtRuntime($)",  // External function
   decidability: "runtime",
+  preferredStrategy: "type",
 });
 
+registerRefinementPredicate("Algebraic", "$ * $ + 1 > 0");
 registerDecidability({
   brand: "Algebraic",
-  predicate: "$ * $ + 1 > 0",  // Non-linear, decidable via algebra
   decidability: "decidable",
   preferredStrategy: "algebra",
 });
@@ -1022,6 +1024,9 @@ cert = addStep(cert, {
 cert = succeedCertificate(cert, "type", {
   rule: "type_identity",
   description: "Proven by type deduction",
+  justification: "the extracted fact is the goal",
+  usedFacts: assumptions,
+  subgoals: [],
 });
 
 console.log("\nCompleted certificate:");

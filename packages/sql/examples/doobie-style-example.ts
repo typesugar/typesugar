@@ -52,9 +52,8 @@ import {
 
   // Derivation from column configs
   deriveWrite,
+  type SqlParam,
 } from "@typesugar/sql";
-
-import { specialize } from "@typesugar/macros";
 
 // ============================================================================
 // 1. Define Schema Types with @derive(Meta)
@@ -147,8 +146,8 @@ function sql$<R = void>(
   ...values: unknown[]
 ): TypedFragment<unknown[], R> {
   const segments = [...strings];
-  const params = values.map(v => ({ value: v }));
-  return new TypedFragment(segments, params);
+  // The interpolated values are the query's parameters, as given.
+  return new TypedFragment(segments, values as SqlParam[]);
 }
 
 // Basic query - result type inferred from SELECT
@@ -169,7 +168,7 @@ const activeOnly = sql$`AND is_active = true`;
 /**
  * Find user by ID - demonstrates fragment composition
  */
-function findUserById(id: number): TypedQuery<[number], User> {
+function findUserById(id: number): TypedQuery<unknown[], User> {
   const query = selectAllUsers.append(byId(id));
   return query.toQuery();
 }
@@ -404,7 +403,17 @@ function buildUserQuery(filters: {
   active?: boolean;
   limit?: number;
 }) {
-  let builder = select<User>("id", "name", "email", "is_active", "created_at", "updated_at")
+  // select<R> takes R's keys as the column names: the table's (snake_case)
+  // columns here, not User's field names.
+  type UserColumns = "id" | "name" | "email" | "is_active" | "created_at" | "updated_at";
+  let builder = select<Record<UserColumns, unknown>>(
+    "id",
+    "name",
+    "email",
+    "is_active",
+    "created_at",
+    "updated_at"
+  )
     .from("users");
   
   if (filters.name) {

@@ -101,9 +101,21 @@ import type { Apply } from "@typesugar/type-system";
 const httpClientInfo: ServiceInfo = {
   name: "HttpClient",
   methods: [
-    { name: "get", paramTypes: ["string"], returnType: "Effect<Response, HttpError>" },
-    { name: "post", paramTypes: ["string", "unknown"], returnType: "Effect<Response, HttpError>" },
+    {
+      name: "get",
+      params: [{ name: "url", typeString: "string" }],
+      returnType: "Effect<Response, HttpError>",
+    },
+    {
+      name: "post",
+      params: [
+        { name: "url", typeString: "string" },
+        { name: "body", typeString: "unknown" },
+      ],
+      returnType: "Effect<Response, HttpError>",
+    },
   ],
+  sourceFile: "http-client.ts",
 };
 
 registerService(httpClientInfo);

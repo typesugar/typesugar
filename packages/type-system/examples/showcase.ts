@@ -30,6 +30,7 @@ import {
   // HKT
   type Kind,
   type Apply,
+  type TypeFunction,
   type ArrayF,
   type PromiseF,
   type SetF,
@@ -128,8 +129,8 @@ console.log("1. Type-level boolean utilities: all type assertions passed");
 // ============================================================================
 
 // Apply<F, A> applies a type-level function F to argument A, computing the
-// type. Kind<F, A> (below, in Functor's signature) is the phantom marker for
-// "F applied to A" that generic HKT code uses; it is not computed.
+// type. Kind<F, A> is the phantom marker for "F applied to A" that generic
+// HKT code uses; it is not computed.
 type StringArray = Apply<ArrayF, string>;
 typeAssert<Equal<StringArray, string[]>>();
 
@@ -142,9 +143,11 @@ typeAssert<Equal<StringSet, Set<string>>>();
 type StringNumMap = Apply<MapF<string>, number>;
 typeAssert<Equal<StringNumMap, Map<string, number>>>();
 
-// HKT enables generic programming over type constructors
-interface Functor<F> {
-  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
+// HKT enables generic programming over type constructors. Apply<F, A>
+// computes the type (Kind<F, A> is the uncomputed marker, which the checker
+// does not resolve), so an instance for ArrayF sees real arrays.
+interface Functor<F extends TypeFunction> {
+  map<A, B>(fa: Apply<F, A>, f: (a: A) => B): Apply<F, B>;
 }
 
 const arrayFunctor: Functor<ArrayF> = {
@@ -288,11 +291,13 @@ console.log("5. Opaque modules: PositiveInt, NonEmptyString, EmailAddress, custo
 // The Phantom<Data, State> type brands data with a state marker
 
 // Type-safe builder pattern — tracks which fields have been set at type level
-interface UserFields {
+// (a type alias: createBuilder's fields are a Record, which an interface,
+// having no index signature, is not)
+type UserFields = {
   name: string;
   email: string;
   age: number;
-}
+};
 
 const userBuilder = createBuilder<UserFields>()
   .set("name", "Alice")
@@ -413,12 +418,13 @@ const writeEffects = effectRegistry.get("writeFile");
 assert(writeEffects !== undefined);
 
 // Type-level effect tracking
-type PureEffect = Pure;
-type IOEffect = IO;
-type AsyncEffect = Async;
-type Combined = CombineEffects<IO, Async>;
-type HasIO = HasEffect<IO, "io">;
-typeAssert<Equal<HasIO, true>>();
+type PureEffect = Pure<number>;
+type IOEffect = IO<string>;
+type AsyncEffect = Async<number>;
+type Combined = CombineEffects<IOEffect, AsyncEffect>;
+typeAssert<Equal<HasEffect<IOEffect, "io">, true>>();
+typeAssert<Equal<HasEffect<PureEffect, "io">, false>>();
+typeAssert<Equal<HasEffect<Combined, "async">, true>>();
 
 console.log("9. Effect annotations: @pure, @effect('io'), compile-time tracking");
 
@@ -427,7 +433,9 @@ console.log("9. Effect annotations: @pure, @effect('io'), compile-time tracking"
 // ============================================================================
 
 // Declare that Positive is a subtype of NonNegative
-declareSubtyping("Positive", "NonNegative", {
+declareSubtyping({
+  from: "Positive",
+  to: "NonNegative",
   proof: "positive_implies_nonneg",
   description: "x > 0 implies x >= 0",
 });
@@ -438,7 +446,7 @@ assert(isSubtype("NonNegative", "Positive") === false);
 
 // Safely widen a Positive to NonNegative
 const pos: Positive = Positive.refine(5);
-const nn: NonNegative = widen<Positive, NonNegative>(pos);
+const nn: NonNegative = widen<NonNegative>(pos);
 assert(nn === 5);
 
 console.log("10. Subtyping coercions: Positive → NonNegative (safe widening)");

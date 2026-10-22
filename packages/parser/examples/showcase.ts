@@ -271,8 +271,9 @@ try {
 } catch (e) {
   caught = true;
   assert(e instanceof ParseError, "Throws ParseError");
-  assert(e.pos === 0, "Error position is at failure point");
-  assert(e.expected.length > 0, "Expected description is provided");
+  const err = e as ParseError;
+  assert(err.pos === 0, "Error position is at failure point");
+  assert(err.expected.length > 0, "Expected description is provided");
 }
 assert(caught, "ParseError was thrown");
 
