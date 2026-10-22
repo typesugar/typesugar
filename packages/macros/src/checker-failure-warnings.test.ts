@@ -2,9 +2,11 @@
  * A caught type-checker failure that degrades leaves a visible trace
  * (CLAUDE.md "Calling the type checker on macro-generated nodes"; review 8):
  * hkt's type-function test, typeInfo's method signatures, the deferral check
- * behind `companionAssignedBefore`, and the free-name scan behind `@impl`
- * inlining (`methodInlineSymbols`). Each runs on a real program whose checker
- * is wrapped to throw where the test says.
+ * behind `companionAssignedBefore`, the free-name scan behind `@impl`
+ * inlining (`methodInlineSymbols`), the default-type-argument match behind
+ * instance resolution, an instance's alias resolution before inlining, and
+ * `@reflect`'s metadata. Each runs on a real program whose checker is
+ * wrapped to throw where the test says.
  */
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
@@ -13,9 +15,9 @@ import * as fs from "fs";
 import * as os from "os";
 import { createMacroContext, type MacroContext } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker } from "./hkt.js";
-import { typeInfoMacro } from "./reflect.js";
-import { companionAssignedBefore } from "./instance-resolver.js";
-import { methodInlineSymbols } from "./instance-extraction.js";
+import { typeInfoMacro, reflectAttribute } from "./reflect.js";
+import { companionAssignedBefore, isDefaultInstantiation } from "./instance-resolver.js";
+import { methodInlineSymbols, tryExtractInstanceFromSource } from "./instance-extraction.js";
 
 interface Fixture {
   program: ts.Program;
@@ -202,6 +204,99 @@ export const inst = { f: (x: number) => helper(x) };\n`
       );
       expect(symbols).toBeUndefined();
       expect(failures).toEqual(["Error: boom-getSymbolAtLocation"]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it("isDefaultInstantiation: a declaration the checker can't resolve is no match, with a warning", () => {
+    const fx = programOf(
+      `export interface Box<A = string> { readonly value: A }
+declare const a: Box;
+declare const b: Box<string>;
+`
+    );
+    try {
+      const real = fx.program.getTypeChecker();
+      const typeOf = (name: string) =>
+        real.getTypeAtLocation(
+          find(fx.sourceFile, (n): n is ts.Identifier => ts.isIdentifier(n) && n.text === name)
+        );
+      const box = find(fx.sourceFile, ts.isInterfaceDeclaration);
+      const declared = real.getDeclaredTypeOfSymbol(real.getSymbolAtLocation(box.name)!);
+      const inst = typeOf("b");
+      const failures: string[] = [];
+      const report = (_n: ts.Node, e: unknown, what: string) => failures.push(`${what}: ${e}`);
+      expect(isDefaultInstantiation(real, inst, declared, report)).toBe(true);
+      expect(failures).toEqual([]);
+      const checker = throwing(real, "getTypeFromTypeNode");
+      expect(isDefaultInstantiation(checker, inst, declared, report)).toBe(false);
+      expect(failures).toEqual([
+        "matching 'Box' against its default type arguments: Error: boom-getTypeFromTypeNode",
+      ]);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it("tryExtractInstanceFromSource: an import alias the checker can't follow isn't inlined, and says so", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "checker-failure-"));
+    try {
+      fs.writeFileSync(
+        path.join(dir, "inst.ts"),
+        `/** @impl Show<number> */\nexport const showNum = { show: (n: number) => String(n) };\n`
+      );
+      const file = path.join(dir, "main.ts");
+      fs.writeFileSync(file, `import { showNum } from "./inst";\nexport const s = showNum;\n`);
+      const program = ts.createProgram([file], {
+        target: ts.ScriptTarget.ES2020,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: true,
+        noEmit: true,
+        types: [],
+      });
+      const fx = { program, sourceFile: program.getSourceFile(file)!, cleanup: () => {} };
+      const ref = find(
+        fx.sourceFile.statements[1],
+        (n): n is ts.Identifier => ts.isIdentifier(n) && n.text === "showNum"
+      );
+      const ok = withContext(fx, program.getTypeChecker(), (ctx) =>
+        tryExtractInstanceFromSource(ctx, ref)
+      );
+      expect(ok.result?.methods.has("show")).toBe(true);
+      const { result, warnings } = withContext(
+        fx,
+        throwing(program.getTypeChecker(), "getAliasedSymbol"),
+        (ctx) => tryExtractInstanceFromSource(ctx, ref)
+      );
+      expect(result).toBeUndefined();
+      expect(warnings.join("\n")).toMatch(
+        /did not inline an instance method.*boom-getAliasedSymbol.*calls go through the instance/
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("@reflect: fields the checker can't read are named in one warning", () => {
+    const fx = programOf(`interface User { id: number; name: string }\n`);
+    try {
+      const decl = find(fx.sourceFile, ts.isInterfaceDeclaration);
+      const checker = throwing(fx.program.getTypeChecker(), "getTypeOfSymbolAtLocation");
+      const { warnings } = withContext(fx, checker, (ctx) =>
+        reflectAttribute.expand(ctx, undefined as unknown as ts.Decorator, decl, [])
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(
+        /@reflect on 'User' left out the type of 'id' \(shown as "unknown"\), the type of 'name'.*boom-getTypeOfSymbolAtLocation/
+      );
+      const whole = withContext(
+        fx,
+        throwing(fx.program.getTypeChecker(), "getTypeAtLocation"),
+        (ctx) => reflectAttribute.expand(ctx, undefined as unknown as ts.Decorator, decl, [])
+      );
+      expect(whole.warnings.join("\n")).toMatch(/@reflect on 'User' left out every field/);
     } finally {
       fx.cleanup();
     }

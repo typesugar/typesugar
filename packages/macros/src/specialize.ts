@@ -106,7 +106,7 @@ export class SpecializationCache {
   /**
    * Compute a cache key for a specialization.
    *
-   * @param fnSymbolId - The TypeScript symbol ID of the function (or function name as fallback)
+   * @param fnSymbolId - The TypeScript symbol ID of the function
    * @param dictIdentities - One identity per dictionary argument, in argument
    *   order (position-qualified instance identities; order is significant)
    * @returns Cache key string
@@ -156,6 +156,14 @@ export class SpecializationCache {
    */
   set(key: string, ident: ts.Identifier, declaration: ts.VariableStatement): void {
     this.cache.set(key, { ident, declaration });
+    this.hoistedDeclarations.push(declaration);
+  }
+
+  /**
+   * Hoist a specialization no other call may share (its callee has no
+   * symbol identity to key the cache by).
+   */
+  hoistUncached(_ident: ts.Identifier, declaration: ts.VariableStatement): void {
     this.hoistedDeclarations.push(declaration);
   }
 

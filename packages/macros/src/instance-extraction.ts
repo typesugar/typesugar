@@ -217,18 +217,14 @@ function unwrapExpression(expr: ts.Expression): ts.Expression {
 /**
  * Resolve a symbol at a location, following import aliases to the original
  * declaration (PEP-053 Wave 2 gap 1 — cross-module instances resolve to their
- * ImportSpecifier without this, and extraction bails).
+ * ImportSpecifier without this, and extraction bails). A checker failure is
+ * not caught here: it reaches the caller's catch, which reports it
+ * ({@link inliningFailureReporter}) and calls through the instance.
  */
 function resolveAliasedSymbol(checker: ts.TypeChecker, node: ts.Node): ts.Symbol | undefined {
   let symbol = checker.getSymbolAtLocation(node);
   if (!symbol) return undefined;
-  if (symbol.flags & ts.SymbolFlags.Alias) {
-    try {
-      symbol = checker.getAliasedSymbol(symbol);
-    } catch {
-      return undefined;
-    }
-  }
+  if (symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
   return symbol;
 }
 
@@ -849,7 +845,10 @@ function computeBrand(
         }
       }
     } catch {
-      // getText() may fail on synthetic nodes — fall through to name fallback
+      // Not a checker call, and not a degrading fallback: getText() fails on
+      // a synthetic annotation, and the brand is then the instance's name,
+      // which is unique. The brand only names the hoisted copy and keys the
+      // specialization cache.
     }
   }
 

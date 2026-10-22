@@ -74,7 +74,9 @@ function isVoidReturnType(
       return !!(returnType.flags & ts.TypeFlags.Void);
     }
   } catch {
-    // TypeChecker may throw on getSignatureFromDeclaration — fall through to default
+    // Not a degrading fallback: this only decides whether the TS9602 for a
+    // body with no return statement is shown (the call is not specialized
+    // either way), and a failure shows it.
   }
 
   return false;
@@ -124,6 +126,8 @@ const VALUE_MEANING = ts.SymbolFlags.Value | ts.SymbolFlags.Alias;
  * One-line visible trace for a checker failure we degrade on (CLAUDE.md:
  * a caught checker exception must not vanish silently).
  */
+const reportedCheckerFailures = new WeakMap<ts.SourceFile, Set<string>>();
+
 function warnCheckerFailure(
   ctx: MacroContextImpl,
   node: ts.Node | undefined,
@@ -131,6 +135,12 @@ function warnCheckerFailure(
   error: unknown
 ): void {
   const at = node && !isSyntheticNode(node) ? node : ctx.sourceFile;
+  // Once per (place, what): the same failure recurs for every call that asks.
+  let seen = reportedCheckerFailures.get(ctx.sourceFile);
+  if (!seen) reportedCheckerFailures.set(ctx.sourceFile, (seen = new Set()));
+  const key = `${at === ctx.sourceFile ? -1 : at.pos}\0${what}`;
+  if (seen.has(key)) return;
+  seen.add(key);
   ctx.reportWarning(at, `typesugar skipped ${what}: the type checker failed (${error}).`);
 }
 
@@ -190,17 +200,31 @@ function resolveValueAt(
   }
 }
 
-function sameSymbol(checker: ts.TypeChecker, a: ts.Symbol, b: ts.Symbol): boolean {
+/**
+ * Do `a` and `b` denote the same declaration, after import aliases? When the
+ * checker fails on an alias they are taken as different (the method is then
+ * called through its instance, always correct), and `onFailure` is told so
+ * the caller can warn.
+ */
+function sameSymbol(
+  checker: ts.TypeChecker,
+  a: ts.Symbol,
+  b: ts.Symbol,
+  onFailure: (error: unknown) => void
+): boolean {
   if (a === b) return true;
-  const resolve = (s: ts.Symbol): ts.Symbol => {
+  const resolve = (s: ts.Symbol): ts.Symbol | undefined => {
     if (!(s.flags & ts.SymbolFlags.Alias)) return s;
     try {
       return checker.getAliasedSymbol(s);
-    } catch {
-      return s;
+    } catch (error) {
+      onFailure(error);
+      return undefined;
     }
   };
-  return resolve(a) === resolve(b);
+  const ra = resolve(a);
+  const rb = ra && resolve(b);
+  return ra !== undefined && ra === rb;
 }
 
 function isModuleScopeDecl(decl: ts.Node): boolean {
@@ -263,7 +287,13 @@ function methodFreeNameMismatch(
     const expected = method.freeSymbols?.get(name);
     if (expected) {
       if (!actual) return { name, notInScope: true };
-      if (!sameSymbol(ctx.typeChecker, actual, expected)) return { name };
+      if (
+        !sameSymbol(ctx.typeChecker, actual, expected, (e) =>
+          warnCheckerFailure(ctx, location, `comparing '${name}' with its declaration`, e)
+        )
+      ) {
+        return { name };
+      }
       continue;
     }
     // No recorded symbol: a body-local name, or a method registered without
@@ -482,7 +512,12 @@ function reexpressInlinedTypes(
         const actual = location
           ? checker.resolveName(id.text, location, TYPE_MEANING, false)
           : undefined;
-        if (!actual || !sameSymbol(checker, actual, expected)) {
+        if (
+          !actual ||
+          !sameSymbol(checker, actual, expected, (e) =>
+            warnCheckerFailure(ctx, location, `comparing type '${id.text}' with its declaration`, e)
+          )
+        ) {
           const typeArguments =
             n.typeArguments &&
             ctx.factory.createNodeArray(n.typeArguments.map((t) => visit(t) as ts.TypeNode));
@@ -511,7 +546,12 @@ function reexpressInlinedTypes(
         const actual = location
           ? checker.resolveName(id.text, location, VALUE_MEANING, false)
           : undefined;
-        if (!actual || !sameSymbol(checker, actual, expected)) {
+        if (
+          !actual ||
+          !sameSymbol(checker, actual, expected, (e) =>
+            warnCheckerFailure(ctx, location, `comparing '${id.text}' with its declaration`, e)
+          )
+        ) {
           failed = true;
           return n;
         }
@@ -746,13 +786,23 @@ function warnFreeNameNotInScope(
 const TYPESUGAR_PACKAGE_PATH =
   /[\\/](@typesugar[\\/]macros|typesugar[\\/]packages[\\/]macros)[\\/]/;
 
-/** Does this resolved symbol denote typesugar's own primitive instance of that name? */
-function isTypesugarPrimitive(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+/**
+ * Does this resolved symbol denote typesugar's own primitive instance of that
+ * name? When the checker fails on the alias, no (the instance is read from
+ * its source like any other, or called through), with a warning.
+ */
+function isTypesugarPrimitive(ctx: MacroContextImpl, symbol: ts.Symbol, at: ts.Node): boolean {
   let target = symbol;
   if (target.flags & ts.SymbolFlags.Alias) {
     try {
-      target = checker.getAliasedSymbol(target);
-    } catch {
+      target = ctx.typeChecker.getAliasedSymbol(target);
+    } catch (error) {
+      warnCheckerFailure(
+        ctx,
+        at,
+        `checking whether '${symbol.name}' is a primitive instance`,
+        error
+      );
       return false;
     }
   }
@@ -838,7 +888,9 @@ function resolveDictForIdentifier(
 
   if (symbol && (symbol.declarations?.length ?? 0) > 0) {
     const primitive = allowIntrinsics ? getPrimitiveIntrinsicMethods(name) : undefined;
-    if (primitive && isTypesugarPrimitive(ctx.typeChecker, symbol)) return primitive;
+    if (primitive && isTypesugarPrimitive(ctx, symbol, extractFrom ?? location ?? ctx.sourceFile)) {
+      return primitive;
+    }
     return (
       (extractFrom ? tryExtractInstanceFromSource(ctx, extractFrom) : undefined) ??
       methodsForResolvedDeclaration(ctx, symbol)
@@ -862,7 +914,8 @@ function resolveDictForIdentifier(
 
 function resolveBodyFromSymbol(
   typeChecker: ts.TypeChecker,
-  node: ts.Node
+  node: ts.Node,
+  onFailure?: (error: unknown) => void
 ): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined {
   try {
     const symbol = typeChecker.getSymbolAtLocation(node);
@@ -880,22 +933,30 @@ function resolveBodyFromSymbol(
         return decl;
       }
     }
-  } catch {
-    // TypeChecker may throw on unresolvable symbols
+  } catch (error) {
+    // No body: the call keeps dictionary passing (always correct); the
+    // caller is told, to warn.
+    onFailure?.(error);
     return undefined;
   }
   return undefined;
 }
 
+/**
+ * The function a call's callee denotes, if its body can be read. `onFailure`
+ * is told when the checker fails resolving it (the call is then not
+ * specialized).
+ */
 export function resolveAutoSpecFunctionBody(
   typeChecker: ts.TypeChecker,
-  fnExpr: ts.Expression
+  fnExpr: ts.Expression,
+  onFailure?: (error: unknown) => void
 ): ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration | undefined {
   if (ts.isArrowFunction(fnExpr) || ts.isFunctionExpression(fnExpr)) {
     return fnExpr;
   }
   if (ts.isIdentifier(fnExpr) || ts.isPropertyAccessExpression(fnExpr)) {
-    return resolveBodyFromSymbol(typeChecker, fnExpr);
+    return resolveBodyFromSymbol(typeChecker, fnExpr, onFailure);
   }
   return undefined;
 }
@@ -1604,7 +1665,15 @@ function calleeFreeNamesResolveSameAt(
       return;
     }
     const actual = resolveValueAt(ctx, id.text, location);
-    if (actual === "error" || !actual || !sameSymbol(ctx.typeChecker, actual, expected)) ok = false;
+    if (
+      actual === "error" ||
+      !actual ||
+      !sameSymbol(ctx.typeChecker, actual, expected, (e) =>
+        warnCheckerFailure(ctx, location, `comparing '${id.text}' with its declaration`, e)
+      )
+    ) {
+      ok = false;
+    }
   });
   return ok;
 }
@@ -1738,7 +1807,9 @@ export function tryAutoSpecialize(
       ? node.expression.name.text
       : "<anonymous>";
 
-  const fnBody = resolveAutoSpecFunctionBody(ctx.typeChecker, node.expression);
+  const fnBody = resolveAutoSpecFunctionBody(ctx.typeChecker, node.expression, (e) =>
+    warnCheckerFailure(ctx, node, `specializing the call to '${fnName}' (resolving its body)`, e)
+  );
   if (!fnBody) {
     if (!suppressWarnings) {
       skippedSpecialization(
@@ -1807,13 +1878,7 @@ export function tryAutoSpecialize(
     );
   }
 
-  let fnSymbolId = fnName;
-  try {
-    const fnSymbol = ctx.typeChecker.getSymbolAtLocation(node.expression);
-    if (fnSymbol) fnSymbolId = `fn#${stableSymbolId(fnSymbol)}`;
-  } catch {
-    // TypeChecker may throw on unresolvable symbols — use fnName as fallback
-  }
+  const fnSymbolId = calleeCacheId(ctx, node);
   const dictBrands = instanceArgs.map((a) => a.methods.brand);
   // The hoisted copy has no type parameters: its annotations get this call's
   // types (`a: A` → `a: Feature`), so the expanded TypeScript type-checks.
@@ -1830,9 +1895,12 @@ export function tryAutoSpecialize(
     (a) => `${a.index}:${instanceIdentity(ctx, node.arguments[a.index], a.name)}`
   );
   if (instantiated) dictIdentities.push(...instantiated.key.map((k) => `type ${k}`));
-  const cacheKey = SpecializationCache.computeKey(fnSymbolId, dictIdentities);
+  const cacheKey =
+    fnSymbolId === undefined
+      ? undefined
+      : SpecializationCache.computeKey(fnSymbolId, dictIdentities);
 
-  const cachedEntry = specCache.get(cacheKey);
+  const cachedEntry = cacheKey === undefined ? undefined : specCache.get(cacheKey);
   if (cachedEntry) {
     if (verbose) {
       console.log(`[typesugar] Reusing cached specialization: ${cachedEntry.ident.text}`);
@@ -1856,7 +1924,8 @@ export function tryAutoSpecialize(
       const hoistedIdent = SpecializationCache.generateHoistedName(fnName, dictBrands, ctx.hygiene);
       const hoistedDecl = createHoistedSpecialization(ctx.factory, hoistedIdent, specialized);
 
-      specCache.set(cacheKey, hoistedIdent, hoistedDecl);
+      if (cacheKey === undefined) specCache.hoistUncached(hoistedIdent, hoistedDecl);
+      else specCache.set(cacheKey, hoistedIdent, hoistedDecl);
 
       if (verbose) {
         console.log(`[typesugar] Created hoisted specialization: ${hoistedIdent.text}`);
@@ -1886,6 +1955,23 @@ export function tryAutoSpecialize(
   }
 
   return undefined;
+}
+
+/**
+ * The specialization cache's key for the callee of `node`: its symbol's
+ * identity. Undefined when the checker has no symbol for it (or fails): then
+ * the call's specialization is not shared with any other call's. It used to
+ * fall back to the callee's NAME, so two different functions of that name
+ * called with the same instances could share one hoisted body. Not a
+ * degrading fallback (an unshared copy is correct), so nothing is warned.
+ */
+function calleeCacheId(ctx: MacroContextImpl, node: ts.CallExpression): string | undefined {
+  try {
+    const fnSymbol = ctx.typeChecker.getSymbolAtLocation(node.expression);
+    return fnSymbol ? `fn#${stableSymbolId(fnSymbol)}` : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Warn TS9602 (from the diagnostic catalog): `fn`'s call keeps dictionary passing, because `reason`. */
@@ -1919,23 +2005,30 @@ export function getTypeName(typeChecker: ts.TypeChecker, type: ts.Type): string 
   return match ? match[1] : undefined;
 }
 
+/**
+ * The type a call's result is expected to have: its contextual type, else
+ * its variable's annotation or its function's return annotation. `onFailure`
+ * is told when the checker fails on one of those (a failure on the contextual
+ * type falls through to the annotations; one on an annotation gives none).
+ */
 export function getContextualTypeForCall(
   typeChecker: ts.TypeChecker,
-  node: ts.CallExpression
+  node: ts.CallExpression,
+  onFailure?: (error: unknown) => void
 ): ts.Type | undefined {
   try {
     const contextual = typeChecker.getContextualType(node);
     if (contextual) return contextual;
-  } catch {
-    // TypeChecker may throw on getContextualType — fall through to parent-based detection
+  } catch (error) {
+    onFailure?.(error);
   }
 
   const parent = node.parent;
   if (ts.isVariableDeclaration(parent) && parent.type) {
     try {
       return typeChecker.getTypeFromTypeNode(parent.type);
-    } catch {
-      // TypeChecker may throw on unresolvable type nodes
+    } catch (error) {
+      onFailure?.(error);
       return undefined;
     }
   }
@@ -1952,8 +2045,8 @@ export function getContextualTypeForCall(
       ) {
         try {
           return typeChecker.getTypeFromTypeNode(current.type);
-        } catch {
-          // TypeChecker may throw on unresolvable return type annotations
+        } catch (error) {
+          onFailure?.(error);
           return undefined;
         }
       }
@@ -2060,8 +2153,8 @@ export function tryReturnTypeDrivenSpecialize(
   let fnType: ts.Type;
   try {
     fnType = ctx.typeChecker.getTypeAtLocation(node.expression);
-  } catch {
-    // TypeChecker may throw on unresolvable expressions — skip return-type specialization
+  } catch (error) {
+    warnCheckerFailure(ctx, node, "return-type-driven specialization of this call", error);
     return undefined;
   }
   const callSigs = fnType.getCallSignatures();
@@ -2078,7 +2171,9 @@ export function tryReturnTypeDrivenSpecialize(
     return undefined;
   }
 
-  const contextualType = getContextualTypeForCall(ctx.typeChecker, node);
+  const contextualType = getContextualTypeForCall(ctx.typeChecker, node, (e) =>
+    warnCheckerFailure(ctx, node, "return-type-driven specialization of this call", e)
+  );
   if (!contextualType) {
     return undefined;
   }
@@ -2109,21 +2204,20 @@ export function tryReturnTypeDrivenSpecialize(
     );
   }
 
-  const fnBody = resolveAutoSpecFunctionBody(ctx.typeChecker, node.expression);
+  const fnBody = resolveAutoSpecFunctionBody(ctx.typeChecker, node.expression, (e) =>
+    warnCheckerFailure(ctx, node, `specializing the call to '${fnName}' (resolving its body)`, e)
+  );
   if (!fnBody) {
     return undefined;
   }
 
-  let fnSymbolId = fnName;
-  try {
-    const fnSymbol = ctx.typeChecker.getSymbolAtLocation(node.expression);
-    if (fnSymbol) fnSymbolId = `fn#${stableSymbolId(fnSymbol)}`;
-  } catch {
-    // TypeChecker may throw on unresolvable symbols — use fnName as fallback
-  }
-  const cacheKey = SpecializationCache.computeKey(fnSymbolId, [algebra.name]);
+  const fnSymbolId = calleeCacheId(ctx, node);
+  const cacheKey =
+    fnSymbolId === undefined
+      ? undefined
+      : SpecializationCache.computeKey(fnSymbolId, [algebra.name]);
 
-  const cachedEntry = specCache.get(cacheKey);
+  const cachedEntry = cacheKey === undefined ? undefined : specCache.get(cacheKey);
   if (cachedEntry) {
     if (verbose) {
       console.log(
@@ -2145,7 +2239,8 @@ export function tryReturnTypeDrivenSpecialize(
   const hoistedIdent = SpecializationCache.generateHoistedName(fnName, [algebra.name], ctx.hygiene);
   const hoistedDecl = createHoistedSpecialization(ctx.factory, hoistedIdent, specialized);
 
-  specCache.set(cacheKey, hoistedIdent, hoistedDecl);
+  if (cacheKey === undefined) specCache.hoistUncached(hoistedIdent, hoistedDecl);
+  else specCache.set(cacheKey, hoistedIdent, hoistedDecl);
 
   if (verbose) {
     console.log(`[typesugar] Created hoisted result-type specialization: ${hoistedIdent.text}`);

@@ -39,6 +39,9 @@ const dummySource = ts.createSourceFile("__dummy__.ts", "", ts.ScriptTarget.Late
  * file position information.
  */
 function safeGetText(node: ts.Node): string {
+  // Printing, not checker calls: the printer gives the same text getText()
+  // would (a node outside a parsed file has no text to get), and a node it
+  // can't print is not one a declaration's annotation can be.
   if (!isSyntheticNode(node)) {
     try {
       return node.getText();
@@ -118,8 +121,23 @@ export const reflectAttribute = defineAttributeMacro({
     target: ts.Declaration,
     _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
-    // Extract type information directly from the type checker
-    const typeInfo = extractTypeInfo(ctx, target);
+    // Extract type information directly from the type checker. What a
+    // checker failure left out is said in one warning (CLAUDE.md: a caught
+    // checker failure that degrades leaves a visible trace).
+    const failures: string[] = [];
+    let firstError: unknown;
+    const typeInfo = extractTypeInfo(ctx, target, (what, error) => {
+      if (failures.length === 0) firstError = error;
+      failures.push(what);
+    });
+    if (failures.length > 0) {
+      const name = (target as { name?: ts.Node }).name;
+      ctx.reportWarning(
+        target,
+        `@reflect on '${name && ts.isIdentifier(name) ? name.text : "<anonymous>"}' left out ` +
+          `${failures.join(", ")}: the type checker failed (${firstError}).`
+      );
+    }
 
     if (typeInfo) {
       // Generate metadata as an exported const alongside the original declaration.
@@ -206,29 +224,41 @@ function insideGenericDeclaration(node: ts.Node): boolean {
   return false;
 }
 
-function extractTypeInfo(ctx: MacroContext, node: ts.Declaration): TypeInfo | null {
+/** Told what a checker failure left out of a `@reflect` type's metadata (`what`). */
+type ReflectFailure = (what: string, error: unknown) => void;
+
+function extractTypeInfo(
+  ctx: MacroContext,
+  node: ts.Declaration,
+  onFailure: ReflectFailure
+): TypeInfo | null {
   if (ts.isInterfaceDeclaration(node)) {
-    return extractInterfaceInfo(ctx, node);
+    return extractInterfaceInfo(ctx, node, onFailure);
   }
 
   if (ts.isClassDeclaration(node)) {
-    return extractClassInfo(ctx, node);
+    return extractClassInfo(ctx, node, onFailure);
   }
 
   if (ts.isTypeAliasDeclaration(node)) {
-    return extractTypeAliasInfo(ctx, node);
+    return extractTypeAliasInfo(ctx, node, onFailure);
   }
 
   return null;
 }
 
-function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration): TypeInfo {
+function extractInterfaceInfo(
+  ctx: MacroContext,
+  node: ts.InterfaceDeclaration,
+  onFailure: ReflectFailure
+): TypeInfo {
   let type: ts.Type;
   let properties: ts.Symbol[];
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
     properties = ctx.typeChecker.getPropertiesOfType(type);
-  } catch {
+  } catch (error) {
+    onFailure("every field", error);
     return {
       name: node.name.text,
       kind: "interface",
@@ -244,8 +274,8 @@ function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration):
     let propTypeStr = "unknown";
     try {
       propTypeStr = fieldTypeString(ctx.typeChecker, prop, node);
-    } catch {
-      // Fall back to "unknown" for unresolvable types
+    } catch (error) {
+      onFailure(`the type of '${prop.name}' (shown as "unknown")`, error);
     }
 
     return {
@@ -278,13 +308,18 @@ function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration):
   };
 }
 
-function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInfo {
+function extractClassInfo(
+  ctx: MacroContext,
+  node: ts.ClassDeclaration,
+  onFailure: ReflectFailure
+): TypeInfo {
   let type: ts.Type;
   let properties: ts.Symbol[];
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
     properties = ctx.typeChecker.getPropertiesOfType(type);
-  } catch {
+  } catch (error) {
+    onFailure("every field and method", error);
     return {
       name: node.name?.text ?? "Anonymous",
       kind: "class",
@@ -301,10 +336,12 @@ function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInf
     const decls = prop.getDeclarations();
     const decl = decls?.[0];
     let typeStr = "unknown";
+    // A method's metadata is read from its declaration, not this type.
+    const isMethodDecl = decl !== undefined && ts.isMethodDeclaration(decl);
     try {
       typeStr = fieldTypeString(ctx.typeChecker, prop, node);
-    } catch {
-      // Fall back to "unknown" for unresolvable types
+    } catch (error) {
+      if (!isMethodDecl) onFailure(`the type of '${prop.name}' (shown as "unknown")`, error);
     }
 
     // Check if it's a method
@@ -347,13 +384,18 @@ function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInf
   };
 }
 
-function extractTypeAliasInfo(ctx: MacroContext, node: ts.TypeAliasDeclaration): TypeInfo {
+function extractTypeAliasInfo(
+  ctx: MacroContext,
+  node: ts.TypeAliasDeclaration,
+  onFailure: ReflectFailure
+): TypeInfo {
   let type: ts.Type;
   let typeString: string;
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
     typeString = ctx.typeChecker.typeToString(type);
-  } catch {
+  } catch (error) {
+    onFailure("every field", error);
     return {
       name: node.name.text,
       kind: "type",
@@ -367,15 +409,16 @@ function extractTypeAliasInfo(ctx: MacroContext, node: ts.TypeAliasDeclaration):
     let properties: ts.Symbol[];
     try {
       properties = ctx.typeChecker.getPropertiesOfType(type);
-    } catch {
+    } catch (error) {
+      onFailure("every field", error);
       properties = [];
     }
     const fields: FieldInfo[] = properties.map((prop) => {
       let propTypeStr = "unknown";
       try {
         propTypeStr = fieldTypeString(ctx.typeChecker, prop, node);
-      } catch {
-        // Fall back to "unknown"
+      } catch (error) {
+        onFailure(`the type of '${prop.name}' (shown as "unknown")`, error);
       }
       return {
         name: prop.name,

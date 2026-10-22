@@ -179,7 +179,8 @@ export function clearResolverCache(): void {
 function isTypeMatch(
   typeChecker: ts.TypeChecker,
   fieldType: ts.Type,
-  candidateType: ts.Type | undefined
+  candidateType: ts.Type | undefined,
+  onFailure: ScannerCheckerFailure
 ): boolean {
   if (!candidateType) return false;
 
@@ -195,8 +196,8 @@ function isTypeMatch(
   // Bidirectional assignability = exact match (handles aliases like `type MyNum = number`)
   return (
     sameType(typeChecker, fieldType, candidateType) ||
-    isDefaultInstantiation(typeChecker, fieldType, candidateType) ||
-    isDefaultInstantiation(typeChecker, candidateType, fieldType)
+    isDefaultInstantiation(typeChecker, fieldType, candidateType, onFailure) ||
+    isDefaultInstantiation(typeChecker, candidateType, fieldType, onFailure)
   );
 }
 
@@ -238,10 +239,11 @@ function typeSymbol(checker: ts.TypeChecker, t: ts.Type): ts.Symbol | undefined 
  * defaults. Only for a generic whose type parameters ALL have defaults, and
  * only when every argument of `inst` is its parameter's default.
  */
-function isDefaultInstantiation(
+export function isDefaultInstantiation(
   checker: ts.TypeChecker,
   inst: ts.Type,
-  declared: ts.Type
+  declared: ts.Type,
+  onFailure: ScannerCheckerFailure
 ): boolean {
   const sym = declared.aliasSymbol ?? declared.symbol;
   if (!sym || inst === declared) return false;
@@ -265,8 +267,12 @@ function isDefaultInstantiation(
     return params.every((tp, i) =>
       sameType(checker, args[i], checker.getTypeFromTypeNode(tp.default!))
     );
-  } catch {
-    return false; // a declaration the checker can't resolve: no match
+  } catch (error) {
+    // A declaration the checker can't resolve: no match, so an instance
+    // declared for `Box` may not be found for `Box<string>`. Said, not
+    // swallowed (CLAUDE.md).
+    onFailure(decl!, error, `matching '${sym.name}' against its default type arguments`);
+    return false;
   }
 }
 
@@ -371,6 +377,8 @@ function enumTypeOf(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined {
  * expansion, and a failed one is the un-expanded stub, not an instance
  * (summon resolved to it and emitted `const s = m`).
  */
+const reportedScanFailures = new WeakMap<ts.SourceFile, Set<string>>();
+
 /**
  * The scanner's checker-failure callback for a resolution in `ctx`'s file: a
  * warning (CLAUDE.md: a caught checker failure that degrades must leave a
@@ -379,7 +387,14 @@ function enumTypeOf(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined {
  */
 export function scanWarnings(ctx: MacroContext): ScannerCheckerFailure {
   return (node, error, what) => {
-    const sf = node.getSourceFile?.();
+    const sf = isSyntheticNode(node) ? undefined : node.getSourceFile?.();
+    // Once per (node, what) per file: one resolution asks again for every
+    // candidate, and every resolution in the file builds its own callback.
+    let seen = reportedScanFailures.get(ctx.sourceFile);
+    if (!seen) reportedScanFailures.set(ctx.sourceFile, (seen = new Set()));
+    const key = `${sf?.fileName ?? ""}\0${sf ? node.pos : -1}\0${what}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     const here = sf === ctx.sourceFile && !isSyntheticNode(node);
     ctx.reportWarning(
       here ? node : ctx.sourceFile,
@@ -462,6 +477,7 @@ function resolveFromLocalScope(
     forTypeString,
     sourceFile.fileName,
     "local-scope",
+    scanWarnings(ctx),
     undefined,
     identityOnly
   );
@@ -948,6 +964,7 @@ function resolveFromImports(
       forTypeString,
       entry.resolvedPath,
       "module-scan",
+      scanWarnings(ctx),
       entry.specifier,
       identityOnly
     );
@@ -1150,7 +1167,10 @@ export function resolveFromTypeclassHome(
     scanWarnings(ctx)
   );
   if (
-    !scanned.some((i) => i.typeclassName === tcName && isTypeMatch(checker, forType, i.forType))
+    !scanned.some(
+      (i) =>
+        i.typeclassName === tcName && isTypeMatch(checker, forType, i.forType, scanWarnings(ctx))
+    )
   ) {
     try {
       scanned = scanner.scanNamespaceReexports(
@@ -1176,6 +1196,7 @@ export function resolveFromTypeclassHome(
     checker.typeToString(forType),
     entry.fileName,
     "module-scan",
+    scanWarnings(ctx),
     homePackage
   );
   return { result: pickResult(matches, tcName, forType), homePackage };
@@ -1193,6 +1214,7 @@ function filterMatches(
   forTypeString: string,
   sourceModule: string,
   source: ResolutionSource,
+  onFailure: ScannerCheckerFailure,
   importSpecifier?: string,
   identityOnly = false
 ): ResolvedInstance[] {
@@ -1202,7 +1224,7 @@ function filterMatches(
     if (inst.typeclassName !== tcName) continue;
 
     // Type-based matching: use ts.Type directly from scanner
-    if (!isTypeMatch(typeChecker, forType, inst.forType)) continue;
+    if (!isTypeMatch(typeChecker, forType, inst.forType, onFailure)) continue;
 
     // `identityOnly`: only an instance declared for this very type (by
     // symbol), not one that merely matches by assignability.
