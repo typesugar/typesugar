@@ -34,10 +34,13 @@ typesugar build [options]
 - `--no-cache` — Disable disk cache
 - `--strict` — Also type-check all of the expanded output: the code the build emits, as a
   program of its own. An error is reported at the line you wrote when the expansion
-  came from it, and otherwise (code a macro generated) at its position in the expanded
-  code (`typesugar expand <file>` shows it); one the source already reports is not
+  came from it; one in code a macro generated is reported at the nearest code of yours
+  around it (an `@impl` instance's missing member, at the instance), and only when a
+  macro generated the whole statement at its position in the expanded code
+  (`typesugar expand <file>` shows it); one the source already reports is not
   repeated. Experimental, off by default. Without it, `build` type-checks the expansion
-  only of the constructs whose bound names the source can't check (see `check` below).
+  only of the constructs whose bound names the source can't check and of `@impl`
+  instances (see `check` below).
 - `--strict=incremental` — Like `--strict`, but only re-checks changed files
 - `--show-suppressed-diagnostics` — Also print the diagnostics typesugar's
   suppression rules filtered out (audit mode)
@@ -135,7 +138,9 @@ typesugar check [options]
 > do-notation comprehension's steps, a fluent `match()` or `match:` case's pattern, an
 > `ensures:` block's `result`), their uses can't be checked as written: `check` and `build` type-check that
 > construct's expansion and report what is wrong inside it at the line you wrote
-> (`fetchAge(user.nme)` in a comprehension). Use `typesugar check`, not `tsc --noEmit`, as the
+> (`fetchAge(user.nme)` in a comprehension). The same goes for an `@impl` instance without a
+> type annotation, which meets its typeclass only in the expansion: a missing or misspelled
+> member is an error at the instance. The editor reports both too. Use `typesugar check`, not `tsc --noEmit`, as the
 > CI type-check: `tsc --noEmit` never runs the transformer, so it type-checks the
 > unexpanded source.
 >

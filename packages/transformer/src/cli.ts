@@ -31,7 +31,7 @@ import {
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { keepMacroReferencedImports } from "./keep-imports.js";
 import {
-  blindSpotRegions,
+  expandedCheckRegions,
   inBlindSpot,
   mapExpandedDiagnostics,
   typecheckExpandedProgram,
@@ -688,7 +688,9 @@ function build(options: CliOptions): void {
   // What the filter hid, by rule: where it hid the names a comprehension
   // (or `match()` chain, `match:` case, or `ensures:`) binds, the source-level check could not
   // check their uses, so the expansion of those constructs is type-checked
-  // too (strict-check.ts `blindSpotRegions`).
+  // too (strict-check.ts `blindSpotRegions`), as are `@impl` instances,
+  // checked against their typeclass only in the expansion
+  // (`instanceRegions`).
   const suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];
   const filterTsDiagnostics = (raw: readonly ts.Diagnostic[]): readonly ts.Diagnostic[] => {
     if (getDiagnosticSuppressionRules().length === 0) return raw;
@@ -734,7 +736,9 @@ function build(options: CliOptions): void {
     // the filter hid something, and then needs every changed file expanded
     // (a file's expansion can use what another's declares).
     const print =
-      emitDeclarations || Boolean(options.strict) || blindSpotRegions(suppressed).size > 0;
+      emitDeclarations ||
+      Boolean(options.strict) ||
+      expandedCheckRegions(suppressed, program).size > 0;
     for (const [f, text] of expandProgramSources(
       program,
       transformerFactory,
@@ -763,13 +767,16 @@ function build(options: CliOptions): void {
   // back to the source through the expansion's source map. By default, only
   // the constructs where the filter hid the names they bind, which the
   // source-level check therefore could not check the uses of (`user.nme` in
-  // a comprehension, where `user` is undeclared as written): their files are
-  // checked, and what lies inside them reported. A diagnostic with no source
-  // position (only in generated code) is dropped. `--strict` checks and
-  // reports every file, that one in the expanded text.
+  // a comprehension, where `user` is undeclared as written), and `@impl`
+  // instances (an unannotated one meets its typeclass only in the
+  // expansion's `satisfies`): their files are checked, and what lies inside
+  // them reported. A diagnostic in generated code is placed at the nearest
+  // node around it that came from the source (the `satisfies` at the
+  // instance); one whose whole statement is generated is dropped. `--strict`
+  // checks and reports every file, that one in the expanded text.
   let strictDiagnostics: ts.Diagnostic[] = [];
   let expandedPositionDiagnostics: ts.Diagnostic[] = [];
-  const blindSpots = blindSpotRegions(suppressed);
+  const blindSpots = expandedCheckRegions(suppressed, program);
   const expandedCheckFiles = options.strict
     ? undefined
     : new Set([...expandedSources.keys()].filter((f) => blindSpots.has(f)));
@@ -984,7 +991,7 @@ function watch(options: CliOptions): void {
     return sourceFile;
   };
   const expandedCheck = (program: ts.Program): ts.Diagnostic[] => {
-    const blindSpots = blindSpotRegions(suppressed);
+    const blindSpots = expandedCheckRegions(suppressed, program);
     // Files no longer in the program have no expansion that counts.
     const expanded = new Map([...expandedSources].filter(([f]) => program.getSourceFile(f)));
     const files = new Set([...expanded.keys()].filter((f) => blindSpots.has(f)));

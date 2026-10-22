@@ -17,20 +17,14 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { createRequire } from "module";
-import { fileURLToPath } from "url";
-
-const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const pluginPath = path.join(pkgRoot, "dist", "language-service.cjs");
-const hasBuild = fs.existsSync(pluginPath);
-const tsserverPath = path.join(
-  path.dirname(createRequire(import.meta.url).resolve("typescript")),
-  "tsserver.js"
-);
+import {
+  TsServer as Server,
+  hasPluginBuild as hasBuild,
+  writePluginProbe,
+} from "./tsserver-harness.js";
 
 const TSCONFIG = {
   compilerOptions: {
@@ -88,98 +82,10 @@ function dependency(project: string, name: string, macros: string, extra: object
   write(`${dir}/macros.cjs`, macros);
 }
 
-/** A tsserver session with the built plugin loaded globally. */
-class TsServer {
-  private child: ChildProcessWithoutNullStreams;
-  private seq = 0;
-  private buffer = Buffer.alloc(0);
-  private pending = new Map<number, (body: unknown) => void>();
-  readonly logFile: string;
-
+/** A tsserver session over the fixture root. */
+class TsServer extends Server {
   constructor(probeDir: string) {
-    this.logFile = path.join(root, "tsserver.log");
-    this.child = spawn(
-      process.execPath,
-      [
-        "--max-old-space-size=1024",
-        tsserverPath,
-        "--globalPlugins",
-        "typesugar-ls-probe",
-        "--pluginProbeLocations",
-        probeDir,
-        "--logVerbosity",
-        "normal",
-        "--logFile",
-        this.logFile,
-        "--disableAutomaticTypingAcquisition",
-      ],
-      { cwd: root, stdio: ["pipe", "pipe", "pipe"] }
-    );
-    this.child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
-    this.child.stderr.on("data", () => {});
-  }
-
-  private onData(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    for (;;) {
-      const header = this.buffer.indexOf("\r\n\r\n");
-      if (header < 0) return;
-      const length = Number(
-        /Content-Length: (\d+)/.exec(this.buffer.subarray(0, header).toString())?.[1]
-      );
-      const start = header + 4;
-      if (this.buffer.length < start + length) return;
-      const message = JSON.parse(this.buffer.subarray(start, start + length).toString()) as {
-        type: string;
-        request_seq?: number;
-        body?: unknown;
-      };
-      this.buffer = this.buffer.subarray(start + length);
-      if (message.type === "response" && message.request_seq !== undefined) {
-        this.pending.get(message.request_seq)?.(message.body);
-        this.pending.delete(message.request_seq);
-      }
-    }
-  }
-
-  private send(command: string, args: object): number {
-    const seq = ++this.seq;
-    this.child.stdin.write(
-      JSON.stringify({ seq, type: "request", command, arguments: args }) + "\n"
-    );
-    return seq;
-  }
-
-  open(file: string): void {
-    this.send("open", { file });
-  }
-
-  change(file: string, insertString: string): void {
-    this.send("change", { file, line: 1, offset: 1, endLine: 1, endOffset: 1, insertString });
-  }
-
-  /** The file's semantic diagnostics' text, once tsserver answers. */
-  diagnostics(file: string): Promise<string> {
-    const seq = this.send("semanticDiagnosticsSync", { file });
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`no answer for ${file}`)), 60_000);
-      this.pending.set(seq, (body) => {
-        clearTimeout(timer);
-        resolve(((body as Array<{ text: string }>) ?? []).map((d) => d.text).join("\n"));
-      });
-    });
-  }
-
-  async exit(): Promise<void> {
-    const closed = new Promise((resolve) => this.child.on("close", resolve));
-    this.send("exit", {});
-    const timer = setTimeout(() => this.child.kill("SIGKILL"), 5_000);
-    await closed;
-    clearTimeout(timer);
-  }
-
-  log(): string {
-    return fs.existsSync(this.logFile) ? fs.readFileSync(this.logFile, "utf-8") : "";
+    super(root, probeDir);
   }
 }
 
@@ -190,16 +96,7 @@ describe.skipIf(!hasBuild)("tsserver: a dependency is never the project (review 
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-tss-trust-")));
     // The config walk stops at the repository root.
     fs.mkdirSync(path.join(root, ".git"));
-    probeDir = path.join(root, "probe");
-    write("probe/node_modules/typesugar-ls-probe/package.json", {
-      name: "typesugar-ls-probe",
-      main: "index.js",
-    });
-    write(
-      "probe/node_modules/typesugar-ls-probe/index.js",
-      `const m = require(${JSON.stringify(pluginPath)});\n` +
-        `module.exports = typeof m === "function" ? m : m.default;\n`
-    );
+    probeDir = writePluginProbe(root);
   });
 
   afterAll(() => {

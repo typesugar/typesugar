@@ -21,7 +21,8 @@ VS Code's own TypeScript features become macro-aware: the plugin serves macro-ex
 TypeScript and maps positions back to your source.
 
 - **Diagnostics**: TypeScript errors and typesugar's macro errors (TS9xxx), at your source
-  positions, not in generated code
+  positions; an error TypeScript finds in code a macro generated is shown at the nearest code
+  of yours around it (an `@impl` instance's missing member, at the instance)
 - **Completions, hover, go-to-definition, references, rename, signature help** through macro
   expansions
 - **Quick fixes** that typesugar diagnostics suggest

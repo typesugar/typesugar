@@ -31,6 +31,7 @@ import {
 } from "@typesugar/core";
 import { decodeSourceMap } from "@typesugar/transformer-core";
 import { createExpandedHost } from "./declarations.js";
+import { enclosingSourceSite, sourceTokenLength } from "./generated-diagnostic-site.js";
 
 /**
  * Type-check `rootNames` with `expanded` (absolute path → expanded text of
@@ -163,6 +164,19 @@ function lowerBound(xs: readonly number[], x: number): number {
 }
 
 /**
+ * The source offset of the generated offset `pos` of `file`, as the editor's
+ * position mapper finds it (position-mapping-core.ts `toOriginal`): from the
+ * last mapped token at or before it on its line, the same distance on; none
+ * when nothing before it on its line is mapped.
+ */
+function toOriginal(fm: ExpandedFileMap, file: ts.SourceFile, pos: number): number | undefined {
+  const lineStart = pos - file.getLineAndCharacterOfPosition(pos).character;
+  const i = lowerBound(fm.generated, pos + 1) - 1;
+  if (i < 0 || fm.generated[i] < lineStart) return undefined;
+  return fm.original[i] + (pos - fm.generated[i]);
+}
+
+/**
  * Diagnostics of the expanded program (`typecheckExpandedProgram`), moved
  * from the expanded text to the program's own source files (`program`, the
  * one the expansion was made from), through each file's source map (`maps`,
@@ -173,10 +187,13 @@ function lowerBound(xs: readonly number[], x: number): number {
  * source token inside it (a generated call is placed at the user's
  * expression it wraps). A macro that gives its output the call site's
  * position (`setTextRange`) has its generated tokens placed there. A
- * diagnostic with no source token in its span exists only in generated code
- * and is `unmapped`: the caller decides (plain check drops it, `--strict`
- * reports it in the expanded text). One in a file the macros didn't change
- * is already at its source position.
+ * diagnostic with no source token in its span is in generated code: it is
+ * placed at the nearest node around it that has one (an `@impl` instance's
+ * generated `satisfies` is reported at the instance's initializer;
+ * generated-diagnostic-site.ts, which the editor uses too). Only one whose
+ * whole statement is generated is `unmapped`: the caller decides (plain
+ * check drops it, `--strict` reports it in the expanded text). One in a file
+ * the macros didn't change is already at its source position.
  */
 export function mapExpandedDiagnostics(
   diagnostics: readonly ts.Diagnostic[],
@@ -214,10 +231,27 @@ export function mapExpandedDiagnostics(
       continue;
     }
     const fm = fileMapOf(resolved, original);
-    const length = Math.max(d.length ?? 0, 1);
-    const i = fm ? lowerBound(fm.generated, d.start) : -1;
-    if (!fm || i >= fm.generated.length || fm.generated[i] >= d.start + length) {
+    if (!fm) {
       unmapped.push(d);
+      continue;
+    }
+    const length = Math.max(d.length ?? 0, 1);
+    const i = lowerBound(fm.generated, d.start);
+    if (i >= fm.generated.length || fm.generated[i] >= d.start + length) {
+      // Only generated code in its span: at the nearest node around it that
+      // came from the source (the language service does the same).
+      const file = d.file;
+      const start = enclosingSourceSite(ts, file, d.start, (s) => toOriginal(fm, file, s));
+      if (start === undefined) {
+        unmapped.push(d);
+        continue;
+      }
+      mapped.push({
+        ...d,
+        file: original,
+        start,
+        length: sourceTokenLength(original.text, start),
+      });
       continue;
     }
     const start = fm.original[i];
@@ -366,6 +400,59 @@ export function blindSpotRegions(
     const list = regions.get(key) ?? [];
     list.push([first.getStart(sf), last.end]);
     regions.set(key, list);
+  }
+  return regions;
+}
+
+/** The JSDoc tags that make a declaration a typeclass instance (`@impl` and its alias). */
+const INSTANCE_TAGS = new Set(["impl", "instance"]);
+
+/**
+ * For each source file of `program`, the spans of its `@impl` (`@instance`)
+ * instance declarations: an unannotated instance is checked against its
+ * typeclass only in the expansion, which `satisfies` the typeclass's expanded
+ * type (typeclass.ts `asOpenSatisfiesTarget`), so the source-level check
+ * can't see a missing or misspelled member. By syntax: which JSDoc tag a
+ * statement has (the macro itself decides, by symbol, what the instance is
+ * for).
+ */
+export function instanceRegions(program: ts.Program): Map<string, Array<[number, number]>> {
+  const regions = new Map<string, Array<[number, number]>>();
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile || !/@(impl|instance)\b/.test(sf.text)) continue;
+    const spans: Array<[number, number]> = [];
+    const visit = (statements: readonly ts.Statement[]): void => {
+      for (const st of statements) {
+        if (ts.isModuleDeclaration(st)) {
+          let body = st.body;
+          while (body && ts.isModuleDeclaration(body)) body = body.body;
+          if (body && ts.isModuleBlock(body)) visit(body.statements);
+          continue;
+        }
+        if (!ts.isVariableStatement(st)) continue;
+        if (ts.getJSDocTags(st).some((t) => INSTANCE_TAGS.has(t.tagName.text))) {
+          spans.push([st.getStart(sf), st.end]);
+        }
+      }
+    };
+    visit(sf.statements);
+    if (spans.length > 0) regions.set(path.resolve(sf.fileName), spans);
+  }
+  return regions;
+}
+
+/**
+ * Where the expanded check reports, by default: the constructs whose bound
+ * names the suppression filter hid ({@link blindSpotRegions}), and the
+ * `@impl` instances ({@link instanceRegions}).
+ */
+export function expandedCheckRegions(
+  suppressed: ReadonlyArray<{ diagnostic: ts.Diagnostic; rule: string }>,
+  program: ts.Program
+): Map<string, Array<[number, number]>> {
+  const regions = blindSpotRegions(suppressed);
+  for (const [file, spans] of instanceRegions(program)) {
+    regions.set(file, [...(regions.get(file) ?? []), ...spans]);
   }
   return regions;
 }

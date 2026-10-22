@@ -234,7 +234,7 @@ const describe = (id: number) =>
   yield: `${user.name} is ${age}`;
 ```
 
-The editor reports it too. The expansion is checked only where the code as written has bound names (the comprehensions, fluent `match()` chains, `match:` switches and `ensures:` blocks of the file), and only what lies inside them is reported: an error in code the macro generated, with no line of yours to point at, is left out. `typesugar check --strict` checks the whole expansion and reports those too, in the expanded code.
+The editor reports it too. The expansion is checked only where the code as written has bound names (the comprehensions, fluent `match()` chains, `match:` switches and `ensures:` blocks of the file, and `@impl` instances), and only what lies inside them is reported. An error in code the macro generated is reported at the nearest code of yours around it; one in a statement the macro generated whole, with no line of yours to point at, is left out. `typesugar check --strict` checks the whole expansion and reports those too, in the expanded code.
 
 A bound name that is also the name of an outer declaration (a DOM global such as `name` or `top`, or a variable of yours) is checked as that declaration before expansion. The errors that come from its type there are hidden too, on the name itself or a member/call chain that starts at it (`name.trim()`).
 

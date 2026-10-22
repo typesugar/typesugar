@@ -180,10 +180,18 @@ export const typoFunctor = {
 };
 `,
       });
-      const check = cli(dir, "check", "--strict");
-      expect(check.out).toMatch(/inst\.ts\(\d+,\d+\): error TS1360/);
-      expect(check.out).toMatch(/Property 'map' is missing/);
-      expect(check.status).not.toBe(0);
+      // Every mode reports it, at the instance as written (its initializer,
+      // line 3), not in the expanded text: the TS1360 is at the generated
+      // `satisfies`, which has no source position of its own. Plain `check`
+      // and `build` used to drop it (the instance built, and threw at run
+      // time); `--strict` reported it at the expansion's line 5.
+      for (const args of [["check", "--strict"], ["check"], ["build"]]) {
+        const r = cli(dir, ...args);
+        expect(r.out, args.join(" ")).toMatch(/src[\\/]inst\.ts\(3,28\): error TS1360/);
+        expect(r.out, args.join(" ")).toMatch(/Property 'map' is missing/);
+        expect(r.out.match(/error TS1360/g), args.join(" ")).toHaveLength(1);
+        expect(r.status, args.join(" ")).not.toBe(0);
+      }
     }
   );
 
