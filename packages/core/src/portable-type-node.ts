@@ -243,3 +243,56 @@ function relativeSpecifier(from: ts.SourceFile, to: string, program: ts.Program)
     relative + sourceSpecifierExtension(to.replace(/\\/g, "/"), style, program.getCompilerOptions())
   );
 }
+
+/**
+ * Calls `resolves` with the leftmost identifier of every name `node` refers
+ * to (a type reference, a `typeof` query, an `extends` expression), with the
+ * meaning to resolve it in (`Namespace` for the left of a qualified name),
+ * and returns whether it accepted all of them; false at the first it doesn't.
+ *
+ * Names the node binds itself (the type parameters of a function type, a
+ * mapped type's key, an `infer`) are not passed: they resolve within the
+ * node. `import("…")` types are module-qualified, so only their type
+ * arguments are visited.
+ *
+ * For a caller that writes `node` somewhere and needs each name it uses to
+ * mean the right thing there (resolved by the checker, compared by symbol).
+ */
+export function everyTypeNodeName(
+  node: ts.TypeNode,
+  resolves: (id: ts.Identifier, meaning: ts.SymbolFlags) => boolean
+): boolean {
+  const bound = new Set<string>();
+  const collectBound = (n: ts.Node): void => {
+    if (ts.isTypeParameterDeclaration(n)) bound.add(n.name.text);
+    ts.forEachChild(n, collectBound);
+  };
+  collectBound(node);
+  const check = (name: ts.EntityName | ts.Expression, meaning: ts.SymbolFlags): boolean => {
+    let id: ts.Node = name;
+    while (ts.isQualifiedName(id) || ts.isPropertyAccessExpression(id)) {
+      id = ts.isQualifiedName(id) ? id.left : id.expression;
+      meaning = ts.SymbolFlags.Namespace | (meaning & ts.SymbolFlags.Value);
+    }
+    if (!ts.isIdentifier(id)) return false;
+    return bound.has(id.text) || resolves(id, meaning);
+  };
+  let ok = true;
+  const visit = (n: ts.Node): void => {
+    if (!ok) return;
+    if (ts.isImportTypeNode(n)) {
+      n.typeArguments?.forEach(visit);
+      return;
+    }
+    if (ts.isTypeReferenceNode(n)) {
+      ok = check(n.typeName, ts.SymbolFlags.Type);
+    } else if (ts.isTypeQueryNode(n)) {
+      ok = check(n.exprName, ts.SymbolFlags.Value);
+    } else if (ts.isExpressionWithTypeArguments(n)) {
+      ok = check(n.expression, ts.SymbolFlags.Type);
+    }
+    if (ok) ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return ok;
+}

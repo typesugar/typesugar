@@ -172,4 +172,38 @@ describe.skipIf(!hasBuild)("tsserver: a dependency is never the project (review 
       await server.exit();
     }
   }, 120_000);
+
+  it("a workspace package opened through its node_modules symlink is the project (review 9)", async () => {
+    // Decided by real path, as config-loader and the macro loader decide it:
+    // the literal path was tested first, so a file opened as
+    // node_modules/@acme/lib/src/... had its project skipped.
+    write("ws/libs/lib/package.json", { name: "@acme/lib", private: true, type: "module" });
+    write("ws/libs/lib/tsconfig.json", TSCONFIG);
+    write(
+      "ws/libs/lib/src/tc.ts",
+      `/** @typeclass */\nexport interface Show<A> {\n  show(a: A): string;\n}\n`
+    );
+    write(
+      "ws/libs/lib/src/inst.ts",
+      `import type { Show } from "./tc.js";\n/** @impl Show<Date> */\nexport const showDate = { shwo: (d: Date) => d.toISOString() };\n`
+    );
+    fs.mkdirSync(path.join(root, "ws/app/node_modules/@acme"), { recursive: true });
+    fs.symlinkSync(
+      path.join(root, "ws/libs/lib"),
+      path.join(root, "ws/app/node_modules/@acme/lib"),
+      "dir"
+    );
+    const viaLink = path.join(root, "ws/app/node_modules/@acme/lib/src/inst.ts");
+
+    const server = new TsServer(probeDir);
+    try {
+      server.open(viaLink);
+      // The expansion's satisfies is what reports the misspelled member: the
+      // plugin served this project.
+      expect(await server.diagnostics(viaLink)).toMatch(/TS1360|Property 'show' is missing/);
+    } finally {
+      await server.exit();
+    }
+    expect(server.log()).not.toMatch(/Skipping typesugar plugin for a project inside node_modules/);
+  }, 120_000);
 });

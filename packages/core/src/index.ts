@@ -319,6 +319,7 @@ export {
 export {
   typeToPortableTypeNode,
   portableTypeNode,
+  everyTypeNodeName,
   PORTABLE_NODE_BUILDER_FLAGS,
   sourceSpecifierExtension,
   relativeImportStyleOf,

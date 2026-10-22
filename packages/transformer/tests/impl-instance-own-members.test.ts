@@ -227,3 +227,112 @@ console.log(JSON.stringify(flatMapEither.orElse({ left: "e" }, () => ({ right: 1
     }
   );
 });
+
+describe("@impl on an unannotated instance over a plain type", () => {
+  const SHOW = `/** @typeclass */
+export interface Show<A> {
+  show(a: A): string;
+}
+`;
+
+  it.skipIf(!fs.existsSync(cliPath))(
+    "reports a missing or misspelled member at the instance (review 9)",
+    () => {
+      // Only HKT instances got the satisfies: `shwo` for `show` built clean,
+      // the editor was clean, and summon<Show<Date>>().show(...) threw.
+      const dir = project({
+        "src/tc.ts": SHOW,
+        "src/inst.ts": `import type { Show } from "./tc.js";
+/** @impl Show<Date> */
+export const showDate = { shwo: (d: Date) => d.toISOString() };
+`,
+      });
+      for (const args of [["check", "--strict"], ["check"], ["build"]]) {
+        const r = cli(dir, ...args);
+        expect(r.out, args.join(" ")).toMatch(/src[\\/]inst\.ts\(3,25\): error TS1360/);
+        expect(r.out, args.join(" ")).toMatch(/Property 'show' is missing/);
+        expect(r.out.match(/error TS1360/g), args.join(" ")).toHaveLength(1);
+        expect(r.status, args.join(" ")).not.toBe(0);
+      }
+    }
+  );
+
+  it.skipIf(!fs.existsSync(cliPath))("keeps the instance's own type and members", () => {
+    const dir = project({
+      "src/tc.ts":
+        SHOW +
+        `/** @typeclass */
+export interface Pretty<A> {
+  pretty(a: A): string;
+  line(a: A): string;
+}
+`,
+      "src/inst.ts": `import type { Show, Pretty } from "./tc.js";
+export interface P { x: number }
+/** @impl Show<P> */
+export const showP = {
+  _tag: "P" as const,
+  show: (p: P): string => \`P(\${p.x})\`,
+};
+/** @impl Pretty<P> */
+export const prettyP = {
+  pretty(p: P): string {
+    return "<" + this.line(p) + ">";
+  },
+  line(p: P): string {
+    return p.x.toFixed(1);
+  },
+};
+`,
+      "src/main.ts": `import { showP, prettyP } from "./inst.js";
+const tag: "P" = showP._tag;
+console.log(tag, showP.show({ x: 1 }), prettyP.pretty({ x: 2 }));
+`,
+    });
+    const check = cli(dir, "check", "--strict");
+    expect(check.out).toBe("");
+    expect(check.status).toBe(0);
+    const build = cli(dir, "build");
+    expect(build.out).toBe("");
+    expect(build.status).toBe(0);
+    const dts = fs.readFileSync(path.join(dir, "out", "inst.d.ts"), "utf-8");
+    expect(dts).toMatch(/_tag: "P"/);
+    const js = fs.readFileSync(path.join(dir, "out", "inst.js"), "utf-8");
+    expect(js).not.toMatch(/satisfies/);
+    const run = spawnSync(process.execPath, [path.join(dir, "out", "main.js")], {
+      encoding: "utf-8",
+    });
+    expect(run.stdout.trim()).toBe("P P(1) <2.0>");
+  });
+
+  it.skipIf(!fs.existsSync(cliPath))(
+    "adds nothing it can't write: a typeclass not in scope, a free type parameter",
+    () => {
+      // The tag names the typeclass by text: when that name isn't a type at
+      // the instance (not imported), or the tag has a name of its own (`A`),
+      // a `satisfies` would be an error the source doesn't have.
+      const dir = project({
+        "src/tc.ts":
+          SHOW +
+          `/** @typeclass */
+export interface Two<A, B> {
+  pair(a: A, b: B): [A, B];
+}
+`,
+        "src/inst.ts": `import type { Two } from "./tc.js";
+/** @impl Show<number> */
+export const showNumber = { show: (n: number) => String(n) };
+/** @impl Two<number, A> */
+export const twoNumber = { pair: <A>(a: number, b: A): [number, A] => [a, b] };
+`,
+      });
+      for (const args of [["check", "--strict"], ["check"], ["build"]]) {
+        const r = cli(dir, ...args);
+        expect(r.out, args.join(" ")).not.toMatch(/error/);
+        expect(r.status, args.join(" ")).toBe(0);
+      }
+      const expanded = cli(dir, "expand", "src/inst.ts");
+      expect(expanded.out).not.toMatch(/satisfies/);
+    }
+  );
+});

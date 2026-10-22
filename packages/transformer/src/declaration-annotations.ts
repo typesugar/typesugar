@@ -40,6 +40,7 @@
 
 import * as ts from "typescript";
 import {
+  everyTypeNodeName,
   getAllTypeRewrites,
   isSyntheticNode,
   typeRewriteEntryCoversFile,
@@ -390,13 +391,6 @@ class Annotator {
  * module-qualified and portable-type-node.ts has made them valid already.
  */
 function nameableAt(checker: ts.TypeChecker, node: ts.TypeNode, declaration: ts.Node): boolean {
-  const bound = new Set<string>();
-  const collectBound = (n: ts.Node): void => {
-    if (ts.isTypeParameterDeclaration(n)) bound.add(n.name.text);
-    ts.forEachChild(n, collectBound);
-  };
-  collectBound(node);
-
   const ownTypeParameters = new Map<string, ts.Symbol>();
   const typeParameterHost = ts.isFunctionLike(declaration) ? declaration : undefined;
   for (const tp of typeParameterHost?.typeParameters ?? []) {
@@ -419,57 +413,15 @@ function nameableAt(checker: ts.TypeChecker, node: ts.TypeNode, declaration: ts.
       : undefined;
   const self = selfNames ? canonical(checker, selfNames) : undefined;
 
-  const resolves = (id: ts.Identifier, meaning: ts.SymbolFlags): boolean => {
-    const name = id.text;
-    if (bound.has(name)) return true;
+  return everyTypeNodeName(node, (id, meaning) => {
     const resolved =
-      ownTypeParameters.get(name) ?? checker.resolveName(name, scope, meaning, false);
+      ownTypeParameters.get(id.text) ?? checker.resolveName(id.text, scope, meaning, false);
     if (!resolved) return false;
     const actual = canonical(checker, resolved);
     if (self && actual === self) return false;
     const meant = (id as { symbol?: ts.Symbol }).symbol;
     return !meant || canonical(checker, meant) === actual;
-  };
-
-  let ok = true;
-  const visit = (n: ts.Node): void => {
-    if (!ok) return;
-    if (ts.isImportTypeNode(n)) {
-      n.typeArguments?.forEach(visit);
-      return;
-    }
-    if (ts.isTypeReferenceNode(n)) {
-      const qualified = !ts.isIdentifier(n.typeName);
-      if (
-        !resolves(
-          leftmostIdentifier(n.typeName),
-          qualified ? ts.SymbolFlags.Namespace : ts.SymbolFlags.Type
-        )
-      ) {
-        ok = false;
-        return;
-      }
-    } else if (ts.isTypeQueryNode(n)) {
-      if (
-        !resolves(leftmostIdentifier(n.exprName), ts.SymbolFlags.Value | ts.SymbolFlags.Namespace)
-      ) {
-        ok = false;
-        return;
-      }
-    } else if (ts.isExpressionWithTypeArguments(n) && ts.isIdentifier(n.expression)) {
-      if (!resolves(n.expression, ts.SymbolFlags.Type | ts.SymbolFlags.Namespace)) {
-        ok = false;
-        return;
-      }
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(node);
-  return ok;
-}
-
-function leftmostIdentifier(name: ts.EntityName): ts.Identifier {
-  return ts.isIdentifier(name) ? name : leftmostIdentifier(name.left);
+  });
 }
 
 /** `symbol` with aliases followed and a local symbol mapped to its export. */

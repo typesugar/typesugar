@@ -102,4 +102,55 @@ export const optionFunctor = {
       await server.exit();
     }
   }, 120_000);
+
+  it("so is a misspelled member of an instance over a plain type (Show<Date>)", async () => {
+    // review 9: only an HKT instance got the `satisfies`, so `shwo` for
+    // `show` was reported nowhere and `summon<Show<Date>>().show(...)` threw.
+    write("plain/package.json", { name: "plain", private: true, type: "module" });
+    write("plain/tsconfig.json", {
+      compilerOptions: {
+        target: "ES2022",
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        strict: true,
+        skipLibCheck: true,
+        noEmit: true,
+        types: [],
+      },
+      include: ["src"],
+    });
+    write(
+      "plain/src/tc.ts",
+      `/** @typeclass */\nexport interface Show<A> {\n  show(a: A): string;\n}\n`
+    );
+    const typo = write(
+      "plain/src/typo.ts",
+      `import type { Show } from "./tc.js";
+/** @impl Show<Date> */
+export const showDate = { shwo: (d: Date) => d.toISOString() };
+`
+    );
+    const valid = write(
+      "plain/src/valid.ts",
+      `import type { Show } from "./tc.js";
+/** @impl Show<number> */
+export const showNumber = { show: (n) => n.toFixed(1), extra: 1 };
+export const s: string = showNumber.show(1);
+`
+    );
+    const server = new TsServer(root, probeDir);
+    try {
+      server.open(typo);
+      const diags = await server.semanticDiagnostics(typo);
+      expect(diags.map((d) => d.code)).toEqual([1360]);
+      expect(diags[0].text).toMatch(/Property 'show' is missing/);
+      expect(diags[0].start).toEqual({ line: 3, offset: 25 });
+
+      // The typeclass types the method's parameter: no TS7006 in the editor.
+      server.open(valid);
+      expect(await server.semanticDiagnostics(valid)).toEqual([]);
+    } finally {
+      await server.exit();
+    }
+  }, 120_000);
 });

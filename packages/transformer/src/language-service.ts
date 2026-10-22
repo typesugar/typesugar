@@ -41,7 +41,13 @@ import {
   setComptimeEvaluationEnabled,
 } from "@typesugar/macros";
 import { hashContent } from "./cache.js";
-import { enclosingSourceSite, sourceTokenLength } from "./generated-diagnostic-site.js";
+import {
+  buildFileMap,
+  enclosingSourceSite,
+  hasSourceTokenIn,
+  sourceTokenLength,
+  type ExpandedFileMap,
+} from "./generated-diagnostic-site.js";
 import {
   mapTextSpanToOriginal,
   mapSourceSpanToOriginal,
@@ -224,17 +230,25 @@ function lineAndCharacterOf(lineStarts: number[], position: number): ts.LineAndC
 
 /**
  * Is this tsserver project a dependency's: its tsconfig (or, for a
- * non-configured project, its directory) inside a node_modules directory,
- * by path or by real path?
+ * non-configured project, its directory) inside a node_modules directory?
+ *
+ * Decided by real path only, as config-loader.ts and the macro loader decide
+ * what is project code: a workspace package opened through its node_modules
+ * symlink (`app/node_modules/@acme/lib` → `libs/lib`) is the project, and a
+ * dependency reached through a link from outside node_modules is still a
+ * dependency (review 9: the literal path was tested first, so the
+ * workspace package's project was skipped). A path that doesn't exist on disk
+ * (an inferred project's name) is read as written.
  */
 function isDependencyProject(projectName: string): boolean {
   const inNodeModules = (p: string) => p.split(/[\\/]/).includes("node_modules");
-  if (inNodeModules(projectName)) return true;
+  let real = projectName;
   try {
-    return inNodeModules(fs.realpathSync(projectName));
+    real = fs.realpathSync(projectName);
   } catch {
-    return false;
+    // not on disk: as written
   }
+  return inNodeModules(real);
 }
 
 function init(modules: { typescript: typeof ts }) {
@@ -714,7 +728,15 @@ function init(modules: { typescript: typeof ts }) {
     ): ts.Diagnostic | null {
       if (diag.start === undefined) return diag;
 
-      const originalStart = mapper.toOriginal(diag.start);
+      // In generated code when no source token starts in its span, as the
+      // CLI's expanded check decides (generated-diagnostic-site.ts): the
+      // mapper interpolates along a line, so a `satisfies` an `@impl` adds
+      // after a one-line initializer mapped to the end of that line.
+      const isError =
+        diag.category === tsModule.DiagnosticCategory.Error ||
+        diag.category === tsModule.DiagnosticCategory.Warning;
+      const generated = attribute && isError && inGeneratedCode(fileName, diag.start, diag.length);
+      const originalStart = generated ? null : mapper.toOriginal(diag.start);
 
       if (originalStart === null) {
         if (
@@ -755,6 +777,26 @@ function init(modules: { typescript: typeof ts }) {
         start: originalStart,
         length: originalLength,
       };
+    }
+
+    /** Each expanded file's mapped tokens (generated-diagnostic-site.ts), per transform result. */
+    const fileMaps = new WeakMap<TransformResult, ExpandedFileMap | null>();
+
+    /** Is the span at `start` of `fileName`'s expanded text all generated code? */
+    function inGeneratedCode(fileName: string, start: number, length: number | undefined): boolean {
+      const result = expandedResult(fileName);
+      if (!result?.sourceMap) return false;
+      let fm = fileMaps.get(result);
+      if (fm === undefined) {
+        try {
+          fm = buildFileMap(result.sourceMap, result.code, result.original);
+        } catch (e) {
+          log(`source map of ${path.basename(fileName)} unreadable: ${String(e)}`);
+          fm = null;
+        }
+        fileMaps.set(result, fm);
+      }
+      return fm !== null && !hasSourceTokenIn(fm, start, length);
     }
 
     /**

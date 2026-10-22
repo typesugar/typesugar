@@ -67,6 +67,8 @@ import {
   DeriveVariantInfo,
   parseTypeInstantiation,
   isSyntheticNode,
+  everyTypeNodeName,
+  stripPositions,
 } from "@typesugar/core";
 import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
@@ -1965,6 +1967,33 @@ export const implAttribute = defineAttributeMacro({
           updatedTarget = newDecl;
         }
       }
+    } else if (decl && !decl.type && decl.initializer) {
+      // An unannotated instance of a typeclass over a plain type (`@impl
+      // Show<Date>`) `satisfies` the type its tag names, as an HKT instance
+      // satisfies its expansion (above): a missing or misspelled member is an
+      // error at the instance (review 9: `shwo` for `show` built clean and
+      // `summon<Show<Date>>().show(...)` threw at run time), its methods'
+      // parameters are typed by the typeclass's, and it keeps its own type.
+      const tagType = implTagTypeNode(ctx, tcName, typeName, decl);
+      if (tagType) {
+        const newDecl = factory.updateVariableDeclaration(
+          decl,
+          decl.name,
+          decl.exclamationToken,
+          undefined,
+          factory.createSatisfiesExpression(
+            parenthesizeForSatisfies(factory, decl.initializer),
+            asOpenSatisfiesTarget(factory, tagType)
+          )
+        );
+        updatedTarget = ts.isVariableStatement(target)
+          ? factory.updateVariableStatement(
+              target,
+              target.modifiers,
+              factory.updateVariableDeclarationList(target.declarationList, [newDecl])
+            )
+          : newDecl;
+      }
     }
 
     // Notify coverage system that this type has an instance
@@ -2197,6 +2226,69 @@ function asOpenSatisfiesTarget(factory: ts.NodeFactory, t: ts.TypeNode): ts.Type
 }
 
 /**
+ * The type an `@impl` tag names (`Show<Date>` for `/** @impl Show<Date> *\/`),
+ * as a type node for an unannotated instance declared by `decl` to
+ * `satisfies`; undefined when it can't be written there.
+ *
+ * The tag is a JSDoc comment, which TypeScript keeps as text, so its type is
+ * parsed from the text the user wrote (CLAUDE.md lists this). It is written
+ * only when every name in it resolves at the instance (`checker.resolveName`
+ * from `decl`) and the typeclass's name is a type there (so a tag naming a
+ * typeclass the file doesn't import, or a free type parameter, as a
+ * multi-parameter tag's `A` in `Destructure<typeof Some, Option<A>, A>`, adds
+ * nothing rather than an error the source doesn't have), and the typeclass is
+ * named plainly (`Show`, not `geo.Show`). Not for a synthetic declaration,
+ * which the checker can't resolve from.
+ */
+function implTagTypeNode(
+  ctx: MacroContext,
+  tcName: string,
+  typeName: string,
+  decl: ts.VariableDeclaration
+): ts.TypeNode | undefined {
+  if (isSyntheticNode(decl)) return undefined;
+  const parsed = ts.createSourceFile(
+    "__impl_tag__.ts",
+    `type __T = ${tcName}<${typeName}>;`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const diagnostics = (parsed as unknown as { parseDiagnostics?: unknown[] }).parseDiagnostics;
+  const [alias, ...rest] = parsed.statements;
+  if (
+    (diagnostics && diagnostics.length > 0) ||
+    rest.length > 0 ||
+    !alias ||
+    !ts.isTypeAliasDeclaration(alias) ||
+    !ts.isTypeReferenceNode(alias.type)
+  ) {
+    return undefined;
+  }
+  const node = alias.type;
+  // A plain typeclass name (a qualified `geo.Show` is left alone).
+  const typeclassName = node.typeName;
+  if (!ts.isIdentifier(typeclassName)) return undefined;
+  const checker = ctx.typeChecker;
+  try {
+    const resolves = everyTypeNodeName(node, (id, meaning) => {
+      const symbol = checker.resolveName(id.text, decl, meaning, false);
+      if (!symbol) return false;
+      // Whatever the typeclass's name means here must be a type.
+      return id !== typeclassName || followTypeclassSymbol(checker, symbol) !== undefined;
+    });
+    return resolves ? stripPositions(node) : undefined;
+  } catch (e) {
+    ctx.reportWarning(
+      decl,
+      `@impl ${tcName}<${typeName}>: the instance's members are not checked against the ` +
+        `typeclass, because resolving the tag's names failed: ${e instanceof Error ? e.message : String(e)}`
+    );
+    return undefined;
+  }
+}
+
+/**
  * Generate an expanded concrete type for an HKT typeclass instance.
  *
  * For example, Monad<Option> expands to:
@@ -2255,7 +2347,10 @@ function generateHKTExpandedType(
 
     for (const stmt of tempFile.statements) {
       if (ts.isTypeAliasDeclaration(stmt)) {
-        return stmt.type;
+        // Positions stripped: the printer took the temp file's offsets as the
+        // real file's and printed the comments it found there (the `@impl`
+        // tag inside the expanded type).
+        return stripPositions(stmt.type);
       }
     }
   } catch {
