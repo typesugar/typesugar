@@ -598,6 +598,8 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
    * @param mainBlock - The main labeled statement (e.g., `let: { ... }`, or
    *   `match: switch (...) { ... }` for a `statement: "switch"` macro)
    * @param continuation - The optional continuation labeled statement (e.g., `yield: { ... }`)
+   * @returns The expansion. On failure, report the error and return `mainBlock`
+   *   unchanged: the transformer then keeps the continuation after it.
    */
   expand(
     ctx: MacroContext,

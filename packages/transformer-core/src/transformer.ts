@@ -887,6 +887,21 @@ class MacroTransformer {
             );
             let expanded = Array.isArray(result) ? result : [result];
 
+            // A macro that could not expand returns its main block unchanged,
+            // after reporting why (let:/par: do this on every failure path).
+            // The continuation was consumed above: put it back after the
+            // block, or the output silently loses it, and the language
+            // service, which checks the output, never reports the errors in
+            // it (an undefined name in `yield:`) that `check` does. A held
+            // `const x = let` goes back in front, in its original place.
+            if (expanded.includes(stmt)) {
+              if (pendingVarDecl) {
+                expanded = [pendingVarDecl.stmt, ...expanded];
+                pendingVarDecl = undefined;
+              }
+              if (continuation) expanded = [...expanded, continuation];
+            }
+
             // If there's a pending `const x = let`, merge the expanded expression
             // into a variable declaration: `const x = <expanded expression>;`
             if (pendingVarDecl && expanded.length === 1 && ts.isExpressionStatement(expanded[0])) {

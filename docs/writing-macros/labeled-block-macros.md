@@ -121,6 +121,10 @@ function blockOf(ctx: MacroContext, labeled: ts.LabeledStatement): ts.Block | un
 }
 ```
 
+When a macro can't expand, it reports why and returns `mainBlock` unchanged, as the examples do.
+The transformer then keeps the block and its continuation (`recover: { ... }`, `yield: ...`) in
+the output as written, so the editor and `typesugar check` still report errors inside them.
+
 ## Tutorial: Creating `measure:`
 
 A block that measures execution time:
