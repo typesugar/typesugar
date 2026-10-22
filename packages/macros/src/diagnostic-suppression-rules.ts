@@ -39,9 +39,10 @@ import {
   globalRegistry,
   isJSDocTagAtLineStart,
   deriveTagNames,
+  receiverMatchesFirstParam,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
-import { getOperatorCandidates } from "./typeclass-index.js";
+import { getOperatorCandidates, getTypeclassesDeclaringMethod } from "./typeclass-index.js";
 import { getOperatorString } from "./operators.js";
 import { resolveInstance } from "./instance-resolver.js";
 import { deriveNamesOf } from "./instance-scanner.js";
@@ -54,12 +55,17 @@ import { hasGenericDerivation } from "./auto-derive.js";
  * that the transformer will rewrite at emit time. Checks both:
  * - The standalone extension registry (from `registerExtensions` / `@extension`)
  * - Import-scoped resolution (any imported function whose name matches and whose
- *   first parameter accepts the receiver type)
+ *   first parameter accepts the receiver type, generic parameters erased to
+ *   their constraints as the transformer matches them)
+ *
+ * Also suppresses TS7006 on an untyped parameter of a callback passed to such
+ * a call (`eff.map((x) => x * 2)`), which has no contextual type until the
+ * call is rewritten.
  */
 export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
   return {
     name: "ExtensionMethodCall",
-    errorCodes: [2339],
+    errorCodes: [2339, 7006],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
@@ -69,6 +75,10 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
     ): boolean {
       if (diagnostic.start === undefined || diagnostic.length === undefined) {
         return false;
+      }
+
+      if (diagnostic.code === 7006) {
+        return isCallbackOfRewrittenCall(diagnostic, checker, sourceFile, context);
       }
 
       // Extract the property name from the diagnostic message.
@@ -89,67 +99,128 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
       // Verify the property name matches what the diagnostic reports
       if (propAccess.name.text !== propertyName) return false;
 
-      const receiver = propAccess.expression;
-      let receiverType: ts.Type;
-      try {
-        receiverType = checker.getTypeAtLocation(receiver);
-      } catch (e) {
-        if (isDiagnosticSuppressionAuditEnabled()) {
-          console.error(`[DiagnosticSuppression] ExtensionMethodCall: ${e}`);
-        }
-        return false;
-      }
-
-      const typeName = checker.typeToString(receiverType);
-
-      // 1. Check standalone extension registry (from registerExtensions / @extension)
-      if (findInRegistry(propertyName, typeName, receiverType, checker)) {
-        return true;
-      }
-
-      // 2. Import-scoped resolution: scan imports for a matching function
-      if (resolveExtensionFromImports(sourceFile, propertyName, receiverType, checker)) {
-        return true;
-      }
-
-      // 3. Typeclass instance method (derived / @instance): e.g. `p.equals(q)` is
-      // rewritten by the transformer to `Point.Eq.equals(p, q)`. Suppress the
-      // pre-transform TS2339 when the method belongs to a typeclass whose
-      // method syntax is active here (as the rewrite requires) and that the
-      // receiver's type derives.
-      if (
-        resolveTypeclassInstanceMethod(
-          propertyName,
-          typeName,
-          receiverType,
-          checker,
-          sourceFile,
-          context?.program
-        )
-      ) {
-        return true;
-      }
-
-      // 4. Typeclass instance method over a PRIMITIVE: e.g. `n.equals(m)` for
-      // `n: number` is rewritten to `eqNumber.equals(n, m)` when Eq method
-      // syntax is active AND an Eq<number> instance is in scope; decided by
-      // the same scope resolution the rewrite uses.
-      if (
-        resolvePrimitiveTypeclassMethod(
-          propertyName,
-          typeName,
-          receiverType,
-          checker,
-          sourceFile,
-          context?.program
-        )
-      ) {
-        return true;
-      }
-
-      return false;
+      return isRewrittenMethodCall(propAccess, checker, sourceFile, context);
     },
   };
+}
+
+/**
+ * Is `recv.method` (a property the receiver's type lacks) a call the
+ * transformer rewrites: a registered or imported extension, or typeclass
+ * method sugar?
+ */
+function isRewrittenMethodCall(
+  propAccess: ts.PropertyAccessExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  context: DiagnosticSuppressionContext | undefined
+): boolean {
+  const propertyName = propAccess.name.text;
+  const receiver = propAccess.expression;
+  let receiverType: ts.Type;
+  try {
+    receiverType = checker.getTypeAtLocation(receiver);
+  } catch (e) {
+    if (isDiagnosticSuppressionAuditEnabled()) {
+      console.error(`[DiagnosticSuppression] ExtensionMethodCall: ${e}`);
+    }
+    return false;
+  }
+
+  const typeName = checker.typeToString(receiverType);
+
+  // 1. Check standalone extension registry (from registerExtensions / @extension)
+  if (findInRegistry(propertyName, typeName, receiverType, checker)) {
+    return true;
+  }
+
+  // 2. Import-scoped resolution: scan imports for a matching function
+  if (resolveExtensionFromImports(sourceFile, propertyName, receiverType, checker)) {
+    return true;
+  }
+
+  // 3. Typeclass instance method (derived / @instance): e.g. `p.equals(q)` is
+  // rewritten by the transformer to `Point.Eq.equals(p, q)`. Suppress the
+  // pre-transform TS2339 when the method belongs to a typeclass whose
+  // method syntax is active here (as the rewrite requires) and that the
+  // receiver's type derives.
+  if (
+    resolveTypeclassInstanceMethod(
+      propertyName,
+      typeName,
+      receiverType,
+      checker,
+      sourceFile,
+      context?.program
+    )
+  ) {
+    return true;
+  }
+
+  // 4. Typeclass instance method over a PRIMITIVE: e.g. `n.equals(m)` for
+  // `n: number` is rewritten to `eqNumber.equals(n, m)` when Eq method
+  // syntax is active AND an Eq<number> instance is in scope; decided by
+  // the same scope resolution the rewrite uses.
+  return resolvePrimitiveTypeclassMethod(
+    propertyName,
+    typeName,
+    receiverType,
+    checker,
+    sourceFile,
+    context?.program
+  );
+}
+
+/**
+ * TS7006 ("Parameter implicitly has an 'any' type") on an untyped parameter
+ * of a callback passed to a method call the transformer rewrites
+ * (`eff.map((x) => x * 2)` with `EffectExt` imported). Before expansion the
+ * call is an error (TS2339, suppressed above), so the callback gets no
+ * contextual type; after expansion (`EffectExt.map(eff, (x) => x * 2)`) it
+ * does. Only when the receiver's type has no such property of its own, so a
+ * real method's callback is never affected.
+ */
+function isCallbackOfRewrittenCall(
+  diagnostic: ts.Diagnostic,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  context: DiagnosticSuppressionContext | undefined
+): boolean {
+  const node = findNodeAtPosition(sourceFile, diagnostic.start!, diagnostic.length ?? 1);
+  if (!node || isSyntheticNode(node)) return false;
+  const param = ts.isParameter(node) ? node : node.parent;
+  if (!param || !ts.isParameter(param) || param.type) return false;
+  const fn = param.parent;
+  if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) return false;
+  const call = fn.parent;
+  if (!call || !ts.isCallExpression(call) || !call.arguments.includes(fn)) return false;
+  const callee = call.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return false;
+  try {
+    const receiverType = checker.getTypeAtLocation(callee.expression);
+    const own = checker.getPropertyOfType(
+      checker.getApparentType(checker.getNonNullableType(receiverType)),
+      callee.name.text
+    );
+    if (own && !isGlobalAugmentationStubSymbol(own)) return false;
+  } catch (e) {
+    reportCheckerFailure("ExtensionMethodCall callback", e);
+    return false;
+  }
+  return isRewrittenMethodCall(callee, checker, sourceFile, context);
+}
+
+/** Is every declaration of `prop` inside a `declare global { ... }` block (std's stubs)? */
+function isGlobalAugmentationStubSymbol(prop: ts.Symbol): boolean {
+  const decls = prop.getDeclarations();
+  if (!decls || decls.length === 0) return false;
+  return decls.every((d) => {
+    for (let n: ts.Node | undefined = d.parent; n; n = n.parent) {
+      if (ts.isModuleDeclaration(n) && (n.flags & ts.NodeFlags.GlobalAugmentation) !== 0)
+        return true;
+    }
+    return false;
+  });
 }
 
 /**
@@ -175,7 +246,7 @@ function resolvePrimitiveTypeclassMethod(
   // The rewrite resolves the instance from scope (method-sugar.ts), so this
   // does too: without the program it can't, and suppresses nothing.
   if (!program) return false;
-  const candidates = getTypeclassesForMethod(methodName);
+  const candidates = typeclassesForMethod(methodName, program);
   if (!candidates) return false;
 
   const primitive =
@@ -203,6 +274,23 @@ function resolvePrimitiveTypeclassMethod(
     }
   }
   return false;
+}
+
+/**
+ * The typeclasses declaring `methodName`. With the program, every
+ * `@typeclass` in it (plus the built-in seed), read from the declarations
+ * as the rewrite reads them (method-sugar.ts: `getMethodCandidates`): the
+ * standard definitions alone missed a typeclass the file defines itself, so
+ * its `.show()` was a TS2339 under `typesugar check` although the transform
+ * rewrites it. Without the program, the standard definitions.
+ */
+function typeclassesForMethod(
+  methodName: string,
+  program: ts.Program | undefined
+): Array<{ typeclass: string; method: string }> | undefined {
+  if (!program) return getTypeclassesForMethod(methodName);
+  const found = getTypeclassesDeclaringMethod(program, methodName);
+  return found.length > 0 ? found : undefined;
 }
 
 /**
@@ -268,7 +356,7 @@ function resolveTypeclassInstanceMethod(
   sourceFile: ts.SourceFile,
   program: ts.Program | undefined
 ): boolean {
-  const candidates = getTypeclassesForMethod(methodName);
+  const candidates = typeclassesForMethod(methodName, program);
   if (!candidates) return false;
   const candidateNames = new Set(
     candidates.map((c) => c.typeclass).filter((tc) => isMethodSyntaxActive(sourceFile, tc, program))
@@ -776,11 +864,11 @@ function checkImportedSymbol(
   if (ident.text === methodName) {
     const callSigs = identType.getCallSignatures();
     for (const sig of callSigs) {
-      const params = sig.getParameters();
-      if (params.length === 0) continue;
       try {
-        const firstParamType = checker.getTypeOfSymbolAtLocation(params[0], ident);
-        if (checker.isTypeAssignableTo(receiverType, firstParamType)) {
+        // The transformer's own match (generic first parameters erased to
+        // their constraints), so a generic extension's TS2339 is suppressed
+        // exactly when the call is rewritten.
+        if (receiverMatchesFirstParam(checker, receiverType, sig, ident)) {
           return true;
         }
       } catch (e) {
@@ -808,11 +896,8 @@ function checkImportedSymbol(
 
   const callSigs = propType.getCallSignatures();
   for (const sig of callSigs) {
-    const params = sig.getParameters();
-    if (params.length === 0) continue;
     try {
-      const firstParamType = checker.getTypeOfSymbolAtLocation(params[0], ident);
-      if (checker.isTypeAssignableTo(receiverType, firstParamType)) {
+      if (receiverMatchesFirstParam(checker, receiverType, sig, ident)) {
         return true;
       }
     } catch (e) {
@@ -1321,7 +1406,12 @@ export function createMacroDecoratorRule(): DiagnosticSuppressionRule {
           } else if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
             name = expr.expression.text;
           }
-          if (name && MACRO_DECORATOR_NAMES.has(name)) {
+          // A name in the table, or any registered attribute macro
+          // (`@reflect` from @typesugar/reflect was missing from the table,
+          // so `typesugar check` reported TS1206 on its documented
+          // `@reflect interface User`). Which macro a decorator names is
+          // syntax, so the name decides.
+          if (name && (MACRO_DECORATOR_NAMES.has(name) || globalRegistry.getAttribute(name))) {
             return true;
           }
         }
@@ -1606,6 +1696,112 @@ function matchSwitchActivated(program: ts.Program, sourceFile: ts.SourceFile): b
   const result = tracker.isLabelSyntaxActivated(sourceFile.fileName, MATCH_SWITCH_MACRO);
   perFile.set(sourceFile.fileName, result);
   return result;
+}
+
+// ===========================================================================
+// ContractBlock — contracts' `ensures:` result binding
+// ===========================================================================
+
+/** The label macro `@typesugar/contracts/syntax` activates (`@syntax-labels contract`). */
+const CONTRACT_LABEL_MACRO = "contract";
+
+function contractLabelsActivated(program: ts.Program, sourceFile: ts.SourceFile): boolean {
+  let perFile = contractActivationCache.get(program);
+  if (!perFile) {
+    perFile = new Map();
+    contractActivationCache.set(program, perFile);
+  }
+  const cached = perFile.get(sourceFile.fileName);
+  if (cached !== undefined) return cached;
+  const tracker = new ResolutionScopeTracker();
+  scanImportsForScope(sourceFile, tracker, program);
+  const result = tracker.isLabelSyntaxActivated(sourceFile.fileName, CONTRACT_LABEL_MACRO);
+  perFile.set(sourceFile.fileName, result);
+  return result;
+}
+
+const contractActivationCache = new WeakMap<ts.Program, Map<string, boolean>>();
+
+/**
+ * The `ensures:` statement `node` is inside, when it is one the contracts
+ * macro reads: a labeled statement directly in a function's body
+ * (contracts' parseContractBlocks reads only the body's own statements).
+ */
+function enclosingEnsures(node: ts.Node): ts.LabeledStatement | undefined {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (ts.isLabeledStatement(n) && n.label.text === "ensures") {
+      const block = n.parent;
+      return ts.isBlock(block) && block.parent && ts.isFunctionLike(block.parent) ? n : undefined;
+    }
+    if (ts.isFunctionLike(n) && !ts.isArrowFunction(n)) return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * The arrow of the arrow form (`ensures: (r) => ...`, or a lone
+ * `ensures: { r => ... }`), as contracts' parseEnsuresBlock reads it.
+ */
+function ensuresArrow(statement: ts.Statement): ts.ArrowFunction | undefined {
+  let stmt = statement;
+  if (ts.isBlock(stmt)) {
+    const stmts = stmt.statements.filter((s) => !ts.isEmptyStatement(s));
+    if (stmts.length === 1) stmt = stmts[0];
+  }
+  return ts.isExpressionStatement(stmt) && ts.isArrowFunction(stmt.expression)
+    ? stmt.expression
+    : undefined;
+}
+
+/**
+ * Create the ContractBlock diagnostic suppression rule.
+ *
+ * In a file that activates contract labels (`import
+ * "@typesugar/contracts/syntax"`), the contracts macro binds the function's
+ * return value inside an `ensures:` block, so the checker's view of the
+ * unexpanded block has errors the expansion removes:
+ *
+ * - TS2304 "Cannot find name 'result'" for the implicit `result` of the
+ *   block and expression forms (`ensures: { result >= 0; }`). Only that name,
+ *   only in such a block: any other unknown name, or `result` elsewhere in
+ *   the function, is a real error.
+ * - TS7006 "Parameter implicitly has an 'any' type" for the arrow form's
+ *   parameter written without a type (`ensures: (result) => { ... }`): the
+ *   macro binds it to the return value.
+ *
+ * Needs the program in the evaluation context (for the activation check);
+ * without it nothing is suppressed.
+ */
+export function createContractBlockRule(): DiagnosticSuppressionRule {
+  return {
+    name: "ContractBlock",
+    errorCodes: [2304, 7006],
+
+    shouldSuppress(diagnostic, _checker, sourceFile, context): boolean {
+      if (diagnostic.start === undefined || !context?.program) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      if (!node || isSyntheticNode(node) || !ts.isIdentifier(node)) return false;
+      const ensures = enclosingEnsures(node);
+      if (!ensures) return false;
+      const arrow = ensuresArrow(ensures.statement);
+      if (diagnostic.code === 7006) {
+        const param = node.parent;
+        if (
+          !arrow ||
+          arrow.parameters.length !== 1 ||
+          !ts.isParameter(param) ||
+          param !== arrow.parameters[0] ||
+          param.name !== node ||
+          param.type
+        ) {
+          return false;
+        }
+      } else if (arrow || node.text !== "result") {
+        return false;
+      }
+      return contractLabelsActivated(context.program, sourceFile);
+    },
+  };
 }
 
 /** The `match:`-labelled switch `node` is the label of, or a part of. */

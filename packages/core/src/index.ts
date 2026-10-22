@@ -234,6 +234,9 @@ export {
   type JsValueContext,
 } from "./ast-utils.js";
 
+// Receiver vs. an extension function's first parameter (transformer + suppression)
+export { receiverMatchesFirstParam } from "./extension-receiver.js";
+
 // Type String Utilities (pure string, no TS dependency)
 export {
   extractTypeArgumentsContent,

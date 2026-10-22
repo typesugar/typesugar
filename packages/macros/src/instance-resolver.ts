@@ -577,6 +577,50 @@ export function followTypeclassSymbol(
   return sym;
 }
 
+/**
+ * The name a typeclass is keyed by (instances, derivations and `@impl` tags
+ * name it), for the typeclass {@link followTypeclassSymbol} resolved from
+ * `start`: its declaration's own name, except when a `.d.ts` bundler renamed
+ * the declaration to avoid a clash and re-exported it under the real name.
+ * @typesugar/sql's dist declares `interface Read$1<A>` and exports
+ * `Read$1 as Read` (its legacy `meta.ts` also declares a `Read`), so
+ * `summon<Read<User>>()` looked for `Read$1` instances and found none for
+ * every consumer of the published package. The renamed name is recognised
+ * only through the export specifier on the alias chain from `start` that
+ * really is this declaration (`Read$1 as Read`, in a declaration file), not
+ * by the spelling alone. Instances are still keyed by name (module-qualified
+ * identity is PEP-060 item 13).
+ */
+export function typeclassKeyName(
+  checker: ts.TypeChecker,
+  start: ts.Symbol | undefined,
+  resolved: ts.Symbol
+): string {
+  const own = resolved.name;
+  const renamed = /^(.+)\$\d+$/.exec(own);
+  if (!renamed) return own;
+  if (!resolved.declarations?.length) return own;
+  if (!resolved.declarations.every((d) => d.getSourceFile().isDeclarationFile)) return own;
+  let sym = start;
+  for (let i = 0; i < 16 && sym && sym.flags & ts.SymbolFlags.Alias; i++) {
+    for (const d of sym.declarations ?? []) {
+      if (
+        ts.isExportSpecifier(d) &&
+        d.getSourceFile().isDeclarationFile &&
+        d.propertyName &&
+        ts.isIdentifier(d.propertyName) &&
+        d.propertyName.text === own &&
+        ts.isIdentifier(d.name) &&
+        d.name.text === renamed[1]
+      ) {
+        return renamed[1];
+      }
+    }
+    sym = checker.getImmediateAliasedSymbol(sym);
+  }
+  return own;
+}
+
 const packageNameCache = new Map<string, string | null>();
 
 /** The `name` of the nearest package.json at or above `dir`, if any. */

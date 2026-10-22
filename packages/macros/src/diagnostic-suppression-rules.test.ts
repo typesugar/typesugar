@@ -6,6 +6,7 @@ import {
   createMacroCallChainRule,
   createExtensionMethodCallRule,
   createMatchSwitchRule,
+  createContractBlockRule,
 } from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
@@ -189,6 +190,91 @@ describe("ExtensionMethodCall: method-syntax activation read from the program (t
 
   it("does not suppress without it", () => {
     const { program, sf, checker, diags } = realProgram(derived.join("\n"), "not-activated");
+    expect(diags).toHaveLength(1);
+    expect(rule.shouldSuppress(diags[0], checker, sf, { program })).toBe(false);
+  });
+});
+
+describe("ExtensionMethodCall: a typeclass the file itself defines (typesugar check)", () => {
+  // The rule mapped a method name to typeclasses through the standard
+  // definitions only, so `.show()` for a `/** @typeclass */ interface Show`
+  // declared in the file was a TS2339 under `typesugar check` (typeclass
+  // package example), although the transform rewrites it.
+  const rule = createExtensionMethodCallRule();
+  beforeAll(() => registerTypeclassMacros());
+
+  function realProgram(code: string, name: string) {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const fileName = path.join(here, `__${name}__.ts`);
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      skipLibCheck: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const readFile = host.readFile.bind(host);
+    const fileExists = host.fileExists.bind(host);
+    const getSourceFile = host.getSourceFile.bind(host);
+    host.readFile = (f) => (f === fileName ? code : readFile(f));
+    host.fileExists = (f) => f === fileName || fileExists(f);
+    host.getSourceFile = (f, v, ...rest) =>
+      f === fileName ? ts.createSourceFile(f, code, v, true) : getSourceFile(f, v, ...rest);
+    const program = ts.createProgram([fileName], options, host);
+    const sf = program.getSourceFile(fileName)!;
+    const diags = program
+      .getSemanticDiagnostics(sf)
+      .filter(
+        (d) =>
+          d.code === 2339 && ts.flattenDiagnosticMessageText(d.messageText, "").includes("'show'")
+      );
+    return { program, sf, checker: program.getTypeChecker(), diags };
+  }
+
+  const showTc = [`/** @typeclass */`, `interface Show<A> { show(a: A): string; }`];
+
+  it("suppresses on a type deriving the file's own typeclass", () => {
+    const { program, sf, checker, diags } = realProgram(
+      [
+        ...showTc,
+        `/** @derive(Show) */`,
+        `interface User { id: number }`,
+        `declare const u: User;`,
+        `export const r = u.show();`,
+      ].join("\n"),
+      "own-tc-derived"
+    );
+    expect(diags).toHaveLength(1);
+    expect(rule.shouldSuppress(diags[0], checker, sf, { program })).toBe(true);
+  });
+
+  it("suppresses on a primitive with an @impl of the file's own typeclass", () => {
+    const { program, sf, checker, diags } = realProgram(
+      [
+        ...showTc,
+        `/** @impl Show<number> */`,
+        `const numberShow: Show<number> = { show: (n) => String(n) };`,
+        `const seven: number = 7;`,
+        `export const r = seven.show();`,
+      ].join("\n"),
+      "own-tc-primitive"
+    );
+    expect(diags).toHaveLength(1);
+    expect(rule.shouldSuppress(diags[0], checker, sf, { program })).toBe(true);
+  });
+
+  it("does not suppress when nothing provides it", () => {
+    const { program, sf, checker, diags } = realProgram(
+      [
+        ...showTc,
+        `interface User { id: number }`,
+        `declare const u: User;`,
+        `export const r = u.show();`,
+      ].join("\n"),
+      "own-tc-none"
+    );
     expect(diags).toHaveLength(1);
     expect(rule.shouldSuppress(diags[0], checker, sf, { program })).toBe(false);
   });
@@ -702,5 +788,204 @@ export function g(): void {
     const unused = diags.filter((d) => d.code === 7028);
     expect(unused.map(text)).toEqual(["match", "other"]);
     expect(unused.map(suppressed)).toEqual([true, false]);
+  });
+});
+
+describe("ContractBlock diagnostic suppression rule (contracts' requires:/ensures: labels)", () => {
+  // The contracts guide writes `ensures: { result >= 0; }` (an implicit
+  // `result`) and `ensures: (result) => { ... }`. The macro binds both, but
+  // `typesugar check` and the IDE reported TS2304 "Cannot find name 'result'"
+  // and TS7006 "Parameter 'result' implicitly has an 'any' type".
+  const rule = createContractBlockRule();
+
+  function realProgram(code: string, name: string) {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const fileName = path.join(here, `__${name}__.ts`);
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      skipLibCheck: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const readFile = host.readFile.bind(host);
+    const fileExists = host.fileExists.bind(host);
+    const getSourceFile = host.getSourceFile.bind(host);
+    host.readFile = (f) => (f === fileName ? code : readFile(f));
+    host.fileExists = (f) => f === fileName || fileExists(f);
+    host.getSourceFile = (f, v, ...rest) =>
+      f === fileName ? ts.createSourceFile(f, code, v, true) : getSourceFile(f, v, ...rest);
+    const program = ts.createProgram([fileName], options, host);
+    const sf = program.getSourceFile(fileName)!;
+    const diags = program
+      .getSemanticDiagnostics(sf)
+      .filter((d) => d.code === 2304 || d.code === 7006);
+    return { program, sf, checker: program.getTypeChecker(), diags };
+  }
+
+  const body = [
+    `export function abs(n: number): number {`,
+    `  ensures: { result >= 0; }`,
+    `  return n < 0 ? -n : n;`,
+    `}`,
+    `export function dbl(n: number): number {`,
+    `  ensures: (r) => { r === n * 2; }`,
+    `  return n * 2;`,
+    `}`,
+  ];
+
+  it("suppresses the implicit result and the arrow's parameter when contracts syntax is active", () => {
+    const { program, sf, checker, diags } = realProgram(
+      [`import "@typesugar/contracts/syntax";`, ...body].join("\n"),
+      "contract-active"
+    );
+    expect(diags.map((d) => d.code).sort()).toEqual([2304, 7006]);
+    for (const d of diags) expect(rule.shouldSuppress(d, checker, sf, { program })).toBe(true);
+  });
+
+  it("suppresses nothing without the activation import", () => {
+    const { program, sf, checker, diags } = realProgram(body.join("\n"), "contract-inactive");
+    expect(diags).toHaveLength(2);
+    for (const d of diags) expect(rule.shouldSuppress(d, checker, sf, { program })).toBe(false);
+  });
+
+  it("does not suppress another unknown name in an ensures block, or result outside one", () => {
+    const { program, sf, checker, diags } = realProgram(
+      [
+        `import "@typesugar/contracts/syntax";`,
+        `export function f(n: number): number {`,
+        `  ensures: { result >= missing; }`,
+        `  return result;`,
+        `}`,
+      ].join("\n"),
+      "contract-real-errors"
+    );
+    const flagged = diags.map((d) => ({
+      text: sf.text.slice(d.start!, d.start! + d.length!),
+      suppressed: rule.shouldSuppress(d, checker, sf, { program }),
+    }));
+    expect(flagged).toEqual([
+      { text: "result", suppressed: true },
+      { text: "missing", suppressed: false },
+      { text: "result", suppressed: false },
+    ]);
+  });
+});
+
+describe("ExtensionMethodCall: a generic method of an imported extension object (EffectExt)", () => {
+  // `Effect.succeed(21).map(f)` with `import { EffectExt }` is rewritten to
+  // `EffectExt.map(eff, f)`, but the rule matched the receiver against the
+  // generic first parameter (`Effect<A, E, R>`) with plain assignability,
+  // which is false while A/E/R are unbound, so `typesugar check` kept
+  // TS2339; and the callback's parameter, with no contextual type, was
+  // TS7006. The transformer erases the type parameters to their constraints
+  // (receiverMatchesFirstParam); the rule now does the same.
+  const rule = createExtensionMethodCallRule();
+  const callbackRule = rule;
+
+  function program(files: Record<string, string>) {
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      noLib: true,
+      types: [],
+    };
+    const host: ts.CompilerHost = {
+      getSourceFile: (name, lv) =>
+        name in files ? ts.createSourceFile(name, files[name], lv, true) : undefined,
+      getDefaultLibFileName: () => "/lib.d.ts",
+      writeFile: () => {},
+      getCurrentDirectory: () => "/",
+      getDirectories: () => [],
+      fileExists: (f) => f in files,
+      readFile: (f) => files[f],
+      getCanonicalFileName: (f) => f,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+    };
+    const p = ts.createProgram(Object.keys(files), options, host);
+    const sf = p.getSourceFile("/main.ts")!;
+    return { program: p, sf, checker: p.getTypeChecker(), diags: p.getSemanticDiagnostics(sf) };
+  }
+
+  const LIB = `
+    interface Array<T> { length: number }
+    interface Boolean {} interface Function {} interface IArguments {} interface Number {}
+    interface Object {} interface RegExp {} interface String {} interface CallableFunction {}
+    interface NewableFunction {}
+  `;
+  const EXT = `
+    export interface Box<A> { readonly value: A }
+    export const BoxExt = {
+      map<A, B>(self: Box<A>, f: (a: A) => B): Box<B> { return { value: f(self.value) }; },
+    };
+  `;
+
+  it("suppresses TS2339 and the callback's TS7006 with the object imported", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program({
+      "/lib.d.ts": LIB,
+      "/ext.ts": EXT,
+      "/main.ts": `
+        import { BoxExt, type Box } from "./ext";
+        declare const b: Box<number>;
+        export const r = b.map((x) => x + 1);
+      `,
+    });
+    const codes = diags.map((d) => d.code).sort();
+    expect(codes).toEqual([2339, 7006]);
+    const d2339 = diags.find((d) => d.code === 2339)!;
+    const d7006 = diags.find((d) => d.code === 7006)!;
+    expect(rule.shouldSuppress(d2339, checker, sf, { program: p })).toBe(true);
+    expect(callbackRule.shouldSuppress(d7006, checker, sf, { program: p })).toBe(true);
+  });
+
+  it("suppresses neither without the import", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program({
+      "/lib.d.ts": LIB,
+      "/ext.ts": EXT,
+      "/main.ts": `
+        import type { Box } from "./ext";
+        declare const b: Box<number>;
+        export const r = b.map((x) => x + 1);
+      `,
+    });
+    const d2339 = diags.find((d) => d.code === 2339)!;
+    const d7006 = diags.find((d) => d.code === 7006)!;
+    expect(rule.shouldSuppress(d2339, checker, sf, { program: p })).toBe(false);
+    expect(callbackRule.shouldSuppress(d7006, checker, sf, { program: p })).toBe(false);
+  });
+
+  it("does not suppress TS7006 for a callback of an ordinary unknown method", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program({
+      "/lib.d.ts": LIB,
+      "/ext.ts": EXT,
+      "/main.ts": `
+        import { BoxExt, type Box } from "./ext";
+        declare const b: Box<number>;
+        export const r = b.nope((x) => x + 1);
+      `,
+    });
+    const d7006 = diags.find((d) => d.code === 7006)!;
+    expect(callbackRule.shouldSuppress(d7006, checker, sf, { program: p })).toBe(false);
   });
 });

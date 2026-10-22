@@ -583,6 +583,38 @@ describe("method sugar and a @derive tag followed by prose", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A d.ts bundler renames a clashing declaration (`interface Read$1`,
+// `export { Read$1 as Read }`, as in @typesugar/sql's dist): the typeclass
+// is still `Read`, so `summon<Read<User>>()` finds the `@impl Read<User>`.
+// It was TS9001 "No instance found for `Read$1<User>`" for every consumer of
+// the published package.
+// ---------------------------------------------------------------------------
+describe("typeclass declared under a bundler-renamed name in a .d.ts", () => {
+  it("summon resolves the instance by the exported name", () => {
+    const r = run(
+      {
+        "/lib.d.ts": `
+          interface Read$1<A> { read(row: unknown): A; }
+          declare const Read$1: { make<A>(f: (row: unknown) => A): Read$1<A> };
+          export { Read$1 as Read };
+        `,
+        "/main.ts": `
+          import { summon } from "typesugar";
+          import { Read } from "./lib";
+          interface User { id: number; }
+          /** @impl Read<User> */
+          export const readUser: Read<User> = { read: (row) => row as User };
+          export const r = summon<Read<User>>();
+        `,
+      },
+      "/main.ts"
+    );
+    expect(errorsOf(r)).toEqual([]);
+    expect(r.code).toContain("export const r = readUser;");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Attribute macro returning several statements: every one is visited
 // ---------------------------------------------------------------------------
 describe("attribute macro results after the first are visited", () => {

@@ -111,8 +111,8 @@ import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hk
 import {
   resolveInstance,
   resolveFromTypeclassHome,
-  resolveTypeclassSymbol,
   followTypeclassSymbol,
+  typeclassKeyName,
   hasInstanceInScopeByName,
   buildInstanceReference,
 } from "./instance-resolver.js";
@@ -2638,8 +2638,11 @@ export function typeclassOf(
   const written = getNodeText(typeName);
   if (isSyntheticNode(typeName)) return { name: written };
   try {
-    const sym = resolveTypeclassSymbol(ctx.typeChecker, typeName);
-    return sym ? { name: sym.name, symbol: sym } : { name: written };
+    const start = ctx.typeChecker.getSymbolAtLocation(typeName);
+    const sym = followTypeclassSymbol(ctx.typeChecker, start);
+    return sym
+      ? { name: typeclassKeyName(ctx.typeChecker, start, sym), symbol: sym }
+      : { name: written };
   } catch (e) {
     ctx.reportWarning(
       typeName,
@@ -3300,7 +3303,8 @@ function derivedInstanceExpression(
         const sym = ctx.typeChecker
           .getSymbolsInScope(decl, ts.SymbolFlags.Type | ts.SymbolFlags.Alias)
           .find((x) => x.name === parsed.base);
-        tagTc = followTypeclassSymbol(ctx.typeChecker, sym)?.name ?? tagTc;
+        const tc = followTypeclassSymbol(ctx.typeChecker, sym);
+        if (tc) tagTc = typeclassKeyName(ctx.typeChecker, sym, tc);
       } catch (e) {
         ctx.reportWarning(
           decl,

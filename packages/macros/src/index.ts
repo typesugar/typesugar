@@ -379,6 +379,7 @@ export {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMatchSwitchRule,
+  createContractBlockRule,
   createMacroDecoratorRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,

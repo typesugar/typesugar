@@ -55,7 +55,8 @@ import { getSuggestionsForTypeclass } from "@typesugar/core";
 import {
   resolveInstance,
   resolveFromTypeclassHome,
-  resolveTypeclassSymbol,
+  followTypeclassSymbol,
+  typeclassKeyName,
   findEmittableInstanceByName,
   buildInstanceReference,
   buildImportedReference,
@@ -384,9 +385,14 @@ export function transformImplicitsCall(
     // (`Eq as Equal`) or a re-exported alias (`typesugar`'s `Eq`, which is
     // `@typesugar/std`'s) is the same typeclass (CLAUDE.md "by identity").
     let typeclassSymbol: ts.Symbol | undefined;
+    let typeclassKeyed: string | undefined;
     if (!isSyntheticNode(typeName)) {
       try {
-        typeclassSymbol = resolveTypeclassSymbol(ctx.typeChecker, typeName);
+        const start = ctx.typeChecker.getSymbolAtLocation(typeName);
+        typeclassSymbol = followTypeclassSymbol(ctx.typeChecker, start);
+        if (typeclassSymbol) {
+          typeclassKeyed = typeclassKeyName(ctx.typeChecker, start, typeclassSymbol);
+        }
       } catch (e) {
         ctx.reportWarning(
           callExpr,
@@ -395,7 +401,7 @@ export function transformImplicitsCall(
         );
       }
     }
-    const typeclassName = typeclassSymbol?.name ?? typeName.text;
+    const typeclassName = typeclassKeyed ?? typeName.text;
     const typeArgs = param.type.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
       newArgs.push(factory.createIdentifier("undefined"));
