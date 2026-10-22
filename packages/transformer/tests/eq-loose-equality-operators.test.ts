@@ -537,3 +537,97 @@ describe("a use above its type's @derive that runs before the companion is assig
     expect(evaluate(r.code)).toEqual({ later: true, boxed: true });
   });
 });
+
+describe("a use above its type's @derive in code a class runs at definition time", () => {
+  // review 6, item 5: the class-member deferral skipped the whole class (its
+  // own static parts included) and counted anything inside a method's node
+  // (its computed name, its decorators) as the method's body, so these
+  // rewrote to P.Eq and threw a TypeError at run time. The companion is not
+  // assigned yet there: each must be TS9001 ("declared below").
+  const decl = [`/** @derive(Eq) */`, `interface P { x: number }`];
+  const vals = `const a = { x: 1 } as P, b = { x: 1 } as P;`;
+  const compileErrors = (lines: string[]) => {
+    const code = [`import "@typesugar/std/syntax/eq/ops";`, vals, ...lines, ...decl].join("\n");
+    return errors(transformCode(code, { fileName: `eq-class-early-${counter++}.ts` })).map(
+      (d) => d.message
+    );
+  };
+
+  it("a static initializer calling the method (d1)", () => {
+    const errs = compileErrors([
+      `class C {`,
+      `  static early = new C().same(a, b);`,
+      `  same(p: P, q: P) { return p === q; }`,
+      `}`,
+    ]);
+    expect(errs.join("\n")).toMatch(/declared below/);
+  });
+
+  it("a computed method name calling a function that uses it (d2)", () => {
+    const errs = compileErrors([
+      `const f = () => a === b;`,
+      `class K {`,
+      `  [String(f())]() { return 1; }`,
+      `}`,
+    ]);
+    expect(errs.join("\n")).toMatch(/declared below/);
+  });
+
+  it("a static block calling the method (d3)", () => {
+    const errs = compileErrors([
+      `class D {`,
+      `  static { console.log(new D().same(a, b)); }`,
+      `  same(p: P, q: P) { return p === q; }`,
+      `}`,
+    ]);
+    expect(errs.join("\n")).toMatch(/declared below/);
+  });
+
+  it("a decorated method: the decorator may call it at definition time (d4)", () => {
+    const errs = compileErrors([
+      `function run(m: (p: P, q: P) => boolean, _c: unknown) { console.log(m(a, b)); }`,
+      `class E {`,
+      `  @run same(p: P, q: P) { return p === q; }`,
+      `}`,
+    ]);
+    expect(errs.join("\n")).toMatch(/declared below/);
+  });
+
+  it("a class decorator, a parameter decorator, a static field using it directly", () => {
+    for (const lines of [
+      [
+        `function make(c: new () => { same(p: P, q: P): boolean }, _x: unknown) { new c().same(a, b); }`,
+        `@make class F { same(p: P, q: P) { return p === q; } }`,
+      ],
+      [
+        `function param(_t: unknown, _k: string, _i: number) {}`,
+        `class G { same(@param p: P, q: P) { return p === q; } }`,
+      ],
+      [`class H { static same = a === b; }`],
+    ]) {
+      expect(compileErrors(lines).join("\n")).toMatch(/declared below/);
+    }
+  });
+
+  it("class members that only run once the class is used below still rewrite", () => {
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      vals,
+      `class Box {`,
+      `  static make(p: P) { return new Box(p); }`,
+      `  static count = 0;`,
+      `  readonly same = (q: P) => this.p === q;`,
+      `  constructor(readonly p: P) {}`,
+      `  is(q: P) { return Box.make(this.p).same(q); }`,
+      `  get self(): Box { return Box.make(this.p); }`,
+      `}`,
+      ...decl,
+      `export const boxed = Box.make(a).is(b);`,
+      `export const viaGetter = new Box(a).self.same(b);`,
+    ].join("\n");
+    const r = transformCode(code, { fileName: `eq-class-later-${counter++}.ts` });
+    expect(errors(r)).toEqual([]);
+    expect(r.code).toContain("P.Eq.equals(this.p, q)");
+    expect(evaluate(r.code)).toEqual({ boxed: true, viaGetter: true });
+  });
+});

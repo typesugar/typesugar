@@ -471,6 +471,10 @@ function resolveFromLocalScope(
  * declaration all run before the companion's namespace is assigned (`P` is
  * still undefined there), so a reference to it would throw at run time: those
  * get "not assigned yet" (TS9001) at compile time instead (review 5, item 4).
+ * So do a class's definition-time parts -- static initializers and blocks,
+ * computed member names, decorators -- and a member a decorator receives (it
+ * may call it then); a reference to the class from its own definition-time
+ * parts counts as a use above the declaration (review 6).
  *
  * The references are found through the checker, by symbol, not by name. An
  * `export { f }` above the declaration does not count (it doesn't call `f`);
@@ -498,15 +502,41 @@ interface DeferralCheck {
   verdicts: Map<ts.Symbol, boolean | "pending">;
 }
 
-/** Some function enclosing `node` (innermost first) is deferred. */
+/**
+ * Some function enclosing `node` (innermost first) is deferred, with `node`
+ * in the part of it that runs when it is called: its body or a parameter (a
+ * default value), an instance property's initializer. A member's computed
+ * name and its decorators -- and a parameter's decorators -- run when the
+ * class is defined, as do static initializers and static blocks (which are
+ * not functions here): those are judged by what encloses the class (review 6).
+ */
 function runsOnlyLater(node: ts.Node, check: DeferralCheck): boolean {
-  for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+  let prev: ts.Node = node;
+  let viaDecorator = false;
+  for (let n: ts.Node | undefined = node.parent; n; prev = n, n = n.parent) {
     if (ts.isSourceFile(n)) break;
+    if (ts.isDecorator(n)) viaDecorator = true;
     if (ts.isFunctionLike(n) || isInstancePropertyDeclaration(n)) {
-      if (isDeferredFunction(n, check)) return true;
+      const callTime = ts.isPropertyDeclaration(n)
+        ? prev === n.initializer
+        : prev === (n as ts.FunctionLikeDeclaration).body ||
+          (ts.isParameter(prev) && !viaDecorator);
+      viaDecorator = false;
+      if (callTime && isDeferredFunction(n, check)) return true;
     }
   }
   return false;
+}
+
+/**
+ * `member` or its class has decorators, or one of its parameters does: a
+ * decorator receives the method (or the class) at definition time and may
+ * call it then (TC39 and legacy decorators alike).
+ */
+function decoratedAtDefinition(member: ts.Node): boolean {
+  const decorated = (n: ts.Node) => ts.canHaveDecorators(n) && !!ts.getDecorators(n)?.length;
+  if (decorated(member) || (member.parent && decorated(member.parent))) return true;
+  return ts.isFunctionLike(member) && member.parameters.some((p) => decorated(p));
 }
 
 function isInstancePropertyDeclaration(n: ts.Node): n is ts.PropertyDeclaration {
@@ -523,7 +553,8 @@ function isInstancePropertyDeclaration(n: ts.Node): n is ts.PropertyDeclaration 
 function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
   const binding = functionBinding(fn, check.checker);
   if (!binding) return false;
-  const { symbol, declaration } = binding;
+  const { symbol, declaration, name } = binding;
+  if (binding.isMember && decoratedAtDefinition(fn)) return false;
   const verdict = check.verdicts.get(symbol);
   if (verdict === "pending") return true;
   if (verdict !== undefined) return verdict;
@@ -531,8 +562,16 @@ function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
   let deferred = true;
   const visit = (node: ts.Node): void => {
     if (!deferred || node.pos >= check.declEnd) return;
-    // Its own body (recursion) and its own name don't call it from outside.
-    if (node === declaration) return;
+    // Its own name doesn't call it. Its own body (recursion) runs only once
+    // it is called -- except a class's: a class binding's references from
+    // its own static initializers, static blocks, computed names and
+    // decorators run at definition time, so the class is visited like any
+    // other code (references from its deferred members are judged by
+    // `runsOnlyLater`, where this binding is pending).
+    if (node === name) return;
+    if (node === declaration && !binding.isMember) return;
+    // A type annotation (`get self(): Box`) never runs.
+    if (isTypeOnly(node)) return;
     if (
       ts.isIdentifier(node) &&
       node.text === symbol.name &&
@@ -546,6 +585,18 @@ function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
   ts.forEachChild(check.sourceFile, visit);
   check.verdicts.set(symbol, deferred);
   return deferred;
+}
+
+/** A type position (or declaration) -- erased, so nothing in it runs. A class's `extends` expression does. */
+function isTypeOnly(node: ts.Node): boolean {
+  if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return true;
+  if (!ts.isTypeNode(node)) return false;
+  return !(
+    ts.isExpressionWithTypeArguments(node) &&
+    ts.isHeritageClause(node.parent) &&
+    node.parent.token === ts.SyntaxKind.ExtendsKeyword &&
+    ts.isClassLike(node.parent.parent)
+  );
 }
 
 function referencesSymbol(id: ts.Identifier, symbol: ts.Symbol, check: DeferralCheck): boolean {
@@ -567,10 +618,12 @@ function referencesSymbol(id: ts.Identifier, symbol: ts.Symbol, check: DeferralC
 function functionBinding(
   fn: ts.Node,
   checker: ts.TypeChecker
-): { symbol: ts.Symbol; declaration: ts.Node } | undefined {
-  const named = (name: ts.Node | undefined, declaration: ts.Node) => {
+): { symbol: ts.Symbol; declaration: ts.Node; name: ts.Identifier; isMember: boolean } | undefined {
+  const named = (name: ts.Node | undefined, declaration: ts.Node, isMember = false) => {
     const symbol = name && ts.isIdentifier(name) ? checker.getSymbolAtLocation(name) : undefined;
-    return symbol ? { symbol, declaration } : undefined;
+    return symbol && name && ts.isIdentifier(name)
+      ? { symbol, declaration, name, isMember }
+      : undefined;
   };
   if (ts.isFunctionDeclaration(fn)) return named(fn.name, fn);
   if (ts.isFunctionExpression(fn) || ts.isArrowFunction(fn)) {
@@ -590,9 +643,9 @@ function functionBinding(
     isInstancePropertyDeclaration(fn);
   if (!isMember) return undefined;
   const cls = fn.parent;
-  if (ts.isClassDeclaration(cls)) return named(cls.name, cls);
+  if (ts.isClassDeclaration(cls)) return named(cls.name, cls, true);
   if (ts.isClassExpression(cls) && ts.isVariableDeclaration(cls.parent)) {
-    return named(cls.parent.name, cls.parent);
+    return named(cls.parent.name, cls.parent, true);
   }
   return undefined;
 }

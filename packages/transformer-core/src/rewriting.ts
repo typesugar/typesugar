@@ -1000,8 +1000,10 @@ function reportDerivedWithoutInstance(
           below
             ? `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
                 `@derive(${tc}), but its companion ${declName}.${tc} is declared below this ` +
-                `line, and this can run before that (at module top level, or in a function ` +
-                `called or passed to a call above it), when it isn't assigned yet. It was ` +
+                `line, and this can run before that (at module top level, in a function ` +
+                `called or passed to a call above it, or while a class above it is defined: ` +
+                `a static initializer or block, a computed name, a decorator), when it isn't ` +
+                `assigned yet. It was ` +
                 `left as JavaScript's own '${opString}'.`
             : `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
                 `@derive(${tc}), but no ${tc}<${typeName}> instance is in scope, so it was left ` +

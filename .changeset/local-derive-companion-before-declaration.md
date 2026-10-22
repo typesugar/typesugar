@@ -15,5 +15,9 @@ declaration, `const f = () => ...`, a class member) that nothing above the
 declaration calls, except another such function. A use that can run before
 the companion is assigned (module top level, an immediately invoked function,
 a callback passed to a call at top level such as `xs.filter(v => v === q)`, a
-function called above the declaration) is still TS9001, saying so and to
-move the declaration up; it is never rewritten to a `P.Eq` that would throw.
+function called above the declaration, and a class's definition-time code:
+a static initializer or static block, a computed member name, a decorator,
+or a member a decorator receives) is still TS9001, saying so and to move the
+declaration up; it is never rewritten to a `P.Eq` that would throw. A
+reference to a class from its own static parts counts as a use above the
+declaration.
