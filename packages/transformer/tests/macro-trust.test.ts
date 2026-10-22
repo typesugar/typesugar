@@ -671,3 +671,100 @@ describe("a vendored package's macros entry is its own file", () => {
     expect(pwned()).toEqual([]);
   });
 });
+
+/**
+ * Review 8: a dependency's own config is never read. tsserver gives a file
+ * inside `node_modules/evil` the project `node_modules/evil/tsconfig.json`,
+ * and every host searches for config from the tsconfig's directory -- which
+ * ran `node_modules/evil/typesugar.config.cjs`, and let evil's package.json
+ * `typesugar.security` block approve evil's own macros.
+ */
+describe("config inside node_modules is never read", () => {
+  /** `node_modules/evil`: a dependency with its own tsconfig and the given config. */
+  function evilDependency(how: "config file" | "package.json block"): void {
+    write("package.json", { name: "app", version: "1.0.0" });
+    write("tsconfig.json", TSCONFIG);
+    write("src/use.ts", `import { y } from "evil";\nexport const h = y;\n`);
+    macroPackage("node_modules/evil", "evil", PWNED_JS);
+    write("node_modules/evil/tsconfig.json", { ...TSCONFIG, include: ["*.ts"] });
+    write("node_modules/evil/index.ts", `export const y = 1;\n`);
+    if (how === "config file") {
+      write(
+        "node_modules/evil/typesugar.config.cjs",
+        // Runs (writes PWNED) if loaded, then approves evil.
+        PWNED_JS + `module.exports = { security: { allowedMacroPackages: ["evil"] } };\n`
+      );
+    } else {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(root, "node_modules/evil/package.json"), "utf-8")
+      );
+      pkg.typesugar.security = { allowedMacroPackages: ["evil"] };
+      write("node_modules/evil/package.json", pkg);
+    }
+    process.chdir(root);
+  }
+  const evilDir = () => path.join(root, "node_modules/evil");
+  const approved = () => config.get<string[]>("security.allowedMacroPackages") ?? [];
+
+  it.each(["config file", "package.json block"] as const)(
+    "searching from a dependency's directory skips its %s and finds the project's config",
+    (how) => {
+      evilDependency(how);
+      write(".typesugarrc.json", { contracts: { mode: "none" } });
+      config.load({ searchFrom: evilDir() });
+      expect(pwned()).toEqual([]);
+      expect(approved()).not.toContain("evil");
+      expect(config.getConfigFilePath()).toBe(path.join(root, ".typesugarrc.json"));
+    }
+  );
+
+  it.each(["config file", "package.json block"] as const)(
+    "a host built from the dependency's tsconfig doesn't read its %s, and the project still gates evil",
+    (how) => {
+      evilDependency(how);
+      createPipeline(path.join(evilDir(), "tsconfig.json"), { cacheDir: false });
+      const p = ts.getParsedCommandLineOfConfigFile(
+        path.join(evilDir(), "tsconfig.json"),
+        {},
+        { ...ts.sys, onUnRecoverableConfigFileDiagnostic() {} }
+      )!;
+      tsPatchEntry(ts.createProgram(p.fileNames, p.options), { cacheDir: false });
+      expect(pwned()).toEqual([]);
+      expect(approved()).not.toContain("evil");
+      expect(check().error?.message).toContain("evil");
+      expect(pwned()).toEqual([]);
+    }
+  );
+});
+
+/**
+ * Review 8: config was one per process, so a host serving two projects (the
+ * editor with two tsconfigs open, the Node loader across packages) applied
+ * whichever project loaded last to both. Each pipeline keeps its own.
+ */
+describe("each project's pipeline keeps its own config", () => {
+  it("two projects with different approvals don't bleed into each other", () => {
+    for (const name of ["a", "b"]) {
+      write(`${name}/package.json`, { name, version: "1.0.0" });
+      write(`${name}/tsconfig.json`, TSCONFIG);
+      write(`${name}/src/use.ts`, `import { y } from "acme-dep";\nexport const h = y;\n`);
+      macroPackage(`${name}/node_modules/acme-dep`, "acme-dep", RAN_JS);
+    }
+    write("a/.typesugarrc.json", { security: { allowedMacroPackages: ["acme-dep"] } });
+    write("b/.typesugarrc.json", { contracts: { mode: "none" } });
+    const a = createPipeline(path.join(root, "a/tsconfig.json"), { cacheDir: false });
+    const b = createPipeline(path.join(root, "b/tsconfig.json"), { cacheDir: false });
+    const messages = (p: TransformationPipeline, dir: string) =>
+      p
+        .transform(path.join(root, dir, "src/use.ts"))
+        .diagnostics.map((d) => d.message)
+        .join("\n");
+
+    // b was loaded last; a still sees its own approval...
+    expect(messages(a, "a")).not.toContain("acme-dep");
+    expect(ran()).toEqual(["a/node_modules/acme-dep/RAN"]);
+    // ...and b still doesn't, though a just ran.
+    expect(messages(b, "b")).toContain("acme-dep");
+    expect(ran()).toEqual(["a/node_modules/acme-dep/RAN"]);
+  });
+});

@@ -110,6 +110,20 @@ would otherwise still get to run code on every build.
 - **A dependency's own files are never scanned.** The imports of a file inside
   `node_modules` never load macro packages, even when your code imports that
   file directly; only your project's files decide what loads.
+- **A dependency's config is never read.** No host reads a config file
+  (`typesugar.config.*`, `.typesugarrc*`) or a `package.json` `"typesugar"`
+  block inside a `node_modules` directory, by real path. A config search that
+  starts inside one walks past it to your project's config. So a dependency
+  can't run code through a config file, and can't approve its own macros with
+  a `security.allowedMacroPackages` entry of its own.
+- **The editor ignores a dependency's own project.** Opening a file inside
+  `node_modules` in your editor gives it the dependency's `tsconfig.json` as
+  its project. The language-service plugin does nothing in a project whose
+  tsconfig is inside `node_modules`, so it loads neither that dependency's
+  config nor its macros.
+- **Each project keeps its own config.** One editor (or one Node process)
+  serving several of your projects applies each project's config, its
+  `security.allowedMacroPackages` included, to that project's files only.
 - **Importing a workspace package by its name** (`import "@acme/macros"`)
   goes through `node_modules` (a workspace link), so it is a dependency import,
   and a name outside `@typesugar/*` needs approval. Importing the same package
@@ -129,7 +143,13 @@ stopping at the repository root (the directory with `.git`).
 
 Project code is loaded by its real path, never under the name it claims, so
 a directory whose `package.json` says `@typesugar/std` runs as itself and
-does not stand in for the real `@typesugar/std`.
+does not stand in for the real `@typesugar/std`. Its macros entry
+(`"typesugar": { "macros": "./macros" }`) is its own file, found through its
+own `exports` map or as a path in its directory. It is never looked up by name,
+so a vendored fork of an npm package runs the fork's macros, not the npm
+copy's. An entry whose real path is outside the package is refused, with a
+warning. A bare entry that names another package (`"macros":
+"@typesugar/macros"`) names a dependency, which keeps the approval gate.
 
 **The accepted risk:** someone who can write files into your repository can
 run code when you build it, as they can with every config file your tools

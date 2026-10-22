@@ -17,7 +17,10 @@ bundler plugins and a ts-patched `tsc -p`) and stopping at the repository root (
 directory with `.git`). Code that reads the config with no host (`config.get()` in your
 own script) searches up from the working directory. A config file is code: one in your
 repository is trusted like the rest of it (see
-[Security](../SECURITY.md#what-typesugar-trusts)).
+[Security](../SECURITY.md#what-typesugar-trusts)). A config inside a `node_modules`
+directory (a config file or a `package.json` `"typesugar"` block) is a dependency's and is
+never read; the search walks past it. A host serving several projects (the editor, the
+Node loader) applies each project's config to that project's files only.
 
 ```typescript
 // typesugar.config.ts

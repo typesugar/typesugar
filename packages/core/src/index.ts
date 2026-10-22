@@ -35,6 +35,7 @@ export {
   type TypesugarConfig,
   type ContractsConfig,
   type SecurityConfig,
+  type ConfigSnapshot,
 } from "./config.js";
 export { ConfigConditionError, evaluateConfigCondition } from "./config-condition.js";
 

@@ -86,6 +86,12 @@ it (from the importing file, so pnpm's per-package `node_modules` work). A
 copy of your package vendored into the consumer's repository and imported by a
 relative path is the consumer's own code: it loads without approval, as their
 other source does (see [`docs/SECURITY.md`](../SECURITY.md#what-typesugar-trusts)).
+Its macros entry is the vendored copy's own file (through its `exports` map, or
+as a path in its directory), never an npm copy of the same name.
+
+Your package can't approve itself. A consumer's build never reads config inside
+`node_modules`, so a `typesugar.config.*` file or a `"typesugar": { "security": … }`
+block in your published package has no effect there.
 
 ### Worked example: `@typesugar/strings`
 

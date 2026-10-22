@@ -221,6 +221,21 @@ function lineAndCharacterOf(lineStarts: number[], position: number): ts.LineAndC
   return { line: lo, character: position - lineStarts[lo] };
 }
 
+/**
+ * Is this tsserver project a dependency's: its tsconfig (or, for a
+ * non-configured project, its directory) inside a node_modules directory,
+ * by path or by real path?
+ */
+function isDependencyProject(projectName: string): boolean {
+  const inNodeModules = (p: string) => p.split(/[\\/]/).includes("node_modules");
+  if (inNodeModules(projectName)) return true;
+  try {
+    return inNodeModules(fs.realpathSync(projectName));
+  } catch {
+    return false;
+  }
+}
+
 function init(modules: { typescript: typeof ts }) {
   console.log("[typesugar] Language service plugin v2 (transform-first) initializing...");
   const tsModule = modules.typescript;
@@ -251,6 +266,15 @@ function init(modules: { typescript: typeof ts }) {
       /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|eslint-plugin|prettier-plugin)[\\/]/;
     if (projectName.includes("/dev/null/inferredProject") || infraPattern.test(projectName)) {
       log(`Skipping typesugar plugin for non-user project: ${projectName}`);
+      return info.languageService;
+    }
+    // 3. A dependency's own project. Opening a file inside node_modules gives
+    //    it the dependency's tsconfig (node_modules/evil/tsconfig.json) as its
+    //    project; expanding macros there would load that dependency's config
+    //    and its macros as if it were the user's project (review 8). A
+    //    dependency is not the project (SECURITY.md): the editor ignores it.
+    if (isDependencyProject(projectName)) {
+      log(`Skipping typesugar plugin for a project inside node_modules: ${projectName}`);
       return info.languageService;
     }
 
@@ -325,12 +349,16 @@ function init(modules: { typescript: typeof ts }) {
 
         // Load the project's typesugar config from the project directory
         // (tsserver's cwd is unrelated to the project).
+        // tsserver serves every open project from one process, and config
+        // is read through one process-wide `config`: the pipeline keeps this
+        // project's (`config` below) so another project's never applies here.
         const projectDir = projectName.endsWith(".json")
           ? path.dirname(projectName)
           : (info.project.getCurrentDirectory?.() ?? undefined);
         if (projectDir) typesugarConfig.load({ searchFrom: projectDir });
 
         pipeline = new TransformationPipeline(compilerOptions, fileNames, {
+          config: projectDir ? typesugarConfig.capture() : undefined,
           // Opt-in (plugin config `"verbose": true` or TYPESUGAR_VERBOSE=1);
           // was hard-coded on, flooding the tsserver log (review #20).
           verbose:

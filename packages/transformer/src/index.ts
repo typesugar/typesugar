@@ -58,14 +58,20 @@ export default function typesugarTsPatchTransformer(
       searchFrom: path.dirname(path.resolve(program.getCurrentDirectory(), configFilePath)),
     });
   }
-  const macros = macroTransformerFactory(program, pluginConfig, extras);
+  // `tsc -b` builds several projects in one process: each program's files
+  // expand under its own project's config (review 8).
+  const projectConfig = typesugarConfig.capture();
+  const macros = typesugarConfig.runWith(projectConfig, () =>
+    macroTransformerFactory(program, pluginConfig, extras)
+  );
   // ts-patch runs this inside tsc's JavaScript emit: keep the imports the
   // expanded code references (keep-imports.ts).
   const keep = keepMacroReferencedImports(program);
   return (context) => {
-    const expand = macros(context);
+    const expand = typesugarConfig.runWith(projectConfig, () => macros(context));
     const keepImports = keep(context);
-    return (sourceFile) => keepImports(expand(sourceFile));
+    return (sourceFile) =>
+      typesugarConfig.runWith(projectConfig, () => keepImports(expand(sourceFile)));
   };
 }
 

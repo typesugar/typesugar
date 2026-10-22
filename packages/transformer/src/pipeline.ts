@@ -21,6 +21,7 @@ import {
   PROFILING_ENABLED,
   type FileTimings,
   config,
+  type ConfigSnapshot,
   assertSupportedTypeScript,
   opaqueTypesAsUnderlying,
   forEachDescendant,
@@ -616,6 +617,16 @@ export interface TransformResult {
 export interface PipelineOptions {
   /** Enable verbose logging */
   verbose?: boolean;
+  /**
+   * The project's typesugar config (`config.capture()` after
+   * `config.load({ searchFrom: projectDir })`), made current around every
+   * transform and strict check this pipeline runs. A host serving several
+   * projects in one process passes it, so one project's config (its
+   * `security.allowedMacroPackages` included) never applies to another's
+   * files (review 8). `createPipeline` sets it. Without it, the pipeline
+   * reads whatever config is current.
+   */
+  config?: ConfigSnapshot;
   /** Macro transformer config */
   transformerConfig?: MacroTransformerConfig;
   /** Custom file reader (defaults to ts.sys.readFile) */
@@ -1151,10 +1162,20 @@ export class TransformationPipeline {
     return new TransformationPipeline(compilerOptions, fileNames, options);
   }
 
+  /** Run `fn` with this pipeline's project config current (see `PipelineOptions.config`). */
+  private withProjectConfig<T>(fn: () => T): T {
+    const snapshot = this.options.config;
+    return snapshot ? config.runWith(snapshot, fn) : fn();
+  }
+
   /**
    * Transform a single file
    */
   transform(fileName: string): TransformResult {
+    return this.withProjectConfig(() => this.transformFile(fileName));
+  }
+
+  private transformFile(fileName: string): TransformResult {
     const transformStart = PROFILING_ENABLED ? performance.now() : 0;
     profiler.start("transform");
 
@@ -1617,11 +1638,9 @@ export class TransformationPipeline {
     const mode = this.options.strict;
     if (!mode) return [];
 
-    if (mode === "incremental") {
-      return this.incrementalStrictTypecheck();
-    }
-
-    return this.fullStrictTypecheck();
+    return this.withProjectConfig(() =>
+      mode === "incremental" ? this.incrementalStrictTypecheck() : this.fullStrictTypecheck()
+    );
   }
 
   /**
@@ -2403,7 +2422,12 @@ export function createPipeline(
   // a bundler/IDE host's cwd is often not the project.
   config.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
 
-  return new TransformationPipeline(parsed.options, parsed.fileNames, options);
+  // This project's config stays with its pipeline (one process may build
+  // several: the Node loader keeps one per tsconfig).
+  return new TransformationPipeline(parsed.options, parsed.fileNames, {
+    config: config.capture(),
+    ...options,
+  });
 }
 
 /**
