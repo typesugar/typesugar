@@ -66,6 +66,14 @@ other editors), the project's installed copy is used and the bundled one stands 
 The setting reaches the plugin through the TypeScript extension's `configurePlugin` API. A
 repository can't switch it on from its own `tsconfig.json`.
 
+## Workspace Trust
+
+The plugin runs the workspace's macro packages and its `typesugar.config` inside the TypeScript
+server, so the extension declares `"untrustedWorkspaces": { "supported": false }`: in Restricted
+Mode it is disabled and its plugin is not registered, until you trust the folder. See
+[Security](https://typesugar.org/SECURITY#opening-an-untrusted-repository-in-your-editor) for what
+VS Code's own TypeScript support does in Restricted Mode, and for other editors.
+
 ## Development
 
 ```bash
