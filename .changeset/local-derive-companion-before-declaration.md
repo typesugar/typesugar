@@ -19,5 +19,10 @@ function called above the declaration, and a class's definition-time code:
 a static initializer or static block, a computed member name, a decorator,
 or a member a decorator receives) is still TS9001, saying so and to move the
 declaration up; it is never rewritten to a `P.Eq` that would throw. A
-reference to a class from its own static parts counts as a use above the
-declaration.
+reference to a class at definition time (from its own static parts, `this`
+in them included, or from code above the declaration) runs only what it
+runs: `new C()` runs the constructor and instance initializers, `C.m()` or
+`new C().m()` runs `m`, a member referred to directly may be called, and the
+class or an instance handed to other code may have any member called; so
+`static shared = new C()` or `static kind = C.name` leaves `C`'s methods
+rewritten, while `static early = new C().same(a, b)` makes `same` TS9001.

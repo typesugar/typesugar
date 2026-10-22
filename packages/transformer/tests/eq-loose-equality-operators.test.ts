@@ -631,3 +631,87 @@ describe("a use above its type's @derive in code a class runs at definition time
     expect(evaluate(r.code)).toEqual({ boxed: true, viaGetter: true });
   });
 });
+
+describe("a class referring to itself at definition time runs only what that reference runs", () => {
+  // review 7, item 4: any definition-time reference to the class (its own
+  // `static shared = new Registry()`, `static kind = Registry.name`) made
+  // every member "not deferred", so valid code got TS9001 and native `===`.
+  // `new C()` runs the constructor and instance initializers; `C.name` runs
+  // no method; calling a member (`new C().same(a, b)`) runs that member.
+  const decl = [`/** @derive(Eq) */`, `interface P { x: number }`];
+  const vals = `const a = { x: 1 } as P, b = { x: 1 } as P;`;
+  const compile = (lines: string[], tail: string[]) =>
+    transformCode(
+      [`import "@typesugar/std/syntax/eq/ops";`, vals, ...lines, ...decl, ...tail].join("\n"),
+      { fileName: `eq-class-self-${counter++}.ts` }
+    );
+
+  it("static shared = new Registry(): its methods still rewrite (review 7 d1)", () => {
+    const r = compile(
+      [
+        `export class Registry {`,
+        `  static readonly shared = new Registry();`,
+        `  same(p: P, q: P) { return p === q; }`,
+        `}`,
+      ],
+      [`export const r = Registry.shared.same(a, b);`]
+    );
+    expect(errors(r)).toEqual([]);
+    expect(r.code).toContain("P.Eq.equals(p, q)");
+    expect(evaluate(r.code)).toMatchObject({ r: true });
+  });
+
+  it("static kind = Registry.name: its methods still rewrite (review 7 d2)", () => {
+    const r = compile(
+      [
+        `export class Registry {`,
+        `  static readonly kind = Registry.name;`,
+        `  same(p: P, q: P) { return p === q; }`,
+        `}`,
+      ],
+      [`export const r = new Registry().same(a, b);`]
+    );
+    expect(errors(r)).toEqual([]);
+    expect(r.code).toContain("P.Eq.equals(p, q)");
+    expect(evaluate(r.code)).toMatchObject({ r: true });
+  });
+
+  it("what the definition-time reference does run is still TS9001", () => {
+    for (const lines of [
+      // the constructor, run by `new`
+      [`class A1 { static s = new A1(); ok: boolean; constructor() { this.ok = a === b; } }`],
+      // an instance initializer, run by `new`
+      [`class A2 { static s = new A2(); ok = a === b; }`],
+      // a method the constructor calls
+      [
+        `class A3 { static s = new A3(); constructor() { this.same(a, b); }`,
+        `  same(p: P, q: P) { return p === q; } }`,
+      ],
+      // a static method called through the class
+      [`class A4 { static early = A4.check(a, b); static check(p: P, q: P) { return p === q; } }`],
+      // through `this` in a static initializer
+      [`class A5 { static early = new this().same(a, b); same(p: P, q: P) { return p === q; } }`],
+      // the stored instance, called above the declaration
+      [
+        `class A6 { static shared = new A6(); same(p: P, q: P) { return p === q; } }`,
+        `console.log(A6.shared.same(a, b));`,
+      ],
+      // the instance handed to code that calls it structurally
+      [
+        `function use(o: { same(p: P, q: P): boolean }) { return o.same(a, b); }`,
+        `class A7 { static shared = new A7(); same(p: P, q: P) { return p === q; } }`,
+        `use(A7.shared);`,
+      ],
+      // a static getter read at definition time
+      [`class A8 { static get g() { return a === b; } static v = A8.g; }`],
+    ]) {
+      const r = compile(lines, []);
+      expect(
+        errors(r)
+          .map((d) => d.message)
+          .join("\n"),
+        lines.join("\n")
+      ).toMatch(/declared below/);
+    }
+  });
+});

@@ -487,7 +487,8 @@ function resolveFromLocalScope(
  * So do a class's definition-time parts -- static initializers and blocks,
  * computed member names, decorators -- and a member a decorator receives (it
  * may call it then); a reference to the class from its own definition-time
- * parts counts as a use above the declaration (review 6).
+ * parts counts as a use above the declaration (review 6), of what that
+ * reference runs (`isDeferredMember`, review 7).
  *
  * The references are found through the checker, by symbol, not by name. An
  * `export { f }` above the declaration does not count (it doesn't call `f`);
@@ -503,7 +504,13 @@ export function companionAssignedBefore(
   // A generated node with no original has no position to judge: as before.
   if (isSyntheticNode(site) || site.getSourceFile() !== sourceFile) return true;
   if (site.pos >= typeDecl.end) return true;
-  return runsOnlyLater(site, { checker, sourceFile, declEnd: typeDecl.end, verdicts: new Map() });
+  return runsOnlyLater(site, {
+    checker,
+    sourceFile,
+    declEnd: typeDecl.end,
+    verdicts: new Map(),
+    memberVerdicts: new Map(),
+  });
 }
 
 interface DeferralCheck {
@@ -513,6 +520,8 @@ interface DeferralCheck {
   declEnd: number;
   /** Per function binding: settled, or `"pending"` while being checked (a cycle). */
   verdicts: Map<ts.Symbol, boolean | "pending">;
+  /** The same, per class member (see `isDeferredMember`). */
+  memberVerdicts: Map<ts.Node, boolean | "pending">;
 }
 
 /**
@@ -567,7 +576,7 @@ function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
   const binding = functionBinding(fn, check.checker);
   if (!binding) return false;
   const { symbol, declaration, name } = binding;
-  if (binding.isMember && decoratedAtDefinition(fn)) return false;
+  if (binding.isMember) return isDeferredMember(fn, binding, check);
   const verdict = check.verdicts.get(symbol);
   if (verdict === "pending") return true;
   if (verdict !== undefined) return verdict;
@@ -582,7 +591,7 @@ function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
     // other code (references from its deferred members are judged by
     // `runsOnlyLater`, where this binding is pending).
     if (node === name) return;
-    if (node === declaration && !binding.isMember) return;
+    if (node === declaration) return;
     // A type annotation (`get self(): Box`) never runs.
     if (isTypeOnly(node)) return;
     if (
@@ -598,6 +607,210 @@ function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
   ts.forEachChild(check.sourceFile, visit);
   check.verdicts.set(symbol, deferred);
   return deferred;
+}
+
+/**
+ * A class member `fn` doesn't run before `check.declEnd` (review 7). Not
+ * "nothing refers to the class above the declaration": a reference runs only
+ * what it runs. Above the declaration, outside code that itself runs only
+ * later (`runsOnlyLater`), the member runs if
+ *
+ * - a reference to the class (or `this` in its static initializers and
+ *   blocks, which is the class) runs it (`classReferenceRuns`): `new C()` runs
+ *   the constructor and instance initializers, an access to the member
+ *   through the class or a new instance runs it, and so does handing the
+ *   class or an instance to code that could call it without naming either;
+ * - or a reference to the member itself (`x.same`, `this.same` in the
+ *   constructor), resolved through the checker by declaration -- it may be
+ *   called.
+ *
+ * `C.name` and `static shared = new C()` (the instance kept in the class's
+ * own static, reachable only through the class) run no method. What another
+ * member runs once IT runs follows from the same rule: references inside its
+ * body are judged by whether it is deferred. A member that it, its class or a
+ * parameter is decorated is never deferred (the decorator may call it), and
+ * one with a name this can't follow (a computed name) is deferred only when
+ * nothing above the declaration refers to the class at definition time.
+ */
+function isDeferredMember(
+  fn: ts.Node,
+  binding: { symbol: ts.Symbol; name: ts.Identifier },
+  check: DeferralCheck
+): boolean {
+  if (decoratedAtDefinition(fn)) return false;
+  const verdict = check.memberVerdicts.get(fn);
+  if (verdict === "pending") return true;
+  if (verdict !== undefined) return verdict;
+  check.memberVerdicts.set(fn, "pending");
+  const cls = fn.parent as ts.ClassLikeDeclaration;
+  const nameNode = (fn as ts.ClassElement).name;
+  const memberName =
+    nameNode &&
+    (ts.isIdentifier(nameNode) ||
+      ts.isPrivateIdentifier(nameNode) ||
+      ts.isStringLiteral(nameNode) ||
+      ts.isNumericLiteral(nameNode))
+      ? nameNode.text
+      : undefined;
+  const followable = memberName !== undefined || ts.isConstructorDeclaration(fn);
+  const { symbol } = binding;
+  let deferred = true;
+  const visit = (node: ts.Node): void => {
+    if (!deferred || node.pos >= check.declEnd) return;
+    if (node === binding.name || node === nameNode) return;
+    if (isTypeOnly(node)) return;
+    const classRef =
+      (ts.isIdentifier(node) &&
+        node.text === symbol.name &&
+        referencesSymbol(node, symbol, check)) ||
+      (node.kind === ts.SyntaxKind.ThisKeyword && isStaticThisOf(node, cls));
+    if (classRef) {
+      if (
+        !runsOnlyLater(node, check) &&
+        (!followable || classReferenceRuns(node as ts.Expression, fn, cls, check))
+      ) {
+        deferred = false;
+      }
+      return;
+    }
+    if (
+      memberName !== undefined &&
+      (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) &&
+      node.text === memberName &&
+      resolvesTo(node, fn, check) &&
+      !runsOnlyLater(node, check)
+    ) {
+      deferred = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(check.sourceFile, visit);
+  check.memberVerdicts.set(fn, deferred);
+  return deferred;
+}
+
+/** Does `id` (a member name) resolve to a symbol declared by `decl`? (Union members list every constituent's.) */
+function resolvesTo(id: ts.Node, decl: ts.Node, check: DeferralCheck): boolean {
+  if (isSyntheticNode(id)) return false;
+  let sym: ts.Symbol | undefined;
+  try {
+    sym = ts.isShorthandPropertyAssignment(id.parent)
+      ? check.checker.getShorthandAssignmentValueSymbol(id.parent)
+      : check.checker.getSymbolAtLocation(id);
+  } catch {
+    return true; // can't tell: assume it does (never defers wrongly)
+  }
+  return !!sym?.declarations?.includes(decl as ts.Declaration);
+}
+
+/** `this` in a static initializer or static block of `cls` (through arrows): the class itself. */
+function isStaticThisOf(node: ts.Node, cls: ts.ClassLikeDeclaration): boolean {
+  for (let n = node.parent; n; n = n.parent) {
+    if (ts.isArrowFunction(n)) continue;
+    if (ts.isClassStaticBlockDeclaration(n)) return n.parent === cls;
+    if (ts.isPropertyDeclaration(n) && ts.getModifiers(n)?.some(isStaticModifier)) {
+      return n.parent === cls;
+    }
+    if (ts.isFunctionLike(n) || ts.isClassLike(n) || ts.isSourceFile(n)) return false;
+  }
+  return false;
+}
+
+/**
+ * Does `ref` -- a reference to `cls` evaluated at definition time -- run the
+ * member `fn`? `new C(...)` runs the constructor and instance initializers.
+ * Then, along the chain of accesses and calls on the result, accessing `fn`
+ * (resolved through the checker by declaration) runs it; an access the
+ * checker can't resolve, or an element access, might. At the end of the
+ * chain, a value that could expose the class or an instance (not a
+ * primitive) running nowhere visible -- passed to a function, returned,
+ * stored anywhere but the class's own static fields -- might reach code that
+ * calls `fn` without naming the class, so it counts as running it.
+ */
+function classReferenceRuns(
+  ref: ts.Expression,
+  fn: ts.Node,
+  cls: ts.ClassLikeDeclaration,
+  check: DeferralCheck
+): boolean {
+  let cur: ts.Expression = ref;
+  if (ts.isNewExpression(cur.parent) && cur.parent.expression === cur) {
+    if (ts.isConstructorDeclaration(fn) || isInstancePropertyDeclaration(fn)) return true;
+    cur = cur.parent;
+  }
+  for (;;) {
+    const p = cur.parent;
+    if (
+      (ts.isParenthesizedExpression(p) ||
+        ts.isAsExpression(p) ||
+        ts.isSatisfiesExpression(p) ||
+        ts.isNonNullExpression(p) ||
+        ts.isTypeAssertionExpression(p)) &&
+      p.expression === cur
+    ) {
+      cur = p;
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(p) && p.expression === cur) {
+      if (resolvesTo(p.name, fn, check)) return true;
+      let sym: ts.Symbol | undefined;
+      try {
+        sym = check.checker.getSymbolAtLocation(p.name);
+      } catch {
+        return true;
+      }
+      if (!sym?.declarations?.length) return true;
+      cur = p;
+      continue;
+    }
+    if (ts.isElementAccessExpression(p) && p.expression === cur) return true;
+    if (ts.isCallExpression(p) && p.expression === cur) {
+      cur = p;
+      continue;
+    }
+    break;
+  }
+  return exposesValue(cur, cls, check);
+}
+
+/** See `classReferenceRuns`: could the value of `e` reach code that calls a member? */
+function exposesValue(
+  e: ts.Expression,
+  cls: ts.ClassLikeDeclaration,
+  check: DeferralCheck
+): boolean {
+  const p = e.parent;
+  if (ts.isExpressionStatement(p) || ts.isVoidExpression(p) || ts.isTypeOfExpression(p)) {
+    return false;
+  }
+  if (
+    ts.isPropertyDeclaration(p) &&
+    p.initializer === e &&
+    p.parent === cls &&
+    ts.getModifiers(p)?.some(isStaticModifier)
+  ) {
+    return false; // kept in the class's own static: used only through the class
+  }
+  if (isSyntheticNode(e)) return true;
+  let type: ts.Type;
+  try {
+    type = check.checker.getTypeAtLocation(e);
+  } catch {
+    return true;
+  }
+  const PRIMITIVE =
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.ESSymbolLike |
+    ts.TypeFlags.Void |
+    ts.TypeFlags.Undefined |
+    ts.TypeFlags.Null |
+    ts.TypeFlags.Never;
+  const parts = type.isUnion() ? type.types : [type];
+  return !parts.every((t) => (t.flags & PRIMITIVE) !== 0);
 }
 
 /** A type position (or declaration) -- erased, so nothing in it runs. A class's `extends` expression does. */
