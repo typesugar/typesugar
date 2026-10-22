@@ -1648,6 +1648,8 @@ function generateDiscriminantSwitchIIFE(
   }
 
   const caseClauses: ts.CaseOrDefaultClause[] = [];
+  // Tags with an arm that always returns: the switch can't fall out of them.
+  const returningTags = new Set<string>();
   for (const group of groups.values()) {
     const body: ts.Statement[] = [];
     const present = members
@@ -1678,12 +1680,32 @@ function generateDiscriminantSwitchIIFE(
         true
       );
       // Each arm in its own block so same-named bindings can't collide (#1).
-      if (armStmts.length === 1 && ts.isBlock(armStmts[0])) body.push(armStmts[0]);
-      else body.push(f.createBlock(armStmts, true));
+      const armBlock =
+        armStmts.length === 1 && ts.isBlock(armStmts[0])
+          ? armStmts[0]
+          : f.createBlock(armStmts, true);
+      body.push(armBlock);
+      // An arm with no test left and no guard always returns: the later arms
+      // for this tag, and the `break`, can't run.
+      if (alwaysExits(armBlock)) {
+        returningTags.add(group[0].discriminantKey);
+        break;
+      }
     }
-    body.push(f.createBreakStatement());
-    caseClauses.push(f.createCaseClause(group[0].discriminantValue, [f.createBlock(body, true)]));
+    if (!returningTags.has(group[0].discriminantKey)) body.push(f.createBreakStatement());
+    // One arm that returns: its block is the case's block.
+    const caseBlock =
+      body.length === 1 && ts.isBlock(body[0]) ? body[0] : f.createBlock(body, true);
+    caseClauses.push(f.createCaseClause(group[0].discriminantValue, [caseBlock]));
   }
+  // The switch can't fall out when it switches on a non-nullish object (no
+  // guard around it) and every variant of the type it reads the value at
+  // has a tag in `returningTags`; then nothing after it can run.
+  const exhaustive =
+    !needsNullGuard &&
+    members !== undefined &&
+    members.length > 0 &&
+    members.every((m) => variantTagsReturn(ctx.typeChecker, m, dm.discriminantKey, returningTags));
 
   const switchStmt = f.createSwitchStatement(
     f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
@@ -1727,7 +1749,14 @@ function generateDiscriminantSwitchIIFE(
   }
 
   // Fallback (reached by unmatched tags, failed guards/residual tests, and
-  // non-objects): catch-all arm, then else / MatchError.
+  // non-objects): catch-all arm, then else / MatchError. After an exhaustive
+  // switch with no catch-all or else, the MatchError would be dead code that
+  // keeps a runtime import of @typesugar/std; a value outside the static type
+  // (an `any` cast) leaves the switch with `undefined`, as from TypeScript's
+  // own exhaustive switch.
+  if (exhaustive && !dm.catchAllArm && elseResult === undefined) {
+    return wrapInIIFE(ctx, chainExpr, stmts, movedExpressions(scrutinee, arms, elseResult));
+  }
   if (dm.catchAllArm) {
     const pat = analyzePattern(dm.catchAllArm.pattern);
     stmts.push(
@@ -1752,6 +1781,39 @@ function generateDiscriminantSwitchIIFE(
   }
 
   return wrapInIIFE(ctx, chainExpr, stmts, movedExpressions(scrutinee, arms, elseResult));
+}
+
+/**
+ * Does `stmt` always leave the function: a `return` or `throw`, or a block
+ * whose last statement does? Read from the statements generated here (an arm
+ * with a test or a guard ends in an `if`, so it doesn't).
+ */
+function alwaysExits(stmt: ts.Statement | undefined): boolean {
+  if (stmt === undefined) return false;
+  if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt)) return true;
+  return ts.isBlock(stmt) && alwaysExits(stmt.statements[stmt.statements.length - 1]);
+}
+
+/**
+ * Is every value the variant `member` allows for the discriminant `field` a
+ * tag in `tags` (getLiteralValueFromType form)? False when a value isn't a
+ * literal, so a variant whose tag is `string` is never covered. Decided by
+ * the member's own property type, through the checker.
+ */
+function variantTagsReturn(
+  checker: ts.TypeChecker,
+  member: ts.Type,
+  field: string,
+  tags: ReadonlySet<string>
+): boolean {
+  if (!isObjectLike(member)) return false;
+  const prop = checker.getPropertyOfType(member, field);
+  if (!prop) return false;
+  const t = checker.getTypeOfSymbol(prop);
+  return (t.isUnion() ? t.types : [t]).every((v) => {
+    const key = getLiteralValueFromType(v);
+    return key !== undefined && tags.has(key);
+  });
 }
 
 // ============================================================================
@@ -3214,8 +3276,7 @@ function generateIIFE(
   // else clause or MatchError — unless an arm already returns unconditionally
   // (a fully covering arm, or an unguarded `_` / binding). A dead
   // `throw new MatchError` there still imported `@typesugar/std` at runtime.
-  const last = statements[statements.length - 1];
-  if (terminated || (last !== undefined && ts.isReturnStatement(last))) {
+  if (terminated || alwaysExits(statements[statements.length - 1])) {
     // terminated
   } else if (elseResult !== undefined) {
     statements.push(f.createReturnStatement(elseResult));
@@ -3312,6 +3373,24 @@ function literalsForHandlerKey(f: ts.NodeFactory, key: string, tagType: ts.Type)
   }
   if (wantBool) out.push(key === "true" ? f.createTrue() : f.createFalse());
   return out;
+}
+
+/**
+ * Does some handler key name every member of `tagType`, a union of literal
+ * types (string, number or boolean literals)? False when a member is not a
+ * literal (`string`, `number`, an object), so a wide tag keeps its fallback.
+ */
+function handlersCoverTag(entries: ReadonlyArray<{ keys: string[] }>, tagType: ts.Type): boolean {
+  const members = tagType.isUnion() ? tagType.types : [tagType];
+  const keys = new Set(entries.flatMap((e) => e.keys));
+  return members.every((t) => {
+    if (t.isStringLiteral()) return keys.has(t.value);
+    if (t.isNumberLiteral()) return keys.has(String(t.value));
+    if (t.flags & ts.TypeFlags.BooleanLiteral) {
+      return keys.has((t as { intrinsicName?: string }).intrinsicName ?? "");
+    }
+    return false;
+  });
 }
 
 /**
@@ -3469,8 +3548,23 @@ function expandObjectHandlerMatch(
     );
   };
 
+  // Handlers for every member of the tag's literal union: the last handler
+  // needs no test, and nothing after it (MatchError, the non-exhaustive
+  // throw) can run, as with the fluent form's covering arm. A value outside
+  // the static type takes the last handler. Members compared as types.
+  const covering =
+    wildcardHandler === undefined && handlersCoverTag(entries, tagType)
+      ? entries.reduce<(typeof entries)[number] | undefined>(
+          (last, e) =>
+            e.keys.some((k) => literalsForHandlerKey(f, k, tagType).length > 0) ? e : last,
+          undefined
+        )
+      : undefined;
+
   let result: ts.Expression;
-  if (wildcardHandler) {
+  if (covering) {
+    result = callHandler(covering.handler);
+  } else if (wildcardHandler) {
     result = callHandler(wildcardHandler);
   } else if (isPrimitive) {
     result = f.createCallExpression(
@@ -3510,6 +3604,7 @@ function expandObjectHandlerMatch(
   // Build ternary chain from last to first
   for (let i = entries.length - 1; i >= 0; i--) {
     const { keys, handler, node } = entries[i];
+    if (entries[i] === covering) continue;
     const conditions = keys.flatMap((k) =>
       literalsForHandlerKey(f, k, tagType).map((lit) =>
         f.createBinaryExpression(tagExpr, ts.SyntaxKind.EqualsEqualsEqualsToken, lit)

@@ -267,6 +267,107 @@ export const f = (s: Shape) => match(s)
   });
 });
 
+// A switch whose arms cover every variant can't fall out of it: the
+// `throw new MatchError` after it was dead code that kept a runtime import
+// of @typesugar/std, and every arm that returns was followed by a dead
+// `break;`. Both are dropped only when the switch provably can't fall out:
+// each variant of the type the switch reads has an arm with no test left
+// and no guard. Otherwise (a guard, an optional field's test, a type that
+// may be null or isn't a union of variants) the break and the throw stay.
+describe("discriminant switch: no dead code after an exhaustive switch", () => {
+  const TWO = `type Shape2 = { kind: "circle"; radius: number } | { kind: "square"; side: number };`;
+
+  it("covering every variant: no break after a returning arm, no MatchError, no runtime import", () => {
+    const r = run(`${TWO}
+export const f = (s: Shape2) => match(s)
+  .case({ kind: "circle", radius }).then(radius * 2)
+  .case({ kind: "square", side }).then(side ** 2);`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toContain("switch (_s.kind)");
+    expect(r.code).not.toMatch(/\bbreak\b/);
+    expect(r.code).not.toContain("MatchError");
+    expect(r.code).not.toContain("@typesugar/std");
+    expect(r.code).toContain(`case "circle": {
+            const radius = _s.radius;
+            return radius * 2;
+        }`);
+    const f = r.exports.f as Fn;
+    expect(f({ kind: "circle", radius: 3 })).toBe(6);
+    expect(f({ kind: "square", side: 3 })).toBe(9);
+  });
+
+  it("a guarded arm followed by an unguarded one for the same tag: still exhaustive", () => {
+    const r = run(`${TWO}
+export const f = (s: Shape2) => match(s)
+  .case({ kind: "circle", radius }).if(radius > 10).then("big")
+  .case({ kind: "circle" }).then("small")
+  .case({ kind: "square" }).then("sq");`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).not.toMatch(/\bbreak\b/);
+    expect(r.code).not.toContain("MatchError");
+    const f = r.exports.f as Fn;
+    expect(f({ kind: "circle", radius: 50 })).toBe("big");
+    expect(f({ kind: "circle", radius: 5 })).toBe("small");
+    expect(f({ kind: "square", side: 1 })).toBe("sq");
+  });
+
+  it("a tag whose only arm is guarded keeps its break and the throw", () => {
+    const r = transformAndRun(`import { match } from "@typesugar/std";
+${TWO}
+export const f = (s: Shape2) => match(s)
+  .case({ kind: "circle", radius }).if(radius > 10).then("big")
+  .case({ kind: "square" }).then("sq");`);
+    // Not exhaustive (TS9226), but the code is still generated.
+    expect(r.code).toMatch(/if \(radius > 10\)\s*return "big";\s*\}\s*break;/);
+    expect(r.code).toContain("throw new MatchError(_s)");
+    expect(r.code).not.toMatch(/return "sq";\s*\}\s*break;/);
+  });
+
+  it("an optional field's test can fall through: the break and the throw stay", () => {
+    const r = run(`type P = { kind: "a"; x?: number } | { kind: "b" };
+export const f = (p: P) => match(p).case({ kind: "a", x }).then(x).case({ kind: "b" }).then(0);`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toContain(`"x" in _p`);
+    expect(r.code).toContain("break;");
+    expect(r.code).toContain("throw new MatchError(_p)");
+    const f = r.exports.f as Fn;
+    expect(f({ kind: "a", x: 1 })).toBe(1);
+    expect(() => f({ kind: "a" })).toThrow(MatchError);
+  });
+
+  it("a scrutinee that may be null (guarded switch) keeps the throw", () => {
+    const r = run(`${TWO}
+export const f = (s: any) => match(s)
+  .case({ kind: "circle", radius }).then(radius)
+  .case({ kind: "square", side }).then(side);`);
+    expect(r.code).toContain("throw new MatchError(_s)");
+    expect(() => (r.exports.f as Fn)(null)).toThrow(MatchError);
+  });
+});
+
+describe("if chain: no dead MatchError after an arm that always returns", () => {
+  it("a binding catch-all arm ends the chain", () => {
+    const r = run(`type S = { kind: "circle"; radius: number } | { kind: "square"; side: number };
+export const f = (s: S) => match(s).case({ radius: 1 }).then("unit").case(other).then(other.kind);`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).not.toContain("MatchError");
+    expect(r.code).not.toContain("@typesugar/std");
+    const f = r.exports.f as Fn;
+    expect(f({ kind: "circle", radius: 1 })).toBe("unit");
+    expect(f({ kind: "square", side: 2 })).toBe("square");
+  });
+
+  it("a `_` arm with .as() ends the chain", () => {
+    const r = run(
+      `export const f = (n: number) => match(n).case(1).then(1).case(_).as(v).then(v * 10);`
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.code).not.toContain("MatchError");
+    const f = r.exports.f as Fn;
+    expect([f(1), f(2)]).toEqual([1, 20]);
+  });
+});
+
 describe("fast path: direct emit (single-literal scrutinee type) (#5)", () => {
   it("still evaluates a side-effecting scrutinee", () => {
     const r = run(`let calls = 0;
@@ -501,6 +602,30 @@ describe("object-handler form (#6)", () => {
     const f = r.exports.f as Fn;
     expect(f(1)).toBe("one");
     expect(() => f(2)).toThrow(MatchError);
+  });
+
+  // Handlers for every member of a literal union: the last one needs no
+  // test, and there is no MatchError (and no runtime @typesugar/std import)
+  // after it. A value outside the type takes the last handler, as in the
+  // fluent form's covering arm.
+  it("handlers covering a literal union: no MatchError, no runtime import", () => {
+    const r = run(
+      `export const f = (s: "a" | "b" | "c") => match(s, { "a|b": () => 1, c: () => 2 });`
+    );
+    expect(r.code).not.toContain("MatchError");
+    expect(r.code).not.toContain("@typesugar/std");
+    expect(r.code).not.toContain(`_m === "c"`);
+    const f = r.exports.f as Fn;
+    expect([f("a"), f("b"), f("c")]).toEqual([1, 1, 2]);
+  });
+
+  it("handlers covering every variant: no non-exhaustive throw", () => {
+    const r = run(`type S = { kind: "circle"; r: number } | { kind: "sq"; s: number };
+export const f = (sh: S) => match(sh, { circle: (c) => c.r, sq: (q) => q.s });`);
+    expect(r.code).not.toContain("Non-exhaustive");
+    const f = r.exports.f as Fn;
+    expect(f({ kind: "circle", r: 3 })).toBe(3);
+    expect(f({ kind: "sq", s: 4 })).toBe(4);
   });
 
   it("method-shorthand handlers are kept", () => {

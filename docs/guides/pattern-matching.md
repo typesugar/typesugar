@@ -196,19 +196,17 @@ match(shape)
 const _shape = shape;
 switch (_shape.kind) {
   case "circle": {
-    {
-      const r = _shape.radius;
-      return Math.PI * r ** 2;
-    }
-    break;
+    const r = _shape.radius;
+    return Math.PI * r ** 2;
   }
   case "square": { ... }
   case "rect": { ... }
 }
-throw new MatchError(_shape);
 ```
 
 Each arm is still tested in full inside its `case` — extra literal/array/nested sub-patterns and guards included — and an arm that doesn't match falls through to the next arm with the same tag, then to the catch-all / `.else()` / `MatchError`. Every arm's bindings live in their own block, so two arms may bind the same name.
+
+Here every variant has an arm with nothing left to test, so the switch can't fall out of a `case`: there is no `break;` after an arm that returns, and no `throw new MatchError(_shape)` after the switch (nor the runtime import of `@typesugar/std` it needed); a value outside the type (an `any` cast) leaves the switch and the match is `undefined`, as with a hand-written exhaustive switch. When an arm can fall through (a guard, an optional field's `in` test, a sub-pattern) and no later arm for that tag always returns, the `case` ends in `break;`, and the match ends in the catch-all, `.else()` or `throw new MatchError(_shape)`. The throw also stays when the scrutinee may be `null` or isn't a union of variants (`any`, an open object type).
 
 The tag says which variant the value is, so a field that variant requires is read with no test (`radius` above). A field gets a `"field" in _shape` test only when it is optional in that variant, or when the tag doesn't pick out one variant (two variants share it, or the scrutinee's type isn't a discriminated union).
 
@@ -586,7 +584,7 @@ match(o)
 // (() => { const _o = o; if (_o != null) { const v = _o as unknown as number; return v * 2; } return 0; })()
 ```
 
-Object patterns on a discriminated union (`{ kind: "circle", r }`, compiled to the discriminant switch) keep the throw: each arm still tests its named properties with `in`.
+Object patterns on a discriminated union (`{ kind: "circle", r }`, compiled to the discriminant switch) have no throw either when every variant has an arm with no guard and nothing left to test (see [Discriminated Union Patterns](#discriminated-union-patterns)). The same goes for an arm that takes every value (`_`, a binding) at the end of a match compiled to an `if` chain, and for the object-handler form `match(value, { ... })` with a handler for every member of a literal union or every variant: its last handler is called with no test.
 
 ---
 

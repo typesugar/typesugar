@@ -118,6 +118,29 @@ export function f(t: Shape | null): number {
   });
 });
 
+describe("an exhaustive discriminant switch has no throw after it, and types as its arms", () => {
+  // With every variant covered the switch can't fall out, so the expansion
+  // has no \`throw new MatchError\` after it. TypeScript must see that too:
+  // if it thought the switch could fall out, the IIFE would return
+  // \`number | undefined\` and \`: number\` below would be TS2322.
+  it("plain and narrowed scrutinees", () => {
+    const r = transformAndRun(`${SHAPE}
+export const plain = (s: Shape): number =>
+  match(s).case({ kind: "circle", radius }).then(radius * 2).case({ kind: "square", side }).then(side ** 2);
+const circle: Shape = { kind: "circle", radius: 5 };
+export const area: number = match(circle)
+  .case({ kind: "circle", radius }).then(radius * 2)
+  .case({ kind: "square", side }).then(side ** 2);
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toContain("const _circle = circle as Shape;");
+    expect(r.code).not.toContain("MatchError");
+    expect(r.code).not.toMatch(/\bbreak\b/);
+    expect(expandedTypeErrors(r.code)).toEqual([]);
+    expect(r.exports.area).toBe(10);
+  });
+});
+
 describe("the discriminant switch tests only what the discriminant leaves open", () => {
   it("a required field of the variant the tag selects is read without an `in` test", () => {
     const r = transformAndRun(`${SHAPE}
