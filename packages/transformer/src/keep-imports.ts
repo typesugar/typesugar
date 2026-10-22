@@ -24,6 +24,11 @@
  * rebuilt declaration is not elided again (TypeScript leaves declarations a
  * `before` transformer changed alone), so what it keeps is decided here, by
  * TypeScript's own emit resolver.
+ *
+ * The other way round too: a binding the source uses as a value that the
+ * expansion no longer references at all (every use of an imported instance
+ * was inlined) is dropped, and a declaration left with none is not emitted,
+ * as TypeScript emits an import used only as a type.
  */
 
 import * as ts from "typescript";
@@ -127,6 +132,43 @@ function isNameNotReference(id: ts.Identifier, parent: ts.Node): boolean {
   return false;
 }
 
+/**
+ * The import-bound names (`importNames`) the expanded file still references
+ * as values, wherever the reference came from: an identifier outside type
+ * positions that is not a property or declaration name, and the local name
+ * of an `export { mkP }`. By name, so a local that shadows an import keeps
+ * the import too (conservative: it only ever keeps an import TypeScript
+ * would have kept).
+ */
+function remainingValueReferences(
+  sourceFile: ts.SourceFile,
+  importNames: ReadonlySet<string>
+): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: ts.Node, parent: ts.Node | undefined): void => {
+    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    if (ts.isImportDeclaration(node)) return;
+    if (ts.isExportDeclaration(node)) {
+      if (!node.moduleSpecifier && node.exportClause && ts.isNamedExports(node.exportClause)) {
+        for (const s of node.exportClause.elements) {
+          const local = s.propertyName ?? s.name;
+          if (ts.isIdentifier(local) && importNames.has(local.text)) names.add(local.text);
+        }
+      }
+      return;
+    }
+    if (ts.isIdentifier(node)) {
+      if (importNames.has(node.text) && !(parent && isNameNotReference(node, parent))) {
+        names.add(node.text);
+      }
+      return;
+    }
+    ts.forEachChild(node, (child) => visit(child, node));
+  };
+  for (const stmt of sourceFile.statements) visit(stmt, sourceFile);
+  return names;
+}
+
 export function keepMacroReferencedImports(
   program?: ts.Program
 ): ts.TransformerFactory<ts.SourceFile> {
@@ -137,6 +179,11 @@ export function keepMacroReferencedImports(
     if (context.getCompilerOptions().verbatimModuleSyntax) return sourceFile;
     const resolver = emitResolverOf(context);
     if (!resolver) return sourceFile;
+    // The file as written, when the macros changed it: only then can a
+    // reference the source has be gone from the expansion.
+    const written = ts.getParseTreeNode(sourceFile);
+    const original =
+      written !== sourceFile && written && ts.isSourceFile(written) ? written : undefined;
 
     const importNames = new Set<string>();
     for (const stmt of sourceFile.statements) {
@@ -159,14 +206,43 @@ export function keepMacroReferencedImports(
     for (const name of reExports?.localNames ?? []) {
       if (importNames.has(name)) generated.add(name);
     }
-    if (generated.size === 0) return sourceFile;
+    // The bindings the expansion no longer references. A binding TypeScript
+    // keeps that the source references by name and the expansion doesn't, at
+    // all, is dropped, as TypeScript drops one the source uses only as a
+    // type: every use of an imported instance was inlined (`mkP.make(1)` →
+    // `({ x: 1 })`, review 8), and keeping the import would load its module
+    // for nothing. Only what the source references by name: a reference
+    // TypeScript keeps an import for with no identifier in the tree (JSX's
+    // `React`) is in neither scan, so it stays; under emitDecoratorMetadata a
+    // type annotation is a run-time reference too, so nothing is dropped.
+    // TypeScript's own decision stays the deciding one for the rest: it
+    // keeps what it keeps, by its emit resolver.
+    let gone: Set<string> | undefined;
+    if (original && !context.getCompilerOptions().emitDecoratorMetadata) {
+      const remaining = remainingValueReferences(sourceFile, importNames);
+      gone = new Set(
+        [...remainingValueReferences(original, importNames)].filter((n) => !remaining.has(n))
+      );
+      if (gone.size === 0) gone = undefined;
+    }
+    if (generated.size === 0 && !gone) return sourceFile;
 
     const kept = (node: ts.Node): boolean => resolver.isReferencedAliasDeclaration(node);
     const factory = context.factory;
     let changed = false;
-    const statements = sourceFile.statements.map((stmt) => {
+    const statements: ts.Statement[] = [];
+    for (const stmt of sourceFile.statements) {
+      const rebuilt = rebuildImport(stmt);
+      if (rebuilt !== stmt) changed = true;
+      if (rebuilt) statements.push(rebuilt);
+    }
+    return changed ? factory.updateSourceFile(sourceFile, statements) : sourceFile;
+
+    /** `stmt` as emitted: itself (TypeScript decides), rebuilt, or undefined (no binding left). */
+    function rebuildImport(stmt: ts.Statement): ts.Statement | undefined {
       if (!ts.isImportDeclaration(stmt)) return stmt;
       // Only declarations TypeScript will still elide: its own, unchanged ones.
+      // A side-effect import (no clause) is never touched.
       if (ts.getParseTreeNode(stmt) !== stmt) return stmt;
       const clause = stmt.importClause;
       if (!clause || clause.isTypeOnly) return stmt;
@@ -174,15 +250,20 @@ export function keepMacroReferencedImports(
 
       const rescued = (name: ts.Identifier, node: ts.Node) =>
         generated.has(name.text) && !kept(node);
-      const needsRescue =
-        (clause.name !== undefined && rescued(clause.name, clause)) ||
+      const dead = (name: ts.Identifier, node: ts.Node) =>
+        gone !== undefined && gone.has(name.text) && kept(node);
+      const differs = (name: ts.Identifier, node: ts.Node) =>
+        rescued(name, node) || dead(name, node);
+      const needsRebuild =
+        (clause.name !== undefined && differs(clause.name, clause)) ||
         (bindings !== undefined &&
           (ts.isNamespaceImport(bindings)
-            ? rescued(bindings.name, bindings)
-            : bindings.elements.some((s) => !s.isTypeOnly && rescued(s.name, s))));
-      if (!needsRescue) return stmt;
+            ? differs(bindings.name, bindings)
+            : bindings.elements.some((s) => !s.isTypeOnly && differs(s.name, s))));
+      if (!needsRebuild) return stmt;
 
-      const keep = (name: ts.Identifier, node: ts.Node) => kept(node) || generated.has(name.text);
+      const keep = (name: ts.Identifier, node: ts.Node) =>
+        (kept(node) || generated.has(name.text)) && !dead(name, node);
       const defaultName = clause.name && keep(clause.name, clause) ? clause.name : undefined;
       let named: ts.NamedImportBindings | undefined;
       if (bindings && ts.isNamespaceImport(bindings)) {
@@ -191,7 +272,9 @@ export function keepMacroReferencedImports(
         const elements = bindings.elements.filter((s) => !s.isTypeOnly && keep(s.name, s));
         named = elements.length > 0 ? factory.createNamedImports(elements) : undefined;
       }
-      changed = true;
+      // Nothing left: emitted as TypeScript emits an import used only as a
+      // type, not at all (a rebuilt declaration is never elided again).
+      if (!defaultName && !named) return undefined;
       return factory.updateImportDeclaration(
         stmt,
         stmt.modifiers,
@@ -199,8 +282,7 @@ export function keepMacroReferencedImports(
         stmt.moduleSpecifier,
         stmt.attributes
       );
-    });
-    return changed ? factory.updateSourceFile(sourceFile, statements) : sourceFile;
+    }
   };
 }
 

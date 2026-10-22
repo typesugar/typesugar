@@ -105,6 +105,12 @@ the parameter once; when the body reads it more than once, its own tests
 (`l != null ? l.head : …`) would narrow the argument to `never`, so that call
 goes through the instance too.
 
+When every use of an imported instance is inlined, its import is not emitted
+either (`typesugar build`, ts-patch): `import { mkP } from "./ord.js"` would
+load the module for nothing. A binding the code still uses (a call that
+wasn't inlined, `const inst = mkP`, `export { mkP }`), the declaration's
+other bindings and side-effect imports (`import "./setup.js"`) stay.
+
 ### With `= implicit()`
 
 `= implicit()` fills in the instance argument at compile time, and the
