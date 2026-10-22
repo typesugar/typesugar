@@ -172,9 +172,50 @@ function stripExtension(p: string): string {
     .replace(/\.[cm]?[jt]sx?$/, "");
 }
 
-/** `./x.js` / `../x` from `from` to `to`, with the extension style of `from`'s relative imports. */
+/** How a file writes its relative imports: `.js`-style, TypeScript extensions, none, or (no relative import) unknown. */
+export type RelativeImportStyle = ".js" | ".ts" | "" | undefined;
+
+/** The style of one relative module specifier's extension. */
+export function relativeImportStyleOf(specifier: string): Exclude<RelativeImportStyle, undefined> {
+  return /\.[cm]?jsx?$/.test(specifier) ? ".js" : /\.[cm]?tsx?$/.test(specifier) ? ".ts" : "";
+}
+
+/**
+ * The extension to give a relative specifier of the source file `to` (with
+ * its extension removed), in a file whose relative imports are written in
+ * `style`, as TypeScript's module resolution reads it (review 8: a `.mts`
+ * target was written `.js`, which resolves nothing: TS2307 in a type, a
+ * missing module at run time):
+ *
+ * - written with `.js` (or with none under Node16/NodeNext, which needs one):
+ *   the output extension, `.ts`/`.tsx` → `.js`, `.mts` → `.mjs`, `.cts` → `.cjs`;
+ * - written with TypeScript extensions (`allowImportingTsExtensions` or
+ *   `rewriteRelativeImportExtensions`): the file's own extension;
+ * - extensionless (bundler resolution): none, except for a `.mts`/`.cts`
+ *   (`.mjs`/`.cjs`) target, which extensionless resolution never finds.
+ */
+export function sourceSpecifierExtension(
+  to: string,
+  style: RelativeImportStyle,
+  options: ts.CompilerOptions
+): string {
+  const own = /\.[cm]?[jt]sx?$/.exec(to)?.[0] ?? "";
+  const output = own.startsWith(".m") ? ".mjs" : own.startsWith(".c") ? ".cjs" : ".js";
+  const tsExtensionsAllowed =
+    options.allowImportingTsExtensions === true ||
+    (options as { rewriteRelativeImportExtensions?: boolean }).rewriteRelativeImportExtensions ===
+      true;
+  if (style === ".ts" && tsExtensionsAllowed) return own;
+  const nodeEsm =
+    options.moduleResolution === ts.ModuleResolutionKind.Node16 ||
+    options.moduleResolution === ts.ModuleResolutionKind.NodeNext;
+  if (style === ".js" || style === ".ts" || (style === undefined && nodeEsm)) return output;
+  return output === ".js" ? "" : output;
+}
+
+/** `./x.js` / `../x` from `from` to the source file `to` (see `sourceSpecifierExtension`). */
 function relativeSpecifier(from: ts.SourceFile, to: string, program: ts.Program): string {
-  let style: string | undefined;
+  let style: RelativeImportStyle;
   for (const stmt of from.statements) {
     if (
       (ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt)) &&
@@ -182,15 +223,10 @@ function relativeSpecifier(from: ts.SourceFile, to: string, program: ts.Program)
       ts.isStringLiteral(stmt.moduleSpecifier) &&
       stmt.moduleSpecifier.text.startsWith(".")
     ) {
-      const text = stmt.moduleSpecifier.text;
-      style = /\.[cm]?js$/.test(text) ? ".js" : /\.[cm]?tsx?$/.test(text) ? ".ts" : "";
+      style = relativeImportStyleOf(stmt.moduleSpecifier.text);
       break;
     }
   }
-  const resolution = program.getCompilerOptions().moduleResolution;
-  const nodeEsm =
-    resolution === ts.ModuleResolutionKind.Node16 ||
-    resolution === ts.ModuleResolutionKind.NodeNext;
   const fromDir = stripExtension(from.fileName).split("/").slice(0, -1);
   const target = stripExtension(to).split("/");
   let common = 0;
@@ -203,5 +239,7 @@ function relativeSpecifier(from: ts.SourceFile, to: string, program: ts.Program)
   }
   const up = fromDir.length - common;
   const relative = (up === 0 ? "./" : "../".repeat(up)) + target.slice(common).join("/");
-  return relative + (style ?? (nodeEsm ? ".js" : ""));
+  return (
+    relative + sourceSpecifierExtension(to.replace(/\\/g, "/"), style, program.getCompilerOptions())
+  );
 }

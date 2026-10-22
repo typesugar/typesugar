@@ -50,6 +50,9 @@ import {
   extractTypeArgumentsContent,
   stripTypeArguments,
   cloneWithoutComments,
+  relativeImportStyleOf,
+  sourceSpecifierExtension,
+  type RelativeImportStyle,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -1521,7 +1524,7 @@ function isWithinSourceModule(filePath: string, sourceModule: string): boolean {
  * map } from "/home/…/src/opt.ts"` into JavaScript. For that file, the
  * specifier this file already imports it by (resolved by the checker), else a
  * relative path in the style of this file's other relative imports
- * (`./opt.js`).
+ * (`./opt.js`, `./opt.mjs` for an `opt.mts`).
  */
 function companionModuleSpecifier(
   ctx: MacroContextImpl,
@@ -1538,18 +1541,12 @@ function companionModuleSpecifier(
     return entry.sourceModule;
   }
   const target = stripScriptExtension(declarationFile);
-  let relativeStyle: string | undefined;
+  let relativeStyle: RelativeImportStyle;
   for (const stmt of ctx.sourceFile.statements) {
     if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt)) continue;
     const spec = stmt.moduleSpecifier;
     if (!spec || !ts.isStringLiteral(spec) || isSyntheticNode(spec)) continue;
-    if (spec.text.startsWith(".")) {
-      relativeStyle ??= /\.[cm]?js$/.test(spec.text)
-        ? ".js"
-        : /\.[cm]?tsx?$/.test(spec.text)
-          ? ".ts"
-          : "";
-    }
+    if (spec.text.startsWith(".")) relativeStyle ??= relativeImportStyleOf(spec.text);
     let resolved: string | undefined;
     try {
       resolved = ctx.typeChecker
@@ -1560,11 +1557,13 @@ function companionModuleSpecifier(
     }
     if (resolved && stripScriptExtension(normalizeSlashes(resolved)) === target) return spec.text;
   }
-  const options = ctx.program.getCompilerOptions();
-  const nodeEsm =
-    options.moduleResolution === ts.ModuleResolutionKind.Node16 ||
-    options.moduleResolution === ts.ModuleResolutionKind.NodeNext;
-  const extension = relativeStyle ?? (nodeEsm ? ".js" : "");
+  // The extension as module resolution reads it: a companion in `opt.mts` is
+  // `./opt.mjs`, not `./opt.js` (review 8).
+  const extension = sourceSpecifierExtension(
+    declarationFile,
+    relativeStyle,
+    ctx.program.getCompilerOptions()
+  );
   return relativeModulePath(normalizeSlashes(ctx.sourceFile.fileName), target) + extension;
 }
 

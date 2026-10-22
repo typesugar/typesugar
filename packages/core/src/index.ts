@@ -320,6 +320,9 @@ export {
   typeToPortableTypeNode,
   portableTypeNode,
   PORTABLE_NODE_BUILDER_FLAGS,
+  sourceSpecifierExtension,
+  relativeImportStyleOf,
+  type RelativeImportStyle,
 } from "./portable-type-node.js";
 
 // Performance profiling (moved from @typesugar/transformer in PEP-056 Wave 3 --
