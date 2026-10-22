@@ -192,6 +192,8 @@ match(shape)
 
 **Compiles to:** a `switch` on the discriminant field inside the match IIFE. Each arm is still tested in full inside its `case` — extra literal/array/nested sub-patterns and guards included — and an arm that doesn't match falls through to the next arm with the same tag, then to the catch-all / `.else()` / `MatchError`. Every arm's bindings live in their own block, so two arms may bind the same name.
 
+When TypeScript has narrowed the scrutinee (`const c: Shape = { kind: "circle", radius: 1 }` is the circle variant from there on), the const is asserted back to the declared type, `const _c = c as Shape;`, so the expansion type-checks as you wrote it: the `"square"` case is not "unreachable" to TypeScript. The assertion is erased from the JavaScript.
+
 ### Type Patterns
 
 Match on runtime type using constructor syntax:

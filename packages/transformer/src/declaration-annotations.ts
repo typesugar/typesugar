@@ -27,14 +27,9 @@ import {
   getAllTypeRewrites,
   isSyntheticNode,
   typeRewriteEntryCoversFile,
+  typeToPortableTypeNode,
   type TypeRewriteEntry,
 } from "@typesugar/core";
-
-const NODE_BUILDER_FLAGS =
-  ts.NodeBuilderFlags.NoTruncation |
-  ts.NodeBuilderFlags.UseStructuralFallback |
-  ts.NodeBuilderFlags.GenerateNamesForShadowedTypeParams |
-  ts.NodeBuilderFlags.AllowEmptyTuple;
 
 /**
  * `expanded` (the macro transformer's output for `original`, a file of
@@ -258,8 +253,8 @@ class Annotator {
     try {
       const type = getType();
       if (!type || !this.involvesOpaque(type, 0, new Set())) return undefined;
-      const node = this.checker.typeToTypeNode(type, enclosing, NODE_BUILDER_FLAGS);
-      return node ? this.portable(node) : undefined;
+      // Written as this file can name it (core's portable-type-node.ts).
+      return typeToPortableTypeNode(this.program, this.checker, this.file, type, enclosing);
     } catch (e) {
       // Degrade to the expanded program's own inference, visibly.
       console.warn(
@@ -314,161 +309,4 @@ class Annotator {
     }
     return false;
   }
-
-  /**
-   * The node builder writes a type this file doesn't import as
-   * `import("/abs/path/to/module").Name`. Rewrite each to a specifier this
-   * file can use: one of its own imports that exports the same symbol (by
-   * identity), or a relative path to a source file of the program. Undefined
-   * when some such type has neither (the declaration keeps the expanded
-   * program's inference).
-   */
-  private portable(node: ts.TypeNode): ts.TypeNode | undefined {
-    let failed = false;
-    const visit = (n: ts.Node): ts.Node => {
-      if (
-        ts.isImportTypeNode(n) &&
-        ts.isLiteralTypeNode(n.argument) &&
-        ts.isStringLiteral(n.argument.literal) &&
-        isAbsolutePath(n.argument.literal.text)
-      ) {
-        const replacement = this.importTypeFromFile(n);
-        if (!replacement) failed = true;
-        return replacement ?? n;
-      }
-      return ts.visitEachChild(n, visit, undefined);
-    };
-    const result = ts.visitNode(node, visit) as ts.TypeNode;
-    return failed ? undefined : result;
-  }
-
-  private importTypeFromFile(node: ts.ImportTypeNode): ts.ImportTypeNode | undefined {
-    const qualifier = node.qualifier;
-    if (!qualifier) return undefined;
-    const first = ts.isIdentifier(qualifier) ? qualifier : leftmost(qualifier);
-    const target = this.symbolExportedBy(
-      (node.argument as ts.LiteralTypeNode).literal as ts.StringLiteral,
-      first.text
-    );
-    if (!target) return undefined;
-    const specifier = this.specifierFor(target);
-    if (!specifier) return undefined;
-    const factory = ts.factory;
-    const renamed =
-      specifier.name === first.text
-        ? qualifier
-        : replaceLeftmost(qualifier, factory.createIdentifier(specifier.name));
-    return factory.updateImportTypeNode(
-      node,
-      factory.createLiteralTypeNode(factory.createStringLiteral(specifier.module)),
-      node.attributes,
-      renamed,
-      node.typeArguments,
-      node.isTypeOf
-    );
-  }
-
-  /** The symbol module `path` (absolute, no extension) exports as `name`, aliases followed. */
-  private symbolExportedBy(path: ts.StringLiteral, name: string): ts.Symbol | undefined {
-    const wanted = stripExtension(path.text);
-    const file = this.program
-      .getSourceFiles()
-      .find((f) => stripExtension(f.fileName) === wanted || f.fileName === path.text);
-    if (!file) return undefined;
-    const moduleSymbol = this.checker.getSymbolAtLocation(file);
-    if (!moduleSymbol) return undefined;
-    const exported = this.checker.getExportsOfModule(moduleSymbol).find((s) => s.name === name);
-    return exported ? this.resolve(exported) : undefined;
-  }
-
-  private resolve(symbol: ts.Symbol): ts.Symbol {
-    return symbol.flags & ts.SymbolFlags.Alias ? this.checker.getAliasedSymbol(symbol) : symbol;
-  }
-
-  /** How this file can name `target`: one of its imports' modules that exports it, or a relative path. */
-  private specifierFor(target: ts.Symbol): { module: string; name: string } | undefined {
-    for (const stmt of this.file.statements) {
-      if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
-      const moduleSymbol = this.checker.getSymbolAtLocation(stmt.moduleSpecifier);
-      if (!moduleSymbol) continue;
-      for (const exported of this.checker.getExportsOfModule(moduleSymbol)) {
-        if (this.resolve(exported) === target) {
-          return { module: stmt.moduleSpecifier.text, name: exported.name };
-        }
-      }
-    }
-    // A source file of this program: a relative path, in this file's style.
-    const declarationFile = target.declarations?.[0]?.getSourceFile();
-    if (
-      !declarationFile ||
-      declarationFile.isDeclarationFile ||
-      this.program.isSourceFileFromExternalLibrary(declarationFile)
-    ) {
-      return undefined;
-    }
-    const moduleSymbol = this.checker.getSymbolAtLocation(declarationFile);
-    const exported = moduleSymbol
-      ? this.checker.getExportsOfModule(moduleSymbol).find((s) => this.resolve(s) === target)
-      : undefined;
-    if (!exported) return undefined;
-    return {
-      module: relativeSpecifier(this.file, declarationFile.fileName, this.program),
-      name: exported.name,
-    };
-  }
-}
-
-function leftmost(name: ts.EntityName): ts.Identifier {
-  return ts.isIdentifier(name) ? name : leftmost(name.left);
-}
-
-function replaceLeftmost(name: ts.EntityName, id: ts.Identifier): ts.EntityName {
-  return ts.isIdentifier(name)
-    ? id
-    : ts.factory.createQualifiedName(replaceLeftmost(name.left, id), name.right);
-}
-
-function isAbsolutePath(p: string): boolean {
-  return p.startsWith("/") || /^[A-Za-z]:[/\\]/.test(p);
-}
-
-function stripExtension(p: string): string {
-  return p
-    .replace(/\\/g, "/")
-    .replace(/\.d\.[cm]?ts$/, "")
-    .replace(/\.[cm]?[jt]sx?$/, "");
-}
-
-/** `./x.js` / `../x` from `from` to `to`, with the extension style of `from`'s relative imports. */
-function relativeSpecifier(from: ts.SourceFile, to: string, program: ts.Program): string {
-  let style: string | undefined;
-  for (const stmt of from.statements) {
-    if (
-      (ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt)) &&
-      stmt.moduleSpecifier &&
-      ts.isStringLiteral(stmt.moduleSpecifier) &&
-      stmt.moduleSpecifier.text.startsWith(".")
-    ) {
-      const text = stmt.moduleSpecifier.text;
-      style = /\.[cm]?js$/.test(text) ? ".js" : /\.[cm]?tsx?$/.test(text) ? ".ts" : "";
-      break;
-    }
-  }
-  const resolution = program.getCompilerOptions().moduleResolution;
-  const nodeEsm =
-    resolution === ts.ModuleResolutionKind.Node16 ||
-    resolution === ts.ModuleResolutionKind.NodeNext;
-  const fromDir = stripExtension(from.fileName).split("/").slice(0, -1);
-  const target = stripExtension(to).split("/");
-  let common = 0;
-  while (
-    common < fromDir.length &&
-    common < target.length - 1 &&
-    fromDir[common] === target[common]
-  ) {
-    common++;
-  }
-  const up = fromDir.length - common;
-  const relative = (up === 0 ? "./" : "../".repeat(up)) + target.slice(common).join("/");
-  return relative + (style ?? (nodeEsm ? ".js" : ""));
 }

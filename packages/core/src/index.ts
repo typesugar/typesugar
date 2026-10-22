@@ -313,6 +313,14 @@ export {
   type MethodInlinePattern,
 } from "./type-rewrite-registry.js";
 
+// A type as a type node a given file can contain (declaration annotations,
+// match()'s scrutinee assertion)
+export {
+  typeToPortableTypeNode,
+  portableTypeNode,
+  PORTABLE_NODE_BUILDER_FLAGS,
+} from "./portable-type-node.js";
+
 // Performance profiling (moved from @typesugar/transformer in PEP-056 Wave 3 --
 // shared by both the CLI/legacy pipeline and transformer-core, not just one)
 export {

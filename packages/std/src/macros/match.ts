@@ -36,6 +36,7 @@ import {
   globalRegistry,
   isSyntheticNode,
   type MacroContext,
+  typeToPortableTypeNode,
   TS9202,
   TS9216,
   TS9226,
@@ -739,16 +740,11 @@ export function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): t
  * fields), not by names.
  */
 function isNarrowedFromUnion(ctx: MacroContext, scrutinee: ts.Expression, type: ts.Type): boolean {
-  let e = scrutinee;
-  while (ts.isParenthesizedExpression(e)) e = e.expression;
-  const named = ts.isIdentifier(e) ? e : ts.isPropertyAccessExpression(e) ? e.name : undefined;
-  if (!named || isSyntheticNode(named)) return false;
   const checker = ctx.typeChecker;
   try {
-    let sym = checker.getSymbolAtLocation(named);
-    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-    if (!sym || !(sym.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property))) return false;
-    const declared = checker.getNonNullableType(checker.getTypeOfSymbol(sym));
+    const declaredType = declaredTypeOfScrutinee(ctx, scrutinee);
+    if (!declaredType) return false;
+    const declared = checker.getNonNullableType(declaredType);
     if (declared === checker.getNonNullableType(type) || !declared.isUnion()) return false;
     const objects = declared.types.filter((t) => (t.flags & ts.TypeFlags.Object) !== 0);
     return objects.length >= 2 && findDiscriminant(checker, objects) !== undefined;
@@ -760,6 +756,161 @@ function isNarrowedFromUnion(ctx: MacroContext, scrutinee: ts.Expression, type: 
     );
     return false;
   }
+}
+
+/**
+ * The DECLARED type of a scrutinee that names a variable, parameter or
+ * property: read from its symbol (aliases followed), so narrowing doesn't
+ * apply. Undefined for any other expression, or a synthetic one (the checker
+ * isn't asked about those). Checker failures propagate to the caller, which
+ * reports them.
+ */
+function declaredTypeOfScrutinee(ctx: MacroContext, scrutinee: ts.Expression): ts.Type | undefined {
+  let e = scrutinee;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  const named = ts.isIdentifier(e) ? e : ts.isPropertyAccessExpression(e) ? e.name : undefined;
+  if (!named || isSyntheticNode(named)) return undefined;
+  const checker = ctx.typeChecker;
+  let sym = checker.getSymbolAtLocation(named);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  if (!sym || !(sym.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property))) return undefined;
+  return checker.getTypeOfSymbol(sym);
+}
+
+/** Set (to "1") by the JS-identity test only: no scrutinee assertion. */
+const NO_WIDENING_ENV = "TYPESUGAR_MATCH_NO_SCRUTINEE_WIDENING";
+
+function wideningDisabled(): boolean {
+  return typeof process !== "undefined" && process.env?.[NO_WIDENING_ENV] === "1";
+}
+
+/**
+ * How the generated code reads the scrutinee.
+ *
+ * - `members`: the non-nullish members of the type the read has, for the
+ *   discriminant switch's field tests.
+ * - `assertion`: a fresh type node to assert the read to (`x as Shape`), or
+ *   undefined to read the scrutinee as it is.
+ */
+interface ScrutineeReading {
+  members?: readonly ts.Type[];
+  assertion?: () => ts.TypeNode | undefined;
+}
+
+const scrutineeReadingCache = new WeakMap<ts.Node, ScrutineeReading>();
+
+function isObjectLike(t: ts.Type): boolean {
+  return (t.flags & ts.TypeFlags.Object) !== 0 || t.isIntersection();
+}
+
+function isLiteralLike(t: ts.Type): boolean {
+  return getLiteralValueFromType(t) !== undefined || (t.flags & ts.TypeFlags.EnumLiteral) !== 0;
+}
+
+/**
+ * The type the generated code should read the scrutinee at.
+ *
+ * The expansion reads the scrutinee from a const (`const _s = s;`), which
+ * has the type TypeScript has NARROWED `s` to here. A match is written
+ * against the declared type, though: `const circle: Shape = { kind: "circle",
+ * ... }` narrows `circle` to the circle variant, and the expansion's `case
+ * "square":` was then unreachable to TypeScript (TS2678), and `"side" in
+ * _circle` narrowed `side` to `unknown` (TS18046): errors in valid code once
+ * the expansion is type-checked (as `typesugar check` does a match chain's).
+ *
+ * So the read is asserted back to the declared type when the narrowing took
+ * union members away: `const _circle = circle as Shape;`. Only members of
+ * the kind that is left come back (objects for an object, literals for a
+ * literal): `s: Shape | string` narrowed to `Shape` by `typeof` is not read
+ * as `Shape | string`, and null/undefined the narrowing removed stay
+ * removed, so the null guard (decided on the narrowed type) still fits.
+ * Decided by type identity (union members compared as types), not by name.
+ *
+ * The node is the checker's (`typeToTypeNode`), written as this file can
+ * name it (core's `typeToPortableTypeNode`); when it can't be, the read
+ * stays as it was. The assertion is erased from the JavaScript.
+ */
+function scrutineeReading(ctx: MacroContext, scrutinee: ts.Expression): ScrutineeReading {
+  const cached = scrutineeReadingCache.get(scrutinee);
+  if (cached) return cached;
+  const reading = computeScrutineeReading(ctx, scrutinee);
+  scrutineeReadingCache.set(scrutinee, reading);
+  return reading;
+}
+
+function computeScrutineeReading(ctx: MacroContext, scrutinee: ts.Expression): ScrutineeReading {
+  const narrowed = getScrutineeType(ctx, scrutinee);
+  if (!narrowed || narrowed.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return {};
+  const narrowedMembers = narrowed.isUnion() ? narrowed.types : [narrowed];
+  const nonNullish = (list: readonly ts.Type[]) => list.filter((t) => !nullishKeyOfType(t));
+  const asIs: ScrutineeReading = { members: nonNullish(narrowedMembers) };
+
+  const checker = ctx.typeChecker;
+  try {
+    const declared = declaredTypeOfScrutinee(ctx, scrutinee);
+    if (!declared || declared === narrowed || !declared.isUnion()) return asIs;
+    const declaredMembers = declared.types;
+    // Narrowing filters a union's members; anything else (an intersection
+    // from `in`, a subtype from `instanceof`) is read as it is.
+    if (!narrowedMembers.every((t) => declaredMembers.includes(t))) return asIs;
+    const left = nonNullish(narrowedMembers);
+    const sameKind =
+      left.length === 0
+        ? undefined
+        : left.every(isObjectLike)
+          ? isObjectLike
+          : left.every(isLiteralLike)
+            ? isLiteralLike
+            : undefined;
+    if (!sameKind) return asIs;
+    const kept = declaredMembers.filter((t) => narrowedMembers.includes(t) || sameKind(t));
+    if (kept.length === narrowedMembers.length) return asIs;
+
+    const members = nonNullish(kept);
+    const dropped = declaredMembers.filter((t) => !kept.includes(t));
+    const enclosing = scrutinee;
+    const file = ctx.sourceFile;
+    const nodeOf = (t: ts.Type) => typeToPortableTypeNode(ctx.program, checker, file, t, enclosing);
+    const build = (): ts.TypeNode | undefined => {
+      if (dropped.length === 0) return nodeOf(declared);
+      // Only null/undefined dropped: the declared type's own node without
+      // them (`Shape | null` → `Shape`), so an alias keeps its name.
+      if (dropped.every((t) => nullishKeyOfType(t))) {
+        const whole = nodeOf(declared);
+        if (whole && ts.isUnionTypeNode(whole)) {
+          const rest = whole.types.filter((n) => !isNullishTypeNode(n));
+          if (rest.length === 1) return rest[0];
+          if (rest.length > 1) return ctx.factory.createUnionTypeNode(rest);
+        }
+      }
+      const nodes = members.map(nodeOf);
+      if (nodes.some((n) => n === undefined)) return undefined;
+      return nodes.length === 1
+        ? nodes[0]
+        : ctx.factory.createUnionTypeNode(nodes as ts.TypeNode[]);
+    };
+    // Expressible at all? Otherwise the read stays as it is.
+    if (!build()) return { members };
+    return { members, assertion: wideningDisabled() ? undefined : build };
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: could not write the scrutinee's declared type (${e instanceof Error ? e.message : String(e)}); ` +
+        `the generated code reads it at its narrowed type.`
+    );
+    return asIs;
+  }
+}
+
+function isNullishTypeNode(n: ts.TypeNode): boolean {
+  if (n.kind === ts.SyntaxKind.UndefinedKeyword) return true;
+  return ts.isLiteralTypeNode(n) && n.literal.kind === ts.SyntaxKind.NullKeyword;
+}
+
+/** `scrutinee`, asserted to its declared type when {@link scrutineeReading} says so. */
+function readScrutinee(ctx: MacroContext, scrutinee: ts.Expression): ts.Expression {
+  const node = scrutineeReading(ctx, scrutinee).assertion?.();
+  return node ? ctx.factory.createAsExpression(scrutinee, node) : scrutinee;
 }
 
 /** Scrutinee analysis, or undefined for any/unknown/unavailable types. */
@@ -1288,7 +1439,14 @@ function generateSwitchIIFE(
     f.createVariableStatement(
       undefined,
       f.createVariableDeclarationList(
-        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        [
+          f.createVariableDeclaration(
+            scrutineeName,
+            undefined,
+            undefined,
+            readScrutinee(ctx, scrutinee)
+          ),
+        ],
         ts.NodeFlags.Const
       )
     ),
@@ -1478,7 +1636,14 @@ function generateDiscriminantSwitchIIFE(
     f.createVariableStatement(
       undefined,
       f.createVariableDeclarationList(
-        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        [
+          f.createVariableDeclaration(
+            scrutineeName,
+            undefined,
+            undefined,
+            readScrutinee(ctx, scrutinee)
+          ),
+        ],
         ts.NodeFlags.Const
       )
     ),
@@ -1794,13 +1959,21 @@ function tryGenerateConditionalChain(
   const rereadable = ts.isIdentifier(scrutinee) || scrutinee.kind === ts.SyntaxKind.ThisKeyword;
   if (!rereadable && (reads > 1 || (reads === 1 && !literalOnly))) return undefined;
   if (reads === 0 && !isSideEffectFree(scrutinee)) return undefined;
-  // One node per read, as the IIFE path does with its `_m` references.
+  // One node per read, as the IIFE path does with its `_m` references; at
+  // the declared type, as the IIFE's const is (scrutineeReading).
+  const reading = scrutineeReading(ctx, scrutinee);
+  const asserted = (e: ts.Expression): ts.Expression => {
+    const node = reading.assertion?.();
+    return node ? f.createParenthesizedExpression(f.createAsExpression(e, node)) : e;
+  };
   const read = (): ts.Expression =>
-    !rereadable
-      ? scrutinee
-      : ts.isIdentifier(scrutinee)
-        ? f.createIdentifier(scrutinee.text)
-        : f.createThis();
+    asserted(
+      !rereadable
+        ? scrutinee
+        : ts.isIdentifier(scrutinee)
+          ? f.createIdentifier(scrutinee.text)
+          : f.createThis()
+    );
 
   const skipObjectGuard = !literalOnly && isGuaranteedObject(ctx, scrutinee);
   const scrutineeType = literalOnly ? undefined : getScrutineeType(ctx, scrutinee);
@@ -2888,12 +3061,24 @@ function generateIIFE(
   // Skip per-arm typeof/null guards when scrutinee is guaranteed to be a non-null object
   const skipObjectGuard = isGuaranteedObject(ctx, scrutinee);
 
-  // const __m = scrutinee;
+  // Wave 5: the arm after which the arms provably cover the scrutinee's type
+  const coveringIdx = findCoveringArmIndex(ctx, scrutinee, arms);
+
+  // const __m = scrutinee;  — at its declared type (scrutineeReading), unless
+  // an arm covers the NARROWED type: that arm binds with no test, so its
+  // reads need the narrowed type.
   statements.push(
     f.createVariableStatement(
       undefined,
       f.createVariableDeclarationList(
-        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        [
+          f.createVariableDeclaration(
+            scrutineeName,
+            undefined,
+            undefined,
+            coveringIdx === -1 ? readScrutinee(ctx, scrutinee) : scrutinee
+          ),
+        ],
         ts.NodeFlags.Const
       )
     )
@@ -2901,9 +3086,6 @@ function generateIIFE(
 
   // The extractor payloads under the scrutinee are typed from its type.
   const scrutineeType = getScrutineeType(ctx, scrutinee);
-
-  // Wave 5: the arm after which the arms provably cover the scrutinee's type
-  const coveringIdx = findCoveringArmIndex(ctx, scrutinee, arms);
   let terminated = false;
 
   for (let i = 0; i < arms.length; i++) {
