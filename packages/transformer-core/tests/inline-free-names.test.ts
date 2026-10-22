@@ -261,11 +261,16 @@ export const r = get(3);
 `,
     };
     const out = transformAll(files, ["ext.ts", "main.ts"]);
-    // Inlined or not, no type name the call site cannot see survives, and
-    // none is replaced by `any` (review 8).
-    expect(out["main.ts"].code).not.toMatch(/\bas A\b/);
-    expect(out["main.ts"].code).not.toMatch(/\bany\b/);
+    // `A` is written as the call instantiates it, never as `any` (review 8):
+    // the .d.ts emitted from the expansion has the source's type.
+    const code = out["main.ts"].code;
+    expect(code).not.toContain("extractSome.extract(");
+    expect(code).toMatch(/\(x as unknown as number\)/);
+    expect(code).not.toMatch(/\bany\b/);
     expect(typeErrors(codeOf(out), "main.ts")).toEqual([]);
+    expect(declarationOf(codeOf(out), "main.ts")).toMatch(
+      /get\(x: number \| null\): number \| undefined;/
+    );
     expect(run(codeOf(out), "main.ts")).toMatchObject({ r: 3 });
   });
 
@@ -290,11 +295,11 @@ export const r = get(3);
     };
     const out = transformAll(files, ["ext.ts", "main.ts"]);
     const code = out["main.ts"].code;
-    // `as Opt<A>` names the method's own type parameter, which has no
-    // meaning at the call site: the call is not inlined rather than written
-    // with `any` (review 8).
+    // `as Opt<A>`: `Opt` is imported here, and the method's own `A` is
+    // written as the call instantiates it, not as `any` (review 8).
+    expect(code).toMatch(/<B>\(b: B\): Array<B>/);
+    expect(code).toMatch(/as Opt<number>/);
     expect(code).not.toMatch(/\bany\b/);
-    expect(code).not.toMatch(/\bas Opt<A>/);
     expect(typeErrors(codeOf(out), "main.ts")).toEqual([]);
     expect(run(codeOf(out), "main.ts")).toMatchObject({ r: [3] });
   });
@@ -476,6 +481,39 @@ export const ps = mkP.pair(p, p);
     expect(dts).toMatch(/p: import\("\.\/ord(\.js)?"\)\.P;/);
     expect(dts).toMatch(/ps: import\("\.\/ord(\.js)?"\)\.P\[\];/);
     expect(run(code, "main.ts")).toMatchObject({ p: { x: 1 }, ps: [{ x: 1 }, { x: 1 }] });
+  });
+
+  it("an annotated instance's method type parameters are the typeclass member's instantiation", () => {
+    // The call resolves to the typeclass's `map<A, B>`, which the method's
+    // own `<A, B>` mirror: `A` is written as the call instantiates it
+    // (`number`), never as `any` (review 8).
+    const files: Files = {
+      "fm.ts": `
+/** @typeclass */
+export interface Mapper<F> {
+  map<A, B>(fa: unknown, f: (a: A) => B): unknown;
+}
+export interface ArrTag { readonly _tag: "Arr" }
+/** @impl Mapper<ArrTag> */
+export const mapArr: Mapper<ArrTag> = {
+  map: <A, B>(fa: unknown, f: (a: A) => B): unknown => (fa as A[]).map(f),
+};
+`,
+      "main.ts": `
+import { mapArr } from "./fm.js";
+export const r = mapArr.map([1, 2], (x: number) => x + 1);
+`,
+    };
+    const out = transformAll(files, ["fm.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).not.toContain("mapArr.map(");
+    expect(code["main.ts"]).toMatch(/as number\[\]\)\.map/);
+    expect(code["main.ts"]).not.toMatch(/\bany\b/);
+    expect(typeErrors(code, "main.ts")).toEqual([]);
+    // (The source's `r` is `unknown`, the typeclass member's return type;
+    // the inlined body is typed by the method's own `.map`.)
+    expect(declarationOf(code, "main.ts")).not.toMatch(/\bany\b/);
+    expect(run(code, "main.ts")).toMatchObject({ r: [2, 3] });
   });
 
   it("a type private to the instance's module keeps the call uninlined", () => {

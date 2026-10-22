@@ -93,10 +93,12 @@ through the instance instead of inlined.
 An inlined body's type annotations follow the same rule, so the expansion
 type-checks (`typesugar check --strict`) and the `.d.ts` emitted from it has
 the types the source has. A type the call site doesn't import is written
-through an import type (`({ x: 1 }) as import("./ord.js").P`); a type that
-can't be named there at all (the method's own type parameter `A` in
-`o as unknown as A`, or an interface private to the instance's module) keeps
-the call going through the instance. Nothing is ever written as `any`. An
+through an import type (`({ x: 1 }) as import("./ord.js").P`), and the
+method's own type parameter (`A` in `o as unknown as A`) as the call
+instantiates it (`o as unknown as number`). A type that can't be named there
+(an interface private to the instance's module, or a type parameter the call
+doesn't instantiate) keeps the call going through the instance. Nothing is
+ever written as `any`. An
 argument whose type is narrower than its parameter's (`extract(Nil)`,
 `Nil: null`, for `l: List<A>`) is substituted as it is when the body reads
 the parameter once; when the body reads it more than once, its own tests

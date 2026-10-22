@@ -416,33 +416,48 @@ function callSiteTypeName(
 /**
  * Re-express the type names an inlined method body carries for the call site
  * it now sits at (turf case study, round 2; review 8): `mkP.make(1)` inlined
- * as `({ x: 1 }) as P` where the call site doesn't import `P`. A type
- * reference (`Opt<A>`, `typeof x`) is kept where its leading name resolves,
- * at `location`, to the same symbol it did where the method is defined
- * (`method.typeSymbols` — identity, never the printed name); else it is
- * named for the call site (`import("./ord.js").P`, see
- * {@link callSiteTypeName}), its type arguments re-expressed the same way.
- * Never as `any`: that leaked into the emitted .d.ts (`p: any`) and hid the
- * expansion from its own type check. Undefined when some type can't be named
- * there — the method's own type parameter (`o as unknown as A`, unbound once
- * the signature is dropped), a type private to the instance's module, an
- * import type with a path relative to the instance's file — and the caller
- * then doesn't inline the call.
+ * as `({ x: 1 }) as P` where the call site doesn't import `P`. Each type name
+ * the METHOD wrote is judged by identity, against the symbol it had where
+ * the method is defined (`method.typeSymbols`), never by the printed name:
+ *
+ * - it resolves to that symbol at `location`: kept;
+ * - it resolves to nothing there: named for the call site
+ *   (`import("./ord.js").P`, see {@link callSiteTypeName}), its type
+ *   arguments re-expressed the same way;
+ * - it resolves to another symbol there (a call-site type of the same name):
+ *   not inlined.
+ *
+ * The method's own type parameters (`o as unknown as A`, unbound once its
+ * signature is dropped) become their instantiation at `call` (see
+ * {@link instantiatedTypeParameters}), else their constraint, else `unknown`
+ * — what TypeScript infers for a type parameter it has nothing to infer from
+ * (`approximated`: an in-place instance call is then not inlined). A name the method didn't write (from a substituted argument:
+ * the caller's own `(a: A) => …`) is left as it is. Never `any`: that leaked
+ * into the emitted .d.ts (`p: any`) and hid the expansion from its own type
+ * check. Undefined (the caller doesn't inline) when something can't be named
+ * at the call site: a type private to the instance's module, a constrained
+ * type parameter whose constraint can't be, an import type with a path
+ * relative to another file.
  */
 function reexpressInlinedTypes(
   ctx: MacroContextImpl,
   expr: ts.Expression,
   method: DictMethod,
-  location: ts.Node | undefined
-): ts.Expression | undefined {
-  const resolvesSame = (id: ts.Identifier | undefined, meaning: ts.SymbolFlags): boolean => {
-    if (!id || !location) return false;
-    const expected = method.typeSymbols?.get(id.text);
-    if (!expected) return false;
-    const actual = ctx.typeChecker.resolveName(id.text, location, meaning, false);
-    return !!actual && sameSymbol(ctx.typeChecker, actual, expected);
-  };
+  location: ts.Node | undefined,
+  /** The inlined call, for the method's type arguments (see above). */
+  call?: ts.Node
+): ReexpressedInline | undefined {
+  const checker = ctx.typeChecker;
   let failed = false;
+  let approximated = false;
+  const ownTypeParams = methodTypeParameters(method);
+  let ownTypeArgs: Map<string, OwnTypeArgument> | undefined;
+  const ownTypeArg = (name: string): ts.TypeNode | undefined => {
+    ownTypeArgs ??= instantiatedTypeParameters(ctx, method, call, location);
+    const arg = ownTypeArgs.get(name);
+    if (arg?.approximated) approximated = true;
+    return arg?.node && cloneNodeDeep(arg.node);
+  };
   // Type parameters declared INSIDE the inlined expression (a nested generic
   // arrow's `<A, B>`) travel with it and still bind their uses there; only
   // the method's own (dropped with its signature) are unbound.
@@ -461,23 +476,46 @@ function reexpressInlinedTypes(
     }
     if (ts.isTypeReferenceNode(n)) {
       const id = leftmostIdentifier(n.typeName);
-      const own = ts.isIdentifier(n.typeName) && inScope.includes(n.typeName.text);
-      if (!own && !resolvesSame(id, TYPE_MEANING)) {
-        const expected = id && method.typeSymbols?.get(id.text);
-        const typeArguments =
-          n.typeArguments &&
-          ctx.factory.createNodeArray(n.typeArguments.map((t) => visit(t) as ts.TypeNode));
-        const named =
-          expected && location && ts.isIdentifier(n.typeName) && !failed
-            ? callSiteTypeName(ctx, expected, typeArguments, location)
-            : undefined;
-        if (!named) failed = true;
-        return named ?? n;
+      const bound = ts.isIdentifier(n.typeName) && inScope.includes(n.typeName.text);
+      const expected = id && method.typeSymbols?.get(id.text);
+      if (!bound && id && expected) {
+        const actual = location
+          ? checker.resolveName(id.text, location, TYPE_MEANING, false)
+          : undefined;
+        if (!actual || !sameSymbol(checker, actual, expected)) {
+          const typeArguments =
+            n.typeArguments &&
+            ctx.factory.createNodeArray(n.typeArguments.map((t) => visit(t) as ts.TypeNode));
+          const named =
+            !actual && location && ts.isIdentifier(n.typeName) && !failed
+              ? callSiteTypeName(ctx, expected, typeArguments, location)
+              : undefined;
+          if (!named) failed = true;
+          return named ?? n;
+        }
+      } else if (
+        !bound &&
+        ts.isIdentifier(n.typeName) &&
+        !n.typeArguments &&
+        ownTypeParams.includes(n.typeName.text)
+      ) {
+        const instantiated = ownTypeArg(n.typeName.text);
+        if (!instantiated) failed = true;
+        return instantiated ?? n;
       }
     }
-    if (ts.isTypeQueryNode(n) && !resolvesSame(leftmostIdentifier(n.exprName), VALUE_MEANING)) {
-      failed = true;
-      return n;
+    if (ts.isTypeQueryNode(n)) {
+      const id = leftmostIdentifier(n.exprName);
+      const expected = id && method.typeSymbols?.get(id.text);
+      if (id && expected) {
+        const actual = location
+          ? checker.resolveName(id.text, location, VALUE_MEANING, false)
+          : undefined;
+        if (!actual || !sameSymbol(checker, actual, expected)) {
+          failed = true;
+          return n;
+        }
+      }
     }
     const typeParameters = (n as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
       .typeParameters;
@@ -496,7 +534,108 @@ function reexpressInlinedTypes(
     warnCheckerFailure(ctx, location, "naming an inlined method's types at the call site", error);
     return undefined;
   }
-  return failed ? undefined : result;
+  return failed ? undefined : { expr: result, approximated };
+}
+
+/** {@link reexpressInlinedTypes}'s result. */
+interface ReexpressedInline {
+  expr: ts.Expression;
+  /**
+   * A type parameter of the method was written as its constraint or
+   * `unknown`, not as the call instantiates it: the expression may be typed
+   * wider than the call was, or not type-check (`(fa as unknown[]).map((x:
+   * number) => …)`). An instance call inlined in place is then not inlined.
+   */
+  approximated: boolean;
+}
+
+/** One of a method's own type parameters, as written at a call site. */
+interface OwnTypeArgument {
+  /** Undefined when it can't be written there. */
+  node: ts.TypeNode | undefined;
+  /** Its constraint or `unknown`, not the call's instantiation. */
+  approximated: boolean;
+}
+
+/** The names of `method`'s own type parameters (`<A, B>(fa: …) => …`). */
+function methodTypeParameters(method: DictMethod): string[] {
+  const fn = method.node as ts.SignatureDeclaration | undefined;
+  return fn?.typeParameters?.map((p) => p.name.text) ?? [];
+}
+
+/**
+ * For each of `method`'s own type parameters, the type node to write in its
+ * place at the call site (see {@link reexpressInlinedTypes}): the type the
+ * checker instantiates it with at `call`, when it resolves `call` to this
+ * method's own signature (by declaration identity) or to the typeclass
+ * member it implements with as many type parameters (one for one) — named
+ * for the call site by core's {@link typeToPortableTypeNode}; otherwise
+ * (`approximated`) its constraint, so named, or, unconstrained, `unknown`.
+ * No node for one that can't be written there.
+ */
+function instantiatedTypeParameters(
+  ctx: MacroContextImpl,
+  method: DictMethod,
+  call: ts.Node | undefined,
+  location: ts.Node | undefined
+): Map<string, OwnTypeArgument> {
+  const out = new Map<string, OwnTypeArgument>();
+  const fn = method.node as ts.SignatureDeclaration | undefined;
+  if (!fn?.typeParameters?.length) return out;
+  const checker = ctx.typeChecker;
+  const declared = (method.declaration ?? fn) as ts.SignatureDeclaration;
+  const write = (type: ts.Type): ts.TypeNode | undefined => {
+    if (!location) return undefined;
+    const node = typeToPortableTypeNode(ctx.program, checker, ctx.sourceFile, type, location);
+    return node && typeNodeResolvesAt(ctx, node, location) ? node : undefined;
+  };
+  const real = call && realLocation(call);
+  let typeArgs: readonly ts.Type[] | undefined;
+  if (real && ts.isCallExpression(real)) {
+    const signature = checker.getResolvedSignature(real);
+    const declaration = signature?.getDeclaration();
+    const getArgs = (
+      checker as {
+        getTypeArgumentsForResolvedSignature?: (s: ts.Signature) => readonly ts.Type[] | undefined;
+      }
+    ).getTypeArgumentsForResolvedSignature;
+    // The call resolves to this method's own signature (an unannotated
+    // instance: identity of the declaration), or to the typeclass member it
+    // implements (an annotated one: `Mapper<ArrTag>.map<A, B>`), whose type
+    // parameters the method's mirror one for one.
+    const sameParameters =
+      !!declaration &&
+      (declaration === declared ||
+        declaration === fn ||
+        (declaration as ts.SignatureDeclaration).typeParameters?.length ===
+          fn.typeParameters.length);
+    if (signature && sameParameters && typeof getArgs === "function") {
+      typeArgs = getArgs.call(checker, signature);
+    }
+  }
+  fn.typeParameters.forEach((tp, i) => {
+    const instantiated = typeArgs?.[i];
+    // The constraint is read from the real declaration's type parameter
+    // (`fn` may be a synthetic copy, outside the checker's contract).
+    const constraint = declared.typeParameters?.[i]?.constraint;
+    if (instantiated) {
+      out.set(tp.name.text, { node: write(instantiated), approximated: false });
+    } else if (tp.constraint) {
+      out.set(tp.name.text, {
+        node:
+          constraint && !isSyntheticNode(constraint)
+            ? write(checker.getTypeFromTypeNode(constraint))
+            : undefined,
+        approximated: true,
+      });
+    } else {
+      out.set(tp.name.text, {
+        node: ctx.factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
+        approximated: true,
+      });
+    }
+  });
+  return out;
 }
 
 /** A reference TypeScript narrows by control flow (`x`, `x.y`, `this.x`). */
@@ -790,7 +929,12 @@ export function rewriteDictCallsForAutoSpec(
           // A type the body names that can't be written at the call site:
           // the call stays a dictionary call (and the leftover-use check of
           // inlineAutoSpecializeForHoisting then declines the specialization).
-          const reexpressed = inlined && reexpressInlinedTypes(ctx, inlined, method, location);
+          // In a hoisted specialization a method type parameter the call
+          // doesn't instantiate (a dictionary parameter typed `any`) is
+          // written `unknown`: the specialized function's own return type is
+          // the call's when it was declared in terms of its type parameters.
+          const reexpressed =
+            inlined && reexpressInlinedTypes(ctx, inlined, method, location, n)?.expr;
           if (reexpressed) {
             const mapped = preserveSourceMap(reexpressed, n);
             return ts.visitEachChild(mapped, visit, ctx.transformContext);
@@ -2105,7 +2249,12 @@ export function tryInlineDerivedInstanceCall(
     hoistConst ? { hoistConst, hoistEffects } : undefined
   );
   if (!inlined) return undefined;
-  const reexpressed = reexpressInlinedTypes(ctx, inlined, method, location);
+  // A method type parameter the call doesn't instantiate, written `unknown`,
+  // would type the inlined body differently from the call (`(fa as
+  // unknown[]).map((x: number) => …)` is an error): the call goes through
+  // the instance.
+  const typed = reexpressInlinedTypes(ctx, inlined, method, location, node);
+  const reexpressed = typed && !typed.approximated ? typed.expr : undefined;
   if (!reexpressed) return undefined;
   temps?.declarations.push(...pending);
 
@@ -2330,7 +2479,8 @@ function recursivelyInlineInstanceCalls(
       const method = methodMap?.methods.get(methName);
       if (method && methodFreeNamesResolveSameAt(ctx, method, location)) {
         const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
-        const reexpressed = inlined && reexpressInlinedTypes(ctx, inlined, method, location);
+        const typed = inlined && reexpressInlinedTypes(ctx, inlined, method, location, n);
+        const reexpressed = typed && !typed.approximated ? typed.expr : undefined;
         if (reexpressed) {
           const deeper = recursivelyInlineInstanceCalls(ctx, reexpressed, depth + 1, location);
           return ts.visitEachChild(deeper, visit, ctx.transformContext);

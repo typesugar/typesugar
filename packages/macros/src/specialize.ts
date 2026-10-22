@@ -305,6 +305,14 @@ export interface DictMethodMap {
 export interface DictMethod {
   /** The implementation as an AST node — how inlining substitutes the call. */
   node?: ts.Expression;
+  /**
+   * The method's real (program-attached) declaration, when `node` is a copy
+   * of it or may be: what the checker's resolved signature at a call is
+   * compared with, by identity, to read the call's type arguments for the
+   * method's own type parameters (transformer-core's
+   * `instantiatedTypeParameters`). Never inlined from or mutated.
+   */
+  declaration?: ts.Node;
   /** Parameter names for the method */
   params: string[];
   /**

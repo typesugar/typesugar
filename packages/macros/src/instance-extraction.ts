@@ -1005,7 +1005,12 @@ export function tryExtractInstanceFromSource(
       }
       // Clone so downstream inlining (which strips positions/comments
       // in place) can never corrupt the defining file's AST.
-      methods.set(name, { ...method, node: cloneNodeDeep(method.node), ...symbols });
+      methods.set(name, {
+        ...method,
+        node: cloneNodeDeep(method.node),
+        declaration: method.node,
+        ...symbols,
+      });
     }
 
     if (methods.size > 0) {

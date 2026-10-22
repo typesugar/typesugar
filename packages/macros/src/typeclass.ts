@@ -2620,7 +2620,7 @@ function inlineableMethods(
       inliningFailureReporter(ctx)
     );
     if (!symbols) methods.delete(name);
-    else methods.set(name, { ...method, ...symbols });
+    else methods.set(name, { ...method, declaration: fnNode, ...symbols });
   }
   return methods;
 }
