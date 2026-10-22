@@ -104,7 +104,10 @@ typesugar watch --verbose
 
 Each rebuild reports what `check` would, at the positions as written, and ends with
 `Found N errors. Watching for file changes.`, where N counts the errors it printed: macro errors
-included, diagnostics the suppression rules hid left out.
+included, diagnostics the suppression rules hid left out. That includes the type check of the
+expansion of the constructs whose bound names the source can't check (see `check` below), so
+`user.nme` in a comprehension is reported on every rebuild, as `check` reports it. `--strict` has
+no effect in watch.
 
 ### check
 

@@ -410,6 +410,28 @@ function dedupeDiagnostics(diagnostics: readonly ts.Diagnostic[]): ts.Diagnostic
   return out;
 }
 
+/**
+ * The expanded check's diagnostics (at the positions as written) that the
+ * source as written does not already report (`writtenTs`): an error is not
+ * repeated at the same place, nor with the same message on the same line.
+ */
+function notReportedAsWritten(
+  writtenTs: readonly ts.Diagnostic[],
+  expanded: readonly ts.Diagnostic[]
+): ts.Diagnostic[] {
+  const sameError = (d: ts.Diagnostic): string[] => {
+    if (!d.file || d.start === undefined) return [];
+    const line = d.file.getLineAndCharacterOfPosition(d.start).line;
+    const message = ts.flattenDiagnosticMessageText(d.messageText, "\n");
+    return [
+      `${d.file.fileName}\0@${d.start}`,
+      `${d.file.fileName}\0${line}\0${d.code}\0${message}`,
+    ];
+  };
+  const reported = new Set(writtenTs.flatMap(sameError));
+  return expanded.filter((d) => !sameError(d).some((k) => reported.has(k)));
+}
+
 function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
   let errorCount = 0;
   for (const diagnostic of diagnostics) {
@@ -821,18 +843,9 @@ function build(options: CliOptions): void {
   // expanded check: not at the same place, nor with the same message on the
   // same line.
   const writtenTs = toWrittenPositions(tsDiagnostics);
-  const sameError = (d: ts.Diagnostic): string[] => {
-    if (!d.file || d.start === undefined) return [];
-    const line = d.file.getLineAndCharacterOfPosition(d.start).line;
-    const message = ts.flattenDiagnosticMessageText(d.messageText, "\n");
-    return [
-      `${d.file.fileName}\0@${d.start}`,
-      `${d.file.fileName}\0${line}\0${d.code}\0${message}`,
-    ];
-  };
-  const reported = new Set(writtenTs.flatMap(sameError));
-  const expandedDiagnostics = toWrittenPositions(strictDiagnostics).filter(
-    (d) => !sameError(d).some((k) => reported.has(k))
+  const expandedDiagnostics = notReportedAsWritten(
+    writtenTs,
+    toWrittenPositions(strictDiagnostics)
   );
   // In the expanded text, where positions can't be compared: the same error
   // in the same file.
@@ -953,6 +966,60 @@ function watch(options: CliOptions): void {
   const toWrittenPosition = (d: ts.Diagnostic): ts.Diagnostic | undefined =>
     mapRewrittenDiagnostic(d, comprehensionRewrites, canonical, originalFile);
 
+  // The expanded check `build` and `check` run (strict-check.ts), once per
+  // cycle (review 8: watch skipped it, so `user.nme` in a comprehension was
+  // "Found 0 errors"). Per cycle: what the suppression filter hid, and the
+  // TS diagnostics printed (at the positions as written), which the check
+  // doesn't repeat. Across cycles: the expanded text of each file the macros
+  // changed, as last emitted -- the builder re-emits only affected files.
+  let suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];
+  let printedTs: ts.Diagnostic[] = [];
+  const expandedSources = new Map<string, string>();
+  const expandedMaps = new Map<string, () => RawSourceMap | null>();
+  /** A `before` transformer, ahead of the macros: a re-emitted file's last expansion is gone. */
+  const forgetExpansion: ts.TransformerFactory<ts.SourceFile> = () => (sourceFile) => {
+    const resolved = path.resolve(sourceFile.fileName);
+    expandedSources.delete(resolved);
+    expandedMaps.delete(resolved);
+    return sourceFile;
+  };
+  const expandedCheck = (program: ts.Program): ts.Diagnostic[] => {
+    const blindSpots = blindSpotRegions(suppressed);
+    // Files no longer in the program have no expansion that counts.
+    const expanded = new Map([...expandedSources].filter(([f]) => program.getSourceFile(f)));
+    const files = new Set([...expanded.keys()].filter((f) => blindSpots.has(f)));
+    if (files.size === 0) return [];
+    // Every other file as this program read it (preprocessed), so the
+    // expanded program reuses its SourceFiles.
+    const host = ts.createCompilerHost(program.getCompilerOptions());
+    host.readFile = (f) => program.getSourceFile(f)?.text ?? watchSystem.readFile(f);
+    try {
+      const { mapped } = mapExpandedDiagnostics(
+        typecheckExpandedProgram({
+          rootNames: program.getRootFileNames(),
+          options: program.getCompilerOptions(),
+          host,
+          expanded,
+          reuse: program,
+          files,
+        }),
+        { program, expanded, maps: expandedMaps }
+      );
+      const found = mapped
+        .filter((d) => inBlindSpot(d, blindSpots))
+        .flatMap((d) => toWrittenPosition(d) ?? []);
+      return notReportedAsWritten(printedTs, found);
+    } catch (e: unknown) {
+      // Watch keeps running; say what this cycle didn't check.
+      console.error(
+        `🧊 Warning: the expanded type check was skipped this cycle — ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
+      return [];
+    }
+  };
+
   // Serve HKT-preprocessed text to the watch program, exactly as `build`
   // does — with the raw ts.sys, `F<A>` on a type parameter is TS2315 in watch.
   const watchSystem: ts.System = {
@@ -992,7 +1059,8 @@ function watch(options: CliOptions): void {
             [diagnostic],
             checker,
             (fn) => program.getSourceFile(fn),
-            { program }
+            { program },
+            (hidden, rule) => suppressed.push({ diagnostic: hidden, rule })
           );
           if (filtered.length === 0) return;
         } catch (e: unknown) {
@@ -1007,15 +1075,24 @@ function watch(options: CliOptions): void {
       }
       // Undefined for one on the comprehension preprocessor's own tag.
       const written = toWrittenPosition(diagnostic);
-      if (written) report([written]);
+      if (written) {
+        printedTs.push(written);
+        report([written]);
+      }
     },
     (diagnostic) => {
       // A cycle starts: "Starting compilation in watch mode..." (6031),
       // "File change detected. Starting incremental compilation..." (6032).
-      if (diagnostic.code === 6031 || diagnostic.code === 6032) reportedErrors = 0;
+      if (diagnostic.code === 6031 || diagnostic.code === 6032) {
+        reportedErrors = 0;
+        suppressed = [];
+        printedTs = [];
+      }
       // TypeScript's summary, "Found N errors. Watching for file changes."
-      // (6193 / 6194): replaced by the count of what was printed.
+      // (6193 / 6194): replaced by the count of what was printed. It comes
+      // after every diagnostic of the cycle, so the expanded check runs here.
       if (diagnostic.code === 6193 || diagnostic.code === 6194) {
+        if (currentProgram) report(expandedCheck(currentProgram));
         const n = reportedErrors;
         reportedErrors = 0;
         console.log(`🧊 Found ${n} error${n === 1 ? "" : "s"}. Watching for file changes.`);
@@ -1058,7 +1135,9 @@ function watch(options: CliOptions): void {
       const result = origEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
         ...customTransformers,
         before: [
+          forgetExpansion,
           transformerFactory,
+          captureExpandedSource(program, expandedSources, expandedMaps),
           keepMacroReferencedImports(program),
           ...(customTransformers?.before ?? []),
         ],

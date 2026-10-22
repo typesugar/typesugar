@@ -292,6 +292,79 @@ export const bad: number = "oops";
     }
   }, 150_000);
 
+  it("watch: runs the expanded check of what the filter hid, as check does, across a rebuild (review 8)", async () => {
+    // `user` is bound by the comprehension, so the source-level check can't
+    // see `user.nme` (the filter hides "Cannot find name 'user'"): only the
+    // expanded check reports TS2551. watch printed "Found 0 errors".
+    const written = (field: string, use: string) => `import "@typesugar/std/syntax/do";
+const fetchUser = (id: number) => Promise.resolve({ id, name: "u" + id });
+const fetchAge = (_n: string) => Promise.resolve(40);
+export const describe = (id: number) =>
+  let: {
+    user << fetchUser(id);
+    age << fetchAge(user.${field});
+  }
+  yield: \`\${user.name} is \${${use}}\`;
+`;
+    const project = makeProject("typesugar-cli-watch-blind-", {
+      "src/a.ts": written("nme", "age"),
+    });
+    const a = path.join(project, "src", "a.ts");
+    // What check reports for each version, as `a.ts(line,col): error TSn`.
+    const checkReports = (text: string): string => {
+      fs.writeFileSync(a, text);
+      const out = runCli(["check"], project).output;
+      return /a\.ts\(\d+,\d+\): error TS\d+/.exec(out)?.[0] ?? `(nothing in: ${out})`;
+    };
+    const second = written("name", "age.toUpperCase()");
+    const secondReport = checkReports(second);
+    expect(secondReport).toMatch(/TS2339$/);
+    const firstReport = checkReports(written("nme", "age"));
+    expect(firstReport).toMatch(/TS2551$/);
+    try {
+      const child = spawn(process.execPath, [cliPath, "watch"], {
+        cwd: project,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      let cycles = 0;
+      const done = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 100_000);
+        const onData = (chunk: Buffer): void => {
+          output += chunk.toString();
+          const seen = output.match(/Watching for file changes/g)?.length ?? 0;
+          if (seen === cycles) return;
+          cycles = seen;
+          if (cycles === 1) {
+            // One rebuild: fix that error, make another in the comprehension.
+            setTimeout(() => fs.writeFileSync(a, second), 1000);
+          } else {
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+        child.stdout.on("data", onData);
+        child.stderr.on("data", onData);
+      });
+      await done;
+      const exited = new Promise((resolve) => child.on("close", resolve));
+      child.kill("SIGTERM");
+      await exited;
+
+      const runs = output.split(/File change detected/);
+      expect(runs, output).toHaveLength(2);
+      const [firstRun, secondRun] = runs;
+      // What check reports, where check reports it.
+      expect(firstRun, output).toContain(firstReport);
+      expect(firstRun).toContain("Found 1 error. Watching for file changes.");
+      expect(secondRun, output).not.toContain("TS2551");
+      expect(secondRun).toContain(secondReport);
+      expect(secondRun).toContain("Found 1 error. Watching for file changes.");
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  }, 150_000);
+
   it("typesugar-dts-transform bin rewrites @opaque interfaces", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-dts-bin-"));
     try {
