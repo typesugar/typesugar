@@ -610,15 +610,88 @@ export function containsMacroCall(checker: ts.TypeChecker, node: ts.Node): boole
   return found;
 }
 
+/** What {@link methodInlineSymbols} found: see `DictMethod.freeSymbols` / `typeSymbols`. */
+export interface MethodInlineSymbols {
+  freeSymbols: Map<string, ts.Symbol>;
+  typeSymbols: Map<string, ts.Symbol>;
+}
+
+/**
+ * The checker-backed half of a method's inlining contract, computed where the
+ * method is defined (a real, program-attached node): `undefined` when the
+ * body can't be inlined anywhere (see {@link isSafeToInlineMethod}), else the
+ * symbols its value and type names resolve to there, which each call site
+ * must resolve the same names to before (and while) inlining it.
+ *
+ * `allowModuleScopeOf`: the file whose module-scope bindings count as in
+ * scope. `@impl` registration passes the instance's own file — a call site
+ * in another file is then checked name by name (`methodFreeNamesResolveSameAt`
+ * in transformer-core), where a module-private helper resolves to nothing.
+ */
+export function methodInlineSymbols(
+  checker: ts.TypeChecker,
+  methodNode: ts.Node,
+  allowModuleScopeOf: ts.SourceFile | undefined
+): MethodInlineSymbols | undefined {
+  if (isSyntheticNode(methodNode)) return undefined;
+  return isSafeToInlineMethod(checker, methodNode, allowModuleScopeOf);
+}
+
+/**
+ * Record, by name, what each type name a method mentions (`Option<A>`,
+ * `typeof x`, `as Acc<B>`) resolves to where it is written. Names declared
+ * inside the method itself (its own type parameters) are left out: once the
+ * body is inlined they are bound nowhere, so the inliner re-expresses them as
+ * `any` (by symbol identity, never by name: CLAUDE.md "Deciding what a type
+ * is").
+ */
+function collectTypeSymbols(
+  checker: ts.TypeChecker,
+  typeNode: ts.Node,
+  methodNode: ts.Node,
+  into: Map<string, ts.Symbol>
+): void {
+  const leftmost = (n: ts.Node): ts.Identifier | undefined => {
+    while (ts.isQualifiedName(n) || ts.isPropertyAccessExpression(n)) {
+      n = ts.isQualifiedName(n) ? n.left : n.expression;
+    }
+    return ts.isIdentifier(n) ? n : undefined;
+  };
+  const visit = (n: ts.Node): void => {
+    const id = ts.isTypeReferenceNode(n)
+      ? leftmost(n.typeName)
+      : ts.isExpressionWithTypeArguments(n)
+        ? leftmost(n.expression)
+        : ts.isTypeQueryNode(n)
+          ? leftmost(n.exprName)
+          : undefined;
+    if (id && !into.has(id.text)) {
+      let symbol: ts.Symbol | undefined;
+      try {
+        symbol = checker.getSymbolAtLocation(id);
+      } catch {
+        symbol = undefined; // unrecorded: re-expressed as `any` when inlined
+      }
+      const decls = symbol?.getDeclarations() ?? [];
+      if (symbol && decls.length > 0 && !decls.every((d) => isNodeWithin(d, methodNode))) {
+        into.set(id.text, symbol);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(typeNode);
+}
+
 function isSafeToInlineMethod(
   checker: ts.TypeChecker,
   methodNode: ts.Node,
   allowModuleScopeOf: ts.SourceFile | undefined
-): Map<string, ts.Symbol> | undefined {
+): MethodInlineSymbols | undefined {
   if (methodDependsOnReceiver(methodNode)) return undefined;
 
   let safe = true;
   const freeSymbols = new Map<string, ts.Symbol>();
+  const typeSymbols = new Map<string, ts.Symbol>();
 
   const checkIdentifier = (id: ts.Identifier, shorthand?: ts.ShorthandPropertyAssignment): void => {
     let symbol: ts.Symbol | undefined;
@@ -651,7 +724,12 @@ function isSafeToInlineMethod(
 
   const visit = (node: ts.Node): void => {
     if (!safe) return;
-    if (ts.isTypeNode(node)) return; // types are erased
+    if (ts.isTypeNode(node)) {
+      // Types are erased at run time, but an inlined body's annotations are
+      // still type-checked at the call site (`check --strict`).
+      collectTypeSymbols(checker, node, methodNode, typeSymbols);
+      return;
+    }
     if (callsMacro(checker, node)) {
       // The transformer expands this call in the instance's OWN file; the
       // source is what was written, not what runs. Inlining it would copy the
@@ -689,7 +767,7 @@ function isSafeToInlineMethod(
   };
 
   visit(methodNode);
-  return safe ? freeSymbols : undefined;
+  return safe ? { freeSymbols, typeSymbols } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -866,13 +944,13 @@ export function tryExtractInstanceFromSource(
       // in any module.
       const methodFile = method.node.getSourceFile();
       const allowModuleScopeOf = methodFile === ctx.sourceFile ? ctx.sourceFile : undefined;
-      const freeSymbols = isSafeToInlineMethod(checker, method.node, allowModuleScopeOf);
-      if (!freeSymbols) {
+      const symbols = isSafeToInlineMethod(checker, method.node, allowModuleScopeOf);
+      if (!symbols) {
         continue; // falls back to dictionary passing — always correct
       }
       // Clone so downstream inlining (which strips positions/comments
       // in place) can never corrupt the defining file's AST.
-      methods.set(name, { ...method, node: cloneNodeDeep(method.node), freeSymbols });
+      methods.set(name, { ...method, node: cloneNodeDeep(method.node), ...symbols });
     }
 
     if (methods.size > 0) {

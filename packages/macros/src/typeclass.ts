@@ -78,7 +78,7 @@ import {
   type DictMethod,
 } from "./specialize.js";
 // Static: instance-extraction imports only specialize and instance-resolver.
-import { containsMacroCall } from "./instance-extraction.js";
+import { containsMacroCall, methodInlineSymbols } from "./instance-extraction.js";
 import { derivedCallOf } from "./instance-scanner.js";
 import {
   warnDerivedInPlace,
@@ -1939,7 +1939,7 @@ export const implAttribute = defineAttributeMacro({
     }
 
     if (objLiteral) {
-      const methods = withoutMacroCalls(
+      const methods = inlineableMethods(
         ctx,
         extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene),
         objLiteral
@@ -2495,15 +2495,25 @@ function summonTargetType(ctx: MacroContext, innerType: ts.TypeNode): ts.Type {
 }
 
 /**
- * `methods` without those whose body calls a macro (`summon<Clone<Tree>>()`
- * in a recursive instance). This registry feeds inlining at call sites, and
- * a method's source still holds the macro call that the transformer expands
- * only in the instance's own file, so inlining it would copy an unexpanded
- * call that throws at run time. Such a method is called through its
- * dictionary instead. The check reads the ORIGINAL object literal's members
+ * `methods` as the specialization registry may inline them at call sites:
+ *
+ * - Without those whose body calls a macro (`summon<Clone<Tree>>()` in a
+ *   recursive instance). A method's source still holds the macro call that
+ *   the transformer expands only in the instance's own file, so inlining it
+ *   would copy an unexpanded call that throws at run time.
+ * - Each with the symbols its free value and type names resolve to here
+ *   (`methodInlineSymbols`, the instance's own file's module scope allowed),
+ *   and without those that can't be inlined anywhere (a `this`-dependent
+ *   body). A call site in another file then has to resolve every name to the
+ *   same symbol: `ordNumber.eqv` in a test file must not become
+ *   `compareNumber(x, y) === EQ` where neither name is in scope (turf case
+ *   study, round 2).
+ *
+ * A method that isn't inlined is called through its dictionary, which is
+ * always correct. The checks read the ORIGINAL object literal's members
  * (real nodes, for the checker); `methods` are copies.
  */
-function withoutMacroCalls(
+function inlineableMethods(
   ctx: MacroContext,
   methods: Map<string, DictMethod>,
   objLiteral: ts.ObjectLiteralExpression
@@ -2513,9 +2523,21 @@ function withoutMacroCalls(
       prop.name && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
         ? prop.name.text
         : undefined;
-    if (name && methods.has(name) && containsMacroCall(ctx.typeChecker, prop)) {
+    const method = name ? methods.get(name) : undefined;
+    if (!name || !method) continue;
+    if (containsMacroCall(ctx.typeChecker, prop)) {
       methods.delete(name);
+      continue;
     }
+    const real = ts.getOriginalNode(prop);
+    const fnNode = ts.isPropertyAssignment(real) ? real.initializer : real;
+    // A synthetic member is outside the checker's contract (CLAUDE.md); it is
+    // registered without symbols, and the call site then accepts only names
+    // bound inside the body, by lib/ambient declarations, or by its own module.
+    if (isSyntheticNode(fnNode) || !fnNode.parent) continue;
+    const symbols = methodInlineSymbols(ctx.typeChecker, fnNode, fnNode.getSourceFile());
+    if (!symbols) methods.delete(name);
+    else methods.set(name, { ...method, ...symbols });
   }
   return methods;
 }
@@ -3752,7 +3774,7 @@ export const implMacro = defineExpressionMacro({
 
     // Extract and register methods for specialization (if object literal)
     if (ts.isObjectLiteralExpression(objectLiteralArg)) {
-      const methods = withoutMacroCalls(
+      const methods = inlineableMethods(
         ctx,
         extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene),
         objectLiteralArg

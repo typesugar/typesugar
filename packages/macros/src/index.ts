@@ -134,6 +134,7 @@ export {
   getInlineFailureHelp,
   inlineMethod,
   collectMethodFreeNames,
+  collectMethodLocalBindings,
   forEachMethodFreeReference,
   methodDependsOnReceiver,
   flattenReturnsToExpression,

@@ -24,6 +24,7 @@ import {
   getInstanceName,
   tryExtractInstanceFromSource as sharedTryExtractInstanceFromSource,
   collectMethodFreeNames,
+  collectMethodLocalBindings,
   forEachMethodFreeReference,
   getOpMapForTypeclass,
   isImplicitDefault,
@@ -181,41 +182,162 @@ function realLocation(...candidates: (ts.Node | undefined)[]): ts.Node | undefin
   return undefined;
 }
 
+/** Why a method body can't be inlined at a call site (see {@link methodFreeNameMismatch}). */
+interface FreeNameMismatch {
+  /** The free name that doesn't resolve the same there (absent: no body). */
+  name?: string;
+  /** It resolves to nothing there: the body would throw a ReferenceError. */
+  notInScope?: boolean;
+}
+
 /**
  * Would every free identifier of `method`'s body mean the same thing at
  * `location` as where the method was defined? (A call-site local named like a
- * module-level helper or like `String` would otherwise capture it — tc#18.)
+ * module-level helper or like `String` would otherwise capture it — tc#18 —
+ * and a module-private helper of the instance's own file would be copied
+ * where it isn't bound at all: `ordNumber.eqv` in another file became
+ * `compareNumber(x, y) === EQ`, a ReferenceError — turf case study, round 2.)
+ * Returns the first name that doesn't, or undefined when all do.
+ *
+ * Comparison by identity: the symbol the name resolves to at `location`
+ * against the one recorded where the method is defined (`freeSymbols`).
  *
  * With no real location (a synthetic call produced by another rewrite with no
- * original node) this cannot be checked and returns true — the pre-existing
- * behaviour; see the report's "Needs from other owners".
+ * original node) this cannot be checked and returns undefined — the
+ * pre-existing behaviour; see the report's "Needs from other owners".
  */
+function methodFreeNameMismatch(
+  ctx: MacroContextImpl,
+  method: DictMethod,
+  location: ts.Node | undefined
+): FreeNameMismatch | undefined {
+  if (!method.node) return {};
+  if (!location) return undefined;
+  let locals: Set<string> | undefined;
+  for (const name of collectMethodFreeNames(method.node)) {
+    const actual = resolveNameAt(ctx, name, location);
+    if (actual === "error") return { name };
+    const expected = method.freeSymbols?.get(name);
+    if (expected) {
+      if (!actual) return { name, notInScope: true };
+      if (!sameSymbol(ctx.typeChecker, actual, expected)) return { name };
+      continue;
+    }
+    // No recorded symbol: a body-local name, or a method registered without
+    // checker info (primitive intrinsics, a synthetic member). Accept only a
+    // name the body binds itself, a lib/ambient binding, or the call-site
+    // file's own module scope.
+    if (!actual) {
+      // With recorded symbols, an unrecorded name was judged by the checker
+      // where the method is defined: bound inside the body (or `undefined`).
+      if (method.freeSymbols) continue;
+      locals ??= collectMethodLocalBindings(method.node);
+      if (locals?.has(name)) continue;
+      return { name, notInScope: true };
+    }
+    const decls = actual.declarations ?? [];
+    if (decls.length === 0) continue;
+    if (decls.every((d) => d.getSourceFile().isDeclarationFile)) continue;
+    if (decls.every((d) => d.getSourceFile() === ctx.sourceFile && isModuleScopeDecl(d))) continue;
+    return { name };
+  }
+  return undefined;
+}
+
 function methodFreeNamesResolveSameAt(
   ctx: MacroContextImpl,
   method: DictMethod,
   location: ts.Node | undefined
 ): boolean {
-  if (!method.node) return false;
-  if (!location) return true;
-  for (const name of collectMethodFreeNames(method.node)) {
-    const actual = resolveNameAt(ctx, name, location);
-    if (actual === "error") return false;
-    const expected = method.freeSymbols?.get(name);
-    if (expected) {
-      if (!actual || !sameSymbol(ctx.typeChecker, actual, expected)) return false;
-      continue;
+  return methodFreeNameMismatch(ctx, method, location) === undefined;
+}
+
+const TYPE_MEANING = ts.SymbolFlags.Type | ts.SymbolFlags.Namespace | ts.SymbolFlags.Alias;
+
+/**
+ * Re-express the type names an inlined method body carries for the call site
+ * it now sits at (turf case study, round 2): `destructureSome.extract(x)`
+ * inlined as `(x as unknown as A)`, where `A` is the method's own type
+ * parameter, unbound once the body is inlined; `as Acc<B>` where the call
+ * site doesn't import `Acc`. A type reference (`Opt<A>`, `typeof x`,
+ * `import("./m").T`) is kept only where its leading name resolves, at
+ * `location`, to the same symbol it did where the method is defined
+ * (`method.typeSymbols` — identity, never the printed name); any other is
+ * replaced by `any`. Types are erased, so this changes nothing at run time,
+ * and the body was type-checked where it was written; the expansion's own
+ * type check (`check --strict`) then has no names it can't resolve.
+ */
+function reexpressInlinedTypes(
+  ctx: MacroContextImpl,
+  expr: ts.Expression,
+  method: DictMethod,
+  location: ts.Node | undefined
+): ts.Expression {
+  const leftmost = (n: ts.Node): ts.Identifier | undefined => {
+    while (ts.isQualifiedName(n) || ts.isPropertyAccessExpression(n)) {
+      n = ts.isQualifiedName(n) ? n.left : n.expression;
     }
-    // No recorded symbol: a body-local name, or a method registered without
-    // checker info (primitive intrinsics, legacy registrations). Accept only
-    // a lib/ambient binding or the call-site file's own module scope.
-    if (!actual) continue;
-    const decls = actual.declarations ?? [];
-    if (decls.length === 0) continue;
-    if (decls.every((d) => d.getSourceFile().isDeclarationFile)) continue;
-    if (decls.every((d) => d.getSourceFile() === ctx.sourceFile && isModuleScopeDecl(d))) continue;
-    return false;
-  }
-  return true;
+    return ts.isIdentifier(n) ? n : undefined;
+  };
+  const resolvesSame = (id: ts.Identifier | undefined, meaning: ts.SymbolFlags): boolean => {
+    if (!id || !location) return false;
+    const expected = method.typeSymbols?.get(id.text);
+    if (!expected) return false;
+    let actual: ts.Symbol | undefined;
+    try {
+      actual = ctx.typeChecker.resolveName(id.text, location, meaning, false);
+    } catch (error) {
+      warnCheckerFailure(ctx, location, `resolving the type '${id.text}' at the call site`, error);
+      return false;
+    }
+    return !!actual && sameSymbol(ctx.typeChecker, actual, expected);
+  };
+  const any = () => ctx.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword);
+  // Type parameters declared INSIDE the inlined expression (a nested generic
+  // arrow's `<A, B>`) travel with it and still bind their uses there; only
+  // the method's own (dropped with its signature) are unbound.
+  const inScope: string[] = [];
+  const visit = (n: ts.Node): ts.Node => {
+    if (ts.isImportTypeNode(n)) return any(); // a module path relative to another file
+    if (ts.isTypeReferenceNode(n)) {
+      const own = ts.isIdentifier(n.typeName) && inScope.includes(n.typeName.text);
+      if (!own && !resolvesSame(leftmost(n.typeName), TYPE_MEANING)) return any();
+    }
+    if (ts.isTypeQueryNode(n) && !resolvesSame(leftmost(n.exprName), VALUE_MEANING)) {
+      return any();
+    }
+    const typeParameters = (n as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
+      .typeParameters;
+    if (!typeParameters?.length) return ts.visitEachChild(n, visit, ctx.transformContext);
+    inScope.push(...typeParameters.map((p) => p.name.text));
+    try {
+      return ts.visitEachChild(n, visit, ctx.transformContext);
+    } finally {
+      inScope.length -= typeParameters.length;
+    }
+  };
+  return ts.visitNode(expr, visit) as ts.Expression;
+}
+
+/**
+ * TS9602 for an instance-method call left uninlined because its body uses a
+ * name that isn't in scope at the call site: the call goes through the
+ * instance, as written. Honors `// @no-specialize-warn` (and
+ * `// @no-specialize`) on the call's line or the comment line above it.
+ */
+function warnFreeNameNotInScope(
+  ctx: MacroContextImpl,
+  location: ts.Node,
+  callee: string,
+  name: string
+): void {
+  if (specializeMarker(location) !== undefined) return;
+  skippedSpecialization(
+    ctx,
+    location,
+    callee,
+    `the method's body uses '${name}', which is not in scope here; the call goes through the instance instead`
+  );
 }
 
 // Only @typesugar/macros' own primitives.ts instances map to the intrinsics
@@ -387,7 +509,9 @@ export function resolveAutoSpecFunctionBody(
 export function rewriteDictCallsForAutoSpec(
   ctx: MacroContextImpl,
   node: ts.Node,
-  dictParamMap: Map<string, DictMethodMap>
+  dictParamMap: Map<string, DictMethodMap>,
+  /** The call site the specialization is for: where inlined type names must resolve. */
+  location?: ts.Node
 ): ts.Node {
   function visit(n: ts.Node): ts.Node {
     if (
@@ -405,7 +529,10 @@ export function rewriteDictCallsForAutoSpec(
         if (method) {
           const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
           if (inlined) {
-            const mapped = preserveSourceMap(inlined, n);
+            const mapped = preserveSourceMap(
+              reexpressInlinedTypes(ctx, inlined, method, location),
+              n
+            );
             return ts.visitEachChild(mapped, visit, ctx.transformContext);
           }
         }
@@ -433,7 +560,9 @@ export function inlineAutoSpecializeForHoisting(
    * type parameters, so `a: A` becomes `a: Feature`. Without them such an
    * annotation is dropped, which leaves the parameter implicitly `any`.
    */
-  instantiated?: InstantiatedAnnotations
+  instantiated?: InstantiatedAnnotations,
+  /** The call site (see {@link rewriteDictCallsForAutoSpec}). */
+  location?: ts.Node
 ): ts.Expression | undefined {
   const params = Array.from(fn.parameters);
   if (params.length === 0) return undefined;
@@ -464,7 +593,7 @@ export function inlineAutoSpecializeForHoisting(
   for (const p of params) if (p.initializer) collectBindingNames(p.initializer, bound);
   for (const name of dictParamMap.keys()) if (bound.has(name)) return undefined;
 
-  const specializedBody = rewriteDictCallsForAutoSpec(ctx, body, dictParamMap);
+  const specializedBody = rewriteDictCallsForAutoSpec(ctx, body, dictParamMap, location);
 
   // Collect type parameter names that become unresolvable once stripped
   const fnTypeParamNames = new Set<string>();
@@ -1075,6 +1204,35 @@ function calleeFreeNamesResolveSameAt(
   return ok;
 }
 
+/**
+ * The specialization marker on `node`'s line or on a comment line directly
+ * above it: `// @no-specialize` ("off") or `// @no-specialize-warn`
+ * ("quiet"). Only comment-only lines above count — a marker in a TRAILING
+ * comment on the previous line belongs to that line's statement.
+ */
+function specializeMarker(node: ts.Node): "off" | "quiet" | undefined {
+  try {
+    const sourceText = node.getSourceFile().text;
+    const nodeStart = node.getStart();
+    const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
+    const lineText = sourceText.slice(lineStart, nodeStart);
+    const prevLineEnd = lineStart > 0 ? lineStart - 1 : 0;
+    const prevLineStart = sourceText.lastIndexOf("\n", prevLineEnd - 1) + 1;
+    const prevLineRaw = lineStart > 0 ? sourceText.slice(prevLineStart, prevLineEnd) : "";
+    const prevLineTrimmed = prevLineRaw.trim();
+    const prevLineText =
+      prevLineTrimmed.startsWith("//") || prevLineTrimmed.startsWith("/*") ? prevLineRaw : "";
+    const scanned = lineText + "\n" + prevLineText;
+    // `@no-specialize-warn` contains `@no-specialize` as a substring, so it
+    // must be checked first.
+    if (scanned.includes("@no-specialize-warn")) return "quiet";
+    if (scanned.includes("@no-specialize")) return "off";
+  } catch {
+    // getSourceFile()/getStart() may fail on synthetic nodes: no marker
+  }
+  return undefined;
+}
+
 export function tryAutoSpecialize(
   ctx: MacroContextImpl,
   verbose: boolean,
@@ -1093,34 +1251,9 @@ export function tryAutoSpecialize(
   let suppressWarnings = nodeIsSynthetic;
 
   if (!nodeIsSynthetic) {
-    try {
-      const sourceText = markerNode.getSourceFile().text;
-      const nodeStart = markerNode.getStart();
-      const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
-      const lineText = sourceText.slice(lineStart, nodeStart);
-      // Also check the immediately preceding line, for `// @no-specialize` on
-      // its own comment line above the call (the other documented form). Only
-      // comment-only lines count — a marker in a TRAILING comment on the
-      // previous line belongs to that line's statement, not this one.
-      const prevLineEnd = lineStart > 0 ? lineStart - 1 : 0;
-      const prevLineStart = sourceText.lastIndexOf("\n", prevLineEnd - 1) + 1;
-      const prevLineRaw = lineStart > 0 ? sourceText.slice(prevLineStart, prevLineEnd) : "";
-      const prevLineTrimmed = prevLineRaw.trim();
-      const prevLineText =
-        prevLineTrimmed.startsWith("//") || prevLineTrimmed.startsWith("/*") ? prevLineRaw : "";
-      const scanned = lineText + "\n" + prevLineText;
-
-      // `@no-specialize-warn` contains `@no-specialize` as a substring, so it
-      // must be checked first — otherwise it would always hit the bail branch
-      // below instead of only suppressing warnings.
-      if (scanned.includes("@no-specialize-warn")) {
-        suppressWarnings = true;
-      } else if (scanned.includes("@no-specialize")) {
-        return undefined;
-      }
-    } catch {
-      // getSourceFile()/getStart() may fail on synthetic nodes — proceed with auto-specialization
-    }
+    const marker = specializeMarker(markerNode);
+    if (marker === "quiet") suppressWarnings = true;
+    else if (marker === "off") return undefined;
   }
 
   const instanceArgs: {
@@ -1310,7 +1443,8 @@ export function tryAutoSpecialize(
       fnBody,
       instanceArgs,
       fnName,
-      instantiated
+      instantiated,
+      realLocation(node)
     );
 
     if (specialized) {
@@ -1661,7 +1795,18 @@ export function tryInlineDerivedInstanceCall(
 
   const method = methodMap.methods.get(methodName);
   if (!method) return undefined;
-  if (!methodFreeNamesResolveSameAt(ctx, method, location)) return undefined;
+  const mismatch = methodFreeNameMismatch(ctx, method, location);
+  if (mismatch) {
+    if (mismatch.notInScope && mismatch.name && location) {
+      warnFreeNameNotInScope(
+        ctx,
+        location,
+        `${node.expression.expression.text}.${methodName}`,
+        mismatch.name
+      );
+    }
+    return undefined;
+  }
 
   // A value the inlined body reads more than once (a rational's `a.d * b.d`
   // in `p + q + r`) is bound to a `const` before the statement when the call
@@ -1697,7 +1842,12 @@ export function tryInlineDerivedInstanceCall(
   if (!inlined) return undefined;
   temps?.declarations.push(...pending);
 
-  const result = recursivelyInlineInstanceCalls(ctx, inlined, 0, location);
+  const result = recursivelyInlineInstanceCalls(
+    ctx,
+    reexpressInlinedTypes(ctx, inlined, method, location),
+    0,
+    location
+  );
 
   // Strip comments from the inlined output — the method template can carry
   // trivia from the instance declaration (e.g. JSDoc), which the printer
@@ -1905,7 +2055,12 @@ function recursivelyInlineInstanceCalls(
       if (method && methodFreeNamesResolveSameAt(ctx, method, location)) {
         const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
         if (inlined) {
-          const deeper = recursivelyInlineInstanceCalls(ctx, inlined, depth + 1, location);
+          const deeper = recursivelyInlineInstanceCalls(
+            ctx,
+            reexpressInlinedTypes(ctx, inlined, method, location),
+            depth + 1,
+            location
+          );
           return ts.visitEachChild(deeper, visit, ctx.transformContext);
         }
       }

@@ -315,6 +315,15 @@ export interface DictMethod {
    * would otherwise capture it — deep review 1.0, tc#18).
    */
   freeSymbols?: ReadonlyMap<string, ts.Symbol>;
+  /**
+   * Likewise for the type names the method's annotations and assertions use
+   * (`Option<A>`, `as Acc<B>`), its own type parameters excluded. An inlined
+   * body keeps a type name only where it resolves to the same symbol at the
+   * call site; any other (a type the call site doesn't import, the method's
+   * own `A`) is re-expressed as `any` — types are erased, so this costs
+   * nothing at run time, and the body was type-checked where it was written.
+   */
+  typeSymbols?: ReadonlyMap<string, ts.Symbol>;
 }
 
 /**
@@ -1098,6 +1107,24 @@ export function forEachMethodFreeReference(
   };
   for (const p of fn.parameters) if (p.initializer) walkNode(p.initializer, TOP_LEVEL_STATE, hooks);
   if (fn.body) walkNode(fn.body, TOP_LEVEL_STATE, hooks);
+}
+
+/**
+ * Every name a function binds inside itself: its parameters (destructured
+ * ones included), and the variables, functions and catch bindings of its
+ * body and nested functions. Syntactic and coarse, like
+ * {@link collectMethodFreeNames}: a name bound anywhere inside counts. Used
+ * where no checker symbol was recorded for a free name, to tell a body-local
+ * name (travels with the body) from one the body needs from its own module
+ * (does not).
+ */
+export function collectMethodLocalBindings(methodNode: ts.Node): Set<string> {
+  const names = new Set<string>();
+  const fn = asInlineableFunction(methodNode);
+  if (!fn) return names;
+  const hooks: WalkHooks = { binding: (name) => names.add(name) };
+  walkFunction(fn, TOP_LEVEL_STATE, hooks);
+  return names;
 }
 
 /**

@@ -74,13 +74,23 @@ showNumber)` specializes on both at once.
   (`/** @impl Ord<number> */ const numberOrd = { ... }`, or
   `derived<Eq<Point>>()` for a type you don't own).
 
-One safety rule for cross-module instances: a method body that references its
-own module's local helpers or imports is not inlined (the identifiers wouldn't
-exist at your call site) — that call keeps dictionary passing, which is always
-correct, just not zero-cost. Methods with self-contained bodies still
-specialize. The same goes for a method whose body calls a macro (say, a
-recursive `clone` that calls `summon<Clone<Tree>>()`): its source is not yet
-expanded, so it is called through the instance instead of inlined.
+One safety rule for cross-module instances: a method body is inlined only
+where every name it uses resolves, at your call site, to the same declaration
+it does in the instance's module. A body that references its own module's
+local helpers or imports is not inlined (the identifiers wouldn't exist at
+your call site): that call goes through the instance, which is always
+correct, just not zero-cost, and warns TS9602 naming the identifier
+(`the method's body uses 'compareNumber', which is not in scope here`).
+Methods with self-contained bodies still specialize. The same goes for a
+method whose body calls a macro (say, a recursive `clone` that calls
+`summon<Clone<Tree>>()`): its source is not yet expanded, so it is called
+through the instance instead of inlined.
+
+An inlined body's type annotations follow the same rule: a type name that
+doesn't resolve to the same type at your call site (the method's own type
+parameter `A`, or a type the call site doesn't import) is written as `any` in
+the expansion. Types are erased, so this changes nothing at run time; it keeps
+the expanded code type-checkable (`typesugar check --strict`).
 
 ### With `= implicit()`
 
@@ -138,6 +148,9 @@ when the function body:
   (simple guard-clause chains _are_ flattened into ternaries);
 - calls an `= implicit()` function without passing its instance argument
   (see [With `= implicit()`](#with-implicit)).
+
+and when an instance method's body uses a name that isn't in scope at the call
+site (see [Which instances are recognized](#which-instances-are-recognized)).
 
 It also warns TS9602 when the instance itself is only a declaration (from a
 package's `.d.ts`; see [Which instances are recognized](#which-instances-are-recognized)).
