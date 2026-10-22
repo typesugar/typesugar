@@ -441,6 +441,22 @@ export function label(s: Shape): string {
     .case({ kind: "tri", b, h }).then(\`tri \${b}\`);
 }
 `,
+        // A pattern name that also names an outer declaration (the function
+        // \`len\` itself): as written, \`len + 1\` was checked against the
+        // function's type (TS2365). The arm's binding is a number, so only
+        // \`len.toUpperCase()\` is an error, reported by the expanded check.
+        "src/shadow.ts": `import { match } from "@typesugar/std";
+
+type Seg = { kind: "dot" } | { kind: "line"; len: number };
+
+export function len(s: Seg): number {
+  return match(s).case({ kind: "dot" }).then(0).case({ kind: "line", len }).then(len + 1);
+}
+
+export function bad(s: Seg): string {
+  return match(s).case({ kind: "dot" }).then("").case({ kind: "line", len }).then(len.toUpperCase());
+}
+`,
         // Valid code: no new errors. A fluent match() on a value TypeScript
         // has narrowed (by assignment, or by control flow) reads it at its
         // declared type, so the expansion's switch has no arm TypeScript
@@ -504,6 +520,12 @@ export function lengthOf(n: number): number {
         );
         expect(fluent).toEqual([
           "fluent.ts(10,41): error TS2339: Property 'toUpperCase' does not exist on type 'number'.",
+        ]);
+        const shadow = [...r.output.matchAll(/(shadow\.ts\(\d+,\d+\): error .*)/g)].map(
+          (m) => m[1]
+        );
+        expect(shadow).toEqual([
+          "shadow.ts(10,87): error TS2339: Property 'toUpperCase' does not exist on type 'number'.",
         ]);
         expect(r.output).toContain(
           "sw.ts(10,19): error TS2551: Property 'toFixd' does not exist on type 'number'. Did you mean 'toFixed'?"

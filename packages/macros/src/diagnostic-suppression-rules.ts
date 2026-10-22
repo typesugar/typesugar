@@ -1361,12 +1361,28 @@ const MATCH_CHAIN_METHODS = new Set(["case", "or", "as", "if", "then", "else"]);
  *   result beside the chain rather than inside it, so continuing after
  *   `.then(null)` makes the receiver possibly null to the checker. The macro
  *   consumes the whole chain, so that receiver never exists at run time.
- *   The same error inside an arm's own argument is real and is not touched.
+ *   The same error inside an arm's own argument is real and is not touched
+ *   (unless it is about a pattern name, below).
+ * - When a pattern name also names an outer declaration (a function `len`
+ *   around `.case({ kind: "line", len }).then(len + 1)`, an outer const, a
+ *   DOM global), TypeScript checks the arm's uses as that declaration: the
+ *   errors that come from its type there (SHADOWED_NAME_CODES, as in
+ *   ComprehensionBlock), on the name, a member/call chain starting at it, or
+ *   a binary expression with it as an operand. The chain is a blind spot of
+ *   the source check, so `typesugar check`/`build` check those uses in the
+ *   expansion, against the binding.
  */
 export function createMacroCallChainRule(): DiagnosticSuppressionRule {
   return {
     name: "MacroCallChain",
-    errorCodes: [2339, 2304, 18004, ...POSSIBLY_NULLISH_CODES],
+    errorCodes: [
+      ...new Set([
+        2339,
+        ...UNRESOLVED_CHAIN_NAME_CODES,
+        ...POSSIBLY_NULLISH_CODES,
+        ...SHADOWED_NAME_CODES,
+      ]),
+    ],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
@@ -1378,34 +1394,83 @@ export function createMacroCallChainRule(): DiagnosticSuppressionRule {
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
       if (!node || isSyntheticNode(node)) return false;
 
-      if (diagnostic.code === 2339) {
-        return isMatchChainMethodName(node, checker, sourceFile);
+      if (diagnostic.code === 2339 && isMatchChainMethodName(node, checker, sourceFile)) {
+        return true;
       }
 
       if (POSSIBLY_NULLISH_CODES.includes(diagnostic.code)) {
         // The span is the receiver expression: `<receiver>.case(...)`.
         const access = node.parent;
-        if (!access || !ts.isPropertyAccessExpression(access) || access.expression !== node) {
-          return false;
+        if (
+          access &&
+          ts.isPropertyAccessExpression(access) &&
+          access.expression === node &&
+          isMatchChainMethodName(access.name, checker, sourceFile)
+        ) {
+          return true;
         }
-        return isMatchChainMethodName(access.name, checker, sourceFile);
       }
 
-      if (!ts.isIdentifier(node)) return false;
-      const name = node.text;
-
-      // Every enclosing chain link whose arguments contain the node, innermost
-      // first: a name may be bound by an outer arm and used in a nested match.
-      for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
-        if (!ts.isCallExpression(current)) continue;
-        if (!current.arguments.some((a) => isWithin(node, a))) continue;
-        const chain = flattenMatchChain(current, checker, sourceFile);
-        if (!chain) continue;
-        if (armBindingsAt(chain.links).has(name)) return true;
+      // "Cannot find name" is about the identifier itself. The other codes are
+      // what TypeScript reports when a pattern name also names an outer
+      // declaration (a function `len` around `.case({ kind: "line", len })`,
+      // an outer const, a DOM global): as written, the arm's uses resolve to
+      // that declaration and are checked against ITS type. The expansion
+      // declares the name (`const len = _s.len`), so those errors are not
+      // about the code that runs. The chain is a blind spot of the source
+      // check (strict-check.ts BLIND_SPOT_RULES), so `typesugar check` and
+      // `build` check the uses in the expansion, against the binding. Same
+      // approach as ComprehensionBlock's shadowed names.
+      const subjects = UNRESOLVED_CHAIN_NAME_CODES.includes(diagnostic.code)
+        ? ts.isIdentifier(node)
+          ? [node]
+          : []
+        : shadowedNameSubjects(node);
+      for (const subject of subjects) {
+        if (isBoundByEnclosingArm(subject, checker, sourceFile)) return true;
       }
       return false;
     },
   };
+}
+
+/** "Cannot find name" and the shorthand-property form, for a pattern name. */
+const UNRESOLVED_CHAIN_NAME_CODES: readonly number[] = [2304, 18004];
+
+/**
+ * The identifiers a shadowing diagnostic at `node` may be about: the name or
+ * the member/call chain it starts (diagnosticSubject), or, for an error on a
+ * whole binary expression (TS2365 on `len + 1`, TS2367), either operand's.
+ */
+function shadowedNameSubjects(node: ts.Node): ts.Identifier[] {
+  const own = diagnosticSubject(node);
+  if (own) return [own];
+  if (!ts.isBinaryExpression(node)) return [];
+  return [diagnosticSubject(node.left), diagnosticSubject(node.right)].filter(
+    (id): id is ts.Identifier => id !== undefined
+  );
+}
+
+/**
+ * Does the arm of a typesugar `match()` chain that `id` is used in bind
+ * `id`'s name? Every enclosing chain link whose arguments contain it,
+ * innermost first: a name may be bound by an outer arm and used in a nested
+ * match. Which names an arm binds is read from its pattern's syntax; that the
+ * chain is typesugar's `match` is decided by symbol (flattenMatchChain).
+ */
+function isBoundByEnclosingArm(
+  id: ts.Identifier,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): boolean {
+  for (let current: ts.Node | undefined = id.parent; current; current = current.parent) {
+    if (!ts.isCallExpression(current)) continue;
+    if (!current.arguments.some((a) => isWithin(id, a))) continue;
+    const chain = flattenMatchChain(current, checker, sourceFile);
+    if (!chain) continue;
+    if (armBindingsAt(chain.links).has(id.text)) return true;
+  }
+  return false;
 }
 
 interface MatchChainLink {

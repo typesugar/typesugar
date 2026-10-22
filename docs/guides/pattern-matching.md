@@ -973,6 +973,13 @@ match(shape)
   .then(w * h);
 ```
 
+A pattern variable that is also the name of an outer declaration (the enclosing function,
+a variable of yours, a DOM global such as `name`) is that declaration to TypeScript before
+expansion: in `function len(s: Seg) { return match(s).case({ kind: "line", len }).then(len + 1)… }`,
+`len + 1` is checked as the function plus one. `typesugar check` and `build` hide the
+errors that come from the outer declaration's type, and the expansion check reports a
+wrong use of the binding (`len.toUpperCase()` on the number) as above.
+
 Plain `tsc`, typescript-eslint, typedoc and similar tools type-check the source **as
 written**. For them `@typesugar/std` types the fluent chain, so that:
 

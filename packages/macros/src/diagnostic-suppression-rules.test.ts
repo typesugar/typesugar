@@ -550,6 +550,40 @@ describe("MacroCallChain — 'possibly null' on a chain continued after a nullis
     expect(rule.shouldSuppress(nullish[0], checker, sf)).toBe(false);
   });
 
+  // A pattern name that also names an outer declaration: as written, its
+  // uses in the arm resolve to THAT declaration, so TypeScript checks them
+  // against its type. The macro declares the name (`const len = _s.len`), so
+  // those errors are not about the code that runs; the expanded check
+  // (strict-check.ts, MacroCallChain is a blind-spot rule) checks the uses
+  // against the binding. Same approach as ComprehensionBlock's shadowed names.
+  it("a pattern name shadowing an outer declaration: the errors from that declaration's type are hidden", () => {
+    const { sf, checker, diags } =
+      check(`type Seg = { kind: "dot" } | { kind: "line"; len: number; tag: string };
+const tag = 5;
+export function len(s: Seg): number {
+  return match(s).case({ kind: "dot" }).then(0).case({ kind: "line", len }).then(len + 1);
+}
+export const up = (s: Seg) => match(s).case({ kind: "line", tag }).then(tag.trim()).else("");
+export const outside = len + 1;
+export const other = (s: Seg) => match(s).case({ kind: "line", len: n }).then(tag.trim()).else("");
+`);
+    const at = (d: ts.Diagnostic) =>
+      `TS${d.code} ${sf.text.slice(d.start!, d.start! + d.length!)} @${sf.getLineAndCharacterOfPosition(d.start!).line}`;
+    // Sanity: the source really reports them (lines count from the import).
+    expect(diags.map(at)).toEqual(
+      expect.arrayContaining([
+        "TS2365 len + 1 @4",
+        "TS2339 trim @6",
+        "TS2365 len + 1 @7",
+        "TS2339 trim @8",
+      ])
+    );
+    // Outside any chain, and `tag` in an arm that binds `n` (not `tag`):
+    // still reported.
+    const kept = diags.filter((d) => !rule.shouldSuppress(d, checker, sf)).map(at);
+    expect(kept).toEqual(["TS2365 len + 1 @7", "TS2339 trim @8"]);
+  });
+
   it("does NOT suppress 'possibly null' inside an arm's own result expression", () => {
     const { sf, checker, diags } = check(
       `declare const k: "a" | "b";\ndeclare const o: { n: number } | null;\n` +
