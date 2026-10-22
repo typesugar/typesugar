@@ -342,23 +342,15 @@ describe("a macro package imported by a relative path (its own examples, a works
   // @typesugar/mapper's macros were never loaded and the call ran its
   // runtime stub ("transformInto() was called at runtime").
   //
-  // Trust: a package reached by a relative path is trusted under its
-  // package.json name only when it is one of the project's own directories
-  // (the build's cwd / tsconfig package, or a workspace package it
-  // declares), or when that name, looked up from those directories, lands in
-  // the same directory. `@typesugar/*` auto-trust rests on npm scope
-  // ownership, which a relative path bypasses (review 5, item 1; review 6).
-  // Each test chdirs into the project it builds: the project is what the
-  // build's cwd (or tsconfig) says, never the importing file's directory.
+  // Trust: a package reached by a relative path whose real path is outside
+  // node_modules is project code and loads with no name check (SECURITY.md,
+  // "What typesugar trusts"); macro-trust.test.ts covers the whole model,
+  // including relative paths into node_modules.
   let tmpDir: string;
   let originalCwd: string;
   const macrosJs = (pkg: string) =>
     `module.exports.__typesugar_macros__ = [{ kind: "expression", name: "relAnswer", ` +
     `module: ${JSON.stringify(pkg)}, description: "fixture", expand: (_ctx, call) => call }];`;
-  /** A macros entry whose only effect is to write a marker file next to itself. */
-  const pwnedJs =
-    `require("fs").writeFileSync(require("path").join(__dirname, "PWNED"), "executed");\n` +
-    `module.exports = { __typesugar_macros__: [] };`;
 
   function writeWorkspacePackage(
     dir: string,
@@ -442,129 +434,32 @@ describe("a macro package imported by a relative path (its own examples, a works
     link(".", pkg, dir);
     const use = path.join(dir, "examples", "use.ts");
     fs.writeFileSync(use, `import { relAnswer } from "../src/index.js";\nrelAnswer();\n`);
-    // The project: the program's current directory (TypeScript's own sys
-    // memoizes process.cwd(), so give the host the directory explicitly).
-    const options = { noEmit: true, allowJs: false };
-    const host = { ...ts.createCompilerHost(options), getCurrentDirectory: () => tmpDir };
-    const program = ts.createProgram([use], options, host);
+    const program = ts.createProgram([use], { noEmit: true, allowJs: false });
     loadMacroPackages(program);
     expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
   });
 
-  it("a linked sibling's broken macros are reported; an unapproved one is reported, not loaded", () => {
+  it("a sibling's broken macros are reported; an unscoped one loads without approval", () => {
     const broken = "@typesugar/fixture-rel-c";
-    const brokenDir = writeWorkspacePackage(
-      "packages/fixture-rel-c",
-      broken,
-      `throw new Error("boom");`
-    );
-    const untrustedDir = writeWorkspacePackage(
-      "packages/rel-untrusted",
-      "rel-untrusted",
-      macrosJs("rel-untrusted")
-    );
-    link("app", broken, brokenDir);
-    link("app", "rel-untrusted", untrustedDir);
-    process.chdir(path.join(tmpDir, "app"));
+    writeWorkspacePackage("packages/fixture-rel-c", broken, `throw new Error("boom");`);
+    writeWorkspacePackage("packages/rel-unscoped", "rel-unscoped", macrosJs("rel-unscoped"));
+    process.chdir(tmpDir);
     const app = path.join(tmpDir, "app", "main.ts");
     const warnings = loadFrom(app, [
       "../packages/fixture-rel-c/src/index.js",
-      "../packages/rel-untrusted/src/index.js",
+      "../packages/rel-unscoped/src/index.js",
     ]);
-    expect(warnings).toHaveLength(2);
+    expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/fixture-rel-c.*boom/);
-    expect(warnings[1]).toMatch(/'rel-untrusted'.*not approved.*approve-macros/s);
-    expect(globalRegistry.getByModuleExport("rel-untrusted", "relAnswer", "expression")).toBe(
-      undefined
-    );
+    expect(
+      globalRegistry.getByModuleExport("rel-unscoped", "relAnswer", "expression")?.module
+    ).toBe("rel-unscoped");
   });
 
-  it("does not run a relatively imported package that merely claims an @typesugar/* name", () => {
-    // review5/sec: vendor/evil/package.json says "@typesugar/totally-official".
-    fs.mkdirSync(path.join(tmpDir, "app", "src"), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, "app", "package.json"), `{"name":"app"}`);
-    const evil = path.join(tmpDir, "app", "vendor", "evil");
-    fs.mkdirSync(evil, { recursive: true });
-    fs.writeFileSync(
-      path.join(evil, "package.json"),
-      JSON.stringify({
-        name: "@typesugar/totally-official",
-        typesugar: { macros: "./macros.cjs" },
-        exports: { ".": "./index.js", "./macros.cjs": "./macros.cjs" },
-      })
-    );
-    fs.writeFileSync(path.join(evil, "index.d.ts"), "export declare const helper: number;\n");
-    fs.writeFileSync(path.join(evil, "macros.cjs"), pwnedJs);
-    const use = path.join(tmpDir, "app", "src", "use.ts");
-    fs.writeFileSync(
-      use,
-      `import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`
-    );
-
-    const warnings = loadFrom(use, ["../vendor/evil/index.js"]);
-    loadMacroPackages(ts.createProgram([use], { noEmit: true }));
-
-    expect(fs.existsSync(path.join(evil, "PWNED"))).toBe(false);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain(evil);
-    expect(warnings[0]).toMatch(/@typesugar\/totally-official.*not loaded/s);
-  });
-
-  it("does not run it either when the package's own .ts files are in the program", () => {
-    // The importing file is inside the spoofing package (its index.ts, pulled
-    // into the program by the project's import): being inside a package is
-    // not evidence of its name.
-    fs.mkdirSync(path.join(tmpDir, "app", "src"), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, "app", "package.json"), `{"name":"app"}`);
-    const evil = path.join(tmpDir, "app", "vendor", "evil");
-    fs.mkdirSync(evil, { recursive: true });
-    fs.writeFileSync(
-      path.join(evil, "package.json"),
-      JSON.stringify({ name: "@typesugar/totally-official", typesugar: { macros: "./macros.cjs" } })
-    );
-    fs.writeFileSync(path.join(evil, "index.ts"), `export { helper } from "./helper.js";\n`);
-    fs.writeFileSync(path.join(evil, "helper.ts"), `export const helper = 1;\n`);
-    fs.writeFileSync(path.join(evil, "macros.cjs"), pwnedJs);
-    const use = path.join(tmpDir, "app", "src", "use.ts");
-    fs.writeFileSync(
-      use,
-      `import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`
-    );
-
-    const program = ts.createProgram([use], { noEmit: true });
-    expect(program.getSourceFile(path.join(evil, "index.ts"))).toBeDefined();
-    loadMacroPackages(program);
-    loadFrom(path.join(evil, "index.ts"), ["./helper.js"]);
-
-    expect(fs.existsSync(path.join(evil, "PWNED"))).toBe(false);
-  });
-
-  it("a spoof of a real package's name doesn't shadow the real one", () => {
-    const pkg = "@typesugar/fixture-genuine";
-    const real = writeWorkspacePackage(
-      "app/node_modules/@typesugar/fixture-genuine",
-      pkg,
-      macrosJs(pkg)
-    );
-    const fake = writeWorkspacePackage("app/vendor/fake", pkg, pwnedJs);
-    fs.writeFileSync(path.join(tmpDir, "app", "package.json"), `{"name":"app"}`);
-    process.chdir(path.join(tmpDir, "app"));
-    const use = path.join(tmpDir, "app", "src", "use.ts");
-    const warnings = loadFrom(use, ["../vendor/fake/src/index.js", pkg]);
-    expect(fs.existsSync(path.join(fake, "PWNED"))).toBe(false);
-    expect(warnings.join("\n")).toContain(fake);
+  it("a package's own .ts files importing each other load it, silently", () => {
+    const pkg = "@typesugar/fixture-rel-self";
+    const dir = writeWorkspacePackage("vendor/self", pkg, macrosJs(pkg));
+    expect(loadFrom(path.join(dir, "src", "a.ts"), ["./index.js"])).toEqual([]);
     expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
-    expect(real).toBeTruthy();
-  });
-
-  it("an unlinked sibling claiming an @typesugar/* name is reported, not loaded", () => {
-    const pkg = "@typesugar/fixture-rel-d";
-    const dir = writeWorkspacePackage("packages/fixture-rel-d", pkg, pwnedJs);
-    const warnings = loadFrom(path.join(tmpDir, "app", "main.ts"), [
-      "../packages/fixture-rel-d/src/index.js",
-    ]);
-    expect(fs.existsSync(path.join(dir, "PWNED"))).toBe(false);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/does not resolve to/);
   });
 });

@@ -37,10 +37,7 @@ import {
   typecheckExpandedProgram,
 } from "./strict-check.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
-import {
-  UnapprovedMacroPackagesError,
-  loadProjectConfig as loadOwnedConfig,
-} from "./macro-loader.js";
+import { UnapprovedMacroPackagesError } from "./macro-loader.js";
 import {
   isComprehensionSyntaxActivatedIn,
   mapRewrittenDiagnostic,
@@ -68,6 +65,7 @@ import {
   profiler,
   PROFILING_ENABLED,
   type RawSourceMap,
+  config as typesugarConfig,
 } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 
@@ -387,11 +385,10 @@ EXAMPLES:
 /**
  * Load the project's `typesugar.config.*` from the tsconfig's directory (not
  * the process cwd), so `typesugar build -p some/dir/tsconfig.json` honours
- * that project's config -- read only from directories the project owns
- * (macro-loader's `loadProjectConfig`).
+ * that project's config.
  */
 function loadProjectConfig(tsconfigPath: string): void {
-  loadOwnedConfig(path.dirname(path.resolve(tsconfigPath)));
+  typesugarConfig.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
 }
 
 /** Stable identity for de-duplicating a diagnostic reported by two passes. */
@@ -1187,8 +1184,8 @@ function expand(options: CliOptions): void {
       process.exit(1);
     }
 
-    // Macro diagnostics (an unverified macro package that was not loaded, a
-    // macro error) go to stderr; stdout stays the JSON tree.
+    // Macro diagnostics (a macro package that could not be loaded, a macro
+    // error) go to stderr; stdout stays the JSON tree.
     const macroDiagnostics: ts.Diagnostic[] = [];
     const transformerFactory = macroTransformerFactory(program, {
       verbose: options.verbose,

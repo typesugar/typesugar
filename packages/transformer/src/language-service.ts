@@ -29,6 +29,7 @@ import {
 } from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 import {
+  config as typesugarConfig,
   filterDiagnostics,
   getDiagnosticSuppressionRules,
   isDiagnosticSuppressionAuditEnabled,
@@ -40,7 +41,6 @@ import {
   setComptimeEvaluationEnabled,
 } from "@typesugar/macros";
 import { hashContent } from "./cache.js";
-import { loadProjectConfig } from "./macro-loader.js";
 import {
   mapTextSpanToOriginal,
   mapSourceSpanToOriginal,
@@ -328,10 +328,7 @@ function init(modules: { typescript: typeof ts }) {
         const projectDir = projectName.endsWith(".json")
           ? path.dirname(projectName)
           : (info.project.getCurrentDirectory?.() ?? undefined);
-        // Read only from directories the project owns: tsserver makes a
-        // vendored directory with its own tsconfig.json its own project, and
-        // a config file is code (review 7, secF).
-        if (projectDir) loadProjectConfig(projectDir);
+        if (projectDir) typesugarConfig.load({ searchFrom: projectDir });
 
         pipeline = new TransformationPipeline(compilerOptions, fileNames, {
           // Opt-in (plugin config `"verbose": true` or TYPESUGAR_VERBOSE=1);

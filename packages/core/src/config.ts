@@ -7,9 +7,7 @@
  * 1. Environment variables: TYPESUGAR_* (highest priority, for CI overrides)
  * 2. Config files: typesugar.config.ts, .typesugarrc, etc. — the nearest one
  *    found walking up from `process.cwd()` (or from the directory passed to
- *    `config.load({ searchFrom })`), stopping at the repository root; with
- *    `config.load({ searchFrom, onlyIn })` only the `onlyIn` directories
- *    are read (the transformer's hosts pass the directories the project owns)
+ *    `config.load({ searchFrom })`), stopping at the repository root
  * 3. Programmatic: config.set() calls
  * 4. Defaults (lowest priority)
  *
@@ -139,8 +137,6 @@ let configFilePath: string | undefined;
 let configLoadError: ConfigLoadError | undefined;
 /** Directory the config-file search starts from; `undefined` = `process.cwd()`. */
 let searchFromDir: string | undefined;
-/** The only directories the search reads (see `load`); `undefined` = up to the repository root. */
-let searchOnlyIn: readonly string[] | undefined;
 
 // ============================================================================
 // Environment Variable Loading
@@ -316,17 +312,7 @@ function loadConfigFromFiles(): TypesugarConfig {
     return {};
   }
 
-  const result = searchConfigFile(from, searchOnlyIn);
-  if ((result.kind === "found" || result.kind === "none") && result.skipped) {
-    for (const file of result.skipped) {
-      warnOnce(
-        `[typesugar] Not reading ${file}: its directory is not one the project owns (the ` +
-          `outermost project enclosing it, or a workspace package that project declares), ` +
-          `so it is neither run nor in effect. See SECURITY.md, "Which directories the ` +
-          `project owns".`
-      );
-    }
-  }
+  const result = searchConfigFile(from);
   switch (result.kind) {
     case "found":
       configFilePath = result.filepath;
@@ -442,7 +428,6 @@ function reset(): void {
   configFilePath = undefined;
   configLoadError = undefined;
   searchFromDir = undefined;
-  searchOnlyIn = undefined;
 }
 
 /**
@@ -453,16 +438,10 @@ function reset(): void {
  *
  * Hosts that know the project (the tsconfig directory) should call this
  * with it, so the config doesn't depend on the process's cwd.
- *
- * `onlyIn` (real paths) restricts the search to those directories: the
- * transformer's hosts pass the directories the project owns, so a config
- * file in a vendored directory with its own tsconfig is never read (config
- * files are code, and can approve macro packages).
  */
-function load(options: { searchFrom?: string; onlyIn?: readonly string[] } = {}): void {
+function load(options: { searchFrom?: string } = {}): void {
   reset();
   searchFromDir = options.searchFrom;
-  searchOnlyIn = options.onlyIn;
   initializeConfig();
 }
 

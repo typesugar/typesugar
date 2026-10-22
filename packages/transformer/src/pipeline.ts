@@ -31,7 +31,7 @@ import {
   discoverOpaqueTypesFromImports,
   registerProgramOpaqueTypes,
 } from "@typesugar/transformer-core";
-import { loadMacroPackages, loadMacroPackagesFromFile, loadProjectConfig } from "./macro-loader.js";
+import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
 import { isComprehensionSyntaxActivatedIn, mayContainComprehension } from "./comprehension-gate.js";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
@@ -414,7 +414,7 @@ export function macroTransformerFactory(
       // loaded (unresolvable from the project, or its macro entry threw)
       // would otherwise leave its calls unexpanded with no trace, so each
       // one becomes a warning on the import (docs review 2026-10).
-      for (const w of loadMacroPackagesFromFile(sourceFile, verbose, program)) {
+      for (const w of loadMacroPackagesFromFile(sourceFile, verbose)) {
         const start = w.node.getStart(sourceFile);
         const warning: ts.Diagnostic = {
           file: sourceFile,
@@ -2380,7 +2380,7 @@ export function createPipeline(
   // Load the project's typesugar config (typesugar.config.*, package.json
   // "typesugar") searching from the tsconfig's directory, not process.cwd():
   // a bundler/IDE host's cwd is often not the project.
-  loadProjectConfig(path.dirname(path.resolve(tsconfigPath)));
+  config.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
 
   return new TransformationPipeline(parsed.options, parsed.fileNames, options);
 }

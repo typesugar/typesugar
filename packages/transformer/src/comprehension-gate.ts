@@ -41,7 +41,7 @@ export function isComprehensionSyntaxActivatedIn(
   verbose?: boolean
 ): boolean {
   if (!mayContainComprehension(scanFile.text)) return false;
-  loadMacroPackagesFromFile(scanFile, verbose, program);
+  loadMacroPackagesFromFile(scanFile, verbose);
   const letMacro = globalRegistry.getLabeledBlock("let")?.name;
   const parMacro = globalRegistry.getLabeledBlock("par")?.name;
   if (!letMacro && !parMacro) return false;

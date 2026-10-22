@@ -129,10 +129,16 @@ describe("runApproveMacros (PEP-055 CLI)", () => {
     expect(blocked).toEqual(["another-unscoped-pkg"]);
   });
 
-  it("lists a linked package imported by a relative path; a relatively imported package whose name isn't its own is shown, not approved", async () => {
-    // A workspace package `rel-pkg` (linked in node_modules) imported by a
-    // relative path is approvable by name; `vendor/evil` claims a name that
-    // resolves elsewhere, which approving cannot make trustworthy.
+  it("lists a dependency reached by a relative path into node_modules; project code is not listed", async () => {
+    // `../node_modules/rel-npm/...` is a dependency, judged as a bare import
+    // of rel-npm. packages/rel-pkg (even though node_modules links it) and
+    // vendor/evil are project code by real path: they load without approval.
+    writeFixturePackage(
+      path.join(tmpDir, "node_modules"),
+      "rel-npm",
+      { typesugar: { macros: "./macros" } },
+      { "index.d.ts": "export declare const w: number;\n" }
+    );
     const relDir = path.join(tmpDir, "packages", "rel-pkg");
     fs.mkdirSync(relDir, { recursive: true });
     fs.writeFileSync(
@@ -150,19 +156,19 @@ describe("runApproveMacros (PEP-055 CLI)", () => {
     fs.writeFileSync(path.join(evilDir, "index.d.ts"), "export declare const y: number;\n");
     fs.writeFileSync(
       path.join(tmpDir, "src", "index.ts"),
-      `import { x } from "../packages/rel-pkg/index.js";\n` +
-        `import { y } from "../vendor/evil/index.js";\nexport const z = x + y;\n`
+      `import { w } from "../node_modules/rel-npm/index.js";\n` +
+        `import { x } from "../packages/rel-pkg/index.js";\n` +
+        `import { y } from "../vendor/evil/index.js";\nexport const z = w + x + y;\n`
     );
-    const logs: string[] = [];
-    vi.spyOn(console, "log").mockImplementation((m) => void logs.push(String(m)));
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runApproveMacros({ project: "tsconfig.json", yes: true, verbose: false });
     vi.restoreAllMocks();
 
     const written = fs.readFileSync(path.join(tmpDir, "typesugar.config.ts"), "utf-8");
-    expect(written).toContain("rel-pkg");
+    expect(written).toContain("rel-npm");
+    expect(written).not.toContain("rel-pkg");
     expect(written).not.toContain("totally-official");
-    expect(logs.join("\n")).toMatch(/@typesugar\/totally-official.*vendor[\\/]evil/s);
   });
 
   it("reports nothing to approve when there are no blocked packages", async () => {

@@ -185,31 +185,6 @@ describe("#35 config is found by walking up from the search directory", () => {
   });
 });
 
-describe("review 7: load({ onlyIn }) reads only the directories the host says the project owns", () => {
-  it("skips (and names) a config in a directory outside onlyIn, without running it", () => {
-    const outer = write("typesugar.config.ts", TS_CONFIG);
-    const vendored = write(
-      "vendor/evil/typesugar.config.cjs",
-      `require("fs").writeFileSync(require("path").join(__dirname, "RAN"), "1");\n` +
-        `module.exports = { security: { allowedMacroPackages: ["evil"] } };\n`
-    );
-    const warned: string[] = [];
-    vi.spyOn(console, "warn").mockImplementation((m) => void warned.push(String(m)));
-    config.load({ searchFrom: path.join(tmpRoot, "vendor", "evil"), onlyIn: [tmpRoot] });
-    expect(config.getConfigFilePath()).toBe(outer);
-    expect(config.get("security.allowedMacroPackages")).toEqual(["foo-macros"]);
-    expect(fs.existsSync(path.join(tmpRoot, "vendor/evil/RAN"))).toBe(false);
-    expect(warned.join("\n")).toContain(`Not reading ${vendored}`);
-  });
-
-  it("is not bounded by an inner .git (a submodule's) when onlyIn is given", () => {
-    const outer = write("typesugar.config.ts", TS_CONFIG);
-    fs.mkdirSync(path.join(tmpRoot, "sub", ".git"), { recursive: true });
-    config.load({ searchFrom: path.join(tmpRoot, "sub"), onlyIn: [tmpRoot] });
-    expect(config.getConfigFilePath()).toBe(outer);
-  });
-});
-
 describe("#36 ESM .js config in a type:module project", () => {
   it("uses the default export, not the module namespace", () => {
     write("package.json", JSON.stringify({ type: "module" }));

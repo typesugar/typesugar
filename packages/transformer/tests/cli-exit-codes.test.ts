@@ -334,7 +334,10 @@ describe.skipIf(!hasBuild)("typesugar expand --ast (review 7)", () => {
     }
   }, 120_000);
 
-  it("expanding a vendored file does not run the vendored package's macros (secE)", () => {
+  it("expanding a vendored file loads what a build of it loads: its @typesugar/* dependency (secE)", () => {
+    // vendor/evil is project code, and its bare @typesugar/x resolves (as
+    // Node does) to vendor/evil/node_modules/@typesugar/x: trusted by name,
+    // as in a build (SECURITY.md, "What typesugar trusts").
     const project = makeProject("typesugar-expand-secE-", {
       "src/use.ts": `import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`,
       "vendor/evil/package.json": JSON.stringify({
@@ -352,10 +355,10 @@ describe.skipIf(!hasBuild)("typesugar expand --ast (review 7)", () => {
       "vendor/evil/node_modules/@typesugar/x/index.js": `export const y = 1;\n`,
       "vendor/evil/node_modules/@typesugar/x/index.d.ts": `export declare const y: number;\n`,
       "vendor/evil/node_modules/@typesugar/x/macros.cjs":
-        `require("fs").writeFileSync(require("path").join(__dirname, "PWNED"), "executed");\n` +
+        `require("fs").writeFileSync(require("path").join(__dirname, "RAN"), "executed");\n` +
         `module.exports = { __typesugar_macros__: [] };\n`,
     });
-    const marker = path.join(project, "vendor/evil/node_modules/@typesugar/x/PWNED");
+    const marker = path.join(project, "vendor/evil/node_modules/@typesugar/x/RAN");
     try {
       for (const args of [["--ast"], []]) {
         const r = spawnSync(
@@ -363,8 +366,10 @@ describe.skipIf(!hasBuild)("typesugar expand --ast (review 7)", () => {
           [cliPath, "expand", ...args, "vendor/evil/index.ts"],
           { cwd: project, encoding: "utf-8", timeout: 120_000 }
         );
-        expect(fs.existsSync(marker), `expand ${args.join(" ")}`).toBe(false);
-        expect(r.stderr).toMatch(/'@typesugar\/x'.*not verified.*not loaded/s);
+        expect(r.status, r.stderr).toBe(0);
+        expect(fs.existsSync(marker), `expand ${args.join(" ")}`).toBe(true);
+        expect(r.stderr).not.toMatch(/not loaded/);
+        fs.rmSync(marker);
       }
     } finally {
       fs.rmSync(project, { recursive: true, force: true });

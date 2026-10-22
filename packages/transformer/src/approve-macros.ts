@@ -13,12 +13,7 @@ import * as readline from "readline";
 import * as ts from "typescript";
 import { config as typesugarConfig } from "@typesugar/core";
 import { readTsConfig } from "./tsconfig-utils.js";
-import {
-  collectImportedModules,
-  loadProjectConfig,
-  projectConfigDir,
-  scanMacroPackages,
-} from "./macro-loader.js";
+import { collectImportedModules, scanMacroPackages } from "./macro-loader.js";
 import { writeApprovedMacroPackages } from "./config-writer.js";
 
 export interface ApproveMacrosOptions {
@@ -54,12 +49,8 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
   // Read the config of the project we were pointed at (searching upward
   // from its tsconfig directory), not whatever is above the cwd — the file
   // we may write below lives there (deep review 2026-10, core #35).
-  // Only directories the project owns (a vendored directory's own tsconfig
-  // does not make its config file the project's; review 7), and a new config
-  // file goes where the next build will look for it first.
-  const tsconfigDir = path.dirname(path.resolve(options.project));
-  loadProjectConfig(tsconfigDir);
-  const projectRoot = projectConfigDir(tsconfigDir);
+  const projectRoot = path.dirname(path.resolve(options.project));
+  typesugarConfig.load({ searchFrom: projectRoot });
 
   // Fail loudly before doing anything else if the existing config couldn't
   // be loaded: the approval list in it can't be read, and writing a fresh
@@ -84,30 +75,14 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
     console.log(`[typesugar] Scanned ${importedModules.size} imported package(s)`);
   }
 
-  // Exactly the build's discovery (same files, imports and project-owned
-  // directories), so this lists everything the build would refuse:
-  // `blocked` is "declares typesugar.macros, not @typesugar/*-scoped, not
-  // already approved" (checked against the CURRENT allowedMacroPackages),
-  // i.e. what needs approval; `unverified` is what the build skips because
-  // the project does not resolve the name to that package, which approval
-  // cannot fix.
-  const scan = scanMacroPackages(program);
-  const newlyBlocked = scan.blocked;
-
-  if (scan.unverified.length > 0) {
-    console.log(
-      `${COLORS.bright}Not loaded, and not approvable by name:${COLORS.reset} these declare ` +
-        `macros, but the project does not resolve their name to them (they are reached by a ` +
-        `relative path, or through a directory the project does not own, such as a vendored ` +
-        `package's own node_modules). Make each one the package its name resolves to from the ` +
-        `project (a dependency such as "name": "file:<path>", or a workspace package the ` +
-        `project declares), then run this again.\n`
-    );
-    for (const { pkg, dir } of scan.unverified) {
-      console.log(`  ${COLORS.red}✗${COLORS.reset} ${pkg} ${COLORS.dim}(${dir})${COLORS.reset}`);
-    }
-    console.log("");
-  }
+  // Exactly the build's discovery (same files, same imports, each resolved
+  // from the importing file as the build resolves it), so this lists
+  // everything the build would refuse: "declares typesugar.macros, is a
+  // dependency (inside node_modules), not @typesugar/*-scoped, not already
+  // approved" (checked against the CURRENT allowedMacroPackages). Project
+  // code (a relative import outside node_modules) is never listed: it loads
+  // without approval.
+  const newlyBlocked = scanMacroPackages(program).blocked;
 
   if (newlyBlocked.length === 0) {
     console.log(`${COLORS.green}✓${COLORS.reset} No new macro packages need approval.`);

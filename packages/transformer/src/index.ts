@@ -10,6 +10,8 @@
  */
 
 import type * as ts from "typescript";
+import * as path from "path";
+import { config as typesugarConfig } from "@typesugar/core";
 import {
   macroTransformerFactory,
   type MacroTransformerConfig,
@@ -45,6 +47,17 @@ export default function typesugarTsPatchTransformer(
   pluginConfig?: MacroTransformerConfig,
   extras?: TsPatchTransformerExtras
 ): ts.TransformerFactory<ts.SourceFile> {
+  // The project's typesugar.config.* is searched from its tsconfig's
+  // directory, as every other host does, not from the cwd: `tspc -p
+  // packages/app` run from the repository root missed packages/app's config.
+  // tsc sets `configFilePath` for a project build; without one (files on the
+  // command line) the search stays at the cwd.
+  const configFilePath = program.getCompilerOptions().configFilePath;
+  if (typeof configFilePath === "string" && configFilePath) {
+    typesugarConfig.load({
+      searchFrom: path.dirname(path.resolve(program.getCurrentDirectory(), configFilePath)),
+    });
+  }
   const macros = macroTransformerFactory(program, pluginConfig, extras);
   // ts-patch runs this inside tsc's JavaScript emit: keep the imports the
   // expanded code references (keep-imports.ts).
