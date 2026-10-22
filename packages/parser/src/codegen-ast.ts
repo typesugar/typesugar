@@ -123,9 +123,10 @@ class AstEmitter {
   // (`typesugar check --strict`), under the user's strictness. It is
   // internally untyped, explicitly: every parameter and function result is
   // `any`, as is a variable that starts out `null` or `[]` (`var best =
-  // null` would otherwise be `null`, and `best.pos` an error). The parser
-  // object itself is typed by its members (see `program`). Erased: nothing
-  // changes at run time.
+  // null` would otherwise be `null`, and `best.pos` an error). None of it is
+  // public: the macro asserts the parser object to the runtime tag's type
+  // (`Grammar<unknown>`, macros.ts), so no `any` reaches the user's types or
+  // their .d.ts. Erased: nothing changes at run time.
   private anyType(): ts.TypeNode {
     return this.f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword);
   }
@@ -511,7 +512,7 @@ class AstEmitter {
     );
 
     // The wrapper's result is inferred (an object of `rules`, `startRule`,
-    // `parse`, `parseAll`), not `any`, so the parser keeps a type.
+    // `parse`, `parseAll`); the macro asserts it to `Grammar<unknown>`.
     const wrapper = f.createFunctionExpression(
       undefined,
       undefined,

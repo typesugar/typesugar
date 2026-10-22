@@ -17,6 +17,8 @@ import {
   type MacroContext,
   defineTaggedTemplateMacro,
   globalRegistry,
+  isSyntheticNode,
+  typeToPortableTypeNode,
 } from "@typesugar/core";
 import { parseGrammarDef } from "./grammar.js";
 import { generateParserAst } from "./codegen-ast.js";
@@ -75,11 +77,56 @@ export const grammarMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
     // parseAll throws the runtime `ParseError` class (imported if the file
     // doesn't already import it), so `instanceof ParseError` holds whether or
     // not the transformer ran.
-    return generateParserAst(ctx.factory, rules, undefined, () =>
+    const parser = generateParserAst(ctx.factory, rules, undefined, () =>
       ctx.ensureImport("ParseError", "@typesugar/parser")
+    );
+    // The generated parser is untyped inside (codegen-ast.ts); its public
+    // type is the runtime tag's, `Grammar<unknown>`, asserted here so the
+    // declaration emitted for `export const g = grammar`...` and the type
+    // of `g.parse(...)` are what they are without the transformer (review 8:
+    // they were a structural object of `any` members). Erased.
+    return ctx.factory.createParenthesizedExpression(
+      ctx.factory.createAsExpression(parser, grammarTypeNode(ctx, node))
     );
   },
 });
+
+/**
+ * The type of the `grammar` call `node` as a type node valid where it is:
+ * the checker's (`Grammar<unknown>`, from the runtime tag's signature),
+ * named for this file by core's `typeToPortableTypeNode` (through the file's
+ * own import of the tag, e.g. `import("@typesugar/parser").Grammar<unknown>`).
+ * When the checker has no such name (a synthetic node, a tag it couldn't
+ * resolve), the same type named through `@typesugar/parser`, the module the
+ * expansion already imports `ParseError` from.
+ */
+function grammarTypeNode(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.TypeNode {
+  const f = ctx.factory;
+  if (!isSyntheticNode(node)) {
+    try {
+      const checker = ctx.typeChecker;
+      const type = checker.getTypeAtLocation(node);
+      const named =
+        type.flags & ts.TypeFlags.Any
+          ? undefined
+          : typeToPortableTypeNode(ctx.program, checker, ctx.sourceFile, type, node);
+      if (named && (ts.isImportTypeNode(named) || ts.isTypeReferenceNode(named))) return named;
+    } catch (error) {
+      ctx.reportWarning(
+        node,
+        `typesugar typed the grammar parser as @typesugar/parser's Grammar<unknown>: ` +
+          `the type checker failed on the call (${error}).`
+      );
+    }
+  }
+  return f.createImportTypeNode(
+    f.createLiteralTypeNode(f.createStringLiteral("@typesugar/parser")),
+    undefined,
+    f.createIdentifier("Grammar"),
+    [f.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)],
+    false
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Registration
