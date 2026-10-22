@@ -18,6 +18,9 @@ import {
   arrayAlternative,
   optionMonad,
 } from "../instances.js";
+import { flatMapOption, flatMapIO, flatMapList } from "../instances.js";
+import { fromArray, toArray } from "../data/list.js";
+import { IO, unsafeRunIO } from "../io/io.js";
 import { Left, Right, isRight } from "../data/either.js";
 import type { Either } from "../data/either.js";
 
@@ -188,5 +191,32 @@ describe("generic loops are linear and safe for non-deterministic F (#22)", () =
       }) as never
     );
     expect(r).toEqual([1, 2, 3]);
+  });
+});
+
+describe("the FlatMap bridge instances are complete FlatMaps (they have Apply's ap)", () => {
+  // `@impl FlatMap<OptionF>` checks the instance against fp's FlatMap, which
+  // extends Apply: without `ap`, `check --strict` reported the instance, and
+  // a FlatMap summoned as it had no `ap` at run time (review 8).
+  it("Option", () => {
+    expect(flatMapOption.ap((n: number) => n + 1, 2)).toBe(3);
+    expect(flatMapOption.ap(null, 2)).toBe(null);
+    expect(flatMapOption.ap((n: number) => n + 1, null)).toBe(null);
+  });
+
+  it("List", () => {
+    const fs = fromArray([(n: number) => n + 1, (n: number) => n * 10]);
+    expect(toArray(flatMapList.ap(fs, fromArray([1, 2])))).toEqual([2, 3, 10, 20]);
+  });
+
+  it("IO", async () => {
+    expect(
+      await unsafeRunIO(
+        flatMapIO.ap(
+          IO.pure((n: number) => n * 2),
+          IO.pure(21)
+        )
+      )
+    ).toBe(42);
   });
 });

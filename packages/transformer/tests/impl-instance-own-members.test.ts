@@ -128,6 +128,66 @@ console.log(tag, flatMapOption.orElse(null, () => 3), flatMapOption.flatMap(2, (
   );
 
   it.skipIf(!fs.existsSync(cliPath))(
+    "types `this` in an object-literal method with the typeclass's required members",
+    () => {
+      // review 8: the satisfies target made every member optional, so
+      // `this.map(...)` in `as` was TS2722 (possibly undefined) under strict.
+      const dir = project({
+        "src/tc.ts": `${TYPECLASSES}
+/** @typeclass */
+export interface FunctorAs<F> {
+  map<A, B>(fa: Kind<F, A>, f: (a: A) => B): Kind<F, B>;
+  as<A, B>(fa: Kind<F, A>, b: B): Kind<F, B>;
+}
+`,
+        "src/inst.ts": `import type { FunctorAs, Option, OptionF } from "./tc.js";
+/** @impl FunctorAs<OptionF> */
+export const optFunctor = {
+  map<A, B>(fa: Option<A>, f: (a: A) => B): Option<B> {
+    return fa === null ? null : f(fa);
+  },
+  as<A, B>(fa: Option<A>, b: B): Option<B> {
+    return this.map(fa, () => b);
+  },
+  extra: 1,
+};
+export const r = optFunctor.as(1, "x");
+`,
+      });
+      const check = cli(dir, "check", "--strict");
+      expect(check.out).not.toMatch(/TS2722|error/);
+      expect(check.status).toBe(0);
+      const build = cli(dir, "build");
+      expect(build.status).toBe(0);
+      const dts = fs.readFileSync(path.join(dir, "out", "inst.d.ts"), "utf-8");
+      expect(dts).toMatch(/extra: number/);
+      expect(dts).toMatch(/r: string \| null/);
+    }
+  );
+
+  it.skipIf(!fs.existsSync(cliPath))(
+    "reports a missing or misspelled member at the instance",
+    () => {
+      // review 8: with every member optional and an index signature, `mapp`
+      // for `map` was reported nowhere (the editor used to show it), and
+      // `summon<Functor<OptionF>>().map(...)` threw at run time.
+      const dir = project({
+        "src/tc.ts": TYPECLASSES,
+        "src/inst.ts": `import type { Functor, Option, OptionF } from "./tc.js";
+/** @impl Functor<OptionF> */
+export const typoFunctor = {
+  mapp: <A, B>(fa: Option<A>, f: (a: A) => B): Option<B> => (fa === null ? null : f(fa)),
+};
+`,
+      });
+      const check = cli(dir, "check", "--strict");
+      expect(check.out).toMatch(/inst\.ts\(\d+,\d+\): error TS1360/);
+      expect(check.out).toMatch(/Property 'map' is missing/);
+      expect(check.status).not.toBe(0);
+    }
+  );
+
+  it.skipIf(!fs.existsSync(cliPath))(
     "an instance for a type-level function with its own parameter (EitherF<E>) gets no wrong expansion",
     () => {
       // `Kind<F, A>` used to expand to `EitherF<A>` (EitherF's own parameter

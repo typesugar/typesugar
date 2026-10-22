@@ -1924,12 +1924,14 @@ export const implAttribute = defineAttributeMacro({
         // the typeclass doesn't declare (`_tag`, `orElse` on fp's
         // `flatMapOption`) from the instance's type and .d.ts, and the
         // expansion's check reported them as excess properties. `satisfies`
-        // still contextually types unannotated method parameters and checks
-        // the members the instance has; its members are optional and it has
-        // an index signature, so the expansion reports nothing the source as
-        // written doesn't (a partial instance, an extra helper). Erased, like
-        // the annotation: zero-cost. A user's own annotation is replaced as
-        // before.
+        // still contextually types unannotated method parameters (and `this`
+        // in an object-literal method) and checks the instance's members; the
+        // target is the expanded type intersected with an index signature, so
+        // an extra member is allowed but a missing or misspelled one is an
+        // error at the instance, as it was with the annotation (review 8: an
+        // all-optional target reported `mapp` for `map` nowhere, and made
+        // `this.map(...)` "possibly undefined"). Erased, like the annotation:
+        // zero-cost. A user's own annotation is replaced as before.
         const newDecl =
           !decl.type && decl.initializer
             ? factory.updateVariableDeclaration(
@@ -2167,10 +2169,11 @@ function parenthesizeForSatisfies(factory: ts.NodeFactory, e: ts.Expression): ts
 
 /**
  * The `satisfies` target for an unannotated `@impl` instance: the expanded
- * typeclass type with every member optional, plus `readonly [member: string]:
- * unknown`, so the check contextually types and checks the members the
- * instance has without reporting extra or missing ones (see the `@impl`
- * handler). A non-literal expansion is intersected with the index signature.
+ * typeclass type `t`, as declared (required members stay required, so a
+ * missing or misspelled member is reported at the instance, and `this` in an
+ * object-literal method has them), intersected with `{ readonly [member:
+ * string]: unknown }`, so a member the typeclass doesn't declare (`_tag`,
+ * `orElse`) is not an excess property (see the `@impl` handler).
  */
 function asOpenSatisfiesTarget(factory: ts.NodeFactory, t: ts.TypeNode): ts.TypeNode {
   const index = factory.createIndexSignature(
@@ -2186,26 +2189,7 @@ function asOpenSatisfiesTarget(factory: ts.NodeFactory, t: ts.TypeNode): ts.Type
     ],
     factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
   );
-  if (!ts.isTypeLiteralNode(t)) {
-    return factory.createIntersectionTypeNode([t, factory.createTypeLiteralNode([index])]);
-  }
-  const optional = factory.createToken(ts.SyntaxKind.QuestionToken);
-  const members = t.members.map((m) =>
-    ts.isPropertySignature(m)
-      ? factory.updatePropertySignature(m, m.modifiers, m.name, optional, m.type)
-      : ts.isMethodSignature(m)
-        ? factory.updateMethodSignature(
-            m,
-            m.modifiers,
-            m.name,
-            optional,
-            m.typeParameters,
-            m.parameters,
-            m.type
-          )
-        : m
-  );
-  return factory.createTypeLiteralNode([...members, index]);
+  return factory.createIntersectionTypeNode([t, factory.createTypeLiteralNode([index])]);
 }
 
 /**
