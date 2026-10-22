@@ -1907,6 +1907,7 @@ export function tryAutoSpecialize(
     }
     const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
     const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
+    recordInlinedCallSite(node);
     return ctx.factory.createCallExpression(cachedEntry.ident, undefined, remainingArgs);
   }
 
@@ -1933,6 +1934,7 @@ export function tryAutoSpecialize(
 
       const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
       const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
+      recordInlinedCallSite(node);
       // Type arguments are dropped: the hoisted arrow has no type parameters.
       return ctx.factory.createCallExpression(hoistedIdent, undefined, remainingArgs);
     } else {
@@ -1972,6 +1974,39 @@ function calleeCacheId(ctx: MacroContextImpl, node: ts.CallExpression): string |
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The source call sites (parse-tree nodes) whose call this pass replaced by
+ * an inlined instance method body or a specialized copy, and their files.
+ * The declaration emit reads it for the same file in the same pass
+ * (declaration-annotations.ts): an exported declaration whose initializer
+ * contains one is annotated with the type the source gives it, since the
+ * inlined body can be typed more precisely than the call (`unknown` →
+ * `number[]`). A live keyed registry written as each call is inlined
+ * (CLAUDE.md "Resolving things a macro just generated"), not a scan of the
+ * source for calls that look inlinable. An entry left from an earlier pass
+ * (a SourceFile a later program reuses) only adds an annotation with the
+ * source's own type, which is never wrong.
+ */
+const inlinedCallSites = new WeakSet<ts.Node>();
+const filesWithInlinedCalls = new WeakSet<ts.SourceFile>();
+
+function recordInlinedCallSite(node: ts.Node): void {
+  const site = ts.getParseTreeNode(realLocation(node) ?? node);
+  if (!site || isSyntheticNode(site)) return;
+  inlinedCallSites.add(site);
+  filesWithInlinedCalls.add(site.getSourceFile());
+}
+
+/** Was the source node `node`'s call inlined (or specialized) in a pass over its file? */
+export function isInlinedCallSite(node: ts.Node): boolean {
+  return inlinedCallSites.has(node);
+}
+
+/** Did a pass over `file` (a parse-tree file) inline or specialize any call in it? */
+export function hasInlinedCallSites(file: ts.SourceFile): boolean {
+  return filesWithInlinedCalls.has(file);
 }
 
 /** Warn TS9602 (from the diagnostic catalog): `fn`'s call keeps dictionary passing, because `reason`. */
@@ -2354,6 +2389,7 @@ export function tryInlineDerivedInstanceCall(
   temps?.declarations.push(...pending);
 
   const result = recursivelyInlineInstanceCalls(ctx, reexpressed, 0, location);
+  recordInlinedCallSite(location ?? node);
 
   // Strip comments from the inlined output — the method template can carry
   // trivia from the instance declaration (e.g. JSDoc), which the printer

@@ -98,7 +98,11 @@ method's own type parameter (`A` in `o as unknown as A`) as the call
 instantiates it (`o as unknown as number`). A type that can't be named there
 (an interface private to the instance's module, or a type parameter the call
 doesn't instantiate) keeps the call going through the instance. Nothing is
-ever written as `any`. An
+ever written as `any`. An exported declaration an inlined call initializes
+(`export const r = mapArr.map(xs, f)`, or a function returning one) is
+declared with the type the source gives it, the typeclass member's (`r:
+unknown` when `map` is declared to return `unknown`), not the inlined body's
+narrower one (`number[]`). An
 argument whose type is narrower than its parameter's (`extract(Nil)`,
 `Nil: null`, for `l: List<A>`) is substituted as it is when the body reads
 the parameter once; when the body reads it more than once, its own tests

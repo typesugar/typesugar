@@ -1,5 +1,6 @@
 /**
- * Keep `@opaque` types in declarations emitted from the expanded program.
+ * Keep `@opaque` types, and the types of inlined calls, in declarations
+ * emitted from the expanded program.
  *
  * Declarations come from the EXPANDED program (declarations.ts), where an
  * `@opaque` type is erased: `export const a = Some(3)` expands to `export
@@ -20,6 +21,15 @@
  * Which types are `@opaque` is decided by identity: the type's own (alias)
  * symbol and its declaring file must match a registered type rewrite, as the
  * erasure itself decides (never by printed name).
+ *
+ * The same goes for a declaration whose initializer (or a function's body)
+ * contains a call the pass inlined or specialized (transformer-core's
+ * `isInlinedCallSite`, live state the inliner wrote for this file): the
+ * inlined body can be typed more precisely than the call (`mapArr.map([1,
+ * 2], f)`, `unknown` as written, is `number[]` once inlined), and the
+ * declaration then said a type the source never declares (review 8). It gets
+ * the source's type, unless that is `any` (then the expansion's inference is
+ * kept, as for a fluent `match()`).
  */
 
 import * as ts from "typescript";
@@ -30,6 +40,7 @@ import {
   typeToPortableTypeNode,
   type TypeRewriteEntry,
 } from "@typesugar/core";
+import { hasInlinedCallSites, isInlinedCallSite } from "@typesugar/transformer-core";
 
 /**
  * `expanded` (the macro transformer's output for `original`, a file of
@@ -42,7 +53,8 @@ export function annotateInferredOpaqueTypes(
   expanded: ts.SourceFile
 ): ts.SourceFile {
   const rewrites = getAllTypeRewrites();
-  if (rewrites.length === 0 || original.isDeclarationFile) return expanded;
+  if (original.isDeclarationFile) return expanded;
+  if (rewrites.length === 0 && !hasInlinedCallSites(original)) return expanded;
   const checker = program.getTypeChecker();
   const exported = exportedDeclarations(checker, original);
   if (exported.size === 0) return expanded;
@@ -66,7 +78,11 @@ export function annotateInferredOpaqueTypes(
         if (decl.type || !source || !exported.has(source) || !ts.isIdentifier(source.name)) {
           return decl;
         }
-        const type = annotator.typeFor(() => checker.getTypeAtLocation(source.name), source);
+        const type = annotator.typeFor(
+          () => checker.getTypeAtLocation(source.name),
+          source,
+          containsInlinedCall(source.initializer)
+        );
         if (!type) return decl;
         declChanged = true;
         return factory.updateVariableDeclaration(
@@ -88,7 +104,7 @@ export function annotateInferredOpaqueTypes(
     if (ts.isFunctionDeclaration(stmt)) {
       const source = sourceOf(stmt);
       if (stmt.type || !stmt.body || !source || !exported.has(source)) return stmt;
-      const type = annotator.returnTypeFor(source);
+      const type = annotator.returnTypeFor(source, containsInlinedCall(source.body));
       if (!type) return stmt;
       changed = true;
       return factory.updateFunctionDeclaration(
@@ -125,7 +141,11 @@ export function annotateInferredOpaqueTypes(
     if (ts.isExportAssignment(stmt) && !stmt.isExportEquals) {
       const source = sourceOf(stmt);
       if (!source) return stmt;
-      const type = annotator.typeFor(() => checker.getTypeAtLocation(source.expression), source);
+      const type = annotator.typeFor(
+        () => checker.getTypeAtLocation(source.expression),
+        source,
+        containsInlinedCall(source.expression)
+      );
       if (!type) return stmt;
       changed = true;
       // `export default <expr>` declares `_default` with the expression's type.
@@ -157,7 +177,9 @@ function annotateMember(
   }
   const factory = ts.factory;
   if (ts.isMethodDeclaration(member) && ts.isMethodDeclaration(source) && !member.type) {
-    const type = member.body ? annotator.returnTypeFor(source) : undefined;
+    const type = member.body
+      ? annotator.returnTypeFor(source, containsInlinedCall(source.body))
+      : undefined;
     if (!type) return member;
     return factory.updateMethodDeclaration(
       member,
@@ -172,7 +194,7 @@ function annotateMember(
     );
   }
   if (ts.isGetAccessorDeclaration(member) && ts.isGetAccessorDeclaration(source) && !member.type) {
-    const type = annotator.returnTypeFor(source);
+    const type = annotator.returnTypeFor(source, containsInlinedCall(source.body));
     if (!type) return member;
     return factory.updateGetAccessorDeclaration(
       member,
@@ -184,7 +206,11 @@ function annotateMember(
     );
   }
   if (ts.isPropertyDeclaration(member) && ts.isPropertyDeclaration(source) && !member.type) {
-    const type = annotator.typeFor(() => checker.getTypeAtLocation(source.name), source);
+    const type = annotator.typeFor(
+      () => checker.getTypeAtLocation(source.name),
+      source,
+      containsInlinedCall(source.initializer)
+    );
     if (!type) return member;
     return factory.updatePropertyDeclaration(
       member,
@@ -229,6 +255,13 @@ function exportedDeclarations(checker: ts.TypeChecker, file: ts.SourceFile): Set
   return out;
 }
 
+/** Does the source subtree `node` contain a call this pass inlined or specialized? */
+function containsInlinedCall(node: ts.Node | undefined): boolean {
+  if (!node) return false;
+  if (isInlinedCallSite(node)) return true;
+  return ts.forEachChild(node, (child) => containsInlinedCall(child) || undefined) ?? false;
+}
+
 class Annotator {
   constructor(
     private readonly program: ts.Program,
@@ -237,22 +270,37 @@ class Annotator {
     private readonly rewrites: readonly TypeRewriteEntry[]
   ) {}
 
-  /** The return type of a function-like `source`, as a type node, when it involves an @opaque type. */
-  returnTypeFor(source: ts.SignatureDeclaration): ts.TypeNode | undefined {
-    return this.typeFor(() => {
-      const signature = this.checker.getSignatureFromDeclaration(source);
-      return signature ? this.checker.getReturnTypeOfSignature(signature) : undefined;
-    }, source);
+  /**
+   * The return type of a function-like `source`, as a type node, when it
+   * involves an @opaque type or (`inlined`) its body has an inlined call.
+   */
+  returnTypeFor(source: ts.SignatureDeclaration, inlined: boolean): ts.TypeNode | undefined {
+    return this.typeFor(
+      () => {
+        const signature = this.checker.getSignatureFromDeclaration(source);
+        return signature ? this.checker.getReturnTypeOfSignature(signature) : undefined;
+      },
+      source,
+      inlined
+    );
   }
 
   /**
    * `getType()` as a type node valid in `enclosing`'s file, when it involves
-   * an @opaque type; undefined otherwise, or when it can't be written there.
+   * an @opaque type, or when `inlined` (the declaration contains an inlined
+   * call) and it isn't `any`; undefined otherwise, or when it can't be
+   * written there.
    */
-  typeFor(getType: () => ts.Type | undefined, enclosing: ts.Node): ts.TypeNode | undefined {
+  typeFor(
+    getType: () => ts.Type | undefined,
+    enclosing: ts.Node,
+    inlined = false
+  ): ts.TypeNode | undefined {
     try {
       const type = getType();
-      if (!type || !this.involvesOpaque(type, 0, new Set())) return undefined;
+      if (!type) return undefined;
+      const keep = inlined && !(type.flags & ts.TypeFlags.Any);
+      if (!keep && !this.involvesOpaque(type, 0, new Set())) return undefined;
       // Written as this file can name it (core's portable-type-node.ts).
       return typeToPortableTypeNode(this.program, this.checker, this.file, type, enclosing);
     } catch (e) {

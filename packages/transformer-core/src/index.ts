@@ -98,6 +98,8 @@ export {
   rewriteResultCalls,
   getTypeName,
   getContextualTypeForCall,
+  isInlinedCallSite,
+  hasInlinedCallSites,
 } from "./specialization.js";
 
 // JSDoc macro dispatch + derive expansion — the single shared implementation
