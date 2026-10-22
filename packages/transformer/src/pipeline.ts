@@ -413,7 +413,7 @@ export function macroTransformerFactory(
       // loaded (unresolvable from the project, or its macro entry threw)
       // would otherwise leave its calls unexpanded with no trace, so each
       // one becomes a warning on the import (docs review 2026-10).
-      for (const w of loadMacroPackagesFromFile(sourceFile, verbose)) {
+      for (const w of loadMacroPackagesFromFile(sourceFile, verbose, program)) {
         const start = w.node.getStart(sourceFile);
         const warning: ts.Diagnostic = {
           file: sourceFile,
@@ -1846,7 +1846,7 @@ export class TransformationPipeline {
     // empty registry and skipped the rewrite (review finding #9). Load
     // packages first; both calls are idempotent.
     this.ensureTransformerFactory();
-    loadMacroPackagesFromFile(scanFile, this.verbose);
+    loadMacroPackagesFromFile(scanFile, this.verbose, this.program ?? undefined);
     const letMacro = globalRegistry.getLabeledBlock("let")?.name;
     const parMacro = globalRegistry.getLabeledBlock("par")?.name;
     if (!letMacro && !parMacro) return false;

@@ -80,15 +80,32 @@ These are real, tested boundaries — not advisory guidance:
   pnpm's `approve-builds` mechanism works for lifecycle scripts). See the
   ["Getting discovered"](./guides/authoring-libraries.md#getting-discovered)
   section of the library-authoring guide for the package-author side of this.
-- **A package's name is trusted only for the package that name resolves to.**
+- **A package's name is trusted only for the package the project resolves it to.**
   `@typesugar/*` auto-trust rests on npm scope ownership, and approval names a
-  package. A package reached by a relative import (`"../vendor/x/index.js"`) can
-  put any name in its `package.json`, so its macros load only when that name,
-  resolved from the project as a bare import, lands in the same directory (a
-  workspace link or `file:` dependency), or when the build runs inside the
-  package itself. Otherwise it is skipped with a warning naming its directory.
-  Loaded macro entries are tracked by real path, so a directory claiming
-  `@typesugar/std`'s name cannot stand in for the real one.
+  package, so both apply only to the package that name stands for in _your_
+  project. The transformer establishes that by resolving the name from
+  directories the project owns, and nowhere else:
+  - the project itself: the tsconfig's directory, the build's current
+    directory, and the package root (nearest `package.json`) at or above each;
+  - the workspace packages those declare (`pnpm-workspace.yaml` `packages:`, or
+    `package.json` `workspaces`).
+
+  A bare import is resolved from the owned directory containing the importing
+  file (so a pnpm workspace package's own `node_modules` is used), then from the
+  project, then from typesugar's own install. It is never resolved from a
+  directory the program reached by following imports: a vendored package's
+  `.ts` files are compiled because something imported them, and its
+  `package.json` (`name`, `exports`) and its own `node_modules` are its author's.
+  A package reached by a relative import (`"../vendor/x/index.js"`) is trusted
+  under its claimed name only when it is one of the owned directories, or when
+  that name, looked up in `node_modules` from an owned directory, lands in the
+  same directory by real path (a workspace link or `file:` dependency) — never
+  through the package's own `exports` self-reference. Anything else is not
+  loaded: each importing file gets a warning naming the package's path, and
+  `typesugar approve-macros` lists it as not approvable (approving a name cannot
+  make a copy the project doesn't resolve trustworthy). Loaded macro entries are
+  tracked by real path, so a directory claiming `@typesugar/std`'s name cannot
+  stand in for the real one.
 
 ## Known limitations (not yet enforced)
 

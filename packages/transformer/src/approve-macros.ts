@@ -13,11 +13,7 @@ import * as readline from "readline";
 import * as ts from "typescript";
 import { config as typesugarConfig } from "@typesugar/core";
 import { readTsConfig } from "./tsconfig-utils.js";
-import {
-  classifyManifestPackages,
-  classifyRelativeMacroPackages,
-  collectImportedModules,
-} from "./macro-loader.js";
+import { collectImportedModules, scanMacroPackages } from "./macro-loader.js";
 import { writeApprovedMacroPackages } from "./config-writer.js";
 
 export interface ApproveMacrosOptions {
@@ -79,26 +75,26 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
     console.log(`[typesugar] Scanned ${importedModules.size} imported package(s)`);
   }
 
-  // `classifyManifestPackages` already checks each package against the
-  // CURRENT `security.allowedMacroPackages` (via `isTrusted`) — so
-  // `blocked` here is exactly "declares typesugar.macros, not
-  // @typesugar/*-scoped, not already approved," i.e. what needs approval.
-  // Resolve from the project (the tsconfig's directory), as the build does.
-  const { blocked: bareBlocked } = classifyManifestPackages(importedModules, projectRoot);
-  // Packages reached by a relative path (a workspace sibling, a package's own
-  // examples): approvable by name only when that name resolves to the
-  // imported directory; the others are listed, since approval can't help.
-  const relative = classifyRelativeMacroPackages(program);
-  const newlyBlocked = [...new Set([...bareBlocked, ...relative.blocked])];
+  // Exactly the build's discovery (same files, imports and project-owned
+  // directories), so this lists everything the build would refuse:
+  // `blocked` is "declares typesugar.macros, not @typesugar/*-scoped, not
+  // already approved" (checked against the CURRENT allowedMacroPackages),
+  // i.e. what needs approval; `unverified` is what the build skips because
+  // the project does not resolve the name to that package, which approval
+  // cannot fix.
+  const scan = scanMacroPackages(program);
+  const newlyBlocked = scan.blocked;
 
-  if (relative.unverified.length > 0) {
+  if (scan.unverified.length > 0) {
     console.log(
-      `${COLORS.bright}Not loaded, and not approvable by name:${COLORS.reset} these are imported ` +
-        `by a relative path, and the name in their package.json does not resolve to them ` +
-        `from this project. Make each one the package its name resolves to (a dependency ` +
-        `such as "name": "file:<path>", or a workspace link), then run this again.\n`
+      `${COLORS.bright}Not loaded, and not approvable by name:${COLORS.reset} these declare ` +
+        `macros, but the project does not resolve their name to them (they are reached by a ` +
+        `relative path, or through a directory the project does not own, such as a vendored ` +
+        `package's own node_modules). Make each one the package its name resolves to from the ` +
+        `project (a dependency such as "name": "file:<path>", or a workspace package the ` +
+        `project declares), then run this again.\n`
     );
-    for (const { pkg, dir } of relative.unverified) {
+    for (const { pkg, dir } of scan.unverified) {
       console.log(`  ${COLORS.red}✗${COLORS.reset} ${pkg} ${COLORS.dim}(${dir})${COLORS.reset}`);
     }
     console.log("");

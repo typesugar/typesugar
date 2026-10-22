@@ -315,14 +315,31 @@ approval for everything else — modeled on pnpm's `approve-builds`.**
   is only meaningful for the package it resolves to: npm scope ownership is
   what backs `@typesugar/*` auto-trust, and a relative path bypasses it (a
   vendored directory claiming `"@typesugar/totally-official"` was executed).
-  So a relatively reached package is trusted under its claimed name only when
-  that name, resolved as a bare specifier from the project, lands in the same
-  directory by real path (from the package's parent directory for a file
-  inside it, since a package's own files self-resolve its name), or when the
-  build runs inside the package (cwd at or below it). Otherwise it is skipped
-  with a warning. Loaded macro entries are keyed by real path, not by name.
-  This is a first, narrow step toward issue #14's "trust from the resolution
-  graph": it only applies where the name was never verified at all.
+- **Identity comes only from the project's own directories (review 6,
+  PR #83).** The first fix resolved the claimed name from the importing
+  file's directory, which review 6 showed is attacker-controlled when the
+  importer is the vendored package's own file: its `exports` self-reference
+  (`"./package.json": "./inner/package.json"`) or a copy in its own
+  `node_modules` "resolved" any name, and the bare-import resolution added
+  for pnpm layouts let a vendored file's `@typesugar/x` load
+  `vendor/evil/node_modules/@typesugar/x`. The rule now is: a package's
+  identity is established ONLY by resolving its bare name from directories
+  the project owns — the tsconfig's directory, the build's cwd, the package
+  root (nearest package.json) at or above each, and the workspace package
+  roots those declare (`pnpm-workspace.yaml` `packages:`, package.json
+  `workspaces`). A bare import resolves from the owned directory containing
+  the importing file, then the project, then the transformer's own install
+  (main's original fallback). A relatively reached package is trusted under
+  its claimed name only when it is one of the owned directories, or a
+  `node_modules` lookup of the name from one of them lands in the same
+  directory by real path; its own `exports` self-reference never counts. A
+  macro package reached any other way (relative, or a bare import whose copy
+  sits below the importing file in a directory the project doesn't own) is
+  skipped with a warning naming its path. `typesugar approve-macros` runs the
+  same discovery (`scanMacroPackages`) and lists those as not approvable.
+  Loaded macro entries are keyed by real path, not by name. This is a narrow
+  step toward issue #14's "trust from the resolution graph": the graph used
+  is the project's, never one rooted inside code the project merely imports.
 
 ### What does NOT change
 

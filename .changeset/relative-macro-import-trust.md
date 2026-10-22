@@ -2,12 +2,20 @@
 "@typesugar/transformer": patch
 ---
 
-A macro package reached by a relative import is no longer trusted by the name in its own
-`package.json`. A relative path reaches any directory, so `vendor/evil/package.json` claiming
-`"@typesugar/totally-official"` had its macros entry executed by `typesugar check`. Its macros now
-load only when that name, resolved from the project as a bare import, lands in the same directory
-(a workspace link or `file:` dependency; for a file inside the package, resolved from the
-package's parent), or when the build runs inside the package itself; the usual `@typesugar/*` /
-`allowedMacroPackages` rules then apply. Anything else is skipped with a warning naming its
-directory, and an unapproved relatively imported package is now a warning too, and is listed by
-`typesugar approve-macros`. Loaded macro entries are tracked by real path, not by claimed name.
+A macro package's name is trusted only for the package the project itself resolves it to.
+Names are resolved from directories the project owns — the tsconfig's directory, the build's
+current directory, the package root above each, and the workspace packages those declare
+(`pnpm-workspace.yaml`, `package.json` `workspaces`) — never from a directory reached by
+following imports into vendored code, and never through a package's own `exports`
+self-reference. Before this, `typesugar check` executed the macros of a vendored directory
+claiming `"@typesugar/totally-official"` (directly, through its own `exports` map, or through a
+copy in its own `node_modules`), and a vendored file's bare `@typesugar/x` import loaded
+`vendor/evil/node_modules/@typesugar/x`. A relatively imported package now loads when it is one
+of the project's directories (its own examples and tests importing `../src`, a declared
+workspace package) or its name, looked up from them, lands in the same directory (a workspace
+link or `file:` dependency); the usual `@typesugar/*` / `allowedMacroPackages` rules then apply.
+Anything else is skipped with a warning naming its path. `typesugar approve-macros` now runs
+exactly the build's discovery (new `scanMacroPackages`), so it lists what the build would refuse,
+including these unverified packages, which it never approves. `export … from` re-exports are
+scanned like imports. The CLI's tsconfig reading sets `compilerOptions.configFilePath`, as `tsc -p`
+does. Loaded macro entries are tracked by real path, not by claimed name.

@@ -343,10 +343,13 @@ describe("a macro package imported by a relative path (its own examples, a works
   // runtime stub ("transformInto() was called at runtime").
   //
   // Trust: a package reached by a relative path is trusted under its
-  // package.json name only when that name resolves (as a bare specifier,
-  // from the project) to the same directory, or when the build runs inside
-  // the package itself (cwd). `@typesugar/*` auto-trust rests on npm scope
-  // ownership, which a relative path bypasses (review 5, item 1).
+  // package.json name only when it is one of the project's own directories
+  // (the build's cwd / tsconfig package, or a workspace package it
+  // declares), or when that name, looked up from those directories, lands in
+  // the same directory. `@typesugar/*` auto-trust rests on npm scope
+  // ownership, which a relative path bypasses (review 5, item 1; review 6).
+  // Each test chdirs into the project it builds: the project is what the
+  // build's cwd (or tsconfig) says, never the importing file's directory.
   let tmpDir: string;
   let originalCwd: string;
   const macrosJs = (pkg: string) =>
@@ -420,6 +423,7 @@ describe("a macro package imported by a relative path (its own examples, a works
     const pkg = "@typesugar/fixture-rel-a";
     const dir = writeWorkspacePackage("packages/fixture-rel-a", pkg, macrosJs(pkg));
     link(".", pkg, dir);
+    process.chdir(tmpDir);
     expect(loadFrom(path.join(dir, "examples", "use.ts"), ["../src/index.js"])).toEqual([]);
     expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
   });
@@ -438,7 +442,11 @@ describe("a macro package imported by a relative path (its own examples, a works
     link(".", pkg, dir);
     const use = path.join(dir, "examples", "use.ts");
     fs.writeFileSync(use, `import { relAnswer } from "../src/index.js";\nrelAnswer();\n`);
-    const program = ts.createProgram([use], { noEmit: true, allowJs: false });
+    // The project: the program's current directory (TypeScript's own sys
+    // memoizes process.cwd(), so give the host the directory explicitly).
+    const options = { noEmit: true, allowJs: false };
+    const host = { ...ts.createCompilerHost(options), getCurrentDirectory: () => tmpDir };
+    const program = ts.createProgram([use], options, host);
     loadMacroPackages(program);
     expect(globalRegistry.getByModuleExport(pkg, "relAnswer", "expression")?.module).toBe(pkg);
   });
@@ -457,6 +465,7 @@ describe("a macro package imported by a relative path (its own examples, a works
     );
     link("app", broken, brokenDir);
     link("app", "rel-untrusted", untrustedDir);
+    process.chdir(path.join(tmpDir, "app"));
     const app = path.join(tmpDir, "app", "main.ts");
     const warnings = loadFrom(app, [
       "../packages/fixture-rel-c/src/index.js",
@@ -538,6 +547,8 @@ describe("a macro package imported by a relative path (its own examples, a works
       macrosJs(pkg)
     );
     const fake = writeWorkspacePackage("app/vendor/fake", pkg, pwnedJs);
+    fs.writeFileSync(path.join(tmpDir, "app", "package.json"), `{"name":"app"}`);
+    process.chdir(path.join(tmpDir, "app"));
     const use = path.join(tmpDir, "app", "src", "use.ts");
     const warnings = loadFrom(use, ["../vendor/fake/src/index.js", pkg]);
     expect(fs.existsSync(path.join(fake, "PWNED"))).toBe(false);

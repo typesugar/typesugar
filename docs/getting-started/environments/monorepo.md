@@ -209,6 +209,14 @@ approve it once: run `npx typesugar approve-macros` (it writes
 `"@myorg/*"` to approve the whole scope) and commit the file. A config at the
 monorepo root covers every package below it.
 
+Macro packages resolve only from directories the project owns: the package you build
+(its tsconfig's directory and package root, and the current directory) and, when you
+build from the monorepo root, the workspace packages its `pnpm-workspace.yaml` (or
+`package.json` `workspaces`) declares, each from its own `node_modules`. A macro package
+reached only through code outside those, such as a vendored directory's own
+`node_modules`, is skipped with a warning naming its path (see
+[Security](../../SECURITY.md)).
+
 ::: warning Known issue: `packages/<name>/` paths
 typesugar maps any source file under a `/packages/<name>/` directory to the module
 name `@typesugar/<name>` when it matches macro imports (PEP-059 P1 #18). A
