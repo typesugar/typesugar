@@ -219,7 +219,12 @@ function resolveTypeConstructorViaTypeCheckerUncached(
   if (symbol.flags & ts.SymbolFlags.Alias) {
     try {
       symbol = checker.getAliasedSymbol(symbol);
-    } catch {
+    } catch (error) {
+      ctx.reportWarning(
+        ctx.sourceFile,
+        `typesugar could not resolve the import of '${base}' for @impl: the type checker ` +
+          `failed (${error}).`
+      );
       return undefined;
     }
   }
@@ -262,8 +267,16 @@ function resolveTypeConstructorViaTypeCheckerUncached(
   let isTypeFunction = false;
   try {
     isTypeFunction = checker.getDeclaredTypeOfSymbol(symbol).getProperty("__kind__") !== undefined;
-  } catch {
-    isTypeFunction = false; // treated as a data type constructor, as before
+  } catch (error) {
+    // Treated as a data type constructor, as before — said so (CLAUDE.md: a
+    // caught checker failure that degrades leaves a visible trace). Once per
+    // (program, name): the resolution is memoized.
+    isTypeFunction = false;
+    ctx.reportWarning(
+      ctx.sourceFile,
+      `typesugar treated '${base}' as a data type (not a type-level function) for @impl: ` +
+        `the type checker failed reading it (${error}).`
+    );
   }
 
   return {

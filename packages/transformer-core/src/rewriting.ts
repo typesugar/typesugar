@@ -15,6 +15,7 @@ import {
   getOperatorCandidates,
   resolveInstance,
   companionAssignedBefore,
+  scanWarnings,
   deriveNamesOf,
   type ResolvedInstance,
   rewrittenOperandType,
@@ -952,7 +953,8 @@ function reportDerivedWithoutInstance(
       const generic = (decl.typeParameters?.length ?? 0) > 0;
       // The companion exists, but is declared below this module-top-level
       // use, which runs before it is assigned (companionAssignedBefore).
-      const below = !generic && !companionAssignedBefore(node, decl, ctx.typeChecker);
+      const below =
+        !generic && !companionAssignedBefore(node, decl, ctx.typeChecker, scanWarnings(ctx));
       ctx
         .diagnostic(TS9001)
         .at(node.operatorToken)

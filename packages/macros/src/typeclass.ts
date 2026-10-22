@@ -78,7 +78,11 @@ import {
   type DictMethod,
 } from "./specialize.js";
 // Static: instance-extraction imports only specialize and instance-resolver.
-import { containsMacroCall, methodInlineSymbols } from "./instance-extraction.js";
+import {
+  containsMacroCall,
+  inliningFailureReporter,
+  methodInlineSymbols,
+} from "./instance-extraction.js";
 import { derivedCallOf } from "./instance-scanner.js";
 import {
   warnDerivedInPlace,
@@ -2599,7 +2603,7 @@ function inlineableMethods(
         : undefined;
     const method = name ? methods.get(name) : undefined;
     if (!name || !method) continue;
-    if (containsMacroCall(ctx.typeChecker, prop)) {
+    if (containsMacroCall(ctx.typeChecker, prop, inliningFailureReporter(ctx))) {
       methods.delete(name);
       continue;
     }
@@ -2609,7 +2613,12 @@ function inlineableMethods(
     // registered without symbols, and the call site then accepts only names
     // bound inside the body, by lib/ambient declarations, or by its own module.
     if (isSyntheticNode(fnNode) || !fnNode.parent) continue;
-    const symbols = methodInlineSymbols(ctx.typeChecker, fnNode, fnNode.getSourceFile());
+    const symbols = methodInlineSymbols(
+      ctx.typeChecker,
+      fnNode,
+      fnNode.getSourceFile(),
+      inliningFailureReporter(ctx)
+    );
     if (!symbols) methods.delete(name);
     else methods.set(name, { ...method, ...symbols });
   }

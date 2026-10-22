@@ -318,10 +318,10 @@ export interface DictMethod {
   /**
    * Likewise for the type names the method's annotations and assertions use
    * (`Option<A>`, `as Acc<B>`), its own type parameters excluded. An inlined
-   * body keeps a type name only where it resolves to the same symbol at the
-   * call site; any other (a type the call site doesn't import, the method's
-   * own `A`) is re-expressed as `any` — types are erased, so this costs
-   * nothing at run time, and the body was type-checked where it was written.
+   * body keeps a type name where it resolves to the same symbol at the call
+   * site; one the call site doesn't import is named through an import type
+   * (`import("./ord.js").P`), and a call whose body names a type that can't
+   * be named there (the method's own `A`) is not inlined. Never `any`.
    */
   typeSymbols?: ReadonlyMap<string, ts.Symbol>;
 }

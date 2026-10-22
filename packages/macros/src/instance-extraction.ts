@@ -46,6 +46,38 @@ export type InstanceExtractionContext = MacroContext;
 /** Alias/identifier chains longer than this bail out (cycle guard). */
 const MAX_RESOLUTION_DEPTH = 5;
 
+/**
+ * Told when a checker call fails while an instance's methods are read for
+ * inlining, and the method is then called through its instance instead
+ * (always correct). The caller makes it visible (CLAUDE.md: a caught checker
+ * failure that degrades leaves a trace); see {@link inliningFailureReporter}.
+ */
+export type InliningCheckerFailure = (node: ts.Node, error: unknown) => void;
+
+const reportedInliningFailures = new WeakMap<ts.SourceFile, Set<string>>();
+
+/**
+ * One warning per (file, failing node) when the checker fails on an instance
+ * method's body and its calls aren't inlined: at the node when it is in the
+ * file being transformed, else at that file, naming the other one.
+ */
+export function inliningFailureReporter(ctx: MacroContext): InliningCheckerFailure {
+  return (node, error) => {
+    let seen = reportedInliningFailures.get(ctx.sourceFile);
+    if (!seen) reportedInliningFailures.set(ctx.sourceFile, (seen = new Set()));
+    const sf = isSyntheticNode(node) ? undefined : node.getSourceFile?.();
+    const key = `${sf?.fileName ?? ""}:${isSyntheticNode(node) ? -1 : node.pos}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const here = sf === ctx.sourceFile;
+    ctx.reportWarning(
+      here ? node : ctx.sourceFile,
+      `typesugar did not inline an instance method${here || !sf ? "" : ` (in ${sf.fileName})`}: ` +
+        `the type checker failed reading its body (${error}); calls go through the instance.`
+    );
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Instance name extraction
 // ---------------------------------------------------------------------------
@@ -487,7 +519,8 @@ function makeMemberResolver(ctx: InstanceExtractionContext, depth: number): Memb
           if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
             try {
               symbol = checker.getAliasedSymbol(symbol);
-            } catch {
+            } catch (error) {
+              inliningFailureReporter(ctx)(expr, error);
               return undefined;
             }
           }
@@ -508,8 +541,10 @@ function makeMemberResolver(ctx: InstanceExtractionContext, depth: number): Memb
         }
         return undefined;
       }
-    } catch {
-      // TypeChecker may throw on unresolvable symbols — skip this member
+    } catch (error) {
+      // TypeChecker may throw on unresolvable symbols — skip this member,
+      // visibly.
+      inliningFailureReporter(ctx)(expr, error);
     }
     return undefined;
   };
@@ -565,7 +600,11 @@ function isModuleScopeDeclaration(decl: ts.Declaration): boolean {
  * A false positive only costs an inlining: the method is then called through
  * its dictionary, which is always correct.
  */
-function callsMacro(checker: ts.TypeChecker, node: ts.Node): boolean {
+function callsMacro(
+  checker: ts.TypeChecker,
+  node: ts.Node,
+  onCheckerFailure?: InliningCheckerFailure
+): boolean {
   const callee = ts.isCallExpression(node)
     ? node.expression
     : ts.isTaggedTemplateExpression(node)
@@ -584,7 +623,8 @@ function callsMacro(checker: ts.TypeChecker, node: ts.Node): boolean {
   let symbol: ts.Symbol | undefined;
   try {
     symbol = checker.getSymbolAtLocation(callee);
-  } catch {
+  } catch (error) {
+    onCheckerFailure?.(callee, error);
     return true; // can't tell: treat it as the macro
   }
   if (!symbol || symbol.flags & ts.SymbolFlags.Alias) return true;
@@ -596,11 +636,15 @@ function callsMacro(checker: ts.TypeChecker, node: ts.Node): boolean {
  * Does `node` (an instance method's body) contain a macro call? Such a method
  * is never inlined from its source: see {@link callsMacro}.
  */
-export function containsMacroCall(checker: ts.TypeChecker, node: ts.Node): boolean {
+export function containsMacroCall(
+  checker: ts.TypeChecker,
+  node: ts.Node,
+  onCheckerFailure?: InliningCheckerFailure
+): boolean {
   let found = false;
   const visit = (n: ts.Node): void => {
     if (found || ts.isTypeNode(n)) return;
-    if (callsMacro(checker, n)) {
+    if (callsMacro(checker, n, onCheckerFailure)) {
       found = true;
       return;
     }
@@ -631,25 +675,27 @@ export interface MethodInlineSymbols {
 export function methodInlineSymbols(
   checker: ts.TypeChecker,
   methodNode: ts.Node,
-  allowModuleScopeOf: ts.SourceFile | undefined
+  allowModuleScopeOf: ts.SourceFile | undefined,
+  onCheckerFailure?: InliningCheckerFailure
 ): MethodInlineSymbols | undefined {
   if (isSyntheticNode(methodNode)) return undefined;
-  return isSafeToInlineMethod(checker, methodNode, allowModuleScopeOf);
+  return isSafeToInlineMethod(checker, methodNode, allowModuleScopeOf, onCheckerFailure);
 }
 
 /**
  * Record, by name, what each type name a method mentions (`Option<A>`,
  * `typeof x`, `as Acc<B>`) resolves to where it is written. Names declared
  * inside the method itself (its own type parameters) are left out: once the
- * body is inlined they are bound nowhere, so the inliner re-expresses them as
- * `any` (by symbol identity, never by name: CLAUDE.md "Deciding what a type
- * is").
+ * body is inlined they are bound nowhere, so a call whose body names one is
+ * not inlined (transformer-core's `reexpressInlinedTypes`; by symbol
+ * identity, never by name: CLAUDE.md "Deciding what a type is").
  */
 function collectTypeSymbols(
   checker: ts.TypeChecker,
   typeNode: ts.Node,
   methodNode: ts.Node,
-  into: Map<string, ts.Symbol>
+  into: Map<string, ts.Symbol>,
+  onCheckerFailure?: InliningCheckerFailure
 ): void {
   const leftmost = (n: ts.Node): ts.Identifier | undefined => {
     while (ts.isQualifiedName(n) || ts.isPropertyAccessExpression(n)) {
@@ -669,8 +715,10 @@ function collectTypeSymbols(
       let symbol: ts.Symbol | undefined;
       try {
         symbol = checker.getSymbolAtLocation(id);
-      } catch {
-        symbol = undefined; // unrecorded: re-expressed as `any` when inlined
+      } catch (error) {
+        // Unrecorded: a call site can't name it, so it isn't inlined there.
+        onCheckerFailure?.(id, error);
+        symbol = undefined;
       }
       const decls = symbol?.getDeclarations() ?? [];
       if (symbol && decls.length > 0 && !decls.every((d) => isNodeWithin(d, methodNode))) {
@@ -685,7 +733,8 @@ function collectTypeSymbols(
 function isSafeToInlineMethod(
   checker: ts.TypeChecker,
   methodNode: ts.Node,
-  allowModuleScopeOf: ts.SourceFile | undefined
+  allowModuleScopeOf: ts.SourceFile | undefined,
+  onCheckerFailure?: InliningCheckerFailure
 ): MethodInlineSymbols | undefined {
   if (methodDependsOnReceiver(methodNode)) return undefined;
 
@@ -699,7 +748,8 @@ function isSafeToInlineMethod(
       symbol = shorthand
         ? checker.getShorthandAssignmentValueSymbol(shorthand)
         : checker.getSymbolAtLocation(id);
-    } catch {
+    } catch (error) {
+      onCheckerFailure?.(id, error);
       safe = false;
       return;
     }
@@ -727,10 +777,10 @@ function isSafeToInlineMethod(
     if (ts.isTypeNode(node)) {
       // Types are erased at run time, but an inlined body's annotations are
       // still type-checked at the call site (`check --strict`).
-      collectTypeSymbols(checker, node, methodNode, typeSymbols);
+      collectTypeSymbols(checker, node, methodNode, typeSymbols, onCheckerFailure);
       return;
     }
-    if (callsMacro(checker, node)) {
+    if (callsMacro(checker, node, onCheckerFailure)) {
       // The transformer expands this call in the instance's OWN file; the
       // source is what was written, not what runs. Inlining it would copy the
       // raw macro call (`summon<Clone<Tree>>()`) into the call site, where it
@@ -944,7 +994,12 @@ export function tryExtractInstanceFromSource(
       // in any module.
       const methodFile = method.node.getSourceFile();
       const allowModuleScopeOf = methodFile === ctx.sourceFile ? ctx.sourceFile : undefined;
-      const symbols = isSafeToInlineMethod(checker, method.node, allowModuleScopeOf);
+      const symbols = isSafeToInlineMethod(
+        checker,
+        method.node,
+        allowModuleScopeOf,
+        inliningFailureReporter(ctx)
+      );
       if (!symbols) {
         continue; // falls back to dictionary passing — always correct
       }
@@ -957,8 +1012,10 @@ export function tryExtractInstanceFromSource(
       registerInstanceMethodsFromAST(argName, brand, methods, ctx.program);
       return { brand, methods };
     }
-  } catch {
-    // TypeChecker or AST traversal may throw — fall back to registry lookup
+  } catch (error) {
+    // TypeChecker or AST traversal may throw — fall back to registry lookup,
+    // visibly.
+    inliningFailureReporter(ctx)(argExpr, error);
   }
 
   return undefined;

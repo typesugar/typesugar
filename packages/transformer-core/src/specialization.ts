@@ -1444,7 +1444,8 @@ function calleeFreeNamesResolveSameAt(
         id.parent && ts.isShorthandPropertyAssignment(id.parent)
           ? ctx.typeChecker.getShorthandAssignmentValueSymbol(id.parent)
           : ctx.typeChecker.getSymbolAtLocation(id);
-    } catch {
+    } catch (error) {
+      warnCheckerFailure(ctx, location, `specializing a call (resolving '${id.text}')`, error);
       ok = false;
       return;
     }
@@ -2079,7 +2080,10 @@ export function tryInlineDerivedInstanceCall(
   const pending: ts.Statement[] = [];
   const first = !!temps && !!scopeNode && evaluatedFirstOnceIn(temps.anchor, scopeNode);
   const hoistEffects =
-    first && nothingEvaluatedBeforeIn(temps!.anchor, scopeNode!, ctx.typeChecker);
+    first &&
+    nothingEvaluatedBeforeIn(temps!.anchor, scopeNode!, ctx.typeChecker, (n, error) =>
+      warnCheckerFailure(ctx, n, "hoisting an inlined call's effects (left in place)", error)
+    );
   const hoistConst = first
     ? (name: ts.Identifier, init: ts.Expression): void => {
         pending.push(
@@ -2187,7 +2191,13 @@ export function evaluatedFirstOnceIn(anchor: ts.Statement, node: ts.Node): boole
 export function nothingEvaluatedBeforeIn(
   anchor: ts.Statement,
   node: ts.Node,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  /**
+   * Told when the checker fails on a name and it is taken as not constant
+   * (the conservative answer: nothing is moved before the statement); the
+   * caller makes that visible (CLAUDE.md).
+   */
+  onCheckerFailure?: (node: ts.Node, error: unknown) => void
 ): boolean {
   if (!evaluatedFirstOnceIn(anchor, node)) return false;
   let child: ts.Node = node;
@@ -2197,13 +2207,17 @@ export function nothingEvaluatedBeforeIn(
     child = parent, parent = parent.parent
   ) {
     if (ts.isBinaryExpression(parent) && child === parent.right) {
-      if (!isConstantSyntax(parent.left, checker)) return false;
+      if (!isConstantSyntax(parent.left, checker, onCheckerFailure)) return false;
     }
   }
   return true;
 }
 
-function isConstantSyntax(e: ts.Expression, checker: ts.TypeChecker): boolean {
+function isConstantSyntax(
+  e: ts.Expression,
+  checker: ts.TypeChecker,
+  onCheckerFailure?: (node: ts.Node, error: unknown) => void
+): boolean {
   while (ts.isParenthesizedExpression(e)) e = e.expression;
   if (
     ts.isNumericLiteral(e) ||
@@ -2224,7 +2238,8 @@ function isConstantSyntax(e: ts.Expression, checker: ts.TypeChecker): boolean {
     let symbol: ts.Symbol | undefined;
     try {
       symbol = checker.getSymbolAtLocation(e);
-    } catch {
+    } catch (error) {
+      onCheckerFailure?.(e, error);
       return false;
     }
     const decl = symbol?.valueDeclaration;
@@ -2238,13 +2253,16 @@ function isConstantSyntax(e: ts.Expression, checker: ts.TypeChecker): boolean {
     const op = e.operatorToken.kind;
     if (op === ts.SyntaxKind.CommaToken) return false;
     if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) return false;
-    return isConstantSyntax(e.left, checker) && isConstantSyntax(e.right, checker);
+    return (
+      isConstantSyntax(e.left, checker, onCheckerFailure) &&
+      isConstantSyntax(e.right, checker, onCheckerFailure)
+    );
   }
   if (ts.isPrefixUnaryExpression(e)) {
     return (
       e.operator !== ts.SyntaxKind.PlusPlusToken &&
       e.operator !== ts.SyntaxKind.MinusMinusToken &&
-      isConstantSyntax(e.operand, checker)
+      isConstantSyntax(e.operand, checker, onCheckerFailure)
     );
   }
   return false;

@@ -446,7 +446,8 @@ function resolveFromLocalScope(
             !synthesized.some(
               (s) => s.typeclassName === inst.typeclassName && s.exportName === inst.exportName
             ) &&
-            (!inst.origin || companionAssignedBefore(useSite, inst.origin, typeChecker))
+            (!inst.origin ||
+              companionAssignedBefore(useSite, inst.origin, typeChecker, scanWarnings(ctx)))
         )
     : [];
   const candidates =
@@ -497,19 +498,32 @@ function resolveFromLocalScope(
 export function companionAssignedBefore(
   useSite: ts.Node,
   typeDecl: ts.Node,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  /**
+   * Told when a checker call fails and the check assumes the conservative
+   * answer (the use may run first): the caller reports it (CLAUDE.md — a
+   * caught checker failure that degrades leaves a visible trace). Once per
+   * kind of failure per call.
+   */
+  onCheckerFailure?: ScannerCheckerFailure
 ): boolean {
   const site = isSyntheticNode(useSite) ? ts.getOriginalNode(useSite) : useSite;
   const sourceFile = typeDecl.getSourceFile();
   // A generated node with no original has no position to judge: as before.
   if (isSyntheticNode(site) || site.getSourceFile() !== sourceFile) return true;
   if (site.pos >= typeDecl.end) return true;
+  const reported = new Set<string>();
   return runsOnlyLater(site, {
     checker,
     sourceFile,
     declEnd: typeDecl.end,
     verdicts: new Map(),
     memberVerdicts: new Map(),
+    checkerFailed: (node, error, what) => {
+      if (reported.has(what)) return;
+      reported.add(what);
+      onCheckerFailure?.(node, error, what);
+    },
   });
 }
 
@@ -522,6 +536,8 @@ interface DeferralCheck {
   verdicts: Map<ts.Symbol, boolean | "pending">;
   /** The same, per class member (see `isDeferredMember`). */
   memberVerdicts: Map<ts.Node, boolean | "pending">;
+  /** A checker call failed and the conservative answer was assumed (see `companionAssignedBefore`). */
+  checkerFailed: ScannerCheckerFailure;
 }
 
 /**
@@ -698,8 +714,10 @@ function resolvesTo(id: ts.Node, decl: ts.Node, check: DeferralCheck): boolean {
     sym = ts.isShorthandPropertyAssignment(id.parent)
       ? check.checker.getShorthandAssignmentValueSymbol(id.parent)
       : check.checker.getSymbolAtLocation(id);
-  } catch {
-    return true; // can't tell: assume it does (never defers wrongly)
+  } catch (error) {
+    // Can't tell: assume it does (never defers wrongly) — and say so.
+    check.checkerFailed(id, error, "resolving a member reference (assumed it may run first)");
+    return true;
   }
   return !!sym?.declarations?.includes(decl as ts.Declaration);
 }
@@ -757,7 +775,8 @@ function classReferenceRuns(
       let sym: ts.Symbol | undefined;
       try {
         sym = check.checker.getSymbolAtLocation(p.name);
-      } catch {
+      } catch (error) {
+        check.checkerFailed(p.name, error, "resolving a member access (assumed it may run first)");
         return true;
       }
       if (!sym?.declarations?.length) return true;
@@ -796,7 +815,8 @@ function exposesValue(
   let type: ts.Type;
   try {
     type = check.checker.getTypeAtLocation(e);
-  } catch {
+  } catch (error) {
+    check.checkerFailed(e, error, "typing a class reference (assumed it may run first)");
     return true;
   }
   const PRIMITIVE =
