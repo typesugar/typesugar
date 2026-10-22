@@ -223,7 +223,8 @@ Normal `tsc` type-checks the **original** source code before macro expansion. Th
 | `typesugar build --strict` | ✅              | ✅              |
 
 (1) The expansion of the constructs whose bound names the source can't check (do-notation
-comprehensions, `match:` switches, `ensures:` blocks), reported at the lines you wrote.
+comprehensions, fluent `match()` chains, `match:` switches, `ensures:` blocks), reported at the
+lines you wrote.
 
 If a macro generates invalid TypeScript elsewhere, you won't know until runtime—unless you use
 strict mode.

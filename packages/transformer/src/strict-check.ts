@@ -240,17 +240,64 @@ export function mapExpandedDiagnostics(
 /**
  * The rules whose suppression leaves the source-level check blind to code
  * the expansion makes checkable: they hide "Cannot find name" for the names
- * a labeled construct binds (a comprehension's steps, a `match:` case's
- * pattern, an `ensures:` block's `result`), so every use of those names is
- * unchecked as written. Matched by rule name, the registry's key.
+ * a construct binds (a comprehension's steps, a `match:` case's pattern, an
+ * `ensures:` block's `result`, a fluent `match()` chain's patterns), so every
+ * use of those names is unchecked as written. Matched by rule name, the
+ * registry's key.
  *
- * Not here: MacroCallChain (a fluent `match()` chain's pattern names). Its
- * expansion is not faithful to the types as written: it switches on the
- * scrutinee as TypeScript has narrowed it, so a `.case` for a variant the
- * value can't be at that point is TS2678 in the expansion (std's showcase,
- * `match(circle)` on `const circle: Shape = { kind: "circle", ... }`).
+ * A fluent `match()` reads a scrutinee TypeScript has narrowed at its
+ * declared type (std's match.ts `scrutineeReading`), so its expansion
+ * type-checks as the chain was written: a `.case` for a variant the value
+ * can't be at that point is not TS2678 there.
  */
-const BLIND_SPOT_RULES = new Set(["ComprehensionBlock", "MatchSwitch", "ContractBlock"]);
+const BLIND_SPOT_RULES = new Set([
+  "ComprehensionBlock",
+  "MatchSwitch",
+  "ContractBlock",
+  "MacroCallChain",
+]);
+
+/** The chain methods of a fluent `match()` (std's match.ts parseArms). */
+const MATCH_CHAIN_METHODS = new Set(["case", "or", "as", "if", "then", "else"]);
+
+/**
+ * When `call` is a link of a fluent chain `m(x).case(p).then(r)...` (not the
+ * root call itself), the name its root call calls; by syntax only. The
+ * MacroCallChain rule has already decided, by symbol, that the chain is
+ * typesugar's `match`; this only finds the chain's extent.
+ */
+function chainRootName(call: ts.CallExpression): string | undefined {
+  let expr: ts.Expression = call;
+  let links = 0;
+  while (ts.isCallExpression(expr)) {
+    const callee = expr.expression;
+    if (ts.isIdentifier(callee)) return links > 0 ? callee.text : undefined;
+    if (!ts.isPropertyAccessExpression(callee) || !MATCH_CHAIN_METHODS.has(callee.name.text)) {
+      return undefined;
+    }
+    links++;
+    expr = callee.expression;
+  }
+  return undefined;
+}
+
+/**
+ * The outermost fluent chain around `node` rooted at the same name as the
+ * innermost one (a `match()` in another's arm is inside it; `fetch(u).then(...)`
+ * around a `match()` is not part of it).
+ */
+function enclosingMatchChain(node: ts.Node): ts.CallExpression | undefined {
+  let name: string | undefined;
+  let outermost: ts.CallExpression | undefined;
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (!ts.isCallExpression(n)) continue;
+    const root = chainRootName(n);
+    if (root === undefined) continue;
+    if (name === undefined) name = root;
+    if (root === name) outermost = n;
+  }
+  return outermost;
+}
 
 /** Continuation labels: the statement after a comprehension's block that belongs to it. */
 const CONTINUATION_LABELS = new Set(["yield", "pure", "return"]);
@@ -272,9 +319,10 @@ function statementsOf(node: ts.Node): readonly ts.Statement[] | undefined {
 
 /**
  * For each file, the spans (in the text of the diagnostics' SourceFiles) of
- * the labeled constructs where a {@link BLIND_SPOT_RULES} rule hid a
- * diagnostic: the outermost labeled statement around it, with its
- * comprehension's continuation (or, for a continuation, its block). The
+ * the constructs where a {@link BLIND_SPOT_RULES} rule hid a diagnostic: the
+ * outermost labeled statement around it, with its comprehension's
+ * continuation (or, for a continuation, its block); for MacroCallChain, the
+ * outermost fluent `match()` chain around it. The
  * expanded check reports only what lies in these spans: elsewhere the source
  * check already saw the code, and the expansion may differ from it in ways
  * that are not errors in what the user wrote.
@@ -286,6 +334,16 @@ export function blindSpotRegions(
   for (const { diagnostic: d, rule } of suppressed) {
     if (!BLIND_SPOT_RULES.has(rule) || !d.file || d.start === undefined) continue;
     const sf = d.file;
+    if (rule === "MacroCallChain") {
+      // A fluent chain is an expression: the region is the whole chain.
+      const chain = enclosingMatchChain(deepestNodeAt(sf, d.start));
+      if (!chain) continue;
+      const key = path.resolve(sf.fileName);
+      const list = regions.get(key) ?? [];
+      list.push([chain.getStart(sf), chain.end]);
+      regions.set(key, list);
+      continue;
+    }
     let labeled: ts.LabeledStatement | undefined;
     for (let n: ts.Node | undefined = deepestNodeAt(sf, d.start); n; n = n.parent) {
       if (ts.isLabeledStatement(n)) labeled = n;

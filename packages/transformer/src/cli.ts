@@ -663,7 +663,7 @@ function build(options: CliOptions): void {
   // the program's own SourceFiles (check mode below), so the filter's
   // checker calls never see synthetic nodes there.
   // What the filter hid, by rule: where it hid the names a comprehension
-  // (or `match:` case, or `ensures:`) binds, the source-level check could not
+  // (or `match()` chain, `match:` case, or `ensures:`) binds, the source-level check could not
   // check their uses, so the expansion of those constructs is type-checked
   // too (strict-check.ts `blindSpotRegions`).
   const suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];

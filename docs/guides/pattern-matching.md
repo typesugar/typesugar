@@ -960,7 +960,20 @@ function evaluate(expr: Expr, env: Record<string, number>): number {
 
 With typesugar's language-service plugin, the editor checks the expanded code, so pattern
 variables (`r`, `s`, `w`, `h` above) are declared bindings there: no red squiggles, and
-hover shows their types. `typesugar check` and `typesugar build` hide the same errors.
+hover shows their types. `typesugar check` and `typesugar build` hide the same errors, and
+type-check each chain's expansion instead, so a pattern variable used at the wrong type is
+reported at the line you wrote:
+
+```typescript
+// shape: the Shape of Discriminated Union Patterns
+match(shape)
+  .case({ kind: "circle", radius: r })
+  .then(r.toUpperCase()) // error TS2339: Property 'toUpperCase' does not exist on type 'number'.
+  .case({ kind: "square", side: s })
+  .then(s ** 2)
+  .case({ kind: "rect", w, h })
+  .then(w * h);
+```
 
 Plain `tsc`, typescript-eslint, typedoc and similar tools type-check the source **as
 written**. For them `@typesugar/std` types the fluent chain, so that:

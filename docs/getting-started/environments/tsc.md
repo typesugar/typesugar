@@ -102,8 +102,8 @@ and on a typeclass operator that is rewritten (`a * b` on two `Rational`s) and o
 assigning its value. A use the filter can't see through is still reported: TypeScript
 types `const p = a * b` as `number`, so `p.num` is an error until you annotate
 `const p: Rational = a * b` (see [Operators](../../guides/operators.md)). Where the
-filter hides the names a construct binds (a comprehension's steps, a `match:` case's
-pattern, an `ensures:` block's `result`), their uses can't be checked as written, so `check`
+filter hides the names a construct binds (a comprehension's steps, a `match()` or `match:`
+case's pattern, an `ensures:` block's `result`), their uses can't be checked as written, so `check`
 and `build` also type-check that construct's expansion and report its errors at the lines
 you wrote. To type-check all of the expanded output, add `--strict` (experimental).
 

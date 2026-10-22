@@ -129,8 +129,8 @@ typesugar check [options]
 > suppression filtering removes the phantom errors valid pre-expansion source
 > produces) and both exit non-zero when errors are found — so a green `build` means
 > "compiled, no errors detected." Where the filter hides the names a construct binds (a
-> do-notation comprehension's steps, a `match:` case's pattern, an `ensures:` block's
-> `result`), their uses can't be checked as written: `check` and `build` type-check that
+> do-notation comprehension's steps, a fluent `match()` or `match:` case's pattern, an
+> `ensures:` block's `result`), their uses can't be checked as written: `check` and `build` type-check that
 > construct's expansion and report what is wrong inside it at the line you wrote
 > (`fetchAge(user.nme)` in a comprehension). Use `typesugar check`, not `tsc --noEmit`, as the
 > CI type-check: `tsc --noEmit` never runs the transformer, so it type-checks the

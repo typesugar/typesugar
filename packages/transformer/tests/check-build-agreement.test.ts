@@ -424,9 +424,27 @@ export function half(n: number): { value: number } {
   return { value: n / 2 };
 }
 `,
+        // A fluent match() chain's pattern names (the MacroCallChain rule
+        // hides their TS2304/TS18004), so `r.toUpperCase()` on a number was
+        // unchecked as written, and threw at run time.
+        "src/fluent.ts": `import { match } from "@typesugar/std";
+
+type Shape =
+  | { kind: "circle"; r: number }
+  | { kind: "rect"; w: number; h: number }
+  | { kind: "tri"; b: number; h: number };
+
+export function label(s: Shape): string {
+  return match(s)
+    .case({ kind: "circle", r }).then(r.toUpperCase())
+    .case({ kind: "rect", w, h }).then(\`\${w}x\${h}\`)
+    .case({ kind: "tri", b, h }).then(\`tri \${b}\`);
+}
+`,
         // Valid code: no new errors. A fluent match() on a value TypeScript
-        // has narrowed expands to a switch with an arm TypeScript calls
-        // unreachable (TS2678), which is not an error in what was written.
+        // has narrowed (by assignment, or by control flow) reads it at its
+        // declared type, so the expansion's switch has no arm TypeScript
+        // calls unreachable (TS2678) and no field narrowed to unknown.
         "src/ok.ts": `import "@typesugar/std/syntax/do";
 import { match } from "@typesugar/std";
 
@@ -436,11 +454,33 @@ export const area = match(circle)
   .case({ kind: "circle", radius }).then(radius * 2)
   .case({ kind: "square", side }).then(side ** 2);
 
+export function notSquare(s: Shape): number {
+  if (s.kind === "square") return 0;
+  return match(s)
+    .case({ kind: "circle", radius }).then(radius)
+    .case({ kind: "square", side }).then(side ** 2);
+}
+
 export const total = (n: number) =>
   let: {
     a << Promise.resolve(n);
   }
   yield: a + 1;
+`,
+        // The declared type comes from a module this file doesn't import it from.
+        "src/shapes.ts": `export type Shape2 = { kind: "dot" } | { kind: "line"; len: number };
+export const makeShape = (n: number): Shape2 => (n > 0 ? { kind: "line", len: n } : { kind: "dot" });
+`,
+        "src/far.ts": `import { match } from "@typesugar/std";
+import { makeShape } from "./shapes.js";
+
+export function lengthOf(n: number): number {
+  const s = makeShape(n);
+  if (s.kind === "dot") return 0;
+  return match(s)
+    .case({ kind: "dot" }).then(0)
+    .case({ kind: "line", len }).then(len + 1);
+}
 `,
       });
       dirs.push(dir);
@@ -458,6 +498,13 @@ export const total = (n: number) =>
         const errors = [...r.output.matchAll(/(comp\.ts\(\d+,\d+\): error .*)/g)].map((m) => m[1]);
         expect(errors).toEqual(expected);
         expect(r.output).not.toMatch(/ok\.ts\(\d+,\d+\): error/);
+        expect(r.output).not.toMatch(/(far|shapes)\.ts\(\d+,\d+\): error/);
+        const fluent = [...r.output.matchAll(/(fluent\.ts\(\d+,\d+\): error .*)/g)].map(
+          (m) => m[1]
+        );
+        expect(fluent).toEqual([
+          "fluent.ts(10,41): error TS2339: Property 'toUpperCase' does not exist on type 'number'.",
+        ]);
         expect(r.output).toContain(
           "sw.ts(10,19): error TS2551: Property 'toFixd' does not exist on type 'number'. Did you mean 'toFixed'?"
         );

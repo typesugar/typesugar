@@ -136,8 +136,8 @@ build's privileges. See the [comptime guide](./guides/comptime.md).
 Macros have access to TypeScript's type checker and can use type information in
 their transformations. `typesugar check`/`build` type-check your source (filtering
 the errors that only exist before expansion), and the expansion of the constructs whose
-bound names the source can't check (do-notation comprehensions, `match:` switches,
-`ensures:` blocks); type-checking all of the expanded output needs `--strict`
+bound names the source can't check (do-notation comprehensions, fluent `match()` chains,
+`match:` switches, `ensures:` blocks); type-checking all of the expanded output needs `--strict`
 (experimental).
 
 ## Packages
