@@ -147,6 +147,48 @@ function resolveNameAt(
   }
 }
 
+/**
+ * Is `symbol` (a name resolved at a call site) bound there only as a TYPE? A
+ * `type` import specifier, an `import type` declaration, or an alias chain
+ * through a type-only re-export (`export type { Pt } from "./ord.js"`) still
+ * resolves under value meaning (the checker reports TS1361 only under
+ * `--strict` checking of the output), but emits no binding: a body that uses
+ * `Pt` as a value there throws a ReferenceError (review 8). So does a name
+ * whose target has no value side at all. Decided on the alias declarations
+ * the checker resolves through (`isTypeOnlyImportOrExportDeclaration`), not
+ * by name.
+ */
+function isTypeOnlyBinding(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  let current: ts.Symbol | undefined = symbol;
+  const seen = new Set<ts.Symbol>();
+  while (current && current.flags & ts.SymbolFlags.Alias && !seen.has(current)) {
+    seen.add(current);
+    if (current.declarations?.some((d) => ts.isTypeOnlyImportOrExportDeclaration(d))) return true;
+    current = checker.getImmediateAliasedSymbol(current);
+  }
+  return !!current && !(current.flags & ts.SymbolFlags.Value);
+}
+
+/**
+ * {@link resolveNameAt} for a name an inlined body uses as a VALUE: a binding
+ * that exists there only as a type (see {@link isTypeOnlyBinding}) counts as
+ * no binding — the body would throw a ReferenceError there.
+ */
+function resolveValueAt(
+  ctx: MacroContextImpl,
+  name: string,
+  location: ts.Node
+): ts.Symbol | undefined | "error" {
+  const symbol = resolveNameAt(ctx, name, location);
+  if (!symbol || symbol === "error") return symbol;
+  try {
+    return isTypeOnlyBinding(ctx.typeChecker, symbol) ? undefined : symbol;
+  } catch (error) {
+    warnCheckerFailure(ctx, location, `resolving '${name}' at the call site`, error);
+    return "error";
+  }
+}
+
 function sameSymbol(checker: ts.TypeChecker, a: ts.Symbol, b: ts.Symbol): boolean {
   if (a === b) return true;
   const resolve = (s: ts.Symbol): ts.Symbol => {
@@ -215,7 +257,7 @@ function methodFreeNameMismatch(
   if (!location) return undefined;
   let locals: Set<string> | undefined;
   for (const name of collectMethodFreeNames(method.node)) {
-    const actual = resolveNameAt(ctx, name, location);
+    const actual = resolveValueAt(ctx, name, location);
     if (actual === "error") return { name };
     const expected = method.freeSymbols?.get(name);
     if (expected) {
@@ -1250,7 +1292,7 @@ function calleeFreeNamesResolveSameAt(
     ) {
       return;
     }
-    const actual = resolveNameAt(ctx, id.text, location);
+    const actual = resolveValueAt(ctx, id.text, location);
     if (actual === "error" || !actual || !sameSymbol(ctx.typeChecker, actual, expected)) ok = false;
   });
   return ok;

@@ -80,7 +80,11 @@ it does in the instance's module. A body that references its own module's
 local helpers or imports is not inlined (the identifiers wouldn't exist at
 your call site): that call goes through the instance, which is always
 correct, just not zero-cost, and warns TS9602 naming the identifier
-(`the method's body uses 'compareNumber', which is not in scope here`).
+(`the method's body uses 'compareNumber', which is not in scope here`). A
+name the body uses as a value must be a value at your call site: a class you
+import only as a type (`import type { Pt }`, `import { isPt, type Pt }`, or
+through an `export type` re-export) emits no binding, so `isPt.make(3)` is
+not inlined as `new Pt(3)` there.
 Methods with self-contained bodies still specialize. The same goes for a
 method whose body calls a macro (say, a recursive `clone` that calls
 `summon<Clone<Tree>>()`): its source is not yet expanded, so it is called

@@ -261,6 +261,82 @@ export const r = get(3);
   });
 });
 
+describe("a free name must be a value binding at the call site", () => {
+  // review 8: `import { isPt, type Pt }` binds `Pt` as a type only; an inlined
+  // `new Pt(n)` there is a ReferenceError (only --strict reported TS1361).
+  const ORD_PT = `
+/** @typeclass */
+export interface Is<A> {
+  is(x: unknown): boolean;
+  make(n: number): A;
+}
+export class Pt { constructor(public x: number) {} }
+/** @impl Is<Pt> */
+export const isPt: Is<Pt> = {
+  is: (x) => x instanceof Pt,
+  make: (n) => new Pt(n),
+};
+`;
+
+  it.each([
+    ["a `type` specifier", `import { isPt, type Pt } from "./ord.js";`],
+    [
+      "an `import type` declaration",
+      `import type { Pt } from "./ord.js";\nimport { isPt } from "./ord.js";`,
+    ],
+  ])("a name imported with %s is not in scope as a value", (_, imports) => {
+    const files: Files = {
+      "ord.ts": ORD_PT,
+      "main.ts": `
+${imports}
+export const a: boolean = isPt.is(1);
+export const b: Pt = isPt.make(3);
+export const bx = b.x;
+`,
+    };
+    const out = transformAll(files, ["ord.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).not.toMatch(/new Pt\(|instanceof Pt/);
+    expect(run(code, "main.ts")).toMatchObject({ a: false, bx: 3 });
+    expect(typeErrors(code, "main.ts")).toEqual([]);
+    expect(warningsOf(out["main.ts"]).join("\n")).toMatch(/TS9602.*'Pt'/s);
+  });
+
+  it("a name re-exported as a type only is not in scope as a value", () => {
+    const files: Files = {
+      "ord.ts": ORD_PT,
+      "types.ts": `export type { Pt } from "./ord.js";\n`,
+      "main.ts": `
+import { isPt } from "./ord.js";
+import { Pt } from "./types.js";
+export const b: Pt = isPt.make(3);
+export const bx = b.x;
+`,
+    };
+    const out = transformAll(files, ["ord.ts", "types.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).not.toMatch(/new Pt\(/);
+    expect(run(code, "main.ts")).toMatchObject({ bx: 3 });
+  });
+
+  it("a plain value import is still inlined", () => {
+    const files: Files = {
+      "ord.ts": ORD_PT,
+      "main.ts": `
+import { isPt, Pt } from "./ord.js";
+export const d: Pt = isPt.make(5);
+export const ok = isPt.is(d);
+`,
+    };
+    const out = transformAll(files, ["ord.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).toMatch(/new Pt\(5\)/);
+    expect(code["main.ts"]).toMatch(/d instanceof Pt/);
+    expect(run(code, "main.ts")).toMatchObject({ ok: true });
+    expect(warningsOf(out["main.ts"])).toEqual([]);
+  });
+});
+
 describe("an inlined body type-checks where it is inlined", () => {
   it("an argument narrower than the parameter isn't narrowed to never by the body's test", () => {
     // fp's destructure.test.ts: `destructureCons.extract(Nil)` inlined as

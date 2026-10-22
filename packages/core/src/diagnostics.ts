@@ -1345,8 +1345,10 @@ Reasons:
 - The body calls another = implicit() function without passing its instance,
   relying on it being propagated; the specialized copy couldn't pass it on.
 - An instance method's body uses a name that isn't in scope at the call site
-  (a helper private to the instance's module, or one it imports and the call
-  site doesn't). The call goes through the instance instead of inlining it.
+  (a helper private to the instance's module, one it imports and the call
+  site doesn't, or a class the call site imports only as a type, with
+  import type or a type specifier). The call goes through the instance
+  instead of inlining it.
 
 Opt-outs (same line before the call, or a comment line directly above):
   // @no-specialize        keep dictionary passing, no specialization
