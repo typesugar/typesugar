@@ -594,22 +594,20 @@ import { clamp } from "@typesugar/std";
 n.clamp(0, 100);
 ```
 
-```typescript
-type UserId = Newtype<number, "UserId">;
-
-// TypeScript: "Type 'number' is not assignable to type 'UserId'" (TS2322)
-// typesugar:  UserId is a newtype over number → runtime identity → not an error
-const id: UserId = 42;
-```
-
 ### What makes this principled
 
 This isn't blanket diagnostic suppression. Each suppression is justified by a specific rewrite rule:
 
 1. **Extension methods** -- A function with matching first parameter is in scope → TS2339 suppressed
-2. **Newtype assignment** -- Source matches the newtype's base type → TS2322/TS2345 suppressed
-3. **Opaque type boundaries** -- Source matches the opaque type's underlying representation → TS2322/TS2345 suppressed
-4. **Macro-generated code** -- Diagnostic position doesn't map to original source → suppressed
+2. **Opaque type boundaries** -- Source matches the opaque type's underlying representation → TS2322/TS2345 suppressed
+3. **Labeled-block syntax** -- A comprehension (`let:`/`par:`), a `match: switch` or a contract's `ensures:` declares names and removes labels when it expands → the reserved-word, unused-label and "Cannot find name" errors on exactly those labels and names suppressed
+4. **Fluent `match()` chains** -- The chain's methods and the names its patterns bind exist only after the macro consumes the chain → suppressed for that chain
+5. **Operator overloading** -- An `@op` instance for the left operand is in scope → TS2365 suppressed, and the rewritten result type-checked as the instance type
+6. **Derived declarations** -- A `@derive` companion (`Point.Eq`) or a derived value (`@derive(Destructure)`'s constructor) used before expansion creates it → suppressed for exactly what that derive declares
+7. **Macro decorators** -- A typesugar macro decorator on an interface or type alias → TS1206 suppressed
+8. **Macro-generated code** -- Diagnostic position doesn't map to original source → suppressed
+
+(Newtypes need no rule: `@typesugar/type-system`'s `wrap` and the newtype constructors type-check as written.)
 
 If no rule matches, the error stands. The system is auditable: `--show-suppressed-diagnostics` prints every suppressed diagnostic with its justification.
 

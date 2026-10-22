@@ -1,14 +1,10 @@
 /**
  * Built-in diagnostic suppression rules for @typesugar/macros
  *
- * Rule 1 (ExtensionMethodCall): Suppresses TS2339 ("Property 'X' does not exist
- * on type 'Y'") when an extension method named 'X' is resolvable for type 'Y'
- * through the standalone extension registry or import-scoped resolution.
- *
- * Rule 2 (TypeRewriteAssignment): Suppresses TS2322/TS2345/TS2355 when a type
- * registered in the `typeRewriteRegistry` (from `@opaque`) — matched by symbol
- * and declaring file — is involved in an assignment and the other side matches
- * the registered underlying type.
+ * Every rule here is registered by `registerAllDiagnosticSuppressionRules`
+ * (diagnostic-suppression-registration.ts, whose
+ * `ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES` is the complete list, with core's
+ * MacroGenerated); each `create*Rule` below documents what it suppresses.
  *
  * (The former NewtypeAssignment rule was removed in 2026-10: since
  * @typesugar/type-system's `UnwrapNewtype` reads a phantom base slot,
