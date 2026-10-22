@@ -1774,7 +1774,9 @@ function isEffectFreeSyntax(e: ts.Expression): boolean {
   ) {
     return true;
   }
-  if (ts.isPropertyAccessExpression(e)) return !e.questionDotToken && isEffectFreeSyntax(e.expression);
+  if (ts.isPropertyAccessExpression(e)) {
+    return !e.questionDotToken && isEffectFreeSyntax(e.expression);
+  }
   if (ts.isBinaryExpression(e)) {
     const op = e.operatorToken.kind;
     if (op === ts.SyntaxKind.CommaToken) return false;
