@@ -48,17 +48,22 @@
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, isSyntheticNode } from "@typesugar/core";
 import { MacroContext } from "@typesugar/core";
 import { TS9001 } from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import {
   resolveInstance,
+  resolveFromTypeclassHome,
+  followTypeclassSymbol,
+  typeclassKeyName,
   findEmittableInstanceByName,
   buildInstanceReference,
+  buildImportedReference,
   buildDottedReference,
 } from "./instance-resolver.js";
 import { tryDeriveViaGeneric } from "./auto-derive.js";
+import { warnDerivedInPlace, notOwnedTypeHelp, primitiveInstanceHelp } from "./derived-in-place.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -273,6 +278,22 @@ export function transformImplicitsCall(
         const paramTypeStr = ctx.typeChecker.typeToString(paramType);
 
         const declParam = decl.parameters[j];
+        // `a: A`: the resolved signature's parameter type IS the inferred `A`
+        // (or the explicit type argument). Keep the ts.Type, so the instance
+        // is resolved by type below: the name-based fallback can't match an
+        // instance for a type whose name prints with type arguments
+        // (`Feature<Geometry, GeoJsonProperties>` for a bare `Feature`).
+        if (
+          declParam?.type &&
+          ts.isTypeReferenceNode(declParam.type) &&
+          !declParam.type.typeArguments &&
+          ts.isIdentifier(declParam.type.typeName) &&
+          typeParamNames.has(declParam.type.typeName.text) &&
+          !typeParamTypeMap.has(declParam.type.typeName.text) &&
+          ctx.isTypeReliable(paramType)
+        ) {
+          typeParamTypeMap.set(declParam.type.typeName.text, paramType);
+        }
         if (declParam?.type) {
           // Try to extract type arguments for each type parameter from this parameter
           for (const tpName of typeParamNames) {
@@ -360,7 +381,27 @@ export function transformImplicitsCall(
       continue;
     }
 
-    const typeclassName = typeName.text;
+    // The typeclass by identity, not by its local spelling: a renamed import
+    // (`Eq as Equal`) or a re-exported alias (`typesugar`'s `Eq`, which is
+    // `@typesugar/std`'s) is the same typeclass (CLAUDE.md "by identity").
+    let typeclassSymbol: ts.Symbol | undefined;
+    let typeclassKeyed: string | undefined;
+    if (!isSyntheticNode(typeName)) {
+      try {
+        const start = ctx.typeChecker.getSymbolAtLocation(typeName);
+        typeclassSymbol = followTypeclassSymbol(ctx.typeChecker, start);
+        if (typeclassSymbol) {
+          typeclassKeyed = typeclassKeyName(ctx.typeChecker, start, typeclassSymbol);
+        }
+      } catch (e) {
+        ctx.reportWarning(
+          callExpr,
+          `implicit(): couldn't resolve the typeclass ${typeName.text} with the type checker ` +
+            `(${e instanceof Error ? e.message : String(e)}); using the name as written.`
+        );
+      }
+    }
+    const typeclassName = typeclassKeyed ?? typeName.text;
     const typeArgs = param.type.typeArguments;
     if (!typeArgs || typeArgs.length === 0) {
       newArgs.push(factory.createIdentifier("undefined"));
@@ -393,7 +434,23 @@ export function transformImplicitsCall(
     let instanceExpr: ts.Expression | undefined;
     if (concreteTsType) {
       try {
-        const r = resolveInstance(ctx, typeclassName, concreteTsType);
+        const lookUp = (t: ts.Type) => {
+          let found = resolveInstance(ctx, typeclassName, t, undefined, undefined, callExpr);
+          // Then the typeclass's own package (see resolveFromTypeclassHome).
+          if (!found && typeclassSymbol) {
+            found = resolveFromTypeclassHome(ctx, typeclassSymbol, typeclassName, t).result;
+          }
+          return found;
+        };
+        let r = lookUp(concreteTsType);
+        // Literal arguments infer a literal type (`max(3, 7)`: `A` is `3 | 7`),
+        // which no instance is declared for: retry with its base type
+        // (`number`), widened by the checker (by the type's flags, not its
+        // text), as method syntax widens a literal receiver.
+        if (!r) {
+          const widened = ctx.typeChecker.getBaseTypeOfLiteralType(concreteTsType);
+          if (widened !== concreteTsType) r = lookUp(widened);
+        }
         if (r && r.kind === "resolved") instanceExpr = buildInstanceReference(ctx, r);
         if (r && r.kind === "ambiguous") {
           ctx.reportError(
@@ -422,7 +479,7 @@ export function transformImplicitsCall(
       if (hit) {
         instanceExpr =
           hit.specifier && hit.modulePath
-            ? ctx.ensureImport(hit.exportName, hit.specifier)
+            ? buildImportedReference(ctx, hit.exportName, hit.specifier)
             : buildDottedReference(factory, hit.exportName);
       }
     }
@@ -432,8 +489,10 @@ export function transformImplicitsCall(
     }
 
     // 3. Try auto-derivation via Generic (Scala 3-style)
+    // Deprecated (TS9009): implicit() will find instances only.
     const derivationResult = tryDeriveViaGeneric(ctx, typeclassName, concreteType);
     if (derivationResult.expression) {
+      warnDerivedInPlace(ctx, callExpr, typeclassName, concreteType, false);
       newArgs.push(derivationResult.expression);
       continue;
     }
@@ -477,10 +536,15 @@ export function transformImplicitsCall(
       builder.note(`implicit parameter: ${paramName}`);
 
       const tcSuggestions = getSuggestionsForTypeclass(typeclassName);
-      if (tcSuggestions.length > 0) {
-        builder.help(`${helpMessage}\n    Add: ${tcSuggestions[0].importStatement}`);
+      const notOwned = notOwnedTypeHelp(ctx, concreteTsType, typeclassName, concreteType);
+      const help =
+        primitiveInstanceHelp(concreteTsType, typeclassName, concreteType, ctx.program) ??
+        (notOwned ? `${helpMessage}\n    ${notOwned}` : helpMessage);
+      if (tcSuggestions.length > 0 && !typeclassSymbol) {
+        // Only when the typeclass itself isn't in scope (the instance is what's missing).
+        builder.help(`${help}\n    Add: ${tcSuggestions[0].importStatement}`);
       } else {
-        builder.help(helpMessage);
+        builder.help(help);
       }
 
       builder.emit();

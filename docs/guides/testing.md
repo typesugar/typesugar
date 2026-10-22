@@ -54,6 +54,13 @@ assert(users.length === filtered.length);
 //            [{"a":1},{"a":2},{"a":3}]
 ```
 
+Macros inside the assertion expand as they would anywhere else
+(`assert(n.show() === "3")`, `assert(showAll(xs, summon<Show<number>>()) === "1,2")`). A call a
+macro rewrote has no column of its own in the diagram, so the diagram shows the values of the
+parts you wrote that the rewrite kept (`n` here, not the result of `n.show()`). The same goes for
+a typeclass operator: `assert(p === q)` on an `Eq` type shows `p` and `q`, under their columns,
+but not the result of the `Eq` comparison.
+
 `@typesugar/validate` has an `assert<T>()` macro too, for checking `unknown` data against a
 type. The two can be used in the same project and the same file: each call expands the
 macro of the package it was imported from. In a file that needs both, import validate's as

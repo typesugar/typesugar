@@ -29,9 +29,16 @@ import {
   getSuggestionsForSymbol,
   formatSuggestionsMessage,
   TS9101,
+  TS9102,
   TS9103,
   TS9104,
+  isJSDocTagAtLineStart,
+  deriveTagNames,
 } from "@typesugar/core";
+
+// Moved to @typesugar/core (the instance scanner in @typesugar/macros needs it
+// too); re-exported here for existing importers.
+export { isJSDocTagAtLineStart };
 
 import { safeGetNodeText, isPrimitiveType, type VisitFn } from "./transformer-utils.js";
 import { lookupMacroByName } from "./import-resolution.js";
@@ -129,8 +136,11 @@ export function isJSDocMacroTargetNode(
   | ts.TypeAliasDeclaration
   | ts.VariableStatement
   | ts.VariableDeclaration
-  | ts.FunctionDeclaration {
+  | ts.FunctionDeclaration
+  | ts.EnumDeclaration {
   return (
+    // An enum carries no macro, but a `@derive` on one is reported (TS9102).
+    ts.isEnumDeclaration(node) ||
     ts.isFunctionDeclaration(node) ||
     ts.isInterfaceDeclaration(node) ||
     ts.isClassDeclaration(node) ||
@@ -138,52 +148,6 @@ export function isJSDocMacroTargetNode(
     ts.isVariableStatement(node) ||
     ts.isVariableDeclaration(node)
   );
-}
-
-/**
- * Whether a JSDoc tag sits at a real tag position: the `@` starts its comment
- * line (only whitespace and the leading `*` before it, or only whitespace
- * after `/**` on the comment's first line), and the line is not inside a
- * ``` / ~~~ code fence within that comment.
- *
- * TypeScript's JSDoc parser treats any whitespace-preceded `@word` as a tag,
- * so prose ("Parsed from @adt tag."), nested example comments
- * (` * /** @hkt *\/`) and fenced examples (` * @derive(Read)` between ```)
- * all come back from `ts.getJSDocTags`. Those must not dispatch macros.
- *
- * A tag with no real source position (synthetic) is accepted, as before.
- */
-export function isJSDocTagAtLineStart(tag: ts.JSDocTag): boolean {
-  if (tag.pos < 0) return true;
-  let jsDoc: ts.Node | undefined = tag.parent;
-  while (jsDoc && jsDoc.kind !== ts.SyntaxKind.JSDoc) jsDoc = jsDoc.parent;
-  let root: ts.Node | undefined = jsDoc;
-  while (root && root.kind !== ts.SyntaxKind.SourceFile) root = root.parent;
-  if (!jsDoc || !root || jsDoc.pos < 0) return true;
-  const text = (root as ts.SourceFile).text;
-  const commentStart = jsDoc.pos;
-  const tagPos = tag.pos;
-  if (text.charCodeAt(tagPos) !== 64 /* @ */) return true;
-
-  // Prefix of the tag's own line.
-  const lineStart = text.lastIndexOf("\n", tagPos - 1) + 1;
-  const prefix =
-    lineStart <= commentStart
-      ? text.slice(commentStart, tagPos).replace(/^\/\*\*/, "")
-      : text.slice(lineStart, tagPos).replace(/^[ \t]*\*/, "");
-  if (!/^[ \t]*$/.test(prefix)) return false;
-
-  // Code-fence state over the comment lines BEFORE the tag's line.
-  let inFence = false;
-  const before = text.slice(commentStart, lineStart);
-  for (const rawLine of before.split("\n")) {
-    const line = rawLine
-      .replace(/^[ \t]*\/\*\*/, "")
-      .replace(/^[ \t]*\*/, "")
-      .trimStart();
-    if (line.startsWith("```") || line.startsWith("~~~")) inFence = !inFence;
-  }
-  return !inFence;
 }
 
 export function hasJSDocMacroTags(node: ts.Node): boolean {
@@ -219,6 +183,7 @@ export function tryExpandJSDocMacros(
 
   const tags = ts.getJSDocTags(node);
   const results: ts.Node[] = [];
+  let derived = false;
 
   let targetDecl: ts.Declaration;
   if (ts.isVariableStatement(node)) {
@@ -252,10 +217,23 @@ export function tryExpandJSDocMacros(
         const derives = expandDeriveDecorator(ctx, verbose, syntheticDecorator, currentNode, args);
         if (derives) {
           results.push(...derives);
+          derived = true;
         }
-      } else if (ts.isFunctionDeclaration(currentNode)) {
-        reportUnsupportedOnFunction(ctx, tag);
+      } else if (!isDeriveProse(tag)) {
+        // A const, a function, an enum: not a type, so nothing to derive. Said
+        // so (TS9102) rather than dropping the tag — a `/** @derive(Eq) */
+        // const p = ...` used to be ignored without a word.
+        reportDeriveOnNonType(ctx, tag, args, currentNode);
       }
+      continue;
+    }
+
+    // An enum carries no other macro tag.
+    if (ts.isEnumDeclaration(currentNode)) {
+      ctx.reportWarning(
+        tag,
+        `JSDoc macro tag @${tag.tagName.text} is not supported on an enum and was ignored.`
+      );
       continue;
     }
 
@@ -308,6 +286,9 @@ export function tryExpandJSDocMacros(
     }
   }
 
+  // Several @derive tags: their functions before any of their namespaces.
+  if (derived) results.splice(0, results.length, ...functionsFirst(results));
+
   const wasExpanded = currentNode !== targetDecl || results.length > 0;
   if (!wasExpanded) {
     return undefined;
@@ -325,6 +306,62 @@ export function tryExpandJSDocMacros(
   }
 
   return results.length > 0 ? [currentNode, ...results] : currentNode;
+}
+
+/**
+ * A `@derive(...)` line followed by prose, `@derive(Read) — derives a Read
+ * instance`, is documentation of a derive macro (written on the macro's
+ * `const`), not a request to derive: its argument list is followed by more
+ * text. Only consulted where `@derive` can't apply (TS9102); on a type
+ * declaration the tag derives as before.
+ */
+function isDeriveProse(tag: ts.JSDocTag): boolean {
+  const comment =
+    typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+  const text = (comment ?? "").trim();
+  // The unparenthesized form, `@derive Eq, Clone`: anything but a name list is prose.
+  if (!text.startsWith("(")) return !/^([A-Za-z_$][\w$]*(\s*,\s*[A-Za-z_$][\w$]*)*)?$/.test(text);
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "(") depth++;
+    else if (text[i] === ")" && --depth === 0) return text.slice(i + 1).trim().length > 0;
+  }
+  return false;
+}
+
+/**
+ * TS9102 for `@derive` on something that is not a type declaration. On a
+ * variable, the help points at what the author likely wanted: the type's own
+ * declaration, or `derived<TC<T>>()` for a type they don't own.
+ */
+export function reportDeriveOnNonType(
+  ctx: MacroContextImpl,
+  at: ts.Node,
+  args: readonly ts.Expression[],
+  target: ts.Node
+): void {
+  const names = args.filter(ts.isIdentifier).map((a) => a.text);
+  const typeclass = names.join(", ") || "...";
+  const first = names[0] ?? "Eq";
+  const builder = ctx.diagnostic(TS9102).at(at).withArgs({ typeclass });
+  if (ts.isVariableDeclaration(target) || ts.isVariableStatement(target)) {
+    builder
+      .note("@derive was ignored: this is a variable, and a variable has no fields to derive from.")
+      .help(
+        `Put @derive(${typeclass}) on the declaration of the variable's type, or, for a type ` +
+          `you don't own, declare its instance: \`export const instance = derived<${first}<Type>>();\``
+      );
+  } else {
+    const what = ts.isFunctionDeclaration(target)
+      ? "a function"
+      : ts.isEnumDeclaration(target)
+        ? "an enum, whose values are numbers or strings (compared and copied as they are)"
+        : "not a type declaration";
+    builder
+      .note(`@derive was ignored: this is ${what}.`)
+      .help(`Put @derive(${typeclass}) on an interface, class or type alias.`);
+  }
+  builder.emit();
 }
 
 function reportUnsupportedOnFunction(ctx: MacroContextImpl, tag: ts.JSDocTag): void {
@@ -364,18 +401,10 @@ export function parseJSDocMacroArgs(
       return [ctx.factory.createStringLiteral(trimmed)];
 
     case "derive":
-    case "deriving": {
-      // @derive Eq, Clone or @deriving (Show, Eq, Ord) — optional wrapping
-      // parens are stripped so both forms parse the same.
-      if (!trimmed) return [];
-      const inner =
-        trimmed.startsWith("(") && trimmed.endsWith(")") ? trimmed.slice(1, -1) : trimmed;
-      const tcNames = inner
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      return tcNames.map((name) => ctx.factory.createIdentifier(name));
-    }
+    case "deriving":
+      // @derive Eq, Clone or @deriving (Show, Eq, Ord): only the leading list
+      // is read, never prose after it (the shared parser, deriveTagNames).
+      return deriveTagNames(tag).map((name) => ctx.factory.createIdentifier(name));
 
     default:
       return [];
@@ -623,10 +652,7 @@ export function expandDeriveDecorator(
     !ts.isClassDeclaration(node) &&
     !ts.isTypeAliasDeclaration(node)
   ) {
-    ctx.reportError(
-      decorator,
-      "@derive can only be applied to interfaces, classes, or type aliases"
-    );
+    reportDeriveOnNonType(ctx, decorator, args, node);
     return undefined;
   }
 
@@ -769,7 +795,21 @@ export function expandDeriveDecorator(
     ctx.reportError(arg, message);
   }
 
-  return statements.length > 0 ? statements : undefined;
+  return statements.length > 0 ? functionsFirst(statements) : undefined;
+}
+
+/**
+ * Derive output with its function declarations first. A derive may emit a
+ * function named like the type (`@derive(Destructure)`'s `function Point`)
+ * and another a companion `namespace Point` (`@derive(Eq)`); they merge only
+ * when the function comes first (TS2434). Function declarations are hoisted,
+ * so moving them up changes nothing at run time. Stable otherwise.
+ */
+export function functionsFirst<T extends ts.Node>(nodes: T[]): T[] {
+  return [
+    ...nodes.filter((n) => ts.isFunctionDeclaration(n)),
+    ...nodes.filter((n) => !ts.isFunctionDeclaration(n)),
+  ];
 }
 
 // ---------------------------------------------------------------------------

@@ -29,10 +29,9 @@ import {
   getContractConfig,
   shouldEmitCheck,
 
-  // Prover
+  // Prover types (the engine itself is in "@typesugar/contracts/macros")
   type ProofResult,
   type TypeFact,
-  tryProve,
 
   // Algebraic rules
   tryAlgebraicProof,
@@ -59,6 +58,7 @@ import {
 
   // Decidability
   registerDecidability,
+  registerRefinementPredicate,
   getDecidability,
   canProveAtCompileTime,
   mustCheckAtRuntime,
@@ -67,7 +67,12 @@ import {
   defineLaw,
   verifyLaw,
   type Law,
-} from "../src/index.js";
+} from "@typesugar/contracts";
+// The proof engine imports `typescript`, so it is exported from
+// "@typesugar/contracts/macros", not the runtime entry.
+import { tryProve } from "@typesugar/contracts/macros";
+// Enables the requires:/ensures: block labels.
+import "@typesugar/contracts/syntax";
 
 // ============================================================================
 // 1. BASIC PRECONDITIONS - requires() Guards Function Entry
@@ -117,10 +122,14 @@ interface Counter {
   value: number;
 }
 
+// old() is snapshotted at entry and the ensures: block checked at exit, so
+// postconditions that use it are written as a block (an inline ensures(...)
+// call runs where it is written).
 function increment(counter: Counter): void {
-  const oldValue = old(counter.value);
+  ensures: {
+    (counter.value === old(counter.value) + 1, "Value must increase by 1");
+  }
   counter.value++;
-  ensures(counter.value === oldValue + 1, "Value must increase by 1");
 }
 
 const counter = { value: 10 };
@@ -258,6 +267,9 @@ cert = addStep(cert, {
 cert = succeedCertificate(cert, "type", {
   rule: "type_identity",
   description: "Proven by type deduction",
+  justification: "the extracted fact is the goal",
+  usedFacts: assumptions,
+  subgoals: [],
 });
 
 // Format for human reading
@@ -285,22 +297,24 @@ console.log("8. Proof certificates: auditable traces with steps and outcomes");
 // ============================================================================
 
 // Register decidability metadata for custom brands
+// (the predicate itself is registered separately, by brand)
+registerRefinementPredicate("CompileTimeConst", "$ === 42");
 registerDecidability({
   brand: "CompileTimeConst",
-  predicate: "$ === 42",
   decidability: "compile-time",
   preferredStrategy: "constant",
 });
 
+registerRefinementPredicate("RuntimeOnly", "validateExternal($)");
 registerDecidability({
   brand: "RuntimeOnly",
-  predicate: "validateExternal($)",
   decidability: "runtime",
+  preferredStrategy: "type",
 });
 
+registerRefinementPredicate("AlgebraicDecidable", "$ * $ + 1 > 0");
 registerDecidability({
   brand: "AlgebraicDecidable",
-  predicate: "$ * $ + 1 > 0",
   decidability: "decidable",
   preferredStrategy: "algebra",
 });
@@ -353,7 +367,7 @@ console.log("10. Configuration: full/assertions/none modes for production stripp
 
 // Define a law for a hypothetical Monoid
 // Laws use `check` function that takes arguments based on `arity`
-const identityLaw: Law = defineLaw({
+const identityLaw: Law<[x: number]> = defineLaw({
   name: "left_identity",
   description: "empty <> x === x",
   arity: 1,

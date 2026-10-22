@@ -478,7 +478,7 @@ export function generateHelpFromTrace(
       for (const child of attempt.children) {
         const fieldType = findFailingFieldCheck(child);
         if (fieldType) {
-          return `Add @derive(${typeclassName}) to ${fieldType}, or provide @instance ${typeclassName}<${fieldType}>`;
+          return `Add @derive(${typeclassName}) to ${fieldType}, or provide an instance: /** @impl ${typeclassName}<${fieldType}> */`;
         }
       }
 
@@ -489,12 +489,12 @@ export function generateHelpFromTrace(
     }
 
     if (attempt.step === "derivation-strategy" && attempt.result === "not-found") {
-      return `No derivation strategy registered for ${typeclassName}. Provide @instance ${typeclassName}<${typeName}>`;
+      return `No derivation strategy registered for ${typeclassName}. Provide an instance: /** @impl ${typeclassName}<${typeName}> */`;
     }
   }
 
   // Fallback
-  return `Add @derive(${typeclassName}) to ${typeName}, or provide @instance ${typeclassName}<${typeName}>`;
+  return `Add @derive(${typeclassName}) to ${typeName}, or provide an instance: /** @impl ${typeclassName}<${typeName}> */`;
 }
 
 /**

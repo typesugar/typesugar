@@ -6,7 +6,7 @@
 
 ## Overview
 
-`@typesugar/transformer` is the core transformation engine of typesugar. It integrates with the TypeScript compiler (via ts-patch or bundler plugins) to process macro invocations during compilation, expanding them into optimized JavaScript code.
+`@typesugar/transformer` is the core transformation engine of typesugar. It runs inside the bundler plugins (`unplugin-typesugar`, `withTypesugar()` from `typesugar/tsup`), the `typesugar` CLI (`typesugar build`, `check`, `run`), and the Node loader (`typesugar/register`), expanding macro invocations into optimized JavaScript code during compilation.
 
 **You need this package if you're configuring the build pipeline directly.** Most users should use `unplugin-typesugar` for bundler-specific plugins or configure via `typesugar`.
 
@@ -20,23 +20,50 @@ pnpm add @typesugar/transformer
 
 ## Configuration
 
-### With ts-patch (for tsc users)
+### tsc-style builds
 
-1. Install ts-patch:
+A plain `tsc` doesn't expand macros. Use the `typesugar` CLI in its place: it reads the
+same `tsconfig.json`, expands macros, and emits `.js` and `.d.ts` files from the
+expanded program.
 
-   ```bash
-   npm install -D ts-patch
-   npx ts-patch install
-   ```
+```bash
+npx typesugar build   # in place of tsc
+npx typesugar check   # in place of tsc --noEmit
+```
 
-2. Configure `tsconfig.json`:
-   ```json
-   {
-     "compilerOptions": {
-       "plugins": [{ "transform": "@typesugar/transformer" }]
-     }
-   }
-   ```
+See [tsc Setup](https://typesugar.org/getting-started/environments/tsc).
+
+### With ts-patch (alternative)
+
+If you need `tsc` itself to expand macros, [ts-patch](https://github.com/nonara/ts-patch)
+can run the transformer as a `tsconfig.json` plugin:
+
+```bash
+npm install -D ts-patch
+npx ts-patch install
+```
+
+```json
+{
+  "compilerOptions": {
+    "plugins": [{ "transform": "@typesugar/transformer", "type": "program" }]
+  }
+}
+```
+
+A patched `tsc` type-checks the **unexpanded** source and emits `.d.ts` files from it, so a
+library should still emit its declarations with `typesugar build` (see
+[Declarations](https://typesugar.org/getting-started/environments/tsc#declarations)).
+
+### In Node (scripts, tsx, `node --test`)
+
+```bash
+node --import @typesugar/transformer/register src/main.ts   # or typesugar/register
+node --import @typesugar/transformer/register --test "src/**/*.test.ts"
+```
+
+Node module hooks expand each TypeScript module before it runs, alone (Node 22.18+ /
+23.6+) or with tsx. See [Node.js, tsx and node:test](https://typesugar.org/getting-started/environments/node).
 
 ### Transformer Options
 
@@ -114,6 +141,9 @@ npx typesugar build --cache
 # Build with strict mode (typecheck expanded output)
 npx typesugar build --strict
 
+# Only the .d.ts files, from the expanded program (after a bundler built the JS)
+npx typesugar build --emitDeclarationOnly --declarationDir dist
+
 # Watch mode (automatically reuses state across rebuilds)
 npx typesugar watch
 
@@ -158,6 +188,9 @@ const transformer = macroTransformerFactory(program, {
 
 // Use with ts.transform() or a custom emit pipeline
 ```
+
+`emitDeclarations({ project, declarationDir })` writes `.d.ts` files from the expanded
+program, as `typesugar build --emitDeclarationOnly` does.
 
 ## Import-Scoped Macro Resolution
 

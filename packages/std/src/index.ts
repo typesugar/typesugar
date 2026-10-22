@@ -81,7 +81,12 @@ export * from "./data";
 // `typescript`-free runtime surface that application code calls directly:
 //   - `match` — runtime fallback dispatch (the fluent chain is macro-expanded)
 //   - `registerStdInstances` — runtime no-op stub (registration is compile-time)
-export { match } from "./macros/match-runtime.js";
+export {
+  match,
+  type FluentMatch,
+  type FluentMatchCase,
+  type FluentMatchArms,
+} from "./macros/match-runtime.js";
 export { registerStdInstances } from "./macros/register-instances-runtime.js";
 
 // Specialization support (FlatMap instances recognized by auto-specialization)

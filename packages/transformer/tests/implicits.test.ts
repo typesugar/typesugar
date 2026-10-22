@@ -25,6 +25,34 @@ function registerShowInstance(forType: string, instanceName: string) {}
 // ============================================================================
 
 describe("= implicit() basic resolution", () => {
+  it("literal arguments resolve the instance for their base type (max(3, 7) is Ord<number>)", () => {
+    // `A` is inferred as `3 | 7` from the literals, which no instance is
+    // declared for: TS9001 "No instance found for Ord<3 | 7>", with help
+    // "Add @derive(Ord) to 3 | 7". Widened by the checker, as method syntax
+    // widens a literal receiver.
+    const code = [
+      "declare function implicit<T>(): T;",
+      "declare interface Ord<T> { compare(a: T, b: T): number; }",
+      "declare const ordNumber: Ord<number>;",
+      "declare const ordString: Ord<string>;",
+      "",
+      "function max<A>(a: A, b: A, O: Ord<A> = implicit()): A {",
+      "  return O.compare(a, b) >= 0 ? a : b;",
+      "}",
+      "",
+      "export const m = max(3, 7);",
+      "const x = 3, y = 7;",
+      "export const m2 = max(x, y);",
+      'export const s = max("a", "b");',
+    ].join("\n");
+
+    const r = transformCode(code, { fileName: "implicits-literal.ts" });
+    expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(r.code).toContain("m = max(3, 7, ordNumber)");
+    expect(r.code).toContain("m2 = max(x, y, ordNumber)");
+    expect(r.code).toContain('s = max("a", "b", ordString)');
+  });
+
   it("fills missing Ord<T> parameter when calling sort(numbers)", () => {
     setupOrdTypeclass();
     registerOrdInstance("number", "ordNumber");

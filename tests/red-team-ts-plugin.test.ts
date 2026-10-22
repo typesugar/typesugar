@@ -330,9 +330,91 @@ describe("TS Plugin Error Recovery", () => {
     });
 
     it("handles extremely long single line", () => {
+      // 10,001 terms: a left-nested chain of 10,000 `+` nodes. The operator
+      // rewrite asked the checker for each `+`'s left operand, re-checking the
+      // whole subtree below it every time (cubic: 18-40 minutes on CI). An
+      // operand that is itself an arithmetic expression is primitive-typed and
+      // is now skipped without the checker; the budget catches a regression.
+      // The visitor used to recurse once per level and failed at ~2,000
+      // levels (~1,500 under vitest) with "Transform failed: RangeError:
+      // Maximum call stack size exceeded"; tsc itself handles this depth.
       const longLine = "const x = " + "1 + ".repeat(10000) + "1;";
+      const started = Date.now();
       const result = transformCode(longLine, { fileName: "long.ts" });
-      expect(result).toBeDefined();
+      expect(result.diagnostics).toEqual([]);
+      expect(result.code.split("1 + ").length).toBe(10001);
+      expect(Date.now() - started).toBeLessThan(20_000);
+    });
+
+    it("a 20,000-term string concatenation in a file that activates operators", () => {
+      // Generated code (long concatenations, big literal tables) nests this
+      // deep; every whole-file walk on the way (the macro visitor, hygiene's
+      // binding scan, the source-map walk, the scratch-token pass) must not
+      // recurse once per level.
+      const code =
+        'import "@typesugar/std/syntax/eq/ops";\n' +
+        "export const s = " +
+        '"ab" + '.repeat(20000) +
+        '"ab";\nexport const n = ' +
+        "1 - ".repeat(20000) +
+        "1;\n";
+      const started = Date.now();
+      const result = transformCode(code, { fileName: "concat.ts" });
+      expect(result.diagnostics).toEqual([]);
+      expect(result.code.split('"ab" + ').length).toBe(20001);
+      expect(result.code.split("1 - ").length).toBe(20001);
+      expect(Date.now() - started).toBeLessThan(20_000);
+    });
+
+    it("a 20,000-term chain in a file with a macro expansion (a source map is generated)", () => {
+      // review 5, item 7: with an expansion the output differs from the input,
+      // so generateASTSourceMap runs, and its output-token collection
+      // recursed once per level ("Maximum call stack size exceeded").
+      const code =
+        'import { comptime } from "typesugar";\n' +
+        "export const c = comptime(() => 40 + 2);\n" +
+        "export const n = " +
+        "1 + ".repeat(20000) +
+        "1;\n";
+      const result = transformCode(code, { fileName: "chain-with-macro.ts" });
+      expect(result.diagnostics).toEqual([]);
+      expect(result.code).toContain("c = 42");
+      expect(result.code.split("1 + ").length).toBe(20001);
+      expect(result.sourceMap).toBeTruthy();
+    });
+
+    it("a typeclass-operator chain too deep to rewrite fails with a diagnostic that says what to do", () => {
+      // Each rewritten level of `a + a + ...` (object operands) is rebuilt
+      // with its left operand visited first, so a very long one exhausts the
+      // stack; 200 terms is fine, several thousand is not. The failure names
+      // the cause and the fix instead of a bare RangeError (review 5, item 7).
+      const code =
+        "/** @typeclass */\n" +
+        "export interface Num<A> { /** @op + */ add(a: A, b: A): A; }\n" +
+        "export interface V { x: number }\n" +
+        "/** @impl Num<V> */\n" +
+        "export const numV: Num<V> = { add: (a, b) => ({ x: a.x + b.x }) };\n" +
+        "const a: V = { x: 1 };\n" +
+        "export const ok = " +
+        "a + ".repeat(200) +
+        "a;\n";
+      expect(transformCode(code, { fileName: "op-200.ts" }).diagnostics).toEqual([]);
+      const deep = code + "export const s = " + "a + ".repeat(5000) + "a;\n";
+      const result = transformCode(deep, { fileName: "op-5000.ts" });
+      const messages = result.diagnostics.map((d) => d.message);
+      if (messages.length > 0) {
+        expect(messages[0]).toMatch(/nests too deeply/);
+        expect(messages[0]).toMatch(/intermediate/);
+      }
+    });
+
+    it("transforms a 400-term arithmetic chain and a 300-term comparison chain quickly, cleanly", () => {
+      const sum = "const y = " + "1 + ".repeat(400) + "1;";
+      const cmp = "const z = " + "(1 < 2) === ".repeat(300) + "true;";
+      const started = Date.now();
+      expect(transformCode(sum, { fileName: "sum.ts" }).diagnostics).toEqual([]);
+      expect(transformCode(cmp, { fileName: "cmp.ts" }).diagnostics).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(20_000);
     });
   });
 

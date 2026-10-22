@@ -162,12 +162,13 @@ Shows:
 # Install
 npm install @typesugar/effect effect
 
-# Run the examples
+# Run the examples (ts-node and plain tsx don't expand macros)
 cd docs/showcase/effect-comparison
-npx ts-node http-server/after.ts
+npx typesugar run http-server/after.ts
+# or, through Node's module hooks: node --import typesugar/register --import tsx http-server/after.ts
 
 # See the compiled output
-npx typesugar compile http-server/after.ts --emit
+npx typesugar expand http-server/after.ts
 ```
 
 ---

@@ -32,6 +32,13 @@ We want an optional strict mode where the transformer guarantees its output is v
 
 ### Wave 1: `@opaque` Type Annotation Erasure
 
+> **Superseded (2026-10, case-study fixes on PR #83).** Stripping covered only a variable or
+> parameter default initialized by an erased constructor of a same-project type, so other
+> positions (a parameter passed `Some(2)`, a library type's variable) failed `strictOutput`, and it
+> changed the declarations emitted from the expanded program. Annotations are now kept as written
+> everywhere, and expanded code is checked against the runtime view of opaque types
+> (`opaqueTypesAsUnderlying` in `@typesugar/core`). The text below is the original design.
+
 **Problem:** When `Some(x)` erases to `x`, the `Option<T>` type annotation becomes a lie.
 
 ```typescript

@@ -360,13 +360,17 @@ describe("JSDoc attribute tags on function declarations (docs B#4)", () => {
     expect(run(result.code)).toEqual([24, 24]);
   });
 
-  it("a JSDoc tag whose macro does not target functions warns instead of vanishing", () => {
+  it("a JSDoc @derive on a function is reported (TS9102) instead of vanishing", () => {
     const result = virtual(
       [`/** @derive(Eq) */`, `export function f(): number { return 1; }`].join("\n"),
       "derive-on-function"
     );
     expect(
-      result.diagnostics.some((d) => /@derive/.test(d.message) && /function/.test(d.message))
+      result.diagnostics.some(
+        (d) =>
+          d.severity === "error" &&
+          /@derive\(Eq\) requires an interface, class, or type alias/.test(d.message)
+      )
     ).toBe(true);
   });
 
@@ -507,6 +511,10 @@ describe("each diagnostic is reported once per site (docs C#27, S#29)", () => {
       { fileName: "/virtual/impl-no-args.ts" }
     );
     expect(count(result, /@impl requires arguments/)).toBe(1);
+    // ...and suggests the JSDoc form, not a decorator (invalid on a const).
+    const message = result.diagnostics.find((d) => /@impl requires/.test(d.message))!.message;
+    expect(message).toContain("/** @impl Typeclass<Type> */");
+    expect(message).not.toContain('@impl("');
   });
 
   it("a duplicate @impl warns once (TS9006 page)", () => {

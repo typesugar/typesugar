@@ -179,8 +179,8 @@ export function proofHintToFacts(
  * @param options - Verification options
  * @returns The verification result
  */
-export function verifyLaw(
-  law: Law,
+export function verifyLaw<Args extends unknown[]>(
+  law: Law<Args>,
   facts: TypeFact[],
   options?: VerifyOptions
 ): LawVerificationResult {

@@ -102,3 +102,38 @@ function print<A>(value: A, S: Show<A> = summon<Show<A>>()): void {
     expect(msg).toContain("= implicit()");
   });
 });
+
+describe("extend(x) stored in a variable (round-2 docs finding)", () => {
+  // extend(value).method(args) compiles to instance.method(value, args): it
+  // is a call form, not a wrapper value, so `const e = extend(x)` has nothing
+  // to bind. That stays an error, but it says what to write instead.
+  it("says to call the method in the same expression, or use method syntax or summon", () => {
+    const r = transformAndRun(`import { extend } from "typesugar";
+/** @typeclass */
+interface Show<A> { show(a: A): string; }
+/** @impl Show<number> */
+const showNumber: Show<number> = { show: (n) => "#" + n };
+const x: number = 3;
+const e = extend(x);
+console.log(e.show());
+`);
+    const msg = r.errors.join("\n");
+    expect(msg).toContain("extend(x).show()");
+    expect(msg).toContain("x.show()");
+    expect(msg).toContain("summon<Show<");
+    expect(msg).not.toContain("extend(value)");
+  });
+
+  it("extend(x).show() in one expression compiles to the instance call and runs", () => {
+    const r = transformAndRun(`import { extend } from "typesugar";
+/** @typeclass */
+interface Show<A> { show(a: A): string; }
+/** @impl Show<number> */
+const showNumber: Show<number> = { show: (n) => "#" + n };
+const x: number = 3;
+console.log(extend(x).show());
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.logs).toEqual(["#3"]);
+  });
+});

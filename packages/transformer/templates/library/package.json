@@ -18,7 +18,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "typesugar check",
     "prepare": "ts-patch install -s"
   },
   "files": [
@@ -30,19 +30,17 @@
     "typescript"
   ],
   "dependencies": {
-    "@typesugar/typeclass": "^0.1.0",
-    "@typesugar/derive": "^0.1.0"
+    "typesugar": "^0.2.0"
   },
   "devDependencies": {
-    "@typesugar/transformer": "^0.1.0",
-    "@typesugar/testing": "^0.1.0",
+    "@typesugar/transformer": "^0.2.0",
     "ts-patch": "^3.3.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
-    "@typesugar/transformer": ">=0.1.0",
+    "@typesugar/transformer": ">=0.2.0",
     "typescript": ">=5.9.0 <7.0.0"
   }
 }

@@ -169,13 +169,17 @@ describe("createRegistrationCall", () => {
     expect(ts.isCallChain(inner)).toBe(true);
   });
 
-  it("targets globalThis.__typesugar_registerExtension as the callee", () => {
+  it("targets (globalThis as any).__typesugar_registerExtension as the callee", () => {
     const stmt = createRegistrationCall(ts.factory, "head", "Array", undefined);
     const call = (stmt as ts.ExpressionStatement).expression as ts.CallExpression;
     expect(ts.isPropertyAccessExpression(call.expression)).toBe(true);
     const access = call.expression as ts.PropertyAccessExpression;
-    expect(ts.isIdentifier(access.expression)).toBe(true);
-    expect((access.expression as ts.Identifier).text).toBe("globalThis");
+    // `as any`: the hook is declared nowhere, so a bare `globalThis.x` is
+    // TS7017 under noImplicitAny in the expansion's type check.
+    expect(ts.isParenthesizedExpression(access.expression)).toBe(true);
+    const cast = (access.expression as ts.ParenthesizedExpression).expression;
+    expect(ts.isAsExpression(cast)).toBe(true);
+    expect(((cast as ts.AsExpression).expression as ts.Identifier).text).toBe("globalThis");
     expect(access.name.text).toBe("__typesugar_registerExtension");
   });
 
@@ -457,7 +461,7 @@ describe("extensionAttribute on function declarations", () => {
     expect(ts.isFunctionDeclaration(nodes[0])).toBe(true);
     expect(ts.isExpressionStatement(nodes[1])).toBe(true);
     // The emitted statement must invoke the global registration hook.
-    expect(printed[1]).toContain("globalThis.__typesugar_registerExtension");
+    expect(printed[1]).toContain("(globalThis as any).__typesugar_registerExtension");
     expect(printed[1]).toContain('"head"');
     expect(printed[1]).toContain('"Array"');
 

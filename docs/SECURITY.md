@@ -1,6 +1,6 @@
 # Security & Trust Model
 
-**Last updated:** 2026-07-11
+**Last updated:** 2026-10-22
 
 This document states typesugar's trust model in plain terms. It is the
 authoritative statement of what typesugar does and does **not** protect against.
@@ -80,6 +80,121 @@ These are real, tested boundaries — not advisory guidance:
   pnpm's `approve-builds` mechanism works for lifecycle scripts). See the
   ["Getting discovered"](./guides/authoring-libraries.md#getting-discovered)
   section of the library-authoring guide for the package-author side of this.
+  The gate applies to dependencies (packages inside `node_modules`); code in
+  your own repository is not gated. See
+  [What typesugar trusts](#what-typesugar-trusts).
+
+## What typesugar trusts
+
+Macros run code when you build and while you edit. That code can come from
+someone you didn't mean to trust in three ways. Each one is covered by the
+layer that can actually stop it.
+
+### A malicious npm dependency, including a transitive one
+
+This is what the PEP-055 gate above is for. A macro package inside a
+`node_modules` directory is a dependency, and its macros load only if it is
+`@typesugar/*` (or `typesugar`) or listed in `security.allowedMacroPackages`.
+The gate matters even where install scripts are blocked (pnpm 10's default,
+`npm install --ignore-scripts`): a dependency whose install script never ran
+would otherwise still get to run code on every build.
+
+- **Which package an import names** is decided the way Node decides it, from
+  the importing file's location. pnpm's per-package `node_modules`, nested
+  installs and workspace links work as they do for Node.
+- **A relative path into `node_modules`** (`"../node_modules/x/index.js"`)
+  counts as a bare import of the package its path names (`x`), and is gated
+  the same way. The name comes from the path, not from that package's own
+  `package.json` `name`, so `node_modules/x` calling itself
+  `@typesugar/official` is still `x`.
+- **A dependency's own files are never scanned.** The imports of a file inside
+  `node_modules` never load macro packages, even when your code imports that
+  file directly; only your project's files decide what loads.
+- **A dependency's config is never read.** No host reads a config file
+  (`typesugar.config.*`, `.typesugarrc*`) or a `package.json` `"typesugar"`
+  block inside a `node_modules` directory, by real path. A config search that
+  starts inside one walks past it to your project's config. So a dependency
+  can't run code through a config file, and can't approve its own macros with
+  a `security.allowedMacroPackages` entry of its own.
+- **The editor ignores a dependency's own project.** Opening a file inside
+  `node_modules` in your editor gives it the dependency's `tsconfig.json` as
+  its project. The language-service plugin does nothing in a project whose
+  tsconfig is inside `node_modules`, so it loads neither that dependency's
+  config nor its macros.
+- **Each project keeps its own config.** One editor (or one Node process)
+  serving several of your projects applies each project's config, its
+  `security.allowedMacroPackages` included, to that project's files only.
+- **Importing a workspace package by its name** (`import "@acme/macros"`)
+  goes through `node_modules` (a workspace link), so it is a dependency import,
+  and a name outside `@typesugar/*` needs approval. Importing the same package
+  by a relative path is project code (see [Files written into your own repository](#files-written-into-your-own-repository)).
+
+### Files written into your own repository
+
+**The project tree is trusted.** A macro package reached by a relative import
+whose real path is not inside a `node_modules` directory is project code: a
+vendored directory, a workspace sibling imported by path, a nested project, a
+package's own `../src`. It loads whatever its `package.json` calls itself,
+with no approval and no warning. Config files in the tree
+(`typesugar.config.*`, `.typesugarrc*`, `package.json` `"typesugar"`) are
+project code too. A host reads the nearest one walking up from the
+tsconfig's directory (or the current directory, when there is no tsconfig),
+stopping at the repository root (the directory with `.git`).
+
+Project code is loaded by its real path, never under the name it claims, so
+a directory whose `package.json` says `@typesugar/std` runs as itself and
+does not stand in for the real `@typesugar/std`. Its macros entry
+(`"typesugar": { "macros": "./macros" }`) is its own file, found through its
+own `exports` map or as a path in its directory. It is never looked up by name,
+so a vendored fork of an npm package runs the fork's macros, not the npm
+copy's. An entry whose real path is outside the package is refused, with a
+warning. A bare entry that names another package (`"macros":
+"@typesugar/macros"`) names a dependency, which keeps the approval gate.
+
+**The accepted risk:** someone who can write files into your repository can
+run code when you build it, as they can with every config file your tools
+run (`vite.config.ts`, `eslint.config.js`, `package.json` scripts).
+typesugar doesn't try to defend the repository against itself: that only
+adds friction. Review vendored code before you commit it, as you would any
+other code.
+
+### Opening an untrusted repository in your editor
+
+The language-service plugin expands macros as you type, so opening a
+repository runs its macros and its `typesugar.config`. The layer for this is
+your editor's trust prompt: in VS Code, [Workspace
+Trust](https://code.visualstudio.com/docs/editing/workspaces/workspace-trust).
+
+- **The typesugar VS Code extension does not run in Restricted Mode.** It
+  declares `"untrustedWorkspaces": { "supported": false }`, so in a folder you
+  haven't trusted it is disabled, and the TypeScript server plugin it
+  contributes is not registered. It turns on when you trust the folder.
+- **VS Code 1.130 and later** (July 2026): VS Code's own TypeScript extension
+  does not run in Restricted Mode either, so no TypeScript server starts and
+  no plugin of any kind loads until you trust the folder.
+- **VS Code 1.85 to 1.129:** the TypeScript extension runs in Restricted Mode
+  with VS Code's bundled TypeScript only. It ignores the workspace's
+  `typescript.tsdk` and `typescript.tsserver.pluginPaths`, and passes the
+  TypeScript server the plugins of enabled extensions only. A `tsconfig.json`
+  `compilerOptions.plugins` entry is looked up next to the TypeScript that
+  runs the server (for the bundled TypeScript, VS Code's own install, not the
+  repository's `node_modules`) and in those extensions' directories, so
+  typesugar's plugin is not loaded. One gap in those versions: if the
+  workspace's settings turn on `typescript.enablePromptUseWorkspaceTsdk`, VS
+  Code offers to switch to the workspace's TypeScript without asking for
+  trust first. Don't accept that prompt in a folder you don't trust: the
+  workspace's TypeScript loads `tsconfig.json` plugins from the repository's
+  own `node_modules`.
+- **VS Code forks** (Cursor, Windsurf, VSCodium) behave like the VS Code
+  version they are built on (Help → About).
+- **Other editors are not covered by this.** Neovim, Zed, Sublime Text,
+  Helix and Emacs (through `typescript-language-server` or `vtsls`) and
+  JetBrains IDEs run the TypeScript server from the project's
+  `node_modules/typescript` and load `tsconfig.json` plugins from the
+  project's `node_modules`, with no trust check typesugar can rely on. (We
+  have not checked whether JetBrains' Safe Mode for untrusted projects stops
+  TypeScript service plugins.) Open a repository you don't trust in a
+  container or VM, or don't open it in an editor with the plugin configured.
 
 ## Known limitations (not yet enforced)
 
@@ -125,7 +240,9 @@ imply a guarantee typesugar cannot currently keep:
 2. Run `typesugar expand` on code paths you care about to see what was generated.
 3. Keep untrusted code out of your build; if you must build it, do so in an
    isolated environment (a container/CI runner you can throw away), the same way
-   you would for any untrusted `postinstall` script.
+   you would for any untrusted `postinstall` script. Open a repository you don't
+   trust in VS Code's Restricted Mode (or a container), not in an editor that
+   loads its `tsconfig.json` plugins.
 
 ## Reporting a vulnerability
 

@@ -121,6 +121,11 @@ export default defineConfig({
 Build both formats. The transformer loads the macro entry with `require()`, so the
 `require` condition of `./macros` must work.
 
+This config doesn't expand macros: the macro entry defines them and the runtime entry
+holds placeholders. If your runtime entry also _uses_ macros (a `/** @typeclass */`, a
+`@derive`), wrap the config in `withTypesugar()` from `typesugar/tsup`, so the JavaScript
+and the `.d.ts` files are expanded ([With tsup](../getting-started/environments/esbuild.md#with-tsup)).
+
 ## Source Structure
 
 ### src/index.ts
@@ -221,6 +226,23 @@ Say this in your README, so consumers aren't surprised by the first failed build
 
 The same mechanism works for macros inside your own repository: put them in a workspace
 package with a `typesugar.macros` field, depend on it from the app, and approve it once.
+
+An import by relative path counts too: when `import { myMacro } from "../src/index.js"`
+(your package's own examples or tests) or `"../my-macro-package/src/index.js"` lands in a
+package whose `package.json` declares `typesugar.macros`, that package's macro entry is
+loaded. A package reached by a relative path outside `node_modules` is project code: it
+loads with no approval and no warning, whatever its `package.json` calls itself (see
+[Security](../SECURITY.md#what-typesugar-trusts)). It is loaded by its real path, not under
+its name, so it never stands in for a dependency of the same name. A relative path _into_
+`node_modules` counts as a bare import of the package it names there, and is approved (or
+not) by that name.
+
+Which package a bare import names is decided as Node decides it, from the importing file, so
+a pnpm workspace package's own `node_modules` is used for its files.
+
+The entry is the built one (`./macros` through your `exports` map), so build the package
+first; in a file inside the package itself a missing build is silent (it is the package's
+own build), anywhere else it is a warning.
 
 ## Documentation
 

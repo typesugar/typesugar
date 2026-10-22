@@ -58,6 +58,7 @@
  */
 
 import * as ts from "typescript";
+import { forEachDescendant } from "./ast-utils.js";
 
 // =============================================================================
 // Known Globals (Tier 0)
@@ -411,9 +412,10 @@ export class FileBindingCache {
       } else if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node)) {
         this.localDecls.add(node.name.text);
       }
-      ts.forEachChild(node, visit);
     };
-    visit(root);
+    // Iterative: a statement can be thousands of levels deep (a long
+    // `"a" + "b" + ...` chain), which a recursive walk overflows.
+    forEachDescendant(root, visit);
   }
 
   /**
@@ -575,6 +577,18 @@ export class FileBindingCache {
       this.identifierCache.set(key, cached);
     }
     return cached;
+  }
+
+  /**
+   * The import registered this pass (by {@link ensureImport}) that binds
+   * `localName`, if any: what a generated reference to `localName` will
+   * refer to once the import is injected.
+   */
+  getPendingImport(localName: string): { symbol: string; from: string } | undefined {
+    for (const entry of this.pendingAliases.values()) {
+      if (entry.alias === localName) return { symbol: entry.symbol, from: entry.from };
+    }
+    return undefined;
   }
 
   /**

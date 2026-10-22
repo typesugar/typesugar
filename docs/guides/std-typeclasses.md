@@ -8,7 +8,8 @@ Overview of the standard typeclasses provided by `@typesugar/std`: Eq, Ord, Show
 npm install @typesugar/std
 ```
 
-Nothing is derived automatically: you ask for instances with `@derive`, and
+Nothing is derived automatically: you ask for instances with `@derive` (or, for a
+type you don't own, [`derived<TC<T>>()`](./typeclasses.md#external-types)), and
 operator sugar (`===`, `<`, `+`) is switched on per typeclass with a
 `@typesugar/std/syntax/<typeclass>/ops` import. Without that import the
 operator keeps its plain JavaScript meaning.

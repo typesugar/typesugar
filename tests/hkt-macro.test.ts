@@ -402,11 +402,11 @@ const optionFunctor = {
     const result = transformCode(code, { fileName: "impl-hkt-expand-functor.ts" });
 
     expect(result.changed).toBe(true);
-    // The @impl annotation must be the declaration-derived expansion:
-    // Kind<F, A> → Option<A> substituted from Functor's own signature text —
-    // no hardcoded template.
+    // The instance `satisfies` the declaration-derived expansion (it keeps
+    // its own type): Kind<F, A> → Option<A> substituted from Functor's own
+    // signature text — no hardcoded template.
     const flat = result.code.replace(/\s+/g, " ");
-    expect(flat).toMatch(/optionFunctor:\s*\{/);
+    expect(flat).toMatch(/optionFunctor = \{.*\} satisfies \{/);
     expect(flat).toContain("Option<A>");
     expect(flat).toContain("Option<B>");
   });
@@ -458,7 +458,7 @@ const optionMonad = {
     // members inherited from FlatMap/Applicative/Apply/Functor, expanded to
     // Option (heritage flattening in the op-index).
     const flat = result.code.replace(/\s+/g, " ");
-    expect(flat).toMatch(/optionMonad:\s*\{/);
+    expect(flat).toMatch(/optionMonad = \{.*\} satisfies \{/);
     expect(flat).toContain("flatMap");
     expect(flat).toContain("pure");
     expect(flat).toContain("Option<A>");

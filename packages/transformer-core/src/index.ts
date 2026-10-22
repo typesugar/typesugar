@@ -70,7 +70,11 @@ export { MacroTransformer } from "./transformer.js";
 
 // PEP-052 label-syntax activation gate — the single shared implementation.
 // The legacy @typesugar/transformer delegates here instead of keeping a clone.
-export { getActivatedLabeledBlock, emitLabelSyntaxNotActivatedHint } from "./label-activation.js";
+export {
+  getActivatedLabeledBlock,
+  emitLabelSyntaxNotActivatedHint,
+  isLabeledBlockShaped,
+} from "./label-activation.js";
 export {
   emitOperatorSyntaxNotActivatedHint,
   findInactiveOperatorMatch,
@@ -94,6 +98,8 @@ export {
   rewriteResultCalls,
   getTypeName,
   getContextualTypeForCall,
+  isInlinedCallSite,
+  hasInlinedCallSites,
 } from "./specialization.js";
 
 // JSDoc macro dispatch + derive expansion — the single shared implementation
@@ -122,3 +128,5 @@ export {
   resetDtsDiscovery,
   type DtsFileAccess,
 } from "./dts-opaque-discovery.js";
+// The same for @opaque types declared in the program's own source files.
+export { registerProgramOpaqueTypes } from "./project-opaque-discovery.js";

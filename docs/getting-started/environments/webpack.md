@@ -5,7 +5,7 @@ This guide covers setting up typesugar with Webpack, including Next.js projects 
 ## Installation
 
 ```bash
-npm install --save-dev unplugin-typesugar @typesugar/transformer ts-patch
+npm install --save-dev unplugin-typesugar @typesugar/transformer
 ```
 
 ## Configuration

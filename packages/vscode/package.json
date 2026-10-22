@@ -25,6 +25,12 @@
     "Linters",
     "Other"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "typesugar runs the workspace's macro packages (and its typesugar.config) inside the TypeScript server, which executes code from the workspace. In Restricted Mode the extension, and the TypeScript server plugin it contributes, stay off until you trust the folder."
+    }
+  },
   "activationEvents": [
     "workspaceContains:**/node_modules/typesugar/package.json"
   ],

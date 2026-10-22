@@ -555,6 +555,8 @@ describe("string escapes and multi-line groups (TSP-16)", () => {
 describe("runtime grammar interpolation (TSP-9)", () => {
   it("throws instead of silently dropping interpolated values", () => {
     const y = `"y"`;
-    expect(() => grammar`a = "x" ${y}`).toThrow(/interpolation/i);
+    // The runtime function's behaviour: the macro reports this at compile
+    // time instead (grammar-macro.test.ts), so the line opts out of it.
+    expect(() => grammar`a = "x" ${y}`).toThrow(/interpolation/i); // @ts-no-typesugar
   });
 });

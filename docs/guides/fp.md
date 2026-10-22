@@ -234,8 +234,14 @@ const name: Option<string> = findUser("1").map((u) => u.name);
 // Compiled: const name = map(findUser("1"), u => u.name)
 ```
 
-Type annotations are preserved for library-imported opaque types (since the `.d.ts` alias is valid):
-`const x: Option<number> = Some(42)` → `const x: Option<number> = 42`
+Type annotations are kept as written, in every position (variables, parameters, returns,
+properties, type arguments), for library and same-project opaque types alike:
+`const x: Option<number> = Some(42)` → `const x: Option<number> = 42`. Expanded code is written
+against the runtime view of an opaque type (`Option<number>` is `number | null`), which is how
+`typesugar build --strict` and `strictOutput` check it, and the declarations emitted from the
+expanded program keep `Option<number>`. An exported declaration whose type is inferred keeps it
+too: `export const a = Some(3)` is declared `a: Option<number>`, not `a: 3` (see
+[Declarations for a library that uses macros](./authoring-libraries.md#declarations-for-a-library-that-uses-macros)).
 
 Add to your library's `package.json`:
 
@@ -308,6 +314,23 @@ For `Option` this compiles to `flatMapOption.flatMap(findUser(42), user => …)`
 `flatMapOption` for you.
 
 See [Do-Notation Guide](./do-notation.md).
+
+## Pattern Matching
+
+The constructors are extractor patterns for `match` from `@typesugar/std`. `@typesugar/fp`
+ships a `Destructure` instance next to each of `Some`/`None`, `Left`/`Right`, `Cons`/`Nil`
+and `Valid`/`Invalid`. A pattern compiles to an inlined test on the real representation
+and a field read (`Left(err)` is `"left" in v`, then `err = v.left`); the instance's
+`extract` is never called. Each pair covers its type, so no `.else()` is needed:
+
+```typescript
+import { match } from "@typesugar/std";
+import { Left, Right } from "@typesugar/fp";
+
+const message = match(parsed).case(Left(err)).then(`Error: ${err}`).case(Right(n)).then(`Got ${n}`);
+```
+
+See [Extractor Patterns](./pattern-matching.md#extractor-patterns).
 
 ## Comparison to Other Libraries
 

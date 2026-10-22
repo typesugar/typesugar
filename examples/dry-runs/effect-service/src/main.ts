@@ -2,6 +2,7 @@
 // Tests: comptime, pipe, @derive, erased, typeInfo, Effect service layers
 
 import { comptime, pipe, derive, Eq, Clone, Debug, typeInfo } from "typesugar";
+import "@typesugar/std/syntax/eq/ops";
 import { Effect, Context, Layer } from "effect";
 import { showable, show } from "@typesugar/erased";
 

@@ -41,7 +41,8 @@ const debug = summon<Debug<User>>().debug(u1);
 ### Imports and Activation
 
 - The `@derive` decorator, `summon` and `implicit`, and the markers `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json` and `TypeGuard` come from `typesugar`.
-- The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (they are values; `@derive(Show)` works even without importing one, because the transformer reads the name). To name the type in `summon<Show<Point>>()`, import `type Show` from `@typesugar/fp`, and `type Semigroup` / `type Monoid` from `@typesugar/std`.
+- The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (`@derive(Show)` works even without importing one, because the transformer reads the name).
+- Each marker is also its typeclass as a type, so one import serves `@derive(Clone)` and `summon<Clone<Point>>()`: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Json`, `Semigroup` and `Monoid` are `@typesugar/std`'s, `Show` is `@typesugar/fp`'s. `Default` and `TypeGuard` have no typeclass interface yet, so they are values only.
 - Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` (and `u1 == u2`) stays reference equality and `u1 < u2` is a plain JavaScript comparison, and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add:
 
 | Sugar                      | Activation import                               |
@@ -52,7 +53,25 @@ const debug = summon<Debug<User>>().debug(u1);
 
 `summon<...>()` and the companion (`User.Eq.equals(a, b)`) need no activation import.
 
-The markers exported by `typesugar` are values, so plain `tsc` reports TS2749 ("refers to a value, but is being used as a type") on `summon<Eq<User>>()`; the transformer resolves it by name either way. In your own type signatures, import the typeclass type instead, e.g. `import type { Eq } from "@typesugar/std"`.
+Because the markers are types too, plain `tsc` types `summon<Clone<User>>()` as a `Clone<User>`, so `summon<Clone<User>>().clone(u1)` is a `User` and `===` on it is the derived `Eq` with no annotation. `Default` and `TypeGuard` are still values only: plain `tsc` reports TS2749 ("refers to a value, but is being used as a type") on `summon<Default<Options>>()`, which the transformer resolves by name either way.
+
+### In Other Files and Packages
+
+The instances go wherever the type goes. A file that imports `User` (from another file of the
+project, or from a published library's `.d.ts`) gets `u1 === u2`, `summon<Eq<User>>()`,
+`= implicit()` and method syntax through `User.Eq`, with the same activation imports. In a
+library's `.d.ts`, each companion carries the tag that says what it is:
+
+```typescript
+export declare namespace User {
+  /** @impl Eq<User> */
+  const Eq: { equals: (a: User, b: User) => boolean; notEquals: (a: User, b: User) => boolean };
+}
+```
+
+Build the library's declarations with typesugar (see [Authoring Libraries](./authoring-libraries.md)),
+so the `.d.ts` has the companions at all. An instance from a `.d.ts` has no method bodies to
+inline, so a generic call that takes it keeps dictionary passing ([TS9602](../errors/TS9602.md)).
 
 ## Supported Typeclasses
 
@@ -106,9 +125,38 @@ summon<Ord<Version>>().compare(v1, v2); // -1 (less than)
 v1 < v2; // true (operator overloading)
 ```
 
-### Clone — Shallow Copy
+### Clone — Field-Wise Copy
 
-Shallow spread-copy for product types, switch-on-discriminant for sum types. Nested objects are shared, not copied, and the result is a plain object with the same fields, not a class instance (`c2 instanceof Config` is false).
+Like Rust's `#[derive(Clone)]`: each field is cloned through its own `Clone`, so mutating the clone never changes the original.
+
+| Field type                                      | How it is copied                                                                                                      |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Primitives, literals, enums, functions          | As is                                                                                                                 |
+| Arrays, readonly arrays, tuples                 | Element by element (`xs.slice()`, `xs.map((e) => ...)`)                                                               |
+| `Date`, `Map`, `Set`, `RegExp`, typed arrays    | Into a new one (a `Map`'s keys are kept, its values cloned)                                                           |
+| A type with a `Clone` instance in scope         | Through that instance (`Address.Clone.clone(a.address)`, or your `@impl`)                                             |
+| Any other object type, or a discriminated union | Structurally, by these same rules, inlined (a union per variant)                                                      |
+| `any`, `unknown`, `object`, type parameters     | By reference: there is no type to clone by. A `Clone<any>`/`Clone<unknown>` instance in scope is used if there is one |
+| A class with no `Clone` instance                | By reference, with a warning: give it `@derive(Clone)` or an `@impl Clone<...>`                                       |
+
+The copy starts as a spread of the original and then sets the fields that need cloning, so an optional field that is absent stays absent, and properties the type doesn't declare are kept (by reference). A class's clone is an instance of the same class: it is created with the original's prototype (`Object.create(Object.getPrototypeOf(a))`) and its own fields are copied onto it, so methods, getters, `instanceof` and a subclass's overrides all work on the copy, and no constructor runs.
+
+```typescript
+/** @derive(Clone) */
+export interface Shape {
+  id: number;
+  points: number[][];
+  bbox?: [number, number, number, number];
+}
+// Shape.Clone compiles to:
+// { clone: (a: Shape): Shape => ({
+//   ...a,
+//   points: a.points.map(e => e.slice()),
+//   ...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }),
+// }) }
+```
+
+A discriminated union becomes a `switch` on its discriminant, and a type that contains itself (a tree, or GeoJSON's `GeometryCollection` inside `Geometry`) becomes a local helper that calls itself; derivation itself never loops. A _value_ that contains itself (a cycle such as `node.parent.child === node`) is cloned until the stack overflows, as any field-wise clone would be; give such a type a hand-written `Clone`.
 
 ```typescript
 @derive(Clone)
@@ -121,7 +169,12 @@ class Config {
 
 const c1 = new Config("localhost", 3000);
 const c2 = summon<Clone<Config>>().clone(c1);
+c2 instanceof Config; // true
+// Config.Clone compiles to:
+// { clone: (a: Config): Config => (Object.assign(Object.create(Object.getPrototypeOf(a)), a)) }
 ```
+
+Some classes can't be copied field by field, and `@derive(Clone)` on them is an error ([TS9106](/errors/TS9106)) that says why: a class with a `#private` member (field, method or accessor, or an `accessor` field), whose copy, made outside the class, could not have it; and a class that extends a built-in such as `Map`, `Date` or `Error`, whose state lives in internal slots. Write their `Clone` by hand with `/** @impl Clone<T> */`.
 
 ### Debug — Developer-Facing String Representation
 
@@ -201,8 +254,7 @@ summon<Json<User>>().fromJson({}); // throws: Missing required field id
 Human-readable string representation, as opposed to Debug's developer-focused format.
 
 ```typescript
-import { derive, summon } from "typesugar";
-import type { Show } from "@typesugar/fp";
+import { derive, summon, Show } from "typesugar";
 
 @derive(Show)
 class Point {
@@ -265,6 +317,29 @@ class Stats {
 }
 
 summon<Monoid<Stats>>().empty(); // { count: 0, total: 0 }
+```
+
+### Destructure — Extractor Patterns
+
+On an interface or a discriminated union (not a class), `@derive(Destructure)` generates a
+constructor function per extractor and its `Destructure` instance, so patterns can name
+the type or its variants: `case Point(x, y)`, `.case(Circle(r))`. The patterns compile to
+field reads and discriminant checks. See
+[Pattern Matching: Custom Extractors](./pattern-matching.md#custom-extractors).
+The derive comes with `@typesugar/std` (installed with `typesugar`) and needs no import,
+like the others; a project that installs only `@typesugar/transformer` needs `@typesugar/std`
+as well, or `Destructure` is an unknown derive.
+
+```typescript
+/** @derive(Destructure) */
+export type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+
+match(s)
+  .case(Circle(r))
+  .then(r * r)
+  .case(Rect(w, h))
+  .then(w * h);
+Circle(2); // { kind: "circle", r: 2 }
 ```
 
 ### Not Derivable
@@ -399,12 +474,30 @@ class Person {
 const p1 = new Person("Alice", new Address("NYC", "10001"));
 const p2 = summon<Clone<Person>>().clone(p1);
 summon<Eq<Person>>().equals(p1, p2); // true
-p2.address === p1.address; // true — Clone is shallow, so the Address is shared
+p2.address === p1.address; // false — the Address is cloned through Address.Clone
 ```
+
+## Types You Don't Own: `derived<TC<T>>()`
+
+`@derive` goes on a declaration, so it can't be used on a type from a library (`Feature` from `@types/geojson`). `derived<TC<T>>()` runs the same derivation for such a type, once, in a module of your own; the `const` it initializes is the instance, which `summon`, `= implicit()` and method syntax find in every file that imports the module:
+
+```typescript
+// geo-instances.ts
+import type { Feature, Point } from "geojson";
+import type { Clone, Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+
+export const cloneFeature = derived<Clone<Feature>>(); // what @derive(Clone) would generate
+export const eqPoint = derived<Eq<Point>>();
+```
+
+It supports every typeclass in the table above, and field instances come from scope where it is written. A built-in type from TypeScript's lib (`Array<number>`, `ReadonlyArray<T>`, `Map<K, V>`, `Set<T>`, `Date`, `Promise<T>`: an interface or class the lib declares, including through an alias such as `type Nums = number[]`) is not derived: its properties are methods and internals, not fields, so `derived<Eq<Array<number>>>()` is [TS9106](/errors/TS9106). The lib's utility types are different: `Readonly<Point>`, `Partial<Point>`, `Required<Point>`, `Pick<Point, "x">`, `Omit<Point, "y">` and `Record<"a" | "b", number>` are ordinary object types, and `derived<Eq<Readonly<Point>>>()` derives from their fields; over a built-in (`Readonly<Map<K, V>>`, `Partial<Date>`) they are built-ins too, and TS9106. What counts is the type the utility maps, by symbol: your own `interface AppError extends Error` is not a built-in, and neither is `Readonly<AppError>`, though some of its fields are declared by the lib. Fields of those types are handled inside a derived instance; for the built-in itself, use a library's instance (`@typesugar/std` has them, and instance constructors such as `eqArray(eqNumber)`) or write one with `@impl`. An `@impl` tag on a `derived<...>()` const is optional; when present it must name the same type, compared as types (an alias of the type agrees, and so does a qualified name such as `geo.Point` from `import * as geo`). See [Instances for types you don't own](./typeclasses.md#external-types) for the details: the `.d.ts`, generic types, and the errors.
+
+`summon<Clone<Feature>>()` with no instance in scope still derives one in place, a new copy at each call, with a [TS9009](/errors/TS9009) warning. That fallback is deprecated; declare the instance with `@derive` or `derived` instead.
 
 ## Generic Types
 
-Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `TS9106: Cannot derive Eq for 'Box'` (the trace notes `T lacks Eq`), and `summon<Eq<Box<number>>>()` is TS9001. Write those instances by hand for now.
+Deriving for a generic class such as `Box<T>` is not yet supported: `@derive(Eq)` on it fails with `TS9106: Cannot derive Eq for 'Box'` (the trace notes `T lacks Eq`), and `summon<Eq<Box<number>>>()` is TS9001, as is `a === b` on two `Box<number>` values in a file that activates Eq's operators (the type asks for `Eq` with its `@derive`, so the comparison is not left as reference equality silently). Write those instances by hand for now. `derived<Eq<Box<number>>>()` derives one for a single instantiation; with a free type parameter it is [TS9011](/errors/TS9011).
 
 ## See Expanded Code
 

@@ -85,7 +85,7 @@ The rewriter uses `magic-string` to track source positions through transformatio
 
 ## 2. AST Transformer (`@typesugar/transformer`)
 
-The transformer is a TypeScript compiler plugin (ts-patch) that expands macros during compilation.
+The transformer is a TypeScript program transformer that expands macros during compilation. The bundler plugins (`unplugin-typesugar`), the `typesugar` CLI (`build`, `check`, `run`) and the Node loader (`typesugar/register`) run it; a ts-patched `tsc` can also load it as a `tsconfig.json` plugin.
 
 ### Location
 
@@ -152,7 +152,8 @@ Import-scoped resolution tracks the `module` and `exportName` fields on `MacroDe
 Labeled-block macros (`let:`/`seq:`, `par:`/`all:`) and attribute-macro trigger
 labels (`requires:`/`ensures:` implicitly applying `@contract`) are gated on
 activation (PEP-052), the same rule as operator and method sugar. When
-`visitStatementContainer()` encounters `label: { ... }`:
+`visitStatementContainer()` encounters `label: { ... }` (or `label: switch (...) { ... }`
+for a macro registered with `statement: "switch"`, such as std's `match:`):
 
 1. Look up the label text in the registry (`globalRegistry.getLabeledBlock(label)`).
 2. Check activation: the macro only expands when the current file imports a
@@ -168,8 +169,8 @@ activation (PEP-052), the same rule as operator and method sugar. When
    file") with a help hint naming the macro's `syntaxModule` import to add.
 
 Ordinary loop labels that collide with a macro label name (e.g.
-`all: for (...) { ... }`) are never hijacked — only block-shaped labels are
-candidates — and produce no warning. The explicit `@contract` decorator form
+`all: for (...) { ... }`) are never hijacked — only labels on the statement kind the
+macro declares (a block by default) are candidates — and produce no warning. The explicit `@contract` decorator form
 needs no marker: importing the `contract` symbol is the opt-in; only the bare
 `requires:`/`ensures:` block form is gated.
 
@@ -391,13 +392,14 @@ The typeclass system implements Scala 3-style typeclasses with zero-cost special
 
 ### Key Macros
 
-| Macro                | Kind       | Purpose                            |
-| -------------------- | ---------- | ---------------------------------- |
-| `@typeclass`         | Attribute  | Declares a typeclass interface     |
-| `@instance`          | Attribute  | Registers a typeclass instance     |
-| `@derive`            | Attribute  | Auto-derives typeclass instances   |
-| `summon<TC<T>>()`    | Expression | Resolves a typeclass instance      |
-| `value.method(args)` | Expression | Extension method syntax (implicit) |
+| Macro                | Kind       | Purpose                                                                           |
+| -------------------- | ---------- | --------------------------------------------------------------------------------- |
+| `@typeclass`         | Attribute  | Declares a typeclass interface                                                    |
+| `@instance`          | Attribute  | Registers a typeclass instance                                                    |
+| `@derive`            | Attribute  | Auto-derives typeclass instances                                                  |
+| `summon<TC<T>>()`    | Expression | Resolves a typeclass instance                                                     |
+| `derived<TC<T>>()`   | Expression | Declares a derived instance on a top-level `const`, for a type declared elsewhere |
+| `value.method(args)` | Expression | Extension method syntax (implicit)                                                |
 
 ### Extension Method Resolution Order
 
@@ -482,7 +484,7 @@ interface ArrayF extends TypeFunction {
 }
 ```
 
-The underlying encoding uses phantom kind markers: `type Kind<F, A> = F & { readonly __kind__: A }`. The preprocessor resolves known type functions (`Kind<OptionF, number>` → `Option<number>`) while leaving generic usages unchanged.
+The underlying encoding uses phantom kind markers: `type Kind<F, A> = F & { readonly __kind__: A }`. Nothing rewrites `Kind<OptionF, number>` to `Option<number>` (the preprocessor that did was removed in PEP-047): `Apply<OptionF, number>` computes it, and `@impl` checks an unannotated instance against the typeclass's signatures expanded to the concrete types (`satisfies`, so the instance keeps its own type and members).
 
 ---
 
@@ -537,9 +539,9 @@ Beyond the core typeclass and specialization macros, typesugar provides several 
 
 The derive system generates implementations from type structure, similar to Rust's `#[derive()]`.
 
-**Built-in Derives:** `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `Builder`, `TypeGuard`
+**Built-in Derives:** `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`, `Show`, `Semigroup`, `Monoid`, and `Destructure` (extractor functions and instances for `match`, in `@typesugar/std`)
 
-All derives handle both product types (records/interfaces) and sum types (discriminated unions). For sum types, the `DeriveTypeInfo.discriminant` field specifies the tag property name.
+All derives handle both product types (records/interfaces) and sum types (discriminated unions). For sum types, the `DeriveTypeInfo.discriminant` field specifies the tag property name. `derived<TC<T>>()` runs the same structural derivation for a type that can't carry `@derive` (one from a library), once, as the initializer of a top-level `const` that is then an ordinary instance in scope.
 
 **Custom Derive API:**
 
@@ -699,13 +701,13 @@ typesugar supports two extension mechanisms:
 When a typeclass instance is registered, its methods become available as extension methods:
 
 ```typescript
-@instance
+/** @impl Show<Point> */
 const ShowPoint: Show<Point> = {
-  show: (p) => `Point(${p.x}, ${p.y})`
+  show: (p) => `Point(${p.x}, ${p.y})`,
 };
 
 // Enables:
-point.show()  // Rewritten to ShowPoint.show(point)
+point.show(); // Rewritten to ShowPoint.show(point)
 ```
 
 The transformer detects these calls via `tryRewriteExtensionMethod()` and rewrites them to static calls.
@@ -797,10 +799,13 @@ typesugar follows the standard TypeScript ecosystem pattern: **fast builds, back
 ```
 Build tool (Vite, esbuild, …)    →  Macros expand, types stripped, NO typecheck
 IDE (tsserver + language service) →  Background incremental typecheck
-CI (tsc --noEmit)                 →  Full correctness gate
+CI (typesugar check)              →  Full correctness gate
 ```
 
-The only exception is `tsc` with ts-patch, where transformation and typechecking happen in the same pass.
+`typesugar build` and `typesugar check` expand macros first and then type-check, filtering
+out the errors the unexpanded source produces. A plain `tsc --noEmit` never expands
+macros, so it is not a useful gate. A ts-patched `tsc` type-checks the **unexpanded**
+source and transforms only at emit (see [tsc Setup](./getting-started/environments/tsc.md#typechecking)).
 
 ### Why Pre-Macro Code Is Type-Incomplete
 

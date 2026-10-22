@@ -48,7 +48,7 @@ console.log("User type info:");
 console.log("  Name:", userInfo.name);
 console.log("  Kind:", userInfo.kind);
 console.log("  Fields:");
-userInfo.fields.forEach((field) => {
+userInfo.fields?.forEach((field) => {
   const optional = field.optional ? "?" : "";
   console.log(`    ${field.name}${optional}: ${field.type}`);
 });
@@ -94,16 +94,16 @@ console.log("\n--- Detailed Validation ---");
 
 function validateWithDetails<T>(
   data: unknown,
-  validate: (data: unknown) => ValidationResult
+  validate: (data: unknown) => ValidationResult<T>
 ): void {
   const result = validate(data);
 
-  if (result.valid) {
+  if (result.success) {
     console.log("✓ Valid");
   } else {
     console.log("✗ Invalid:");
     result.errors.forEach((error) => {
-      console.log(`  - ${error.path}: ${error.message}`);
+      console.log(`  - ${error}`);
     });
   }
 }
@@ -120,7 +120,7 @@ console.log("\n--- Dynamic Operations ---");
 
 function printFields<T>(obj: T, info: TypeInfo): void {
   console.log(`${info.name} instance:`);
-  info.fields.forEach((field) => {
+  info.fields?.forEach((field) => {
     const value = (obj as any)[field.name];
     const displayValue = Array.isArray(value)
       ? `[${value.join(", ")}]`

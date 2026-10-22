@@ -23,7 +23,7 @@ ident.parseAll("hello_42"); // succeeds
 ident.parseAll("42nope"); // throws ParseError
 ```
 
-When the transformer runs, the `grammar` template is parsed at build time and replaced with an inlined recursive-descent parser (built directly as AST). A malformed grammar is a compile error. The template must be a plain template literal: interpolation (`${...}`) is an error. To build a grammar from a string at runtime, use `buildParser(parseGrammarDef(text))`.
+When the transformer runs, the `grammar` template is parsed at build time and replaced with an inlined recursive-descent parser (built directly as AST), typed as the runtime tag is (`Grammar<unknown>`, so `g.parse(...)` is a `ParseResult`). A malformed grammar is a compile error. The template must be a plain template literal: interpolation (`${...}`) is an error. To build a grammar from a string at runtime, use `buildParser(parseGrammarDef(text))`.
 
 ## Grammar Syntax Reference
 

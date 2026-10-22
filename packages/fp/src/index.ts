@@ -66,7 +66,16 @@ export type {
 // ============================================================================
 
 export type { Option, OptionF, Defined } from "./data/option.js";
-export { Some, None, isSome, isNone, defined, unwrapDefined } from "./data/option.js";
+export {
+  Some,
+  None,
+  isSome,
+  isNone,
+  defined,
+  unwrapDefined,
+  destructureSome,
+  destructureNone,
+} from "./data/option.js";
 export {
   getEq as getOptionEq,
   getOrd as getOptionOrd,
@@ -82,7 +91,7 @@ export {
 // ============================================================================
 
 export type { Either, EitherF } from "./data/either.js";
-export { Left, Right, isLeft, isRight } from "./data/either.js";
+export { Left, Right, isLeft, isRight, destructureLeft, destructureRight } from "./data/either.js";
 export {
   getEq as getEitherEq,
   getOrd as getEitherOrd,
@@ -95,7 +104,7 @@ export {
 // ============================================================================
 
 export type { List, ListF } from "./data/list.js";
-export { Cons, Nil, isCons, isNil } from "./data/list.js";
+export { Cons, Nil, isCons, isNil, destructureCons, destructureNil } from "./data/list.js";
 export {
   of as listOf,
   fromArray as listFromArray,
@@ -131,6 +140,8 @@ export {
   Validated,
   Valid,
   Invalid,
+  destructureValid,
+  destructureInvalid,
   valid,
   invalid,
   validNel,

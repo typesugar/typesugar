@@ -13,7 +13,7 @@ import * as readline from "readline";
 import * as ts from "typescript";
 import { config as typesugarConfig } from "@typesugar/core";
 import { readTsConfig } from "./tsconfig-utils.js";
-import { classifyManifestPackages, collectImportedModules } from "./macro-loader.js";
+import { collectImportedModules, scanMacroPackages } from "./macro-loader.js";
 import { writeApprovedMacroPackages } from "./config-writer.js";
 
 export interface ApproveMacrosOptions {
@@ -75,12 +75,14 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
     console.log(`[typesugar] Scanned ${importedModules.size} imported package(s)`);
   }
 
-  // `classifyManifestPackages` already checks each package against the
-  // CURRENT `security.allowedMacroPackages` (via `isTrusted`) — so
-  // `blocked` here is exactly "declares typesugar.macros, not
-  // @typesugar/*-scoped, not already approved," i.e. what needs approval.
-  // Resolve from the project (the tsconfig's directory), as the build does.
-  const { blocked: newlyBlocked } = classifyManifestPackages(importedModules, projectRoot);
+  // Exactly the build's discovery (same files, same imports, each resolved
+  // from the importing file as the build resolves it), so this lists
+  // everything the build would refuse: "declares typesugar.macros, is a
+  // dependency (inside node_modules), not @typesugar/*-scoped, not already
+  // approved" (checked against the CURRENT allowedMacroPackages). Project
+  // code (a relative import outside node_modules) is never listed: it loads
+  // without approval.
+  const newlyBlocked = scanMacroPackages(program).blocked;
 
   if (newlyBlocked.length === 0) {
     console.log(`${COLORS.green}✓${COLORS.reset} No new macro packages need approval.`);

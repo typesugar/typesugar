@@ -39,6 +39,9 @@ const dummySource = ts.createSourceFile("__dummy__.ts", "", ts.ScriptTarget.Late
  * file position information.
  */
 function safeGetText(node: ts.Node): string {
+  // Printing, not checker calls: the printer gives the same text getText()
+  // would (a node outside a parsed file has no text to get), and a node it
+  // can't print is not one a declaration's annotation can be.
   if (!isSyntheticNode(node)) {
     try {
       return node.getText();
@@ -118,8 +121,23 @@ export const reflectAttribute = defineAttributeMacro({
     target: ts.Declaration,
     _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
-    // Extract type information directly from the type checker
-    const typeInfo = extractTypeInfo(ctx, target);
+    // Extract type information directly from the type checker. What a
+    // checker failure left out is said in one warning (CLAUDE.md: a caught
+    // checker failure that degrades leaves a visible trace).
+    const failures: string[] = [];
+    let firstError: unknown;
+    const typeInfo = extractTypeInfo(ctx, target, (what, error) => {
+      if (failures.length === 0) firstError = error;
+      failures.push(what);
+    });
+    if (failures.length > 0) {
+      const name = (target as { name?: ts.Node }).name;
+      ctx.reportWarning(
+        target,
+        `@reflect on '${name && ts.isIdentifier(name) ? name.text : "<anonymous>"}' left out ` +
+          `${failures.join(", ")}: the type checker failed (${firstError}).`
+      );
+    }
 
     if (typeInfo) {
       // Generate metadata as an exported const alongside the original declaration.
@@ -138,29 +156,132 @@ export const reflectAttribute = defineAttributeMacro({
 /**
  * Extract type information from a declaration
  */
-function extractTypeInfo(ctx: MacroContext, node: ts.Declaration): TypeInfo | null {
+/**
+ * The display type of a field: the checker's type of the property, except
+ * that an optional property of a non-generic declaration shows its DECLARED
+ * type (`age?: number` is "number", with `optional: true` beside it), not
+ * the `number | undefined` the checker gives it under strictNullChecks. Taken
+ * from the checker either way (the declared type is `getTypeFromTypeNode` on
+ * the annotation), never from the annotation's text. In a generic
+ * declaration (`value?: T`) the declared type is the type parameter, so the
+ * instantiated type is shown, undefined included.
+ */
+function fieldTypeString(checker: ts.TypeChecker, prop: ts.Symbol, location: ts.Node): string {
+  const decl = prop.getDeclarations()?.[0];
+  const optionalAnnotation =
+    prop.flags & ts.SymbolFlags.Optional &&
+    decl &&
+    (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) &&
+    decl.type &&
+    !isSyntheticNode(decl)
+      ? decl.type
+      : undefined;
+  if (optionalAnnotation && !insideGenericDeclaration(optionalAnnotation)) {
+    return checker.typeToString(checker.getTypeFromTypeNode(optionalAnnotation));
+  }
+  return optionalTypeString(
+    checker,
+    checker.getTypeOfSymbolAtLocation(prop, decl ?? location),
+    optionalAnnotation
+  );
+}
+
+/**
+ * The type of an optional member (a field, a method's parameter) as the
+ * checker has it where it is instantiated (`label?: T` of `Box<number>`:
+ * `number | undefined` under strict), without the `undefined` its
+ * optionality adds: removed from the union whatever else is in it
+ * (`Box<boolean>`'s is `undefined | false | true`, review 9), unless the
+ * annotation has an `undefined` of its own (`maybe?: T | undefined`). For a
+ * member that isn't optional (`annotation` undefined), the type as the checker
+ * prints it. An annotation outside a generic declaration is read directly
+ * instead (see {@link fieldTypeString}); this is for one written in terms of
+ * type parameters, which `getTypeFromTypeNode` would not instantiate (review
+ * 8: `set(v?: T)` reported "T").
+ *
+ * The rest of the union is printed from the checker's own type node for it
+ * (`typeToTypeNode`, its `undefined` member left out), so it reads as
+ * `typeToString` would print it (`boolean`, not `false | true`).
+ */
+function optionalTypeString(
+  checker: ts.TypeChecker,
+  instantiated: ts.Type,
+  annotation: ts.TypeNode | undefined
+): string {
+  if (annotation && instantiated.isUnion()) {
+    const isUndefined = (t: ts.Type) => (t.flags & ts.TypeFlags.Undefined) !== 0;
+    const declared = checker.getTypeFromTypeNode(annotation);
+    const declaresUndefined =
+      isUndefined(declared) || (declared.isUnion() && declared.types.some(isUndefined));
+    const rest = instantiated.types.filter((t) => !isUndefined(t));
+    if (!declaresUndefined && rest.length === 1) return checker.typeToString(rest[0]);
+    if (!declaresUndefined && rest.length > 1) {
+      const node = checker.typeToTypeNode(instantiated, undefined, TYPE_STRING_FLAGS);
+      if (node && ts.isUnionTypeNode(node)) {
+        const kept = node.types.filter((t) => t.kind !== ts.SyntaxKind.UndefinedKeyword);
+        if (kept.length > 0 && kept.length < node.types.length) {
+          const printed = kept.length === 1 ? kept[0] : ts.factory.createUnionTypeNode(kept);
+          return typePrinter.printNode(ts.EmitHint.Unspecified, printed, printFile);
+        }
+      }
+    }
+  }
+  return checker.typeToString(instantiated);
+}
+
+/** The node builder flags `typeToString` uses by default (it prints on one line, untruncated here). */
+const TYPE_STRING_FLAGS =
+  ts.NodeBuilderFlags.IgnoreErrors |
+  ts.NodeBuilderFlags.AllowUniqueESSymbolType |
+  ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope;
+const typePrinter = ts.createPrinter({ removeComments: true });
+const printFile = ts.createSourceFile("__reflect_type__.ts", "", ts.ScriptTarget.Latest);
+
+/** Is `node` inside a declaration with type parameters (an interface, class, type alias, ...)? */
+function insideGenericDeclaration(node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node.parent; n && !ts.isSourceFile(n); n = n.parent) {
+    const tps = (n as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
+      .typeParameters;
+    if (tps && tps.length > 0) return true;
+  }
+  return false;
+}
+
+/** Told what a checker failure left out of a `@reflect` type's metadata (`what`). */
+type ReflectFailure = (what: string, error: unknown) => void;
+
+function extractTypeInfo(
+  ctx: MacroContext,
+  node: ts.Declaration,
+  onFailure: ReflectFailure
+): TypeInfo | null {
   if (ts.isInterfaceDeclaration(node)) {
-    return extractInterfaceInfo(ctx, node);
+    return extractInterfaceInfo(ctx, node, onFailure);
   }
 
   if (ts.isClassDeclaration(node)) {
-    return extractClassInfo(ctx, node);
+    return extractClassInfo(ctx, node, onFailure);
   }
 
   if (ts.isTypeAliasDeclaration(node)) {
-    return extractTypeAliasInfo(ctx, node);
+    return extractTypeAliasInfo(ctx, node, onFailure);
   }
 
   return null;
 }
 
-function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration): TypeInfo {
+function extractInterfaceInfo(
+  ctx: MacroContext,
+  node: ts.InterfaceDeclaration,
+  onFailure: ReflectFailure
+): TypeInfo {
   let type: ts.Type;
   let properties: ts.Symbol[];
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
     properties = ctx.typeChecker.getPropertiesOfType(type);
-  } catch {
+  } catch (error) {
+    onFailure("every field", error);
     return {
       name: node.name.text,
       kind: "interface",
@@ -175,10 +296,9 @@ function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration):
     const decl = decls?.[0];
     let propTypeStr = "unknown";
     try {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl || node);
-      propTypeStr = ctx.typeChecker.typeToString(propType);
-    } catch {
-      // Fall back to "unknown" for unresolvable types
+      propTypeStr = fieldTypeString(ctx.typeChecker, prop, node);
+    } catch (error) {
+      onFailure(`the type of '${prop.name}' (shown as "unknown")`, error);
     }
 
     return {
@@ -211,13 +331,18 @@ function extractInterfaceInfo(ctx: MacroContext, node: ts.InterfaceDeclaration):
   };
 }
 
-function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInfo {
+function extractClassInfo(
+  ctx: MacroContext,
+  node: ts.ClassDeclaration,
+  onFailure: ReflectFailure
+): TypeInfo {
   let type: ts.Type;
   let properties: ts.Symbol[];
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
     properties = ctx.typeChecker.getPropertiesOfType(type);
-  } catch {
+  } catch (error) {
+    onFailure("every field and method", error);
     return {
       name: node.name?.text ?? "Anonymous",
       kind: "class",
@@ -234,11 +359,12 @@ function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInf
     const decls = prop.getDeclarations();
     const decl = decls?.[0];
     let typeStr = "unknown";
+    // A method's metadata is read from its declaration, not this type.
+    const isMethodDecl = decl !== undefined && ts.isMethodDeclaration(decl);
     try {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, decl || node);
-      typeStr = ctx.typeChecker.typeToString(propType);
-    } catch {
-      // Fall back to "unknown" for unresolvable types
+      typeStr = fieldTypeString(ctx.typeChecker, prop, node);
+    } catch (error) {
+      if (!isMethodDecl) onFailure(`the type of '${prop.name}' (shown as "unknown")`, error);
     }
 
     // Check if it's a method
@@ -281,13 +407,18 @@ function extractClassInfo(ctx: MacroContext, node: ts.ClassDeclaration): TypeInf
   };
 }
 
-function extractTypeAliasInfo(ctx: MacroContext, node: ts.TypeAliasDeclaration): TypeInfo {
+function extractTypeAliasInfo(
+  ctx: MacroContext,
+  node: ts.TypeAliasDeclaration,
+  onFailure: ReflectFailure
+): TypeInfo {
   let type: ts.Type;
   let typeString: string;
   try {
     type = ctx.typeChecker.getTypeAtLocation(node);
     typeString = ctx.typeChecker.typeToString(type);
-  } catch {
+  } catch (error) {
+    onFailure("every field", error);
     return {
       name: node.name.text,
       kind: "type",
@@ -301,16 +432,16 @@ function extractTypeAliasInfo(ctx: MacroContext, node: ts.TypeAliasDeclaration):
     let properties: ts.Symbol[];
     try {
       properties = ctx.typeChecker.getPropertiesOfType(type);
-    } catch {
+    } catch (error) {
+      onFailure("every field", error);
       properties = [];
     }
     const fields: FieldInfo[] = properties.map((prop) => {
       let propTypeStr = "unknown";
       try {
-        const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, node);
-        propTypeStr = ctx.typeChecker.typeToString(propType);
-      } catch {
-        // Fall back to "unknown"
+        propTypeStr = fieldTypeString(ctx.typeChecker, prop, node);
+      } catch (error) {
+        onFailure(`the type of '${prop.name}' (shown as "unknown")`, error);
       }
       return {
         name: prop.name,
@@ -497,36 +628,58 @@ export const typeInfoMacro = defineExpressionMacro({
       }
     }
 
-    const fieldsArray = properties.map((prop) => {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
-      const decls = prop.getDeclarations();
-      const decl = decls?.[0];
-      const isReadonly =
-        decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
-          ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
-          : false;
-
-      return factory.createObjectLiteralExpression(
-        [
-          factory.createPropertyAssignment("name", factory.createStringLiteral(prop.name)),
-          factory.createPropertyAssignment(
-            "type",
-            factory.createStringLiteral(ctx.typeChecker.typeToString(propType))
-          ),
-          factory.createPropertyAssignment(
-            "optional",
-            (prop.flags & ts.SymbolFlags.Optional) !== 0
-              ? factory.createTrue()
-              : factory.createFalse()
-          ),
-          factory.createPropertyAssignment(
-            "readonly",
-            isReadonly ? factory.createTrue() : factory.createFalse()
-          ),
-        ],
-        true
-      );
+    // A method (a class's method declaration, an interface's method
+    // signature) is reported in `methods`, with the signature the checker
+    // gives it, not as a field — as the `@reflect` class metadata does. A
+    // function-valued property (`onDone: () => void`) stays a field.
+    const isMethod = isMethodSymbol;
+    const unreadable: string[] = [];
+    const methodsArray = properties.filter(isMethod).flatMap((prop) => {
+      const info = methodInfoFromChecker(ctx.typeChecker, prop, callExpr, unreadable);
+      return info ? [methodInfoLiteral(factory, info)] : [];
     });
+    // CLAUDE.md: a caught checker failure that degrades leaves a visible
+    // trace — one line per expansion, naming every method left out.
+    if (unreadable.length > 0) {
+      ctx.reportWarning(
+        callExpr,
+        `typeInfo<${typeName}>() left out ${unreadable.length === 1 ? "method" : "methods"} ` +
+          `${unreadable.map((n) => `'${n}'`).join(", ")}: the type checker failed on ` +
+          `${unreadable.length === 1 ? "its signature" : "their signatures"}.`
+      );
+    }
+
+    const fieldsArray = properties
+      .filter((prop) => !isMethod(prop))
+      .map((prop) => {
+        const decls = prop.getDeclarations();
+        const decl = decls?.[0];
+        const isReadonly =
+          decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl))
+            ? (decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false)
+            : false;
+
+        return factory.createObjectLiteralExpression(
+          [
+            factory.createPropertyAssignment("name", factory.createStringLiteral(prop.name)),
+            factory.createPropertyAssignment(
+              "type",
+              factory.createStringLiteral(fieldTypeString(ctx.typeChecker, prop, callExpr))
+            ),
+            factory.createPropertyAssignment(
+              "optional",
+              (prop.flags & ts.SymbolFlags.Optional) !== 0
+                ? factory.createTrue()
+                : factory.createFalse()
+            ),
+            factory.createPropertyAssignment(
+              "readonly",
+              isReadonly ? factory.createTrue() : factory.createFalse()
+            ),
+          ],
+          true
+        );
+      });
 
     return factory.createObjectLiteralExpression(
       [
@@ -536,11 +689,124 @@ export const typeInfoMacro = defineExpressionMacro({
           "fields",
           factory.createArrayLiteralExpression(fieldsArray, true)
         ),
+        factory.createPropertyAssignment(
+          "methods",
+          factory.createArrayLiteralExpression(methodsArray, true)
+        ),
       ],
       true
     );
   },
 });
+
+/**
+ * A method's `MethodInfo` from the checker: its (first) call signature as
+ * seen from `location` — parameter and return types as the checker prints
+ * them, a parameter optional when the checker says so (`?` or a default).
+ * Undefined when the checker can't give a signature (reported as nothing,
+ * as `fieldTypeString` reports "unknown").
+ */
+function methodInfoFromChecker(
+  checker: ts.TypeChecker,
+  prop: ts.Symbol,
+  location: ts.Node,
+  /** Collects the name of a method the checker failed on (the caller warns). */
+  failed: string[]
+): MethodInfo | undefined {
+  try {
+    const signature = checker
+      .getTypeOfSymbolAtLocation(prop, location)
+      .getNonNullableType()
+      .getCallSignatures()[0];
+    if (!signature) return undefined;
+    const decl = (prop.getDeclarations() ?? []).find(
+      (d): d is ts.MethodDeclaration | ts.MethodSignature =>
+        ts.isMethodDeclaration(d) || ts.isMethodSignature(d)
+    );
+    return {
+      name: prop.name,
+      parameters: signature.getParameters().map((param) => {
+        const paramDecl = param.valueDeclaration;
+        const optional =
+          !!paramDecl && ts.isParameter(paramDecl) && checker.isOptionalParameter(paramDecl);
+        // Like a field's (`fieldTypeString`): an optional parameter shows its
+        // declared type (`retries?: number` is "number", optional beside it),
+        // through the checker, not the annotation's text; one written in a
+        // generic declaration is read from the instantiated signature
+        // (`set(v?: T)` of `Box<number>` is "number", not "T" — review 8).
+        const annotation =
+          optional && paramDecl && ts.isParameter(paramDecl) && !isSyntheticNode(paramDecl)
+            ? paramDecl.type
+            : undefined;
+        const type =
+          annotation && !insideGenericDeclaration(annotation)
+            ? checker.typeToString(checker.getTypeFromTypeNode(annotation))
+            : optionalTypeString(
+                checker,
+                checker.getTypeOfSymbolAtLocation(param, location),
+                annotation
+              );
+        return { name: param.name, type, optional };
+      }),
+      returnType: checker.typeToString(signature.getReturnType()),
+      isAsync: !!decl?.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+      isStatic: false, // a property of the instance type
+    };
+  } catch {
+    failed.push(prop.name);
+    return undefined;
+  }
+}
+
+/**
+ * Is `prop` a method — a class's method declaration or an interface's method
+ * signature — rather than a field? (A function-valued property, `onDone: ()
+ * => void`, is a field.) Shared by `typeInfo<T>()` (its `methods` vs
+ * `fields`) and `fieldNames<T>()`, so the two list the same fields.
+ */
+function isMethodSymbol(prop: ts.Symbol): boolean {
+  return (prop.getDeclarations() ?? []).some(
+    (d) => ts.isMethodDeclaration(d) || ts.isMethodSignature(d)
+  );
+}
+
+/** The object literal `typeInfo<T>()` emits for one method. */
+function methodInfoLiteral(factory: ts.NodeFactory, m: MethodInfo): ts.ObjectLiteralExpression {
+  return factory.createObjectLiteralExpression(
+    [
+      factory.createPropertyAssignment("name", factory.createStringLiteral(m.name)),
+      factory.createPropertyAssignment(
+        "parameters",
+        factory.createArrayLiteralExpression(
+          m.parameters.map((p) =>
+            factory.createObjectLiteralExpression(
+              [
+                factory.createPropertyAssignment("name", factory.createStringLiteral(p.name)),
+                factory.createPropertyAssignment("type", factory.createStringLiteral(p.type)),
+                factory.createPropertyAssignment(
+                  "optional",
+                  p.optional ? factory.createTrue() : factory.createFalse()
+                ),
+              ],
+              false
+            )
+          ),
+          true
+        )
+      ),
+      factory.createPropertyAssignment("returnType", factory.createStringLiteral(m.returnType)),
+      factory.createPropertyAssignment(
+        "isAsync",
+        m.isAsync ? factory.createTrue() : factory.createFalse()
+      ),
+      factory.createPropertyAssignment(
+        "isStatic",
+        m.isStatic ? factory.createTrue() : factory.createFalse()
+      ),
+    ],
+    true
+  );
+}
 
 // ============================================================================
 // fieldNames<T>() - Get field names as a tuple type
@@ -566,7 +832,11 @@ export const fieldNamesMacro = defineExpressionMacro({
     }
 
     const type = ctx.typeChecker.getTypeFromTypeNode(typeArgs[0]);
-    const properties = ctx.typeChecker.getPropertiesOfType(type);
+    // The fields `typeInfo<T>().fields` lists: methods are left out (review
+    // 8: `fieldNames<Box<number>>()` listed `set` and `get` too).
+    const properties = ctx.typeChecker
+      .getPropertiesOfType(type)
+      .filter((prop) => !isMethodSymbol(prop));
 
     return factory.createArrayLiteralExpression(
       properties.map((prop) => factory.createStringLiteral(prop.name))
@@ -615,7 +885,25 @@ export const validatorMacro = defineExpressionMacro({
 
     const checker = ctx.typeChecker;
     const type = checker.getTypeFromTypeNode(typeArgs[0]);
-    const properties = checker.getPropertiesOfType(type);
+
+    // A primitive or literal T (`string | number`, `"a" | "b"`, `boolean |
+    // undefined`) is checked as a whole, below. The object path would demand
+    // `typeof value === "object"` and then check T's apparent members
+    // (toString, valueOf, ...), so it rejected every value T allows.
+    const PRIMITIVE_FLAGS =
+      ts.TypeFlags.StringLike |
+      ts.TypeFlags.NumberLike |
+      ts.TypeFlags.BooleanLike |
+      ts.TypeFlags.BigIntLike |
+      ts.TypeFlags.ESSymbolLike |
+      ts.TypeFlags.EnumLike |
+      ts.TypeFlags.Null |
+      ts.TypeFlags.Undefined |
+      ts.TypeFlags.Void;
+    const topIsPrimitive = (type.isUnion() ? type.types : [type]).every(
+      (m) => (m.flags & PRIMITIVE_FLAGS) !== 0
+    );
+    const properties = topIsPrimitive ? [] : checker.getPropertiesOfType(type);
 
     const valueId = () => factory.createIdentifier("value");
     const or = (l: ts.Expression, r: ts.Expression) =>
@@ -839,6 +1127,76 @@ export const validatorMacro = defineExpressionMacro({
       ]),
     ]);
 
+    // "Expected <what>, got " + (value === null ? "null" : typeof value)
+    const expectedGot = (what: string) =>
+      factory.createBinaryExpression(
+        factory.createStringLiteral(`Expected ${what}, got `),
+        factory.createToken(ts.SyntaxKind.PlusToken),
+        factory.createParenthesizedExpression(
+          factory.createConditionalExpression(
+            strictEq(valueId(), factory.createNull()),
+            factory.createToken(ts.SyntaxKind.QuestionToken),
+            factory.createStringLiteral("null"),
+            factory.createToken(ts.SyntaxKind.ColonToken),
+            factory.createTypeOfExpression(valueId())
+          )
+        )
+      );
+
+    // Primitive / literal T: one check of the whole value.
+    const primitiveFail = topIsPrimitive ? failCheck(type, valueId) : undefined;
+    const primitiveChecks: ts.Statement[] =
+      primitiveFail && primitiveFail !== "any"
+        ? [
+            factory.createIfStatement(
+              primitiveFail,
+              factory.createBlock([
+                factory.createExpressionStatement(
+                  factory.createCallExpression(
+                    factory.createPropertyAccessExpression(
+                      factory.createIdentifier("errors"),
+                      "push"
+                    ),
+                    undefined,
+                    [expectedGot(checker.typeToString(type))]
+                  )
+                ),
+              ])
+            ),
+          ]
+        : [];
+
+    // Object T: if (typeof value !== "object" || value === null) return failure
+    const objectGuard = factory.createIfStatement(
+      factory.createBinaryExpression(
+        factory.createBinaryExpression(
+          factory.createTypeOfExpression(factory.createIdentifier("value")),
+          factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
+          factory.createStringLiteral("object")
+        ),
+        factory.createToken(ts.SyntaxKind.BarBarToken),
+        factory.createBinaryExpression(
+          factory.createIdentifier("value"),
+          factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          factory.createNull()
+        )
+      ),
+      factory.createBlock([
+        factory.createReturnStatement(
+          factory.createObjectLiteralExpression(
+            [
+              factory.createPropertyAssignment("success", factory.createFalse()),
+              factory.createPropertyAssignment(
+                "errors",
+                factory.createArrayLiteralExpression([expectedGot("object")])
+              ),
+            ],
+            true
+          )
+        ),
+      ])
+    );
+
     // Build the validator function
     return factory.createArrowFunction(
       undefined,
@@ -873,51 +1231,7 @@ export const validatorMacro = defineExpressionMacro({
               ts.NodeFlags.Const
             )
           ),
-          // Type check: if (typeof value !== "object" || value === null)
-          factory.createIfStatement(
-            factory.createBinaryExpression(
-              factory.createBinaryExpression(
-                factory.createTypeOfExpression(factory.createIdentifier("value")),
-                factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-                factory.createStringLiteral("object")
-              ),
-              factory.createToken(ts.SyntaxKind.BarBarToken),
-              factory.createBinaryExpression(
-                factory.createIdentifier("value"),
-                factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-                factory.createNull()
-              )
-            ),
-            factory.createBlock([
-              factory.createReturnStatement(
-                factory.createObjectLiteralExpression(
-                  [
-                    factory.createPropertyAssignment("success", factory.createFalse()),
-                    factory.createPropertyAssignment(
-                      "errors",
-                      // ["Expected object, got " + (value === null ? "null" : typeof value)]
-                      factory.createArrayLiteralExpression([
-                        factory.createBinaryExpression(
-                          factory.createStringLiteral("Expected object, got "),
-                          factory.createToken(ts.SyntaxKind.PlusToken),
-                          factory.createParenthesizedExpression(
-                            factory.createConditionalExpression(
-                              strictEq(valueId(), factory.createNull()),
-                              factory.createToken(ts.SyntaxKind.QuestionToken),
-                              factory.createStringLiteral("null"),
-                              factory.createToken(ts.SyntaxKind.ColonToken),
-                              factory.createTypeOfExpression(valueId())
-                            )
-                          )
-                        ),
-                      ])
-                    ),
-                  ],
-                  true
-                )
-              ),
-            ])
-          ),
+          ...(topIsPrimitive ? primitiveChecks : [objectGuard]),
           ...checks,
           // Return result
           factory.createReturnStatement(

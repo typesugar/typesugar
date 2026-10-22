@@ -11,9 +11,16 @@ All configuration options for typesugar. There are four places settings live:
 
 ## `typesugar.config.ts`
 
-The project config file. typesugar looks for the nearest one, walking up from the
-directory being compiled (the tsconfig directory for the CLI and `approve-macros`,
-otherwise the working directory) and stopping at the repository root.
+The project config file. typesugar uses the nearest one, walking up from the directory
+being compiled (the tsconfig directory for the CLI, `approve-macros`, the editor, the
+bundler plugins and a ts-patched `tsc -p`) and stopping at the repository root (the
+directory with `.git`). Code that reads the config with no host (`config.get()` in your
+own script) searches up from the working directory. A config file is code: one in your
+repository is trusted like the rest of it (see
+[Security](../SECURITY.md#what-typesugar-trusts)). A config inside a `node_modules`
+directory (a config file or a `package.json` `"typesugar"` block) is a dependency's and is
+never read; the search walks past it. A host serving several projects (the editor, the
+Node loader) applies each project's config to that project's files only.
 
 ```typescript
 // typesugar.config.ts
@@ -71,6 +78,12 @@ automatically. Every other macro package runs code inside your build, so it is
 refused, and the build fails with "…have not been approved. Run
 `typesugar approve-macros`…", until its name is in this list.
 
+The list is about dependencies: the package a bare import (or a relative path
+into `node_modules`) resolves to, as Node resolves it from the importing file. A
+macro package reached by a relative path outside `node_modules`, such as a
+vendored directory, is your project's own code and loads without approval (see
+[Security](../SECURITY.md#what-typesugar-trusts)).
+
 Don't edit the list by hand unless you have to: run
 [`npx typesugar approve-macros`](./cli.md#approve-macros), which finds the
 unapproved packages, asks for confirmation (or not, with `--yes`), and writes them
@@ -87,6 +100,12 @@ config.get("debug"); // boolean
 config.get("contracts.mode"); // "full" | "assertions" | "none"
 config.set({ contracts: { mode: "none" } }); // programmatic override (until reload)
 ```
+
+`config.get()` reads the current config, one per process. A host that serves several
+projects keeps each one's: `config.load({ searchFrom: projectDir })`, then
+`config.capture()`, and `config.runWith(snapshot, () => …)` around that project's work. A
+`TransformationPipeline` does this when given `config: snapshot` (`createPipeline` passes
+it).
 
 `@typesugar/contracts` also has `setContractConfig({ mode, proveAtCompileTime, strip })`
 and `getContractConfig()`, which read and write the same `contracts` block.
@@ -125,7 +144,10 @@ Other variables typesugar reads:
 
 ### Transformer Plugin
 
-Used by ts-patch (`tsc`) and read by the typesugar CLI:
+Used by a ts-patched `tsc`. The typesugar CLI (`typesugar build`, `check`, `run`) and the
+bundler plugins don't read this entry's options: pass options to the bundler plugin, and
+for the CLI set `cfg()` conditions with `TYPESUGAR_CFG_*` variables (see
+[Conditional Compilation](#conditional-compilation-cfg)).
 
 ```json
 {
@@ -266,8 +288,8 @@ export default {
 `cfg()` and `@cfgAttr` read their conditions from one of two sources:
 
 - the `cfgConfig` option — of the bundler plugin, or of the tsconfig transformer
-  entry. When it is set, it **replaces** the environment variables below; they are
-  not merged.
+  entry under a ts-patched `tsc` (the typesugar CLI doesn't read it). When it is
+  set, it **replaces** the environment variables below; they are not merged.
 - otherwise, `TYPESUGAR_CFG_<NAME>` environment variables — `TYPESUGAR_CFG_DEBUG=1`
   sets `debug: true`; `__` nests (`TYPESUGAR_CFG_TARGET__PLATFORM=web` sets
   `target.platform`)
@@ -335,6 +357,9 @@ registers it), so it has one setting, in `.vscode/settings.json` or user setting
 | `comptimeInEditor` | boolean | `false` | Evaluate `comptime(...)` in the editor (trusted workspaces only). Sent to the plugin by the extension; `tsconfig.json` can't set it |
 
 ## ts-patch
+
+Only needed if you want a plain `tsc` to expand macros, as an alternative to
+`typesugar build` (see [tsc Setup](../getting-started/environments/tsc.md#alternative-a-ts-patched-tsc)).
 
 ### Installation
 

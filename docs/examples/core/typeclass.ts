@@ -33,8 +33,9 @@ function show<A>(value: A, S: Show<A> = implicit()): string {
 // Each call resolves to the correct instance automatically:
 console.log("show(42):", show(42));
 console.log('show("hi"):', show("hello"));
-// Auto-derivation: summon synthesizes instances for your own types
-// No @derive or @impl needed — just define the type!
+// Your own types: @derive generates the instance from the type's structure
+// (for a type from a library, declare it once: export const showFeature = derived<Show<Feature>>())
+/** @derive(Show) */
 interface Point { x: number; y: number; }
 
 console.log("show(point):", show({ x: 1, y: 2 } as Point));

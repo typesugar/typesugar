@@ -81,6 +81,18 @@ What happens after it's declared depends on your package's npm scope:
   one-time step in your own package's README so consumers aren't surprised by
   it.
 
+Approval is by name, for the package an import resolves to as Node resolves
+it (from the importing file, so pnpm's per-package `node_modules` work). A
+copy of your package vendored into the consumer's repository and imported by a
+relative path is the consumer's own code: it loads without approval, as their
+other source does (see [`docs/SECURITY.md`](../SECURITY.md#what-typesugar-trusts)).
+Its macros entry is the vendored copy's own file (through its `exports` map, or
+as a path in its directory), never an npm copy of the same name.
+
+Your package can't approve itself. A consumer's build never reads config inside
+`node_modules`, so a `typesugar.config.*` file or a `"typesugar": { "security": … }`
+block in your published package has no effect there.
+
 ### Worked example: `@typesugar/strings`
 
 `strings` is split into two source files:
@@ -119,6 +131,39 @@ src/macros.ts   →  the `./macros` entry: regexMacro/htmlMacro/fmtMacro/rawMacr
 
 `tsup.config.ts`: `entry: ["src/index.ts", "src/macros.ts"]`.
 
+### Declarations for a library that uses macros
+
+Your `.d.ts` files must describe the **expanded** code: a consumer's `tsc` never sees
+your source. TypeScript computes declarations from the program it type-checked, so
+anything that checks the unexpanded source (plain `tsc`, tsup's own `dts` step) gets them
+wrong: a pattern-bound name in a `match()` is undeclared, and an exported function that
+returns one is typed from the stub types instead of the result. Emit them through
+typesugar:
+
+| Build             | Declarations                                                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| tsup              | `defineConfig(withTypesugar({ …, dts: true }))` from `unplugin-typesugar/tsup` ([esbuild/tsup guide](../getting-started/environments/esbuild.md#with-tsup)) |
+| `tsc` / ts-patch  | `typesugar build` with `declaration: true` ([tsc guide](../getting-started/environments/tsc.md#declarations))                                               |
+| any other bundler | `typesugar build --emitDeclarationOnly --declarationDir dist` after it                                                                                      |
+| a script          | `emitDeclarations({ project, declarationDir })` from `@typesugar/transformer`                                                                               |
+
+An `@opaque` type is erased in the expanded code (`Some(3)` is `3`), so an exported
+declaration whose type is inferred is declared with the type the source infers when that
+type involves an `@opaque` type: `export const a = Some(3)` is `declare const a:
+Option<number>`, and `function mk(n: number) { return n > 0 ? Some(n) : None }` returns
+`Option<number>`. This covers exported variables, functions, `export default`, and the
+public members of exported classes. A type the module has no way to name (not exported
+from anything the file imports, nor from a source file of the project) keeps the expanded
+type; annotate such a declaration yourself.
+
+tsup bundles the declarations into one `.d.ts` per entry. That is fine for instances,
+derives and extractors, but not for `@opaque` types, whose companions consumers find per
+module: see rule 1 under Case 2 below.
+
+Check the result: the `.d.ts` files should import nothing from typesugar packages unless
+your public types really use them. Type tests that run plain `tsc` should import the
+built declarations (or run under `typesugar check`), not the source.
+
 The transformer's macro-loader `require()`s exactly the specifier your
 `typesugar.macros` field names — `"./macros"` resolves to `your-pkg/macros`
 through your own `exports` map, so the split above is what actually gets
@@ -137,11 +182,21 @@ consumer-side transformer reads to enable dot-syntax.
 
 ### Rules
 
-1. **Emit per-module declarations, never a bundled `.d.ts`.** Bundlers
-   (rollup-plugin-dts) collapse modules into chunks and rename colliding symbols
-   (`map` → `map$1`), which destroys consumer-side discovery and stable import names.
-   Use `tsc --emitDeclarationOnly`; for JS, prefer `tsup` `bundle:false` so every
-   module is a real importable file.
+1. **Ship `@opaque` types with per-module declarations and JavaScript, not a bundled
+   `.d.ts`.** A consumer's transformer finds an `@opaque` type's companions in the
+   `.d.ts` module that declares it: `export`ed function declarations named after the
+   methods, imported from that module's own path (`@your-pkg/data/option`). A bundled
+   `.d.ts` (rollup-plugin-dts, which tsup's `dts` uses) declares them as
+   `declare function map` with one `export { … }` list at the end, renames colliding
+   symbols (`map` → `map$1`) and has no per-module path, so the consumer's `opt.map(f)` is not rewritten
+   and throws at run time. Use `typesugar build --emitDeclarationOnly`
+   (`tsc --emitDeclarationOnly` if the source has no macros), `tsup` `bundle:false` so
+   every module is a real importable file, and a `"./*"` export.
+   Instances (`@impl`, `@derive` companions, `derived<…>()`) and `Destructure`
+   extractors don't need this: their JSDoc tags survive bundling, and an instance is
+   imported by its exported name even when the bundler renamed its declaration. A
+   library without `@opaque` types can use `withTypesugar({ dts: true })`, as the
+   `typesugar create library` template does.
 2. **Companions must be importable and collision-free.** Same-named companions for
    different types (Option's `map` vs Either's `map`) can't be one top-level export —
    give each type its own subpath (`@your-pkg/data/option`) or namespace.
@@ -150,6 +205,19 @@ consumer-side transformer reads to enable dot-syntax.
    relative imports are invalid and the types collapse to `any` for consumers.
 4. **Don't leak host globals.** e.g. use `ReturnType<typeof setInterval>` instead of
    `NodeJS.Timer` so the public `.d.ts` doesn't force `@types/node`.
+5. **Ship instances next to their types.** An exported instance (`@impl`, `@derive`d,
+   or `derived<TC<T>>()`) in the module that declares the type is found by consumers
+   who import that module, or an index that re-exports it: their `===`, `summon`,
+   `= implicit()` and method syntax use it. A `@derive` companion is declared as a member
+   of the type's namespace with an `/** @impl Eq<Point> */` tag (`Point.Eq`), so the
+   declarations must come from typesugar (the table above), not plain `tsc`. Re-export
+   the type by name as a value (`export { Point } from "./point.js"`), not with
+   `export type`: the companion is part of the value `Point`, and `export type` leaves it
+   out of the JavaScript. `typesugar check` and `build` accept the value form under
+   `verbatimModuleSyntax` and `isolatedModules` too. Extractors for `match` are `Destructure` instances, which
+   resolve from the module that declares the constructor, as `@typesugar/fp` ships
+   `destructureSome` next to `Some`; give each a `@destructure` tag so consumers'
+   patterns are inlined ([Custom Extractors](./pattern-matching.md#custom-extractors)).
 
 ### Worked example: `@typesugar/fp` Option
 
@@ -203,7 +271,11 @@ and document that dot-syntax requires the transformer.
 - [ ] If publishing outside the `@typesugar/` scope, your README mentions the
       one-time `typesugar approve-macros` step consumers will hit.
 - [ ] `typescript`/`@typesugar/core` are peer/dev deps, not runtime deps.
-- [ ] Declarations are emitted per-module (`tsc --emitDeclarationOnly`), not bundled.
+- [ ] If you ship `@opaque` types: declarations and JS are per-module, with an export
+      for each module's path (not a bundled `.d.ts`).
+- [ ] If the source uses macros, the declarations come from the expanded program
+      (`withTypesugar` for tsup, `typesugar build` otherwise) and import nothing from
+      typesugar.
 - [ ] Relative imports in source use `.js` extensions (NodeNext-safe `.d.ts`).
 - [ ] Companions are importable from a collision-free subpath/namespace.
 - [ ] No host-global types (`NodeJS.*`) leak into the public `.d.ts`.

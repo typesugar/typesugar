@@ -78,8 +78,9 @@ const ShowBoolean: Show<boolean> = {
 };
 ```
 
-A bare `@instance` decorator on a `const` is an error ("@impl requires
-arguments"); the JSDoc tag has to name the typeclass and type. A `const` whose
+Decorators are not valid on a `const` in TypeScript, so an instance is always
+the JSDoc tag, and the tag has to name the typeclass and type (a bare
+`/** @impl */` is an error, "@impl requires arguments"). A `const` whose
 type annotation is `Show<number>` also counts as a `Show<number>` instance for
 resolution, tagged or not.
 
@@ -94,6 +95,16 @@ showNum.show(42); // "42"
 const showStr = summon<Show<string>>();
 showStr.show("hello"); // "\"hello\""
 ```
+
+An instance is found in this file, in what the file imports (by name, then any export of
+an imported module), and last in the package that declares the typeclass. So with
+`import type { Ord } from "typesugar"`, which is `@typesugar/std`'s `Ord`,
+`summon<Ord<number>>()` finds std's `ordNumber` and imports it from `@typesugar/std`,
+though the file never imported that package. That includes instances the package exports
+inside a namespace: `Show` from `typesugar` is `@typesugar/fp`'s, whose instances are
+exported as `TC.ShowOps.showNumber`, so `summon<Show<number>>()` imports `TC`. The
+typeclass is compared by identity: a renamed import (`Eq as Equal`) or a re-export is the
+same typeclass.
 
 ### Generic Functions: `= implicit()`
 
@@ -119,14 +130,24 @@ print(42, { show: (n: number) => `#${n}` }); // "#42"
 
 `= implicit()` is a default parameter marker — you can see from the signature which params are implicit, and override any of them by passing an argument explicitly. It's valid TypeScript even without the transformer (it just throws at runtime).
 
+When TypeScript infers a literal type from the arguments (`max(3, 7)` with `max<A>(a: A, b: A, O: Ord<A> = implicit())` makes `A` the type `3 | 7`), the instance is looked up for its base type, so `Ord<number>` fills `O`.
+
 ## Deriving Instances
 
 Nothing is ambient (PEP-052): a type gets an instance only when you ask for
-one, either with `@derive` or by writing an `@impl` instance by hand. There
-is no "the compiler noticed a typeclass operation on a `Point` and synthesized
-an instance from its fields" behavior — that would mean a type's behavior
-depended on which files happen to import which typeclasses, which is exactly
-the non-local, order-dependent resolution typesugar is designed to avoid.
+one: with `@derive` on a type you own, with `derived<TC<T>>()` for a type you
+don't ([below](#external-types)), or by writing an `@impl` instance by hand.
+There is no "the compiler noticed a typeclass operation on a `Point` and
+synthesized an instance from its fields" behavior — that would mean a type's
+behavior depended on which files happen to import which typeclasses, which is
+exactly the non-local, order-dependent resolution typesugar is designed to
+avoid.
+
+> **Deprecated: `summon` deriving in place.** When no instance is in scope,
+> `summon<TC<T>>()` and `= implicit()` still derive one from the type's
+> structure at the call site, a new copy at every call, and warn with
+> [TS9009](/errors/TS9009). A later release makes them find instances only;
+> declare the instance once with `@derive` or `derived<TC<T>>()` instead.
 
 ### `@derive` (Required)
 
@@ -154,6 +175,117 @@ declaration is ignored with a warning, and `summon<Show<number[]>>()` then fails
 with TS9001. Write a concrete instance per element type (`Show<number[]>`) or
 pass the element instance explicitly.
 
+## Instances for Types You Don't Own {#external-types}
+
+A type from a library, such as `Feature` from `@types/geojson`, can't carry
+`@derive`, but its instances can live in a module of your own, exported like
+any other value. Declare them once, in one file, and import that file where
+you use them; `summon`, `= implicit()` and method syntax all find them there.
+
+`derived<TC<T>>()` derives an instance from the type's structure: the same
+code `@derive(TC)` generates for a type you own, emitted once, where you
+write it. Or write the instance by hand.
+
+```typescript
+// geo-instances.ts
+import type { Feature } from "geojson";
+import type { Clone, Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+
+// Derived from Feature's structure, as @derive(Clone) would derive it:
+export const cloneFeature = derived<Clone<Feature>>();
+
+// Written by hand (a typed const is an instance):
+export const eqFeature: Eq<Feature> = {
+  equals: (a, b) => a.id === b.id,
+  notEquals: (a, b) => a.id !== b.id,
+};
+```
+
+```typescript
+// use.ts
+import type { Feature } from "geojson";
+import type { Clone } from "@typesugar/std";
+import { summon, implicit } from "typesugar";
+import "@typesugar/std/syntax/clone"; // f.clone()
+import "./geo-instances"; // or: import { cloneFeature } from "./geo-instances";
+
+declare const f: Feature;
+function dup<A>(a: A, C: Clone<A> = implicit()): A {
+  return C.clone(a);
+}
+
+summon<Clone<Feature>>(); // → cloneFeature (the import is added if needed)
+dup(f); // → dup(f, cloneFeature)
+f.clone(); // → cloneFeature.clone(f)
+```
+
+`export const cloneFeature = derived<Clone<Feature>>();` compiles to the
+derivation, in place of the call (shortened):
+
+```typescript
+export const cloneFeature = (() => {
+  const cloneGeometry = (a: Feature["geometry"]): Feature["geometry"] => {
+    switch (a.type) {
+      case "Point":
+        return {
+          ...a,
+          coordinates: a.coordinates.slice(),
+          ...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }),
+        };
+      // ... a case per geometry type; a GeometryCollection's geometries.map(cloneGeometry)
+    }
+  };
+  return {
+    clone: (a: Feature): Feature => ({
+      ...a,
+      geometry: cloneGeometry(a.geometry),
+      properties: a.properties && { ...a.properties },
+      ...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }),
+    }),
+  };
+})();
+```
+
+- **The const is the instance.** An `@impl` tag is optional: the initializer
+  says what the instance is, as a type annotation does. If you add one, it
+  must name the same typeclass and type.
+- **Field instances come from scope.** A field whose type has an instance
+  where `derived` is written goes through it, so a hand-written
+  `Clone<GeoJsonProperties>` (say, a deep copy) declared above
+  `cloneFeature` is used for `properties`, and a `derived<Clone<Geometry>>()`
+  for `geometry`. A field with no instance that can't be derived is an error at
+  the `derived` line that names the field and its type
+  ([TS9107](/errors/TS9107)): `derived<Eq<Feature>>()` needs an `Eq` for
+  `GeoJsonProperties` in scope.
+- **Every typeclass `@derive` supports**: `Eq`, `Ord`, `Clone`, `Debug`,
+  `Hash`, `Default`, `Json`, `TypeGuard`, `Show`, `Semigroup`, `Monoid`.
+- **Concrete types only.** `derived<Clone<Feature<Point>>>()` is one instance
+  for `Feature<Point>` (and not for `Feature`); a type with free type
+  parameters, `derived<Clone<Feature<G>>>()`, is not supported yet
+  ([TS9011](/errors/TS9011)).
+- **A top-level `const` only** ([TS9010](/errors/TS9010)), so that there is a
+  declaration for other files to find.
+- **One instance per type.** Two instances for the same type in scope are an
+  ambiguity error at the call site that needs one.
+- **The published `.d.ts`** types the const as its instance type, with no
+  import of `typesugar` (only of the typeclass's type, here from
+  `@typesugar/std`). TypeScript writes an inferred type out in full, so for a
+  generic with defaults the declaration spells out the defaults:
+  `Clone<Feature<Geometry, GeoJsonProperties>>`, the same type. To publish it
+  as written, annotate the const and leave out the type argument:
+  `export const cloneFeature: Clone<Feature> = derived();`.
+- The `Clone` that `typesugar` exports is both the `@derive` marker (a value)
+  and `@typesugar/std`'s `Clone` typeclass (a type alias of it), so
+  `Clone<Feature>` works with either import.
+- `@derive(Clone)` on a local alias (`export type MyFeature = Feature`)
+  generates `MyFeature.Clone`, and files that import the alias's module find
+  it as the `Clone<Feature>` (the alias is the same type). `derived` says what
+  it is more plainly, and needs no alias.
+- `summon<Clone<Feature>>()` with nothing in scope still derives a copy in
+  place at that call, with a [TS9009](/errors/TS9009) warning that suggests
+  the `derived` declaration; that fallback will be removed.
+
 ## Extension Methods
 
 Typeclass methods are available as extension methods (`a.equals(b)` instead of
@@ -180,6 +312,12 @@ Without the `@typesugar/std/syntax/eq` import, `.equals()` stays a plain
 (missing) method call — sugar is never ambient. The louder operator form
 (`@typesugar/std/syntax/eq/ops`, enabling `===` and `==`) implies the method form (tier
 3 ⊇ tier 2). See [Operator Syntax](#operator-syntax) below.
+
+Method syntax works on literals too: `(7).show()` and `"a".show()` use the `Show<number>` and
+`Show<string>` instances. `extend(value).method(args)` is the explicit spelling of the same call;
+it must be called in one expression (`const e = extend(p)` is an error, since it compiles to a
+direct call on the instance and there is no wrapper value to store). See
+[When to use `extend()`](./extension-methods.md#when-to-use-extend).
 
 ## Zero-Cost Specialization
 
@@ -210,7 +348,7 @@ Both the instance name (`numericPoint`) and companion-path access
 (`Point.Numeric`) specialize.
 If the transformer can't prove the inlining is sound (e.g. the function body
 has a loop or try/catch), it falls back to dictionary passing — always
-correct, just not zero-cost — and emits a TS9602 warning. Opt a call out
+correct, just not zero-cost — and emits a [TS9602](/errors/TS9602) warning. Opt a call out
 entirely with `// @no-specialize`. See the
 [Specialization Guide](/guides/specialize) for details.
 
@@ -490,7 +628,7 @@ The transformer handles the encoding behind the scenes via two mechanisms:
 
 1. **`F<A>` rewriting (Tier 0)** — In typeclass bodies and generic functions, `F<A>` where `F` is a type parameter is rewritten to `Kind<F, A>` before type-checking. This is a pure AST operation — no TypeChecker needed.
 
-2. **Implicit resolution in `@impl` (Tier 1)** — `@impl Functor<Option>` sees that `Option` is a generic type with one parameter, generates the HKT encoding internally, and registers the instance. No `OptionF` or `@hkt` annotation needed.
+2. **Implicit resolution in `@impl` (Tier 1)** — `@impl Functor<Option>` sees that `Option` is a generic type with one parameter, generates the HKT encoding internally, and registers the instance. No `OptionF` or `@hkt` annotation needed. An unannotated instance `satisfies` Functor's members with `Option<A>` in place of `Kind<F, A>`: that types the parameters of its methods (and `this` in an object-literal method), a missing or misspelled member is an error at the instance (`typesugar check`, `build` and the editor all report it), and the instance keeps its own type, extra members included.
 
 ### Partial Application
 
@@ -562,8 +700,10 @@ const arrayFunctor = {
 summon<Functor<Array>>().map([1, 2, 3], (x) => x * 2); // [2, 4, 6]
 ```
 
-Because `Array` is a global, no `Array.Functor` companion is generated (you get
-a warning saying so); refer to the instance as `arrayFunctor`.
+Because `Array` is a global, no `Array.Functor` companion is generated; refer to
+the instance as `arrayFunctor`. (An `@impl` for a type declared in another file
+or package never gets a companion, so it isn't warned about: an `Array.Functor`
+written anywhere is a TypeScript error where it is written.)
 
 ## Migrating from `TypeFunction` to `@impl`
 
@@ -607,11 +747,30 @@ Existing `TypeFunction` interfaces still work — this is backwards compatible. 
 
 Instances are resolved at compile time:
 
-1. Exact match for the type (an `@impl` instance, or a `const` annotated with
-   the instance type)
+1. Exact match for the type (an `@impl` instance, a `const` annotated with
+   the instance type, or a `const` initialized by `derived<TC<T>>()`)
 2. Derived instance from `@derive`
 
-If no instance is found, you get a compile error.
+If no instance is found, you get a compile error (TS9001). For now `summon`
+and `= implicit()` first try to derive one in place, with a TS9009 warning;
+that fallback is deprecated.
+
+TypeScript's types are structural, so an instance for one type can also match a
+different type of the same shape (two classes with the same fields, `UserId` and
+`Email`, both with `@derive(Eq)`). That is not ambiguous: the instance declared for
+the value's own type wins. A same-shape instance is used only for a type with no
+instance of its own.
+
+An enum is assignable to and from `number` (or `string`), so a `Show<number>`
+instance matches an enum value too. A value of an enum type, or one of its
+members (`Color.Green.show()`), uses the enum's own instance (`@impl
+Show<Color>`) when one is in scope, wherever it is declared, and the
+primitive's only when the enum has none. `@impl` on an enum generates no
+`Color.Show` companion, and says nothing about it: the enum's object is your
+data, and a merged companion would overwrite a member of the same name
+(`Op.Eq` beside `@impl Eq<Op>`) and show up in `Object.values(Status)`. Use the
+instance by its own name (`showColor`), or let resolution find it. Operators on
+enum values stay the native ones (`c === Color.Green`).
 
 ## Coherence
 

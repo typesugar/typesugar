@@ -43,6 +43,14 @@ export interface TypeclassOpInfo {
    * right operand must be the instance type, which operator dispatch checks.
    */
   mixedOperandOps?: Set<string>;
+  /**
+   * Binary operators whose method RETURNS the typeclass's type parameter
+   * (`add(a: A, b: A): A`, not `equals(...): boolean`): the rewritten
+   * expression has the instance type, so it can itself be the operand of a
+   * further typeclass operator (`a + b + c`). Read from the declaration's
+   * return type node (the parameter as written there, like `mixedOperandOps`).
+   */
+  selfResultOps?: Set<string>;
   /** All method names declared by the typeclass interface. */
   methodNames: Set<string>;
   /**
@@ -89,8 +97,17 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
   const opToMethod = new Map<string, string>();
   const unaryOpToMethod = new Map<string, string>();
   const mixedOperandOps = new Set<string>();
+  const selfResultOps = new Set<string>();
   const methodNames = new Set<string>();
   const typeParamName = iface.typeParameters?.[0]?.name.text;
+  /** `t` is the type parameter itself, as written (`A`, no type arguments). */
+  const isSelf = (t: ts.TypeNode | undefined): boolean =>
+    !!t &&
+    !!typeParamName &&
+    ts.isTypeReferenceNode(t) &&
+    ts.isIdentifier(t.typeName) &&
+    t.typeName.text === typeParamName &&
+    !t.typeArguments;
 
   for (const member of iface.members) {
     if (!member.name || !ts.isIdentifier(member.name)) continue;
@@ -107,17 +124,17 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
       for (const op of ops) unaryOpToMethod.set(op, methodName);
       continue;
     }
-    const right = params?.[1]?.type;
-    const rightIsSelf =
-      !!right &&
-      !!typeParamName &&
-      ts.isTypeReferenceNode(right) &&
-      ts.isIdentifier(right.typeName) &&
-      right.typeName.text === typeParamName &&
-      !right.typeArguments;
+    const rightIsSelf = isSelf(params?.[1]?.type);
+    const resultType = ts.isMethodSignature(member)
+      ? member.type
+      : ts.isPropertySignature(member) && member.type && ts.isFunctionTypeNode(member.type)
+        ? member.type.type
+        : undefined;
+    const resultIsSelf = isSelf(resultType);
     for (const op of ops) {
       opToMethod.set(op, methodName);
       if (params && params.length >= 2 && !rightIsSelf) mixedOperandOps.add(op);
+      if (resultIsSelf) selfResultOps.add(op);
     }
   }
 
@@ -128,6 +145,7 @@ function readTypeclassInterface(iface: ts.InterfaceDeclaration): TypeclassOpInfo
     opToMethod,
     unaryOpToMethod,
     mixedOperandOps,
+    selfResultOps,
     methodNames,
     conflictedOps: new Set(),
     def,
@@ -218,6 +236,9 @@ function buildIndex(program: ts.Program): Map<string, TypeclassOpInfo> {
         }
         for (const op of info.mixedOperandOps ?? []) {
           (existing.mixedOperandOps ??= new Set()).add(op);
+        }
+        for (const op of info.selfResultOps ?? []) {
+          (existing.selfResultOps ??= new Set()).add(op);
         }
         for (const m of info.methodNames) existing.methodNames.add(m);
       } else {
@@ -426,14 +447,26 @@ export function getOpMapForTypeclass(
  * (`-a`, one-parameter method) mapping. `rightOperandIsSelf` says whether the
  * method's right parameter is the typeclass's type parameter, i.e. whether the
  * right operand must be the instance type for the dispatch to be well-typed.
+ * `resultIsSelf` says whether the method returns the type parameter (see
+ * {@link TypeclassOpInfo.selfResultOps}).
  */
 export function getOperatorCandidates(
   program: ts.Program,
   activatedTypeclasses: Iterable<string>,
   op: string,
   arity: "binary" | "unary" = "binary"
-): Array<{ typeclass: string; method: string; rightOperandIsSelf: boolean }> {
-  const candidates: Array<{ typeclass: string; method: string; rightOperandIsSelf: boolean }> = [];
+): Array<{
+  typeclass: string;
+  method: string;
+  rightOperandIsSelf: boolean;
+  resultIsSelf: boolean;
+}> {
+  const candidates: Array<{
+    typeclass: string;
+    method: string;
+    rightOperandIsSelf: boolean;
+    resultIsSelf: boolean;
+  }> = [];
   for (const tc of activatedTypeclasses) {
     const info = getOpMapForTypeclass(program, tc);
     if (!info) continue;
@@ -443,6 +476,7 @@ export function getOperatorCandidates(
         typeclass: tc,
         method,
         rightOperandIsSelf: arity === "binary" && !info.mixedOperandOps?.has(op),
+        resultIsSelf: arity === "binary" && !!info.selfResultOps?.has(op),
       });
     }
   }

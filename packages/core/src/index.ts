@@ -35,6 +35,7 @@ export {
   type TypesugarConfig,
   type ContractsConfig,
   type SecurityConfig,
+  type ConfigSnapshot,
 } from "./config.js";
 export { ConfigConditionError, evaluateConfigCondition } from "./config-condition.js";
 
@@ -213,6 +214,7 @@ export {
   cloneWithoutPositions,
   cloneWithoutComments,
   cloneNodeDeep,
+  forEachDescendant,
   jsValueToExpression,
   numberToExpression,
   bigintToExpression,
@@ -226,8 +228,15 @@ export {
   createRemoveExpression,
   isRemoveExpression,
   getRemoveComment,
+  isJSDocTagAtLineStart,
+  deriveTagNames,
+  parseDeriveList,
+  opaqueTypesAsUnderlying,
   type JsValueContext,
 } from "./ast-utils.js";
+
+// Receiver vs. an extension function's first parameter (transformer + suppression)
+export { receiverMatchesFirstParam } from "./extension-receiver.js";
 
 // Type String Utilities (pure string, no TS dependency)
 export {
@@ -304,6 +313,17 @@ export {
   type AccessorRewrite,
   type MethodInlinePattern,
 } from "./type-rewrite-registry.js";
+
+// A type as a type node a given file can contain (declaration annotations,
+// match()'s scrutinee assertion)
+export {
+  typeToPortableTypeNode,
+  portableTypeNode,
+  PORTABLE_NODE_BUILDER_FLAGS,
+  sourceSpecifierExtension,
+  relativeImportStyleOf,
+  type RelativeImportStyle,
+} from "./portable-type-node.js";
 
 // Performance profiling (moved from @typesugar/transformer in PEP-056 Wave 3 --
 // shared by both the CLI/legacy pipeline and transformer-core, not just one)

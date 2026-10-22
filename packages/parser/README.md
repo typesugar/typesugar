@@ -160,7 +160,7 @@ This package uses PEG (Parsing Expression Grammar) semantics:
 
 ## How It Works
 
-**With the typesugar transformer:** the `grammar` macro parses and validates the PEG definition at build time and replaces the template with an inline recursive-descent parser (no runtime grammar interpretation). Grammar errors, including left recursion, are build errors.
+**With the typesugar transformer:** the `grammar` macro parses and validates the PEG definition at build time and replaces the template with an inline recursive-descent parser (no runtime grammar interpretation), typed as the runtime tag is (`Grammar<unknown>`). Grammar errors, including left recursion, are build errors.
 
 **Without the transformer:** the runtime `grammar` tag parses the PEG definition into a grammar IR and builds a recursive-descent parser from it (`buildParser(parseGrammarDef(text))`). `generateParserCode(rules)` returns the same inline parser as source text. The combinator API builds parsers directly.
 

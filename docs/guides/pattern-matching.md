@@ -12,7 +12,7 @@ const area = match(shape)
   .then(s ** 2)
   .case({ kind: "rect", w, h })
   .then(w * h);
-// Compile error if you miss a variant. Zero runtime overhead.
+// Compile error if you miss a variant. No runtime library does the matching.
 ```
 
 ## The Fluent API
@@ -29,7 +29,7 @@ const y = match(x)
   .else(0);
 ```
 
-Matches compile to optimized output with zero runtime overhead.
+Matches compile to plain conditionals, `switch`es and field reads; [Code Generation Strategies](#code-generation-strategies) shows what each shape becomes.
 
 ---
 
@@ -53,6 +53,11 @@ match(x)
 ```
 
 **Compiles to:** direct `===` comparisons (`Number.isNaN(x)` for `.case(NaN)`). 7+ plain literal arms (no guards, `.or()` or `.as()`) get a `switch` statement for V8 optimization.
+
+**Constants:** a qualified name whose type is a single literal value, such as an enum member, is
+matched with `===` and counts for exhaustiveness as the value it stands for:
+`.case(Color.Red)`, `.case({ kind: Kind.Circle, radius })`. A bare name is a binding, never a
+constant (see below).
 
 ### Variable Binding
 
@@ -122,6 +127,11 @@ match(arr)
 | `[a, _, _]`       | Exactly length 3, only `a` bound |
 | `[head, ...tail]` | Length >= 1, rest captured       |
 
+Over a tuple type, an arm can't fail when it has the tuple's length and only bindings
+(`[x, y]` on `[number, number]`), or is `[head, ...tail]` on a tuple at least that long: it
+covers the type, so the match needs no `.else()`. Over `number[]`, `[x, y]` can fail, and the
+match needs a fallback.
+
 **Compiles to:**
 
 ```typescript
@@ -152,8 +162,13 @@ match(obj)
   .else(-1);
 ```
 
-An object or tuple scrutinee isn't enumerable, so these matches need a final `.else()`
-(or `_`) even when the last arm looks like a catch-all.
+An object scrutinee isn't enumerable, so these matches need a final `.else()`
+(or `_`) even when the last arm looks like a catch-all. The exception is a variable or property
+declared as a discriminated union and narrowed by TypeScript to one variant: a scrutinee
+`const c: Shape = { kind: "circle", radius: 5 }` is the circle variant, and its
+`.case({ kind: "circle", radius })` arm covers it. A plain object type with a literal-typed field
+(`interface Cfg { version: 1; name: string }`) is not a variant of anything, so it still needs
+`.else()`.
 
 **Pattern semantics:**
 
@@ -164,6 +179,15 @@ An object or tuple scrutinee isn't enumerable, so these matches need a final `.e
 | `{ kind: "circle" }`    | Literal property check (no bind)   |
 | `{ kind: "circle", r }` | Literal check + binding            |
 | `{ ...rest }`           | Bind all remaining properties      |
+
+Every property a pattern names is tested for presence (`"a" in x`), bound or not. Over a
+discriminated union, a field the variant requires needs no test, but a field the variant declares
+optional does: with `type V = { k: "a" } | { k: "b"; extra?: string }`, the arm
+`.case({ k: "b", extra })` matches the `b` values that have the key `extra` (`extra: undefined`
+has it), not `{ k: "b" }`. So that arm doesn't cover `b` on its own, and the match reports
+TS9226, naming the optional field. Add an arm for the rest, `.case({ k: "b" })`, after it. The
+`match: switch` form destructures instead, so there `case { k: "b", extra }:` covers `b` and
+binds `undefined` when the key is missing.
 
 ### Discriminated Union Patterns
 
@@ -185,7 +209,27 @@ match(shape)
   .then(w * h);
 ```
 
-**Compiles to:** a `switch` on the discriminant field inside the match IIFE. Each arm is still tested in full inside its `case` — extra literal/array/nested sub-patterns and guards included — and an arm that doesn't match falls through to the next arm with the same tag, then to the catch-all / `.else()` / `MatchError`. Every arm's bindings live in their own block, so two arms may bind the same name.
+**Compiles to:** a `switch` on the discriminant field inside the match IIFE:
+
+```typescript
+const _shape = shape;
+switch (_shape.kind) {
+  case "circle": {
+    const r = _shape.radius;
+    return Math.PI * r ** 2;
+  }
+  case "square": { ... }
+  case "rect": { ... }
+}
+```
+
+Each arm is still tested in full inside its `case` — extra literal/array/nested sub-patterns and guards included — and an arm that doesn't match falls through to the next arm with the same tag, then to the catch-all / `.else()` / `MatchError`. Every arm's bindings live in their own block, so two arms may bind the same name.
+
+Here every variant has an arm with nothing left to test, so the switch can't fall out of a `case`: there is no `break;` after an arm that returns, and no `throw new MatchError(_shape)` after the switch (nor the runtime import of `@typesugar/std` it needed); a value outside the type (an `any` cast) leaves the switch and the match is `undefined`, as with a hand-written exhaustive switch. When an arm can fall through (a guard, an optional field's `in` test, a sub-pattern) and no later arm for that tag always returns, the `case` ends in `break;`, and the match ends in the catch-all, `.else()` or `throw new MatchError(_shape)`. The throw also stays when the scrutinee may be `null` or isn't a union of variants (`any`, an open object type).
+
+The tag says which variant the value is, so a field that variant requires is read with no test (`radius` above). A field gets a `"field" in _shape` test only when it is optional in that variant, or when the tag doesn't pick out one variant (two variants share it, or the scrutinee's type isn't a discriminated union).
+
+When TypeScript has narrowed the scrutinee (`const c: Shape = { kind: "circle", radius: 1 }` is the circle variant from there on), the const is asserted back to the declared type, `const _c = c as Shape;`, so the expansion type-checks as you wrote it: the `"square"` case is not "unreachable" to TypeScript. The assertion is erased from the JavaScript.
 
 ### Type Patterns
 
@@ -222,6 +266,11 @@ match(value)
 | `MyClass(v)`    | `__m instanceof MyClass`                                                |
 | `Some(v)`       | Built-in extractor (see below)                                          |
 
+A type pattern takes one argument, the whole value. `MyClass(a, b)` binds fields only when
+`MyClass` has a `Destructure` instance (see [Custom Extractors](#custom-extractors)); without
+one it is an error, as is a type pattern whose name is not a class or built-in constructor (an
+interface with a factory function, say), whose `instanceof` would throw or test nothing.
+
 ### OR Patterns
 
 Match multiple alternatives with the same handler:
@@ -248,7 +297,7 @@ match(status)
 
 Alternatives inside `.or()` can't bind variables (same restriction as Scala) — doing so is a compile error. Bind the matched value with `.as()` instead: `.case(200).or(201).as(code).then(code)`.
 
-**Compiles to:** `if (__m === 200 || __m === 201 || __m === 204) return "success";` inside the match IIFE.
+**Compiles to:** `if (__m === 200 || __m === 201 || __m === 204) return "success";` inside an IIFE (this match needs one because its last arm binds `code`; an `.or()` match whose arms bind nothing becomes a conditional chain, see [Code Generation Strategies](#code-generation-strategies)).
 
 ### AS Patterns (Bind Whole While Destructuring)
 
@@ -313,10 +362,12 @@ match(data)
 
 ### Extractor Patterns
 
-Match `@typesugar/fp`'s `Option`, `Either` and `List` with the built-in extractors —
-typesugar's equivalent of Scala's `unapply`. They test fp's real representations:
-`Some(v)` matches a non-null value and binds it, `None` matches `null`, `Left(e)` /
-`Right(v)` test for a `left` / `right` field.
+Match `@typesugar/fp`'s `Option`, `Either`, `List` and `Validated` with their
+constructors — typesugar's equivalent of Scala's `unapply`. Each constructor's extractor
+is a `Destructure` instance that fp ships next to the type (see
+[Custom Extractors](#custom-extractors)), so it tests fp's real representation: `Some(v)`
+matches a non-null value and binds it, `None` matches `null`, `Left(e)` / `Right(v)` test
+for a `left` / `right` field. The test is inlined; nothing is called at run time.
 
 ```typescript
 import { match } from "@typesugar/std";
@@ -344,25 +395,158 @@ match(either)
 // eith(Left("bad")) → "Error: bad", eith(Right(3)) → "Positive: 3"
 ```
 
-Some + None, Left + Right and Cons + Nil each cover their type, so these matches need no
-`.else()`.
+Some + None, Left + Right, Cons + Nil and Valid + Invalid each cover their type, so these
+matches need no `.else()`.
 
-Built-in extractors:
+`@typesugar/fp`'s extractors:
 
-| Extractor   | Input                     | Extracts        |
-| ----------- | ------------------------- | --------------- |
-| `Some(v)`   | `Option<T>`               | `T`             |
-| `None`      | `Option<T>`               | (boolean match) |
-| `Left(v)`   | `Either<L, R>`            | `L`             |
-| `Right(v)`  | `Either<L, R>`            | `R`             |
-| `Cons(h,t)` | `List<T>`                 | `T`, `List<T>`  |
-| `Nil`       | `List<T>`                 | (boolean match) |
-| `Ok(v)`     | `{ ok: true; value: T }`  | `T`             |
-| `Err(e)`    | `{ ok: false; error: E }` | `E`             |
+| Extractor    | Input             | Test           | Extracts       |
+| ------------ | ----------------- | -------------- | -------------- |
+| `Some(v)`    | `Option<T>`       | `v != null`    | `T`            |
+| `None`       | `Option<T>`       | `v == null`    | (nothing)      |
+| `Left(e)`    | `Either<E, A>`    | `"left" in v`  | `E`            |
+| `Right(a)`   | `Either<E, A>`    | `"right" in v` | `A`            |
+| `Cons(h, t)` | `List<T>`         | `v != null`    | `T`, `List<T>` |
+| `Nil`        | `List<T>`         | `v == null`    | (nothing)      |
+| `Valid(a)`   | `Validated<E, A>` | `"value" in v` | `A`            |
+| `Invalid(e)` | `Validated<E, A>` | `"error" in v` | `E`            |
 
-When the scrutinee's type has a `_tag` property (Effect's `Option`/`Either`, or your own
-`{ _tag: "Some"; value }` union), `Some`/`None`/`Left`/`Right`/`Cons`/`Nil` test `_tag`
-instead and read the payload from `value` (`head`/`tail` for `Cons`).
+The extractor follows the constructor, not its name: a `Some` from another library (or
+your own) needs its own instance, and a name with no instance in scope is a type pattern
+(`instanceof Some`). For a `_tag` union (Effect-style) or an `{ ok: true; value }` result,
+declare instances with `@destructure _tag = "Some" -> value` or
+`@destructure ok = true -> value`, or use an object pattern (`{ _tag: "Some", value: v }`).
+
+---
+
+## Statement form: `match: switch`
+
+`match()` is an expression, so an arm can't loop, `return` from the enclosing function,
+`break`, `continue` or `throw`. For code like that, put a `match:` label on a `switch`. The
+arm bodies stay where they are, with plain switch control flow, and the macro adds the
+exhaustiveness check and patterns:
+
+```typescript
+import "@typesugar/std/syntax/match"; // activates match: in this file
+
+match: switch (geom.type) {
+  case "Point":
+    callback(geom.coordinates);
+    break;
+  case "LineString":
+  case "MultiPoint":
+    for (const c of geom.coordinates) if (callback(c) === false) return false;
+    break;
+  case "Polygon":
+    return polygon(geom);
+}
+// error TS9226: Non-exhaustive match — missing cases: "MultiLineString", "MultiPolygon", ...
+```
+
+**Literal cases** (literals, `const`s, enum members) compile to the same switch with the
+label removed. Nothing is added, so the JavaScript is byte-for-byte the hand-written
+switch, and the activation import is removed from the output too. `break`, `return`,
+`continue`, `throw` and fallthrough mean what they always mean. `break match;` (from a loop
+inside a case, say) leaves the switch: when a case names the label, the output keeps it, in
+every form below.
+
+**`default:`** covers the remaining values and turns the check off, as `.else()` does. A
+`default:` that only `throw`s is a safety net for values outside the type (untyped input),
+so it keeps the check on: a member added to the union later is still a compile error, not a
+runtime throw. A `default:` that does more, after cases that already cover the type, is
+reported as unreachable (a warning).
+
+### Destructuring cases
+
+Switch on the whole value and write a pattern in each `case`:
+
+```typescript
+match: switch (geom) {
+  case { type: "Point", coordinates: [x, y] }:
+    draw(x, y);
+    break;
+  case { type: "LineString", coordinates }:
+    for (const [x, y] of coordinates) draw(x, y);
+    break;
+  case { type: "Polygon" }:
+    fill(geom);
+    break;
+}
+```
+
+Patterns that share a discriminant compile to a switch on it, with the bindings in a block
+per case:
+
+```typescript
+switch (geom.type) {
+  case "Point": {
+    const [x, y] = geom.coordinates;
+    draw(x, y);
+    break;
+  }
+  case "LineString": {
+    const coordinates = geom.coordinates;
+    for (const [x, y] of coordinates) draw(x, y);
+    break;
+  }
+  case "Polygon":
+    fill(geom);
+    break;
+}
+```
+
+- The discriminant is the only thing tested. The rest of the pattern **destructures**:
+  `coordinates: [x, y]` reads the first two elements whatever the length, as
+  `const [x, y] = …` does. So a literal below the top level (`{ kind: "a", inner: { tag: "x" } }`)
+  is an error; test it in the case body, or use the fluent `match()`, which tests every
+  sub-pattern.
+- A field the variant declares optional is read like any other (`undefined` when missing), so
+  `case { k: "b", extra }:` covers the `b` variant. The fluent form tests that it is present.
+- Several names, rest and nesting go in one declaration: `case { kind: "rect", w, h, style: { fill } }:`
+  becomes `const { w, h, style: { fill } } = s;`, and `{ kind: "circle", ...rest }` binds the
+  properties other than `kind`.
+- Bindings are scoped to their case. A case that binds names must have its own statements
+  (one that falls through with no body would never see them).
+- A scrutinee that isn't an identifier or `this` is read once into a `const` first
+  (`match: switch (feature.geometry)` → `const _geometry = feature.geometry;`).
+- There are no guards: `case P if cond` isn't valid syntax, and `case P: if (!cond) break;`
+  would leave the switch rather than try the next case. Test the condition in the body.
+
+**Extractors** work as in the fluent form: `case Some(v):` / `case None:`, `Left`/`Right`,
+`Cons`/`Nil`, `Valid`/`Invalid`, and your own instances. One whose descriptor tests a
+discriminant (`_tag = "Some"`, `ok = true`) uses the
+discriminant switch. fp's untagged ones (Option is `A | null`) have no discriminant, and
+neither do patterns mixed with `case null:` or patterns with no shared literal property.
+Those compile to `switch (true)`, an if/else chain that keeps switch semantics:
+
+```typescript
+// opt: Option<number>
+match: switch (opt) {
+  case Some(v):
+    use(v);
+    break;
+  case None:
+    skip();
+    break;
+}
+// switch (true) { case opt != null: { const v = opt as unknown as number; use(v); break; } case opt == null: skip(); break; }
+```
+
+fp's `Option` is `@opaque`: to the type checker it is an interface, which `opt != null`
+doesn't narrow, so `Some(v)` asserts `v` to the payload type that the instance's `extract`
+declares (`number` here). Without that, `v` would be an `Option<number>` in the expanded
+code and `v * 2` would fail strict type-checking.
+
+`case Point(x, y):` works for any constructor with a `Destructure` instance in scope (see
+[Custom Extractors](#custom-extractors)); one without a descriptor has its `extract` called
+once per test. Array patterns at the top level (test a length) and type tests (`String(s)`)
+are fluent-only.
+
+The label without the import is an ordinary JavaScript label on a plain switch, and the
+transformer warns (TS9224). Plain `tsc` accepts the literal form as written (a labelled
+switch is valid JavaScript; under `allowUnusedLabels: false` it reports TS7028). Names bound
+by destructuring cases are undeclared to plain `tsc` (TS2304), as in the fluent form; the
+editor plugin and `typesugar check` don't report them.
 
 ---
 
@@ -380,9 +564,11 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue
 | Pattern Domain                   | Exhaustiveness Rule            |
 | -------------------------------- | ------------------------------ |
 | Discriminated union              | All variants must be covered   |
+| A union narrowed to one variant  | Its arm must cover it          |
 | Literal union (`"a" \| "b"`)     | All values must be covered     |
 | Boolean                          | Both `true` and `false`        |
 | Option / Either / List           | All variant extractors present |
+| Tuple (`[number, string]`)       | An arm of its length, bindings |
 | `string`, `number`, arrays, etc. | Requires `_` or `.else()`      |
 | `unknown` / `any`                | Requires `_` or `.else()`      |
 
@@ -401,22 +587,217 @@ match(bigUnion)
 
 ### Runtime Safety Net
 
-Even with compile-time exhaustiveness, the generated code includes a terminal throw:
+When the patterns can't prove that every value of the type matched, the generated code ends in a terminal throw:
 
 ```typescript
 throw new MatchError(__m); // "Non-exhaustive match: <value>"
 ```
 
-`MatchError` extends `Error` and has a `.value` property with the unmatched value. This catches cases where the type is widened at runtime (e.g. via `any` or external data).
+`MatchError` extends `Error` and has a `.value` property with the unmatched value. This catches cases where the type is widened at runtime (e.g. via `any` or external data). It is imported from `@typesugar/std`, so code that keeps the throw depends on that package at runtime.
+
+Arms that cover the type get no throw: the arm that completes the coverage has no test and nothing follows it, so a value outside the type takes that arm. That covers a literal union matched by literal arms (`x === "ok" ? 200 : 500` below; in the 7+ literal `switch` the last arm is the `default:`) and extractors that cover their type: `Some`/`None`, `Left`/`Right`, `Cons`/`Nil`, `Valid`/`Invalid`, and one derived extractor per variant of a union. For example:
+
+```typescript
+match(o)
+  .case(Some(v))
+  .then(v * 2)
+  .case(None)
+  .then(0);
+// (() => { const _o = o; if (_o != null) { const v = _o as unknown as number; return v * 2; } return 0; })()
+```
+
+Object patterns on a discriminated union (`{ kind: "circle", r }`, compiled to the discriminant switch) have no throw either when every variant has an arm with no guard and nothing left to test (see [Discriminated Union Patterns](#discriminated-union-patterns)). The same goes for an arm that takes every value (`_`, a binding) at the end of a match compiled to an `if` chain, and for the object-handler form `match(value, { ... })` with a handler for every member of a literal union or every variant: its last handler is called with no test.
 
 ---
 
 ## Custom Extractors
 
-Not yet supported: user-defined extractors (a `Destructure` instance such as
-`Email({ user, domain })`, or an auto-derived `Point(x, y)` for an interface) are not
-recognised. `Name(...)` with an unknown `Name` compiles to an `instanceof Name` type
-pattern. Use an object pattern (`.case({ x, y })`) or a guard instead.
+An extractor is a `Destructure` instance (`@typesugar/std`; Scala's `unapply`) for a
+constructor. `Name(...)` in a pattern resolves the instance for `Name` by its symbol, from
+the current file, the modules it imports, or the module that declares `Name` itself, so an
+instance that ships next to its type needs no import of its own.
+
+### Deriving them: `@derive(Destructure)`
+
+For your own types, derive the extractors:
+
+```typescript
+/** @derive(Destructure) */
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** @derive(Destructure) */
+export type Shape =
+  | { kind: "circle"; r: number }
+  | { kind: "rect"; w: number; h: number }
+  | { kind: "empty" };
+
+const area = (s: Shape) =>
+  match(s)
+    .case(Circle(r))
+    .then(Math.PI * r * r)
+    .case(Rect(w, h))
+    .then(w * h)
+    .case(Empty)
+    .then(0);
+
+const p = Point(1, 2); // the extractor also builds one
+```
+
+The derive adds, next to the type, a **constructor function** per extractor (the value the
+pattern names, like a Scala case class's `apply`) and its `Destructure` instance:
+
+```typescript
+export function Point(x: number, y: number): Point {
+  return { x, y };
+}
+/**
+ * @impl Destructure<typeof Point, Point, [number, number]>
+ * @destructure always -> x, y
+ */
+export const destructurePoint = { extract: (v: Point): [number, number] => [v.x, v.y] };
+
+export function Circle(r: number): { kind: "circle"; r: number } {
+  return { kind: "circle", r };
+}
+/**
+ * @impl Destructure<typeof Circle, Shape, number>
+ * @destructure kind = "circle" -> r
+ */
+export const destructureCircle = { extract: (v: Shape): number | undefined => ... };
+// ... Rect(w, h), Empty()
+```
+
+Patterns compile to the field reads and discriminant tests, and never reference the
+function or the instance, so a bundler drops both when only patterns use them:
+
+```typescript
+// match(s).case(Circle(r)).then(...)        →  if (_s.kind === "circle") { const r = _s.r; ... }
+// match: switch (s) { case Circle(r): ... }  →  switch (s.kind) { case "circle": { const r = s.r; ... } }
+```
+
+The rules:
+
+- **A product** (an interface or an object type alias) gets one extractor named after the
+  type, binding its fields in declaration order. Methods aren't fields: a type with methods
+  is an error, since a constructor function couldn't build one.
+- **A discriminated union** gets one extractor per variant, binding the variant's fields
+  other than the discriminant, in declaration order. A variant declared as its own
+  interface (`type Result = Ok | Err`) keeps its name. An inline variant is named from its
+  tag in PascalCase: `"circle"` is `Circle`, `"line-string"` and `"line_string"` are
+  `LineString`.
+- **The discriminant** is the one field that has a different string or boolean literal type
+  in every variant.
+- Matches over the union are exhaustive without `.else()` when every variant has a case.
+
+Anything ambiguous is a compile error, not a guess:
+
+- two discriminant candidates (`kind` and `type`);
+- an inline variant with a boolean tag (name it with an interface), or a tag that makes no
+  name (`"2d"`), or two tags that make the same name;
+- an `extends` clause (do inherited fields come first?);
+- a name that something already has, including a global: a variant `{ kind: "error" }`
+  would shadow `Error` in the module;
+- a named variant with `@derive`s of its own declared before the union: TypeScript requires
+  the function to come before the namespace those derives add (TS2434), so declare the
+  union first;
+- a class (it has a constructor already: write its instance by hand, below).
+
+The function merges with the type and with the companion namespace other derives add
+(`@derive(Eq, Destructure)` gives `Point(1, 2)` and `Point.Eq`). The extractors work from
+other files (`import { Circle } from "./shape"`), and a library's `.d.ts` declares the
+functions and the instances with their `@destructure` tags, so its consumers' patterns
+are inlined too.
+
+**Types you don't own** (a library's `Feature`, `Point`, ...) can't take a derive, and
+`derived<Destructure<T>>()` doesn't apply: an extractor needs a value to name in the
+pattern and a descriptor on that value's declaration, which an expression can't provide.
+Write the instance by hand instead.
+
+### Writing them by hand
+
+```typescript
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+export function Point(x: number, y: number): Point {
+  return { x, y };
+}
+
+/**
+ * @impl Destructure<typeof Point, Point, [number, number]>
+ * @destructure always -> x, y
+ */
+export const destructurePoint = { extract: (p: Point): [number, number] => [p.x, p.y] };
+
+match(p)
+  .case(Point(x, y))
+  .then(x + y);
+// const x = _p.x; const y = _p.y; return x + y;  (no extract() call)
+```
+
+**`@destructure`** tells the macro what `extract` does, so it inlines the test and the
+field reads and never calls the instance. It is data in a JSDoc tag, so it survives `.d.ts`
+emit and works for a library's instances, whose bodies a consumer's build can't see:
+
+| Descriptor             | Test                  | Binds                    |
+| ---------------------- | --------------------- | ------------------------ |
+| `not-null -> self`     | `v != null`           | the value itself¹        |
+| `null`                 | `v == null`           | nothing (`None`)         |
+| `has left -> left`     | `"left" in v`         | `v.left`                 |
+| `kind = "circle" -> r` | `v.kind === "circle"` | `v.r`                    |
+| `ok = true -> value`   | `v.ok === true`       | `v.value`                |
+| `always -> x, y`       | none                  | `v.x`, `v.y` (a product) |
+
+¹ Asserted to the payload type `extract` returns (`v as unknown as A`) when the value's
+own type doesn't narrow to it, as with an `@opaque` type like fp's `Option`.
+
+The descriptor must agree with `extract`: the macro trusts it.
+
+For a type from another package, name the extractor yourself:
+
+```typescript
+import type { Geometry, Point, Position } from "geojson";
+
+export function GeoPoint(coordinates: Position): Point {
+  return { type: "Point", coordinates };
+}
+/**
+ * @impl Destructure<typeof GeoPoint, Geometry, Position>
+ * @destructure type = "Point" -> coordinates
+ */
+export const destructureGeoPoint = {
+  extract: (g: Geometry) => (g.type === "Point" ? g.coordinates : undefined),
+};
+
+match(geometry)
+  .case(GeoPoint([x, y]))
+  .then(x + y)
+  .else(0);
+```
+
+**Without a descriptor** the instance's `extract` is called once, and the result is
+destructured (a tuple for several arguments, the value itself for one):
+
+```typescript
+/** @impl Destructure<typeof Email, string, { user: string; domain: string }> */
+export const destructureEmail = {
+  extract(s: string) {
+    const at = s.indexOf("@");
+    return at > 0 ? { user: s.slice(0, at), domain: s.slice(at + 1) } : undefined;
+  },
+};
+
+match(input).case(Email({ user, domain })).then(`${user} at ${domain}`).else("invalid");
+// const _ext = destructureEmail.extract(_input); if (_ext !== undefined) { const user = _ext.user; ... }
+```
+
+The instance is imported where it is needed. A class with no instance in scope is a type
+pattern (`instanceof Name`) with one argument; more arguments, or a name that is not a class,
+are an error. Both forms work in a `match:` switch.
 
 ---
 
@@ -454,13 +835,17 @@ error: Pattern "pending" can never match type "ok" | "fail"
 
 ### Code Generation Strategies
 
-| Shape                                                     | Output                                           |
-| --------------------------------------------------------- | ------------------------------------------------ |
-| Scrutinee type is a single literal (see above)            | The chosen arm's expression, nothing else        |
-| One plain literal arm + `.else()`                         | Ternary: `x === lit ? a : b`                     |
-| 7+ plain literal arms                                     | `switch` in an IIFE                              |
-| Object patterns sharing one literal discriminant property | `switch` on the discriminant in an IIFE          |
-| Anything else                                             | `if` chain in an IIFE (scrutinee evaluated once) |
+| Shape                                                                               | Output                                                         |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Scrutinee type is a single literal (see above)                                      | The chosen arm's expression, nothing else                      |
+| Arms that bind nothing, ending in `.else()`, `_` or full coverage, on an identifier | Conditional chain: `x === a ? r1 : x === b ? r2 : r3`, no IIFE |
+| 7+ plain literal arms                                                               | `switch` in an IIFE                                            |
+| Object patterns sharing one literal discriminant property                           | `switch` on the discriminant in an IIFE                        |
+| Anything else                                                                       | `if` chain in an IIFE (scrutinee evaluated once)               |
+
+"Arms that bind nothing" are plain literals (`.or()` allowed) and extractors with no bindings (`None`, `Nil`, `Some(_)`), with no guard or `.as()`: `match(o).case(None).then("none").case(Some(_)).then("some")` compiles to `o == null ? "none" : "some"`. An arm that binds a name needs a block for its `const`, so it keeps the IIFE.
+
+The conditional chain needs an identifier (or `this`) scrutinee when it tests more than one literal, or tests an extractor at all (an extractor's test may read it more than once), because it reads the scrutinee once per test; a property access could be a getter, so `match(obj.kind)` with several literal arms keeps the IIFE, which reads it once. Bind it to a local first (`const k = obj.kind`) to get the chain.
 
 If any arm, guard, `.else()` or the scrutinee contains `await`, the IIFE becomes `await (async () => { ... })()`. A `yield` can't be moved into an arrow function, so a `yield` in a match that needs an IIFE is a compile error — compute the value before the match.
 
@@ -591,11 +976,50 @@ function evaluate(expr: Expr, env: Record<string, number>): number {
 
 ---
 
-## IDE Experience
+## Editors and tools that read unexpanded source
 
-The fluent API uses compile-time macros, so your editor's TypeScript language service won't recognise pattern variables (`r`, `s`, `w`, `h` in the examples above) as declared bindings. **You'll see red squiggles on those identifiers — this is expected.** The macro rewrites them into valid JavaScript at build time.
+With typesugar's language-service plugin, the editor checks the expanded code, so pattern
+variables (`r`, `s`, `w`, `h` above) are declared bindings there: no red squiggles, and
+hover shows their types. `typesugar check` and `typesugar build` hide the same errors, and
+type-check each chain's expansion instead, so a pattern variable used at the wrong type is
+reported at the line you wrote:
 
----
+```typescript
+// shape: the Shape of Discriminated Union Patterns
+match(shape)
+  .case({ kind: "circle", radius: r })
+  .then(r.toUpperCase()) // error TS2339: Property 'toUpperCase' does not exist on type 'number'.
+  .case({ kind: "square", side: s })
+  .then(s ** 2)
+  .case({ kind: "rect", w, h })
+  .then(w * h);
+```
+
+A pattern variable that is also the name of an outer declaration (the enclosing function,
+a variable of yours, a DOM global such as `name`) is that declaration to TypeScript before
+expansion: in `function len(s: Seg) { return match(s).case({ kind: "line", len }).then(len + 1)… }`,
+`len + 1` is checked as the function plus one. `typesugar check` and `build` hide the
+errors that come from the outer declaration's type, and the expansion check reports a
+wrong use of the binding (`len.toUpperCase()` on the number) as above.
+
+Plain `tsc`, typescript-eslint, typedoc and similar tools type-check the source **as
+written**. For them `@typesugar/std` types the fluent chain, so that:
+
+- a match with literal arms and `.else()` type-checks, and its value is the union of the
+  arm results (literal for a `const`, widened for a `let`, as for the conditional the
+  macro emits);
+- a chain that ends in `.then()` is typed `R & FluentMatch<…>`, because TypeScript can't
+  tell which `.then()` is the last. It is assignable wherever `R` is. A `null` or
+  `undefined` result stays in the type, so `match(t).case("A").then("a").case("B").then(undefined)`
+  is `… | undefined`;
+- after an arm whose result may be `null` or `undefined`, the next `.case()` is "possibly
+  null" (TS2531 / TS18047) to plain `tsc`. Put that arm last, or end with `.else()`;
+- names bound by a pattern are undeclared identifiers to plain `tsc` (TS2304), whatever the
+  types say. Exhaustiveness is checked only by the macro.
+
+So code that plain `tsc` must accept should use literal arms and `.else()`. Check code with
+binding patterns with `typesugar check`, and check a library's public types against its
+emitted `.d.ts` rather than its source.
 
 ## Learn More
 

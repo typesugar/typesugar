@@ -66,12 +66,76 @@ function findHandler(
   return hasOwn(handlers, "_") ? handlers._ : undefined;
 }
 
+// ============================================================================
+// Types of the fluent chain for tools that check UNEXPANDED source
+// ============================================================================
+//
+// The transformer replaces a whole `match(x).case(...).then(...)` chain, so
+// none of these types exist in the expanded program. They are what plain
+// `tsc`, tsup's own `.d.ts` step, typescript-eslint, typedoc and anything
+// else that type-checks the source as written see (Turf case study, F20).
+// The chain used to be typed `never`, so every fluent match failed there
+// with "Property 'case' does not exist on type 'never'".
+//
+// What they give: literal and `.else()` arms type-check, and the chain's
+// value is the union of its arm results. What they can't give:
+// - Names bound by a pattern (`.case({ kind: "circle", radius: r })`) are
+//   undeclared identifiers to plain tsc (TS2304), whatever these types say.
+// - Exhaustiveness. TypeScript can't tell which `.then()` is the last, so the
+//   chain's value after every `.then()` is also the chain (`R & FluentMatch`).
+//   For the same reason `null`/`undefined` results are kept out of that
+//   intersection (it would collapse to `never`) and unioned beside it. A
+//   chain that goes on after an arm whose result may be `null`/`undefined`
+//   is therefore "possibly null" (TS2531/TS18047) to plain tsc: put that arm
+//   last or end the chain with `.else()`. typesugar's own checks suppress it.
+
 /**
- * Runtime match function.
+ * The fluent `match(x)` chain, as tools that type-check unexpanded source
+ * see it. `R` is the union of the arm results so far.
+ */
+export interface FluentMatch<T, R = never> {
+  /** Start an arm. The pattern is checked by the macro, not by these types. */
+  case(pattern: unknown): FluentMatchCase<T, R>;
+  /** The value for every case the arms above don't cover. Ends the chain. */
+  else<V>(value: V): R | V;
+}
+
+/** An arm between `.case()` and `.then()`. */
+export interface FluentMatchCase<T, R> {
+  /** Another pattern for the same arm. */
+  or(pattern: unknown): FluentMatchCase<T, R>;
+  /** Bind the whole matched value. */
+  as(binding: unknown): FluentMatchCase<T, R>;
+  /** A guard: the arm matches only when it is truthy. */
+  if(guard: unknown): FluentMatchCase<T, R>;
+  /** The arm's result. */
+  then<V>(value: V): FluentMatchArms<T, R | V>;
+}
+
+/**
+ * The value of a chain that ends in `.then()`: the arm results so far, which
+ * can also be continued with `.case()` / `.else()`. Nullish results sit
+ * outside the intersection, which would otherwise collapse to `never`.
+ */
+export type FluentMatchArms<T, R> = [R] extends [never]
+  ? FluentMatch<T, never>
+  : (NonNullable<R> & FluentMatch<T, R>) | Extract<R, null | undefined>;
+
+/**
+ * Pattern matching.
  *
- * Two forms:
+ * Two expression forms:
  * 1. `match(value, handlers)` — discriminated union or literal dispatch (runtime)
- * 2. `match(value)` — fluent chain (macro-only, requires transformer)
+ * 2. `match(value).case(...).then(...).else(...)` — fluent chain (macro-only,
+ *    requires transformer), exhaustiveness-checked. Extractor patterns
+ *    (`.case(Some(v))`) resolve a `Destructure` instance by the constructor's
+ *    symbol.
+ *
+ * For arms that need statements (`return`, `break`, loops), the statement form
+ * is a `match:` label on a `switch`, activated by
+ * `import "@typesugar/std/syntax/match"`.
+ *
+ * @see https://typesugar.org/guides/pattern-matching
  */
 // Overload: discriminated union with `kind` property
 export function match<T extends { kind: string }, R>(
@@ -89,8 +153,8 @@ export function match<T extends string | number, R>(
   value: T,
   handlers: Partial<Record<string & T, (value: T) => R>> & { _?: (value: T) => R }
 ): R;
-// Overload: fluent chain (macro-only)
-export function match(value: unknown): never;
+// Overload: fluent chain (macro-only; typed for tools that read unexpanded source)
+export function match<T>(value: T): FluentMatch<T>;
 // Implementation
 export function match(value: any, handlers?: Record<string, any>, discriminant?: string): any {
   if (handlers === undefined) {

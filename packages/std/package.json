@@ -300,6 +300,16 @@
         "types": "./dist/syntax/do.d.cts",
         "default": "./dist/syntax/do.cjs"
       }
+    },
+    "./syntax/match": {
+      "import": {
+        "types": "./dist/syntax/match.d.ts",
+        "default": "./dist/syntax/match.js"
+      },
+      "require": {
+        "types": "./dist/syntax/match.d.cts",
+        "default": "./dist/syntax/match.cjs"
+      }
     }
   },
   "typesugar": {

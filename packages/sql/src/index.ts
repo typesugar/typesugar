@@ -198,7 +198,7 @@ export {
 // ============================================================================
 // Query Builder DSL (runtime)
 // ============================================================================
-// The compile-time SQL macros (`sql`, `sql$`/`@schema`, `@deriving(Meta|Read|
+// The compile-time SQL macros (`sql`, `sql$`/`@schema`, `@derive(Meta|Read|
 // Write|Codec)`), `validateSqlSyntax`, and `registerSchema` import `typescript`
 // and live in the `./macros` entry (PEP-050) — NOT in this runtime `.` entry.
 

@@ -9,12 +9,13 @@ import type { List } from "@typesugar/fp";
 const nums = Cons(1, Cons(2, Cons(3, Nil)));
 const pets = listOf("cat", "dog", "fish");
 
-// 👀 Check JS Output — match() compiles to ternary chains
+// Cons(h, t) and Nil are extractors: fp ships a Destructure instance for each,
+// and together they cover List, so no .else() is needed.
+// 👀 Check JS Output — the patterns compile to null checks and field reads
 function sum(list: List<number>): number {
   return match(list)
-    .case(null).then(0)
-    .case({ head: h, tail: t }).then(h + sum(t))
-    .else(0);
+    .case(Nil).then(0)
+    .case(Cons(h, t)).then(h + sum(t));
 }
 console.log("sum:", sum(nums)); // 6
 

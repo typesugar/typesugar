@@ -88,7 +88,8 @@ Operators (`+`, `-`, `*`, `/`, etc.) dispatch to typeclass methods via `@op` JSD
 
 ### Typeclasses (`@typesugar/typeclass`)
 
-Scala 3-style typeclass system with `@typeclass`, `@instance`, `@derive`, and `summon()`.
+Scala 3-style typeclass system with `@typeclass`, `@impl`, `@derive`, `derived()`
+(for types you don't own) and `summon()`.
 
 ### Zero-Cost Abstractions
 
@@ -123,7 +124,15 @@ import typesugar from "typesugar/esbuild";
 
 // Rollup
 import typesugar from "typesugar/rollup";
+
+// tsup: the esbuild plugin, plus `dts: true` from the expanded program
+import { withTypesugar } from "typesugar/tsup";
+export default defineConfig(withTypesugar({ entry: ["src/index.ts"], dts: true }));
 ```
+
+To run TypeScript with macros in Node (scripts, tsx, `node --test`), use the module
+hooks: `node --import typesugar/register src/main.ts`. See
+[Node.js, tsx and node:test](https://typesugar.org/getting-started/environments/node).
 
 ## CLI
 
@@ -152,12 +161,20 @@ npx typesugar expand src/file.ts
 ### Root entry (`typesugar`)
 
 - Placeholders for the built-in macros: `comptime`, `derive`, `pipe`, `compose`, `flow`,
-  `typeclass`, `impl`, `instance`, `summon`, `summonAll`, `extend`, `implicit`,
+  `typeclass`, `impl`, `instance`, `summon`, `summonAll`, `derived`, `extend`, `implicit`,
   `extension`, `reflect`, `typeInfo`, `fieldNames`, `validator`, `cfg`, `cfgAttr`,
   `includeStr`, `includeText`, `includeBytes`, `includeJson`, `staticAssert`,
   `compileError`, `compileWarning`, `tailrec`, `hkt`. These are runtime stubs the
   transformer replaces; they are functions, not namespaces.
-- Derive markers: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`.
+- `derived<TC<T>>()` declares an instance derived from a type's structure, for a type you
+  can't put `@derive` on (one from a library):
+  `export const cloneFeature = derived<Clone<Feature>>();`. The const is the instance, found
+  by `summon`, `= implicit()` and method syntax wherever its module is imported.
+- Derive markers: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`,
+  `Show`, `Semigroup`, `Monoid`. Each one with a typeclass interface is also that
+  typeclass as a type (`@typesugar/std`'s, and `@typesugar/fp`'s `Show`), so one import
+  serves both `@derive(Clone)` and `summon<Clone<Point>>()`. `Default` and `TypeGuard`
+  are values only.
 - `defineConfig(cfg)` — typed helper for `typesugar.config.ts`.
 - All `@typesugar/core` types (`MacroContext`, `MacroDefinition`, ...), as types only.
 - `registerAllMacros()` — deprecated no-op, kept for compatibility. The transformer loads

@@ -39,6 +39,11 @@ name. Listing `@typesugar/ts-plugin` in `tsconfig.json` (after installing it) lo
 engine; if a project ends up with both names, the plugin loads once and the second load does
 nothing. See [Editor Setup](https://typesugar.org/getting-started/editor-setup) for each editor.
 
+The plugin runs the project's macro packages as you type. Editors other than VS Code load
+`tsconfig.json` plugins without asking whether you trust the project; in VS Code, the extension
+is off in Restricted Mode. See
+[Security](https://typesugar.org/SECURITY#opening-an-untrusted-repository-in-your-editor).
+
 ### Options
 
 | Option    | Type      | Default | Description                          |

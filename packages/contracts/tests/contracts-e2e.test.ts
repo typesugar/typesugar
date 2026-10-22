@@ -249,6 +249,55 @@ export class Bad { size = 0; }
     expect(() => new Bad()).toThrow("size must be positive");
   });
 
+  it("a @contract method of an @invariant class keeps its requires:/ensures: and old()", () => {
+    // Before: @invariant wrapped each method body in try/finally first, so the
+    // method's `ensures:` block was no longer a top-level statement when
+    // @contract expanded it, and old() in it was "old() can only be used
+    // inside an ensures: block" (contracts-example.ts, BankAccount).
+    for (const decorated of ["@contract", ""]) {
+      const r = transform(`
+import "@typesugar/contracts/syntax";
+import { contract, invariant, old } from "@typesugar/contracts";
+@invariant((self) => self.balance >= 0, "Balance must be non-negative")
+export class Account {
+  balance = 0;
+  ${decorated}
+  deposit(amount: number): void {
+    requires: {
+      (amount > 0, "amount must be positive");
+    }
+    ensures: {
+      (this.balance === old(this.balance) + amount, "deposit adds the amount");
+    }
+    this.balance += amount;
+  }
+  ${decorated}
+  withdraw(amount: number): void {
+    ensures: {
+      this.balance === old(this.balance) - amount;
+    }
+    this.balance -= amount;
+  }
+  ${decorated}
+  buggyDeposit(amount: number): void {
+    ensures: {
+      this.balance === old(this.balance) + amount;
+    }
+    this.balance += amount + 1;
+  }
+}
+`);
+      expect(errorsOf(r), decorated).toEqual([]);
+      const { Account } = load(r.code);
+      const a = new Account();
+      a.deposit(10);
+      expect(a.balance, decorated).toBe(10);
+      expect(() => a.deposit(-1), decorated).toThrow("amount must be positive");
+      expect(() => a.buggyDeposit(1), decorated).toThrow(contracts.PostconditionError);
+      expect(() => new Account().withdraw(5), decorated).toThrow(contracts.InvariantError);
+    }
+  });
+
   it("checks construction of a derived class without its own constructor", () => {
     const r = transform(`
 import { invariant } from "@typesugar/contracts";

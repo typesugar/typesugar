@@ -65,7 +65,7 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 | [typesugar](packages/typesugar)                   | Umbrella package                                    |
 | [@typesugar/core](packages/core)                  | Macro registration and types                        |
 | [@typesugar/macros](packages/macros)              | Built-in macro implementations                      |
-| [@typesugar/transformer](packages/transformer)    | TypeScript transformer (ts-patch, CLI)              |
+| [@typesugar/transformer](packages/transformer)    | TypeScript transformer, CLI and Node loader         |
 | [unplugin-typesugar](packages/unplugin-typesugar) | Bundler plugins (Vite, esbuild, Rollup, Webpack)    |
 | [@typesugar/ts-plugin](packages/ts-plugin)        | TypeScript language service plugin (editor support) |
 
@@ -79,7 +79,7 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 | Package                                    | Description                                          |
 | ------------------------------------------ | ---------------------------------------------------- |
-| [@typesugar/typeclass](packages/typeclass) | `@typeclass`, `@instance`, `summon()`                |
+| [@typesugar/typeclass](packages/typeclass) | `@typeclass`, `@impl`, `summon()`                    |
 | [@typesugar/derive](packages/derive)       | `@derive(Eq, Clone, Debug, Json, ...)`               |
 | [@typesugar/reflect](packages/reflect)     | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 
@@ -147,7 +147,7 @@ npx typesugar run src/main.ts   # compile + run in one step
 
 Or explore in the browser: **[Interactive Playground →](https://typesugar.org/playground)** (no install).
 
-📖 **Full setup** — Vite, esbuild, Webpack, tsc/ts-patch, Bun, Vitest, editor setup, and CI — lives on the microsite: **[Getting Started → typesugar.org](https://typesugar.org/getting-started/)**.
+📖 **Full setup** — Vite, esbuild, tsup, Webpack, tsc-style builds (`typesugar build`), Bun, Vitest, Node/tsx (`node --import typesugar/register`), editor setup, and CI — lives on the microsite: **[Getting Started → typesugar.org](https://typesugar.org/getting-started/)**.
 
 ## Features
 
@@ -184,6 +184,10 @@ const p2: Point = { x: 1, y: 2 };
 p1 === p2;    // Compiles to: Point.Eq.equals(p1, p2)  → true
 p1.clone();   // Compiles to: Point.Clone.clone(p1)    → { x: 1, y: 2 }
 ```
+
+For a type you can't annotate (one from a library), declare the derived instance once in
+a module of your own, `export const cloneFeature = derived<Clone<Feature>>();`, and import
+that module where it's used.
 
 ### Type Reflection
 
@@ -374,7 +378,7 @@ src/palette.ts(15,17): error TS9001: [typesugar] [TS9001] No instance found for 
   = note:       field-check: field `x`: number — ok — number has Eq
   = note:       field-check: field `y`: number — ok — number has Eq
   = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
-  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+  = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 Every error has a code (TS9001-TS9999) with an explanation page at `https://typesugar.org/errors/<code>`, and many carry machine-applicable fixes that your IDE can apply.

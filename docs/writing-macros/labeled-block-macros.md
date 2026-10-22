@@ -83,6 +83,31 @@ warning [TS9224] 'measure:' matches the measure macro, but its label syntax is n
   = help: Add `import "my-pkg/syntax";` to activate measure: blocks in this file.
 ```
 
+If the marker module has nothing to run (a marker constant only), set
+`erasableSyntaxModule: true`: the activation import is then removed from the output
+of every file the transformer changes, so the label syntax costs no runtime import.
+
+### Labels on a `switch`
+
+A macro applies to a label on a block by default. Set `statement: "switch"` for a
+label on a `switch` instead, as std's `match: switch (x) { ... }` is:
+
+```typescript
+defineLabeledBlockMacro({
+  name: "mySwitch",
+  label: "mySwitch",
+  statement: "switch", // mainBlock.statement is a ts.SwitchStatement
+  syntaxModule: "my-pkg/syntax",
+  erasableSyntaxModule: true,
+  expand(ctx, mainBlock) {
+    return mainBlock.statement; // ...
+  },
+});
+```
+
+A label on any other statement is an ordinary JavaScript label and never reaches the
+macro, so `mySwitch: for (...)` is left alone.
+
 The examples below all use a helper that returns the block body, or reports an error:
 
 ```typescript
@@ -95,6 +120,10 @@ function blockOf(ctx: MacroContext, labeled: ts.LabeledStatement): ts.Block | un
   return undefined;
 }
 ```
+
+When a macro can't expand, it reports why and returns `mainBlock` unchanged, as the examples do.
+The transformer then keeps the block and its continuation (`recover: { ... }`, `yield: ...`) in
+the output as written, so the editor and `typesugar check` still report errors inside them.
 
 ## Tutorial: Creating `measure:`
 

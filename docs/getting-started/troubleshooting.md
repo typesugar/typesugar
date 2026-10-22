@@ -21,7 +21,7 @@ This checks your configuration and provides actionable fixes.
 approve them.
 
 **Fix:** Run `npx typesugar approve-macros` and commit the `typesugar.config.ts` it
-writes (see [End User Guide](./end-user.md#step-5-approve-the-library-s-macros)).
+writes (see [End User Guide](./end-user.md#step-4-approve-the-library-s-macros)).
 
 ### "TypeScript 7.x is not supported" {#typescript-7}
 
@@ -64,7 +64,9 @@ npm install --save-dev @typesugar/transformer
 
 ### "ts-patch: TypeScript is not patched"
 
-**Cause:** ts-patch hasn't been run, or was reset after `npm install`.
+**Cause:** You build with a ts-patched `tsc`, and ts-patch hasn't been run, or was reset
+after `npm install`. (If you don't need `tsc` itself to expand macros, you don't need
+ts-patch: build with `typesugar build` or a bundler plugin instead.)
 
 **Fix:**
 
@@ -100,30 +102,18 @@ npm update @typesugar/transformer @typesugar/core @typesugar/macros
 
 **Possible reasons:**
 
-1. Transformer not configured in `tsconfig.json`
-2. ts-patch not installed
-3. Using Bun/Deno directly (needs build step)
-4. Bundler plugin missing
+1. Building with a plain `tsc`, which doesn't expand macros
+2. Bundler plugin missing
+3. Running the source with `node`, `tsx`, `ts-node` or `node --test`, which don't expand
+   macros on their own
+4. Using Bun/Deno directly (needs build step)
 
 **Fix:**
 
-1. Check `tsconfig.json`:
+1. For tsc-style builds, replace `tsc` with `typesugar build` (see
+   [tsc Setup](./environments/tsc.md)).
 
-```json
-{
-  "compilerOptions": {
-    "plugins": [{ "transform": "@typesugar/transformer", "type": "program" }]
-  }
-}
-```
-
-2. Run ts-patch:
-
-```bash
-npx ts-patch install
-```
-
-3. For bundlers, add the plugin:
+2. For bundlers, add the plugin:
 
 ```typescript
 // vite.config.ts
@@ -131,6 +121,21 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [typesugar()],
 });
+```
+
+3. For Node and tsx, add the loader: `node --import typesugar/register src/main.ts`
+   (see [Node.js, tsx and node:test](./environments/node.md)).
+
+4. If you build with a ts-patched `tsc`, check that `tsconfig.json` has the transformer
+   entry and that ts-patch is installed (`npx ts-patch install`; see
+   [TypeScript is not patched](#ts-patch-typescript-is-not-patched)):
+
+```json
+{
+  "compilerOptions": {
+    "plugins": [{ "transform": "@typesugar/transformer", "type": "program" }]
+  }
+}
 ```
 
 ### Macros Expand But Output is Wrong
@@ -151,15 +156,8 @@ npx typesugar expand src/file.ts
 npx typesugar expand src/file.ts --diff
 ```
 
-3. Enable verbose logging:
-
-```json
-{
-  "compilerOptions": {
-    "plugins": [{ "transform": "@typesugar/transformer", "verbose": true }]
-  }
-}
-```
+3. Enable verbose logging: `npx typesugar build --verbose` (or `verbose: true` in the
+   bundler plugin's options, or in the tsconfig transformer entry under a ts-patched `tsc`).
 
 ### @derive Methods Missing ("user.clone is not a function")
 
@@ -296,6 +294,14 @@ See [Jest](./environments/jest.md).
 **Fix:** Use Webpack mode. In Next.js 16 and later, Turbopack is the default, so pass
 `--webpack` (`next dev --webpack`, `next build --webpack`); in Next.js 13–15, don't
 pass `--turbo`. See [Webpack Setup](./environments/webpack.md#important-turbopack-limitation).
+
+### tsup: `dts` Fails with TS2304 on Pattern Variables
+
+**Cause:** tsup's own `dts` step type-checks the unexpanded source, where names bound
+by a `match()` pattern are undeclared.
+
+**Fix:** Wrap the config in `withTypesugar()` from `typesugar/tsup`, which emits the
+declarations from the expanded program. See [With tsup](./environments/esbuild.md#with-tsup).
 
 ### esbuild: No Type Checking
 

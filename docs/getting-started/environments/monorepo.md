@@ -29,12 +29,10 @@ my-monorepo/
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
-    "prepare": "ts-patch install -s"
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
     "@typesugar/transformer": "^0.1.0",
-    "ts-patch": "^3.0.0",
     "typescript": "^6.0.0"
   }
 }
@@ -211,6 +209,15 @@ approve it once: run `npx typesugar approve-macros` (it writes
 `"@myorg/*"` to approve the whole scope) and commit the file. A config at the
 monorepo root covers every package below it.
 
+A bare import resolves as Node resolves it, from the importing file, so each workspace
+package's own `node_modules` (pnpm's layout) is used for its files. Approval is about
+names, so it applies when a package imports `@myorg/macros` by name. A package that
+imports the macros by a relative path (`../../macros/src/index.js`) is importing project
+code, which loads without approval (see
+[Security](../../SECURITY.md#what-typesugar-trusts)). The nearest
+`typesugar.config.*` is looked for from the tsconfig's directory up to the repository
+root, so a package's own config wins over the root's.
+
 ::: warning Known issue: `packages/<name>/` paths
 typesugar maps any source file under a `/packages/<name>/` directory to the module
 name `@typesugar/<name>` when it matches macro imports (PEP-059 P1 #18). A
@@ -312,7 +319,10 @@ turbo typecheck
 
 ## ts-patch in Monorepos
 
-ts-patch needs to patch the TypeScript installation. In monorepos:
+You only need ts-patch for a patched `tsc --build` with
+[project references](#typescript-project-references); `typesugar build` and the
+bundler plugins don't use it. ts-patch needs to patch the TypeScript installation. In
+monorepos:
 
 ### Option 1: Root-level ts-patch
 

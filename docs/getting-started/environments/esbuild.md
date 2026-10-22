@@ -5,7 +5,7 @@ This guide covers setting up typesugar with esbuild.
 ## Installation
 
 ```bash
-npm install --save-dev unplugin-typesugar @typesugar/transformer ts-patch esbuild
+npm install --save-dev unplugin-typesugar @typesugar/transformer esbuild
 ```
 
 ## Configuration
@@ -97,19 +97,51 @@ console.log("Watching for changes...");
 
 ## With tsup
 
-tsup uses esbuild internally. Configure it via `tsup.config.ts`:
+tsup uses esbuild internally. Wrap the config in `withTypesugar`, which adds the esbuild
+plugin and, with `dts`, makes tsup's declaration step work on macro code:
 
 ```typescript
 // tsup.config.ts
 import { defineConfig } from "tsup";
-import typesugar from "unplugin-typesugar/esbuild";
+import { withTypesugar } from "unplugin-typesugar/tsup"; // or "typesugar/tsup"
 
-export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["cjs", "esm"],
-  dts: true,
-  esbuildPlugins: [typesugar()],
-});
+export default defineConfig(
+  withTypesugar(
+    {
+      entry: ["src/index.ts"],
+      format: ["cjs", "esm"],
+      dts: true,
+    },
+    {
+      /* plugin options, as for typesugar() */
+    }
+  )
+);
+```
+
+### Declarations (`dts`)
+
+tsup's `dts` step runs TypeScript over the **unexpanded** source. Names bound by a
+pattern (`.case({ kind: "circle", radius: r })`) are undeclared there (TS2304), so
+`dts: true` next to the bare esbuild plugin fails the build, and other macros' types come
+out as they are before expansion.
+
+`withTypesugar` emits the declarations from the expanded program first, into
+`.tsup/typesugar-dts/`, and points tsup's `dts` step at them. tsup still bundles and names
+them as usual (`index.d.ts`, `index.d.cts`, one file per entry, `dts.resolve`,
+`dts.banner`), and they import nothing from typesugar. Type errors fail the build, as
+tsup's own step does. In watch mode the declarations are re-emitted after each rebuild.
+`experimentalDts` is not supported; use `dts`.
+
+Without the helper, turn tsup's step off and emit the declarations with the CLI after it,
+per module rather than bundled:
+
+```json
+{
+  "scripts": {
+    "build": "tsup && typesugar build --emitDeclarationOnly --declarationDir dist"
+  }
+}
 ```
 
 ## tsconfig.json

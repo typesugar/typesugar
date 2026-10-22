@@ -624,7 +624,9 @@ describe("SQL DSL Edge Cases", () => {
     it("toSnakeCase should handle camelCase", () => {
       expect(toSnakeCase("createdAt")).toBe("created_at");
       expect(toSnakeCase("userId")).toBe("user_id");
-      expect(toSnakeCase("XMLParser")).toBe("_x_m_l_parser");
+      // A run of capitals is one word (it was "_x_m_l_parser", which this
+      // test pinned: an underscore before every capital).
+      expect(toSnakeCase("XMLParser")).toBe("xml_parser");
     });
 
     it("toSnakeCase should handle already snake_case", () => {

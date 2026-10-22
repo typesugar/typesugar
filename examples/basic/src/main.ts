@@ -17,7 +17,6 @@ import {
   tailrec,
   Eq, Clone, Debug, Hash,
 } from "typesugar";
-import { match } from "@typesugar/std";
 
 // ============================================================================
 // 1. Compile-Time Evaluation
@@ -147,7 +146,7 @@ const buildInfo = comptime(() => ({
 console.log("Build info:", buildInfo);
 
 // ============================================================================
-// 6. Tail Recursion with @tailrec + match
+// 6. Tail Recursion with @tailrec
 // ============================================================================
 
 function distanceSquared(a: Vector2D, b: Vector2D): number {
@@ -160,13 +159,10 @@ function distanceSquared(a: Vector2D, b: Vector2D): number {
 function closestPoint(q: Vector2D, points: Vector2D[]): Vector2D | null {
   @tailrec
   function go(pts: Vector2D[], best: Vector2D | null): Vector2D | null {
-    return match(pts)
-      .case([]).then(best)
-      .case([p, ...rest]).then(() => {
-        const dist1 = distanceSquared(p, q);
-        const dist2 = best ? distanceSquared(best, q) : Infinity;
-        return dist1 < dist2 ? go(rest, p) : go(rest, best);
-      });
+    if (pts.length === 0) return best;
+    const [p, ...rest] = pts;
+    const closer = best === null || distanceSquared(p, q) < distanceSquared(best, q);
+    return go(rest, closer ? p : best);
   }
   return go(points, null);
 }

@@ -627,24 +627,29 @@ describe("Red Team: Type Safety", () => {
       expect(result).toContain(">>> 0");
     });
 
-    // Finding TS-43: Clone derivation generates shallow copy
-    it("Generic Clone deriveProduct generates field copy", () => {
+    // Finding TS-43: Clone derivation generated a shallow copy. Since the Turf
+    // case study it is field-wise (Rust's #[derive(Clone)]): a spread, then
+    // each field that needs it cloned through its own Clone. Registered meta
+    // carries only type TEXT, so this exercises the text fallback: an array
+    // field is copied element-wise; `object` names no shape and is kept.
+    it("Generic Clone deriveProduct clones fields through their own Clone", () => {
       const cloneDerivation = getGenericDerivation("Clone");
       expect(cloneDerivation).toBeDefined();
 
       const meta: GenericMeta = {
         kind: "product",
-        fieldNames: ["data", "count"],
-        fieldTypes: ["object", "number"],
+        fieldNames: ["data", "count", "items"],
+        fieldTypes: ["object", "number", "number[][]"],
       };
 
-      const ctx = createCtxForSource("interface State { data: object; count: number; }");
+      const ctx = createCtxForSource(
+        "interface State { data: object; count: number; items: number[][]; }"
+      );
       const result = cloneDerivation!.deriveProduct(ctx as any, "State", meta);
 
-      expect(result).toBeDefined();
-      expect(result).toContain("clone");
-      expect(result).toContain("a.data");
-      expect(result).toContain("a.count");
+      expect(result).toBe(
+        "({ clone: (a: State): State => ({ ...a, items: a.items.map((e) => e.slice()) }) })"
+      );
     });
   });
 

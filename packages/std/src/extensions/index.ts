@@ -42,7 +42,10 @@ export * from "./promise";
 export * from "./function";
 
 // Re-export specific items from modules with conflicting names
-// Using aliases for duplicates: toInt, toMap, groupBy
+// Using aliases for duplicates: toInt, toMap. (`groupBy` is exported under
+// its own name too: map.ts's is `groupMapBy` now, and method syntax
+// `xs.groupBy(f)` resolves through an import NAMED `groupBy`;
+// `arrayGroupBy` stays as an alias.)
 
 // String utilities
 export {
@@ -69,6 +72,7 @@ export {
   chunk,
   compact,
   flatten,
+  groupBy,
   groupBy as arrayGroupBy,
   partition,
   shuffle,

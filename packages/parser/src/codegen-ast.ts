@@ -119,11 +119,33 @@ class AstEmitter {
     );
   }
 
+  // The generated parser is type-checked wherever the expansion is
+  // (`typesugar check --strict`), under the user's strictness. It is
+  // internally untyped, explicitly: every parameter and function result is
+  // `any`, as is a variable that starts out `null` or `[]` (`var best =
+  // null` would otherwise be `null`, and `best.pos` an error). None of it is
+  // public: the macro asserts the parser object to the runtime tag's type
+  // (`Grammar<unknown>`, macros.ts), so no `any` reaches the user's types or
+  // their .d.ts. Erased: nothing changes at run time.
+  private anyType(): ts.TypeNode {
+    return this.f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword);
+  }
+
   private varDecl(decls: Array<[string, ts.Expression]>): ts.VariableStatement {
+    const untyped = (init: ts.Expression) =>
+      init.kind === ts.SyntaxKind.NullKeyword ||
+      (ts.isArrayLiteralExpression(init) && init.elements.length === 0);
     return this.f.createVariableStatement(
       undefined,
       this.f.createVariableDeclarationList(
-        decls.map(([n, init]) => this.f.createVariableDeclaration(n, undefined, undefined, init)),
+        decls.map(([n, init]) =>
+          this.f.createVariableDeclaration(
+            n,
+            undefined,
+            untyped(init) ? this.anyType() : undefined,
+            init
+          )
+        ),
         ts.NodeFlags.None
       )
     );
@@ -135,18 +157,34 @@ class AstEmitter {
     );
   }
 
-  private params(names: string[]): ts.ParameterDeclaration[] {
-    return names.map((n) => this.f.createParameterDeclaration(undefined, undefined, n));
+  /** `name: any` each; a name in `optional` is `name?: any`. */
+  private params(
+    names: string[],
+    optional: ReadonlySet<string> = new Set()
+  ): ts.ParameterDeclaration[] {
+    return names.map((n) =>
+      this.f.createParameterDeclaration(
+        undefined,
+        undefined,
+        n,
+        optional.has(n) ? this.f.createToken(ts.SyntaxKind.QuestionToken) : undefined,
+        this.anyType()
+      )
+    );
   }
 
-  private funcExpr(paramNames: string[], body: ts.Statement[]): ts.FunctionExpression {
+  private funcExpr(
+    paramNames: string[],
+    body: ts.Statement[],
+    optional?: ReadonlySet<string>
+  ): ts.FunctionExpression {
     return this.f.createFunctionExpression(
       undefined,
       undefined,
       undefined,
       undefined,
-      this.params(paramNames),
-      undefined,
+      this.params(paramNames, optional),
+      this.anyType(),
       this.f.createBlock(body, true)
     );
   }
@@ -162,7 +200,7 @@ class AstEmitter {
       name,
       undefined,
       this.params(paramNames),
-      undefined,
+      this.anyType(),
       this.f.createBlock(body, true)
     );
   }
@@ -433,7 +471,8 @@ class AstEmitter {
           this.assign("pos", this.num(0))
         ),
         this.ret(this.call(startFn, [this.id("input"), this.id("pos")])),
-      ]
+      ],
+      new Set(["pos"]) // `parse(input)` starts at 0
     );
 
     const parseAllFn = this.funcExpr(
@@ -472,7 +511,18 @@ class AstEmitter {
       )
     );
 
-    return this.call(f.createParenthesizedExpression(this.funcExpr([], body)), []);
+    // The wrapper's result is inferred (an object of `rules`, `startRule`,
+    // `parse`, `parseAll`); the macro asserts it to `Grammar<unknown>`.
+    const wrapper = f.createFunctionExpression(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      undefined,
+      f.createBlock(body, true)
+    );
+    return this.call(f.createParenthesizedExpression(wrapper), []);
   }
 
   // -------------------------------------------------------------------------

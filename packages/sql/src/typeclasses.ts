@@ -29,7 +29,7 @@ import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
  * ## Auto-Derivation
  *
  * ```typescript
- * @deriving(Read, Write)
+ * /** @derive(Read, Write) *\/
  * interface User {
  *   id: number;
  *   name: string;
@@ -598,7 +598,7 @@ export namespace Meta {
  * ## Auto-Derivation
  *
  * ```typescript
- * @deriving(Read)
+ * /** @derive(Read) *\/
  * interface User {
  *   id: number;      // uses Get.number
  *   name: string;    // uses Get.string
@@ -794,7 +794,7 @@ export namespace Read {
  * ## Auto-Derivation
  *
  * ```typescript
- * @deriving(Write)
+ * /** @derive(Write) *\/
  * interface User {
  *   id: number;      // uses Put.number
  *   name: string;    // uses Put.string
@@ -975,7 +975,17 @@ export type CodecType<C> = C extends Codec<infer A> ? A : never;
  * Convert camelCase to snake_case for SQL column names.
  */
 export function toSnakeCase(str: string): string {
-  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  // A word starts at a capital after a lowercase letter or digit
+  // ("userId" -> "user_Id"), and at the last capital of a run followed by a
+  // lowercase letter ("HTMLParser" -> "HTML_Parser"); a run of capitals is one
+  // word ("userID" -> "user_id", "URL" -> "url"), and so is a plural one, a
+  // run followed by an "s" that ends the word ("userIDs" -> "user_ids",
+  // "imageURLs" -> "image_urls", "HTTPServer" still "http_server"). It used
+  // to put an underscore before every capital ("_h_t_m_l_parser").
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z](?!s(?![a-z]))[a-z])/g, "$1_$2")
+    .toLowerCase();
 }
 
 /**
@@ -1070,15 +1080,8 @@ export function deriveCodec<A extends object>(config: {
 }
 
 // ============================================================================
-// Implicit Resolution Registry — Doobie-style auto-derivation
+// Runtime Instance Registries (name-keyed) — see the note above the exports
 // ============================================================================
-
-/**
- * Registry of typeclass instances for implicit resolution.
- * This enables Doobie-style auto-derivation where:
- * - `summon<Read<User>>()` automatically derives if all fields have Get instances
- * - No explicit `@deriving` annotation needed when instances can be inferred
- */
 
 /** Registry of Get instances by type name */
 const getRegistry: GenericRegistry<string, Get<unknown>> = createGenericRegistry({
@@ -1148,12 +1151,18 @@ metaRegistry.set("json", Meta.json as Meta<unknown>);
 metaRegistry.set("uuid", Meta.uuid as Meta<unknown>);
 
 // ============================================================================
-// Instance Registries — exported for macro integration
+// Instance Registries — name-keyed runtime maps for user code
 // ============================================================================
-// Note: Instance resolution uses compile-time companions and the registries directly.
-// Example: const instance = getRegistry.get("MyType") as Get<MyType>;
-// Example: putRegistry.set("MyType", myPutInstance as Put<unknown>);
-// The @deriving(Read), @deriving(Write), @deriving(Codec) macros will
-// generate code that uses these registries.
+// Plain lookup tables for the user's own runtime code (e.g. picking a Read by
+// type or table name):
+//   const instance = getRegistry.get("MyType") as Get<MyType>;
+//   putRegistry.set("MyType", myPutInstance as Put<unknown>);
+// Nothing in typesugar READS them: compile-time resolution (summon,
+// = implicit(), the field instances @derive uses) finds instances in scope.
+// What writes to them: the primitive entries above, and @derive(Read) /
+// @derive(Write) (and @derive(Codec), which generates both) add the generated
+// Read<T> / Write<T> to readRegistry / writeRegistry under the type's name
+// (derive-typeclasses.ts). Nothing adds to codecRegistry automatically.
+// See docs/guides/sql.md "Runtime Registries".
 
 export { getRegistry, putRegistry, metaRegistry, readRegistry, writeRegistry, codecRegistry };

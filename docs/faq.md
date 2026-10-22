@@ -32,21 +32,24 @@ No. Macros expand at compile time. The output is plain JavaScript with no typesu
 - Vite
 - Webpack
 - esbuild
+- tsup (`withTypesugar()` from `typesugar/tsup`, which also makes `dts: true` work on macro code)
 - Rollup
-- tsc (via ts-patch)
+
+For tsc-style builds, where the compiler writes `dist/`, use `typesugar build`
+([tsc Setup](/getting-started/environments/tsc)); it also emits a library's declarations
+from the expanded code. To run TypeScript directly in Node (scripts, tsx, `node --test`), use
+`node --import typesugar/register` ([Node.js, tsx and node:test](/getting-started/environments/node)).
 
 ### Do I need to configure TypeScript?
 
-For most bundlers, the bundler plugin handles transformation. You still want the
-language-service plugin in `tsconfig.json` so your editor sees expanded code, and
-`typesugar check` (not `tsc --noEmit`) to type-check in CI.
+The bundler plugin, `typesugar build` and `typesugar/register` handle transformation. You
+still want the language-service plugin in `tsconfig.json` so your editor sees expanded
+code, and `typesugar check` (not `tsc --noEmit`) to type-check in CI.
 
-For `tsc`, you need [ts-patch](https://github.com/nonara/ts-patch):
-
-```bash
-npm install -D ts-patch
-npx ts-patch install
-```
+A plain `tsc` doesn't expand macros. If you need it to, rather than switching to
+`typesugar build`, [ts-patch](/getting-started/environments/tsc#alternative-a-ts-patched-tsc)
+is an alternative, with caveats: a patched `tsc` type-checks and declares the unexpanded
+source.
 
 ### Can I use typesugar with Next.js?
 
@@ -67,7 +70,7 @@ module.exports = {
 
 ### Can I use typesugar with SWC?
 
-Not directly. SWC doesn't support TypeScript transformers. Use ts-patch with tsc, or use a bundler plugin.
+Not directly. SWC doesn't support TypeScript transformers. Use a bundler plugin or `typesugar build`.
 
 ## Usage
 
@@ -132,8 +135,10 @@ build's privileges. See the [comptime guide](./guides/comptime.md).
 
 Macros have access to TypeScript's type checker and can use type information in
 their transformations. `typesugar check`/`build` type-check your source (filtering
-the errors that only exist before expansion); type-checking the expanded output too
-needs `--strict` (experimental).
+the errors that only exist before expansion), and the expansion of the constructs whose
+bound names the source can't check (do-notation comprehensions, fluent `match()` chains,
+`match:` switches, `ensures:` blocks); type-checking all of the expanded output needs `--strict`
+(experimental).
 
 ## Packages
 

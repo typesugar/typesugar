@@ -144,13 +144,13 @@ import { capitalize, camelCase, kebabCase, truncate } from "@typesugar/std";
 ### Array Extensions
 
 ```typescript
-import { head, tail, chunk, unique, arrayGroupBy } from "@typesugar/std";
+import { head, tail, chunk, unique, groupBy } from "@typesugar/std";
 
 [1, 2, 3].head(); // 1
 [1, 2, 3].tail(); // [2, 3]
 [1, 2, 3, 4, 5].chunk(2); // [[1, 2], [3, 4], [5]]
 [1, 1, 2, 2, 3].unique(); // [1, 2, 3]
-[1, 2, 3].arrayGroupBy((x) => x % 2); // { 0: [2], 1: [1, 3] }
+[1, 2, 3].groupBy((x) => x % 2); // { 0: [2], 1: [1, 3] }
 ```
 
 ### Range Extensions (Scala/Kotlin-style)
@@ -202,7 +202,7 @@ When the transformer encounters `value.method()`:
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
 4. **Extension functions in scope**: Imported functions with matching first parameter
-5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
+5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` or `derived<TC<T>>()` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.
 
@@ -250,7 +250,8 @@ dateA.format(date, pattern); // Explicit choice
 ## Typeclass Extensions
 
 Typeclass methods also work as extension methods on types that have an instance — a
-`@derive`d companion or an `@impl` value. For the standard typeclasses, the method syntax is
+`@derive`d companion, an `@impl` value, or a `derived<TC<T>>()` const for a type you don't
+own. For the standard typeclasses, the method syntax is
 off until you import the typeclass's activation module (PEP-052):
 
 ```typescript
@@ -291,6 +292,14 @@ const price: Money = { cents: 1999 };
 price.print(); // → printableMoney.print(price) → "$19.99"
 ```
 
+An instance is used only for the type it is declared for, compared by identity. If you import
+`showColor` (an `@impl Show<Color>` for a numeric enum `Color`), `color.show()` becomes
+`showColor.show(color)`, but `n.show()` on a `number` is not rewritten to it, even though a
+`number` can be assigned to `Color`.
+An instance for a union type serves a value narrowed to its members too: with
+`@impl Describe<Shape>` and `type Shape = Circle | Square`, `t.describe()` inside
+`if (t.kind === "circle")` becomes `describeShape.describe(t)`.
+
 ## Generic Extensions
 
 Extensions work with generic types:
@@ -319,7 +328,8 @@ import { first, mapTo } from "./generic-ext";
 
 ## When to Use `extend()`
 
-The `extend()` wrapper exists but is rarely needed. It wraps a value so that all typeclass methods become callable:
+`extend(value).method(args)` is rarely needed. It calls `method` on `value` through a typeclass
+instance or an extension, the same as method syntax does:
 
 ```typescript
 import "@typesugar/std/syntax/eq";
@@ -332,11 +342,19 @@ extend(point).equals(other); // → Point.Eq.equals(point, other)
 point.equals(other);
 ```
 
-Use `extend()` when:
+`extend(value).method(args)` is a call form, not a wrapper: it compiles to a direct call on the
+instance or extension (`Point.Eq.equals(point, other)`), and no object exists at run time that
+could stand for `extend(point)`. So `extend()` must be followed by the method call in the same
+expression. `const e = extend(point); e.equals(other)` is an error that says what to write
+instead: `extend(point).equals(other)`, method syntax `point.equals(other)`, or the instance
+itself, `const E = summon<Eq<Point>>(); E.equals(point, other)`.
 
-- **Generic contexts**: Type parameter isn't concrete at the call site
-- **Explicit intent**: Documentation or teaching
-- **IDE exploration**: See all available typeclass methods via autocomplete
+It works on concrete types only. On an unconstrained type parameter (`function f<T>(x: T)`)
+there is no instance to choose, and `extend(x).show()` is an error. Take the instance as a
+parameter instead (`S: Show<T> = implicit()`; see [Generic Functions](./typeclasses.md#generic-functions-implicit)).
+
+Use `extend()` when you want the typeclass dispatch to be explicit at the call site, for example
+in documentation or teaching.
 
 ## Legacy: registerExtensions() (Deprecated)
 

@@ -20,7 +20,7 @@ Install the core transformer and the macro packages you want to use:
 
 ```bash
 # Core (required)
-npm install --save-dev @typesugar/transformer ts-patch
+npm install --save-dev @typesugar/transformer
 npm install @typesugar/std           # standard typeclasses + the syntax-activation imports
 
 # Popular macro packages (install what you need)
@@ -34,7 +34,6 @@ type-system, the transformer and the bundler plugin) plus the standard library:
 
 ```bash
 npm install typesugar @typesugar/std
-npm install --save-dev ts-patch
 ```
 
 ### Step 2: Configure tsconfig.json
@@ -54,31 +53,15 @@ Add the transformer plugin:
 
 The `language-service` plugin provides IDE support (optional but recommended).
 
-### Step 3: Install ts-patch
+### Step 3: Expand macros in your build
 
-```bash
-npx ts-patch install
-```
+A plain `tsc` doesn't expand macros. Pick the build path that fits your project:
 
-Add to your `prepare` script:
-
-```json
-{
-  "scripts": {
-    "prepare": "ts-patch install -s"
-  }
-}
-```
-
-### Step 4: Configure Your Bundler
-
-If you use Vite, Webpack, esbuild, or another bundler:
+**A bundler (Vite, Webpack, esbuild, Rollup):**
 
 ```bash
 npm install --save-dev unplugin-typesugar
 ```
-
-**Vite:**
 
 ```typescript
 // vite.config.ts
@@ -90,7 +73,28 @@ export default defineConfig({
 });
 ```
 
-See [environment-specific guides](./index.md#environment-specific-guides) for other bundlers.
+**tsup:** wrap the config in `withTypesugar()` from `typesugar/tsup` (see
+[With tsup](./environments/esbuild.md#with-tsup)).
+
+**tsc-style builds** (the compiler writes `dist/`): use `typesugar build` in place of
+`tsc`, and `typesugar check` in place of `tsc --noEmit`:
+
+```json
+{
+  "scripts": {
+    "build": "typesugar build",
+    "check": "typesugar check"
+  }
+}
+```
+
+**Running files directly** (scripts, tsx, `node --test`):
+`node --import typesugar/register src/main.ts` (see [Node.js and tsx](./environments/node.md)).
+
+See the [environment-specific guides](./index.md#environment-specific-guides) for the
+details of each. If you need a plain `tsc` to expand macros,
+[ts-patch](./environments/tsc.md#alternative-a-ts-patched-tsc) is an alternative to
+`typesugar build`.
 
 ## Your First Macros
 
@@ -227,16 +231,16 @@ npx typesugar doctor
 
 ## Package Reference
 
-| Package                | Features                                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `typesugar`            | `comptime()`, `derive`, derive markers, `summon` (umbrella; authoring APIs at `typesugar/core`) |
-| `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`              |
-| `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                                |
-| `@typesugar/sql`       | `sql` tagged template                                                                           |
-| `@typesugar/typeclass` | `@typeclass`, `@instance`, `@derive`, `summon<T>()`                                             |
-| `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                           |
-| `@typesugar/std`       | `match()` (fluent pattern matching), extension methods                                          |
-| `@typesugar/fp`        | `Option`, `Either`, `IO`, `List`                                                                |
+| Package                | Features                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `typesugar`            | `comptime()`, `derive`, derive markers, `summon`, `derived` (umbrella; authoring APIs at `typesugar/core`) |
+| `@typesugar/derive`    | `@derive()`, `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`                         |
+| `@typesugar/reflect`   | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()`, `@reflect`                                           |
+| `@typesugar/sql`       | `sql` tagged template                                                                                      |
+| `@typesugar/typeclass` | `@typeclass`, `@impl`, `@derive`, `summon<T>()`, `derived<T>()`                                            |
+| `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                                      |
+| `@typesugar/std`       | `match()` (fluent pattern matching, `match: switch`), extension methods                                    |
+| `@typesugar/fp`        | `Option`, `Either`, `IO`, `List`                                                                           |
 
 ## What's Next?
 

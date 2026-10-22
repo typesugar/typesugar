@@ -2,11 +2,11 @@
  * @typesugar/typeclass Showcase
  *
  * Self-documenting examples of the Scala 3-style typeclass system:
- * @typeclass, @instance, @derive, summon(), extend(), and
+ * @typeclass, @impl, @derive, summon(), extend(), = implicit(), and
  * extension method resolution.
  *
- * NOTE: This showcase uses decorators on interfaces and compile-time
- * macro transformations. It requires the typesugar transformer and
+ * NOTE: This showcase uses JSDoc macro tags (@typeclass, @impl, @derive)
+ * and compile-time macro transformations. It requires the typesugar transformer and
  * CANNOT be run with plain tsx/ts-node/esbuild.
  *
  * Type assertions used:
@@ -16,49 +16,43 @@
  *   typeAssert<Not<Extends<A, B>>>() - A is NOT assignable to B
  *
  * Run:   typesugar run examples/showcase.ts
- * Build: npx tspc && node dist/examples/showcase.js
+ * Build: typesugar build && node dist/examples/showcase.js
  */
 
 import { assert, typeAssert, type Equal, type Extends, type Not } from "@typesugar/testing";
 
-import {
-  typeclass,
-  instance,
-  derive,
-  summon,
-  extend,
-  implicit,
-} from "@typesugar/typeclass";
+import { summon, extend, implicit } from "@typesugar/typeclass";
 
 // ============================================================================
-// 1. DEFINING TYPECLASSES — @typeclass decorator
+// 1. DEFINING TYPECLASSES — the @typeclass JSDoc tag
 // ============================================================================
 
 // A typeclass declares an interface that types can implement.
-// The @typeclass decorator registers it in the compile-time registry
-// and makes its methods available as extension methods.
+// The @typeclass tag makes it a typeclass: instances of it are found by
+// summon/implicit(), and its methods are callable as extension methods in
+// this file (the file that declares it).
 
-@typeclass
+/** @typeclass */
 interface Show<A> {
   show(a: A): string;
 }
 
-@typeclass
+/** @typeclass */
 interface Eq<A> {
   equals(a: A, b: A): boolean;
 }
 
-@typeclass
+/** @typeclass */
 interface Ord<A> {
   compare(a: A, b: A): -1 | 0 | 1;
 }
 
-@typeclass
+/** @typeclass */
 interface Semigroup<A> {
   combine(a: A, b: A): A;
 }
 
-@typeclass
+/** @typeclass */
 interface Monoid<A> {
   empty(): A;
   combine(a: A, b: A): A;
@@ -69,43 +63,43 @@ typeAssert<Extends<Show<number>, { show(a: number): string }>>();
 typeAssert<Extends<Eq<string>, { equals(a: string, b: string): boolean }>>();
 
 // ============================================================================
-// 2. PROVIDING INSTANCES — @instance decorator
+// 2. PROVIDING INSTANCES — the @impl JSDoc tag
 // ============================================================================
 
 // An instance binds a typeclass to a concrete type.
 // After this, summon<Show<number>>() and extend(42).show() both resolve.
 
-@instance(Show, Number)
+/** @impl Show<number> */
 const numberShow: Show<number> = {
   show: (n) => n.toString(),
 };
 
-@instance(Show, String)
+/** @impl Show<string> */
 const stringShow: Show<string> = {
   show: (s) => `"${s}"`,
 };
 
-@instance(Eq, Number)
+/** @impl Eq<number> */
 const numberEq: Eq<number> = {
   equals: (a, b) => a === b,
 };
 
-@instance(Eq, String)
+/** @impl Eq<string> */
 const stringEq: Eq<string> = {
   equals: (a, b) => a === b,
 };
 
-@instance(Ord, Number)
+/** @impl Ord<number> */
 const numberOrd: Ord<number> = {
   compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
 };
 
-@instance(Semigroup, String)
+/** @impl Semigroup<string> */
 const stringSemigroup: Semigroup<string> = {
   combine: (a, b) => a + b,
 };
 
-@instance(Monoid, String)
+/** @impl Monoid<string> */
 const stringMonoid: Monoid<string> = {
   empty: () => "",
   combine: (a, b) => a + b,
@@ -127,7 +121,7 @@ assert(stringMonoid.empty() === "");
 // ============================================================================
 
 // summon<T>() resolves instances at compile time (Scala 3's summon).
-// The transformer replaces it with the registered instance expression.
+// The transformer replaces it with the instance in scope.
 
 const showN = summon<Show<number>>();
 assert(showN.show(100) === "100");
@@ -143,8 +137,12 @@ assert(ordN.compare(1, 2) === -1);
 function showAll<A>(items: A[], S: Show<A>): string {
   return "[" + items.map((item) => S.show(item)).join(", ") + "]";
 }
-assert(showAll([1, 2, 3], summon<Show<number>>()) === "[1, 2, 3]");
-assert(showAll(["a", "b"], summon<Show<string>>()) === '["a", "b"]');
+// (summon outside the assert(): power-assert instruments its argument, so a
+// summon written inside it is not expanded)
+const showNumbers = showAll([1, 2, 3], summon<Show<number>>());
+const showStrings = showAll(["a", "b"], summon<Show<string>>());
+assert(showNumbers === "[1, 2, 3]");
+assert(showStrings === '["a", "b"]');
 
 // ============================================================================
 // 4. EXTENSION METHODS — extend() wrapper
@@ -154,24 +152,25 @@ assert(showAll(["a", "b"], summon<Show<string>>()) === '["a", "b"]');
 // available for that value's type. The transformer resolves which
 // instances apply.
 
-const ext42 = extend(42);
-assert(ext42.show() === "42");
+// extend() must be called directly: extend(x).method(...)
+const shown42 = extend(42).show();
+assert(shown42 === "42");
 
-const extStr = extend("world");
-assert(extStr.show() === '"world"');
+const shownWorld = extend("world").show();
+assert(shownWorld === '"world"');
 
 // extend() makes typeclass methods feel like built-in methods.
 // At compile time, extend(42).show() is rewritten to numberShow.show(42)
 // — zero-cost, no wrapper allocation.
 
 // ============================================================================
-// 5. AUTO-DERIVATION — @deriving decorator
+// 5. DERIVING — @derive
 // ============================================================================
 
-// @derive generates instances automatically from the type's structure.
+// @derive generates instances from the type's structure (Point.Show, Point.Eq).
 // For product types, it generates field-by-field comparisons.
 
-@derive(Show, Eq)
+/** @derive(Show, Eq) */
 interface Point {
   x: number;
   y: number;
@@ -181,14 +180,17 @@ const p1: Point = { x: 1, y: 2 };
 const p2: Point = { x: 1, y: 2 };
 const p3: Point = { x: 3, y: 4 };
 
-// Derived Show serializes via JSON
-assert(extend(p1).show() !== "");
+// Derived Show prints the fields
+const shownP1 = extend(p1).show();
+assert(shownP1 === "Point(x = 1, y = 2)");
 
 // Derived Eq compares field-by-field
-assert(extend(p1).equals(p2) === true);
-assert(extend(p1).equals(p3) === false);
+const p1EqualsP2 = extend(p1).equals(p2);
+const p1EqualsP3 = extend(p1).equals(p3);
+assert(p1EqualsP2 === true);
+assert(p1EqualsP3 === false);
 
-@derive(Show, Eq, Ord)
+/** @derive(Show, Eq, Ord) */
 interface Version {
   major: number;
   minor: number;
@@ -212,7 +214,8 @@ function maximum<A>(items: A[], ord: Ord<A>): A {
   return items.reduce((a, b) => (ord.compare(a, b) >= 0 ? a : b));
 }
 
-assert(maximum([3, 1, 4, 1, 5, 9], summon<Ord<number>>()) === 9);
+const maxNumber = maximum([3, 1, 4, 1, 5, 9], summon<Ord<number>>());
+assert(maxNumber === 9);
 
 function sortWith<A>(items: A[], ord: Ord<A>): A[] {
   return items.slice().sort((a, b) => ord.compare(a, b));
@@ -228,11 +231,11 @@ function concatAll<A>(items: A[], M: Monoid<A>): A {
 assert(concatAll(["hello", " ", "world"], stringMonoid) === "hello world");
 
 // ============================================================================
-// 7. REGISTRY INTROSPECTION — inspecting registered typeclasses/instances
+// 7. WHERE INSTANCES COME FROM
 // ============================================================================
 
-// Typeclass definitions are discovered per-program by the op-index (PEP-052) — no
-// global reflection registry.
+// Instances are found by scope (PEP-052): an @impl or @derive in this file, or
+// one imported from another module. There is no global registry to inspect.
 
 // ============================================================================
 // 8. REAL-WORLD EXAMPLE — Config system with typeclasses
@@ -246,12 +249,12 @@ interface Config {
   debug: boolean;
 }
 
-@instance(Show, Config)
+/** @impl Show<Config> */
 const configShow: Show<Config> = {
   show: (c) => `${c.host}:${c.port}${c.debug ? " [DEBUG]" : ""}`,
 };
 
-@instance(Eq, Config)
+/** @impl Eq<Config> */
 const configEq: Eq<Config> = {
   equals: (a, b) => a.host === b.host && a.port === b.port && a.debug === b.debug,
 };
@@ -290,7 +293,7 @@ function sortAndShowItems<A>(items: A[], ord: Ord<A>, show: Show<A>): string {
 }
 
 // ============================================================================
-// 11. AUTO-SPECIALIZATION — zero-cost calls with registered instances
+// 11. AUTO-SPECIALIZATION — zero-cost calls with known instances
 // ============================================================================
 
 // Specialization is an always-on compiler optimization (PEP-053) — there is
@@ -360,7 +363,7 @@ function compareItems<A>(a: A, b: A, O: Ord<A> = implicit()): -1 | 0 | 1 {
   return O.compare(a, b);
 }
 
-// Call without explicit instance — auto-filled from registry
+// Call without explicit instance — filled in with the instance in scope
 const shown = showItem(42);
 assert(shown === "42");
 
@@ -398,7 +401,7 @@ const nested = outer(100);
 assert(nested === "Outer: 100");
 
 // Custom instance flows through too
-@instance(Show, Boolean)
+/** @impl Show<boolean> */
 const booleanShow: Show<boolean> = {
   show: (b) => (b ? "yes" : "no"),
 };

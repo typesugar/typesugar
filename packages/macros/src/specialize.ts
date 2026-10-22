@@ -46,7 +46,13 @@
 
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
-import { stripPositions, stripCommentsDeep, getOrCreateWeak, cloneNodeDeep } from "@typesugar/core";
+import {
+  stripPositions,
+  stripCommentsDeep,
+  getOrCreateWeak,
+  cloneNodeDeep,
+  isSyntheticNode,
+} from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 import * as primitives from "./primitives.js";
 
@@ -100,7 +106,7 @@ export class SpecializationCache {
   /**
    * Compute a cache key for a specialization.
    *
-   * @param fnSymbolId - The TypeScript symbol ID of the function (or function name as fallback)
+   * @param fnSymbolId - The TypeScript symbol ID of the function
    * @param dictIdentities - One identity per dictionary argument, in argument
    *   order (position-qualified instance identities; order is significant)
    * @returns Cache key string
@@ -150,6 +156,14 @@ export class SpecializationCache {
    */
   set(key: string, ident: ts.Identifier, declaration: ts.VariableStatement): void {
     this.cache.set(key, { ident, declaration });
+    this.hoistedDeclarations.push(declaration);
+  }
+
+  /**
+   * Hoist a specialization no other call may share (its callee has no
+   * symbol identity to key the cache by).
+   */
+  hoistUncached(_ident: ts.Identifier, declaration: ts.VariableStatement): void {
     this.hoistedDeclarations.push(declaration);
   }
 
@@ -299,6 +313,14 @@ export interface DictMethodMap {
 export interface DictMethod {
   /** The implementation as an AST node — how inlining substitutes the call. */
   node?: ts.Expression;
+  /**
+   * The method's real (program-attached) declaration, when `node` is a copy
+   * of it or may be: what the checker's resolved signature at a call is
+   * compared with, by identity, to read the call's type arguments for the
+   * method's own type parameters (transformer-core's
+   * `instantiatedTypeParameters`). Never inlined from or mutated.
+   */
+  declaration?: ts.Node;
   /** Parameter names for the method */
   params: string[];
   /**
@@ -309,6 +331,15 @@ export interface DictMethod {
    * would otherwise capture it — deep review 1.0, tc#18).
    */
   freeSymbols?: ReadonlyMap<string, ts.Symbol>;
+  /**
+   * Likewise for the type names the method's annotations and assertions use
+   * (`Option<A>`, `as Acc<B>`), its own type parameters excluded. An inlined
+   * body keeps a type name where it resolves to the same symbol at the call
+   * site; one the call site doesn't import is named through an import type
+   * (`import("./ord.js").P`), and a call whose body names a type that can't
+   * be named there (the method's own `A`) is not inlined. Never `any`.
+   */
+  typeSymbols?: ReadonlyMap<string, ts.Symbol>;
 }
 
 /**
@@ -1095,6 +1126,24 @@ export function forEachMethodFreeReference(
 }
 
 /**
+ * Every name a function binds inside itself: its parameters (destructured
+ * ones included), and the variables, functions and catch bindings of its
+ * body and nested functions. Syntactic and coarse, like
+ * {@link collectMethodFreeNames}: a name bound anywhere inside counts. Used
+ * where no checker symbol was recorded for a free name, to tell a body-local
+ * name (travels with the body) from one the body needs from its own module
+ * (does not).
+ */
+export function collectMethodLocalBindings(methodNode: ts.Node): Set<string> {
+  const names = new Set<string>();
+  const fn = asInlineableFunction(methodNode);
+  if (!fn) return names;
+  const hooks: WalkHooks = { binding: (name) => names.add(name) };
+  walkFunction(fn, TOP_LEVEL_STATE, hooks);
+  return names;
+}
+
+/**
  * Does this method body depend on its receiver/activation (`this`, `super`,
  * `arguments`, `new.target`, own `await`/`yield`), or is it async/a
  * generator? Such bodies change meaning when moved to a call site (tc#2).
@@ -1309,6 +1358,292 @@ function checkInlineSafety(
   return names;
 }
 
+// ============================================================================
+// Object-literal argument projection (scalar replacement)
+// ============================================================================
+//
+// `a + b + c` on a product type rewrites to `V.add(V.add(a, b), c)`. The inner
+// call inlines to an object literal, `{ x: a.x + b.x, y: a.y + b.y }`, which
+// is not a "stable" argument, and the outer body reads it twice (`a.x`,
+// `a.y`), so plain substitution would duplicate it and the inliner used to
+// fall back to `((a, b) => ({ ... }))({ ... }, c)`: an IIFE per level, with
+// every intermediate object allocated. Instead, when the outer body reads
+// that parameter only as `p.name`, each read is replaced by the literal's
+// `name` initializer, and the object is never built:
+// `{ x: (a.x + b.x) + c.x, y: (a.y + b.y) + c.y }`.
+//
+// When that is safe:
+// - the literal has only `name: init` / shorthand properties with plain
+//   names (no spread, method, accessor, computed or duplicate name,
+//   `__proto__`), and every initializer is free of effects (literals, reads,
+//   operators; see isEffectFreeInitializer), so reading it later, at its
+//   use, or not at all, or (when it is rereadable) more than once, is
+//   indistinguishable from evaluating it once up front;
+// - every reference to the parameter in the body is `p.name` for a property
+//   the literal has, not written, deleted, updated or called as a method
+//   (`p.m()` would lose its receiver), and not inside a nested function
+//   (read later, when the initializer's operands may have changed);
+// - no other argument is effectful (a call evaluated before the body reads
+//   the literal's operands could change them; e.g. `add({ x: a.x }, bump())`),
+//   and no body binding has the name of an identifier in a projected
+//   initializer (it would capture it).
+// A property read more than once whose initializer is not rereadable
+// (`a.d * b.d` in a rational's `add`) is evaluated once, not duplicated:
+// into a `const` declared before the enclosing statement when the caller
+// allows it (InlineOptions.hoistConst; then nothing is left to wrap), and
+// otherwise into a new parameter, the remaining function being inlined by
+// the ordinary rules, which apply it as an IIFE over those values if they
+// must (no intermediate object either way). The parameters are
+// renamed to fresh names first, so an initializer's identifiers can never be
+// mistaken for a remaining parameter (`add({ x: b.x }, a)` with params
+// `a, b`). Reads move relative to the body's own calls exactly as a stable
+// argument's do (the "Known residuals" above).
+
+function isEffectFreeInitializer(e: ts.Expression): boolean {
+  e = unwrapParens(e);
+  const cls = classifyArgument(e);
+  if (cls === "literal" || cls === "stable") return true;
+  if (ts.isAsExpression(e) || ts.isNonNullExpression(e) || ts.isSatisfiesExpression(e)) {
+    return isEffectFreeInitializer(e.expression);
+  }
+  if (ts.isTypeAssertionExpression(e)) return isEffectFreeInitializer(e.expression);
+  if (ts.isPropertyAccessExpression(e)) {
+    return !e.questionDotToken && isEffectFreeInitializer(e.expression);
+  }
+  if (ts.isElementAccessExpression(e)) {
+    return (
+      !e.questionDotToken &&
+      isEffectFreeInitializer(e.expression) &&
+      isEffectFreeInitializer(e.argumentExpression)
+    );
+  }
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    if (isAssignmentOperatorKind(op) || op === ts.SyntaxKind.CommaToken) return false;
+    return isEffectFreeInitializer(e.left) && isEffectFreeInitializer(e.right);
+  }
+  if (ts.isPrefixUnaryExpression(e)) {
+    if (
+      e.operator === ts.SyntaxKind.PlusPlusToken ||
+      e.operator === ts.SyntaxKind.MinusMinusToken
+    ) {
+      return false;
+    }
+    return isEffectFreeInitializer(e.operand);
+  }
+  if (ts.isTypeOfExpression(e) || ts.isVoidExpression(e)) {
+    return isEffectFreeInitializer(e.expression);
+  }
+  if (ts.isConditionalExpression(e)) {
+    return (
+      isEffectFreeInitializer(e.condition) &&
+      isEffectFreeInitializer(e.whenTrue) &&
+      isEffectFreeInitializer(e.whenFalse)
+    );
+  }
+  if (ts.isTemplateExpression(e)) {
+    return e.templateSpans.every((span) => isEffectFreeInitializer(span.expression));
+  }
+  return false;
+}
+
+/** Plain property name -> initializer, or undefined when the literal can't be projected. */
+function projectableProperties(arg: ts.Expression): Map<string, ts.Expression> | undefined {
+  const lit = unwrapParens(arg);
+  if (!ts.isObjectLiteralExpression(lit)) return undefined;
+  const props = new Map<string, ts.Expression>();
+  for (const p of lit.properties) {
+    let name: string;
+    let init: ts.Expression;
+    if (ts.isPropertyAssignment(p)) {
+      if (!ts.isIdentifier(p.name) && !ts.isStringLiteral(p.name) && !ts.isNumericLiteral(p.name)) {
+        return undefined;
+      }
+      name = p.name.text;
+      init = p.initializer;
+    } else if (ts.isShorthandPropertyAssignment(p) && !p.objectAssignmentInitializer) {
+      name = p.name.text;
+      init = p.name;
+    } else {
+      return undefined;
+    }
+    if (name === "__proto__" || props.has(name) || !isEffectFreeInitializer(init)) {
+      return undefined;
+    }
+    props.set(name, init);
+  }
+  return props;
+}
+
+/** A read is rereadable when doing it twice costs nothing and gives the same value. */
+function isRereadableInitializer(e: ts.Expression): boolean {
+  const cls = classifyArgument(e);
+  return cls === "literal" || cls === "stable";
+}
+
+function projectObjectLiteralArguments(
+  ctx: MacroContext,
+  fn: InlineableFunction,
+  body: ts.Node,
+  callArgs: readonly ts.Expression[],
+  options: InlineOptions | undefined
+): { fn: ts.ArrowFunction; args: ts.Expression[] } | undefined {
+  if (typeof (ctx as Partial<MacroContext>).generateUniqueName !== "function") return undefined;
+  const names: string[] = [];
+  for (const p of fn.parameters) {
+    if (!ts.isIdentifier(p.name) || p.initializer || p.dotDotDotToken) return undefined;
+    names.push(p.name.text);
+  }
+  if (callArgs.length !== names.length || callArgs.some((a) => ts.isSpreadElement(a))) {
+    return undefined;
+  }
+  const literalProps = callArgs.map(projectableProperties);
+  if (literalProps.every((p) => p === undefined)) return undefined;
+
+  // Where each identifier sits: projectable only as `p.name` in a read position.
+  type Use = { prop: string } | "other";
+  const useOf = new Map<ts.Identifier, Use>();
+  const mark = (n: ts.Node, target: boolean): void => {
+    if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression) && !n.questionDotToken) {
+      useOf.set(n.expression, target ? "other" : { prop: n.name.text });
+      return;
+    }
+    if (ts.isBinaryExpression(n) && isAssignmentOperatorKind(n.operatorToken.kind)) {
+      mark(n.left, true);
+      mark(n.right, false);
+      return;
+    }
+    if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      mark(n.operand, true);
+      return;
+    }
+    if (ts.isDeleteExpression(n)) {
+      mark(n.expression, true);
+      return;
+    }
+    if (
+      (ts.isForInStatement(n) || ts.isForOfStatement(n)) &&
+      !ts.isVariableDeclarationList(n.initializer)
+    ) {
+      mark(n.initializer, true);
+      mark(n.expression, false);
+      mark(n.statement, false);
+      return;
+    }
+    if (
+      (ts.isCallExpression(n) || ts.isTaggedTemplateExpression(n)) &&
+      ts.isPropertyAccessExpression(ts.isCallExpression(n) ? n.expression : n.tag)
+    ) {
+      // `p.m()`: the receiver is the object itself.
+      const callee = (ts.isCallExpression(n) ? n.expression : n.tag) as ts.PropertyAccessExpression;
+      if (ts.isIdentifier(callee.expression)) useOf.set(callee.expression, "other");
+      else mark(callee, target);
+      if (ts.isCallExpression(n)) for (const a of n.arguments) mark(a, false);
+      else mark(n.template, false);
+      return;
+    }
+    ts.forEachChild(n, (c) => mark(c, target));
+  };
+  mark(body, false);
+
+  // Per parameter: projectable, and how often each property is read.
+  const reads = callArgs.map(() => new Map<string, number>());
+  const projectable = literalProps.map((p) => p !== undefined);
+  const paramIndex = new Map(names.map((n, i) => [n, i] as const));
+  const bound = new Set<string>();
+  let unsafe = false;
+  walkNode(body, TOP_LEVEL_STATE, {
+    ref: (id, st) => {
+      const i = paramIndex.get(id.text);
+      if (i === undefined || !projectable[i]) return;
+      const use = useOf.get(id);
+      if (st.nestedFn || use === undefined || use === "other" || !literalProps[i]!.has(use.prop)) {
+        projectable[i] = false;
+        return;
+      }
+      reads[i].set(use.prop, (reads[i].get(use.prop) ?? 0) + 1);
+    },
+    binding: (n) => bound.add(n),
+    unsupported: () => (unsafe = true),
+  });
+  if (unsafe || !projectable.some(Boolean)) return undefined;
+  if (ts.isFunctionExpression(fn) && fn.name) bound.add(fn.name.text);
+  if (names.some((n) => bound.has(n))) return undefined;
+  // An effectful sibling argument would run before the body reads the
+  // literal's operands; a body binding would capture them.
+  for (let i = 0; i < callArgs.length; i++) {
+    if (!projectable[i] && classifyArgument(callArgs[i]) === "effectful") return undefined;
+  }
+  const projectedIdents = new Set<string>();
+  for (let i = 0; i < callArgs.length; i++) {
+    if (projectable[i]) collectIdentifierTexts(callArgs[i], projectedIdents);
+  }
+  for (const n of projectedIdents) if (bound.has(n)) return undefined;
+
+  const f = ctx.factory;
+  // 1. Rename every parameter to a fresh name (substituteParamRefs handles
+  //    shorthand properties and reference positions).
+  const fresh = names.map((n) => ctx.generateUniqueName(n));
+  const renamed = substituteParamRefs(ctx, stripCommentsDeep(cloneNodeDeep(body)), names, fresh);
+
+  // 2. Replace `fresh_i.name` with the initializer, or with a new parameter
+  //    holding it when it is read more than once and isn't rereadable.
+  const freshIndex = new Map(fresh.map((id, i) => [id.text, i] as const));
+  const temps: { name: ts.Identifier; init: ts.Expression }[] = [];
+  const tempOf = new Map<string, ts.Identifier>();
+  const replacementFor = (i: number, prop: string): ts.Expression => {
+    const init = literalProps[i]!.get(prop)!;
+    if ((reads[i].get(prop) ?? 0) <= 1 || isRereadableInitializer(init)) {
+      const copy = cloneNodeDeep(unwrapParens(init));
+      return needsParens(copy) ? f.createParenthesizedExpression(copy) : copy;
+    }
+    const key = `${i}:${prop}`;
+    let temp = tempOf.get(key);
+    if (!temp) {
+      temp = ctx.generateUniqueName(`${names[i]}_${prop}`);
+      tempOf.set(key, temp);
+      const value = cloneNodeDeep(unwrapParens(init));
+      if (options?.hoistConst) options.hoistConst(temp, value);
+      else temps.push({ name: temp, init: value });
+    }
+    return f.createIdentifier(temp.text);
+  };
+  const project = (n: ts.Node): ts.Node => {
+    if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) {
+      const i = freshIndex.get(n.expression.text);
+      if (i !== undefined && projectable[i]) return replacementFor(i, n.name.text);
+    }
+    return ts.visitEachChild(n, project, ctx.transformContext);
+  };
+  const projectedBody = ts.visitNode(renamed, project) as ts.Node;
+
+  const params: ts.ParameterDeclaration[] = [];
+  const args: ts.Expression[] = [];
+  for (let i = 0; i < names.length; i++) {
+    if (projectable[i]) continue;
+    params.push(f.createParameterDeclaration(undefined, undefined, fresh[i]));
+    args.push(callArgs[i]);
+  }
+  for (const t of temps) {
+    params.push(f.createParameterDeclaration(undefined, undefined, t.name));
+    args.push(t.init);
+  }
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    params,
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    ts.isBlock(projectedBody) || !ts.isObjectLiteralExpression(projectedBody)
+      ? (projectedBody as ts.ConciseBody)
+      : f.createParenthesizedExpression(projectedBody as ts.Expression)
+  );
+  return { fn: arrow, args };
+}
+
 /**
  * Replace parameter references with their arguments. Mirrors `walkNode`'s
  * notion of reference positions; parameters can't be shadowed here
@@ -1330,6 +1665,14 @@ function substituteParamRefs(
     // and must stay checker-resolvable), and never share one node between
     // two positions.
     const node = cloneNodeDeep(arg);
+    // cloneNodeDeep severs the copy's `original` link (a callee body may come
+    // from another file). An ARGUMENT that is, or copies, a node of the file
+    // being transformed keeps that link, so the copy still says which source
+    // expression it is (power-assert draws an operand's value at its column).
+    const source = ts.getOriginalNode(arg);
+    if (!isSyntheticNode(source) && source.getSourceFile?.() === ctx.sourceFile) {
+      ts.setOriginalNode(node, source);
+    }
     return needsParens(node) ? f.createParenthesizedExpression(node) : node;
   };
 
@@ -1427,10 +1770,33 @@ function substituteParamRefs(
 export function inlineMethod(
   ctx: MacroContext,
   method: DictMethod,
-  callArgs: ts.Expression[]
+  callArgs: ts.Expression[],
+  options?: InlineOptions
 ): ts.Expression | undefined {
   if (!method.node) return undefined;
-  return inlineFromNode(ctx, method.node, callArgs);
+  return inlineFromNode(ctx, method.node, callArgs, options);
+}
+
+/** How {@link inlineMethod} may bind a value it must not compute twice. */
+export interface InlineOptions {
+  /**
+   * Declare `const <name> = <init>;` just before the statement the call is
+   * in, which the caller has checked evaluates the call unconditionally,
+   * once, and with nothing that has an effect evaluated before it in that
+   * statement (see the transformer's statement temporaries). Absent: such a
+   * value becomes a parameter of an IIFE.
+   */
+  hoistConst?: (name: ts.Identifier, init: ts.Expression) => void;
+  /**
+   * `hoistConst` may also take an argument with an effect (`mk()` in
+   * `mk() + mk()`): the caller has checked that nothing at all in the
+   * statement is evaluated before the call, not even a read of mutable state
+   * (a `let`, a property). Without it, only effect-free values (a projected
+   * literal's reread property) are hoisted, and an effectful argument the
+   * body can't take directly makes the call an IIFE, which evaluates it in
+   * place, after whatever the statement read first.
+   */
+  hoistEffects?: boolean;
 }
 
 /**
@@ -1439,7 +1805,8 @@ export function inlineMethod(
 function inlineFromNode(
   ctx: MacroContext,
   methodNode: ts.Expression | ts.Node,
-  callArgs: ts.Expression[]
+  callArgs: ts.Expression[],
+  options?: InlineOptions
 ): ts.Expression | undefined {
   const fn = asInlineableFunction(methodNode);
   const body = fn?.body;
@@ -1448,7 +1815,27 @@ function inlineFromNode(
   // Receiver/activation-dependent bodies can't move to the call site in any form.
   if (methodDependsOnReceiver(fn)) return undefined;
 
-  const names = checkInlineSafety(ctx, fn, body, callArgs);
+  // An object-literal argument read only as `p.name` (an operator chain:
+  // `add(add(a, b), c)`, whose inner call inlined to `{ x: ..., y: ... }`):
+  // read each property's initializer directly instead of building the object
+  // and applying the method as an IIFE (see projectObjectLiteralArguments).
+  const projected = projectObjectLiteralArguments(ctx, fn, body, callArgs, options);
+  if (projected) return inlineFromNode(ctx, projected.fn, projected.args, options);
+
+  let names = checkInlineSafety(ctx, fn, body, callArgs);
+  if (!names && options?.hoistConst && options.hoistEffects) {
+    // In statement position, the arguments direct substitution can't take
+    // (`mk() + mk()`: each read twice) are evaluated, in order, into `const`s
+    // before the statement instead of into an IIFE's parameters: every
+    // effectful argument, and every stable one to the left of the last of
+    // those (read before it, as in the call).
+    const hoisted = hoistArguments(ctx, fn, body, callArgs);
+    if (hoisted) {
+      for (const h of hoisted.consts) options.hoistConst(h.name, h.init);
+      callArgs = hoisted.args;
+      names = hoisted.names;
+    }
+  }
   // Direct substitution would change evaluation (duplicated/reordered/dropped
   // arguments, shadowing, missing/default/rest params …): apply the method
   // body as an IIFE instead — the arguments are evaluated exactly once, in
@@ -1506,6 +1893,46 @@ function inlineFromNode(
 
   // Substitute parameters in the expression body
   return substituteParamRefs(ctx, cleanBody, names, callArgs) as ts.Expression;
+}
+
+/**
+ * The arguments with each one that must be evaluated up front replaced by a
+ * fresh name, the `const`s that bind those names, and the parameter names
+ * {@link checkInlineSafety} accepts for the new arguments; undefined when it
+ * still declines (shadowing, a default or rest parameter, ...) or nothing
+ * needs hoisting. Nothing is declared until the caller commits to it.
+ */
+function hoistArguments(
+  ctx: MacroContext,
+  fn: InlineableFunction,
+  body: ts.Node,
+  callArgs: readonly ts.Expression[]
+):
+  | {
+      args: ts.Expression[];
+      consts: { name: ts.Identifier; init: ts.Expression }[];
+      names: string[];
+    }
+  | undefined {
+  if (typeof (ctx as Partial<MacroContext>).generateUniqueName !== "function") return undefined;
+  if (callArgs.some((a) => ts.isSpreadElement(a))) return undefined;
+  const classes = callArgs.map(classifyArgument);
+  let last = -1;
+  classes.forEach((c, i) => {
+    if (c === "effectful") last = i;
+  });
+  if (last < 0) return undefined;
+  const consts: { name: ts.Identifier; init: ts.Expression }[] = [];
+  const args = callArgs.map((a, i) => {
+    const c = classes[i];
+    // A function argument stays (a `const` would give it a name).
+    if (c === "literal" || c === "pure" || (c === "stable" && i > last)) return a;
+    const name = ctx.generateUniqueName(`arg${i}`);
+    consts.push({ name, init: cloneNodeDeep(unwrapParens(a)) });
+    return ctx.factory.createIdentifier(name.text);
+  });
+  const names = checkInlineSafety(ctx, fn, body, args);
+  return names ? { args, consts, names } : undefined;
 }
 
 /** Expression body, or a block simple enough to inline/flatten (no loops, try, …). */

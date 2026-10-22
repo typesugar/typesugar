@@ -149,6 +149,32 @@ export function hasSourceText(node: ts.Node): boolean {
 }
 
 // =============================================================================
+// forEachDescendant — whole-tree walks without one stack frame per level
+// =============================================================================
+
+/**
+ * Call `fn` on `root` and each of its descendants, in the order a recursive
+ * `ts.forEachChild` walk visits them (pre-order, children in source order),
+ * with an explicit stack instead of one recursion per level. A recursive walk
+ * over a whole file overflows the call stack on a deep expression (a
+ * 5,000-term `"a" + "b" + ...` chain is 5,000 levels deep), which tsc itself
+ * handles. `fn` returning `false` skips that node's children.
+ */
+export function forEachDescendant(root: ts.Node, fn: (node: ts.Node) => boolean | void): void {
+  const stack: ts.Node[] = [root];
+  const children: ts.Node[] = [];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (fn(node) === false) continue;
+    children.length = 0;
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
+}
+
+// =============================================================================
 // stripPositions — Mark AST nodes as synthetic
 // =============================================================================
 
@@ -168,9 +194,19 @@ export function stripPositions<T extends ts.Node>(node: T): T {
   // `:`, `=>`, operators), which visitEachChild without a tokenVisitor skips --
   // those kept their temp-file offsets, and the printer emitted the user's
   // comments found at the same offsets in the real file.
-  ts.forEachChild(node, (child) => {
-    stripPositions(child);
-  });
+  // NodeArrays too: the printer places a list's closing token (and the
+  // comments before it) by the ARRAY's `end`, so an empty argument list
+  // (`v.slice()`) printed whatever comment the real file had at that offset.
+  ts.forEachChild(
+    node,
+    (child) => {
+      stripPositions(child);
+    },
+    (children) => {
+      ts.setTextRange(children, { pos: -1, end: -1 });
+      children.forEach((child) => stripPositions(child));
+    }
+  );
   return node;
 }
 
@@ -605,4 +641,181 @@ export function isRemoveExpression(node: ts.Node): boolean {
  */
 export function getRemoveComment(node: ts.Node): string | undefined {
   return (node as any)[REMOVE_COMMENT];
+}
+
+// =============================================================================
+// isJSDocTagAtLineStart — real JSDoc tags vs. prose and fenced examples
+// =============================================================================
+
+/**
+ * Whether a JSDoc tag sits at a real tag position: the `@` starts its comment
+ * line (only whitespace and the leading `*` before it, or only whitespace
+ * after `/**` on the comment's first line), and the line is not inside a
+ * ``` / ~~~ code fence within that comment. A line-start tag after an
+ * `@example`'s unfenced lines is real: JSDoc ends the example there.
+ *
+ * TypeScript's JSDoc parser treats any whitespace-preceded `@word` as a tag,
+ * so prose ("Parsed from @adt tag."), nested example comments
+ * (` * /** @hkt *\/`) and fenced examples (` * @derive(Read)` between ```)
+ * all come back from `ts.getJSDocTags`. Those must not dispatch macros.
+ *
+ * A tag with no real source position (synthetic) is accepted, as before.
+ */
+export function isJSDocTagAtLineStart(tag: ts.JSDocTag): boolean {
+  if (tag.pos < 0) return true;
+  let jsDoc: ts.Node | undefined = tag.parent;
+  while (jsDoc && jsDoc.kind !== ts.SyntaxKind.JSDoc) jsDoc = jsDoc.parent;
+  let root: ts.Node | undefined = jsDoc;
+  while (root && root.kind !== ts.SyntaxKind.SourceFile) root = root.parent;
+  if (!jsDoc || !root || jsDoc.pos < 0) return true;
+  const text = (root as ts.SourceFile).text;
+  const commentStart = jsDoc.pos;
+  const tagPos = tag.pos;
+  if (text.charCodeAt(tagPos) !== 64 /* @ */) return true;
+
+  // Prefix of the tag's own line.
+  const lineStart = text.lastIndexOf("\n", tagPos - 1) + 1;
+  const prefix =
+    lineStart <= commentStart
+      ? text.slice(commentStart, tagPos).replace(/^\/\*\*/, "")
+      : text.slice(lineStart, tagPos).replace(/^[ \t]*\*/, "");
+  if (!/^[ \t]*$/.test(prefix)) return false;
+
+  // Code-fence state over the comment lines BEFORE the tag's line.
+  let inFence = false;
+  const before = text.slice(commentStart, lineStart);
+  for (const rawLine of before.split("\n")) {
+    const line = rawLine
+      .replace(/^[ \t]*\/\*\*/, "")
+      .replace(/^[ \t]*\*/, "")
+      .trimStart();
+    if (line.startsWith("```") || line.startsWith("~~~")) inFence = !inFence;
+  }
+  // Not inside a fence: a real tag, even after an `@example` tag. In JSDoc an
+  // `@example`'s content ends at the next line-start tag (TypeScript parses
+  // it that way and an IDE renders it as a tag), so only a fence makes a
+  // line-start `@derive` example code. Treating every tag after `@example`
+  // as code silently dropped a real `@derive`/`@impl`/`@typeclass` written
+  // below an example.
+  return !inFence;
+}
+
+// =============================================================================
+// deriveTagNames — the derive list of a @derive / @deriving JSDoc tag
+// =============================================================================
+
+/**
+ * The names a `@derive` / `@deriving` JSDoc tag lists: `@derive(Eq, Clone)`,
+ * `@derive Eq, Clone` or `@deriving (Show, Eq)`. A tag's comment runs to the
+ * next tag, so only the leading list is the derive list: the parenthesized
+ * part, or the comma-separated names that start the comment. Prose after it
+ * ("@derive(Meta)" then a description line that mentions "Show") is
+ * documentation, not more derives. The one parser for this syntax: the
+ * derive macro's JSDoc arguments, instance scanning and method sugar all
+ * read a tag through it, so they agree on what a type derives. This reads
+ * the tag's syntax (which names the annotation lists), not what any type is.
+ * Whether the tag is at a real tag position is the caller's check
+ * ({@link isJSDocTagAtLineStart}).
+ */
+export function deriveTagNames(tag: ts.JSDocTag): string[] {
+  const comment =
+    typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+  return parseDeriveList(comment ?? "");
+}
+
+/** {@link deriveTagNames} over a tag's comment text. */
+export function parseDeriveList(comment: string): string[] {
+  const trimmed = comment.trim();
+  if (!trimmed) return [];
+  const list = /^\(([^)]*)\)|^([A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*)/.exec(trimmed);
+  const inner = list ? (list[1] ?? list[2]) : trimmed;
+  return inner
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// =============================================================================
+// opaqueTypesAsUnderlying — the runtime view of @opaque types, for type-checking expanded output
+// =============================================================================
+
+/**
+ * `text` with each `/** @opaque U *\/ interface T<…> { … }` declaration
+ * replaced by `type T<…> = U;`: the view of `@opaque` types the EXPANDED code
+ * is written against. Expansion erases `Some(x)` to `x` and `opt.map(f)` to
+ * `map(opt, f)`, so in expanded code an `Option<number>` is a `number | null`
+ * wherever it appears (a parameter, a variable, a return, a property, a type
+ * argument), and the companions that take one take that. Checking expanded
+ * code against the interface reported every such position as an error (or,
+ * where an annotation had been stripped to avoid that, typed the value as the
+ * raw payload, or `any` for a parameter, and changed the declarations emitted
+ * from the expanded program).
+ *
+ * Used only to serve source text to a checker of expanded output
+ * (`strictOutput`, `typesugar build --strict`); nothing is emitted from it.
+ * Text in, text out, because a compiler host serves text: each replacement is
+ * padded to the declaration's length with the same number of line breaks, so
+ * every diagnostic position after it is unchanged. Returns `text` itself when
+ * there is no `@opaque` interface.
+ */
+export function opaqueTypesAsUnderlying(fileName: string, text: string): string {
+  if (!text.includes("@opaque")) return text;
+  const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
+  const edits: { start: number; end: number; text: string }[] = [];
+  const visitStatements = (statements: readonly ts.Statement[]): void => {
+    for (const stmt of statements) {
+      if (ts.isModuleDeclaration(stmt) && stmt.body && ts.isModuleBlock(stmt.body)) {
+        visitStatements(stmt.body.statements);
+        continue;
+      }
+      if (!ts.isInterfaceDeclaration(stmt)) continue;
+      const underlying = opaqueTagText(stmt);
+      if (!underlying) continue;
+      const start = stmt.getStart(sourceFile);
+      const keywords = (ts.getModifiers(stmt) ?? [])
+        .filter(
+          (m) => m.kind === ts.SyntaxKind.ExportKeyword || m.kind === ts.SyntaxKind.DeclareKeyword
+        )
+        .map((m) => m.getText(sourceFile) + " ")
+        .join("");
+      const params = stmt.typeParameters
+        ? `<${stmt.typeParameters.map((p) => p.getText(sourceFile)).join(", ")}>`
+        : "";
+      edits.push({
+        start,
+        end: stmt.end,
+        text: `${keywords}type ${stmt.name.text}${params} = ${underlying};`,
+      });
+    }
+  };
+  visitStatements(sourceFile.statements);
+  if (edits.length === 0) return text;
+
+  let out = text;
+  for (const edit of edits.reverse()) {
+    const original = out.slice(edit.start, edit.end);
+    const lineBreaks = original.split("\n").length - 1;
+    const room = original.length - edit.text.length - lineBreaks;
+    const replacement =
+      room >= 0 ? edit.text + " ".repeat(room) + "\n".repeat(lineBreaks) : edit.text;
+    out = out.slice(0, edit.start) + replacement + out.slice(edit.end);
+  }
+  return out;
+}
+
+/**
+ * The underlying type text of an `@opaque` JSDoc tag, joined onto one line.
+ * Only a tag that starts a line: "an @opaque type" in prose is not one
+ * (typesugar's own `.d.ts` says that, and its interface became `type
+ * MethodInlinePattern = type can be inlined ...`, a syntax error).
+ */
+function opaqueTagText(node: ts.Node): string | undefined {
+  for (const tag of ts.getJSDocTags(node)) {
+    if (tag.tagName.text !== "opaque" || !isJSDocTagAtLineStart(tag)) continue;
+    const comment =
+      typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+    const value = comment?.replace(/\s+/g, " ").trim();
+    if (value) return value;
+  }
+  return undefined;
 }

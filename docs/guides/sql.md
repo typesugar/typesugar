@@ -644,11 +644,17 @@ import { toSnakeCase } from "@typesugar/sql";
 toSnakeCase("createdAt"); // "created_at"
 toSnakeCase("userId"); // "user_id"
 toSnakeCase("firstName"); // "first_name"
+// A run of capitals is one word
+toSnakeCase("userID"); // "user_id"
+toSnakeCase("HTMLParser"); // "html_parser"
+// ...and so is a plural one
+toSnakeCase("userIDs"); // "user_ids"
+toSnakeCase("imageURLs"); // "image_urls"
 ```
 
-### Instance Registries
+### Runtime Registries
 
-For implicit resolution and auto-derivation, instances are stored in registries:
+`@typesugar/sql` also exports runtime lookup tables of instances, keyed by name:
 
 ```typescript
 import {
@@ -660,18 +666,24 @@ import {
   codecRegistry,
 } from "@typesugar/sql";
 
-// Register custom instances
+// Add your own
 metaRegistry.set("UserId", UserIdMeta);
-readRegistry.set("User", UserRead);
-writeRegistry.set("User", UserWrite);
 
-// Lookup instances (for summon integration)
-const userRead = readRegistry.get("User") as Read<User>;
-
-// Pre-registered primitives:
-// - string, number, int, bigint, boolean
-// - Date, Buffer, json, uuid
+// Look one up by name at runtime
+const userRead = readRegistry.get("User") as Read<User> | undefined;
 ```
+
+They are plain maps for your own runtime code, for example to pick a `Read` by
+type or table name. typesugar's compile-time resolution (`summon`,
+`= implicit()`, and the field instances `@derive` uses) does not read them: it
+finds instances in scope. What's in them out of the box:
+
+- `getRegistry`, `putRegistry` and `metaRegistry` have the primitives: `string`,
+  `number`, `int`, `bigint`, `boolean`, `Date`, `Buffer`, `json`, `uuid`.
+- `@derive(Read)` and `@derive(Write)` (and `@derive(Codec)`, which generates
+  both) also add the generated `ReadUser` / `WriteUser` to `readRegistry` /
+  `writeRegistry` under the type's name. Nothing adds to `codecRegistry`
+  automatically.
 
 ## ConnectionIO — Pure Database Operations
 

@@ -44,6 +44,11 @@
  * (`@derive(Generic)` can still be used to pre-cache the metadata, but
  * summon will synthesize it on demand if absent.)
  *
+ * The same derivation backs `@derive(TC)` and `derived<TC<T>>()` (an
+ * instance declared once, for a type you don't own). `summon`'s and
+ * `= implicit()`'s use of it, deriving in place when no instance is in scope,
+ * is deprecated (TS9009).
+ *
  * ## Usage
  *
  * Typeclass authors register a derivation strategy (≈ defining `derived`):
@@ -68,9 +73,13 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { isSyntheticNode } from "@typesugar/core";
+import { isSyntheticNode, isJSDocTagAtLineStart, deriveTagNames } from "@typesugar/core";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
 import type { ResolutionAttempt } from "@typesugar/core";
+// Static: instance-resolver imports nothing from this module, so there is no
+// cycle (a lazy require() of it doesn't resolve when tests run the sources).
+import { resolveInstance, buildInstanceReference } from "./instance-resolver.js";
+import { isBuiltinObjectSymbol, isBuiltinObjectType } from "./derived-in-place.js";
 
 /**
  * Parse cached/generated derivation text (the string cache contract — see the
@@ -86,10 +95,17 @@ import type { ResolutionAttempt } from "@typesugar/core";
  */
 function parseDerivedExpression(ctx: MacroContext, code: string): ts.Expression {
   const expr = ctx.parseExpression(code);
+  // NodeArrays too: the printer places a list's closing token, and the
+  // comments before it, by the ARRAY's `end` (`v.slice()`'s empty argument
+  // list printed the user's `/** @derive(Clone) */` found at that offset).
+  const resetArray = (arr: ts.NodeArray<ts.Node>): void => {
+    ts.setTextRange(arr, { pos: -1, end: -1 });
+    arr.forEach(reset);
+  };
   const reset = (n: ts.Node): void => {
     ts.setTextRange(n, { pos: -1, end: -1 });
     ts.setCommentRange(n, { pos: -1, end: -1 });
-    ts.forEachChild(n, reset);
+    ts.forEachChild(n, reset, resetArray);
   };
   reset(expr);
   return expr;
@@ -109,6 +125,14 @@ export interface DerivationResult {
   expression: ts.Expression | null;
   /** Resolution attempts made, regardless of success/failure */
   trace: ResolutionAttempt[];
+  /**
+   * When derivation failed because a field has no instance and none can be
+   * derived: the first such field (`variant` names the sum-type member it
+   * belongs to). `derived<TC<T>>()` reports it as TS9107.
+   */
+  failedField?: { name: string; type: string; variant?: string };
+  /** The type is a built-in (TypeScript's lib), which is never derived. */
+  builtin?: boolean;
 }
 
 // ============================================================================
@@ -230,10 +254,11 @@ export function hasGenericDerivation(typeclassName: string): boolean {
  * shape changes, so persisted derivations from an older version (e.g. an
  * `Ord` instance with only `compare`) are never served again.
  */
-const DERIVATION_OUTPUT_FORMAT = 3;
+const DERIVATION_OUTPUT_FORMAT = 5;
 
 interface DerivationCaches {
-  mirror: Map<ts.Symbol, GenericMeta | false>;
+  /** Keyed by the type's symbol, or by the concrete type when one was given. */
+  mirror: Map<ts.Symbol | ts.Type, GenericMeta | false>;
   derivation: Map<string, string>;
 }
 
@@ -269,6 +294,8 @@ interface MirrorTypes {
   fieldTypes: ts.Type[];
   optional: boolean[];
   variantTypes?: ts.Type[];
+  /** The type the mirror describes (the product, or the union for a sum). */
+  self: ts.Type;
 }
 
 const mirrorTypes = new WeakMap<GenericMeta, MirrorTypes>();
@@ -280,6 +307,14 @@ const mirrorTypes = new WeakMap<GenericMeta, MirrorTypes>();
  * cache, whose key is structural only.
  */
 let scopeDependence = 0;
+
+/**
+ * Incremented when a derivation's output depends on more than the top-level
+ * field type text in the disk-cache key: a nested type's structure, an
+ * alias's target (field-wise Clone). Such output is not written to the disk
+ * cache.
+ */
+let structureDependence = 0;
 
 // ============================================================================
 // Compile-Time Derivation (used by summon macro)
@@ -310,6 +345,10 @@ function findTypeSymbol(
       }
     }
     if (sym.flags & ts.SymbolFlags.Type) return sym;
+    // `export class Box` in this file: the local symbol is only the export's
+    // stand-in (ExportValue/ExportType); the type is on the export symbol.
+    const exported = typeChecker.getExportSymbolOfSymbol(sym);
+    if (exported !== sym && exported.flags & ts.SymbolFlags.Type) return exported;
   }
   return undefined;
 }
@@ -338,13 +377,28 @@ function declKey(sym: ts.Symbol | undefined, typeName: string): string {
  * @param ctx - The macro context
  * @param typeclassName - The typeclass to derive (e.g., "Show", "Read")
  * @param typeName - The type to derive for (e.g., "User")
+ * @param node - The type's declaration, when deriving for one (`@derive`)
+ * @param concreteType - The type `typeName` denotes at the request site, when
+ *   it differs from the symbol's declared type: `summon<Clone<Feature>>()` on
+ *   `interface Feature<G = Geometry, P = Props>` means `Feature<Geometry,
+ *   Props>`, while the declared type is `Feature<G, P>`, whose fields are
+ *   type parameters.
+ * @param knownSymbol - The type's symbol, when the caller has it by identity
+ *   (resolved at the request site through imports and scopes). Without it the
+ *   symbol is looked up by `typeName` among the names in scope at the top of
+ *   the file, which is a name match (CLAUDE.md "Deciding what a type is"):
+ *   a type declared in a function, or reached as `ns.T`, is not found that way,
+ *   and an outer type of the same name is found instead. Callers with a type
+ *   node pass it.
  * @returns DerivationResult with expression (if successful) and trace (always)
  */
 export function tryDeriveViaGeneric(
   ctx: MacroContext,
   typeclassName: string,
   typeName: string,
-  node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+  node?: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+  concreteType?: ts.Type,
+  knownSymbol?: ts.Symbol
 ): DerivationResult {
   const trace: ResolutionAttempt[] = [];
 
@@ -369,9 +423,17 @@ export function tryDeriveViaGeneric(
   const caches = cachesFor(ctx.program);
   const registeredMeta = getGenericMeta(typeName);
   let typeSymbol: ts.Symbol | undefined;
-  if (!registeredMeta) {
+  if (!registeredMeta && knownSymbol) {
+    typeSymbol = knownSymbol;
+  } else if (!registeredMeta) {
     try {
-      typeSymbol = findTypeSymbol(ctx, typeName, node);
+      // `Feature<Point>` with its concrete type (derived<Clone<Feature<Point>>>()):
+      // the symbol is `Feature`'s; the mirror reads the instantiation.
+      const symbolName =
+        concreteType && typeName.includes("<")
+          ? typeName.slice(0, typeName.indexOf("<"))
+          : typeName;
+      typeSymbol = findTypeSymbol(ctx, symbolName.trim(), node);
     } catch (e) {
       ctx.reportWarning(
         node ?? ctx.sourceFile,
@@ -381,8 +443,42 @@ export function tryDeriveViaGeneric(
     }
   }
 
+  // A built-in type (Array, Map, Date, ... from TypeScript's lib) has no
+  // fields to derive from: its properties are methods and internals
+  // (`__@unscopables@22`, `__@toStringTag@35`), and a "derivation" from them
+  // compared those. Decided by the resolved type's own symbol (an interface
+  // or class declared in the lib), not its alias: `Readonly<Point>` and
+  // `Record<K, V>` are lib ALIASES of ordinary object types and derive from
+  // their fields, while `type Nums = number[]` is an Array.
+  const subjectType =
+    concreteType ??
+    (typeSymbol && typeSymbol.flags & ts.SymbolFlags.TypeAlias
+      ? ctx.typeChecker.getDeclaredTypeOfSymbol(typeSymbol)
+      : undefined);
+  if (
+    subjectType
+      ? isBuiltinObjectType(ctx.program, subjectType)
+      : isBuiltinObjectSymbol(ctx.program, typeSymbol)
+  ) {
+    trace.push({
+      step: "generic-meta",
+      target: `GenericMeta for ${typeName}`,
+      result: "rejected",
+      reason:
+        `${typeName} is a built-in type (TypeScript's lib): derivation builds an instance ` +
+        `from a type's own fields, and a built-in's properties are its methods and internals. ` +
+        `A field of this type is handled inside a derived instance; for ${typeName} itself, ` +
+        `put an instance in scope (a library's, such as @typesugar/std's instances and ` +
+        `instance constructors like eqArray(eqNumber), or your own /** @impl ` +
+        `${typeclassName}<${typeName}> */).`,
+    });
+    return { expression: null, trace, builtin: true };
+  }
+
   // L1 fast path: return in-memory cached derivation
-  const memKey = `${ctx.sourceFile.fileName}\0${typeclassName}\0${declKey(typeSymbol, typeName)}`;
+  const memKey =
+    `${ctx.sourceFile.fileName}\0${typeclassName}\0${declKey(typeSymbol, typeName)}` +
+    (concreteType ? "\0concrete" : "");
   const memCached = caches.derivation.get(memKey);
   if (memCached !== undefined) {
     trace.push({
@@ -397,7 +493,8 @@ export function tryDeriveViaGeneric(
   // Step 2: Obtain GenericMeta
   let meta: GenericMeta | undefined | null = registeredMeta;
   if (!meta) {
-    const mirrorCached = typeSymbol ? caches.mirror.get(typeSymbol) : undefined;
+    const mirrorKey = concreteType ?? typeSymbol;
+    const mirrorCached = mirrorKey ? caches.mirror.get(mirrorKey) : undefined;
     if (mirrorCached === false || !typeSymbol) {
       trace.push({
         step: "generic-meta",
@@ -410,8 +507,8 @@ export function tryDeriveViaGeneric(
     if (mirrorCached) {
       meta = mirrorCached;
     } else {
-      meta = extractMetaFromSymbol(ctx, typeName, typeSymbol);
-      caches.mirror.set(typeSymbol, meta ?? false);
+      meta = extractMetaFromSymbol(ctx, typeName, typeSymbol, concreteType);
+      caches.mirror.set(mirrorKey!, meta ?? false);
       if (!meta) {
         trace.push({
           step: "generic-meta",
@@ -443,51 +540,79 @@ export function tryDeriveViaGeneric(
   // Step 3: Check all fields have the required instances (product types only —
   // sum types are checked per variant during code generation)
   const types = mirrorTypes.get(meta);
+  let failedField: DerivationResult["failedField"];
+  /**
+   * Whether the strategy can build the field (by the same code that generates
+   * it, when the mirror has its `ts.Type`), recorded in the trace. A field's
+   * type TEXT is not enough: `Position` is an alias of `number[]`, which Eq
+   * compares element by element (F12).
+   */
+  const checkField = (
+    fieldName: string,
+    fieldType: string,
+    fieldTsType: ts.Type | undefined,
+    variant?: string
+  ): boolean => {
+    const tc = strategy.fieldTypeclass!;
+    let hasInstance = strategy.hasFieldInstance(fieldType);
+    let via = "";
+    const probe = FIELD_PROBES[strategy.typeclassName];
+    if (!hasInstance && fieldTsType && probe) {
+      hasInstance = probe(ctx, fieldTsType);
+      // Name the instance the field goes through, when it is one from scope.
+      const ref = hasInstance ? fieldInstanceRef(ctx, tc, fieldTsType, true) : undefined;
+      if (ref) via = ` (instance ${ref})`;
+    }
+    genericMetaAttempt.children!.push({
+      step: "field-check",
+      target: `field \`${variant ? `${variant}.` : ""}${fieldName}\`: ${fieldType}`,
+      result: hasInstance ? "found" : "rejected",
+      reason: hasInstance ? `${fieldType} has ${tc}${via}` : `${fieldType} lacks ${tc}`,
+    });
+    if (!hasInstance && !failedField) failedField = { name: fieldName, type: fieldType, variant };
+    return hasInstance;
+  };
+
   if (strategy.fieldTypeclass && meta.kind === "product" && meta.fieldTypes && meta.fieldNames) {
     let allFieldsOk = true;
     for (let i = 0; i < meta.fieldTypes.length; i++) {
-      const fieldType = meta.fieldTypes[i];
-      const fieldName = meta.fieldNames[i];
-      let hasInstance = strategy.hasFieldInstance(fieldType);
-      let via = "";
-      // A non-primitive field can still be satisfied by an instance in scope
-      // (an `@impl` value, or a `@derive`d companion) when the strategy
-      // composes field instances (Eq/Semigroup/Monoid).
-      if (
-        !hasInstance &&
-        types &&
-        strategy.typeclassName === "Eq" &&
-        isPrimitiveLike(splitNullable(ctx, types.fieldTypes[i]).base)
-      ) {
-        hasInstance = true; // literal/enum/primitive unions compare with ===
-      }
-      if (!hasInstance && types && FIELD_INSTANCE_STRATEGIES.has(strategy.typeclassName)) {
-        const ref = fieldInstanceRef(ctx, strategy.fieldTypeclass, types.fieldTypes[i], true);
-        if (ref) {
-          hasInstance = true;
-          via = ` (instance ${ref})`;
-        }
-      }
-
-      genericMetaAttempt.children!.push({
-        step: "field-check",
-        target: `field \`${fieldName}\`: ${fieldType}`,
-        result: hasInstance ? "found" : "rejected",
-        reason: hasInstance
-          ? `${fieldType} has ${strategy.fieldTypeclass}${via}`
-          : `${fieldType} lacks ${strategy.fieldTypeclass}`,
-      });
-
-      if (!hasInstance) {
+      if (!checkField(meta.fieldNames[i], meta.fieldTypes[i], types?.fieldTypes[i])) {
         allFieldsOk = false;
       }
     }
-
     if (!allFieldsOk) {
       genericMetaAttempt.result = "rejected";
       genericMetaAttempt.reason = "one or more fields lack required instance";
       trace.push(genericMetaAttempt);
-      return { expression: null, trace };
+      return { expression: null, trace, failedField };
+    }
+  }
+
+  // Sum types whose strategy compares each variant's fields inline (Eq): the
+  // same check per variant, so a failure names the field instead of only
+  // "the strategy returned null". A variant with an instance in scope is
+  // compared through it.
+  if (
+    strategy.fieldTypeclass &&
+    meta.kind === "sum" &&
+    meta.discriminant &&
+    types?.variantTypes &&
+    SUM_FIELD_PROBES.has(strategy.typeclassName)
+  ) {
+    let allFieldsOk = true;
+    types.variantTypes.forEach((vt, vi) => {
+      if (fieldInstanceRef(ctx, strategy.fieldTypeclass!, vt, true)) return;
+      const variant = meta.variants?.[vi]?.typeName;
+      for (const f of variantFields(ctx, vt, meta.discriminant!)) {
+        const text = ctx.typeChecker.typeToString(f.type);
+        if (!checkField(f.name, text, f.type, variant)) allFieldsOk = false;
+      }
+    });
+    if (!allFieldsOk) {
+      genericMetaAttempt.result = "rejected";
+      genericMetaAttempt.reason = "one or more variant fields lack required instance";
+      trace.push(genericMetaAttempt);
+      return { expression: null, trace, failedField };
     }
   }
 
@@ -531,8 +656,24 @@ export function tryDeriveViaGeneric(
 
   // Generate the derivation code
   const before = scopeDependence;
-  const code = generateDerivationCode(strategy, ctx, typeName, meta);
+  const beforeStructure = structureDependence;
+  let code: string | null;
+  try {
+    code = generateDerivationCode(strategy, ctx, typeName, meta);
+  } catch (e) {
+    if (!(e instanceof DerivationRefused)) throw e;
+    trace.push({
+      step: "code-generation",
+      target: `${typeclassName}<${typeName}>`,
+      result: "rejected",
+      reason: e.reason,
+    });
+    return { expression: null, trace };
+  }
   const dependsOnScope = scopeDependence !== before;
+  // Output that depends on nested types' structure isn't determined by the
+  // disk-cache key (top-level field type TEXT): in memory only.
+  const dependsOnStructure = structureDependence !== beforeStructure;
   if (!code) {
     trace.push({
       step: "code-generation",
@@ -549,7 +690,7 @@ export function tryDeriveViaGeneric(
   // reference without re-registering its import.
   if (!dependsOnScope) {
     caches.derivation.set(memKey, code);
-    if (diskCache && diskKey) diskCache.set(diskKey, code);
+    if (diskCache && diskKey && !dependsOnStructure) diskCache.set(diskKey, code);
   }
 
   trace.push({
@@ -559,6 +700,18 @@ export function tryDeriveViaGeneric(
   });
 
   return { expression: parseDerivedExpression(ctx, code), trace };
+}
+
+/**
+ * Thrown by a derivation strategy that can see the type cannot be derived
+ * soundly (a class with `#private` members has no field-wise Clone): the
+ * reason becomes the trace entry, so the TS9106 the caller reports says why.
+ */
+export class DerivationRefused extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "DerivationRefused";
+  }
 }
 
 /**
@@ -646,10 +799,11 @@ function dataProperties(
 function extractMetaFromSymbol(
   ctx: MacroContext,
   typeName: string,
-  typeSymbol: ts.Symbol
+  typeSymbol: ts.Symbol,
+  concreteType?: ts.Type
 ): GenericMeta | null {
   const typeChecker = ctx.typeChecker;
-  const type = typeChecker.getDeclaredTypeOfSymbol(typeSymbol);
+  const type = concreteType ?? typeChecker.getDeclaredTypeOfSymbol(typeSymbol);
 
   // Discriminated union (sum type): EVERY member must carry the same
   // string-literal discriminant. A union without one is not derivable —
@@ -701,6 +855,7 @@ function extractMetaFromSymbol(
       fieldTypes: common.map((p) => p.type),
       optional: common.map((p) => p.optional),
       variantTypes: [...unionTypes],
+      self: type,
     });
     return meta;
   }
@@ -717,6 +872,7 @@ function extractMetaFromSymbol(
   mirrorTypes.set(meta, {
     fieldTypes: props.map((p) => p.type),
     optional: props.map((p) => p.optional),
+    self: type,
   });
   return meta;
 }
@@ -726,8 +882,21 @@ function extractMetaFromSymbol(
 // stores strings — the auto-derive.ts exception in CLAUDE.md)
 // ============================================================================
 
-/** Strategies whose product derivation composes FIELD instances from scope. */
-const FIELD_INSTANCE_STRATEGIES = new Set(["Eq", "Semigroup", "Monoid"]);
+/**
+ * Per strategy that builds each field from its `ts.Type` (Eq, Semigroup,
+ * Monoid): can it build a field of this type? Each probe runs the generator
+ * itself, without side effects (no import injected), so the field check
+ * accepts exactly what code generation can emit.
+ */
+const FIELD_PROBES: Record<string, (ctx: MacroContext, t: ts.Type) => boolean> = {
+  Eq: (ctx, t) => eqExpr(ctx, t, "a", "b", true) !== null,
+  Semigroup: (ctx, t) => combineExpr(ctx, "Semigroup", t, "a", "b", true) !== null,
+  Monoid: (ctx, t) =>
+    combineExpr(ctx, "Monoid", t, "a", "b", true) !== null && emptyExpr(ctx, t, true) !== null,
+};
+
+/** Strategies whose sum derivation compares each variant's fields inline. */
+const SUM_FIELD_PROBES = new Set(["Eq"]);
 
 const IDENT_RE = /^[A-Za-z_$][\w$]*$/;
 
@@ -764,10 +933,24 @@ function splitNullable(ctx: MacroContext, t: ts.Type): { base: ts.Type; nullable
   return { base: t, nullable: isNullish(t) };
 }
 
-/** Every constituent is a primitive/literal/enum type (`===`-comparable). */
+/**
+ * Every constituent is a primitive/literal/enum type (`===`-comparable), or a
+ * branded primitive. Decided by the checker's type flags, not by name.
+ */
 function isPrimitiveLike(t: ts.Type): boolean {
   if (t.isUnion()) return t.types.every(isPrimitiveLike);
-  return (t.flags & PRIMITIVE_FLAGS) !== 0;
+  return (t.flags & PRIMITIVE_FLAGS) !== 0 || isBrandedPrimitive(t);
+}
+
+/**
+ * A primitive intersected with an object type: a brand
+ * (`number & { readonly __brand: "ProductId" }`, typesugar's `Newtype`,
+ * `string & {}`). Its values ARE primitives (the object part is phantom), so
+ * `===` compares them and a copy is the value itself. Spreading one as an
+ * object (`{ ...id }`) would turn the number into `{}`.
+ */
+function isBrandedPrimitive(t: ts.Type): boolean {
+  return t.isIntersection() && t.types.some((m) => (m.flags & PRIMITIVE_FLAGS) !== 0);
 }
 
 /** Element type of `T[]` / `Array<T>` / `ReadonlyArray<T>`, if `t` is one. */
@@ -782,14 +965,12 @@ function arrayElementType(ctx: MacroContext, t: ts.Type): ts.Type | undefined {
 /** Does `t`'s declaration carry `@derive(TC)` / `@deriving(TC)`? */
 function declaresDerive(t: ts.Type, tc: string): ts.Declaration | undefined {
   const sym = t.aliasSymbol ?? t.symbol;
-  const word = new RegExp(`\\b${tc}\\b`);
   for (const d of sym?.declarations ?? []) {
     for (const tag of ts.getJSDocTags(d)) {
       const n = tag.tagName.text;
       if (n !== "derive" && n !== "deriving") continue;
-      const c =
-        typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
-      if (c && word.test(c)) return d;
+      // The shared parser: the tag's list only, never prose after it.
+      if (isJSDocTagAtLineStart(tag) && deriveTagNames(tag).includes(tc)) return d;
     }
     if (ts.canHaveDecorators(d)) {
       for (const dec of ts.getDecorators(d) ?? []) {
@@ -838,11 +1019,11 @@ function fieldInstanceRef(
   tc: string,
   t: ts.Type,
   /** Only check availability: no import is injected, scope use not recorded. */
-  probe = false
+  probe = false,
+  /** Look up `t` as written, `null`/`undefined` included (default: its non-nullish part). */
+  exact = false
 ): string | undefined {
-  const { resolveInstance, buildInstanceReference } =
-    require("./instance-resolver.js") as typeof import("./instance-resolver.js");
-  const base = splitNullable(ctx, t).base;
+  const base = exact ? t : splitNullable(ctx, t).base;
   try {
     const r = resolveInstance(ctx, tc, base);
     if (r && r.kind === "resolved") {
@@ -885,15 +1066,39 @@ let lambdaDepth = 0;
  * otherwise; nullable values are guarded. Returns null when no Eq is
  * available.
  */
-function eqExpr(ctx: MacroContext, t: ts.Type, x: string, y: string): string | null {
+function eqExpr(
+  ctx: MacroContext,
+  t: ts.Type,
+  x: string,
+  y: string,
+  /** Only check that a comparison can be built: no import injected. */
+  probe = false
+): string | null {
   const { base, nullable } = splitNullable(ctx, t);
   if (isPrimitiveLike(t)) return `${x} === ${y}`;
+  // An instance for the type as written, null included (`Eq<GeoJsonProperties>`
+  // for `{ [k: string]: any } | null`), compares it whole.
+  if (nullable && !arrayLikeElementTypes(ctx, base)) {
+    const exact = fieldInstanceRef(ctx, "Eq", t, probe, true);
+    if (exact) return `${exact}.equals(${x}, ${y})`;
+  }
   let inner: string | null;
-  const elem = arrayElementType(ctx, base);
-  if (elem) {
+  const elems = arrayLikeElementTypes(ctx, base);
+  if (elems) {
+    // Arrays, tuples, and unions of them (GeoJSON's BBox): same length, and
+    // equal element by element. Elements of several types are all compared
+    // by one expression, so they must all be primitive.
+    const elem = elems.length === 1 ? elems[0] : undefined;
+    // Inside the callback, TypeScript no longer narrows a nullable `y` by the
+    // `!= null` guard around it.
+    const yi = `${nullable ? `${y}!` : y}[__i${lambdaDepth}]`;
     const d = lambdaDepth++;
     try {
-      const e = eqExpr(ctx, elem, `__e${d}`, `${y}[__i${d}]`);
+      const e = elem
+        ? eqExpr(ctx, elem, `__e${d}`, yi, probe)
+        : elems.every(isPrimitiveLike)
+          ? `__e${d} === ${yi}`
+          : null;
       inner =
         e === null
           ? null
@@ -904,11 +1109,31 @@ function eqExpr(ctx: MacroContext, t: ts.Type, x: string, y: string): string | n
   } else if (isPrimitiveLike(base)) {
     inner = `${x} === ${y}`;
   } else {
-    const ref = fieldInstanceRef(ctx, "Eq", base);
+    const ref = fieldInstanceRef(ctx, "Eq", base, probe);
     inner = ref ? `${ref}.equals(${x}, ${y})` : null;
   }
   if (inner === null) return null;
   return nullable ? `(${x} === ${y} || (${x} != null && ${y} != null && ${inner}))` : inner;
+}
+
+/**
+ * The element types of an array, a tuple, or a union of arrays and tuples
+ * (distinct types, in order), or undefined when `t` is none of these.
+ */
+function arrayLikeElementTypes(ctx: MacroContext, t: ts.Type): ts.Type[] | undefined {
+  const members = t.isUnion() ? t.types : [t];
+  const out: ts.Type[] = [];
+  for (const m of members) {
+    const elem = arrayElementType(ctx, m);
+    const elems = elem
+      ? [elem]
+      : ctx.typeChecker.isTupleType(m)
+        ? ctx.typeChecker.getTypeArguments(m as ts.TypeReference)
+        : undefined;
+    if (!elems) return undefined;
+    for (const e of elems) if (!out.includes(e)) out.push(e);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** String fallback (registered GenericMeta without ts.Types). */
@@ -982,7 +1207,9 @@ function combineExpr(
   tc: string,
   t: ts.Type,
   x: string,
-  y: string
+  y: string,
+  /** Only check that a combination can be built: no import injected. */
+  probe = false
 ): string | null {
   const { base, nullable } = splitNullable(ctx, t);
   let inner: string | null;
@@ -991,7 +1218,7 @@ function combineExpr(
   else if (base.flags & ts.TypeFlags.BooleanLike) inner = `(${x} && ${y})`;
   else if (arrayElementType(ctx, base)) inner = `[...${x}, ...${y}]`;
   else {
-    const ref = fieldInstanceRef(ctx, tc, base);
+    const ref = fieldInstanceRef(ctx, tc, base, probe);
     inner = ref ? `${ref}.combine(${x}, ${y})` : null;
   }
   if (inner === null) return null;
@@ -1010,7 +1237,7 @@ function combineExprFromText(ft: string, x: string, y: string): string | null {
   return stripped === ft.trim() ? inner : `(${x} == null ? ${y} : ${y} == null ? ${x} : ${inner})`;
 }
 
-function emptyExpr(ctx: MacroContext, t: ts.Type): string | null {
+function emptyExpr(ctx: MacroContext, t: ts.Type, probe = false): string | null {
   const { base, nullable } = splitNullable(ctx, t);
   if (nullable) return "undefined";
   if (base.flags & ts.TypeFlags.NumberLike) return "0";
@@ -1018,7 +1245,7 @@ function emptyExpr(ctx: MacroContext, t: ts.Type): string | null {
   if (base.flags & ts.TypeFlags.StringLike) return '""';
   if (base.flags & ts.TypeFlags.BooleanLike) return "true";
   if (arrayElementType(ctx, base)) return "[]";
-  const ref = fieldInstanceRef(ctx, "Monoid", base);
+  const ref = fieldInstanceRef(ctx, "Monoid", base, probe);
   return ref ? `${ref}.empty()` : null;
 }
 
@@ -1134,25 +1361,30 @@ registerGenericDerivation("Eq", {
       // An Eq instance for the variant type in scope wins; otherwise compare
       // the variant's fields inline (no per-variant companion is generated).
       const ref = fieldInstanceRef(ctx, "Eq", vt);
-      let body: string | null;
       if (ref) {
-        body = `${ref}.equals(a as any, b as any)`;
-      } else {
-        const fields = variantFields(ctx, vt, disc);
-        const checks: string[] = [];
-        for (const f of fields) {
-          const c = eqExpr(ctx, f.type, access("(a as any)", f.name), access("(b as any)", f.name));
-          if (c === null) return null;
-          checks.push(c);
-        }
-        body = checks.length > 0 ? checks.join(" && ") : "true";
+        cases.push(`case ${JSON.stringify(v.tag)}: return ${ref}.equals(a as any, b as any);`);
+        continue;
       }
-      cases.push(`case ${JSON.stringify(v.tag)}: return ${body}`);
+      // The variant's fields, through locals of the variant's type, so each
+      // comparison is type-checked (and array callbacks are typed).
+      const fields = variantFields(ctx, vt, disc);
+      const checks: string[] = [];
+      for (const f of fields) {
+        const c = eqExpr(ctx, f.type, access("__a", f.name), access("__b", f.name));
+        if (c === null) return null;
+        checks.push(c);
+      }
+      cases.push(
+        checks.length === 0
+          ? `case ${JSON.stringify(v.tag)}: return true;`
+          : `case ${JSON.stringify(v.tag)}: { const __a = a as Extract<${typeName}, { ${objKey(disc)}: ${JSON.stringify(v.tag)} }>; ` +
+              `const __b = b as typeof __a; return ${checks.join(" && ")}; }`
+      );
     }
 
     const tagA = access("(a as any)", disc);
     const tagB = access("(b as any)", disc);
-    return `(() => { const equals = (a: ${typeName}, b: ${typeName}): boolean => { if (${tagA} !== ${tagB}) return false; switch (${tagA}) { ${cases.join("; ")}; default: return false; } }; return { equals, notEquals: (a: ${typeName}, b: ${typeName}): boolean => !equals(a, b) }; })()`;
+    return `(() => { const equals = (a: ${typeName}, b: ${typeName}): boolean => { if (${tagA} !== ${tagB}) return false; switch (${tagA}) { ${cases.join(" ")} default: return false; } }; return { equals, notEquals: (a: ${typeName}, b: ${typeName}): boolean => !equals(a, b) }; })()`;
   },
 });
 
@@ -1255,7 +1487,693 @@ registerGenericDerivation("Hash", {
   },
 });
 
-// Clone derivation via Generic
+// ============================================================================
+// Clone derivation via Generic: field-wise, like Rust's #[derive(Clone)]
+// ============================================================================
+//
+// Each field is cloned through its own Clone: primitives (and functions) are
+// copied as they are, arrays and tuples element by element, Date/Map/Set into
+// new ones, a type with a Clone instance in scope (`@impl`, or a `@derive`
+// companion) through that instance, and any other object type or
+// discriminated union structurally, by these same rules, in place. `any`,
+// `unknown`, `object` and type parameters name no type to clone by, so they
+// are copied by reference (an in-scope `Clone<any>`/`Clone<unknown>` instance
+// is used if there is one).
+//
+// The copy starts as a spread, `{ ...a }`, and overrides only the fields that
+// need cloning. So an absent optional field stays absent (it is overridden
+// only when present: `...(a.bbox && { bbox: ... })`), and properties the type
+// doesn't declare (GeoJSON "foreign members") are kept, by reference.
+//
+// A discriminated union becomes a local helper with a `switch`, and so does a
+// type that contains itself (found when its own clone is being generated, so
+// derivation never recurses forever); the instance is then an IIFE that
+// declares the helpers. Nothing is looked up at run time: an instance in
+// scope is referenced directly, and everything else is inlined.
+
+/** Lib types copied with a known expression (anything else from the lib: as is). */
+const CLONE_TYPED_ARRAYS = new Set([
+  "Int8Array",
+  "Uint8Array",
+  "Uint8ClampedArray",
+  "Int16Array",
+  "Uint16Array",
+  "Int32Array",
+  "Uint32Array",
+  "Float16Array",
+  "Float32Array",
+  "Float64Array",
+  "BigInt64Array",
+  "BigUint64Array",
+]);
+
+/** Nested types inlined before giving up (a generic type that grows, `L<T[]>`). */
+const MAX_CLONE_DEPTH = 32;
+
+const ENTITY_NAME_RE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/;
+
+/** State for generating one Clone instance. */
+interface CloneGen {
+  ctx: MacroContext;
+  /** What the derivation is for, as the user wrote it (`Feature`). */
+  rootTypeName: string;
+  /** Hoisted helpers (`const cloneGeometry = <fn>;`), in creation order. */
+  helpers: Array<{ name: string; fn: string }>;
+  /** References to each helper in generated code. */
+  helperRefs: Map<string, number>;
+  /** Helper name per type: discriminated unions, and types that contain themselves. */
+  helperNames: Map<ts.Type, string>;
+  /** Product types whose inline clone is being generated (recursion detection). */
+  inProgress: ts.Type[];
+  /** Names that a generated name must not shadow (the user file's identifiers). */
+  taken: Set<string>;
+  /** Lambda nesting depth: parameters are `e`, `e1`, `e2`, ... */
+  depth: number;
+  /** Warnings already reported (each once). */
+  warned: Set<string>;
+  /** Type symbols visible in the user's file, by name (lazily computed). */
+  scopeTypes?: Map<string, ts.Symbol>;
+}
+
+function identifiersOf(sf: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isIdentifier(n)) out.add(n.text);
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
+}
+
+/** A call to helper `name` (counted, so an unreferenced root helper can be inlined). */
+function helperCall(g: CloneGen, name: string, x: string): string {
+  g.helperRefs.set(name, (g.helperRefs.get(name) ?? 0) + 1);
+  return `${name}(${x})`;
+}
+
+function cloneWarn(g: CloneGen, message: string): void {
+  if (g.warned.has(message)) return;
+  g.warned.add(message);
+  g.ctx.reportWarning(g.ctx.sourceFile, `derived Clone<${g.rootTypeName}>: ${message}`);
+}
+
+/** A name for a lambda parameter at the current depth (`e`, `e1`, ...; `k`, `v` for entries). */
+function lambdaName(g: CloneGen, base: string): string {
+  let name = g.depth === 0 ? base : `${base}${g.depth}`;
+  while (g.taken.has(name)) name = `${name}_`;
+  return name;
+}
+
+/**
+ * `(e) => <clone of e>`, or undefined when the element is copied as is. A
+ * clone that is just a helper call is passed point-free: `.map(cloneGeometry)`.
+ */
+function cloneLambda(g: CloneGen, elem: ts.Type, path: string): string | undefined {
+  const p = lambdaName(g, "e");
+  g.depth++;
+  let body: string | undefined;
+  try {
+    body = cloneValue(g, elem, p, path);
+  } finally {
+    g.depth--;
+  }
+  if (body === undefined) return undefined;
+  for (const helper of g.helperNames.values()) {
+    if (body === `${helper}(${p})`) return helper;
+  }
+  return `(${p}) => ${body.startsWith("{") ? `(${body})` : body}`;
+}
+
+/** `typeof x` when `x` can be named in a type query, else the type's path text. */
+function typeOfText(x: string, path: string): string {
+  return ENTITY_NAME_RE.test(x) ? `typeof ${x}` : path;
+}
+
+/** Every constituent is an object (so `x && f(x)` guards exactly null/undefined). */
+function isObjectOnly(t: ts.Type): boolean {
+  const notObject =
+    PRIMITIVE_FLAGS | ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter;
+  if (t.isUnion())
+    return t.types.every((m) => (m.flags & notObject) === 0 && !isBrandedPrimitive(m));
+  return (t.flags & notObject) === 0 && !isBrandedPrimitive(t);
+}
+
+function isArrayLike(ctx: MacroContext, t: ts.Type): boolean {
+  return arrayElementType(ctx, t) !== undefined || ctx.typeChecker.isTupleType(t);
+}
+
+/**
+ * `t` is an interface or class from TypeScript's default libs (`Date`, `Map`,
+ * `Promise`, ...). Lib type ALIASES (`Record`, `Partial`, `Readonly`) are
+ * not: they describe ordinary objects, cloned structurally.
+ */
+function isLibType(ctx: MacroContext, t: ts.Type): boolean {
+  return isBuiltinObjectType(ctx.program, t);
+}
+
+/**
+ * `Clone` instance call for `t` from scope, or undefined. Registry shape
+ * (CLAUDE.md "Resolving things a macro just generated"): fieldInstanceRef goes
+ * through resolveInstance, which reads the live same-pass `getSynthesized`
+ * table, so a `@derive(Clone)` companion generated earlier in this pass is
+ * found; its `@derive` fallback reads the type's own declaration, which exists
+ * before the pass.
+ */
+function cloneInstanceCall(g: CloneGen, t: ts.Type, x: string, exact: boolean): string | undefined {
+  const ref = fieldInstanceRef(g.ctx, "Clone", t, false, exact);
+  return ref ? `${ref}.clone(${x})` : undefined;
+}
+
+/**
+ * Expression cloning `x` (of type `t`), or undefined when `x` is copied as is.
+ * `path` is a type expression for `t` that is valid in the user's file
+ * (`Feature["geometry"]`), used where the generated code needs to name `t`.
+ */
+function cloneValue(g: CloneGen, t: ts.Type, x: string, path: string): string | undefined {
+  const { ctx } = g;
+  if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+    // Nothing to clone by. An instance declared for `any`/`unknown` is used.
+    return cloneInstanceCall(g, t, x, true);
+  }
+  if (isPrimitiveLike(t)) return undefined;
+  const { base, nullable } = splitNullable(ctx, t);
+  if (!nullable) return cloneNonNull(g, t, x, path);
+  // An instance for the type as written, null included (`Clone<GeoJsonProperties>`
+  // for `{ [k: string]: any } | null`), wins over cloning the non-null part.
+  if (!isArrayLike(ctx, base)) {
+    const exact = cloneInstanceCall(g, t, x, true);
+    if (exact) return exact;
+  }
+  const inner = cloneNonNull(g, base, x, `NonNullable<${path}>`);
+  if (inner === undefined) return undefined;
+  return isObjectOnly(base) ? `${x} && ${inner}` : `${x} == null ? ${x} : ${inner}`;
+}
+
+/** {@link cloneValue} for a type that includes neither `null` nor `undefined`. */
+function cloneNonNull(g: CloneGen, t: ts.Type, x: string, path: string): string | undefined {
+  const { ctx } = g;
+  const checker = ctx.typeChecker;
+  if (isPrimitiveLike(t)) return undefined;
+  if (
+    t.flags &
+    (ts.TypeFlags.Any |
+      ts.TypeFlags.Unknown |
+      ts.TypeFlags.TypeParameter |
+      ts.TypeFlags.NonPrimitive |
+      ts.TypeFlags.Never)
+  ) {
+    // `any`/`unknown` reach here inside a union; `T` and `object` name no shape.
+    return t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+      ? cloneInstanceCall(g, t, x, true)
+      : undefined;
+  }
+  if (t.getCallSignatures().length > 0) return undefined; // functions: shared, like Rc
+
+  // Arrays and tuples: element-wise, through the element type's Clone.
+  const elem = arrayElementType(ctx, t);
+  if (elem) {
+    const fn = cloneLambda(g, elem, `${path}[number]`);
+    return fn === undefined ? `${x}.slice()` : `${x}.map(${fn})`;
+  }
+  if (checker.isTupleType(t)) return cloneTuple(g, t as ts.TupleTypeReference, x, path);
+
+  if (t.isUnion()) {
+    // A union with an instance in scope (`derived<Clone<Geometry>>()`) is
+    // cloned through it, like any other type that has one.
+    return cloneInstanceCall(g, t, x, false) ?? cloneUnion(g, t, x, path);
+  }
+
+  // Built-in object types.
+  if (isLibType(ctx, t)) {
+    const name = t.symbol.name;
+    if (name === "Date") return `new Date(${x}.getTime())`;
+    if (name === "RegExp") return `new RegExp(${x})`;
+    if (name === "ArrayBuffer") return `${x}.slice(0)`;
+    if (CLONE_TYPED_ARRAYS.has(name)) return `${x}.slice()`;
+    const args = (t as ts.TypeReference).target
+      ? checker.getTypeArguments(t as ts.TypeReference)
+      : [];
+    if ((name === "Map" || name === "ReadonlyMap") && args.length === 2) {
+      // Keys are kept (a Map is looked up by key identity); values are cloned.
+      const k = lambdaName(g, "k");
+      const v = lambdaName(g, "v");
+      g.depth++;
+      let cv: string | undefined;
+      try {
+        cv = cloneValue(g, args[1], v, `(${path} extends ReadonlyMap<any, infer V> ? V : never)`);
+      } finally {
+        g.depth--;
+      }
+      return cv === undefined
+        ? `new Map(${x})`
+        : `new Map(Array.from(${x}, ([${k}, ${v}]) => [${k}, ${cv}] as const))`;
+    }
+    if ((name === "Set" || name === "ReadonlySet") && args.length === 1) {
+      const fn = cloneLambda(g, args[0], `(${path} extends ReadonlySet<infer E> ? E : never)`);
+      return fn === undefined ? `new Set(${x})` : `new Set(Array.from(${x}, ${fn}))`;
+    }
+    return undefined; // Promise, Error, WeakMap, ...: copied as is
+  }
+
+  // A Clone instance in scope (`@impl`, `@derive` companion) clones the type.
+  const viaInstance = cloneInstanceCall(g, t, x, false);
+  if (viaInstance) return viaInstance;
+
+  const sym = t.aliasSymbol ?? t.symbol;
+  if (sym && sym.flags & ts.SymbolFlags.Class) {
+    cloneWarn(
+      g,
+      `'${checker.typeToString(t)}' is a class with no Clone instance in scope, so it is ` +
+        `copied by reference. Give it one (@derive(Clone), or an @impl Clone<${sym.name}>) to clone it.`
+    );
+    return undefined;
+  }
+  return cloneProduct(g, t, x, path);
+}
+
+/** A tuple: a fixed one element by element, otherwise through `.slice()`/`.map`. */
+function cloneTuple(
+  g: CloneGen,
+  t: ts.TupleTypeReference,
+  x: string,
+  path: string
+): string | undefined {
+  const checker = g.ctx.typeChecker;
+  const elems = checker.getTypeArguments(t);
+  const fixed = t.target.elementFlags.every((f) => (f & ts.ElementFlags.Required) !== 0);
+  const cast = typeOfText(x, path);
+  if (fixed) {
+    const clones = elems.map((et, i) => cloneValue(g, et, `${x}[${i}]`, `${path}[${i}]`));
+    if (clones.every((c) => c === undefined)) return `${x}.slice() as ${cast}`;
+    return `[${clones.map((c, i) => c ?? `${x}[${i}]`).join(", ")}] as ${cast}`;
+  }
+  const union = elems.length === 1 ? elems[0] : undefined;
+  const fn = union
+    ? cloneLambda(g, union, `${path}[number]`)
+    : elems.every((et) => isPrimitiveLike(et))
+      ? undefined
+      : null;
+  if (fn === undefined) return `${x}.slice() as ${cast}`;
+  if (fn === null) {
+    cloneWarn(
+      g,
+      `a tuple with optional or rest elements of different types ('${checker.typeToString(t)}') ` +
+        `is copied with .slice(); its elements are not cloned.`
+    );
+    return `${x}.slice() as ${cast}`;
+  }
+  return `${x}.map(${fn}) as ${cast}`;
+}
+
+/** The property every member of `t` has with a string-literal type, if any. */
+function cloneDiscriminant(ctx: MacroContext, members: readonly ts.Type[]): string | undefined {
+  const checker = ctx.typeChecker;
+  const first = members[0];
+  if (!first) return undefined;
+  for (const p of first.getProperties()) {
+    const ok = members.every((m) => {
+      const prop = m.getProperty(p.name);
+      if (!prop) return false;
+      return checker
+        .getTypeOfSymbolAtLocation(prop, prop.valueDeclaration ?? ctx.sourceFile)
+        .isStringLiteral();
+    });
+    if (ok) return p.name;
+  }
+  return undefined;
+}
+
+/** A union without null/undefined that has at least one non-primitive member. */
+function cloneUnion(g: CloneGen, t: ts.UnionType, x: string, path: string): string | undefined {
+  const { ctx } = g;
+  const prims = t.types.filter((m) => isPrimitiveLike(m));
+  const objs = t.types.filter((m) => !isPrimitiveLike(m));
+  if (objs.length === 0) return undefined;
+  if (objs.length === 1) {
+    const inner = cloneNonNull(g, objs[0], x, path);
+    if (inner === undefined) return undefined;
+    return prims.length > 0 ? `typeof ${x} === "object" ? ${inner} : ${x}` : inner;
+  }
+  // `[n, n, n, n] | [n, n, n, n, n, n]` (GeoJSON's BBox), `A[] | B[]`.
+  if (objs.every((m) => isArrayLike(ctx, m))) {
+    const elementsAsIs = objs.every((m) => {
+      const elem = arrayElementType(ctx, m);
+      const elems = elem ? [elem] : ctx.typeChecker.getTypeArguments(m as ts.TypeReference);
+      return elems.every((e) => isPrimitiveLike(e));
+    });
+    if (elementsAsIs) {
+      const copy = `${x}.slice() as ${typeOfText(x, path)}`;
+      return prims.length > 0 ? `Array.isArray(${x}) ? ${copy} : ${x}` : copy;
+    }
+  } else if (prims.length === 0) {
+    const helper = cloneSumHelper(g, t, path);
+    if (helper) return helperCall(g, helper, x);
+  }
+  cloneWarn(
+    g,
+    `values of type '${ctx.typeChecker.typeToString(t)}' (a union of object types with no ` +
+      `string-literal discriminant) are copied by reference.`
+  );
+  return undefined;
+}
+
+/** A type expression for `t` in the user's file: its own name if that is in scope, else `path`. */
+function cloneTypeText(g: CloneGen, t: ts.Type, path: string): string {
+  const checker = g.ctx.typeChecker;
+  const sym = t.aliasSymbol ?? t.symbol;
+  const name = sym?.name;
+  if (!name || !IDENT_RE.test(name) || name.startsWith("__")) return path;
+  // An instantiation (`GeometryCollection<Geometry>`): the bare name may mean
+  // a different instantiation, so name it by its path.
+  const typeArgs = t.aliasSymbol
+    ? t.aliasTypeArguments
+    : (t as ts.TypeReference).target
+      ? checker.getTypeArguments(t as ts.TypeReference)
+      : undefined;
+  if (typeArgs?.length) return path;
+  if (!g.scopeTypes) {
+    g.scopeTypes = new Map();
+    try {
+      for (const s of checker.getSymbolsInScope(
+        g.ctx.sourceFile,
+        ts.SymbolFlags.Type | ts.SymbolFlags.Alias
+      )) {
+        if (!g.scopeTypes.has(s.name)) g.scopeTypes.set(s.name, s);
+      }
+    } catch {
+      /* no scope information: use paths */
+    }
+  }
+  let inScope = g.scopeTypes.get(name);
+  if (inScope && inScope.flags & ts.SymbolFlags.Alias) {
+    try {
+      inScope = checker.getAliasedSymbol(inScope);
+    } catch {
+      return path;
+    }
+  }
+  return inScope === sym ? name : path;
+}
+
+function cloneHelperName(g: CloneGen, t: ts.Type, path: string): string {
+  const sym = t.aliasSymbol ?? t.symbol;
+  let stem = sym?.name && IDENT_RE.test(sym.name) && !sym.name.startsWith("__") ? sym.name : "";
+  if (!stem) {
+    const m = /\["([A-Za-z_$][\w$]*)"\][^[]*$/.exec(path);
+    stem = m ? m[1] : "Value";
+  }
+  let name = `clone${stem.charAt(0).toUpperCase()}${stem.slice(1)}`;
+  for (let n = 2; g.taken.has(name); n++)
+    name = `clone${stem.charAt(0).toUpperCase()}${stem.slice(1)}${n}`;
+  g.taken.add(name);
+  return name;
+}
+
+/**
+ * A discriminated union's clone as a helper, `const cloneX = (a: X): X => {
+ * switch (a.type) { ... } }`, with one `case` group per distinct variant body.
+ * Registered before its body is generated, so a variant that contains the
+ * union (a GeometryCollection's `geometries`) calls the helper.
+ */
+function cloneSumHelper(g: CloneGen, t: ts.UnionType, path: string): string | undefined {
+  const existing = g.helperNames.get(t);
+  if (existing) return existing;
+  const disc = cloneDiscriminant(g.ctx, t.types);
+  if (!disc) return undefined;
+  const name = cloneHelperName(g, t, path);
+  g.helperNames.set(t, name);
+  const typeText = cloneTypeText(g, t, path);
+  const savedDepth = g.depth;
+  g.depth = 0;
+  const groups: Array<{ tags: string[]; body: string }> = [];
+  try {
+    for (const v of t.types) {
+      const prop = v.getProperty(disc)!;
+      const tag = (
+        g.ctx.typeChecker.getTypeOfSymbolAtLocation(
+          prop,
+          prop.valueDeclaration ?? g.ctx.sourceFile
+        ) as ts.StringLiteralType
+      ).value;
+      const vPath = `Extract<${typeText}, { ${objKey(disc)}: ${JSON.stringify(tag)} }>`;
+      const body = cloneProduct(g, v, "a", vPath);
+      const group = groups.find((gr) => gr.body === body);
+      if (group) group.tags.push(tag);
+      else groups.push({ tags: [tag], body });
+    }
+  } finally {
+    g.depth = savedDepth;
+  }
+  const cases = groups
+    .map(
+      (gr) => `${gr.tags.map((tag) => `case ${JSON.stringify(tag)}:`).join(" ")} return ${gr.body};`
+    )
+    .join(" ");
+  g.helpers.push({
+    name,
+    fn: `(a: ${typeText}): ${typeText} => { switch (${access("a", disc)}) { ${cases} } }`,
+  });
+  return name;
+}
+
+/**
+ * An object type: `{ ...x, f: <clone of x.f>, ... }`, inline; or a call to a
+ * helper when the type contains itself.
+ */
+function cloneProduct(g: CloneGen, t: ts.Type, x: string, path: string): string {
+  const helper = g.helperNames.get(t);
+  if (helper) return helperCall(g, helper, x);
+  if (g.inProgress.includes(t)) {
+    // `t` contains itself: its clone becomes a helper, which the outermost
+    // frame for `t` emits once this frame's body is done.
+    const name = cloneHelperName(g, t, path);
+    g.helperNames.set(t, name);
+    return helperCall(g, name, x);
+  }
+  if (g.inProgress.length >= MAX_CLONE_DEPTH) {
+    cloneWarn(
+      g,
+      `types nest more than ${MAX_CLONE_DEPTH} deep at '${g.ctx.typeChecker.typeToString(t)}'; ` +
+        `it is copied with a spread, and its fields are not cloned.`
+    );
+    return `{ ...${x} }`;
+  }
+  g.inProgress.push(t);
+  let body: string;
+  try {
+    body = cloneProductBody(g, t, x, path);
+  } finally {
+    g.inProgress.pop();
+  }
+  const name = g.helperNames.get(t);
+  if (!name) return body;
+  // Recursive: emit the helper (its body now calls `name` where `t` recurs).
+  const typeText = cloneTypeText(g, t, path);
+  const savedDepth = g.depth;
+  g.depth = 0;
+  g.inProgress.push(t);
+  try {
+    const helperBody = cloneProductBody(g, t, "a", path);
+    g.helpers.push({ name, fn: `(a: ${typeText}): ${typeText} => (${helperBody})` });
+  } finally {
+    g.inProgress.pop();
+    g.depth = savedDepth;
+  }
+  return helperCall(g, name, x);
+}
+
+/**
+ * Why a class's instances can't be cloned field-wise, or undefined when they
+ * can: a `#private` member (field, method or accessor; also an `accessor`
+ * field, whose storage is one) is brand-checked, so a copy made outside the
+ * class has none and every use of it throws; a class that extends a built-in
+ * (`Map`, `Date`, `Error`, ...) keeps its state in internal slots that no
+ * property copy reaches. Checked through the class and all its base classes.
+ */
+function classCloneProblem(ctx: MacroContext, t: ts.Type): string | undefined {
+  const checker = ctx.typeChecker;
+  const seen = new Set<ts.Type>();
+  let cls: ts.Type | undefined = t;
+  while (cls && !seen.has(cls)) {
+    seen.add(cls);
+    const sym = cls.symbol;
+    if (!sym) break;
+    // Before the class check: the lib declares `Map`, `Error`, ... as an
+    // interface plus a constructor variable, not as a class.
+    if (isLibType(ctx, cls)) {
+      return (
+        `it extends the built-in '${sym.name}', whose state lives in internal slots ` +
+        `that a field-wise copy can't reproduce`
+      );
+    }
+    if (!(sym.flags & ts.SymbolFlags.Class)) break;
+    for (const decl of sym.declarations ?? []) {
+      if (!ts.isClassLike(decl)) continue;
+      for (const m of decl.members) {
+        const isStatic = ts.getCombinedModifierFlags(m as ts.Declaration) & ts.ModifierFlags.Static;
+        if (isStatic) continue;
+        if (m.name && ts.isPrivateIdentifier(m.name)) {
+          return (
+            `its member '${m.name.text}' (in class ${sym.name}) is #private, and a copy made ` +
+            `outside the class can't have it`
+          );
+        }
+        if (
+          ts.isPropertyDeclaration(m) &&
+          m.modifiers?.some((mod) => mod.kind === ts.SyntaxKind.AccessorKeyword)
+        ) {
+          return (
+            `its 'accessor' field '${m.name.getText()}' (in class ${sym.name}) is stored in a ` +
+            `#private slot, which a copy made outside the class can't have`
+          );
+        }
+      }
+    }
+    const bases: ts.BaseType[] = cls.isClassOrInterface() ? checker.getBaseTypes(cls) : [];
+    cls = bases[0];
+  }
+  return undefined;
+}
+
+/** `t` is the instance type of a (non-lib) class: its clone keeps the prototype. */
+function isClassInstanceType(ctx: MacroContext, t: ts.Type): boolean {
+  const sym = t.symbol;
+  return !!sym && (sym.flags & ts.SymbolFlags.Class) !== 0 && !isLibType(ctx, t);
+}
+
+function cloneProductBody(g: CloneGen, t: ts.Type, x: string, path: string): string {
+  const { ctx } = g;
+  const checker = ctx.typeChecker;
+  const isClass = isClassInstanceType(ctx, t);
+  if (isClass) {
+    const problem = classCloneProblem(ctx, t);
+    if (problem) {
+      const name = checker.typeToString(t);
+      throw new DerivationRefused(
+        `Clone<${name}> can't be derived field-wise: ${problem}. ` +
+          `Write it by hand with /** @impl Clone<${name}> */ (for example with a copy constructor).`
+      );
+    }
+  }
+  const parts: string[] = [`...${x}`];
+  const props = dataProperties(ctx, t, false);
+  for (const p of props) {
+    const acc = access(x, p.name);
+    const pPath = `${path}[${JSON.stringify(p.name)}]`;
+    if (p.optional) {
+      // Overridden only when present, so an absent field stays absent.
+      const present = checker.getNonNullableType(p.type);
+      const inner = cloneValue(g, present, acc, `NonNullable<${pPath}>`);
+      if (inner === undefined) continue;
+      const guard = isObjectOnly(present) ? acc : `${acc} != null`;
+      parts.push(`...(${guard} && { ${objKey(p.name)}: ${inner} })`);
+      continue;
+    }
+    const c = cloneValue(g, p.type, acc, pPath);
+    if (c !== undefined) parts.push(`${objKey(p.name)}: ${c}`);
+  }
+  if (isClass) {
+    // A class instance: a new object with the same prototype (methods,
+    // accessors, `instanceof`, a subclass's overrides), then its own fields,
+    // with the cloned ones set on top. Object.create returns `any`; the
+    // instance's `clone` is annotated with the class type.
+    const proto = `Object.create(Object.getPrototypeOf(${x}))`;
+    const overrides = parts.slice(1);
+    return overrides.length > 0
+      ? `Object.assign(${proto}, ${x}, { ${overrides.join(", ")} })`
+      : `Object.assign(${proto}, ${x})`;
+  }
+  if (props.length === 0) {
+    // `{ [k: string]: V }` / `Record<string, V>`: values cloned through V's Clone.
+    const index = checker.getIndexInfosOfType(t).find((i) => i.keyType.flags & ts.TypeFlags.String);
+    if (index) {
+      const k = lambdaName(g, "k");
+      const v = lambdaName(g, "v");
+      g.depth++;
+      let cv: string | undefined;
+      try {
+        cv = cloneValue(g, index.type, v, `${path}[string]`);
+      } finally {
+        g.depth--;
+      }
+      if (cv !== undefined) {
+        return `Object.fromEntries(Object.entries(${x}).map(([${k}, ${v}]) => [${k}, ${cv}]))`;
+      }
+    }
+  }
+  return `{ ${parts.join(", ")} }`;
+}
+
+/** Field-wise clone from type STRINGS (registered GenericMeta without ts.Types). */
+function cloneFromText(ft: string, x: string, depth: number): string | undefined {
+  const stripped = stripNullableText(ft);
+  if (PRIMITIVE_NAMES.has(stripped)) return undefined;
+  const m =
+    /^(?:readonly\s+)?(.+)\[\]$/.exec(stripped) ?? /^(?:Readonly)?Array<(.+)>$/.exec(stripped);
+  if (!m) return undefined; // nothing known about the type: copied as is
+  const p = depth === 0 ? "e" : `e${depth}`;
+  const inner = cloneFromText(m[1].trim(), p, depth + 1);
+  return inner === undefined ? `${x}.slice()` : `${x}.map((${p}) => ${inner})`;
+}
+
+function deriveClone(ctx: MacroContext, typeName: string, meta: GenericMeta): string | null {
+  const types = mirrorTypes.get(meta);
+  if (!types) {
+    if (meta.kind !== "product" || !meta.fieldNames || !meta.fieldTypes) return null;
+    const parts = ["...a"];
+    meta.fieldNames.forEach((name, i) => {
+      const acc = access("a", name);
+      const c = cloneFromText(meta.fieldTypes![i], acc, 0);
+      if (c === undefined) return;
+      // Optionality is unknown here: override only when present.
+      parts.push(
+        stripNullableText(meta.fieldTypes![i]) === meta.fieldTypes![i].trim()
+          ? `${objKey(name)}: ${c}`
+          : `...(${acc} && { ${objKey(name)}: ${c} })`
+      );
+    });
+    if (parts.length > 1) structureDependence++;
+    return `({ clone: (a: ${typeName}): ${typeName} => ({ ${parts.join(", ")} }) })`;
+  }
+
+  const g: CloneGen = {
+    ctx,
+    rootTypeName: typeName,
+    helpers: [],
+    helperRefs: new Map(),
+    helperNames: new Map(),
+    inProgress: [],
+    taken: identifiersOf(ctx.sourceFile),
+    depth: 0,
+    warned: new Set(),
+  };
+  const root = types.self;
+  // The instance's `clone` member: an arrow function, or a helper's name.
+  let member: string;
+  if (meta.kind === "sum") {
+    if (!root.isUnion()) return null;
+    const helper = cloneSumHelper(g, root, typeName);
+    if (!helper) return null;
+    member = helper;
+  } else {
+    const expr = cloneProduct(g, root, "a", typeName);
+    member = g.helperNames.get(root) ?? `(a: ${typeName}): ${typeName} => (${expr})`;
+  }
+  // A helper referenced only as the member (a union that doesn't contain
+  // itself) is the member itself: `({ clone: (a: T): T => { switch ... } })`.
+  const own = g.helpers.find((h) => h.name === member);
+  if (own && !g.helperRefs.get(own.name)) {
+    g.helpers.splice(g.helpers.indexOf(own), 1);
+    member = own.fn;
+  }
+  const code =
+    g.helpers.length > 0
+      ? `(() => { ${g.helpers.map((h) => `const ${h.name} = ${h.fn};`).join(" ")} return { clone: ${member} }; })()`
+      : `({ clone: ${member} })`;
+  if (code !== `({ clone: (a: ${typeName}): ${typeName} => ({ ...a }) })`) structureDependence++;
+  return code;
+}
+
 registerGenericDerivation("Clone", {
   typeclassName: "Clone",
   fieldTypeclass: null,
@@ -1264,12 +2182,12 @@ registerGenericDerivation("Clone", {
 
   deriveProduct(ctx, typeName, meta) {
     if (!meta.fieldNames) return null;
+    return deriveClone(ctx, typeName, meta);
+  },
 
-    const fields = meta.fieldNames
-      .map((name) => `${objKey(name)}: ${access("a", name)}`)
-      .join(", ");
-
-    return `({ clone: (a: ${typeName}): ${typeName} => ({ ${fields} }) })`;
+  deriveSum(ctx, typeName, meta) {
+    if (!meta.variants) return null;
+    return deriveClone(ctx, typeName, meta);
   },
 });
 
@@ -1451,7 +2369,9 @@ registerGenericDerivation("Monoid", {
 function ordFromCompare(typeName: string, compareBody: string): string {
   const sig = `(a: ${typeName}, b: ${typeName}): boolean =>`;
   return (
-    `(() => { const compare = (a: ${typeName}, b: ${typeName}): number => { ${compareBody} }; ` +
+    // `-1 | 0 | 1`: the `Ordering` of std's and fp's `Ord` (not `number`,
+    // which isn't assignable to it), written out so no import is needed.
+    `(() => { const compare = (a: ${typeName}, b: ${typeName}): -1 | 0 | 1 => { ${compareBody} }; ` +
     `return { compare, ` +
     `equals: ${sig} compare(a, b) === 0, notEquals: ${sig} compare(a, b) !== 0, ` +
     `lessThan: ${sig} compare(a, b) < 0, lessThanOrEqual: ${sig} compare(a, b) <= 0, ` +

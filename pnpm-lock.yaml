@@ -938,12 +938,18 @@ importers:
       '@typesugar/derive':
         specifier: workspace:*
         version: link:../derive
+      '@typesugar/fp':
+        specifier: workspace:*
+        version: link:../fp
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
       '@typesugar/reflect':
         specifier: workspace:*
         version: link:../reflect
+      '@typesugar/std':
+        specifier: workspace:*
+        version: link:../std
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:../transformer

@@ -14,6 +14,7 @@ import {
   zipVec,
   toArray,
 } from "../vec.js";
+import type { FusedVec } from "../types.js";
 
 // ===========================================================================
 // Element-wise arithmetic
@@ -189,5 +190,29 @@ describe("vec — compound expressions", () => {
     const p2 = vec([4, 6]);
     const diff = sub(p2, p1);
     expect(magnitude(diff)).toBe(5);
+  });
+});
+
+// ===========================================================================
+// vec() infers FusedVec<number>, not a vector of its literals
+// ===========================================================================
+
+describe("vec() element type", () => {
+  it("vec([1, 2, 3]) is a FusedVec<number> (checked by typecheck)", () => {
+    // Before: FusedVec<1 | 2 | 3>, so the result of arithmetic on it (a
+    // FusedVec<number>) could not be assigned back, and the showcase's
+    // typeAssert<Equal<typeof a, FusedVec<number>>> failed.
+    let v = vec([1, 2, 3]);
+    v = add(v, v);
+    const n: FusedVec<number> extends typeof v ? true : false = true;
+    expect(n).toBe(true);
+    expect(toArray(v)).toEqual([2, 4, 6]);
+  });
+
+  it("an explicit numeric element type is kept", () => {
+    type Meters = number & { readonly __unit: "m" };
+    const m = vec<Meters>([1 as Meters]);
+    const kept: typeof m extends FusedVec<Meters> ? true : false = true;
+    expect(kept).toBe(true);
   });
 });

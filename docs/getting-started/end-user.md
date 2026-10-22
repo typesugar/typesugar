@@ -18,9 +18,11 @@ Select "I'm using a library built with typesugar" when prompted. The wizard will
 
 1. Install the required dev dependencies
 2. Configure your `tsconfig.json`
-3. Set up ts-patch for the TypeScript compiler
+3. Add typesugar's plugin to your Vite, Webpack or Rollup config, if it finds one
+4. Install ts-patch and add a `prepare` script for it (only needed if you build with a
+   patched `tsc`; see [Step 3](#step-3-expand-macros-in-your-build))
 
-Then approve the library's macros (see [Step 5](#step-5-approve-the-library-s-macros)):
+Then approve the library's macros (see [Step 4](#step-4-approve-the-library-s-macros)):
 
 ```bash
 npx typesugar approve-macros
@@ -34,59 +36,57 @@ If you prefer to set things up manually:
 
 ```bash
 # npm
-npm install --save-dev @typesugar/transformer ts-patch
+npm install --save-dev @typesugar/transformer
 
 # pnpm
-pnpm add -D @typesugar/transformer ts-patch
+pnpm add -D @typesugar/transformer
 
 # yarn
-yarn add --dev @typesugar/transformer ts-patch
+yarn add --dev @typesugar/transformer
 
 # bun
-bun add -d @typesugar/transformer ts-patch
+bun add -d @typesugar/transformer
 ```
 
-### Step 2: Configure tsconfig.json
-
-Add the transformer plugin to your `tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "plugins": [{ "transform": "@typesugar/transformer", "type": "program" }]
-  }
-}
-```
-
-### Step 3: Install ts-patch
-
-ts-patch enables TypeScript transformer plugins to run during compilation:
-
-```bash
-npx ts-patch install
-```
-
-Add it to your `prepare` script so it persists after `npm install`:
-
-```json
-{
-  "scripts": {
-    "prepare": "ts-patch install -s"
-  }
-}
-```
-
-### Step 4: Configure Your Bundler (if applicable)
-
-If you use a bundler like Vite, Webpack, or esbuild, you'll also need the unplugin:
+If you use a bundler (Vite, Webpack, esbuild, Rollup, tsup), also install the plugin:
 
 ```bash
 npm install --save-dev unplugin-typesugar
 ```
 
-See the [environment-specific guides](./index.md#environment-specific-guides) for your bundler.
+### Step 2: Configure tsconfig.json
 
-### Step 5: Approve the library's macros
+Add the editor plugin (so your IDE sees the expanded code) and the transformer entry to
+your `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "plugins": [
+      { "name": "@typesugar/transformer/language-service" },
+      { "transform": "@typesugar/transformer", "type": "program" }
+    ]
+  }
+}
+```
+
+### Step 3: Expand macros in your build
+
+A plain `tsc` doesn't expand macros, so the library's macros need one of these:
+
+- **A bundler:** add `unplugin-typesugar` to your bundler config, or wrap a tsup config
+  in `withTypesugar()` from `typesugar/tsup`. See the
+  [environment-specific guides](./index.md#environment-specific-guides).
+- **tsc-style builds:** replace `tsc` with `typesugar build` (and `tsc --noEmit` with
+  `typesugar check`). See [tsc Setup](./environments/tsc.md).
+- **Running files directly** (scripts, tsx, `node --test`):
+  `node --import typesugar/register src/main.ts`. See
+  [Node.js and tsx](./environments/node.md).
+
+If you need a plain `tsc` to expand macros, [ts-patch](./environments/tsc.md#alternative-a-ts-patched-tsc)
+is an alternative to `typesugar build`.
+
+### Step 4: Approve the library's macros
 
 A library ships macros by declaring a `typesugar.macros` entry in its
 `package.json`. Packages under the `@typesugar/*` scope are trusted
@@ -162,9 +162,10 @@ See [Troubleshooting](./troubleshooting.md) for common issues.
 
 If `typesugar doctor` shows failures:
 
-1. **ts-patch not active**: Run `npx ts-patch install`
-2. **Transformer not configured**: Add the plugin to `tsconfig.json`
-3. **Bundler not configured**: Install `unplugin-typesugar` and add it to your bundler config
+1. **Transformer not configured**: Add the plugin to `tsconfig.json`
+2. **Bundler not configured**: Install `unplugin-typesugar` and add it to your bundler config
+3. **ts-patch not installed or not active**: Only matters if you build with a patched
+   `tsc`; run `npx ts-patch install`. If you build with `typesugar build`, you can ignore it
 
 If the build fails with "…have not been approved", run `npx typesugar approve-macros`
 and commit the `typesugar.config.ts` it writes.

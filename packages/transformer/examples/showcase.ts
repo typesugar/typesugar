@@ -114,63 +114,71 @@ assert(verboseConfig.cfgConfig!.debug === true);
 // 2. TRANSFORMATION PIPELINE - Unified Preprocessing + Macro Expansion
 // ============================================================================
 
-// TransformResult is what you get back from any transformation
+// TransformResult is what you get back from any transformation: the
+// original and transformed code, whether anything changed, the diagnostics,
+// a source map and a position mapper
 typeAssert<
   Extends<
-    { code: string; changed: boolean; diagnostics: TransformDiagnostic[]; sourceMap?: unknown },
-    TransformResult
+    TransformResult,
+    { original: string; code: string; changed: boolean; diagnostics: TransformDiagnostic[] }
   >
 >();
 
-// TransformDiagnostic carries error info from the macro system
+// TransformDiagnostic carries error info from the macro system, with the
+// position in the original file
 typeAssert<
   Extends<
-    { message: string; severity: "error" | "warning" | "info" },
-    TransformDiagnostic
+    TransformDiagnostic,
+    { file: string; start: number; length: number; message: string; severity: "error" | "warning" }
   >
 >();
 
-// PipelineOptions configures the full preprocessing + transform pipeline
+// PipelineOptions configures the full preprocessing + transform pipeline:
+// logging, the macro transformer's own config, file access and caching
 const pipelineOpts: PipelineOptions = {
   verbose: false,
-  extensions: ["hkt", "pipeline", "cons"],
+  maxCacheSize: 100,
+  diskCache: false,
 };
 
-assert(pipelineOpts.extensions!.length === 3);
+assert(pipelineOpts.maxCacheSize === 100);
 
-// transformCode is the simplest API — give it code, get back transformed code
-// (requires a tsconfig.json path for type checker access)
+// transformCode is the simplest API — give it code (and optionally a file
+// name and pipeline options), get back the transformed code
 typeAssert<
-  Extends<
-    typeof transformCode,
-    (tsconfig: string, code: string, fileName?: string) => TransformResult
-  >
+  Extends<typeof transformCode, (code: string, options?: { fileName?: string }) => TransformResult>
 >();
 
 // ============================================================================
 // 3. VIRTUAL COMPILER HOST - In-Memory TypeScript Compilation
 // ============================================================================
 
-// VirtualCompilerHost lets you create a TS program with virtual files
-// Useful for testing transformers without touching the filesystem
-const hostOpts: VirtualCompilerHostOptions = {
-  files: {
-    "virtual.ts": 'const x: number = 42; export { x };',
-  },
+// VirtualCompilerHost serves the type checker preprocessed file contents;
+// readFile/fileExists can supply virtual files without touching the
+// filesystem
+const virtualFiles: Record<string, string> = {
+  "virtual.ts": "const x: number = 42; export { x };",
 };
+const hostOpts: VirtualCompilerHostOptions = {
+  compilerOptions: { strict: true },
+  readFile: (fileName) => virtualFiles[fileName],
+  fileExists: (fileName) => fileName in virtualFiles,
+};
+assert(hostOpts.readFile!("virtual.ts")!.includes("42"));
 
 typeAssert<Equal<typeof hostOpts, VirtualCompilerHostOptions>>();
 
 // PreprocessedFile tracks which files have been preprocessed. The remaining
 // preprocessing step is HKT syntax: `F<A>` (F a type parameter) → `Kind<F, A>`.
 const preprocessed: PreprocessedFile = {
-  originalCode: "type Lifted = F<A>;",
-  processedCode: "type Lifted = Kind<F, A>;",
-  sourceMap: undefined,
+  original: "type Lifted = F<A>;",
+  code: "type Lifted = Kind<F, A>;",
+  map: null,
+  hash: "example",
 };
 
-assert(preprocessed.originalCode.includes("F<A>"));
-assert(preprocessed.processedCode.includes("Kind<F, A>"));
+assert(preprocessed.original.includes("F<A>"));
+assert(preprocessed.code.includes("Kind<F, A>"));
 
 // ============================================================================
 // 4. POSITION MAPPING - Navigate Between Original and Transformed Code
@@ -180,10 +188,11 @@ assert(preprocessed.processedCode.includes("Kind<F, A>"));
 const identity = new IdentityPositionMapper();
 const pos = identity.toOriginal(42);
 assert(pos === 42);
-assert(identity.toGenerated(42) === 42);
+assert(identity.toTransformed(42) === 42);
 
 // createPositionMapper picks the right mapper based on source map availability
-const identityMapper = createPositionMapper(undefined);
+// (no source map: the identity mapper)
+const identityMapper = createPositionMapper(null, "const x = 1;", "const x = 1;");
 assert(identityMapper.toOriginal(10) === 10);
 
 // SourceMapPositionMapper uses a decoded source map for accurate mapping
@@ -192,7 +201,7 @@ typeAssert<Extends<SourceMapPositionMapper, PositionMapper>>();
 typeAssert<Extends<IdentityPositionMapper, PositionMapper>>();
 
 // TextRange represents a span in source code
-const range: TextRange = { start: 0, end: 42 };
+const range: TextRange = { start: 0, length: 42 };
 typeAssert<Equal<typeof range, TextRange>>();
 
 // ============================================================================
@@ -202,11 +211,11 @@ typeAssert<Equal<typeof range, TextRange>>();
 // Source maps can be composed: preprocessor map + transformer map = final map
 // This is essential for accurate error locations through the pipeline
 
-// composeSourceMaps chains two maps together
+// composeSourceMaps chains two maps together (either may be absent)
 typeAssert<
   Extends<
     typeof composeSourceMaps,
-    (first: RawSourceMap, second: RawSourceMap) => RawSourceMap
+    (first: RawSourceMap | null, second: RawSourceMap | null) => RawSourceMap | null
   >
 >();
 
@@ -214,7 +223,7 @@ typeAssert<
 typeAssert<
   Extends<
     typeof findOriginalPosition,
-    (map: DecodedSourceMap, line: number, column: number) => SourcePosition | undefined
+    (map: DecodedSourceMap, line: number, column: number) => SourcePosition | null
   >
 >();
 
@@ -222,15 +231,16 @@ typeAssert<
 typeAssert<
   Extends<
     typeof findGeneratedPosition,
-    (map: DecodedSourceMap, line: number, column: number) => SourcePosition | undefined
+    (map: DecodedSourceMap, line: number, column: number) => SourcePosition | null
   >
 >();
 
 // A decoded source map has segments per line
 const emptyDecoded: DecodedSourceMap = {
+  version: 3,
   sources: ["input.ts"],
   names: [],
-  segments: [],
+  mappings: [],
 };
 typeAssert<Equal<typeof emptyDecoded, DecodedSourceMap>>();
 
@@ -279,20 +289,20 @@ assert(updatedDeps.has("utils.ts"));
 const cache = createTransformCache();
 typeAssert<Extends<typeof cache, TransformCache>>();
 
-// Cache entries for preprocessed and transformed files
+// Cache entries for preprocessed and transformed files, keyed by content hash
 // PreprocessedCacheEntry: { code, map, original, contentHash }
 typeAssert<
   Extends<
-    { code: string; contentHash: string },
-    PreprocessedCacheEntry
+    PreprocessedCacheEntry,
+    { code: string; map: RawSourceMap | null; original: string; contentHash: string }
   >
 >();
 
 // TransformCacheEntry: { result, contentHash, dependencies, dependencyHashes }
 typeAssert<
   Extends<
-    { contentHash: string },
-    TransformCacheEntry
+    TransformCacheEntry,
+    { result: TransformResult; contentHash: string; dependencies: Set<string> }
   >
 >();
 

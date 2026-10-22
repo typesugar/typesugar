@@ -700,14 +700,13 @@ match(bigUnion)
 
 ### Runtime Safety Net
 
-Even with compile-time exhaustiveness, the generated code includes a terminal throw as a safety net (e.g. if the type is widened at runtime via `any` or external data):
+When the arms can't prove that every value of the type matched (no `.else()`, and a type the arms don't cover or that can't be analysed), the generated code ends in a terminal throw as a safety net (e.g. if the type is widened at runtime via `any` or external data):
 
 ```typescript
-// Generated code always ends with:
 throw new MatchError(__m); // "Non-exhaustive match: <value>"
 ```
 
-This mirrors Scala's `scala.MatchError`.
+This mirrors Scala's `scala.MatchError`. When the arms do prove it — a literal union covered by literal arms, or extractors that cover their type (`Some`/`None`, `Left`/`Right`, `Cons`/`Nil`, `Valid`/`Invalid`, one derived extractor per variant) — the arm that completes the coverage has no test and nothing follows it, so there is no throw and no runtime import of `@typesugar/std` (the literal case since 4e1787c8, extractors since PR #83). A value outside the static type then takes that arm, as in TypeScript's own exhaustive `switch`.
 
 ## Pattern Grammar
 
@@ -761,8 +760,8 @@ const y = (() => {
   /* case 1 */ { const bindings...; if (structural_check && guard) return result; }
   /* case 2 */ { const bindings...; if (structural_check) return result; }
   /* default */ return D;           // from .else(D)
-  // or if no .else():
-  throw new MatchError(__m);        // always-exhaustive safety net
+  // or, with no .else() and arms that don't provably cover the type:
+  throw new MatchError(__m);        // safety net
 })();
 ```
 
