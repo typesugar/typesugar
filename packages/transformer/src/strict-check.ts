@@ -177,6 +177,41 @@ function toOriginal(fm: ExpandedFileMap, file: ts.SourceFile, pos: number): numb
 }
 
 /**
+ * For a diagnostic on the `return` keyword of a statement the expansion
+ * rebuilt (TypeScript reports a returned value's wrong type there:
+ * `return match(u)...` became `return (() => { ... })()`): the keyword is
+ * not a source-map token, so the nearest mapped node around it was the
+ * enclosing function, and the error was reported at the function's first
+ * line. It belongs at the source's `return` that the statement's first
+ * mapped token lies in. Undefined when `pos` is not such a keyword or that
+ * `return` can't be found.
+ */
+function returnKeywordSite(
+  fm: ExpandedFileMap,
+  file: ts.SourceFile,
+  pos: number,
+  original: ts.SourceFile
+): number | undefined {
+  const stmt = deepestNodeAt(file, pos);
+  if (!ts.isReturnStatement(stmt) || stmt.getStart(file) !== pos) return undefined;
+  const i = lowerBound(fm.generated, pos);
+  if (i >= fm.generated.length || fm.generated[i] >= stmt.end) return undefined;
+  // Top-down by position (no parent pointers needed), innermost last.
+  const at = fm.original[i];
+  const path: ts.Node[] = [];
+  for (let n: ts.Node | undefined = original; n; ) {
+    path.push(n);
+    n = n.forEachChild((c) => (c.pos <= at && at < c.end ? c : undefined));
+  }
+  for (let k = path.length - 1; k >= 0; k--) {
+    const n = path[k];
+    if (ts.isReturnStatement(n)) return n.getStart(original);
+    if (ts.isFunctionLike(n)) break;
+  }
+  return undefined;
+}
+
+/**
  * Diagnostics of the expanded program (`typecheckExpandedProgram`), moved
  * from the expanded text to the program's own source files (`program`, the
  * one the expansion was made from), through each file's source map (`maps`,
@@ -241,7 +276,9 @@ export function mapExpandedDiagnostics(
       // Only generated code in its span: at the nearest node around it that
       // came from the source (the language service does the same).
       const file = d.file;
-      const start = enclosingSourceSite(ts, file, d.start, (s) => toOriginal(fm, file, s));
+      const start =
+        returnKeywordSite(fm, file, d.start, original) ??
+        enclosingSourceSite(ts, file, d.start, (s) => toOriginal(fm, file, s));
       if (start === undefined) {
         unmapped.push(d);
         continue;
@@ -333,6 +370,52 @@ function enclosingMatchChain(node: ts.Node): ts.CallExpression | undefined {
   return outermost;
 }
 
+/**
+ * Where a fluent chain's value meets a declared type, outside the chain: the
+ * `return` keyword of the `return` it is the value of, the name of the
+ * variable, property or parameter it initializes, and each call argument
+ * containing it (TypeScript reports a wrong type there). Followed out
+ * through the expressions around the chain (an arrow's expression body
+ * included, as in `xs.map((x) => match(x)...)`), not out of a block. The
+ * chain's arms use names the source check couldn't see (they are `any` as
+ * written), so without these the expansion's wrong result type went
+ * unreported: `return match(u).case({ kind: "user", name: n }).then(n)...`
+ * in a function returning `number`.
+ */
+function chainSinks(chain: ts.Node, sf: ts.SourceFile): Array<[number, number]> {
+  const sinks: Array<[number, number]> = [];
+  const nameSpan = (name: ts.Node): [number, number] => [name.getStart(sf), name.end];
+  for (let n: ts.Node = chain; n.parent; n = n.parent) {
+    const p: ts.Node = n.parent;
+    if (ts.isReturnStatement(p)) {
+      const start = p.getStart(sf);
+      sinks.push([start, start + "return".length]);
+      break;
+    }
+    if (
+      (ts.isVariableDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isParameter(p)) &&
+      p.initializer === n
+    ) {
+      sinks.push(nameSpan(p.name));
+      break;
+    }
+    if (ts.isPropertyAssignment(p) && p.initializer === n) {
+      sinks.push(nameSpan(p.name));
+      continue;
+    }
+    if (
+      (ts.isCallExpression(p) || ts.isNewExpression(p)) &&
+      p.arguments?.includes(n as ts.Expression)
+    ) {
+      sinks.push([n.getStart(sf), n.end]);
+      continue;
+    }
+    if (ts.isArrowFunction(p) && p.body === n) continue;
+    if (!ts.isExpression(p) && !ts.isSpreadAssignment(p) && !ts.isTemplateSpan(p)) break;
+  }
+  return sinks;
+}
+
 /** Continuation labels: the statement after a comprehension's block that belongs to it. */
 const CONTINUATION_LABELS = new Set(["yield", "pure", "return"]);
 
@@ -369,12 +452,21 @@ export function blindSpotRegions(
     if (!BLIND_SPOT_RULES.has(rule) || !d.file || d.start === undefined) continue;
     const sf = d.file;
     if (rule === "MacroCallChain") {
-      // A fluent chain is an expression: the region is the whole chain.
-      const chain = enclosingMatchChain(deepestNodeAt(sf, d.start));
-      if (!chain) continue;
+      // A fluent chain is an expression: the region is the whole chain, and
+      // the places its value is checked against a type (chainSinks). An
+      // assignability error the rule hid because the chain's type as written
+      // is wrong (a shadowed pattern name in an arm's result, which is not
+      // inside a chain: it is on `return` or on the declared name) is a
+      // region of its own, so the expanded check reports it there if the
+      // expansion's type is wrong too.
       const key = path.resolve(sf.fileName);
       const list = regions.get(key) ?? [];
-      list.push([chain.getStart(sf), chain.end]);
+      const chain = enclosingMatchChain(deepestNodeAt(sf, d.start));
+      if (chain) {
+        list.push([chain.getStart(sf), chain.end], ...chainSinks(chain, sf));
+      } else {
+        list.push([d.start, d.start + Math.max(d.length ?? 0, 1)]);
+      }
       regions.set(key, list);
       continue;
     }

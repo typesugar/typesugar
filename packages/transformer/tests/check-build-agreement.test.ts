@@ -537,3 +537,66 @@ export function lengthOf(n: number): number {
     }
   }
 );
+
+// Review 9: a fluent match() arm's result that uses a pattern name shadowing
+// an outer declaration (DOM's `name: void`, a local function `len`) is typed,
+// as written, from that declaration, so the chain's source-level type was
+// wrong and the assignment of the whole chain failed (TS2322 at `return`, at
+// `const v: number[]`) in code that is valid and runs. The chain is a blind
+// spot: the source error is hidden and the expanded check decides, which also
+// catches a real type error in the chain's result (before, an arm result
+// built from pattern names was `any` as written, and nothing checked it).
+describe.skipIf(!hasBuild)("a fluent match()'s result type, with pattern names", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = makeProject({
+      "src/dom.ts": `import { match } from "@typesugar/std";
+type U = { kind: "user"; name: string } | { kind: "anon" };
+export function label(u: U): string {
+  return match(u).case({ kind: "user", name }).then(name).case({ kind: "anon" }).then("anon");
+}
+const len = (s: string) => s.length;
+export function f(u: { kind: "a"; len: number } | { kind: "b" }): number {
+  return match(u).case({ kind: "a", len }).then(len).case({ kind: "b" }).then(0);
+}
+export const v: number[] = [1].map((x) => match({ kind: "a" as const, len: x }).case({ kind: "a", len }).then(len).else(0));
+console.log(label({ kind: "user", name: "bo" }), f({ kind: "a", len: 3 }), len("x"), v);
+`,
+      "src/real.ts": `import { match } from "@typesugar/std";
+type U = { kind: "user"; name: string } | { kind: "anon" };
+export function h(u: U): number {
+  return match(u).case({ kind: "user", name }).then(name).case({ kind: "anon" }).then(0);
+}
+export function g(u: U): number {
+  return match(u).case({ kind: "user", name: nm }).then(nm).case({ kind: "anon" }).then(0);
+}
+export const w: number[] = [1].map((x) => match({ kind: "a" as const, s: "q" + x }).case({ kind: "a", s }).then(s).else(0));
+export function k(u: U): string {
+  return match(u).case({ kind: "user", name: n }).then(1).else(2);
+}
+`,
+    });
+    dirs.push(dir);
+  });
+
+  for (const command of ["check", "build"] as const) {
+    it(`${command}: valid code is clean, and a wrong result type is reported where it is assigned`, () => {
+      const r = cli(dir, command);
+      expect(r.output).not.toMatch(/dom\.ts\(\d+,\d+\): error/);
+      const real = [...r.output.matchAll(/(real\.ts\(\d+,\d+\): error TS\d+)/g)]
+        .map((m) => m[1])
+        .sort();
+      // Sorted as text. real.ts(11,3) has no pattern name in the result: the
+      // source check's own error, reported once.
+      expect(real).toEqual([
+        "real.ts(11,3): error TS2322",
+        "real.ts(4,3): error TS2322",
+        "real.ts(7,3): error TS2322",
+        "real.ts(9,14): error TS2322",
+      ]);
+      if (command === "build") {
+        expect(run(dir, "dom.js").output.trim()).toBe("bo 3 1 [ 1 ]");
+      }
+    });
+  }
+});

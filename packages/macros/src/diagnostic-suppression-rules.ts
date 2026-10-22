@@ -1371,6 +1371,15 @@ const MATCH_CHAIN_METHODS = new Set(["case", "or", "as", "if", "then", "else"]);
  *   a binary expression with it as an operand. The chain is a blind spot of
  *   the source check, so `typesugar check`/`build` check those uses in the
  *   expansion, against the binding.
+ * - For the same reason, an assignability error (RESULT_TYPE_CODES) on a
+ *   value that contains such a chain whose arm RESULT uses a shadowed
+ *   pattern name: `.then(name)` is typed, as written, from DOM's
+ *   `name: void`, so `return match(u)...then(name)...` was TS2322 against
+ *   the function's `string` return type in valid code, and so was
+ *   `const v: number[] = xs.map((x) => match(...)...)`. The chain's type as
+ *   written is wrong, not the code; the expanded check reports the error
+ *   where it was if the expansion's type is wrong too (strict-check.ts
+ *   `blindSpotRegions` makes the hidden error's span a blind spot).
  */
 export function createMacroCallChainRule(): DiagnosticSuppressionRule {
   return {
@@ -1381,6 +1390,7 @@ export function createMacroCallChainRule(): DiagnosticSuppressionRule {
         ...UNRESOLVED_CHAIN_NAME_CODES,
         ...POSSIBLY_NULLISH_CODES,
         ...SHADOWED_NAME_CODES,
+        ...RESULT_TYPE_CODES,
       ]),
     ],
 
@@ -1429,9 +1439,139 @@ export function createMacroCallChainRule(): DiagnosticSuppressionRule {
       for (const subject of subjects) {
         if (isBoundByEnclosingArm(subject, checker, sourceFile)) return true;
       }
+      if (
+        RESULT_TYPE_CODES.includes(diagnostic.code) &&
+        hasShadowedArmResult(assignedValue(node), checker, sourceFile)
+      ) {
+        return true;
+      }
       return false;
     },
   };
+}
+
+/**
+ * "Not assignable" and its variants: what a wrong type of a whole value is
+ * reported as where it is returned, assigned, passed or initialized.
+ */
+const RESULT_TYPE_CODES: readonly number[] = [2322, 2345, 2559, 2739, 2740, 2741, 2769];
+
+/**
+ * The value an assignability error at `node` is about: the expression of a
+ * `return` (the error is on the keyword), the initializer of the variable,
+ * property or parameter whose name it is on, an argument, or `node` itself.
+ */
+function assignedValue(node: ts.Node): ts.Node {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (ts.isReturnStatement(n)) return n.expression ?? node;
+    if (
+      (ts.isVariableDeclaration(n) ||
+        ts.isPropertyDeclaration(n) ||
+        ts.isPropertyAssignment(n) ||
+        ts.isParameter(n)) &&
+      n.initializer
+    ) {
+      return n.initializer;
+    }
+    if (ts.isExportAssignment(n)) return n.expression;
+    const parent: ts.Node | undefined = n.parent;
+    if (
+      parent &&
+      (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
+      parent.arguments?.includes(n as ts.Expression)
+    ) {
+      return n;
+    }
+    if (ts.isBlock(n) || ts.isSourceFile(n) || ts.isFunctionLike(n)) break;
+  }
+  return node;
+}
+
+/**
+ * Is there, in `root`, a typesugar `match()` arm whose `.then` result uses a
+ * name the arm's pattern binds that ALSO resolves, as written, to an outer
+ * declaration (a DOM global, a local function)? Then the chain's type as
+ * written comes from that declaration, not from the binding. Which names an
+ * arm binds is read from its pattern's syntax; that the chain is typesugar's
+ * `match` is decided by symbol (flattenMatchChain); that the name resolves to
+ * something is the checker's symbol for it.
+ */
+function hasShadowedArmResult(
+  root: ts.Node,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === "then"
+    ) {
+      const chain = flattenMatchChain(n, checker, sourceFile);
+      const bound = chain && armBindingsAt(chain.links);
+      if (bound && bound.size > 0) {
+        for (const arg of n.arguments) {
+          if (usesOuterDeclarationOf(arg, bound, checker)) {
+            found = true;
+            return;
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(root);
+  return found;
+}
+
+/** Does `expr` read one of `names` that resolves, as written, to a declaration? */
+function usesOuterDeclarationOf(
+  expr: ts.Node,
+  names: ReadonlySet<string>,
+  checker: ts.TypeChecker
+): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isIdentifier(n) && names.has(n.text) && isValueReference(n)) {
+      try {
+        const sym =
+          n.parent && ts.isShorthandPropertyAssignment(n.parent)
+            ? checker.getShorthandAssignmentValueSymbol(n.parent)
+            : checker.getSymbolAtLocation(n);
+        if (sym) found = true;
+      } catch (e) {
+        reportCheckerFailure("MacroCallChain", e);
+      }
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(expr);
+  return found;
+}
+
+/** An identifier read as a value: not a property name, member name or declared name. */
+function isValueReference(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (!p) return false;
+  if (ts.isPropertyAccessExpression(p) && p.name === id) return false;
+  if (ts.isPropertyAssignment(p) && p.name === id) return false;
+  if (ts.isQualifiedName(p) && p.right === id) return false;
+  if (
+    (ts.isVariableDeclaration(p) ||
+      ts.isParameter(p) ||
+      ts.isFunctionDeclaration(p) ||
+      ts.isBindingElement(p) ||
+      ts.isPropertyDeclaration(p) ||
+      ts.isMethodDeclaration(p)) &&
+    p.name === id
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** "Cannot find name" and the shorthand-property form, for a pattern name. */
