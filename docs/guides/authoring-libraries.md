@@ -81,6 +81,12 @@ What happens after it's declared depends on your package's npm scope:
   one-time step in your own package's README so consumers aren't surprised by
   it.
 
+Either way, your package's name is trusted only for the copy the consumer's
+_project_ resolves it to: it must be a dependency of the project, or of a
+workspace package the project declares. A copy reached only through another
+package's own `node_modules` (or a relative import into a directory that merely
+claims your name) is not loaded; the build warns with its path instead.
+
 ### Worked example: `@typesugar/strings`
 
 `strings` is split into two source files:

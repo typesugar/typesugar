@@ -71,6 +71,13 @@ automatically. Every other macro package runs code inside your build, so it is
 refused, and the build fails with "…have not been approved. Run
 `typesugar approve-macros`…", until its name is in this list.
 
+A name stands only for the package your project resolves it to, from the
+project's own directories (the tsconfig's directory, the current directory, the
+package root above each, and the workspace packages they declare). A macro
+package reached any other way, such as a copy in a vendored package's own
+`node_modules`, is not loaded whatever its name, and approving the name doesn't
+change that (see [Security](../SECURITY.md)).
+
 Don't edit the list by hand unless you have to: run
 [`npx typesugar approve-macros`](./cli.md#approve-macros), which finds the
 unapproved packages, asks for confirmation (or not, with `--yes`), and writes them
