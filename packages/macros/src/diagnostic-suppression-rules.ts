@@ -50,6 +50,7 @@ import { deriveNamesOf } from "./instance-scanner.js";
 import { hasGenericDerivation } from "./auto-derive.js";
 import {
   chainBinary,
+  PRIMITIVE_RESULT_OPERATORS,
   operatorRewriteResult,
   rewrittenOperandType,
   type OperatorChainHooks,
@@ -2182,6 +2183,39 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
       }
       return false;
     },
+
+    // TypeScript types the operator expression as number (an error for `+`),
+    // so once its operand errors are gone nothing reports a rewritten value
+    // used as a number: `(a * b).toFixed(2)`, `const n: number = a * b`
+    // (review 6). Reported here, as the expanded code's error.
+    replacementDiagnostics(diagnostic, checker, sourceFile, context) {
+      const program = context?.program;
+      if (!program || diagnostic.start === undefined || diagnostic.length === undefined) {
+        return [];
+      }
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      if (!node) return [];
+      let binary: ts.BinaryExpression | undefined;
+      if (diagnostic.code === 2362 || diagnostic.code === 2363) {
+        binary = binaryOfOperandDiagnostic(
+          node,
+          sourceFile,
+          diagnostic.start,
+          diagnostic.length,
+          diagnostic.code === 2362 ? "left" : "right"
+        );
+      } else {
+        for (let cur: ts.Node | undefined = node, i = 0; cur && i < 5; cur = cur.parent, i++) {
+          if (ts.isBinaryExpression(cur)) {
+            binary = cur;
+            break;
+          }
+        }
+      }
+      if (!binary || isSyntheticNode(binary)) return [];
+      const misuse = rewrittenValueMisuse(program, checker, sourceFile, binary, "OperatorOverload");
+      return misuse ? [misuse] : [];
+    },
   };
 }
 
@@ -2202,11 +2236,21 @@ export function createOperatorOverloadRule(): DiagnosticSuppressionRule {
  * (`const product = a * b; rationalToString(product)`), whose type is its
  * initializer's -- the operator is rewritten (operatorRewriteResult, the
  * rewrite's own decision), and its rewritten type is assignable to the
- * target. `const n: number = a * b` is still an error.
+ * target.
  *
- * Other uses of such a const (`product.num`) are still typed `number` by
- * TypeScript and are not covered: annotate the const (`const product:
- * Rational = a * b`) to give them the right type.
+ * tsc reports only the FIRST failing argument of a call, so suppressing the
+ * TS2345 on `g(a * b, 5)`'s `a * b` would hide `5`'s error: the later
+ * arguments are re-checked (`replacementDiagnostics`), each typed as
+ * rewritten when it is a rewritten operator, and the first that doesn't fit
+ * its parameter is reported as tsc would report it on the expanded code.
+ *
+ * The opposite direction -- a rewritten value where a `number` is expected
+ * (`const n: number = a * b`, `(a * b).toFixed(2)`), which TypeScript accepts
+ * -- is reported by the OperatorOverload rule, in place of the operand errors
+ * it suppresses (see `rewrittenValueMisuse`). Other uses of an unannotated
+ * const bound to a rewritten operator (`product.num`) are still typed
+ * `number` by TypeScript and are not covered: annotate the const (`const
+ * product: Rational = a * b`) to give them the right type.
  */
 export function createRewrittenOperatorResultRule(): DiagnosticSuppressionRule {
   return {
@@ -2242,7 +2286,229 @@ export function createRewrittenOperatorResultRule(): DiagnosticSuppressionRule {
         return false;
       }
     },
+
+    replacementDiagnostics(diagnostic, checker, sourceFile, context) {
+      const program = context?.program;
+      if (
+        diagnostic.code !== 2345 ||
+        !program ||
+        diagnostic.start === undefined ||
+        diagnostic.length === undefined
+      ) {
+        return [];
+      }
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
+      const value = node && assignedValueExpression(node, 2345);
+      const call = value?.parent;
+      if (!value || !call || !(ts.isCallExpression(call) || ts.isNewExpression(call))) return [];
+      const args = call.arguments ?? ts.factory.createNodeArray<ts.Expression>();
+      const { activated, tracker } = operatorActivation(program, sourceFile);
+      const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+      const hooks = filterChainHooks(sourceFile, tracker, "RewrittenOperatorResult");
+      // Throws propagate: the framework then keeps the original diagnostic.
+      for (const arg of args.slice(args.indexOf(value) + 1)) {
+        // A spread no longer lines arguments up with parameters; tsc's own
+        // checks of what follows are unaffected by the suppression anyway.
+        if (ts.isSpreadElement(arg)) break;
+        if (isSyntheticNode(arg)) continue;
+        const target = checker.getContextualType(arg);
+        if (!target || containsTypeParameter(target)) continue;
+        const actual =
+          rewrittenOperandType(ctx, arg, activated, hooks) ?? checker.getTypeAtLocation(arg);
+        if (!checker.isTypeAssignableTo(actual, target)) {
+          return [
+            expandedCodeError(
+              sourceFile,
+              arg,
+              2345,
+              `Argument of type '${checker.typeToString(actual)}' is not assignable to ` +
+                `parameter of type '${checker.typeToString(target)}'.`
+            ),
+          ];
+        }
+      }
+      return [];
+    },
   };
+}
+
+const RELATIONAL_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+]);
+
+/**
+ * Operators TypeScript rejects an object operand of (TS2362/TS2363/TS2365):
+ * arithmetic, bitwise, relational. Not equality, `in`, `instanceof`.
+ */
+const OPERAND_MUST_BE_PRIMITIVE: ReadonlySet<ts.SyntaxKind> = new Set(
+  [...PRIMITIVE_RESULT_OPERATORS].filter(
+    (k) =>
+      k !== ts.SyntaxKind.EqualsEqualsToken &&
+      k !== ts.SyntaxKind.EqualsEqualsEqualsToken &&
+      k !== ts.SyntaxKind.ExclamationEqualsToken &&
+      k !== ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+      k !== ts.SyntaxKind.InKeyword &&
+      k !== ts.SyntaxKind.InstanceOfKeyword
+  )
+);
+
+/** `t` is, or contains at its top level, a type parameter or other not-yet-instantiated type. */
+function containsTypeParameter(t: ts.Type): boolean {
+  if (t.flags & ts.TypeFlags.Instantiable) return true;
+  return t.isUnionOrIntersection() && t.types.some((m) => containsTypeParameter(m));
+}
+
+/** An error at `node`, reported the way tsc would report it on the expanded code. */
+function expandedCodeError(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  code: number,
+  message: string,
+  note?: string
+): ts.Diagnostic {
+  const start = node.getStart(sourceFile);
+  return {
+    file: sourceFile,
+    start,
+    length: node.getEnd() - start,
+    code,
+    category: ts.DiagnosticCategory.Error,
+    messageText: note
+      ? {
+          messageText: message,
+          category: ts.DiagnosticCategory.Error,
+          code,
+          next: [{ messageText: note, category: ts.DiagnosticCategory.Message, code: 0 }],
+        }
+      : message,
+  };
+}
+
+/**
+ * The error a rewritten operator's value has where TypeScript, typing it as
+ * `number`, sees none (review 6): `binary` is rewritten to a method returning
+ * the instance type `R` (operatorRewriteResult, the rewrite's own decision),
+ * and its value (parentheses aside)
+ *
+ * - has a property read that `R` lacks (`(a * b).toFixed(2)`): TS2339;
+ * - is the operand of an operator that is not itself rewritten (`a * b > 0`),
+ *   which then applies to an `R`: TS2365;
+ * - flows into a position whose contextual type accepts the `number`
+ *   TypeScript sees but not `R` (`const n: number = a * b`, a `number`
+ *   parameter, a `number` return): TS2322, or TS2345 for an argument.
+ *
+ * Contextual types that still contain type parameters are skipped (inference
+ * would follow the rewritten type). Undefined when none applies.
+ */
+function rewrittenValueMisuse(
+  program: ts.Program,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  binary: ts.BinaryExpression,
+  rule: string
+): ts.Diagnostic | undefined {
+  const { activated, tracker } = operatorActivation(program, sourceFile);
+  if (activated.size === 0) return undefined;
+  const ctx = { typeChecker: checker, program, sourceFile } as unknown as MacroContext;
+  const hooks = filterChainHooks(sourceFile, tracker, rule);
+  const result = operatorRewriteResult(ctx, binary, activated, hooks);
+  if (!result || result === true) return undefined;
+  const R = result;
+  const op = binary.operatorToken.getText(sourceFile);
+  const note =
+    `'${op}' here is rewritten by typesugar to a typeclass method that returns ` +
+    `'${checker.typeToString(R)}', not a number.`;
+
+  let outer: ts.Expression = binary;
+  while (ts.isParenthesizedExpression(outer.parent)) outer = outer.parent;
+  const parent = outer.parent;
+
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === outer) {
+    const name = parent.name.text;
+    if (!checker.getPropertyOfType(R, name)) {
+      return expandedCodeError(
+        sourceFile,
+        parent.name,
+        2339,
+        `Property '${name}' does not exist on type '${checker.typeToString(R)}'.`,
+        note
+      );
+    }
+    return undefined;
+  }
+  if (
+    ts.isElementAccessExpression(parent) &&
+    parent.expression === outer &&
+    ts.isStringLiteralLike(parent.argumentExpression)
+  ) {
+    const name = parent.argumentExpression.text;
+    if (!checker.getPropertyOfType(R, name)) {
+      return expandedCodeError(
+        sourceFile,
+        parent.argumentExpression,
+        2339,
+        `Property '${name}' does not exist on type '${checker.typeToString(R)}'.`,
+        note
+      );
+    }
+    return undefined;
+  }
+  if (ts.isBinaryExpression(parent) && OPERAND_MUST_BE_PRIMITIVE.has(parent.operatorToken.kind)) {
+    // The enclosing operator is a chain step: the rewrite decides it.
+    if (operatorRewriteResult(ctx, parent, activated, hooks) !== undefined) return undefined;
+    const isLeft = parent.left === outer;
+    const kind = parent.operatorToken.kind;
+    if (kind === ts.SyntaxKind.PlusToken || RELATIONAL_OPERATORS.has(kind)) {
+      const other = checker.getBaseTypeOfLiteralType(
+        checker.getTypeAtLocation(isLeft ? parent.right : parent.left)
+      );
+      const [l, r] = isLeft ? [R, other] : [other, R];
+      return expandedCodeError(
+        sourceFile,
+        parent,
+        2365,
+        `Operator '${parent.operatorToken.getText(sourceFile)}' cannot be applied to types ` +
+          `'${checker.typeToString(l)}' and '${checker.typeToString(r)}'.`,
+        note
+      );
+    }
+    return expandedCodeError(
+      sourceFile,
+      outer,
+      isLeft ? 2362 : 2363,
+      `The ${isLeft ? "left" : "right"}-hand side of an arithmetic operation must be of type ` +
+        `'any', 'number', 'bigint' or an enum type.`,
+      note
+    );
+  }
+
+  const target = checker.getContextualType(outer);
+  if (!target || containsTypeParameter(target)) return undefined;
+  // Only where TypeScript itself reports nothing: the number it sees fits.
+  if (!checker.isTypeAssignableTo(checker.getTypeAtLocation(outer), target)) return undefined;
+  if (checker.isTypeAssignableTo(R, target)) return undefined;
+  const isArgument =
+    (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
+    (parent.arguments?.includes(outer) ?? false);
+  return isArgument
+    ? expandedCodeError(
+        sourceFile,
+        outer,
+        2345,
+        `Argument of type '${checker.typeToString(R)}' is not assignable to parameter of ` +
+          `type '${checker.typeToString(target)}'.`,
+        note
+      )
+    : expandedCodeError(
+        sourceFile,
+        outer,
+        2322,
+        `Type '${checker.typeToString(R)}' is not assignable to type '${checker.typeToString(target)}'.`,
+        note
+      );
 }
 
 /**

@@ -74,6 +74,8 @@ const c = rational(1n, 4n);
 describe.skipIf(!hasBuild)("typesugar check: rewritten *, /, - and their results", () => {
   let good: string;
   let bad: string;
+  let args: string;
+  let numeric: string;
 
   beforeAll(() => {
     good = makeProject({
@@ -103,10 +105,41 @@ export const wrongTarget: string = a * b;
 export const notARational = rationalToString(a < b);
 `,
     });
+    // tsc reports only the first failing argument of a call: suppressing the
+    // TS2345 on a rewritten `a * b` must not hide the next one (review 6).
+    args = makeProject({
+      "src/args.ts": `${HEADER}
+declare function g(x: Rational, y: string): void;
+declare function two(x: Rational, y: Rational): void;
+g(a * b, 5);
+two(a * b, "x");
+two(a * b, a + c);
+g(a * b, "fine");
+`,
+    });
+    // TypeScript types a rewritten a * b as number, so a number-typed use of
+    // it had no error left once the operand errors were suppressed, and the
+    // output threw (review 6).
+    numeric = makeProject({
+      "src/numeric.ts": `${HEADER}
+export const fixed = (a * b).toFixed(2);
+export const n: number = a * b;
+export const sum: number = a + b;
+export function ret(): number { return a / b; }
+export const cmp = a * b > 0;
+Math.sqrt(a - b);
+export const ok1: Rational = a * b;
+export const ok2 = rationalToString(a * b + c);
+export const ok3 = \`\${rationalToString(a * b)}\`;
+console.log(a * b, String(a + b));
+`,
+    });
   });
 
   afterAll(() => {
-    for (const d of [good, bad]) if (d) fs.rmSync(d, { recursive: true, force: true });
+    for (const d of [good, bad, args, numeric]) {
+      if (d) fs.rmSync(d, { recursive: true, force: true });
+    }
   });
 
   it("the headline example and chains check clean", () => {
@@ -122,5 +155,36 @@ export const notARational = rationalToString(a < b);
     expect(r.output).toMatch(/bad\.ts\(10,\d+\): error TS2363/);
     expect(r.output).toMatch(/bad\.ts\(11,\d+\): error TS2322/);
     expect(r.output).toMatch(/bad\.ts\(12,\d+\): error TS2345/);
+  });
+
+  it("an argument after a rewritten operator's is still checked", () => {
+    const r = check(args);
+    expect(r.status).not.toBe(0);
+    const errors = r.output.split("\n").filter((l) => / error TS/.test(l));
+    expect(errors).toHaveLength(2);
+    expect(r.output).toMatch(
+      /args\.ts\(10,10\): error TS2345: Argument of type '5' is not assignable to parameter of type 'string'/
+    );
+    expect(r.output).toMatch(
+      /args\.ts\(11,12\): error TS2345: Argument of type '"x"' is not assignable to parameter of type 'Rational'/
+    );
+  });
+
+  it("a rewritten value used as a number is an error", () => {
+    const r = check(numeric);
+    expect(r.status).not.toBe(0);
+    const errors = r.output.split("\n").filter((l) => / error TS/.test(l));
+    expect(r.output).toMatch(
+      /numeric\.ts\(8,30\): error TS2339: Property 'toFixed' does not exist on type 'Rational'/
+    );
+    expect(r.output).toMatch(
+      /numeric\.ts\(9,26\): error TS2322: Type 'Rational' is not assignable to type 'number'/
+    );
+    expect(r.output).toMatch(/numeric\.ts\(10,28\): error TS2322/);
+    expect(r.output).toMatch(/numeric\.ts\(11,\d+\): error TS2322/);
+    expect(r.output).toMatch(/numeric\.ts\(12,20\): error TS2365: Operator '>' cannot be applied/);
+    expect(r.output).toMatch(/numeric\.ts\(13,11\): error TS2345: Argument of type 'Rational'/);
+    expect(r.output).toMatch(/rewritten by typesugar/);
+    expect(errors, r.output).toHaveLength(6);
   });
 });

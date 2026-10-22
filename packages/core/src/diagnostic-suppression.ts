@@ -65,6 +65,27 @@ export interface DiagnosticSuppressionRule {
     sourceFile: ts.SourceFile,
     context?: DiagnosticSuppressionContext
   ): boolean;
+
+  /**
+   * Diagnostics to report in place of one this rule suppresses (optional),
+   * for a suppression that would otherwise hide a real error TypeScript
+   * never reports separately: tsc reports only the first failing argument of
+   * a call, so suppressing that one hides the next; and TypeScript types the
+   * code before the rewrite, so a rewritten value used where its rewritten
+   * type doesn't fit has no error of its own. Each replacement should be the
+   * error TypeScript would report on the expanded code.
+   *
+   * Called only after `shouldSuppress` returned `true` for `diagnostic`.
+   * Identical replacements (same file, span, code and message) are reported
+   * once. If this throws, the original diagnostic is kept (and a warning
+   * printed): hiding an error is worse than an extra one.
+   */
+  replacementDiagnostics?(
+    diagnostic: ts.Diagnostic,
+    checker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    context?: DiagnosticSuppressionContext
+  ): readonly ts.Diagnostic[];
 }
 
 /**
@@ -233,6 +254,16 @@ export function evaluateDiagnosticSuppression(
   sourceFile: ts.SourceFile,
   context?: DiagnosticSuppressionContext
 ): boolean {
+  return suppressingRule(diagnostic, checker, sourceFile, context) !== undefined;
+}
+
+/** The first registered rule that suppresses `diagnostic`, if any (see `evaluateDiagnosticSuppression`). */
+function suppressingRule(
+  diagnostic: ts.Diagnostic,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  context?: DiagnosticSuppressionContext
+): DiagnosticSuppressionRule | undefined {
   const errorCode = diagnostic.code;
 
   for (const rule of diagnosticSuppressionRules) {
@@ -279,11 +310,11 @@ export function evaluateDiagnosticSuppression(
         printAuditEntry(entry);
       }
 
-      return true;
+      return rule;
     }
   }
 
-  return false;
+  return undefined;
 }
 
 /**
@@ -302,12 +333,43 @@ export function filterDiagnostics(
 ): ts.Diagnostic[] {
   if (diagnosticSuppressionRules.length === 0) return [...diagnostics];
 
-  return diagnostics.filter((diag) => {
-    if (!diag.file) return true;
-    const sf = getSourceFile(diag.file.fileName);
-    if (!sf) return true;
-    return !evaluateDiagnosticSuppression(diag, checker, sf, context);
-  });
+  const out: ts.Diagnostic[] = [];
+  const replaced = new Set<string>();
+  for (const diag of diagnostics) {
+    const sf = diag.file ? getSourceFile(diag.file.fileName) : undefined;
+    const rule = sf ? suppressingRule(diag, checker, sf, context) : undefined;
+    if (!rule || !sf) {
+      out.push(diag);
+      continue;
+    }
+    if (!rule.replacementDiagnostics) continue;
+    let replacements: readonly ts.Diagnostic[];
+    try {
+      replacements = rule.replacementDiagnostics(diag, checker, sf, context);
+    } catch (e) {
+      // Keep the original: the suppression may have been hiding a real error.
+      console.warn(
+        `[typesugar] diagnostic suppression rule "${rule.name}" could not compute the ` +
+          `diagnostics that replace a suppressed one ` +
+          `(${e instanceof Error ? e.message : String(e)}); the original is shown.`
+      );
+      out.push(diag);
+      continue;
+    }
+    for (const r of replacements) {
+      const key = [
+        r.file?.fileName,
+        r.start,
+        r.length,
+        r.code,
+        typeof r.messageText === "string" ? r.messageText : r.messageText.messageText,
+      ].join("\0");
+      if (replaced.has(key)) continue;
+      replaced.add(key);
+      out.push(r);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

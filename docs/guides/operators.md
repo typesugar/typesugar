@@ -27,8 +27,12 @@ source as written, where `a * b` on two objects is an error (TS2362/TS2363, or T
 for `+` and comparisons) whose result it types as `number`. `typesugar check` and
 `typesugar build` drop those errors where the operator is rewritten, and the TS2345 /
 TS2322 of passing or assigning its value where the instance type is expected
-(`rationalToString(product)`). Other uses of `const product = a * b` are still typed
-`number` by TypeScript (`product.num` is an error in the editor): annotate it,
+(`rationalToString(product)`). The other arguments of that call are still checked
+(`g(a * b, 5)` with a `string` parameter is an error at `5`). A rewritten value used
+as a number is an error, as it is in the compiled code: `(a * b).toFixed(2)` (TS2339),
+`const n: number = a * b` (TS2322), `Math.sqrt(a * b)` (TS2345), and `a * b > 0` when
+`>` itself isn't rewritten (TS2365). Other uses of `const product = a * b` are still
+typed `number` by TypeScript (`product.num` is an error in the editor): annotate it,
 `const product: Rational = a * b`.
 
 The activation modules are
