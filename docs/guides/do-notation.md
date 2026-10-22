@@ -223,18 +223,18 @@ The arrow-body, `return` and `export default` positions are rewritten as text be
 
 Everything else in a step is still reported, at the line you wrote: an unknown name, a wrong argument (`fetchAge(42)` for a `string` parameter), a bound name used before the step that binds it, by another binding in the same `par:` group, or outside the comprehension.
 
-Before expansion a bound name has no type, so `check` and `build` don't type-check an expression that uses one:
+Before expansion a bound name has no type, so the code as written can't type-check an expression that uses one. `check` and `build` therefore also type-check the expansion of each comprehension, and report what it finds at the line you wrote:
 
 ```typescript
 const describe = (id: number) =>
   let: {
     user << fetchUser(id);
-    age << fetchAge(user.nme); // typo: not reported by `typesugar check`
+    age << fetchAge(user.nme); // error: Property 'nme' does not exist … Did you mean 'name'?
   }
   yield: `${user.name} is ${age}`;
 ```
 
-The editor reports it (`Property 'nme' does not exist … Did you mean 'name'?`), and so does `typesugar check --strict`, which type-checks the expansion and reports at positions in the expanded code.
+The editor reports it too. The expansion is checked only where the code as written has bound names (the comprehensions, `match:` switches and `ensures:` blocks of the file), and only what lies inside them is reported: an error in code the macro generated, with no line of yours to point at, is left out. `typesugar check --strict` checks the whole expansion and reports those too, in the expanded code.
 
 A bound name that is also the name of an outer declaration (a DOM global such as `name` or `top`, or a variable of yours) is checked as that declaration before expansion. The errors that come from its type there are hidden too, on the name itself or a member/call chain that starts at it (`name.trim()`).
 

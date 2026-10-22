@@ -329,7 +329,9 @@ export function filterDiagnostics(
   diagnostics: readonly ts.Diagnostic[],
   checker: ts.TypeChecker,
   getSourceFile: (fileName: string) => ts.SourceFile | undefined,
-  context?: DiagnosticSuppressionContext
+  context?: DiagnosticSuppressionContext,
+  /** Called for each diagnostic a rule suppresses (or replaces), with the rule's name. */
+  onSuppressed?: (diagnostic: ts.Diagnostic, ruleName: string) => void
 ): ts.Diagnostic[] {
   if (diagnosticSuppressionRules.length === 0) return [...diagnostics];
 
@@ -342,6 +344,7 @@ export function filterDiagnostics(
       out.push(diag);
       continue;
     }
+    onSuppressed?.(diag, rule.name);
     if (!rule.replacementDiagnostics) continue;
     let replacements: readonly ts.Diagnostic[];
     try {

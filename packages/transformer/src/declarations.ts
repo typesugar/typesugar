@@ -21,7 +21,8 @@ import * as ts from "typescript";
 import * as path from "path";
 import { filterDiagnostics, getDiagnosticSuppressionRules } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
-import { macroTransformerFactory } from "./pipeline.js";
+import type { RawSourceMap } from "@typesugar/core";
+import { generateASTSourceMap, macroTransformerFactory } from "./pipeline.js";
 import { loadProjectConfig } from "./macro-loader.js";
 import { hasHKTPatterns, rewriteHKTTypeReferences } from "./hkt-rewriter.js";
 import { annotateInferredOpaqueTypes } from "./declaration-annotations.js";
@@ -86,10 +87,16 @@ export function createExpandedHost(
  * A `before` transformer that records the printed text of every file the
  * macro transformer changed. Put it AFTER the macro transformer, so a JS emit
  * also yields the expanded TypeScript the declarations are emitted from.
+ *
+ * With `maps`, it also records, for each printed file, how to make its
+ * source map back to the program's text (`generateASTSourceMap`, from the
+ * transformed tree's source map ranges), which the expanded type check maps
+ * its diagnostics through: made on demand, as most are never needed.
  */
 export function captureExpandedSource(
   program: ts.Program,
-  expanded: Map<string, string>
+  expanded: Map<string, string>,
+  maps?: Map<string, () => RawSourceMap | null>
 ): ts.TransformerFactory<ts.SourceFile> {
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
   return () => (sourceFile) => {
@@ -101,7 +108,14 @@ export function captureExpandedSource(
       const printed = original
         ? annotateInferredOpaqueTypes(program, original, sourceFile)
         : sourceFile;
-      expanded.set(path.resolve(sourceFile.fileName), printer.printFile(printed));
+      const text = printer.printFile(printed);
+      const resolved = path.resolve(sourceFile.fileName);
+      expanded.set(resolved, text);
+      if (maps && original) {
+        maps.set(resolved, () =>
+          generateASTSourceMap(original.text, printed, text, original.fileName)
+        );
+      }
     }
     return sourceFile;
   };
@@ -109,23 +123,26 @@ export function captureExpandedSource(
 
 /**
  * Expand every source file of `program` without emitting JavaScript, and
- * return the printed text of the files the macros changed. Run it only after
- * the program's own diagnostics are collected: the transform attaches
+ * return the printed text of the files the macros changed (none when `print`
+ * is false: the expansion then runs only for its diagnostics). Run it only
+ * after the program's own diagnostics are collected: the transform attaches
  * synthetic nodes to the program's trees (see cli.ts `check`).
  */
 export function expandProgramSources(
   program: ts.Program,
-  transformerFactory: ts.TransformerFactory<ts.SourceFile>
+  transformerFactory: ts.TransformerFactory<ts.SourceFile>,
+  maps?: Map<string, () => RawSourceMap | null>,
+  print = true
 ): Map<string, string> {
   const expanded = new Map<string, string>();
-  const capture = captureExpandedSource(program, expanded);
+  const capture = captureExpandedSource(program, expanded, maps);
   for (const sourceFile of program.getSourceFiles()) {
     if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
       continue;
     }
     const result = ts.transform(
       sourceFile,
-      [transformerFactory, capture],
+      print ? [transformerFactory, capture] : [transformerFactory],
       program.getCompilerOptions()
     );
     result.dispose();

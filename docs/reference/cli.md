@@ -32,10 +32,12 @@ typesugar build [options]
 - `-v, --verbose` — Enable verbose logging
 - `--cache [dir]` — Enable disk cache for faster rebuilds (default: `.typesugar-cache/transforms`)
 - `--no-cache` — Disable disk cache
-- `--strict` — Also type-check the expanded output: the code the build emits, as a
-  program of its own. An error is reported at its position in the expanded code
-  (`typesugar expand <file>` shows it); one the source already reports is not repeated.
-  Experimental, off by default.
+- `--strict` — Also type-check all of the expanded output: the code the build emits, as a
+  program of its own. An error is reported at the line you wrote when the expansion
+  came from it, and otherwise (code a macro generated) at its position in the expanded
+  code (`typesugar expand <file>` shows it); one the source already reports is not
+  repeated. Experimental, off by default. Without it, `build` type-checks the expansion
+  only of the constructs whose bound names the source can't check (see `check` below).
 - `--strict=incremental` — Like `--strict`, but only re-checks changed files
 - `--show-suppressed-diagnostics` — Also print the diagnostics typesugar's
   suppression rules filtered out (audit mode)
@@ -117,16 +119,20 @@ typesugar check [options]
 
 - `-p, --project <path>` — Path to tsconfig.json
 - `-v, --verbose` — Enable verbose logging
-- `--strict` / `--strict=incremental` — Also type-check the fully expanded output,
-  reported at positions in the expanded code. Experimental and off by default; an
-  addition to plain `check`, not a substitute for it.
+- `--strict` / `--strict=incremental` — Also type-check all of the expanded output (see
+  `build`). Experimental and off by default; an addition to plain `check`, not a
+  substitute for it.
 - `--show-suppressed-diagnostics` — Show suppressed diagnostics (audit mode)
 
 > **`check` vs `build`:** `check` type-checks and emits nothing; `build` emits to
 > your `outDir`. Both report the same diagnostics (after typesugar's diagnostic
 > suppression filtering removes the phantom errors valid pre-expansion source
 > produces) and both exit non-zero when errors are found — so a green `build` means
-> "compiled, no errors detected." Use `typesugar check`, not `tsc --noEmit`, as the
+> "compiled, no errors detected." Where the filter hides the names a construct binds (a
+> do-notation comprehension's steps, a `match:` case's pattern, an `ensures:` block's
+> `result`), their uses can't be checked as written: `check` and `build` type-check that
+> construct's expansion and report what is wrong inside it at the line you wrote
+> (`fetchAge(user.nme)` in a comprehension). Use `typesugar check`, not `tsc --noEmit`, as the
 > CI type-check: `tsc --noEmit` never runs the transformer, so it type-checks the
 > unexpanded source.
 >

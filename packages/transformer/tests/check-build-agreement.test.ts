@@ -369,3 +369,102 @@ export async function f() {
     expect(r.output).toBe("[ 'u7:40 80' ] u1u2\n");
   });
 });
+
+describe.skipIf(!hasBuild)(
+  "plain check / build type-check the expansion where the source check is blind",
+  () => {
+    // Checked as written, a comprehension's bound names are undeclared (the
+    // ComprehensionBlock rule hides that), so `user.nme` was never checked:
+    // only `--strict` reported it, at its position in the expanded text.
+    let dir: string;
+    beforeAll(() => {
+      dir = makeProject({
+        "src/comp.ts": `import "@typesugar/std/syntax/do";
+const fetchUser = (id: number) => Promise.resolve({ id, name: "u" + id });
+const fetchAge = (_n: string) => Promise.resolve(40);
+
+export const describe = (id: number) =>
+  let: {
+    user << fetchUser(id);
+    age << fetchAge(user.nme);
+  }
+  yield: \`\${user.name} is \${age}\`;
+
+export async function inner(id: number) {
+  const r =
+    let: {
+      user << fetchUser(id);
+      age << fetchAge(user.name);
+    }
+    yield: age + user.idd;
+  return r;
+}
+`,
+        // The names a `match:` case pattern binds, and `result` in `ensures:`.
+        "src/sw.ts": `import "@typesugar/std/syntax/match";
+
+type Shape =
+  | { type: "Point"; coordinates: [number, number] }
+  | { type: "Circle"; radius: number };
+
+export function describe(s: Shape): string {
+  match: switch (s) {
+    case { type: "Point", coordinates: [x, y] }:
+      return \`\${x.toFixd(1)},\${y}\`;
+    case { type: "Circle", radius }:
+      return \`r=\${radius}\`;
+  }
+}
+`,
+        "src/con.ts": `import "@typesugar/contracts/syntax";
+
+export function half(n: number): { value: number } {
+  requires: { n >= 0; }
+  ensures: { result.valu >= 0; }
+  return { value: n / 2 };
+}
+`,
+        // Valid code: no new errors. A fluent match() on a value TypeScript
+        // has narrowed expands to a switch with an arm TypeScript calls
+        // unreachable (TS2678), which is not an error in what was written.
+        "src/ok.ts": `import "@typesugar/std/syntax/do";
+import { match } from "@typesugar/std";
+
+type Shape = { kind: "circle"; radius: number } | { kind: "square"; side: number };
+const circle: Shape = { kind: "circle", radius: 5 };
+export const area = match(circle)
+  .case({ kind: "circle", radius }).then(radius * 2)
+  .case({ kind: "square", side }).then(side ** 2);
+
+export const total = (n: number) =>
+  let: {
+    a << Promise.resolve(n);
+  }
+  yield: a + 1;
+`,
+      });
+      dirs.push(dir);
+    });
+
+    const expected = [
+      "comp.ts(8,26): error TS2551: Property 'nme' does not exist on type '{ id: number; name: string; }'. Did you mean 'name'?",
+      "comp.ts(18,23): error TS2339: Property 'idd' does not exist on type '{ id: number; name: string; }'.",
+    ];
+
+    for (const command of ["check", "build"] as const) {
+      it(`${command} reports the errors in the comprehension, at the lines as written`, () => {
+        const r = cli(dir, command);
+        expect(r.status, r.output).toBe(1);
+        const errors = [...r.output.matchAll(/(comp\.ts\(\d+,\d+\): error .*)/g)].map((m) => m[1]);
+        expect(errors).toEqual(expected);
+        expect(r.output).not.toMatch(/ok\.ts\(\d+,\d+\): error/);
+        expect(r.output).toContain(
+          "sw.ts(10,19): error TS2551: Property 'toFixd' does not exist on type 'number'. Did you mean 'toFixed'?"
+        );
+        expect(r.output).toContain(
+          "con.ts(5,21): error TS2551: Property 'valu' does not exist on type '{ value: number; }'. Did you mean 'value'?"
+        );
+      });
+    }
+  }
+);

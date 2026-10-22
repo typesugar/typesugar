@@ -9,8 +9,9 @@ The TypeScript compiler (`tsc`) doesn't run transformer plugins, so a plain `tsc
 does not expand macros. Build with the typesugar CLI instead: `typesugar build` is a
 drop-in for `tsc` that reads the same `tsconfig.json`, expands macros, type-checks your
 source (with the errors that only the unexpanded source has filtered out) and emits the
-expanded code and declarations from it. `typesugar build --strict` also type-checks the
-expanded code. No patching is needed.
+expanded code and declarations from it. Where the source as written can't be checked (the
+names a do-notation comprehension binds), it type-checks the expanded code too.
+`typesugar build --strict` type-checks all of the expanded code. No patching is needed.
 
 [ts-patch](#alternative-a-ts-patched-tsc) is an alternative if you want `tsc` itself to
 expand macros, with the caveats listed there.
@@ -100,8 +101,11 @@ do-notation comprehension's own syntax (see [Do-Notation](../../guides/do-notati
 and on a typeclass operator that is rewritten (`a * b` on two `Rational`s) and on passing or
 assigning its value. A use the filter can't see through is still reported: TypeScript
 types `const p = a * b` as `number`, so `p.num` is an error until you annotate
-`const p: Rational = a * b` (see [Operators](../../guides/operators.md)). To also
-type-check the expanded output, add `--strict` (experimental).
+`const p: Rational = a * b` (see [Operators](../../guides/operators.md)). Where the
+filter hides the names a construct binds (a comprehension's steps, a `match:` case's
+pattern, an `ensures:` block's `result`), their uses can't be checked as written, so `check`
+and `build` also type-check that construct's expansion and report its errors at the lines
+you wrote. To type-check all of the expanded output, add `--strict` (experimental).
 
 ### Declarations
 

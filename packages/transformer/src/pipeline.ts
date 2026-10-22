@@ -733,7 +733,7 @@ function stackOverflowHint(error: unknown): string {
  * regular expression can do the same). Every position after the first
  * `${...}` was then unmapped (PEP-060 item 5).
  */
-function generateASTSourceMap(
+export function generateASTSourceMap(
   originalCode: string,
   transformedSF: ts.SourceFile,
   outputCode: string,

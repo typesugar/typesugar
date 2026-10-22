@@ -30,7 +30,12 @@ import {
 } from "./declarations.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { keepMacroReferencedImports } from "./keep-imports.js";
-import { typecheckExpandedProgram } from "./strict-check.js";
+import {
+  blindSpotRegions,
+  inBlindSpot,
+  mapExpandedDiagnostics,
+  typecheckExpandedProgram,
+} from "./strict-check.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
 import {
   UnapprovedMacroPackagesError,
@@ -62,6 +67,7 @@ import {
   setDiagnosticSuppressionAuditMode,
   profiler,
   PROFILING_ENABLED,
+  type RawSourceMap,
 } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 
@@ -315,8 +321,9 @@ OPTIONS:
   -v, --verbose          Enable verbose logging
   --cache [dir]          Enable disk cache for build/run (default: .typesugar-cache/transforms)
   --no-cache             Disable disk cache
-  --strict               Also typecheck the expanded output [build/check], reported at
-                         positions in the expanded code. Experimental. Off by default.
+  --strict               Also typecheck all of the expanded output [build/check]; an
+                         error only in generated code is reported in the expanded code.
+                         Experimental. Off by default.
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
   --show-suppressed-diagnostics  Show suppressed diagnostics (audit mode)
   --emitDeclarationOnly  Write only .d.ts files, from the expanded program [build]
@@ -658,13 +665,24 @@ function build(options: CliOptions): void {
   // TS diagnostics are suppression-filtered BEFORE the transformer touches
   // the program's own SourceFiles (check mode below), so the filter's
   // checker calls never see synthetic nodes there.
+  // What the filter hid, by rule: where it hid the names a comprehension
+  // (or `match:` case, or `ensures:`) binds, the source-level check could not
+  // check their uses, so the expansion of those constructs is type-checked
+  // too (strict-check.ts `blindSpotRegions`).
+  const suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];
   const filterTsDiagnostics = (raw: readonly ts.Diagnostic[]): readonly ts.Diagnostic[] => {
     if (getDiagnosticSuppressionRules().length === 0) return raw;
     // getTypeChecker() after emit may trigger deferred callbacks that crash on
     // synthetic nodes — catch and fall back to unfiltered diagnostics.
     try {
       const checker = program.getTypeChecker();
-      return filterDiagnostics(raw, checker, (fn) => program.getSourceFile(fn), { program });
+      return filterDiagnostics(
+        raw,
+        checker,
+        (fn) => program.getSourceFile(fn),
+        { program },
+        (diagnostic, rule) => suppressed.push({ diagnostic, rule })
+      );
     } catch (e: unknown) {
       if (e instanceof Error && e.message.includes("start < 0")) {
         console.error(
@@ -677,66 +695,87 @@ function build(options: CliOptions): void {
   };
 
   let tsDiagnostics: readonly ts.Diagnostic[];
-  // Expanded text of the files the macros changed, for the declaration emit
-  // and the --strict type check (the expansion the build really made).
-  const keepExpanded = emitDeclarations || Boolean(options.strict);
-  let expandedSources = new Map<string, string>();
+  // Expanded text of the files the macros changed, and its source map back
+  // to the program's text: for the declaration emit and the expanded type
+  // check (the expansion the build really made).
+  const expandedSources = new Map<string, string>();
+  const expandedMaps = new Map<string, () => RawSourceMap | null>();
   if (noEmit || declarationOnly) {
     // `check`: program.emit() is a no-op under noEmit, so the macro
     // transformer would never run and macro errors would go unreported.
-    // Run it explicitly over every file emit would have transformed.
+    // Run it explicitly over every file emit would have transformed, and
+    // keep the printed result.
     tsDiagnostics = filterTsDiagnostics(preEmitDiagnostics);
     profiler.start("cli.build.checkExpand");
-    if (keepExpanded) {
-      // Expand every file and keep the printed result.
-      expandedSources = expandProgramSources(program, transformerFactory);
-    } else {
-      for (const sourceFile of program.getSourceFiles()) {
-        if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
-          continue;
-        }
-        const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
-        transformResult.dispose();
-      }
+    // Printed only when something reads it: the expanded check runs only if
+    // the filter hid something, and then needs every changed file expanded
+    // (a file's expansion can use what another's declares).
+    const print =
+      emitDeclarations || Boolean(options.strict) || blindSpotRegions(suppressed).size > 0;
+    for (const [f, text] of expandProgramSources(
+      program,
+      transformerFactory,
+      expandedMaps,
+      print
+    )) {
+      expandedSources.set(f, text);
     }
     profiler.end("cli.build.checkExpand");
   } else {
     profiler.start("cli.build.emit");
     const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
-      before: keepExpanded
-        ? [
-            transformerFactory,
-            captureExpandedSource(program, expandedSources),
-            keepMacroReferencedImports(program),
-          ]
-        : [transformerFactory, keepMacroReferencedImports(program)],
+      before: [
+        transformerFactory,
+        captureExpandedSource(program, expandedSources, expandedMaps),
+        keepMacroReferencedImports(program),
+      ],
     });
     profiler.end("cli.build.emit");
     tsDiagnostics = filterTsDiagnostics([...preEmitDiagnostics, ...emitResult.diagnostics]);
   }
 
-  // --strict: type-check that expansion as a program of its own. Its
-  // diagnostics are filtered against the expanded program itself
-  // (strict-check.ts): their positions are in the expanded text.
+  // The expanded type check (strict-check.ts): the expansion as a program
+  // of its own, reusing this program's SourceFiles for every unchanged file,
+  // its diagnostics filtered against the expanded program itself and mapped
+  // back to the source through the expansion's source map. By default, only
+  // the constructs where the filter hid the names they bind, which the
+  // source-level check therefore could not check the uses of (`user.nme` in
+  // a comprehension, where `user` is undeclared as written): their files are
+  // checked, and what lies inside them reported. A diagnostic with no source
+  // position (only in generated code) is dropped. `--strict` checks and
+  // reports every file, that one in the expanded text.
   let strictDiagnostics: ts.Diagnostic[] = [];
-  if (options.strict) {
+  let expandedPositionDiagnostics: ts.Diagnostic[] = [];
+  const blindSpots = blindSpotRegions(suppressed);
+  const expandedCheckFiles = options.strict
+    ? undefined
+    : new Set([...expandedSources.keys()].filter((f) => blindSpots.has(f)));
+  if (!expandedCheckFiles || expandedCheckFiles.size > 0) {
     profiler.start("cli.build.strictTypecheck");
-    // An error the source as written already reports is not repeated at its
-    // position in the expanded text.
-    const sameError = (d: ts.Diagnostic) =>
-      `${d.file?.fileName}\0${d.code}\0${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`;
-    const reported = new Set(tsDiagnostics.map(sameError));
-    strictDiagnostics = typecheckExpandedProgram({
-      rootNames: config.fileNames,
-      options: compilerOptions,
-      host,
-      expanded: expandedSources,
-    }).filter((d) => !reported.has(sameError(d)));
-    const strictElapsed = profiler.end("cli.build.strictTypecheck");
+    const startedAt = performance.now();
+    const { mapped, unmapped } = mapExpandedDiagnostics(
+      typecheckExpandedProgram({
+        rootNames: config.fileNames,
+        options: compilerOptions,
+        host,
+        expanded: expandedSources,
+        reuse: program,
+        files: expandedCheckFiles,
+      }),
+      { program, expanded: expandedSources, maps: expandedMaps }
+    );
+    strictDiagnostics = options.strict ? mapped : mapped.filter((d) => inBlindSpot(d, blindSpots));
+    if (options.strict) expandedPositionDiagnostics = unmapped;
+    profiler.end("cli.build.strictTypecheck");
+    const strictElapsed = performance.now() - startedAt;
     if (options.verbose) {
-      const modeLabel = options.strict === "incremental" ? " (incremental, first run — full)" : "";
+      const label = options.strict
+        ? `Strict typecheck${options.strict === "incremental" ? " (incremental, first run — full)" : ""}`
+        : `Expanded typecheck of ${expandedCheckFiles!.size} file(s)`;
       console.log(
-        `🧊 Strict typecheck${modeLabel}: ${strictDiagnostics.length} diagnostics (${strictElapsed.toFixed(0)}ms)`
+        `🧊 ${label}: ${mapped.length + unmapped.length} diagnostics, ${unmapped.length} only in generated code${
+          options.strict ? "" : " (dropped)"
+        } (${strictElapsed.toFixed(0)}ms)`
       );
     }
   }
@@ -747,9 +786,12 @@ function build(options: CliOptions): void {
   // filtered diagnostics: the expanded program itself never blocks its emit.
   const declarationDiagnostics: ts.Diagnostic[] = [];
   if (emitDeclarations) {
-    const hasErrors = [...tsDiagnostics, ...strictDiagnostics, ...macroDiagnostics].some(
-      (d) => d.category === ts.DiagnosticCategory.Error
-    );
+    const hasErrors = [
+      ...tsDiagnostics,
+      ...strictDiagnostics,
+      ...expandedPositionDiagnostics,
+      ...macroDiagnostics,
+    ].some((d) => d.category === ts.DiagnosticCategory.Error);
     if (!(projectOptions.noEmitOnError && hasErrors)) {
       profiler.start("cli.build.declarations");
       const result = emitExpandedDeclarations({
@@ -767,10 +809,37 @@ function build(options: CliOptions): void {
   // suppression filter (which exists for TS errors caused by typesugar
   // rewrites — extension methods, newtype assignment, opaque types).
   // Positions in a comprehension-rewritten file are mapped back to the text
-  // as written; the --strict and declaration diagnostics are about the
-  // expanded text, which they are positioned in.
+  // as written, the expanded check's through the expansion's source map
+  // first; --strict's diagnostics only in generated code and the
+  // declaration diagnostics are about the expanded text, which they are
+  // positioned in.
   const comprehensionFileName = new Map(
     program.getSourceFiles().map((sf) => [path.resolve(sf.fileName), sf.fileName] as const)
+  );
+  // An error the source as written already reports is not repeated by the
+  // expanded check: not at the same place, nor with the same message on the
+  // same line.
+  const writtenTs = toWrittenPositions(tsDiagnostics);
+  const sameError = (d: ts.Diagnostic): string[] => {
+    if (!d.file || d.start === undefined) return [];
+    const line = d.file.getLineAndCharacterOfPosition(d.start).line;
+    const message = ts.flattenDiagnosticMessageText(d.messageText, "\n");
+    return [
+      `${d.file.fileName}\0@${d.start}`,
+      `${d.file.fileName}\0${line}\0${d.code}\0${message}`,
+    ];
+  };
+  const reported = new Set(writtenTs.flatMap(sameError));
+  const expandedDiagnostics = toWrittenPositions(strictDiagnostics).filter(
+    (d) => !sameError(d).some((k) => reported.has(k))
+  );
+  // In the expanded text, where positions can't be compared: the same error
+  // in the same file.
+  const sameErrorInFile = (d: ts.Diagnostic) =>
+    `${d.file?.fileName}\0${d.code}\0${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`;
+  const reportedInFile = new Set(writtenTs.map(sameErrorInFile));
+  const generatedOnly = expandedPositionDiagnostics.filter(
+    (d) => !reportedInFile.has(sameErrorInFile(d))
   );
   const allDiagnostics = dedupeDiagnostics([
     ...preprocessorDiagnostics(
@@ -778,8 +847,9 @@ function build(options: CliOptions): void {
       (resolved) => comprehensionFileName.get(resolved) ?? resolved,
       originalFile
     ),
-    ...toWrittenPositions(tsDiagnostics),
-    ...strictDiagnostics,
+    ...writtenTs,
+    ...expandedDiagnostics,
+    ...generatedOnly,
     ...toWrittenPositions(macroDiagnostics),
     ...declarationDiagnostics,
   ]);
