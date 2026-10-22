@@ -46,7 +46,13 @@
 
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
-import { stripPositions, stripCommentsDeep, getOrCreateWeak, cloneNodeDeep } from "@typesugar/core";
+import {
+  stripPositions,
+  stripCommentsDeep,
+  getOrCreateWeak,
+  cloneNodeDeep,
+  isSyntheticNode,
+} from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 import * as primitives from "./primitives.js";
 
@@ -1335,7 +1341,7 @@ function substituteParamRefs(
     // being transformed keeps that link, so the copy still says which source
     // expression it is (power-assert draws an operand's value at its column).
     const source = ts.getOriginalNode(arg);
-    if (source.pos >= 0 && source.getSourceFile?.() === ctx.sourceFile) {
+    if (!isSyntheticNode(source) && source.getSourceFile?.() === ctx.sourceFile) {
       ts.setOriginalNode(node, source);
     }
     return needsParens(node) ? f.createParenthesizedExpression(node) : node;

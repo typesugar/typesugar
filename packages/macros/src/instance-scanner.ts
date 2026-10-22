@@ -660,7 +660,13 @@ export class InstanceScanner {
   scanLocalDeriveCompanions(
     typeChecker: ts.TypeChecker,
     sourceFile: ts.SourceFile,
-    program?: ts.Program
+    program?: ts.Program,
+    /**
+     * Told when the checker fails on a declaration, which is then skipped:
+     * the caller makes it visible (CLAUDE.md: a degraded checker failure
+     * must leave a trace). Once per declaration, as the result is cached.
+     */
+    onCheckerFailure?: (node: ts.Node, error: unknown) => void
   ): ScannedInstance[] {
     const cache = this.cacheFor(program);
     const cacheKey = sourceFile.fileName + "::local-derive";
@@ -679,7 +685,8 @@ export class InstanceScanner {
       let sym: ts.Symbol | undefined;
       try {
         sym = typeChecker.getSymbolAtLocation(stmt.name);
-      } catch {
+      } catch (error) {
+        onCheckerFailure?.(stmt.name, error);
         sym = undefined;
       }
       if (!sym) continue;

@@ -633,3 +633,34 @@ export declare function impl<T>(desc: string, body: T): T;
     expect(results).toEqual([]);
   });
 });
+
+describe("scanLocalDeriveCompanions: a checker failure is reported, not swallowed", () => {
+  it("calls onCheckerFailure with the declaration it skipped", () => {
+    const mod = createTestModule(
+      `/** @derive(Eq) */\nexport interface P { x: number }\nexport const n = 1;\n`
+    );
+    cleanups.push(mod.cleanup);
+    const sf = mod.program.getSourceFile(mod.resolvedPath)!;
+    // A checker whose symbol lookup throws (CLAUDE.md: synthetic nodes and
+    // checker bugs do this in production).
+    const throwing = new Proxy(mod.typeChecker, {
+      get(target, prop, receiver) {
+        if (prop === "getSymbolAtLocation") {
+          return () => {
+            throw new Error("start < 0");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const failures: string[] = [];
+    const result = new InstanceScanner().scanLocalDeriveCompanions(
+      throwing,
+      sf,
+      mod.program,
+      (node, error) => failures.push(`${node.getText()}: ${String(error)}`)
+    );
+    expect(result).toEqual([]);
+    expect(failures).toEqual(["P: Error: start < 0"]);
+  });
+});

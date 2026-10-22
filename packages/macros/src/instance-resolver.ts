@@ -420,7 +420,13 @@ function resolveFromLocalScope(
   // the same instance: not added twice.
   const annotated = useSite
     ? scanner
-        .scanLocalDeriveCompanions(typeChecker, sourceFile, ctx.program)
+        .scanLocalDeriveCompanions(typeChecker, sourceFile, ctx.program, (node, error) =>
+          ctx.reportWarning(
+            node,
+            `typesugar skipped '${node.getText()}'s @derive companions while resolving an ` +
+              `instance: the type checker failed (${error}).`
+          )
+        )
         .filter(
           (inst) =>
             inst.typeclassName === tcName &&
