@@ -150,17 +150,50 @@ export const reflectAttribute = defineAttributeMacro({
  */
 function fieldTypeString(checker: ts.TypeChecker, prop: ts.Symbol, location: ts.Node): string {
   const decl = prop.getDeclarations()?.[0];
-  if (
+  const optionalAnnotation =
     prop.flags & ts.SymbolFlags.Optional &&
     decl &&
     (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) &&
     decl.type &&
-    !isSyntheticNode(decl) &&
-    !insideGenericDeclaration(decl)
-  ) {
-    return checker.typeToString(checker.getTypeFromTypeNode(decl.type));
+    !isSyntheticNode(decl)
+      ? decl.type
+      : undefined;
+  if (optionalAnnotation && !insideGenericDeclaration(optionalAnnotation)) {
+    return checker.typeToString(checker.getTypeFromTypeNode(optionalAnnotation));
   }
-  return checker.typeToString(checker.getTypeOfSymbolAtLocation(prop, decl ?? location));
+  return optionalTypeString(
+    checker,
+    checker.getTypeOfSymbolAtLocation(prop, decl ?? location),
+    optionalAnnotation
+  );
+}
+
+/**
+ * The type of an optional member (a field, a method's parameter) as the
+ * checker has it where it is instantiated (`label?: T` of `Box<number>`:
+ * `number | undefined` under strict), without the `undefined` its
+ * optionality adds when that can be told: the annotation (`T`) has no
+ * `undefined` of its own and one other type is left ("number"). Otherwise,
+ * or for a member that isn't optional (`annotation` undefined), the type as
+ * the checker prints it. An annotation outside a generic declaration is read
+ * directly instead (see {@link fieldTypeString}); this is for one written in
+ * terms of type parameters, which `getTypeFromTypeNode` would not
+ * instantiate (review 8: `set(v?: T)` reported "T").
+ */
+function optionalTypeString(
+  checker: ts.TypeChecker,
+  instantiated: ts.Type,
+  annotation: ts.TypeNode | undefined
+): string {
+  if (annotation && instantiated.isUnion()) {
+    const isUndefined = (t: ts.Type) => (t.flags & ts.TypeFlags.Undefined) !== 0;
+    const declared = checker.getTypeFromTypeNode(annotation);
+    const declaresUndefined =
+      isUndefined(declared) || (declared.isUnion() && declared.types.some(isUndefined));
+    const rest = instantiated.types.filter((t) => !isUndefined(t));
+    if (!declaresUndefined && rest.length === 1) return checker.typeToString(rest[0]);
+  }
+  return checker.typeToString(instantiated);
 }
 
 /** Is `node` inside a declaration with type parameters (an interface, class, type alias, ...)? */
@@ -533,14 +566,22 @@ export const typeInfoMacro = defineExpressionMacro({
     // signature) is reported in `methods`, with the signature the checker
     // gives it, not as a field — as the `@reflect` class metadata does. A
     // function-valued property (`onDone: () => void`) stays a field.
-    const isMethod = (prop: ts.Symbol): boolean =>
-      (prop.getDeclarations() ?? []).some(
-        (d) => ts.isMethodDeclaration(d) || ts.isMethodSignature(d)
-      );
+    const isMethod = isMethodSymbol;
+    const unreadable: string[] = [];
     const methodsArray = properties.filter(isMethod).flatMap((prop) => {
-      const info = methodInfoFromChecker(ctx.typeChecker, prop, callExpr);
+      const info = methodInfoFromChecker(ctx.typeChecker, prop, callExpr, unreadable);
       return info ? [methodInfoLiteral(factory, info)] : [];
     });
+    // CLAUDE.md: a caught checker failure that degrades leaves a visible
+    // trace — one line per expansion, naming every method left out.
+    if (unreadable.length > 0) {
+      ctx.reportWarning(
+        callExpr,
+        `typeInfo<${typeName}>() left out ${unreadable.length === 1 ? "method" : "methods"} ` +
+          `${unreadable.map((n) => `'${n}'`).join(", ")}: the type checker failed on ` +
+          `${unreadable.length === 1 ? "its signature" : "their signatures"}.`
+      );
+    }
 
     const fieldsArray = properties
       .filter((prop) => !isMethod(prop))
@@ -602,7 +643,9 @@ export const typeInfoMacro = defineExpressionMacro({
 function methodInfoFromChecker(
   checker: ts.TypeChecker,
   prop: ts.Symbol,
-  location: ts.Node
+  location: ts.Node,
+  /** Collects the name of a method the checker failed on (the caller warns). */
+  failed: string[]
 ): MethodInfo | undefined {
   try {
     const signature = checker
@@ -622,20 +665,43 @@ function methodInfoFromChecker(
           !!paramDecl && ts.isParameter(paramDecl) && checker.isOptionalParameter(paramDecl);
         // Like a field's (`fieldTypeString`): an optional parameter shows its
         // declared type (`retries?: number` is "number", optional beside it),
-        // through the checker, not the annotation's text.
-        const declared =
-          optional && paramDecl && ts.isParameter(paramDecl) && paramDecl.type
-            ? checker.getTypeFromTypeNode(paramDecl.type)
-            : checker.getTypeOfSymbolAtLocation(param, location);
-        return { name: param.name, type: checker.typeToString(declared), optional };
+        // through the checker, not the annotation's text; one written in a
+        // generic declaration is read from the instantiated signature
+        // (`set(v?: T)` of `Box<number>` is "number", not "T" — review 8).
+        const annotation =
+          optional && paramDecl && ts.isParameter(paramDecl) && !isSyntheticNode(paramDecl)
+            ? paramDecl.type
+            : undefined;
+        const type =
+          annotation && !insideGenericDeclaration(annotation)
+            ? checker.typeToString(checker.getTypeFromTypeNode(annotation))
+            : optionalTypeString(
+                checker,
+                checker.getTypeOfSymbolAtLocation(param, location),
+                annotation
+              );
+        return { name: param.name, type, optional };
       }),
       returnType: checker.typeToString(signature.getReturnType()),
       isAsync: !!decl?.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
       isStatic: false, // a property of the instance type
     };
   } catch {
+    failed.push(prop.name);
     return undefined;
   }
+}
+
+/**
+ * Is `prop` a method — a class's method declaration or an interface's method
+ * signature — rather than a field? (A function-valued property, `onDone: ()
+ * => void`, is a field.) Shared by `typeInfo<T>()` (its `methods` vs
+ * `fields`) and `fieldNames<T>()`, so the two list the same fields.
+ */
+function isMethodSymbol(prop: ts.Symbol): boolean {
+  return (prop.getDeclarations() ?? []).some(
+    (d) => ts.isMethodDeclaration(d) || ts.isMethodSignature(d)
+  );
 }
 
 /** The object literal `typeInfo<T>()` emits for one method. */
@@ -700,7 +766,11 @@ export const fieldNamesMacro = defineExpressionMacro({
     }
 
     const type = ctx.typeChecker.getTypeFromTypeNode(typeArgs[0]);
-    const properties = ctx.typeChecker.getPropertiesOfType(type);
+    // The fields `typeInfo<T>().fields` lists: methods are left out (review
+    // 8: `fieldNames<Box<number>>()` listed `set` and `get` too).
+    const properties = ctx.typeChecker
+      .getPropertiesOfType(type)
+      .filter((prop) => !isMethodSymbol(prop));
 
     return factory.createArrayLiteralExpression(
       properties.map((prop) => factory.createStringLiteral(prop.name))

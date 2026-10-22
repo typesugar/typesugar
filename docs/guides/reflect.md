@@ -73,12 +73,21 @@ const calc = typeInfo<Calculator>();
 
 A function-valued property (`onDone: () => void`) is a field.
 
+An optional field or parameter shows its declared type, without the
+`undefined` its optionality adds (`optional: true` says that). For a generic
+type it is the instantiated one: `typeInfo<Box<number>>()` reports
+`set(v?: T)`'s `v` as `"number"`, like `get(): T`'s return type.
+
 ### fieldNames\<T\>() — Get Field Names
 
 ```typescript
 const fields = fieldNames<User>();
 // Compiles to: ["id", "name", "email"]
 ```
+
+The names of the fields `typeInfo<T>().fields` lists: a class's methods and
+an interface's method signatures are not included (a function-valued
+property is).
 
 ### validator\<T\>() — Generate Runtime Validator
 
