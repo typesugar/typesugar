@@ -319,6 +319,58 @@ function reexpressInlinedTypes(
   return ts.visitNode(expr, visit) as ts.Expression;
 }
 
+/** A reference TypeScript narrows by control flow (`x`, `x.y`, `this.x`). */
+function isNarrowableReference(e: ts.Expression): boolean {
+  if (ts.isIdentifier(e) || e.kind === ts.SyntaxKind.ThisKeyword) return true;
+  return ts.isPropertyAccessExpression(e) && isNarrowableReference(e.expression);
+}
+
+/**
+ * For an inlined instance-method call, the arguments to substitute with an
+ * assertion to their parameter's declared type (`(Nil as List<A>)`, which
+ * {@link reexpressInlinedTypes} then fits to the call site): a narrowable
+ * reference whose type is narrower than the parameter's, so the body's own
+ * tests (`l != null`) would narrow it further than they could the parameter
+ * — `Nil: null` became `never` and `Nil.head` an error in the expansion's
+ * type check (turf case study, round 2). Decided by the checker at the real
+ * call (assignability of the parameter's type to the argument's); with no
+ * real call (an operator rewrite's synthetic one) nothing is asserted.
+ */
+function narrowedArgumentTypes(
+  ctx: MacroContextImpl,
+  call: ts.CallExpression,
+  method: DictMethod
+): ((index: number) => ts.TypeNode | undefined) | undefined {
+  const real = realLocation(call);
+  const fn = method.node as ts.SignatureDeclaration | undefined;
+  if (!real || !ts.isCallExpression(real) || !fn?.parameters) return undefined;
+  const checker = ctx.typeChecker;
+  const asserted = new Map<number, ts.TypeNode>();
+  try {
+    const signature = checker.getResolvedSignature(real);
+    if (!signature) return undefined;
+    real.arguments.forEach((arg, i) => {
+      const param = fn.parameters[i];
+      const paramSymbol = signature.parameters[i];
+      if (!param?.type || param.dotDotDotToken || !paramSymbol || !isNarrowableReference(arg)) {
+        return;
+      }
+      const paramType = checker.getTypeOfSymbolAtLocation(paramSymbol, real);
+      if (!checker.isTypeAssignableTo(paramType, checker.getTypeAtLocation(arg))) {
+        asserted.set(i, param.type);
+      }
+    });
+  } catch (error) {
+    warnCheckerFailure(ctx, real, "typing an inlined call's arguments", error);
+    return undefined;
+  }
+  if (asserted.size === 0) return undefined;
+  return (index) => {
+    const type = asserted.get(index);
+    return type && cloneNodeDeep(type);
+  };
+}
+
 /**
  * TS9602 for an instance-method call left uninlined because its body uses a
  * name that isn't in scope at the call site: the call goes through the
@@ -1833,11 +1885,12 @@ export function tryInlineDerivedInstanceCall(
         );
       }
     : undefined;
+  const argumentType = narrowedArgumentTypes(ctx, node, method);
   const inlined = inlineMethod(
     ctx,
     method,
     Array.from(node.arguments),
-    hoistConst ? { hoistConst, hoistEffects } : undefined
+    hoistConst ? { hoistConst, hoistEffects, argumentType } : { argumentType }
   );
   if (!inlined) return undefined;
   temps?.declarations.push(...pending);

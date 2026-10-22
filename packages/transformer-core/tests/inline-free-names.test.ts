@@ -64,6 +64,33 @@ function transformAll(files: Files, order: string[]): Record<string, TransformCo
   }
 }
 
+/**
+ * Type errors in `entry` when every module is the given (transformed) text:
+ * what `typesugar check --strict` checks.
+ */
+function typeErrors(code: Record<string, string>, entry: string): string[] {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "inline-free-names-tc-")));
+  try {
+    for (const [name, content] of Object.entries(code)) {
+      fs.writeFileSync(path.join(dir, name), content);
+    }
+    const program = ts.createProgram([path.join(dir, entry)], {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      types: [],
+    });
+    return ts
+      .getPreEmitDiagnostics(program, program.getSourceFile(path.join(dir, entry)))
+      .map((d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, " ")}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Transpile each module to CJS and run `entry`, resolving `./x` between them. */
 function run(code: Record<string, string>, entry: string): Record<string, unknown> {
   const cache = new Map<string, Record<string, unknown>>();
@@ -231,5 +258,61 @@ export const r = get(3);
     expect(code).toMatch(/<B>\(b: B\): Array<B>/);
     expect(code).toMatch(/as Opt<any>/);
     expect(run(codeOf(out), "main.ts")).toMatchObject({ r: [3] });
+  });
+});
+
+describe("an inlined body type-checks where it is inlined", () => {
+  it("an argument narrower than the parameter isn't narrowed to never by the body's test", () => {
+    // fp's destructure.test.ts: `destructureCons.extract(Nil)` inlined as
+    // `(Nil != null ? [Nil.head, Nil.tail] : undefined)`; `Nil` is typed
+    // `null`, so `Nil.head` is a property of `never` (TS2339) — the method's
+    // parameter was `List<A>`.
+    const files: Files = {
+      "list.ts": `
+/** @typeclass */
+export interface Extract<T> {
+  extract(o: T): unknown;
+}
+export interface Cons<A> { readonly head: A; readonly tail: List<A> }
+export type Nil = null;
+export type List<A> = Cons<A> | Nil;
+export const Nil: Nil = null;
+/** @impl Extract<List<unknown>> */
+export const extractCons = {
+  extract: <A>(l: List<A>): [A, List<A>] | undefined => (l != null ? [l.head, l.tail] : undefined),
+};
+`,
+      "main.ts": `
+import { extractCons, Nil } from "./list.js";
+export const none = extractCons.extract(Nil);
+`,
+    };
+    const out = transformAll(files, ["list.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).not.toContain("extractCons.extract("); // still inlined
+    expect(typeErrors(code, "main.ts")).toEqual([]);
+    // `List` is not imported here, so the assertion is re-expressed as `any`.
+    expect(code["main.ts"]).toMatch(/\(Nil as any\)/);
+    expect(run(code, "main.ts").none).toBeUndefined();
+  });
+
+  it("an argument of the parameter's own type is substituted as it is", () => {
+    const files: Files = {
+      "ord.ts": `${ORD}
+export interface P { x: number }
+/** @impl Ord<P> */
+export const ordP: Ord<P> = {
+  eqv: (a, b) => a.x === b.x,
+  compare: (a, b) => a.x - b.x,
+};
+`,
+      "main.ts": `
+import { ordP, type P } from "./ord.js";
+export function same(p: P, q: P) { return ordP.eqv(p, q); }
+`,
+    };
+    const out = transformAll(files, ["ord.ts", "main.ts"]);
+    expect(out["main.ts"].code).toMatch(/return p\.x === q\.x/);
+    expect(typeErrors(codeOf(out), "main.ts")).toEqual([]);
   });
 });

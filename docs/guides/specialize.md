@@ -89,8 +89,11 @@ through the instance instead of inlined.
 An inlined body's type annotations follow the same rule: a type name that
 doesn't resolve to the same type at your call site (the method's own type
 parameter `A`, or a type the call site doesn't import) is written as `any` in
-the expansion. Types are erased, so this changes nothing at run time; it keeps
-the expanded code type-checkable (`typesugar check --strict`).
+the expansion, and an argument whose type is narrower than its parameter's
+(`extract(Nil)`, `Nil: null`, for `l: List<A>`) is asserted to the parameter's
+type where it is substituted, so the body's own tests (`l != null`) can't
+narrow it to `never`. Types are erased, so this changes nothing at run time; it
+keeps the expanded code type-checkable (`typesugar check --strict`).
 
 ### With `= implicit()`
 

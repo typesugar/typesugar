@@ -1638,11 +1638,18 @@ function substituteParamRefs(
   ctx: MacroContext,
   node: ts.Node,
   names: readonly string[],
-  callArgs: readonly ts.Expression[]
+  callArgs: readonly ts.Expression[],
+  argumentType?: (index: number) => ts.TypeNode | undefined
 ): ts.Node {
   const f = ctx.factory;
   const index = new Map(names.map((n, i) => [n, i] as const));
   const replacement = (i: number): ts.Expression => {
+    const plain = substitutedArgument(i);
+    const type = argumentType?.(i);
+    if (!type) return plain;
+    return f.createParenthesizedExpression(f.createAsExpression(plain, type));
+  };
+  const substitutedArgument = (i: number): ts.Expression => {
     const arg = callArgs[i];
     // Always a fresh synthetic copy: never strip positions off the caller's
     // real nodes in place (a callee body is re-specialized at every call site
@@ -1781,6 +1788,16 @@ export interface InlineOptions {
    * place, after whatever the statement read first.
    */
   hoistEffects?: boolean;
+  /**
+   * The type to assert the argument at `index` to where it is substituted
+   * for its parameter, or undefined to substitute it as it is. The caller
+   * (which has the call and the checker) gives one when the argument's type
+   * is narrower than the parameter's: the body's own tests would otherwise
+   * narrow it further than they could the parameter (`Nil != null ?
+   * Nil.head : …`, with `Nil: null`, makes `Nil` `never`). A fresh node each
+   * call; the assertion is erased, so it costs nothing at run time.
+   */
+  argumentType?: (index: number) => ts.TypeNode | undefined;
 }
 
 /**
@@ -1804,7 +1821,11 @@ function inlineFromNode(
   // read each property's initializer directly instead of building the object
   // and applying the method as an IIFE (see projectObjectLiteralArguments).
   const projected = projectObjectLiteralArguments(ctx, fn, body, callArgs, options);
-  if (projected) return inlineFromNode(ctx, projected.fn, projected.args, options);
+  if (projected) {
+    // The projected call's arguments are not the original's: no assertions.
+    const projectedOptions = options && { ...options, argumentType: undefined };
+    return inlineFromNode(ctx, projected.fn, projected.args, projectedOptions);
+  }
 
   let names = checkInlineSafety(ctx, fn, body, callArgs);
   if (!names && options?.hoistConst && options.hoistEffects) {
@@ -1833,7 +1854,13 @@ function inlineFromNode(
 
   // For block bodies, handle inlining
   if (ts.isBlock(cleanBody)) {
-    const substitutedBody = substituteParamRefs(ctx, cleanBody, names, callArgs);
+    const substitutedBody = substituteParamRefs(
+      ctx,
+      cleanBody,
+      names,
+      callArgs,
+      options?.argumentType
+    );
     if (!ts.isBlock(substitutedBody)) {
       return undefined;
     }
@@ -1876,7 +1903,13 @@ function inlineFromNode(
   }
 
   // Substitute parameters in the expression body
-  return substituteParamRefs(ctx, cleanBody, names, callArgs) as ts.Expression;
+  return substituteParamRefs(
+    ctx,
+    cleanBody,
+    names,
+    callArgs,
+    options?.argumentType
+  ) as ts.Expression;
 }
 
 /**
