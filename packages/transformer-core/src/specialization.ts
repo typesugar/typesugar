@@ -42,6 +42,7 @@ import {
   cloneWithoutComments,
   cloneNodeDeep,
   extractTypeArgumentsContent,
+  typeToPortableTypeNode,
   TS9602,
 } from "@typesugar/core";
 
@@ -296,57 +297,187 @@ function methodFreeNamesResolveSameAt(
 
 const TYPE_MEANING = ts.SymbolFlags.Type | ts.SymbolFlags.Namespace | ts.SymbolFlags.Alias;
 
+/** The leading identifier of an entity name or property access (`a` of `a.b.C`). */
+function leftmostIdentifier(n: ts.Node): ts.Identifier | undefined {
+  while (ts.isQualifiedName(n) || ts.isPropertyAccessExpression(n)) {
+    n = ts.isQualifiedName(n) ? n.left : n.expression;
+  }
+  return ts.isIdentifier(n) ? n : undefined;
+}
+
+/**
+ * Does every name `typeNode` uses resolve, at `location`, as a type (or is it
+ * bound inside `typeNode` itself, or named through a non-relative import
+ * type)? The check for a type node built by the checker's node builder, which
+ * writes a type it can't name accessibly structurally or by a name that
+ * isn't in scope (a module-private interface).
+ */
+function typeNodeResolvesAt(
+  ctx: MacroContextImpl,
+  typeNode: ts.TypeNode,
+  location: ts.Node,
+  inScope: readonly string[] = []
+): boolean {
+  let ok = true;
+  const bound = [...inScope];
+  const visit = (n: ts.Node): void => {
+    if (!ok) return;
+    if (ts.isTypeReferenceNode(n)) {
+      const id = leftmostIdentifier(n.typeName);
+      if (
+        !id ||
+        (!bound.includes(id.text) &&
+          !ctx.typeChecker.resolveName(id.text, location, TYPE_MEANING, false))
+      ) {
+        ok = false;
+        return;
+      }
+    }
+    if (ts.isTypeQueryNode(n)) {
+      const id = leftmostIdentifier(n.exprName);
+      if (!id || !ctx.typeChecker.resolveName(id.text, location, VALUE_MEANING, false)) {
+        ok = false;
+        return;
+      }
+    }
+    const typeParameters = (n as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
+      .typeParameters;
+    const before = bound.length;
+    if (typeParameters) bound.push(...typeParameters.map((p) => p.name.text));
+    if (ts.isMappedTypeNode(n)) bound.push(n.typeParameter.name.text);
+    // An `infer X` binds X in its conditional type's true branch: allowing it
+    // for the rest of the conditional is close enough for a node the checker
+    // wrote.
+    if (ts.isConditionalTypeNode(n)) {
+      const collectInfer = (c: ts.Node): void => {
+        if (ts.isInferTypeNode(c)) bound.push(c.typeParameter.name.text);
+        ts.forEachChild(c, collectInfer);
+      };
+      collectInfer(n.extendsType);
+    }
+    ts.forEachChild(n, visit);
+    bound.length = before;
+  };
+  visit(typeNode);
+  return ok;
+}
+
+/**
+ * `symbol`'s type named for `location` (in the file being transformed), with
+ * `typeArguments` in place of its own: `P` where the call site imports it,
+ * else `import("./ord.js").P` (core's {@link typeToPortableTypeNode}, which
+ * writes a specifier this file can use). Undefined when there is no such name
+ * — a type parameter, a type private to its module, a namespace member.
+ */
+function callSiteTypeName(
+  ctx: MacroContextImpl,
+  symbol: ts.Symbol,
+  typeArguments: ts.NodeArray<ts.TypeNode> | undefined,
+  location: ts.Node
+): ts.TypeNode | undefined {
+  const checker = ctx.typeChecker;
+  const target = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+  if (
+    target.flags & ts.SymbolFlags.TypeParameter ||
+    !(target.flags & (ts.SymbolFlags.Type & ~ts.SymbolFlags.TypeParameter))
+  ) {
+    return undefined;
+  }
+  const named = typeToPortableTypeNode(
+    ctx.program,
+    checker,
+    ctx.sourceFile,
+    checker.getDeclaredTypeOfSymbol(target),
+    location
+  );
+  if (!named) return undefined;
+  const f = ctx.factory;
+  // Only a reference to the symbol itself is a name for it; the node
+  // builder's structural fallback (`{ x: number }` for a private interface)
+  // is not, and would be wrong with the original's type arguments.
+  if (ts.isImportTypeNode(named) && named.qualifier && !named.isTypeOf) {
+    const result = f.updateImportTypeNode(
+      named,
+      named.argument,
+      named.attributes,
+      named.qualifier,
+      typeArguments,
+      false
+    );
+    return typeNodeResolvesAt(ctx, result, location) ? result : undefined;
+  }
+  if (ts.isTypeReferenceNode(named)) {
+    const result = f.updateTypeReferenceNode(named, named.typeName, typeArguments);
+    return typeNodeResolvesAt(ctx, result, location) ? result : undefined;
+  }
+  return undefined;
+}
+
 /**
  * Re-express the type names an inlined method body carries for the call site
- * it now sits at (turf case study, round 2): `destructureSome.extract(x)`
- * inlined as `(x as unknown as A)`, where `A` is the method's own type
- * parameter, unbound once the body is inlined; `as Acc<B>` where the call
- * site doesn't import `Acc`. A type reference (`Opt<A>`, `typeof x`,
- * `import("./m").T`) is kept only where its leading name resolves, at
- * `location`, to the same symbol it did where the method is defined
- * (`method.typeSymbols` — identity, never the printed name); any other is
- * replaced by `any`. Types are erased, so this changes nothing at run time,
- * and the body was type-checked where it was written; the expansion's own
- * type check (`check --strict`) then has no names it can't resolve.
+ * it now sits at (turf case study, round 2; review 8): `mkP.make(1)` inlined
+ * as `({ x: 1 }) as P` where the call site doesn't import `P`. A type
+ * reference (`Opt<A>`, `typeof x`) is kept where its leading name resolves,
+ * at `location`, to the same symbol it did where the method is defined
+ * (`method.typeSymbols` — identity, never the printed name); else it is
+ * named for the call site (`import("./ord.js").P`, see
+ * {@link callSiteTypeName}), its type arguments re-expressed the same way.
+ * Never as `any`: that leaked into the emitted .d.ts (`p: any`) and hid the
+ * expansion from its own type check. Undefined when some type can't be named
+ * there — the method's own type parameter (`o as unknown as A`, unbound once
+ * the signature is dropped), a type private to the instance's module, an
+ * import type with a path relative to the instance's file — and the caller
+ * then doesn't inline the call.
  */
 function reexpressInlinedTypes(
   ctx: MacroContextImpl,
   expr: ts.Expression,
   method: DictMethod,
   location: ts.Node | undefined
-): ts.Expression {
-  const leftmost = (n: ts.Node): ts.Identifier | undefined => {
-    while (ts.isQualifiedName(n) || ts.isPropertyAccessExpression(n)) {
-      n = ts.isQualifiedName(n) ? n.left : n.expression;
-    }
-    return ts.isIdentifier(n) ? n : undefined;
-  };
+): ts.Expression | undefined {
   const resolvesSame = (id: ts.Identifier | undefined, meaning: ts.SymbolFlags): boolean => {
     if (!id || !location) return false;
     const expected = method.typeSymbols?.get(id.text);
     if (!expected) return false;
-    let actual: ts.Symbol | undefined;
-    try {
-      actual = ctx.typeChecker.resolveName(id.text, location, meaning, false);
-    } catch (error) {
-      warnCheckerFailure(ctx, location, `resolving the type '${id.text}' at the call site`, error);
-      return false;
-    }
+    const actual = ctx.typeChecker.resolveName(id.text, location, meaning, false);
     return !!actual && sameSymbol(ctx.typeChecker, actual, expected);
   };
-  const any = () => ctx.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword);
+  let failed = false;
   // Type parameters declared INSIDE the inlined expression (a nested generic
   // arrow's `<A, B>`) travel with it and still bind their uses there; only
   // the method's own (dropped with its signature) are unbound.
   const inScope: string[] = [];
   const visit = (n: ts.Node): ts.Node => {
-    if (ts.isImportTypeNode(n)) return any(); // a module path relative to another file
-    if (ts.isTypeReferenceNode(n)) {
-      const own = ts.isIdentifier(n.typeName) && inScope.includes(n.typeName.text);
-      if (!own && !resolvesSame(leftmost(n.typeName), TYPE_MEANING)) return any();
+    if (failed) return n;
+    if (ts.isImportTypeNode(n)) {
+      const arg = n.argument;
+      const spec =
+        ts.isLiteralTypeNode(arg) && ts.isStringLiteral(arg.literal) ? arg.literal.text : undefined;
+      // A path relative to the instance's file means another module here.
+      if (spec === undefined || spec.startsWith(".") || spec.startsWith("/")) {
+        failed = true;
+        return n;
+      }
     }
-    if (ts.isTypeQueryNode(n) && !resolvesSame(leftmost(n.exprName), VALUE_MEANING)) {
-      return any();
+    if (ts.isTypeReferenceNode(n)) {
+      const id = leftmostIdentifier(n.typeName);
+      const own = ts.isIdentifier(n.typeName) && inScope.includes(n.typeName.text);
+      if (!own && !resolvesSame(id, TYPE_MEANING)) {
+        const expected = id && method.typeSymbols?.get(id.text);
+        const typeArguments =
+          n.typeArguments &&
+          ctx.factory.createNodeArray(n.typeArguments.map((t) => visit(t) as ts.TypeNode));
+        const named =
+          expected && location && ts.isIdentifier(n.typeName) && !failed
+            ? callSiteTypeName(ctx, expected, typeArguments, location)
+            : undefined;
+        if (!named) failed = true;
+        return named ?? n;
+      }
+    }
+    if (ts.isTypeQueryNode(n) && !resolvesSame(leftmostIdentifier(n.exprName), VALUE_MEANING)) {
+      failed = true;
+      return n;
     }
     const typeParameters = (n as { typeParameters?: ts.NodeArray<ts.TypeParameterDeclaration> })
       .typeParameters;
@@ -358,7 +489,14 @@ function reexpressInlinedTypes(
       inScope.length -= typeParameters.length;
     }
   };
-  return ts.visitNode(expr, visit) as ts.Expression;
+  let result: ts.Expression;
+  try {
+    result = ts.visitNode(expr, visit) as ts.Expression;
+  } catch (error) {
+    warnCheckerFailure(ctx, location, "naming an inlined method's types at the call site", error);
+    return undefined;
+  }
+  return failed ? undefined : result;
 }
 
 /** A reference TypeScript narrows by control flow (`x`, `x.y`, `this.x`). */
@@ -368,49 +506,76 @@ function isNarrowableReference(e: ts.Expression): boolean {
 }
 
 /**
- * For an inlined instance-method call, the arguments to substitute with an
- * assertion to their parameter's declared type (`(Nil as List<A>)`, which
- * {@link reexpressInlinedTypes} then fits to the call site): a narrowable
- * reference whose type is narrower than the parameter's, so the body's own
- * tests (`l != null`) would narrow it further than they could the parameter
- * — `Nil: null` became `never` and `Nil.head` an error in the expansion's
- * type check (turf case study, round 2). Decided by the checker at the real
- * call (assignability of the parameter's type to the argument's); with no
- * real call (an operator rewrite's synthetic one) nothing is asserted.
+ * Can an inlined instance-method call substitute its arguments as they are?
+ * `"no-inline"` when one is a narrowable reference whose type is narrower
+ * than its parameter's AND the body reads that parameter more than once: the
+ * body's own test (`l != null ? [l.head, l.tail] : undefined`) would then
+ * narrow the argument further than it could the parameter — `Nil: null`
+ * became `never` and `Nil.head` an error in the expansion's type check (turf
+ * case study, round 2). An assertion on each substituted use can't fix that
+ * (a test on `(Nil as List<unknown>)` doesn't narrow the next one); it held
+ * only as `(Nil as any)`, which leaked `any` into the result's type (review
+ * 8). A parameter read once can't be narrowed by its own body, so the call is
+ * inlined as usual. Decided by the checker at the real call (assignability of
+ * the parameter's type to the argument's); with no real call (an operator
+ * rewrite's synthetic one) nothing is checked.
  */
-function narrowedArgumentTypes(
+function narrowedArgumentsBlockInlining(
   ctx: MacroContextImpl,
   call: ts.CallExpression,
   method: DictMethod
-): ((index: number) => ts.TypeNode | undefined) | undefined {
+): boolean {
   const real = realLocation(call);
   const fn = method.node as ts.SignatureDeclaration | undefined;
-  if (!real || !ts.isCallExpression(real) || !fn?.parameters) return undefined;
+  if (!real || !ts.isCallExpression(real) || !fn?.parameters) return false;
   const checker = ctx.typeChecker;
-  const asserted = new Map<number, ts.TypeNode>();
   try {
     const signature = checker.getResolvedSignature(real);
-    if (!signature) return undefined;
-    real.arguments.forEach((arg, i) => {
+    if (!signature) return false;
+    return real.arguments.some((arg, i) => {
       const param = fn.parameters[i];
       const paramSymbol = signature.parameters[i];
-      if (!param?.type || param.dotDotDotToken || !paramSymbol || !isNarrowableReference(arg)) {
-        return;
+      if (!param || param.dotDotDotToken || !paramSymbol || !isNarrowableReference(arg)) {
+        return false;
       }
+      if (!ts.isIdentifier(param.name) || referenceCount(fn, param.name.text) < 2) return false;
       const paramType = checker.getTypeOfSymbolAtLocation(paramSymbol, real);
-      if (!checker.isTypeAssignableTo(paramType, checker.getTypeAtLocation(arg))) {
-        asserted.set(i, param.type);
-      }
+      return !checker.isTypeAssignableTo(paramType, checker.getTypeAtLocation(arg));
     });
   } catch (error) {
     warnCheckerFailure(ctx, real, "typing an inlined call's arguments", error);
-    return undefined;
+    return true;
   }
-  if (asserted.size === 0) return undefined;
-  return (index) => {
-    const type = asserted.get(index);
-    return type && cloneNodeDeep(type);
+}
+
+/**
+ * How many times `fn`'s parameters' defaults and body read `name` (a
+ * syntactic count — property names and keys aside; a shadowing local counts
+ * too, which only over-counts).
+ */
+function referenceCount(fn: ts.SignatureDeclaration, name: string): number {
+  let count = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isTypeNode(n)) return;
+    if (ts.isPropertyAccessExpression(n)) {
+      visit(n.expression);
+      return;
+    }
+    if (ts.isPropertyAssignment(n)) {
+      if (ts.isComputedPropertyName(n.name)) visit(n.name);
+      visit(n.initializer);
+      return;
+    }
+    if (ts.isIdentifier(n)) {
+      if (n.text === name) count++;
+      return;
+    }
+    ts.forEachChild(n, visit);
   };
+  const body = (fn as { body?: ts.Node }).body;
+  if (body) visit(body);
+  for (const p of fn.parameters) if (p.initializer) visit(p.initializer);
+  return count;
 }
 
 /**
@@ -622,11 +787,12 @@ export function rewriteDictCallsForAutoSpec(
 
         if (method) {
           const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
-          if (inlined) {
-            const mapped = preserveSourceMap(
-              reexpressInlinedTypes(ctx, inlined, method, location),
-              n
-            );
+          // A type the body names that can't be written at the call site:
+          // the call stays a dictionary call (and the leftover-use check of
+          // inlineAutoSpecializeForHoisting then declines the specialization).
+          const reexpressed = inlined && reexpressInlinedTypes(ctx, inlined, method, location);
+          if (reexpressed) {
+            const mapped = preserveSourceMap(reexpressed, n);
             return ts.visitEachChild(mapped, visit, ctx.transformContext);
           }
         }
@@ -1927,22 +2093,19 @@ export function tryInlineDerivedInstanceCall(
         );
       }
     : undefined;
-  const argumentType = narrowedArgumentTypes(ctx, node, method);
+  if (narrowedArgumentsBlockInlining(ctx, node, method)) return undefined;
   const inlined = inlineMethod(
     ctx,
     method,
     Array.from(node.arguments),
-    hoistConst ? { hoistConst, hoistEffects, argumentType } : { argumentType }
+    hoistConst ? { hoistConst, hoistEffects } : undefined
   );
   if (!inlined) return undefined;
+  const reexpressed = reexpressInlinedTypes(ctx, inlined, method, location);
+  if (!reexpressed) return undefined;
   temps?.declarations.push(...pending);
 
-  const result = recursivelyInlineInstanceCalls(
-    ctx,
-    reexpressInlinedTypes(ctx, inlined, method, location),
-    0,
-    location
-  );
+  const result = recursivelyInlineInstanceCalls(ctx, reexpressed, 0, location);
 
   // Strip comments from the inlined output — the method template can carry
   // trivia from the instance declaration (e.g. JSDoc), which the printer
@@ -2149,13 +2312,9 @@ function recursivelyInlineInstanceCalls(
       const method = methodMap?.methods.get(methName);
       if (method && methodFreeNamesResolveSameAt(ctx, method, location)) {
         const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
-        if (inlined) {
-          const deeper = recursivelyInlineInstanceCalls(
-            ctx,
-            reexpressInlinedTypes(ctx, inlined, method, location),
-            depth + 1,
-            location
-          );
+        const reexpressed = inlined && reexpressInlinedTypes(ctx, inlined, method, location);
+        if (reexpressed) {
+          const deeper = recursivelyInlineInstanceCalls(ctx, reexpressed, depth + 1, location);
           return ts.visitEachChild(deeper, visit, ctx.transformContext);
         }
       }

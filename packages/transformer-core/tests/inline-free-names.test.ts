@@ -91,6 +91,38 @@ function typeErrors(code: Record<string, string>, entry: string): string[] {
   }
 }
 
+/** The .d.ts declaration emit gives `entry` when every module is the given (transformed) text. */
+function declarationOf(code: Record<string, string>, entry: string): string {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "inline-free-names-dts-")));
+  try {
+    for (const [name, content] of Object.entries(code)) {
+      fs.writeFileSync(path.join(dir, name), content);
+    }
+    const program = ts.createProgram([path.join(dir, entry)], {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      declaration: true,
+      emitDeclarationOnly: true,
+      skipLibCheck: true,
+      types: [],
+    });
+    let out = "";
+    program.emit(
+      program.getSourceFile(path.join(dir, entry)),
+      (fileName, text) => {
+        if (fileName.endsWith(".d.ts")) out += text;
+      },
+      undefined,
+      true
+    );
+    return out;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Transpile each module to CJS and run `entry`, resolving `./x` between them. */
 function run(code: Record<string, string>, entry: string): Record<string, unknown> {
   const cache = new Map<string, Record<string, unknown>>();
@@ -229,8 +261,11 @@ export const r = get(3);
 `,
     };
     const out = transformAll(files, ["ext.ts", "main.ts"]);
-    // Inlined or not, no type name the call site cannot see survives.
+    // Inlined or not, no type name the call site cannot see survives, and
+    // none is replaced by `any` (review 8).
     expect(out["main.ts"].code).not.toMatch(/\bas A\b/);
+    expect(out["main.ts"].code).not.toMatch(/\bany\b/);
+    expect(typeErrors(codeOf(out), "main.ts")).toEqual([]);
     expect(run(codeOf(out), "main.ts")).toMatchObject({ r: 3 });
   });
 
@@ -255,8 +290,12 @@ export const r = get(3);
     };
     const out = transformAll(files, ["ext.ts", "main.ts"]);
     const code = out["main.ts"].code;
-    expect(code).toMatch(/<B>\(b: B\): Array<B>/);
-    expect(code).toMatch(/as Opt<any>/);
+    // `as Opt<A>` names the method's own type parameter, which has no
+    // meaning at the call site: the call is not inlined rather than written
+    // with `any` (review 8).
+    expect(code).not.toMatch(/\bany\b/);
+    expect(code).not.toMatch(/\bas Opt<A>/);
+    expect(typeErrors(codeOf(out), "main.ts")).toEqual([]);
     expect(run(codeOf(out), "main.ts")).toMatchObject({ r: [3] });
   });
 });
@@ -365,11 +404,103 @@ export const none = extractCons.extract(Nil);
     };
     const out = transformAll(files, ["list.ts", "main.ts"]);
     const code = codeOf(out);
-    expect(code["main.ts"]).not.toContain("extractCons.extract("); // still inlined
+    // The body tests `l` and then reads it: an assertion on each substituted
+    // use can't carry the test's narrowing from one to the next (it held
+    // only as `(Nil as any)`, which leaked `any` into the result's type —
+    // review 8), so the call goes through the instance.
+    expect(code["main.ts"]).toContain("extractCons.extract(Nil)");
+    expect(code["main.ts"]).not.toMatch(/\bany\b/);
     expect(typeErrors(code, "main.ts")).toEqual([]);
-    // `List` is not imported here, so the assertion is re-expressed as `any`.
-    expect(code["main.ts"]).toMatch(/\(Nil as any\)/);
+    expect(declarationOf(code, "main.ts")).not.toMatch(/\bany\b/);
     expect(run(code, "main.ts").none).toBeUndefined();
+  });
+
+  it("a narrower argument the body reads once is still inlined", () => {
+    const files: Files = {
+      "list.ts": `
+/** @typeclass */
+export interface Empty<T> {
+  isEmpty(o: T): boolean;
+}
+export interface Cons<A> { readonly head: A; readonly tail: List<A> }
+export type List<A> = Cons<A> | null;
+export const Nil = null;
+/** @impl Empty<List<unknown>> */
+export const emptyList = {
+  isEmpty: <A>(l: List<A>): boolean => l == null,
+};
+`,
+      "main.ts": `
+import { emptyList, Nil } from "./list.js";
+export const e = emptyList.isEmpty(Nil);
+`,
+    };
+    const out = transformAll(files, ["list.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).not.toContain("emptyList.isEmpty(");
+    expect(code["main.ts"]).not.toMatch(/\bany\b/);
+    expect(typeErrors(code, "main.ts")).toEqual([]);
+    expect(run(code, "main.ts").e).toBe(true);
+  });
+
+  it("a type the call site doesn't import is named through an import type, not any", () => {
+    // review 8 (inl): `mkP.make(1)` inlined as `({ x: 1 }) as any`, so the
+    // .d.ts said `p: any; ps: any[]` where tsc on the source says `P`, `P[]`.
+    const files: Files = {
+      "ord.ts": `
+/** @typeclass */
+export interface Mk<A> {
+  make(n: number): A;
+  pair(a: A, b: A): A[];
+}
+export interface P { x: number }
+/** @impl Mk<P> */
+export const mkP: Mk<P> = {
+  make: (n) => ({ x: n }) as P,
+  pair: (a, b) => new Array<P>(a, b),
+};
+`,
+      "main.ts": `
+import { mkP } from "./ord.js";
+export const p = mkP.make(1);
+export const ps = mkP.pair(p, p);
+`,
+    };
+    const out = transformAll(files, ["ord.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).not.toMatch(/\bany\b/);
+    expect(code["main.ts"]).not.toContain("mkP.make("); // still inlined
+    expect(typeErrors(code, "main.ts")).toEqual([]);
+    const dts = declarationOf(code, "main.ts");
+    expect(dts).not.toMatch(/\bany\b/);
+    expect(dts).toMatch(/p: import\("\.\/ord(\.js)?"\)\.P;/);
+    expect(dts).toMatch(/ps: import\("\.\/ord(\.js)?"\)\.P\[\];/);
+    expect(run(code, "main.ts")).toMatchObject({ p: { x: 1 }, ps: [{ x: 1 }, { x: 1 }] });
+  });
+
+  it("a type private to the instance's module keeps the call uninlined", () => {
+    const files: Files = {
+      "ord.ts": `
+/** @typeclass */
+export interface Mk<A> {
+  make(n: number): A;
+}
+interface Hidden { x: number }
+/** @impl Mk<{ x: number }> */
+export const mkHidden: Mk<{ x: number }> = {
+  make: (n) => ({ x: n }) as Hidden,
+};
+`,
+      "main.ts": `
+import { mkHidden } from "./ord.js";
+export const h = mkHidden.make(2);
+`,
+    };
+    const out = transformAll(files, ["ord.ts", "main.ts"]);
+    const code = codeOf(out);
+    expect(code["main.ts"]).not.toMatch(/\bany\b|\bHidden\b/);
+    expect(typeErrors(code, "main.ts")).toEqual([]);
+    expect(run(code, "main.ts")).toMatchObject({ h: { x: 2 } });
   });
 
   it("an argument of the parameter's own type is substituted as it is", () => {

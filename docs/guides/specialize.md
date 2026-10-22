@@ -90,14 +90,18 @@ method whose body calls a macro (say, a recursive `clone` that calls
 `summon<Clone<Tree>>()`): its source is not yet expanded, so it is called
 through the instance instead of inlined.
 
-An inlined body's type annotations follow the same rule: a type name that
-doesn't resolve to the same type at your call site (the method's own type
-parameter `A`, or a type the call site doesn't import) is written as `any` in
-the expansion, and an argument whose type is narrower than its parameter's
-(`extract(Nil)`, `Nil: null`, for `l: List<A>`) is asserted to the parameter's
-type where it is substituted, so the body's own tests (`l != null`) can't
-narrow it to `never`. Types are erased, so this changes nothing at run time; it
-keeps the expanded code type-checkable (`typesugar check --strict`).
+An inlined body's type annotations follow the same rule, so the expansion
+type-checks (`typesugar check --strict`) and the `.d.ts` emitted from it has
+the types the source has. A type the call site doesn't import is written
+through an import type (`({ x: 1 }) as import("./ord.js").P`); a type that
+can't be named there at all (the method's own type parameter `A` in
+`o as unknown as A`, or an interface private to the instance's module) keeps
+the call going through the instance. Nothing is ever written as `any`. An
+argument whose type is narrower than its parameter's (`extract(Nil)`,
+`Nil: null`, for `l: List<A>`) is substituted as it is when the body reads
+the parameter once; when the body reads it more than once, its own tests
+(`l != null ? l.head : …`) would narrow the argument to `never`, so that call
+goes through the instance too.
 
 ### With `= implicit()`
 
