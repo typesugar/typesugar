@@ -258,6 +258,7 @@ Common reasons for skipping:
 - **Loops**: Iteration prevents inlining. Use Array methods or recursive helpers.
 - **Mutable variables**: `let` bindings prevent inlining. Use `const` or fold/reduce patterns.
 - **Propagated `= implicit()` call**: The body calls another `= implicit()` function without passing the instance, so the instance would be dropped from that inner call. Pass the instance through explicitly if you want the inner call inlined too.
+- **A name not in scope at the call site**: An instance method's body uses a name the call site can't see (a helper private to the instance's module, or one that module imports and yours doesn't): `the method's body uses 'compareNumber', which is not in scope here`. The call goes through the instance. Export and import the helper, or declare the instance where the call is, if the call is hot.
 
 Opt a call out of specialization entirely with `// @no-specialize` (same line or
 the line above), or keep specialization but silence the warning with
