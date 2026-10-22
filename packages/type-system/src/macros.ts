@@ -376,9 +376,16 @@ export const packExistsMacro = defineExpressionMacro({
     // `packExists(openConnection())` opened a connection per use). Keeping it
     // in argument position (rather than a `const` inside an IIFE body) also
     // keeps any `await`/`yield` in the witness in its original function.
+    //
+    // Typed like the runtime `packExists` (turf case study, round 2): `use`
+    // is `<R>(f: (witness: typeof w) => R): R` (no name needed: `w` is typed
+    // by the argument), and the whole is asserted to the call's own type
+    // (`Exists<W>`, whose phantom `__exists_brand__` no literal has) when
+    // that type has a name at the call site. Both are erased.
     const factory = _ctx.factory;
     const fIdent = _ctx.generateUniqueName("f");
     const wIdent = _ctx.generateUniqueName("w");
+    const rType = () => factory.createTypeReferenceNode("R");
     const packer = factory.createArrowFunction(
       undefined,
       undefined,
@@ -392,9 +399,29 @@ export const packExistsMacro = defineExpressionMacro({
               factory.createIdentifier("use"),
               factory.createArrowFunction(
                 undefined,
-                undefined,
-                [factory.createParameterDeclaration(undefined, undefined, fIdent)],
-                undefined,
+                [factory.createTypeParameterDeclaration(undefined, "R")],
+                [
+                  factory.createParameterDeclaration(
+                    undefined,
+                    undefined,
+                    fIdent,
+                    undefined,
+                    factory.createFunctionTypeNode(
+                      undefined,
+                      [
+                        factory.createParameterDeclaration(
+                          undefined,
+                          undefined,
+                          "witness",
+                          undefined,
+                          factory.createTypeQueryNode(factory.createIdentifier(wIdent.text))
+                        ),
+                      ],
+                      rType()
+                    )
+                  ),
+                ],
+                rType(),
                 factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
                 factory.createCallExpression(factory.createIdentifier(fIdent.text), undefined, [
                   factory.createIdentifier(wIdent.text),
@@ -406,11 +433,67 @@ export const packExistsMacro = defineExpressionMacro({
         )
       )
     );
-    return factory.createCallExpression(factory.createParenthesizedExpression(packer), undefined, [
-      args[0],
-    ]);
+    const packed = factory.createCallExpression(
+      factory.createParenthesizedExpression(packer),
+      undefined,
+      [args[0]]
+    );
+    const existsType = callTypeNodeAt(_ctx, callExpr);
+    return existsType
+      ? factory.createParenthesizedExpression(factory.createAsExpression(packed, existsType))
+      : packed;
   },
 });
+
+/**
+ * The type of `call` (a real node) as a type node that means that type where
+ * the call is: the checker's node builder, kept only when every name it uses
+ * resolves there — the outermost one to the very symbol the type is (by
+ * identity, not by name) — and it has no `import("...")` type. Otherwise
+ * undefined: an unresolvable assertion would be an error of its own.
+ */
+function callTypeNodeAt(ctx: MacroContext, call: ts.CallExpression): ts.TypeNode | undefined {
+  if (isSyntheticNode(call)) return undefined;
+  const checker = ctx.typeChecker;
+  try {
+    const type = checker.getTypeAtLocation(call);
+    const node = checker.typeToTypeNode(type, call, ts.NodeBuilderFlags.NoTruncation);
+    if (!node || !ts.isTypeReferenceNode(node)) return undefined;
+    const resolve = (name: string, meaning: ts.SymbolFlags): ts.Symbol | undefined => {
+      let s = checker.resolveName(name, call, meaning, false);
+      if (s && s.flags & ts.SymbolFlags.Alias) s = checker.getAliasedSymbol(s);
+      return s;
+    };
+    const leftmost = (n: ts.EntityName): ts.Identifier =>
+      ts.isIdentifier(n) ? n : leftmost(n.left);
+    const typeMeaning = ts.SymbolFlags.Type | ts.SymbolFlags.Namespace | ts.SymbolFlags.Alias;
+    if (!ts.isIdentifier(node.typeName)) return undefined;
+    const outer = resolve(node.typeName.text, typeMeaning);
+    if (!outer || outer !== (type.aliasSymbol ?? type.symbol)) return undefined;
+    let ok = true;
+    const visit = (n: ts.Node): void => {
+      if (!ok) return;
+      if (ts.isImportTypeNode(n)) ok = false;
+      else if (ts.isTypeReferenceNode(n) && !resolve(leftmost(n.typeName).text, typeMeaning)) {
+        ok = false;
+      } else if (
+        ts.isTypeQueryNode(n) &&
+        !resolve(leftmost(n.exprName).text, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
+      ) {
+        ok = false;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(node);
+    return ok ? node : undefined;
+  } catch (error) {
+    ctx.reportWarning(
+      call,
+      `packExists: the result's type couldn't be read (${String(error)}); it is left unasserted`
+    );
+    return undefined;
+  }
+}
 
 /**
  * useExists macro — at compile time, inlines the continuation call.
