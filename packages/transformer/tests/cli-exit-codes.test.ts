@@ -37,6 +37,9 @@ const TSCONFIG = {
     // src/kill.ts uses `process`; TypeScript 6 no longer auto-includes @types.
     types: ["node"],
     outDir: "out",
+    // TypeScript 6 requires it with outDir (TS5011), which would count as an
+    // error in the watch summaries.
+    rootDir: "src",
   },
   include: ["src"],
 };
