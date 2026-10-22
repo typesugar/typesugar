@@ -79,16 +79,29 @@ export function rewriteProgramComprehensions(
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile || program.isSourceFileFromExternalLibrary(sf)) continue;
     if (!isComprehensionSyntaxActivatedIn(sf, program, verbose)) continue;
-    const result = preprocessExpressionComprehensions(sf.text, sf.fileName);
-    if (!result.changed && result.diagnostics.length === 0) continue;
-    rewrites.set(resolve(sf.fileName), {
-      original: sf.text,
-      source: result.source,
-      mapper: createPositionMapper(result.sourceMap ?? null, sf.text, result.source),
-      diagnostics: result.diagnostics,
-    });
+    const rw = rewriteComprehensions(sf.text, sf.fileName);
+    if (rw) rewrites.set(resolve(sf.fileName), rw);
   }
   return rewrites;
+}
+
+/**
+ * One file's comprehension rewrite (the caller has run the activation gate),
+ * or undefined when the rewrite changes nothing and reports nothing. `watch`
+ * calls this per file read, as it serves the text.
+ */
+export function rewriteComprehensions(
+  text: string,
+  fileName: string
+): ProgramComprehensionRewrite | undefined {
+  const result = preprocessExpressionComprehensions(text, fileName);
+  if (!result.changed && result.diagnostics.length === 0) return undefined;
+  return {
+    original: text,
+    source: result.source,
+    mapper: createPositionMapper(result.sourceMap ?? null, text, result.source),
+    diagnostics: result.diagnostics,
+  };
 }
 
 /**

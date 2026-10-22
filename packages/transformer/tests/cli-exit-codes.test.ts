@@ -200,10 +200,94 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
       expect(output).toMatch(/Watching for file changes/);
       expect(output).not.toContain("TS2315");
       expect(output).toContain("boom-from-comptime");
+      // The macro error is counted (TypeScript's own summary never saw it).
+      expect(output).toContain("Found 1 error. Watching for file changes.");
     } finally {
       fs.rmSync(project, { recursive: true, force: true });
     }
   }, 120_000);
+
+  it("watch: the error count is what is reported, at the positions as written, across a rebuild", async () => {
+    // A statement-position comprehension: TypeScript reports its own syntax
+    // (the labels, the bound names, each `a << e`) and the suppression filter
+    // hides all of it -- but TypeScript's "Found N errors" counted it ("Found
+    // 18 errors" over two printed). The expression-position one is rewritten
+    // (`COMP; export const both = __letyield_0;`, one line up), and watch
+    // reported `nope` at the rewritten line 4 where check says line 5.
+    const project = makeProject("typesugar-cli-watch-count-", {
+      "src/stmt.ts": `import "@typesugar/std/syntax/do";
+export async function go() {
+  let: {
+    a << Promise.resolve(1);
+    b << Promise.resolve(2);
+  }
+  yield: a + b;
+}
+`,
+      "src/comp.ts": `import "@typesugar/std/syntax/do";
+export const both =
+  let: {
+    a << Promise.resolve(1);
+    b << Promise.resolve(nope);
+  }
+  yield: a + b;
+export const bad: number = "oops";
+`,
+    });
+    const comp = path.join(project, "src", "comp.ts");
+    try {
+      const child = spawn(process.execPath, [cliPath, "watch"], {
+        cwd: project,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      let cycles = 0;
+      const done = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 100_000);
+        const onData = (chunk: Buffer): void => {
+          output += chunk.toString();
+          const seen = output.match(/Watching for file changes/g)?.length ?? 0;
+          if (seen === cycles) return;
+          cycles = seen;
+          if (cycles === 1) {
+            // Drive one rebuild: a second error, after the rewritten region
+            // (a moment after the watchers are up, or FSEvents can miss it).
+            setTimeout(() => fs.appendFileSync(comp, `export const bad2: string = 42;\n`), 1000);
+          } else {
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+        child.stdout.on("data", onData);
+        child.stderr.on("data", onData);
+      });
+      await done;
+      const exited = new Promise((resolve) => child.on("close", resolve));
+      child.kill("SIGTERM");
+      await exited;
+
+      const runs = output.split(/File change detected/);
+      expect(runs, output).toHaveLength(2);
+      const [first, second] = runs;
+      // Positions as written (check says the same).
+      expect(first, output).toContain("comp.ts(5,26): error TS2304: Cannot find name 'nope'.");
+      expect(first).toContain("comp.ts(8,14): error TS2322");
+      expect(output).not.toContain("comp.ts(4,26)");
+      expect(output).not.toContain("__letyield");
+      expect(second).toContain("comp.ts(9,14): error TS2322");
+      // Each run's summary counts the errors it printed.
+      for (const run of runs) {
+        const printed = run.match(/: error TS\d+/g)?.length ?? 0;
+        expect(run, output).toContain(
+          `Found ${printed} error${printed === 1 ? "" : "s"}. Watching for file changes.`
+        );
+      }
+      expect(first).toContain("Found 2 errors.");
+      expect(second).toContain("Found 3 errors.");
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  }, 150_000);
 
   it("typesugar-dts-transform bin rewrites @opaque interfaces", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-dts-bin-"));

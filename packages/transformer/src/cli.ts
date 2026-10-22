@@ -41,9 +41,10 @@ import {
   mapRewrittenDiagnostic,
   mayContainComprehension,
   preprocessorDiagnostics,
+  rewriteComprehensions,
   rewriteProgramComprehensions,
+  type ProgramComprehensionRewrite,
 } from "./comprehension-gate.js";
-import { preprocessExpressionComprehensions } from "./arrow-comprehension-preprocess.js";
 import { readTsConfig } from "./tsconfig-utils.js";
 import {
   TransformationPipeline,
@@ -850,6 +851,37 @@ function watch(options: CliOptions): void {
   // Track the current program for diagnostic suppression filtering in watch mode
   let currentProgram: ts.Program | undefined;
 
+  // The errors printed since the last summary. TypeScript's own "Found N
+  // errors" counts every diagnostic it produced, including the ones the
+  // suppression filter hid and none of the macro diagnostics, so watch
+  // prints its own summary from this.
+  let reportedErrors = 0;
+  const report = (diagnostics: readonly ts.Diagnostic[]): void => {
+    reportedErrors += reportDiagnostics(diagnostics);
+  };
+
+  // The comprehension rewrite of each file as last read, so diagnostics map
+  // back to the positions as written, as in `build`. Updated on every read,
+  // which is how the watch program sees an edit. Keyed by canonical name:
+  // on a case-insensitive file system watch re-reads a changed file by its
+  // lower-cased path, while diagnostics carry the name as first read.
+  const canonical = (fileName: string): string => {
+    const resolved = path.resolve(fileName);
+    return ts.sys.useCaseSensitiveFileNames ? resolved : resolved.toLowerCase();
+  };
+  const comprehensionRewrites = new Map<string, ProgramComprehensionRewrite>();
+  const originalSourceFiles = new Map<string, ts.SourceFile>();
+  const originalFile = (fileName: string, text: string): ts.SourceFile => {
+    let sf = originalSourceFiles.get(fileName);
+    if (!sf || sf.text !== text) {
+      sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
+      originalSourceFiles.set(fileName, sf);
+    }
+    return sf;
+  };
+  const toWrittenPosition = (d: ts.Diagnostic): ts.Diagnostic | undefined =>
+    mapRewrittenDiagnostic(d, comprehensionRewrites, canonical, originalFile);
+
   // Serve HKT-preprocessed text to the watch program, exactly as `build`
   // does — with the raw ts.sys, `F<A>` on a type parameter is TS2315 in watch.
   const watchSystem: ts.System = {
@@ -859,11 +891,15 @@ function watch(options: CliOptions): void {
       if (source === undefined) return undefined;
       const hkt = preprocessForProgram(fileName, source) ?? source;
       // Expression-position comprehensions, as `build` rewrites them
-      // (comprehension-gate.ts). Watch reports positions in the rewritten text.
+      // (comprehension-gate.ts).
+      comprehensionRewrites.delete(canonical(fileName));
       if (!mayContainComprehension(hkt) || !/\.[jt]sx?$/.test(fileName)) return hkt;
       const scanFile = ts.createSourceFile(fileName, hkt, ts.ScriptTarget.Latest, false);
       if (!isComprehensionSyntaxActivatedIn(scanFile, undefined, options.verbose)) return hkt;
-      return preprocessExpressionComprehensions(hkt, fileName).source;
+      const rewrite = rewriteComprehensions(hkt, fileName);
+      if (!rewrite) return hkt;
+      comprehensionRewrites.set(canonical(fileName), rewrite);
+      return rewrite.source;
     },
   };
 
@@ -898,9 +934,22 @@ function watch(options: CliOptions): void {
           }
         }
       }
-      reportDiagnostics([diagnostic]);
+      // Undefined for one on the comprehension preprocessor's own tag.
+      const written = toWrittenPosition(diagnostic);
+      if (written) report([written]);
     },
     (diagnostic) => {
+      // A cycle starts: "Starting compilation in watch mode..." (6031),
+      // "File change detected. Starting incremental compilation..." (6032).
+      if (diagnostic.code === 6031 || diagnostic.code === 6032) reportedErrors = 0;
+      // TypeScript's summary, "Found N errors. Watching for file changes."
+      // (6193 / 6194): replaced by the count of what was printed.
+      if (diagnostic.code === 6193 || diagnostic.code === 6194) {
+        const n = reportedErrors;
+        reportedErrors = 0;
+        console.log(`🧊 Found ${n} error${n === 1 ? "" : "s"}. Watching for file changes.`);
+        return;
+      }
       const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
       console.log(`🧊 ${message}`);
     }
@@ -945,16 +994,21 @@ function watch(options: CliOptions): void {
       });
       // Macro diagnostics never reach `result.diagnostics` (TS drops what a
       // `before` transformer adds), so report them from the state's side
-      // channel. TS's own "Found N errors" summary does not count these.
-      const macroDiagnostics = dedupeDiagnostics(transformerState.takeDiagnostics());
-      if (macroDiagnostics.length > 0) {
-        const macroErrors = reportDiagnostics(macroDiagnostics);
-        if (macroErrors > 0) {
-          console.error(
-            `🧊 ${macroErrors} macro error${macroErrors === 1 ? "" : "s"} (TypeScript's error count does not include these).`
-          );
-        }
-      }
+      // channel, with the comprehension preprocessor's own (TS9223) for the
+      // program's rewritten files; the summary counts both.
+      const rewritten = new Map(
+        [...comprehensionRewrites].filter(([resolved]) => program.getSourceFile(resolved))
+      );
+      report(
+        dedupeDiagnostics([
+          ...preprocessorDiagnostics(
+            rewritten,
+            (resolved) => program.getSourceFile(resolved)?.fileName ?? resolved,
+            originalFile
+          ),
+          ...transformerState.takeDiagnostics().flatMap((d) => toWrittenPosition(d) ?? []),
+        ])
+      );
       return result;
     };
 

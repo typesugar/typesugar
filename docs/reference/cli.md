@@ -100,6 +100,10 @@ typesugar watch
 typesugar watch --verbose
 ```
 
+Each rebuild reports what `check` would, at the positions as written, and ends with
+`Found N errors. Watching for file changes.`, where N counts the errors it printed: macro errors
+included, diagnostics the suppression rules hid left out.
+
 ### check
 
 Type-check with macro expansion, but don't emit files. **Exits non-zero on
