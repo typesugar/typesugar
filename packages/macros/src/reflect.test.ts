@@ -656,6 +656,55 @@ const t = typeInfo<Box<number>>();`;
     expect(fields).toEqual({ label: "number", value: "number" });
   });
 
+  it("drops only the undefined optionality adds, from any union (review 9)", () => {
+    // `Box<boolean>`'s `label?: T` was "boolean | undefined" (the checker's
+    // `undefined | false | true` has two other members), and `Box<string |
+    // number>`'s "string | number | undefined", where the non-generic forms
+    // are "boolean" and "string | number".
+    const typeOf = (arg: string) => {
+      const source =
+        STUB +
+        `class Box<T> {
+  label?: T;
+  maybe?: T | undefined;
+  constructor(public value: T) {}
+  set(v?: T): void {}
+}
+const t = typeInfo<Box<${arg}>>();`;
+      const { expanded } = runTypeInfoMacro(source, (sf) =>
+        findFirst(sf, (n): n is ts.CallExpression => ts.isCallExpression(n) && !!n.typeArguments)
+      );
+      const obj = expanded as ts.ObjectLiteralExpression;
+      const fields = Object.fromEntries(
+        getArrayProp(obj, "fields")!.elements.map((e) => {
+          const f = e as ts.ObjectLiteralExpression;
+          return [getStringProp(f, "name"), getStringProp(f, "type")];
+        })
+      );
+      const set = getArrayProp(obj, "methods")!
+        .elements.map((e) => e as ts.ObjectLiteralExpression)
+        .find((m) => getStringProp(m, "name") === "set")!;
+      const param = getArrayProp(set, "parameters")!.elements[0] as ts.ObjectLiteralExpression;
+      return { label: fields.label, maybe: fields.maybe, set: getStringProp(param, "type") };
+    };
+    expect(typeOf("boolean")).toEqual({
+      label: "boolean",
+      maybe: "boolean | undefined",
+      set: "boolean",
+    });
+    expect(typeOf("string | number")).toEqual({
+      label: "string | number",
+      maybe: "string | number | undefined",
+      set: "string | number",
+    });
+    // `null` is the type's own, not optionality's.
+    expect(typeOf("string | null")).toEqual({
+      label: "string | null",
+      maybe: "string | null | undefined",
+      set: "string | null",
+    });
+  });
+
   it("emits an interface's method signatures as methods", () => {
     const source =
       STUB +

@@ -76,7 +76,9 @@ A function-valued property (`onDone: () => void`) is a field.
 An optional field or parameter shows its declared type, without the
 `undefined` its optionality adds (`optional: true` says that). For a generic
 type it is the instantiated one: `typeInfo<Box<number>>()` reports
-`set(v?: T)`'s `v` as `"number"`, like `get(): T`'s return type.
+`set(v?: T)`'s `v` as `"number"`, like `get(): T`'s return type, and
+`typeInfo<Box<boolean>>()` as `"boolean"`. An `undefined` written in the type
+itself (`maybe?: T | undefined`) is kept.
 
 ### fieldNames\<T\>() — Get Field Names
 
