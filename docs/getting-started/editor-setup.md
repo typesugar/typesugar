@@ -96,6 +96,17 @@ A repository can't turn `comptimeInEditor` on from its own `tsconfig.json`; only
 `TYPESUGAR_COMPTIME_IN_EDITOR=1` in the editor's environment can. See
 [Compile-Time Evaluation](../guides/comptime.md).
 
+### Workspace Trust
+
+The plugin runs the project's macro packages and its `typesugar.config` as you type, so the
+extension only runs in folders you trust. In
+[Restricted Mode](https://code.visualstudio.com/docs/editing/workspaces/workspace-trust) the
+extension is disabled and its TypeScript server plugin is not registered; trust the folder to turn
+it on. From VS Code 1.130, VS Code's own TypeScript support is off in Restricted Mode too. On older
+versions it runs with VS Code's bundled TypeScript, which doesn't load the project's
+`tsconfig.json` plugins. See [Security](../SECURITY.md#opening-an-untrusted-repository-in-your-editor)
+for the details, including the one prompt not to accept in an untrusted folder.
+
 ## Other editors
 
 Other editors reach tsserver through
@@ -107,6 +118,11 @@ editor's standard TypeScript configuration. We test the plugin inside tsserver l
 please [report](https://github.com/typesugar/typesugar/issues) what
 works or doesn't. The expansion commands are VS Code only; elsewhere, run
 `npx typesugar expand <file>` (add `--diff` for a diff).
+
+These editors load `tsconfig.json` plugins from the project's `node_modules` without asking
+whether you trust the project, so opening a repository runs its macros. Open a repository you
+don't trust somewhere disposable (a container or VM); see
+[Security](../SECURITY.md#opening-an-untrusted-repository-in-your-editor).
 
 ### Neovim
 

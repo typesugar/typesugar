@@ -228,40 +228,21 @@ The same mechanism works for macros inside your own repository: put them in a wo
 package with a `typesugar.macros` field, depend on it from the app, and approve it once.
 
 An import by relative path counts too: when `import { myMacro } from "../src/index.js"`
-(your package's own examples or tests) or `"../my-macro-package/src"` lands in a package
-whose `package.json` declares `typesugar.macros`, that package's macro entry is loaded.
+(your package's own examples or tests) or `"../my-macro-package/src/index.js"` lands in a
+package whose `package.json` declares `typesugar.macros`, that package's macro entry is
+loaded. A package reached by a relative path outside `node_modules` is project code: it
+loads with no approval and no warning, whatever its `package.json` calls itself (see
+[Security](../SECURITY.md#what-typesugar-trusts)). It is loaded by its real path, not under
+its name, so it never stands in for a dependency of the same name. A relative path _into_
+`node_modules` counts as a bare import of the package it names there, and is approved (or
+not) by that name.
 
-Either way, the name in a `package.json` is only a claim, so a package's name is trusted
-only for the package the _project_ resolves it to. The transformer resolves names from the
-directories the project owns, and nowhere else:
+Which package a bare import names is decided as Node decides it, from the importing file, so
+a pnpm workspace package's own `node_modules` is used for its files.
 
-- the project's root: the outermost directory with a `package.json`, `tsconfig.json` or
-  `pnpm-workspace.yaml` above the tsconfig (or the files it lists) and the current
-  directory -- so building inside your package (its own build, examples and tests) makes
-  it the project when nothing above it is one, and in a monorepo the root is the
-  monorepo's;
-- the workspace packages the root declares (`pnpm-workspace.yaml` `packages:`, or
-  `package.json` `workspaces`).
-
-A directory doesn't become the project's by having its own tsconfig (see
-[Which directories the project owns](../SECURITY.md#which-directories-the-project-owns)).
-
-A bare import resolves from the owned directory containing the importing file (a pnpm
-workspace package's own `node_modules`), then from the project. A relatively imported
-package is trusted under its name when it is one of those directories, or when the name,
-looked up in `node_modules` from one of them, lands in that same directory (a workspace
-link, or a `"my-macro-package": "file:../my-macro-package"` dependency). A package's own
-`exports` self-reference never counts, and neither does a `node_modules` directory below a
-vendored package: a package reached only by following imports into code the project doesn't
-own is not loaded, whatever its name, and each importing file gets a warning naming its
-path. `typesugar approve-macros` lists those separately, since approving a name cannot help.
-
-Then the usual rules apply to the name: `@typesugar/*` is trusted, anything else must be
-approved, and `typesugar approve-macros` lists it. Nothing fails for an unverified package;
-an unapproved verified one fails the build as above. The entry is the built one
-(`./macros` through your `exports` map), so build the package first; in a file inside the
-package itself a missing build is silent (it is the package's own build), anywhere else it
-is a warning.
+The entry is the built one (`./macros` through your `exports` map), so build the package
+first; in a file inside the package itself a missing build is silent (it is the package's
+own build), anywhere else it is a warning.
 
 ## Documentation
 

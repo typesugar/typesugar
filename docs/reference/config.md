@@ -11,15 +11,13 @@ All configuration options for typesugar. There are four places settings live:
 
 ## `typesugar.config.ts`
 
-The project config file. typesugar looks for the nearest one in a directory the
-project owns, walking up from the directory being compiled (the tsconfig directory for
-the CLI, `approve-macros`, the editor and the bundler plugins): the workspace package
-containing it, then the project's root (see
-[Which directories the project owns](../SECURITY.md#which-directories-the-project-owns)).
-A config file in any other directory on the way, such as a vendored directory's own, is
-not read or run, and a warning names it. Code that reads the config with no host
-(`config.get()` in your own script) searches up from the working directory to the
-repository root.
+The project config file. typesugar uses the nearest one, walking up from the directory
+being compiled (the tsconfig directory for the CLI, `approve-macros`, the editor, the
+bundler plugins and a ts-patched `tsc -p`) and stopping at the repository root (the
+directory with `.git`). Code that reads the config with no host (`config.get()` in your
+own script) searches up from the working directory. A config file is code: one in your
+repository is trusted like the rest of it (see
+[Security](../SECURITY.md#what-typesugar-trusts)).
 
 ```typescript
 // typesugar.config.ts
@@ -77,12 +75,11 @@ automatically. Every other macro package runs code inside your build, so it is
 refused, and the build fails with "…have not been approved. Run
 `typesugar approve-macros`…", until its name is in this list.
 
-A name stands only for the package your project resolves it to, from the
-project's own directories (the tsconfig's directory or the files it lists, the current directory, the
-package root above each, and the workspace packages they declare). A macro
-package reached any other way, such as a copy in a vendored package's own
-`node_modules`, is not loaded whatever its name, and approving the name doesn't
-change that (see [Security](../SECURITY.md)).
+The list is about dependencies: the package a bare import (or a relative path
+into `node_modules`) resolves to, as Node resolves it from the importing file. A
+macro package reached by a relative path outside `node_modules`, such as a
+vendored directory, is your project's own code and loads without approval (see
+[Security](../SECURITY.md#what-typesugar-trusts)).
 
 Don't edit the list by hand unless you have to: run
 [`npx typesugar approve-macros`](./cli.md#approve-macros), which finds the

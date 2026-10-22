@@ -422,17 +422,13 @@ confirmation writes them into that list. It creates `typesugar.config.ts` if the
 none, and otherwise edits only the `allowedMacroPackages` value, leaving the rest of
 the file as you wrote it. Commit the file.
 
-It uses exactly the build's discovery, so it lists everything the build would refuse.
-Names resolve only from directories the project owns: the outermost project above the
-tsconfig (and above the current directory), and the workspace packages it declares; see
-[Which directories the project owns](../SECURITY.md#which-directories-the-project-owns).
-A macro package imported by a relative path is listed when it is one of those or its
-`package.json` name resolves to it from them (a workspace link, a `file:` dependency). One
-the project doesn't resolve to — a relatively imported package whose name resolves
-elsewhere or nowhere, or a copy in a vendored package's own `node_modules` — is shown
-separately with its path: the build skips it with a warning, and approving a name can't
-make it trustworthy, so it is never written to the list (see
-[Security](../SECURITY.md) and [Publishing macros](../writing-macros/publishing-macros.md)).
+It uses exactly the build's discovery, so it lists everything the build would refuse:
+dependencies (packages inside `node_modules`) that declare macros, reached by a bare import
+or by a relative path into `node_modules`, each resolved from the importing file as Node
+resolves it. Macro packages reached by a relative path outside `node_modules` (a vendored
+directory, a workspace sibling imported by path) are project code: they load without
+approval and are never listed (see
+[What typesugar trusts](../SECURITY.md#what-typesugar-trusts)).
 
 **Options:**
 

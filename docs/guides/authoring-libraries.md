@@ -81,11 +81,11 @@ What happens after it's declared depends on your package's npm scope:
   one-time step in your own package's README so consumers aren't surprised by
   it.
 
-Either way, your package's name is trusted only for the copy the consumer's
-_project_ resolves it to: it must be a dependency of the project, or of a
-workspace package the project declares. A copy reached only through another
-package's own `node_modules` (or a relative import into a directory that merely
-claims your name) is not loaded; the build warns with its path instead.
+Approval is by name, for the package an import resolves to as Node resolves
+it (from the importing file, so pnpm's per-package `node_modules` work). A
+copy of your package vendored into the consumer's repository and imported by a
+relative path is the consumer's own code: it loads without approval, as their
+other source does (see [`docs/SECURITY.md`](../SECURITY.md#what-typesugar-trusts)).
 
 ### Worked example: `@typesugar/strings`
 
