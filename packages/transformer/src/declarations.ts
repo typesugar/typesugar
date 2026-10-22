@@ -22,7 +22,11 @@ import * as path from "path";
 import { config, filterDiagnostics, getDiagnosticSuppressionRules } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 import type { RawSourceMap } from "@typesugar/core";
-import { generateASTSourceMap, macroTransformerFactory } from "./pipeline.js";
+import {
+  generateASTSourceMap,
+  macroTransformerFactory,
+  registerTypeRewritesBeforeFiltering,
+} from "./pipeline.js";
 import { hasHKTPatterns, rewriteHKTTypeReferences } from "./hkt-rewriter.js";
 import { annotateInferredOpaqueTypes } from "./declaration-annotations.js";
 
@@ -271,6 +275,8 @@ export function emitDeclarations(opts: EmitDeclarationsOptions = {}): EmitDeclar
 
   let sourceDiagnostics: readonly ts.Diagnostic[] = ts.getPreEmitDiagnostics(program);
   if (getDiagnosticSuppressionRules().length > 0) {
+    // Filtered before the expansion below: register the @opaque types first.
+    registerTypeRewritesBeforeFiltering(program, opts.verbose);
     sourceDiagnostics = filterDiagnostics(
       sourceDiagnostics,
       program.getTypeChecker(),

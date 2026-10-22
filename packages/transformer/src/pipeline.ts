@@ -310,6 +310,27 @@ function detachScratchArrowTokens(root: ts.Node): void {
 }
 
 /**
+ * Register the `@opaque` types `program` can see — those declared in its own
+ * source files and those of the `.d.ts` files its sources import — before
+ * anything is expanded, as the transformer does for each file it transforms
+ * (turf case study, round 2). The TypeRewriteAssignment suppression rule
+ * matches against these registrations: `typesugar check` and
+ * `emitDeclarations()` filter the source's diagnostics BEFORE they expand
+ * anything, so without this `const o: Option<number> = numberOrNull` was
+ * reported there while `build` (which filters after emit) and the editor hid
+ * it. Idempotent: both registrations are once per program / `.d.ts` file.
+ */
+export function registerTypeRewritesBeforeFiltering(program: ts.Program, verbose?: boolean): void {
+  registerProgramOpaqueTypes(program, verbose);
+  for (const sourceFile of program.getSourceFiles()) {
+    if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
+      continue;
+    }
+    discoverOpaqueTypesFromImports(sourceFile, program, verbose);
+  }
+}
+
+/**
  * Create the TypeScript transformer factory backed by transformer-core's
  * shared MacroTransformer class. This is the entry point called by ts-patch,
  * unplugin-typesugar, and cli.ts's build/watch/expand/run commands.

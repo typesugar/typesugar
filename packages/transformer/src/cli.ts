@@ -54,6 +54,7 @@ import {
   formatExpansions,
   transpileExpanded,
   macroTransformerFactory,
+  registerTypeRewritesBeforeFiltering,
   saveExpansionCache,
   getExpansionCacheStats,
   TransformerState,
@@ -669,6 +670,9 @@ function build(options: CliOptions): void {
   const suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];
   const filterTsDiagnostics = (raw: readonly ts.Diagnostic[]): readonly ts.Diagnostic[] => {
     if (getDiagnosticSuppressionRules().length === 0) return raw;
+    // `check` filters before anything is expanded: register what the
+    // TypeRewriteAssignment rule matches against first.
+    registerTypeRewritesBeforeFiltering(program, options.verbose);
     // getTypeChecker() after emit may trigger deferred callbacks that crash on
     // synthetic nodes — catch and fall back to unfiltered diagnostics.
     try {
