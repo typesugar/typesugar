@@ -505,12 +505,29 @@ function commentTextsInRange(sourceFile: ts.SourceFile, start: number, end: numb
     end - start
   );
   const out: string[] = [];
+  // Template substitutions: the scanner returns a `}` as a plain brace, and
+  // only the caller knows it closes a `${`. Without re-scanning it as the
+  // template's continuation, the template's closing backtick read as the
+  // start of a new template, which swallowed the rest of the line, comments
+  // included (`grammar\`a ${y}\` // @ts-no-typesugar` was not opted out).
+  // Each entry: the brace depth inside one open `${ ... }`.
+  const substitutions: number[] = [];
   for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
     if (
       kind === ts.SyntaxKind.SingleLineCommentTrivia ||
       kind === ts.SyntaxKind.MultiLineCommentTrivia
     ) {
       out.push(scanner.getTokenText());
+    } else if (kind === ts.SyntaxKind.TemplateHead) {
+      substitutions.push(0);
+    } else if (kind === ts.SyntaxKind.OpenBraceToken && substitutions.length > 0) {
+      substitutions[substitutions.length - 1]++;
+    } else if (kind === ts.SyntaxKind.CloseBraceToken && substitutions.length > 0) {
+      if (substitutions[substitutions.length - 1] > 0) {
+        substitutions[substitutions.length - 1]--;
+      } else if (scanner.reScanTemplateToken(false) === ts.SyntaxKind.TemplateTail) {
+        substitutions.pop();
+      } // TemplateMiddle: the next substitution, at depth 0 again
     }
   }
   return out;
