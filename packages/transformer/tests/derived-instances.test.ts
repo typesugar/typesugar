@@ -683,6 +683,33 @@ export const e = derived<Eq<Readonly<Date>>>();
     expect(JSON.stringify(t.code)).not.toMatch(/__@/);
   });
 
+  it("a lib utility over a user type that extends a lib type derives, like the type itself", () => {
+    // review 6, item 6: Readonly<AppError> has properties declared in lib's
+    // Error interface (name, message, stack), so it was a built-in (TS9106)
+    // while derived<Eq<AppError>>() derived. A mapped type is a built-in only
+    // when the type it maps is one, by symbol.
+    const t = transformAll({
+      "mapped-user.ts": `import type { Eq } from "@typesugar/std";
+import { derived } from "typesugar";
+interface AppError extends Error { code: number }
+interface Bare extends Error {}
+type RA = Readonly<AppError>;
+export const plain = derived<Eq<AppError>>();
+export const ro = derived<Eq<Readonly<AppError>>>();
+export const viaAlias = derived<Eq<RA>>();
+export const partial = derived<Eq<Partial<Bare>>>();
+export const picked = derived<Eq<Pick<AppError, "message" | "code">>>();
+`,
+    });
+    // Each is derived from its fields: lib's Error has `cause: unknown` (no
+    // Eq instance), reported the same way for the type and for each utility
+    // over it; `Pick` without `cause` derives cleanly.
+    const errs = transformErrors(t)["mapped-user.ts"] ?? [];
+    expect(errs.filter((e) => /TS9106/.test(e))).toEqual([]);
+    for (const e of errs) expect(e).toMatch(/TS9107[\s\S]*`cause`/);
+    expect(errs.some((e) => /Pick/.test(e))).toBe(false);
+  });
+
   it("summon's help for a built-in type doesn't point at derived<...>()", () => {
     const t = transformAll({
       "use.ts": `import type { Eq } from "@typesugar/std";

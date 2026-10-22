@@ -116,27 +116,88 @@ export function isBuiltinObjectSymbol(program: ts.Program, sym: ts.Symbol | unde
  * `Record<"a", number>`, `Pick<...>`) are not: they resolve to mapped or
  * anonymous object types whose symbol is a type literal, with ordinary fields.
  *
- * A mapped type over a built-in (`Readonly<Map<K, V>>`, `Partial<Date>`,
- * `Pick<Map<K, V>, "size">`, or an alias of one) is a built-in too: its own
- * symbol is the mapped type's literal, but its properties are the built-in's
- * methods and internals, and a homomorphic mapped type's property carries
- * the declaration it was mapped from. So it is one when any property is
- * declared as a member of an interface or class in TypeScript's default lib
- * -- decided by where the members are declared, not by any name.
+ * A homomorphic mapped type (`Readonly<T>`, `Partial<T>`, `Pick<T, K>`, a
+ * user's `{ [K in keyof T]: ... }`, or an alias of an application of one) is
+ * a built-in exactly when the type it maps, `T`, is one -- by symbol, the
+ * same test as for `T` itself (review 6: `Readonly<AppError>`, with
+ * `AppError` a user interface extending `Error`, was a built-in because some
+ * of its properties are declared in lib's `Error`, while
+ * `derived<Eq<AppError>>()` derived). `T` is read from the mapped type's
+ * declaration and the alias application's type arguments. When it can't be
+ * determined, the mapped type is a built-in only if every property is
+ * declared as a member of a lib interface or class.
  */
-export function isBuiltinObjectType(program: ts.Program, type: ts.Type): boolean {
+export function isBuiltinObjectType(program: ts.Program, type: ts.Type, depth = 0): boolean {
   if (isBuiltinObjectSymbol(program, type.symbol)) return true;
   if (!(type.flags & ts.TypeFlags.Object)) return false;
   if (!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped)) return false;
-  return type
-    .getProperties()
-    .some((prop) =>
+  const checker = program.getTypeChecker();
+  const source = depth < 8 ? mappedTypeSource(checker, type) : undefined;
+  if (source) return isBuiltinObjectType(program, source, depth + 1);
+  const props = type.getProperties();
+  return (
+    props.length > 0 &&
+    props.every((prop) =>
       (prop.declarations ?? []).some(
         (d) =>
           (ts.isInterfaceDeclaration(d.parent) || ts.isClassDeclaration(d.parent)) &&
           program.isSourceFileDefaultLibrary(d.getSourceFile())
       )
-    );
+    )
+  );
+}
+
+/**
+ * The type a homomorphic mapped type maps (`T` in `{ [P in keyof T]: ... }`,
+ * or in `{ [P in K]: ... }` with `K extends keyof T`): the type parameter's
+ * index in the alias declaring the mapped type, looked up in the type
+ * arguments that alias was applied with -- the type's own alias arguments
+ * (`Readonly<Map<K, V>>`), or, for an alias of an application (`type RM =
+ * Readonly<Map<K, V>>`), the application in that alias's declaration. By
+ * symbol throughout; undefined when the shape is anything else.
+ */
+function mappedTypeSource(checker: ts.TypeChecker, type: ts.Type): ts.Type | undefined {
+  const decl = type.symbol?.declarations?.find(ts.isMappedTypeNode);
+  if (!decl) return undefined;
+  const typeParamOf = (node: ts.TypeNode | undefined) => {
+    if (!node || !ts.isTypeReferenceNode(node)) return undefined;
+    return checker
+      .getSymbolAtLocation(node.typeName)
+      ?.declarations?.find(ts.isTypeParameterDeclaration);
+  };
+  let constraint = decl.typeParameter.constraint;
+  const keyParam = typeParamOf(constraint);
+  if (keyParam) constraint = keyParam.constraint;
+  if (
+    !constraint ||
+    !ts.isTypeOperatorNode(constraint) ||
+    constraint.operator !== ts.SyntaxKind.KeyOfKeyword
+  ) {
+    return undefined;
+  }
+  const mapped = typeParamOf(constraint.type);
+  const alias = mapped?.parent;
+  if (!mapped || !alias || !ts.isTypeAliasDeclaration(alias) || !alias.typeParameters) {
+    return undefined;
+  }
+  const index = alias.typeParameters.indexOf(mapped);
+  const aliasSymbol = checker.getSymbolAtLocation(alias.name);
+  if (index < 0 || !aliasSymbol) return undefined;
+  if (type.aliasSymbol === aliasSymbol) return type.aliasTypeArguments?.[index];
+  // An alias of an application of it, possibly through further aliases.
+  let outer = type.aliasSymbol;
+  for (let i = 0; outer && i < 8; i++) {
+    const body = outer.declarations?.find(ts.isTypeAliasDeclaration)?.type;
+    if (!body || !ts.isTypeReferenceNode(body)) return undefined;
+    let target = checker.getSymbolAtLocation(body.typeName);
+    if (target && target.flags & ts.SymbolFlags.Alias) target = checker.getAliasedSymbol(target);
+    if (target === aliasSymbol) {
+      const arg = body.typeArguments?.[index];
+      return arg ? checker.getTypeFromTypeNode(arg) : undefined;
+    }
+    outer = target;
+  }
+  return undefined;
 }
 
 /**
