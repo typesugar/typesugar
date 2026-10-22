@@ -130,6 +130,27 @@ a - (b - c); // numericRational.sub(a, numericRational.sub(b, c))
 Either operand can be such an expression, so precedence and parentheses work as
 they do for numbers.
 
+When the instance's methods are inlined (an `@impl` whose bodies are simple
+expressions), a whole chain becomes one expression, with no intermediate
+objects and no function calls:
+
+```typescript
+/** @impl Numeric<Point> */
+const numericPoint: Numeric<Point> = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+};
+
+const sum = a + b + c;
+// const sum = ({ x: (a.x + b.x) + c.x, y: (a.y + b.y) + c.y });
+```
+
+Each operand is still evaluated once, in order. A value the next method reads
+more than once (a rational's denominator), or an operand with side effects, is
+bound to a `const` just before the statement when the chain is evaluated first
+in it (a declaration's initializer, a `return`, an expression statement).
+Elsewhere (an arrow's expression body, a `?:` branch) such a level is applied as
+a function call instead.
+
 A method that returns something else (`equals(a: A, b: A): boolean`) ends the
 chain: `(a === b) === flag` compares booleans natively.
 

@@ -1647,7 +1647,8 @@ const MAX_RECURSIVE_INLINE_DEPTH = 10;
 export function tryInlineDerivedInstanceCall(
   ctx: MacroContextImpl,
   node: ts.CallExpression,
-  scopeNode?: ts.Node
+  scopeNode?: ts.Node,
+  temps?: StatementTemps
 ): ts.Expression | undefined {
   if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
   if (!ts.isIdentifier(node.expression.expression)) return undefined;
@@ -1662,8 +1663,33 @@ export function tryInlineDerivedInstanceCall(
   if (!method) return undefined;
   if (!methodFreeNamesResolveSameAt(ctx, method, location)) return undefined;
 
-  const inlined = inlineMethod(ctx, method, Array.from(node.arguments));
+  // A value the inlined body reads more than once (a rational's `a.d * b.d`
+  // in `p + q + r`) is bound to a `const` before the statement when the call
+  // is evaluated first and once in it (evaluatedFirstOnceIn), and committed
+  // only if the call is inlined.
+  const pending: ts.Statement[] = [];
+  const hoistConst =
+    temps && scopeNode && evaluatedFirstOnceIn(temps.anchor, scopeNode)
+      ? (name: ts.Identifier, init: ts.Expression): void => {
+          pending.push(
+            ctx.factory.createVariableStatement(
+              undefined,
+              ctx.factory.createVariableDeclarationList(
+                [ctx.factory.createVariableDeclaration(name, undefined, undefined, init)],
+                ts.NodeFlags.Const
+              )
+            )
+          );
+        }
+      : undefined;
+  const inlined = inlineMethod(
+    ctx,
+    method,
+    Array.from(node.arguments),
+    hoistConst ? { hoistConst } : undefined
+  );
   if (!inlined) return undefined;
+  temps?.declarations.push(...pending);
 
   const result = recursivelyInlineInstanceCalls(ctx, inlined, 0, location);
 
@@ -1672,6 +1698,97 @@ export function tryInlineDerivedInstanceCall(
   // would otherwise emit at the call site. (Behavior unified from the legacy
   // transformer in PEP-053 Wave 3.)
   return preserveSourceMap(cloneWithoutComments(result), node);
+}
+
+/**
+ * Declarations to place just before one statement of a statement list
+ * (source file, block, module block) while it is visited: the transformer
+ * opens one per statement (MacroTransformer.visitStatementContainer) and
+ * splices what was added before the visited statement.
+ */
+export interface StatementTemps {
+  readonly anchor: ts.Statement;
+  readonly declarations: ts.Statement[];
+}
+
+/**
+ * Is `node` (real source, with parents) evaluated unconditionally, exactly
+ * once, and before anything else with an effect, each time `anchor` runs? Then
+ * an effect-free value it computes can be bound to a `const` declared just
+ * before `anchor` instead. Walks up through parentheses and the operands of
+ * non-short-circuit, non-assignment binary operators (a right operand only
+ * when its left one has no effect: `a + b + c`, `(a + b) + (c + d)`), to the
+ * expression of an expression or `return` statement, or the initializer of
+ * the FIRST declaration of a variable statement (a later one would run after
+ * the earlier declarators, which may have effects or declare a name it reads).
+ * Anything else (a function boundary, `?:`, `&&`, a call argument) is no.
+ */
+export function evaluatedFirstOnceIn(anchor: ts.Statement, node: ts.Node): boolean {
+  if (isSyntheticNode(node)) return false;
+  let child: ts.Node = node;
+  for (let parent = node.parent; parent; child = parent, parent = parent.parent) {
+    if (ts.isParenthesizedExpression(parent)) continue;
+    if (ts.isBinaryExpression(parent)) {
+      const op = parent.operatorToken.kind;
+      if (
+        op === ts.SyntaxKind.AmpersandAmpersandToken ||
+        op === ts.SyntaxKind.BarBarToken ||
+        op === ts.SyntaxKind.QuestionQuestionToken ||
+        op === ts.SyntaxKind.CommaToken ||
+        (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment)
+      ) {
+        return false;
+      }
+      if (child === parent.right && !isEffectFreeSyntax(parent.left)) return false;
+      continue;
+    }
+    if (ts.isExpressionStatement(parent) || ts.isReturnStatement(parent)) {
+      return parent === anchor && parent.expression === child;
+    }
+    if (ts.isVariableDeclaration(parent)) {
+      const list = parent.parent;
+      return (
+        parent.initializer === child &&
+        ts.isVariableDeclarationList(list) &&
+        list.declarations[0] === parent &&
+        list.parent === anchor
+      );
+    }
+    return false;
+  }
+  return false;
+}
+
+/** Literals, names and reads combined by operators: no call, assignment or update. */
+function isEffectFreeSyntax(e: ts.Expression): boolean {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (
+    ts.isIdentifier(e) ||
+    ts.isNumericLiteral(e) ||
+    ts.isStringLiteral(e) ||
+    ts.isBigIntLiteral(e) ||
+    e.kind === ts.SyntaxKind.ThisKeyword ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword ||
+    e.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return true;
+  }
+  if (ts.isPropertyAccessExpression(e)) return !e.questionDotToken && isEffectFreeSyntax(e.expression);
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    if (op === ts.SyntaxKind.CommaToken) return false;
+    if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) return false;
+    return isEffectFreeSyntax(e.left) && isEffectFreeSyntax(e.right);
+  }
+  if (ts.isPrefixUnaryExpression(e)) {
+    return (
+      e.operator !== ts.SyntaxKind.PlusPlusToken &&
+      e.operator !== ts.SyntaxKind.MinusMinusToken &&
+      isEffectFreeSyntax(e.operand)
+    );
+  }
+  return false;
 }
 
 /**

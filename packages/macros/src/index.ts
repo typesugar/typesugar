@@ -145,6 +145,7 @@ export {
   type DictMethod,
   type InlineFailureReason,
   type InlineClassification,
+  type InlineOptions,
   type FlattenAnalysis,
   type MemberMethodResolver,
 } from "./specialize.js";

@@ -243,7 +243,8 @@ export const n = 1 + 2 + 3;
 `;
     const result = transformCode(code, { fileName: "op-chain.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.code).not.toMatch(/\) \+ c|\) \+ a|\) < c|\) === c/);
+    // No level left native (`numV.add(a, b) + c`); inlined reads `(...) + c.x` are fine.
+    expect(result.code).not.toMatch(/\) (\+|<|===) [ac](?![.\w])/);
     expect(result.code).toContain("n = 1 + 2 + 3");
     expect(evaluate(result.code)).toMatchObject({
       s: { x: 6 },
@@ -317,5 +318,122 @@ export const r = (a === b) === flag;
     const result = transformCode(code, { fileName: "op-chain-bool.ts" });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     expect(result.code).toMatch(/\) === flag/);
+  });
+});
+
+// ============================================================================
+// Zero-cost chains: no IIFE, no intermediate object
+// ============================================================================
+
+describe("Chained operators inline to straight-line code", () => {
+  // Every level of `a + b + c + d` used to be applied as an IIFE over the
+  // previous level's object literal (`((a, b) => ({ ... }))(({ ... }), c)`):
+  // the inliner can't substitute an object literal its body reads twice.
+  // Each `p.x` now reads the literal's `x` initializer, and a value read more
+  // than once (a rational's denominator) or an operand with an effect is
+  // bound to a `const` before the statement.
+  const prelude = `
+/** @typeclass */
+export interface Num<A> {
+  /** @op + */ add(a: A, b: A): A;
+}
+export interface V { x: number; y: number }
+/** @impl Num<V> */
+export const numV: Num<V> = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+};
+export interface Q { n: number; d: number }
+/** @impl Num<Q> */
+export const numQ: Num<Q> = {
+  add: (a, b) => ({ n: a.n * b.d + b.n * a.d, d: a.d * b.d }),
+};
+const a: V = { x: 1, y: 10 }, b: V = { x: 2, y: 20 }, c: V = { x: 3, y: 30 }, d: V = { x: 4, y: 40 };
+const p: Q = { n: 1, d: 2 }, q: Q = { n: 1, d: 3 }, r: Q = { n: 1, d: 6 }, w: Q = { n: 1, d: 4 };
+export const log: string[] = [];
+function mk(tag: string): V { log.push(tag); return { x: 100, y: 1000 }; }
+`;
+
+  function evaluate(code: string): Record<string, unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ts = require("typescript") as typeof import("typescript");
+    const js = ts.transpileModule(code, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const mod = { exports: {} as Record<string, unknown> };
+    new Function("module", "exports", "require", js)(mod, mod.exports, () => ({}));
+    return mod.exports;
+  }
+
+  const lineOf = (code: string, name: string): string =>
+    code.split("\n").find((l) => l.includes(`const ${name} =`)) ?? "";
+
+  it("a + b + c + d on a product type is one object literal (no IIFE)", () => {
+    const code = `${prelude}
+export const s4 = a + b + c + d;
+export function f() { const t = a + b + c + d; return t; }
+`;
+    const result = transformCode(code, { fileName: "op-zero-cost-vec.ts" });
+    expect(result.diagnostics.filter((x) => x.severity === "error")).toEqual([]);
+    expect(lineOf(result.code, "s4")).toBe(
+      "export const s4 = ({ x: ((a.x + b.x) + c.x) + d.x, y: ((a.y + b.y) + c.y) + d.y });"
+    );
+    expect(lineOf(result.code, "t")).not.toContain("=>");
+    expect(evaluate(result.code)).toMatchObject({ s4: { x: 10, y: 100 } });
+    expect((evaluate(result.code).f as () => unknown)()).toEqual({ x: 10, y: 100 });
+  });
+
+  it("a value read twice (a rational's denominator) is a const before the statement", () => {
+    const code = `${prelude}
+export const q4 = p + q + r + w;
+`;
+    const result = transformCode(code, { fileName: "op-zero-cost-rat.ts" });
+    expect(result.diagnostics.filter((x) => x.severity === "error")).toEqual([]);
+    const q4 = lineOf(result.code, "q4");
+    expect(q4).toMatch(/^export const q4 = \(\{ n: .*, d: \w+ \* w\.d \}\);$/);
+    expect(q4).not.toContain("=>");
+    // Two denominators are shared (levels 2 and 3), each computed once.
+    const consts = result.code.split("\n").filter((l) => /^const __typesugar_\w+ = /.test(l));
+    expect(consts).toHaveLength(2);
+    // 1/2 + 1/3 + 1/6 + 1/4 = 5/4 (unreduced: 360/288)
+    const v = evaluate(result.code).q4 as { n: number; d: number };
+    expect(v.n / v.d).toBeCloseTo(1.25);
+  });
+
+  it("an operand with an effect is evaluated once, in order", () => {
+    const code = `${prelude}
+export const m = mk("1") + mk("2") + a;
+`;
+    const result = transformCode(code, { fileName: "op-zero-cost-effect.ts" });
+    expect(result.diagnostics.filter((x) => x.severity === "error")).toEqual([]);
+    expect(lineOf(result.code, "m")).not.toContain("=>");
+    const out = evaluate(result.code);
+    expect(out.m).toEqual({ x: 201, y: 2010 });
+    expect(out.log).toEqual(["1", "2"]);
+  });
+
+  it("outside statement position, or after an effect, it stays correct (IIFE where it must)", () => {
+    const code = `${prelude}
+export const g = (u: Q) => u + q + r;
+declare const flag: boolean;
+export const cond = !flag ? p + q + r : p;
+export const after = (log.push("first"), p + q + r);
+export const second = 0, third = mk("3") + mk("4") + a;
+`;
+    const result = transformCode(code, { fileName: "op-zero-cost-positions.ts" });
+    expect(result.diagnostics.filter((x) => x.severity === "error")).toEqual([]);
+    // No const is hoisted out of these positions.
+    expect(result.code).not.toMatch(/^const __typesugar_/m);
+    const out = evaluate(
+      result.code.replace("declare const flag: boolean;", "const flag = false;")
+    );
+    const third = { n: 1 * 3 * 6 + 1 * 2 * 6 + 1 * 6, d: 36 };
+    expect((out.g as (u: unknown) => { n: number; d: number })(p0()).n).toBe(third.n);
+    expect(out.cond).toEqual(third);
+    expect(out.after).toEqual(third);
+    expect(out.third).toEqual({ x: 201, y: 2010 });
+    expect(out.log).toEqual(["first", "3", "4"]);
+    function p0() {
+      return { n: 1, d: 2 };
+    }
   });
 });

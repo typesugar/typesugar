@@ -75,6 +75,7 @@ import {
   tryReturnTypeDrivenSpecialize as tryReturnTypeDrivenSpecializeFn,
   tryInlineDerivedInstanceCall as tryInlineDerivedInstanceCallFn,
   eliminateDeadDerivedInstances as eliminateDeadDerivedInstancesFn,
+  type StatementTemps,
 } from "./specialization.js";
 
 import {
@@ -127,6 +128,11 @@ class MacroTransformer {
   private implicitScopeStack: ImplicitScope[] = [];
 
   private specCache = new SpecializationCache();
+  /**
+   * The statement of a statement list being visited, and the `const`s an
+   * inlined operator chain in it binds before it (tryInlineDerivedInstanceCall).
+   */
+  private statementTemps: StatementTemps | undefined;
 
   private inlinedInstanceNames = new Set<string>();
 
@@ -927,7 +933,19 @@ class MacroTransformer {
         pendingVarDecl = undefined;
       }
 
-      const visited = this.visit(stmt);
+      const prevTemps = this.statementTemps;
+      const temps: StatementTemps = { anchor: stmt, declarations: [] };
+      this.statementTemps = temps;
+      let visited: ts.Node | ts.Node[];
+      try {
+        visited = this.visit(stmt);
+      } finally {
+        this.statementTemps = prevTemps;
+      }
+      if (temps.declarations.length > 0) {
+        newStatements.push(...temps.declarations);
+        modified = true;
+      }
       if (visited) {
         if (Array.isArray(visited)) {
           for (const n of visited as ts.Node[]) {
@@ -1377,7 +1395,12 @@ class MacroTransformer {
         : tryRewriteTypeclassUnaryOperatorFn(this.ctx, this.verbose, this.visit.bind(this), node);
       if (result !== undefined) {
         if (ts.isCallExpression(result)) {
-          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, node);
+          const inlined = tryInlineDerivedInstanceCallFn(
+            this.ctx,
+            result,
+            node,
+            this.statementTemps
+          );
           if (inlined !== undefined) {
             if (
               ts.isPropertyAccessExpression(result.expression) &&
