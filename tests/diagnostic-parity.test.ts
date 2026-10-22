@@ -104,7 +104,7 @@ describe("Diagnostic Parity — unified diagnostic suppression pipeline", () => 
     const expected = [...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES];
     // Note: we can't easily reflect on create*Rule exports, but ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES
     // is maintained alongside the registration function in the same file.
-    expect(expected).toHaveLength(11);
+    expect(expected).toHaveLength(12);
   });
 
   it("OperatorOverload: suppresses TS2365 only where an @op instance rewrites it", () => {
@@ -287,6 +287,7 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
       "MacroCallChain", // from @typesugar/macros
       "MatchSwitch", // from @typesugar/macros
       "ContractBlock", // from @typesugar/macros
+      "ComprehensionBlock", // from @typesugar/macros
       "MacroDecorator", // from @typesugar/macros
       "OperatorOverload", // from @typesugar/macros
       "RewrittenOperatorResult", // from @typesugar/macros
@@ -299,16 +300,16 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
     expect(actualNames).toEqual(expectedNames);
   });
 
-  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 11 rules", () => {
+  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 12 rules", () => {
     const dummyMapFn = () => null;
     const registered = registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
-    expect(registered).toHaveLength(11);
+    expect(registered).toHaveLength(12);
     expect(new Set(registered)).toEqual(new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES));
   });
 
-  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 10 rules", () => {
+  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 11 rules", () => {
     const registered = registerAllDiagnosticSuppressionRules();
-    expect(registered).toHaveLength(10);
+    expect(registered).toHaveLength(11);
     expect(registered).not.toContain("MacroGenerated");
   });
 });

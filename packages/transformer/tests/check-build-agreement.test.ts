@@ -243,9 +243,9 @@ describe.skipIf(!hasBuild)("expression-position comprehensions in typesugar chec
   // The CLI built its own program with only the HKT preprocessing, never the
   // pipeline's expression-comprehension rewrite: `build` emitted
   // `export const f = (id) => let, { user }; ...`, and `check` reported the
-  // broken parse (TS1005, TS1128). TypeScript still reports the
+  // broken parse (TS1005, TS1128). TypeScript then still reported the
   // comprehension's own bodies (`a << e`, the labels), as for a
-  // statement-position comprehension; those are at the lines as written.
+  // statement-position one, until the ComprehensionBlock rule.
   let dir: string;
   beforeAll(() => {
     dir = makeProject({
@@ -276,20 +276,96 @@ main();
     dirs.push(dir);
   });
 
-  it("check: no parse errors, nothing about the preprocessor's tags, user lines only", () => {
+  it("check passes: no parse errors, nothing on the comprehension syntax or the preprocessor's tags", () => {
     const r = cli(dir, "check");
-    expect(r.output).not.toMatch(/error TS(1005|1128|1109)/);
-    expect(r.output).not.toMatch(/__letyield/);
-    const lines = [...r.output.matchAll(/comp\.ts\((\d+),\d+\)/g)].map((m) => Number(m[1]));
-    expect(lines.every((l) => (l >= 6 && l <= 10) || (l >= 13 && l <= 17))).toBe(true);
+    expect(r.output).not.toMatch(/error TS/);
+    expect(r.status, r.output).toBe(0);
   });
 
-  it("build emits code that runs", () => {
-    cli(dir, "build");
+  it("build exits 0 and emits code that runs", () => {
+    const b = cli(dir, "build");
+    expect(b.status, b.output).toBe(0);
     const out = fs.readFileSync(path.join(dir, "out", "comp.js"), "utf-8");
     expect(out).not.toMatch(/=> let,|= let,|__letyield/);
     const r = run(dir, "comp.js");
     expect(r.status, r.output).toBe(0);
     expect(r.output).toBe("u7 is 40 3\n");
+  });
+});
+
+describe.skipIf(!hasBuild)("statement-position comprehensions in typesugar check / build", () => {
+  // `typesugar check` reported TypeScript's view of every comprehension's
+  // own syntax -- TS1214 on the `let`/`yield` labels, TS2304 on the bound
+  // names, TS2363 on each `a << e` -- and `typesugar build` exited 1 although
+  // its output was right; the language service checks the expansion, so the
+  // IDE showed none of it. Real errors in a step must still be reported.
+  let dir: string;
+  beforeAll(() => {
+    dir = makeProject({
+      "src/ok.ts": `import "@typesugar/std/syntax/do";
+const fetchUser = (id: number) => Promise.resolve({ id, name: "u" + id });
+const fetchAge = (_n: string) => Promise.resolve(40);
+const fallback = () => Promise.resolve(0);
+
+async function main() {
+  const out: string[] = [];
+  let: {
+    user << fetchUser(7);
+    age << fetchAge(user.name) || fallback();
+    label = \`\${user.name}:\${age}\`;
+    par: {
+      a << fetchAge(label);
+      b << fetchAge(user.name);
+    }
+  }
+  yield: (out.push(\`\${label} \${a + b}\`));
+  const r = par: { x << fetchUser(1); y << fetchUser(2); } yield: x.name + y.name;
+  const names = await r;
+  await new Promise((done) => setTimeout(done, 0));
+  console.log(out, names);
+}
+main();
+`,
+      "src/bad.ts": `import "@typesugar/std/syntax/do";
+const fetchUser = (id: number) => Promise.resolve({ id, name: "u" + id });
+const fetchAge = (_n: string) => Promise.resolve(40);
+
+export async function f() {
+  let: {
+    user << fetchUsr(7);
+    age << fetchAge(42);
+    posts << fetchAge(usr.name);
+  }
+  yield: ({ user, age, posts, nope });
+}
+`,
+    });
+    dirs.push(dir);
+  });
+
+  it("check: nothing on ok.ts; bad.ts's real errors only, at the lines as written", () => {
+    const r = cli(dir, "check");
+    expect(r.output).not.toMatch(/ok\.ts\(\d+,\d+\): error/);
+    const errors = [...r.output.matchAll(/bad\.ts\((\d+),(\d+)\): error TS(\d+)/g)].map(
+      (m) => `${m[1]}:${m[2]} TS${m[3]}`
+    );
+    // fetchUsr (unknown name), 42 (not a string), usr (not bound), nope; and
+    // the macro's own error on the bind it can't type (fetchUsr).
+    expect(errors).toEqual([
+      "7:13 TS2552",
+      "8:21 TS2345",
+      "9:23 TS2304",
+      "11:31 TS18004",
+      "7:13 TS9999",
+    ]);
+  });
+
+  it("build exits 0 for ok.ts alone, and its output runs", () => {
+    fs.rmSync(path.join(dir, "src", "bad.ts"));
+    const b = cli(dir, "build");
+    expect(b.status, b.output).toBe(0);
+    const r = run(dir, "ok.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe("[ 'u7:40 80' ] u1u2\n");
   });
 });

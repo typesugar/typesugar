@@ -1872,6 +1872,435 @@ function endsAbruptly(statement: ts.Statement): boolean {
 }
 
 // ===========================================================================
+// ComprehensionBlock — do-notation's own syntax (std let-yield.ts / par-yield.ts)
+// ===========================================================================
+
+/** The label macros `@typesugar/std/syntax/do` activates (`@syntax-labels letYield` / `parYield`). */
+const LET_YIELD_MACRO = "letYield";
+const PAR_YIELD_MACRO = "parYield";
+/** Labels of a sequential comprehension (`letYieldMacro.label`) and their continuations. */
+const SEQ_COMPREHENSION_LABELS: ReadonlySet<string> = new Set(["let", "seq"]);
+const SEQ_CONTINUATION_LABELS: ReadonlySet<string> = new Set(["yield", "pure", "return"]);
+/** Labels of a parallel comprehension (`parYieldMacro.label`) and their continuations. */
+const PAR_COMPREHENSION_LABELS: ReadonlySet<string> = new Set(["par", "all"]);
+const PAR_CONTINUATION_LABELS: ReadonlySet<string> = new Set(["yield", "pure"]);
+
+interface ComprehensionActivation {
+  seq: boolean;
+  par: boolean;
+  tracker: ResolutionScopeTracker;
+}
+
+const comprehensionActivationCache = new WeakMap<
+  ts.Program,
+  Map<string, ComprehensionActivation>
+>();
+
+/** Which comprehension labels `sourceFile` activates (imports a `@syntax-labels` marker for). */
+function comprehensionActivation(
+  program: ts.Program,
+  sourceFile: ts.SourceFile
+): ComprehensionActivation {
+  let perFile = comprehensionActivationCache.get(program);
+  if (!perFile) {
+    perFile = new Map();
+    comprehensionActivationCache.set(program, perFile);
+  }
+  const cached = perFile.get(sourceFile.fileName);
+  if (cached) return cached;
+  const tracker = new ResolutionScopeTracker();
+  scanImportsForScope(sourceFile, tracker, program);
+  const result = {
+    seq: tracker.isLabelSyntaxActivated(sourceFile.fileName, LET_YIELD_MACRO),
+    par: tracker.isLabelSyntaxActivated(sourceFile.fileName, PAR_YIELD_MACRO),
+    tracker,
+  };
+  perFile.set(sourceFile.fileName, result);
+  return result;
+}
+
+type ComprehensionKind = "seq" | "par";
+
+/**
+ * Is `stmt` a comprehension the transformer expands: an activated
+ * `let:`/`seq:`/`par:`/`all:` label on a block (transformer.ts dispatches
+ * only a label on the statement shape its macro expects), outside an
+ * opted-out scope.
+ */
+function comprehensionKindOf(
+  stmt: ts.Node,
+  sourceFile: ts.SourceFile,
+  act: ComprehensionActivation
+): ComprehensionKind | undefined {
+  if (!ts.isLabeledStatement(stmt) || !ts.isBlock(stmt.statement)) return undefined;
+  const label = stmt.label.text;
+  const kind: ComprehensionKind | undefined =
+    act.seq && SEQ_COMPREHENSION_LABELS.has(label)
+      ? "seq"
+      : act.par && PAR_COMPREHENSION_LABELS.has(label)
+        ? "par"
+        : undefined;
+  if (!kind || isInOptedOutScope(sourceFile, stmt, act.tracker, "macros")) return undefined;
+  return kind;
+}
+
+/** The statement list `stmt` is in, when it is in one. */
+function siblingStatements(stmt: ts.Node): readonly ts.Statement[] | undefined {
+  const p = stmt.parent;
+  if (!p) return undefined;
+  if (ts.isBlock(p) || ts.isSourceFile(p) || ts.isModuleBlock(p)) return p.statements;
+  if (ts.isCaseClause(p) || ts.isDefaultClause(p)) return p.statements;
+  return undefined;
+}
+
+/**
+ * The comprehension whose continuation (`yield:`/`pure:`/`return:`) `stmt`
+ * is: the transformer takes the statement right after the comprehension,
+ * when it carries one of the macro's continuation labels.
+ */
+function comprehensionOfContinuation(
+  stmt: ts.Node,
+  sourceFile: ts.SourceFile,
+  act: ComprehensionActivation
+): ts.LabeledStatement | undefined {
+  if (!ts.isLabeledStatement(stmt)) return undefined;
+  const siblings = siblingStatements(stmt);
+  const i = siblings?.indexOf(stmt) ?? -1;
+  if (!siblings || i < 1) return undefined;
+  const main = siblings[i - 1];
+  const kind = comprehensionKindOf(main, sourceFile, act);
+  if (!kind || !ts.isLabeledStatement(main)) return undefined;
+  const allowed = kind === "seq" ? SEQ_CONTINUATION_LABELS : PAR_CONTINUATION_LABELS;
+  return allowed.has(stmt.label.text) ? main : undefined;
+}
+
+/**
+ * The block of steps `block` is, if any: a comprehension's own block, or a
+ * `par:`/`all:` group directly inside a sequential one's (let-yield.ts
+ * extractSteps reads those as parallel groups).
+ */
+function comprehensionBlockKind(
+  block: ts.Node,
+  sourceFile: ts.SourceFile,
+  act: ComprehensionActivation
+): ComprehensionKind | undefined {
+  if (!ts.isBlock(block) || !block.parent) return undefined;
+  const own = comprehensionKindOf(block.parent, sourceFile, act);
+  if (own) return own;
+  return isParGroupInComprehension(block.parent, sourceFile, act) ? "par" : undefined;
+}
+
+function isParGroupInComprehension(
+  stmt: ts.Node,
+  sourceFile: ts.SourceFile,
+  act: ComprehensionActivation
+): boolean {
+  if (
+    !ts.isLabeledStatement(stmt) ||
+    !PAR_COMPREHENSION_LABELS.has(stmt.label.text) ||
+    !ts.isBlock(stmt.statement)
+  ) {
+    return false;
+  }
+  const outer = stmt.parent;
+  return (
+    ts.isBlock(outer) &&
+    outer.parent !== undefined &&
+    comprehensionKindOf(outer.parent, sourceFile, act) === "seq"
+  );
+}
+
+/**
+ * The binding a step statement makes, read as let-yield.ts / par-yield.ts
+ * extractSteps read it: `name << e`, `name << e || alt`, `name << e ?? alt`
+ * (a bind; `bind` is the `<<` expression) or `name = e` (a pure map step).
+ */
+function comprehensionStepBinding(
+  stmt: ts.Statement
+): { name: ts.Identifier; bind?: ts.BinaryExpression; map?: ts.BinaryExpression } | undefined {
+  if (!ts.isExpressionStatement(stmt) || !ts.isBinaryExpression(stmt.expression)) return undefined;
+  const e = stmt.expression;
+  const op = e.operatorToken.kind;
+  if (op === ts.SyntaxKind.EqualsToken) {
+    return ts.isIdentifier(e.left) ? { name: e.left, map: e } : undefined;
+  }
+  const bind =
+    op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken ? e.left : e;
+  if (
+    ts.isBinaryExpression(bind) &&
+    bind.operatorToken.kind === ts.SyntaxKind.LessThanLessThanToken &&
+    ts.isIdentifier(bind.left)
+  ) {
+    return { name: bind.left, bind };
+  }
+  return undefined;
+}
+
+/** The names a step binds for the steps after it (a `par:` group: all of its steps'). */
+function namesBoundByStep(stmt: ts.Statement, out: Set<string>): void {
+  if (ts.isLabeledStatement(stmt) && PAR_COMPREHENSION_LABELS.has(stmt.label.text)) {
+    if (ts.isBlock(stmt.statement)) {
+      for (const s of stmt.statement.statements) namesBoundByStep(s, out);
+    }
+    return;
+  }
+  const binding = comprehensionStepBinding(stmt);
+  // `_ << e` discards its value: nothing is bound.
+  if (binding && binding.name.text !== "_") out.add(binding.name.text);
+}
+
+/**
+ * The step statement `node` is the binding name of (`user` in `user << e`,
+ * `label` in `label = e`), with its binding, when that statement is a step
+ * of a comprehension.
+ */
+function comprehensionStepOfName(
+  node: ts.Identifier,
+  sourceFile: ts.SourceFile,
+  act: ComprehensionActivation
+): ReturnType<typeof comprehensionStepBinding> {
+  for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+    if (ts.isExpressionStatement(n)) {
+      const binding = comprehensionStepBinding(n);
+      return binding?.name === node && comprehensionBlockKind(n.parent, sourceFile, act)
+        ? binding
+        : undefined;
+    }
+    if (!ts.isBinaryExpression(n)) return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * The names comprehensions bind that are in scope at `node` after
+ * expansion: in a sequential comprehension, those of the steps before the
+ * one `node` is in (a `par:` group's steps see none of each other's); in a
+ * continuation, those of every step of its comprehension; and so on out
+ * through enclosing comprehensions. Undefined when `node` is in none.
+ */
+function comprehensionNamesInScopeAt(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  act: ComprehensionActivation
+): Set<string> | undefined {
+  const names = new Set<string>();
+  let inside = false;
+  let child: ts.Node = node;
+  for (let n: ts.Node | undefined = node.parent; n; child = n, n = n.parent) {
+    const kind = comprehensionBlockKind(n, sourceFile, act);
+    if (kind && ts.isBlock(n)) {
+      inside = true;
+      if (kind === "seq") {
+        for (const s of n.statements) {
+          if (s === child) break;
+          namesBoundByStep(s, names);
+        }
+      }
+      continue;
+    }
+    const main = comprehensionOfContinuation(n, sourceFile, act);
+    if (main && ts.isBlock(main.statement)) {
+      inside = true;
+      for (const s of main.statement.statements) namesBoundByStep(s, names);
+    }
+  }
+  return inside ? names : undefined;
+}
+
+/** Codes for a label TypeScript rejects or flags: `let`/`yield` are reserved in strict code; unused label. */
+const LABEL_CODES: readonly number[] = [1212, 1213, 1214, 7028];
+/** "Cannot find name" and its variants with a suggestion, and the shorthand-property form. */
+const UNRESOLVED_NAME_CODES: readonly number[] = [2304, 2552, 2662, 2663, 18004];
+/**
+ * What TypeScript reports about a bound name that also names an outer
+ * declaration (a DOM global such as `name` or `top`, an outer `const`): it
+ * checks the use against THAT declaration's type. A property that type lacks,
+ * an argument, a call, possibly-null, an operand, use before declaration.
+ */
+const SHADOWED_NAME_CODES: readonly number[] = [
+  2339, 2551, 2345, 2349, 2351, 2531, 2532, 2533, 18046, 18047, 18048, 18049, 2362, 2363, 2365,
+  2367, 2448, 2454, 2488, 2538, 2554, 2769, 7053,
+];
+/** An arithmetic operand / operator type error (`<<` on a monadic value). */
+const BIND_OPERATOR_CODES: readonly number[] = [2362, 2363, 2365];
+/** "Right operand of ?? is unreachable": a bind's `<<` is a number to TypeScript, never nullish. */
+const BIND_FALLBACK_CODE = 2869;
+/** An assignment to an outer name a map step (`name = e`) shadows: const, type, non-variable. */
+const MAP_ASSIGNMENT_CODES: readonly number[] = [2322, 2539, 2588, 2628, 2629, 2630, 2631, 2632];
+
+/**
+ * The identifier a diagnostic at `node` is about: `node` itself, or, for a
+ * diagnostic on a property name or a member/call/non-null chain
+ * (`user.nme`, `user!.posts[0]`), the identifier the chain starts from.
+ */
+function diagnosticSubject(node: ts.Node): ts.Identifier | undefined {
+  let n: ts.Node = node;
+  if (
+    ts.isIdentifier(n) &&
+    n.parent &&
+    ts.isPropertyAccessExpression(n.parent) &&
+    n.parent.name === n
+  ) {
+    n = n.parent.expression;
+  }
+  for (;;) {
+    if (ts.isParenthesizedExpression(n) || ts.isNonNullExpression(n)) n = n.expression;
+    else if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) n = n.expression;
+    else if (ts.isCallExpression(n)) n = n.expression;
+    else break;
+  }
+  return ts.isIdentifier(n) ? n : undefined;
+}
+
+/**
+ * Is `id` the tag the expression-position preprocessor reads a
+ * comprehension's value through (arrow-comprehension-preprocess.ts:
+ * `(x) => { COMP; return __letyield_N; }`, `COMP; const r = __letyield_N;`),
+ * in the statement right after that comprehension? The let:/par: macros
+ * declare it (`const __letyield_N = <chain>`). `typesugar check`/`build`
+ * drop diagnostics on it when they map positions back (comprehension-gate.ts
+ * mapRewrittenDiagnostic); `typesugar watch` serves the rewritten text
+ * without that mapping, and reported TS2304 on it.
+ */
+function isComprehensionValueTag(
+  id: ts.Identifier,
+  sourceFile: ts.SourceFile,
+  act: ComprehensionActivation
+): boolean {
+  if (!/^__letyield_\d+$/.test(id.text)) return false;
+  let stmt: ts.Node = id;
+  while (stmt.parent && !siblingStatements(stmt)) stmt = stmt.parent;
+  const siblings = siblingStatements(stmt);
+  const i = siblings?.indexOf(stmt as ts.Statement) ?? -1;
+  if (!siblings || i < 1) return false;
+  const prev = siblings[i - 1];
+  return (
+    comprehensionKindOf(prev, sourceFile, act) !== undefined ||
+    comprehensionOfContinuation(prev, sourceFile, act) !== undefined
+  );
+}
+
+/**
+ * Create the ComprehensionBlock diagnostic suppression rule.
+ *
+ * In a file that activates do-notation (`import "@typesugar/std/syntax/do"`,
+ * or a package's own marker such as `@typesugar/effect/syntax/do`), a
+ * comprehension (`let:`/`seq:`/`par:`/`all:` on a block, with the
+ * `yield:`/`pure:`/`return:` statement after it) is expanded into a
+ * flatMap/map chain, so the checker's view of the unexpanded syntax has
+ * errors the expansion removes:
+ *
+ * - TS1212/TS1213/TS1214 (`let` and `yield` are reserved words in strict
+ *   code) and TS7028 (unused label) on the comprehension's labels, its
+ *   continuation's, and a `par:`/`all:` group's inside a `let:`.
+ * - TS2304 (and TS2552/TS2662/TS2663, the same with a suggestion; TS18004 for
+ *   a shorthand property `({ user })`) for a name a step binds (`user <<
+ *   e`, `label = e`), at the step itself, in a later step of a sequential
+ *   comprehension, or in the continuation: where the expansion declares it.
+ *   A name used before the step that binds it, by another step of the same
+ *   `par:` group, or outside the comprehension is still reported.
+ * - TS2362/TS2363/TS2365 on a bind's `<<` (its operands aren't numbers), and
+ *   TS2869 on a `<< e ?? fallback` bind (to TypeScript `<<` is never nullish).
+ * - TS2322/TS2588/... on a map step's `name = e` when `name` also names an
+ *   outer constant or a value of another type (the step declares a new one).
+ * - When a bound name also names an outer declaration (a DOM global such as
+ *   `name` or `top`, an outer variable), TypeScript checks its uses as that
+ *   declaration: the errors that come from its type there
+ *   (SHADOWED_NAME_CODES), on the name or a member/call chain starting at it.
+ * - TS2304 on the expression-position preprocessor's `__letyield_N` tag in
+ *   the statement right after the comprehension (isComprehensionValueTag).
+ *
+ * Nothing else is hidden, so an error in a step's own expression is still
+ * reported (`fetchUsr(id)`, `fetchAge(42)` against a `string` parameter).
+ * Before expansion a bound name has no type, though: an expression that
+ * USES one (`fetchAge(user.nme)`) is not type-checked until it is expanded
+ * — in the IDE, which checks the expansion, or with `typesugar check
+ * --strict`.
+ *
+ * Needs the program in the evaluation context (for the activation check);
+ * without it nothing is suppressed.
+ */
+export function createComprehensionBlockRule(): DiagnosticSuppressionRule {
+  return {
+    name: "ComprehensionBlock",
+    errorCodes: [
+      ...new Set([
+        ...LABEL_CODES,
+        ...UNRESOLVED_NAME_CODES,
+        ...SHADOWED_NAME_CODES,
+        ...BIND_OPERATOR_CODES,
+        BIND_FALLBACK_CODE,
+        ...MAP_ASSIGNMENT_CODES,
+      ]),
+    ],
+
+    shouldSuppress(diagnostic, _checker, sourceFile, context): boolean {
+      if (diagnostic.start === undefined || !context?.program) return false;
+      // No comprehension label in the text: skip the import scan.
+      if (!/\b(?:let|seq|par|all)\s*:/.test(sourceFile.text)) return false;
+      const act = comprehensionActivation(context.program, sourceFile);
+      if (!act.seq && !act.par) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      if (!node || isSyntheticNode(node)) return false;
+      const code = diagnostic.code;
+
+      if (LABEL_CODES.includes(code)) {
+        const labeled = node.parent;
+        return (
+          ts.isIdentifier(node) &&
+          labeled !== undefined &&
+          ts.isLabeledStatement(labeled) &&
+          labeled.label === node &&
+          (comprehensionKindOf(labeled, sourceFile, act) !== undefined ||
+            comprehensionOfContinuation(labeled, sourceFile, act) !== undefined ||
+            isParGroupInComprehension(labeled, sourceFile, act))
+        );
+      }
+
+      if (BIND_OPERATOR_CODES.includes(code) || code === BIND_FALLBACK_CODE) {
+        const bin = code === 2365 || code === BIND_FALLBACK_CODE ? node : node.parent;
+        if (bin && ts.isBinaryExpression(bin) && ts.isIdentifier(bin.left)) {
+          const at = code === 2362 ? bin.left : code === 2363 ? bin.right : bin;
+          const fallbackOk =
+            code !== BIND_FALLBACK_CODE ||
+            (ts.isBinaryExpression(bin.parent) &&
+              bin.parent.left === bin &&
+              bin.parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken);
+          if (
+            at === node &&
+            fallbackOk &&
+            comprehensionStepOfName(bin.left, sourceFile, act)?.bind === bin
+          ) {
+            return true;
+          }
+        }
+        if (code === BIND_FALLBACK_CODE) return false;
+      }
+
+      if (MAP_ASSIGNMENT_CODES.includes(code) && ts.isIdentifier(node)) {
+        if (comprehensionStepOfName(node, sourceFile, act)?.map !== undefined) return true;
+      }
+
+      if (!UNRESOLVED_NAME_CODES.includes(code) && !SHADOWED_NAME_CODES.includes(code)) {
+        return false;
+      }
+      // The name a step binds, at that step or where the expansion has it
+      // in scope. "Cannot find name" is about the identifier itself; the
+      // shadowing errors may be about a chain starting at it.
+      const subject = UNRESOLVED_NAME_CODES.includes(code)
+        ? ts.isIdentifier(node)
+          ? node
+          : undefined
+        : diagnosticSubject(node);
+      if (!subject) return false;
+      if (comprehensionStepOfName(subject, sourceFile, act)) return true;
+      if (code === 2304 && isComprehensionValueTag(subject, sourceFile, act)) return true;
+      return comprehensionNamesInScopeAt(subject, sourceFile, act)?.has(subject.text) ?? false;
+    },
+  };
+}
+
+// ===========================================================================
 // Rule 6: OperatorOverload — suppress TS2365 for @op operator overloading
 // ===========================================================================
 

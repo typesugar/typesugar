@@ -7,6 +7,7 @@ import {
   createExtensionMethodCallRule,
   createMatchSwitchRule,
   createContractBlockRule,
+  createComprehensionBlockRule,
 } from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
@@ -987,5 +988,174 @@ describe("ExtensionMethodCall: a generic method of an imported extension object 
     });
     const d7006 = diags.find((d) => d.code === 7006)!;
     expect(callbackRule.shouldSuppress(d7006, checker, sf, { program: p })).toBe(false);
+  });
+});
+
+describe("ComprehensionBlock — do-notation's own syntax before expansion (let:/par:/yield:)", () => {
+  // `typesugar check` and `build` type-check the source as written, where a
+  // comprehension is not valid TypeScript: they reported TS1214 on the
+  // `let`/`yield` labels, TS2304 on every bound name and TS2363 on every
+  // `a << e` bind, and `build` exited 1 although its output was right.
+  const rule = createComprehensionBlockRule();
+  const markerDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../std/src/syntax"
+  );
+
+  function check(code: string, options: ts.CompilerOptions = {}) {
+    const fileName = path.join(markerDir, "__comprehension_probe__.ts");
+    const compilerOptions: ts.CompilerOptions = {
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      types: [],
+      ...options,
+    };
+    const host = ts.createCompilerHost(compilerOptions);
+    const orig = { getSourceFile: host.getSourceFile, fileExists: host.fileExists };
+    host.getSourceFile = (fn, lv, ...rest) =>
+      fn === fileName
+        ? ts.createSourceFile(fn, code, lv, true)
+        : orig.getSourceFile.call(host, fn, lv, ...rest);
+    host.fileExists = (fn) => fn === fileName || orig.fileExists.call(host, fn);
+    const program = ts.createProgram([fileName], compilerOptions, host);
+    const sf = program.getSourceFile(fileName)!;
+    const diags = program.getSemanticDiagnostics(sf);
+    const suppressed = (d: ts.Diagnostic) =>
+      rule.errorCodes.includes(d.code) &&
+      rule.shouldSuppress(d, program.getTypeChecker(), sf, { program });
+    const text = (d: ts.Diagnostic) => code.slice(d.start!, d.start! + d.length!);
+    const reported = () => diags.filter((d) => !suppressed(d)).map(text);
+    return { diags, suppressed, text, reported };
+  }
+
+  const DECLS = `declare function fetchUser(id: number): Promise<{ id: number; name: string }>;
+declare function fetchAge(name: string): Promise<number>;
+declare function fallback(): Promise<number>;
+`;
+
+  const CLEAN = `${DECLS}
+export function f(id: number) {
+  let: {
+    user << fetchUser(id);
+    age << fetchAge(user.name) || fallback();
+    _ << fetchAge("x");
+    label = \`\${user.name}:\${age}\`;
+    if (age > 0) {}
+    par: {
+      a << fetchAge(label);
+      b << fetchAge(user.name);
+    }
+    c << fetchAge(label) ?? fallback();
+  }
+  yield: ({ user, age, label, a, b, c });
+}
+export function g() {
+  par: { x << fetchUser(1); y << fetchUser(2); }
+  yield: x.name + y.name;
+}
+export function h() {
+  seq: { x << fetchUser(1); }
+  pure: { x }
+}
+let: { top << fetchUser(3); }
+yield: top.id;
+`;
+
+  it("suppresses everything the comprehension syntax itself causes, in every step form", () => {
+    const { diags, reported } = check(`import "./do.js";\n${CLEAN}`, { allowUnusedLabels: false });
+    // The syntax does cause these (the test would pass vacuously otherwise),
+    // and `c << e ?? fallback()` is TS2869 (TypeScript 5.6+: `<<` is a number,
+    // never nullish).
+    const codes = new Set(diags.map((d) => d.code));
+    for (const c of [1214, 2304, 2363, 2869, 7028, 18004]) expect(codes).toContain(c);
+    expect(reported()).toEqual([]);
+  });
+
+  it("does NOT suppress anything in a file that doesn't activate the labels", () => {
+    const { diags, reported } = check(CLEAN);
+    expect(diags.length).toBeGreaterThan(0);
+    expect(reported().length).toBe(diags.length);
+  });
+
+  it("still reports a real error inside a step: unknown names, wrong argument types, scope", () => {
+    const { reported } = check(`import "./do.js";
+${DECLS}
+export function f(id: number) {
+  let: {
+    user << fetchUsr(id);
+    age << fetchAge(42);
+    posts << fetchAge(usr.name);
+    early << fetchAge(late);
+    late << fetchAge("x");
+    par: {
+      p << fetchAge("p");
+      q << fetchAge(p);
+    }
+  }
+  yield: ({ user, nope });
+}
+export const outside = user;
+`);
+    // q's use of p is a TS9xxx from the macro (par: binds are independent);
+    // TypeScript's TS2304 on it is a real one too, so it stays.
+    expect(reported()).toEqual(["fetchUsr", "42", "usr", "late", "p", "nope", "user"]);
+  });
+
+  it("a bound name that also names an outer declaration is checked as the binding, not as it", () => {
+    // \`name\` and \`top\` are DOM globals (\`void\`, \`Window\`); \`count\` an outer const.
+    const { diags, reported } = check(`import "./do.js";
+declare function fetchName(): Promise<string>;
+declare function fetchUser(id: number): Promise<{ id: number }>;
+const count = 3;
+export function f() {
+  let: {
+    name << fetchName();
+    count = name.length;
+    top << fetchUser(count);
+    upper << Promise.resolve(name.toUpperCase());
+  }
+  yield: name.trim() + count.toFixed(0) + upper + top!.id;
+}
+export const after = name.length + top.length;
+`);
+    const codes = new Set(diags.map((d) => d.code));
+    for (const c of [2339, 2362, 2588]) expect(codes).toContain(c);
+    // Outside the comprehension they are the globals: still reported.
+    expect(reported()).toEqual(["length", "top"]);
+  });
+
+  it("suppresses TS2304 on the expression-position preprocessor's __letyield_N tag, right after the comprehension only", () => {
+    // The text arrow-comprehension-preprocess.ts serves for
+    // \`(id) => let: {...} yield: ...\` and \`const r = let: {...}\`.
+    const { diags, reported } = check(`import "./do.js";
+${DECLS}
+export const g = (id: number) => {
+  let: { user << fetchUser(id); }
+  yield: user.name;
+  return __letyield_0;
+};
+let: { a << fetchAge("a"); }
+export const r = __letyield_1;
+export const elsewhere = __letyield_2;
+`);
+    expect(diags.filter((d) => d.code === 2304).length).toBeGreaterThan(2);
+    expect(reported()).toEqual(["__letyield_2"]);
+  });
+
+  it("reports an ordinary label, and a comprehension label not on a block", () => {
+    const { reported } = check(
+      `import "./do.js";
+export function f(): void {
+  other: for (;;) { break; }
+  seq: while (false) {}
+}
+`,
+      { allowUnusedLabels: false }
+    );
+    expect(reported()).toEqual(["other", "seq"]);
   });
 });
