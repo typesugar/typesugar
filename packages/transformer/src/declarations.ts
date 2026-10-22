@@ -19,13 +19,10 @@
 
 import * as ts from "typescript";
 import * as path from "path";
-import {
-  config as typesugarConfig,
-  filterDiagnostics,
-  getDiagnosticSuppressionRules,
-} from "@typesugar/core";
+import { filterDiagnostics, getDiagnosticSuppressionRules } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
 import { macroTransformerFactory } from "./pipeline.js";
+import { loadProjectConfig } from "./macro-loader.js";
 import { hasHKTPatterns, rewriteHKTTypeReferences } from "./hkt-rewriter.js";
 import { annotateInferredOpaqueTypes } from "./declaration-annotations.js";
 
@@ -234,7 +231,7 @@ export function emitDeclarations(opts: EmitDeclarationsOptions = {}): EmitDeclar
     );
   }
 
-  typesugarConfig.load({ searchFrom: configDir });
+  loadProjectConfig(configDir);
   registerAllDiagnosticSuppressionRules();
 
   const declarationDir = opts.declarationDir

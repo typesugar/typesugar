@@ -3,9 +3,9 @@
 ---
 
 A macro package's name is trusted only for the package the project itself resolves it to.
-Names are resolved from directories the project owns — the tsconfig's directory (or the files it lists), the build's
-current directory, the package root above each, and the workspace packages those declare
-(`pnpm-workspace.yaml`, `package.json` `workspaces`) — never from a directory reached by
+Names are resolved from directories the project owns — the outermost project enclosing the
+tsconfig's directory (or the files it lists, or the build's current directory), and the
+workspace packages it declares (`pnpm-workspace.yaml`, `package.json` `workspaces`) — never from a directory reached by
 following imports into vendored code, and never through a package's own `exports`
 self-reference. Before this, `typesugar check` executed the macros of a vendored directory
 claiming `"@typesugar/totally-official"` (directly, through its own `exports` map, or through a

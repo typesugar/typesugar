@@ -31,7 +31,7 @@ import {
   discoverOpaqueTypesFromImports,
   registerProgramOpaqueTypes,
 } from "@typesugar/transformer-core";
-import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
+import { loadMacroPackages, loadMacroPackagesFromFile, loadProjectConfig } from "./macro-loader.js";
 import { isComprehensionSyntaxActivatedIn, mayContainComprehension } from "./comprehension-gate.js";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
@@ -2380,7 +2380,7 @@ export function createPipeline(
   // Load the project's typesugar config (typesugar.config.*, package.json
   // "typesugar") searching from the tsconfig's directory, not process.cwd():
   // a bundler/IDE host's cwd is often not the project.
-  config.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
+  loadProjectConfig(path.dirname(path.resolve(tsconfigPath)));
 
   return new TransformationPipeline(parsed.options, parsed.fileNames, options);
 }

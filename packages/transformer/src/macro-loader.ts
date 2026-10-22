@@ -13,6 +13,7 @@
 
 import { createRequire } from "module";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as ts from "typescript";
 import { globalRegistry, config, type MacroDefinition } from "@typesugar/core";
@@ -39,29 +40,46 @@ export function __setRequireForTesting(req: NodeRequire | undefined): void {
 //
 // A macro package's identity -- the name `@typesugar/*` auto-trust and
 // `security.allowedMacroPackages` approval are about -- is established ONLY
-// by resolving its bare name from a directory the project owns:
+// by resolving its bare name from a directory the project owns, and the
+// project's `typesugar.config.*` is read only from such a directory.
 //
-// - the project itself: the tsconfig's directory, the build's current
-//   directory, and the package root (nearest package.json) at or above each;
-// - the workspace package roots those declare (`pnpm-workspace.yaml`
-//   `packages:`, package.json `workspaces`).
+// The project is the OUTERMOST project enclosing the directory a host starts
+// from (the tsconfig's directory, the program's root files' directory, the
+// cwd): walking up from there, the highest directory that has a
+// package.json, tsconfig.json or pnpm-workspace.yaml (see
+// `enclosingProjectRoot` for the two bounds, and why `.git` is not one). The directories it owns are
+// that root and the workspace packages the root declares (`pnpm-workspace.yaml`
+// `packages:`, package.json `workspaces`) -- nothing else inside it. A
+// directory never becomes the project's by having its own tsconfig: tsserver
+// makes every directory with a tsconfig.json its own project, and
+// `typesugar expand <file>` builds a program from one file, so review 7 ran a
+// vendored package's macros (and could have run its config file) just by the
+// vendored file being opened in the editor (secF) or expanded (secE).
 //
-// Never from a directory reached by following imports: a vendored or unknown
-// package's own files are in the program because something imported them,
-// and everything at or below that package (its package.json `name` and
+// Never from a directory reached by following imports either: a vendored or
+// unknown package's own files are in the program because something imported
+// them, and everything at or below that package (its package.json `name` and
 // `exports`, its own node_modules) is under its author's control. Review 6
 // executed macros three ways through that gap: a relatively imported package
 // "resolved" its claimed name through its own `exports` self-reference
 // (sec1), or through a copy in its own node_modules (secB), and a vendored
 // file's bare `@typesugar/x` import resolved from the vendored directory's
 // node_modules (secC). A package found any other way is reported, not loaded.
+//
+// Every host uses this one rule: check/build/watch/expand (`projectRootsOf`
+// with the program), the language service (the same, with tsserver's
+// program), approve-macros (the same scan), and config discovery
+// (`loadProjectConfig`).
 // ============================================================================
 
 /** Directories the project owns (real paths); see the section comment. */
 interface ProjectRoots {
-  /** The project itself: tsconfig dir, cwd, and the package root above each. */
+  /**
+   * Where bare names resolve from first: for each starting directory, the
+   * owned directory containing it (its workspace package), then its root.
+   */
   primary: string[];
-  /** `primary` plus the workspace package roots they declare. */
+  /** Every owned directory: the roots and the workspace packages they declare. */
   all: string[];
 }
 
@@ -74,13 +92,118 @@ function isFilesystemRoot(dir: string): boolean {
 }
 
 /**
- * The directories `program`'s project owns: its tsconfig's directory
- * (`compilerOptions.configFilePath`) -- or, when the host doesn't set it (the
- * CLI doesn't: TypeScript 6 then requires an explicit `rootDir`), the
- * directory holding the program's root files, which the tsconfig (or the
- * host) names, not an import -- and its current directory, with the nearest
- * package.json directory at or above each, plus the workspace packages those
- * declare. Without a program, the process's cwd stands in.
+ * Files whose presence makes a directory a candidate project root. Not
+ * `.git`: a repository root with no package.json is not a JavaScript project
+ * (a polyglot repository's `web/` is the project), and an inner `.git` cannot
+ * end the walk either -- a submodule, or a vendored clone, has one.
+ */
+const PROJECT_MARKERS = ["package.json", "tsconfig.json", "pnpm-workspace.yaml"];
+
+function homeDirectory(): string | undefined {
+  try {
+    return realPath(os.homedir());
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The outermost project enclosing `dir` (a real path): the highest directory
+ * at or above it with a project marker (`PROJECT_MARKERS`). Two bounds:
+ *
+ * - the walk never reaches the user's home directory or above it (a stray
+ *   `~/package.json` or a dotfiles `~/.git` is not everyone's project);
+ * - a git worktree of the repository at the outermost root, checked out
+ *   inside that repository (Claude Code puts agent worktrees under
+ *   `.claude/worktrees/`), is its own project: its `.git` file names a
+ *   `worktrees/<name>` entry of that repository's `.git` whose `gitdir` file
+ *   points back at it. Only `git worktree add` writes that entry, so a
+ *   vendored directory cannot claim it; a submodule's `.git` file (pointing
+ *   into `.git/modules/`) does not count -- a submodule is vendored code.
+ *
+ * Without any marker, `dir` itself (nothing encloses it).
+ */
+function enclosingProjectRoot(dir: string): string {
+  const home = homeDirectory();
+  let outermost: string | undefined;
+  const worktrees: Array<{ dir: string; repo: string }> = [];
+  for (let d = dir; !isFilesystemRoot(d); d = path.dirname(d)) {
+    if (home && (d === home || isInside(home, d))) break;
+    if (PROJECT_MARKERS.some((m) => fs.existsSync(path.join(d, m)))) outermost = d;
+    const repo = worktreeRepository(d);
+    if (repo) worktrees.push({ dir: d, repo });
+  }
+  if (!outermost) return dir;
+  // The outermost worktree of the root's own repository.
+  const own = worktrees.filter((w) => w.repo === outermost);
+  return own.length > 0 ? own[own.length - 1].dir : outermost;
+}
+
+/**
+ * If `dir/.git` is a FILE naming a registered worktree of a repository whose
+ * working tree is an ancestor of `dir` (`<repo>/.git/worktrees/<name>`, with a
+ * `gitdir` file there pointing back at `dir/.git`), that ancestor.
+ */
+function worktreeRepository(dir: string): string | undefined {
+  const dotGit = path.join(dir, ".git");
+  let text: string;
+  try {
+    if (!fs.statSync(dotGit).isFile()) return undefined;
+    text = fs.readFileSync(dotGit, "utf-8");
+  } catch {
+    return undefined;
+  }
+  const m = /^gitdir:\s*(.+?)\s*$/m.exec(text);
+  if (!m) return undefined;
+  const gitdir = realPath(path.resolve(dir, m[1]));
+  const worktreesDir = path.dirname(gitdir);
+  const repoGit = path.dirname(worktreesDir);
+  if (path.basename(worktreesDir) !== "worktrees" || path.basename(repoGit) !== ".git") {
+    return undefined;
+  }
+  const repo = path.dirname(repoGit);
+  if (!isInside(dir, repo)) return undefined;
+  try {
+    const back = fs.readFileSync(path.join(gitdir, "gitdir"), "utf-8").trim();
+    if (realPath(path.resolve(gitdir, back)) !== realPath(dotGit)) return undefined;
+  } catch {
+    return undefined;
+  }
+  return repo;
+}
+
+/** The project roots (see the section comment) for hosts starting from `bases`. */
+function rootsFor(bases: readonly string[]): ProjectRoots {
+  const primary: string[] = [];
+  const all: string[] = [];
+  const add = (list: string[], dir: string) => {
+    if (!isFilesystemRoot(dir) && !list.includes(dir)) list.push(dir);
+  };
+  const starts = bases.map((b) => realPath(b)).filter((b) => !isFilesystemRoot(b));
+  const rootOf = new Map<string, string>();
+  for (const start of starts) {
+    const root = enclosingProjectRoot(start);
+    rootOf.set(start, root);
+    if (all.includes(root)) continue;
+    add(all, root);
+    for (const ws of declaredWorkspaces(root)) add(all, realPath(ws));
+  }
+  const partial: ProjectRoots = { primary: [], all };
+  for (const start of starts) {
+    const own = owningRoot(partial, start);
+    if (own) add(primary, own);
+    add(primary, rootOf.get(start)!);
+  }
+  return { primary, all };
+}
+
+/**
+ * The directories `program`'s project owns (see the section comment),
+ * starting from its tsconfig's directory (`compilerOptions.configFilePath`)
+ * -- or, when the host doesn't set it (the CLI doesn't: TypeScript 6 then
+ * requires an explicit `rootDir`), the directory holding the program's root
+ * files -- and from its current directory. Without a program, the process's
+ * cwd stands in.
  */
 function projectRootsOf(program?: ts.Program): ProjectRoots {
   if (program) {
@@ -100,24 +223,40 @@ function projectRootsOf(program?: ts.Program): ProjectRoots {
   const key = bases.join("\0");
   let roots = program ? undefined : cwdRootsCache.get(key);
   if (!roots) {
-    const primary: string[] = [];
-    const add = (list: string[], dir: string) => {
-      const real = realPath(dir);
-      if (!isFilesystemRoot(real) && !list.includes(real)) list.push(real);
-    };
-    for (const base of bases) {
-      if (isFilesystemRoot(base)) continue;
-      add(primary, base);
-      const pkgRoot = nearestPackageRoot(base);
-      if (pkgRoot) add(primary, pkgRoot);
-    }
-    const all = [...primary];
-    for (const dir of primary) for (const ws of declaredWorkspaces(dir)) add(all, ws);
-    roots = { primary, all };
+    roots = rootsFor(bases);
     if (!program) cwdRootsCache.set(key, roots);
   }
   if (program) programRootsCache.set(program, roots);
   return roots;
+}
+
+/**
+ * Load the project's typesugar config (`typesugar.config.*`, `.typesugarrc*`,
+ * package.json `"typesugar"`) for a host starting from `startDir` (the
+ * tsconfig's directory): the nearest config file in a directory the project
+ * owns (see the section comment) -- the workspace package containing
+ * `startDir`, then the root. A config file in any other directory (a vendored
+ * directory with its own tsconfig) is neither read nor run: config files are
+ * code, and they approve macro packages.
+ */
+export function loadProjectConfig(startDir: string): void {
+  const roots = rootsFor([startDir]);
+  // From `startDir` itself: directories on the way up that are not owned are
+  // not read, but a config file in one is reported (core's searchConfigFile).
+  config.load({ searchFrom: startDir, onlyIn: roots.all });
+}
+
+/**
+ * The directory a NEW config file for the project at `startDir` belongs in
+ * (`approve-macros`): the owned directory containing `startDir`, the one
+ * `loadProjectConfig` searches first.
+ */
+export function projectConfigDir(
+  startDir: string,
+  roots: ProjectRoots = rootsFor([startDir])
+): string {
+  const start = realPath(startDir);
+  return owningRoot(roots, start) ?? roots.primary[0] ?? start;
 }
 
 /** The deepest directory containing every one of `files`. */
@@ -128,16 +267,6 @@ function commonDirectory(files: string[]): string | undefined {
     while (common !== path.dirname(common) && !isInside(f, common)) common = path.dirname(common);
   }
   return common;
-}
-
-/** The nearest directory at or above `dir` that has a package.json. */
-function nearestPackageRoot(dir: string): string | undefined {
-  for (let d = dir; ; ) {
-    if (fs.existsSync(path.join(d, "package.json"))) return d;
-    const parent = path.dirname(d);
-    if (parent === d) return undefined;
-    d = parent;
-  }
 }
 
 /**

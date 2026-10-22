@@ -63,9 +63,9 @@ export const CONFIG_SEARCH_PLACES = [
 
 export type ConfigFileSearchResult =
   /** A config file was found and loaded. */
-  | { kind: "found"; filepath: string; config: Record<string, unknown> }
+  | { kind: "found"; filepath: string; config: Record<string, unknown>; skipped?: string[] }
   /** No config file anywhere on the search path. */
-  | { kind: "none" }
+  | { kind: "none"; skipped?: string[] }
   /** A config file was found but evaluating/parsing it threw. */
   | { kind: "failed"; filepath: string | undefined; error: Error }
   /** File-based config can't be loaded in this runtime at all. */
@@ -202,8 +202,18 @@ function isMacroManifestOnly(filepath: string, cfg: unknown): boolean {
 /**
  * Find and load the nearest config file, walking up from `searchFrom`.
  * Never throws; every outcome is a distinct result kind.
+ *
+ * Without `onlyIn`, the walk stops at the repository root (a directory with
+ * `.git`). With `onlyIn` (real paths), only those directories are searched,
+ * wherever they are on the way up: the host has decided which directories
+ * the project owns (`@typesugar/transformer`'s `loadProjectConfig`), and a
+ * config file anywhere else -- in a vendored directory that has its own
+ * tsconfig, say -- is neither read nor run. Config files are code.
  */
-export function searchConfigFile(searchFrom: string): ConfigFileSearchResult {
+export function searchConfigFile(
+  searchFrom: string,
+  onlyIn?: readonly string[]
+): ConfigFileSearchResult {
   const nodeRequire = getNodeRequire();
   if (!nodeRequire) {
     return {
@@ -242,8 +252,31 @@ export function searchConfigFile(searchFrom: string): ConfigFileSearchResult {
     return { kind: "failed", filepath: undefined, error: toError(e) };
   }
 
+  const allowed = onlyIn ? new Set(onlyIn) : undefined;
+  const skipped: string[] = [];
+  const realDir = (d: string): string => {
+    try {
+      return fs.realpathSync(d);
+    } catch {
+      return d;
+    }
+  };
   let dir = path.resolve(searchFrom);
   for (;;) {
+    if (allowed && !allowed.has(realDir(dir))) {
+      // Not read -- but say so, so a config that is not in effect is not a
+      // silent mystery (existence only; package.json is not a config file
+      // unless read, so it is not reported).
+      for (const place of CONFIG_SEARCH_PLACES) {
+        if (place !== "package.json" && fs.existsSync(path.join(dir, place))) {
+          skipped.push(path.join(dir, place));
+        }
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+      continue;
+    }
     let result: ReturnType<ReturnType<CosmiconfigSync>["search"]>;
     try {
       result = explorer.search(dir);
@@ -264,14 +297,15 @@ export function searchConfigFile(searchFrom: string): ConfigFileSearchResult {
         kind: "found",
         filepath: result.filepath,
         config: (cfg ?? {}) as Record<string, unknown>,
+        ...(skipped.length > 0 ? { skipped } : {}),
       };
     }
-    if (fs.existsSync(path.join(dir, ".git"))) break;
+    if (!allowed && fs.existsSync(path.join(dir, ".git"))) break;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return { kind: "none" };
+  return skipped.length > 0 ? { kind: "none", skipped } : { kind: "none" };
 }
 
 function toError(e: unknown): Error {

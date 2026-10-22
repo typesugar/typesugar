@@ -13,7 +13,12 @@ import * as readline from "readline";
 import * as ts from "typescript";
 import { config as typesugarConfig } from "@typesugar/core";
 import { readTsConfig } from "./tsconfig-utils.js";
-import { collectImportedModules, scanMacroPackages } from "./macro-loader.js";
+import {
+  collectImportedModules,
+  loadProjectConfig,
+  projectConfigDir,
+  scanMacroPackages,
+} from "./macro-loader.js";
 import { writeApprovedMacroPackages } from "./config-writer.js";
 
 export interface ApproveMacrosOptions {
@@ -49,8 +54,12 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
   // Read the config of the project we were pointed at (searching upward
   // from its tsconfig directory), not whatever is above the cwd — the file
   // we may write below lives there (deep review 2026-10, core #35).
-  const projectRoot = path.dirname(path.resolve(options.project));
-  typesugarConfig.load({ searchFrom: projectRoot });
+  // Only directories the project owns (a vendored directory's own tsconfig
+  // does not make its config file the project's; review 7), and a new config
+  // file goes where the next build will look for it first.
+  const tsconfigDir = path.dirname(path.resolve(options.project));
+  loadProjectConfig(tsconfigDir);
+  const projectRoot = projectConfigDir(tsconfigDir);
 
   // Fail loudly before doing anything else if the existing config couldn't
   // be loaded: the approval list in it can't be read, and writing a fresh

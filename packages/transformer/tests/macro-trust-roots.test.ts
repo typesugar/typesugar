@@ -26,11 +26,13 @@ import { config, globalRegistry } from "@typesugar/core";
 import {
   loadMacroPackages,
   loadMacroPackagesFromFile,
+  loadProjectConfig,
   resetLoadedPackages,
   scanMacroPackages,
 } from "../src/macro-loader.js";
 import { readTsConfig } from "../src/tsconfig-utils.js";
 import { runApproveMacros } from "../src/approve-macros.js";
+import { TransformationPipeline } from "../src/pipeline.js";
 
 let root: string;
 let originalCwd: string;
@@ -386,5 +388,196 @@ describe("the project's own directories still establish identity", () => {
     const { warnings } = check();
     expect(pwned()).toEqual([]);
     expect(warnings.join("\n")).toMatch(/does not resolve to that directory from the project/);
+  });
+});
+
+/**
+ * Review 7: a directory does not become the project's by having its own
+ * tsconfig. tsserver makes every directory with a tsconfig.json its own
+ * project, and `typesugar expand <file>` builds a program from the file
+ * alone, so the directory a host names (tsconfig dir, root files' dir, cwd)
+ * is only where the search STARTS: the project is the outermost project
+ * enclosing it, and a directory inside that is owned only if it is that root
+ * or a workspace package the root declares. Config files are read only from
+ * owned directories.
+ */
+describe("review 7: a nested tsconfig does not make its directory the project's", () => {
+  /** vendor/evil with its own tsconfig and a bare import of a node_modules copy. */
+  function vendoredWithTsconfig(): void {
+    appProject(`import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`);
+    write("vendor/evil/package.json", { name: "evil", version: "1.0.0", type: "module" });
+    write("vendor/evil/tsconfig.json", { ...TSCONFIG, include: ["*.ts"] });
+    write("vendor/evil/index.ts", `import { y } from "@typesugar/x";\nexport const helper = y;\n`);
+    write("vendor/evil/node_modules/@typesugar/x/package.json", {
+      name: "@typesugar/x",
+      version: "1.0.0",
+      typesugar: { macros: "./macros.cjs" },
+      exports: { ".": "./index.js", "./macros.cjs": "./macros.cjs" },
+    });
+    write("vendor/evil/node_modules/@typesugar/x/index.js", `export const y = 1;\n`);
+    write("vendor/evil/node_modules/@typesugar/x/index.d.ts", `export declare const y: number;\n`);
+    write("vendor/evil/node_modules/@typesugar/x/macros.cjs", PWNED_JS);
+  }
+
+  /**
+   * The language service's shape: tsserver parses the tsconfig (which sets
+   * `configFilePath`) and the plugin builds a TransformationPipeline from the
+   * project's options and files. `cwdRel` is tsserver's cwd (unrelated to the
+   * project; the vendored directory is the worst case).
+   */
+  function editorPipeline(projectRel: string, cwdRel = projectRel) {
+    process.chdir(path.join(root, cwdRel));
+    const parsed = ts.getParsedCommandLineOfConfigFile(
+      path.join(root, projectRel, "tsconfig.json"),
+      {},
+      { ...ts.sys, onUnRecoverableConfigFileDiagnostic() {} }
+    )!;
+    expect(parsed.options.configFilePath).toBe(path.join(root, projectRel, "tsconfig.json"));
+    loadProjectConfig(path.join(root, projectRel));
+    const pipeline = new TransformationPipeline(parsed.options, parsed.fileNames, {});
+    return parsed.fileNames.map((f) => pipeline.transform(f));
+  }
+
+  it("secF: opening a vendored file whose directory has a tsconfig does not run its macros", () => {
+    vendoredWithTsconfig();
+    const results = editorPipeline("vendor/evil");
+    expect(pwned()).toEqual([]);
+    const messages = results.flatMap((r) => r.diagnostics.map((d) => d.message)).join("\n");
+    expect(messages).toMatch(/'@typesugar\/x'.*not verified.*not loaded/s);
+  });
+
+  it("secF: neither does a check of the vendored tsconfig", () => {
+    vendoredWithTsconfig();
+    const { warnings, error } = check("vendor/evil");
+    expect(pwned()).toEqual([]);
+    expect(error).toBeUndefined();
+    expect(warnings.join("\n")).toContain(path.join(root, "vendor/evil/node_modules/@typesugar/x"));
+  });
+
+  it("a vendored package that declares itself a workspace root is still not the project", () => {
+    vendoredWithTsconfig();
+    write("vendor/evil/package.json", {
+      name: "evil",
+      version: "1.0.0",
+      type: "module",
+      workspaces: ["."],
+    });
+    write("vendor/evil/pnpm-workspace.yaml", `packages:\n  - "."\n`);
+    fs.mkdirSync(path.join(root, "vendor/evil/.git"));
+    editorPipeline("vendor/evil");
+    expect(pwned()).toEqual([]);
+  });
+
+  it("a git submodule (a .git file) is not its own project", () => {
+    vendoredWithTsconfig();
+    fs.mkdirSync(path.join(root, ".git/modules/evil"), { recursive: true });
+    write("vendor/evil/.git", `gitdir: ../../.git/modules/evil\n`);
+    editorPipeline("vendor/evil");
+    expect(pwned()).toEqual([]);
+  });
+
+  it("a typesugar.config in a vendored directory is neither run nor honoured", () => {
+    vendoredWithTsconfig();
+    write(".typesugarrc.json", { contracts: { mode: "none" } });
+    write(
+      "vendor/evil/typesugar.config.cjs",
+      `require("fs").writeFileSync(require("path").join(__dirname, "PWNED"), "executed");\n` +
+        `module.exports = { security: { allowedMacroPackages: ["evil-macros"] } };\n`
+    );
+    const warned: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((m) => void warned.push(String(m)));
+    loadProjectConfig(path.join(root, "vendor/evil"));
+    expect(pwned()).toEqual([]);
+    expect(config.getConfigFilePath()).toBe(path.join(root, ".typesugarrc.json"));
+    expect(config.get("security.allowedMacroPackages")).toBeUndefined();
+    // Not silently: the skipped file is named.
+    expect(warned.join("\n")).toContain(
+      `Not reading ${path.join(root, "vendor/evil/typesugar.config.cjs")}`
+    );
+  });
+
+  it("approve-macros on a vendored tsconfig reads and writes no config in the vendored directory", async () => {
+    vendoredWithTsconfig();
+    write(
+      "vendor/evil/typesugar.config.cjs",
+      `require("fs").writeFileSync(require("path").join(__dirname, "PWNED"), "executed");\n` +
+        `module.exports = {};\n`
+    );
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    process.chdir(root);
+    await runApproveMacros({ project: "vendor/evil/tsconfig.json", yes: true, verbose: false });
+    expect(pwned()).toEqual([]);
+  });
+
+  describe("a workspace package opened in the editor is still the project's", () => {
+    function macroPackage(dirRel: string, pkg: string, name: string): void {
+      write(`${dirRel}/package.json`, {
+        name: pkg,
+        version: "1.0.0",
+        exports: { ".": "./src/index.js", "./macros": "./macros.js" },
+        typesugar: { macros: "./macros" },
+      });
+      write(`${dirRel}/src/index.ts`, `export declare function ${name}(): number;\n`);
+      write(`${dirRel}/src/index.js`, `export {};\n`);
+      write(`${dirRel}/macros.js`, macrosJs(pkg, name));
+    }
+    const registered = (pkg: string, name: string) =>
+      globalRegistry.getByModuleExport(pkg, name, "expression")?.module;
+
+    function monorepo(): void {
+      write("package.json", { name: "monorepo", private: true });
+      write("pnpm-workspace.yaml", `packages:\n  - "packages/*"\n`);
+      fs.mkdirSync(path.join(root, ".git"));
+      macroPackage("packages/lib", "@typesugar/fixture-ed", "edMacro");
+      write("packages/app/package.json", { name: "app", version: "1.0.0" });
+      write("packages/app/tsconfig.json", TSCONFIG);
+      write(
+        "packages/app/src/a.ts",
+        `import { edMacro } from "@typesugar/fixture-ed";\nexport const v = edMacro();\n`
+      );
+      // pnpm's strict layout: only the depending package links it.
+      link("packages/app", "@typesugar/fixture-ed", "packages/lib");
+    }
+
+    it("its own tsconfig, with tsserver's cwd elsewhere: its macros load", () => {
+      monorepo();
+      const results = editorPipeline("packages/app", ".");
+      expect(results.flatMap((r) => r.diagnostics.map((d) => d.message))).toEqual([]);
+      expect(registered("@typesugar/fixture-ed", "edMacro")).toBe("@typesugar/fixture-ed");
+    });
+
+    it("its own typesugar.config is honoured, nearest first", () => {
+      monorepo();
+      write(".typesugarrc.json", { contracts: { mode: "full" } });
+      write("packages/app/.typesugarrc.json", { contracts: { mode: "none" } });
+      loadProjectConfig(path.join(root, "packages/app"));
+      expect(config.getConfigFilePath()).toBe(path.join(root, "packages/app/.typesugarrc.json"));
+      loadProjectConfig(path.join(root, "packages/lib"));
+      expect(config.getConfigFilePath()).toBe(path.join(root, ".typesugarrc.json"));
+    });
+
+    it("a git worktree checked out inside the repository is its own project", () => {
+      // The main checkout's repository, with a registered worktree nested in it
+      // (Claude Code puts agent worktrees under .claude/worktrees/).
+      write("package.json", { name: "main", private: true });
+      fs.mkdirSync(path.join(root, ".git/worktrees/wt"), { recursive: true });
+      const wt = path.join(root, ".claude/worktrees/wt");
+      write(".git/worktrees/wt/gitdir", `${path.join(wt, ".git")}\n`);
+      write(".claude/worktrees/wt/.git", `gitdir: ${path.join(root, ".git/worktrees/wt")}\n`);
+      write(".claude/worktrees/wt/package.json", { name: "main", private: true });
+      write(".claude/worktrees/wt/tsconfig.json", TSCONFIG);
+      macroPackage(
+        ".claude/worktrees/wt/node_modules/@typesugar/fixture-wt",
+        "@typesugar/fixture-wt",
+        "wtMacro"
+      );
+      write(
+        ".claude/worktrees/wt/src/a.ts",
+        `import { wtMacro } from "@typesugar/fixture-wt";\nexport const v = wtMacro();\n`
+      );
+      const results = editorPipeline(".claude/worktrees/wt");
+      expect(results.flatMap((r) => r.diagnostics.map((d) => d.message))).toEqual([]);
+      expect(registered("@typesugar/fixture-wt", "wtMacro")).toBe("@typesugar/fixture-wt");
+    });
   });
 });
