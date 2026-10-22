@@ -103,7 +103,7 @@ export function findImportedExtensionMatches(
     let ext: StandaloneExtensionInfo | undefined;
     let target: ts.Symbol | undefined;
     try {
-      ext = checkImportedSymbolForExtension(checker, ident, methodName, receiverType);
+      ext = checkImportedSymbolForExtension(checker, ident, methodName, receiverType, env.program);
       if (!ext) return;
       if (hasNativeMethod && ext.qualifier !== undefined) return;
       if (ext.qualifier !== undefined && !instanceServesReceiver(env, ident, receiverType)) return;
@@ -147,7 +147,8 @@ export function checkImportedSymbolForExtension(
   typeChecker: ts.TypeChecker,
   ident: ts.Identifier,
   methodName: string,
-  receiverType: ts.Type
+  receiverType: ts.Type,
+  program?: ts.Program
 ): StandaloneExtensionInfo | undefined {
   const symbol = typeChecker.getSymbolAtLocation(ident);
   if (!symbol) return undefined;
@@ -168,7 +169,7 @@ export function checkImportedSymbolForExtension(
   // bind/call/apply`, `Object.prototype.toString`, ...) is not an extension
   // provided by the import: `describe.bind` / `head.bind` must never become
   // candidates for `fn.bind(x)`.
-  if (isDefaultLibMember(prop)) return undefined;
+  if (isDefaultLibMember(prop, program)) return undefined;
   // Nor is a `declare global` stub seen through the value's apparent type:
   // std's `LT` (a number) has `clamp` only because std augments
   // `interface Number { clamp(...) }` so that `(150).clamp(0, 100)`
@@ -229,11 +230,19 @@ export function hasExtensionDecorator(node: ts.Node): boolean {
   return false;
 }
 
-/** Is every declaration of `prop` in a default lib file (`lib.*.d.ts`)? */
-export function isDefaultLibMember(prop: ts.Symbol): boolean {
+/**
+ * Is every declaration of `prop` in a default lib file (`lib.*.d.ts`)? Asked
+ * of the program when there is one: a lib file's `/// <reference
+ * no-default-lib="true"/>` (`hasNoDefaultLib`) is not something every
+ * TypeScript version's lib files carry.
+ */
+export function isDefaultLibMember(prop: ts.Symbol, program?: ts.Program): boolean {
   const decls = prop.getDeclarations();
   if (!decls || decls.length === 0) return false;
-  return decls.every((d) => d.getSourceFile().hasNoDefaultLib);
+  return decls.every((d) => {
+    const sf = d.getSourceFile();
+    return program?.isSourceFileDefaultLibrary(sf) || sf.hasNoDefaultLib;
+  });
 }
 
 /**
