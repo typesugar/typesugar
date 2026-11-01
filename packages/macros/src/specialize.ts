@@ -1171,6 +1171,7 @@ function unwrapParens(expr: ts.Expression): ts.Expression {
 
 function classifyArgument(arg: ts.Expression): ArgClass {
   const e = unwrapParens(arg);
+  if (readAtCallTime.has(e)) return "effectful";
   if (
     ts.isNumericLiteral(e) ||
     ts.isStringLiteral(e) ||
@@ -1498,8 +1499,10 @@ function isRereadableInitializer(e: ts.Expression): boolean {
  *   arguments;
  * - an object pattern `{ x, y: b }` over a stable argument (an identifier or
  *   property chain) becomes one parameter per binding, given `arg.x` /
- *   `arg.y`, in pattern order. The reads move to their uses, exactly as a
- *   stable argument's do (the "Known residuals" above).
+ *   `arg.y`, in pattern order — reads that count as effectful arguments
+ *   ({@link readAtCallTime}), so they are substituted only where that is
+ *   exact and bound first otherwise;
+ * - a TypeScript `this` parameter is dropped.
  *
  * Undefined when no parameter needs this, or one can't be rewritten (an
  * array or nested pattern, a pattern default or rest, a computed key, a
@@ -1513,8 +1516,14 @@ function normalizeParameterShapes(
   body: ts.ConciseBody,
   callArgs: readonly ts.Expression[]
 ): { fn: ts.ArrowFunction; args: ts.Expression[] } | undefined {
-  const params = fn.parameters;
-  if (params.every((p) => ts.isIdentifier(p.name) && !p.initializer && !p.dotDotDotToken)) {
+  // A TypeScript `this` parameter (`equals(this: void, a, b)`) takes no
+  // argument; dropping it is what aligns the real ones (it never reaches the
+  // emitted arrow, where `this` can't be a parameter).
+  const params = fn.parameters.filter((p) => !isThisParameter(p));
+  if (
+    params.length === fn.parameters.length &&
+    params.every((p) => ts.isIdentifier(p.name) && !p.initializer && !p.dotDotDotToken)
+  ) {
     return undefined;
   }
   if (callArgs.some((a) => ts.isSpreadElement(a))) return undefined;
@@ -1554,25 +1563,47 @@ function normalizeParameterShapes(
     for (const el of p.name.elements) {
       if (el.dotDotDotToken || el.initializer || !ts.isIdentifier(el.name)) return undefined;
       const key = el.propertyName ?? el.name;
+      let read: ts.Expression;
       if (ts.isIdentifier(key)) {
-        add(el.name.text, f.createPropertyAccessExpression(arg, key.text));
+        read = f.createPropertyAccessExpression(arg, key.text);
       } else if (ts.isStringLiteral(key) || ts.isNumericLiteral(key)) {
-        add(el.name.text, f.createElementAccessExpression(arg, cloneNodeDeep(key)));
+        read = f.createElementAccessExpression(arg, cloneNodeDeep(key));
       } else {
         return undefined;
       }
+      // Destructuring reads every property once, at the call, before the
+      // body runs: the read is classified like an effectful argument, which
+      // the rules below substitute only where that is exact (used once, in
+      // order, before anything with an effect) and otherwise bind first.
+      readAtCallTime.add(read);
+      add(el.name.text, read);
     }
   }
   if (consumed !== callArgs.length) return undefined;
+  // The body is not copied here: every path the recursive inlineFromNode
+  // takes copies it before changing anything.
   const arrow = f.createArrowFunction(
     undefined,
     undefined,
     newParams,
     undefined,
     f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    stripCommentsDeep(cloneNodeDeep(body))
+    body
   );
   return { fn: arrow, args: newArgs };
+}
+
+/**
+ * Property reads {@link normalizeParameterShapes} made from a destructured
+ * parameter: {@link classifyArgument} treats them as effectful, since moving
+ * one past the body's effects, repeating it or dropping it would differ from
+ * destructuring at the call. Keyed by the fresh nodes themselves, which live
+ * only for one inlining attempt.
+ */
+const readAtCallTime = new WeakSet<ts.Node>();
+
+function isThisParameter(p: ts.ParameterDeclaration): boolean {
+  return ts.isIdentifier(p.name) && p.name.escapedText === "this";
 }
 
 function projectObjectLiteralArguments(
@@ -2057,16 +2088,19 @@ function applyAsIIFE(
 ): ts.Expression | undefined {
   if (!fn.body) return undefined;
   const f = ctx.factory;
-  const params = fn.parameters.map((p) =>
-    f.createParameterDeclaration(
-      undefined,
-      p.dotDotDotToken,
-      cloneNodeDeep(p.name),
-      undefined,
-      undefined,
-      p.initializer ? cloneNodeDeep(p.initializer) : undefined
-    )
-  );
+  // A TypeScript `this` parameter takes no argument, and an arrow can't have one.
+  const params = fn.parameters
+    .filter((p) => !isThisParameter(p))
+    .map((p) =>
+      f.createParameterDeclaration(
+        undefined,
+        p.dotDotDotToken,
+        cloneNodeDeep(p.name),
+        undefined,
+        undefined,
+        p.initializer ? cloneNodeDeep(p.initializer) : undefined
+      )
+    );
   const body = stripCommentsDeep(cloneNodeDeep(fn.body));
   const arrow = f.createArrowFunction(
     undefined,

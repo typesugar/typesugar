@@ -167,8 +167,11 @@ export class MacroContextImpl implements MacroContext {
       const decls = statement.declarationList.declarations;
       const declaration = decls[0];
       if (decls.length === 1 && declaration.initializer) {
-        // Strip positions so the printer generates fresh text instead of
-        // extracting from the wrong source file
+        // A synthesized copy (positions -1, tokens and lists included), so the
+        // printer generates fresh text instead of reading the temp file's,
+        // and TypeScript's emit resolver doesn't take it for a parse-tree
+        // node of the program (it resolved names on the temp file's nodes and
+        // queued "Cannot find name" at position -1 — audit F20).
         return cloneNodeDeep(declaration.initializer);
       }
     }
@@ -194,8 +197,7 @@ export class MacroContextImpl implements MacroContext {
       const first = ts.flattenDiagnosticMessageText(diags[0].messageText, "\n");
       throw new Error(`Failed to parse statements (${first}): ${code}`);
     }
-    // Strip positions so the printer generates fresh text instead of
-    // extracting from the wrong source file
+    // Synthesized copies, as in parseExpression.
     return Array.from(tempSource.statements).map((stmt) => cloneNodeDeep(stmt));
   }
 

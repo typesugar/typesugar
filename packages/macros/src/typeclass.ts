@@ -1775,8 +1775,10 @@ function findCompanionHost(
 /**
  * The typeclass and type of a bare `@impl`/`@instance` tag, read from the
  * target const's `: TC<T>` annotation (one type argument, a plain typeclass
- * name) — the same shape the instance scanner's annotation fallback accepts
- * (`extractFromTypeAnnotation` in instance-scanner.ts).
+ * name) — the shape the instance scanner's annotation fallback accepts
+ * (`extractFromTypeAnnotation` in instance-scanner.ts), minus its PascalCase
+ * check: that one guesses whether an UNTAGGED const is an instance, while
+ * here the tag already says so.
  */
 function implArgsFromAnnotation(
   target: ts.Declaration

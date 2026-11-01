@@ -321,3 +321,38 @@ export const r = sumNum.sum(f(), g());
     expect(exportLine(result.code, "r")).toBe("export const r = [f(), g()].length;");
   });
 });
+
+// Added after review of the F5/F6/F8 fix.
+describe("F5/F6/F8 fix: review follow-ups", () => {
+  it("a destructured read is not moved past the body's effects", () => {
+    const result = transformOne(`
+/** @typeclass */
+interface Stepper<A> { step(s: A, f: () => number): number; }
+interface State { n: number; }
+/** @impl Stepper<State> */
+const stepState: Stepper<State> = { step: ({ n }, f) => f() + n };
+declare const state: State; declare function bump(): number;
+export const r = stepState.step(state, bump);
+`);
+    const line = exportLine(result.code, "r")!;
+    // `n` is read at the call, before bump() runs: never `bump() + state.n`.
+    // The read can't be substituted after the call, so it is bound first.
+    expect(line).not.toBe("export const r = bump() + state.n;");
+    expect(line).toBe("export const r = ((n, f) => f() + n)(state.n, bump);");
+  });
+
+  it("a TypeScript `this` parameter takes no argument", () => {
+    const result = transformOne(`
+/** @typeclass */
+interface Near<A> { near(a: A, b: A, eps?: number): boolean; }
+/** @impl Near<number> */
+const nearNum: Near<number> = {
+  near(this: void, a: number, b: number, eps = 0.5) { return Math.abs(a - b) <= eps; },
+};
+declare const x: number; declare const y: number;
+export const r = nearNum.near(x, y);
+`);
+    expect(errors(result)).toEqual([]);
+    expect(exportLine(result.code, "r")).toBe("export const r = Math.abs(x - y) <= 0.5;");
+  });
+});

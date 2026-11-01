@@ -291,23 +291,38 @@ function clampSyntheticPositions<T extends ts.Node>(node: T): T {
 /**
  * Detach scratch-file `=>` tokens from synthetic arrow functions.
  *
- * A macro that parsed a code template (`ctx.parseStatements`) gets nodes back
- * via `stripPositions`, which uses visitEachChild without a token visitor and
- * so never reaches an arrow's `equalsGreaterThanToken`: the token keeps its
- * offset in the scratch file. The printer then emits the CURRENT file's
- * comments found at that offset between `)` and `=>` -- a syntax error
+ * A macro that built nodes by parsing a code template in a scratch file of its
+ * own, and didn't copy them, hands back arrows whose `equalsGreaterThanToken`
+ * keeps its offset in the scratch file. The printer then emits the CURRENT
+ * file's comments found at that offset between `)` and `=>` -- a syntax error
  * ("Line terminator not permitted before arrow"). This is the AST-level
  * replacement for the old line-regex `stripLeakedArrowComments` pass over
  * printed output (review finding #5), which corrupted string/template
- * literals.
+ * literals. (`ctx.parseExpression`/`parseStatements` return synthesized
+ * copies since audit F20, so this only catches other macros' scratch nodes.)
+ *
+ * A token that belongs to one of the program's own files is left alone:
+ * resetting it would corrupt that file's AST for the next build (audit F20).
  */
-function detachScratchArrowTokens(root: ts.Node): void {
+function detachScratchArrowTokens(root: ts.Node, program: ts.Program): void {
   // Iterative: a file can hold an expression thousands of levels deep.
   forEachDescendant(root, (node) => {
-    if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
+    if (
+      ts.isArrowFunction(node) &&
+      node.pos < 0 &&
+      node.equalsGreaterThanToken.pos >= 0 &&
+      !isInProgramFile(node.equalsGreaterThanToken, program)
+    ) {
       ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
     }
   });
+}
+
+/** Does `node` hang (by parent links) from one of `program`'s source files? */
+function isInProgramFile(node: ts.Node, program: ts.Program): boolean {
+  let top = node;
+  while (top.parent) top = top.parent;
+  return ts.isSourceFile(top) && program.getSourceFile(top.fileName) === top;
 }
 
 /**
@@ -555,7 +570,7 @@ export function macroTransformerFactory(
         }
       }
 
-      detachScratchArrowTokens(result as ts.SourceFile);
+      detachScratchArrowTokens(result as ts.SourceFile, program);
 
       // Safety net: clamp negative positions so program.emit() doesn't crash
       clampSyntheticPositions(result as ts.SourceFile);
