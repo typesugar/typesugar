@@ -1944,6 +1944,12 @@ function inlineFromNode(
   // equivalent arguments when that is exact, then inlined by the rules below.
   const normalized = normalizeParameterShapes(ctx, fn, body, callArgs);
   if (normalized) return inlineFromNode(ctx, normalized.fn, normalized.args, options);
+  // A `this` parameter normalization couldn't drop (extra arguments, say)
+  // would misalign every rule below, which map parameters to arguments by
+  // index; the IIFE drops it and evaluates every argument.
+  if (fn.parameters.some(isThisParameter)) {
+    return isInlineableShape(body) ? applyAsIIFE(ctx, fn, callArgs) : undefined;
+  }
 
   // An object-literal argument read only as `p.name` (an operator chain:
   // `add(add(a, b), c)`, whose inner call inlined to `{ x: ..., y: ... }`):

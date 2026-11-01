@@ -301,28 +301,18 @@ function clampSyntheticPositions<T extends ts.Node>(node: T): T {
  * literals. (`ctx.parseExpression`/`parseStatements` return synthesized
  * copies since audit F20, so this only catches other macros' scratch nodes.)
  *
- * A token that belongs to one of the program's own files is left alone:
+ * The synthetic arrow (ours: `pos` -1) gets a fresh token; the old one is
+ * never changed, since it may belong to one of the program's own files, and
  * resetting it would corrupt that file's AST for the next build (audit F20).
  */
-function detachScratchArrowTokens(root: ts.Node, program: ts.Program): void {
+function detachScratchArrowTokens(root: ts.Node): void {
   // Iterative: a file can hold an expression thousands of levels deep.
   forEachDescendant(root, (node) => {
-    if (
-      ts.isArrowFunction(node) &&
-      node.pos < 0 &&
-      node.equalsGreaterThanToken.pos >= 0 &&
-      !isInProgramFile(node.equalsGreaterThanToken, program)
-    ) {
-      ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
+    if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
+      (node as { equalsGreaterThanToken: ts.EqualsGreaterThanToken }).equalsGreaterThanToken =
+        ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken);
     }
   });
-}
-
-/** Does `node` hang (by parent links) from one of `program`'s source files? */
-function isInProgramFile(node: ts.Node, program: ts.Program): boolean {
-  let top = node;
-  while (top.parent) top = top.parent;
-  return ts.isSourceFile(top) && program.getSourceFile(top.fileName) === top;
 }
 
 /**
@@ -570,7 +560,7 @@ export function macroTransformerFactory(
         }
       }
 
-      detachScratchArrowTokens(result as ts.SourceFile, program);
+      detachScratchArrowTokens(result as ts.SourceFile);
 
       // Safety net: clamp negative positions so program.emit() doesn't crash
       clampSyntheticPositions(result as ts.SourceFile);

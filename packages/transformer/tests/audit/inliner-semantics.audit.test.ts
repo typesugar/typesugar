@@ -355,4 +355,20 @@ export const r = nearNum.near(x, y);
     expect(errors(result)).toEqual([]);
     expect(exportLine(result.code, "r")).toBe("export const r = Math.abs(x - y) <= 0.5;");
   });
+
+  it("a `this` parameter with an extra argument still aligns (IIFE)", () => {
+    const result = transformOne(`
+/** @typeclass */
+interface Near<A> { near(a: A, b: A, eps?: number): boolean; }
+/** @impl Near<number> */
+const nearNum: Near<number> = {
+  near(this: void, a: number, b: number) { return Math.abs(a - b) < 1; },
+};
+declare const x: number; declare const y: number;
+export const r = nearNum.near(x, y, 0.1);
+`);
+    const line = exportLine(result.code, "r")!;
+    expect(line).not.toContain("Math.abs(y - 0.1)");
+    expect(line).toBe("export const r = ((a, b) => { return Math.abs(a - b) < 1; })(x, y, 0.1);");
+  });
 });

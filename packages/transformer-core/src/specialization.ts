@@ -880,9 +880,10 @@ function resolveDictForIdentifier(
     // be inlined — and then the import is never injected, because nothing
     // references it (audit/FABLE-AUDIT-2026-11.md F17). Otherwise by name at
     // the call site.
-    if (ctx.fileBindingCache.getPendingImport(name)) {
+    const pending = ctx.fileBindingCache.getPendingImport(name);
+    if (pending) {
       try {
-        symbol = resolveGeneratedReference(ctx, ident, location);
+        symbol = moduleExport(ctx, pending.from, pending.symbol);
         if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
           symbol = ctx.typeChecker.getAliasedSymbol(symbol);
         }

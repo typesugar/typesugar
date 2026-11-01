@@ -39,7 +39,6 @@ import {
   getRemoveComment,
   TS9222,
   withStandaloneExtensionFile,
-  forEachDescendant,
 } from "@typesugar/core";
 
 import {
@@ -118,14 +117,16 @@ function isDirectiveStatement(s: ts.Statement): boolean {
  */
 function referencedNames(statements: readonly ts.Statement[]): (name: string) => boolean {
   const names = new Set<string>();
-  // Synthetic nodes have no parents, so a `.name` is recognised from above.
-  const propertyNames = new Set<ts.Node>();
-  for (const statement of statements) {
-    // Iterative: an output file can hold an expression thousands of levels deep.
-    forEachDescendant(statement, (n) => {
-      if (ts.isPropertyAccessExpression(n)) propertyNames.add(n.name);
-      else if (ts.isIdentifier(n) && !propertyNames.has(n)) names.add(n.text);
-    });
+  // An explicit stack: an output file can hold an expression thousands of
+  // levels deep. A property access contributes only its object, so a `.name`
+  // is skipped by position, never by node identity (one identifier object
+  // may sit in both a `.name` and a value position).
+  const stack: ts.Node[] = [...statements];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    if (ts.isIdentifier(n)) names.add(n.text);
+    else if (ts.isPropertyAccessExpression(n)) stack.push(n.expression);
+    else ts.forEachChild(n, (child) => void stack.push(child));
   }
   return (name) => names.has(name);
 }
