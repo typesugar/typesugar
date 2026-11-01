@@ -30,7 +30,7 @@ To see the raw failures, temporarily swap `it.fails(` → `it(` in a file and re
 
 **Status (2026-11-01).** The audit was written against `main` (`218278b1`),
 but the open PR stack #80 → #81 → #82 → #83 rewrites the same files. Rebased onto
-the #83 tip, 30 of the 34 `it.fails` tests already passed; PR #TBD (stacked on #83)
+the #83 tip, 30 of the 34 `it.fails` tests already passed; PR #84 (stacked on #83)
 fixes F15's structural half, F17's second half, F19 and three F20 residuals, inlines
 F5/F6/F8 exactly instead of through an IIFE, and leaves F23 open for a decision.
 Each finding below carries its status line.
@@ -136,7 +136,7 @@ run: async (a) => a + 1        →  export const r = 41 + 1;   // and (41 + 1).t
 
 ### F5 — Defaulted parameter with no argument dangles · High
 
-**Status:** made correct by the #80–#83 stack (an IIFE of the method, `((a, b, sep = ",") => …)("x", "y")`); inlined exactly (`"x" + "," + "y"`) in PR #TBD (`normalizeParameterShapes`, specialize.ts), so the assertion passes unchanged.
+**Status:** made correct by the #80–#83 stack (an IIFE of the method, `((a, b, sep = ",") => …)("x", "y")`); inlined exactly (`"x" + "," + "y"`) in PR #84 (`normalizeParameterShapes`, specialize.ts), so the assertion passes unchanged.
 
 ```ts
 join: (a, b, sep = ",") => a + sep + b;   joinStr.join("x","y")  →  "x" + sep + "y"   // ReferenceError
@@ -144,7 +144,7 @@ join: (a, b, sep = ",") => a + sep + b;   joinStr.join("x","y")  →  "x" + sep 
 
 ### F6 — Destructured parameter bindings dangle · High
 
-**Status:** as F5: IIFE on the stack; `({ x, y })` over a stable argument now reads `p.x`/`p.y` in PR #TBD.
+**Status:** as F5: IIFE on the stack; `({ x, y })` over a stable argument now reads `p.x`/`p.y` in PR #84.
 
 ```ts
 show: ({ x, y }) => `(${x}, ${y})`;   showPoint.show(p)  →  `(${x}, ${y})`   // x, y unbound
@@ -164,7 +164,7 @@ const a = 10;  arrMapper.map(list, (v) => v + a)  →  list.map(a => ((v) => v +
 
 ### F8 — Rest parameter bound to the first argument · High
 
-**Status:** as F5: IIFE on the stack; a rest parameter now gets `[1, 2, 3]` in PR #TBD.
+**Status:** as F5: IIFE on the stack; a rest parameter now gets `[1, 2, 3]` in PR #84.
 
 ```ts
 sum: (...xs) => xs.length;   sumNum.sum(1, 2, 3)  →  1..length
@@ -303,7 +303,7 @@ call-site identifier to its symbol first; drop the name-keyed lookup.
 
 ### F15 — Structural matching and left-operand-only typing · High
 
-**Status:** the nullable-operand half was fixed on the #80–#83 stack (both sides are matched and a nullable one is guarded: `(b === a || (b != null && eqPoint.equals(b, a)))`; the "asymmetry" control now pins that). The structural half is fixed in PR #TBD: an instance declared for the operand's own type (by symbol) is looked for in every stage before any structural match (`resolveInstance`, instance-resolver.ts). A same-shape instance is still used for a type that has none of its own, as `docs/guides/typeclasses.md` documents.
+**Status:** the nullable-operand half was fixed on the #80–#83 stack (both sides are matched and a nullable one is guarded: `(b === a || (b != null && eqPoint.equals(b, a)))`; the "asymmetry" control now pins that). The structural half is fixed in PR #84: an instance declared for the operand's own type (by symbol) is looked for in every stage before any structural match (`resolveInstance`, instance-resolver.ts). A same-shape instance is still used for a type that has none of its own, as `docs/guides/typeclasses.md` documents.
 
 ```ts
 import { Point, eqPoint } from "./eq-lib";          // Eq<Point>
@@ -343,7 +343,7 @@ by `exportName` only (line 543). **Fix direction:** dedupe by
 
 ### F17 — Type-only imports produce runtime references · High
 
-**Status:** the first test (an instance named in `import type`) was fixed on the #80–#83 stack by injecting a value import. The second is fixed in PR #TBD, but not by ignoring type-only imports (an eslint `consistent-type-imports` autofix would then silently turn `===` back into reference equality): the inliner now resolves a generated receiver through the pending import (`resolveDictForIdentifier`, specialization.ts), and only imports the output still references are injected (`getPendingImports(isReferenced)`). An inlined call therefore adds no import; one that can't be inlined still imports the instance (regression test added). The first test's accepted outputs were widened by one: "inlined, so nothing references `eqPoint`".
+**Status:** the first test (an instance named in `import type`) was fixed on the #80–#83 stack by injecting a value import. The second is fixed in PR #84, but not by ignoring type-only imports (an eslint `consistent-type-imports` autofix would then silently turn `===` back into reference equality): the inliner now resolves a generated receiver through the pending import (`resolveDictForIdentifier`, specialization.ts), and only imports the output still references are injected (`getPendingImports(isReferenced)`). An inlined call therefore adds no import; one that can't be inlined still imports the instance (regression test added). The first test's accepted outputs were widened by one: "inlined, so nothing references `eqPoint`".
 
 ```ts
 import type { Point, eqPoint } from "./eq-lib";
@@ -377,7 +377,7 @@ raw receiver type; the extension path (`rewriting.ts:289-291`) normalizes via
 
 ### F19 — The documented bare `/** @instance */` form errors · Medium
 
-**Status:** fixed in PR #TBD: a bare `@impl`/`@instance` takes `TC<T>` from the const's annotation (`implArgsFromAnnotation`, typeclass.ts), like the scanner.
+**Status:** fixed in PR #84: a bare `@impl`/`@instance` takes `TC<T>` from the const's annotation (`implArgsFromAnnotation`, typeclass.ts), like the scanner.
 
 ```ts
 /** @instance */
@@ -418,7 +418,7 @@ Test: `packages/transformer/tests/audit/ast-mutation-watch.audit.test.ts`.
 
 ### F20 — Program-owned nodes are mutated to `pos/end = -1` · High
 
-**Status:** the reported path was fixed on the #80–#83 stack. PR #TBD fixes three residuals found while checking it: (1) `cloneWithoutPositions`/`cloneWithoutComments` (and `cloneNodeDeep`, for NodeArrays) shared token children and unchanged NodeArrays with the original, so `(n + 1).show()` still reset `+` on the real file; (2) `inlineFromNode` stripped an `@impl`-registered method body in place; (3) `ctx.parseExpression`/`parseStatements` (and `quote`'s type parser, the HKT signature parser, the reflected intrinsics) returned temp-file parse-tree nodes, which TypeScript's emit resolver treated as real and queued a "Cannot find name" at position -1, so `getPreEmitDiagnostics` after emit still threw `start < 0`; they now return synthesized copies. With those gone, the three `"start < 0"` catches in `cli.ts` are removed and `build-emit.test.ts`'s safety-net test asserts no throw.
+**Status:** the reported path was fixed on the #80–#83 stack. PR #84 fixes three residuals found while checking it: (1) `cloneWithoutPositions`/`cloneWithoutComments` (and `cloneNodeDeep`, for NodeArrays) shared token children and unchanged NodeArrays with the original, so `(n + 1).show()` still reset `+` on the real file; (2) `inlineFromNode` stripped an `@impl`-registered method body in place; (3) `ctx.parseExpression`/`parseStatements` (and `quote`'s type parser, the HKT signature parser, the reflected intrinsics) returned temp-file parse-tree nodes, which TypeScript's emit resolver treated as real and queued a "Cannot find name" at position -1, so `getPreEmitDiagnostics` after emit still threw `start < 0`; they now return synthesized copies. With those gone, the three `"start < 0"` catches in `cli.ts` are removed and `build-emit.test.ts`'s safety-net test asserts no throw.
 
 After one emit of a file with `eqPoint.equals(p, undefinedVar)` the **original**
 `ts.SourceFile` carries 17 nodes with negative positions. With a host that
