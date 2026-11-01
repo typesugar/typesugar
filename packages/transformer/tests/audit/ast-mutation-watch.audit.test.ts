@@ -86,7 +86,7 @@ const DEP_V2 = `export const helper = (n: number) => n + 1;`;
 
 describe("audit F20: the transformer must not mutate the program's SourceFile", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F20 (PEP-056 stripPositions on program-owned nodes)
-  it.fails("after emit, the original SourceFile has no negative positions", () => {
+  it("after emit, the original SourceFile has no negative positions", () => {
     const { host } = createReusingHost({ "main.ts": MAIN, "dep.ts": DEP_V1 });
     const roots = [path.resolve("main.ts"), path.resolve("dep.ts")];
     const program = ts.createProgram(roots, OPTS, host);
@@ -99,38 +99,59 @@ describe("audit F20: the transformer must not mutate the program's SourceFile", 
   });
 
   // Tracked: audit/FABLE-AUDIT-2026-11.md F20 (PEP-056 watch rebuild on a reused SourceFile)
-  it.fails(
-    "watch build #2 (dep edited, main unchanged) must still be able to report diagnostics",
-    () => {
-      const { host, files } = createReusingHost({ "main.ts": MAIN, "dep.ts": DEP_V1 });
-      const roots = [path.resolve("main.ts"), path.resolve("dep.ts")];
-      const state = new TransformerState({ cacheDir: false });
+  it("watch build #2 (dep edited, main unchanged) must still be able to report diagnostics", () => {
+    const { host, files } = createReusingHost({ "main.ts": MAIN, "dep.ts": DEP_V1 });
+    const roots = [path.resolve("main.ts"), path.resolve("dep.ts")];
+    const state = new TransformerState({ cacheDir: false });
 
-      const build = (oldProgram?: ts.Program) => {
-        const program = ts.createProgram(roots, OPTS, host, oldProgram);
-        const sf = program.getSourceFile(roots[0])!;
-        const diags = program.getSemanticDiagnostics(sf);
-        program.emit(sf, () => {}, undefined, false, {
-          before: [macroTransformerFactory(program, { cacheDir: false }, state)],
-        });
-        return { program, sf, diags };
-      };
+    const build = (oldProgram?: ts.Program) => {
+      const program = ts.createProgram(roots, OPTS, host, oldProgram);
+      const sf = program.getSourceFile(roots[0])!;
+      const diags = program.getSemanticDiagnostics(sf);
+      program.emit(sf, () => {}, undefined, false, {
+        before: [macroTransformerFactory(program, { cacheDir: false }, state)],
+      });
+      return { program, sf, diags };
+    };
 
-      const first = build();
-      expect(first.diags.map((d) => d.code)).toEqual([2552]);
+    const first = build();
+    expect(first.diags.map((d) => d.code)).toEqual([2552]);
 
-      files[path.resolve("dep.ts")] = DEP_V2;
-      // Build #2 reuses main.ts's SourceFile object (unchanged text). Its checker
-      // must be able to re-report the same TS2552 at a real position.
-      let second: ReturnType<typeof build> | undefined;
-      expect(() => {
-        second = build(first.program);
-      }).not.toThrow();
-      expect(second!.sf).toBe(first.sf);
-      expect(second!.diags.map((d) => d.code)).toEqual([2552]);
-      expect(second!.diags[0].start).toBe(first.diags[0].start);
-    }
-  );
+    files[path.resolve("dep.ts")] = DEP_V2;
+    // Build #2 reuses main.ts's SourceFile object (unchanged text). Its checker
+    // must be able to re-report the same TS2552 at a real position.
+    let second: ReturnType<typeof build> | undefined;
+    expect(() => {
+      second = build(first.program);
+    }).not.toThrow();
+    expect(second!.sf).toBe(first.sf);
+    expect(second!.diags.map((d) => d.code)).toEqual([2552]);
+    expect(second!.diags[0].start).toBe(first.diags[0].start);
+  });
+});
+
+// Added with the F20 follow-up: cloneWithoutPositions/cloneWithoutComments
+// shared the original's TOKEN children (and unchanged NodeArrays), so method
+// sugar on a non-identifier receiver still reset `+` on the real file.
+describe("F20 follow-up: method sugar on an expression receiver", () => {
+  it("(n + 1).show() leaves the program's SourceFile untouched", () => {
+    const main = `
+/** @typeclass */
+interface Show<A> { show(a: A): string; }
+/** @impl Show<number> */
+const showNum: Show<number> = { show: (a) => String(a) };
+declare const n: number;
+export const r = (n + 1).show();
+`;
+    const { host } = createReusingHost({ "main.ts": main });
+    const root = path.resolve("main.ts");
+    const program = ts.createProgram([root], OPTS, host);
+    const sf = program.getSourceFile(root)!;
+    program.emit(sf, () => {}, undefined, false, {
+      before: [macroTransformerFactory(program, { cacheDir: false })],
+    });
+    expect(countNegativePositions(sf)).toBe(0);
+  });
 });
 
 describe("controls (must stay green)", () => {

@@ -664,22 +664,13 @@ function build(options: CliOptions): void {
       }
     : undefined;
 
-  // Collect pre-emit diagnostics BEFORE emit. After emit, the transformer's
-  // synthetic nodes (pos = -1) cause deferred checker callbacks to crash in
-  // createTextSpan when getPreEmitDiagnostics triggers getGlobalDiagnostics.
+  // Collect pre-emit diagnostics BEFORE emit, while the checker sees only the
+  // user's source. (This used to catch "start < 0" from createTextSpan: the
+  // transform stripped positions off the program's own nodes, and a rebuild
+  // reusing that SourceFile crashed. The transform no longer mutates program
+  // nodes — audit/FABLE-AUDIT-2026-11.md F20 — so a throw here is a real bug.)
   profiler.start("cli.build.preEmitDiagnostics");
-  let preEmitDiagnostics: readonly ts.Diagnostic[] = [];
-  try {
-    preEmitDiagnostics = ts.getPreEmitDiagnostics(program);
-  } catch (e: unknown) {
-    if (e instanceof Error && e.message.includes("start < 0")) {
-      console.error(
-        "🧊 Warning: pre-emit diagnostics skipped — checker crashed on synthetic node positions."
-      );
-    } else {
-      throw e;
-    }
-  }
+  const preEmitDiagnostics = ts.getPreEmitDiagnostics(program);
   profiler.end("cli.build.preEmitDiagnostics");
 
   // TS diagnostics are suppression-filtered BEFORE the transformer touches
@@ -697,26 +688,17 @@ function build(options: CliOptions): void {
     // `check` filters before anything is expanded: register what the
     // TypeRewriteAssignment rule matches against first.
     registerTypeRewritesBeforeFiltering(program, options.verbose);
-    // getTypeChecker() after emit may trigger deferred callbacks that crash on
-    // synthetic nodes — catch and fall back to unfiltered diagnostics.
-    try {
-      const checker = program.getTypeChecker();
-      return filterDiagnostics(
-        raw,
-        checker,
-        (fn) => program.getSourceFile(fn),
-        { program },
-        (diagnostic, rule) => suppressed.push({ diagnostic, rule })
-      );
-    } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes("start < 0")) {
-        console.error(
-          `🧊 Warning: diagnostic suppression filtering skipped — checker crashed on synthetic node positions`
-        );
-        return raw;
-      }
-      throw e;
-    }
+    // No "start < 0" catch: the transform no longer strips positions off the
+    // program's own nodes (audit/FABLE-AUDIT-2026-11.md F20), so the checker
+    // is safe to use after emit.
+    const checker = program.getTypeChecker();
+    return filterDiagnostics(
+      raw,
+      checker,
+      (fn) => program.getSourceFile(fn),
+      { program },
+      (diagnostic, rule) => suppressed.push({ diagnostic, rule })
+    );
   };
 
   let tsDiagnostics: readonly ts.Diagnostic[];
@@ -1054,31 +1036,20 @@ function watch(options: CliOptions): void {
     watchSystem,
     ts.createEmitAndSemanticDiagnosticsBuilderProgram,
     (diagnostic) => {
-      // Filter through diagnostic suppression rules before reporting. The
-      // reporter runs after emit, when the checker may trip over the
-      // transformer's synthetic nodes ("start < 0") — degrade to reporting
-      // the diagnostic unfiltered, with a visible warning.
+      // Filter through diagnostic suppression rules before reporting. This
+      // runs after emit; the transform leaves the program's own nodes intact
+      // (audit/FABLE-AUDIT-2026-11.md F20 — it used to strip their positions,
+      // and this caught the checker's "start < 0"), so the checker is safe.
       if (currentProgram && getDiagnosticSuppressionRules().length > 0) {
         const program = currentProgram;
-        try {
-          const checker = program.getTypeChecker();
-          const filtered = filterDiagnostics(
-            [diagnostic],
-            checker,
-            (fn) => program.getSourceFile(fn),
-            { program },
-            (hidden, rule) => suppressed.push({ diagnostic: hidden, rule })
-          );
-          if (filtered.length === 0) return;
-        } catch (e: unknown) {
-          if (e instanceof Error && e.message.includes("start < 0")) {
-            console.error(
-              "🧊 Warning: diagnostic suppression filtering skipped — checker crashed on synthetic node positions"
-            );
-          } else {
-            throw e;
-          }
-        }
+        const filtered = filterDiagnostics(
+          [diagnostic],
+          program.getTypeChecker(),
+          (fn) => program.getSourceFile(fn),
+          { program },
+          (hidden, rule) => suppressed.push({ diagnostic: hidden, rule })
+        );
+        if (filtered.length === 0) return;
       }
       // Undefined for one on the comprehension preprocessor's own tag.
       const written = toWrittenPosition(diagnostic);

@@ -11,6 +11,7 @@ import {
   stripCommentsDeep,
   cloneWithoutPositions,
   cloneWithoutComments,
+  cloneNodeDeep,
 } from "../src/ast-utils.js";
 
 function callOnLine(src: string, line: number): { sf: ts.SourceFile; call: ts.CallExpression } {
@@ -108,5 +109,43 @@ describe("cloneWithoutPositions / cloneWithoutComments do not mutate the caller'
     expect(arg.getText(sf)).toBe("a + b");
     // The copy still leads back to the parse tree (needed by emit substitutions).
     expect(ts.getParseTreeNode(out.left)).toBe(arg.left);
+  });
+});
+
+// audit/FABLE-AUDIT-2026-11.md F20 (residual): the copies shared the original's
+// TOKEN children (`+`, `=>`) and any NodeArray nothing in it changed (an empty
+// argument list), so stripping the copy reset those on the user's real file —
+// `(n + 1).show()` left main.ts's `+` at pos -1, and a watch rebuild that
+// reuses the SourceFile then crashes the checker with "start < 0".
+describe("the copies share no token or NodeArray with the original", () => {
+  /** Every node, token and NodeArray under `root` with a negative range. */
+  const negatives = (root: ts.Node): string[] => {
+    const out: string[] = [];
+    const visit = (n: ts.Node): void => {
+      if (n.pos < 0 || n.end < 0) out.push(ts.SyntaxKind[n.kind]);
+      ts.forEachChild(n, visit, (arr) => {
+        if (arr.pos < 0 || arr.end < 0) out.push("NodeArray");
+        arr.forEach(visit);
+      });
+    };
+    visit(root);
+    return out;
+  };
+
+  it.each([
+    ["cloneWithoutPositions", cloneWithoutPositions],
+    ["cloneWithoutComments", cloneWithoutComments],
+    ["cloneNodeDeep + stripPositions", (n: ts.Node) => stripPositions(cloneNodeDeep(n))],
+    ["cloneNodeDeep + stripCommentsDeep", (n: ts.Node) => stripCommentsDeep(cloneNodeDeep(n))],
+  ])("%s", (_name, strip) => {
+    const sf = ts.createSourceFile(
+      "a.ts",
+      "(n + 1, v.slice(), (x) => x ?? 0, a?.b!, f<T>());",
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const expr = (sf.statements[0] as ts.ExpressionStatement).expression;
+    strip(expr);
+    expect(negatives(sf)).toEqual([]);
   });
 });

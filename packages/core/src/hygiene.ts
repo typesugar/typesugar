@@ -612,13 +612,21 @@ export class FileBindingCache {
   /**
    * Get all pending aliased imports to inject into the file.
    * Groups by module for cleaner output.
+   *
+   * `isReferenced`, if given, keeps only the imports whose local name the
+   * output still references: a reference `ensureImport` handed out may have
+   * been inlined away since (an operator rewrite's `eqPoint.equals(a, b)`
+   * becoming `a.x === b.x`), and injecting its import anyway would add a
+   * runtime dependency nothing uses — on a module the file may have imported
+   * only with `import type` (audit/FABLE-AUDIT-2026-11.md F17).
    */
-  getPendingImports(): ts.ImportDeclaration[] {
+  getPendingImports(isReferenced?: (localName: string) => boolean): ts.ImportDeclaration[] {
     if (this.pendingAliases.size === 0) return [];
 
     // Group by module
     const byModule = new Map<string, PendingAliasEntry[]>();
     for (const entry of this.pendingAliases.values()) {
+      if (isReferenced && !isReferenced(entry.alias)) continue;
       const list = byModule.get(entry.from) ?? [];
       list.push(entry);
       byModule.set(entry.from, list);

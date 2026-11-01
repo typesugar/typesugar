@@ -47,7 +47,6 @@
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
 import {
-  stripPositions,
   stripCommentsDeep,
   getOrCreateWeak,
   cloneNodeDeep,
@@ -765,7 +764,7 @@ function loadPrimitiveIntrinsicsFromReflection(): void {
         const params = node.parameters.map((p) => (p.name as ts.Identifier).text);
         if (!hasOnlySafeFreeIdentifiers(node.body, new Set(params))) continue;
 
-        methods.set(methodName, { node: stripPositions(node), params });
+        methods.set(methodName, { node: cloneNodeDeep(node), params });
       }
 
       if (methods.size > 0) {
@@ -1481,6 +1480,101 @@ function isRereadableInitializer(e: ts.Expression): boolean {
   return cls === "literal" || cls === "stable";
 }
 
+// ============================================================================
+// Parameter shapes direct substitution can't take (audit F5/F6/F8)
+// ============================================================================
+
+/**
+ * The method rewritten with plain parameters only, and call-site arguments
+ * that mean the same, so the ordinary rules can inline it instead of
+ * applying it as an IIFE (audit/FABLE-AUDIT-2026-11.md F5, F6, F8):
+ *
+ * - a defaulted parameter with no argument gets its default, when the
+ *   default is a literal (which means the same at the call site; anything
+ *   else could name the instance module's bindings); a literal argument
+ *   other than an omitted one is passed as is (`null` doesn't trigger a
+ *   default, and a literal is never `undefined`);
+ * - a rest parameter (last) gets an array literal of the remaining
+ *   arguments;
+ * - an object pattern `{ x, y: b }` over a stable argument (an identifier or
+ *   property chain) becomes one parameter per binding, given `arg.x` /
+ *   `arg.y`, in pattern order. The reads move to their uses, exactly as a
+ *   stable argument's do (the "Known residuals" above).
+ *
+ * Undefined when no parameter needs this, or one can't be rewritten (an
+ * array or nested pattern, a pattern default or rest, a computed key, a
+ * non-literal default, a non-literal argument for a defaulted parameter, a
+ * missing argument without a default, extra or spread arguments): the
+ * caller then applies the ordinary rules, i.e. the IIFE.
+ */
+function normalizeParameterShapes(
+  ctx: MacroContext,
+  fn: InlineableFunction,
+  body: ts.ConciseBody,
+  callArgs: readonly ts.Expression[]
+): { fn: ts.ArrowFunction; args: ts.Expression[] } | undefined {
+  const params = fn.parameters;
+  if (params.every((p) => ts.isIdentifier(p.name) && !p.initializer && !p.dotDotDotToken)) {
+    return undefined;
+  }
+  if (callArgs.some((a) => ts.isSpreadElement(a))) return undefined;
+  const f = ctx.factory;
+  const newParams: ts.ParameterDeclaration[] = [];
+  const newArgs: ts.Expression[] = [];
+  const add = (name: string, arg: ts.Expression): void => {
+    newParams.push(f.createParameterDeclaration(undefined, undefined, name));
+    newArgs.push(arg);
+  };
+  let consumed = 0;
+  for (let i = 0; i < params.length; i++) {
+    const p = params[i];
+    const arg = callArgs[i] as ts.Expression | undefined;
+    if (p.dotDotDotToken) {
+      if (!ts.isIdentifier(p.name) || p.initializer || i !== params.length - 1) return undefined;
+      add(p.name.text, f.createArrayLiteralExpression(callArgs.slice(i)));
+      consumed = callArgs.length;
+      break;
+    }
+    consumed = Math.min(i + 1, callArgs.length);
+    if (ts.isIdentifier(p.name)) {
+      if (!p.initializer) {
+        if (!arg) return undefined;
+        add(p.name.text, arg);
+      } else if (!arg) {
+        if (classifyArgument(p.initializer) !== "literal") return undefined;
+        add(p.name.text, p.initializer);
+      } else {
+        if (classifyArgument(arg) !== "literal") return undefined;
+        add(p.name.text, arg);
+      }
+      continue;
+    }
+    if (!ts.isObjectBindingPattern(p.name) || p.initializer || !arg) return undefined;
+    if (classifyArgument(arg) !== "stable" || p.name.elements.length === 0) return undefined;
+    for (const el of p.name.elements) {
+      if (el.dotDotDotToken || el.initializer || !ts.isIdentifier(el.name)) return undefined;
+      const key = el.propertyName ?? el.name;
+      if (ts.isIdentifier(key)) {
+        add(el.name.text, f.createPropertyAccessExpression(arg, key.text));
+      } else if (ts.isStringLiteral(key) || ts.isNumericLiteral(key)) {
+        add(el.name.text, f.createElementAccessExpression(arg, cloneNodeDeep(key)));
+      } else {
+        return undefined;
+      }
+    }
+  }
+  if (consumed !== callArgs.length) return undefined;
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    newParams,
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    stripCommentsDeep(cloneNodeDeep(body))
+  );
+  return { fn: arrow, args: newArgs };
+}
+
 function projectObjectLiteralArguments(
   ctx: MacroContext,
   fn: InlineableFunction,
@@ -1815,6 +1909,11 @@ function inlineFromNode(
   // Receiver/activation-dependent bodies can't move to the call site in any form.
   if (methodDependsOnReceiver(fn)) return undefined;
 
+  // Default / rest / destructured parameters: rewritten to plain ones with
+  // equivalent arguments when that is exact, then inlined by the rules below.
+  const normalized = normalizeParameterShapes(ctx, fn, body, callArgs);
+  if (normalized) return inlineFromNode(ctx, normalized.fn, normalized.args, options);
+
   // An object-literal argument read only as `p.name` (an operator chain:
   // `add(add(a, b), c)`, whose inner call inlined to `{ x: ..., y: ... }`):
   // read each property's initializer directly instead of building the object
@@ -1845,7 +1944,10 @@ function inlineFromNode(
 
   // Strip comments from the template body to prevent the printer from emitting
   // stray comments (e.g. JSDoc from the typeclass definition) into inlined code.
-  const cleanBody = stripCommentsDeep(body);
+  // On a copy: an `@impl` registration (typeclass.ts) stores the instance's
+  // real method node, and stripping it in place would corrupt the defining
+  // file's AST for the next (watch) build — audit F20.
+  const cleanBody = stripCommentsDeep(cloneNodeDeep(body));
 
   // For block bodies, handle inlining
   if (ts.isBlock(cleanBody)) {

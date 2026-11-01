@@ -4,13 +4,14 @@
 
 This is a diagnosis-only audit of typesugar's compile-time engine (PEP-052
 import-scoped activation, instance resolution, PEP-053 always-on specialization,
-PEP-056 pipeline). Nothing is fixed here. Every confirmed finding has a failing
+PEP-056 pipeline). The audit itself fixed nothing; see "Status" under the
+summary for what has been fixed since. Every confirmed finding has a failing
 test under `packages/transformer/tests/audit/`, written as `it.fails` so the suite
 stays green while the bug exists and flips red (prompting `it.fails` → `it`) once
 it is fixed. Controls in the same files are plain `it` and prove the harness.
 
 ```
-pnpm --filter @typesugar/transformer vitest run tests/audit     # 45 tests: 34 it.fails + 11 controls, all green today
+pnpm --filter @typesugar/transformer vitest run tests/audit     # 53 tests; one it.fails left (F23)
 ```
 
 To see the raw failures, temporarily swap `it.fails(` → `it(` in a file and rerun.
@@ -26,6 +27,13 @@ To see the raw failures, temporarily swap `it.fails(` → `it(` in a file and re
 | `@derive` over non-primitive fields    | F21–F23 (3)      | S3        | High         |
 | Pipeline parity (PEP-056)              | 0                | S4        | —            |
 | **Total**                              | **25 confirmed** | **6**     |              |
+
+**Status (2026-11-01).** The audit was written against `main` (`218278b1`),
+but the open PR stack #80 → #81 → #82 → #83 rewrites the same files. Rebased onto
+the #83 tip, 30 of the 34 `it.fails` tests already passed; PR #TBD (stacked on #83)
+fixes F15's structural half, F17's second half, F19 and three F20 residuals, inlines
+F5/F6/F8 exactly instead of through an IIFE, and leaves F23 open for a decision.
+Each finding below carries its status line.
 
 **Top three.**
 
@@ -92,6 +100,8 @@ Tests: `packages/transformer/tests/audit/inliner-semantics.audit.test.ts`.
 
 ### F1 — Side-effecting argument evaluated twice · Critical
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 const r = eqPoint.equals(mk(), q); // also:  mk() === q
 // emits: mk().x === q.x && mk().y === q.y
@@ -99,12 +109,16 @@ const r = eqPoint.equals(mk(), q); // also:  mk() === q
 
 ### F2 — Evaluation order changed; unused arguments elided · Critical
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 combineNum.combine(f(), g()); // body (a, b) => b - a   → g() - f()   (g runs first)
 combineNum.first(f(), g()); // body (a, _b) => a      → f()          (g never runs)
 ```
 
 ### F3 — `this` escapes to the call site · High
+
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
 
 ```ts
 notEquals(a, b) { return !this.equals(a, b); }  →  export const r = !this.equals(p, q);
@@ -114,17 +128,23 @@ Module-scope `this` is `undefined` in ESM → `TypeError`.
 
 ### F4 — `async` body inlined synchronously · High
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 run: async (a) => a + 1        →  export const r = 41 + 1;   // and (41 + 1).then(...) → TypeError
 ```
 
 ### F5 — Defaulted parameter with no argument dangles · High
 
+**Status:** made correct by the #80–#83 stack (an IIFE of the method, `((a, b, sep = ",") => …)("x", "y")`); inlined exactly (`"x" + "," + "y"`) in PR #TBD (`normalizeParameterShapes`, specialize.ts), so the assertion passes unchanged.
+
 ```ts
 join: (a, b, sep = ",") => a + sep + b;   joinStr.join("x","y")  →  "x" + sep + "y"   // ReferenceError
 ```
 
 ### F6 — Destructured parameter bindings dangle · High
+
+**Status:** as F5: IIFE on the stack; `({ x, y })` over a stable argument now reads `p.x`/`p.y` in PR #TBD.
 
 ```ts
 show: ({ x, y }) => `(${x}, ${y})`;   showPoint.show(p)  →  `(${x}, ${y})`   // x, y unbound
@@ -135,6 +155,8 @@ placeholder name for a binding pattern that never occurs in the body.
 
 ### F7 — Template-internal binder captures a call-site identifier · Critical
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 map: (xs, f) => xs.map((a) => f(a));
 const a = 10;  arrMapper.map(list, (v) => v + a)  →  list.map(a => ((v) => v + a)(a))   // wrong values
@@ -142,17 +164,23 @@ const a = 10;  arrMapper.map(list, (v) => v + a)  →  list.map(a => ((v) => v +
 
 ### F8 — Rest parameter bound to the first argument · High
 
+**Status:** as F5: IIFE on the stack; a rest parameter now gets `[1, 2, 3]` in PR #TBD.
+
 ```ts
 sum: (...xs) => xs.length;   sumNum.sum(1, 2, 3)  →  1..length
 ```
 
 ### F9 — Shorthand property rewritten to an invalid literal · High
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 wrap: (x) => ({ x });   wrapNum.wrap(f())  →  ({ f() })   // syntax error / wrong key
 ```
 
 ### F24 — Parameter named like a property rewrites the property · Critical
+
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
 
 ```ts
 scale: (x, p) => ({ x: p.x * x, y: p.y * x });   scalePoint.scale(k, pt)  →  ({ k: pt.k * k, y: pt.y * k })
@@ -168,6 +196,8 @@ are visited and replaced like any other identifier.
 Tests: `packages/transformer/tests/audit/auto-specialize.audit.test.ts`.
 
 ### F10 — Removed dictionary parameter still referenced · Critical
+
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
 
 ```ts
 function fold<A>(M: Monoid<A>, xs: A[]) {
@@ -190,6 +220,8 @@ instance's property initializer when it is a literal, else keep the dictionary.
 
 ### F11 — Fires on arbitrary generic-annotated object literals · Critical
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 const cfg: Partial<Handlers> = { onA: () => 1 };
 function run(h: Partial<Handlers>) { return h.onA() + (h.extra ?? 0); }
@@ -206,6 +238,8 @@ already knows these: `isTypeclassDeclared(program, name)`), or an `@impl`/
 
 ### F12 — Specialization cache keyed by type brand, not instance · Critical
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 const upper: Show<string> = { show: (s) => s.toUpperCase() };
 const quoted: Show<string> = { show: (s) => JSON.stringify(s) };
@@ -221,6 +255,8 @@ the instance's declaration symbol (or `argName` + declaring file) in addition to
 the function symbol.
 
 ### F13 — DCE deletes an `export`ed instance · High
+
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
 
 ```ts
 export const combineNum: Combine<number> = { combine: (a, b) => a + b };
@@ -241,6 +277,8 @@ same-file reference, without checking for an `export` modifier (or re-exports /
 Tests: `packages/transformer/tests/audit/instance-resolution.audit.test.ts`.
 
 ### F14 — Cross-file leak of instance bodies within one `ts.Program` · Critical
+
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
 
 ```
 a.ts:  /** @impl Eq<PointA> */ const eqPoint: Eq<PointA> = { equals: (a, b) => a.x === b.x };   eqPoint.equals(p, q)
@@ -264,6 +302,8 @@ instance's declaration `ts.Symbol` (or `fileName + name`), and resolve the
 call-site identifier to its symbol first; drop the name-keyed lookup.
 
 ### F15 — Structural matching and left-operand-only typing · High
+
+**Status:** the nullable-operand half was fixed on the #80–#83 stack (both sides are matched and a nullable one is guarded: `(b === a || (b != null && eqPoint.equals(b, a)))`; the "asymmetry" control now pins that). The structural half is fixed in PR #TBD: an instance declared for the operand's own type (by symbol) is looked for in every stage before any structural match (`resolveInstance`, instance-resolver.ts). A same-shape instance is still used for a type that has none of its own, as `docs/guides/typeclasses.md` documents.
 
 ```ts
 import { Point, eqPoint } from "./eq-lib";          // Eq<Point>
@@ -289,6 +329,8 @@ before rewriting; otherwise stay native.
 
 ### F16 — Same-named instances from two modules silently deduplicated · High
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 import { one } from "./lib1";  // exports eqPoint: Eq<Point> (compares x)
 import { two } from "./lib2";  // exports eqPoint: Eq<Point> (compares y)
@@ -300,6 +342,8 @@ by `exportName` only (line 543). **Fix direction:** dedupe by
 `(sourceModule, exportName)`; report ambiguity otherwise.
 
 ### F17 — Type-only imports produce runtime references · High
+
+**Status:** the first test (an instance named in `import type`) was fixed on the #80–#83 stack by injecting a value import. The second is fixed in PR #TBD, but not by ignoring type-only imports (an eslint `consistent-type-imports` autofix would then silently turn `===` back into reference equality): the inliner now resolves a generated receiver through the pending import (`resolveDictForIdentifier`, specialization.ts), and only imports the output still references are injected (`getPendingImports(isReferenced)`). An inlined call therefore adds no import; one that can't be inlined still imports the instance (regression test added). The first test's accepted outputs were widened by one: "inlined, so nothing references `eqPoint`".
 
 ```ts
 import type { Point, eqPoint } from "./eq-lib";
@@ -321,6 +365,8 @@ value import even when a same-named type-only binding exists.
 
 ### F18 — Method sugar skips literal-typed receivers · Low
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 n.show()   → showNum.show(n)         (5).show()  →  (5).show()   // runtime TypeError
 ```
@@ -330,6 +376,8 @@ raw receiver type; the extension path (`rewriting.ts:289-291`) normalizes via
 `getBaseTypeOfLiteralType` but this sibling does not. **Fix:** same normalization.
 
 ### F19 — The documented bare `/** @instance */` form errors · Medium
+
+**Status:** fixed in PR #TBD: a bare `@impl`/`@instance` takes `TC<T>` from the const's annotation (`implArgsFromAnnotation`, typeclass.ts), like the scanner.
 
 ```ts
 /** @instance */
@@ -345,6 +393,8 @@ direction:** let the macro take `TC<T>` from the type annotation when the tag ha
 no argument, mirroring the scanner.
 
 ### F25 — Operator sugar is skipped inside `@impl`-tagged declaration bodies · Medium
+
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
 
 ```ts
 /** @impl Same<Inner> */ const taggedSame: Same<Inner> = { same: (a, b) => a === b }; // stays native
@@ -367,6 +417,8 @@ visit the macro result's children (as the decorator path does at `:1572-1579`).
 Test: `packages/transformer/tests/audit/ast-mutation-watch.audit.test.ts`.
 
 ### F20 — Program-owned nodes are mutated to `pos/end = -1` · High
+
+**Status:** the reported path was fixed on the #80–#83 stack. PR #TBD fixes three residuals found while checking it: (1) `cloneWithoutPositions`/`cloneWithoutComments` (and `cloneNodeDeep`, for NodeArrays) shared token children and unchanged NodeArrays with the original, so `(n + 1).show()` still reset `+` on the real file; (2) `inlineFromNode` stripped an `@impl`-registered method body in place; (3) `ctx.parseExpression`/`parseStatements` (and `quote`'s type parser, the HKT signature parser, the reflected intrinsics) returned temp-file parse-tree nodes, which TypeScript's emit resolver treated as real and queued a "Cannot find name" at position -1, so `getPreEmitDiagnostics` after emit still threw `start < 0`; they now return synthesized copies. With those gone, the three `"start < 0"` catches in `cli.ts` are removed and `build-emit.test.ts`'s safety-net test asserts no throw.
 
 After one emit of a file with `eqPoint.equals(p, undefinedVar)` the **original**
 `ts.SourceFile` carries 17 nodes with negative positions. With a host that
@@ -398,6 +450,8 @@ instead of mutating; then the CLI catches become unnecessary.
 Tests: `packages/transformer/tests/audit/derive-nested.audit.test.ts`.
 
 ### F21 — `@derive(Eq)` fails for any class with a user-typed field · High
+
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`. Its control (which pinned the old misleading "Unknown derive" message) now asserts that message is gone.
 
 ```ts
 @derive(Eq)
@@ -431,6 +485,8 @@ diagnostic to name the field that lacks an instance.
 
 ### F22 — Array field crashes string codegen · Medium
 
+**Status:** fixed on the PR #80–#83 stack (verified 2026-11-01 at `631a902d`, the #83 tip); test flipped to `it`.
+
 ```ts
 @derive(Eq)
 class Tags {
@@ -446,6 +502,8 @@ build the AST with `ts.factory`, and resolve array/tuple/union field types to an
 instance (`Eq.array(Eq.string)`) or a precise diagnostic.
 
 ### F23 — JSDoc `@derive` activates with no import and injects a compile-time package · Medium
+
+**Status:** open — needs a decision (see the PR): the docs disagree on whether a derivable must be imported for the JSDoc form, and an import used only by a JSDoc tag is "unused" to `noUnusedLocals` and lint autofix.
 
 ```ts
 /** @derive Eq */ class P { … }           // no imports at all in the file

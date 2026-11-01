@@ -30,7 +30,7 @@ const eqPoint: Eq<Point> = {
 
 describe("audit F1: a side-effecting argument must be evaluated exactly once", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F1 (PEP-053 inlining semantics)
-  it.fails("direct call: eqPoint.equals(mk(), q) must not duplicate mk()", () => {
+  it("direct call: eqPoint.equals(mk(), q) must not duplicate mk()", () => {
     const result = transformOne(`
 ${POINT_EQ}
 let calls = 0;
@@ -44,7 +44,7 @@ export const r = eqPoint.equals(mk(), q);
   });
 
   // Tracked: audit/FABLE-AUDIT-2026-11.md F1 (PEP-053 inlining semantics)
-  it.fails("operator path: mk() === q must not duplicate mk()", () => {
+  it("operator path: mk() === q must not duplicate mk()", () => {
     const result = transformOne(`
 ${POINT_EQ}
 let calls = 0;
@@ -72,7 +72,7 @@ declare function g(): number;
 `;
 
   // Tracked: audit/FABLE-AUDIT-2026-11.md F2 (PEP-053 inlining semantics)
-  it.fails("f() must be evaluated before g() even when the body uses b first", () => {
+  it("f() must be evaluated before g() even when the body uses b first", () => {
     const result = transformOne(`${COMBINE}
 export const r1 = combineNum.combine(f(), g());
 `);
@@ -86,7 +86,7 @@ export const r1 = combineNum.combine(f(), g());
   });
 
   // Tracked: audit/FABLE-AUDIT-2026-11.md F2 (PEP-053 inlining semantics)
-  it.fails("an argument bound to an unused parameter must still be evaluated", () => {
+  it("an argument bound to an unused parameter must still be evaluated", () => {
     const result = transformOne(`${COMBINE}
 export const r2 = combineNum.first(f(), g());
 `);
@@ -97,10 +97,8 @@ export const r2 = combineNum.first(f(), g());
 
 describe("audit F3: `this` inside an instance method must keep its receiver", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F3 (PEP-053 inlining semantics)
-  it.fails(
-    "notEquals(a, b) { return !this.equals(a, b) } must not leak `this` to the call site",
-    () => {
-      const result = transformOne(`
+  it("notEquals(a, b) { return !this.equals(a, b) } must not leak `this` to the call site", () => {
+    const result = transformOne(`
 ${EQ_TYPECLASS}
 export interface Point { x: number; y: number; }
 /** @impl Eq<Point> */
@@ -111,15 +109,14 @@ const eqPoint: Eq<Point> = {
 declare const p: Point; declare const q: Point;
 export const r = eqPoint.notEquals(p, q);
 `);
-      const line = exportLine(result.code, "r")!;
-      expect(line).not.toMatch(/\bthis\./);
-    }
-  );
+    const line = exportLine(result.code, "r")!;
+    expect(line).not.toMatch(/\bthis\./);
+  });
 });
 
 describe("audit F4: async method bodies must not be inlined as synchronous expressions", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F4 (PEP-053 inlining semantics)
-  it.fails("run: async (a) => a + 1 must still produce a Promise at the call site", () => {
+  it("run: async (a) => a + 1 must still produce a Promise at the call site", () => {
     const result = transformOne(`
 /** @typeclass */
 interface Runner<A> { run(a: A): Promise<A>; }
@@ -135,7 +132,7 @@ export const r = runNum.run(41);
 
 describe("audit F5–F8: parameter shapes the substitution cannot express", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F5 (PEP-053 inlining semantics)
-  it.fails("a defaulted parameter with no argument must not become a dangling identifier", () => {
+  it("a defaulted parameter with no argument must not become a dangling identifier", () => {
     const result = transformOne(`
 /** @typeclass */
 interface Joiner<A> { join(a: A, b: A, sep?: string): string; }
@@ -148,7 +145,7 @@ export const r = joinStr.join("x", "y");
   });
 
   // Tracked: audit/FABLE-AUDIT-2026-11.md F6 (PEP-053 inlining semantics)
-  it.fails("a destructured parameter's bindings must not become dangling identifiers", () => {
+  it("a destructured parameter's bindings must not become dangling identifiers", () => {
     const result = transformOne(`
 /** @typeclass */
 interface Show<A> { show(a: A): string; }
@@ -164,7 +161,7 @@ export const r = showPoint.show(p);
   });
 
   // Tracked: audit/FABLE-AUDIT-2026-11.md F8 (PEP-053 inlining semantics)
-  it.fails("a rest parameter must receive all arguments, not the first one", () => {
+  it("a rest parameter must receive all arguments, not the first one", () => {
     const result = transformOne(`
 /** @typeclass */
 interface Sum<A> { sum(...xs: A[]): A; }
@@ -180,7 +177,7 @@ export const r = sumNum.sum(1, 2, 3);
 
 describe("audit F7: template-internal binders must not capture call-site identifiers", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F7 (PEP-053 inlining hygiene)
-  it.fails("map: (xs, f) => xs.map((a) => f(a)) must not capture a call-site `a`", () => {
+  it("map: (xs, f) => xs.map((a) => f(a)) must not capture a call-site `a`", () => {
     const result = transformOne(`
 /** @typeclass */
 interface Mapper<F> { map(xs: any, f: (x: any) => any): any; }
@@ -199,7 +196,7 @@ export const r = arrMapper.map(list, (v: number) => v + a);
 
 describe("audit F9/F24: identifiers in non-expression positions must not be substituted", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F9 (PEP-053 inlining semantics)
-  it.fails("shorthand property `({ x })` must not become `({ f() })`", () => {
+  it("shorthand property `({ x })` must not become `({ f() })`", () => {
     const result = transformOne(`
 /** @typeclass */
 interface Wrap<A> { wrap(x: A): { x: A }; }
@@ -213,7 +210,7 @@ export const r = wrapNum.wrap(f());
   });
 
   // Tracked: audit/FABLE-AUDIT-2026-11.md F24 (PEP-053 inlining semantics)
-  it.fails("a parameter named like a property must not rewrite the property name", () => {
+  it("a parameter named like a property must not rewrite the property name", () => {
     const result = transformOne(`
 /** @typeclass */
 interface Scale<A> { scale(k: number, a: A): A; }
@@ -240,5 +237,87 @@ declare const x: number; declare const y: number;
 export const r = numNum.twice(x + y);
 `);
     expect(exportLine(result.code, "r")).toBe("export const r = (x + y) * 2;");
+  });
+});
+
+// Added with the F5/F6/F8 fix: the parameter shapes it rewrites to plain
+// parameters (normalizeParameterShapes in specialize.ts), and the ones it
+// must leave to the IIFE fallback.
+describe("F5/F6/F8 fix: default, rest and destructured parameters inline exactly", () => {
+  const JOINER = `
+/** @typeclass */
+interface Joiner<A> { join(a: A, b: A, sep?: string): string; }
+`;
+
+  it("an omitted literal default is inlined", () => {
+    const result = transformOne(`${JOINER}
+/** @impl Joiner<string> */
+const joinStr: Joiner<string> = { join: (a, b, sep = ",") => a + sep + b };
+export const r = joinStr.join("x", "y");
+`);
+    expect(exportLine(result.code, "r")).toBe('export const r = "x" + "," + "y";');
+  });
+
+  it("a literal argument for a defaulted parameter replaces the default", () => {
+    const result = transformOne(`${JOINER}
+/** @impl Joiner<string> */
+const joinStr: Joiner<string> = { join: (a, b, sep = ",") => a + sep + b };
+export const r = joinStr.join("x", "y", "-");
+`);
+    expect(exportLine(result.code, "r")).toBe('export const r = "x" + "-" + "y";');
+  });
+
+  it("a non-literal default is not moved to the call site (IIFE keeps it)", () => {
+    const result = transformOne(`${JOINER}
+const SEP = ",";
+/** @impl Joiner<string> */
+const joinStr: Joiner<string> = { join: (a, b, sep = SEP) => a + sep + b };
+declare const s: string;
+export const r = joinStr.join("x", "y", s);
+`);
+    const line = exportLine(result.code, "r")!;
+    // `s` may be undefined at run time, so the default can't be decided here.
+    expect(line).toMatch(/sep = SEP/);
+  });
+
+  it("a renamed destructuring key reads the right property", () => {
+    const result = transformOne(`
+/** @typeclass */
+interface Diff<A> { diff(a: A): number; }
+interface Point { x: number; y: number; }
+/** @impl Diff<Point> */
+const diffPoint: Diff<Point> = { diff: ({ x: px, y }) => px - y };
+declare const p: Point;
+export const r = diffPoint.diff(p);
+`);
+    expect(exportLine(result.code, "r")).toBe("export const r = p.x - p.y;");
+  });
+
+  it("a destructured parameter over an effectful argument evaluates it once", () => {
+    const result = transformOne(`
+/** @typeclass */
+interface Show<A> { show(a: A): string; }
+interface Point { x: number; y: number; }
+/** @impl Show<Point> */
+const showPoint: Show<Point> = { show: ({ x, y }) => \`(\${x}, \${y})\` };
+declare function mk(): Point;
+export const r = showPoint.show(mk());
+`);
+    const line = exportLine(result.code, "r")!;
+    // Not rewritten (the argument isn't stable): the IIFE fallback, which
+    // destructures the one value `mk()` returns.
+    expect(line.match(/mk\(\)/g)).toHaveLength(1);
+  });
+
+  it("a rest parameter keeps its arguments' evaluation order", () => {
+    const result = transformOne(`
+/** @typeclass */
+interface Sum<A> { sum(...xs: A[]): number; }
+/** @impl Sum<number> */
+const sumNum: Sum<number> = { sum: (...xs) => xs.length };
+declare function f(): number; declare function g(): number;
+export const r = sumNum.sum(f(), g());
+`);
+    expect(exportLine(result.code, "r")).toBe("export const r = [f(), g()].length;");
   });
 });

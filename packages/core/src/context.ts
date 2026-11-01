@@ -6,7 +6,7 @@ import * as ts from "typescript";
 import { MacroContext, ComptimeValue, MacroDiagnostic } from "./types.js";
 import { HygieneContext, globalHygiene, FileBindingCache } from "./hygiene.js";
 import {
-  stripPositions,
+  cloneNodeDeep,
   isSyntheticNode,
   hasSourceText,
   numberToExpression,
@@ -169,7 +169,7 @@ export class MacroContextImpl implements MacroContext {
       if (decls.length === 1 && declaration.initializer) {
         // Strip positions so the printer generates fresh text instead of
         // extracting from the wrong source file
-        return stripPositions(declaration.initializer);
+        return cloneNodeDeep(declaration.initializer);
       }
     }
 
@@ -196,7 +196,7 @@ export class MacroContextImpl implements MacroContext {
     }
     // Strip positions so the printer generates fresh text instead of
     // extracting from the wrong source file
-    return Array.from(tempSource.statements).map((stmt) => stripPositions(stmt));
+    return Array.from(tempSource.statements).map((stmt) => cloneNodeDeep(stmt));
   }
 
   // -------------------------------------------------------------------------

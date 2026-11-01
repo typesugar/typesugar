@@ -110,6 +110,29 @@ function isDirectiveStatement(s: ts.Statement): boolean {
   return ts.isExpressionStatement(s) && ts.isStringLiteral(s.expression);
 }
 
+/**
+ * Does the output reference a name: some identifier in `statements` spelled
+ * `name`, other than a property name after a dot (`x.name` never reads the
+ * binding). Over-inclusive on purpose — a false "yes" only keeps an import.
+ */
+function referencedNames(statements: readonly ts.Statement[]): (name: string) => boolean {
+  const names = new Set<string>();
+  const visit = (n: ts.Node): void => {
+    if (ts.isIdentifier(n)) {
+      names.add(n.text);
+      return;
+    }
+    // Synthetic nodes have no parents, so skip the `.name` from above.
+    if (ts.isPropertyAccessExpression(n)) {
+      visit(n.expression);
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  statements.forEach(visit);
+  return (name) => names.has(name);
+}
+
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
 
@@ -1066,8 +1089,12 @@ class MacroTransformer {
     }
 
     if (ts.isSourceFile(node)) {
-      const pendingImports = this.ctx.fileBindingCache.getPendingImports();
       const hoistedDecls = this.specCache.getHoistedDeclarations();
+      const pendingImports = this.ctx.fileBindingCache.hasPendingImports()
+        ? this.ctx.fileBindingCache.getPendingImports(
+            referencedNames([...cleanedStatements, ...hoistedDecls])
+          )
+        : [];
 
       if (pendingImports.length > 0 || hoistedDecls.length > 0) {
         // Insert after the leading directive prologue ("use client", "use strict":

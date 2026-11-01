@@ -97,7 +97,7 @@ import {
   type ResolutionTrace,
 } from "@typesugar/core";
 import type { DerivationResult } from "./auto-derive.js";
-import { globalResolutionScope } from "@typesugar/core";
+import { globalResolutionScope, cloneNodeDeep } from "@typesugar/core";
 import {
   TS9001,
   TS9005,
@@ -1772,6 +1772,26 @@ function findCompanionHost(
  *   @impl("Eq<Point>")
  *   export const pointEq: Eq<Point> = { ... };
  */
+/**
+ * The typeclass and type of a bare `@impl`/`@instance` tag, read from the
+ * target const's `: TC<T>` annotation (one type argument, a plain typeclass
+ * name) — the same shape the instance scanner's annotation fallback accepts
+ * (`extractFromTypeAnnotation` in instance-scanner.ts).
+ */
+function implArgsFromAnnotation(
+  target: ts.Declaration
+): { tcName: string; typeName: string } | undefined {
+  const decl = ts.isVariableStatement(target)
+    ? target.declarationList.declarations[0]
+    : ts.isVariableDeclaration(target)
+      ? target
+      : undefined;
+  const type = decl?.type;
+  if (!type || !ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) return undefined;
+  if (type.typeArguments?.length !== 1) return undefined;
+  return { tcName: type.typeName.text, typeName: getNodeText(type.typeArguments[0]) };
+}
+
 export const implAttribute = defineAttributeMacro({
   name: "impl",
   module: "@typesugar/typeclass",
@@ -1787,14 +1807,6 @@ export const implAttribute = defineAttributeMacro({
   ): ts.Node | ts.Node[] {
     const factory = ctx.factory;
 
-    if (args.length === 0) {
-      ctx.reportError(
-        target,
-        "@impl requires arguments: the typeclass and type, as /** @impl Typeclass<Type> */ on a const"
-      );
-      return target;
-    }
-
     // Parse the arguments to extract typeclass name and type name
     let tcName: string | undefined;
     let typeName: string | undefined;
@@ -1802,7 +1814,22 @@ export const implAttribute = defineAttributeMacro({
 
     const firstArg = args[0];
 
-    if (ts.isStringLiteral(firstArg)) {
+    if (args.length === 0) {
+      // Bare `/** @instance */` (PEP-052's design example): the typeclass and
+      // type come from the const's `: TC<T>` annotation, as the instance
+      // scanner already reads it (audit/FABLE-AUDIT-2026-11.md F19).
+      const fromAnnotation = implArgsFromAnnotation(target);
+      if (!fromAnnotation) {
+        ctx.reportError(
+          target,
+          "@impl needs the typeclass and type: write /** @impl Typeclass<Type> */, or annotate the const as `: Typeclass<Type>`"
+        );
+        return target;
+      }
+      tcName = fromAnnotation.tcName;
+      typeName = fromAnnotation.typeName;
+      isHKTInstance = isHKTTypeclass(ctx.program, tcName);
+    } else if (ts.isStringLiteral(firstArg)) {
       const text = firstArg.text;
 
       // Check for "Typeclass<Type>" format using bracket-aware parser
@@ -2255,7 +2282,9 @@ function generateHKTExpandedType(
 
     for (const stmt of tempFile.statements) {
       if (ts.isTypeAliasDeclaration(stmt)) {
-        return stmt.type;
+        // A synthesized copy, not the temp file's own node (see
+        // MacroContextImpl.parseStatements in @typesugar/core).
+        return cloneNodeDeep(stmt.type);
       }
     }
   } catch {
