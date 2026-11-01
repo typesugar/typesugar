@@ -79,10 +79,11 @@ const ShowBoolean: Show<boolean> = {
 ```
 
 Decorators are not valid on a `const` in TypeScript, so an instance is always
-the JSDoc tag, and the tag has to name the typeclass and type (a bare
-`/** @impl */` is an error, "@impl requires arguments"). A `const` whose
-type annotation is `Show<number>` also counts as a `Show<number>` instance for
-resolution, tagged or not.
+the JSDoc tag. A bare `/** @impl */` (or `/** @instance */`) reads the
+typeclass and type from the `const`'s annotation (`const ShowBoolean:
+Show<boolean>`); with neither a tag argument nor such an annotation it is an
+error. A `const` whose type annotation is `Show<number>` also counts as a
+`Show<number>` instance for resolution, tagged or not.
 
 ## Using Typeclasses
 
