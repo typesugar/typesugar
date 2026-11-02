@@ -122,15 +122,17 @@ defaults). The name maps to a config path like this:
 - every other `_` joins words in camelCase: `TYPESUGAR_CONTRACTS_PROVE_AT_COMPILE_TIME`
   → `contracts.proveAtCompileTime`
 
-Values `1`/`true` become `true`, `0`/`false`/empty become `false`, digits become a
-number, and anything else stays a string.
+Values `1`/`true` become `true`, `0`/`false`/empty become `false`, an integer
+written without a leading zero becomes a number, and anything else (including
+`007` and integers too large for a JavaScript number) stays a string.
 
 ```bash
 TYPESUGAR_CONTRACTS_MODE=none typesugar build
 TYPESUGAR_DEBUG=1 typesugar build
 ```
 
-Other variables typesugar reads:
+Other variables typesugar reads. These have their own meaning and are not mapped
+into the config:
 
 | Variable                                  | Effect                                                                                     |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------ |

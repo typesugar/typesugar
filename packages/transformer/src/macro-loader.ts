@@ -196,9 +196,95 @@ interface ManifestFieldInfo {
   req: NodeRequire;
 }
 
+/**
+ * Files whose appearance or change can make something that failed to
+ * resolve resolvable, with their stat signature when it failed. Checked
+ * with a few stat calls, no resolution and nothing thrown.
+ */
+interface ResolutionWatch {
+  paths: string[];
+  signature: string;
+}
+
+function statSignature(paths: readonly string[]): string {
+  return paths
+    .map((p) => {
+      const st = fs.statSync(p, { throwIfNoEntry: false });
+      return st ? String(st.mtimeMs) : "-";
+    })
+    .join("|");
+}
+
+function watchOf(paths: string[]): ResolutionWatch {
+  return { paths, signature: statSignature(paths) };
+}
+
+function hasChanged(watch: ResolutionWatch): boolean {
+  return statSignature(watch.paths) !== watch.signature;
+}
+
+/** `<node_modules>/<pkg>/package.json` wherever `req` would look for `pkg`. */
+function packageJsonPaths(req: NodeRequire, pkg: string): string[] {
+  let dirs: string[] | null = null;
+  try {
+    dirs = req.resolve.paths?.(pkg) ?? null;
+  } catch {
+    dirs = null;
+  }
+  return (dirs ?? []).map((nm) => path.join(nm, pkg, "package.json"));
+}
+
+/**
+ * What to watch after `target` failed to resolve through `req`: the
+ * package's package.json wherever it could be installed, and the files the
+ * target would be once it exists (the package's own guesses: its `exports`
+ * entry for the subpath, or the plain file).
+ */
+function targetWatch(req: NodeRequire, target: string): ResolutionWatch {
+  const fileGuesses = (base: string) => [
+    base,
+    `${base}.js`,
+    `${base}.cjs`,
+    path.join(base, "index.js"),
+  ];
+  if (path.isAbsolute(target)) return watchOf(fileGuesses(target));
+  const pkg = getBasePackageName(target);
+  const sub = target.slice(pkg.length).replace(/^\//, "");
+  const pkgJsons = packageJsonPaths(req, pkg);
+  const paths = [...pkgJsons];
+  const installed = pkgJsons.find((p) => fs.existsSync(p));
+  if (installed) {
+    const dir = path.dirname(installed);
+    let data: { main?: unknown; exports?: unknown } = {};
+    try {
+      data = JSON.parse(fs.readFileSync(installed, "utf-8"));
+    } catch {
+      // An unreadable package.json: its mtime is watched.
+    }
+    paths.push(
+      ...fileGuesses(path.join(dir, sub || (typeof data.main === "string" ? data.main : "index")))
+    );
+    const exports = data.exports as Record<string, unknown> | string | undefined;
+    const entry =
+      typeof exports === "string" && !sub
+        ? exports
+        : exports && typeof exports === "object"
+          ? exports[sub ? `./${sub}` : "."]
+          : undefined;
+    for (const leaf of stringLeaves(entry)) paths.push(path.join(dir, leaf));
+  }
+  return watchOf(paths);
+}
+
+function stringLeaves(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (value && typeof value === "object") return Object.values(value).flatMap(stringLeaves);
+  return [];
+}
+
 /** Outcome of looking a candidate package up (see `discoverPackage`). */
 type PackageDiscovery =
-  | { kind: "unresolved" }
+  | { kind: "unresolved"; watch: ResolutionWatch }
   | { kind: "no-manifest" }
   | ({ kind: "manifest" } & ManifestFieldInfo);
 
@@ -208,16 +294,26 @@ type PackageDiscovery =
  * process. Deliberately does NOT cache the trust decision — that depends on
  * `security.allowedMacroPackages`, which is mutable process-wide config
  * state (`config.set(...)` is a public API), so it's recomputed on every
- * call. Cleared by `resetLoadedPackages` (testing only).
+ * call. An "unresolved" entry is looked up again once its package.json
+ * appears (or changes) in a `node_modules` the importer resolves from (its
+ * `watch`): a host that runs on (tsserver, a dev server, watch) picks up an
+ * install, without resolving again for every file while nothing changed (an
+ * installed ESM-only package that require() can't resolve stays cached).
+ * Cleared by `resetLoadedPackages` (testing only).
  */
 const manifestFieldCache = new Map<string, PackageDiscovery>();
 
 /**
  * Macro targets whose require() threw, with the error message. A failed
  * load is not retried, but every file importing the package still gets the
- * warning (see `loadMacroPackagesFromFile`).
+ * warning (see `loadMacroPackagesFromFile`). A target that could not be
+ * RESOLVED carries a `watch`: it is tried again once a file it would
+ * resolve to appears (a workspace package built after the host started).
  */
-const failedLoads = new Map<NodeRequire, Map<string, string>>();
+const failedLoads = new Map<
+  NodeRequire,
+  Map<string, { message: string; watch?: ResolutionWatch }>
+>();
 
 /**
  * Resolve and parse a package's own package.json, given its base specifier.
@@ -326,10 +422,15 @@ function isTrusted(pkg: string): boolean {
 function discoverPackage(pkg: string, dirs: readonly string[]): PackageDiscovery {
   const key = `${dirs.join("\0")}\0\0${pkg}`;
   const cached = manifestFieldCache.get(key);
-  if (cached) return cached;
+  if (cached && !(cached.kind === "unresolved" && hasChanged(cached.watch))) return cached;
 
-  let result: PackageDiscovery = { kind: "unresolved" };
-  for (const req of requireChain(dirs)) {
+  const chain = requireChain(dirs);
+  let result: PackageDiscovery = {
+    kind: "unresolved",
+    // Taken before resolving: an install racing this lookup is seen next time.
+    watch: watchOf(chain.flatMap((req) => packageJsonPaths(req, pkg))),
+  };
+  for (const req of chain) {
     const resolved = resolvePackageJson(pkg, req);
     if (!resolved) continue;
     result = { kind: "no-manifest" };
@@ -714,9 +815,19 @@ function tryLoadModule(
   let failedForReq = failedLoads.get(req);
   if (!failedForReq) failedLoads.set(req, (failedForReq = new Map()));
   const failed = failedForReq.get(target);
-  if (failed !== undefined) return failed;
+  if (failed !== undefined && !(failed.watch && hasChanged(failed.watch))) return failed.message;
+  let entry: string;
   try {
-    const entry = realPath(req.resolve(target));
+    entry = realPath(req.resolve(target));
+  } catch (error) {
+    // Not resolvable (e.g. no `./macros` subpath, the normal not-yet-split
+    // case for `loadPackage`, or not built yet): tried again when `watch`
+    // changes.
+    const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    failedForReq.set(target, { message, watch: targetWatch(req, target) });
+    return message;
+  }
+  try {
     if (loadedEntries.has(entry)) {
       if (byName) loadedPackageNames.add(pkg);
       return undefined;
@@ -746,7 +857,7 @@ function tryLoadModule(
       }
       if (conflicts.length > 0) {
         const message = `${PARTIAL_LOAD}${conflicts.join("; ")}`;
-        failedForReq.set(target, message);
+        failedForReq.set(target, { message });
         return message;
       }
       if (verbose) {
@@ -765,12 +876,11 @@ function tryLoadModule(
     }
     return undefined;
   } catch (error) {
-    // Not resolvable (e.g. no `./macros` subpath, the normal not-yet-split
-    // case for `loadPackage`) or the module threw while loading. The caller
-    // decides whether that is worth a warning: a manifest-declared target
-    // that fails is (see `loadDiscoveredPackages`).
+    // The module threw while loading. The caller decides whether that (or an
+    // unresolvable target, above) is worth a warning: a manifest-declared
+    // target that fails is (see `loadDiscoveredPackages`).
     const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
-    failedForReq.set(target, message);
+    failedForReq.set(target, { message });
     return message;
   }
 }

@@ -40,6 +40,9 @@ type DtsConfig = Exclude<NonNullable<Options["dts"]>, boolean | string>;
  */
 export const DTS_CACHE_DIR = path.join(".tsup", "typesugar-dts");
 
+/** tsup's CLI options object → the `dts` it carried when withTypesugar first saw it. */
+const cliDts = new WeakMap<Options, { dts: Options["dts"] }>();
+
 /**
  * Add typesugar to a tsup config: its esbuild plugin for the JavaScript, and,
  * when `dts` is set, declarations from the expanded program for tsup's `dts`
@@ -53,11 +56,19 @@ export function withTypesugar(
   pluginOptions?: TypesugarPluginOptions
 ): (overrides?: Options) => Promise<Options> {
   return async (overrides = {}) => {
-    const merged: Options = { ...options, ...overrides };
-    const config: Options = {
+    // The CLI's `dts` as tsup passed it (see below: it is removed from the
+    // shared options object once declarations are computed).
+    if (!cliDts.has(overrides)) cliDts.set(overrides, { dts: overrides.dts });
+    const fromCli = cliDts.get(overrides)!;
+    const merged: Options = {
       ...options,
+      ...overrides,
+      ...(fromCli.dts !== undefined ? { dts: fromCli.dts } : {}),
+    };
+    const config: Options = {
+      ...merged,
       esbuildPlugins: [
-        ...(options.esbuildPlugins ?? []),
+        ...(merged.esbuildPlugins ?? []),
         // unplugin and tsup may type esbuild's Plugin from different esbuild
         // versions; the runtime contract is the same.
         unplugin.esbuild({
@@ -109,6 +120,11 @@ export function withTypesugar(
     };
 
     config.dts = { ...dts, entry: emit() };
+    // tsup spreads its CLI options over the config this returns, so
+    // `tsup --dts` would replace these declarations with `true` (tsup's dts
+    // step over the unexpanded source). `merged` already honours the flag,
+    // and `cliDts` keeps it for any further config built from this object.
+    delete overrides.dts;
 
     // In watch mode tsup's dts step watches the files it bundled; re-emit
     // them after every successful JavaScript rebuild.

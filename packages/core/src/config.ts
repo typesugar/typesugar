@@ -195,9 +195,28 @@ function envKeyToConfigPath(name: string): string {
 }
 
 /**
+ * `TYPESUGAR_*` variables that other code reads straight from `process.env`
+ * with their own meaning (profiling, colour, the language-service plugin,
+ * `cfg()` conditions). They are not config: merged in, they would add stray
+ * keys (`profile`, `verbose`, `show.suppressedDiagnostics`, ...) that
+ * override a user's own same-named keys in config conditions (pre-merge
+ * review 2026-11). Names without the `TYPESUGAR_` prefix.
+ */
+const DIRECT_READ_ENV_VARS = new Set([
+  "PROFILE",
+  "VERBOSE",
+  "NO_COLOR",
+  "SHOW_SUPPRESSED_DIAGNOSTICS",
+  "COMPTIME_IN_EDITOR",
+]);
+/** `TYPESUGAR_CFG_*` sets `cfg()` conditions (`@typesugar/macros`), not config. */
+const CFG_ENV_PREFIX = "CFG_";
+
+/**
  * Load configuration from environment variables.
  * Variables prefixed with TYPESUGAR_ are parsed into the config object
- * (see `envKeyToConfigPath` for the name mapping).
+ * (see `envKeyToConfigPath` for the name mapping), except the ones in
+ * `DIRECT_READ_ENV_VARS` and `TYPESUGAR_CFG_*`.
  *
  * Examples:
  *   TYPESUGAR_DEBUG=1                              → { debug: true }
@@ -214,7 +233,9 @@ function loadConfigFromEnv(): TypesugarConfig {
   const entries: Array<[string, string]> = [];
   for (const [key, value] of Object.entries(proc.env)) {
     if (!key.startsWith(PREFIX) || value === undefined) continue;
-    const configPath = envKeyToConfigPath(key.slice(PREFIX.length));
+    const name = key.slice(PREFIX.length);
+    if (DIRECT_READ_ENV_VARS.has(name) || name.startsWith(CFG_ENV_PREFIX)) continue;
+    const configPath = envKeyToConfigPath(name);
     if (configPath.length > 0) entries.push([configPath, value]);
   }
   // Shallower paths first, so `TYPESUGAR_CONTRACTS=0` can't wipe
@@ -228,8 +249,14 @@ function loadConfigFromEnv(): TypesugarConfig {
       parsedValue = true;
     } else if (value === "0" || value === "false" || value === "") {
       parsedValue = false;
-    } else if (/^\d+$/.test(value)) {
-      parsedValue = parseInt(value, 10);
+    } else if (
+      /^\d+$/.test(value) &&
+      Number.isSafeInteger(Number(value)) &&
+      String(Number(value)) === value
+    ) {
+      // Only canonical integers: `0123` (leading zero) and integers past
+      // 2^53 would not round-trip through a number, so they stay strings.
+      parsedValue = Number(value);
     } else {
       parsedValue = value;
     }

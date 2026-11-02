@@ -785,22 +785,29 @@ const STD_DO_MODULE = "@typesugar/std/syntax/do";
  * Option/Either/IO/List instances) is called by name in the emitted chain,
  * but the user's file usually only imports the type/constructors (or a side-
  * effect marker), not the instance. Import it (aliased if the name is taken)
- * from its activation module: std's do marker for std's own, otherwise the
- * provider's `@do-instance-module` or the static table. An instance declared
- * in this file (no `modulePath`) is already in scope and is left alone.
+ * from the module it was resolved through when that module exports it: this
+ * file's own import of it (`scoped.specifier`, set only for an exported hit),
+ * so a user instance in `./instances` comes from `./instances` whatever its
+ * brand. Otherwise (a non-exported local of the imported module, which the
+ * resolver also accepts), from its activation module:
+ * std's do marker for std's own, otherwise the provider's
+ * `@do-instance-module` or the static table. An instance declared in this
+ * file (no `modulePath`) is already in scope and is left alone.
  */
 export function importSelfReceiver(
   ctx: MacroContext,
-  scoped: Pick<ResolvedDoNotationInstance, "exportName" | "modulePath">,
+  scoped: Pick<ResolvedDoNotationInstance, "exportName" | "modulePath" | "specifier">,
   doMeta: DoNotationMeta,
   brand: string
 ): DoNotationMeta {
   if (doMeta.style !== "static" || doMeta.receiver !== scoped.exportName) return doMeta;
   const isStd = STD_SELF_RECEIVER_INSTANCES.has(scoped.exportName);
   if (!scoped.modulePath && !isStd) return doMeta;
-  const from = isStd
-    ? STD_DO_MODULE
-    : (getDoInstanceModule(ctx.program, brand) ?? KNOWN_DO_INSTANCE_MODULES[brand]);
+  const from =
+    scoped.specifier ??
+    (isStd
+      ? STD_DO_MODULE
+      : (getDoInstanceModule(ctx.program, brand) ?? KNOWN_DO_INSTANCE_MODULES[brand]));
   if (!from) return doMeta;
   const receiverId = ctx.ensureImport(scoped.exportName, from);
   return { ...doMeta, receiver: receiverId.text };

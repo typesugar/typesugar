@@ -67,4 +67,19 @@ describe("checkTypeScript", () => {
     writeProject(tmpDir, "^7.0.0");
     expect(checkTypeScript(tmpDir).status).toBe("fail");
   });
+
+  it("skips (not fails) when there is no package.json", () => {
+    // checkPackageJson already reports the missing file; a second failure
+    // saying it "could not be parsed" was wrong.
+    const r = checkTypeScript(tmpDir);
+    expect(r.status).toBe("skip");
+    expect(r.message).toBe("No package.json");
+  });
+
+  it("still fails on a package.json that does not parse", () => {
+    fs.writeFileSync(path.join(tmpDir, "package.json"), "{ not json");
+    const r = checkTypeScript(tmpDir);
+    expect(r.status).toBe("fail");
+    expect(r.message).toBe("Could not parse package.json");
+  });
 });

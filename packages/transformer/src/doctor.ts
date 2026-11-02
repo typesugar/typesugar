@@ -157,8 +157,10 @@ function checkPackageJson(cwd: string): DiagnosticCheck {
 export function checkTypeScript(cwd: string): DiagnosticCheck {
   const name = "TypeScript installed";
   const fix = "npm install --save-dev typescript@6";
+  const pkgPath = path.join(cwd, "package.json");
+  // checkPackageJson reports a missing package.json.
+  if (!fs.existsSync(pkgPath)) return { name, status: "skip", message: "No package.json" };
   try {
-    const pkgPath = path.join(cwd, "package.json");
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 

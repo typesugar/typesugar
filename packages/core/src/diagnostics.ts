@@ -1407,6 +1407,24 @@ Solutions:
   seeAlso: "https://typesugar.org/errors/TS9703",
 };
 
+export const TS9704: DiagnosticDescriptor = {
+  code: 9704,
+  severity: "warning",
+  category: DiagnosticCategory.ImportResolution,
+  messageTemplate:
+    "macro package '{package}' could not be resolved or loaded; its macros will not be expanded",
+  explanation: `The file imports a package that declares typesugar macros, but its macros could
+not be loaded, so calls to them are left unexpanded. Either the package could not be
+resolved from the importing file (it is not installed in this project), or its macro
+entry was found but threw while loading. The warning names which.
+
+Solutions:
+1. Install the package in the project that imports it (\`pnpm add <package>\`)
+2. If loading failed, fix or update the package; the warning includes the error
+3. If the package is imported by a relative path, check the path and its build output`,
+  seeAlso: "https://typesugar.org/errors/TS9704",
+};
+
 // ============================================================================
 // Error Catalog: Operator System (9800-9899)
 // ============================================================================
@@ -1614,6 +1632,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9701, TS9701],
   [9702, TS9702],
   [9703, TS9703],
+  [9704, TS9704],
 
   // Operator System (9800-9899)
   [9800, TS9800],

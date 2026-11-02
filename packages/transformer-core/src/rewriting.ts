@@ -668,6 +668,12 @@ export function tryRewriteTypeclassOperator(
     chainType = rewrittenOperandType(ctx, node.left, activatedForOps, chainHooks(ctx));
     if (!chainType) return undefined;
   }
+  // A literal left operand (`1 + n`, `"a" + s`) is primitive by the language's
+  // own rules: it never dispatches, nor needs a TS9804 hint. Decided without
+  // the checker, so plain arithmetic in a file that activated nothing costs
+  // no checker call (the hint pre-check below is true in any program that
+  // declares an `@op` typeclass, activated in this file or not).
+  if (isPrimitiveLiteralExpr(node.left)) return undefined;
   if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getOperatorString(node.operatorToken.kind);
@@ -720,16 +726,21 @@ export function tryRewriteTypeclassOperator(
   // run time (see buildNullSafeComparison), instead of passing it to the
   // instance, which would throw. Decided by the type's flags, not its text.
   const nullableLeft = admitsNullish(leftType);
-  let typeName: string;
   try {
     if (nullableLeft) leftType = ctx.typeChecker.getNonNullableType(leftType);
-    typeName = ctx.typeChecker.typeToString(leftType);
   } catch (error) {
     return operandTypeFailed(error);
   }
   // Primitive by the type's flags, not its printed name (CLAUDE.md "by identity").
+  // Checked before printing the type, which only messages need.
   if (isPrimitiveByFlags(leftType)) {
     return undefined;
+  }
+  let typeName: string;
+  try {
+    typeName = ctx.typeChecker.typeToString(leftType);
+  } catch (error) {
+    return operandTypeFailed(error);
   }
 
   // The right operand may be a rewritten operator too (`a + b * 2`: `b * 2`
@@ -1136,6 +1147,24 @@ function getPrefixUnaryOperatorString(kind: ts.SyntaxKind): string | undefined {
 }
 
 /**
+ * A literal whose type is primitive by the language's own rules (a number,
+ * bigint, string or template literal, `true`/`false`), parentheses looked
+ * through: syntax alone says it can't be an instance type.
+ */
+function isPrimitiveLiteralExpr(e: ts.Expression): boolean {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return (
+    ts.isNumericLiteral(e) ||
+    ts.isBigIntLiteral(e) ||
+    ts.isStringLiteral(e) ||
+    ts.isNoSubstitutionTemplateLiteral(e) ||
+    ts.isTemplateExpression(e) ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+/**
  * Prefix-unary counterpart of {@link tryRewriteTypeclassOperator}: `-v` →
  * `instance.negate(v)` when an activated typeclass declares `@op -` on a
  * ONE-parameter method (`negate(a: A): A`) and an instance for the operand's
@@ -1168,12 +1197,12 @@ export function tryRewriteTypeclassUnaryOperator(
   const mayHint = mayNeedOperatorActivationHint(ctx, node, opString, "unary", activatedForOps);
   if (candidates.length === 0 && !mayHint) return undefined;
   if (isNullOrUndefinedExpr(node.operand)) return undefined;
+  // A literal operand (`-1`, `!true`) is primitive: no checker call (see the binary form).
+  if (isPrimitiveLiteralExpr(node.operand)) return undefined;
 
   let operandType: ts.Type;
-  let typeName: string;
   try {
     operandType = ctx.typeChecker.getTypeAtLocation(node.operand);
-    typeName = ctx.typeChecker.typeToString(operandType);
   } catch (error) {
     ctx.reportWarning(
       node,
@@ -1190,6 +1219,20 @@ export function tryRewriteTypeclassUnaryOperator(
   // primitive too, which the printed name of its base type only matched
   // for some primitives.
   if (isPrimitiveByFlags(operandType)) return undefined;
+  let typeName: string;
+  try {
+    typeName = ctx.typeChecker.typeToString(operandType);
+  } catch (error) {
+    ctx.reportWarning(
+      node,
+      candidates.length > 0
+        ? `typesugar skipped typeclass operator rewrite of unary '${opString}': ` +
+            `the operand type could not be resolved (${error}).`
+        : `typesugar could not check whether unary '${opString}' needs a typeclass ` +
+            `operator-syntax import: the operand type could not be resolved (${error}).`
+    );
+    return undefined;
+  }
 
   let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
   for (const candidate of candidates) {

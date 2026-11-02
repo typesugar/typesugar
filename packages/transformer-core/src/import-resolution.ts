@@ -513,6 +513,11 @@ function candidatesFor(name: string, kind: MacroDefinition["kind"]): readonly Ma
   return one ? [one] : [];
 }
 
+/** Is any macro of `kind` registered under `name` (by any module, or none)? */
+export function isMacroNameRegistered(name: string, kind: MacroDefinition["kind"]): boolean {
+  return candidatesFor(name, kind).length > 0;
+}
+
 function bareNameLookup(name: string, kind: MacroDefinition["kind"]): MacroDefinition | undefined {
   switch (kind) {
     case "expression":
@@ -668,7 +673,17 @@ export function lookupMacroByName(
 // Symbol-to-macro resolution
 // ---------------------------------------------------------------------------
 
-let macroModulesCache: { size: number; modules: Set<string> } | undefined;
+/**
+ * `isMacroModuleSpecifier`'s index of registered macro modules, and what it
+ * was built from: the registry's `version` (bumped by every register/clear),
+ * or -- for a `globalRegistry` from an older @typesugar/core copy sharing the
+ * `globalThis` slot, which has no `version` -- the registry's length and its
+ * last macro, so a `clear()` followed by re-registering the same NUMBER of
+ * different macros is still seen.
+ */
+let macroModulesCache:
+  | { version: number | undefined; size: number; last: unknown; modules: Set<string> }
+  | undefined;
 
 /**
  * Whether a module specifier (as returned by `resolveModuleSpecifier`) is a
@@ -677,18 +692,35 @@ let macroModulesCache: { size: number; modules: Set<string> } | undefined;
  * packages). An arbitrary `node_modules` package (rxjs, lodash, ...) is not,
  * so a declaration living there must not enable the name-based fallback
  * (deep-review core #2: `obs.pipe(...)` on an rxjs Observable was expanded as
- * the `pipe` macro whenever the file imported `pipe`). Memoised on registry
- * size, since macros are only ever added.
+ * the `pipe` macro whenever the file imported `pipe`). Memoised on the
+ * registry's version, so the hot path does not copy the registry per call.
  */
 export function isMacroModuleSpecifier(spec: string): boolean {
   if (spec === "typesugar" || spec.startsWith("@typesugar/")) return true;
+  const version = (globalRegistry as { version?: unknown }).version;
+  if (typeof version === "number") {
+    if (macroModulesCache?.version !== version) {
+      macroModulesCache = { version, size: -1, last: undefined, modules: modulesOf() };
+    }
+    return macroModulesCache.modules.has(spec);
+  }
   const all = globalRegistry.getAll();
-  if (!macroModulesCache || macroModulesCache.size !== all.length) {
-    const modules = new Set<string>();
-    for (const m of all) if (m.module) modules.add(m.module);
-    macroModulesCache = { size: all.length, modules };
+  const last = all[all.length - 1];
+  if (
+    !macroModulesCache ||
+    macroModulesCache.version !== undefined ||
+    macroModulesCache.size !== all.length ||
+    macroModulesCache.last !== last
+  ) {
+    macroModulesCache = { version: undefined, size: all.length, last, modules: modulesOf(all) };
   }
   return macroModulesCache.modules.has(spec);
+}
+
+function modulesOf(all: readonly MacroDefinition[] = globalRegistry.getAll()): Set<string> {
+  const modules = new Set<string>();
+  for (const m of all) if (m.module) modules.add(m.module);
+  return modules;
 }
 
 /**
@@ -792,7 +824,13 @@ export function resolveSymbolToMacro(
 /**
  * Resolve an identifier to a macro definition via import tracking.
  */
-const boundInProgram = new WeakMap<ts.SourceFile, boolean>();
+/**
+ * Per program, per SourceFile: is the file the program's own copy? Keyed by
+ * program too: a SourceFile object is reused across programs (watch mode and
+ * the language service hand an unchanged file to the next program), and its
+ * verdict for one program says nothing about the next.
+ */
+const boundInProgram = new WeakMap<ts.Program, WeakMap<ts.SourceFile, boolean>>();
 
 /**
  * Is `node` part of a SourceFile the program's checker has bound (the
@@ -802,10 +840,12 @@ const boundInProgram = new WeakMap<ts.SourceFile, boolean>();
 export function isNodeInProgram(program: ts.Program, node: ts.Node): boolean {
   const sf = node.getSourceFile();
   if (!sf) return false;
-  let bound = boundInProgram.get(sf);
+  let byFile = boundInProgram.get(program);
+  if (!byFile) boundInProgram.set(program, (byFile = new WeakMap()));
+  let bound = byFile.get(sf);
   if (bound === undefined) {
     bound = program.getSourceFile(sf.fileName) === sf;
-    boundInProgram.set(sf, bound);
+    byFile.set(sf, bound);
   }
   return bound;
 }

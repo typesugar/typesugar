@@ -152,6 +152,9 @@ function lineColumn(text: string, pos: number): { line: number; column: number }
   return { line, column: pos - lineStart };
 }
 
+/** A pattern naming one source file the plugin handles: a valid glob as written. */
+const SOURCE_FILE_PATTERN = /(?:^|\/)[^/.][^/]*\.[cm]?[jt]sx?$/;
+
 /** Patterns already warned about in this process (warn once, not per plugin instance). */
 const warnedPlainPatterns = new Set<string>();
 
@@ -170,7 +173,10 @@ function suggestGlob(pattern: string): string {
  * include/exclude strings used to be substring matches; they are globs now,
  * so an old config like `exclude: ["tests"]` silently stops matching. Warn
  * (once per pattern) about any string with no glob metacharacters that is not
- * an absolute path, since that is almost always a substring-era pattern.
+ * an absolute path, since that is almost always a substring-era pattern. A
+ * source file (`src/main.ts`, `setup.ts`) is not: as a glob it matches that
+ * file, and `src/main.ts/**` would match nothing. A dotted directory name
+ * (`node_modules/lodash.merge`) still warns.
  */
 function warnAboutPlainPatterns(...patterns: Array<FilterPattern | undefined>): void {
   for (const pattern of patterns) {
@@ -179,6 +185,7 @@ function warnAboutPlainPatterns(...patterns: Array<FilterPattern | undefined>): 
       if (typeof p !== "string" || p === "") continue;
       if (/[*?[\]{}!]/.test(p)) continue;
       if (path.isAbsolute(p) || path.win32.isAbsolute(p)) continue;
+      if (SOURCE_FILE_PATTERN.test(p)) continue;
       if (warnedPlainPatterns.has(p)) continue;
       warnedPlainPatterns.add(p);
       console.warn(

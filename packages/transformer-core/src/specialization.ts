@@ -1584,7 +1584,7 @@ function findUnfilledImplicitCall(
           | undefined;
         const params = decl?.parameters;
         if (params) {
-          for (let i = n.arguments.length; i < params.length; i++) {
+          for (let i = filledArgumentCount(ctx, n); i < params.length; i++) {
             if (isImplicitDefault(params[i].initializer)) {
               found = ts.isIdentifier(n.expression)
                 ? n.expression.text
@@ -1603,6 +1603,30 @@ function findUnfilledImplicitCall(
   };
   if (fn.body) visit(fn.body);
   return found;
+}
+
+/**
+ * How many leading parameters `call`'s arguments are sure to fill. A spread
+ * argument (`f(...args)`) fills as many as its tuple type's required
+ * elements, not one: TypeScript only accepts a spread into non-rest
+ * parameters when it is a tuple. A spread of anything else (an array into a
+ * rest parameter) ends the count, so later parameters count as unfilled — the
+ * cautious answer, which keeps dictionary passing.
+ */
+function filledArgumentCount(ctx: MacroContextImpl, call: ts.CallExpression): number {
+  let count = 0;
+  for (const arg of call.arguments) {
+    if (!ts.isSpreadElement(arg)) {
+      count++;
+      continue;
+    }
+    const type = ctx.typeChecker.getTypeAtLocation(arg.expression);
+    if (!ctx.typeChecker.isTupleType(type)) return count;
+    const tuple = (type as ts.TypeReference).target as ts.TupleType;
+    count += tuple.minLength;
+    if (tuple.hasRestElement || tuple.minLength < tuple.fixedLength) return count;
+  }
+  return count;
 }
 
 /**

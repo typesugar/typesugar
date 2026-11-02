@@ -33,6 +33,7 @@ import {
 
 // Import runtime placeholders for fallback behavior testing
 import {
+  __seededRandom,
   assert,
   staticAssert,
   assertSnapshot,
@@ -187,6 +188,26 @@ describe("powerAssert macro definition (backward compat)", () => {
   it("should have correct metadata", () => {
     expect(powerAssertMacro.name).toBe("powerAssert");
     expect(powerAssertMacro.kind).toBe("expression");
+  });
+});
+
+describe("__seededRandom", () => {
+  it("returns values in [0, 1), never exactly 1", () => {
+    // Pick the seed whose first LCG state is 0xffffffff (the largest 32-bit
+    // state): seed = (2^32 - 1 - c) · a⁻¹ mod 2^32.
+    const M = 1n << 32n;
+    const a = 1664525n;
+    const c = 1013904223n;
+    let inv = 1n;
+    for (let i = 0; i < 5; i++) inv = (inv * (2n - a * inv)) % M; // Newton: a·inv ≡ 1
+    const seed = Number(((((M - 1n - c) * ((inv + M) % M)) % M) + M) % M);
+    const v = __seededRandom(seed)();
+    expect(v).toBeLessThan(1);
+    const rng = __seededRandom(12345);
+    for (let i = 0; i < 1000; i++) {
+      const x = rng();
+      expect(x >= 0 && x < 1).toBe(true);
+    }
   });
 });
 

@@ -25,6 +25,7 @@ import {
   assertSupportedTypeScript,
   opaqueTypesAsUnderlying,
   forEachDescendant,
+  TS9704,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
 import {
@@ -449,7 +450,7 @@ export function macroTransformerFactory(
           length: w.node.end - start,
           messageText: `[typesugar] ${w.message}`,
           category: ts.DiagnosticCategory.Warning,
-          code: 9999,
+          code: TS9704.code,
           source: "typesugar",
         };
         (

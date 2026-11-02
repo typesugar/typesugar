@@ -218,6 +218,23 @@ describe("C#15: TypedQuery/TypedUpdate/Query methods are not no-ops", () => {
     ).rejects.toThrow(/at most one row.*2/);
   });
 
+  it("unique()/option() on a query with no decoder still accept a Read", async () => {
+    const one = Transactor.fromConnection(mockConn([users[0]]));
+    const q = selectFrag().toQuery();
+    expect(q.unique().decoder).toBeUndefined();
+    expect(q.option().decoder).toBeUndefined();
+    expect(await one.run(ConnectionIO.query(q.unique(), ReadUser))).toEqual({
+      id: 1,
+      userName: "a",
+    });
+    expect(await one.run(ConnectionIO.query(q.option(), ReadUser))).toEqual({
+      id: 1,
+      userName: "a",
+    });
+    // A decoder set before unique() is kept, so a Read is still rejected.
+    expect(() => ConnectionIO.query(q.to(ReadUser).unique(), ReadUser)).toThrow(/already/);
+  });
+
   it("TypedUpdate.run() executes and returns the affected count", async () => {
     const conn = mockConn([], 4);
     const upd = new TypedFragment<[number], void>(

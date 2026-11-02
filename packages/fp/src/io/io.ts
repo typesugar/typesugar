@@ -103,6 +103,12 @@ interface HandleError<A> {
 interface Attempt<A> {
   readonly _tag: "Attempt";
   readonly fa: IO<A>;
+  /**
+   * Internal: also catch `IOCancelledError`. Only the finalizer combinators
+   * (`guarantee`/`bracket`/`onError`) set this, and they always re-raise the
+   * error after their finalizer, so a cancelled fiber still cannot recover.
+   */
+  readonly seesCancel?: true;
 }
 
 /**
@@ -219,7 +225,9 @@ export const IO = {
   },
 
   /**
-   * Attempt - convert errors to Either
+   * Attempt - convert errors to Either. `IOCancelledError` is not caught:
+   * a cancelled race/timeout loser cannot recover through `attempt` (nor
+   * through `redeem`/`redeemWith`, which are built on it).
    */
   attempt<A>(fa: IO<A>): IO<Either<Error, A>> {
     return { _tag: "Attempt", fa } as unknown as IO<Either<Error, A>>;
@@ -475,7 +483,7 @@ export const IO = {
    */
   bracket<R, A>(acquire: IO<R>, use: (r: R) => IO<A>, release: (r: R) => IO<void>): IO<A> {
     return IO.flatMap(acquire, (r) =>
-      IO.flatMap(IO.attempt(use(r)), (result): IO<A> => {
+      IO.flatMap(attemptForFinalizer(use(r)), (result): IO<A> => {
         return IO.flatMap(release(r), () => {
           if (isLeft(result)) {
             return IO.raiseError(result.left!);
@@ -490,7 +498,7 @@ export const IO = {
    * Guarantee - always run finalizer
    */
   guarantee<A>(fa: IO<A>, finalizer: IO<void>): IO<A> {
-    return IO.flatMap(IO.attempt(fa), (result) => {
+    return IO.flatMap(attemptForFinalizer(fa), (result) => {
       return IO.flatMap(finalizer, () => {
         if (isLeft(result)) {
           return IO.raiseError(result.left!);
@@ -504,7 +512,7 @@ export const IO = {
    * OnError - run an action when error occurs
    */
   onError<A>(fa: IO<A>, handler: (e: Error) => IO<void>): IO<A> {
-    return IO.flatMap(IO.attempt(fa), (result) => {
+    return IO.flatMap(attemptForFinalizer(fa), (result) => {
       if (isLeft(result)) {
         return IO.flatMap(handler(result.left!), () => IO.raiseError(result.left!));
       }
@@ -606,8 +614,9 @@ export const IO = {
 /**
  * Raised inside a fiber that was cancelled (the loser of `IO.race` /
  * `IO.timeout`). It is delivered at the fiber's pending async step so that
- * `guarantee`/`bracket`/`onError` finalizers still run; `handleError`
- * handlers are NOT invoked for it (a cancelled fiber cannot "recover").
+ * `guarantee`/`bracket`/`onError` finalizers still run (and the error is
+ * re-raised after them); `handleError` handlers, `attempt`, `redeem` and
+ * `redeemWith` do NOT see it (a cancelled fiber cannot "recover").
  */
 export class IOCancelledError extends Error {
   constructor() {
@@ -626,9 +635,16 @@ export class IOCancelledError extends Error {
 type Frame =
   | { readonly k: 0; readonly f: (a: unknown) => IO<unknown> } // continuation
   | { readonly k: 1; readonly handler: (e: Error) => IO<unknown> } // HandleError
-  | { readonly k: 2 }; // Attempt
+  | { readonly k: 2 } // Attempt (user-level: skips IOCancelledError)
+  | { readonly k: 3 }; // Attempt that also catches IOCancelledError (finalizers)
 
 const ATTEMPT_FRAME: Frame = { k: 2 };
+const ATTEMPT_CANCEL_FRAME: Frame = { k: 3 };
+
+/** Attempt for the finalizer combinators only; they must re-raise a Left. */
+function attemptForFinalizer<A>(fa: IO<A>): IO<Either<Error, A>> {
+  return { _tag: "Attempt", fa, seesCancel: true } as unknown as IO<Either<Error, A>>;
+}
 
 function toError(e: unknown): Error {
   return e instanceof Error ? e : new Error(String(e));
@@ -699,7 +715,7 @@ function runFiber<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): () => v
             current = c.fa;
             break;
           case "Attempt":
-            stack.push(ATTEMPT_FRAME);
+            stack.push(c.seesCancel ? ATTEMPT_CANCEL_FRAME : ATTEMPT_FRAME);
             current = c.fa;
             break;
           case "Async":
@@ -764,15 +780,15 @@ function runFiber<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): () => v
       if (hasError) {
         let frame: Frame | undefined;
         while ((frame = stack.pop()) !== undefined) {
-          if (frame.k === 2) break;
-          if (frame.k === 1 && !(err instanceof IOCancelledError)) break;
+          if (frame.k === 3) break;
+          if (frame.k !== 0 && !(err instanceof IOCancelledError)) break;
         }
         if (frame === undefined) {
           finish(Left(err!) as Either<Error, A>);
           return;
         }
         hasError = false;
-        if (frame.k === 2) {
+        if (frame.k === 2 || frame.k === 3) {
           val = Left(err!);
         } else {
           try {
@@ -797,7 +813,7 @@ function runFiber<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): () => v
           err = toError(e);
           hasError = true;
         }
-      } else if (frame.k === 2) {
+      } else if (frame.k === 2 || frame.k === 3) {
         val = Right(val);
       }
       // k === 1 on success: handler goes out of scope, value passes through.
@@ -894,7 +910,7 @@ export function runIOSync<A>(io: IO<A>): A {
           current = c.fa;
           break;
         case "Attempt":
-          stack.push(ATTEMPT_FRAME);
+          stack.push(c.seesCancel ? ATTEMPT_CANCEL_FRAME : ATTEMPT_FRAME);
           current = c.fa;
           break;
         case "Async":
@@ -916,7 +932,7 @@ export function runIOSync<A>(io: IO<A>): A {
       }
       if (frame === undefined) throw err;
       hasError = false;
-      if (frame.k === 2) {
+      if (frame.k === 2 || frame.k === 3) {
         val = Left(err!);
       } else {
         try {
@@ -938,7 +954,7 @@ export function runIOSync<A>(io: IO<A>): A {
         err = toError(e);
         hasError = true;
       }
-    } else if (frame.k === 2) {
+    } else if (frame.k === 2 || frame.k === 3) {
       val = Right(val);
     }
   }

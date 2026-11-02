@@ -245,7 +245,8 @@ export function __seededRandom(seed: number): () => number {
   let s = seed;
   return () => {
     s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return (s >>> 0) / 0xffffffff;
+    // s >>> 0 is in [0, 2^32 − 1]; dividing by 2^32 keeps the result in [0, 1).
+    return (s >>> 0) / 4294967296;
   };
 }
 

@@ -227,7 +227,10 @@ export class TypedQuery<P extends readonly unknown[], R> {
     return this.decoder ? this.decoder(row) : (row as R);
   }
 
-  private derive<R2>(decoder: RowDecoder<R2>, cardinality = this.cardinality): TypedQuery<P, R2> {
+  private derive<R2>(
+    decoder: RowDecoder<R2> | undefined,
+    cardinality = this.cardinality
+  ): TypedQuery<P, R2> {
     return new TypedQuery(this.fragment as unknown as TypedFragment<P, R2>, {
       decoder,
       cardinality,
@@ -254,7 +257,9 @@ export class TypedQuery<P extends readonly unknown[], R> {
    * Expect exactly one row: running the query fails unless one row comes back.
    */
   unique(): TypedQuery<P, R> {
-    return this.derive((row) => this.decode(row), "unique");
+    // Keep the decoder as-is (including "none"): wrapping a missing decoder
+    // would make ConnectionIO.query(q.unique(), read) reject the Read.
+    return this.derive(this.decoder, "unique");
   }
 
   /**
@@ -262,7 +267,7 @@ export class TypedQuery<P extends readonly unknown[], R> {
    * fails for more than one.
    */
   option(): TypedQuery<P, R | null> {
-    return this.derive<R | null>((row) => this.decode(row), "option");
+    return this.derive<R | null>(this.decoder, "option");
   }
 }
 

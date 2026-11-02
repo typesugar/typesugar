@@ -582,7 +582,9 @@ function init(modules: { typescript: typeof ts }) {
       for (const fileChange of changes) {
         const textChanges: ts.TextChange[] = [];
         for (const change of fileChange.textChanges) {
-          const span = toSourceSpan(fileChange.fileName, change.span);
+          const span =
+            toSourceSpan(fileChange.fileName, change.span) ??
+            toSourceInsertionPoint(fileChange.fileName, change.span);
           if (!span) {
             log(
               `${what} edits macro-generated code in ${path.basename(fileChange.fileName)} ` +
@@ -595,6 +597,52 @@ function init(modules: { typescript: typeof ts }) {
         mapped.push({ ...fileChange, textChanges });
       }
       return mapped;
+    }
+
+    /**
+     * An edit's insertion point (an empty span) that toSourceSpan rejected,
+     * placed by the user's text that follows it. "Add missing import" inserts
+     * before the first statement after the imports; when the transform
+     * removed the import before it (a macro import), that statement often
+     * starts with a comment or JSDoc, which has no mapping of its own, so the
+     * fix was dropped. The text from the insertion point up to the next
+     * position that maps onto the same character in the source must also be
+     * the text just before that position in the source (whitespace aside);
+     * the insertion goes before it there. Generated text in between is not in
+     * the source, so an insertion next to generated code is still rejected.
+     */
+    function toSourceInsertionPoint(fileName: string, span: ts.TextSpan): ts.TextSpan | null {
+      if (span.length !== 0) return null;
+      const result = expandedResult(fileName);
+      if (!result) return null;
+      const { original, code, mapper } = result;
+      const limit = Math.min(code.length, span.start + 2000);
+      let anchor = -1;
+      let anchorOriginal = -1;
+      for (let p = span.start; p < limit; p++) {
+        if (/\s/.test(code[p])) continue;
+        const o = mapper.toOriginal(p);
+        if (o !== null && original[o] === code[p]) {
+          anchor = p;
+          anchorOriginal = o;
+          break;
+        }
+      }
+      if (anchor < 0) return null;
+      // Walk back from the anchor in both texts over the in-between text.
+      let o = anchorOriginal;
+      for (let p = anchor - 1; p >= span.start; p--) {
+        if (/\s/.test(code[p])) continue;
+        while (o > 0 && /\s/.test(original[o - 1])) o--;
+        if (o === 0 || original[o - 1] !== code[p]) return null;
+        o--;
+      }
+      // TypeScript inserts at a line start: keep the source's indentation
+      // after the insertion, not before it.
+      if (span.start === 0 || code[span.start - 1] === "\n") {
+        while (o > 0 && (original[o - 1] === " " || original[o - 1] === "\t")) o--;
+      }
+      return { start: o, length: 0 };
     }
 
     /**
@@ -613,6 +661,8 @@ function init(modules: { typescript: typeof ts }) {
 
     /** Line starts of the source text, for toLineColumnOffset (cached per transform). */
     const sourceLineStarts = new WeakMap<TransformResult, number[]>();
+    /** Call ends of the source text, for expansion inlay hints (cached per transform). */
+    const sourceCallEndsCache = new WeakMap<TransformResult, Map<number, number>>();
 
     // ---------------------------------------------------------------------------
     // Register diagnostic suppression rules
@@ -1717,16 +1767,27 @@ function init(modules: { typescript: typeof ts }) {
       );
     }
 
-    /** Original-source position/range → the transformed program's, or null if unmappable. */
+    /**
+     * Original-source position/range → the transformed program's, or null if
+     * unmappable. A range is mapped as a range (toTransformedRange), as for
+     * code fixes: a selection's end is often on a position with no mapping of
+     * its own (a block's closing brace, the end of the file, a comment), and
+     * mapping both ends exactly offered no refactor there. The edits a
+     * refactor returns are still checked against the user's text
+     * (toSourceEdits).
+     */
     function toTransformedPositionOrRange(
       fileName: string,
       positionOrRange: number | ts.TextRange
     ): number | ts.TextRange | null {
-      const mapper = getMapper(fileName);
-      if (typeof positionOrRange === "number") return mapper.toTransformed(positionOrRange);
-      const pos = mapper.toTransformed(positionOrRange.pos);
-      const end = mapper.toTransformed(positionOrRange.end);
-      return pos === null || end === null ? null : { pos, end };
+      if (typeof positionOrRange === "number") {
+        return getMapper(fileName).toTransformed(positionOrRange);
+      }
+      const range = toTransformedRange(fileName, {
+        start: positionOrRange.pos,
+        length: positionOrRange.end - positionOrRange.pos,
+      });
+      return range ? { pos: range.start, end: range.start + range.length } : null;
     }
 
     proxy.getApplicableRefactors = (
@@ -1917,15 +1978,16 @@ function init(modules: { typescript: typeof ts }) {
       return rest;
     }
 
-    function expansionHints(
-      result: TransformResult,
-      fileName: string,
-      span: ts.TextSpan
-    ): ts.InlayHint[] {
-      if (!result.expansions?.length) return [];
-      // Expansion records carry the macro call's offsets; only show a hint
-      // where the original text really has a call / tagged template there
-      // (decorator and block macros would be noise as an inline hint).
+    /**
+     * Where each call / tagged template in the source ends, by its start.
+     * Expansion records carry the macro call's offsets; only show a hint
+     * where the original text really has a call / tagged template there
+     * (decorator and block macros would be noise as an inline hint). Parsed
+     * once per transform: the editor asks for hints on every scroll.
+     */
+    function sourceCallEnds(result: TransformResult, fileName: string): Map<number, number> {
+      const cached = sourceCallEndsCache.get(result);
+      if (cached) return cached;
       const sf = tsModule.createSourceFile(
         fileName,
         result.original,
@@ -1941,6 +2003,17 @@ function init(modules: { typescript: typeof ts }) {
         tsModule.forEachChild(node, visit);
       };
       visit(sf);
+      sourceCallEndsCache.set(result, callEnds);
+      return callEnds;
+    }
+
+    function expansionHints(
+      result: TransformResult,
+      fileName: string,
+      span: ts.TextSpan
+    ): ts.InlayHint[] {
+      if (!result.expansions?.length) return [];
+      const callEnds = sourceCallEnds(result, fileName);
 
       const spanEnd = span.start + span.length;
       const hints: ts.InlayHint[] = [];
@@ -1966,12 +2039,23 @@ function init(modules: { typescript: typeof ts }) {
     function findExpansionAt(fileName: string, position: number): ExpandMacroResponse | null {
       const expansions = getTransformResult(path.normalize(fileName))?.expansions;
       if (!expansions) return null;
+      // The innermost expansion the cursor is in (a macro call inside a
+      // labeled block, an extension call's macro argument): the records are
+      // in no particular nesting order, so the first match can be the outer one.
+      let inside: (typeof expansions)[number] | undefined;
+      for (const exp of expansions) {
+        if (position < exp.originalStart || position > exp.originalEnd) continue;
+        if (
+          !inside ||
+          exp.originalEnd - exp.originalStart < inside.originalEnd - inside.originalStart
+        ) {
+          inside = exp;
+        }
+      }
+      if (inside) return { macroName: inside.macroName, expandedText: inside.expandedText };
       let best: ExpandMacroResponse | null = null;
       let bestDist = Infinity;
       for (const exp of expansions) {
-        if (position >= exp.originalStart && position <= exp.originalEnd) {
-          return { macroName: exp.macroName, expandedText: exp.expandedText };
-        }
         const dist = Math.min(
           Math.abs(position - exp.originalStart),
           Math.abs(position - exp.originalEnd)

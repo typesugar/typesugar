@@ -1419,7 +1419,15 @@ function findScannedInScope(
   match: (inst: ScannedInstance) => boolean,
   scanner: InstanceScanner = defaultScanner,
   includeNonExportedImports = true
-): { instance: ScannedInstance; modulePath?: string; specifier?: string } | undefined {
+):
+  | {
+      instance: ScannedInstance;
+      modulePath?: string;
+      specifier?: string;
+      /** The instance is an export of `specifier` (not a non-exported local of that module). */
+      exported?: boolean;
+    }
+  | undefined {
   // A `derived<TC<T>>()` const whose derivation failed is the un-expanded
   // stub, not an instance: dropped here exactly as resolveInstance drops it
   // (dropFailedDerivations, which reads the live per-program outcome
@@ -1458,14 +1466,22 @@ function findScannedInScope(
       ctx.program,
       scanWarnings(ctx)
     );
+    const exportedHit = live(scanned)[0];
     const hit =
-      live(scanned)[0] ??
+      exportedHit ??
       (includeNonExportedImports
         ? live(
             scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program, scanWarnings(ctx))
           )[0]
         : undefined);
-    if (hit) return { instance: hit, modulePath: entry.resolvedPath, specifier: entry.specifier };
+    if (hit) {
+      return {
+        instance: hit,
+        modulePath: entry.resolvedPath,
+        specifier: entry.specifier,
+        exported: hit === exportedHit,
+      };
+    }
   }
 
   return undefined;
@@ -1499,6 +1515,14 @@ export interface ResolvedDoNotationInstance {
   exportName: string;
   /** Resolved file path for an imported instance; undefined for local-file hits. */
   modulePath?: string;
+  /**
+   * The specifier of THIS file's import that EXPORTS the instance
+   * (`"./instances"`, `"@typesugar/fp"`): an emitted reference to it can be
+   * imported from here. Undefined for local-file hits, and for an instance
+   * found only as a non-exported local of the imported module (in scope for
+   * resolution, but not importable from that specifier).
+   */
+  specifier?: string;
   /** `@do-methods` metadata, when the instance declares any. */
   doMeta?: DoNotationMeta;
 }
@@ -1570,6 +1594,7 @@ function resolveDoNotationInstanceUncached(
   return {
     exportName: hit.instance.exportName,
     modulePath: hit.modulePath,
+    specifier: hit.exported ? hit.specifier : undefined,
     doMeta: hit.instance.doMeta,
   };
 }

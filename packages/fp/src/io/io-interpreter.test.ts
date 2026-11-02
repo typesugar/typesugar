@@ -173,6 +173,60 @@ describe("IO race/timeout cancel the loser (#7)", () => {
     expect(fin).toBe(1);
   });
 
+  it("a cancelled loser cannot recover through attempt/redeem/redeemWith", async () => {
+    const effects: string[] = [];
+    const after = (tag: string) =>
+      IO.delay(() => {
+        effects.push(tag);
+      });
+    const viaAttempt = IO.flatMap(IO.attempt(IO.sleep(200)), () => after("attempt"));
+    const viaRedeem = IO.flatMap(
+      IO.redeem(
+        IO.sleep(200),
+        () => 0,
+        () => 1
+      ),
+      () => after("redeem")
+    );
+    const viaRedeemWith = IO.redeemWith(
+      IO.sleep(200),
+      () => after("redeemWith-recover"),
+      () => after("redeemWith-map")
+    );
+    expect(isNone(await runIO(IO.timeout(viaAttempt, 5)))).toBe(true);
+    expect(isNone(await runIO(IO.timeout(viaRedeem, 5)))).toBe(true);
+    expect(isNone(await runIO(IO.timeout(viaRedeemWith, 5)))).toBe(true);
+    await new Promise((res) => setTimeout(res, 20));
+    expect(effects).toEqual([]);
+  });
+
+  it("a cancelled loser runs bracket release and onError, then stays cancelled", async () => {
+    const effects: string[] = [];
+    const loser = IO.flatMap(
+      IO.onError(
+        IO.bracket(
+          IO.pure("r"),
+          () => IO.sleep(200),
+          () =>
+            IO.delay(() => {
+              effects.push("release");
+            })
+        ),
+        (e) =>
+          IO.delay(() => {
+            effects.push(`onError:${e.name}`);
+          })
+      ),
+      () =>
+        IO.delay(() => {
+          effects.push("continued");
+        })
+    );
+    expect(isNone(await runIO(IO.timeout(loser, 5)))).toBe(true);
+    await new Promise((res) => setTimeout(res, 20));
+    expect(effects).toEqual(["release", "onError:IOCancelledError"]);
+  });
+
   it("a synchronous winner means the loser is never started", async () => {
     let started = false;
     const r = await runIO(

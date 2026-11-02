@@ -113,6 +113,7 @@ compiler.
 | [TS9701](./TS9701.md) *(reserved)* | Error | `Did you mean to import '{suggestion}' from '{module}'?` |
 | [TS9702](./TS9702.md) *(reserved)* | Warning | ``Operator `{operator}` on {type} is not rewritten in explicit mode`` |
 | [TS9703](./TS9703.md) *(reserved)* | Error | `Ambiguous resolution: both '{source1}' and '{source2}' provide '{symbol}'` |
+| [TS9704](./TS9704.md) | Warning | `macro package '{package}' could not be resolved or loaded; its macros will not be expanded` |
 
 ## Operators
 

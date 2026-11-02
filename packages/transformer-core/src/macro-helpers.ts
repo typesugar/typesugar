@@ -43,7 +43,11 @@ import {
 export { isJSDocTagAtLineStart };
 
 import { safeGetNodeText, isPrimitiveType, type VisitFn } from "./transformer-utils.js";
-import { lookupMacroByName, isMacroModuleSpecifier } from "./import-resolution.js";
+import {
+  lookupMacroByName,
+  isMacroModuleSpecifier,
+  isMacroNameRegistered,
+} from "./import-resolution.js";
 
 // ---------------------------------------------------------------------------
 // JSDoc macro tags
@@ -86,6 +90,16 @@ export const JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
   // `/** @contract */ function f() { requires: ... }` was silently ignored.
   ["contract", "contract"],
 ]);
+
+/**
+ * Built-in tags whose macro comes from an optional package (@typesugar/sql,
+ * @typesugar/contracts), and are also ordinary documentation words
+ * (`@schema https://...`, `@contract`). When no macro of that name is
+ * registered -- the package is not installed or loaded -- the tag is someone
+ * else's documentation and is left alone silently, not reported as an
+ * unknown macro tag.
+ */
+const OPTIONAL_PACKAGE_JSDOC_TAGS: ReadonlySet<string> = new Set(["schema", "contract"]);
 
 /** The SourceFile a (parsed) node belongs to, or undefined for a synthetic node. */
 function sourceFileOf(node: ts.Node): ts.SourceFile | undefined {
@@ -250,6 +264,12 @@ export function tryExpandJSDocMacros(
       | AttributeMacro
       | undefined;
     if (!macro) {
+      if (
+        OPTIONAL_PACKAGE_JSDOC_TAGS.has(macroName) &&
+        !isMacroNameRegistered(macroName, "attribute")
+      ) {
+        continue;
+      }
       ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
       continue;
     }

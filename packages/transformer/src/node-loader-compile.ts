@@ -43,11 +43,28 @@ function lineColumn(text: string, pos: number): { line: number; column: number }
  * Class-field semantics follow the tsconfig's target, as `tsc` would emit
  * them, even though the loader does not downlevel anything else: with
  * `target: "es2017"` a field is a constructor assignment, not a define.
+ * With no target, the one `tsc` would use: its default, or the one `module`
+ * implies (`nodenext` → ESNext). The loader forces target ESNext, so leaving
+ * this to the transpiler gave define semantics where `tsc` assigns.
  */
 function useDefineForClassFields(options: ts.CompilerOptions): boolean | undefined {
   if (options.useDefineForClassFields !== undefined) return options.useDefineForClassFields;
-  if (options.target === undefined) return undefined;
-  return options.target >= ts.ScriptTarget.ES2022;
+  const target = options.target ?? defaultTarget(options);
+  if (target === undefined) return undefined;
+  return target >= ts.ScriptTarget.ES2022;
+}
+
+/**
+ * The target `tsc` emits for when the tsconfig sets none. TypeScript's own
+ * `getEmitScriptTarget` (exported at run time, not in the public typings)
+ * knows the version's default and the `module`-implied targets.
+ */
+function defaultTarget(options: ts.CompilerOptions): ts.ScriptTarget | undefined {
+  const get = (ts as unknown as { getEmitScriptTarget?: (o: ts.CompilerOptions) => unknown })
+    .getEmitScriptTarget;
+  if (typeof get !== "function") return undefined;
+  const target = get(options);
+  return typeof target === "number" ? target : undefined;
 }
 
 export function createLoaderCompiler(options: LoaderCompilerOptions = {}): LoaderCompiler {
@@ -118,7 +135,8 @@ export function createLoaderCompiler(options: LoaderCompilerOptions = {}): Loade
       },
       {
         module: outFormat === "module" ? ts.ModuleKind.ESNext : ts.ModuleKind.CommonJS,
-        jsx: fileName.endsWith(".tsx")
+        // Case-insensitive, as the loader's candidate check (`App.TSX`).
+        jsx: /\.tsx$/i.test(fileName)
           ? (compilerOptions.jsx ?? ts.JsxEmit.ReactJSX)
           : compilerOptions.jsx,
       }
