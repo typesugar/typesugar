@@ -9,6 +9,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import * as ts from "typescript";
 import { createLoaderCompiler } from "../src/node-loader-compile.js";
 import { createNodeLoaderHooks } from "../src/node-loader.js";
 
@@ -35,14 +36,24 @@ const MACRO = `import { comptime } from "typesugar";\nexport const answer: numbe
 
 describe("node loader compile: class fields with no tsconfig target", () => {
   it("uses tsc's default target's semantics (TypeScript 5.9: ES5, so assignment)", () => {
-    const dir = makeProject(
-      { module: "ESNext", moduleResolution: "Bundler", strict: true, skipLibCheck: true },
-      { "m.ts": MACRO + `export class C { x = 1; }\n` }
-    );
+    const options = {
+      module: "ESNext",
+      moduleResolution: "Bundler",
+      strict: true,
+      skipLibCheck: true,
+    };
+    const dir = makeProject(options, { "m.ts": MACRO + `export class C { x = 1; }\n` });
     const out = createLoaderCompiler().compile(path.join(dir, "m.ts"), "module");
     if (!out.changed) throw new Error("expected a change");
     expect(out.source).toMatch(/export const answer = 42/);
-    expect(out.source).toMatch(/constructor\(\) \{\s*this\.x = 1;/);
+    // The default target differs between TypeScript versions (ES5 in 5.9),
+    // so ask this TypeScript what tsc emits for the same tsconfig.
+    const tsc = ts.transpileModule(`export class C { x = 1; }\n`, {
+      compilerOptions: ts.convertCompilerOptionsFromJson(options, dir).options,
+    }).outputText;
+    const assigns = /this\.x = 1;/.test(tsc);
+    expect(/constructor\(\) \{\s*this\.x = 1;/.test(out.source)).toBe(assigns);
+    expect(/class C \{\s*x = 1;/.test(out.source)).toBe(!assigns);
   });
 
   it("follows the target tsc derives from module NodeNext (ESNext: define)", () => {
@@ -57,19 +68,24 @@ describe("node loader compile: class fields with no tsconfig target", () => {
 });
 
 describe("node loader compile: JSX", () => {
-  it("compiles JSX in a .TSX file as in a .tsx one", () => {
-    const code = MACRO + `export const el = <div>{answer}</div>;\n`;
-    const dir = makeProject(
-      { target: "ES2022", module: "ESNext", moduleResolution: "Bundler", skipLibCheck: true },
-      { "lower.tsx": code, "UPPER.TSX": code }
-    );
-    const lower = createLoaderCompiler().compile(path.join(dir, "lower.tsx"), "module");
-    if (!lower.changed) throw new Error("expected a change");
-    expect(lower.source).not.toContain("<div>");
-    const upper = createLoaderCompiler().compile(path.join(dir, "UPPER.TSX"), "module");
-    if (!upper.changed) throw new Error("expected a change");
-    expect(upper.source).not.toContain("<div>");
-  });
+  // TypeScript only accepts an upper-case `.TSX` where file names are
+  // case-insensitive (macOS, Windows); on Linux it is not a TypeScript file.
+  it.skipIf(ts.sys.useCaseSensitiveFileNames)(
+    "compiles JSX in a .TSX file as in a .tsx one",
+    () => {
+      const code = MACRO + `export const el = <div>{answer}</div>;\n`;
+      const dir = makeProject(
+        { target: "ES2022", module: "ESNext", moduleResolution: "Bundler", skipLibCheck: true },
+        { "lower.tsx": code, "UPPER.TSX": code }
+      );
+      const lower = createLoaderCompiler().compile(path.join(dir, "lower.tsx"), "module");
+      if (!lower.changed) throw new Error("expected a change");
+      expect(lower.source).not.toContain("<div>");
+      const upper = createLoaderCompiler().compile(path.join(dir, "UPPER.TSX"), "module");
+      if (!upper.changed) throw new Error("expected a change");
+      expect(upper.source).not.toContain("<div>");
+    }
+  );
 });
 
 describe("node loader: an unchanged TypeScript file on a Node that cannot run it", () => {
