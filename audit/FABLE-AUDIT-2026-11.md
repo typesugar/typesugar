@@ -32,7 +32,7 @@ To see the raw failures, temporarily swap `it.fails(` → `it(` in a file and re
 but the open PR stack #80 → #81 → #82 → #83 rewrites the same files. Rebased onto
 the #83 tip, 30 of the 34 `it.fails` tests already passed; PR #84 (stacked on #83)
 fixes F15's structural half, F17's second half, F19 and three F20 residuals, and inlines
-F5/F6/F8 exactly instead of through an IIFE; PR #TBD fixes F23.
+F5/F6/F8 exactly instead of through an IIFE; PR #85 fixes F23.
 Each finding below carries its status line.
 
 **Top three.**
@@ -503,7 +503,7 @@ instance (`Eq.array(Eq.string)`) or a precise diagnostic.
 
 ### F23 — JSDoc `@derive` activates with no import and injects a compile-time package · Medium
 
-**Status:** fixed in PR #TBD (stacked on #84). A JSDoc `@derive X` applies only when the file binds `X` itself (an import, type-only included, or a top-level declaration) or, for a derive macro with no export to import, imports the macro's package; otherwise it is ignored with a warning, so another tool's `@derive` tag is never taken for typesugar's. A new `JSDocDeriveImport` suppression rule keeps `typesugar check` and the editor from reporting such an import as unused. `@typesugar/testing` exports an `Arbitrary` token to import.
+**Status:** fixed in PR #85 (stacked on #84). A JSDoc `@derive X` applies only when the file binds `X` itself (an import, type-only included, or a top-level declaration) or, for a derive macro with no export to import, imports the macro's package; otherwise it is ignored with a warning, so another tool's `@derive` tag is never taken for typesugar's. A new `JSDocDeriveImport` suppression rule keeps `typesugar check` and the editor from reporting such an import as unused. `@typesugar/testing` exports an `Arbitrary` token to import.
 
 ```ts
 /** @derive Eq */ class P { … }           // no imports at all in the file
