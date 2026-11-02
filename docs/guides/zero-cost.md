@@ -122,6 +122,6 @@ No `Option` object is ever created; the method chain becomes direct calls.
 ## Why this matters
 
 You get the ergonomics of rich abstractions — typeclasses, operators, monadic
-data types, contracts, units — and ship the same code a careful engineer would
+data types, contracts, pattern matching — and ship the same code a careful engineer would
 write by hand. See the [Architecture](../architecture.md) for how the transform
 works, or browse runnable [examples](https://github.com/typesugar/typesugar/tree/main/examples).

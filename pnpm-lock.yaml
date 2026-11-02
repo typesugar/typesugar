@@ -54,15 +54,15 @@ importers:
       '@typesugar/graph':
         specifier: workspace:*
         version: link:packages/graph
-      '@typesugar/lsp-server':
-        specifier: workspace:^
-        version: link:packages/lsp-server
       '@typesugar/macros':
         specifier: workspace:*
         version: link:packages/macros
       '@typesugar/mapper':
         specifier: workspace:*
         version: link:packages/mapper
+      '@typesugar/math':
+        specifier: workspace:*
+        version: link:packages/math
       '@typesugar/parser':
         specifier: workspace:*
         version: link:packages/parser
@@ -96,6 +96,9 @@ importers:
       '@typesugar/units':
         specifier: workspace:*
         version: link:packages/units
+      '@typesugar/validate':
+        specifier: workspace:*
+        version: link:packages/validate
       '@vercel/node':
         specifier: ^5.6.15
         version: 5.6.15(rollup@4.59.0)
@@ -154,11 +157,15 @@ importers:
         specifier: ^3.3.0
         version: 3.3.0
       typescript:
-        specifier: ^5.8.3
+        specifier: ^5.9.3
         version: 5.9.3
       typesugar:
         specifier: workspace:*
         version: link:../../packages/typesugar
+    devDependencies:
+      '@typesugar/transformer':
+        specifier: workspace:*
+        version: link:../../packages/transformer
 
   examples/dry-runs/data-pipeline:
     dependencies:
@@ -391,11 +398,15 @@ importers:
         specifier: ^3.3.0
         version: 3.3.0
       typescript:
-        specifier: ^5.8.3
+        specifier: ^5.9.3
         version: 5.9.3
       typesugar:
         specifier: workspace:*
         version: link:../../packages/typesugar
+    devDependencies:
+      '@typesugar/transformer':
+        specifier: workspace:*
+        version: link:../../packages/transformer
 
   packages/codec:
     dependencies:
@@ -438,7 +449,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/contracts-refined:
@@ -450,7 +461,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/core:
@@ -462,7 +473,7 @@ importers:
         specifier: ^0.30.21
         version: 0.30.21
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/derive:
@@ -471,7 +482,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -565,7 +576,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       unplugin-typesugar:
@@ -619,39 +630,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
-
-  packages/lsp-server:
-    dependencies:
-      '@typesugar/core':
-        specifier: workspace:*
-        version: link:../core
-      '@typesugar/lsp-common':
-        specifier: workspace:*
-        version: link:../lsp-common
-      '@typesugar/macros':
-        specifier: workspace:*
-        version: link:../macros
-      '@typesugar/transformer':
-        specifier: workspace:*
-        version: link:../transformer
-      typescript:
-        specifier: '>=5.0.0 <6.0.0'
-        version: 5.9.3
-      vscode-languageserver:
-        specifier: ^9.0.1
-        version: 9.0.1
-      vscode-languageserver-textdocument:
-        specifier: ^1.0.12
-        version: 1.0.12
-      vscode-uri:
-        specifier: ^3.1.0
-        version: 3.1.0
-    devDependencies:
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/macros:
     dependencies:
@@ -659,7 +639,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/mapper:
@@ -779,7 +759,7 @@ importers:
         specifier: ^0.30.21
         version: 0.30.21
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       esbuild:
@@ -798,7 +778,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/sql:
@@ -810,7 +790,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/std:
@@ -828,7 +808,7 @@ importers:
         specifier: workspace:*
         version: link:../typeclass
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       unplugin-typesugar:
@@ -841,7 +821,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -860,7 +840,7 @@ importers:
         specifier: workspace:*
         version: link:../type-system
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/transformer:
@@ -887,7 +867,7 @@ importers:
         specifier: ^0.30.21
         version: 0.30.21
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
       xxhash-wasm:
         specifier: ^1.1.0
@@ -912,7 +892,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -925,7 +905,7 @@ importers:
         specifier: workspace:*
         version: link:../transformer
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -938,7 +918,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/typeclass:
@@ -947,7 +927,7 @@ importers:
         specifier: workspace:*
         version: link:../macros
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
 
   packages/typesugar:
@@ -974,7 +954,7 @@ importers:
         specifier: workspace:*
         version: link:../typeclass
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
       unplugin-typesugar:
         specifier: workspace:*
@@ -986,7 +966,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
     devDependencies:
       vitest:
@@ -1008,7 +988,7 @@ importers:
         specifier: workspace:*
         version: link:../transformer
       typescript:
-        specifier: '>=5.0.0 <6.0.0'
+        specifier: '>=5.9.0 <7.0.0'
         version: 5.9.3
       unplugin:
         specifier: ^2.0.0
@@ -1026,6 +1006,9 @@ importers:
         specifier: workspace:*
         version: link:../type-system
     devDependencies:
+      '@typesugar/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@typesugar/transformer':
         specifier: workspace:*
         version: link:../transformer
@@ -1047,15 +1030,9 @@ importers:
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core
-      '@typesugar/lsp-server':
-        specifier: workspace:*
-        version: link:../lsp-server
       '@typesugar/ts-plugin':
         specifier: workspace:*
         version: link:../ts-plugin
-      vscode-languageclient:
-        specifier: ^9.0.1
-        version: 9.0.1
     devDependencies:
       '@types/mocha':
         specifier: ^10.0.10
@@ -3909,10 +3886,6 @@ packages:
   minimatch@3.1.5:
     resolution: {integrity: sha512-VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w==}
 
-  minimatch@5.1.9:
-    resolution: {integrity: sha512-7o1wEA2RyMP7Iu7GNba9vc0RWWGACJOCZBJX2GJWip0ikV+wcOsgVuY9uE8CPiyQhkGFSlhuSkZPavN7u1c2Fw==}
-    engines: {node: '>=10'}
-
   minimatch@9.0.9:
     resolution: {integrity: sha512-OBwBN9AL4dqmETlpS2zasx+vTeWclWzkblfZk7KTA5j3jeOONz/tRCnZomUyvNg83wL5Zv9Ss6HMJXAgL8R2Yg==}
     engines: {node: '>=16 || 14 >=14.17'}
@@ -5021,30 +4994,6 @@ packages:
         optional: true
       jsdom:
         optional: true
-
-  vscode-jsonrpc@8.2.0:
-    resolution: {integrity: sha512-C+r0eKJUIfiDIfwJhria30+TYWPtuHJXHtI7J0YlOmKAo7ogxP20T0zxB7HZQIFhIyvoBPwWskjxrvAtfjyZfA==}
-    engines: {node: '>=14.0.0'}
-
-  vscode-languageclient@9.0.1:
-    resolution: {integrity: sha512-JZiimVdvimEuHh5olxhxkht09m3JzUGwggb5eRUkzzJhZ2KjCN0nh55VfiED9oez9DyF8/fz1g1iBV3h+0Z2EA==}
-    engines: {vscode: ^1.82.0}
-
-  vscode-languageserver-protocol@3.17.5:
-    resolution: {integrity: sha512-mb1bvRJN8SVznADSGWM9u/b07H7Ecg0I3OgXDuLdn307rl/J3A9YD6/eYOssqhecL27hK1IPZAsaqh00i/Jljg==}
-
-  vscode-languageserver-textdocument@1.0.12:
-    resolution: {integrity: sha512-cxWNPesCnQCcMPeenjKKsOCKQZ/L6Tv19DTRIGuLWe32lyzWhihGVJ/rcckZXJxfdKCFvRLS3fpBIsV/ZGX4zA==}
-
-  vscode-languageserver-types@3.17.5:
-    resolution: {integrity: sha512-Ld1VelNuX9pdF39h2Hgaeb5hEZM2Z3jUrrMgWQAu82jMtZp7p3vJT3BzToKtZI7NgQssZje5o0zryOrhQvzQAg==}
-
-  vscode-languageserver@9.0.1:
-    resolution: {integrity: sha512-woByF3PDpkHFUreUa7Hos7+pUWdeWMXRd26+ZX2A8cFx6v/JPTtd4/uN0/jB6XQHYaOlHbio03NTHCqrgG5n7g==}
-    hasBin: true
-
-  vscode-uri@3.1.0:
-    resolution: {integrity: sha512-/BpdSx+yCQGnCvecbyXdxHDkuk55/G3xwnC0GqY4gmQ3j+A+g8kzzgB4Nk/SINjqn6+waqw3EgbVF2QKExkRxQ==}
 
   vue@3.5.29:
     resolution: {integrity: sha512-BZqN4Ze6mDQVNAni0IHeMJ5mwr8VAJ3MQC9FmprRhcBYENw+wOAAjRj8jfmN6FLl0j96OXbR+CjWhmAmM+QGnA==}
@@ -8103,10 +8052,6 @@ snapshots:
     dependencies:
       brace-expansion: 1.1.12
 
-  minimatch@5.1.9:
-    dependencies:
-      brace-expansion: 2.0.2
-
   minimatch@9.0.9:
     dependencies:
       brace-expansion: 2.0.2
@@ -9301,29 +9246,6 @@ snapshots:
       - terser
       - tsx
       - yaml
-
-  vscode-jsonrpc@8.2.0: {}
-
-  vscode-languageclient@9.0.1:
-    dependencies:
-      minimatch: 5.1.9
-      semver: 7.7.4
-      vscode-languageserver-protocol: 3.17.5
-
-  vscode-languageserver-protocol@3.17.5:
-    dependencies:
-      vscode-jsonrpc: 8.2.0
-      vscode-languageserver-types: 3.17.5
-
-  vscode-languageserver-textdocument@1.0.12: {}
-
-  vscode-languageserver-types@3.17.5: {}
-
-  vscode-languageserver@9.0.1:
-    dependencies:
-      vscode-languageserver-protocol: 3.17.5
-
-  vscode-uri@3.1.0: {}
 
   vue@3.5.29(typescript@5.9.3):
     dependencies:

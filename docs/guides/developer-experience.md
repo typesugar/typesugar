@@ -43,7 +43,7 @@ For the full catalog of error codes and examples, see the [Error Messages Guide]
 
 ## Import Suggestions
 
-Scala 3 taught us that missing implicits/imports are the #1 pain point in typeclass-heavy code. typesugar tackles this with hints on the errors that are usually caused by a missing import. For example, a comprehension with no instance in scope (TS9225) or a label whose syntax isn't activated (TS9224) names the import to add.
+Scala 3 taught us that missing implicits/imports are the #1 pain point in typeclass-heavy code. typesugar tackles this with hints on the errors that are usually caused by a missing import. For example, a comprehension with no instance in scope (TS9225), a label whose syntax isn't activated (TS9224), or an operator whose typeclass's operator syntax isn't activated (TS9804) names the import to add.
 
 ::: info Planned — not in 1.0
 A general "Did you mean to import?" error for an unimported macro (TS9061) is catalogued but not emitted. Today, calling `comptime(...)` without importing it gives no typesugar diagnostic: the call is left as-is, and TypeScript reports the unknown name.

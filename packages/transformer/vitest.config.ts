@@ -8,5 +8,6 @@ export default defineConfig({
     // templates/ ships inside this package for `typesugar create` (PEP-058
     // Wave 2) — its test files are consumer-example code, not suite tests.
     exclude: ["**/node_modules/**", "**/dist/**", "templates/**"],
+    setupFiles: ["./tests/setup-yield.ts"],
   },
 });

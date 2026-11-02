@@ -1,7 +1,8 @@
 /**
  * Activation marker (PEP-052) — import this module to activate `Eq` OPERATOR
- * syntax (`a === b` / `a !== b`) in the importing file. This redefines a native
- * primitive operator, so it is a separate, louder opt-in than the method form.
+ * syntax (`a === b` / `a !== b`, and `a == b` / `a != b`) in the importing
+ * file. This redefines a native primitive operator, so it is a separate,
+ * louder opt-in than the method form.
  * Importing operators implies methods (tier 3 ⊇ tier 2).
  *
  * ```ts

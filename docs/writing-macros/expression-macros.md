@@ -45,8 +45,10 @@ local `./macros` file.
 ## Tutorial: Creating `check()`
 
 Let's create an assertion macro that puts the source text of the condition into its error
-message. (It's called `check` because `assert` is already registered by `@typesugar/testing`,
-and macro names are global.)
+message. (It's called `check` because these examples leave out `module`, and a macro without a
+`module` is matched by its name alone, so it can't share the name `assert` with
+`@typesugar/testing`'s. With a `module` it could: see
+[Macro identity](./index.md#macro-identity-module-and-export-name).)
 
 ### Step 1: Define the Macro
 

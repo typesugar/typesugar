@@ -78,19 +78,34 @@ specialize.
 
 ### With `= implicit()`
 
-`= implicit()` fills in the instance argument at compile time, but in 1.0 the
-filled-in call is **not** then specialized: it keeps dictionary passing.
+`= implicit()` fills in the instance argument at compile time, and the
+completed call is then specialized exactly as if you had passed the instance
+yourself:
 
 ```typescript
 function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {
   return items.slice().sort((a, b) => ord.compare(a, b));
 }
 
-sortWith([3, 1, 2]); // compiles to sortWith([3, 1, 2], numberOrd): resolved, not inlined
+sortWith([3, 1, 2]);
+// Compiles to the same code as sortWith([3, 1, 2], numberOrd):
+__typesugar___sortWith_number_0__([3, 1, 2]);
 ```
 
-To get the inlined version, pass the instance explicitly
-(`sortWith([3, 1, 2], numberOrd)`).
+The same fallbacks and opt-outs apply as for an explicit call.
+
+There is one extra fallback. Suppose a function's body calls another
+`= implicit()` function without passing the dictionary, and relies on its own
+dictionary being passed along (propagated). A call to that outer function is
+not specialized. It keeps dictionary passing and warns TS9602:
+
+```typescript
+function sortTwice<T>(items: T[], ord: Ord<T> = implicit()): T[] {
+  return sortWith(sortWith(items)); // ord is propagated to both calls
+}
+
+sortTwice([3, 1, 2]); // compiles to sortTwice([3, 1, 2], numberOrd)
+```
 
 ## When Specialization Is Skipped
 
@@ -103,7 +118,9 @@ when the function body:
   declare it as a `const` arrow function or a named `function`);
 - contains a loop, `try/catch`, a `throw`, or mutable `let` bindings;
 - has early/multiple returns that can't be flattened into a single expression
-  (simple guard-clause chains _are_ flattened into ternaries).
+  (simple guard-clause chains _are_ flattened into ternaries);
+- calls an `= implicit()` function without passing its instance argument
+  (see [With `= implicit()`](#with-implicit)).
 
 Result-returning functions get one extra trick: **return-type-driven
 specialization** rewrites `ok()`/`err()` constructors when a `Result`-typed

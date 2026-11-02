@@ -46,6 +46,14 @@ export default function typesugarTsPatchTransformer(
   return macroTransformerFactory(program, pluginConfig, extras);
 }
 
+// TypeScript-major guard (PEP-060 item 1), re-exported for hosts that only
+// depend on the transformer (the ESLint plugin).
+export {
+  assertSupportedTypeScript,
+  UnsupportedTypeScriptError,
+  SUPPORTED_TYPESCRIPT_RANGE,
+} from "@typesugar/core";
+
 // The single shared macro-dispatch engine (PEP-056).
 export { MacroTransformer } from "@typesugar/transformer-core";
 

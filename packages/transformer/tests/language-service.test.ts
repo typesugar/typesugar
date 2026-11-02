@@ -22,9 +22,10 @@ import {
   type DiagnosticSuppressionRule,
 } from "@typesugar/core";
 
-// HKT syntax (`F<_>`) is rewritten by the kept transformer path — a real
-// transformation, so changed-flag/source-map assertions are non-vacuous.
-const HKT_SRC = `type F<_> = { value: number };\ntype Applied = F<string>;`;
+// A `@derive(Eq)` expansion — a real transformation, so changed-flag/source-map
+// assertions are non-vacuous. (This used `type F<_> = ...`, which only counted
+// as "changed" because every file used to be reprinted, macros or not.)
+const MACRO_SRC = `/** @derive(Eq) */\ninterface Box { value: number }\n`;
 
 /**
  * Creates a mock LanguageServiceHost for testing
@@ -334,7 +335,7 @@ describe("TransformationPipeline integration", () => {
 
   describe("transform result", () => {
     it("includes position mapper", () => {
-      const code = HKT_SRC;
+      const code = MACRO_SRC;
       const result = transformCode(code, { fileName: "test.ts" });
 
       expect(result.mapper).toBeDefined();
@@ -343,33 +344,32 @@ describe("TransformationPipeline integration", () => {
     });
 
     it("includes changed flag", () => {
-      // HKT syntax (`F<_>`) is rewritten by the kept transformer path.
-      const code = HKT_SRC;
+      const code = MACRO_SRC;
       const result = transformCode(code, { fileName: "test.ts" });
 
       expect(result.changed).toBe(true);
     });
 
     it("sets changed to false for unchanged files", () => {
-      const code = "const x = 1;";
+      const code = "const x = 1;\n\nconst y = `${x}`;\n";
       const result = transformCode(code, { fileName: "test.ts" });
 
-      // Simple code that doesn't need transformation
-      // Note: changed might still be true if the printer reformats
-      expect(result).toBeDefined();
+      // No macros: the file is passed through as written, not reprinted.
+      expect(result.changed).toBe(false);
+      expect(result.code).toBe(code);
     });
   });
 });
 
 describe("Position Mapping", () => {
   describe("position mapping after transformation", () => {
-    it("maps positions correctly after HKT transformation", () => {
-      const original = HKT_SRC;
+    it("maps the declared name back after a @derive expansion", () => {
+      const original = MACRO_SRC;
       const result = transformCode(original, { fileName: "test.ts" });
+      expect(result.changed).toBe(true);
 
-      // The "type" keyword should still be at position 0
-      const typePos = result.mapper.toOriginal(0);
-      expect(typePos).toBe(0);
+      const name = result.code.indexOf("interface Box") + "interface ".length;
+      expect(result.mapper.toOriginal(name)).toBe(original.indexOf("Box"));
     });
 
     it("handles multi-line transformations", () => {

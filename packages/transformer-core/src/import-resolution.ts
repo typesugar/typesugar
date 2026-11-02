@@ -12,6 +12,7 @@ import {
   MacroContextImpl,
   globalRegistry,
   type MacroDefinition,
+  type MacroRegistry,
   scanImportsForScope,
   globalResolutionScope,
   isSyntheticNode,
@@ -264,7 +265,13 @@ export function cleanupMacroImports(
 export function resolveModuleSpecifier(fileName: string): string | undefined {
   const normalized = fileName.replace(/\\/g, "/");
 
-  const nodeModulesMatch = normalized.match(/\/node_modules\/((?:@[^/]+\/)?[^/]+)/);
+  // The LAST `node_modules/<pkg>` segment names the package: under pnpm's
+  // store layout the real path is `node_modules/.pnpm/<id>/node_modules/<pkg>/`
+  // (the checker reports realpaths), and the first segment is `.pnpm`.
+  const nodeModulesMatches = [
+    ...normalized.matchAll(/\/node_modules\/((?:@[^/]+\/)?[^/]+)/g),
+  ].filter((m) => !m[1].startsWith("."));
+  const nodeModulesMatch = nodeModulesMatches[nodeModulesMatches.length - 1];
   if (nodeModulesMatch) {
     const pkgName = nodeModulesMatch[1];
     if (pkgName.startsWith("@typesugar/")) {
@@ -291,33 +298,46 @@ export function resolveModuleSpecifier(fileName: string): string | undefined {
 }
 
 /**
- * Scan the source file's imports to find the module specifier for a name.
+ * Scan the source file's named imports for the local binding `name`: the
+ * module it is imported from and the name it has there (`import { assert as
+ * check }` gives `importedName: "assert"` for `check`).
  */
-export function findImportModuleForName(
+export function findImportForName(
   sourceFile: ts.SourceFile,
   name: string
-): string | undefined {
+): { module: string; importedName: string } | undefined {
   for (const stmt of sourceFile.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
 
     const moduleSpecifier = stmt.moduleSpecifier;
     if (!ts.isStringLiteral(moduleSpecifier)) continue;
 
-    const moduleName = moduleSpecifier.text;
     const importClause = stmt.importClause;
     if (!importClause) continue;
 
     if (importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)) {
       for (const element of importClause.namedBindings.elements) {
-        const localName = element.name.text;
-        if (localName === name) {
-          return moduleName;
+        if (element.name.text === name) {
+          return {
+            module: moduleSpecifier.text,
+            importedName: (element.propertyName ?? element.name).text,
+          };
         }
       }
     }
   }
 
   return undefined;
+}
+
+/**
+ * Scan the source file's imports to find the module specifier for a name.
+ */
+export function findImportModuleForName(
+  sourceFile: ts.SourceFile,
+  name: string
+): string | undefined {
+  return findImportForName(sourceFile, name)?.module;
 }
 
 /**
@@ -360,6 +380,70 @@ export function moduleMatchesMacro(importedModule: string, macroModule: string):
 // ---------------------------------------------------------------------------
 // Name-based macro lookup
 // ---------------------------------------------------------------------------
+//
+// Macro identity is (kind, module, exportName ?? name) for macros that declare
+// a `module`, and (kind, name) for legacy module-less ones (PEP-060 item 8;
+// see MacroRegistryImpl in @typesugar/core). Several modules may register the
+// same name, so a name alone can map to several macros: every lookup below
+// that starts from a name picks among `candidatesFor(name, kind)` using the
+// file's imports, never registration order.
+//
+// The registry and the imports these read are populated before the visitor
+// pass (macro packages register at load time; a file's import declarations
+// are never synthesized mid-pass), so there is no same-pass-visibility concern
+// (CLAUDE.md "Resolving things a macro just generated").
+
+/**
+ * Every registered macro of `kind` under `name`, in registration order.
+ *
+ * Falls back to the single bare-name result when `globalRegistry` is an
+ * instance created by an older @typesugar/core copy sharing the `globalThis`
+ * slot (one macro per name there, and no `getCandidates`).
+ */
+function candidatesFor(name: string, kind: MacroDefinition["kind"]): readonly MacroDefinition[] {
+  const registry = globalRegistry as Partial<Pick<MacroRegistry, "getCandidates">> & MacroRegistry;
+  if (typeof registry.getCandidates === "function") return registry.getCandidates(name, kind);
+  const one = bareNameLookup(name, kind);
+  return one ? [one] : [];
+}
+
+function bareNameLookup(name: string, kind: MacroDefinition["kind"]): MacroDefinition | undefined {
+  switch (kind) {
+    case "expression":
+      return globalRegistry.getExpression(name);
+    case "attribute":
+      return globalRegistry.getAttribute(name);
+    case "derive":
+      return globalRegistry.getDerive(name);
+    case "tagged-template":
+      return globalRegistry.getTaggedTemplate(name);
+    case "type":
+      return globalRegistry.getType(name);
+    case "labeled-block":
+      return globalRegistry.getLabeledBlock(name);
+  }
+}
+
+const warnedAmbiguous = new Set<string>();
+
+/** One visible line per (file, name, kind) when a name cannot be resolved to one module's macro. */
+function warnAmbiguous(
+  sourceFile: ts.SourceFile | undefined,
+  name: string,
+  kind: MacroDefinition["kind"],
+  macros: readonly MacroDefinition[],
+  why: string
+): void {
+  const key = `${sourceFile?.fileName ?? ""}\u0000${kind}\u0000${name}`;
+  if (warnedAmbiguous.has(key)) return;
+  warnedAmbiguous.add(key);
+  const modules = macros.map((m) => `'${m.module}'`).join(", ");
+  console.warn(
+    `[typesugar] '${name}'${sourceFile ? ` in ${sourceFile.fileName}` : ""} matches the ${kind} ` +
+      `macros of ${modules}, and ${why}; it is left unexpanded. Import it from the package ` +
+      `whose macro you mean (for example \`import { ${name} } from "${macros[0].module}"\`).`
+  );
+}
 
 /**
  * Fall back to name-based lookup for macros without module requirement.
@@ -368,80 +452,109 @@ export function fallbackNameLookup(
   name: string,
   kind: MacroDefinition["kind"]
 ): MacroDefinition | undefined {
-  let macro: MacroDefinition | undefined;
-  switch (kind) {
-    case "expression":
-      macro = globalRegistry.getExpression(name);
-      break;
-    case "attribute":
-      macro = globalRegistry.getAttribute(name);
-      break;
-    case "derive":
-      macro = globalRegistry.getDerive(name);
-      break;
-    case "tagged-template":
-      macro = globalRegistry.getTaggedTemplate(name);
-      break;
-    case "type":
-      macro = globalRegistry.getType(name);
-      break;
-    case "labeled-block":
-      macro = globalRegistry.getLabeledBlock(name);
-      break;
-  }
-
-  if (macro?.module) {
-    return undefined;
-  }
-
-  return macro;
+  return candidatesFor(name, kind).find((m) => m.module === undefined);
 }
 
 /**
- * Fall back to name-based lookup with import verification.
+ * Name-based lookup verified against the file's imports — the path for nodes
+ * the checker cannot be asked about (synthetic, or a detached SourceFile
+ * copy), and the fallback when the checker's declaration does not name a
+ * registered macro.
+ *
+ * For the named import that binds `name` locally, in order:
+ *   1. the macro whose identity is exactly (import module, imported name);
+ *   2. a module-qualified macro of that name whose `module` IS the import's
+ *      module;
+ *   3. one matched through the `typesugar` family wildcard
+ *      ({@link moduleMatchesMacro}) — if several match (validate's and
+ *      testing's `assert` both match an import from `typesugar`), the one
+ *      whose module is among `declaringModules` (where the checker says the
+ *      import is declared) wins, else none (with a warning);
+ * and otherwise, imported or not, a legacy module-less macro of that name.
  */
 export function fallbackNameLookupWithImports(
   sourceFile: ts.SourceFile,
   name: string,
+  kind: MacroDefinition["kind"],
+  declaringModules: readonly string[] = []
+): MacroDefinition | undefined {
+  const imp = findImportForName(sourceFile, name);
+  const importedName = imp?.importedName ?? name;
+
+  if (imp) {
+    const exact = globalRegistry.getByModuleExport(imp.module, importedName, kind);
+    if (exact && exact.kind === kind) return exact;
+  }
+
+  const candidates = [...candidatesFor(importedName, kind)];
+  if (importedName !== name) {
+    for (const m of candidatesFor(name, kind)) if (!candidates.includes(m)) candidates.push(m);
+  }
+
+  if (imp) {
+    const scoped = candidates.filter((m) => m.module !== undefined);
+    const sameModule = scoped.find((m) => m.module === imp.module);
+    if (sameModule) return sameModule;
+    const family = scoped.filter((m) => moduleMatchesMacro(imp.module, m.module!));
+    if (family.length === 1) return family[0];
+    if (family.length > 1) {
+      const declared = family.filter((m) => declaringModules.includes(m.module!));
+      if (declared.length === 1) return declared[0];
+      warnAmbiguous(
+        sourceFile,
+        name,
+        kind,
+        family,
+        `the import from "${imp.module}" does not say which`
+      );
+      return undefined;
+    }
+  }
+
+  return candidates.find((m) => m.module === undefined);
+}
+
+/** Does `sourceFile` import `mod` (or a subpath of it)? `wildcard` also accepts {@link moduleMatchesMacro}. */
+function fileImports(sourceFile: ts.SourceFile, mod: string, wildcard: boolean): boolean {
+  return sourceFile.statements.some((stmt) => {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) return false;
+    const spec = stmt.moduleSpecifier.text;
+    if (spec === mod || spec.startsWith(mod + "/")) return true;
+    return wildcard && moduleMatchesMacro(spec, mod);
+  });
+}
+
+/**
+ * Bare-name lookup for call sites that have a name but no import binding to
+ * resolve: `@derive(...)` argument names, JSDoc macro tags, decorator and
+ * expand-order fallbacks.
+ *
+ * One macro of that name: it (exactly the pre-PEP-060 behaviour). Several
+ * (different modules): the one whose module `sourceFile` imports — exactly,
+ * then through the `typesugar` family wildcard — then a legacy module-less
+ * one; if that still leaves a tie, none, with a warning.
+ */
+export function lookupMacroByName(
+  sourceFile: ts.SourceFile | undefined,
+  name: string,
   kind: MacroDefinition["kind"]
 ): MacroDefinition | undefined {
-  let macro: MacroDefinition | undefined;
-  switch (kind) {
-    case "expression":
-      macro = globalRegistry.getExpression(name);
-      break;
-    case "attribute":
-      macro = globalRegistry.getAttribute(name);
-      break;
-    case "derive":
-      macro = globalRegistry.getDerive(name);
-      break;
-    case "tagged-template":
-      macro = globalRegistry.getTaggedTemplate(name);
-      break;
-    case "type":
-      macro = globalRegistry.getType(name);
-      break;
-    case "labeled-block":
-      macro = globalRegistry.getLabeledBlock(name);
-      break;
+  const candidates = candidatesFor(name, kind);
+  if (candidates.length <= 1) return candidates[0];
+  const scoped = candidates.filter((m) => m.module !== undefined);
+  if (sourceFile) {
+    for (const wildcard of [false, true]) {
+      const imported = scoped.filter((m) => fileImports(sourceFile, m.module!, wildcard));
+      if (imported.length === 1) return imported[0];
+      if (imported.length > 1) {
+        warnAmbiguous(sourceFile, name, kind, imported, "this file imports more than one of them");
+        return undefined;
+      }
+    }
   }
-
-  if (!macro) return undefined;
-
-  if (!macro.module) {
-    return macro;
-  }
-
-  const importedModule = findImportModuleForName(sourceFile, name);
-  if (!importedModule) {
-    return undefined;
-  }
-
-  if (moduleMatchesMacro(importedModule, macro.module)) {
-    return macro;
-  }
-
+  const legacy = candidates.find((m) => m.module === undefined);
+  if (legacy) return legacy;
+  warnAmbiguous(sourceFile, name, kind, scoped, "this file imports none of them");
   return undefined;
 }
 
@@ -509,6 +622,10 @@ export function resolveSymbolToMacro(
   // Track whether we found any declaration resolving to a recognized
   // @typesugar/* package path.
   let foundModuleDecl = false;
+  // The modules the checker says the reference is declared in: the macro
+  // identity (module, export name) is looked up there first, and they break
+  // a tie between several modules' same-named macros in the fallback.
+  const declaringModules: string[] = [];
 
   for (const decl of declarations) {
     const declSourceFile = decl.getSourceFile();
@@ -516,16 +633,17 @@ export function resolveSymbolToMacro(
 
     const moduleSpecifier = resolveModuleSpecifier(fileName);
     if (moduleSpecifier) {
+      declaringModules.push(moduleSpecifier);
       if (isMacroModuleSpecifier(moduleSpecifier)) {
         foundModuleDecl = true;
       }
       const exportName = resolved.name;
-      const macro = globalRegistry.getByModuleExport(moduleSpecifier, exportName);
+      const macro = globalRegistry.getByModuleExport(moduleSpecifier, exportName, kind);
       if (macro && macro.kind === kind) {
         return macro;
       }
       if (exportName !== macroName) {
-        const macroByName = globalRegistry.getByModuleExport(moduleSpecifier, macroName);
+        const macroByName = globalRegistry.getByModuleExport(moduleSpecifier, macroName, kind);
         if (macroByName && macroByName.kind === kind) {
           return macroByName;
         }
@@ -548,12 +666,17 @@ export function resolveSymbolToMacro(
     return undefined;
   }
 
-  const byLocalName = fallbackNameLookupWithImports(sourceFile, macroName, kind);
+  const byLocalName = fallbackNameLookupWithImports(sourceFile, macroName, kind, declaringModules);
   if (byLocalName) return byLocalName;
 
   const originalName = resolved.name;
   if (originalName !== macroName) {
-    const byOriginalName = fallbackNameLookupWithImports(sourceFile, originalName, kind);
+    const byOriginalName = fallbackNameLookupWithImports(
+      sourceFile,
+      originalName,
+      kind,
+      declaringModules
+    );
     if (byOriginalName) return byOriginalName;
   }
 

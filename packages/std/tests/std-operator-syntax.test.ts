@@ -22,7 +22,7 @@ import { TransformationPipeline } from "@typesugar/transformer";
 const here = path.dirname(fileURLToPath(import.meta.url));
 let counter = 0;
 
-function run(code: string) {
+function transform(code: string) {
   const fileName = path.resolve(here, `__std_ops_${counter++}.ts`);
   const pipeline = new TransformationPipeline(
     {
@@ -39,7 +39,11 @@ function run(code: string) {
       fileExists: (f) => f === fileName || ts.sys.fileExists(f),
     }
   );
-  const r = pipeline.transform(fileName);
+  return pipeline.transform(fileName);
+}
+
+function run(code: string) {
+  const r = transform(code);
   const errors = (r.diagnostics ?? []).filter((d) => d.severity === "error").map((d) => d.message);
   const js = ts.transpileModule(r.code, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
@@ -161,5 +165,63 @@ const x: Q = { q: 1 };
 const y: Q = { q: 4 };
 export const r = x / y;`);
     expect(exports.r).toEqual({ q: 0.25 });
+  });
+});
+
+// TS9804: without the `/ops` import the operator stays native, and typesugar
+// now says so, naming std's marker specifier (from std's registered
+// syntax-marker fallback) — the docs/examples/math/numeric-typeclass.ts bug.
+describe("std operators without their /ops import warn TS9804", () => {
+  const NUMERIC_VEC = `import type { Numeric } from "@typesugar/std";
+${VEC}
+const lift = (f: (m: number, n: number) => number) => (p: Vec2, q: Vec2): Vec2 => ({ x: f(p.x, q.x), y: f(p.y, q.y) });
+/** @impl Numeric<Vec2> */
+export const numericVec2: Numeric<Vec2> = {
+  add: lift((m, n) => m + n),
+  sub: lift((m, n) => m - n),
+  mul: lift((m, n) => m * n),
+  div: lift((m, n) => m / n),
+  pow: lift((m, n) => m ** n),
+  negate: (p) => ({ x: -p.x, y: -p.y }),
+  abs: (p) => ({ x: Math.abs(p.x), y: Math.abs(p.y) }),
+  signum: (p) => ({ x: Math.sign(p.x), y: Math.sign(p.y) }),
+  fromNumber: (n) => ({ x: n, y: n }),
+  toNumber: (p) => p.x,
+  zero: () => ({ x: 0, y: 0 }),
+  one: () => ({ x: 1, y: 1 }),
+};
+`;
+
+  it("Numeric: a + b and a * b each get one hint naming @typesugar/std/syntax/numeric/ops", () => {
+    const r = transform(`${NUMERIC_VEC}
+// @ts-ignore
+export const s = a + b;
+// @ts-ignore
+export const p = a * b;`);
+    const hints = (r.diagnostics ?? []).filter((d) => d.code === 9804);
+    expect(hints).toHaveLength(2);
+    expect(hints[0].message).toContain("Numeric.add");
+    expect(hints[1].message).toContain("Numeric.mul");
+    for (const h of hints) {
+      expect(h.severity).toBe("warning");
+      expect(h.message).toContain(`import "@typesugar/std/syntax/numeric/ops";`);
+    }
+    expect(r.code).toContain("a + b");
+  });
+
+  it("the method-tier import alone does not activate operators, so it still warns", () => {
+    const r = transform(`${NUMERIC_VEC}
+import "@typesugar/std/syntax/numeric";
+// @ts-ignore
+export const s = a + b;`);
+    expect((r.diagnostics ?? []).filter((d) => d.code === 9804)).toHaveLength(1);
+  });
+
+  it("no hint once the /ops import is present", () => {
+    const r = transform(`${NUMERIC_VEC}
+import "@typesugar/std/syntax/numeric/ops";
+export const s = a + b;`);
+    expect((r.diagnostics ?? []).filter((d) => d.code === 9804)).toEqual([]);
+    expect(r.code).not.toContain("a + b");
   });
 });

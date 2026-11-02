@@ -233,6 +233,7 @@ Common reasons for skipping:
 - **try/catch**: Error handling blocks inlining. Handle errors at a higher level.
 - **Loops**: Iteration prevents inlining. Use Array methods or recursive helpers.
 - **Mutable variables**: `let` bindings prevent inlining. Use `const` or fold/reduce patterns.
+- **Propagated `= implicit()` call**: The body calls another `= implicit()` function without passing the instance, so the instance would be dropped from that inner call. Pass the instance through explicitly if you want the inner call inlined too.
 
 Opt a call out of specialization entirely with `// @no-specialize` (same line or
 the line above), or keep specialization but silence the warning with

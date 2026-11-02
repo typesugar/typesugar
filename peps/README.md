@@ -16,7 +16,7 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [005](PEP-005-type-safety-and-speed.md)                 | Type Safety and Speed — Matching the TypeScript DX        | Done                                                                         |
 | [006](PEP-006-cspell-dictionary.md)                     | cSpell Dictionary for typesugar                           | Draft                                                                        |
 | [007](PEP-007-hkt-boilerplate-reduction.md)             | HKT Boilerplate Reduction for `.ts` Files                 | Done                                                                         |
-| [008](PEP-008-pattern-matching.md)                      | Scala-Style Pattern Matching                              | Waves 1–9 Complete                                                           |
+| [008](PEP-008-pattern-matching.md)                      | Scala-Style Pattern Matching                              | Waves 1–9 Complete; 10–12 proposed (2026-10)                                 |
 | [009](PEP-009-diff-typeclass.md)                        | Diff Typeclass                                            | Draft                                                                        |
 | [010](PEP-010-match-type.md)                            | Type-Level Pattern Matching                               | Draft                                                                        |
 | [011](PEP-011-sfinae-diagnostic-resolution.md)          | SFINAE Diagnostic Resolution                              | Done                                                                         |
@@ -68,3 +68,5 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [058](PEP-058-production-release-readiness.md)          | Production Release Readiness — Pipeline, AI, Onboarding   | In Progress (Wave 1)                                                         |
 | [059](PEP-059-1.0-readiness.md)                         | 1.0 Readiness — Deep Review Outcome and the Road to 1.0   | Draft (review fixes on `deep-review-1.0`)                                    |
 | [060](PEP-060-architecture-for-1.0.md)                  | Architecture for 1.0 — What to Settle Before the Freeze   | Draft (decisions pending)                                                    |
+| [061](PEP-061-wasm-and-rust-backed-libraries.md)        | WebAssembly Interop and Rust-Backed Libraries             | Draft (backlog, exploration; not a 1.0 item)                                 |
+| [062](PEP-062-typeclass-dispatch-everywhere.md)         | Typeclass Dispatch Everywhere                             | Draft (audit + plan; `match()` part in PEP-008 Waves 10–11)                  |

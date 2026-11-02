@@ -312,7 +312,9 @@ const arrayFunctor = {
 
     const result = transformCode(code, { fileName: "impl-array.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     // Non-exported: zero-cost
     expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("arrayFunctor");
@@ -336,7 +338,9 @@ const eitherStringFunctor = {
 
     const result = transformCode(code, { fileName: "impl-either-string.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     // Non-exported: zero-cost
     expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("eitherStringFunctor");
@@ -370,7 +374,9 @@ const eitherStringMonad = {
 
     const result = transformCode(code, { fileName: "impl-monad-either.ts" });
 
-    expect(result.changed).toBe(true);
+    // Zero-cost: nothing to emit, so the file is passed through as written
+    // (this asserted `true` while every file was reprinted, macros or not).
+    expect(result.changed).toBe(false);
     // Non-exported: zero-cost
     expect(result.code).not.toContain("registerInstance");
     expect(result.code).toContain("eitherStringMonad");

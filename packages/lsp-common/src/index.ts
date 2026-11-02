@@ -1,8 +1,9 @@
 /**
  * @typesugar/lsp-common — Shared IDE infrastructure
  *
- * Utilities consumed by both the LSP server (packages/lsp-server) and the
- * TS plugin language service (packages/transformer/language-service.ts).
+ * Utilities consumed by the TS plugin language service
+ * (packages/transformer/src/language-service.ts). They were shared with the
+ * standalone LSP server until it was removed from the repo (PEP-060 D5).
  *
  * @see PEP-034 Wave 2
  */
@@ -10,7 +11,10 @@
 // Position mapping
 export {
   mapTextSpanToOriginal,
+  mapSourceSpanToOriginal,
+  mapTextSpanToTransformed,
   IdentityPositionMapper,
+  type MappedTexts,
   type PositionMapper,
 } from "./position-mapping.js";
 

@@ -6,7 +6,7 @@
  * - TextMate grammar patterns for syntax highlighting
  * - Language configuration bracket/comment handling
  * - Manifest schema and merge behavior
- * - Semantic token type/modifier configuration
+ * - Absence of semantic token contributions (dropped with the LSP client)
  * - Command and activation event registration
  */
 import { describe, it, expect } from "vitest";
@@ -149,63 +149,49 @@ describe("VSCode Extension Configuration Edge Cases", () => {
       }
     });
 
-    it("has valid semantic token types", () => {
-      const tokenTypes = contributes.semanticTokenTypes as Array<{
-        id: string;
-        superType: string;
-        description: string;
-      }>;
+    // PEP-060 D5 (commit 33fee99c): the tsserver plugin is the only editor
+    // engine. tsserver's classification legend is fixed to TS's own token
+    // types, so the custom `macro` semantic tokens (served by the old LSP
+    // client) were dropped; highlighting comes from the TextMate grammars.
+    it("contributes no semantic token types or scopes", () => {
+      expect(contributes.semanticTokenTypes).toBeUndefined();
+      expect(contributes.semanticTokenScopes).toBeUndefined();
+      expect(contributes.semanticTokenModifiers).toBeUndefined();
+    });
 
-      const validSuperTypes = [
-        "comment",
-        "string",
-        "keyword",
-        "number",
-        "regexp",
-        "operator",
-        "namespace",
-        "type",
-        "struct",
-        "class",
-        "interface",
-        "enum",
-        "enumMember",
-        "typeParameter",
-        "function",
-        "method",
-        "decorator",
-        "macro",
-        "variable",
-        "parameter",
-        "property",
-        "label",
-        "event",
-      ];
+    it("contributes exactly the two tsserver-backed commands", () => {
+      const commands = contributes.commands as Array<{ command: string }>;
+      expect(commands.map((c) => c.command).sort()).toEqual([
+        "typesugar.expandMacro",
+        "typesugar.showTransformed",
+      ]);
+    });
 
-      for (const token of tokenTypes) {
-        expect(token.id).toMatch(/^[a-z][a-zA-Z]+$/);
-        expect(validSuperTypes).toContain(token.superType);
-        expect(typeof token.description).toBe("string");
+    it("registers every contributed command in the extension", () => {
+      const source = fs.readFileSync(path.join(VSCODE_PKG_PATH, "src/extension.ts"), "utf-8");
+      for (const cmd of contributes.commands as Array<{ command: string }>) {
+        expect(source).toContain(`registerCommand("${cmd.command}"`);
       }
     });
 
-    it("has valid semantic token scopes mapping", () => {
-      const scopes = contributes.semanticTokenScopes as Array<{
-        language: string;
-        scopes: Record<string, string[]>;
-      }>;
+    it("puts both commands in the editor context menu and command palette for TS files", () => {
+      const menus = contributes.menus as Record<
+        string,
+        Array<{ command: string; when?: string; group?: string }>
+      >;
+      const commandIds = (contributes.commands as Array<{ command: string }>).map((c) => c.command);
 
-      for (const scope of scopes) {
-        expect(["typescript", "typescriptreact", "javascript", "javascriptreact"]).toContain(
-          scope.language
-        );
-
-        for (const [tokenType, tmScopes] of Object.entries(scope.scopes)) {
-          expect(Array.isArray(tmScopes)).toBe(true);
-          for (const tmScope of tmScopes) {
-            expect(tmScope).toMatch(/^[a-z]+(\.[a-z]+)+$/);
-          }
+      for (const menu of ["editor/context", "commandPalette"]) {
+        const entries = menus[menu];
+        expect(Array.isArray(entries)).toBe(true);
+        expect(entries.map((e) => e.command).sort()).toEqual([...commandIds].sort());
+        for (const entry of entries) {
+          expect(entry.when).toMatch(/editorLangId == typescript\b/);
+          expect(entry.when).toMatch(/editorLangId == typescriptreact\b/);
         }
+      }
+      for (const entry of menus["editor/context"]) {
+        expect(entry.group).toMatch(/^typesugar@\d+$/);
       }
     });
   });
@@ -485,58 +471,29 @@ describe("VSCode Extension Configuration Edge Cases", () => {
   });
 
   // ==========================================================================
-  // Attack 7: Color Configuration Validation
+  // Attack 7: No leftover semantic-token configuration
   // ==========================================================================
+  // PEP-060 D5 (commit 33fee99c) dropped the semantic `macro` tokens, so the
+  // colour defaults that styled them must go too: a rule for an undeclared
+  // token type is dead config VS Code silently ignores.
   describe("semantic token color configuration", () => {
     const pkg = readJson<{
-      contributes: {
-        configurationDefaults?: {
-          "editor.semanticTokenColorCustomizations"?: {
-            rules: Record<
-              string,
-              {
-                foreground?: string;
-                bold?: boolean;
-                italic?: boolean;
-                fontStyle?: string;
-              }
-            >;
-          };
-        };
-      };
+      contributes: { configurationDefaults?: Record<string, unknown> };
     }>("package.json");
 
-    it("has valid color hex codes", () => {
-      const rules =
-        pkg.contributes.configurationDefaults?.["editor.semanticTokenColorCustomizations"]?.rules;
-      expect(rules).toBeDefined();
-
-      for (const [tokenType, style] of Object.entries(rules!)) {
-        if (style.foreground) {
-          expect(style.foreground).toMatch(/^#[0-9A-Fa-f]{6}$/);
-        }
-      }
+    it("sets no semantic token colour defaults", () => {
+      expect(
+        pkg.contributes.configurationDefaults?.["editor.semanticTokenColorCustomizations"]
+      ).toBeUndefined();
     });
 
-    it("color rules reference declared semantic token types", () => {
-      const pkg2 = readJson<{
-        contributes: {
-          semanticTokenTypes: Array<{ id: string }>;
-          configurationDefaults?: {
-            "editor.semanticTokenColorCustomizations"?: {
-              rules: Record<string, unknown>;
-            };
-          };
-        };
-      }>("package.json");
-
-      const declaredTypes = new Set(pkg2.contributes.semanticTokenTypes.map((t) => t.id));
-      const rules =
-        pkg2.contributes.configurationDefaults?.["editor.semanticTokenColorCustomizations"]?.rules;
-
-      for (const tokenType of Object.keys(rules ?? {})) {
-        expect(declaredTypes.has(tokenType)).toBe(true);
-      }
+    it("configures the tsserver plugin under the name the extension uses", () => {
+      const source = fs.readFileSync(path.join(VSCODE_PKG_PATH, "src/extension.ts"), "utf-8");
+      const plugins = (pkg.contributes as { typescriptServerPlugins?: Array<{ name: string }> })
+        .typescriptServerPlugins!;
+      expect(plugins.map((p) => p.name)).toEqual(["@typesugar/ts-plugin"]);
+      // configurePlugin(id, ...) only reaches a plugin whose contributed name matches.
+      expect(source).toContain(`const PLUGIN_NAME = "${plugins[0].name}"`);
     });
   });
 });

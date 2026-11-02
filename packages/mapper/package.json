@@ -64,7 +64,12 @@
     "@typesugar/core": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0 <6.0.0"
+    "typescript": ">=5.9.0 <7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "typescript": "^5.5.0",

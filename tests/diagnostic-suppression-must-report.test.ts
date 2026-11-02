@@ -3,9 +3,11 @@
  *
  * A suppression rule may only hide a diagnostic when typesugar will actually
  * make that code valid. Each case below is a real TypeScript error the rules
- * used to hide (deep-review macros-other #9, #10, #17, #18), next to the
+ * used to hide (deep-review macros-other #10, #17, #18), next to the
  * narrower case each rule still legitimately suppresses. Every case is built
- * on a real ts.Program and real checker diagnostics.
+ * on a real ts.Program and real checker diagnostics. (#9's newtype cases live
+ * in diagnostic-suppression-newtype.test.ts: the NewtypeAssignment rule they
+ * constrained was removed in 2026-10.)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -20,7 +22,6 @@ import {
 } from "@typesugar/core";
 import {
   createMacroCallChainRule,
-  createNewtypeAssignmentRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
 } from "@typesugar/macros";
@@ -103,110 +104,6 @@ function lineOf(d: ts.Diagnostic): string {
 afterEach(() => {
   clearDiagnosticSuppressionRules();
   clearTypeRewrites();
-});
-
-// ---------------------------------------------------------------------------
-// NewtypeAssignment (#9)
-// ---------------------------------------------------------------------------
-
-const NEWTYPE_LIB = `
-declare const __brand: unique symbol;
-type Newtype<Base, Brand extends string> = Base & { readonly [__brand]: Brand };
-type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
-declare function wrap<T>(value: UnwrapNewtype<T>): T;
-declare function newtypeCtor<T>(): (value: UnwrapNewtype<T>) => T;
-type UserId = Newtype<number, "UserId">;
-type Meters = Newtype<number, "Meters">;
-type Feet = Newtype<number, "Feet">;
-`;
-
-describe("NewtypeAssignment — must still report (deep-review macros-other #9)", () => {
-  const rule = () => createNewtypeAssignmentRule();
-
-  it("reports getUser(42) — passing a raw number where a UserId is required", () => {
-    const { raw, kept } = runRule(
-      rule(),
-      { "/test.ts": `${NEWTYPE_LIB}\nfunction getUser(id: UserId): void {}\ngetUser(42);\n` },
-      2345
-    );
-    expect(raw.length).toBe(1);
-    expect(kept).toHaveLength(1);
-  });
-
-  it("reports const id: UserId = 42", () => {
-    const { raw, kept } = runRule(
-      rule(),
-      { "/test.ts": `${NEWTYPE_LIB}\nconst id: UserId = 42;\n` },
-      2322
-    );
-    expect(raw.length).toBe(1);
-    expect(kept).toHaveLength(1);
-  });
-
-  it("reports a Feet passed where Meters is required, while hiding wrap()'s spurious error", () => {
-    const { raw, kept } = runRule(
-      rule(),
-      {
-        "/test.ts": `${NEWTYPE_LIB}
-function area(w: Meters, h: Meters): number { return 0; }
-area(wrap<Meters>(10), wrap<Feet>(5));
-`,
-      },
-      2345
-    );
-    // raw: wrap<Meters>(10)'s arg, wrap<Feet>(5)'s arg, and the Feet → Meters argument.
-    expect(raw.length).toBe(3);
-    expect(kept).toHaveLength(1);
-    expect(messageOf(kept[0])).toContain('"Feet"');
-  });
-
-  it("reports a user's own string-keyed __brand type (not a typesugar Newtype)", () => {
-    const { raw, kept } = runRule(
-      rule(),
-      {
-        "/test.ts": `
-type Token = string & { readonly __brand: "Token" };
-function use(t: Token): void {}
-use("abc");
-`,
-      },
-      2345
-    );
-    expect(raw.length).toBe(1);
-    expect(kept).toHaveLength(1);
-  });
-
-  it("reports wrap<UserId>() of the wrong base type and re-wrapping another newtype", () => {
-    const { raw, kept } = runRule(
-      rule(),
-      {
-        "/test.ts": `${NEWTYPE_LIB}
-declare const feet: Feet;
-const a = wrap<UserId>("not a number");
-const b = wrap<Meters>(feet);
-`,
-      },
-      2345
-    );
-    expect(raw.length).toBe(2);
-    expect(kept).toHaveLength(2);
-  });
-
-  it("still suppresses wrap<UserId>(42) and a newtypeCtor constructor call", () => {
-    const { raw, kept } = runRule(
-      rule(),
-      {
-        "/test.ts": `${NEWTYPE_LIB}
-const id = wrap<UserId>(42);
-const mkUserId = newtypeCtor<UserId>();
-const id2 = mkUserId(7);
-`,
-      },
-      2345
-    );
-    expect(raw.length).toBe(2);
-    expect(kept).toHaveLength(0);
-  });
 });
 
 // ---------------------------------------------------------------------------

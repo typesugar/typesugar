@@ -4,7 +4,7 @@ typesugar provides operator overloading via `@op` JSDoc on typeclass methods: st
 
 ## Standard Operators via @op JSDoc
 
-The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures. For the standard typeclasses, operator syntax is off until you import the typeclass's `ops` activation module (PEP-052) — without it, `a + b` is left alone:
+The only way to enable standard JavaScript operators is through typeclass instances with `@op` JSDoc tags on method signatures. For the standard typeclasses, operator syntax is off until you import the typeclass's `ops` activation module (PEP-052) — without it, `a + b` is left alone, and the transformer warns ([TS9804](../errors/TS9804.md)) when an instance in scope would have handled the operator, naming the import to add:
 
 ```typescript
 import "@typesugar/std/syntax/numeric/ops"; // + - *
@@ -23,9 +23,25 @@ rationalToString(sum); // "5/6"
 ```
 
 The instances (`numericRational`, …) are imported for you. The activation modules are
-`@typesugar/std/syntax/<typeclass>/ops` for `eq` (`===`, `!==`), `ord`, `semigroup`,
+`@typesugar/std/syntax/<typeclass>/ops` for `eq` (`===`, `!==`, `==`, `!=`), `ord`, `semigroup`,
 `monoid`, `group` (`+`), `numeric` (`+ - *`), `integral` (`/ %`) and `fractional` (`/`).
 A typeclass you define in the same file with `@op` tags needs no activation import.
+
+If you forget the import, the operator stays native JavaScript (`a + b` on two
+objects concatenates strings; `p1 === p2` compares references), and you get:
+
+```
+warning [TS9804] Operator '+' on 'Complex' matches Numeric.add, but Numeric operator syntax is not activated in this file
+  = help: Add `import "@typesugar/std/syntax/numeric/ops";` to rewrite it to Numeric.add(...). Without it the operator stays native JavaScript.
+```
+
+The warning only fires when activating the typeclass would actually change the
+expression: never on primitive operands, on types with no instance in scope, in
+files that already activate the typeclass or declare it, or in
+`"use no typesugar"` files. Where the native operator is intended, add
+`// @ts-no-typesugar operators` to the line. For reference identity, write
+`Object.is(a, b)` instead: it is a call, so it is never rewritten, in a file that
+activates Eq or one that doesn't.
 
 Typeclasses define methods with `@op` JSDoc tags, which the transformer uses to dispatch operators:
 
@@ -44,6 +60,33 @@ interface Numeric<A> {
 ```
 
 This approach is **zero-cost** — the operator is transformed directly to the method call with no wrapper.
+
+### Several Operators on One Method
+
+A method can carry more than one `@op` tag, one per operator it handles. Use this
+for equivalent spellings of the same operation: std's `Eq` maps both `===` and `==`
+to `equals`, and both `!==` and `!=` to `notEquals`, so `a == b` and `a === b`
+compile to the same call:
+
+```typescript
+/** @typeclass */
+interface Eq<A> {
+  /**
+   * @op ===
+   * @op ==
+   */
+  equals(a: A, b: A): boolean;
+  /**
+   * @op !==
+   * @op !=
+   */
+  notEquals(a: A, b: A): boolean;
+}
+```
+
+Every tag maps its operator to that method, and the rules below (unary vs binary
+by parameter count, the right-operand check) apply to each tag alike. Keep it to
+spellings that mean the same thing; two different operations belong on two methods.
 
 ---
 
@@ -65,11 +108,17 @@ This approach is **zero-cost** — the operator is transformed directly to the m
 | Operator | Typical Method              | Example   |
 | -------- | --------------------------- | --------- |
 | `===`    | `equals`, `eq`              | `a === b` |
+| `==`     | `equals`, `eq`              | `a == b`  |
 | `!==`    | `notEquals`, `neq`          | `a !== b` |
+| `!=`     | `notEquals`, `neq`          | `a != b`  |
 | `<`      | `lessThan`, `lt`            | `a < b`   |
 | `<=`     | `lessThanOrEqual`, `lte`    | `a <= b`  |
 | `>`      | `greaterThan`, `gt`         | `a > b`   |
 | `>=`     | `greaterThanOrEqual`, `gte` | `a >= b`  |
+
+A comparison with `null` or `undefined` (`a == null`, `a !== undefined`) is never
+rewritten, so the usual nullish checks keep their JavaScript meaning. To compare
+references in a file that activates Eq, use `Object.is(a, b)`.
 
 ### Bitwise
 

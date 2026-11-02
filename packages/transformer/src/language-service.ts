@@ -33,6 +33,7 @@ import {
   filterDiagnostics,
   getDiagnosticSuppressionRules,
   isDiagnosticSuppressionAuditEnabled,
+  assertSupportedTypeScript,
   type PositionMapFn,
 } from "@typesugar/core";
 import {
@@ -42,6 +43,8 @@ import {
 import { hashContent } from "./cache.js";
 import {
   mapTextSpanToOriginal,
+  mapSourceSpanToOriginal,
+  mapTextSpanToTransformed,
   computeMacroCodeActions,
   type MacroManifest,
 } from "@typesugar/lsp-common";
@@ -70,9 +73,167 @@ interface StoredSuggestion {
   replacement: string;
 }
 
+// ---------------------------------------------------------------------------
+// Editor-facing surface beyond the LanguageService (PEP-060 D5: this plugin is
+// the single editor engine for 1.0, so the VS Code extension's expansion views
+// talk to it through custom tsserver requests instead of a separate LSP).
+// ---------------------------------------------------------------------------
+
+/**
+ * Custom tsserver request: `{ file, position }` → `{ macroName, expandedText } | null`.
+ * The leading `_` is what VS Code's `typescript.tsserverRequest` command
+ * requires of a non-built-in request.
+ */
+export const EXPAND_MACRO_REQUEST = "_typesugar.expandMacro";
+/** Custom tsserver request: `{ file }` → `{ original, transformed, changed } | null`. */
+export const SHOW_TRANSFORMED_REQUEST = "_typesugar.showTransformed";
+
+export interface ExpandMacroResponse {
+  macroName: string;
+  expandedText: string;
+}
+export interface ShowTransformedResponse {
+  original: string;
+  transformed: string;
+  changed: boolean;
+}
+
+/**
+ * What one live plugin instance (one project) exposes to the request handlers
+ * and to a duplicate load of the plugin. Kept to plain methods so that two
+ * copies of this module (the project's own `@typesugar/transformer` and the
+ * one the VS Code extension bundles) can call each other's instances.
+ */
+interface PluginInstance {
+  hasFile(fileName: string): boolean;
+  showTransformed(fileName: string): ShowTransformedResponse | null;
+  expandMacroAt(fileName: string, position: number): ExpandMacroResponse | null;
+  applyEditorConfig(config: unknown): void;
+}
+
+/** Set on the project's LanguageServiceHost by the first load of the plugin. */
+const ACTIVE_INSTANCE = Symbol.for("typesugar.languageService.activeInstance");
+/** Per-session registry of live instances, shared across module copies. */
+const SESSION_INSTANCES = Symbol.for("typesugar.languageService.sessionInstances");
+
+interface ProtocolSession {
+  addProtocolHandler(
+    command: string,
+    handler: (request: ts.server.protocol.Request) => ts.server.HandlerResponse
+  ): void;
+  [SESSION_INSTANCES]?: Set<PluginInstance>;
+}
+
+/**
+ * Register the custom requests on tsserver's session once, and return the
+ * session's instance registry. Every project's plugin instance adds itself to
+ * the registry; a request is answered by the instance whose project has the
+ * file. This is a live registry read at request time, not a snapshot.
+ */
+function registerSessionHandlers(
+  session: ProtocolSession,
+  log: (msg: string) => void
+): Set<PluginInstance> {
+  const existing = session[SESSION_INSTANCES];
+  if (existing) return existing;
+  const instances = new Set<PluginInstance>();
+  session[SESSION_INSTANCES] = instances;
+
+  const answer = (
+    request: ts.server.protocol.Request,
+    run: (inst: PluginInstance, file: string, args: Record<string, unknown>) => object | null
+  ): ts.server.HandlerResponse => {
+    const args = (request.arguments ?? {}) as Record<string, unknown>;
+    const file = typeof args.file === "string" ? args.file : undefined;
+    if (file) {
+      for (const inst of instances) {
+        if (inst.hasFile(file)) {
+          // "No result" goes out as a response without a body.
+          return { response: run(inst, file, args) ?? undefined, responseRequired: true };
+        }
+      }
+    }
+    return { response: undefined, responseRequired: true };
+  };
+
+  try {
+    session.addProtocolHandler(SHOW_TRANSFORMED_REQUEST, (request) =>
+      answer(request, (inst, file) => inst.showTransformed(file))
+    );
+    session.addProtocolHandler(EXPAND_MACRO_REQUEST, (request) =>
+      answer(request, (inst, file, args) =>
+        typeof args.position === "number" ? inst.expandMacroAt(file, args.position) : null
+      )
+    );
+  } catch (error) {
+    log(`Could not register typesugar tsserver requests: ${error}`);
+  }
+  return instances;
+}
+
+/** True when `comptimeInEditor` in the plugin config came from the editor, not the repo. */
+function trustedComptimeOptIn(info: ts.server.PluginCreateInfo, log: (msg: string) => void) {
+  const cfg = info.config as { comptimeInEditor?: unknown } | undefined;
+  if (cfg?.comptimeInEditor !== true) return false;
+  // tsserver merges an editor's `configurePlugin` override into the tsconfig
+  // entry, so look at the tsconfig entries themselves: a repository must not be
+  // able to switch on running its own comptime code in the editor.
+  const tsconfigPlugins = (info.project.getCompilerOptions().plugins ?? []) as unknown[];
+  const fromRepo = tsconfigPlugins.some(
+    (p) => !!p && typeof p === "object" && "comptimeInEditor" in (p as object)
+  );
+  if (fromRepo) {
+    log(
+      "Ignoring `comptimeInEditor` from tsconfig.json: only the editor (VS Code setting " +
+        "`typesugar.comptimeInEditor`) or TYPESUGAR_COMPTIME_IN_EDITOR=1 can enable it"
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Line starts of `text`, with TypeScript's line breaks (CR, LF, CRLF, U+2028,
+ * U+2029), so line/column results match what tsserver computes for the file.
+ */
+function computeLineStarts(text: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 13 /* \r */) {
+      if (text.charCodeAt(i + 1) === 10) i++;
+      starts.push(i + 1);
+    } else if (ch === 10 || ch === 0x2028 || ch === 0x2029) {
+      starts.push(i + 1);
+    }
+  }
+  return starts;
+}
+
+function lineAndCharacterOf(lineStarts: number[], position: number): ts.LineAndCharacter {
+  let lo = 0;
+  let hi = lineStarts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lineStarts[mid] <= position) lo = mid;
+    else hi = mid - 1;
+  }
+  return { line: lo, character: position - lineStarts[lo] };
+}
+
 function init(modules: { typescript: typeof ts }) {
   console.log("[typesugar] Language service plugin v2 (transform-first) initializing...");
   const tsModule = modules.typescript;
+  // PEP-060 item 1: tsserver hands us ITS TypeScript, which can differ from the
+  // one in node_modules; reject anything without the JS compiler API up front.
+  assertSupportedTypeScript(tsModule);
+
+  /**
+   * tsserver calls init() once per project and keeps the returned module per
+   * project, so this is the instance `onConfigurationChanged` must reach: our
+   * own, or (for a duplicate load that stood down) the one already active.
+   */
+  let configTarget: PluginInstance | undefined;
 
   function create(info: ts.server.PluginCreateInfo): ts.LanguageService {
     const projectName = info.project.getProjectName();
@@ -93,6 +254,22 @@ function init(modules: { typescript: typeof ts }) {
       return info.languageService;
     }
 
+    // Loaded twice for one project — e.g. tsconfig lists
+    // `@typesugar/transformer/language-service` and the VS Code extension adds
+    // `@typesugar/ts-plugin` globally (tsserver only de-duplicates identical
+    // names). A second wrap would transform already-transformed code, so the
+    // later load stands down and forwards editor configuration to the first.
+    const hostMarks = info.languageServiceHost as unknown as Record<symbol, unknown>;
+    const alreadyActive = hostMarks[ACTIVE_INSTANCE] as PluginInstance | undefined;
+    if (alreadyActive) {
+      log("typesugar plugin is already active for this project; this second load does nothing");
+      configTarget = alreadyActive;
+      if (trustedComptimeOptIn(info, log)) {
+        alreadyActive.applyEditorConfig({ comptimeInEditor: true });
+      }
+      return info.languageService;
+    }
+
     log("typesugar language service plugin v2 initialized");
 
     // ---------------------------------------------------------------------------
@@ -104,6 +281,16 @@ function init(modules: { typescript: typeof ts }) {
     /** Per-file suggestion cache for Quick Fix code actions */
     const suggestionCache = new Map<string, StoredSuggestion[]>();
     let pipeline: TransformationPipeline | null = null;
+
+    /**
+     * comptime in the editor runs the repository's code with the editor's
+     * privileges, so it is off unless the user opted in: through the editor
+     * (VS Code's `typesugar.comptimeInEditor`, sent with tsserver's
+     * `configurePlugin`) or TYPESUGAR_COMPTIME_IN_EDITOR=1. Never via tsconfig.
+     */
+    let editorComptimeOptIn = trustedComptimeOptIn(info, log);
+    const comptimeEnabled = () =>
+      process.env.TYPESUGAR_COMPTIME_IN_EDITOR === "1" || editorComptimeOptIn;
 
     // Store original host methods BEFORE we modify them
     const originalHost = info.languageServiceHost;
@@ -134,7 +321,7 @@ function init(modules: { typescript: typeof ts }) {
         // Opening a repository in an editor must not run that repository's
         // comptime code unless the user opts in; disabled comptime calls are
         // left unexpanded with a warning.
-        setComptimeEvaluationEnabled(process.env.TYPESUGAR_COMPTIME_IN_EDITOR === "1");
+        setComptimeEvaluationEnabled(comptimeEnabled());
 
         // Load the project's typesugar config from the project directory
         // (tsserver's cwd is unrelated to the project).
@@ -277,6 +464,9 @@ function init(modules: { typescript: typeof ts }) {
       suggestionCache.delete(normalizedFileName);
 
       try {
+        // The comptime switch is process-global; set it from THIS project's
+        // opt-in each time, since another project's plugin may have set it.
+        setComptimeEvaluationEnabled(comptimeEnabled());
         const result = p.transform(normalizedFileName);
 
         if (result.diagnostics.length > 0) {
@@ -320,12 +510,80 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     /**
-     * Get the position mapper for a file
+     * Get the position mapper for a file. A file the transform left unchanged
+     * is served to TypeScript as written, so its positions map by identity
+     * (whatever source map the pipeline produced is not for the text TS sees).
      */
     function getMapper(fileName: string): PositionMapper {
       const result = getTransformResult(fileName);
-      return result?.mapper ?? new IdentityPositionMapper();
+      return result?.changed ? result.mapper : new IdentityPositionMapper();
     }
+
+    /** The transform result for a file TypeScript sees in expanded form, else null. */
+    function expandedResult(fileName: string): TransformResult | null {
+      const result = getTransformResult(path.normalize(fileName));
+      return result?.changed ? result : null;
+    }
+
+    /**
+     * Map a span TypeScript returned in `fileName` that must be the user's own
+     * text (a rename location, a reference, an edit's range) to the source.
+     * Null when it is in macro-generated code (see mapSourceSpanToOriginal):
+     * the caller drops it, by design.
+     */
+    function toSourceSpan(fileName: string, span: ts.TextSpan): ts.TextSpan | null {
+      const result = expandedResult(fileName);
+      if (!result) return span;
+      return mapSourceSpanToOriginal(span, result.mapper, {
+        original: result.original,
+        transformed: result.code,
+      });
+    }
+
+    /**
+     * Map edits TypeScript computed on the expanded code back to the source.
+     * Null when any edit touches macro-generated code: applying part of a fix
+     * or refactor would leave the user's file inconsistent.
+     */
+    function toSourceEdits(
+      changes: readonly ts.FileTextChanges[],
+      what: string
+    ): ts.FileTextChanges[] | null {
+      const mapped: ts.FileTextChanges[] = [];
+      for (const fileChange of changes) {
+        const textChanges: ts.TextChange[] = [];
+        for (const change of fileChange.textChanges) {
+          const span = toSourceSpan(fileChange.fileName, change.span);
+          if (!span) {
+            log(
+              `${what} edits macro-generated code in ${path.basename(fileChange.fileName)} ` +
+                `(${change.span.start}+${change.span.length}); not offered`
+            );
+            return null;
+          }
+          textChanges.push({ ...change, span });
+        }
+        mapped.push({ ...fileChange, textChanges });
+      }
+      return mapped;
+    }
+
+    /**
+     * A request's source span as a range of the expanded code (see
+     * mapTextSpanToTransformed): its ends may fall in comments, which have no
+     * mapping of their own.
+     */
+    function toTransformedRange(fileName: string, span: ts.TextSpan): ts.TextSpan | null {
+      const result = expandedResult(fileName);
+      if (!result) return span;
+      return mapTextSpanToTransformed(span, result.mapper, {
+        original: result.original.length,
+        transformed: result.code.length,
+      });
+    }
+
+    /** Line starts of the source text, for toLineColumnOffset (cached per transform). */
+    const sourceLineStarts = new WeakMap<TransformResult, number[]>();
 
     // ---------------------------------------------------------------------------
     // Register diagnostic suppression rules
@@ -549,15 +807,27 @@ function init(modules: { typescript: typeof ts }) {
     ): readonly ts.CodeFixAction[] => {
       const normalizedFileName = path.normalize(fileName);
 
-      // Get TS's own code fixes
-      const original = oldLS.getCodeFixesAtPosition(
-        fileName,
-        start,
-        end,
-        errorCodes,
-        formatOptions,
-        preferences
-      );
+      // TypeScript's own fixes: it finds the error in the EXPANDED code, so
+      // the span goes in mapped, and the fixes' edits come back mapped (a fix
+      // that would edit macro-generated code is not offered).
+      const original: ts.CodeFixAction[] = [];
+      const range = toTransformedRange(normalizedFileName, { start, length: end - start });
+      if (range) {
+        const tsFixes = oldLS.getCodeFixesAtPosition(
+          fileName,
+          range.start,
+          range.start + range.length,
+          errorCodes,
+          formatOptions,
+          preferences
+        );
+        for (const fix of tsFixes) {
+          const changes = toSourceEdits(fix.changes, `Code fix ${fix.fixName}`);
+          if (changes) original.push({ ...fix, changes });
+        }
+      } else {
+        log(`getCodeFixesAtPosition: could not map ${start}-${end} in ${fileName}`);
+      }
 
       // Check if any of the error codes are in the typesugar range (9001-9999)
       const hasTypesugarCodes = errorCodes.some((c) => c >= 9001 && c <= 9999);
@@ -601,6 +871,18 @@ function init(modules: { typescript: typeof ts }) {
       }
 
       return [...original, ...fixes];
+    };
+
+    proxy.getCombinedCodeFix = (
+      scope: ts.CombinedCodeFixScope,
+      fixId: {},
+      formatOptions: ts.FormatCodeSettings,
+      preferences: ts.UserPreferences
+    ): ts.CombinedCodeActions => {
+      // "Fix all in file": TypeScript computes the edits on the expanded code.
+      const combined = oldLS.getCombinedCodeFix(scope, fixId, formatOptions, preferences);
+      const changes = toSourceEdits(combined.changes, `Combined code fix ${String(fixId)}`);
+      return { ...combined, changes: changes ?? [] };
     };
 
     // ---------------------------------------------------------------------------
@@ -882,12 +1164,13 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!definitions) return definitions;
 
-      return definitions.map((def) => {
+      return definitions.flatMap((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
 
         if (!mappedSpan) {
-          return def;
+          log(`Definition in macro-generated code of ${path.basename(def.fileName)}; dropped`);
+          return [];
         }
 
         let mappedContextSpan = def.contextSpan;
@@ -923,11 +1206,14 @@ function init(modules: { typescript: typeof ts }) {
       const mappedTextSpan = mapTextSpanToOriginal(result.textSpan, mapper);
       if (!mappedTextSpan) return undefined;
 
-      const mappedDefinitions = result.definitions?.map((def) => {
+      const mappedDefinitions = result.definitions?.flatMap((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedDefSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
 
-        if (!mappedDefSpan) return def;
+        if (!mappedDefSpan) {
+          log(`Definition in macro-generated code of ${path.basename(def.fileName)}; dropped`);
+          return [];
+        }
 
         let mappedContextSpan = def.contextSpan;
         if (def.contextSpan) {
@@ -948,6 +1234,26 @@ function init(modules: { typescript: typeof ts }) {
       };
     };
 
+    /**
+     * tsserver turns the offsets of definitions (and implementations) into
+     * line/column with this, on whatever text the language service has, which
+     * is the EXPANDED code. Our results are already source offsets, so convert
+     * them on the source text, or a jump after a @derive companion lands lines
+     * off (PEP-060 item 5).
+     */
+    if (typeof oldLS.toLineColumnOffset === "function") {
+      proxy.toLineColumnOffset = (fileName: string, position: number): ts.LineAndCharacter => {
+        const result = expandedResult(fileName);
+        if (!result) return oldLS.toLineColumnOffset!(fileName, position);
+        let lineStarts = sourceLineStarts.get(result);
+        if (!lineStarts) {
+          lineStarts = computeLineStarts(result.original);
+          sourceLineStarts.set(result, lineStarts);
+        }
+        return lineAndCharacterOf(lineStarts, position);
+      };
+    }
+
     proxy.getTypeDefinitionAtPosition = (
       fileName: string,
       position: number
@@ -963,11 +1269,14 @@ function init(modules: { typescript: typeof ts }) {
 
       if (!definitions) return definitions;
 
-      return definitions.map((def) => {
+      return definitions.flatMap((def) => {
         const targetMapper = getMapper(def.fileName);
         const mappedSpan = mapTextSpanToOriginal(def.textSpan, targetMapper);
 
-        if (!mappedSpan) return def;
+        if (!mappedSpan) {
+          log(`Type definition in macro-generated code of ${path.basename(def.fileName)}; dropped`);
+          return [];
+        }
 
         let mappedContextSpan = def.contextSpan;
         if (def.contextSpan) {
@@ -980,6 +1289,30 @@ function init(modules: { typescript: typeof ts }) {
           textSpan: mappedSpan,
           contextSpan: mappedContextSpan,
         };
+      });
+    };
+
+    proxy.getImplementationAtPosition = (
+      fileName: string,
+      position: number
+    ): readonly ts.ImplementationLocation[] | undefined => {
+      const transformedPosition = getMapper(fileName).toTransformed(position);
+      if (transformedPosition === null) return undefined;
+
+      const implementations = oldLS.getImplementationAtPosition(fileName, transformedPosition);
+      if (!implementations) return implementations;
+
+      return implementations.flatMap((impl) => {
+        const targetMapper = getMapper(impl.fileName);
+        const textSpan = mapTextSpanToOriginal(impl.textSpan, targetMapper);
+        if (!textSpan) {
+          log(`Implementation in macro-generated code of ${path.basename(impl.fileName)}; dropped`);
+          return [];
+        }
+        const contextSpan = impl.contextSpan
+          ? (mapTextSpanToOriginal(impl.contextSpan, targetMapper) ?? undefined)
+          : undefined;
+        return [{ ...impl, textSpan, contextSpan }];
       });
     };
 
@@ -1001,7 +1334,9 @@ function init(modules: { typescript: typeof ts }) {
       const mapped: ts.ReferenceEntry[] = [];
       for (const ref of references) {
         const targetMapper = getMapper(ref.fileName);
-        const mappedSpan = mapTextSpanToOriginal(ref.textSpan, targetMapper);
+        // A reference must be the user's own text: one in generated code
+        // (attributed to the macro call by the source map) is dropped.
+        const mappedSpan = toSourceSpan(ref.fileName, ref.textSpan);
 
         if (!mappedSpan) continue;
 
@@ -1011,8 +1346,7 @@ function init(modules: { typescript: typeof ts }) {
         };
 
         if (ref.contextSpan) {
-          result.contextSpan =
-            mapTextSpanToOriginal(ref.contextSpan, targetMapper) ?? ref.contextSpan;
+          result.contextSpan = mapTextSpanToOriginal(ref.contextSpan, targetMapper) ?? undefined;
         }
 
         mapped.push(result);
@@ -1054,7 +1388,7 @@ function init(modules: { typescript: typeof ts }) {
         const mappedReferences: ts.ReferencedSymbolEntry[] = [];
         for (const ref of symbol.references) {
           const refMapper = getMapper(ref.fileName);
-          const mappedRefSpan = mapTextSpanToOriginal(ref.textSpan, refMapper);
+          const mappedRefSpan = toSourceSpan(ref.fileName, ref.textSpan);
 
           if (!mappedRefSpan) continue;
 
@@ -1064,8 +1398,7 @@ function init(modules: { typescript: typeof ts }) {
           };
 
           if (ref.contextSpan) {
-            mappedRef.contextSpan =
-              mapTextSpanToOriginal(ref.contextSpan, refMapper) ?? ref.contextSpan;
+            mappedRef.contextSpan = mapTextSpanToOriginal(ref.contextSpan, refMapper) ?? undefined;
           }
 
           mappedReferences.push(mappedRef);
@@ -1170,11 +1503,18 @@ function init(modules: { typescript: typeof ts }) {
       if (!locations) return locations;
 
       const mapped: ts.RenameLocation[] = [];
+      let generatedLocations = 0;
       for (const loc of locations) {
         const targetMapper = getMapper(loc.fileName);
-        const mappedSpan = mapTextSpanToOriginal(loc.textSpan, targetMapper);
+        // Rename edits the user's text: a location in macro-generated code
+        // (e.g. a @derive companion naming the type, which the source map
+        // attributes to the @derive tag) is dropped, not mapped onto the tag.
+        const mappedSpan = toSourceSpan(loc.fileName, loc.textSpan);
 
-        if (!mappedSpan) continue;
+        if (!mappedSpan) {
+          generatedLocations++;
+          continue;
+        }
 
         const result: ts.RenameLocation = {
           ...loc,
@@ -1182,13 +1522,18 @@ function init(modules: { typescript: typeof ts }) {
         };
 
         if (loc.contextSpan) {
-          result.contextSpan =
-            mapTextSpanToOriginal(loc.contextSpan, targetMapper) ?? loc.contextSpan;
+          result.contextSpan = mapTextSpanToOriginal(loc.contextSpan, targetMapper) ?? undefined;
         }
 
         mapped.push(result);
       }
 
+      if (generatedLocations > 0) {
+        log(
+          `Rename: skipped ${generatedLocations} location(s) in macro-generated code ` +
+            `(${path.basename(fileName)})`
+        );
+      }
       return mapped;
     };
 
@@ -1213,7 +1558,7 @@ function init(modules: { typescript: typeof ts }) {
 
         const mappedSpans: ts.HighlightSpan[] = [];
         for (const span of docHighlight.highlightSpans) {
-          const mappedTextSpan = mapTextSpanToOriginal(span.textSpan, targetMapper);
+          const mappedTextSpan = toSourceSpan(docHighlight.fileName, span.textSpan);
           if (!mappedTextSpan) continue;
 
           const result: ts.HighlightSpan = {
@@ -1222,8 +1567,7 @@ function init(modules: { typescript: typeof ts }) {
           };
 
           if (span.contextSpan) {
-            result.contextSpan =
-              mapTextSpanToOriginal(span.contextSpan, targetMapper) ?? span.contextSpan;
+            result.contextSpan = mapTextSpanToOriginal(span.contextSpan, targetMapper) ?? undefined;
           }
 
           mappedSpans.push(result);
@@ -1282,6 +1626,40 @@ function init(modules: { typescript: typeof ts }) {
 
     const TYPESUGAR_REFACTOR_NAME = "typesugar-macro";
 
+    /**
+     * Macro actions that can actually be applied as an edit. "Expand …" and
+     * "Add @derive(...)" have no edit a refactor can return (TS refactors
+     * can't run an editor command), so offering them left a menu entry that
+     * did nothing; macro expansion is the editor's "Expand Macro at Cursor"
+     * command (the `_typesugar.expandMacro` request) instead.
+     */
+    function applicableMacroActions(
+      fileName: string,
+      positionOrRange: number | ts.TextRange
+    ): ReturnType<typeof computeMacroCodeActions> {
+      const manifest = getMacroManifest();
+      if (!manifest) return [];
+      const originalText = readOriginalFile(fileName);
+      if (!originalText) return [];
+      const start = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.pos;
+      const end = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.end;
+      return computeMacroCodeActions(originalText, fileName, manifest, start, end).filter(
+        (ma) => ma.kind === "wrap-comptime" && ma.edit !== undefined
+      );
+    }
+
+    /** Original-source position/range → the transformed program's, or null if unmappable. */
+    function toTransformedPositionOrRange(
+      fileName: string,
+      positionOrRange: number | ts.TextRange
+    ): number | ts.TextRange | null {
+      const mapper = getMapper(fileName);
+      if (typeof positionOrRange === "number") return mapper.toTransformed(positionOrRange);
+      const pos = mapper.toTransformed(positionOrRange.pos);
+      const end = mapper.toTransformed(positionOrRange.end);
+      return pos === null || end === null ? null : { pos, end };
+    }
+
     proxy.getApplicableRefactors = (
       fileName: string,
       positionOrRange: number | ts.TextRange,
@@ -1289,32 +1667,28 @@ function init(modules: { typescript: typeof ts }) {
       triggerReason?: ts.RefactorTriggerReason,
       kind?: string
     ): ts.ApplicableRefactorInfo[] => {
-      const original = oldLS.getApplicableRefactors(
-        fileName,
-        positionOrRange,
-        preferences,
-        triggerReason,
-        kind
-      );
-
-      const manifest = getMacroManifest();
-      if (!manifest) return original;
-
       const normalizedFileName = path.normalize(fileName);
-      const originalText = readOriginalFile(normalizedFileName);
-      if (!originalText) return original;
 
-      const start = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.pos;
-      const end = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.end;
+      // TypeScript's own refactors run on the TRANSFORMED program, so the
+      // position has to be mapped in (an unmapped original offset can land in
+      // the middle of generated code and crash TS's refactor providers).
+      let original: ts.ApplicableRefactorInfo[] = [];
+      const transformed = toTransformedPositionOrRange(normalizedFileName, positionOrRange);
+      if (transformed !== null) {
+        try {
+          original = oldLS.getApplicableRefactors(
+            fileName,
+            transformed,
+            preferences,
+            triggerReason,
+            kind
+          );
+        } catch (error) {
+          log(`getApplicableRefactors failed in ${path.basename(fileName)}: ${error}`);
+        }
+      }
 
-      const macroActions = computeMacroCodeActions(
-        originalText,
-        normalizedFileName,
-        manifest,
-        start,
-        end
-      );
-
+      const macroActions = applicableMacroActions(normalizedFileName, positionOrRange);
       if (macroActions.length === 0) return original;
 
       const actions: ts.RefactorActionInfo[] = macroActions.map((ma, i) => ({
@@ -1341,61 +1715,47 @@ function init(modules: { typescript: typeof ts }) {
       actionName: string,
       preferences: ts.UserPreferences | undefined
     ): ts.RefactorEditInfo | undefined => {
+      const normalizedFileName = path.normalize(fileName);
+
       if (refactorName !== TYPESUGAR_REFACTOR_NAME) {
-        return oldLS.getEditsForRefactor(
+        const transformed = toTransformedPositionOrRange(normalizedFileName, positionOrRange);
+        if (transformed === null) return undefined;
+        const result = oldLS.getEditsForRefactor(
           fileName,
           formatOptions,
-          positionOrRange,
+          transformed,
           refactorName,
           actionName,
           preferences
         );
+        if (!result) return result;
+        // Map the edits back to original-source coordinates; a refactor that
+        // would edit macro-generated text can't be applied to the user's file.
+        const edits = toSourceEdits(result.edits, `Refactor ${refactorName}`);
+        if (!edits) return undefined;
+        const renameLocation =
+          result.renameFilename !== undefined && result.renameLocation !== undefined
+            ? (getMapper(result.renameFilename).toOriginal(result.renameLocation) ?? undefined)
+            : result.renameLocation;
+        return { ...result, edits, renameLocation };
       }
-
-      const manifest = getMacroManifest();
-      if (!manifest) return undefined;
-
-      const normalizedFileName = path.normalize(fileName);
-      const originalText = readOriginalFile(normalizedFileName);
-      if (!originalText) return undefined;
-
-      const start = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.pos;
-      const end = typeof positionOrRange === "number" ? positionOrRange : positionOrRange.end;
-
-      const macroActions = computeMacroCodeActions(
-        originalText,
-        normalizedFileName,
-        manifest,
-        start,
-        end
-      );
 
       const idx = parseInt(actionName.replace(`${TYPESUGAR_REFACTOR_NAME}-`, ""), 10);
-      const action = macroActions[idx];
-      if (!action) return undefined;
+      const action = applicableMacroActions(normalizedFileName, positionOrRange)[idx];
+      if (!action?.edit) return undefined;
 
-      if (action.kind === "wrap-comptime" && action.edit) {
-        return {
-          edits: [
-            {
-              fileName: normalizedFileName,
-              textChanges: [
-                {
-                  span: { start: action.edit.start, length: action.edit.length },
-                  newText: action.edit.newText,
-                },
-              ],
-            },
-          ],
-        };
-      }
-
-      // For expand-macro and add-derive, return a command that the editor handles
-      // (these require running the transformer, which the plugin can't do inline)
       return {
-        edits: [],
-        renameFilename: undefined,
-        renameLocation: undefined,
+        edits: [
+          {
+            fileName: normalizedFileName,
+            textChanges: [
+              {
+                span: { start: action.edit.start, length: action.edit.length },
+                newText: action.edit.newText,
+              },
+            ],
+          },
+        ],
       };
     };
 
@@ -1431,6 +1791,180 @@ function init(modules: { typescript: typeof ts }) {
       );
     };
 
+    // ---------------------------------------------------------------------------
+    // Override: inlay hints — TypeScript's own hints mapped back to original
+    // positions, plus a preview of each expression macro's expansion
+    // (`fieldNames<User>()  = ["id", "name"]`). The editor decides whether to
+    // ask at all (VS Code: only when some `typescript.inlayHints.*` is on).
+    // ---------------------------------------------------------------------------
+
+    if (typeof oldLS.provideInlayHints === "function") {
+      proxy.provideInlayHints = (
+        fileName: string,
+        span: ts.TextSpan,
+        preferences: ts.UserPreferences | undefined
+      ): ts.InlayHint[] => {
+        const normalizedFileName = path.normalize(fileName);
+        const result = getTransformResult(normalizedFileName);
+        if (!result?.changed) return oldLS.provideInlayHints(fileName, span, preferences);
+
+        // TypeScript's own hints. The span is mapped as a range: an editor
+        // asks for the whole file or the visible lines, whose ends are often
+        // in a comment (no mapping of their own), and mapping only exact ends
+        // dropped every hint.
+        const hints: ts.InlayHint[] = [];
+        const range = toTransformedRange(normalizedFileName, span);
+        const spanEnd = span.start + span.length;
+        if (range) {
+          try {
+            for (const hint of oldLS.provideInlayHints(fileName, range, preferences)) {
+              // A hint must sit in the user's code: one in generated code
+              // (e.g. after a @derive companion's name, attributed to the tag)
+              // is dropped, and the range may reach a little past the span.
+              const at = toSourceSpan(normalizedFileName, { start: hint.position, length: 0 });
+              if (!at || at.start < span.start || at.start > spanEnd) continue;
+              hints.push({
+                ...hint,
+                position: at.start,
+                displayParts: hint.displayParts?.map((part) => mapDisplayPart(part)),
+              });
+            }
+          } catch (error) {
+            log(`provideInlayHints failed in ${path.basename(fileName)}: ${error}`);
+          }
+        }
+
+        hints.push(...expansionHints(result, normalizedFileName, span));
+        return hints.sort((a, b) => a.position - b.position);
+      };
+    }
+
+    /** An interactive inlay hint part links to a declaration: map its span too. */
+    function mapDisplayPart(part: ts.InlayHintDisplayPart): ts.InlayHintDisplayPart {
+      if (!part.span || !part.file) return part;
+      const span = mapTextSpanToOriginal(part.span, getMapper(part.file));
+      if (span) return { ...part, span };
+      const { span: _generated, file: _file, ...rest } = part;
+      return rest;
+    }
+
+    function expansionHints(
+      result: TransformResult,
+      fileName: string,
+      span: ts.TextSpan
+    ): ts.InlayHint[] {
+      if (!result.expansions?.length) return [];
+      // Expansion records carry the macro call's offsets; only show a hint
+      // where the original text really has a call / tagged template there
+      // (decorator and block macros would be noise as an inline hint).
+      const sf = tsModule.createSourceFile(
+        fileName,
+        result.original,
+        tsModule.ScriptTarget.Latest,
+        true,
+        fileName.endsWith("x") ? tsModule.ScriptKind.TSX : tsModule.ScriptKind.TS
+      );
+      const callEnds = new Map<number, number>();
+      const visit = (node: ts.Node): void => {
+        if (tsModule.isCallExpression(node) || tsModule.isTaggedTemplateExpression(node)) {
+          callEnds.set(node.getStart(sf), node.getEnd());
+        }
+        tsModule.forEachChild(node, visit);
+      };
+      visit(sf);
+
+      const spanEnd = span.start + span.length;
+      const hints: ts.InlayHint[] = [];
+      for (const exp of result.expansions) {
+        const end = callEnds.get(exp.originalStart);
+        if (end === undefined || end < span.start || end > spanEnd) continue;
+        const flat = exp.expandedText.replace(/\s+/g, " ").trim();
+        hints.push({
+          text: `= ${flat.length <= 60 ? flat : flat.slice(0, 59) + "…"}`,
+          position: end,
+          kind: tsModule.InlayHintKind.Type,
+          whitespaceBefore: true,
+        });
+      }
+      return hints;
+    }
+
+    // ---------------------------------------------------------------------------
+    // This project's instance: answers the custom tsserver requests and takes
+    // editor configuration (see PluginInstance).
+    // ---------------------------------------------------------------------------
+
+    function findExpansionAt(fileName: string, position: number): ExpandMacroResponse | null {
+      const expansions = getTransformResult(path.normalize(fileName))?.expansions;
+      if (!expansions) return null;
+      let best: ExpandMacroResponse | null = null;
+      let bestDist = Infinity;
+      for (const exp of expansions) {
+        if (position >= exp.originalStart && position <= exp.originalEnd) {
+          return { macroName: exp.macroName, expandedText: exp.expandedText };
+        }
+        const dist = Math.min(
+          Math.abs(position - exp.originalStart),
+          Math.abs(position - exp.originalEnd)
+        );
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = { macroName: exp.macroName, expandedText: exp.expandedText };
+        }
+      }
+      // Same tolerance the LSP's expandMacro used: a cursor just next to a call.
+      return bestDist < 200 ? best : null;
+    }
+
+    const instance: PluginInstance = {
+      hasFile(fileName: string): boolean {
+        const toNormalizedPath = tsModule.server?.toNormalizedPath;
+        if (typeof info.project.containsFile === "function" && toNormalizedPath) {
+          return info.project.containsFile(toNormalizedPath(fileName));
+        }
+        const wanted = path.normalize(fileName);
+        return info.project.getFileNames().some((f) => path.normalize(f) === wanted);
+      },
+      showTransformed(fileName: string): ShowTransformedResponse | null {
+        const normalizedFileName = path.normalize(fileName);
+        const result = getTransformResult(normalizedFileName);
+        if (result) {
+          return { original: result.original, transformed: result.code, changed: result.changed };
+        }
+        const text = readOriginalFile(normalizedFileName);
+        return text === undefined ? null : { original: text, transformed: text, changed: false };
+      },
+      expandMacroAt: findExpansionAt,
+      applyEditorConfig(config: unknown): void {
+        const next = (config as { comptimeInEditor?: unknown } | null)?.comptimeInEditor === true;
+        if (next === editorComptimeOptIn) return;
+        editorComptimeOptIn = next;
+        log(`comptime evaluation in the editor ${next ? "enabled" : "disabled"} by the editor`);
+        // Every cached expansion was made under the old setting.
+        transformCache.clear();
+        rawMacroDiagnosticCache.clear();
+        suggestionCache.clear();
+        pipeline = null;
+        const project = info.project as { markAsDirty?: () => void };
+        project.markAsDirty?.();
+      },
+    };
+    hostMarks[ACTIVE_INSTANCE] = instance;
+    configTarget = instance;
+
+    const session = (info as { session?: ProtocolSession }).session;
+    const sessionInstances =
+      session && typeof session.addProtocolHandler === "function"
+        ? registerSessionHandlers(session, log)
+        : undefined;
+    sessionInstances?.add(instance);
+
+    proxy.dispose = (): void => {
+      sessionInstances?.delete(instance);
+      if (hostMarks[ACTIVE_INSTANCE] === instance) delete hostMarks[ACTIVE_INSTANCE];
+      oldLS.dispose();
+    };
+
     // before plugins have a chance to modify the host.
     try {
       const project = info.project as unknown as Record<string, unknown>;
@@ -1451,7 +1985,13 @@ function init(modules: { typescript: typeof ts }) {
     return proxy;
   }
 
-  return { create };
+  return {
+    create,
+    /** tsserver `configurePlugin` (VS Code: the extension's settings). */
+    onConfigurationChanged(config: unknown): void {
+      configTarget?.applyEditorConfig(config);
+    },
+  };
 }
 
 export default init;

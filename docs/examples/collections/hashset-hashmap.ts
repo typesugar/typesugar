@@ -4,6 +4,9 @@
 import { derive, Eq } from "typesugar";
 import { HashSet, HashMap } from "@typesugar/collections";
 import { eqNumber, hashNumber, makeEq, makeHash } from "@typesugar/std";
+// Operator syntax is opt-in per file: this makes `===` on Eq types structural.
+// Without it, `a === b` compares references and typesugar warns (TS9804).
+import "@typesugar/std/syntax/eq/ops";
 
 // @derive(Eq) generates structural equality for custom types
 // 👀 Check JS Output: @derive creates a companion Eq instance

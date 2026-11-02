@@ -54,6 +54,12 @@ assert(users.length === filtered.length);
 //            [{"a":1},{"a":2},{"a":3}]
 ```
 
+`@typesugar/validate` has an `assert<T>()` macro too, for checking `unknown` data against a
+type. The two can be used in the same project and the same file: each call expands the
+macro of the package it was imported from. In a file that needs both, import validate's as
+`assertType` (see
+[Using validate and testing together](./validate.md#using-validate-and-testing-together)).
+
 ### staticAssert() — Compile-Time Assertions
 
 Fail the BUILD, not the test. Zero runtime cost.

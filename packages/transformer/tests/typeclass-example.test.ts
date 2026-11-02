@@ -13,9 +13,11 @@ describe("@typeclass playground example", () => {
     const errors = r.diagnostics.filter((d) => d.severity === "error");
     expect(errors).toHaveLength(0);
 
-    // implicit() resolution: show(42) gets showNumber, show("hello") gets showString
-    expect(r.code).toContain("show(42, showNumber)");
-    expect(r.code).toContain('show("hello", showString)');
+    // implicit() resolution: show(42) gets showNumber, show("hello") gets
+    // showString, and each completed call is then auto-specialized.
+    expect(r.code).toMatch(/__typesugar___show_number_\d+__\(42\)/);
+    expect(r.code).toMatch(/__typesugar___show_string_\d+__\("hello"\)/);
+    expect(r.code).not.toContain("show(42, showNumber)");
 
     // Auto-derivation via implicit(): show(point) gets an auto-derived Show<Point>
     expect(r.code).toContain("a.x");

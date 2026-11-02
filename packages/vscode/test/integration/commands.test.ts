@@ -17,15 +17,6 @@ suite("Command Execution", () => {
     }
   });
 
-  test("typesugar.refreshManifest completes without error", async function () {
-    this.timeout(10000);
-
-    await assert.doesNotReject(
-      Promise.resolve(vscode.commands.executeCommand("typesugar.refreshManifest")),
-      "refreshManifest should complete without error"
-    );
-  });
-
   test("typesugar.expandMacro handles no active editor", async function () {
     this.timeout(10000);
 

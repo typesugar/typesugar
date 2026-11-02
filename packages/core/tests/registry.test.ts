@@ -52,7 +52,7 @@ describe("MacroRegistry", () => {
       expect(() => registry.register(macro)).not.toThrow();
     });
 
-    it("should throw when registering different macros with same name and different modules", () => {
+    it("lets macros with the same name from different modules coexist (PEP-060 item 8)", () => {
       const macro1 = defineExpressionMacro({
         name: "conflicting",
         module: "module-a",
@@ -65,7 +65,9 @@ describe("MacroRegistry", () => {
       });
 
       registry.register(macro1);
-      expect(() => registry.register(macro2)).toThrow(/already registered/);
+      expect(() => registry.register(macro2)).not.toThrow();
+      expect(registry.getByModuleExport("module-a", "conflicting", "expression")).toBe(macro1);
+      expect(registry.getByModuleExport("module-b", "conflicting", "expression")).toBe(macro2);
     });
   });
 

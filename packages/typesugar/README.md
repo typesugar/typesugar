@@ -2,11 +2,11 @@
 
 > 📖 **Full documentation:** [Getting Started](https://typesugar.org/getting-started/). The microsite is the canonical reference; this README is a quickstart.
 
-> TypeScript that F\*cks! Compile-time macros for TypeScript.
+> Syntactic sugar for TypeScript with zero calories. Typeclasses, operator overloading, pattern matching and more through compile-time macros and zero-cost abstractions.
 
 ## Overview
 
-typesugar brings Scala 3-style metaprogramming to TypeScript. Write macros that transform code at compile time, eliminating runtime overhead while maintaining full type safety.
+typesugar brings compile-time metaprogramming to TypeScript, drawing on Rust, Scala 3 and Zig. Write macros that transform code at compile time, eliminating runtime overhead while maintaining full type safety.
 
 This is the umbrella package. Its root entry (`typesugar`) is runtime-only: it exports the
 typed placeholders you call in your code (`comptime`, `derive`, `pipe`, `summon`, ...) and
@@ -128,6 +128,12 @@ import typesugar from "typesugar/rollup";
 ## CLI
 
 ```bash
+# Wire typesugar into an existing project
+npx typesugar init
+
+# Compile and run a file in one step
+npx typesugar run src/main.ts
+
 # Build with macro expansion
 npx typesugar build
 

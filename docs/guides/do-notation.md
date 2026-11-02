@@ -657,6 +657,6 @@ yield: ({ x, y }); // { x: number; y: string }
 
 ## See Also
 
-- [FlatMap Typeclass](../reference/typeclasses.md#flatmap) — The typeclass behind do-notation
+- [FlatMap Typeclass](./std-typeclasses.md#flatmap-—-sequencing) — The typeclass behind do-notation
 - [Effect Integration](./effect.md#do-notation) — Using do-notation with Effect-TS (`import "@typesugar/effect/syntax/do"`)
-- [Labeled Block Macros](../reference/macro-types.md#labeled-block-macros) — How the macros work
+- [Labeled Block Macros](../macro-types.md#labeled-block-macros) — How the macros work

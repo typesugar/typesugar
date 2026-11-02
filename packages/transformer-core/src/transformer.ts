@@ -283,10 +283,21 @@ class MacroTransformer {
         const fromScope = currentScope ? " (with propagation)" : "";
         console.log(`[typesugar] Filling implicit parameters for call: ${funcName}()${fromScope}`);
       }
-      // Use visitEachChild (not visitNode) so the arguments get visited for
-      // nested macro expansion, but the call itself is not re-fed through
-      // tryTransform — which would trigger auto-specialization and inline the
-      // function body instead of preserving the call with the resolved instance.
+      // The completed call is auto-specialized exactly as the explicit call
+      // `f(x, inst)` would be (same tryAutoSpecializeFn path, same fallbacks).
+      // This deliberately supersedes the PEP-056 parity choice in commit
+      // 7210ac66, which kept implicit calls as plain dictionary passing
+      // (Dean's decision 2026-10-19).
+      const autoSpecResult = ts.isCallExpression(result)
+        ? tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, result)
+        : undefined;
+      if (autoSpecResult !== undefined) {
+        return preserveSourceMap(this.visitRewrittenCall(autoSpecResult, result), node);
+      }
+      // Not specializable: use visitEachChild (not visitNode) so the
+      // arguments get visited for nested macro expansion, but the call
+      // itself is not re-fed through tryTransform (which would fill it in
+      // and attempt specialization a second time).
       const visited = ts.visitEachChild(
         result,
         this.visit.bind(this),
@@ -1006,6 +1017,19 @@ class MacroTransformer {
       }
     }
 
+    // Nothing in this container changed: return the node itself. The
+    // factory's update* functions compare the NodeArray by reference, so a
+    // fresh array of the same statements would make a new node, and a new
+    // SourceFile makes the pipeline reprint a file that has no macros (losing
+    // its formatting and making every editor position go through a source map
+    // instead of identity).
+    if (
+      cleanedStatements.length === node.statements.length &&
+      cleanedStatements.every((s, i) => s === node.statements[i])
+    ) {
+      return node;
+    }
+
     const factory = this.ctx.factory;
     if (ts.isSourceFile(node)) {
       return factory.updateSourceFile(node, cleanedStatements);
@@ -1589,7 +1613,11 @@ class MacroTransformer {
       const before = cacheKey ? this.sideEffectSnapshot() : undefined;
       const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, node.arguments));
 
-      if (this.expansionTracker) {
+      // A macro that hands back the call itself (comptime with evaluation
+      // switched off in the editor, a macro that reported an error) expanded
+      // nothing: recording the call as its own "expansion" made the editor
+      // show `= comptime(...)` as if it were a value (PEP-060 item 5).
+      if (this.expansionTracker && result !== node) {
         const expandedText = this.printNodeSafe(result);
         if (expandedText) {
           this.expansionTracker.recordExpansion(macroName, node, this.ctx.sourceFile, expandedText);
@@ -1786,8 +1814,18 @@ class MacroTransformer {
       // `@deriving(...)` is the deprecated alias (expandDeriveDecorator warns).
       if (isDerive) {
         const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
-        if (derives) {
-          extraStatements.push(...derives);
+        if (derives) extraStatements.push(...derives);
+        // Handled even when it generated nothing (each failure is reported):
+        // drop the decorator, which is not valid TypeScript on an interface
+        // or type alias and would be an undefined decorator on a class. The
+        // reprint of every file used to drop it by accident; a file nothing
+        // changed is no longer reprinted.
+        if (
+          derives ||
+          ts.isInterfaceDeclaration(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isTypeAliasDeclaration(node)
+        ) {
           wasTransformed = true;
           continue;
         }

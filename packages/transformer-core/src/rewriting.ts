@@ -47,6 +47,11 @@ import { receiverMatchesFirstParam } from "./import-resolution.js";
 // Circular with method-sugar.ts (which imports buildInstanceReferenceExpression
 // from here); both bindings are only used at call time.
 import { inferMethodSugarCallType } from "./method-sugar.js";
+import {
+  emitOperatorSyntaxNotActivatedHint,
+  findInactiveOperatorMatch,
+  mayNeedOperatorActivationHint,
+} from "./operator-activation.js";
 
 // ---------------------------------------------------------------------------
 // Callback types for cross-cutting concerns
@@ -601,6 +606,20 @@ function isNullOrUndefinedExpr(node: ts.Expression): boolean {
   return false;
 }
 
+/**
+ * Whether operator rewriting is opted out at `node`: the whole file
+ * (`"use no typesugar"`), the documented `operators` feature
+ * (`"use no typesugar operators"`, `// @ts-no-typesugar operators`), or the
+ * `extensions` feature, which gated operator rewriting before the `operators`
+ * feature was honored here and is kept so existing opt-outs keep working.
+ */
+function isOperatorRewriteOptedOut(ctx: MacroContextImpl, node: ts.Node): boolean {
+  return (
+    isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "operators") ||
+    isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")
+  );
+}
+
 const OPERATOR_PRIMITIVE_TYPES = new Set([
   "number",
   "string",
@@ -620,9 +639,7 @@ export function tryRewriteTypeclassOperator(
 ): ts.Expression | undefined {
   // Skip synthetic nodes (from macro-generated code) — the checker can crash.
   if (isSyntheticNode(node)) return undefined;
-  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
-    return undefined;
-  }
+  if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getOperatorString(node.operatorToken.kind);
   if (!opString) return undefined;
@@ -634,10 +651,14 @@ export function tryRewriteTypeclassOperator(
   const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
   const activatedForOps =
     definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
-  if (activatedForOps.size === 0) return undefined;
 
-  const candidates = getOperatorCandidates(ctx.program, activatedForOps, opString);
-  if (candidates.length === 0) return undefined;
+  const candidates =
+    activatedForOps.size === 0 ? [] : getOperatorCandidates(ctx.program, activatedForOps, opString);
+  // TS9804: a typeclass that is NOT activated here may map this operator. Only
+  // the program's cached typeclass index is consulted at this point; the
+  // instance lookup waits until the operand type is known to be non-primitive.
+  const mayHint = mayNeedOperatorActivationHint(ctx, node, opString, "binary", activatedForOps);
+  if (candidates.length === 0 && !mayHint) return undefined;
 
   if (isNullOrUndefinedExpr(node.right) || isNullOrUndefinedExpr(node.left)) return undefined;
 
@@ -652,8 +673,11 @@ export function tryRewriteTypeclassOperator(
   } catch (error) {
     ctx.reportWarning(
       node,
-      `typesugar skipped typeclass operator rewrite of '${opString}': ` +
-        `the operand types could not be resolved (${error}).`
+      candidates.length > 0
+        ? `typesugar skipped typeclass operator rewrite of '${opString}': ` +
+            `the operand types could not be resolved (${error}).`
+        : `typesugar could not check whether '${opString}' needs a typeclass ` +
+            `operator-syntax import: the operand types could not be resolved (${error}).`
     );
     return undefined;
   }
@@ -666,6 +690,32 @@ export function tryRewriteTypeclassOperator(
   }
 
   if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
+
+  /** No activated typeclass rewrote this: warn if an inactive one would have. */
+  const hintIfInactiveMatch = (): undefined => {
+    if (!mayHint) return undefined;
+    let inactive: { typeclass: string; method: string } | undefined;
+    try {
+      inactive = findInactiveOperatorMatch(ctx, {
+        operator: opString,
+        arity: "binary",
+        activated: activatedForOps,
+        operandType: leftType,
+        rightType,
+      });
+    } catch (error) {
+      ctx.reportWarning(
+        node,
+        `typesugar could not check whether '${opString}' on '${typeName}' needs a ` +
+          `typeclass operator-syntax import (${error}).`
+      );
+      return undefined;
+    }
+    if (inactive) {
+      emitOperatorSyntaxNotActivatedHint(ctx, node.operatorToken, opString, typeName, inactive);
+    }
+    return undefined;
+  };
 
   // Resolve an instance for the operand type from scope (no global registry).
   let matched:
@@ -701,7 +751,7 @@ export function tryRewriteTypeclassOperator(
     };
   }
 
-  if (!matched) return undefined;
+  if (!matched) return hintIfInactiveMatch();
 
   // The instance was resolved from the LEFT operand only. For a method whose
   // right parameter is the typeclass's type parameter (`add(a: A, b: A)`), the
@@ -796,9 +846,7 @@ export function tryRewriteTypeclassUnaryOperator(
   node: ts.PrefixUnaryExpression
 ): ts.Expression | undefined {
   if (isSyntheticNode(node) || isSyntheticNode(node.operand)) return undefined;
-  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "extensions")) {
-    return undefined;
-  }
+  if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getPrefixUnaryOperatorString(node.operator);
   if (!opString) return undefined;
@@ -808,10 +856,14 @@ export function tryRewriteTypeclassUnaryOperator(
   const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
   const activatedForOps =
     definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
-  if (activatedForOps.size === 0) return undefined;
 
-  const candidates = getOperatorCandidates(ctx.program, activatedForOps, opString, "unary");
-  if (candidates.length === 0) return undefined;
+  const candidates =
+    activatedForOps.size === 0
+      ? []
+      : getOperatorCandidates(ctx.program, activatedForOps, opString, "unary");
+  // TS9804 pre-check (index only, no checker call) — see the binary form.
+  const mayHint = mayNeedOperatorActivationHint(ctx, node, opString, "unary", activatedForOps);
+  if (candidates.length === 0 && !mayHint) return undefined;
   if (isNullOrUndefinedExpr(node.operand)) return undefined;
 
   let operandType: ts.Type;
@@ -822,8 +874,11 @@ export function tryRewriteTypeclassUnaryOperator(
   } catch (error) {
     ctx.reportWarning(
       node,
-      `typesugar skipped typeclass operator rewrite of unary '${opString}': ` +
-        `the operand type could not be resolved (${error}).`
+      candidates.length > 0
+        ? `typesugar skipped typeclass operator rewrite of unary '${opString}': ` +
+            `the operand type could not be resolved (${error}).`
+        : `typesugar could not check whether unary '${opString}' needs a typeclass ` +
+            `operator-syntax import: the operand type could not be resolved (${error}).`
     );
     return undefined;
   }
@@ -857,7 +912,27 @@ export function tryRewriteTypeclassUnaryOperator(
     }
     matched = { typeclass: candidate.typeclass, method: candidate.method, resolved: result };
   }
-  if (!matched) return undefined;
+  if (!matched) {
+    if (!mayHint) return undefined;
+    let inactive: { typeclass: string; method: string } | undefined;
+    try {
+      inactive = findInactiveOperatorMatch(ctx, {
+        operator: opString,
+        arity: "unary",
+        activated: activatedForOps,
+        operandType,
+      });
+    } catch (error) {
+      ctx.reportWarning(
+        node,
+        `typesugar could not check whether unary '${opString}' on '${typeName}' needs a ` +
+          `typeclass operator-syntax import (${error}).`
+      );
+      return undefined;
+    }
+    if (inactive) emitOperatorSyntaxNotActivatedHint(ctx, node, opString, typeName, inactive);
+    return undefined;
+  }
 
   if (verbose) {
     console.log(

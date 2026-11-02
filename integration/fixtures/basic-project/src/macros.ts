@@ -1,10 +1,9 @@
 // Integration test fixture: macro expansion features
 //
-// Test positions:
-//   Line 8: CodeLens above comptime — "$(zap) comptime(...)"
-//   Line 8: Inlay hint after comptime — "= 42"
-//   Line 11: CodeLens above @derive — "$(zap) @derive — 1 derive"
-//   Line 18: staticAssert macro error pointing to this line
+// - inlay hint after the comptime call: "= 42" (only with comptimeInEditor on)
+// - _typesugar.expandMacro on the comptime call: "42"; on staticAssert: "void 0"
+// - staticAssert macro error reported on its own line
+// - hover on `trailing`, after every expansion, must not drift
 
 import { comptime, staticAssert } from "typesugar";
 
@@ -18,5 +17,5 @@ interface Metric {
 
 staticAssert(false, "macro error test");
 
-// Code after all expansions — positions must not drift
+// Code after all expansions; positions must not drift
 const trailing = "end";

@@ -87,23 +87,17 @@ export default defineConfig({
             ],
           },
           {
-            text: "Syntax Sugar",
-            items: [{ text: "@typesugar/strings", link: "/reference/packages#strings" }],
-          },
-          {
             text: "Type Safety & Contracts",
             items: [
               { text: "@typesugar/type-system", link: "/reference/packages#type-system" },
               { text: "@typesugar/contracts", link: "/reference/packages#contracts" },
               { text: "@typesugar/validate", link: "/reference/packages#validate" },
-              { text: "@typesugar/units", link: "/reference/packages#units" },
             ],
           },
           {
             text: "Data Structures & Algorithms",
             items: [
               { text: "@typesugar/fp", link: "/reference/packages#fp" },
-              { text: "@typesugar/parser", link: "/reference/packages#parser" },
               { text: "@typesugar/fusion", link: "/reference/packages#fusion" },
               { text: "@typesugar/graph", link: "/reference/packages#graph" },
             ],

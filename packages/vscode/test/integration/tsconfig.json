@@ -5,7 +5,8 @@
     "rootDir": ".",
     "module": "commonjs",
     "moduleResolution": "node",
-    "noEmit": false
+    "noEmit": false,
+    "types": ["node", "vscode", "mocha"]
   },
   "include": ["./**/*.ts"]
 }

@@ -328,7 +328,7 @@ typesugar doctor [options]
 **Checks performed:**
 
 - package.json exists
-- TypeScript installed (version >= 5.0)
+- TypeScript installed and in the supported range `>=5.9.0 <7.0.0` (fails on TypeScript 7, warns below 5.9)
 - tsconfig.json exists
 - Transformer plugin configured
 - Language service plugin configured

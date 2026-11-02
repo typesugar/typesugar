@@ -8,11 +8,11 @@ runs in a hardened `node:vm` context, but Node documents `vm` as
 [not a security mechanism](https://nodejs.org/api/vm.html), and the permissions below are a
 guard against accidents, not an isolation boundary. Treat `comptime` blocks — including ones in
 dependencies — like build scripts: never build untrusted code outside a disposable, isolated
-environment. Editor integrations (the TypeScript plugin and the LSP server) do not evaluate
+environment. The editor integration (the TypeScript server plugin) does not evaluate
 `comptime` unless explicitly enabled; there the call is left unexpanded with a warning. To enable
 it, turn on the VS Code setting `typesugar.comptimeInEditor` (trusted workspaces only), or set
-`TYPESUGAR_COMPTIME_IN_EDITOR=1` in the environment the editor's TypeScript server or LSP server
-runs in.
+`TYPESUGAR_COMPTIME_IN_EDITOR=1` in the environment the editor's TypeScript server runs in. A
+repository can't enable it from its own `tsconfig.json`.
 :::
 
 ::: tip Try in Playground

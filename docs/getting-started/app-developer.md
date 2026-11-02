@@ -237,8 +237,6 @@ npx typesugar doctor
 | `@typesugar/contracts` | `requires:`, `ensures:`, `invariant:`                                                           |
 | `@typesugar/std`       | `match()` (fluent pattern matching), extension methods                                          |
 | `@typesugar/fp`        | `Option`, `Either`, `IO`, `List`                                                                |
-| `@typesugar/strings`   | `regex`, `html`, `raw` tagged templates                                                         |
-| `@typesugar/units`     | `units` tagged template for dimensional analysis                                                |
 
 ## What's Next?
 

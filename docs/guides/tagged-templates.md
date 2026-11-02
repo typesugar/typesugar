@@ -60,6 +60,8 @@ See the [SQL guide](./sql.md) for typed queries and `ConnectionIO`.
 
 ## Regex
 
+> From `@typesugar/strings`, which is frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)): still published, not under active development.
+
 ### Basic Usage
 
 ```typescript
@@ -86,6 +88,8 @@ dynamic pattern, use `new RegExp(pattern, flags)` directly.
 
 ## HTML
 
+> From `@typesugar/strings`, which is frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)): still published, not under active development.
+
 ### Type-Safe HTML
 
 ```typescript
@@ -102,6 +106,8 @@ string literals, not an HTML marker.) To include markup you trust, concatenate
 it outside the template.
 
 ## Units
+
+> From `@typesugar/units`, which is frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)): still published, not under active development.
 
 ### Unit Literals
 

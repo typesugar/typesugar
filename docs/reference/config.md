@@ -170,7 +170,10 @@ field in each package's `package.json`.
 ```
 
 Makes the editor's TypeScript server see expanded code, so valid macro code doesn't
-show false errors. Its only option is `"verbose": true` (or `TYPESUGAR_VERBOSE=1`).
+show false errors. It is typesugar's editor engine for every tsserver-based editor (see
+[Editor Setup](../getting-started/editor-setup.md)); install `@typesugar/transformer` as a direct
+devDependency so the server can find it. Its only option is `"verbose": true` (or
+`TYPESUGAR_VERBOSE=1`).
 
 ## Bundler Plugins (unplugin-typesugar)
 
@@ -318,25 +321,18 @@ spread with `...`).
 
 ## VSCode Extension
 
-Settings in `.vscode/settings.json` or user settings:
+The extension's language features come from the language service plugin above (it bundles and
+registers it), so it has one setting, in `.vscode/settings.json` or user settings:
 
 ```json
 {
-  "typesugar.enableCodeLens": true,
-  "typesugar.enableInlayHints": true,
-  "typesugar.enableDiagnostics": true,
-  "typesugar.manifestPath": "typesugar.manifest.json",
   "typesugar.comptimeInEditor": false
 }
 ```
 
-| Setting             | Type    | Default                     | Description                                                                                        |
-| ------------------- | ------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
-| `enableCodeLens`    | boolean | `true`                      | Show expansion previews                                                                            |
-| `enableInlayHints`  | boolean | `true`                      | Show inlay hints for bind types and comptime results                                               |
-| `enableDiagnostics` | boolean | `true`                      | Run background macro expansion for diagnostics                                                     |
-| `manifestPath`      | string  | `"typesugar.manifest.json"` | Path to the macro manifest file                                                                    |
-| `comptimeInEditor`  | boolean | `false`                     | Evaluate `comptime(...)` in the editor (trusted workspaces only); comptime inlay results need this |
+| Setting            | Type    | Default | Description                                                                                                                         |
+| ------------------ | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `comptimeInEditor` | boolean | `false` | Evaluate `comptime(...)` in the editor (trusted workspaces only). Sent to the plugin by the extension; `tsconfig.json` can't set it |
 
 ## ts-patch
 

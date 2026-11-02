@@ -76,9 +76,8 @@ packages/
 ├── transformer/        # @typesugar/transformer — ts-patch transformer plugin (Node.js)
 ├── transformer-core/   # @typesugar/transformer-core — browser-compatible transform core
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
-├── ts-plugin/          # @typesugar/ts-plugin — TypeScript language service plugin
+├── ts-plugin/          # @typesugar/ts-plugin — tsserver plugin wrapper (the 1.0 editor engine)
 ├── lsp-common/         # @typesugar/lsp-common — shared language-service helpers
-├── lsp-server/         # @typesugar/lsp-server — standalone LSP server (frozen)
 │
 │   ## Developer Experience
 ├── vscode/             # @typesugar/vscode — VS Code/Cursor extension
@@ -95,24 +94,24 @@ packages/
 ├── reflect/            # @typesugar/reflect — compile-time reflection
 │
 │   ## Syntax Sugar
-├── strings/            # @typesugar/strings — string manipulation macros
+├── strings/            # @typesugar/strings — string manipulation macros (frozen, PEP-048)
 │
 │   ## Type Safety & Contracts
 ├── type-system/        # @typesugar/type-system — refined types, newtype, vec
 ├── contracts/          # @typesugar/contracts — requires/ensures/invariant
 ├── contracts-refined/  # @typesugar/contracts-refined — refinement types
 ├── validate/           # @typesugar/validate — schema validation macros
-├── units/              # @typesugar/units — units of measure
+├── units/              # @typesugar/units — units of measure (frozen, PEP-048)
 │
 │   ## Data Structures & Algorithms
 ├── fp/                 # @typesugar/fp — functional programming (Option, Result, IO)
 ├── fusion/             # @typesugar/fusion — iterator fusion, expression templates (Blitz++)
-├── parser/             # @typesugar/parser — PEG parser generation (Boost.Spirit)
-├── collections/        # @typesugar/collections — collection typeclasses, HashSet, HashMap
+├── parser/             # @typesugar/parser — PEG parser generation (Boost.Spirit) (frozen, PEP-048)
+├── collections/        # @typesugar/collections — collection typeclasses, HashSet, HashMap (frozen, PEP-048)
 ├── graph/              # @typesugar/graph — GraphLike typeclass, graph algorithms, state machines (Boost.Graph)
-├── erased/             # @typesugar/erased — typeclass-based type erasure (dyn Trait)
-├── codec/              # @typesugar/codec — versioned codecs, schema evolution (serde)
-├── math/               # @typesugar/math — math types and typeclasses
+├── erased/             # @typesugar/erased — typeclass-based type erasure (dyn Trait) (frozen, PEP-048)
+├── codec/              # @typesugar/codec — versioned codecs, schema evolution (serde) (frozen, PEP-048)
+├── math/               # @typesugar/math — math types and typeclasses (frozen, PEP-048)
 ├── mapper/             # @typesugar/mapper — zero-cost object mapping
 │
 │   ## Ecosystem Integrations

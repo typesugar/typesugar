@@ -31,7 +31,7 @@
     "@typesugar/transformer": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0 <6.0.0"
+    "typescript": ">=5.9.0 <7.0.0"
   },
   "devDependencies": {
     "vitest": "^3.0.0"

@@ -21,7 +21,7 @@ interface Expanded {
 
 /** Run the real pipeline (like `transformCode`, but with configurable strictness). */
 function expand(body: string, strict = true): Expanded {
-  const src = `import { is, assert, validate } from "@typesugar/validate";\n${body}`;
+  const src = `import { is, assert, assertType, validate } from "@typesugar/validate";\n${body}`;
   const pipeline = new TransformationPipeline(
     {
       target: ts.ScriptTarget.Latest,
@@ -283,5 +283,80 @@ describe("r3: generated validators type-check", () => {
     expect(m.checkUser({ ...good, tags: [1] }).error.head.path).toBe("$.tags[0]");
     expect(m.assertUser(good).name).toBe("a");
     expect(() => m.assertUser({ ...good, rest: ["no"] })).toThrow(/Validation failed/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// is<T>(value) / assert<T>(value) / validate<T>(value): the immediate form
+// (typia's `is<T>(input)` shape). An argument used to be silently dropped:
+// `is<U>({ a: 1 })` returned the guard FUNCTION, which is always truthy.
+// ---------------------------------------------------------------------------
+
+describe("immediate form: a value argument checks it on the spot", () => {
+  const body = `
+    interface U { a: number }
+    export const yes = is<U>({ a: 1 });
+    export const no = is<U>({ a: "x" });
+    export const asserted = assert<U>({ a: 2 });
+    export const assertedType = assertType<U>({ a: 3 });
+    export const valid = validate<U>({ a: 4 });
+    export const invalid = validate<U>({ a: "y" });
+    export function narrow(x: unknown): number { return is<U>(x) ? x.a : -1; }
+    export function bad(): U { return assert<U>({ a: "z" }); }
+  `;
+  it("returns a boolean / the value / a Validated, and type-checks", () => {
+    const e = expand(body);
+    expect(e.errors).toEqual([]);
+    expect(typecheckOutput(e.code)).toEqual([]);
+    const m = run(e.code);
+    expect(m.yes).toBe(true);
+    expect(m.no).toBe(false);
+    expect(m.asserted).toEqual({ a: 2 });
+    expect(m.assertedType).toEqual({ a: 3 });
+    expect(m.valid).toEqual({ value: { a: 4 } });
+    expect(m.invalid.error.head).toEqual({ path: "$.a", message: "expected number" });
+    expect(m.narrow({ a: 5 })).toBe(5);
+    expect(m.narrow({})).toBe(-1);
+    expect(() => m.bad()).toThrow(/Validation failed/);
+  });
+
+  it("evaluates the argument exactly once", () => {
+    const m = build(`
+      interface U { a: number }
+      let calls = 0;
+      function next(): unknown { calls++; return { a: calls }; }
+      export const r = is<U>(next());
+      export const count = () => calls;
+    `);
+    expect(m.r).toBe(true);
+    expect(m.count()).toBe(1);
+  });
+
+  it("more than one argument is a compile-time error, not silently ignored", () => {
+    const e = expand(`export const r = is<number>(1, 2);`);
+    expect(e.errors.join("\n")).toMatch(/is<T>\(\) takes no arguments or one value/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertType<T>(): first-class alias of assert<T>() (typescript-is / typia v2
+// naming), so a file can also import @typesugar/testing's `assert`.
+// ---------------------------------------------------------------------------
+
+describe("assertType<T>() is an alias of assert<T>()", () => {
+  it("expands to the same code and behaves the same", () => {
+    const viaAssert = expand(
+      `interface U { a: number; b?: string[] }\nexport const f = assert<U>();`
+    );
+    const viaAlias = expand(
+      `interface U { a: number; b?: string[] }\nexport const f = assertType<U>();`
+    );
+    expect(viaAlias.errors).toEqual([]);
+    // The harness imports all four names; only the unused-import line differs.
+    const body = (code: string) => code.split("\n").filter((l) => !l.startsWith("import "));
+    expect(body(viaAlias.code)).toEqual(body(viaAssert.code));
+    const m = run(viaAlias.code);
+    expect(m.f({ a: 1 })).toEqual({ a: 1 });
+    expect(() => m.f({ a: 1, b: [2] })).toThrow(/Validation failed/);
   });
 });

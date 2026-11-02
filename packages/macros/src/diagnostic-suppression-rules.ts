@@ -10,11 +10,9 @@
  * and declaring file — is involved in an assignment and the other side matches
  * the registered underlying type.
  *
- * Rule 3 (NewtypeAssignment): Suppresses the spurious TS2345 on the argument of
- * `wrap<T>()` / a newtype constructor (a parameter typed `UnwrapNewtype<T>`).
- * Implicit `Base → Newtype` assignments and brand mismatches stay errors.
- * Legacy: @typesugar/type-system's own types no longer produce that TS2345
- * (see the rule's comment).
+ * (The former NewtypeAssignment rule was removed in 2026-10: since
+ * @typesugar/type-system's `UnwrapNewtype` reads a phantom base slot,
+ * `wrap<T>()` and the newtype constructors type-check with no suppression.)
  *
  * Every rule must only hide a diagnostic the transformer will actually make
  * valid: an extra red squiggle is far less harmful than a hidden real bug.
@@ -506,154 +504,8 @@ function checkImportedSymbol(
 }
 
 // ===========================================================================
-// Rule 3: NewtypeAssignment — suppress TS2345 on wrap()/newtype-constructor args
+// Shared helpers
 // ===========================================================================
-
-/**
- * Create the NewtypeAssignment diagnostic suppression rule.
- *
- * Scope (deep-review macros-other #9): this rule used to suppress every
- * TS2322/TS2345 where one side was a `Newtype<Base, Brand>` and the other fit
- * `Base` — which hid exactly the errors newtypes exist to produce
- * (`getUser(42)`, `area(meters, feet)`; docs/guides/type-system.md promises
- * both are type errors). Implicit `Base → Newtype` assignment is NOT something
- * the transformer makes valid — it rewrites nothing there — so it stays an
- * error.
- *
- * What remains is the one case the transformer DOES handle: the argument of
- * a `wrap<T>(value)` / `newtypeCtor<T>()` / `validatedNewtype<T>()`
- * constructor, i.e. any parameter declared as `UnwrapNewtype<T>`. TypeScript
- * infers `Base` in `UnwrapNewtype<Newtype<number, "UserId">>` as the whole
- * intersection, so `wrap<UserId>(42)` reports a spurious TS2345; `wrap` is
- * erased to its argument by the transformer and the constructors are the
- * identity at runtime. The argument is suppressed only when it fits the
- * newtype's base and does not itself carry a (different or same) newtype
- * brand — re-branding `wrap<Meters>(feet)` keeps its error.
- *
- * Newtypes are identified by declaration (the `[__brand]` member of a type
- * alias named `Newtype`), not by a `/__brand/` substring of the property
- * name, which also matched users' own hand-rolled brands.
- *
- * LEGACY — no longer needed by `@typesugar/type-system` (2026-10): its
- * `UnwrapNewtype` now reads a phantom `[__base]` slot instead of
- * `T extends Newtype<infer Base, string>`, so `wrap<UserId>(42)` and the
- * constructors type-check with no suppression at all (see "NewtypeAssignment
- * rule — no longer needed" in diagnostic-suppression-rules.test.ts, which
- * also shows this rule suppresses nothing there). It now only fires for code
- * that declares its own `Newtype`/`UnwrapNewtype` in the OLD inferred-base
- * shape, which is what the tests/diagnostic-suppression-*.test.ts fixtures
- * still do. Candidate for removal together with those fixtures and the
- * `createNewtypeAssignmentRule` export.
- */
-export function createNewtypeAssignmentRule(): DiagnosticSuppressionRule {
-  return {
-    name: "NewtypeAssignment",
-    errorCodes: [2345],
-
-    shouldSuppress(
-      diagnostic: ts.Diagnostic,
-      checker: ts.TypeChecker,
-      sourceFile: ts.SourceFile
-    ): boolean {
-      if (diagnostic.start === undefined || diagnostic.length === undefined) {
-        return false;
-      }
-
-      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length);
-      if (!node || isSyntheticNode(node)) return false;
-
-      const site = findUnwrapNewtypeArgument(node, checker);
-      if (!site) return false;
-
-      const targetBases = extractNewtypeBaseTypes(site.paramType);
-      if (targetBases.length === 0) return false;
-
-      // A value that is already a newtype is not "a base value being wrapped".
-      if (hasNewtypeBrand(site.argType)) return false;
-
-      return targetBases.every((base) => checker.isTypeAssignableTo(site.argType, base));
-    },
-  };
-}
-
-/**
- * If `node` is (inside) an argument of a call whose matching parameter is
- * declared as `UnwrapNewtype<...>`, return the argument and (instantiated)
- * parameter types.
- */
-function findUnwrapNewtypeArgument(
-  node: ts.Node,
-  checker: ts.TypeChecker
-): { argType: ts.Type; paramType: ts.Type } | undefined {
-  let current: ts.Node = node;
-  for (let i = 0; i < 6 && current.parent; i++) {
-    const parent: ts.Node = current.parent;
-    if (ts.isCallExpression(parent)) {
-      const argIndex = parent.arguments.indexOf(current as ts.Expression);
-      if (argIndex < 0) return undefined;
-      try {
-        const sig = checker.getResolvedSignature(parent);
-        const param = sig?.getParameters()[argIndex];
-        const decl = param?.valueDeclaration;
-        if (!param || !decl || !ts.isParameter(decl) || decl.dotDotDotToken) return undefined;
-        if (!decl.type || !isUnwrapNewtypeTypeNode(decl.type)) return undefined;
-        return {
-          argType: checker.getTypeAtLocation(current),
-          paramType: checker.getTypeOfSymbolAtLocation(param, parent),
-        };
-      } catch (e) {
-        reportCheckerFailure("NewtypeAssignment", e);
-        return undefined;
-      }
-    }
-    current = parent;
-  }
-  return undefined;
-}
-
-function isUnwrapNewtypeTypeNode(typeNode: ts.TypeNode): boolean {
-  if (!ts.isTypeReferenceNode(typeNode)) return false;
-  const name = typeNode.typeName;
-  const text = ts.isIdentifier(name) ? name.text : name.right.text;
-  return text === "UnwrapNewtype";
-}
-
-/**
- * Is `prop` the phantom `readonly [__brand]: Brand` member declared inside
- * the `Newtype` type alias (`@typesugar/type-system`'s, or a same-shaped local
- * one)? Identified by its declaration, so an unrelated `__brand` property on
- * a user's own branded type is not mistaken for a newtype.
- */
-function isNewtypeBrandSymbol(prop: ts.Symbol): boolean {
-  for (const decl of prop.declarations ?? []) {
-    if (!ts.isPropertySignature(decl)) continue;
-    if (!ts.isComputedPropertyName(decl.name)) continue;
-    const expr = decl.name.expression;
-    if (!ts.isIdentifier(expr) || expr.text !== "__brand") continue;
-    for (let n: ts.Node | undefined = decl.parent; n; n = n.parent) {
-      if (ts.isTypeAliasDeclaration(n)) {
-        if (n.name.text === "Newtype") return true;
-        break;
-      }
-    }
-  }
-  return false;
-}
-
-function hasNewtypeBrand(type: ts.Type): boolean {
-  return type.getProperties().some(isNewtypeBrandSymbol);
-}
-
-/**
- * For a `Newtype<Base, Brand>` (an intersection containing the declared brand
- * member), return the base constituents — e.g. `[Base1, Base2]` for
- * `Newtype<Base1 & Base2, Brand>`. Returns `[]` for anything else.
- */
-function extractNewtypeBaseTypes(type: ts.Type): ts.Type[] {
-  if (!type.isIntersection()) return [];
-  if (!type.types.some(hasNewtypeBrand)) return [];
-  return type.types.filter((t) => !hasNewtypeBrand(t));
-}
 
 /** Leave a visible trace when a checker call fails and the rule degrades (CLAUDE.md). */
 const reportedCheckerFailures = new Set<string>();

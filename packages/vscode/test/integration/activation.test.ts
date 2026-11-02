@@ -2,8 +2,8 @@
  * Integration tests for VS Code extension activation.
  *
  * These run in the Extension Development Host with full VS Code API access.
- * They verify the extension activates, registers all providers, and sets up
- * the status bar correctly.
+ * They verify the extension activates and registers its commands. Language
+ * features come from the tsserver plugin (see providers.test.ts).
  */
 import * as assert from "assert";
 import * as vscode from "vscode";
@@ -34,13 +34,7 @@ suite("Extension Activation", () => {
 
     const commands = await vscode.commands.getCommands(true);
 
-    const expectedCommands = [
-      "typesugar.expandMacro",
-      "typesugar.showTransformed",
-      "typesugar.refreshManifest",
-      "typesugar.generateManifest",
-      "typesugar.addDerive",
-    ];
+    const expectedCommands = ["typesugar.expandMacro", "typesugar.showTransformed"];
 
     for (const cmd of expectedCommands) {
       assert.ok(commands.includes(cmd), `Command '${cmd}' should be registered`);

@@ -1,358 +1,222 @@
 /**
- * Test assertion helpers for LSP integration tests.
+ * Session and assertion helpers for the editor integration tests.
  *
- * Provides high-level assertions for diagnostics, completions,
- * hover, navigation, and other LSP features.
+ * Each test file starts one tsserver on a fresh copy of a fixture project.
+ * The fixture's tsconfig.json lists `@typesugar/transformer/language-service`,
+ * so tsserver loads the plugin the way a user's editor does.
+ *
+ * Positions: tsserver uses 1-based lines and 1-based offsets. Tests find
+ * positions by searching the fixture text (`locate`) rather than hard-coding
+ * numbers, so editing a fixture's comments doesn't silently move a probe.
  */
 
 import { expect } from "vitest";
 import * as path from "path";
 import * as fs from "fs";
-import {
-  LspClient,
-  type LspDiagnostic,
-  type LspCompletionItem,
-  type LspHover,
-  type LspLocation,
-} from "./lsp-client.js";
+import { TsServerClient } from "./tsserver-client.js";
 import { type PreparedFixture } from "./fixture-manager.js";
 
-// ---------------------------------------------------------------------------
-// Session management
-// ---------------------------------------------------------------------------
+/** The plugin name the fixture's tsconfig.json lists (as users configure it). */
+export const PLUGIN_NAME = "@typesugar/transformer/language-service";
 
-export interface LspSession {
-  client: LspClient;
+export interface Location {
+  line: number;
+  offset: number;
+}
+
+export interface TsDiagnostic {
+  start: Location;
+  end: Location;
+  text: string;
+  code: number;
+  category: string;
+  source?: string;
+}
+
+export interface TsSession {
+  client: TsServerClient;
   fixture: PreparedFixture;
-  rootUri: string;
+}
+
+/** Start tsserver for a prepared fixture. */
+export async function initSession(fixture: PreparedFixture): Promise<TsSession> {
+  const client = new TsServerClient({
+    tsserverPath: fixture.tsserverPath,
+    cwd: fixture.dir,
+    // Where tsserver looks for tsconfig.json plugins. An editor running the
+    // project's own node_modules/typescript gets this directory by default;
+    // here tsserver runs from the monorepo, so name it explicitly.
+    pluginProbeLocations: [fixture.dir],
+    // Set TYPESUGAR_TSSERVER_LOG=/some/file to keep a verbose tsserver log
+    // (it includes the plugin's "[typesugar]" lines).
+    logFile: process.env.TYPESUGAR_TSSERVER_LOG,
+  });
+  await client.request("configure", {
+    hostInfo: "typesugar-integration-tests",
+    preferences: { includeCompletionsForModuleExports: false },
+  });
+  return { client, fixture };
+}
+
+export function fixturePath(session: TsSession, relativePath: string): string {
+  return path.join(session.fixture.dir, relativePath);
+}
+
+/** Open a fixture file in tsserver (as an editor does when a tab opens). */
+export function openFile(session: TsSession, relativePath: string): { file: string; text: string } {
+  const file = fixturePath(session, relativePath);
+  const text = fs.readFileSync(file, "utf8");
+  session.client.notify("open", {
+    file,
+    fileContent: text,
+    scriptKindName: "TS",
+    projectRootPath: session.fixture.dir,
+  });
+  return { file, text };
 }
 
 /**
- * Initialize an LSP session for a prepared fixture.
+ * The 0-based character position of `needle` in `text` (plus `delta`
+ * characters into it). `occurrence` picks the n-th match (0-based).
  */
-export async function initSession(fixture: PreparedFixture): Promise<LspSession> {
-  const client = new LspClient(fixture.lspServerPath);
-  const rootUri = `file://${fixture.dir}`;
-
-  await client.request("initialize", {
-    processId: null,
-    rootUri,
-    capabilities: {
-      textDocument: {
-        completion: { completionItem: { snippetSupport: false } },
-        hover: {},
-        definition: {},
-        references: {},
-        rename: {},
-        codeAction: {},
-        semanticTokens: { requests: { full: true } },
-        inlayHint: {},
-        codeLens: {},
-        signatureHelp: {},
-      },
-    },
-  });
-  await client.notify("initialized", {});
-
-  return { client, fixture, rootUri };
-}
-
-/**
- * Open a file in the LSP session and wait for initial diagnostics.
- */
-export async function openFile(
-  session: LspSession,
-  relativePath: string,
-  waitForDiagnostics = true
-): Promise<{ uri: string; text: string; diagnostics: LspDiagnostic[] }> {
-  const filePath = path.join(session.fixture.dir, relativePath);
-  const text = fs.readFileSync(filePath, "utf8");
-  const uri = `file://${filePath}`;
-
-  // Determine languageId from extension
-  const languageId = relativePath.endsWith(".tsx") ? "typescriptreact" : "typescript";
-
-  await session.client.notify("textDocument/didOpen", {
-    textDocument: { uri, languageId, version: 1, text },
-  });
-
-  let diagnostics: LspDiagnostic[] = [];
-  if (waitForDiagnostics) {
-    const result = await session.client.waitForNotification<{
-      uri: string;
-      diagnostics: LspDiagnostic[];
-    }>("textDocument/publishDiagnostics", (p) => (p as { uri: string }).uri === uri);
-    diagnostics = result?.diagnostics ?? [];
+export function positionOf(
+  text: string,
+  needle: string,
+  options: { delta?: number; occurrence?: number } = {}
+): number {
+  let pos = -1;
+  for (let i = 0; i <= (options.occurrence ?? 0); i++) {
+    pos = text.indexOf(needle, pos + 1);
+    if (pos === -1) throw new Error(`"${needle}" (occurrence ${i}) not found in fixture text`);
   }
+  return pos + (options.delta ?? 0);
+}
 
-  return { uri, text, diagnostics };
+/** The 1-based line/offset of `needle` in `text`; options as for `positionOf`. */
+export function locate(
+  text: string,
+  needle: string,
+  options: { delta?: number; occurrence?: number } = {}
+): Location {
+  const pos = positionOf(text, needle, options);
+  const before = text.slice(0, pos);
+  return { line: before.split("\n").length, offset: pos - (before.lastIndexOf("\n") + 1) + 1 };
+}
+
+/** 1-based offset in `text` → 0-based character position. */
+export function toPos(text: string, loc: Location): number {
+  const lines = text.split("\n");
+  let pos = 0;
+  for (let i = 0; i < loc.line - 1; i++) pos += lines[i].length + 1;
+  return pos + loc.offset - 1;
 }
 
 // ---------------------------------------------------------------------------
-// Diagnostic assertions
+// Diagnostics
 // ---------------------------------------------------------------------------
 
-/**
- * Assert that a diagnostic exists at the expected line with matching message.
- */
+/** Syntactic + semantic diagnostics, as an editor shows them. */
+export async function getDiagnostics(session: TsSession, file: string): Promise<TsDiagnostic[]> {
+  const syntactic = await session.client.request<TsDiagnostic[]>("syntacticDiagnosticsSync", {
+    file,
+  });
+  const semantic = await session.client.request<TsDiagnostic[]>("semanticDiagnosticsSync", {
+    file,
+  });
+  return [...syntactic, ...semantic];
+}
+
+/** Assert a diagnostic starts at `at` and its message contains `messageContains`. */
 export function assertDiagnosticAt(
-  diagnostics: LspDiagnostic[],
-  line: number,
+  diagnostics: TsDiagnostic[],
+  at: Location,
   messageContains: string,
   description?: string
-) {
+): TsDiagnostic {
   const match = diagnostics.find(
-    (d) => d.range.start.line === line && d.message.includes(messageContains)
+    (d) =>
+      d.start.line === at.line && d.start.offset === at.offset && d.text.includes(messageContains)
   );
   const prefix = description ? `${description}: ` : "";
-  const diagLines = diagnostics.map(
-    (d) => `  line ${d.range.start.line}: ${d.message.slice(0, 60)}`
+  const found = diagnostics.map(
+    (d) => `  ${d.start.line}:${d.start.offset} TS${d.code} ${d.text.slice(0, 70)}`
   );
   expect(
     match,
-    `${prefix}Expected diagnostic on line ${line} containing "${messageContains}".\n` +
-      `Found ${diagnostics.length} diagnostics:\n${diagLines.join("\n")}`
+    `${prefix}expected a diagnostic at ${at.line}:${at.offset} containing "${messageContains}".\n` +
+      `Found ${diagnostics.length}:\n${found.join("\n")}`
   ).toBeDefined();
-}
-
-/**
- * Assert that no diagnostic exists at the given line.
- */
-export function assertNoDiagnosticAt(
-  diagnostics: LspDiagnostic[],
-  line: number,
-  description?: string
-) {
-  const match = diagnostics.filter((d) => d.range.start.line === line);
-  const prefix = description ? `${description}: ` : "";
-  expect(
-    match.length,
-    `${prefix}Expected no diagnostics on line ${line}, but found ${match.length}`
-  ).toBe(0);
-}
-
-/**
- * Assert that a diagnostic's range spans the expected columns.
- */
-export function assertDiagnosticSpan(
-  diagnostics: LspDiagnostic[],
-  line: number,
-  startChar: number,
-  endChar: number,
-  description?: string
-) {
-  const match = diagnostics.find((d) => d.range.start.line === line);
-  const prefix = description ? `${description}: ` : "";
-  expect(match, `${prefix}No diagnostic found on line ${line}`).toBeDefined();
-  expect(match!.range.start.character, `${prefix}start character`).toBe(startChar);
-  expect(match!.range.end.character, `${prefix}end character`).toBe(endChar);
+  return match!;
 }
 
 // ---------------------------------------------------------------------------
-// Completion assertions
+// Language features
 // ---------------------------------------------------------------------------
 
-/**
- * Request completions at a position and return the items.
- */
-export async function getCompletions(
-  session: LspSession,
-  uri: string,
-  line: number,
-  character: number
-): Promise<LspCompletionItem[]> {
-  const result = await session.client.request<LspCompletionItem[] | { items: LspCompletionItem[] }>(
-    "textDocument/completion",
-    { textDocument: { uri }, position: { line, character } }
+export interface FileSpan {
+  file: string;
+  start: Location;
+  end: Location;
+}
+
+export async function getCompletionNames(
+  session: TsSession,
+  file: string,
+  at: Location
+): Promise<string[]> {
+  const info = await session.client.request<{ entries: Array<{ name: string }> } | undefined>(
+    "completionInfo",
+    { file, ...at }
   );
-  if (Array.isArray(result)) return result;
-  return result?.items ?? [];
+  return (info?.entries ?? []).map((e) => e.name);
 }
 
-/**
- * Assert that completions at a position include the expected label.
- */
-export async function assertCompletionContains(
-  session: LspSession,
-  uri: string,
-  line: number,
-  character: number,
-  expectedLabel: string,
-  description?: string
-) {
-  const items = await getCompletions(session, uri, line, character);
-  const match = items.find((i) => i.label === expectedLabel);
-  const prefix = description ? `${description}: ` : "";
-  expect(
-    match,
-    `${prefix}Expected completion "${expectedLabel}" at ${line}:${character}. ` +
-      `Got: [${items
-        .slice(0, 10)
-        .map((i) => i.label)
-        .join(", ")}...]`
-  ).toBeDefined();
+export async function getQuickInfo(
+  session: TsSession,
+  file: string,
+  at: Location
+): Promise<{ displayString: string; start: Location; end: Location } | undefined> {
+  return session.client.request("quickinfo", { file, ...at });
 }
 
-// ---------------------------------------------------------------------------
-// Hover assertions
-// ---------------------------------------------------------------------------
-
-/**
- * Request hover at a position.
- */
-export async function getHover(
-  session: LspSession,
-  uri: string,
-  line: number,
-  character: number
-): Promise<LspHover | null> {
-  return session.client.request<LspHover | null>("textDocument/hover", {
-    textDocument: { uri },
-    position: { line, character },
-  });
-}
-
-/**
- * Assert hover at a position contains expected text.
- */
-export async function assertHoverContains(
-  session: LspSession,
-  uri: string,
-  line: number,
-  character: number,
-  expectedText: string,
-  description?: string
-) {
-  const hover = await getHover(session, uri, line, character);
-  const prefix = description ? `${description}: ` : "";
-  expect(hover, `${prefix}No hover at ${line}:${character}`).not.toBeNull();
-  const value = typeof hover!.contents === "string" ? hover!.contents : hover!.contents.value;
-  expect(value, `${prefix}Hover doesn't contain "${expectedText}"`).toContain(expectedText);
-}
-
-// ---------------------------------------------------------------------------
-// Navigation assertions
-// ---------------------------------------------------------------------------
-
-/**
- * Request go-to-definition at a position.
- */
 export async function getDefinition(
-  session: LspSession,
-  uri: string,
-  line: number,
-  character: number
-): Promise<LspLocation | LspLocation[] | null> {
-  return session.client.request<LspLocation | LspLocation[] | null>("textDocument/definition", {
-    textDocument: { uri },
-    position: { line, character },
-  });
+  session: TsSession,
+  file: string,
+  at: Location
+): Promise<FileSpan[]> {
+  return (
+    (await session.client.request<FileSpan[] | undefined>("definition", { file, ...at })) ?? []
+  );
 }
 
-/**
- * Assert go-to-definition at a position jumps to expected line.
- */
-export async function assertDefinitionAt(
-  session: LspSession,
-  uri: string,
-  fromLine: number,
-  fromChar: number,
-  expectedLine: number,
-  description?: string
-) {
-  const def = await getDefinition(session, uri, fromLine, fromChar);
-  const prefix = description ? `${description}: ` : "";
-  expect(def, `${prefix}No definition found at ${fromLine}:${fromChar}`).not.toBeNull();
-  const loc = Array.isArray(def) ? def[0] : def;
-  expect(loc!.range.start.line, `${prefix}definition line`).toBe(expectedLine);
-}
-
-/**
- * Request find-references at a position.
- */
 export async function getReferences(
-  session: LspSession,
-  uri: string,
-  line: number,
-  character: number
-): Promise<LspLocation[]> {
-  return (
-    (await session.client.request<LspLocation[]>("textDocument/references", {
-      textDocument: { uri },
-      position: { line, character },
-      context: { includeDeclaration: true },
-    })) ?? []
+  session: TsSession,
+  file: string,
+  at: Location
+): Promise<Array<FileSpan & { isDefinition?: boolean }>> {
+  const body = await session.client.request<{ refs: Array<FileSpan & { isDefinition?: boolean }> }>(
+    "references",
+    { file, ...at }
   );
+  return body?.refs ?? [];
 }
 
-// ---------------------------------------------------------------------------
-// Code action assertions
-// ---------------------------------------------------------------------------
-
-export interface LspCodeAction {
-  title: string;
-  kind?: string;
-  diagnostics?: LspDiagnostic[];
+export async function getRenameLocations(
+  session: TsSession,
+  file: string,
+  at: Location
+): Promise<{ canRename: boolean; spans: FileSpan[] }> {
+  const body = await session.client.request<{
+    info: { canRename: boolean };
+    locs: Array<{ file: string; locs: Array<{ start: Location; end: Location }> }>;
+  }>("rename", { file, ...at });
+  return {
+    canRename: body.info.canRename,
+    spans: body.locs.flatMap((group) => group.locs.map((l) => ({ file: group.file, ...l }))),
+  };
 }
 
-/**
- * Request code actions at a range.
- */
-export async function getCodeActions(
-  session: LspSession,
-  uri: string,
-  startLine: number,
-  startChar: number,
-  endLine: number,
-  endChar: number
-): Promise<LspCodeAction[]> {
-  return (
-    (await session.client.request<LspCodeAction[]>("textDocument/codeAction", {
-      textDocument: { uri },
-      range: {
-        start: { line: startLine, character: startChar },
-        end: { line: endLine, character: endChar },
-      },
-      context: { diagnostics: [] },
-    })) ?? []
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Semantic tokens
-// ---------------------------------------------------------------------------
-
-export interface SemanticTokensResult {
-  data: number[];
-}
-
-export async function getSemanticTokens(
-  session: LspSession,
-  uri: string
-): Promise<SemanticTokensResult | null> {
-  return session.client.request<SemanticTokensResult | null>("textDocument/semanticTokens/full", {
-    textDocument: { uri },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Rename
-// ---------------------------------------------------------------------------
-
-export interface LspWorkspaceEdit {
-  changes?: Record<string, Array<{ range: LspLocation["range"]; newText: string }>>;
-}
-
-export async function getRename(
-  session: LspSession,
-  uri: string,
-  line: number,
-  character: number,
-  newName: string
-): Promise<LspWorkspaceEdit | null> {
-  return session.client.request<LspWorkspaceEdit | null>("textDocument/rename", {
-    textDocument: { uri },
-    position: { line, character },
-    newName,
-  });
+/** The text a span covers. */
+export function spanText(text: string, span: { start: Location; end: Location }): string {
+  return text.slice(toPos(text, span.start), toPos(text, span.end));
 }

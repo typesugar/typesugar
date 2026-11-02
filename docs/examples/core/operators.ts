@@ -2,6 +2,9 @@
 //! a + b compiles to Vec2.Addable.add(a, b)
 
 import { derive, Eq } from "typesugar";
+// Operator syntax is opt-in per file. Addable is declared below, so its `+` is
+// already active here; Eq's `===` needs its marker import (else TS9804 warns).
+import "@typesugar/std/syntax/eq/ops";
 
 // Define a typeclass with @op annotations on methods.
 // The transformer rewrites operators to method calls automatically — no ops() wrapper needed.

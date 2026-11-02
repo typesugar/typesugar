@@ -17,9 +17,10 @@
     "@typesugar/std": "^0.2.0"
   },
   "devDependencies": {
-    "unplugin-typesugar": "^0.2.0",
+    "@typesugar/transformer": "^0.2.0",
     "ts-patch": "^3.3.0",
-    "typescript": "^5.8.3",
+    "typescript": "^5.9.3",
+    "unplugin-typesugar": "^0.2.0",
     "vite": "^5.4.0"
   }
 }

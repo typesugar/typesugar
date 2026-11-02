@@ -18,8 +18,9 @@ import {
 
 import {
   MacroContextImpl,
-  globalRegistry,
   type MacroDefinition,
+  type AttributeMacro,
+  type DeriveMacro,
   DeriveTypeInfo,
   DeriveFieldInfo,
   DeriveVariantInfo,
@@ -33,6 +34,7 @@ import {
 } from "@typesugar/core";
 
 import { safeGetNodeText, isPrimitiveType, type VisitFn } from "./transformer-utils.js";
+import { lookupMacroByName } from "./import-resolution.js";
 
 // ---------------------------------------------------------------------------
 // JSDoc macro tags
@@ -111,9 +113,11 @@ export function jsDocTagMacroName(tag: ts.JSDocTag, node: ts.Node): string | und
   const name = tag.tagName.text;
   const builtin = JSDOC_MACRO_TAGS.get(name);
   if (builtin) return builtin;
-  const macro = globalRegistry.getAttribute(name);
-  if (!macro?.module) return undefined;
   const sf = sourceFileOf(node);
+  // Several modules may register an attribute macro of this name (PEP-060
+  // item 8): the file's imports pick one.
+  const macro = lookupMacroByName(sf, name, "attribute");
+  if (!macro?.module) return undefined;
   return sf && fileImportsModule(sf, macro.module) ? name : undefined;
 }
 
@@ -255,7 +259,9 @@ export function tryExpandJSDocMacros(
       continue;
     }
 
-    const macro = globalRegistry.getAttribute(macroName);
+    const macro = lookupMacroByName(ctx.sourceFile, macroName, "attribute") as
+      | AttributeMacro
+      | undefined;
     if (!macro) {
       ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
       continue;
@@ -435,10 +441,16 @@ export function sortDecoratorsByDependency(decorators: readonly ts.Decorator[]):
     if (name) nameToIndex.set(name, i);
   }
 
+  // Expand-order metadata only; the file's imports pick among same-named
+  // macros of different modules (PEP-060 item 8).
+  const sf = decorators.length > 0 ? sourceFileOf(decorators[0]) : undefined;
+  const orderingMacro = (name: string) =>
+    lookupMacroByName(sf, name, "attribute") ?? lookupMacroByName(sf, name, "derive");
+
   let hasDeps = false;
   for (const p of parsed) {
     if (!p.macroName) continue;
-    const macro = globalRegistry.getAttribute(p.macroName) ?? globalRegistry.getDerive(p.macroName);
+    const macro = orderingMacro(p.macroName);
     if (macro?.expandAfter && macro.expandAfter.length > 0) {
       hasDeps = true;
       break;
@@ -454,7 +466,7 @@ export function sortDecoratorsByDependency(decorators: readonly ts.Decorator[]):
   for (let i = 0; i < n; i++) {
     const name = parsed[i].macroName;
     if (!name) continue;
-    const macro = globalRegistry.getAttribute(name) ?? globalRegistry.getDerive(name);
+    const macro = orderingMacro(name);
     if (!macro?.expandAfter) continue;
     for (const dep of macro.expandAfter) {
       const depIdx = nameToIndex.get(dep);
@@ -507,6 +519,7 @@ export function sortDeriveArgsByDependency(args: ts.Expression[]): ts.Expression
     if (ts.isIdentifier(a)) nameToIndex.set(a.text, i);
   }
 
+  const sf = sourceFileOf(identArgs[0]);
   let hasDeps = false;
   const n = args.length;
   const inDegree = new Array<number>(n).fill(0);
@@ -520,12 +533,12 @@ export function sortDeriveArgsByDependency(args: ts.Expression[]): ts.Expression
 
     const deps: string[] = [];
 
-    const deriveMacro = globalRegistry.getDerive(name);
+    const deriveMacro = lookupMacroByName(sf, name, "derive");
     if (deriveMacro?.expandAfter) {
       deps.push(...deriveMacro.expandAfter);
     }
 
-    const tcMacro = globalRegistry.getDerive(`${name}TC`);
+    const tcMacro = lookupMacroByName(sf, `${name}TC`, "derive");
     if (tcMacro?.expandAfter) {
       deps.push(...tcMacro.expandAfter);
     }
@@ -631,7 +644,11 @@ export function expandDeriveDecorator(
     const deriveName = arg.text;
 
     // 1. Check for a registered derive macro (code-gen derives)
-    const deriveMacro = globalRegistry.getDerive(deriveName);
+    // `@derive(X)` names X without an import binding we resolve: the file's
+    // imports pick among several modules' derive macros named X.
+    const deriveMacro = lookupMacroByName(ctx.sourceFile, deriveName, "derive") as
+      | DeriveMacro
+      | undefined;
     if (deriveMacro) {
       if (verbose) {
         console.log(`[typesugar] Expanding derive macro: ${deriveName}`);
@@ -721,7 +738,9 @@ export function expandDeriveDecorator(
     }
 
     // 3. Check for a "{Name}TC" derive macro (typeclass derive convention)
-    const tcDeriveMacro = globalRegistry.getDerive(`${deriveName}TC`);
+    const tcDeriveMacro = lookupMacroByName(ctx.sourceFile, `${deriveName}TC`, "derive") as
+      | DeriveMacro
+      | undefined;
     if (tcDeriveMacro) {
       if (verbose) {
         console.log(`[typesugar] Expanding typeclass derive macro: ${deriveName}TC`);

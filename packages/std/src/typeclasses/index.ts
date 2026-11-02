@@ -31,16 +31,25 @@ import { registerInstanceWithMeta } from "@typesugar/macros";
  * - Symmetry: `equals(x, y) === equals(y, x)`
  * - Transitivity: `equals(x, y) && equals(y, z) => equals(x, z)`
  *
- * Operators dispatch via @op JSDoc tags:
- * - `a === b` → `Eq.equals(a, b)`
- * - `a !== b` → `Eq.notEquals(a, b)`
+ * Operators dispatch via @op JSDoc tags (each method carries both spellings):
+ * - `a === b` and `a == b` → `Eq.equals(a, b)`
+ * - `a !== b` and `a != b` → `Eq.notEquals(a, b)`
+ *
+ * Comparisons with `null`/`undefined` (`a == null`) stay native. For reference
+ * identity in a file that activated Eq operators, use `Object.is(a, b)`.
  *
  * @typeclass
  */
 export interface Eq<A> {
-  /** @op === */
+  /**
+   * @op ===
+   * @op ==
+   */
   equals(a: A, b: A): boolean;
-  /** @op !== */
+  /**
+   * @op !==
+   * @op !=
+   */
   notEquals(a: A, b: A): boolean;
 }
 typeclass("Eq");

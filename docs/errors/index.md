@@ -112,6 +112,7 @@ compiler.
 | [TS9801](./TS9801.md) *(reserved)* | Error | `Binary operator '{operator}' requires exactly 1 parameter (the right operand)` |
 | [TS9802](./TS9802.md) *(reserved)* | Error | `Operator '{operator}' is handled by the preprocessor and cannot be registered with @operator` |
 | [TS9803](./TS9803.md) *(reserved)* | Warning | `Operator '{operator}' has no registered overload for the operand type` |
+| [TS9804](./TS9804.md) | Warning | `Operator '{operator}' on '{type}' matches {typeclass}.{method}, but {typeclass} operator syntax is not activated in this file` |
 
 ## Internal
 

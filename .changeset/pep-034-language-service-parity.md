@@ -3,7 +3,6 @@
 "@typesugar/macros": patch
 "@typesugar/lsp-common": patch
 "@typesugar/transformer": patch
-"@typesugar/lsp-server": patch
 ---
 
 PEP-034: Unified SFINAE registration and shared IDE infrastructure

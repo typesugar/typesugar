@@ -75,13 +75,17 @@ export function buildLineIndex(content: string): LineIndex {
  * Convert offset to line/column (0-based)
  */
 export function offsetToLineColumn(offset: number, index: LineIndex): SourcePosition {
+  // Binary search: the editor plugin maps positions one at a time (and scans
+  // for the nearest mapped one), so this must not be linear in the file.
   const { lineStarts } = index;
-  let line = 0;
-  for (let i = 1; i < lineStarts.length; i++) {
-    if (lineStarts[i] > offset) break;
-    line = i;
+  let lo = 0;
+  let hi = lineStarts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lineStarts[mid] <= offset) lo = mid;
+    else hi = mid - 1;
   }
-  return { line, column: offset - lineStarts[line] };
+  return { line: lo, column: offset - lineStarts[lo] };
 }
 
 /**

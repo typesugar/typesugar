@@ -1,7 +1,7 @@
 {
   "name": "typesugar-monorepo",
   "private": true,
-  "description": "🧊 Compile-time macros for TypeScript -- inspired by Rust, Scala 3, and Zig",
+  "description": "Syntactic sugar for TypeScript with zero calories: compile-time macros inspired by Rust, Scala 3 and Zig",
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/setup-ts-plugin.js",
@@ -55,8 +55,8 @@
     "@typesugar/fp": "workspace:*",
     "@typesugar/fusion": "workspace:*",
     "@typesugar/graph": "workspace:*",
-    "@typesugar/lsp-server": "workspace:^",
     "@typesugar/macros": "workspace:*",
+    "@typesugar/math": "workspace:*",
     "@typesugar/mapper": "workspace:*",
     "@typesugar/parser": "workspace:*",
     "@typesugar/playground": "workspace:^",
@@ -69,6 +69,7 @@
     "@typesugar/ts-plugin": "workspace:*",
     "@typesugar/type-system": "workspace:*",
     "@typesugar/units": "workspace:*",
+    "@typesugar/validate": "workspace:*",
     "@vercel/node": "^5.6.15",
     "effect": "^3.14.0",
     "esbuild": "^0.20.0",

@@ -1,3 +1,3 @@
 {
-  "main": "../dist/language-service.cjs"
+  "main": "./index.cjs"
 }

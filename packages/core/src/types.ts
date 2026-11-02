@@ -253,6 +253,12 @@ export interface MacroDefinitionBase {
    * Examples: "typesugar", "typesugar/units"
    *
    * When undefined, the macro is activated by name alone (legacy behavior).
+   *
+   * Together with {@link exportName} this is the macro's registry identity:
+   * macros from different modules may share a `name` and coexist, and the
+   * module the user's import resolves to picks which one expands. Without a
+   * `module`, the bare name is the identity, so only one module-less macro
+   * per name and kind can be registered.
    */
   module?: string;
 
@@ -566,7 +572,12 @@ export interface MacroRegistry {
   /** Register a new macro */
   register(macro: MacroDefinition): void;
 
-  /** Get an expression macro by name */
+  /**
+   * Get an expression macro by bare name. The bare-name getters return the
+   * legacy (module-less) macro of that name if any, else the only
+   * module-qualified one, else `undefined` when several modules provide the
+   * name (see {@link getCandidates}).
+   */
   getExpression(name: string): ExpressionMacro | undefined;
 
   /** Get an attribute macro by name */
@@ -587,8 +598,25 @@ export interface MacroRegistry {
   /** Get a labeled block macro by label name */
   getLabeledBlock(label: string): LabeledBlockMacro | undefined;
 
-  /** Look up a macro by its source module and export name */
-  getByModuleExport(mod: string, exportName: string): MacroDefinition | undefined;
+  /**
+   * Look up a macro by its identity: the module it declares and its export
+   * name (`exportName ?? name`), optionally restricted to one kind. This is
+   * how an import resolves to a macro; two modules' same-named macros are
+   * distinct identities (PEP-060 item 8).
+   */
+  getByModuleExport(
+    mod: string,
+    exportName: string,
+    kind?: MacroDefinition["kind"]
+  ): MacroDefinition | undefined;
+
+  /**
+   * Every macro of `kind` registered under `name` (its `name`, its
+   * `exportName`, or — for labeled blocks — one of its labels), in
+   * registration order. More than one means several modules provide the
+   * name; disambiguate by the file's imports.
+   */
+  getCandidates(name: string, kind: MacroDefinition["kind"]): readonly MacroDefinition[];
 
   /** Check whether a macro requires import-scoping */
   isImportScoped(name: string, kind: MacroDefinition["kind"]): boolean;

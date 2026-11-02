@@ -25,7 +25,6 @@ import {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
-  createNewtypeAssignmentRule,
   createOperatorOverloadRule,
   createTypeRewriteAssignmentRule,
 } from "@typesugar/macros";
@@ -146,14 +145,14 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
   describe("rule registration", () => {
     it("registers all built-in diagnostic suppression rules for CLI", () => {
       registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
-      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
+      registerDiagnosticSuppressionRule(createMacroDecoratorRule());
       registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
 
       const rules = getDiagnosticSuppressionRules();
       expect(rules).toHaveLength(3);
       expect(rules.map((r) => r.name)).toEqual([
         "ExtensionMethodCall",
-        "NewtypeAssignment",
+        "MacroDecorator",
         "TypeRewriteAssignment",
       ]);
     });
@@ -163,8 +162,8 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
         if (!getDiagnosticSuppressionRules().some((r) => r.name === "ExtensionMethodCall")) {
           registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
         }
-        if (!getDiagnosticSuppressionRules().some((r) => r.name === "NewtypeAssignment")) {
-          registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
+        if (!getDiagnosticSuppressionRules().some((r) => r.name === "MacroDecorator")) {
+          registerDiagnosticSuppressionRule(createMacroDecoratorRule());
         }
         if (!getDiagnosticSuppressionRules().some((r) => r.name === "TypeRewriteAssignment")) {
           registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
@@ -219,30 +218,6 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
     });
   });
 
-  describe("newtype assignment suppression in CLI", () => {
-    it("suppresses wrap()'s TS2345 but keeps an implicit Newtype assignment's TS2322", () => {
-      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
-
-      const result = simulateCliBuild({
-        "/test.ts": `
-          declare const __brand: unique symbol;
-          type Newtype<Base, Brand> = Base & { readonly [__brand]: Brand };
-          type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
-          declare function wrap<T>(value: UnwrapNewtype<T>): T;
-          type UserId = Newtype<number, "UserId">;
-
-          const ok = wrap<UserId>(42);
-          const id: UserId = 42;
-        `,
-      });
-
-      const codes = (ds: readonly ts.Diagnostic[]) =>
-        getDiagnosticsForFile(ds, "/test.ts").map((d) => d.code);
-      expect(codes(result.rawDiagnostics).sort()).toEqual([2322, 2345]);
-      expect(codes(result.filteredDiagnostics)).toEqual([2322]);
-    });
-  });
-
   describe("type rewrite suppression in CLI", () => {
     it("suppresses TS2322 when type rewrite registry entry matches", () => {
       registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
@@ -276,7 +251,6 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
   describe("combined rules — all diagnostic-suppressible errors clean", () => {
     it("produces clean output when all rules are registered", () => {
       registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
-      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
       registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
 
       registerStandaloneExtensionEntry({
@@ -286,17 +260,8 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
 
       const result = simulateCliBuild({
         "/test.ts": `
-          declare const __brand: unique symbol;
-          type Newtype<Base, Brand> = Base & { readonly [__brand]: Brand };
-          type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
-          declare function wrap<T>(value: UnwrapNewtype<T>): T;
-          type UserId = Newtype<number, "UserId">;
-
           // Extension method — TS2339 suppressed by ExtensionMethodCall rule
           const x = (42).clamp(0, 100);
-
-          // wrap() argument — TS2345 suppressed by NewtypeAssignment rule
-          const id = wrap<UserId>(42);
         `,
       });
 
@@ -381,7 +346,6 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
   describe("real errors are not suppressed", () => {
     it("preserves genuine type errors", () => {
       registerDiagnosticSuppressionRule(createExtensionMethodCallRule());
-      registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
       registerDiagnosticSuppressionRule(createTypeRewriteAssignmentRule());
 
       const result = simulateCliBuild({

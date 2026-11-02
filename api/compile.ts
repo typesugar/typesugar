@@ -17,12 +17,10 @@ import { setComptimeEvaluationEnabled } from "@typesugar/macros";
 // here. If you add a new package with macros, add it here too — otherwise the
 // playground will silently fall through to runtime fallbacks.
 //
-// Known exception: @typesugar/validate/macros is NOT listed. It registers an
-// expression macro named `assert`, which @typesugar/testing already owns, so
-// loading both throws "Expression macro 'assert' is already registered" at
-// import time. The global registry is keyed by macro name, so the two cannot
-// coexist until one is renamed. `is<T>()` / `validate<T>()` therefore stay
-// unexpanded on the playground. (@typesugar/reflect has no macros of its own:
+// @typesugar/validate and @typesugar/testing both register an expression
+// macro named `assert`; they coexist because a macro's registry identity is
+// its module plus export name (PEP-060 item 8), and the import in the user's
+// code picks which one expands. (@typesugar/reflect has no macros of its own:
 // `typeInfo` is registered by @typesugar/macros, which is listed.)
 //
 // IMPORTANT: Each of these packages must externalize @typesugar/core (and
@@ -44,6 +42,7 @@ import "@typesugar/mapper/macros";
 import "@typesugar/fusion/macros";
 import "@typesugar/units/macros";
 import "@typesugar/sql/macros";
+import "@typesugar/validate/macros";
 
 // SECURITY: this is a public endpoint compiling untrusted code. comptime
 // executes the code it is given inside this process (node:vm is not a
@@ -80,11 +79,26 @@ const EXPECTED_MACROS: ReadonlyArray<{ name: string; from: string }> = [
   { name: "fused", from: "@typesugar/fusion" }, // `lazy` is a runtime function, not a macro
   { name: "units", from: "@typesugar/units" },
   { name: "sql", from: "@typesugar/sql" },
+  // @typesugar/validate (its `assert` coexists with @typesugar/testing's)
+  { name: "is", from: "@typesugar/validate" },
+  { name: "assert", from: "@typesugar/validate" },
+  { name: "assertType", from: "@typesugar/validate" },
+  { name: "validate", from: "@typesugar/validate" },
 ];
 
 {
-  const registered = new Set(globalRegistry.getAll().map((m) => m.name));
-  const missing = EXPECTED_MACROS.filter((m) => !registered.has(m.name));
+  // Macros are identified by (module, name): `assert` from @typesugar/testing
+  // and from @typesugar/validate are two different macros. A module-less
+  // (legacy) macro counts for any `from`, and `from: "typesugar"` (the
+  // umbrella) accepts any @typesugar/* module, as imports from it do.
+  const all = globalRegistry.getAll();
+  const provides = (module: string | undefined, from: string) =>
+    module === undefined ||
+    module === from ||
+    (from === "typesugar" && module.startsWith("@typesugar/"));
+  const missing = EXPECTED_MACROS.filter(
+    (e) => !all.some((m) => m.name === e.name && provides(m.module, e.from))
+  );
   if (missing.length > 0) {
     const list = missing.map((m) => `  - ${m.name} (from ${m.from})`).join("\n");
     console.error(

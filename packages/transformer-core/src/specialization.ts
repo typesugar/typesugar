@@ -26,6 +26,7 @@ import {
   collectMethodFreeNames,
   forEachMethodFreeReference,
   getOpMapForTypeclass,
+  isImplicitDefault,
   type DictMethod,
   type DictMethodMap,
   type ResultAlgebra,
@@ -637,6 +638,49 @@ function instanceIdentity(ctx: MacroContextImpl, arg: ts.Expression, fallback: s
 }
 
 /**
+ * The name of a call in `fn`'s body that leaves an `= implicit()` parameter
+ * unfilled (`sortWith(items)` inside a function that itself takes
+ * `ord: Ord<T> = implicit()`), if any. The hoisted specialization is a copy of
+ * the ORIGINAL body, which is never run through implicit resolution, and it
+ * drops the dictionary parameter such calls would receive by propagation, so
+ * specializing would leave them calling `implicit()` at runtime.
+ */
+function findUnfilledImplicitCall(
+  ctx: MacroContextImpl,
+  fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration
+): string | undefined {
+  let found: string | undefined;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isCallExpression(n) && !isSyntheticNode(n)) {
+      try {
+        const decl = ctx.typeChecker.getResolvedSignature(n)?.getDeclaration() as
+          | ts.SignatureDeclaration
+          | undefined;
+        const params = decl?.parameters;
+        if (params) {
+          for (let i = n.arguments.length; i < params.length; i++) {
+            if (isImplicitDefault(params[i].initializer)) {
+              found = ts.isIdentifier(n.expression)
+                ? n.expression.text
+                : ts.isPropertyAccessExpression(n.expression)
+                  ? n.expression.name.text
+                  : "a call";
+              return;
+            }
+          }
+        }
+      } catch (error) {
+        warnCheckerFailure(ctx, n, "auto-specialization (implicit-call check)", error);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  if (fn.body) visit(fn.body);
+  return found;
+}
+
+/**
  * Does the callee use its own receiver/activation (`this`, `super`,
  * `arguments`, `new.target`) outside nested non-arrow functions? The hoisted
  * specialization is an arrow at the call site, where those mean something
@@ -725,7 +769,11 @@ export function tryAutoSpecialize(
   specCache: SpecializationCache,
   node: ts.CallExpression
 ): ts.Expression | undefined {
-  if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "macros")) {
+  // A call rebuilt by the visitor (e.g. one `= implicit()` just completed via
+  // factory.update*) keeps its text range but has no parent chain, so the
+  // opt-out checks below read the ORIGINAL call it was built from.
+  const markerNode = realLocation(node) ?? node;
+  if (isInOptedOutScope(ctx.sourceFile, markerNode, globalResolutionScope, "macros")) {
     return undefined;
   }
 
@@ -734,8 +782,8 @@ export function tryAutoSpecialize(
 
   if (!nodeIsSynthetic) {
     try {
-      const sourceText = node.getSourceFile().text;
-      const nodeStart = node.getStart();
+      const sourceText = markerNode.getSourceFile().text;
+      const nodeStart = markerNode.getStart();
       const lineStart = sourceText.lastIndexOf("\n", nodeStart) + 1;
       const lineText = sourceText.slice(lineStart, nodeStart);
       // Also check the immediately preceding line, for `// @no-specialize` on
@@ -867,6 +915,19 @@ export function tryAutoSpecialize(
       )
     )
   ) {
+    return undefined;
+  }
+
+  const unfilledImplicitCall = findUnfilledImplicitCall(ctx, fnBody);
+  if (unfilledImplicitCall) {
+    if (!suppressWarnings) {
+      ctx.reportWarning(
+        node,
+        `[TS9602] Auto-specialization of ${fnName} skipped — its body calls ` +
+          `${unfilledImplicitCall}() without its = implicit() argument, which the ` +
+          `specialized copy could not pass on; falling back to dictionary passing.`
+      );
+    }
     return undefined;
   }
 

@@ -354,7 +354,7 @@ The deeper distinction: AOP systems have only **runtime interception**. typesuga
 
 ### 5.6 vs. C++ Template Metaprogramming
 
-The closest historical analogue to typesugar is C++ template metaprogramming + expression templates (Blitz++, Boost.Proto). The package names in typesugar (`@typesugar/fusion`, `@typesugar/hlist`, `@typesugar/parser`) make this lineage explicit. Both systems pursue zero-cost abstractions through compile-time code generation.
+The closest historical analogue to typesugar is C++ template metaprogramming + expression templates (Blitz++, Boost.Proto). The package names in typesugar (`@typesugar/fusion`, `@typesugar/parser`, and the since-removed `@typesugar/hlist`) make this lineage explicit. Both systems pursue zero-cost abstractions through compile-time code generation.
 
 The critical difference: C++ templates are type-checked during instantiation. typesugar macros generate code that is not re-checked. C++ constexpr provides a principled comptime mechanism integrated with the type system. typesugar's `comptime()` is a sandboxed evaluator disconnected from type checking.
 

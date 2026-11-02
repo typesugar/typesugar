@@ -1,8 +1,10 @@
 /**
- * Fixture manager: copies fixture templates to /tmp and installs deps.
+ * Fixture manager: copies a fixture project to the OS temp directory and makes
+ * its dependencies resolvable, the way a user's project has them installed.
  *
- * In "released" mode (default), installs typesugar from npm.
- * In "local" mode, rewrites package.json to use local tarballs.
+ * In "local" mode (default) the fixture's `node_modules` links to this
+ * monorepo's built packages and TypeScript. In "released" mode it runs
+ * `npm install` and uses the published packages from the npm registry.
  */
 
 import * as fs from "fs";
@@ -14,23 +16,22 @@ const FIXTURES_DIR = path.resolve(__dirname, "../fixtures");
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
 export interface PreparedFixture {
-  /** Absolute path to the /tmp project directory */
+  /** Absolute (real) path to the temp project directory */
   dir: string;
-  /** Absolute path to the LSP server entry point (dist/server.js) */
-  lspServerPath: string;
-  /** Clean up the /tmp directory */
+  /** Absolute path to the tsserver.js the tests run */
+  tsserverPath: string;
+  /** Clean up the temp directory */
   cleanup: () => void;
 }
 
 /**
- * Prepare a fixture project in /tmp.
+ * Prepare a fixture project in the OS temp directory.
  *
- * In "local" mode (default): copies fixture to /tmp and uses the monorepo's
- * built LSP server directly. No npm install needed — the LSP server resolves
- * its own dependencies from the monorepo's node_modules.
+ * "local" mode: symlinks the monorepo's packages (which must be built: the
+ * plugin loads from `packages/transformer/dist`) into the fixture's
+ * `node_modules`, and runs the monorepo's TypeScript.
  *
- * In "released" mode: copies fixture to /tmp and runs npm install to get
- * published packages from the npm registry.
+ * "released" mode: runs `npm install` in the fixture and uses its TypeScript.
  */
 export async function prepareFixture(fixtureName: string): Promise<PreparedFixture> {
   const fixtureSource = path.join(FIXTURES_DIR, fixtureName);
@@ -38,37 +39,42 @@ export async function prepareFixture(fixtureName: string): Promise<PreparedFixtu
     throw new Error(`Fixture "${fixtureName}" not found at ${fixtureSource}`);
   }
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `typesugar-integ-${fixtureName}-`));
+  // realpath: on macOS os.tmpdir() is under /var, a symlink to /private/var,
+  // and tsserver reports real paths.
+  const tmpDir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), `typesugar-integ-${fixtureName}-`))
+  );
   fs.cpSync(fixtureSource, tmpDir, { recursive: true });
 
   const mode = process.env.TYPESUGAR_TEST_MODE || "local";
-  let lspServerPath: string;
+  let tsserverPath: string;
 
   if (mode === "local") {
-    // Use the monorepo's built LSP server directly
-    lspServerPath = path.join(REPO_ROOT, "packages/lsp-server/dist/server.js");
-    if (!fs.existsSync(lspServerPath)) {
+    const pluginEntry = path.join(REPO_ROOT, "packages/transformer/dist/language-service.cjs");
+    if (!fs.existsSync(pluginEntry)) {
       throw new Error(
-        `LSP server not built at ${lspServerPath}. ` +
-          `Run: pnpm build --filter @typesugar/lsp-server`
+        `typesugar plugin not built at ${pluginEntry}. ` +
+          `Run: pnpm build --filter typesugar... --filter @typesugar/std...`
       );
     }
-
-    // Symlink node_modules so imports like "typesugar" resolve
+    tsserverPath = path.join(REPO_ROOT, "node_modules/typescript/lib/tsserver.js");
     symlinkMonorepoPackages(tmpDir);
   } else {
-    // Released mode: install from npm
     execSync("npm install --ignore-scripts", {
       cwd: tmpDir,
       stdio: "pipe",
       timeout: 120000,
     });
-    lspServerPath = findLspServer(tmpDir);
+    tsserverPath = path.join(tmpDir, "node_modules/typescript/lib/tsserver.js");
+  }
+
+  if (!fs.existsSync(tsserverPath)) {
+    throw new Error(`tsserver not found at ${tsserverPath}`);
   }
 
   return {
     dir: tmpDir,
-    lspServerPath,
+    tsserverPath,
     cleanup: () => {
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -80,8 +86,10 @@ export async function prepareFixture(fixtureName: string): Promise<PreparedFixtu
 }
 
 /**
- * Symlink monorepo packages into the fixture's node_modules so that
- * imports like `import { pipe } from "typesugar"` resolve.
+ * Symlink monorepo packages into the fixture's node_modules so that imports
+ * like `import { pipe } from "typesugar"` resolve, and so that tsserver finds
+ * the `@typesugar/transformer/language-service` plugin listed in the fixture's
+ * tsconfig.json.
  */
 function symlinkMonorepoPackages(tmpDir: string): void {
   const nodeModules = path.join(tmpDir, "node_modules");
@@ -89,14 +97,7 @@ function symlinkMonorepoPackages(tmpDir: string): void {
 
   fs.mkdirSync(scopedDir, { recursive: true });
 
-  // Symlink the main "typesugar" package
-  const typesugarPkg = path.join(REPO_ROOT, "packages/typesugar");
-  if (fs.existsSync(typesugarPkg)) {
-    const target = path.join(nodeModules, "typesugar");
-    if (!fs.existsSync(target)) fs.symlinkSync(typesugarPkg, target, "junction");
-  }
-
-  // Symlink all @typesugar/* packages
+  // The umbrella "typesugar" package and every @typesugar/* package
   const packagesDir = path.join(REPO_ROOT, "packages");
   for (const pkg of fs.readdirSync(packagesDir)) {
     const pkgDir = path.join(packagesDir, pkg);
@@ -104,13 +105,15 @@ function symlinkMonorepoPackages(tmpDir: string): void {
     if (!fs.existsSync(pkgJson)) continue;
 
     const meta = JSON.parse(fs.readFileSync(pkgJson, "utf8"));
-    if (meta.name?.startsWith("@typesugar/")) {
-      const target = path.join(scopedDir, meta.name.replace("@typesugar/", ""));
-      if (!fs.existsSync(target)) fs.symlinkSync(pkgDir, target, "junction");
-    }
+    let target: string;
+    if (meta.name === "typesugar") target = path.join(nodeModules, "typesugar");
+    else if (meta.name?.startsWith("@typesugar/"))
+      target = path.join(scopedDir, meta.name.replace("@typesugar/", ""));
+    else continue;
+    if (!fs.existsSync(target)) linkAsPublished(pkgDir, meta.files, target);
   }
 
-  // Also symlink typescript if not present
+  // The project's own TypeScript (lib .d.ts files and `import "typescript"`)
   const tsPath = path.join(REPO_ROOT, "node_modules/typescript");
   const tsTarget = path.join(nodeModules, "typescript");
   if (fs.existsSync(tsPath) && !fs.existsSync(tsTarget)) {
@@ -118,21 +121,24 @@ function symlinkMonorepoPackages(tmpDir: string): void {
   }
 }
 
-function findLspServer(projectDir: string): string {
-  // Look for the dist/server.js directly
-  const serverJs = path.join(projectDir, "node_modules/@typesugar/lsp-server/dist/server.js");
-  if (fs.existsSync(serverJs)) {
-    return serverJs;
+/**
+ * Link a workspace package into node_modules with the layout npm would
+ * install: `package.json` plus only the entries in its `files` list, each a
+ * symlink into the package. Linking the whole package directory instead would
+ * let resolution find files that are never published (tsserver's plugin
+ * loader ignores `exports` and resolves `<pkg>/<subpath>` by plain file and
+ * directory lookup, so a stray file at the package root changes which module
+ * it loads).
+ */
+function linkAsPublished(pkgDir: string, files: unknown, target: string): void {
+  const entries = Array.isArray(files) ? (files as unknown[]) : undefined;
+  if (!entries || entries.some((f) => typeof f !== "string" || /[*?!{]/.test(f))) {
+    fs.symlinkSync(pkgDir, target, "junction");
+    return;
   }
-
-  // Fallback: look for the binary
-  const binPath = path.join(projectDir, "node_modules/.bin/typesugar-lsp");
-  if (fs.existsSync(binPath)) {
-    return fs.realpathSync(binPath);
+  fs.mkdirSync(target, { recursive: true });
+  for (const entry of ["package.json", ...(entries as string[])]) {
+    const source = path.join(pkgDir, entry);
+    if (fs.existsSync(source)) fs.symlinkSync(source, path.join(target, entry));
   }
-
-  throw new Error(
-    `Could not find typesugar-lsp server in ${projectDir}. ` +
-      `Did npm install succeed? Check node_modules/@typesugar/lsp-server/`
-  );
 }

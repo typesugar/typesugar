@@ -6,5 +6,4 @@ See [checklist-cursor.md](./checklist-cursor.md).
 ## Additional VS Code-specific checks
 
 - [ ] Extension appears in Extensions panel as "typesugar" by publisher "typesugar"
-- [ ] "$(zap) typesugar" status bar item appears in bottom right
-- [ ] Output channel "typesugar" exists (View → Output → select "typesugar")
+- [ ] Output channel "Typesugar" exists (View → Output → select "Typesugar")
