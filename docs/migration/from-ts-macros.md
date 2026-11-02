@@ -229,7 +229,7 @@ const value = comptime(() => {
 {
   "compilerOptions": {
     "plugins": [
-      { "name": "typesugar/language-service" },
+      { "name": "@typesugar/transformer/language-service" },
       { "transform": "@typesugar/transformer", "type": "program" }
     ]
   }

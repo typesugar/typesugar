@@ -39,7 +39,16 @@ import {
   traverse,
   when,
   whenA,
+  Transactor,
 } from "../packages/sql/src/index.js";
+
+const noDb = {
+  query: async () => [],
+  execute: async () => 0,
+  begin: async () => {},
+  commit: async () => {},
+  rollback: async () => {},
+};
 
 describe("SQL DSL Edge Cases", () => {
   // ==========================================================================
@@ -431,9 +440,10 @@ describe("SQL DSL Edge Cases", () => {
         expect(intArray.get([1, 2, 3])).toEqual([1, 2, 3]);
       });
 
-      it("Get.array should filter out null elements", () => {
-        const intArray = Get.array(Get.int);
-        expect(intArray.get([1, null, 3])).toEqual([1, 3]);
+      it("Get.array rejects NULL elements unless the element decoder accepts NULL", () => {
+        // Dropping NULLs silently shifted element positions (review finding SQL-17).
+        expect(() => Get.array(Get.int).get([1, null, 3])).toThrow(/NULL element/);
+        expect(Get.array(Get.nullable(Get.int)).get([1, null, 3])).toEqual([1, null, 3]);
       });
 
       it("Get.array should return null for non-array input", () => {
@@ -511,20 +521,18 @@ describe("SQL DSL Edge Cases", () => {
   // Attack 7: ConnectionIO Combinators
   // ==========================================================================
   describe("ConnectionIO Combinators", () => {
-    it("sequence should combine multiple operations", () => {
+    it("sequence should combine multiple operations", async () => {
       const ops = [ConnectionIO.pure(1), ConnectionIO.pure(2), ConnectionIO.pure(3)];
 
       const combined = sequence(ops);
-      // The result is a chain of flatMaps which appear as Pure nodes
-      // (the actual chaining happens during interpretation)
-      expect(combined.op._tag).toBe("Pure");
+      expect(await Transactor.fromConnection(noDb).run(combined)).toEqual([1, 2, 3]);
     });
 
-    it("traverse should map and sequence", () => {
+    it("traverse should map and sequence", async () => {
       const items = [1, 2, 3];
       const result = traverse(items, (n) => ConnectionIO.pure(n * 2));
 
-      expect(result.op._tag).toBe("Pure");
+      expect(await Transactor.fromConnection(noDb).run(result)).toEqual([2, 4, 6]);
     });
 
     it("when should conditionally include operation", () => {
@@ -583,7 +591,7 @@ describe("SQL DSL Edge Cases", () => {
     it("inListTyped should handle single element", () => {
       const result = inListTyped<number>("id", [42]);
 
-      expect(result.segments).toContain("id IN (?)");
+      expect(result.query.text).toBe("id IN ($1)");
       expect(result.params).toEqual([42]);
     });
 

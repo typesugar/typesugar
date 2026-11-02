@@ -8,21 +8,30 @@
  *
  * ## Rules (following Scala)
  *
- * 1. The function must contain at least one recursive self-call.
- * 2. Every recursive call must be in tail position (the very last operation).
- * 3. Mutual recursion is NOT supported — only direct self-recursion.
- * 4. Recursive calls inside try/catch/finally are NOT in tail position.
- * 5. Recursive calls wrapped in operations (e.g., `1 + f(n-1)`) are rejected.
+ * 1. Only named `function` declarations are accepted (not arrow functions,
+ *    function expressions or methods).
+ * 2. The function must contain at least one recursive self-call.
+ * 3. Every recursive call must be in tail position (the very last operation).
+ * 4. Mutual recursion is NOT supported — only direct self-recursion.
+ * 5. Recursive calls inside try/catch/finally or nested functions are NOT in
+ *    tail position.
+ * 6. Recursive calls wrapped in operations (e.g., `1 + f(n-1)`, `await f(n-1)`)
+ *    are rejected.
  *
  * ## Supported tail-position patterns
  *
- * - Direct return: `return f(x);`
- * - Last expression in function body (implicit return for arrow functions)
- * - Inside if/else branches (both branches checked independently)
- * - Inside switch/case branches
- * - Inside ternary expressions (condition ? f(a) : f(b))
- * - Inside comma expressions (last position)
- * - Inside logical expressions when the call is the RHS of || or &&
+ * - `return f(x)` anywhere outside try/catch/finally (including inside loops
+ *   and switch clauses)
+ * - A final `f(x);` statement, when the function returns no value
+ * - `return c ? f(a) : b` (nested ternaries too), `return a || f(x)`,
+ *   `return a && f(x)`, `return a ?? f(x)`, `return (a, f(x))`
+ * - Parentheses, `as`, `satisfies` and `!` around the call
+ *
+ * Parameters may be optional, defaulted (the default is re-applied when an
+ * argument is omitted or `undefined`, exactly as a real call would) or rest.
+ * Destructured parameters, `arguments`, `var` declarations and generators are
+ * rejected with a diagnostic and the function is left unoptimised. Anything
+ * the rewrite can't preserve is reported, never silently changed.
  *
  * ## Transformation
  *
@@ -33,16 +42,23 @@
  *   return factorial(n - 1, n * acc);
  * }
  *
- * // Becomes:
+ * // Becomes (roughly):
  * function factorial(n: number, acc: number = 1): number {
- *   let _n = n, _acc = acc;
- *   while (true) {
- *     if (_n <= 1) return _acc;
- *     const _next_n = _n - 1;
- *     const _next_acc = _n * _acc;
- *     _n = _next_n;
- *     _acc = _next_acc;
- *     continue;
+ *   let _n = n;
+ *   let _acc: typeof acc | undefined = acc;
+ *   _tailrec: while (true) {
+ *     let n = _n;
+ *     let acc = _acc === void 0 ? 1 : _acc;
+ *     {
+ *       if (n <= 1) return acc;
+ *       {
+ *         const _next_n: typeof _n = n - 1;
+ *         const _next_acc: typeof _acc = n * acc;
+ *         _n = _next_n;
+ *         _acc = _next_acc;
+ *         continue _tailrec;
+ *       }
+ *     }
  *   }
  * }
  * ```
@@ -51,491 +67,667 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import { cloneNodeDeep, defineAttributeMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
 
 // ============================================================================
-// Tail-Position Analysis
+// Self-call detection
 // ============================================================================
 
-interface RecursiveCallInfo {
-  /** The call expression node */
-  call: ts.CallExpression;
-  /** Whether this call is in tail position */
-  isTail: boolean;
-  /** Human-readable reason if not in tail position */
-  reason?: string;
+function isSelfCall(node: ts.Node, fnName: string): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === fnName
+  );
+}
+
+/** Every self-call anywhere under `root` (including nested functions). */
+function collectSelfCalls(root: ts.Node, fnName: string): ts.CallExpression[] {
+  const out: ts.CallExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (isSelfCall(node, fnName)) out.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return out;
+}
+
+function containsSelfCall(node: ts.Node, fnName: string): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (isSelfCall(n, fnName)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function isFunctionBoundary(node: ts.Node): boolean {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isConstructorDeclaration(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node) ||
+    ts.isClassDeclaration(node) ||
+    ts.isClassExpression(node)
+  );
 }
 
 /**
- * Find all recursive calls in a function body and determine whether each is
- * in tail position.
+ * Why a self-call that survived the rewrite is not a tail call. Uses the
+ * ORIGINAL node's parent chain (surviving calls are original nodes — the
+ * rewriter reuses untouched subtrees).
  */
-function findRecursiveCalls(
-  body: ts.Block,
-  fnName: string,
-  sourceFile: ts.SourceFile
-): RecursiveCallInfo[] {
-  const calls: RecursiveCallInfo[] = [];
-
-  function isRecursiveCall(node: ts.Node): node is ts.CallExpression {
-    return (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === fnName
-    );
+function nonTailReason(call: ts.CallExpression, fnBody: ts.Block): string {
+  for (let p: ts.Node | undefined = call.parent; p && p !== fnBody; p = p.parent) {
+    if (ts.isTryStatement(p) || ts.isCatchClause(p)) {
+      return "recursive call inside try/catch/finally is not in tail position";
+    }
+    if (isFunctionBoundary(p)) {
+      return "recursive call inside a nested function is not in tail position";
+    }
   }
+  return "recursive call is not in tail position";
+}
 
-  /**
-   * Walk the AST collecting recursive calls. `inTail` tracks whether the
-   * current position is a valid tail position.
-   */
-  function visit(node: ts.Node, inTail: boolean, insideTryCatch: boolean): void {
-    if (isRecursiveCall(node)) {
-      if (insideTryCatch) {
-        calls.push({
-          call: node,
-          isTail: false,
-          reason: "recursive call inside try/catch/finally is not in tail position",
-        });
-      } else if (!inTail) {
-        calls.push({
-          call: node,
-          isTail: false,
-          reason: "recursive call is not in tail position",
-        });
-      } else {
-        calls.push({ call: node, isTail: true });
-      }
-      // Don't recurse into the arguments — they're not tail positions,
-      // but we still need to check for nested recursive calls in args.
-      for (const arg of node.arguments) {
-        visit(arg, false, insideTryCatch);
-      }
+// ============================================================================
+// Pre-flight checks: shapes the loop rewrite cannot preserve
+// ============================================================================
+
+interface Unsupported {
+  node: ts.Node;
+  message: string;
+}
+
+/**
+ * Find a construct whose meaning changes when the body becomes a loop
+ * iteration. Walks the body without entering nested non-arrow functions
+ * (they have their own `arguments`/`var` scope).
+ */
+function findUnsupportedBodyConstruct(body: ts.Block, fnName: string): Unsupported | undefined {
+  let found: Unsupported | undefined;
+  const visit = (node: ts.Node, inArrow: boolean): void => {
+    if (found) return;
+    if (ts.isIdentifier(node) && node.text === "arguments") {
+      found = {
+        node,
+        message:
+          "the body reads `arguments`, which would still describe the first call after the loop rewrite",
+      };
       return;
     }
-
-    // --- Statements ---
-
-    if (ts.isBlock(node)) {
-      // Only the last statement in a block can be in tail position
-      const stmts = node.statements;
-      for (let i = 0; i < stmts.length; i++) {
-        visit(stmts[i], i === stmts.length - 1 && inTail, insideTryCatch);
-      }
-      return;
-    }
-
-    if (ts.isReturnStatement(node)) {
-      // The expression of a return statement is in tail position
-      if (node.expression) {
-        visit(node.expression, true, insideTryCatch);
-      }
-      return;
-    }
-
-    if (ts.isIfStatement(node)) {
-      // Condition is never in tail position
-      visit(node.expression, false, insideTryCatch);
-      // Both branches inherit the tail position of the if statement
-      visit(node.thenStatement, inTail, insideTryCatch);
-      if (node.elseStatement) {
-        visit(node.elseStatement, inTail, insideTryCatch);
-      }
-      return;
-    }
-
-    if (ts.isSwitchStatement(node)) {
-      visit(node.expression, false, insideTryCatch);
-      for (const clause of node.caseBlock.clauses) {
-        const clauseStmts = clause.statements;
-        for (let i = 0; i < clauseStmts.length; i++) {
-          visit(clauseStmts[i], i === clauseStmts.length - 1 && inTail, insideTryCatch);
-        }
-      }
-      return;
-    }
-
-    if (ts.isTryStatement(node)) {
-      // Recursive calls inside try/catch/finally are never in tail position
-      visit(node.tryBlock, false, true);
-      if (node.catchClause) {
-        visit(node.catchClause.block, false, true);
-      }
-      if (node.finallyBlock) {
-        visit(node.finallyBlock, false, true);
-      }
-      return;
-    }
-
-    if (ts.isExpressionStatement(node)) {
-      // An expression statement in tail position means its expression is in tail position
-      visit(node.expression, inTail, insideTryCatch);
-      return;
-    }
-
-    // Variable declarations, for/while loops, etc. — recurse but not in tail position
-    if (ts.isVariableStatement(node)) {
-      for (const decl of node.declarationList.declarations) {
-        if (decl.initializer) {
-          visit(decl.initializer, false, insideTryCatch);
-        }
-      }
-      return;
-    }
-
-    if (ts.isForStatement(node) || ts.isWhileStatement(node) || ts.isDoStatement(node)) {
-      ts.forEachChild(node, (child) => visit(child, false, insideTryCatch));
-      return;
-    }
-
-    if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
-      ts.forEachChild(node, (child) => visit(child, false, insideTryCatch));
-      return;
-    }
-
-    if (ts.isLabeledStatement(node)) {
-      visit(node.statement, inTail, insideTryCatch);
-      return;
-    }
-
-    // --- Expressions ---
-
-    if (ts.isConditionalExpression(node)) {
-      // condition ? whenTrue : whenFalse
-      visit(node.condition, false, insideTryCatch);
-      visit(node.whenTrue, inTail, insideTryCatch);
-      visit(node.whenFalse, inTail, insideTryCatch);
-      return;
-    }
-
-    if (ts.isBinaryExpression(node)) {
-      // Logical operators: the RHS of && and || can be in tail position
-      if (
-        node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-        node.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
-        node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
-      ) {
-        visit(node.left, false, insideTryCatch);
-        visit(node.right, inTail, insideTryCatch);
+    if (ts.isVariableDeclarationList(node) && !inArrow) {
+      if ((node.flags & ts.NodeFlags.BlockScoped) === 0) {
+        found = {
+          node,
+          message:
+            "the body declares `var` bindings, which would be shared across loop iterations — use let/const",
+        };
         return;
       }
-
-      // Comma operator: only the RHS is in tail position
-      if (node.operatorToken.kind === ts.SyntaxKind.CommaToken) {
-        visit(node.left, false, insideTryCatch);
-        visit(node.right, inTail, insideTryCatch);
+    }
+    // A local binding with the function's own name would make `fnName(...)`
+    // refer to something else; the rewrite matches self-calls by name.
+    if (
+      (ts.isVariableDeclaration(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isParameter(node) ||
+        ts.isClassDeclaration(node)) &&
+      node.name &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === fnName
+    ) {
+      found = {
+        node,
+        message: `the body declares a local named '${fnName}' that shadows the function`,
+      };
+      return;
+    }
+    if (ts.isArrowFunction(node)) {
+      ts.forEachChild(node, (c) => visit(c, true));
+      return;
+    }
+    if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isMethodDeclaration(node) ||
+      ts.isConstructorDeclaration(node) ||
+      ts.isGetAccessorDeclaration(node) ||
+      ts.isSetAccessorDeclaration(node)
+    ) {
+      // Own `arguments` and `var` scope: only look for shadowing of fnName.
+      const shadow = (n: ts.Node): void => {
+        if (found) return;
+        if (
+          (ts.isVariableDeclaration(n) ||
+            ts.isFunctionDeclaration(n) ||
+            ts.isParameter(n) ||
+            ts.isClassDeclaration(n)) &&
+          n.name &&
+          ts.isIdentifier(n.name) &&
+          n.name.text === fnName
+        ) {
+          found = {
+            node: n,
+            message: `the body declares a local named '${fnName}' that shadows the function`,
+          };
+          return;
+        }
+        ts.forEachChild(n, shadow);
+      };
+      if (node.name && ts.isIdentifier(node.name) && node.name.text === fnName) {
+        shadow(node);
         return;
       }
-
-      // All other binary ops: neither side is in tail position
-      visit(node.left, false, insideTryCatch);
-      visit(node.right, false, insideTryCatch);
+      ts.forEachChild(node, shadow);
       return;
     }
+    ts.forEachChild(node, (c) => visit(c, inArrow));
+  };
+  visit(body, false);
+  return found;
+}
 
-    if (ts.isParenthesizedExpression(node)) {
-      visit(node.expression, inTail, insideTryCatch);
+/** Whether any `return <expr>` in the body (excluding nested functions) has a value. */
+function returnsAValue(body: ts.Block): boolean {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found || isFunctionBoundary(node)) return;
+    if (ts.isReturnStatement(node) && node.expression) {
+      found = true;
       return;
     }
-
-    if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
-      visit(ts.isAsExpression(node) ? node.expression : node.expression, inTail, insideTryCatch);
-      return;
-    }
-
-    if (ts.isNonNullExpression(node)) {
-      visit(node.expression, inTail, insideTryCatch);
-      return;
-    }
-
-    // For any other node, recurse into children but NOT in tail position.
-    // This catches things like: `n * factorial(n - 1)` where the call
-    // is an argument to a binary expression.
-    ts.forEachChild(node, (child) => visit(child, false, insideTryCatch));
-  }
-
-  // The body of the function: statements in the block
-  const stmts = body.statements;
-  for (let i = 0; i < stmts.length; i++) {
-    visit(stmts[i], i === stmts.length - 1, false);
-  }
-
-  return calls;
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(body, visit);
+  return found;
 }
 
 // ============================================================================
 // Tail-Call Transformation
 // ============================================================================
 
+class CannotRewrite extends Error {
+  constructor(
+    readonly node: ts.Node,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+interface ParamSlot {
+  /** Parameter name as written. */
+  name: string;
+  /** The loop-carried variable holding the next iteration's raw argument. */
+  carried: ts.Identifier;
+  /** Default-value initializer, if any. */
+  initializer?: ts.Expression;
+  isRest: boolean;
+  /** Whether `undefined` is a valid carried value (optional / defaulted). */
+  mayBeUndefined: boolean;
+  /** Temporary holding the next argument while all arguments are evaluated. */
+  next: ts.Identifier;
+}
+
 /**
- * Transform a tail-recursive function into a while(true) loop.
+ * Transform a tail-recursive function into a labelled `while (true)` loop.
  *
- * Strategy:
- * 1. Create mutable variables for each parameter: `let _p = p;`
- * 2. Wrap the body in `while (true) { ... }`
- * 3. Replace each tail-recursive call with:
- *    - Evaluate new argument values into temporaries
- *    - Assign temporaries to the mutable parameter variables
- *    - `continue;`
- * 4. Replace references to parameters with references to the mutable variables.
+ * ```
+ * function f(a, b = d, ...r) {
+ *   let _a = a, _b = b, _r = r;                  // loop-carried raw arguments
+ *   _tailrec: while (true) {
+ *     let a = _a;                                // per-iteration bindings, so
+ *     let b = _b === undefined ? d : _b;         // closures capture this
+ *     let r = _r;                                // iteration's values and the
+ *     { ...original body... }                    // default is re-applied in
+ *     return;                                    // parameter scope
+ *   }
+ * }
+ * ```
+ *
+ * Each tail call `return f(x, y)` becomes
+ * `{ const _next_a = x; const _next_b = y; _a = _next_a; _b = _next_b; _r = []; continue _tailrec; }`.
+ * The body is NOT renamed — the per-iteration `let`s shadow the parameters,
+ * so every reference (including closures) sees the right binding without a
+ * text-based rename pass.
+ *
+ * Returns undefined after reporting a diagnostic when the function can't be
+ * rewritten faithfully; the caller then leaves the function unoptimised.
  */
 function transformTailRecursion(
   ctx: MacroContext,
   fn: ts.FunctionDeclaration,
   fnName: string
-): ts.FunctionDeclaration {
+): ts.FunctionDeclaration | undefined {
   const factory = ctx.factory;
-  const params = fn.parameters;
   const body = fn.body!;
 
-  // Map from original param name to mutable variable name
-  const paramMap = new Map<string, string>();
-  const paramNames: string[] = [];
-
-  for (const param of params) {
-    if (ts.isIdentifier(param.name)) {
-      const original = param.name.text;
-      paramMap.set(original, `_${original}`);
-      paramNames.push(original);
-    }
+  if (fn.asteriskToken) {
+    ctx.reportError(
+      fn,
+      `@tailrec: could not optimize '${fnName}' — generator functions are not supported (returning the inner generator is not the same as looping)`
+    );
+    return undefined;
   }
 
-  /**
-   * Replace all references to original parameter names with the mutable
-   * variable names throughout an expression/statement tree.
-   */
-  function rewriteParamRefs(node: ts.Node): ts.Node {
-    if (ts.isIdentifier(node) && paramMap.has(node.text)) {
-      return factory.createIdentifier(paramMap.get(node.text)!);
-    }
-    return ts.visitEachChild(node, rewriteParamRefs, ctx.transformContext);
-  }
-
-  /**
-   * Replace tail-recursive calls with parameter reassignment + continue.
-   * Non-tail calls have already been validated as absent.
-   */
-  function rewriteTailCalls(node: ts.Node): ts.Node {
-    // Match: return fnName(args...)
-    if (
-      ts.isReturnStatement(node) &&
-      node.expression &&
-      ts.isCallExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === fnName
-    ) {
-      return createTrampolineAssignment(node.expression.arguments);
-    }
-
-    // Match: fnName(args...) as an expression statement (last statement, implicit)
-    if (
-      ts.isExpressionStatement(node) &&
-      ts.isCallExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === fnName
-    ) {
-      return createTrampolineAssignment(node.expression.arguments);
-    }
-
-    // Match: condition ? fnName(a) : fnName(b) — or mixed
-    if (ts.isReturnStatement(node) && node.expression) {
-      const rewritten = rewriteTailCallExpr(node.expression);
-      if (rewritten !== node.expression) {
-        return factory.updateReturnStatement(node, rewritten);
-      }
-    }
-
-    if (ts.isExpressionStatement(node)) {
-      const rewritten = rewriteTailCallExpr(node.expression);
-      if (rewritten !== node.expression) {
-        return factory.updateExpressionStatement(node, rewritten);
-      }
-    }
-
-    // Recurse into control flow
-    if (ts.isIfStatement(node)) {
-      const newThen = rewriteTailCalls(node.thenStatement) as ts.Statement;
-      const newElse = node.elseStatement
-        ? (rewriteTailCalls(node.elseStatement) as ts.Statement)
-        : undefined;
-      return factory.updateIfStatement(node, node.expression, newThen, newElse);
-    }
-
-    if (ts.isBlock(node)) {
-      const newStmts = node.statements.map((s) => rewriteTailCalls(s) as ts.Statement);
-      return factory.updateBlock(node, newStmts);
-    }
-
-    if (ts.isSwitchStatement(node)) {
-      const newClauses = node.caseBlock.clauses.map((clause) => {
-        const newStmts = clause.statements.map((s) => rewriteTailCalls(s) as ts.Statement);
-        if (ts.isCaseClause(clause)) {
-          return factory.updateCaseClause(clause, clause.expression, newStmts);
-        }
-        return factory.updateDefaultClause(clause, newStmts);
-      });
-      return factory.updateSwitchStatement(
-        node,
-        node.expression,
-        factory.updateCaseBlock(node.caseBlock, newClauses)
+  // --- Parameters ---
+  const slots: ParamSlot[] = [];
+  for (const param of fn.parameters) {
+    if (ts.isIdentifier(param.name) && param.name.text === "this") continue; // TS-only
+    if (!ts.isIdentifier(param.name)) {
+      ctx.reportError(
+        param,
+        `@tailrec: could not optimize '${fnName}' — destructured parameters are not supported; take the object/array as a named parameter and destructure it in the body`
       );
+      return undefined;
     }
+    const name = param.name.text;
+    slots.push({
+      name,
+      carried: ctx.tryShortName(`_${name}`),
+      initializer: param.initializer,
+      isRest: !!param.dotDotDotToken,
+      mayBeUndefined: !param.dotDotDotToken && (!!param.initializer || !!param.questionToken),
+      next: ctx.tryShortName(`_next_${name}`),
+    });
+  }
+  const fixedCount = slots.filter((s) => !s.isRest).length;
+  const restSlot = slots.find((s) => s.isRest);
 
-    if (ts.isLabeledStatement(node)) {
-      return factory.updateLabeledStatement(
-        node,
-        node.label,
-        rewriteTailCalls(node.statement) as ts.Statement
-      );
-    }
-
-    return node;
+  const unsupported = findUnsupportedBodyConstruct(body, fnName);
+  if (unsupported) {
+    ctx.reportError(
+      unsupported.node,
+      `@tailrec: could not optimize '${fnName}' — ${unsupported.message}`
+    );
+    return undefined;
   }
 
-  /**
-   * Rewrite tail-recursive calls within expressions (ternary, logical, etc.)
-   * by converting them to an IIFE that performs the assignment + continue.
-   *
-   * For ternary: `cond ? f(a) : f(b)` becomes
-   *   `if (cond) { _p = a; continue; } else { _p = b; continue; }`
-   * which requires lifting to statement level. We handle this by detecting
-   * the pattern at the statement level in rewriteTailCalls.
-   */
-  function rewriteTailCallExpr(node: ts.Expression): ts.Expression {
-    // Direct recursive call
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === fnName
-    ) {
-      // This case is handled at statement level; return as-is for expression context
-      return node;
-    }
+  const loopLabel = ctx.tryShortName("_tailrec");
+  const bodyReturnsValue = returnsAValue(body);
+  const declaredVoid = fn.type?.kind === ts.SyntaxKind.VoidKeyword;
 
-    // Ternary: condition ? f(a) : b  or  condition ? a : f(b)
-    if (ts.isConditionalExpression(node)) {
-      const trueIsCall = isDirectRecursiveCall(node.whenTrue, fnName);
-      const falseIsCall = isDirectRecursiveCall(node.whenFalse, fnName);
-
-      if (trueIsCall || falseIsCall) {
-        // We need to lift this to an if/else statement.
-        // Return a marker — the statement-level handler will detect it.
-        // Actually, let's just return the node and handle ternaries at statement level.
-        return node;
-      }
-    }
-
-    return node;
-  }
-
-  /**
-   * Create the assignment block that replaces a tail call:
-   * ```
-   * { const _next_p1 = arg1; const _next_p2 = arg2; _tr_p1 = _next_p1; _tr_p2 = _next_p2; continue; }
-   * ```
-   */
-  function createTrampolineAssignment(args: ts.NodeArray<ts.Expression>): ts.Statement {
+  /** `{ const _next_a = x; ...; _a = _next_a; ...; continue _tailrec; }` */
+  function trampoline(call: ts.CallExpression): ts.Statement {
+    const args = call.arguments;
     const stmts: ts.Statement[] = [];
-    const tempNames: string[] = [];
+    const assigns: ts.Statement[] = [];
+    const assign = (slot: ParamSlot, value: ts.Expression) =>
+      assigns.push(
+        factory.createExpressionStatement(
+          factory.createAssignment(factory.createIdentifier(slot.carried.text), value)
+        )
+      );
 
-    // First, evaluate all arguments into temporaries (to handle interdependencies)
-    for (let i = 0; i < paramNames.length && i < args.length; i++) {
-      const tempName = `_next_${paramNames[i]}`;
-      tempNames.push(tempName);
+    for (let i = 0; i < fixedCount; i++) {
+      const slot = slots[i];
+      const arg = args[i];
+      if (arg !== undefined && ts.isSpreadElement(arg)) {
+        throw new CannotRewrite(
+          arg,
+          "a spread argument in a non-rest parameter position can't be mapped to parameters at compile time"
+        );
+      }
+      if (arg === undefined) {
+        assign(slot, factory.createVoidZero());
+        continue;
+      }
+      const temp = factory.createIdentifier(slot.next.text);
       stmts.push(
         factory.createVariableStatement(
           undefined,
           factory.createVariableDeclarationList(
             [
               factory.createVariableDeclaration(
-                factory.createIdentifier(tempName),
+                temp,
                 undefined,
-                undefined,
-                rewriteParamRefs(args[i]) as ts.Expression
+                // `typeof _a` keeps contextual typing for lambdas/literals.
+                factory.createTypeQueryNode(factory.createIdentifier(slot.carried.text)),
+                arg
               ),
             ],
             ts.NodeFlags.Const
           )
         )
       );
+      assign(slot, factory.createIdentifier(temp.text));
     }
 
-    // Then assign temporaries to the mutable parameter variables
-    for (let i = 0; i < paramNames.length && i < args.length; i++) {
-      const mutableName = paramMap.get(paramNames[i])!;
+    const extra = args.slice(fixedCount);
+    if (restSlot) {
+      const temp = factory.createIdentifier(restSlot.next.text);
       stmts.push(
-        factory.createExpressionStatement(
-          factory.createBinaryExpression(
-            factory.createIdentifier(mutableName),
-            factory.createToken(ts.SyntaxKind.EqualsToken),
-            factory.createIdentifier(tempNames[i])
-          )
-        )
-      );
-    }
-
-    // For any parameters not covered by args (default params), keep current value
-    // (no assignment needed)
-
-    stmts.push(factory.createContinueStatement());
-
-    return factory.createBlock(stmts, true);
-  }
-
-  // --- Build the transformed function ---
-
-  // Step 1: Rewrite the body — replace param refs and tail calls
-  let rewrittenBody = rewriteParamRefs(body) as ts.Block;
-
-  // Step 2: Handle ternary expressions with tail calls by lifting to if/else.
-  // We do this by walking the rewritten body and converting return statements
-  // that contain ternaries with recursive calls.
-  rewrittenBody = liftTernaryTailCalls(
-    ctx,
-    rewrittenBody,
-    fnName,
-    paramNames,
-    paramMap,
-    createTrampolineAssignment
-  );
-
-  // Step 3: Rewrite remaining tail calls (return f(...) and expression-statement f(...))
-  rewrittenBody = rewriteTailCalls(rewrittenBody) as ts.Block;
-
-  // Step 4: Create mutable variable declarations
-  const letDecls: ts.Statement[] = [];
-  for (const param of params) {
-    if (ts.isIdentifier(param.name)) {
-      const original = param.name.text;
-      const mutable = paramMap.get(original)!;
-      letDecls.push(
         factory.createVariableStatement(
           undefined,
           factory.createVariableDeclarationList(
             [
               factory.createVariableDeclaration(
-                factory.createIdentifier(mutable),
+                temp,
                 undefined,
-                undefined,
-                factory.createIdentifier(original)
+                factory.createTypeQueryNode(factory.createIdentifier(restSlot.carried.text)),
+                factory.createArrayLiteralExpression([...extra], false)
               ),
             ],
-            ts.NodeFlags.Let
+            ts.NodeFlags.Const
           )
         )
       );
+      assign(restSlot, factory.createIdentifier(temp.text));
+    } else {
+      // Arguments beyond the parameter list are still evaluated, in order.
+      for (const e of extra) {
+        stmts.push(
+          factory.createExpressionStatement(
+            ts.isSpreadElement(e) ? factory.createArrayLiteralExpression([e]) : e
+          )
+        );
+      }
     }
+
+    return factory.createBlock(
+      [
+        ...stmts,
+        ...assigns,
+        factory.createContinueStatement(factory.createIdentifier(loopLabel.text)),
+      ],
+      true
+    );
   }
 
-  // Step 5: Wrap in while(true) { ... }
-  const whileLoop = factory.createWhileStatement(factory.createTrue(), rewrittenBody);
+  /** Strip wrappers that don't change the returned value. */
+  function unwrap(e: ts.Expression): ts.Expression {
+    while (
+      ts.isParenthesizedExpression(e) ||
+      ts.isAsExpression(e) ||
+      ts.isTypeAssertionExpression(e) ||
+      ts.isNonNullExpression(e) ||
+      ts.isSatisfiesExpression(e)
+    ) {
+      e = e.expression;
+    }
+    return e;
+  }
 
-  const newBody = factory.createBlock([...letDecls, whileLoop], true);
+  /**
+   * Lower an expression in tail position into statements. `mode` is "value"
+   * for `return <expr>` and "void" for a final expression statement (the
+   * result is discarded and the function returns undefined).
+   *
+   * Returns undefined when the expression is not a shape we lower (the
+   * caller keeps the original statement; any self-call left inside it is
+   * then reported as non-tail).
+   */
+  function lowerTail(expr: ts.Expression, mode: "value" | "void"): ts.Statement[] | undefined {
+    const leaf = (): ts.Statement[] =>
+      mode === "value"
+        ? [factory.createReturnStatement(expr)]
+        : [factory.createExpressionStatement(expr), factory.createReturnStatement()];
+    if (!containsSelfCall(expr, fnName)) return leaf();
 
-  // Step 6: Rebuild the function without the @tailrec decorator
+    const e = unwrap(expr);
+    if (isSelfCall(e, fnName)) {
+      if (mode === "void" && bodyReturnsValue && !declaredVoid) {
+        throw new CannotRewrite(
+          e,
+          `the call '${fnName}(...)' is used as a statement, so the original discards its result and returns undefined, but other paths return values — write 'return ${fnName}(...)' if the result should be returned`
+        );
+      }
+      return [trampoline(e)];
+    }
+
+    if (ts.isConditionalExpression(e)) {
+      const whenTrue = lowerTail(e.whenTrue, mode);
+      const whenFalse = lowerTail(e.whenFalse, mode);
+      if (!whenTrue || !whenFalse) return undefined;
+      return [
+        factory.createIfStatement(
+          e.condition,
+          factory.createBlock(whenTrue, true),
+          factory.createBlock(whenFalse, true)
+        ),
+      ];
+    }
+
+    if (ts.isBinaryExpression(e)) {
+      const op = e.operatorToken.kind;
+      if (op === ts.SyntaxKind.CommaToken) {
+        const rest = lowerTail(e.right, mode);
+        if (!rest) return undefined;
+        return [factory.createExpressionStatement(e.left), ...rest];
+      }
+      if (
+        op === ts.SyntaxKind.AmpersandAmpersandToken ||
+        op === ts.SyntaxKind.BarBarToken ||
+        op === ts.SyntaxKind.QuestionQuestionToken
+      ) {
+        const rest = lowerTail(e.right, mode);
+        if (!rest) return undefined;
+        const temp = ctx.generateUniqueName("_tailrec_lhs");
+        const tempRef = () => factory.createIdentifier(temp.text);
+        // Condition under which the left operand is the result.
+        const shortCircuits =
+          op === ts.SyntaxKind.AmpersandAmpersandToken
+            ? factory.createLogicalNot(tempRef())
+            : op === ts.SyntaxKind.BarBarToken
+              ? tempRef()
+              : factory.createLogicalAnd(
+                  factory.createStrictInequality(tempRef(), factory.createNull()),
+                  factory.createStrictInequality(tempRef(), factory.createVoidZero())
+                );
+        return [
+          factory.createVariableStatement(
+            undefined,
+            factory.createVariableDeclarationList(
+              [factory.createVariableDeclaration(temp, undefined, undefined, e.left)],
+              ts.NodeFlags.Const
+            )
+          ),
+          factory.createIfStatement(
+            shortCircuits,
+            factory.createReturnStatement(mode === "value" ? tempRef() : undefined)
+          ),
+          ...rest,
+        ];
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Rewrite tail calls in a statement. `inTail` says whether falling off the
+   * end of this statement ends the function (so a final expression
+   * statement is a tail position). `return` is a tail position anywhere
+   * outside try/catch/finally and nested functions.
+   */
+  function rewriteStmt(stmt: ts.Statement, inTail: boolean): ts.Statement {
+    if (ts.isReturnStatement(stmt)) {
+      if (!stmt.expression || !containsSelfCall(stmt.expression, fnName)) return stmt;
+      const lowered = lowerTail(stmt.expression, "value");
+      return lowered ? asStatement(lowered) : stmt;
+    }
+    if (ts.isExpressionStatement(stmt)) {
+      if (!inTail || !containsSelfCall(stmt.expression, fnName)) return stmt;
+      const lowered = lowerTail(stmt.expression, "void");
+      return lowered ? asStatement(lowered) : stmt;
+    }
+    if (ts.isBlock(stmt)) {
+      return factory.updateBlock(stmt, rewriteList(stmt.statements, inTail));
+    }
+    if (ts.isIfStatement(stmt)) {
+      return factory.updateIfStatement(
+        stmt,
+        stmt.expression,
+        rewriteStmt(stmt.thenStatement, inTail),
+        stmt.elseStatement ? rewriteStmt(stmt.elseStatement, inTail) : undefined
+      );
+    }
+    if (ts.isLabeledStatement(stmt)) {
+      // A labelled loop's body is not a tail position; a labelled block is.
+      const isLoop = ts.isIterationStatement(stmt.statement, false);
+      return factory.updateLabeledStatement(
+        stmt,
+        stmt.label,
+        rewriteStmt(stmt.statement, inTail && !isLoop)
+      );
+    }
+    if (ts.isSwitchStatement(stmt)) {
+      const clauses = stmt.caseBlock.clauses;
+      const newClauses = clauses.map((clause, ci) => {
+        // Only the last clause's last statement can fall off the end of the
+        // switch; earlier clauses fall through into the next clause.
+        const stmts = rewriteList(clause.statements, inTail && ci === clauses.length - 1);
+        return ts.isCaseClause(clause)
+          ? factory.updateCaseClause(clause, clause.expression, stmts)
+          : factory.updateDefaultClause(clause, stmts);
+      });
+      return factory.updateSwitchStatement(
+        stmt,
+        stmt.expression,
+        factory.updateCaseBlock(stmt.caseBlock, newClauses)
+      );
+    }
+    if (ts.isForStatement(stmt)) {
+      return factory.updateForStatement(
+        stmt,
+        stmt.initializer,
+        stmt.condition,
+        stmt.incrementor,
+        rewriteStmt(stmt.statement, false)
+      );
+    }
+    if (ts.isForOfStatement(stmt)) {
+      return factory.updateForOfStatement(
+        stmt,
+        stmt.awaitModifier,
+        stmt.initializer,
+        stmt.expression,
+        rewriteStmt(stmt.statement, false)
+      );
+    }
+    if (ts.isForInStatement(stmt)) {
+      return factory.updateForInStatement(
+        stmt,
+        stmt.initializer,
+        stmt.expression,
+        rewriteStmt(stmt.statement, false)
+      );
+    }
+    if (ts.isWhileStatement(stmt)) {
+      return factory.updateWhileStatement(
+        stmt,
+        stmt.expression,
+        rewriteStmt(stmt.statement, false)
+      );
+    }
+    if (ts.isDoStatement(stmt)) {
+      return factory.updateDoStatement(stmt, rewriteStmt(stmt.statement, false), stmt.expression);
+    }
+    // try/catch/finally (a `continue` would run `finally` before the next
+    // iteration instead of after the inner call), declarations, nested
+    // functions, etc.: left alone. Any self-call inside is reported below.
+    return stmt;
+  }
+
+  function asStatement(stmts: ts.Statement[]): ts.Statement {
+    return stmts.length === 1 && ts.isBlock(stmts[0]) ? stmts[0] : factory.createBlock(stmts, true);
+  }
+
+  function rewriteList(stmts: ts.NodeArray<ts.Statement>, inTail: boolean): ts.Statement[] {
+    return stmts.map((s, i) => rewriteStmt(s, inTail && i === stmts.length - 1));
+  }
+
+  let rewrittenBody: ts.Block;
+  try {
+    rewrittenBody = factory.updateBlock(body, rewriteList(body.statements, true));
+  } catch (e) {
+    if (e instanceof CannotRewrite) {
+      ctx.reportError(e.node, `@tailrec: could not optimize '${fnName}' — ${e.message}`);
+      return undefined;
+    }
+    throw e;
+  }
+
+  // --- Assert: no self-call survives. Anything left was not a tail call. ---
+  const remaining = collectSelfCalls(rewrittenBody, fnName);
+  if (remaining.length > 0) {
+    for (const call of remaining) {
+      const where =
+        call.pos >= 0
+          ? ` (line ${ctx.sourceFile.getLineAndCharacterOfPosition(call.getStart(ctx.sourceFile)).line + 1})`
+          : "";
+      ctx.reportError(
+        call,
+        `@tailrec: could not optimize '${fnName}' — ${nonTailReason(call, body)}${where}`
+      );
+    }
+    return undefined;
+  }
+
+  // --- Build the loop ---
+  const carriedDecls = slots.map((slot) =>
+    factory.createVariableStatement(
+      undefined,
+      factory.createVariableDeclarationList(
+        [
+          factory.createVariableDeclaration(
+            slot.carried,
+            undefined,
+            slot.mayBeUndefined
+              ? factory.createUnionTypeNode([
+                  factory.createTypeQueryNode(factory.createIdentifier(slot.name)),
+                  factory.createKeywordTypeNode(ts.SyntaxKind.UndefinedKeyword),
+                ])
+              : undefined,
+            factory.createIdentifier(slot.name)
+          ),
+        ],
+        ts.NodeFlags.Let
+      )
+    )
+  );
+
+  // Per-iteration bindings, declared in parameter order so a default can see
+  // earlier parameters (and not later ones), outside the body block so a
+  // default can't see the body's own declarations — matching parameter scope.
+  const prologue = slots.map((slot) => {
+    const carried = factory.createIdentifier(slot.carried.text);
+    const init = slot.initializer
+      ? factory.createConditionalExpression(
+          factory.createStrictEquality(carried, factory.createVoidZero()),
+          factory.createToken(ts.SyntaxKind.QuestionToken),
+          cloneNodeDeep(slot.initializer),
+          factory.createToken(ts.SyntaxKind.ColonToken),
+          factory.createIdentifier(slot.carried.text)
+        )
+      : carried;
+    return factory.createVariableStatement(
+      undefined,
+      factory.createVariableDeclarationList(
+        [factory.createVariableDeclaration(slot.name, undefined, undefined, init)],
+        ts.NodeFlags.Let
+      )
+    );
+  });
+
+  const last = body.statements[body.statements.length - 1];
+  const fallsOff = !last || !(ts.isReturnStatement(last) || ts.isThrowStatement(last));
+  const loopBody = factory.createBlock(
+    [...prologue, rewrittenBody, ...(fallsOff ? [factory.createReturnStatement()] : [])],
+    true
+  );
+  const loop = factory.createLabeledStatement(
+    loopLabel,
+    factory.createWhileStatement(factory.createTrue(), loopBody)
+  );
+
   const newModifiers = fn.modifiers?.filter((m) => !ts.isDecorator(m));
-
   return factory.updateFunctionDeclaration(
     fn,
     newModifiers,
@@ -544,100 +736,8 @@ function transformTailRecursion(
     fn.typeParameters,
     fn.parameters,
     fn.type,
-    newBody
+    factory.createBlock([...carriedDecls, loop], true)
   );
-}
-
-/**
- * Check if an expression is a direct recursive call to fnName.
- */
-function isDirectRecursiveCall(node: ts.Expression, fnName: string): node is ts.CallExpression {
-  if (ts.isParenthesizedExpression(node)) {
-    return isDirectRecursiveCall(node.expression, fnName);
-  }
-  if (ts.isAsExpression(node)) {
-    return isDirectRecursiveCall(node.expression, fnName);
-  }
-  return (
-    ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === fnName
-  );
-}
-
-/**
- * Unwrap parentheses and type assertions to get the underlying call expression.
- */
-function unwrapToCall(node: ts.Expression): ts.CallExpression | undefined {
-  if (ts.isCallExpression(node)) return node;
-  if (ts.isParenthesizedExpression(node)) return unwrapToCall(node.expression);
-  if (ts.isAsExpression(node)) return unwrapToCall(node.expression);
-  return undefined;
-}
-
-/**
- * Lift ternary expressions that contain tail-recursive calls into if/else
- * statements. This handles patterns like:
- *
- *   return cond ? f(a) : f(b);
- *   return cond ? f(a) : baseCase;
- *
- * Becomes:
- *   if (cond) { /* trampoline for f(a) *\/ } else { return baseCase; }
- */
-function liftTernaryTailCalls(
-  ctx: MacroContext,
-  body: ts.Block,
-  fnName: string,
-  paramNames: string[],
-  paramMap: Map<string, string>,
-  createTrampolineAssignment: (args: ts.NodeArray<ts.Expression>) => ts.Statement
-): ts.Block {
-  const factory = ctx.factory;
-
-  function visitStatement(node: ts.Node): ts.Node {
-    // return cond ? ... : ...;
-    if (
-      ts.isReturnStatement(node) &&
-      node.expression &&
-      ts.isConditionalExpression(node.expression)
-    ) {
-      const ternary = node.expression;
-      const trueCall = isDirectRecursiveCall(ternary.whenTrue, fnName);
-      const falseCall = isDirectRecursiveCall(ternary.whenFalse, fnName);
-
-      if (trueCall || falseCall) {
-        const thenBranch = trueCall
-          ? createTrampolineAssignment(unwrapToCall(ternary.whenTrue)!.arguments)
-          : factory.createReturnStatement(ternary.whenTrue);
-
-        const elseBranch = falseCall
-          ? createTrampolineAssignment(unwrapToCall(ternary.whenFalse)!.arguments)
-          : factory.createReturnStatement(ternary.whenFalse);
-
-        return factory.createIfStatement(ternary.condition, thenBranch, elseBranch);
-      }
-    }
-
-    // Recurse into blocks and if statements
-    if (ts.isBlock(node)) {
-      return factory.updateBlock(
-        node,
-        node.statements.map((s) => visitStatement(s) as ts.Statement)
-      );
-    }
-
-    if (ts.isIfStatement(node)) {
-      return factory.updateIfStatement(
-        node,
-        node.expression,
-        visitStatement(node.thenStatement) as ts.Statement,
-        node.elseStatement ? (visitStatement(node.elseStatement) as ts.Statement) : undefined
-      );
-    }
-
-    return node;
-  }
-
-  return visitStatement(body) as ts.Block;
 }
 
 // ============================================================================
@@ -658,9 +758,11 @@ export const tailrecAttribute = defineAttributeMacro({
     target: ts.Declaration,
     _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
-    // --- Validation: must be a function declaration ---
     if (!ts.isFunctionDeclaration(target)) {
-      ctx.reportError(target, "@tailrec can only be applied to function declarations");
+      ctx.reportError(
+        target,
+        "@tailrec can only be applied to function declarations (not arrow functions, function expressions or methods)"
+      );
       return target;
     }
 
@@ -677,10 +779,7 @@ export const tailrecAttribute = defineAttributeMacro({
       return target;
     }
 
-    // --- Find all recursive calls ---
-    const calls = findRecursiveCalls(fn.body, fnName, ctx.sourceFile);
-
-    if (calls.length === 0) {
+    if (collectSelfCalls(fn.body, fnName).length === 0) {
       ctx.reportError(
         fn,
         `@tailrec: function '${fnName}' contains no recursive calls — ` +
@@ -689,22 +788,7 @@ export const tailrecAttribute = defineAttributeMacro({
       return target;
     }
 
-    // --- Check that ALL recursive calls are in tail position ---
-    const nonTailCalls = calls.filter((c) => !c.isTail);
-    if (nonTailCalls.length > 0) {
-      for (const ntc of nonTailCalls) {
-        const pos = ntc.call.getStart(ctx.sourceFile);
-        const { line } = ctx.sourceFile.getLineAndCharacterOfPosition(pos);
-        ctx.reportError(
-          ntc.call,
-          `@tailrec: could not optimize '${fnName}' — ${ntc.reason ?? "recursive call not in tail position"} (line ${line + 1})`
-        );
-      }
-      return target;
-    }
-
-    // --- All calls are in tail position — transform! ---
-    return transformTailRecursion(ctx, fn, fnName);
+    return transformTailRecursion(ctx, fn, fnName) ?? target;
   },
 });
 

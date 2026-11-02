@@ -190,6 +190,44 @@ describe("transformCode", () => {
     });
   });
 
+  describe("returned code and source map describe the same text (review core #41)", () => {
+    const code = [
+      'import { comptime } from "@typesugar/macros";',
+      "",
+      "",
+      "// a comment the printer keeps, and blank lines it drops",
+      "",
+      "const before   =   1;",
+      "",
+      "",
+      "export const target = comptime(() => 40 + 2);",
+      "export const after = before;",
+      "",
+    ].join("\n");
+
+    it("maps identifiers in the printed output back to their original positions", () => {
+      const result = transformCode(code, { fileName: "map-test.ts" });
+      expect(result.changed).toBe(true);
+      expect(result.sourceMap).not.toBeNull();
+      for (const name of ["target", "after", "before"]) {
+        const outPos = result.code.indexOf(name);
+        expect(outPos).toBeGreaterThanOrEqual(0);
+        expect(result.mapper.toOriginal(outPos)).toBe(code.indexOf(name));
+        expect(result.mapper.toTransformed(code.indexOf(name))).toBe(outPos);
+      }
+    });
+
+    it("maps the expanded value onto the original call-site line", () => {
+      const result = transformCode(code, { fileName: "map-test.ts" });
+      const outPos = result.code.indexOf("42");
+      expect(outPos).toBeGreaterThanOrEqual(0);
+      const orig = result.mapper.toOriginal(outPos);
+      expect(orig).not.toBeNull();
+      const lineOf = (text: string, pos: number) => text.slice(0, pos).split("\n").length - 1;
+      expect(lineOf(code, orig!)).toBe(lineOf(code, code.indexOf("comptime(")));
+    });
+  });
+
   describe("expansion tracking", () => {
     it("should generate sourceMap when trackExpansions is true and code changes", () => {
       const code = `

@@ -169,12 +169,15 @@ export function refinement<Base, Brand extends string>(
  * );
  * ```
  */
-export function composeRefinements<Base, B1 extends string, B2 extends string>(
+export function composeRefinements<Base, B1 extends string, B2 extends string, B extends string>(
   r1: Refinement<Base, B1>,
   r2: Refinement<Base, B2>,
-  brand: string
-): Refinement<Base, B1 & B2 extends string ? B1 & B2 : string> {
-  return refinement((value: Base) => r1.is(value) && r2.is(value), brand as any);
+  brand: B
+): Refinement<Base, B> {
+  // TSP-15: the result is branded with the given `brand` literal. (It used to
+  // be typed `B1 & B2 extends string ? ...`, which is `never` for two distinct
+  // literal brands, so the composed type accepted anything.)
+  return refinement<Base, B>((value: Base) => r1.is(value) && r2.is(value), brand);
 }
 
 // ============================================================================
@@ -529,14 +532,20 @@ export function NonEmptyArray<T>(): Refinement<T[], "NonEmptyArray"> {
   return refinement<T[], "NonEmptyArray">((arr) => arr.length > 0, "NonEmptyArray");
 }
 
-export type MaxLength<T> = Refined<T[], "MaxLength">;
-export function MaxLength<T>(max: number): Refinement<T[], "MaxLength"> {
-  return refinement<T[], "MaxLength">((arr) => arr.length <= max, "MaxLength");
+// TSP-15: the bound is part of the brand, so `MaxLength(5)` and
+// `MaxLength(100)` are different types (both used to be `"MaxLength"`).
+export type MaxLength<T, N extends number = number> = Refined<T[], `MaxLength<${N}>`>;
+export function MaxLength<T, N extends number = number>(
+  max: N
+): Refinement<T[], `MaxLength<${N}>`> {
+  return refinement<T[], `MaxLength<${N}>`>((arr) => arr.length <= max, `MaxLength<${max}>`);
 }
 
-export type MinLength<T> = Refined<T[], "MinLength">;
-export function MinLength<T>(min: number): Refinement<T[], "MinLength"> {
-  return refinement<T[], "MinLength">((arr) => arr.length >= min, "MinLength");
+export type MinLength<T, N extends number = number> = Refined<T[], `MinLength<${N}>`>;
+export function MinLength<T, N extends number = number>(
+  min: N
+): Refinement<T[], `MinLength<${N}>`> {
+  return refinement<T[], `MinLength<${N}>`>((arr) => arr.length >= min, `MinLength<${min}>`);
 }
 
 // ============================================================================

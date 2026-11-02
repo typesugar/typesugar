@@ -33,6 +33,7 @@ import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
 import { stripPositions, getPrinter, getDummySourceFile } from "@typesugar/core";
+import { needsParentheses } from "./syntax-macro.js";
 
 // =============================================================================
 // Splice Types
@@ -62,7 +63,12 @@ export function spread(stmts: ts.Statement[]): SpreadSplice {
   return new SpreadSplice(stmts);
 }
 
-/** Identifier splice — forces a string to be treated as an identifier */
+/**
+ * Identifier splice — marks a string as an identifier NAME rather than
+ * arbitrary source text. The name is inserted verbatim: quote does not
+ * rename or mangle it (there is no automatic hygiene). Use
+ * `ctx.generateUniqueName()` for a collision-free temporary.
+ */
 export class IdentSplice {
   constructor(public readonly name: string) {}
 }
@@ -72,12 +78,17 @@ export function ident(name: string): IdentSplice {
   return new IdentSplice(name);
 }
 
-/** Raw (unhygienic) identifier splice — uses the exact name without mangling */
+/**
+ * Raw identifier splice — inserts the exact name. Currently behaves exactly
+ * like {@link IdentSplice}: neither is hygienic (neither mangles), so `raw()`
+ * does not "escape" anything. Kept for readability at call sites that
+ * deliberately reference a user-visible name.
+ */
 export class RawSplice {
   constructor(public readonly name: string) {}
 }
 
-/** Create a raw identifier splice (escapes hygiene) */
+/** Create a raw identifier splice (same as `ident()` — quote has no hygiene to escape) */
 export function raw(name: string): RawSplice {
   return new RawSplice(name);
 }
@@ -204,8 +215,8 @@ export function quoteBlock(
  * - ts.Node → printed via ts.Printer
  * - string → used as-is (treated as source code text)
  * - number/boolean → converted to literal text
- * - IdentSplice → used as identifier name
- * - RawSplice → used as-is (unhygienic)
+ * - ts.Expression → printed, parenthesised unless it is a primary expression
+ * - IdentSplice / RawSplice → the name, verbatim (no hygiene for either)
  * - SpreadSplice → statements joined with newlines
  */
 function assembleSpliceTemplate(
@@ -272,7 +283,10 @@ function spliceToString(
       return printer.printNode(ts.EmitHint.Unspecified, splice, sourceFile);
     }
     if (ts.isExpression(splice)) {
-      return printer.printNode(ts.EmitHint.Expression, splice, sourceFile);
+      const text = printer.printNode(ts.EmitHint.Expression, splice, sourceFile);
+      // A spliced expression is one operand: `${a + b} * 2` must not
+      // become `a + b * 2` (deep review #12a).
+      return needsParentheses(splice) ? `(${text})` : text;
     }
     // Type nodes, identifiers, etc.
     return printer.printNode(ts.EmitHint.Unspecified, splice, sourceFile);

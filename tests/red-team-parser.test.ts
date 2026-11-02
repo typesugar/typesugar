@@ -210,15 +210,11 @@ describe("Parser Edge Cases", () => {
       expect(parser.parse("a").ok).toBe(false);
     });
 
-    it("regex with Unicode flag - FINDING: flags not preserved", () => {
-      // FINDING: regex() creates a sticky regex with only 'y' flag,
-      // dropping the original flags. This means /\p{L}+/u becomes /\p{L}+/y
-      // which fails because \p{} requires the 'u' flag.
-      // See FINDINGS.md for tracking.
+    // TSP-10 (fixed): regex() keeps the pattern's own flags and adds 'y'.
+    it("regex with Unicode flag - flags preserved (TSP-10)", () => {
       const parser = regex(/\p{L}+/u);
       const result = parser.parse("日本語");
-      // This currently fails because the 'u' flag is lost
-      expect(result.ok).toBe(false);
+      expect(result.ok).toBe(true);
     });
   });
 
@@ -361,16 +357,11 @@ describe("Parser Edge Cases", () => {
       }
     });
 
-    it("regex flags are NOT preserved - FINDING: flags lost", () => {
-      // FINDING: regex() converts to sticky regex with only 'y' flag,
-      // losing the 'i' (case-insensitive) flag.
-      // /ABC/i becomes /ABC/y which doesn't match "abc".
-      // FIX: Should use `new RegExp(pattern.source, pattern.flags.replace('g', '') + 'y')`
-      // See FINDINGS.md for tracking.
+    // TSP-10 (fixed): the 'i' flag survives the sticky conversion.
+    it("regex flags are preserved (TSP-10)", () => {
       const parser = regex(/ABC/i);
       const result = parser.parse("abc");
-      // This currently fails because the 'i' flag is lost
-      expect(result.ok).toBe(false);
+      expect(result.ok).toBe(true);
     });
 
     it("handles catastrophic backtracking regex gracefully", () => {

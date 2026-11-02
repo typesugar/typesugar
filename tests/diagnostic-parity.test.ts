@@ -107,27 +107,41 @@ describe("Diagnostic Parity — unified diagnostic suppression pipeline", () => 
     expect(expected).toHaveLength(7);
   });
 
-  it("OperatorOverload: suppresses TS2365 for non-primitive operands", () => {
+  it("OperatorOverload: suppresses TS2365 only where an @op instance rewrites it", () => {
     registerAllDiagnosticSuppressionRules();
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
+/** @typeclass */
+interface Numeric<A> {
+  /** @op + */ add(a: A, b: A): A;
+}
 interface Vector2D { x: number; y: number }
+/** @impl Numeric<Vector2D> */
+const numericVector2D: Numeric<Vector2D> = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+};
 declare const a: Vector2D;
 declare const b: Vector2D;
 const c = a + b;
+interface Money { amount: number }
+declare const m: Money;
+const d = m + m;
 `,
     });
 
     const fileDiags = getDiagnosticsForFile(diagnostics, "/test.ts");
-    // TS2365 should be present before filtering
-    expect(fileDiags.some((d) => d.code === 2365)).toBe(true);
+    expect(fileDiags.filter((d) => d.code === 2365)).toHaveLength(2);
 
     const checker = program.getTypeChecker();
-    const filtered = filterDiagnostics(fileDiags, checker, (f) => program.getSourceFile(f));
+    const filtered = filterDiagnostics(fileDiags, checker, (f) => program.getSourceFile(f), {
+      program,
+    });
 
-    // TS2365 should be suppressed after filtering
-    expect(filtered.every((d) => d.code !== 2365)).toBe(true);
+    // `a + b` is rewritten to numericVector2D.add(a, b); `m + m` has no instance.
+    const remaining = filtered.filter((d) => d.code === 2365);
+    expect(remaining).toHaveLength(1);
+    expect(ts.flattenDiagnosticMessageText(remaining[0].messageText, "\n")).toContain("Money");
   });
 
   it("ExtensionMethodCall: suppresses TS2339 for registered extensions", () => {

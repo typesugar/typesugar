@@ -190,3 +190,11 @@ export function serializable<T>(
     deserialize,
   } as SerializeWitness<unknown>);
 }
+
+/**
+ * `@existential` decorator placeholder. The `@existential` macro (in the
+ * `./macros` entry) consumes it at build time and generates `Any{Name}`,
+ * `pack{Name}` and `use{Name}`; import it from `@typesugar/type-system` so the
+ * macro resolves to this package.
+ */
+export function existential(..._args: unknown[]): void {}

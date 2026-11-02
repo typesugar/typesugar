@@ -156,6 +156,7 @@ export {
   type RoundingMode,
   DEFAULT_ROUNDING_MODE,
   roundBigInt,
+  roundDiv,
   roundNumber,
   isValidRoundingMode,
 } from "./types/rounding.js";

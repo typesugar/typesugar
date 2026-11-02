@@ -215,26 +215,50 @@ export function formatISO(date: Date): string {
   return date.toISOString();
 }
 
+// Formatting and calendar queries below use LOCAL time throughout, like the
+// rest of this module (startOfDay, startOfYear, daysInMonth, ...). Use
+// `date.toISOString()` for a UTC timestamp.
+
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+/** Local calendar date as `YYYY-MM-DD`. */
 export function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0];
+  const y = date.getFullYear();
+  const year = y < 0 ? "-" + String(-y).padStart(4, "0") : String(y).padStart(4, "0");
+  return `${year}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
+/** Local time of day as `HH:MM:SS`. */
 export function formatTime(date: Date): string {
-  return date.toTimeString().split(" ")[0];
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
+/** Local date and time as `YYYY-MM-DD HH:MM:SS`. */
 export function formatDateTime(date: Date): string {
   return `${formatDate(date)} ${formatTime(date)}`;
 }
 
-export function dayOfYear(date: Date): number {
-  const start = startOfYear(date);
-  return Math.floor(diffInDays(date, start)) + 1;
+/** Whole local calendar days since 1 Jan of the same year (DST-safe: counts dates, not milliseconds). */
+function calendarDaysIntoYear(date: Date): number {
+  // setUTCFullYear, not Date.UTC: Date.UTC maps years 0-99 to 1900-1999.
+  const utc = (y: number, m: number, d: number): number => {
+    const t = new Date(0);
+    t.setUTCFullYear(y, m, d);
+    return t.getTime();
+  };
+  const y = date.getFullYear();
+  return Math.round((utc(y, date.getMonth(), date.getDate()) - utc(y, 0, 1)) / 86_400_000);
 }
 
+/** 1-based day of the year in local time (1 Jan = 1). */
+export function dayOfYear(date: Date): number {
+  return calendarDaysIntoYear(date) + 1;
+}
+
+/** Week of the year in local time; weeks start on Sunday and week 1 contains 1 Jan. */
 export function weekOfYear(date: Date): number {
   const start = startOfYear(date);
-  return Math.ceil((diffInDays(date, start) + start.getDay() + 1) / 7);
+  return Math.floor((calendarDaysIntoYear(date) + start.getDay()) / 7) + 1;
 }
 
 export function daysInMonth(date: Date): number {

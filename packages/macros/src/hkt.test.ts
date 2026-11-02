@@ -634,7 +634,11 @@ describe("hktAttribute.expand — Tier 3 (`_` placeholder in RHS)", () => {
       const decorator = ts.factory.createDecorator(ts.factory.createIdentifier("hkt"));
       const result = hktAttribute.expand(ctx, decorator, alias, []);
       const text = print(Array.isArray(result) ? result[0] : result, sf);
-      expect(text).toContain('this["__kind__"][]');
+      // `this` inside an object type literal is TS2526, so markers under a
+      // type literal bind through `this["__kind__"] extends infer K ? ... : never`
+      // (deep review #14; execution-level checks in hkt-review.test.ts).
+      expect(text).toContain('this["__kind__"] extends infer');
+      expect(text).not.toContain('this["__kind__"][]');
     });
   });
 });

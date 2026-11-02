@@ -66,13 +66,22 @@ import { validate } from "@typesugar/validate";
 const validateUser = validate<User>();
 
 const result = validateUser(data);
-// result: ValidatedNel<ValidationError, User>
+// result: ValidatedNel<ValidationError, User> — the @typesugar/fp shape:
+//   valid:   { value: User }
+//   invalid: { error: NonEmptyList<ValidationError> }  ({ head, tail }, Nil = null)
 
-result.fold(
-  (errors) => console.error("Validation failed:", errors),
-  (user) => console.log("Valid user:", user.name)
-);
+if (isValid(result)) {
+  console.log("Valid user:", result.value.name);
+} else {
+  // every failing path is reported, e.g. { path: "$.age", message: "expected number" }
+  for (let e: List<ValidationError> = result.error; e !== null; e = e.tail) {
+    console.error(e.head.path, e.head.message);
+  }
+}
 ```
+
+(`isValid` and `List` come from `@typesugar/fp`. `Validated` values are plain
+data — there is no `.fold` method.)
 
 ## Schema Typeclass
 
@@ -207,15 +216,15 @@ All validation logic is generated at compile time. The generated code is the sam
 
 ```typescript
 // Generated code for is<User>()
-function isUser(value: unknown): value is User {
+const isUser = (value: unknown): value is User => {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as any).name === "string" &&
-    typeof (value as any).age === "number" &&
-    ((value as any).email === undefined || typeof (value as any).email === "string")
+    typeof value.name === "string" &&
+    typeof value.age === "number" &&
+    (value.email === undefined || typeof value.email === "string")
   );
-}
+};
 ```
 
 Since specialization is always-on, a `Schema` instance passed to a generic
@@ -261,11 +270,34 @@ const user = schema.parse(data);
 | `parseAll(S)`                        | Parse array of values                           |
 | `safeParseAll(S)`                    | Parse array with error accumulation             |
 
+## What gets checked
+
+| Type                                              | Runtime check                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `string`, `number`, `boolean`, `bigint`, `symbol` | `typeof`                                                                             |
+| literals, enums, `null`, `undefined`              | `===` against each allowed value                                                     |
+| unions (incl. discriminated unions, `T \| null`)  | any member matches                                                                   |
+| objects / interfaces                              | non-null object, then every property (optional ones may be absent), index signatures |
+| methods / function types                          | `typeof === "function"`                                                              |
+| arrays, tuples                                    | `Array.isArray`, tuple length, every element                                         |
+| `Date`, `Map`, `Set`, `RegExp`, typed arrays, ... | `instanceof`                                                                         |
+| recursive types                                   | a hoisted named helper per recursive type                                            |
+| branded primitives (`string & { __brand: "X" }`)  | the primitive part only (brands have no runtime value)                               |
+
+Types that cannot be checked precisely — type parameters, template literal
+types, `unique symbol`, variadic tuples, and similar — are a **compile-time
+error**. The generated check for them rejects every value, so an ignored
+error fails closed rather than accepting anything.
+
 ## Current Limitations
 
-- **Array validation is shallow**: `validate<T>()` checks `Array.isArray` for array-typed fields but does not validate individual element types.
-- **Literal type unions not yet validated**: Union types like `"a" | "b"` are not checked against their literal members at runtime.
-- **Nested objects checked structurally but not deeply**: Nested object fields are confirmed to be objects, but their inner properties are not recursively validated.
+- **Symbol-keyed and `#private` members are skipped**: they cannot be read off
+  arbitrary input.
+- **Class instances are checked structurally**: `is<MyClass>()` checks the
+  fields and that methods are functions; it does not use `instanceof`.
+- **Without `strictNullChecks`**, TypeScript erases `null`/`undefined` from
+  types; the macro recovers them from the written type annotation of the
+  property (or the type argument itself), but not through type aliases.
 
 ## Learn More
 

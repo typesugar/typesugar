@@ -75,9 +75,21 @@ function normalize(num: bigint, den: bigint): Rational {
  * @throws RangeError if denominator is zero
  */
 export function rational(num: bigint | number, den: bigint | number = 1n): Rational {
-  const n = typeof num === "number" ? BigInt(Math.trunc(num)) : num;
-  const d = typeof den === "number" ? BigInt(Math.trunc(den)) : den;
-  return normalize(n, d);
+  return normalize(integerArg(num, "numerator"), integerArg(den, "denominator"));
+}
+
+/**
+ * Number arguments must be integers: truncating them silently turned
+ * `rat(0.5)` into 0 and `rational(1.5, 2)` into 1/2 (MU-19).
+ */
+function integerArg(x: bigint | number, what: string): bigint {
+  if (typeof x === "bigint") return x;
+  if (!Number.isInteger(x)) {
+    throw new RangeError(
+      `Rational: ${what} must be an integer, got ${x} (use rationalFromNumber for non-integers)`
+    );
+  }
+  return BigInt(x);
 }
 
 /**
@@ -85,7 +97,7 @@ export function rational(num: bigint | number, den: bigint | number = 1n): Ratio
  * Equivalent to rational(num, den) with number arguments.
  */
 export function rat(num: number, den: number = 1): Rational {
-  return rational(BigInt(Math.trunc(num)), BigInt(Math.trunc(den)));
+  return rational(num, den);
 }
 
 /**
@@ -212,7 +224,10 @@ export const numericRational: Numeric<Rational> = {
   },
 
   pow: (a, b) => {
-    const n = b.num / b.den;
+    if (b.den !== 1n) {
+      throw new RangeError(`Rational pow: exponent must be an integer, got ${b.num}/${b.den}`);
+    }
+    const n = b.num;
     if (n >= 0n) {
       return normalize(a.num ** n, a.den ** n);
     }
@@ -255,7 +270,7 @@ export const fractionalRational: Fractional<Rational> = {
     return normalize(a.den, a.num);
   },
 
-  fromRational: (num, den) => rational(BigInt(Math.trunc(num)), BigInt(Math.trunc(den))),
+  fromRational: (num, den) => rational(num, den),
 };
 /**
  * Ord instance for Rational numbers.
@@ -335,6 +350,9 @@ export function trunc(r: Rational): bigint {
  * Compute the power of a rational to an integer exponent.
  */
 export function pow(r: Rational, exp: number): Rational {
+  if (!Number.isSafeInteger(exp)) {
+    throw new RangeError(`Rational pow: exponent must be an integer, got ${exp}`);
+  }
   if (exp === 0) return { num: 1n, den: 1n };
 
   const absExp = Math.abs(exp);
@@ -345,13 +363,15 @@ export function pow(r: Rational, exp: number): Rational {
   let e = absExp;
 
   while (e > 0) {
-    if (e & 1) {
+    if (e % 2 === 1) {
       resultNum *= baseNum;
       resultDen *= baseDen;
     }
-    baseNum *= baseNum;
-    baseDen *= baseDen;
-    e >>>= 1;
+    e = Math.floor(e / 2); // not `>>>= 1`, which truncates exponents >= 2^32
+    if (e > 0) {
+      baseNum *= baseNum;
+      baseDen *= baseDen;
+    }
   }
 
   if (exp < 0) {

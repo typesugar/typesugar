@@ -157,7 +157,7 @@ Note: The unplugin approach is recommended as it handles both the transformer an
 {
   "compilerOptions": {
     "plugins": [
-      { "name": "typesugar/language-service" },
+      { "name": "@typesugar/transformer/language-service" },
       { "transform": "@typesugar/transformer", "type": "program" }
     ]
   }

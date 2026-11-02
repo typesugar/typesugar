@@ -38,26 +38,31 @@ console.log(query.params); // ["Alice", 30]
 A fuller example combining typed queries, `ConnectionIO`, and a `Transactor`:
 
 ```typescript
-import { sqlKind, ConnectionIO, Transactor, Read, Meta } from "@typesugar/sql";
+import { sql$, ConnectionIO, Transactor, Read } from "@typesugar/sql";
 
-// Define your type
+// Define your type and derive its row decoder (generates `ReadUser`)
+/** @derive(Read) */
 interface User {
   id: number;
   name: string;
   email: string;
 }
 
-// Type-safe query with the sqlKind macro
-const findUser = sqlKind<User>`
+// Typed query: parameter types inferred from the interpolations, row type given explicitly
+const findUser = (userId: number) => sql$<User>`
   SELECT id, name, email FROM users WHERE id = ${userId}
 `;
 
 // Build a pure database program
-const program = ConnectionIO.query(findUser.toQuery(), UserRead).flatMap((user) =>
-  user ? ConnectionIO.pure(user) : ConnectionIO.raw("INSERT INTO users DEFAULT VALUES RETURNING *")
+const program = ConnectionIO.query(findUser(1).toQuery(), ReadUser).flatMap((user) =>
+  user
+    ? ConnectionIO.pure(user.name)
+    : ConnectionIO.execute(sql$`INSERT INTO users (id) VALUES (${1})`.toUpdate()).map(
+        () => "created"
+      )
 );
 
-// Execute with a transactor
+// Execute with a transactor (Postgres `$n` placeholders by default)
 const transactor = Transactor.fromPool(pool);
 const result = await transactor.transact(program);
 ```
@@ -160,11 +165,11 @@ const updateUser = (id: number, name: string): Update =>
 import { TypedFragment, TypedQuery, TypedUpdate, sql$ } from "@typesugar/sql";
 
 // Parameter types inferred from interpolations
-const byId = sqlKind<[number]>`WHERE id = ${0}`;
+const byId = sql$`WHERE id = ${0}`;
 // TypedFragment<[number], void>
 
 // Explicit result type
-const selectUsers = sqlKind<[], User>`SELECT id, name, email FROM users`;
+const selectUsers = sql$<User>`SELECT id, name, email FROM users`;
 // TypedFragment<[], User>
 
 // Composition preserves and concatenates types
@@ -204,8 +209,8 @@ class TypedQuery<P extends readonly unknown[], R> {
   unique(): TypedQuery<P, R>; // Expect exactly one row
   option(): TypedQuery<P, R | null>; // Expect zero or one row
 
-  // Get SQL
-  toSql(): { sql: string; params: readonly SqlParam[] };
+  // Get SQL (default dialect: Postgres `$n`; pass "mysql" / "sqlite" for `?`)
+  toSql(dialect?: DialectLike): { sql: string; params: readonly SqlParam[] };
 }
 ```
 
@@ -221,12 +226,12 @@ class TypedUpdate<P extends readonly unknown[]> {
   // Execute with RETURNING clause for generated keys
   withGeneratedKeys<K extends string>(...columns: K[]): TypedQuery<P, Record<K, unknown>>;
 
-  // Get SQL
-  toSql(): { sql: string; params: readonly SqlParam[] };
+  // Get SQL (default dialect: Postgres `$n`)
+  toSql(dialect?: DialectLike): { sql: string; params: readonly SqlParam[] };
 }
 
 // Example: Insert with returning generated ID
-const insert = sqlKind<[string, string]>`
+const insert = sql$`
   INSERT INTO users (name, email) VALUES (${name}, ${email})
 `.toUpdate();
 
@@ -253,31 +258,33 @@ import {
 
 // Join conditions with AND
 const conditions = andTyped(sql$`name = ${"Alice"}`, sql$`age > ${21}`);
-// SQL: "name = ? AND age > ?"
+// SQL: "name = $1 AND age > $2"
 
-// Join conditions with OR
+// Join conditions with OR (wrapped in parentheses, like Fragment.or)
 const alternatives = orTyped(sql$`status = ${"active"}`, sql$`role = ${"admin"}`);
-// SQL: "status = ? OR role = ?"
+// SQL: "(status = $1 OR role = $2)"
 
-// Type-safe IN clause
+// Type-safe IN clause (the column name must be a plain identifier)
 const inClause = inListTyped("id", [1, 2, 3]);
-// SQL: "id IN (?, ?, ?)"
+// SQL: "id IN ($1, $2, $3)"
 // TypedFragment<number[], void>
 
 // Type-safe VALUES clause for INSERT
 const values = valuesTyped(UserWrite, { name: "Alice", email: "alice@example.com" });
-// SQL: "(?, ?)"
+// SQL: "($1, $2)"
 
 // Batch INSERT with multiple rows
 const batchValues = valuesManyTyped(UserWrite, [
   { name: "Alice", email: "alice@example.com" },
   { name: "Bob", email: "bob@example.com" },
 ]);
-// SQL: "(?, ?), (?, ?)"
+// SQL: "($1, $2), ($3, $4)"
 
-// Type-safe SET clause for UPDATE
-const setClause = setTyped(UserWrite, { name: "Bob", email: "bob@example.com" });
-// SQL: "name = ?, email = ?"
+// Type-safe SET clause for UPDATE — only the fields present in the partial value
+// are written. Needs a Write with per-field metadata: @derive(Write), deriveWrite(),
+// or Write.make(columns, extractors, fields).
+const setClause = setTyped(UserWrite, { name: "Bob" });
+// SQL: "name = $1"
 
 // Conditional fragment
 const maybeFilter = whenTyped(showInactive, sql$`active = ${false}`);
@@ -288,7 +295,7 @@ const where = whereAndTyped(
   showInactive ? sql$`active = ${false}` : null,
   minAge ? sql$`age >= ${minAge}` : null
 );
-// SQL: "WHERE name = ? AND active = ? AND age >= ?"
+// SQL: "WHERE name = $1 AND active = $2 AND age >= $3"
 // Only includes non-null conditions
 ```
 
@@ -304,10 +311,13 @@ const findUser = sql$`SELECT * FROM users WHERE id = ${userId}`;
 // userId: number => TypedFragment<[number], SqlRow>
 ```
 
+Interpolated values are bound as parameters; an interpolated `Fragment` / `TypedFragment`
+is spliced in (its parameters are renumbered), exactly as with `sql`.
+
 ### Explicit Result Type
 
 ```typescript
-const findUser = sqlKind<User>`SELECT id, name FROM users WHERE id = ${userId}`;
+const findUser = sql$<User>`SELECT id, name FROM users WHERE id = ${userId}`;
 // TypedFragment<[number], User>
 ```
 
@@ -355,10 +365,40 @@ const query = select<User>("id", "name", "email")
   .orderBy("created_at DESC", "name ASC")
   .limit(10)
   .offset(20)
-  .build();
+  .build(); // or .build("mysql") for `?` placeholders
 
-// { sql: "SELECT id, name, email FROM users JOIN profiles ON ... WHERE ... ORDER BY ... LIMIT 10 OFFSET 20",
+// { sql: "SELECT id, name, email FROM users JOIN profiles ON ... WHERE (active = $1) AND (age > $2) ORDER BY ... LIMIT 10 OFFSET 20",
 //   params: [true, 21] }
+```
+
+Column, table and ORDER BY names are validated as plain identifiers (they are spliced into
+the SQL text); anything else throws. The `on` condition of `join`/`leftJoin` is raw SQL —
+pass a fragment, or a string you control, never user input.
+
+## Dialects and Identifiers
+
+Every renderer (`fragment.query`, `fragment.render()`, `toSql()`, `select(...).build()`,
+both Transactors) uses one placeholder dialect. The default is **Postgres** (`$1, $2, …`).
+
+```typescript
+import { Transactor, Fragment, quoteIdent } from "@typesugar/sql";
+
+sql`a = ${1}`.render("mysql"); // { text: "a = ?", params: [1] }
+typedQuery.toSql("sqlite"); // "?" placeholders
+Transactor.fromPool(pool, { dialect: "mysql" }); // everything this transactor runs uses `?`
+```
+
+Identifiers can't be parameterised. APIs that take a column/table name as a string
+(`Fragment.set`, `Fragment.inList`, `inListTyped`, `setTyped`, `select()`,
+`executeWithKeys` columns) accept only plain identifiers (letters, digits, `_`, `$`,
+optionally dotted like `public.users`) and pass them through unchanged — they are not
+quoted, so Postgres case-folding of your existing names is unchanged. Anything else throws.
+To use an unusual name, quote it explicitly:
+
+```typescript
+Fragment.ident('order"s'); // "order""s"   (Postgres / SQLite)
+Fragment.ident("orders", "mysql"); // `orders`
+quoteIdent("public.users"); // "public"."users"
 ```
 
 ## SQL Typeclasses — Doobie-Style Type Mapping
@@ -431,7 +471,7 @@ import {
 
 // Primitive Meta instances
 Meta.string; // TEXT, VARCHAR, CHAR
-Meta.number; // NUMERIC, REAL, DOUBLE PRECISION
+Meta.number; // NUMERIC, REAL, DOUBLE PRECISION (int8 strings beyond 2^53 throw: use Meta.bigint)
 Meta.int; // INTEGER, INT (truncates to integer)
 Meta.bigint; // BIGINT
 Meta.boolean; // BOOLEAN
@@ -456,7 +496,8 @@ Meta.imap(Meta.string, parse, serialize); // Transform both directions
 Get.map(Get.string, (s) => s.toUpperCase()); // Transform output
 Get.nullable(Get.int); // Handle NULL
 Get.optional(Get.int); // NULL → undefined
-Get.array(Get.string); // Array of elements
+Get.array(Get.string); // Array of elements (a NULL element throws)
+Get.array(Get.nullable(Get.int)); // (number | null)[] — positions preserved
 
 // Put combinators (contravariant functor)
 Put.contramap(Put.string, (id: UserId) => id.value); // Transform input
@@ -507,7 +548,7 @@ Codec.fromReadWrite(ReadUser, WriteUser);
 Codec.imap(UserCodec, toDTO, fromDTO);
 ```
 
-### Auto-Derivation with @deriving
+### Auto-Derivation with @derive
 
 Generate `Read`/`Write`/`Codec`/`Meta` instances automatically:
 
@@ -521,8 +562,11 @@ interface User {
   createdAt: Date;
 }
 
-// Using @deriving decorator (requires transformer)
-@deriving(Read, Write, Codec)
+// Using @derive (requires the transformer) — generates ReadUser, WriteUser, CodecUser.
+// Field types: string, number, boolean, bigint, Date, Buffer, arrays, `T | null`,
+// `T | undefined`, string/number literal unions and enums. camelCase fields map to
+// snake_case columns; override with a JSDoc tag: `/** @column("created") */`.
+/** @derive(Read, Write, Codec) */
 interface User { ... }
 
 // Or derive programmatically with field configuration
@@ -548,23 +592,33 @@ const UserCodec = deriveCodec<User>({
 });
 ```
 
-### @deriving(Meta) for Column Types
+### @derive(Meta)
 
-For newtype/branded column types, derive `Meta` instances:
+`@derive(Meta)` on a product type generates a row-level read + write instance named
+`<Type>Meta` (the same instance `@derive(Codec)` builds):
 
 ```typescript
-// Define a branded type
+/** @derive(Meta) */
+interface User {
+  id: number;
+  name: string;
+}
+// export const UserMeta: Codec<User> = Codec.fromReadWrite(Read.make(...), Write.make(...));
+
+ConnectionIO.query(findUser(1).toQuery(), UserMeta);
+```
+
+### Meta for Column Types (newtypes)
+
+For newtype/branded column types, build a single-column `Meta` with `imap`:
+
+```typescript
 type UserId = string & { readonly _brand: "UserId" };
 
-// Derive Meta for the newtype
-@deriving(Meta)
-type UserId = string & { readonly _brand: "UserId" };
-
-// Or use imap manually
 const UserIdMeta = Meta.imap(
   Meta.string,
-  (s: string) => s as UserId,      // string → UserId
-  (id: UserId) => id as string,    // UserId → string
+  (s: string) => s as UserId, // string → UserId
+  (id: UserId) => id as string // UserId → string
 );
 ```
 
@@ -622,17 +676,18 @@ A minimal example:
 
 ```typescript
 const getUser = (id: number): ConnectionIO<User | null> =>
-  ConnectionIO.query(sql`SELECT * FROM users WHERE id = ${id}`.toQuery<User>()).map(
-    (rows) => rows[0] ?? null
-  );
+  ConnectionIO.query(sql`SELECT * FROM users WHERE id = ${id}`.toQuery<User>(), ReadUser);
 
 // Compose operations
-const program = ConnectionIO.flatMap(createUser("Alice", "alice@example.com"), (id) => getUser(id));
+const program = createUser("Alice", "alice@example.com").flatMap((id) => getUser(id));
 
 // Execute with a transactor
-const transactor = new Transactor(dbConnection);
+const transactor = Transactor.fromConnection(dbConnection);
 const result = await transactor.run(program);
 ```
+
+Programs are interpreted with an explicit continuation stack, so long chains built with
+`flatMap`, `sequence`, `traverse` or `unfold` run in constant JS stack.
 
 ### Basic Operations
 
@@ -657,14 +712,20 @@ const async = ConnectionIO.async(() => fetchFromExternalAPI());
 ```typescript
 // Query returning single result (or null)
 const findOne = ConnectionIO.query(
-  sqlKind<User>`SELECT * FROM users WHERE id = ${id}`.toQuery(),
+  sql$<User>`SELECT * FROM users WHERE id = ${id}`.toQuery(),
   UserRead
 );
 // ConnectionIO<User | null>
 
+// Untyped fragments work too
+const findOne2 = ConnectionIO.query(
+  sql`SELECT * FROM users WHERE id = ${id}`.toQuery<User>(),
+  UserRead
+);
+
 // Query returning multiple results
 const findAll = ConnectionIO.queryMany(
-  sqlKind<User>`SELECT * FROM users WHERE active = ${true}`.toQuery(),
+  sql$<User>`SELECT * FROM users WHERE active = ${true}`.toQuery(),
   UserRead
 );
 // ConnectionIO<User[]>
@@ -845,10 +906,11 @@ const transactor = Transactor.fromPool({
 // From a single connection (for testing)
 const transactor = Transactor.fromConnection(mockConnection);
 
-// Custom constructor
+// Custom constructor: (getConnection, releaseConnection, options?)
 const transactor = new Transactor(
   () => pool.getConnection(),
-  (conn) => conn.release()
+  (conn) => conn.release(),
+  { dialect: "mysql" } // `?` placeholders; default is Postgres `$n`
 );
 ```
 
@@ -941,7 +1003,7 @@ const fragment = sql`id = ${userId}`;
 // Use with Kysely's sql helper
 const result = await db
   .selectFrom("users")
-  .where(kyselySql.raw(fragment.text, fragment.params))
+  .where(kyselySql.raw(fragment.text, fragment.values))
   .execute();
 ```
 
@@ -959,7 +1021,7 @@ const fragment = sql`age >= ${minAge}`;
 const result = await db
   .select()
   .from(users)
-  .where(drizzleSql.raw(fragment.text, ...fragment.params));
+  .where(drizzleSql.raw(fragment.text, ...fragment.values));
 ```
 
 Both integrations use the native raw SQL capabilities of each library, giving you type safety from typesugar/sql's compile-time validation while preserving compatibility with your existing query builder.
@@ -1010,11 +1072,12 @@ No runtime dictionary lookups, no wrapper allocations — just the code you'd wr
 
 ### Fragment Building
 
-| Function              | Description                              |
-| --------------------- | ---------------------------------------- |
-| `` sql`...` ``        | Basic SQL fragment                       |
-| `` sql$`...` ``       | Typed SQL fragment (macro)               |
-| `` sqlKind<R>`...` `` | Typed fragment with explicit result type |
+| Function            | Description                              |
+| ------------------- | ---------------------------------------- |
+| `` sql`...` ``      | Basic SQL fragment                       |
+| `` sql$`...` ``     | Typed SQL fragment (macro)               |
+| `` sql$<R>`...` ``  | Typed fragment with explicit result type |
+| `Fragment.ident(n)` | Quoted identifier (dialect-aware)        |
 
 ### TypedFragment Combinators
 
@@ -1028,7 +1091,7 @@ No runtime dictionary lookups, no wrapper allocations — just the code you'd wr
 | `inListTyped(col, values)`       | IN clause                      |
 | `valuesTyped(write, value)`      | Single VALUES row              |
 | `valuesManyTyped(write, values)` | Multiple VALUES rows           |
-| `setTyped(write, partial)`       | SET clause                     |
+| `setTyped(write, partial)`       | SET clause (present fields)    |
 | `whenTyped(cond, frag)`          | Conditional fragment           |
 | `whereAndTyped(...frags)`        | WHERE with AND (filters nulls) |
 

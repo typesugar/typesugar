@@ -21,6 +21,8 @@ ident.parseAll("hello_42"); // succeeds
 ident.parseAll("42nope"); // throws ParseError
 ```
 
+When the transformer runs, the `grammar` template is parsed at build time and replaced with an inlined recursive-descent parser (built directly as AST). A malformed grammar is a compile error. The template must be a plain template literal: interpolation (`${...}`) is an error. To build a grammar from a string at runtime, use `buildParser(parseGrammarDef(text))`.
+
 ## Grammar Syntax Reference
 
 The `grammar` tagged template accepts PEG (Parsing Expression Grammar) syntax. The first rule is the start rule.
@@ -184,7 +186,7 @@ try {
 | Best for         | Declarative grammars, readability | Dynamic parser construction |
 | Recursive rules  | Automatic by name reference       | Requires `lazy()`           |
 | Type inference   | Limited (string-based)            | Full TypeScript inference   |
-| Semantic actions | Not yet (Phase 2)                 | `map()` on any parser       |
+| Semantic actions | Not supported                     | `map()` on any parser       |
 
 Use the grammar DSL when the structure is known upfront and readability matters. Use combinators when you need to build parsers dynamically or want full type inference on results.
 

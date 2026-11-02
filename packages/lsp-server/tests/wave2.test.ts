@@ -250,7 +250,8 @@ describe("computeExtraCodeActions", () => {
     expect(wrapAction!.edit).toBeDefined();
   });
 
-  it("offers add-derive for classes without derive", () => {
+  // deep-review tooling #23: the action carried an unregistered command.
+  it("does not offer add-derive (no registered command backs it)", () => {
     const text = "class Foo {\n  x: number = 1;\n}\n";
     const actions = computeExtraCodeActions(
       text,
@@ -264,7 +265,7 @@ describe("computeExtraCodeActions", () => {
     );
 
     const deriveAction = actions.find((a) => a.title.includes("@derive"));
-    expect(deriveAction).toBeDefined();
+    expect(deriveAction).toBeUndefined();
   });
 
   it("does not offer add-derive for classes with derive", () => {

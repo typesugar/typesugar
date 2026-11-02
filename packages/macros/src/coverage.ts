@@ -115,7 +115,7 @@ export function getCoverageConfig(typeclassName: string): CoverageConfig {
 configureCoverage("Show", {
   requiresCoverage: true,
   missingMessage: (field, type, tc) =>
-    `Cannot derive ${tc})): field '${field}' has type '${type}' which has no ${tc} instance. ` +
+    `Cannot derive ${tc}: field '${field}' has type '${type}' which has no ${tc} instance. ` +
     `Add @instance const show${capitalize(type)}: Show<${type}> = { ... }`,
 });
 

@@ -59,7 +59,7 @@ packages:
     "declarationMap": true,
     "composite": true,
     "plugins": [
-      { "name": "typesugar/language-service" },
+      { "name": "@typesugar/transformer/language-service" },
       { "transform": "@typesugar/transformer", "type": "program" }
     ]
   }

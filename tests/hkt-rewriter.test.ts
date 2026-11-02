@@ -369,7 +369,10 @@ interface Functor<F> {
     expect(matches).toHaveLength(1);
   });
 
-  it("does NOT inject import if typesugar is namespace-imported", () => {
+  // Review finding #14 (transformer-2): a namespace import does not bind a
+  // bare `Kind`, and the rewriter emits a bare `Kind<F, A>`, so the import
+  // must still be injected.
+  it("injects the Kind import even if typesugar is namespace-imported", () => {
     const code = `
 import * as ts from "@typesugar/type-system";
 
@@ -378,7 +381,8 @@ interface Functor<F> {
 }`.trim();
 
     const result = rewrite(code);
-    expect(result).not.toContain('import type { Kind } from "@typesugar/type-system"');
+    expect(result).toContain('import type { Kind } from "@typesugar/type-system"');
+    expect(result).toContain("Kind<F, A>");
   });
 });
 

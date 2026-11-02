@@ -1,0 +1,10 @@
+const core = require("/Users/deapovey/src/personal/typesugar/packages/core/dist/index.cjs");
+const ts = require("/Users/deapovey/src/personal/typesugar/node_modules/typescript");
+const sf = ts.createSourceFile("a.ts", `const x = 1;`, ts.ScriptTarget.Latest, true);
+const c = new core.FileBindingCache(sf);
+const a = c.ensureImport("map", "@typesugar/fp/data/option");
+const b = c.ensureImport("map", "@typesugar/fp/data/either");
+const s = c.safeRef("map", "rxjs");
+const p = ts.createPrinter();
+console.log(a.text, b.text, s.text);
+for (const i of c.getPendingImports()) console.log(p.printNode(ts.EmitHint.Unspecified, i, sf));

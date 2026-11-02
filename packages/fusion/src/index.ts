@@ -37,7 +37,7 @@
  */
 
 export { LazyPipeline } from "./lazy.js";
-export { lazy, range, iterate, repeat, generate } from "./lazy-entry.js";
+export { lazy, fused, range, iterate, repeat, generate } from "./lazy-entry.js";
 
 export type { PipelineStep, FusedVec } from "./types.js";
 

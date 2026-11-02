@@ -69,84 +69,72 @@ export function roundBigInt(
     const scaleDiff = toScale - fromScale;
     return scaleDiff > 0 ? value * 10n ** BigInt(scaleDiff) : value;
   }
+  return roundDiv(value, 10n ** BigInt(fromScale - toScale), mode);
+}
 
-  const scaleDiff = fromScale - toScale;
-  const divisor = 10n ** BigInt(scaleDiff);
-  let quotient = value / divisor;
-  const remainder = value % divisor;
+/**
+ * Round the exact rational `numerator / divisor` to an integer under `mode`.
+ *
+ * This is the single rounding primitive behind `roundBigInt`, `fixedDiv`,
+ * `moneyDivide` and the exact conversions. It works for any non-zero divisor
+ * (odd, negative, not a power of ten): the tie test compares `2·|remainder|`
+ * with `|divisor|`, so there is no floored `divisor / 2` to get wrong (MU-8),
+ * and every mode moves the truncated quotient in the direction the mode
+ * requires for the sign of the true quotient (MU-4: HALF_CEIL used to add +1
+ * to negative values with more than half a unit of remainder).
+ *
+ * @throws RangeError if `divisor` is zero
+ */
+export function roundDiv(
+  numerator: bigint,
+  divisor: bigint,
+  mode: RoundingMode = DEFAULT_ROUNDING_MODE
+): bigint {
+  if (divisor === 0n) {
+    throw new RangeError("Division by zero");
+  }
+  if (divisor < 0n) {
+    numerator = -numerator;
+    divisor = -divisor;
+  }
 
+  let quotient = numerator / divisor; // truncated toward zero
+  const remainder = numerator % divisor; // same sign as numerator
   if (remainder === 0n) {
     return quotient;
   }
 
-  const negative = value < 0n;
-  const absRemainder = remainder < 0n ? -remainder : remainder;
-  const halfDivisor = divisor / 2n;
-  const isExactlyHalf = absRemainder === halfDivisor && divisor % 2n === 0n;
-  const moreThanHalf = absRemainder > halfDivisor;
+  // The true quotient lies strictly between `quotient` and `quotient + away`.
+  const negative = numerator < 0n;
+  const away = negative ? -1n : 1n;
+  const twiceRem = 2n * (remainder < 0n ? -remainder : remainder);
+  const half = twiceRem === divisor ? 0 : twiceRem > divisor ? 1 : -1; // vs. 0.5
 
   switch (mode) {
     case "CEIL":
-      // Round toward +∞
-      if (!negative && remainder !== 0n) {
-        quotient += 1n;
-      }
+      if (!negative) quotient += 1n;
       break;
-
     case "FLOOR":
-      // Round toward -∞
-      if (negative && remainder !== 0n) {
-        quotient -= 1n;
-      }
+      if (negative) quotient -= 1n;
       break;
-
     case "TRUNC":
-      // Round toward zero (already done by integer division)
       break;
-
     case "HALF_UP":
-      // Round away from zero at exactly 0.5
-      if (moreThanHalf || isExactlyHalf) {
-        quotient += negative ? -1n : 1n;
-      }
+      if (half >= 0) quotient += away;
       break;
-
     case "HALF_DOWN":
-      // Round toward zero at exactly 0.5
-      if (moreThanHalf) {
-        quotient += negative ? -1n : 1n;
-      }
+      if (half > 0) quotient += away;
       break;
-
     case "HALF_EVEN":
-      // Banker's rounding: round to nearest even at exactly 0.5
-      if (moreThanHalf) {
-        quotient += negative ? -1n : 1n;
-      } else if (isExactlyHalf) {
-        // Round to even
-        const absQuotient = quotient < 0n ? -quotient : quotient;
-        if (absQuotient % 2n !== 0n) {
-          quotient += negative ? -1n : 1n;
-        }
-      }
+      if (half > 0 || (half === 0 && quotient % 2n !== 0n)) quotient += away;
       break;
-
     case "HALF_CEIL":
-      // Round toward +∞ at exactly 0.5
-      if (moreThanHalf || (isExactlyHalf && !negative)) {
-        quotient += 1n;
-      } else if (moreThanHalf && negative) {
-        quotient -= 1n;
-      }
+      if (half > 0) quotient += away;
+      else if (half === 0 && !negative) quotient += 1n;
       break;
-
     case "HALF_FLOOR":
-      // Round toward -∞ at exactly 0.5
-      if (moreThanHalf) {
-        quotient += negative ? -1n : 1n;
-      } else if (isExactlyHalf && negative) {
-        quotient -= 1n;
-      }
+      if (half > 0) quotient += away;
+      else if (half === 0 && negative) quotient -= 1n;
       break;
   }
 
@@ -228,8 +216,10 @@ export function roundNumber(
       if (fracPart >= 0.5) {
         return (intPart + 1) / factor;
       }
-      if (fracPart <= -0.5) {
-        return intPart / factor;
+      // More than half below: round down (toward -∞). Exactly -0.5 rounds
+      // toward +∞, i.e. stays at the truncated value (MU-4).
+      if (fracPart < -0.5) {
+        return (intPart - 1) / factor;
       }
       return intPart / factor;
     }

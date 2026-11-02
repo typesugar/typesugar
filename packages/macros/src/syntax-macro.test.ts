@@ -263,15 +263,13 @@ describe("extractCaptures", () => {
     });
   });
 
-  it("accepts extra trailing args beyond the pattern (ignored)", () => {
+  it("rejects extra trailing args beyond the pattern (exact arity, deep review #12b)", () => {
     withCtx((ctx) => {
       const captures: PatternCapture[] = [{ name: "a", kind: "expr" }];
       const a = ts.factory.createNumericLiteral("1");
       const extra = ts.factory.createNumericLiteral("2");
-      const result = extractCaptures(captures, [a, extra], ctx);
-      expect(result).not.toBeNull();
-      expect(result!.size).toBe(1);
-      expect(result!.get("a")).toBe(a);
+      // Matching used to succeed and silently drop `extra`.
+      expect(extractCaptures(captures, [a, extra], ctx)).toBeNull();
     });
   });
 

@@ -195,7 +195,7 @@ Add the language service plugin to `tsconfig.json`:
 ```json
 {
   "compilerOptions": {
-    "plugins": [{ "name": "typesugar/language-service" }]
+    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
   }
 }
 ```

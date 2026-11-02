@@ -55,7 +55,7 @@ features:
 ## Quick Example
 
 ```typescript
-import { derive, Eq, Ord, Clone, Json } from "@typesugar/std";
+import { derive, Eq, Ord, Clone, Json } from "typesugar";
 // Opt the file into typeclass operator syntax (cats-style). Without these imports,
 // `===` / `<` stay the vanilla TypeScript operators — sugar is never ambient.
 import "@typesugar/std/syntax/eq/ops";
@@ -111,7 +111,7 @@ typesugar provides 6 kinds of macros, each triggered differently:
 - **Labeled block macros** — `let: { } yield: { }` for custom control flow
 
 ```typescript
-// Define a simple expression macro
+// Define a simple expression macro (syntax macros are experimental)
 defineSyntaxMacro("unless", {
   arms: [
     {

@@ -25,39 +25,74 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./core": {
-      "types": "./dist/core.d.ts",
-      "import": "./dist/core.js",
-      "require": "./dist/core.cjs"
+      "import": {
+        "types": "./dist/core.d.ts",
+        "default": "./dist/core.js"
+      },
+      "require": {
+        "types": "./dist/core.d.cts",
+        "default": "./dist/core.cjs"
+      }
     },
     "./transformer": {
-      "types": "./dist/transformer.d.ts",
-      "import": "./dist/transformer.js",
-      "require": "./dist/transformer.cjs"
+      "import": {
+        "types": "./dist/transformer.d.ts",
+        "default": "./dist/transformer.js"
+      },
+      "require": {
+        "types": "./dist/transformer.d.cts",
+        "default": "./dist/transformer.cjs"
+      }
     },
     "./vite": {
-      "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js",
-      "require": "./dist/vite.cjs"
+      "import": {
+        "types": "./dist/vite.d.ts",
+        "default": "./dist/vite.js"
+      },
+      "require": {
+        "types": "./dist/vite.d.cts",
+        "default": "./dist/vite.cjs"
+      }
     },
     "./webpack": {
-      "types": "./dist/webpack.d.ts",
-      "import": "./dist/webpack.js",
-      "require": "./dist/webpack.cjs"
+      "import": {
+        "types": "./dist/webpack.d.ts",
+        "default": "./dist/webpack.js"
+      },
+      "require": {
+        "types": "./dist/webpack.d.cts",
+        "default": "./dist/webpack.cjs"
+      }
     },
     "./esbuild": {
-      "types": "./dist/esbuild.d.ts",
-      "import": "./dist/esbuild.js",
-      "require": "./dist/esbuild.cjs"
+      "import": {
+        "types": "./dist/esbuild.d.ts",
+        "default": "./dist/esbuild.js"
+      },
+      "require": {
+        "types": "./dist/esbuild.d.cts",
+        "default": "./dist/esbuild.cjs"
+      }
     },
     "./rollup": {
-      "types": "./dist/rollup.d.ts",
-      "import": "./dist/rollup.js",
-      "require": "./dist/rollup.cjs"
+      "import": {
+        "types": "./dist/rollup.d.ts",
+        "default": "./dist/rollup.js"
+      },
+      "require": {
+        "types": "./dist/rollup.d.cts",
+        "default": "./dist/rollup.cjs"
+      }
     }
   },
   "typesugar": {
@@ -85,10 +120,11 @@
     "@typesugar/reflect": "workspace:*",
     "@typesugar/derive": "workspace:*",
     "@typesugar/typeclass": "workspace:*",
-    "unplugin-typesugar": "workspace:*"
+    "unplugin-typesugar": "workspace:*",
+    "@typesugar/type-system": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "files": [
     "dist",

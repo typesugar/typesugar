@@ -7,9 +7,8 @@
  * `.` entry. See PEP-050.
  *
  * Registers a `grammar` tagged template macro with @typesugar/core.
- * Phase 1: emits a runtime call to `parseGrammarDef` + `buildParser`.
- * Phase 2: generates inline recursive-descent parser code at compile time
- *          (zero-cost — no runtime grammar interpretation).
+ * Generates an inline recursive-descent parser at compile time (no runtime
+ * grammar interpretation), built as `ts.factory` AST (see codegen-ast.ts).
  */
 
 import * as ts from "typescript";
@@ -20,7 +19,8 @@ import {
   globalRegistry,
 } from "@typesugar/core";
 import { parseGrammarDef } from "./grammar.js";
-import { generateParserCode, resetVarCounter } from "./codegen.js";
+import { generateParserAst } from "./codegen-ast.js";
+import type { GrammarRule } from "./types.js";
 
 /**
  * The `grammar` tagged template macro definition.
@@ -39,82 +39,40 @@ import { generateParserCode, resetVarCounter } from "./codegen.js";
  * `;
  * ```
  *
- * Phase 2: generates inlined recursive-descent parser code at compile time.
- * Falls back to runtime grammar parsing when template has interpolations.
+ * Generates an inlined recursive-descent parser at compile time. Template
+ * interpolation is not supported and is reported as an error.
  */
 export const grammarMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
   name: "grammar",
   module: "@typesugar/parser",
   description: "Define a PEG grammar and generate a parser",
   expand(ctx: MacroContext, node: ts.TaggedTemplateExpression): ts.Expression {
-    const { factory } = ctx;
     const template = node.template;
 
-    // Extract the raw grammar text from the template
-    let grammarText: string;
-    let hasInterpolations = false;
-    if (ts.isNoSubstitutionTemplateLiteral(template)) {
-      grammarText = template.text;
-    } else {
-      // For templates with interpolations, fall back to runtime.
-      hasInterpolations = true;
-      grammarText = template.head.text;
-      for (const span of template.templateSpans) {
-        grammarText += "???" + span.literal.text;
-      }
-      ctx.reportWarning(
+    // Interpolation is not supported (TSP-9): the grammar is compiled from the
+    // template text at build time, so a `${...}` value can't be part of it. The
+    // runtime `grammar` tag rejects it too, so both paths agree.
+    if (!ts.isNoSubstitutionTemplateLiteral(template)) {
+      ctx.reportError(
         node,
-        "grammar template interpolation is not yet supported; " + "falling back to runtime parser"
+        "grammar template interpolation (${...}) is not supported; write the grammar " +
+          "as a plain template, or build it at runtime with buildParser(parseGrammarDef(text))"
       );
+      return node;
     }
 
     // Validate/parse the grammar at compile time
-    let rules: Map<string, import("./types.js").GrammarRule>;
+    let rules: Map<string, GrammarRule>;
     try {
-      rules = parseGrammarDef(grammarText);
+      rules = parseGrammarDef(template.text);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       ctx.reportError(node, `Invalid grammar: ${msg}`);
       return node;
     }
 
-    // If there are interpolations, fall back to runtime
-    if (hasInterpolations) {
-      return factory.createCallExpression(
-        factory.createPropertyAccessExpression(
-          factory.createIdentifier("__typesugar_parser"),
-          factory.createIdentifier("grammar")
-        ),
-        undefined,
-        [factory.createNoSubstitutionTemplateLiteral(grammarText, grammarText)]
-      );
-    }
-
-    // Phase 2: generate inline recursive-descent parser code
-    resetVarCounter();
-    const code = generateParserCode(rules);
-    return ctx.parseExpression(code);
-  },
-  validate(ctx: MacroContext, node: ts.TaggedTemplateExpression): boolean {
-    const template = node.template;
-    let grammarText: string;
-    if (ts.isNoSubstitutionTemplateLiteral(template)) {
-      grammarText = template.text;
-    } else {
-      grammarText = template.head.text;
-      for (const span of template.templateSpans) {
-        grammarText += span.literal.text;
-      }
-    }
-
-    try {
-      parseGrammarDef(grammarText);
-      return true;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      ctx.reportError(node, `Invalid grammar: ${msg}`);
-      return false;
-    }
+    // Phase 2: build the inline recursive-descent parser directly as AST.
+    return generateParserAst(ctx.factory, rules);
   },
 });
 

@@ -21,6 +21,8 @@
  * @module
  */
 
+import { Effect } from "effect";
+
 // ============================================================================
 // Runtime Placeholders (replaced by the macros at compile time)
 // ============================================================================
@@ -258,25 +260,14 @@ export {
  * Delegates to Effect.map and Effect.flatMap from the Effect module.
  * This enables the generic `let:/yield:` syntax from @typesugar/std.
  *
- * Note: Effect is loaded lazily from the 'effect' peer dependency.
- * Ensure 'effect' is installed in your project.
+ * Effect is imported statically from the 'effect' peer dependency (the
+ * package's typeclass instances already require it; a lazy CJS `require`
+ * threw under ESM).
  *
  * The instance is typed as `any` to work around HKT type complexity.
  * Runtime behavior is correct - Effect.map and Effect.flatMap are called
  * with the appropriate arguments.
  */
-let _Effect: any;
-function getEffectModule(): any {
-  if (!_Effect) {
-    try {
-      _Effect = require("effect").Effect;
-    } catch {
-      throw new Error("Effect module not found. Install 'effect' as a dependency.");
-    }
-  }
-  return _Effect;
-}
-
 /**
  * FlatMap instance for Effect (PEP-052 scope resolution — bring it into
  * scope with `import "@typesugar/effect/syntax/do"`).
@@ -290,10 +281,10 @@ function getEffectModule(): any {
  */
 export const flatMapEffect = {
   map: <A, B>(fa: unknown, f: (a: A) => B): unknown => {
-    return getEffectModule().map(fa, f);
+    return Effect.map(fa as Effect.Effect<A>, f);
   },
   flatMap: <A, B>(fa: unknown, f: (a: A) => unknown): unknown => {
-    return getEffectModule().flatMap(fa, f);
+    return Effect.flatMap(fa as Effect.Effect<A>, f as (a: A) => Effect.Effect<B>);
   },
 };
 
@@ -311,9 +302,9 @@ export const flatMapEffect = {
  */
 export const parCombineEffect = {
   all: (effects: readonly unknown[]): unknown => {
-    return getEffectModule().all(effects as unknown[]);
+    return Effect.all(effects as Effect.Effect<unknown>[]);
   },
   map: (combined: unknown, f: (results: unknown[]) => unknown): unknown => {
-    return getEffectModule().map(combined, f);
+    return Effect.map(combined as Effect.Effect<unknown[]>, f);
   },
 };

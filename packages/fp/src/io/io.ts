@@ -9,11 +9,15 @@
  *
  * Features:
  * - Lazy evaluation (effects only run when interpreted)
- * - Stack-safe through trampolining
- * - Async/sync effect handling
+ * - Stack-safe: one explicit continuation/handler stack, no recursion
+ * - Async/sync effect handling (async steps resume on a microtask)
  * - Error handling with typed errors
  * - Resource safety with bracket pattern
- * - Cancellation support
+ * - Best-effort cancellation of race/timeout losers only: the loser's pending
+ *   async step's cancel function runs (IO.sleep clears its timer) and an
+ *   IOCancelledError is raised into it so finalizers still run. There is no
+ *   general fiber/interruption model (no fork/join, no uncancelable masks);
+ *   a FromPromise step cannot stop the underlying promise.
  *
  * Inspired by Scala's Cats Effect IO
  */
@@ -334,10 +338,18 @@ export const IO = {
    * Traverse an array with an IO-returning function
    */
   traverse<A, B>(arr: A[], f: (a: A) => IO<B>): IO<B[]> {
-    return arr.reduce(
-      (acc: IO<B[]>, a: A) => IO.flatMap(acc, (bs) => IO.map(f(a), (b) => [...bs, b])),
-      IO.pure([])
-    );
+    // Linear: one fresh accumulator per run (suspend), pushed in place.
+    return IO.suspend(() => {
+      const out: B[] = [];
+      const go = (i: number): IO<B[]> =>
+        i >= arr.length
+          ? IO.pure(out)
+          : IO.flatMap(f(arr[i]), (b) => {
+              out.push(b);
+              return go(i + 1);
+            });
+      return go(0);
+    });
   },
 
   /**
@@ -365,9 +377,33 @@ export const IO = {
    * Race two IOs - first to complete wins
    */
   race<A, B>(fa: IO<A>, fb: IO<B>): IO<Either<A, B>> {
-    return IO.fromPromise(() =>
-      Promise.race([runIO(fa).then((a) => Left<A, B>(a)), runIO(fb).then((b) => Right<A, B>(b))])
-    );
+    // The loser is cancelled (its pending async step's cancel function runs —
+    // e.g. clearTimeout for IO.sleep — and IOCancelledError is raised into it
+    // so its guarantee/bracket finalizers still run).
+    return IO.async<Either<A, B>>((cb) => {
+      let settled = false;
+      let cancelA: (() => void) | undefined;
+      let cancelB: (() => void) | undefined;
+      const settle = (r: Either<Error, Either<A, B>>, loser: () => (() => void) | undefined) => {
+        if (settled) return;
+        settled = true;
+        loser()?.();
+        cb(r);
+      };
+      cancelA = runIOCancelable(fa, (r) =>
+        settle(isLeft(r) ? Left(r.left) : Right(Left<A, B>(r.right)), () => cancelB)
+      );
+      if (!settled) {
+        cancelB = runIOCancelable(fb, (r) =>
+          settle(isLeft(r) ? Left(r.left) : Right(Right<A, B>(r.right)), () => cancelA)
+        );
+      }
+      return () => {
+        settled = true;
+        cancelA?.();
+        cancelB?.();
+      };
+    });
   },
 
   /**
@@ -384,7 +420,7 @@ export const IO = {
    */
   replicateA<A>(n: number, fa: IO<A>): IO<A[]> {
     if (n <= 0) return IO.pure([]);
-    return IO.flatMap(fa, (a) => IO.map(IO.replicateA(n - 1, fa), (as) => [a, ...as]));
+    return IO.traverse(Array.from({ length: n }), () => fa);
   },
 
   /**
@@ -568,45 +604,228 @@ export const IO = {
 // ============================================================================
 
 /**
- * Trampoline types for stack-safe interpretation.
- *
- * Uses field-based discrimination (PEP-014 Wave 4):
- * - Done has `value: A` field
- * - More has `thunk: () => Trampoline<A>` field
- *
- * No `_tag` needed since `value` vs `thunk` distinguishes variants.
+ * Raised inside a fiber that was cancelled (the loser of `IO.race` /
+ * `IO.timeout`). It is delivered at the fiber's pending async step so that
+ * `guarantee`/`bracket`/`onError` finalizers still run; `handleError`
+ * handlers are NOT invoked for it (a cancelled fiber cannot "recover").
  */
-type Trampoline<A> = Done<A> | More<A>;
-
-interface Done<A> {
-  readonly value: A;
-  readonly thunk?: undefined;
-}
-
-interface More<A> {
-  readonly thunk: () => Trampoline<A>;
-  readonly value?: undefined;
-}
-
-const done = <A>(a: A): Done<A> => ({ value: a });
-const more = <A>(thunk: () => Trampoline<A>): More<A> => ({ thunk });
-
-/**
- * Check if trampoline is Done (has value)
- */
-function isDone<A>(t: Trampoline<A>): t is Done<A> {
-  return "value" in t;
-}
-
-/**
- * Run a trampoline to completion
- */
-function runTrampoline<A>(t: Trampoline<A>): A {
-  let current = t;
-  while (!isDone(current)) {
-    current = current.thunk();
+export class IOCancelledError extends Error {
+  constructor() {
+    super("IO fiber was cancelled");
+    this.name = "IOCancelledError";
   }
-  return current.value;
+}
+
+/**
+ * Interpreter stack frames. Error handlers live on the SAME explicit stack as
+ * continuations (no nested interpreter run per HandleError/Attempt), so:
+ *  - only the guarded IO is inside a handler's scope — a throw in a later
+ *    continuation is never caught by an inner handler (finding #2);
+ *  - deeply nested guarantee/handleError is stack-safe (finding #13).
+ */
+type Frame =
+  | { readonly k: 0; readonly f: (a: unknown) => IO<unknown> } // continuation
+  | { readonly k: 1; readonly handler: (e: Error) => IO<unknown> } // HandleError
+  | { readonly k: 2 }; // Attempt
+
+const ATTEMPT_FRAME: Frame = { k: 2 };
+
+function toError(e: unknown): Error {
+  return e instanceof Error ? e : new Error(String(e));
+}
+
+/** Schedule a fiber resumption. Microtasks, not setTimeout(0) (finding #18). */
+const schedule: (f: () => void) => void =
+  typeof queueMicrotask === "function" ? queueMicrotask : (f) => Promise.resolve().then(f);
+
+/**
+ * Start interpreting `io`. `cb` is called exactly once with the outcome
+ * (unless the IO never completes). Returns a cancel function: cancelling a
+ * fiber suspended at an async step calls that step's cancel function (e.g.
+ * `clearTimeout` for `IO.sleep`), drops its eventual result, and raises
+ * `IOCancelledError` into the fiber. Cancelling a completed fiber is a no-op.
+ */
+function runFiber<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): () => void {
+  const stack: Frame[] = [];
+  let finished = false;
+  // Suspension state
+  let suspendToken = 0; // bumps on every suspension; stale callbacks are ignored
+  let suspended = false;
+  let pendingCancel: (() => void) | undefined;
+  let cancelRequested = false;
+
+  function finish(result: Either<Error, A>): void {
+    finished = true;
+    cb(result);
+  }
+
+  // Resume with either a value or an error; `io` non-undefined means evaluate it.
+  function loop(start: IO<unknown> | undefined, value: unknown, error: Error | undefined): void {
+    let current: IO<unknown> | undefined = start;
+    let hasError = error !== undefined;
+    let err: Error | undefined = error;
+    let val: unknown = value;
+
+    while (true) {
+      if (current !== undefined) {
+        const c: IO<unknown> = current;
+        current = undefined;
+        switch (c._tag) {
+          case "Pure":
+            val = c.value;
+            break;
+          case "Delay":
+            try {
+              val = c.thunk();
+            } catch (e) {
+              err = toError(e);
+              hasError = true;
+            }
+            break;
+          case "Suspend":
+            try {
+              current = c.thunk();
+            } catch (e) {
+              err = toError(e);
+              hasError = true;
+            }
+            break;
+          case "FlatMap":
+            stack.push({ k: 0, f: c.f as (a: unknown) => IO<unknown> });
+            current = c.fa;
+            break;
+          case "HandleError":
+            stack.push({ k: 1, handler: c.handler as (e: Error) => IO<unknown> });
+            current = c.fa;
+            break;
+          case "Attempt":
+            stack.push(ATTEMPT_FRAME);
+            current = c.fa;
+            break;
+          case "Async":
+          case "FromPromise": {
+            const token = ++suspendToken;
+            suspended = true;
+            pendingCancel = undefined;
+            // Results delivered synchronously (during register) are picked up
+            // after register returns, so the loop never re-enters itself.
+            let syncResult: { v: unknown; e: Error | undefined } | undefined;
+            let registering = true;
+            const resume = (v: unknown, e: Error | undefined): void => {
+              if (token !== suspendToken || !suspended) return; // stale / duplicate
+              suspended = false;
+              pendingCancel = undefined;
+              if (registering) {
+                syncResult = { v, e };
+              } else {
+                schedule(() => loop(undefined, v, e));
+              }
+            };
+            try {
+              if (c._tag === "Async") {
+                const cancel = c.register((result) => {
+                  if (isLeft(result)) resume(undefined, toError(result.left));
+                  else resume(result.right, undefined);
+                });
+                if (typeof cancel === "function" && suspended && token === suspendToken) {
+                  pendingCancel = cancel;
+                }
+              } else {
+                c.thunk().then(
+                  (v) => resume(v, undefined),
+                  (e) => resume(undefined, toError(e))
+                );
+              }
+            } catch (e) {
+              resume(undefined, toError(e));
+            }
+            registering = false;
+            if (syncResult === undefined) {
+              if (cancelRequested) deliverCancel();
+              return; // the callback will resume the fiber
+            }
+            val = syncResult.v;
+            if (syncResult.e !== undefined) {
+              err = syncResult.e;
+              hasError = true;
+            }
+            break;
+          }
+          default: {
+            const _exhaustive: never = c;
+            err = new Error(`Unknown IO tag: ${(c as IO<unknown>)._tag}`);
+            hasError = true;
+          }
+        }
+        continue;
+      }
+
+      // Deliver val / err to the next frame.
+      if (hasError) {
+        let frame: Frame | undefined;
+        while ((frame = stack.pop()) !== undefined) {
+          if (frame.k === 2) break;
+          if (frame.k === 1 && !(err instanceof IOCancelledError)) break;
+        }
+        if (frame === undefined) {
+          finish(Left(err!) as Either<Error, A>);
+          return;
+        }
+        hasError = false;
+        if (frame.k === 2) {
+          val = Left(err!);
+        } else {
+          try {
+            current = (frame as { handler: (e: Error) => IO<unknown> }).handler(err!);
+          } catch (e) {
+            err = toError(e);
+            hasError = true;
+          }
+        }
+        continue;
+      }
+
+      const frame = stack.pop();
+      if (frame === undefined) {
+        finish(Right(val as A));
+        return;
+      }
+      if (frame.k === 0) {
+        try {
+          current = frame.f(val);
+        } catch (e) {
+          err = toError(e);
+          hasError = true;
+        }
+      } else if (frame.k === 2) {
+        val = Right(val);
+      }
+      // k === 1 on success: handler goes out of scope, value passes through.
+    }
+  }
+
+  function deliverCancel(): void {
+    if (!suspended || finished) return;
+    cancelRequested = false;
+    const cancel = pendingCancel;
+    suspended = false; // invalidates the pending callback
+    pendingCancel = undefined;
+    suspendToken++;
+    try {
+      cancel?.();
+    } catch {
+      /* cancel functions are best-effort */
+    }
+    schedule(() => loop(undefined, undefined, new IOCancelledError()));
+  }
+
+  loop(io, undefined, undefined);
+
+  return () => {
+    if (finished) return;
+    if (suspended) deliverCancel();
+    else cancelRequested = true; // delivered at the next suspension point
+  };
 }
 
 /**
@@ -614,7 +833,7 @@ function runTrampoline<A>(t: Trampoline<A>): A {
  */
 export function runIO<A>(io: IO<A>): Promise<A> {
   return new Promise((resolve, reject) => {
-    runIOAsync(io, (result) => {
+    runFiber(io, (result) => {
       if (isLeft(result)) {
         reject(result.left);
       } else {
@@ -625,128 +844,10 @@ export function runIO<A>(io: IO<A>): Promise<A> {
 }
 
 /**
- * Run an IO with a callback
+ * Run an IO with a callback; returns a cancel function (see `IOCancelledError`).
  */
-function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void {
-  type Frame = (a: unknown) => IO<unknown>;
-  const stack: Frame[] = [];
-  let current: IO<unknown> = io;
-
-  function loop(): void {
-    try {
-      while (true) {
-        switch (current._tag) {
-          case "Pure": {
-            if (stack.length === 0) {
-              cb(Right(current.value as A));
-              return;
-            }
-            const f = stack.pop()!;
-            current = f(current.value);
-            break;
-          }
-
-          case "Delay": {
-            const value = current.thunk();
-            if (stack.length === 0) {
-              cb(Right(value as A));
-              return;
-            }
-            const f = stack.pop()!;
-            current = f(value);
-            break;
-          }
-
-          case "Suspend": {
-            current = current.thunk();
-            break;
-          }
-
-          case "FlatMap": {
-            const fm = current;
-            stack.push(fm.f as Frame);
-            current = fm.fa;
-            break;
-          }
-
-          case "Async": {
-            const cancel = current.register((result) => {
-              if (isLeft(result)) {
-                cb(Left(result.left!));
-              } else if (stack.length === 0) {
-                cb(Right(result.right as A));
-              } else {
-                const f = stack.pop()!;
-                current = f(result.right);
-                // Use setImmediate or setTimeout to avoid blocking
-                setTimeout(loop, 0);
-              }
-            });
-            return; // Exit the loop, callback will resume
-          }
-
-          case "FromPromise": {
-            const thunk = current.thunk;
-            thunk()
-              .then((value) => {
-                if (stack.length === 0) {
-                  cb(Right(value as A));
-                } else {
-                  const f = stack.pop()!;
-                  current = f(value);
-                  setTimeout(loop, 0);
-                }
-              })
-              .catch((error) => {
-                cb(Left(error instanceof Error ? error : new Error(String(error))));
-              });
-            return; // Exit the loop, promise will resume
-          }
-
-          case "HandleError": {
-            const he = current;
-            const innerStack = [...stack];
-            stack.length = 0;
-
-            // Run the inner IO
-            runIOAsync(he.fa, (result) => {
-              if (isLeft(result)) {
-                current = he.handler(result.left!);
-              } else {
-                current = IO.pure(result.right);
-              }
-              stack.push(...innerStack);
-              setTimeout(loop, 0);
-            });
-            return;
-          }
-
-          case "Attempt": {
-            const att = current;
-            runIOAsync(att.fa as IO<unknown>, (result) => {
-              if (stack.length === 0) {
-                cb(Right(result as unknown as A));
-              } else {
-                const f = stack.pop()!;
-                current = f(result);
-                setTimeout(loop, 0);
-              }
-            });
-            return;
-          }
-
-          default: {
-            const _exhaustive: never = current;
-            throw new Error(`Unknown IO tag: ${(current as IO<unknown>)._tag}`);
-          }
-        }
-      }
-    } catch (e) {
-      cb(Left(e instanceof Error ? e : new Error(String(e))));
-    }
-  }
-
-  loop();
+export function runIOCancelable<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): () => void {
+  return runFiber(io, cb);
 }
 
 /**
@@ -754,85 +855,91 @@ function runIOAsync<A>(io: IO<A>, cb: (result: Either<Error, A>) => void): void 
  * Will throw if the IO contains async operations
  */
 export function runIOSync<A>(io: IO<A>): A {
-  type Frame = (a: unknown) => IO<unknown>;
   const stack: Frame[] = [];
-  let current: IO<unknown> = io;
+  let current: IO<unknown> | undefined = io;
+  let val: unknown;
+  let err: Error | undefined;
+  let hasError = false;
 
   while (true) {
-    switch (current._tag) {
-      case "Pure": {
-        if (stack.length === 0) {
-          return current.value as A;
+    if (current !== undefined) {
+      const c: IO<unknown> = current;
+      current = undefined;
+      switch (c._tag) {
+        case "Pure":
+          val = c.value;
+          break;
+        case "Delay":
+          try {
+            val = c.thunk();
+          } catch (e) {
+            err = toError(e);
+            hasError = true;
+          }
+          break;
+        case "Suspend":
+          try {
+            current = c.thunk();
+          } catch (e) {
+            err = toError(e);
+            hasError = true;
+          }
+          break;
+        case "FlatMap":
+          stack.push({ k: 0, f: c.f as (a: unknown) => IO<unknown> });
+          current = c.fa;
+          break;
+        case "HandleError":
+          stack.push({ k: 1, handler: c.handler as (e: Error) => IO<unknown> });
+          current = c.fa;
+          break;
+        case "Attempt":
+          stack.push(ATTEMPT_FRAME);
+          current = c.fa;
+          break;
+        case "Async":
+        case "FromPromise":
+          // A usage error, not an IO failure: not routed through handlers.
+          throw new Error("Cannot run async IO synchronously. Use runIO instead.");
+        default: {
+          const _exhaustive: never = c;
+          throw new Error(`Unknown IO tag: ${(c as IO<unknown>)._tag}`);
         }
-        const f = stack.pop()!;
-        current = f(current.value);
-        break;
       }
+      continue;
+    }
 
-      case "Delay": {
-        const value = current.thunk();
-        if (stack.length === 0) {
-          return value as A;
-        }
-        const f = stack.pop()!;
-        current = f(value);
-        break;
+    if (hasError) {
+      let frame: Frame | undefined;
+      while ((frame = stack.pop()) !== undefined && frame.k === 0) {
+        /* unwind continuations */
       }
-
-      case "Suspend": {
-        current = current.thunk();
-        break;
-      }
-
-      case "FlatMap": {
-        stack.push(current.f as Frame);
-        current = current.fa;
-        break;
-      }
-
-      case "Async":
-      case "FromPromise":
-        throw new Error("Cannot run async IO synchronously. Use runIO instead.");
-
-      case "HandleError": {
-        const handler = current.handler;
+      if (frame === undefined) throw err;
+      hasError = false;
+      if (frame.k === 2) {
+        val = Left(err!);
+      } else {
         try {
-          const result = runIOSync(current.fa);
-          if (stack.length === 0) {
-            return result as A;
-          }
-          const f = stack.pop()!;
-          current = f(result);
+          current = (frame as { handler: (e: Error) => IO<unknown> }).handler(err!);
         } catch (e) {
-          current = handler(e instanceof Error ? e : new Error(String(e)));
+          err = toError(e);
+          hasError = true;
         }
-        break;
       }
+      continue;
+    }
 
-      case "Attempt": {
-        try {
-          const result = runIOSync(current.fa);
-          const either = Right(result);
-          if (stack.length === 0) {
-            return either as unknown as A;
-          }
-          const f = stack.pop()!;
-          current = f(either);
-        } catch (e) {
-          const either = Left(e instanceof Error ? e : new Error(String(e)));
-          if (stack.length === 0) {
-            return either as unknown as A;
-          }
-          const f = stack.pop()!;
-          current = f(either);
-        }
-        break;
+    const frame = stack.pop();
+    if (frame === undefined) return val as A;
+    if (frame.k === 0) {
+      try {
+        current = frame.f(val);
+      } catch (e) {
+        err = toError(e);
+        hasError = true;
       }
-
-      default: {
-        const _exhaustive: never = current;
-        throw new Error(`Unknown IO tag: ${(current as IO<unknown>)._tag}`);
-      }
+    } else if (frame.k === 2) {
+      val = Right(val);
     }
   }
 }

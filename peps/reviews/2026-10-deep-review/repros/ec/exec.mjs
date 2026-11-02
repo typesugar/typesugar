@@ -1,0 +1,14 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+const root = "/Users/deapovey/src/personal/typesugar";
+const ts = (await import(root + "/node_modules/typescript/lib/typescript.js")).default;
+const { transformCode } = await import(root + "/packages/transformer/dist/index.js");
+await import(root + "/packages/" + process.env.PKG + "/dist/macros.js");
+const file = process.argv[2];
+const r = transformCode(readFileSync(file, "utf8"), { fileName: path.join(root, "packages", process.env.PKG, "__ec_" + path.basename(file)) });
+for (const d of r.diagnostics) console.log("DIAG", d.severity, d.message);
+const js = ts.transpileModule(r.code, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+const out = path.join(path.dirname(file), "out_" + path.basename(file, ".ts") + ".mjs");
+writeFileSync(out, js.replace(/from "effect"/g, "from \"" + root + "/packages/effect/node_modules/effect/dist/esm/index.js\""));
+console.log(js);
+console.log("WROTE", out);

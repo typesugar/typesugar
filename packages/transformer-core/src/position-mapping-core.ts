@@ -16,6 +16,8 @@ import {
   decodeSourceMap,
   findOriginalPosition,
   findGeneratedPosition,
+  buildReverseSourceMapIndex,
+  type ReverseSourceMapIndex,
   type DecodedSourceMap,
   type SourcePosition,
 } from "./source-map-utils.js";
@@ -103,11 +105,13 @@ export function lineColumnToOffset(pos: SourcePosition, index: LineIndex): numbe
  */
 export class SourceMapPositionMapperCore implements PositionMapperCore {
   private decoded: DecodedSourceMap;
+  private reverseIndex: ReverseSourceMapIndex;
   private originalIndex: LineIndex;
   private transformedIndex: LineIndex;
 
   constructor(sourceMap: RawSourceMap, originalContent: string, transformedContent: string) {
     this.decoded = decodeSourceMap(sourceMap);
+    this.reverseIndex = buildReverseSourceMapIndex(this.decoded);
     this.originalIndex = buildLineIndex(originalContent);
     this.transformedIndex = buildLineIndex(transformedContent);
   }
@@ -122,7 +126,13 @@ export class SourceMapPositionMapperCore implements PositionMapperCore {
 
   toTransformed(originalPos: number): number | null {
     const originalLC = offsetToLineColumn(originalPos, this.originalIndex);
-    const transformedLC = findGeneratedPosition(this.decoded, originalLC.line, originalLC.column);
+    const transformedLC = findGeneratedPosition(
+      this.decoded,
+      originalLC.line,
+      originalLC.column,
+      0,
+      this.reverseIndex
+    );
     if (!transformedLC) return null;
     const offset = lineColumnToOffset(transformedLC, this.transformedIndex);
     return offset >= 0 ? offset : null;

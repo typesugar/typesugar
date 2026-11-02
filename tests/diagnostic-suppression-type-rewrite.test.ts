@@ -493,7 +493,9 @@ type Newtype<Base, Brand extends string> = Base & {
   readonly [__brand]: Brand;
 };
 type UserId = Newtype<number, "UserId">;
-const id: UserId = 42;
+type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
+declare function wrap<T>(value: UnwrapNewtype<T>): T;
+const id = wrap<UserId>(42);
 `,
       });
 

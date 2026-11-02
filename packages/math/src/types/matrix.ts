@@ -257,6 +257,7 @@ export function add<R extends number, C extends number>(
 ): Matrix<R, C> {
   const r = rows(a);
   const c = cols(a);
+  assertSameShape(a, b, "add");
   const result = new Float64Array(a.length) as Matrix<R, C>;
   for (let i = 0; i < a.length; i++) {
     result[i] = a[i] + b[i];
@@ -275,6 +276,7 @@ export function sub<R extends number, C extends number>(
 ): Matrix<R, C> {
   const r = rows(a);
   const c = cols(a);
+  assertSameShape(a, b, "sub");
   const result = new Float64Array(a.length) as Matrix<R, C>;
   for (let i = 0; i < a.length; i++) {
     result[i] = a[i] - b[i];
@@ -307,6 +309,50 @@ export function scale<R extends number, C extends number>(
  */
 export function negate<R extends number, C extends number>(m: Matrix<R, C>): Matrix<R, C> {
   return scale(m, -1);
+}
+
+/**
+ * Runtime shape check for element-wise operations (MU-18): `fromRows` and
+ * other dynamically-sized constructors yield `Matrix<number, number>`, so the
+ * static R/C check does not catch a mismatch.
+ */
+function assertSameShape(a: Float64Array, b: Float64Array, op: string): void {
+  const ra = rows(a as Matrix<number, number>);
+  const ca = cols(a as Matrix<number, number>);
+  const rb = rows(b as Matrix<number, number>);
+  const cb = cols(b as Matrix<number, number>);
+  if (ra !== rb || ca !== cb) {
+    throw new RangeError(`Matrix ${op} dimension mismatch: ${ra}x${ca} vs ${rb}x${cb}`);
+  }
+}
+
+/** Largest absolute entry (0 for an all-zero matrix). */
+function maxAbs(m: Float64Array): number {
+  let max = 0;
+  for (let i = 0; i < m.length; i++) {
+    const v = Math.abs(m[i]);
+    if (v > max) max = v;
+  }
+  return max;
+}
+
+/**
+ * Scale-invariant pivot tolerance for an n×n matrix (MU-17): a pivot is
+ * treated as zero when it is at round-off level relative to the matrix's own
+ * magnitude, `n · ε · max|a_ij|`, instead of below an absolute 1e-12 (which
+ * rejected e.g. diag(1e-7, 1e-7) as singular).
+ */
+function pivotTolerance(m: Float64Array, n: number): number {
+  return n * Number.EPSILON * maxAbs(m);
+}
+
+/**
+ * Whether a determinant computed by cancellation of `terms` is at round-off
+ * level relative to those terms (or exactly zero): the 2×2 / 3×3 analogue of
+ * `pivotTolerance` (MU-17).
+ */
+function detIsNegligible(d: number, termMagnitude: number): boolean {
+  return d === 0 || Math.abs(d) <= 8 * Number.EPSILON * termMagnitude;
 }
 
 // ============================================================================
@@ -355,6 +401,7 @@ export function det<N extends number>(m: Matrix<N, N>): number {
 function detLU(m: Float64Array, n: number): number {
   // Work with a copy
   const lu = new Float64Array(m);
+  const tol = pivotTolerance(m, n);
   let det = 1;
 
   for (let i = 0; i < n; i++) {
@@ -376,7 +423,7 @@ function detLU(m: Float64Array, n: number): number {
       det = -det;
     }
 
-    if (Math.abs(lu[i * n + i]) < 1e-12) {
+    if (Math.abs(lu[i * n + i]) <= tol) {
       return 0;
     }
 
@@ -404,7 +451,7 @@ export function inverse<N extends number>(m: Matrix<N, N>): Matrix<N, N> {
   const n = rows(m);
 
   if (n === 1) {
-    if (Math.abs(m[0]) < 1e-12) {
+    if (m[0] === 0) {
       throw new RangeError("Matrix is singular");
     }
     return matrix(1, 1, [1 / m[0]]) as Matrix<N, N>;
@@ -412,7 +459,7 @@ export function inverse<N extends number>(m: Matrix<N, N>): Matrix<N, N> {
 
   if (n === 2) {
     const d = m[0] * m[3] - m[1] * m[2];
-    if (Math.abs(d) < 1e-12) {
+    if (detIsNegligible(d, Math.abs(m[0] * m[3]) + Math.abs(m[1] * m[2]))) {
       throw new RangeError("Matrix is singular");
     }
     const invD = 1 / d;
@@ -441,8 +488,12 @@ function inverse3x3<N extends number>(m: Matrix<N, N>): Matrix<N, N> {
     i = m[8];
 
   const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  const termMagnitude =
+    Math.abs(a) * (Math.abs(e * i) + Math.abs(f * h)) +
+    Math.abs(b) * (Math.abs(d * i) + Math.abs(f * g)) +
+    Math.abs(c) * (Math.abs(d * h) + Math.abs(e * g));
 
-  if (Math.abs(det) < 1e-12) {
+  if (detIsNegligible(det, termMagnitude)) {
     throw new RangeError("Matrix is singular");
   }
 
@@ -472,6 +523,8 @@ function inverseGaussJordan<N extends number>(m: Matrix<N, N>, n: number): Matri
     aug[i * 2 * n + n + i] = 1;
   }
 
+  const tol = pivotTolerance(m, n);
+
   // Gauss-Jordan elimination
   for (let i = 0; i < n; i++) {
     // Find pivot
@@ -492,7 +545,7 @@ function inverseGaussJordan<N extends number>(m: Matrix<N, N>, n: number): Matri
     }
 
     const pivot = aug[i * 2 * n + i];
-    if (Math.abs(pivot) < 1e-12) {
+    if (Math.abs(pivot) <= tol) {
       throw new RangeError("Matrix is singular");
     }
 
@@ -536,13 +589,30 @@ function inverseGaussJordan<N extends number>(m: Matrix<N, N>, n: number): Matri
  * - one: identity matrix
  */
 export function numericMatrix<N extends number>(n: N): Numeric<Matrix<N, N>> {
+  /** The k for which `b` is k·I; throws if `b` is not a scalar matrix. */
+  const scalarOf = (b: Matrix<N, N>, what: string): number => {
+    const k = b[0];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (b[i * n + j] !== (i === j ? k : 0)) {
+          throw new RangeError(`Matrix ${what} must be a scalar matrix k·I`);
+        }
+      }
+    }
+    return k;
+  };
   return {
     add: (a, b) => add(a, b),
     sub: (a, b) => sub(a, b),
     mul: (a, b) => matMul(a, b),
     div: (a, b) => matMul(a, inverse(b)),
     pow: (a, b) => {
-      const exp = Math.round(trace(b));
+      // The exponent is the scalar that `b` represents: fromNumber(k) is k·I,
+      // whose trace is n·k, not k (MU-13: pow(a, one()) used to be a^n).
+      const exp = scalarOf(b, "pow exponent");
+      if (!Number.isInteger(exp)) {
+        throw new RangeError(`Matrix pow: exponent must be an integer, got ${exp}`);
+      }
       if (exp === 0) return identity(n);
       let result: Matrix<N, N> = identity(n);
       const base = exp > 0 ? a : inverse(a);
@@ -556,7 +626,7 @@ export function numericMatrix<N extends number>(n: N): Numeric<Matrix<N, N>> {
       return d > 0 ? identity(n) : d < 0 ? scale(identity(n), -1) : zeros(n, n);
     },
     fromNumber: (num) => scale(identity(n), num),
-    toNumber: (a) => trace(a),
+    toNumber: (a) => trace(a) / n, // inverse of fromNumber (k·I ↦ k), MU-13
     zero: () => zeros(n, n),
     one: () => identity(n),
   };

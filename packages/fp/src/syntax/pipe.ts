@@ -475,17 +475,58 @@ export const lazy = <A>(thunk: () => A): Lazy<A> => Lazy.of(thunk);
 // ============================================================================
 
 /**
- * Memoize a function (cache results)
+ * Cache key for `memoize`: JSON with every leaf tagged by type, so values
+ * plain JSON conflates (`undefined`/`null`/`NaN`/`Infinity`, `-0`/`0`, the
+ * number 1 vs the string "1") get distinct keys. Objects are still keyed
+ * structurally; functions and symbols by `String(value)` — use
+ * `memoizeWith` / `memoize1` for identity keys.
  */
-export function memoize<A extends unknown[], B>(f: (...args: A) => B): (...args: A) => B {
+function memoKey(args: unknown[]): string {
+  return JSON.stringify(args, function (this: unknown, _k: string, v: unknown) {
+    switch (typeof v) {
+      case "string":
+        return "s" + v;
+      case "number":
+        return Object.is(v, -0) ? "n-0" : "n" + String(v);
+      case "undefined":
+        return "u";
+      case "bigint":
+        return "b" + v.toString();
+      case "boolean":
+        return v ? "T" : "F";
+      case "function":
+      case "symbol":
+        return "f" + String(v);
+      default:
+        return v === null ? "N" : v;
+    }
+  });
+}
+
+/**
+ * Memoize a function (cache results).
+ *
+ * Arguments are keyed structurally (see `memoKey`). The cache is unbounded
+ * unless `options.maxSize` is given, in which case the oldest entry is
+ * evicted first.
+ */
+export function memoize<A extends unknown[], B>(
+  f: (...args: A) => B,
+  options: { readonly maxSize?: number } = {}
+): (...args: A) => B {
   const cache = new Map<string, B>();
+  const maxSize = options.maxSize ?? Infinity;
   return (...args: A): B => {
-    const key = JSON.stringify(args);
+    const key = memoKey(args);
     if (cache.has(key)) {
       return cache.get(key)!;
     }
     const result = f(...args);
-    cache.set(key, result);
+    if (cache.size >= maxSize) {
+      const oldest = cache.keys().next();
+      if (!oldest.done) cache.delete(oldest.value);
+    }
+    if (maxSize > 0) cache.set(key, result);
     return result;
   };
 }

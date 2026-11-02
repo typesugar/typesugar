@@ -605,8 +605,33 @@ import type { StandaloneExtensionInfo } from "./types.js";
 import * as ts from "typescript";
 
 /**
- * Global registry for standalone extension methods.
- * These are direct enrichments on concrete types, not typeclass-derived.
+ * A registry entry: a {@link StandaloneExtensionInfo} plus the file whose
+ * `@extension` / `registerExtension` registered it.
+ *
+ * `declaringFile` is `undefined` for entries registered outside any file's
+ * transform (a compiled dist self-registering via
+ * `globalThis.__typesugar_registerExtension` at load time, or direct calls in
+ * tests) — those are genuinely process-wide.
+ */
+export interface StandaloneExtensionEntry extends StandaloneExtensionInfo {
+  declaringFile?: string;
+}
+
+/**
+ * Registry for standalone extension methods (direct enrichments on concrete
+ * types, not typeclass-derived).
+ *
+ * Shape (CLAUDE.md "Resolving things a macro just generated"): a LIVE keyed
+ * registry read within the same pass, keyed by
+ * `(methodName, forType, qualifier, declaringFile)`. Entries are partitioned by
+ * declaring file: a lookup from file F ({@link findStandaloneExtensions})
+ * returns F's own entries first, then process-wide (file-less) ones, then other
+ * files' entries; and {@link clearStandaloneExtensionsForFile} drops a file's
+ * entries when it is transformed again (watch mode, LSP edits), so a deleted or
+ * renamed `@extension` stops matching. Consumers must still check that the
+ * callee is actually bound at the call site (transformer-core's
+ * `isExtensionCalleeBound`) — an entry from another file is a candidate, never
+ * a guarantee that the name is in scope here.
  */
 // Use a shared globalThis registry so ESM and CJS module instances share
 // the same extension list. Without this, `import` (ESM) and `require` (CJS)
@@ -616,22 +641,54 @@ const _g = globalThis as any;
 if (!_g.__typesugar_standaloneExtensions) {
   _g.__typesugar_standaloneExtensions = [];
 }
-export const standaloneExtensionRegistry: StandaloneExtensionInfo[] =
+export const standaloneExtensionRegistry: StandaloneExtensionEntry[] =
   _g.__typesugar_standaloneExtensions;
+
+/** File whose transform is currently running (set by {@link withStandaloneExtensionFile}). */
+let currentRegistrationFile: string | undefined;
+
+/**
+ * Run `fn` (one file's transform pass) with `fileName` as the default
+ * `declaringFile` for every extension registered during it, after first
+ * dropping that file's entries from earlier passes.
+ */
+export function withStandaloneExtensionFile<T>(fileName: string, fn: () => T): T {
+  const prev = currentRegistrationFile;
+  clearStandaloneExtensionsForFile(fileName);
+  currentRegistrationFile = fileName;
+  try {
+    return fn();
+  } finally {
+    currentRegistrationFile = prev;
+  }
+}
+
+/** Remove every entry registered by `fileName`. */
+export function clearStandaloneExtensionsForFile(fileName: string): void {
+  for (let i = standaloneExtensionRegistry.length - 1; i >= 0; i--) {
+    if (standaloneExtensionRegistry[i].declaringFile === fileName) {
+      standaloneExtensionRegistry.splice(i, 1);
+    }
+  }
+}
 
 /**
  * Register a standalone extension entry.
- * Idempotent: skips if an identical entry already exists.
+ * Idempotent: skips if an identical entry (same declaring file) already exists.
  */
-export function registerStandaloneExtensionEntry(info: StandaloneExtensionInfo): void {
+export function registerStandaloneExtensionEntry(info: StandaloneExtensionEntry): void {
+  const declaringFile = info.declaringFile ?? currentRegistrationFile;
   const exists = standaloneExtensionRegistry.some(
     (e) =>
       e.methodName === info.methodName &&
       e.forType === info.forType &&
-      e.qualifier === info.qualifier
+      e.qualifier === info.qualifier &&
+      e.declaringFile === declaringFile
   );
   if (!exists) {
-    standaloneExtensionRegistry.push(info);
+    standaloneExtensionRegistry.push(
+      declaringFile === undefined ? { ...info } : { ...info, declaringFile }
+    );
   }
 }
 
@@ -640,29 +697,54 @@ export function registerStandaloneExtensionEntry(info: StandaloneExtensionInfo):
 _g.__typesugar_registerExtension = registerStandaloneExtensionEntry;
 
 /**
- * Find a standalone extension method for a given method name and type.
- * Returns undefined if no standalone extension is registered.
+ * Every standalone extension for `methodName` on `typeName`, ordered for a
+ * lookup from `fromFile`: that file's own entries, then process-wide ones,
+ * then other files' entries (registration order within each group).
+ */
+export function findStandaloneExtensions(
+  methodName: string,
+  typeName: string,
+  fromFile?: string
+): StandaloneExtensionEntry[] {
+  const matches = standaloneExtensionRegistry.filter(
+    (e) => e.methodName === methodName && e.forType === typeName
+  );
+  const rank = (e: StandaloneExtensionEntry): number =>
+    fromFile !== undefined && e.declaringFile === fromFile
+      ? 0
+      : e.declaringFile === undefined
+        ? 1
+        : 2;
+  return matches
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i)
+    .map(({ e }) => e);
+}
+
+/**
+ * Find a standalone extension method for a given method name and type
+ * (the first of {@link findStandaloneExtensions}). Returns undefined if no
+ * standalone extension is registered.
  */
 export function findStandaloneExtension(
   methodName: string,
-  typeName: string
-): StandaloneExtensionInfo | undefined {
-  return standaloneExtensionRegistry.find(
-    (e) => e.methodName === methodName && e.forType === typeName
-  );
+  typeName: string,
+  fromFile?: string
+): StandaloneExtensionEntry | undefined {
+  return findStandaloneExtensions(methodName, typeName, fromFile)[0];
 }
 
 /**
  * Get all standalone extensions registered for a type.
  */
-export function getStandaloneExtensionsForType(typeName: string): StandaloneExtensionInfo[] {
+export function getStandaloneExtensionsForType(typeName: string): StandaloneExtensionEntry[] {
   return standaloneExtensionRegistry.filter((e) => e.forType === typeName);
 }
 
 /**
  * Get all registered standalone extensions.
  */
-export function getAllStandaloneExtensions(): StandaloneExtensionInfo[] {
+export function getAllStandaloneExtensions(): StandaloneExtensionEntry[] {
   return [...standaloneExtensionRegistry];
 }
 

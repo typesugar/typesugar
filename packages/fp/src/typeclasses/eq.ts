@@ -301,6 +301,10 @@ export function ordArray<A>(O: Ord<A>): Ord<A[]> {
 export const eqString: Eq<string> = eqStrict();
 /**
  * Eq for numbers - enables `n1 === n2` operator rewriting
+ *
+ * Deliberately JS `===` semantics: `eqv(NaN, NaN)` is false (so NaN breaks
+ * Eq's reflexivity law) and `eqv(-0, 0)` is true. Use `ordNumber.eqv` for a
+ * lawful equivalence in which NaN equals itself.
  */
 /** @impl Eq<number> */
 export const eqNumber: Eq<number> = eqStrict();
@@ -322,16 +326,30 @@ export const ordString: Ord<string> = {
   greaterThanOrEqual: (x, y) => x >= y,
 };
 /**
- * Ord for numbers - enables `n1 < n2` operator rewriting
+ * Ord for numbers - a lawful total order.
+ *
+ * NaN sorts after every other number and is equal to itself, so `compare`,
+ * `eqv` and the comparison methods always agree (JS `<` / `===` do not for
+ * NaN: every comparison with NaN is false). `-0` and `0` compare EQ.
+ * For non-NaN inputs this is exactly `<`, `<=`, `>`, `>=`, `===`.
  */
+const compareNumber = (x: number, y: number): Ordering => {
+  if (x < y) return LT;
+  if (x > y) return GT;
+  if (x === y) return EQ;
+  // At least one is NaN.
+  const xn = x !== x;
+  const yn = y !== y;
+  return xn && yn ? EQ : xn ? GT : LT;
+};
 /** @impl Ord<number> */
 export const ordNumber: Ord<number> = {
-  eqv: (x, y) => x === y,
-  compare: (x, y) => (x < y ? LT : x > y ? GT : EQ),
-  lessThan: (x, y) => x < y,
-  lessThanOrEqual: (x, y) => x <= y,
-  greaterThan: (x, y) => x > y,
-  greaterThanOrEqual: (x, y) => x >= y,
+  eqv: (x, y) => compareNumber(x, y) === EQ,
+  compare: compareNumber,
+  lessThan: (x, y) => compareNumber(x, y) === LT,
+  lessThanOrEqual: (x, y) => compareNumber(x, y) !== GT,
+  greaterThan: (x, y) => compareNumber(x, y) === GT,
+  greaterThanOrEqual: (x, y) => compareNumber(x, y) !== LT,
 };
 /**
  * Ord for booleans (false < true) - enables `b1 < b2` operator rewriting

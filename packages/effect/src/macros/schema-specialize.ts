@@ -37,14 +37,20 @@
  *
  * ## Supported Schema Types
  *
- * - Primitives: String, Number, Boolean, BigInt, Symbol, Undefined, Null
- * - Struct: Named fields with typed values
- * - Array: Homogeneous arrays
- * - Tuple: Fixed-length typed arrays
- * - Union: Discriminated unions (requires _tag or discriminant)
- * - Literal: Exact value matches
- * - Optional: Optional fields
- * - Nullable: Nullable values
+ * **Experimental.** Specialized checks are generated only for schemas whose
+ * decoded value equals their input (no transformations):
+ *
+ * - Primitives: `String`, `Number`, `Boolean`, `BigIntFromSelf`,
+ *   `SymbolFromSelf`, `Undefined`, `Null`, `Unknown`
+ * - `Struct({...})` with identifier or quoted keys, and `optional(S)` fields
+ * - `Array(S)`, `Tuple(A, B, ...)`, `NullOr(S)`, `Literal(a, b, ...)`
+ *
+ * Anything else — including `Schema.BigInt`/`Schema.Symbol`/`Schema.Date`
+ * (transformations from string), `Union`, refinements, schema variables — is
+ * decoded with `Schema.decodeUnknownSync(<that sub-schema>)`, built once when
+ * the decoder is created. A struct or tuple containing a part that can't be
+ * specialized falls back as a whole. Failures throw an `Error` (not a
+ * `ParseError`) naming the path.
  *
  * @module
  */
@@ -53,607 +59,378 @@ import * as ts from "typescript";
 import { type MacroContext, defineExpressionMacro } from "@typesugar/core";
 
 /**
- * Schema kind for compile-time analysis.
+ * Parsed schema structure for code generation. Every node keeps the source
+ * expression it came from, so a fallback decodes with THAT sub-schema.
  */
-type SchemaKind =
-  | "string"
-  | "number"
-  | "boolean"
-  | "bigint"
-  | "symbol"
-  | "undefined"
-  | "null"
-  | "unknown"
-  | "struct"
-  | "array"
-  | "tuple"
-  | "union"
-  | "literal"
-  | "optional"
-  | "nullable"
-  | "unsupported";
+type ParsedSchema =
+  | { kind: "typeof"; expr: ts.Expression; typeofName: string }
+  | { kind: "undefined" | "null" | "unknown"; expr: ts.Expression }
+  | { kind: "literal"; expr: ts.Expression; values: ts.Expression[] }
+  | { kind: "struct"; expr: ts.Expression; fields: StructField[] }
+  | { kind: "array"; expr: ts.Expression; element: ParsedSchema }
+  | { kind: "tuple"; expr: ts.Expression; elements: ParsedSchema[] }
+  | { kind: "nullable"; expr: ts.Expression; element: ParsedSchema }
+  | { kind: "fallback"; expr: ts.Expression };
 
-/**
- * Parsed schema structure for code generation.
- */
-interface ParsedSchema {
-  kind: SchemaKind;
-  fields?: Record<string, ParsedSchema>;
-  element?: ParsedSchema;
-  elements?: ParsedSchema[];
-  variants?: ParsedSchema[];
-  literalValue?: string | number | boolean;
-  discriminant?: string;
-  optional?: boolean;
+interface StructField {
+  key: string;
+  schema: ParsedSchema;
+  optional: boolean;
+}
+
+const TYPEOF_PRIMITIVES: Record<string, string> = {
+  String: "string",
+  Number: "number",
+  Boolean: "boolean",
+  BigIntFromSelf: "bigint",
+  SymbolFromSelf: "symbol",
+};
+
+function schemaMember(expr: ts.Expression): string | undefined {
+  if (
+    ts.isPropertyAccessExpression(expr) &&
+    ts.isIdentifier(expr.expression) &&
+    expr.expression.text === "Schema"
+  ) {
+    return expr.name.text;
+  }
+  return undefined;
+}
+
+function isLiteralValueExpr(e: ts.Expression): boolean {
+  return (
+    ts.isStringLiteral(e) ||
+    ts.isNoSubstitutionTemplateLiteral(e) ||
+    ts.isNumericLiteral(e) ||
+    ts.isBigIntLiteral(e) ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword ||
+    e.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isPrefixUnaryExpression(e) &&
+      e.operator === ts.SyntaxKind.MinusToken &&
+      (ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand)))
+  );
+}
+
+/** Display text of a literal accepted by isLiteralValueExpr (no source text needed). */
+function literalText(e: ts.Expression): string {
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return JSON.stringify(e.text);
+  if (ts.isNumericLiteral(e)) return e.text;
+  if (ts.isBigIntLiteral(e)) return e.text;
+  if (ts.isPrefixUnaryExpression(e)) return "-" + literalText(e.operand);
+  if (e.kind === ts.SyntaxKind.TrueKeyword) return "true";
+  if (e.kind === ts.SyntaxKind.FalseKeyword) return "false";
+  return "null";
+}
+
+function propertyKeyText(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  return undefined;
 }
 
 /**
- * Try to infer the schema kind from a Schema call.
+ * Analyse a schema expression. Returns `fallback` for anything not
+ * specializable (or containing a part that isn't).
  */
-function inferSchemaKind(ctx: MacroContext, expr: ts.Expression): ParsedSchema {
-  // Handle Schema.String, Schema.Number, etc.
-  if (ts.isPropertyAccessExpression(expr)) {
-    const obj = expr.expression;
-    const prop = expr.name.text;
-
-    if (ts.isIdentifier(obj) && obj.text === "Schema") {
-      switch (prop) {
-        case "String":
-          return { kind: "string" };
-        case "Number":
-          return { kind: "number" };
-        case "Boolean":
-          return { kind: "boolean" };
-        case "BigInt":
-        case "BigIntFromSelf":
-          return { kind: "bigint" };
-        case "Symbol":
-        case "SymbolFromSelf":
-          return { kind: "symbol" };
-        case "Undefined":
-          return { kind: "undefined" };
-        case "Null":
-          return { kind: "null" };
-        case "Unknown":
-          return { kind: "unknown" };
-      }
+function parseSchema(expr: ts.Expression): ParsedSchema {
+  const fallback: ParsedSchema = { kind: "fallback", expr };
+  const member = schemaMember(expr);
+  if (member !== undefined) {
+    if (member in TYPEOF_PRIMITIVES) {
+      return { kind: "typeof", expr, typeofName: TYPEOF_PRIMITIVES[member] };
     }
+    if (member === "Undefined") return { kind: "undefined", expr };
+    if (member === "Null") return { kind: "null", expr };
+    if (member === "Unknown") return { kind: "unknown", expr };
+    return fallback;
   }
 
-  // Handle Schema.Struct({ ... })
-  if (ts.isCallExpression(expr)) {
-    const callee = expr.expression;
-    if (ts.isPropertyAccessExpression(callee)) {
-      const obj = callee.expression;
-      const method = callee.name.text;
+  if (!ts.isCallExpression(expr)) return fallback;
+  const method = schemaMember(expr.expression);
+  if (method === undefined) return fallback;
+  const args = expr.arguments;
+  if (args.some((a) => ts.isSpreadElement(a))) return fallback;
 
-      if (ts.isIdentifier(obj) && obj.text === "Schema") {
-        switch (method) {
-          case "Struct": {
-            const arg = expr.arguments[0];
-            if (arg && ts.isObjectLiteralExpression(arg)) {
-              const fields: Record<string, ParsedSchema> = {};
-              for (const prop of arg.properties) {
-                if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-                  fields[prop.name.text] = inferSchemaKind(ctx, prop.initializer);
-                }
-              }
-              return { kind: "struct", fields };
-            }
-            break;
-          }
-
-          case "Array": {
-            const elementArg = expr.arguments[0];
-            if (elementArg) {
-              return { kind: "array", element: inferSchemaKind(ctx, elementArg) };
-            }
-            return { kind: "array", element: { kind: "unknown" } };
-          }
-
-          case "Tuple": {
-            const elements: ParsedSchema[] = [];
-            for (const arg of expr.arguments) {
-              elements.push(inferSchemaKind(ctx, arg));
-            }
-            return { kind: "tuple", elements };
-          }
-
-          case "Union": {
-            const variants: ParsedSchema[] = [];
-            for (const arg of expr.arguments) {
-              variants.push(inferSchemaKind(ctx, arg));
-            }
-            return { kind: "union", variants };
-          }
-
-          case "Literal": {
-            const literalArg = expr.arguments[0];
-            if (literalArg) {
-              if (ts.isStringLiteral(literalArg)) {
-                return { kind: "literal", literalValue: literalArg.text };
-              }
-              if (ts.isNumericLiteral(literalArg)) {
-                return { kind: "literal", literalValue: Number(literalArg.text) };
-              }
-              if (literalArg.kind === ts.SyntaxKind.TrueKeyword) {
-                return { kind: "literal", literalValue: true };
-              }
-              if (literalArg.kind === ts.SyntaxKind.FalseKeyword) {
-                return { kind: "literal", literalValue: false };
-              }
-            }
-            break;
-          }
-
-          case "optional":
-          case "Optional": {
-            const innerArg = expr.arguments[0];
-            if (innerArg) {
-              const inner = inferSchemaKind(ctx, innerArg);
-              return { ...inner, optional: true };
-            }
-            break;
-          }
-
-          case "nullable":
-          case "Nullable":
-          case "NullOr": {
-            const innerArg = expr.arguments[0];
-            if (innerArg) {
-              return { kind: "nullable", element: inferSchemaKind(ctx, innerArg) };
-            }
-            break;
-          }
+  switch (method) {
+    case "Struct": {
+      const arg = args[0];
+      if (args.length !== 1 || !ts.isObjectLiteralExpression(arg)) return fallback;
+      const fields: StructField[] = [];
+      for (const prop of arg.properties) {
+        if (!ts.isPropertyAssignment(prop)) return fallback;
+        const key = propertyKeyText(prop.name);
+        if (key === undefined) return fallback;
+        let fieldExpr = prop.initializer;
+        let optional = false;
+        if (
+          ts.isCallExpression(fieldExpr) &&
+          schemaMember(fieldExpr.expression) === "optional" &&
+          fieldExpr.arguments.length === 1
+        ) {
+          optional = true;
+          fieldExpr = fieldExpr.arguments[0];
         }
+        const schema = parseSchema(fieldExpr);
+        // A struct with an unspecializable field is decoded as a whole: the
+        // field expression may not be a standalone schema (optionalWith,
+        // propertySignature, fromKey, ...).
+        if (schema.kind === "fallback") return fallback;
+        fields.push({ key, schema, optional });
       }
+      if (fields.length === 0) return fallback;
+      return { kind: "struct", expr, fields };
     }
+    case "Array": {
+      if (args.length !== 1) return fallback;
+      return { kind: "array", expr, element: parseSchema(args[0]) };
+    }
+    case "Tuple": {
+      if (args.length === 0) return fallback;
+      const elements = args.map(parseSchema);
+      if (elements.some((e) => e.kind === "fallback")) return fallback;
+      return { kind: "tuple", expr, elements };
+    }
+    case "NullOr": {
+      if (args.length !== 1) return fallback;
+      return { kind: "nullable", expr, element: parseSchema(args[0]) };
+    }
+    case "Literal": {
+      if (args.length === 0 || !args.every(isLiteralValueExpr)) return fallback;
+      return { kind: "literal", expr, values: [...args] };
+    }
+    default:
+      return fallback;
   }
-
-  return { kind: "unsupported" };
 }
 
-/**
- * Generate a type check expression for a primitive.
- */
-function generatePrimitiveCheck(
-  factory: ts.NodeFactory,
-  value: ts.Expression,
-  expectedType: string
+/** Codegen state: fallback decoders hoisted out of the per-call path. */
+interface Gen {
+  ctx: MacroContext;
+  decoders: Array<{ id: ts.Identifier; schema: ts.Expression }>;
+}
+
+function strictEq(f: ts.NodeFactory, a: ts.Expression, b: ts.Expression): ts.Expression {
+  return f.createBinaryExpression(a, ts.SyntaxKind.EqualsEqualsEqualsToken, b);
+}
+
+function and(f: ts.NodeFactory, a: ts.Expression, b: ts.Expression): ts.Expression {
+  return f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b);
+}
+
+function or(f: ts.NodeFactory, a: ts.Expression, b: ts.Expression): ts.Expression {
+  return f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b);
+}
+
+function cond(
+  f: ts.NodeFactory,
+  test: ts.Expression,
+  whenTrue: ts.Expression,
+  whenFalse: ts.Expression
 ): ts.Expression {
-  return factory.createBinaryExpression(
-    factory.createTypeOfExpression(value),
-    factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-    factory.createStringLiteral(expectedType)
+  return f.createConditionalExpression(
+    test,
+    f.createToken(ts.SyntaxKind.QuestionToken),
+    whenTrue,
+    f.createToken(ts.SyntaxKind.ColonToken),
+    whenFalse
+  );
+}
+
+function anyCast(f: ts.NodeFactory, e: ts.Expression): ts.Expression {
+  return f.createParenthesizedExpression(
+    f.createAsExpression(e, f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword))
   );
 }
 
 /**
- * Generate validation code for a parsed schema.
- * Returns an expression that validates `input` and returns the typed value or throws.
- *
- * @param schemaExpr - The original schema AST expression, used for fallback to runtime decoding.
+ * Generate an expression that validates `input` against `schema` and
+ * evaluates to the decoded value, or throws.
  */
-function generateValidationCode(
-  ctx: MacroContext,
+function generateValidation(
+  g: Gen,
   schema: ParsedSchema,
   input: ts.Expression,
-  path: string,
-  schemaExpr: ts.Expression
+  path: string
 ): ts.Expression {
-  const factory = ctx.factory;
-
+  const f = g.ctx.factory;
   switch (schema.kind) {
-    case "string":
-      return generatePrimitiveValidation(factory, input, "string", path);
-
-    case "number":
-      return generatePrimitiveValidation(factory, input, "number", path);
-
-    case "boolean":
-      return generatePrimitiveValidation(factory, input, "boolean", path);
-
-    case "bigint":
-      return generatePrimitiveValidation(factory, input, "bigint", path);
-
-    case "symbol":
-      return generatePrimitiveValidation(factory, input, "symbol", path);
-
+    case "typeof":
+      return cond(
+        f,
+        strictEq(f, f.createTypeOfExpression(input), f.createStringLiteral(schema.typeofName)),
+        input,
+        throwParseError(f, path, `Expected ${schema.typeofName}`, input)
+      );
     case "undefined":
-      return generateUndefinedValidation(factory, input, path);
-
+      return cond(
+        f,
+        strictEq(f, input, f.createVoidZero()),
+        input,
+        throwParseError(f, path, "Expected undefined", input)
+      );
     case "null":
-      return generateNullValidation(factory, input, path);
-
+      return cond(
+        f,
+        strictEq(f, input, f.createNull()),
+        input,
+        throwParseError(f, path, "Expected null", input)
+      );
     case "unknown":
       return input;
-
-    case "struct":
-      return generateStructValidation(ctx, schema, input, path, schemaExpr);
-
-    case "array":
-      return generateArrayValidation(ctx, schema, input, path, schemaExpr);
-
-    case "tuple":
-      return generateTupleValidation(ctx, schema, input, path, schemaExpr);
-
+    case "literal": {
+      const test = schema.values
+        .map((v) => strictEq(f, input, v))
+        .reduce((acc, t) => or(f, acc, t));
+      const shown = schema.values.map(literalText).join(" | ");
+      return cond(f, test, input, throwParseError(f, path, `Expected ${shown}`, input));
+    }
     case "nullable":
-      return generateNullableValidation(ctx, schema, input, path, schemaExpr);
-
-    case "literal":
-      return generateLiteralValidation(factory, schema, input, path);
-
-    case "union":
-      return generateUnionValidation(ctx, schema, input, path, schemaExpr);
-
-    default:
-      return generateRuntimeFallback(factory, schemaExpr, input);
-  }
-}
-
-/**
- * Generate primitive type validation.
- */
-function generatePrimitiveValidation(
-  factory: ts.NodeFactory,
-  input: ts.Expression,
-  expectedType: string,
-  path: string
-): ts.Expression {
-  return factory.createConditionalExpression(
-    generatePrimitiveCheck(factory, input, expectedType),
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    input,
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(factory, path, `Expected ${expectedType}`, input)
-  );
-}
-
-/**
- * Generate undefined validation.
- */
-function generateUndefinedValidation(
-  factory: ts.NodeFactory,
-  input: ts.Expression,
-  path: string
-): ts.Expression {
-  return factory.createConditionalExpression(
-    factory.createBinaryExpression(
-      input,
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      factory.createIdentifier("undefined")
-    ),
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    factory.createIdentifier("undefined"),
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(factory, path, "Expected undefined", input)
-  );
-}
-
-/**
- * Generate null validation.
- */
-function generateNullValidation(
-  factory: ts.NodeFactory,
-  input: ts.Expression,
-  path: string
-): ts.Expression {
-  return factory.createConditionalExpression(
-    factory.createBinaryExpression(
-      input,
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      factory.createNull()
-    ),
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    factory.createNull(),
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(factory, path, "Expected null", input)
-  );
-}
-
-/**
- * Generate nullable validation.
- */
-function generateNullableValidation(
-  ctx: MacroContext,
-  schema: ParsedSchema,
-  input: ts.Expression,
-  path: string,
-  schemaExpr: ts.Expression
-): ts.Expression {
-  const factory = ctx.factory;
-  const innerValidation = generateValidationCode(ctx, schema.element!, input, path, schemaExpr);
-
-  // input === null ? null : innerValidation
-  return factory.createConditionalExpression(
-    factory.createBinaryExpression(
-      input,
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      factory.createNull()
-    ),
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    factory.createNull(),
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    innerValidation
-  );
-}
-
-/**
- * Generate literal validation.
- */
-function generateLiteralValidation(
-  factory: ts.NodeFactory,
-  schema: ParsedSchema,
-  input: ts.Expression,
-  path: string
-): ts.Expression {
-  const literalValue = schema.literalValue;
-  let literalExpr: ts.Expression;
-
-  if (typeof literalValue === "string") {
-    literalExpr = factory.createStringLiteral(literalValue);
-  } else if (typeof literalValue === "number") {
-    literalExpr = factory.createNumericLiteral(literalValue);
-  } else if (typeof literalValue === "boolean") {
-    literalExpr = literalValue ? factory.createTrue() : factory.createFalse();
-  } else {
-    return generateThrowParseError(factory, path, "Unknown literal type", input);
-  }
-
-  return factory.createConditionalExpression(
-    factory.createBinaryExpression(
-      input,
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      literalExpr
-    ),
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    input,
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(
-      factory,
-      path,
-      `Expected literal ${JSON.stringify(literalValue)}`,
-      input
-    )
-  );
-}
-
-/**
- * Generate struct validation.
- */
-function generateStructValidation(
-  ctx: MacroContext,
-  schema: ParsedSchema,
-  input: ts.Expression,
-  path: string,
-  schemaExpr: ts.Expression
-): ts.Expression {
-  const factory = ctx.factory;
-  const fields = schema.fields!;
-
-  const fieldAssignments: ts.ObjectLiteralElementLike[] = [];
-
-  // First, check that input is an object
-  const isObjectCheck = factory.createBinaryExpression(
-    factory.createBinaryExpression(
-      factory.createTypeOfExpression(input),
-      factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-      factory.createStringLiteral("object")
-    ),
-    factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
-    factory.createBinaryExpression(
-      input,
-      factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-      factory.createNull()
-    )
-  );
-
-  for (const [fieldName, fieldSchema] of Object.entries(fields)) {
-    const fieldPath = `${path}.${fieldName}`;
-    const fieldAccess = factory.createPropertyAccessExpression(
-      factory.createParenthesizedExpression(
-        factory.createAsExpression(input, factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword))
-      ),
-      factory.createIdentifier(fieldName)
-    );
-
-    if (fieldSchema.optional) {
-      const fieldValidation = generateValidationCode(
-        ctx,
-        fieldSchema,
-        fieldAccess,
-        fieldPath,
-        schemaExpr
+      return cond(
+        f,
+        strictEq(f, input, f.createNull()),
+        f.createNull(),
+        generateValidation(g, schema.element, input, path)
       );
-      fieldAssignments.push(
-        factory.createPropertyAssignment(
-          factory.createIdentifier(fieldName),
-          factory.createConditionalExpression(
-            factory.createBinaryExpression(
-              factory.createStringLiteral(fieldName),
-              factory.createToken(ts.SyntaxKind.InKeyword),
-              factory.createAsExpression(
-                input,
-                factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
-              )
+    case "array": {
+      const item = g.ctx.generateUniqueName("item");
+      return cond(
+        f,
+        f.createCallExpression(
+          f.createPropertyAccessExpression(f.createIdentifier("Array"), "isArray"),
+          undefined,
+          [input]
+        ),
+        f.createCallExpression(
+          f.createPropertyAccessExpression(anyCast(f, input), "map"),
+          undefined,
+          [
+            f.createArrowFunction(
+              undefined,
+              undefined,
+              [f.createParameterDeclaration(undefined, undefined, item)],
+              undefined,
+              f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+              generateValidation(g, schema.element, item, `${path}[]`)
             ),
-            factory.createToken(ts.SyntaxKind.QuestionToken),
-            fieldValidation,
-            factory.createToken(ts.SyntaxKind.ColonToken),
-            factory.createIdentifier("undefined")
+          ]
+        ),
+        throwParseError(f, path, "Expected array", input)
+      );
+    }
+    case "tuple": {
+      const n = schema.elements.length;
+      const elems = schema.elements.map((el, i) =>
+        generateValidation(
+          g,
+          el,
+          f.createElementAccessExpression(anyCast(f, input), f.createNumericLiteral(i)),
+          `${path}[${i}]`
+        )
+      );
+      return cond(
+        f,
+        and(
+          f,
+          f.createCallExpression(
+            f.createPropertyAccessExpression(f.createIdentifier("Array"), "isArray"),
+            undefined,
+            [input]
+          ),
+          strictEq(
+            f,
+            f.createPropertyAccessExpression(anyCast(f, input), "length"),
+            f.createNumericLiteral(n)
+          )
+        ),
+        f.createArrayLiteralExpression(elems),
+        throwParseError(f, path, `Expected tuple of length ${n}`, input)
+      );
+    }
+    case "struct": {
+      const isObject = and(
+        f,
+        and(
+          f,
+          strictEq(f, f.createTypeOfExpression(input), f.createStringLiteral("object")),
+          f.createBinaryExpression(
+            input,
+            ts.SyntaxKind.ExclamationEqualsEqualsToken,
+            f.createNull()
+          )
+        ),
+        f.createPrefixUnaryExpression(
+          ts.SyntaxKind.ExclamationToken,
+          f.createCallExpression(
+            f.createPropertyAccessExpression(f.createIdentifier("Array"), "isArray"),
+            undefined,
+            [input]
           )
         )
       );
-    } else {
-      const fieldValidation = generateValidationCode(
-        ctx,
-        fieldSchema,
-        fieldAccess,
-        fieldPath,
-        schemaExpr
-      );
-      fieldAssignments.push(
-        factory.createPropertyAssignment(factory.createIdentifier(fieldName), fieldValidation)
+      const props: ts.ObjectLiteralElementLike[] = [];
+      for (const field of schema.fields) {
+        const keyLit = f.createStringLiteral(field.key);
+        const access = f.createElementAccessExpression(anyCast(f, input), keyLit);
+        const fieldPath = `${path}[${JSON.stringify(field.key)}]`;
+        const validated = generateValidation(g, field.schema, access, fieldPath);
+        if (!field.optional) {
+          props.push(f.createPropertyAssignment(f.createStringLiteral(field.key), validated));
+          continue;
+        }
+        // optional(S): key absent → omitted; present → `undefined | S`.
+        const hasOwn = f.createCallExpression(
+          f.createPropertyAccessExpression(
+            f.createPropertyAccessExpression(
+              f.createPropertyAccessExpression(f.createIdentifier("Object"), "prototype"),
+              "hasOwnProperty"
+            ),
+            "call"
+          ),
+          undefined,
+          [input, f.createStringLiteral(field.key)]
+        );
+        const value = cond(
+          f,
+          strictEq(f, access, f.createVoidZero()),
+          f.createVoidZero(),
+          validated
+        );
+        props.push(
+          f.createSpreadAssignment(
+            f.createParenthesizedExpression(
+              cond(
+                f,
+                hasOwn,
+                f.createObjectLiteralExpression([
+                  f.createPropertyAssignment(f.createStringLiteral(field.key), value),
+                ]),
+                f.createObjectLiteralExpression([])
+              )
+            )
+          )
+        );
+      }
+      return cond(
+        f,
+        isObject,
+        f.createObjectLiteralExpression(props, true),
+        throwParseError(f, path, "Expected object", input)
       );
     }
+    case "fallback": {
+      const id = g.ctx.generateUniqueName("decode");
+      g.decoders.push({ id, schema: schema.expr });
+      return f.createCallExpression(id, undefined, [input]);
+    }
   }
-
-  // Generate: isObject ? { field1: validate1, field2: validate2, ... } : throw
-  return factory.createConditionalExpression(
-    isObjectCheck,
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    factory.createObjectLiteralExpression(fieldAssignments, true),
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(factory, path, "Expected object", input)
-  );
 }
 
 /**
- * Generate array validation.
+ * `(() => { throw new Error(`Parse error at <path>: <message>, got ${typeof value}`) })()`
  */
-function generateArrayValidation(
-  ctx: MacroContext,
-  schema: ParsedSchema,
-  input: ts.Expression,
-  path: string,
-  schemaExpr: ts.Expression
-): ts.Expression {
-  const factory = ctx.factory;
-  const element = schema.element!;
-
-  const mapParam = factory.createIdentifier("__item");
-  const indexParam = factory.createIdentifier("__i");
-
-  const elementValidation = generateValidationCode(
-    ctx,
-    element,
-    mapParam,
-    `${path}[i]`,
-    schemaExpr
-  );
-
-  return factory.createConditionalExpression(
-    factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("Array"),
-        factory.createIdentifier("isArray")
-      ),
-      undefined,
-      [input]
-    ),
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    factory.createCallExpression(
-      factory.createPropertyAccessExpression(input, factory.createIdentifier("map")),
-      undefined,
-      [
-        factory.createArrowFunction(
-          undefined,
-          undefined,
-          [
-            factory.createParameterDeclaration(undefined, undefined, mapParam),
-            factory.createParameterDeclaration(undefined, undefined, indexParam),
-          ],
-          undefined,
-          factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          elementValidation
-        ),
-      ]
-    ),
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(factory, path, "Expected array", input)
-  );
-}
-
-/**
- * Generate tuple validation.
- */
-function generateTupleValidation(
-  ctx: MacroContext,
-  schema: ParsedSchema,
-  input: ts.Expression,
-  path: string,
-  schemaExpr: ts.Expression
-): ts.Expression {
-  const factory = ctx.factory;
-  const elements = schema.elements!;
-
-  // Check array and length
-  const lengthCheck = factory.createBinaryExpression(
-    factory.createPropertyAccessExpression(input, factory.createIdentifier("length")),
-    factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-    factory.createNumericLiteral(elements.length)
-  );
-
-  const isArrayCheck = factory.createCallExpression(
-    factory.createPropertyAccessExpression(
-      factory.createIdentifier("Array"),
-      factory.createIdentifier("isArray")
-    ),
-    undefined,
-    [input]
-  );
-
-  // Build tuple validations
-  const elementExprs: ts.Expression[] = [];
-  for (let i = 0; i < elements.length; i++) {
-    const elementAccess = factory.createElementAccessExpression(
-      input,
-      factory.createNumericLiteral(i)
-    );
-    const elementValidation = generateValidationCode(
-      ctx,
-      elements[i],
-      elementAccess,
-      `${path}[${i}]`,
-      schemaExpr
-    );
-    elementExprs.push(elementValidation);
-  }
-
-  return factory.createConditionalExpression(
-    factory.createBinaryExpression(
-      isArrayCheck,
-      factory.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
-      lengthCheck
-    ),
-    factory.createToken(ts.SyntaxKind.QuestionToken),
-    factory.createArrayLiteralExpression(elementExprs),
-    factory.createToken(ts.SyntaxKind.ColonToken),
-    generateThrowParseError(factory, path, `Expected tuple of length ${elements.length}`, input)
-  );
-}
-
-/**
- * Generate union validation (simple approach — try each variant).
- */
-function generateUnionValidation(
-  ctx: MacroContext,
-  schema: ParsedSchema,
-  input: ts.Expression,
-  path: string,
-  schemaExpr: ts.Expression
-): ts.Expression {
-  const factory = ctx.factory;
-  const variants = schema.variants!;
-
-  if (variants.length === 0) {
-    return generateThrowParseError(factory, path, "Empty union", input);
-  }
-
-  if (variants.length === 1) {
-    return generateValidationCode(ctx, variants[0], input, path, schemaExpr);
-  }
-
-  // Fall back to runtime Schema.decodeUnknownSync(schema)(input)
-  return generateRuntimeFallback(factory, schemaExpr, input);
-}
-
-/**
- * Generate a throw expression for parse errors.
- *
- * @param valueExpr - The actual expression being validated, used for `typeof` in the error message.
- */
-function generateThrowParseError(
+function throwParseError(
   factory: ts.NodeFactory,
   path: string,
   message: string,
@@ -692,25 +469,46 @@ function generateThrowParseError(
   );
 }
 
-/**
- * Generate a runtime fallback: Schema.decodeUnknownSync(schemaExpr)(input).
- */
-function generateRuntimeFallback(
-  factory: ts.NodeFactory,
-  schemaExpr: ts.Expression,
-  input: ts.Expression
-): ts.Expression {
-  return factory.createCallExpression(
-    factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("Schema"),
-        factory.createIdentifier("decodeUnknownSync")
-      ),
-      undefined,
-      [schemaExpr]
+/** `Schema.decodeUnknownSync(schema)` */
+function decodeUnknownSync(ctx: MacroContext, schema: ts.Expression): ts.Expression {
+  return ctx.factory.createCallExpression(
+    ctx.factory.createPropertyAccessExpression(
+      ctx.ensureImport("Schema", "effect"),
+      "decodeUnknownSync"
     ),
     undefined,
-    [input]
+    [schema]
+  );
+}
+
+/** `const <id> = Schema.decodeUnknownSync(<schema>);` for every hoisted fallback. */
+function decoderStatements(g: Gen): ts.Statement[] {
+  const f = g.ctx.factory;
+  return g.decoders.map((d) =>
+    f.createVariableStatement(
+      undefined,
+      f.createVariableDeclarationList(
+        [
+          f.createVariableDeclaration(
+            d.id,
+            undefined,
+            undefined,
+            decodeUnknownSync(g.ctx, d.schema)
+          ),
+        ],
+        ts.NodeFlags.Const
+      )
+    )
+  );
+}
+
+function inputParam(ctx: MacroContext, name: ts.Identifier): ts.ParameterDeclaration {
+  return ctx.factory.createParameterDeclaration(
+    undefined,
+    undefined,
+    name,
+    undefined,
+    ctx.factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
   );
 }
 
@@ -739,44 +537,46 @@ export const specializeSchemaExpression = defineExpressionMacro({
 
     const schemaArg = args[0];
     const factory = ctx.factory;
+    const parsed = parseSchema(schemaArg);
 
-    // Parse the schema structure
-    const parsedSchema = inferSchemaKind(ctx, schemaArg);
-
-    if (parsedSchema.kind === "unsupported") {
+    if (parsed.kind === "fallback") {
       ctx.reportWarning(
         schemaArg,
         "specializeSchema: Schema structure not recognized, falling back to runtime decoding"
       );
-      return factory.createCallExpression(
-        factory.createPropertyAccessExpression(
-          factory.createIdentifier("Schema"),
-          factory.createIdentifier("decodeSync")
-        ),
-        undefined,
-        [schemaArg]
-      );
+      return decodeUnknownSync(ctx, schemaArg);
     }
 
-    const inputParam = factory.createIdentifier("input");
-    const validation = generateValidationCode(ctx, parsedSchema, inputParam, "input", schemaArg);
-
-    return factory.createArrowFunction(
+    const g: Gen = { ctx, decoders: [] };
+    const input = ctx.generateUniqueName("input");
+    const validation = generateValidation(g, parsed, input, "input");
+    const decoder = factory.createArrowFunction(
       undefined,
       undefined,
-      [
-        factory.createParameterDeclaration(
-          undefined,
-          undefined,
-          inputParam,
-          undefined,
-          factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword),
-          undefined
-        ),
-      ],
+      [inputParam(ctx, input)],
       undefined,
       factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
       validation
+    );
+    if (g.decoders.length === 0) return decoder;
+
+    // (() => { const d0 = Schema.decodeUnknownSync(sub0); ...; return (input) => ...; })()
+    return factory.createCallExpression(
+      factory.createParenthesizedExpression(
+        factory.createArrowFunction(
+          undefined,
+          undefined,
+          [],
+          undefined,
+          factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          factory.createBlock(
+            [...decoderStatements(g), factory.createReturnStatement(decoder)],
+            true
+          )
+        )
+      ),
+      undefined,
+      []
     );
   },
 });
@@ -787,6 +587,7 @@ export const specializeSchemaExpression = defineExpressionMacro({
 
 /**
  * specializeSchemaUnsafe(schema, input) — Decode and return value, throw on failure.
+ * The input expression is evaluated exactly once.
  */
 export const specializeSchemaUnsafeExpression = defineExpressionMacro({
   name: "specializeSchemaUnsafe",
@@ -804,30 +605,37 @@ export const specializeSchemaUnsafeExpression = defineExpressionMacro({
 
     const [schemaArg, inputArg] = args;
     const factory = ctx.factory;
+    const parsed = parseSchema(schemaArg);
 
-    // Parse the schema structure
-    const parsedSchema = inferSchemaKind(ctx, schemaArg);
-
-    if (parsedSchema.kind === "unsupported") {
+    if (parsed.kind === "fallback") {
       ctx.reportWarning(
         schemaArg,
         "specializeSchemaUnsafe: Schema structure not recognized, falling back to runtime decoding"
       );
-      return factory.createCallExpression(
-        factory.createCallExpression(
-          factory.createPropertyAccessExpression(
-            factory.createIdentifier("Schema"),
-            factory.createIdentifier("decodeSync")
-          ),
-          undefined,
-          [schemaArg]
-        ),
-        undefined,
-        [inputArg]
-      );
+      return factory.createCallExpression(decodeUnknownSync(ctx, schemaArg), undefined, [inputArg]);
     }
 
-    return generateValidationCode(ctx, parsedSchema, inputArg, "input", schemaArg);
+    // ((input: unknown) => { const d0 = ...; return <validation>; })(inputArg)
+    const g: Gen = { ctx, decoders: [] };
+    const input = ctx.generateUniqueName("input");
+    const validation = generateValidation(g, parsed, input, "input");
+    return factory.createCallExpression(
+      factory.createParenthesizedExpression(
+        factory.createArrowFunction(
+          undefined,
+          undefined,
+          [inputParam(ctx, input)],
+          undefined,
+          factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+          factory.createBlock(
+            [...decoderStatements(g), factory.createReturnStatement(validation)],
+            true
+          )
+        )
+      ),
+      undefined,
+      [inputArg]
+    );
   },
 });
 

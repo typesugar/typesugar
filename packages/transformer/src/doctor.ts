@@ -6,7 +6,55 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { createRequire } from "module";
 import * as ts from "typescript";
+import { macroTransformerFactory } from "./pipeline.js";
+import {
+  KNOWN_LANGUAGE_SERVICE_PLUGIN_NAMES,
+  LANGUAGE_SERVICE_PLUGIN_NAME,
+  LEGACY_BROKEN_LANGUAGE_SERVICE_PLUGIN_NAME,
+} from "./init.js";
+
+type TsConfigPlugin = { name?: string; transform?: string; type?: string };
+
+/**
+ * Read `compilerOptions.plugins` the way TypeScript does: JSONC (comments,
+ * trailing commas) and following `extends`. A plain JSON.parse failed on
+ * any commented tsconfig and ignored inherited plugins.
+ */
+function readTsConfigPlugins(
+  tsconfigPath: string
+): { plugins: TsConfigPlugin[] } | { error: string } {
+  const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+  if (configFile.error) {
+    return { error: ts.flattenDiagnosticMessageText(configFile.error.messageText, " ") };
+  }
+  const parsed = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(tsconfigPath)
+  );
+  const plugins = (parsed.options.plugins ?? []) as unknown as TsConfigPlugin[];
+  return { plugins };
+}
+
+function readPackageDeps(cwd: string): Record<string, string> {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf-8"));
+    return { ...pkg.dependencies, ...pkg.devDependencies };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * A project that compiles through a bundler with unplugin-typesugar doesn't
+ * need ts-patch at all — the ts-patch checks must not fail for it.
+ */
+function usesBundlerPlugin(cwd: string): boolean {
+  const deps = readPackageDeps(cwd);
+  return Boolean(deps["unplugin-typesugar"]);
+}
 
 interface DiagnosticCheck {
   name: string;
@@ -141,7 +189,7 @@ function checkTsConfig(cwd: string): DiagnosticCheck {
   };
 }
 
-function checkTransformerPlugin(cwd: string): DiagnosticCheck {
+export function checkTransformerPlugin(cwd: string): DiagnosticCheck {
   const tsconfigPath = path.join(cwd, "tsconfig.json");
 
   if (!fs.existsSync(tsconfigPath)) {
@@ -153,13 +201,24 @@ function checkTransformerPlugin(cwd: string): DiagnosticCheck {
   }
 
   try {
-    const content = fs.readFileSync(tsconfigPath, "utf-8");
-    const tsconfig = JSON.parse(content);
-    const plugins = tsconfig.compilerOptions?.plugins ?? [];
+    const read = readTsConfigPlugins(tsconfigPath);
+    if ("error" in read) {
+      return {
+        name: "Transformer plugin configured",
+        status: "fail",
+        message: `Could not parse tsconfig.json: ${read.error}`,
+      };
+    }
 
-    const hasTransformer = plugins.some(
-      (p: { transform?: string }) => p.transform === "@typesugar/transformer"
-    );
+    const hasTransformer = read.plugins.some((p) => p.transform === "@typesugar/transformer");
+
+    if (!hasTransformer && usesBundlerPlugin(cwd)) {
+      return {
+        name: "Transformer plugin configured",
+        status: "skip",
+        message: "Not needed: using unplugin-typesugar",
+      };
+    }
 
     if (!hasTransformer) {
       return {
@@ -184,7 +243,7 @@ function checkTransformerPlugin(cwd: string): DiagnosticCheck {
   }
 }
 
-function checkLanguageServicePlugin(cwd: string): DiagnosticCheck {
+export function checkLanguageServicePlugin(cwd: string): DiagnosticCheck {
   const tsconfigPath = path.join(cwd, "tsconfig.json");
 
   if (!fs.existsSync(tsconfigPath)) {
@@ -196,14 +255,28 @@ function checkLanguageServicePlugin(cwd: string): DiagnosticCheck {
   }
 
   try {
-    const content = fs.readFileSync(tsconfigPath, "utf-8");
-    const tsconfig = JSON.parse(content);
-    const plugins = tsconfig.compilerOptions?.plugins ?? [];
+    const read = readTsConfigPlugins(tsconfigPath);
+    if ("error" in read) {
+      return {
+        name: "Language service plugin configured",
+        status: "warn",
+        message: `Could not parse tsconfig.json: ${read.error}`,
+      };
+    }
 
-    const hasLSPlugin = plugins.some(
-      (p: { name?: string }) =>
-        p.name === "typesugar/language-service" ||
-        p.name === "@typesugar/transformer/language-service"
+    // The name older `typesugar init` versions wrote: no package exports it,
+    // so tsserver silently never loads the plugin.
+    if (read.plugins.some((p) => p.name === LEGACY_BROKEN_LANGUAGE_SERVICE_PLUGIN_NAME)) {
+      return {
+        name: "Language service plugin configured",
+        status: "fail",
+        message: `"${LEGACY_BROKEN_LANGUAGE_SERVICE_PLUGIN_NAME}" does not resolve to any package — the IDE plugin never loads`,
+        fix: `Replace it with { "name": "${LANGUAGE_SERVICE_PLUGIN_NAME}" } in compilerOptions.plugins (or re-run typesugar init)`,
+      };
+    }
+
+    const hasLSPlugin = read.plugins.some(
+      (p) => p.name !== undefined && KNOWN_LANGUAGE_SERVICE_PLUGIN_NAMES.includes(p.name)
     );
 
     if (!hasLSPlugin) {
@@ -211,7 +284,7 @@ function checkLanguageServicePlugin(cwd: string): DiagnosticCheck {
         name: "Language service plugin configured",
         status: "warn",
         message: "Language service plugin not found (optional but recommended)",
-        fix: 'Add { "name": "typesugar/language-service" } to compilerOptions.plugins for IDE support',
+        fix: `Add { "name": "${LANGUAGE_SERVICE_PLUGIN_NAME}" } to compilerOptions.plugins for IDE support`,
       };
     }
 
@@ -229,7 +302,7 @@ function checkLanguageServicePlugin(cwd: string): DiagnosticCheck {
   }
 }
 
-function checkTsPatch(cwd: string): DiagnosticCheck {
+export function checkTsPatch(cwd: string): DiagnosticCheck {
   const pkgPath = path.join(cwd, "package.json");
 
   if (!fs.existsSync(pkgPath)) {
@@ -243,6 +316,14 @@ function checkTsPatch(cwd: string): DiagnosticCheck {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+    if (!allDeps["ts-patch"] && usesBundlerPlugin(cwd)) {
+      return {
+        name: "ts-patch installed",
+        status: "skip",
+        message: "Not needed: using unplugin-typesugar",
+      };
+    }
 
     if (!allDeps["ts-patch"]) {
       return {
@@ -275,6 +356,14 @@ export function checkTsPatchActive(cwd: string): DiagnosticCheck {
       name: "ts-patch active",
       status: "skip",
       message: "TypeScript not installed in node_modules",
+    };
+  }
+
+  if (!readPackageDeps(cwd)["ts-patch"] && usesBundlerPlugin(cwd)) {
+    return {
+      name: "ts-patch active",
+      status: "skip",
+      message: "Not needed: using unplugin-typesugar",
     };
   }
 
@@ -328,6 +417,15 @@ function checkPrepareScript(cwd: string): DiagnosticCheck {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     const prepareScript = pkg.scripts?.prepare ?? "";
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+    if (!allDeps["ts-patch"] && usesBundlerPlugin(cwd)) {
+      return {
+        name: "prepare script configured",
+        status: "skip",
+        message: "Not needed: using unplugin-typesugar",
+      };
+    }
 
     if (!prepareScript.includes("ts-patch")) {
       return {
@@ -480,9 +578,32 @@ function checkSkipLibCheck(cwd: string): DiagnosticCheck {
   }
 }
 
-function checkMacroRegistration(cwd: string): DiagnosticCheck {
+export function checkMacroRegistration(cwd: string): DiagnosticCheck {
+  // Load the PROJECT's own @typesugar/macros and read the registry from the
+  // PROJECT's own @typesugar/core (both resolved from `cwd`, through one CJS
+  // require so they share an instance). The old check used a bare `require`,
+  // which doesn't exist in this ESM bin, so it was always skipped.
+  let projectRequire: NodeRequire;
   try {
-    const { globalRegistry } = require("@typesugar/core");
+    projectRequire = createRequire(path.join(cwd, "package.json"));
+    projectRequire.resolve("@typesugar/core");
+  } catch {
+    return {
+      name: "Macro registration",
+      status: "skip",
+      message: "@typesugar/core is not installed in this project",
+    };
+  }
+
+  try {
+    try {
+      projectRequire("@typesugar/macros");
+    } catch {
+      // Not installed / not loadable: the registry count below says so.
+    }
+    const { globalRegistry } = projectRequire("@typesugar/core") as {
+      globalRegistry: { getAll(): unknown[] };
+    };
     const all = globalRegistry.getAll();
 
     if (all.length === 0) {
@@ -490,7 +611,7 @@ function checkMacroRegistration(cwd: string): DiagnosticCheck {
         name: "Macro registration",
         status: "warn",
         message: "0 macros registered — macros may not be loading correctly",
-        fix: "Ensure @typesugar/core is loaded via ESM, or check for ESM/CJS dual-instance issues",
+        fix: "Ensure @typesugar/macros is installed, or check for ESM/CJS dual-instance issues",
       };
     }
 
@@ -499,11 +620,11 @@ function checkMacroRegistration(cwd: string): DiagnosticCheck {
       status: "pass",
       message: `${all.length} macros registered`,
     };
-  } catch {
+  } catch (e) {
     return {
       name: "Macro registration",
-      status: "skip",
-      message: "Could not load @typesugar/core",
+      status: "warn",
+      message: `Could not load @typesugar/core: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
 }
@@ -568,71 +689,100 @@ function checkVersionMismatch(cwd: string): DiagnosticCheck {
   }
 }
 
-function tryMacroExpansion(cwd: string, verbose: boolean): DiagnosticCheck {
-  const testCode = `
-import { comptime } from "typesugar";
-const x = comptime(1 + 1);
-`;
+/**
+ * Actually expand a macro with this project's tsconfig: build a program
+ * containing a probe file in the project directory (so `typesugar` resolves
+ * from the project), run the real macro transformer over it, and check that
+ * the `comptime` call was replaced. The old version only type-checked the
+ * probe and never ran the transformer.
+ */
+export function tryMacroExpansion(cwd: string, verbose: boolean): DiagnosticCheck {
+  const name = "Macro expansion test";
+  const testCode = `import { comptime } from "typesugar";\nexport const x = comptime(() => 40 + 2);\n`;
 
   try {
     const configPath = path.join(cwd, "tsconfig.json");
     if (!fs.existsSync(configPath)) {
-      return {
-        name: "Macro expansion test",
-        status: "skip",
-        message: "No tsconfig.json",
-      };
+      return { name, status: "skip", message: "No tsconfig.json" };
+    }
+
+    try {
+      createRequire(path.join(cwd, "package.json")).resolve("typesugar");
+    } catch {
+      return { name, status: "skip", message: "typesugar is not installed in this project" };
     }
 
     const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
     if (configFile.error) {
-      return {
-        name: "Macro expansion test",
-        status: "skip",
-        message: "Could not read tsconfig.json",
-      };
+      return { name, status: "skip", message: "Could not read tsconfig.json" };
     }
 
     const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, cwd);
+    const compilerOptions: ts.CompilerOptions = { ...parsed.options, noEmit: true };
 
-    const sourceFile = ts.createSourceFile("test.ts", testCode, ts.ScriptTarget.ES2022, true);
-
-    const compilerOptions: ts.CompilerOptions = {
-      ...parsed.options,
-      noEmit: true,
-    };
-
+    const probePath = path.join(cwd, "__typesugar_doctor_probe__.ts");
     const host = ts.createCompilerHost(compilerOptions);
-    const originalGetSourceFile = host.getSourceFile;
-    host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
-      if (fileName === "test.ts") {
-        return sourceFile;
+    const originalGetSourceFile = host.getSourceFile.bind(host);
+    const originalFileExists = host.fileExists.bind(host);
+    const originalReadFile = host.readFile.bind(host);
+    host.fileExists = (f) => path.resolve(f) === probePath || originalFileExists(f);
+    host.readFile = (f) => (path.resolve(f) === probePath ? testCode : originalReadFile(f));
+    host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
+      path.resolve(fileName) === probePath
+        ? ts.createSourceFile(fileName, testCode, languageVersion, true, ts.ScriptKind.TS)
+        : originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+
+    const program = ts.createProgram([probePath], compilerOptions, host);
+    const sourceFile = program.getSourceFile(probePath);
+    if (!sourceFile) {
+      return { name, status: "warn", message: "Could not create the probe program" };
+    }
+
+    const macroErrors: string[] = [];
+    const factory = macroTransformerFactory(program, {
+      verbose,
+      cacheDir: false,
+      onDiagnostic: (d) => {
+        if (d.category === ts.DiagnosticCategory.Error) {
+          macroErrors.push(ts.flattenDiagnosticMessageText(d.messageText, " "));
+        }
+      },
+    });
+    const result = ts.transform(sourceFile, [factory], compilerOptions);
+    // Inspect the transformed AST: the comptime call must be gone and the
+    // folded literal 42 present.
+    let comptimeCallLeft = false;
+    let has42 = false;
+    const inspect = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "comptime"
+      ) {
+        comptimeCallLeft = true;
       }
-      return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+      if (ts.isNumericLiteral(node) && node.text === "42") has42 = true;
+      ts.forEachChild(node, inspect);
     };
+    inspect(result.transformed[0]);
+    result.dispose();
 
-    const program = ts.createProgram(["test.ts"], compilerOptions, host);
-    const diagnostics = ts.getPreEmitDiagnostics(program);
-
-    const errors = diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error);
-
-    if (errors.length > 0 && verbose) {
-      const messages = errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, " "));
+    if (macroErrors.length > 0) {
+      return { name, status: "fail", message: `Macro errors: ${macroErrors.join("; ")}` };
+    }
+    if (comptimeCallLeft || !has42) {
       return {
-        name: "Macro expansion test",
-        status: "warn",
-        message: `Compilation errors: ${messages.join("; ")}`,
+        name,
+        status: "fail",
+        message: "comptime() was not expanded — the macro transformer is not registering macros",
+        fix: "Ensure typesugar and @typesugar/macros are installed and resolvable from this project",
       };
     }
 
-    return {
-      name: "Macro expansion test",
-      status: "pass",
-      message: "",
-    };
+    return { name, status: "pass", message: "comptime(() => 40 + 2) expanded to 42" };
   } catch (e) {
     return {
-      name: "Macro expansion test",
+      name,
       status: "warn",
       message: `Could not run test: ${e instanceof Error ? e.message : String(e)}`,
     };
@@ -660,11 +810,8 @@ export async function runDoctor(verbose: boolean): Promise<void> {
     checkSkipLibCheck(cwd),
     checkMacroRegistration(cwd),
     checkVersionMismatch(cwd),
+    tryMacroExpansion(cwd, verbose),
   ];
-
-  if (verbose) {
-    checks.push(tryMacroExpansion(cwd, verbose));
-  }
 
   let passCount = 0;
   let failCount = 0;

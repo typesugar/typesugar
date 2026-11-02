@@ -22,144 +22,284 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./typeclasses": {
-      "types": "./dist/typeclasses/index.d.ts",
-      "import": "./dist/typeclasses/index.js",
-      "require": "./dist/typeclasses/index.cjs"
+      "import": {
+        "types": "./dist/typeclasses/index.d.ts",
+        "default": "./dist/typeclasses/index.js"
+      },
+      "require": {
+        "types": "./dist/typeclasses/index.d.cts",
+        "default": "./dist/typeclasses/index.cjs"
+      }
     },
     "./typeclasses/flatmap": {
-      "types": "./dist/typeclasses/flatmap.d.ts",
-      "import": "./dist/typeclasses/flatmap.js",
-      "require": "./dist/typeclasses/flatmap.cjs"
+      "import": {
+        "types": "./dist/typeclasses/flatmap.d.ts",
+        "default": "./dist/typeclasses/flatmap.js"
+      },
+      "require": {
+        "types": "./dist/typeclasses/flatmap.d.cts",
+        "default": "./dist/typeclasses/flatmap.cjs"
+      }
     },
     "./extensions": {
-      "types": "./dist/extensions/index.d.ts",
-      "import": "./dist/extensions/index.js",
-      "require": "./dist/extensions/index.cjs"
+      "import": {
+        "types": "./dist/extensions/index.d.ts",
+        "default": "./dist/extensions/index.js"
+      },
+      "require": {
+        "types": "./dist/extensions/index.d.cts",
+        "default": "./dist/extensions/index.cjs"
+      }
     },
     "./data": {
-      "types": "./dist/data/index.d.ts",
-      "import": "./dist/data/index.js",
-      "require": "./dist/data/index.cjs"
+      "import": {
+        "types": "./dist/data/index.d.ts",
+        "default": "./dist/data/index.js"
+      },
+      "require": {
+        "types": "./dist/data/index.d.cts",
+        "default": "./dist/data/index.cjs"
+      }
     },
     "./macros": {
-      "types": "./dist/macros/index.d.ts",
-      "import": "./dist/macros/index.js",
-      "require": "./dist/macros/index.cjs"
+      "import": {
+        "types": "./dist/macros/index.d.ts",
+        "default": "./dist/macros/index.js"
+      },
+      "require": {
+        "types": "./dist/macros/index.d.cts",
+        "default": "./dist/macros/index.cjs"
+      }
     },
     "./syntax/eq": {
-      "types": "./dist/syntax/eq.d.ts",
-      "import": "./dist/syntax/eq.js",
-      "require": "./dist/syntax/eq.cjs"
+      "import": {
+        "types": "./dist/syntax/eq.d.ts",
+        "default": "./dist/syntax/eq.js"
+      },
+      "require": {
+        "types": "./dist/syntax/eq.d.cts",
+        "default": "./dist/syntax/eq.cjs"
+      }
     },
     "./syntax/eq/ops": {
-      "types": "./dist/syntax/eq/ops.d.ts",
-      "import": "./dist/syntax/eq/ops.js",
-      "require": "./dist/syntax/eq/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/eq/ops.d.ts",
+        "default": "./dist/syntax/eq/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/eq/ops.d.cts",
+        "default": "./dist/syntax/eq/ops.cjs"
+      }
     },
     "./syntax/ord": {
-      "types": "./dist/syntax/ord.d.ts",
-      "import": "./dist/syntax/ord.js",
-      "require": "./dist/syntax/ord.cjs"
+      "import": {
+        "types": "./dist/syntax/ord.d.ts",
+        "default": "./dist/syntax/ord.js"
+      },
+      "require": {
+        "types": "./dist/syntax/ord.d.cts",
+        "default": "./dist/syntax/ord.cjs"
+      }
     },
     "./syntax/ord/ops": {
-      "types": "./dist/syntax/ord/ops.d.ts",
-      "import": "./dist/syntax/ord/ops.js",
-      "require": "./dist/syntax/ord/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/ord/ops.d.ts",
+        "default": "./dist/syntax/ord/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/ord/ops.d.cts",
+        "default": "./dist/syntax/ord/ops.cjs"
+      }
     },
     "./syntax/semigroup": {
-      "types": "./dist/syntax/semigroup.d.ts",
-      "import": "./dist/syntax/semigroup.js",
-      "require": "./dist/syntax/semigroup.cjs"
+      "import": {
+        "types": "./dist/syntax/semigroup.d.ts",
+        "default": "./dist/syntax/semigroup.js"
+      },
+      "require": {
+        "types": "./dist/syntax/semigroup.d.cts",
+        "default": "./dist/syntax/semigroup.cjs"
+      }
     },
     "./syntax/semigroup/ops": {
-      "types": "./dist/syntax/semigroup/ops.d.ts",
-      "import": "./dist/syntax/semigroup/ops.js",
-      "require": "./dist/syntax/semigroup/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/semigroup/ops.d.ts",
+        "default": "./dist/syntax/semigroup/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/semigroup/ops.d.cts",
+        "default": "./dist/syntax/semigroup/ops.cjs"
+      }
     },
     "./syntax/monoid": {
-      "types": "./dist/syntax/monoid.d.ts",
-      "import": "./dist/syntax/monoid.js",
-      "require": "./dist/syntax/monoid.cjs"
+      "import": {
+        "types": "./dist/syntax/monoid.d.ts",
+        "default": "./dist/syntax/monoid.js"
+      },
+      "require": {
+        "types": "./dist/syntax/monoid.d.cts",
+        "default": "./dist/syntax/monoid.cjs"
+      }
     },
     "./syntax/monoid/ops": {
-      "types": "./dist/syntax/monoid/ops.d.ts",
-      "import": "./dist/syntax/monoid/ops.js",
-      "require": "./dist/syntax/monoid/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/monoid/ops.d.ts",
+        "default": "./dist/syntax/monoid/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/monoid/ops.d.cts",
+        "default": "./dist/syntax/monoid/ops.cjs"
+      }
     },
     "./syntax/group": {
-      "types": "./dist/syntax/group.d.ts",
-      "import": "./dist/syntax/group.js",
-      "require": "./dist/syntax/group.cjs"
+      "import": {
+        "types": "./dist/syntax/group.d.ts",
+        "default": "./dist/syntax/group.js"
+      },
+      "require": {
+        "types": "./dist/syntax/group.d.cts",
+        "default": "./dist/syntax/group.cjs"
+      }
     },
     "./syntax/group/ops": {
-      "types": "./dist/syntax/group/ops.d.ts",
-      "import": "./dist/syntax/group/ops.js",
-      "require": "./dist/syntax/group/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/group/ops.d.ts",
+        "default": "./dist/syntax/group/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/group/ops.d.cts",
+        "default": "./dist/syntax/group/ops.cjs"
+      }
     },
     "./syntax/numeric": {
-      "types": "./dist/syntax/numeric.d.ts",
-      "import": "./dist/syntax/numeric.js",
-      "require": "./dist/syntax/numeric.cjs"
+      "import": {
+        "types": "./dist/syntax/numeric.d.ts",
+        "default": "./dist/syntax/numeric.js"
+      },
+      "require": {
+        "types": "./dist/syntax/numeric.d.cts",
+        "default": "./dist/syntax/numeric.cjs"
+      }
     },
     "./syntax/numeric/ops": {
-      "types": "./dist/syntax/numeric/ops.d.ts",
-      "import": "./dist/syntax/numeric/ops.js",
-      "require": "./dist/syntax/numeric/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/numeric/ops.d.ts",
+        "default": "./dist/syntax/numeric/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/numeric/ops.d.cts",
+        "default": "./dist/syntax/numeric/ops.cjs"
+      }
     },
     "./syntax/integral": {
-      "types": "./dist/syntax/integral.d.ts",
-      "import": "./dist/syntax/integral.js",
-      "require": "./dist/syntax/integral.cjs"
+      "import": {
+        "types": "./dist/syntax/integral.d.ts",
+        "default": "./dist/syntax/integral.js"
+      },
+      "require": {
+        "types": "./dist/syntax/integral.d.cts",
+        "default": "./dist/syntax/integral.cjs"
+      }
     },
     "./syntax/integral/ops": {
-      "types": "./dist/syntax/integral/ops.d.ts",
-      "import": "./dist/syntax/integral/ops.js",
-      "require": "./dist/syntax/integral/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/integral/ops.d.ts",
+        "default": "./dist/syntax/integral/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/integral/ops.d.cts",
+        "default": "./dist/syntax/integral/ops.cjs"
+      }
     },
     "./syntax/fractional": {
-      "types": "./dist/syntax/fractional.d.ts",
-      "import": "./dist/syntax/fractional.js",
-      "require": "./dist/syntax/fractional.cjs"
+      "import": {
+        "types": "./dist/syntax/fractional.d.ts",
+        "default": "./dist/syntax/fractional.js"
+      },
+      "require": {
+        "types": "./dist/syntax/fractional.d.cts",
+        "default": "./dist/syntax/fractional.cjs"
+      }
     },
     "./syntax/fractional/ops": {
-      "types": "./dist/syntax/fractional/ops.d.ts",
-      "import": "./dist/syntax/fractional/ops.js",
-      "require": "./dist/syntax/fractional/ops.cjs"
+      "import": {
+        "types": "./dist/syntax/fractional/ops.d.ts",
+        "default": "./dist/syntax/fractional/ops.js"
+      },
+      "require": {
+        "types": "./dist/syntax/fractional/ops.d.cts",
+        "default": "./dist/syntax/fractional/ops.cjs"
+      }
     },
     "./syntax/clone": {
-      "types": "./dist/syntax/clone.d.ts",
-      "import": "./dist/syntax/clone.js",
-      "require": "./dist/syntax/clone.cjs"
+      "import": {
+        "types": "./dist/syntax/clone.d.ts",
+        "default": "./dist/syntax/clone.js"
+      },
+      "require": {
+        "types": "./dist/syntax/clone.d.cts",
+        "default": "./dist/syntax/clone.cjs"
+      }
     },
     "./syntax/debug": {
-      "types": "./dist/syntax/debug.d.ts",
-      "import": "./dist/syntax/debug.js",
-      "require": "./dist/syntax/debug.cjs"
+      "import": {
+        "types": "./dist/syntax/debug.d.ts",
+        "default": "./dist/syntax/debug.js"
+      },
+      "require": {
+        "types": "./dist/syntax/debug.d.cts",
+        "default": "./dist/syntax/debug.cjs"
+      }
     },
     "./syntax/default": {
-      "types": "./dist/syntax/default.d.ts",
-      "import": "./dist/syntax/default.js",
-      "require": "./dist/syntax/default.cjs"
+      "import": {
+        "types": "./dist/syntax/default.d.ts",
+        "default": "./dist/syntax/default.js"
+      },
+      "require": {
+        "types": "./dist/syntax/default.d.cts",
+        "default": "./dist/syntax/default.cjs"
+      }
     },
     "./syntax/json": {
-      "types": "./dist/syntax/json.d.ts",
-      "import": "./dist/syntax/json.js",
-      "require": "./dist/syntax/json.cjs"
+      "import": {
+        "types": "./dist/syntax/json.d.ts",
+        "default": "./dist/syntax/json.js"
+      },
+      "require": {
+        "types": "./dist/syntax/json.d.cts",
+        "default": "./dist/syntax/json.cjs"
+      }
     },
     "./syntax/type-guard": {
-      "types": "./dist/syntax/type-guard.d.ts",
-      "import": "./dist/syntax/type-guard.js",
-      "require": "./dist/syntax/type-guard.cjs"
+      "import": {
+        "types": "./dist/syntax/type-guard.d.ts",
+        "default": "./dist/syntax/type-guard.js"
+      },
+      "require": {
+        "types": "./dist/syntax/type-guard.d.cts",
+        "default": "./dist/syntax/type-guard.cjs"
+      }
     },
     "./syntax/do": {
-      "types": "./dist/syntax/do.d.ts",
-      "import": "./dist/syntax/do.js",
-      "require": "./dist/syntax/do.cjs"
+      "import": {
+        "types": "./dist/syntax/do.d.ts",
+        "default": "./dist/syntax/do.js"
+      },
+      "require": {
+        "types": "./dist/syntax/do.d.cts",
+        "default": "./dist/syntax/do.cjs"
+      }
     }
   },
   "typesugar": {
@@ -190,7 +330,7 @@
     "unplugin-typesugar": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "files": [
     "dist",

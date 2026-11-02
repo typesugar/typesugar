@@ -219,7 +219,10 @@ function comptimeToBoolean(value: import("@typesugar/core").ComptimeValue): bool
     case "boolean":
       return value.value;
     case "number":
-      return value.value !== 0;
+      // NaN is falsy in JS, but `NaN !== 0` is true — check it explicitly.
+      return value.value !== 0 && !Number.isNaN(value.value);
+    case "bigint":
+      return value.value !== BigInt(0);
     case "string":
       return value.value !== "";
     case "null":

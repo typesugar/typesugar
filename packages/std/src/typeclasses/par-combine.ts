@@ -31,7 +31,11 @@ import * as ts from "typescript";
 import { createGenericRegistry, type GenericRegistry } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 import type { BindStep, MapStep } from "../macros/comprehension-utils.js";
-import { createArrowFn, createIIFE } from "../macros/comprehension-utils.js";
+import {
+  createArrowFn,
+  createIIFE,
+  createTupleBindingPattern,
+} from "../macros/comprehension-utils.js";
 import {
   type ParCombine,
   parCombinePromise,
@@ -177,10 +181,9 @@ function buildPromiseAll(
   const destructuredParam = factory.createParameterDeclaration(
     undefined,
     undefined,
-    factory.createArrayBindingPattern(
-      bindSteps.map((s) =>
-        factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-      )
+    createTupleBindingPattern(
+      factory,
+      bindSteps.map((s) => s.name)
     )
   );
 
@@ -305,10 +308,9 @@ function buildAsyncIterableAll(
   const destructuredParam = factory.createParameterDeclaration(
     undefined,
     undefined,
-    factory.createArrayBindingPattern(
-      bindSteps.map((s) =>
-        factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-      )
+    createTupleBindingPattern(
+      factory,
+      bindSteps.map((s) => s.name)
     )
   );
 
@@ -430,10 +432,9 @@ function buildArrayParCombine(
   const destructuredParam = factory.createParameterDeclaration(
     undefined,
     undefined,
-    factory.createArrayBindingPattern(
-      bindSteps.map((s) =>
-        factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-      )
+    createTupleBindingPattern(
+      factory,
+      bindSteps.map((s) => s.name)
     )
   );
 
@@ -586,10 +587,9 @@ function buildIterableParCombine(
   const destructuredParam = factory.createParameterDeclaration(
     undefined,
     undefined,
-    factory.createArrayBindingPattern(
-      bindSteps.map((s) =>
-        factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-      )
+    createTupleBindingPattern(
+      factory,
+      bindSteps.map((s) => s.name)
     )
   );
 
@@ -629,10 +629,9 @@ function createGenericParCombineBuilder(name: string): ParCombineBuilder {
     const destructuredParam = factory.createParameterDeclaration(
       undefined,
       undefined,
-      factory.createArrayBindingPattern(
-        bindSteps.map((s) =>
-          factory.createBindingElement(undefined, undefined, factory.createIdentifier(s.name))
-        )
+      createTupleBindingPattern(
+        factory,
+        bindSteps.map((s) => s.name)
       )
     );
 

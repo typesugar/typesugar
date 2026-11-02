@@ -7,6 +7,7 @@ import * as ts from "typescript";
 import {
   registerDiagnosticSuppressionRule,
   registerDiagnosticSuppressionRuleOnce,
+  registerOrReplaceDiagnosticSuppressionRule,
   clearDiagnosticSuppressionRules,
   getDiagnosticSuppressionRules,
   evaluateDiagnosticSuppression,
@@ -507,5 +508,95 @@ describe("MacroGenerated Rule (Rule 4)", () => {
     expect(
       evaluateDiagnosticSuppression(makeDiagnostic(2339, "in generated", sf, 15), dummyChecker, sf)
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deep-review core #50: a throwing rule must leave a visible trace
+// ---------------------------------------------------------------------------
+
+describe("throwing rules are reported outside audit mode (deep-review core #50)", () => {
+  const sf = createSourceFile("const x = 1;", "throwing.ts");
+
+  beforeEach(() => {
+    clearDiagnosticSuppressionRules();
+    setDiagnosticSuppressionAuditMode(false);
+  });
+
+  afterEach(() => {
+    setDiagnosticSuppressionAuditMode(undefined);
+  });
+
+  it("warns once per rule name even when audit mode is off", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    registerDiagnosticSuppressionRule({
+      name: "Exploding",
+      errorCodes: [],
+      shouldSuppress: () => {
+        throw new Error("kaboom");
+      },
+    });
+
+    const diag = makeDiagnostic(2339, "test", sf);
+    expect(evaluateDiagnosticSuppression(diag, dummyChecker, sf)).toBe(false);
+    expect(evaluateDiagnosticSuppression(diag, dummyChecker, sf)).toBe(false);
+
+    const calls = warnSpy.mock.calls.filter((c) => String(c[0]).includes("Exploding"));
+    warnSpy.mockRestore();
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0][0])).toContain("kaboom");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deep-review core #33: per-project state travels with the call
+// ---------------------------------------------------------------------------
+
+describe("MacroGenerated rule in a multi-project host (deep-review core #33)", () => {
+  const sf = createSourceFile("const x = 1;\nconst y = 2;", "project2.ts");
+
+  beforeEach(() => {
+    clearDiagnosticSuppressionRules();
+    setDiagnosticSuppressionAuditMode(false);
+  });
+
+  it("uses the positionMapFn passed in the evaluation context over the registered one", () => {
+    // Project 1 registered the rule; its mapper knows nothing about project 2's
+    // files and maps every position to itself (IdentityPositionMapper).
+    registerDiagnosticSuppressionRule(createMacroGeneratedRule((_f, pos) => pos));
+
+    // Project 2 filters ITS diagnostics with ITS mapper: position 15 is generated.
+    const project2Map = (_f: string, pos: number) => (pos < 13 ? pos : null);
+    const generated = makeDiagnostic(2339, "in generated code", sf, 15);
+    const original = makeDiagnostic(2339, "real error", sf, 5);
+
+    const kept = filterDiagnostics([generated, original], dummyChecker, () => sf, {
+      positionMapFn: project2Map,
+    });
+    expect(kept).toEqual([original]);
+  });
+
+  it("registerOrReplaceDiagnosticSuppressionRule replaces a same-named rule in place", () => {
+    registerDiagnosticSuppressionRule({
+      name: "First",
+      errorCodes: [],
+      shouldSuppress: () => false,
+    });
+    registerDiagnosticSuppressionRule(createMacroGeneratedRule((_f, pos) => pos));
+    registerDiagnosticSuppressionRule({
+      name: "Last",
+      errorCodes: [],
+      shouldSuppress: () => false,
+    });
+
+    const added = registerOrReplaceDiagnosticSuppressionRule(createMacroGeneratedRule(() => null));
+    expect(added).toBe(false);
+    expect(getDiagnosticSuppressionRules().map((r) => r.name)).toEqual([
+      "First",
+      "MacroGenerated",
+      "Last",
+    ]);
+    const diag = makeDiagnostic(2339, "x", sf, 5);
+    expect(evaluateDiagnosticSuppression(diag, dummyChecker, sf)).toBe(true);
   });
 });

@@ -1,0 +1,13 @@
+const path = require("path");
+const repo = "/Users/deapovey/src/personal/typesugar";
+const ts = require(repo + "/node_modules/typescript");
+const core = require(repo + "/node_modules/@typesugar/core/dist/index.cjs");
+const { macroTransformerFactory } = require(repo + "/packages/transformer/dist/index.cjs");
+const R = process.argv[2];
+core.globalRegistry.register(core.defineExpressionMacro({ name: "dual", expand(ctx, call, args) { console.log("EXPR expand called; 2nd arg kind:", ts.SyntaxKind[call.kind]); return ctx.factory.createNumericLiteral(42); } }));
+core.globalRegistry.register(core.defineAttributeMacro({ name: "dual", validTargets: ["class"], expand(ctx, dec, target) { console.log("ATTR expand called"); return target; } }));
+const files = [path.join(R, "main.ts")];
+const program = ts.createProgram(files, { experimentalDecorators: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext });
+const f = macroTransformerFactory(program, { cacheDir: false });
+const res = ts.transform(program.getSourceFile(files[0]), [f]);
+console.log(ts.createPrinter().printFile(res.transformed[0]));

@@ -19,17 +19,18 @@
  *   post(url: string, body: unknown): Effect.Effect<Response, HttpError>
  * }
  *
- * class HttpClient extends Context.Tag("HttpClient")<
- *   HttpClient,
+ * export class HttpClientTag extends Context.Tag("HttpClient")<
+ *   HttpClientTag,
  *   {
  *     readonly get: (url: string) => Effect.Effect<Response, HttpError>
  *     readonly post: (url: string, body: unknown) => Effect.Effect<Response, HttpError>
  *   }
  * >() {}
  *
- * namespace HttpClient {
- *   export const get = Effect.serviceFunctionEffect(HttpClient, (_: HttpClient) => _.get)
- *   export const post = Effect.serviceFunctionEffect(HttpClient, (_: HttpClient) => _.post)
+ * export namespace HttpClient {
+ *   export const Tag = HttpClientTag
+ *   export const get = Effect.serviceFunctionEffect(HttpClientTag, (_) => _.get)
+ *   export const post = Effect.serviceFunctionEffect(HttpClientTag, (_) => _.post)
  * }
  * ```
  *
@@ -64,16 +65,26 @@ export interface ServiceMethodInfo {
 }
 
 /**
- * Global registry for Effect services.
- * Maps service name to service metadata.
+ * Registry of `@service` declarations seen by the transformer, keyed by
+ * service name.
+ *
+ * SHAPE (per CLAUDE.md "Resolving things a macro just generated"): a LIVE
+ * KEYED REGISTRY written by `@service` as it expands and read by `@layer` in
+ * the same pass. It is advisory only — `@layer` uses it for a "service not
+ * found" warning and never generates code from it — so a service declared in
+ * a file that has not been transformed yet just produces that warning.
+ * Re-registration from the SAME file (watch mode, a re-expanded file) silently
+ * replaces the entry; a same-named service from a DIFFERENT file is a real
+ * name clash and warns.
  */
 export const serviceRegistry = new Map<string, ServiceInfo>();
 
 /**
- * Register a service in the global registry.
+ * Register a service in the registry (replacing any earlier entry).
  */
 export function registerService(info: ServiceInfo): void {
-  if (serviceRegistry.has(info.name)) {
+  const existing = serviceRegistry.get(info.name);
+  if (existing && existing.sourceFile !== info.sourceFile) {
     console.warn(`Service '${info.name}' is already registered, overwriting.`);
   }
   serviceRegistry.set(info.name, info);
@@ -132,60 +143,77 @@ function extractMethods(ctx: MacroContext, iface: ts.InterfaceDeclaration): Serv
 }
 
 /**
- * Generate the Context.Tag class declaration.
+ * Build the service-shape type literal from the interface's own member nodes.
+ *
+ * Method signatures become `readonly name: <T>(params) => R` reusing the
+ * ORIGINAL type-parameter, parameter and return-type nodes, so `?`, `...rest`,
+ * defaults-free optional params, method generics and `this` types survive
+ * exactly (a previous version rebuilt each parameter from its text as a
+ * `TypeReference`, dropping `?`/`...` and method type parameters). Property
+ * signatures are kept as `readonly` properties.
+ */
+function buildShapeType(ctx: MacroContext, iface: ts.InterfaceDeclaration): ts.TypeLiteralNode {
+  const factory = ctx.factory;
+  const readonly = () => [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)];
+  const members: ts.TypeElement[] = [];
+  for (const member of iface.members) {
+    if (ts.isMethodSignature(member)) {
+      members.push(
+        factory.createPropertySignature(
+          readonly(),
+          member.name,
+          member.questionToken,
+          factory.createFunctionTypeNode(
+            member.typeParameters,
+            member.parameters,
+            member.type ?? factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
+          )
+        )
+      );
+    } else if (ts.isPropertySignature(member)) {
+      members.push(
+        factory.createPropertySignature(
+          readonly(),
+          member.name,
+          member.questionToken,
+          member.type ?? factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
+        )
+      );
+    } else {
+      ctx.reportWarning(
+        member,
+        "@service: only method and property signatures are part of the service shape; this member is ignored"
+      );
+    }
+  }
+  return factory.createTypeLiteralNode(members);
+}
+
+/**
+ * Generate the Context.Tag class declaration:
+ * `export class XTag extends Context.Tag("X")<XTag, Shape>() {}`.
+ * `Context` is referenced through `ctx.ensureImport`, so the file needn't
+ * import it.
  */
 function generateTagClass(
-  factory: ts.NodeFactory,
-  serviceName: string,
-  methods: ServiceMethodInfo[]
+  ctx: MacroContext,
+  iface: ts.InterfaceDeclaration,
+  serviceName: string
 ): ts.ClassDeclaration {
-  // Build the service shape type literal
-  const typeMembers: ts.TypeElement[] = methods.map((method) => {
-    // Build parameter types for the function type
-    const paramTypes: ts.ParameterDeclaration[] = method.params.map((p) =>
-      factory.createParameterDeclaration(
-        undefined,
-        undefined,
-        factory.createIdentifier(p.name),
-        undefined,
-        factory.createTypeReferenceNode(p.typeString)
-      )
-    );
+  const factory = ctx.factory;
+  const tagClassName = `${serviceName}Tag`;
 
-    // Create the function type
-    const funcType = factory.createFunctionTypeNode(
-      undefined,
-      paramTypes,
-      factory.createTypeReferenceNode(method.returnType)
-    );
-
-    // Create readonly property signature
-    return factory.createPropertySignature(
-      [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
-      factory.createIdentifier(method.name),
-      undefined,
-      funcType
-    );
-  });
-
-  const shapeTypeLiteral = factory.createTypeLiteralNode(typeMembers);
-
-  // Context.Tag("ServiceName")<ServiceName, ShapeType>()
-  // This is a complex heritage clause
   const tagCall = factory.createCallExpression(
-    factory.createPropertyAccessExpression(
-      factory.createIdentifier("Context"),
-      factory.createIdentifier("Tag")
-    ),
+    factory.createPropertyAccessExpression(ctx.ensureImport("Context", "effect"), "Tag"),
     undefined,
     [factory.createStringLiteral(serviceName)]
   );
 
-  // The extends clause: Context.Tag("ServiceName")<ServiceName, ShapeType>()
+  // Context.Tag("X")<XTag, Shape>()
   const extendsExpression = factory.createCallExpression(
     factory.createExpressionWithTypeArguments(tagCall, [
-      factory.createTypeReferenceNode(serviceName),
-      shapeTypeLiteral,
+      factory.createTypeReferenceNode(tagClassName),
+      buildShapeType(ctx, iface),
     ]),
     undefined,
     []
@@ -197,7 +225,7 @@ function generateTagClass(
 
   return factory.createClassDeclaration(
     [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-    factory.createIdentifier(`${serviceName}Tag`),
+    factory.createIdentifier(tagClassName),
     undefined,
     [heritageClause],
     []
@@ -208,10 +236,11 @@ function generateTagClass(
  * Generate accessor functions namespace.
  */
 function generateAccessorNamespace(
-  factory: ts.NodeFactory,
+  ctx: MacroContext,
   serviceName: string,
   methods: ServiceMethodInfo[]
 ): ts.ModuleDeclaration {
+  const factory = ctx.factory;
   const statements: ts.Statement[] = [];
 
   // Generate const accessor for the Tag
@@ -234,6 +263,9 @@ function generateAccessorNamespace(
 
   // Generate Effect.serviceFunctionEffect for each method
   for (const method of methods) {
+    // Accessors are `export const <name>`; a quoted/computed method name has no
+    // identifier form (it stays reachable through the Tag).
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(method.name)) continue;
     const accessor = factory.createVariableStatement(
       [factory.createModifier(ts.SyntaxKind.ExportKeyword)],
       factory.createVariableDeclarationList(
@@ -244,7 +276,7 @@ function generateAccessorNamespace(
             undefined,
             factory.createCallExpression(
               factory.createPropertyAccessExpression(
-                factory.createIdentifier("Effect"),
+                ctx.ensureImport("Effect", "effect"),
                 factory.createIdentifier("serviceFunctionEffect")
               ),
               undefined,
@@ -305,8 +337,6 @@ export const serviceAttribute: AttributeMacro = defineAttributeMacro({
     target: ts.Declaration,
     _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
-    const factory = ctx.factory;
-
     if (!ts.isInterfaceDeclaration(target)) {
       ctx.reportError(target, "@service can only be applied to interfaces");
       return target;
@@ -338,10 +368,10 @@ export const serviceAttribute: AttributeMacro = defineAttributeMacro({
     outputs.push(target);
 
     // 2. Generate the Context.Tag class
-    outputs.push(generateTagClass(factory, serviceName, methods));
+    outputs.push(generateTagClass(ctx, target, serviceName));
 
     // 3. Generate the accessor namespace
-    outputs.push(generateAccessorNamespace(factory, serviceName, methods));
+    outputs.push(generateAccessorNamespace(ctx, serviceName, methods));
 
     return outputs;
   },

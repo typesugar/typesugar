@@ -38,9 +38,10 @@ describe("import suggestion system", () => {
         eqExports!.some((e) => e.module === "@typesugar/std" || e.module === "typesugar")
       ).toBe(true);
 
-      // Check macros
+      // Check macros. Deep review core #32: the table matches real exports —
+      // `match` is exported by @typesugar/std, not the umbrella.
       expect(index.macroToModule.get("comptime")).toBe("typesugar");
-      expect(index.macroToModule.get("match")).toBe("typesugar");
+      expect(index.macroToModule.get("match")).toBe("@typesugar/std");
 
       // Check extension methods
       expect(index.extensionToModule.get("clamp")).toContain("@typesugar/std");
@@ -118,10 +119,9 @@ describe("import suggestion system", () => {
       const suggestions = getSuggestionsForTypeclass("Show");
 
       expect(suggestions).toHaveLength(1);
-      // Could be from @typesugar/std or re-exported via typesugar
-      expect(
-        suggestions[0].module === "@typesugar/std" || suggestions[0].module === "typesugar"
-      ).toBe(true);
+      // Deep review core #32: `Show` is exported (as a type) by @typesugar/fp;
+      // the umbrella re-export row was removed because typesugar has no Show.
+      expect(suggestions[0].module).toBe("@typesugar/fp");
       expect(suggestions[0].kind).toBe("typeclass");
     });
 

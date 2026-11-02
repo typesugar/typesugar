@@ -84,9 +84,11 @@ export const ensuresMacro = defineExpressionMacro({
             ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
             ctx.factory.createBlock([
               ctx.factory.createThrowStatement(
-                ctx.factory.createNewExpression(ctx.factory.createIdentifier("Error"), undefined, [
-                  message,
-                ])
+                ctx.factory.createNewExpression(
+                  ctx.ensureImport("PostconditionError", "@typesugar/contracts"),
+                  undefined,
+                  [message]
+                )
               ),
             ])
           )

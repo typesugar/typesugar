@@ -20,7 +20,7 @@ describe("Full Processor", () => {
     it("should have correct meta information", () => {
       expect(processor.meta).toBeDefined();
       expect(processor.meta?.name).toBe("typesugar-full");
-      expect(processor.meta?.version).toBe("0.1.0");
+      expect(processor.meta?.version).toMatch(/^\d+\.\d+\.\d+/);
     });
 
     it("should support autofix", () => {

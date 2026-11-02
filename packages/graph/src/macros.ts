@@ -37,25 +37,30 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
     const { factory } = ctx;
     const template = node.template;
 
-    // Extract the template content
+    // Extract the template content. Only literal interpolations are inlined
+    // as DSL text (FMG-5): an identifier (or any other expression) must be
+    // evaluated, so such templates are left to the runtime tag. Note
+    // `"text" in expr` is NOT a literal test — ts.Identifier has `text` too.
+    const isStaticSpan = (e: ts.Expression): e is ts.StringLiteral | ts.NumericLiteral =>
+      ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) || ts.isNumericLiteral(e);
     let templateText: string;
-    if ("text" in template) {
-      // NoSubstitutionTemplateLiteral
-      templateText = (template as ts.NoSubstitutionTemplateLiteral).text;
-    } else if ("templateSpans" in template) {
-      // TemplateExpression - check if all spans are static
-      const tplExpr = template as ts.TemplateExpression;
-      const hasInterpolations = tplExpr.templateSpans.some((span) => !("text" in span.expression));
-      if (hasInterpolations) {
-        // Fall back to runtime if there are dynamic interpolations
-        return node;
+    if (ts.isNoSubstitutionTemplateLiteral(template)) {
+      templateText = template.text;
+    } else if (ts.isTemplateExpression(template)) {
+      if (!template.templateSpans.every((span) => isStaticSpan(span.expression))) {
+        // Fall back to the runtime tag for dynamic interpolations. The user's
+        // `stateMachine` import specifier is removed by import cleanup (it
+        // resolved to this macro), and ensureImport("stateMachine") would reuse
+        // that doomed binding, so import the runtime tag under its own name.
+        return factory.createTaggedTemplateExpression(
+          ctx.ensureImport("__typesugar_stateMachineRuntime", "@typesugar/graph"),
+          undefined,
+          template
+        );
       }
-      // Reconstruct static template
-      templateText = tplExpr.head.text;
-      for (const span of tplExpr.templateSpans) {
-        if ("text" in span.expression) {
-          templateText += (span.expression as ts.StringLiteral).text;
-        }
+      templateText = template.head.text;
+      for (const span of template.templateSpans) {
+        templateText += (span.expression as ts.StringLiteral | ts.NumericLiteral).text;
         templateText += span.literal.text;
       }
     } else {
@@ -151,7 +156,10 @@ export const stateMachineMacro: TaggedTemplateMacroDef = defineTaggedTemplateMac
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
           factory.createCallExpression(
-            factory.createIdentifier("__typesugar_createStateMachineInstance"),
+            // FMG-1: the helper must be imported into the user's file — the
+            // user only imported `stateMachine`, and that specifier is removed
+            // by import cleanup once it resolves to this macro.
+            ctx.ensureImport("__typesugar_createStateMachineInstance", "@typesugar/graph"),
             undefined,
             [
               factory.createObjectLiteralExpression([

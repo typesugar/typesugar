@@ -156,3 +156,14 @@ export const UNIT_ALIASES: Record<string, string> = {
   atmosphere: "atmospheres",
   atmospheres: "atmospheres",
 };
+
+/**
+ * Look up a unit string in {@link UNIT_ALIASES}, considering only the map's
+ * OWN keys. A plain `UNIT_ALIASES[key]` also resolves inherited
+ * `Object.prototype` members (`toString`, `constructor`, `__proto__`, …),
+ * which made `units\`5 toString\`` produce nonsense instead of "Unknown unit"
+ * (MU-21).
+ */
+export function lookupUnitAlias(key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(UNIT_ALIASES, key) ? UNIT_ALIASES[key] : undefined;
+}

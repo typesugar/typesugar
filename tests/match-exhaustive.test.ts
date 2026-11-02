@@ -116,6 +116,14 @@ function buildChain(
 function ident(name: string): ts.Identifier {
   return f.createIdentifier(name);
 }
+/**
+ * A scrutinee with a real-looking text range. The macro (per CLAUDE.md) never
+ * asks the checker about synthetic (pos -1) nodes, so tests that mock
+ * `ctx.getTypeOf` need a non-synthetic scrutinee for the mock to be consulted.
+ */
+function positionedIdent(name: string): ts.Identifier {
+  return ts.setTextRange(f.createIdentifier(name), { pos: 0, end: name.length });
+}
 function num(n: number): ts.NumericLiteral {
   return f.createNumericLiteral(n);
 }
@@ -657,7 +665,7 @@ describe("Wave 5: fully-covered arm optimization", () => {
     const { ctx, printExpr } = createTypedContext(["ok", "fail"]);
 
     const { outermost, rootArgs } = buildChain(
-      ident("x"),
+      positionedIdent("x"),
       { method: "case", args: [str("ok")] },
       { method: "then", args: [num(1)] },
       { method: "case", args: [str("fail")] },
@@ -676,7 +684,7 @@ describe("Wave 5: fully-covered arm optimization", () => {
     const { ctx, printExpr } = createTypedContext(["a", "b", "c"]);
 
     const { outermost, rootArgs } = buildChain(
-      ident("x"),
+      positionedIdent("x"),
       { method: "case", args: [str("a")] },
       { method: "then", args: [num(1)] },
       { method: "case", args: [str("b")] },
@@ -698,7 +706,7 @@ describe("Wave 5: fully-covered arm optimization", () => {
     const { ctx, printExpr } = createTypedContext(["ok", "fail"]);
 
     const { outermost, rootArgs } = buildChain(
-      ident("x"),
+      positionedIdent("x"),
       { method: "case", args: [str("ok")] },
       { method: "then", args: [num(1)] },
       { method: "case", args: [str("fail")] },
@@ -716,7 +724,7 @@ describe("Wave 5: fully-covered arm optimization", () => {
     const { ctx, printExpr } = createTypedContext(["ok", "fail"]);
 
     const { outermost, rootArgs } = buildChain(
-      ident("x"),
+      positionedIdent("x"),
       { method: "case", args: [str("ok")] },
       { method: "then", args: [num(1)] },
       { method: "case", args: [str("fail")] },
@@ -753,7 +761,7 @@ describe("Code review fixes", () => {
     const { ctx, printExpr } = createTypedCtx(["ok", "fail"]);
 
     const { outermost, rootArgs } = buildChain(
-      ident("status"),
+      positionedIdent("status"),
       { method: "case", args: [str("ok")] },
       { method: "then", args: [num(1)] },
       { method: "case", args: [str("fail")] },
@@ -770,7 +778,7 @@ describe("Code review fixes", () => {
   it("H2: wildcard in OR alternative should make match exhaustive", () => {
     const { ctx } = createTestContext();
     const { outermost, rootArgs } = buildChain(
-      ident("x"),
+      positionedIdent("x"),
       { method: "case", args: [num(42)] },
       { method: "or", args: [ident("_")] },
       { method: "then", args: [str("yes")] }
@@ -785,7 +793,7 @@ describe("Code review fixes", () => {
   it("M5: duplicate literal in OR should be reported as unreachable", () => {
     const { ctx } = createTestContext();
     const { outermost, rootArgs } = buildChain(
-      ident("x"),
+      positionedIdent("x"),
       { method: "case", args: [num(42)] },
       { method: "or", args: [num(42)] },
       { method: "then", args: [str("yes")] },
@@ -803,5 +811,42 @@ describe("Code review fixes", () => {
           w.message.includes("duplicate")
       )
     ).toBe(true);
+  });
+});
+
+describe("checker failures are visible (deep review #32)", () => {
+  it("a throwing checker produces ONE warning and the match still expands", () => {
+    const { ctx, printExpr } = createTestContext();
+    ctx.getTypeOf = () => {
+      throw new Error("start < 0");
+    };
+    const { outermost, rootArgs } = buildChain(
+      positionedIdent("x"),
+      { method: "case", args: [str("a")] },
+      { method: "then", args: [num(1)] },
+      { method: "case", args: [str("b")] },
+      { method: "then", args: [num(2)] }
+    );
+    const result = expandFluentMatch(ctx, outermost, rootArgs);
+    expect(printExpr(result)).toContain('=== "a"');
+    const warnings = ctx.getDiagnostics().filter((d) => d.severity === "warning");
+    expect(warnings.filter((w) => w.message.includes("could not determine"))).toHaveLength(1);
+  });
+
+  it("a synthetic scrutinee is never handed to the checker", () => {
+    const { ctx } = createTestContext();
+    let called = false;
+    ctx.getTypeOf = () => {
+      called = true;
+      throw new Error("must not be called");
+    };
+    const { outermost, rootArgs } = buildChain(
+      ident("x"),
+      { method: "case", args: [str("a")] },
+      { method: "then", args: [num(1)] },
+      { method: "else", args: [num(0)] }
+    );
+    expandFluentMatch(ctx, outermost, rootArgs);
+    expect(called).toBe(false);
   });
 });

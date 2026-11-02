@@ -297,31 +297,75 @@ export function findOriginalPosition(
 }
 
 /**
- * Find the generated position for an original position
+ * Reverse (original → generated) index over a decoded source map: for each
+ * `(sourceIndex, sourceLine)`, the mapped segments sorted by source column
+ * (ties keep generated order, so the earliest generated occurrence wins).
+ * Build once per map and pass to `findGeneratedPosition` for repeated lookups.
+ */
+export type ReverseSourceMapIndex = Map<
+  string,
+  Array<{ sourceColumn: number; line: number; column: number }>
+>;
+
+export function buildReverseSourceMapIndex(decoded: DecodedSourceMap): ReverseSourceMapIndex {
+  const index: ReverseSourceMapIndex = new Map();
+  for (let genLine = 0; genLine < decoded.mappings.length; genLine++) {
+    for (const seg of decoded.mappings[genLine]) {
+      if (
+        seg.sourceIndex === undefined ||
+        seg.sourceLine === undefined ||
+        seg.sourceColumn === undefined
+      ) {
+        continue;
+      }
+      const key = `${seg.sourceIndex}:${seg.sourceLine}`;
+      let entries = index.get(key);
+      if (!entries) {
+        entries = [];
+        index.set(key, entries);
+      }
+      entries.push({ sourceColumn: seg.sourceColumn, line: genLine, column: seg.generatedColumn });
+    }
+  }
+  // Stable sort: equal source columns keep generated (line, column) order.
+  for (const entries of index.values()) entries.sort((a, b) => a.sourceColumn - b.sourceColumn);
+  return index;
+}
+
+/**
+ * Find the generated position for an original position.
+ *
+ * Picks the segment on `sourceLine` with the greatest `sourceColumn <= sourceColumn`
+ * (the nearest preceding mapping), not merely the first one — otherwise any
+ * earlier expansion on the same line that changed length shifts the result.
  */
 export function findGeneratedPosition(
   decoded: DecodedSourceMap,
   sourceLine: number,
   sourceColumn: number,
-  sourceIndex: number = 0
+  sourceIndex: number = 0,
+  reverseIndex: ReverseSourceMapIndex = buildReverseSourceMapIndex(decoded)
 ): SourcePosition | null {
-  // Search all lines for the best match
-  for (let genLine = 0; genLine < decoded.mappings.length; genLine++) {
-    const line = decoded.mappings[genLine];
+  const entries = reverseIndex.get(`${sourceIndex}:${sourceLine}`);
+  if (!entries || entries.length === 0) return null;
 
-    for (const segment of line) {
-      if (segment.sourceIndex === sourceIndex && segment.sourceLine === sourceLine) {
-        // Found the line, check if column matches
-        if (segment.sourceColumn !== undefined && segment.sourceColumn <= sourceColumn) {
-          const columnOffset = sourceColumn - segment.sourceColumn;
-          return {
-            line: genLine,
-            column: segment.generatedColumn + columnOffset,
-          };
-        }
-      }
+  // Binary search for the last entry with sourceColumn <= target, then step back
+  // to the first entry with that same column (earliest generated occurrence).
+  let left = 0;
+  let right = entries.length - 1;
+  let best = -1;
+  while (left <= right) {
+    const mid = (left + right) >> 1;
+    if (entries[mid].sourceColumn <= sourceColumn) {
+      best = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
     }
   }
+  if (best < 0) return null;
+  while (best > 0 && entries[best - 1].sourceColumn === entries[best].sourceColumn) best--;
 
-  return null;
+  const entry = entries[best];
+  return { line: entry.line, column: entry.column + (sourceColumn - entry.sourceColumn) };
 }

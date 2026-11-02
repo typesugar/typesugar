@@ -54,7 +54,8 @@ export function stripTypeArguments(text: string): string {
 // =============================================================================
 
 /**
- * Split comma-separated type arguments, respecting nested angle brackets.
+ * Split comma-separated type arguments, respecting nested `<>`, `()`, `[]` and
+ * `{}` (and not treating the `>` of `=>` as a bracket).
  * Input should be the content between `<` and `>` (i.e., without the outer brackets).
  *
  * @example
@@ -64,12 +65,17 @@ export function stripTypeArguments(text: string): string {
  */
 export function splitTopLevelTypeArgs(text: string): string[] {
   const parts: string[] = [];
+  // Depth over every bracket kind, so commas inside function parameter lists,
+  // object/tuple types and generics don't split (deep review core #47).
   let depth = 0;
   let start = 0;
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === "<") depth++;
-    else if (text[i] === ">") depth--;
-    else if (text[i] === "," && depth === 0) {
+    const c = text[i];
+    if (c === "<" || c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ">") {
+      if (!isArrowGreaterThan(text, i)) depth--;
+    } else if (c === ")" || c === "]" || c === "}") depth--;
+    else if (c === "," && depth === 0) {
       parts.push(text.slice(start, i).trim());
       start = i + 1;
     }
@@ -114,10 +120,15 @@ function findMatchingCloseBracket(text: string, openIndex: number): number {
   let depth = 0;
   for (let i = openIndex; i < text.length; i++) {
     if (text[i] === "<") depth++;
-    else if (text[i] === ">") {
+    else if (text[i] === ">" && !isArrowGreaterThan(text, i)) {
       depth--;
       if (depth === 0) return i;
     }
   }
   return -1;
+}
+
+/** Whether the `>` at `i` is part of a function type's `=>`, not a closing bracket. */
+function isArrowGreaterThan(text: string, i: number): boolean {
+  return i > 0 && text[i - 1] === "=";
 }

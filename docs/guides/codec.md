@@ -93,6 +93,14 @@ const json = codec.encode({ x: 10, y: 20 });
 - `codec.decode(data)` — strict, rejects version mismatches
 - `codec.decodeAny(data)` — applies migration chain from any known version
 
+Encoding is type-directed by each field's `type`: `"date"` fields round-trip
+as `Date` (ISO-8601 strings on the wire) and `"bigint"` fields as `bigint`
+(decimal strings on the wire). An absent optional field stays absent — it is
+not turned into `null`. Default values are copied each time they are used,
+so a mutable default like `[]` is never shared between decoded records.
+`__v` is reserved for the version tag; a schema with a field of that name is
+rejected.
+
 ## Binary Codec
 
 For performance-critical paths. Fixed-layout encoding with explicit field offsets:
@@ -113,6 +121,27 @@ const point = codec.decode(bytes); // { x: 1.5, y: 2.5 }
 Binary format: 4-byte header (2 bytes magic `0x54 0x53`, 2 bytes version), then fields at their specified offsets.
 
 Supported field types: `uint8`, `uint16`, `uint32`, `int8`, `int16`, `int32`, `float32`, `float64`, `string`, `bytes`.
+
+- Integer fields are range-checked: encoding a value that does not fit
+  (e.g. `300` in a `uint8`, or a non-integer) throws a `RangeError` instead
+  of silently wrapping.
+- A `string` field holds a 2-byte length plus `size - 2` bytes of UTF-8; a
+  longer string is truncated on a character boundary (never mid-character).
+- `decode` / `decodeAny` reject buffers shorter than the layout.
+
+### Old versions need their own layout
+
+Fixed offsets cannot be inferred for older versions, so pass the layout each
+older version was written with. `decodeAny()` reads old data with its own
+layout, then runs the migration chain; old data whose version has no layout
+is rejected rather than misread:
+
+```typescript
+const codec = createBinaryCodec<PointV2>(pointSchemaV2, v2Layout, {
+  1: v1Layout, // layout used by v1 data
+});
+// or: schema(...).binaryLayout(v2Layout, { 1: v1Layout })
+```
 
 ## Migration Chains
 
@@ -166,21 +195,31 @@ const v1Fields = fieldsAtVersion(s, 1); // fields active at v1
 
 ## Macro Support (Phase 2)
 
-The `@codec` decorator supports field-level decorators (`@since`, `@removed`, `@defaultValue`) for schema evolution:
+The `@codec` decorator supports field-level decorators (`@since`, `@removed`,
+`@renamed`, `@defaultValue`) for schema evolution. Use a class: TypeScript
+cannot parse decorators on interface members.
 
 ```typescript
-@codec({ version: 3 })
-interface UserProfile {
-  name: string;
-  @since(2) email: string;
-  @since(3) @defaultValue({}) preferences: object;
+import { defineSchema } from "@typesugar/codec"; // the generated code calls it
+
+@codec({ version: 3 }) // or @codec(3)
+class UserProfile {
+  name!: string;
+  @since(2) @defaultValue("") email!: string;
+  @since(3) @defaultValue({}) preferences!: object;
   @removed(3) legacyField?: string;
 }
+// generates: const UserProfileSchema = defineSchema("UserProfile", { version: 3, fields: [...] });
 ```
+
+`@since`/`@removed`/`@renamed` need literal arguments (a non-literal one is a
+compile error). `@defaultValue(expr)` accepts any expression; it is emitted
+as written. Optional properties (`x?: T`) are recorded as `optional: true`,
+and `Date` / `bigint` properties get the `"date"` / `"bigint"` types.
 
 ## Zero-Cost Guarantee
 
-Schema definitions are compile-time only — the `@codec` macro extracts type structure at build time, so schema metadata is erased from production bundles. The JSON codec has minimal runtime overhead: just property access plus a version field on each encoded object. The binary codec uses fixed-layout `DataView` reads and writes with no dynamic dispatch. There are no external dependencies beyond `@typesugar/core`.
+The `@codec` macro extracts type structure at build time and emits a small `defineSchema(...)` constant with the field metadata — there is no runtime reflection. The JSON codec has minimal runtime overhead: just property access plus a version field on each encoded object. The binary codec uses fixed-layout `DataView` reads and writes with no dynamic dispatch. There are no external dependencies beyond `@typesugar/core`.
 
 ## Integration
 

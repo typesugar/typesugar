@@ -264,14 +264,34 @@ export function transformCode(
       return createUnchangedResult(code, fileName, diagnostics);
     }
 
-    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const transformedCode = printer.printFile(transformedSourceFile);
+    // Print once, recording a source map from the printer itself, so the
+    // returned code and map describe the same text (deep-review core #41).
+    const printed = printWithSourceMap(transformedSourceFile, code, fileName);
+    const transformedCode = printed.code;
 
     result.dispose();
 
     const expansionCount = globalExpansionTracker.count;
-    const changed = expansionCount > 0;
-    const sourceMap = changed ? globalExpansionTracker.generateSourceMap(code, fileName) : null;
+    // Instance inlining, specialisation, implicit filling, operator rewrites,
+    // import cleanup and DCE never record a tracked expansion, so also compare
+    // against the unmodified file printed the same way (deep-review core #22).
+    const changed =
+      expansionCount > 0 ||
+      transformedCode !==
+        ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }).printFile(sourceFile);
+    // The map comes from the printer that produced `transformedCode` — never from
+    // `ExpansionTracker.generateSourceMap`, which describes `generateExpandedCode()`
+    // text (original with only call sites replaced), not printer output.
+    const sourceMap = changed ? printed.map : null;
+    if (changed && !printed.map && printed.warning) {
+      diagnostics.push({
+        file: fileName,
+        start: 0,
+        length: 0,
+        message: printed.warning,
+        severity: "warning",
+      });
+    }
     const mapper = sourceMap
       ? createPositionMapper(sourceMap, code, transformedCode)
       : new IdentityPositionMapper();
@@ -304,6 +324,72 @@ export function transformCode(
     globalExpansionTracker.clear();
     return createErrorResult(code, fileName, `Transform failed: ${message}`);
   }
+}
+
+/**
+ * TypeScript's printer can record a source map while it prints (that is how
+ * `tsc` emits maps), but the hooks are not in the public `.d.ts`. They are
+ * stable runtime exports across TS 4.x/5.x; feature-detect them and degrade to
+ * "no map" with a visible warning if a future TS drops them.
+ */
+interface InternalSourceMapGenerator {
+  toJSON(): RawSourceMap;
+}
+interface InternalTs {
+  createSourceMapGenerator?: (
+    host: {
+      getCanonicalFileName(f: string): string;
+      getCurrentDirectory(): string;
+      useCaseSensitiveFileNames(): boolean;
+    },
+    file: string,
+    sourceRoot: string,
+    sourcesDirectoryPath: string,
+    options: ts.CompilerOptions
+  ) => InternalSourceMapGenerator;
+  createTextWriter?: (newLine: string) => { getText(): string };
+}
+interface InternalPrinter {
+  writeFile?: (sf: ts.SourceFile, writer: unknown, generator: unknown) => void;
+}
+
+function printWithSourceMap(
+  sf: ts.SourceFile,
+  originalCode: string,
+  fileName: string
+): { code: string; map: RawSourceMap | null; warning?: string } {
+  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+  const its = ts as unknown as InternalTs;
+  const writeFile = (printer as unknown as InternalPrinter).writeFile;
+  if (
+    typeof its.createSourceMapGenerator !== "function" ||
+    typeof its.createTextWriter !== "function" ||
+    typeof writeFile !== "function"
+  ) {
+    return {
+      code: printer.printFile(sf),
+      map: null,
+      warning:
+        "[typesugar] this TypeScript version has no printer source-map hooks; " +
+        "transformCode returned no source map (positions use identity mapping)",
+    };
+  }
+  const generator = its.createSourceMapGenerator(
+    {
+      getCanonicalFileName: (f) => f,
+      getCurrentDirectory: () => "",
+      useCaseSensitiveFileNames: () => true,
+    },
+    fileName,
+    "",
+    "",
+    {}
+  );
+  const writer = its.createTextWriter("\n");
+  writeFile.call(printer, sf, writer, generator);
+  const map = generator.toJSON();
+  if (map.sources.length > 0) map.sourcesContent = [originalCode];
+  return { code: writer.getText(), map };
 }
 
 /**

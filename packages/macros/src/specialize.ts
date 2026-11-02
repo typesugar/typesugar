@@ -46,7 +46,7 @@
 
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
-import { stripPositions, stripCommentsDeep, getOrCreateWeak } from "@typesugar/core";
+import { stripPositions, stripCommentsDeep, getOrCreateWeak, cloneNodeDeep } from "@typesugar/core";
 import { HygieneContext } from "@typesugar/core";
 import * as primitives from "./primitives.js";
 
@@ -71,8 +71,12 @@ export interface SpecCacheEntry {
  * this cache ensures only one specialized version is generated. The specialized
  * function is hoisted to module scope and reused at all call sites.
  *
- * Key format: `fnSymbolId×brand1,brand2,...` where brands are sorted alphabetically.
- * This handles aliased imports (different local names, same function).
+ * Key format: `fnSymbolId×dict1,dict2,...` where each entry identifies the
+ * dictionary passed at that position — the resolved instance declaration, not
+ * merely its type brand (two `Show<Point>` instances must not share a
+ * specialization), in argument order (`pair(a, b)` ≠ `pair(b, a)`). Keying by
+ * the function's symbol handles aliased imports (different local names, same
+ * function). (deep review 1.0, tc#9)
  */
 export class SpecializationCache {
   private cache = new Map<string, SpecCacheEntry>();
@@ -82,12 +86,12 @@ export class SpecializationCache {
    * Compute a cache key for a specialization.
    *
    * @param fnSymbolId - The TypeScript symbol ID of the function (or function name as fallback)
-   * @param dictBrands - Array of dictionary brand names (e.g., ["Array"], ["Option", "Show"])
+   * @param dictIdentities - One identity per dictionary argument, in argument
+   *   order (position-qualified instance identities; order is significant)
    * @returns Cache key string
    */
-  static computeKey(fnSymbolId: string | number, dictBrands: string[]): string {
-    const sortedBrands = [...dictBrands].sort();
-    return `${fnSymbolId}×${sortedBrands.join(",")}`;
+  static computeKey(fnSymbolId: string | number, dictIdentities: string[]): string {
+    return `${fnSymbolId}×${dictIdentities.join(",")}`;
   }
 
   /**
@@ -282,6 +286,14 @@ export interface DictMethod {
   node?: ts.Expression;
   /** Parameter names for the method */
   params: string[];
+  /**
+   * For methods extracted from source with a TypeChecker: each identifier the
+   * body references outside itself, mapped to the symbol it resolves to where
+   * the method is defined. Call sites must resolve every name to the SAME
+   * symbol before inlining (a call-site local named like a module-level helper
+   * would otherwise capture it — deep review 1.0, tc#18).
+   */
+  freeSymbols?: ReadonlyMap<string, ts.Symbol>;
 }
 
 /**
@@ -307,18 +319,48 @@ function instanceRegistryFor(program?: ts.Program): Map<string, DictMethodMap> {
 }
 
 /**
+ * Declaration-keyed view of the same registrations: two unrelated instances
+ * that share a name (different files) are distinct here, unlike the
+ * name-keyed map above, where the last registration wins. Keyed by the
+ * ORIGINAL declaration node (`ts.getOriginalNode`), so a visited/updated copy
+ * of a declaration finds the same entry. No per-Program partitioning is
+ * needed: a fresh Program has fresh nodes, and the WeakMap lets old ones go.
+ *
+ * Shape (CLAUDE.md "Resolving things a macro just generated"): a LIVE keyed
+ * registry written by `@impl` / `impl()` during the transform pass and read
+ * within the same pass — not a scan of a pass-start snapshot. The usual
+ * declare-before-use constraint of a single top-down pass applies.
+ */
+const instanceMethodsByDeclaration = new WeakMap<ts.Node, DictMethodMap>();
+
+/**
  * Register a typeclass instance's methods for specialization using AST nodes.
  * This is the preferred registration method as it avoids source string parsing.
  *
  * Called by @instance macros when processing declarations at compile time.
+ * Pass `declaration` (the instance's `VariableDeclaration`) whenever it is
+ * known, so {@link getInstanceMethodsForDeclaration} can find the entry by
+ * declaration identity rather than by bare name.
  */
 export function registerInstanceMethodsFromAST(
   dictName: string,
   brand: string,
   methods: Map<string, DictMethod>,
-  program?: ts.Program
+  program?: ts.Program,
+  declaration?: ts.Node
 ): void {
-  instanceRegistryFor(program).set(dictName, { brand, methods });
+  const entry: DictMethodMap = { brand, methods };
+  instanceRegistryFor(program).set(dictName, entry);
+  if (declaration) instanceMethodsByDeclaration.set(ts.getOriginalNode(declaration), entry);
+}
+
+/**
+ * The methods registered for exactly this instance declaration (see
+ * {@link registerInstanceMethodsFromAST}'s `declaration` parameter), or
+ * undefined if it was registered by name only / not at all.
+ */
+export function getInstanceMethodsForDeclaration(declaration: ts.Node): DictMethodMap | undefined {
+  return instanceMethodsByDeclaration.get(ts.getOriginalNode(declaration));
 }
 
 /**
@@ -426,6 +468,12 @@ export function extractMethodsFromObjectLiteral(
 
 /**
  * Get the method map for a known dictionary.
+ *
+ * NAME-KEYED: two unrelated declarations with the same name in different
+ * files share one entry. Callers must not use this for an identifier that
+ * resolves (via the checker) to a declaration — resolve that declaration and
+ * extract from source instead (deep review 1.0, tc#8 / core#4). It remains
+ * the lookup for references the checker cannot resolve at all.
  */
 export function getInstanceMethods(
   dictName: string,
@@ -686,11 +734,680 @@ function loadPrimitiveIntrinsicsFromReflection(): void {
 
 loadPrimitiveIntrinsicsFromReflection();
 
+// ============================================================================
+// Safe method inlining
+// ============================================================================
+//
+// Inlining `inst.method(a1, a2)` replaces a call with the method's body, with
+// each parameter reference replaced by its argument. That is only a pure
+// optimization when it cannot change behaviour (deep review 1.0, tc#1-#4).
+//
+// `inlineMethod` DECLINES (returns undefined — the caller keeps the ordinary
+// call) when the body depends on its receiver or activation: `this`, `super`,
+// `arguments` or `new.target` outside a nested non-arrow function, its own
+// `await`/`yield`, or an async/generator method.
+//
+// Otherwise it substitutes arguments directly into the body when ALL of the
+// following hold, and else falls back to applying the method as an IIFE,
+// `((a, b) => body)(arg1, arg2)` — arguments evaluated once, in order, into
+// the body's own scope, i.e. exactly the call's semantics minus the
+// dictionary lookup:
+//
+// - The parameters are plain identifiers with no default or rest, and the
+//   call passes exactly one non-spread argument per parameter.
+// - No binding declared anywhere in the body (locals, nested parameters,
+//   catch variables) has the name of a parameter (substitution would reach
+//   the shadowed inner references) or of any identifier used in an argument
+//   (the inlined argument would be captured by the body's local).
+// - No parameter is assigned to or updated in the body.
+// - Arguments keep their evaluation semantics:
+//     * literals: unrestricted;
+//     * arrow/function expressions: referenced at most once (no duplication);
+//     * identifiers, `this`, property-access chains on those ("stable"):
+//       any number of references, but a reference inside a nested function
+//       (evaluated later, not at call time) is only allowed for an identifier
+//       bound to a const/function/class/enum/import declaration;
+//     * anything else ("effectful", e.g. calls): referenced exactly once,
+//       not inside a nested function or a conditionally-evaluated position
+//       (`&&`/`||`/`??` right side, `?:` branches, optional chains, code after
+//       an `if`), with no call/assignment/update/delete/await/yield evaluated
+//       in the body before it, effectful arguments referenced in argument
+//       order, and every stable argument to its left read before it and every
+//       stable argument to its right read after it.
+//
+// Substitution replaces only identifier REFERENCES — never property names,
+// object-literal keys, method names, binding-pattern property names or
+// labels — and expands a shorthand property `{ a }` to `{ a: <arg> }`.
+// Arguments that are not primary expressions are parenthesized.
+//
+// Known residuals (documented, not checked): a getter or a callee that
+// mutates a caller's `let` binding via a closure can observe the different
+// read timing of a stable argument.
+
+type InlineableFunction =
+  | ts.ArrowFunction
+  | ts.FunctionExpression
+  | ts.MethodDeclaration
+  | ts.FunctionDeclaration;
+
+function asInlineableFunction(node: ts.Node): InlineableFunction | undefined {
+  if (
+    ts.isArrowFunction(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isFunctionDeclaration(node)
+  ) {
+    return node;
+  }
+  return undefined;
+}
+
+interface WalkState {
+  /** Inside a nested function: not evaluated at call time. */
+  nestedFn: boolean;
+  /** Inside a nested non-arrow function or class: `this`/`arguments` rebound. */
+  nonArrow: boolean;
+  /** Possibly not evaluated (short-circuit RHS, ?: branch, optional chain, after an `if`). */
+  cond: boolean;
+}
+
+interface WalkHooks {
+  /** An identifier in a reference (read or write) position. */
+  ref?(id: ts.Identifier, st: WalkState, isWrite: boolean): void;
+  /** A potentially side-effecting operation completed (post-order). */
+  effect?(st: WalkState): void;
+  /** `this`/`super`/`arguments`/`new.target` bound to the inlined function. */
+  receiver?(): void;
+  /** `await`/`yield` belonging to the inlined function. */
+  suspend?(): void;
+  /** Any binding name declared within the walked node. */
+  binding?(name: string): void;
+  /** A construct the analysis doesn't model (classes). */
+  unsupported?(): void;
+}
+
+const LOGICAL_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken,
+]);
+
+function isAssignmentOperatorKind(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+
+function walkBindingName(name: ts.BindingName, st: WalkState, h: WalkHooks): void {
+  if (ts.isIdentifier(name)) {
+    h.binding?.(name.text);
+    return;
+  }
+  for (const element of name.elements) {
+    if (ts.isBindingElement(element)) walkNode(element, st, h);
+  }
+}
+
+function walkFunction(
+  fn: ts.SignatureDeclaration & { body?: ts.Node },
+  st: WalkState,
+  h: WalkHooks
+): void {
+  const inner: WalkState = {
+    nestedFn: true,
+    nonArrow: st.nonArrow || !ts.isArrowFunction(fn),
+    cond: st.cond,
+  };
+  if ((ts.isFunctionExpression(fn) || ts.isFunctionDeclaration(fn)) && fn.name) {
+    h.binding?.(fn.name.text);
+  }
+  for (const p of fn.parameters) walkNode(p, inner, h);
+  if (fn.body) walkNode(fn.body, inner, h);
+}
+
+/**
+ * Walk a method body in evaluation order, distinguishing identifier
+ * references from non-reference identifier positions (property names, keys,
+ * labels, types). Shared by the inliner's analysis and the free-name scan.
+ */
+function walkNode(node: ts.Node, st: WalkState, h: WalkHooks): void {
+  const go = (n: ts.Node | undefined, s: WalkState = st): void => {
+    if (n) walkNode(n, s, h);
+  };
+  const condSt: WalkState = { ...st, cond: true };
+
+  if (ts.isTypeNode(node)) return; // erased
+  if (
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isTypeParameterDeclaration(node)
+  ) {
+    return;
+  }
+
+  if (ts.isIdentifier(node)) {
+    if (node.text === "arguments" && !st.nonArrow) h.receiver?.();
+    h.ref?.(node, st, false);
+    return;
+  }
+  switch (node.kind) {
+    case ts.SyntaxKind.ThisKeyword:
+    case ts.SyntaxKind.SuperKeyword:
+      if (!st.nonArrow) h.receiver?.();
+      return;
+  }
+  if (ts.isMetaProperty(node)) {
+    if (!st.nonArrow) h.receiver?.();
+    return;
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    go(node.expression);
+    return;
+  }
+  if (ts.isQualifiedName(node)) return;
+  if (ts.isPropertyAssignment(node)) {
+    if (ts.isComputedPropertyName(node.name)) go(node.name);
+    go(node.initializer);
+    return;
+  }
+  if (ts.isShorthandPropertyAssignment(node)) {
+    h.ref?.(node.name, st, false);
+    go(node.objectAssignmentInitializer, condSt);
+    return;
+  }
+  if (ts.isMethodDeclaration(node) || ts.isGetAccessor(node) || ts.isSetAccessor(node)) {
+    if (ts.isComputedPropertyName(node.name)) go(node.name);
+    walkFunction(node, st, h);
+    return;
+  }
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node)) {
+    walkFunction(node, st, h);
+    return;
+  }
+  if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+    h.unsupported?.();
+    return;
+  }
+  if (ts.isBindingElement(node)) {
+    if (node.propertyName && ts.isComputedPropertyName(node.propertyName)) go(node.propertyName);
+    walkBindingName(node.name, st, h);
+    go(node.initializer, condSt);
+    return;
+  }
+  if (ts.isVariableDeclaration(node) || ts.isParameter(node)) {
+    walkBindingName(node.name, st, h);
+    go(node.initializer);
+    return;
+  }
+  if (ts.isCatchClause(node)) {
+    if (node.variableDeclaration) walkBindingName(node.variableDeclaration.name, st, h);
+    go(node.block);
+    return;
+  }
+  if (ts.isLabeledStatement(node)) {
+    go(node.statement);
+    return;
+  }
+  if (ts.isBreakStatement(node) || ts.isContinueStatement(node)) return;
+  if (ts.isJsxAttribute(node)) {
+    go(node.initializer);
+    return;
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind;
+    if (LOGICAL_OPERATORS.has(op)) {
+      go(node.left);
+      go(node.right, condSt);
+      if (isAssignmentOperatorKind(op)) h.effect?.(st);
+      return;
+    }
+    if (isAssignmentOperatorKind(op)) {
+      if (ts.isIdentifier(node.left)) {
+        h.ref?.(node.left, st, true);
+      } else {
+        go(node.left);
+      }
+      go(node.right);
+      h.effect?.(st);
+      return;
+    }
+    go(node.left);
+    go(node.right);
+    return;
+  }
+  if (ts.isConditionalExpression(node)) {
+    go(node.condition);
+    go(node.whenTrue, condSt);
+    go(node.whenFalse, condSt);
+    return;
+  }
+  if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+    const isUpdate =
+      node.operator === ts.SyntaxKind.PlusPlusToken ||
+      node.operator === ts.SyntaxKind.MinusMinusToken;
+    if (isUpdate && ts.isIdentifier(node.operand)) {
+      h.ref?.(node.operand, st, true);
+    } else {
+      go(node.operand);
+    }
+    if (isUpdate) h.effect?.(st);
+    return;
+  }
+  if (ts.isDeleteExpression(node)) {
+    go(node.expression);
+    h.effect?.(st);
+    return;
+  }
+  if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+    go(node.expression);
+    const argSt = ts.isOptionalChain(node) ? condSt : st;
+    for (const a of node.arguments ?? []) go(a, argSt);
+    h.effect?.(st);
+    return;
+  }
+  if (ts.isElementAccessExpression(node)) {
+    go(node.expression);
+    go(node.argumentExpression, ts.isOptionalChain(node) ? condSt : st);
+    return;
+  }
+  if (ts.isTaggedTemplateExpression(node)) {
+    go(node.tag);
+    go(node.template);
+    h.effect?.(st);
+    return;
+  }
+  if (ts.isAwaitExpression(node) || ts.isYieldExpression(node)) {
+    if (!st.nestedFn) h.suspend?.();
+    go(node.expression);
+    h.effect?.(st);
+    return;
+  }
+  if (ts.isIfStatement(node)) {
+    go(node.expression);
+    go(node.thenStatement, condSt);
+    go(node.elseStatement, condSt);
+    return;
+  }
+  if (ts.isBlock(node)) {
+    let s = st;
+    for (const stmt of node.statements) {
+      go(stmt, s);
+      if (ts.isIfStatement(stmt)) s = { ...s, cond: true };
+    }
+    return;
+  }
+  ts.forEachChild(node, (child) => {
+    walkNode(child, st, h);
+  });
+}
+
+const TOP_LEVEL_STATE: WalkState = { nestedFn: false, nonArrow: false, cond: false };
+
+/**
+ * Names a method body references that are not its own parameters — i.e. the
+ * identifiers that must resolve to the same declarations wherever the body is
+ * inlined. Coarse by design: a body-local name is included too (checking it
+ * at the call site is harmless).
+ */
+export function collectMethodFreeNames(methodNode: ts.Node): Set<string> {
+  const names = new Set<string>();
+  forEachMethodFreeReference(methodNode, (id) => names.add(id.text));
+  return names;
+}
+
+/**
+ * Visit every identifier REFERENCE in a function's parameter defaults and
+ * body whose name is not one of its own parameters (property names, keys and
+ * labels are not references). Body-local names are included — callers that
+ * have a checker can tell them apart by declaration position.
+ */
+export function forEachMethodFreeReference(
+  methodNode: ts.Node,
+  cb: (id: ts.Identifier) => void
+): void {
+  const fn = asInlineableFunction(methodNode);
+  if (!fn) return;
+  const params = new Set<string>();
+  for (const p of fn.parameters) if (ts.isIdentifier(p.name)) params.add(p.name.text);
+  const hooks: WalkHooks = {
+    ref: (id) => {
+      if (!params.has(id.text)) cb(id);
+    },
+  };
+  for (const p of fn.parameters) if (p.initializer) walkNode(p.initializer, TOP_LEVEL_STATE, hooks);
+  if (fn.body) walkNode(fn.body, TOP_LEVEL_STATE, hooks);
+}
+
+/**
+ * Does this method body depend on its receiver/activation (`this`, `super`,
+ * `arguments`, `new.target`, own `await`/`yield`), or is it async/a
+ * generator? Such bodies change meaning when moved to a call site (tc#2).
+ */
+export function methodDependsOnReceiver(methodNode: ts.Node): boolean {
+  const fn = asInlineableFunction(methodNode);
+  if (!fn) return true;
+  if (fn.asteriskToken) return true;
+  if (fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)) return true;
+  let depends = false;
+  const hooks: WalkHooks = {
+    receiver: () => (depends = true),
+    suspend: () => (depends = true),
+  };
+  for (const p of fn.parameters) walkNode(p, TOP_LEVEL_STATE, hooks);
+  if (fn.body) walkNode(fn.body, TOP_LEVEL_STATE, hooks);
+  return depends;
+}
+
+type ArgClass = "literal" | "pure" | "stable" | "effectful";
+
+function unwrapParens(expr: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+  return expr;
+}
+
+function classifyArgument(arg: ts.Expression): ArgClass {
+  const e = unwrapParens(arg);
+  if (
+    ts.isNumericLiteral(e) ||
+    ts.isStringLiteral(e) ||
+    ts.isBigIntLiteral(e) ||
+    ts.isNoSubstitutionTemplateLiteral(e) ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword ||
+    e.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return "literal";
+  }
+  if (
+    ts.isPrefixUnaryExpression(e) &&
+    (e.operator === ts.SyntaxKind.MinusToken || e.operator === ts.SyntaxKind.PlusToken) &&
+    (ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand))
+  ) {
+    return "literal";
+  }
+  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return "pure";
+  if (isStableReference(e)) return "stable";
+  return "effectful";
+}
+
+function isStableReference(e: ts.Expression): boolean {
+  e = unwrapParens(e);
+  if (ts.isIdentifier(e) || e.kind === ts.SyntaxKind.ThisKeyword) return true;
+  if (ts.isPropertyAccessExpression(e)) return isStableReference(e.expression);
+  return false;
+}
+
+/**
+ * May this argument be read lazily (from inside a nested function in the
+ * inlined body) instead of once at call time? Only for literals and
+ * identifiers bound to declarations that can never be reassigned.
+ */
+function isClosureStable(ctx: MacroContext, arg: ts.Expression, cls: ArgClass): boolean {
+  if (cls === "literal" || cls === "pure") return true;
+  const e = unwrapParens(arg);
+  if (!ts.isIdentifier(e) || e.pos < 0) return false;
+  const checker = (ctx as Partial<MacroContext>).typeChecker;
+  if (!checker) return false;
+  let symbol: ts.Symbol | undefined;
+  try {
+    symbol = checker.getSymbolAtLocation(e);
+  } catch {
+    return false;
+  }
+  const decls = symbol?.declarations;
+  if (!decls || decls.length === 0) return false;
+  return decls.every((d) => {
+    if (d.getSourceFile().isDeclarationFile) return true;
+    if (ts.isVariableDeclaration(d)) {
+      return ts.isVariableDeclarationList(d.parent) && (d.parent.flags & ts.NodeFlags.Const) !== 0;
+    }
+    return (
+      ts.isFunctionDeclaration(d) ||
+      ts.isClassDeclaration(d) ||
+      ts.isEnumDeclaration(d) ||
+      ts.isImportSpecifier(d) ||
+      ts.isImportClause(d) ||
+      ts.isNamespaceImport(d)
+    );
+  });
+}
+
+function collectIdentifierTexts(node: ts.Node, out: Set<string>): void {
+  if (ts.isIdentifier(node)) out.add(node.text);
+  ts.forEachChild(node, (c) => collectIdentifierTexts(c, out));
+}
+
+function needsParens(arg: ts.Expression): boolean {
+  return !(
+    ts.isIdentifier(arg) ||
+    ts.isPropertyAccessExpression(arg) ||
+    ts.isElementAccessExpression(arg) ||
+    ts.isCallExpression(arg) ||
+    ts.isParenthesizedExpression(arg) ||
+    ts.isArrayLiteralExpression(arg) ||
+    ts.isTemplateExpression(arg) ||
+    ts.isNoSubstitutionTemplateLiteral(arg) ||
+    ts.isStringLiteral(arg) ||
+    ts.isNumericLiteral(arg) ||
+    ts.isBigIntLiteral(arg) ||
+    arg.kind === ts.SyntaxKind.ThisKeyword ||
+    arg.kind === ts.SyntaxKind.TrueKeyword ||
+    arg.kind === ts.SyntaxKind.FalseKeyword ||
+    arg.kind === ts.SyntaxKind.NullKeyword
+  );
+}
+
+interface RefEvent {
+  kind: "ref";
+  param: number;
+  nested: boolean;
+  cond: boolean;
+}
+interface EffectEvent {
+  kind: "effect";
+}
+
+/**
+ * Decide whether substituting `callArgs` for `fn`'s parameters preserves the
+ * call's semantics (see the section comment). Returns the parameter names on
+ * success, undefined to decline.
+ */
+function checkInlineSafety(
+  ctx: MacroContext,
+  fn: InlineableFunction,
+  body: ts.Node,
+  callArgs: readonly ts.Expression[]
+): string[] | undefined {
+  if (methodDependsOnReceiver(fn)) return undefined;
+
+  const names: string[] = [];
+  for (const p of fn.parameters) {
+    if (!ts.isIdentifier(p.name) || p.initializer || p.dotDotDotToken) return undefined;
+    names.push(p.name.text);
+  }
+  if (callArgs.length !== names.length) return undefined;
+  if (callArgs.some((a) => ts.isSpreadElement(a))) return undefined;
+
+  const paramIndex = new Map(names.map((n, i) => [n, i] as const));
+  const events: Array<RefEvent | EffectEvent> = [];
+  const bound = new Set<string>();
+  let unsafe = false;
+  walkNode(body, TOP_LEVEL_STATE, {
+    ref: (id, st, isWrite) => {
+      const i = paramIndex.get(id.text);
+      if (i === undefined) return;
+      if (isWrite) unsafe = true;
+      events.push({ kind: "ref", param: i, nested: st.nestedFn, cond: st.cond });
+    },
+    effect: (st) => {
+      if (!st.nestedFn) events.push({ kind: "effect" });
+    },
+    binding: (n) => bound.add(n),
+    unsupported: () => (unsafe = true),
+  });
+  if (unsafe) return undefined;
+
+  // A named function expression can refer to itself; that name is not bound
+  // at the call site.
+  if (ts.isFunctionExpression(fn) && fn.name) bound.add(fn.name.text);
+
+  // Shadowing: a nested binding with a parameter's name.
+  if (names.some((n) => bound.has(n))) return undefined;
+  // Capture: a body binding with the name of an identifier used in an argument.
+  const argIdents = new Set<string>();
+  for (const a of callArgs) collectIdentifierTexts(a, argIdents);
+  for (const n of argIdents) if (bound.has(n)) return undefined;
+
+  const classes = callArgs.map(classifyArgument);
+  const refsOf = (i: number): number[] =>
+    events.flatMap((e, idx) => (e.kind === "ref" && e.param === i ? [idx] : []));
+
+  let lastEffectfulPos = -1;
+  for (let i = 0; i < callArgs.length; i++) {
+    const cls = classes[i];
+    const refIdx = refsOf(i);
+    const refs = refIdx.map((idx) => events[idx] as RefEvent);
+    if (cls === "literal") continue;
+    if (cls === "pure") {
+      if (refs.length > 1) return undefined;
+      continue;
+    }
+    if (cls === "stable") {
+      if (refs.some((r) => r.nested) && !isClosureStable(ctx, callArgs[i], cls)) return undefined;
+      continue;
+    }
+    // effectful
+    if (refs.length !== 1 || refs[0].nested || refs[0].cond) return undefined;
+    const pos = refIdx[0];
+    if (pos < lastEffectfulPos) return undefined; // effectful args out of order
+    lastEffectfulPos = pos;
+    for (let k = 0; k < pos; k++) if (events[k].kind === "effect") return undefined;
+    for (let j = 0; j < callArgs.length; j++) {
+      if (j === i || classes[j] !== "stable") continue;
+      const other = refsOf(j);
+      if (j < i && other.some((idx) => idx > pos)) return undefined;
+      if (j > i && other.some((idx) => idx < pos)) return undefined;
+    }
+  }
+
+  return names;
+}
+
+/**
+ * Replace parameter references with their arguments. Mirrors `walkNode`'s
+ * notion of reference positions; parameters can't be shadowed here
+ * (`checkInlineSafety` rejected that), so every matching reference is the
+ * parameter.
+ */
+function substituteParamRefs(
+  ctx: MacroContext,
+  node: ts.Node,
+  names: readonly string[],
+  callArgs: readonly ts.Expression[]
+): ts.Node {
+  const f = ctx.factory;
+  const index = new Map(names.map((n, i) => [n, i] as const));
+  const replacement = (i: number): ts.Expression => {
+    const arg = callArgs[i];
+    // Always a fresh synthetic copy: never strip positions off the caller's
+    // real nodes in place (a callee body is re-specialized at every call site
+    // and must stay checker-resolvable), and never share one node between
+    // two positions.
+    const node = cloneNodeDeep(arg);
+    return needsParens(node) ? f.createParenthesizedExpression(node) : node;
+  };
+
+  const visit = (n: ts.Node): ts.Node => {
+    if (ts.isTypeNode(n) || ts.isQualifiedName(n)) return n;
+    if (ts.isIdentifier(n)) {
+      const i = index.get(n.text);
+      return i === undefined ? n : replacement(i);
+    }
+    if (ts.isPropertyAccessExpression(n)) {
+      const expr = visit(n.expression) as ts.Expression;
+      return ts.isPropertyAccessChain(n)
+        ? f.updatePropertyAccessChain(n, expr, n.questionDotToken, n.name)
+        : f.updatePropertyAccessExpression(n, expr, n.name);
+    }
+    if (ts.isPropertyAssignment(n)) {
+      const name = ts.isComputedPropertyName(n.name) ? (visit(n.name) as ts.PropertyName) : n.name;
+      return f.updatePropertyAssignment(n, name, visit(n.initializer) as ts.Expression);
+    }
+    if (ts.isShorthandPropertyAssignment(n)) {
+      const i = index.get(n.name.text);
+      if (i === undefined) return ts.visitEachChild(n, visit, ctx.transformContext);
+      return f.createPropertyAssignment(f.createIdentifier(n.name.text), replacement(i));
+    }
+    if (ts.isMethodDeclaration(n)) {
+      return f.updateMethodDeclaration(
+        n,
+        n.modifiers,
+        n.asteriskToken,
+        ts.isComputedPropertyName(n.name) ? (visit(n.name) as ts.PropertyName) : n.name,
+        n.questionToken,
+        n.typeParameters,
+        ts.visitNodes(n.parameters, visit) as ts.NodeArray<ts.ParameterDeclaration>,
+        n.type,
+        n.body ? (visit(n.body) as ts.Block) : undefined
+      );
+    }
+    if (ts.isGetAccessor(n)) {
+      return f.updateGetAccessorDeclaration(
+        n,
+        n.modifiers,
+        ts.isComputedPropertyName(n.name) ? (visit(n.name) as ts.PropertyName) : n.name,
+        ts.visitNodes(n.parameters, visit) as ts.NodeArray<ts.ParameterDeclaration>,
+        n.type,
+        n.body ? (visit(n.body) as ts.Block) : undefined
+      );
+    }
+    if (ts.isSetAccessor(n)) {
+      return f.updateSetAccessorDeclaration(
+        n,
+        n.modifiers,
+        ts.isComputedPropertyName(n.name) ? (visit(n.name) as ts.PropertyName) : n.name,
+        ts.visitNodes(n.parameters, visit) as ts.NodeArray<ts.ParameterDeclaration>,
+        n.body ? (visit(n.body) as ts.Block) : undefined
+      );
+    }
+    if (ts.isBindingElement(n)) {
+      const propertyName =
+        n.propertyName && ts.isComputedPropertyName(n.propertyName)
+          ? (visit(n.propertyName) as ts.PropertyName)
+          : n.propertyName;
+      return f.updateBindingElement(
+        n,
+        n.dotDotDotToken,
+        propertyName,
+        visit(n.name) as ts.BindingName,
+        n.initializer ? (visit(n.initializer) as ts.Expression) : undefined
+      );
+    }
+    if (ts.isLabeledStatement(n)) {
+      return f.updateLabeledStatement(n, n.label, visit(n.statement) as ts.Statement);
+    }
+    if (ts.isBreakStatement(n) || ts.isContinueStatement(n)) return n;
+    if (ts.isJsxAttribute(n)) {
+      return f.updateJsxAttribute(
+        n,
+        n.name,
+        n.initializer ? (visit(n.initializer) as ts.JsxAttributeValue) : undefined
+      );
+    }
+    return ts.visitEachChild(n, visit, ctx.transformContext);
+  };
+
+  return visit(node);
+}
+
 /**
  * Inline a dictionary method call with its concrete implementation.
  *
  * For a method like `(fa, f) => fa.map(f)` called with args `[myArr, myFn]`,
- * produces `myArr.map(myFn)`.
+ * produces `myArr.map(myFn)`. Falls back to an IIFE when direct substitution
+ * could change evaluation, and returns undefined — keep the ordinary call —
+ * when the body depends on its receiver (see "Safe method inlining").
  */
 export function inlineMethod(
   ctx: MacroContext,
@@ -698,7 +1415,7 @@ export function inlineMethod(
   callArgs: ts.Expression[]
 ): ts.Expression | undefined {
   if (!method.node) return undefined;
-  return inlineFromNode(ctx, method.node, method.params, callArgs);
+  return inlineFromNode(ctx, method.node, callArgs);
 }
 
 /**
@@ -707,60 +1424,34 @@ export function inlineMethod(
 function inlineFromNode(
   ctx: MacroContext,
   methodNode: ts.Expression | ts.Node,
-  paramNames: string[],
   callArgs: ts.Expression[]
 ): ts.Expression | undefined {
-  let body: ts.Node | undefined;
-  let params: readonly ts.ParameterDeclaration[] | undefined;
+  const fn = asInlineableFunction(methodNode);
+  const body = fn?.body;
+  if (!fn || !body) return undefined;
 
-  if (ts.isArrowFunction(methodNode)) {
-    body = methodNode.body;
-    params = methodNode.parameters;
-  } else if (ts.isFunctionExpression(methodNode)) {
-    body = methodNode.body;
-    params = methodNode.parameters;
-  } else if (ts.isMethodDeclaration(methodNode)) {
-    body = methodNode.body;
-    params = methodNode.parameters;
-  } else if (ts.isFunctionDeclaration(methodNode)) {
-    // Indirect members can reference top-level functions (`map: mapOption`
-    // where mapOption is a function declaration) — PEP-053 Wave 2 gap 4.
-    body = methodNode.body;
-    params = methodNode.parameters;
-  } else {
-    return undefined;
-  }
+  // Receiver/activation-dependent bodies can't move to the call site in any form.
+  if (methodDependsOnReceiver(fn)) return undefined;
 
-  if (!body) return undefined;
+  const names = checkInlineSafety(ctx, fn, body, callArgs);
+  // Direct substitution would change evaluation (duplicated/reordered/dropped
+  // arguments, shadowing, missing/default/rest params …): apply the method
+  // body as an IIFE instead — the arguments are evaluated exactly once, in
+  // order, into the body's own parameter scope, which is exactly the call's
+  // semantics without the dictionary lookup.
+  if (!names) return isInlineableShape(fn.body) ? applyAsIIFE(ctx, fn, callArgs) : undefined;
 
-  // Build substitution map: param name → call argument
-  // Use paramNames from DictMethod (more reliable than extracting from potentially synthetic nodes)
-  const substitutions = new Map<string, ts.Expression>();
-  for (let i = 0; i < paramNames.length && i < callArgs.length; i++) {
-    substitutions.set(paramNames[i], callArgs[i]);
-  }
-
-  // Also try to extract param names from the AST node itself as fallback
-  if (params) {
-    for (let i = 0; i < params.length && i < callArgs.length; i++) {
-      const param = params[i];
-      if (ts.isIdentifier(param.name)) {
-        const paramName = param.name.text;
-        if (!substitutions.has(paramName)) {
-          substitutions.set(paramName, callArgs[i]);
-        }
-      }
-    }
-  }
+  // Strip comments from the template body to prevent the printer from emitting
+  // stray comments (e.g. JSDoc from the typeclass definition) into inlined code.
+  const cleanBody = stripCommentsDeep(body);
 
   // For block bodies, handle inlining
-  if (ts.isBlock(body)) {
-    // First, substitute parameters in the entire block
-    const substitutedBody = substituteParams(ctx, body, substitutions);
+  if (ts.isBlock(cleanBody)) {
+    const substitutedBody = substituteParamRefs(ctx, cleanBody, names, callArgs);
     if (!ts.isBlock(substitutedBody)) {
       return undefined;
     }
-    const substitutedBlock = substitutedBody as ts.Block;
+    const substitutedBlock = substitutedBody;
 
     // Check if the block has a single return statement
     const statements = substitutedBlock.statements;
@@ -779,21 +1470,7 @@ function inlineFromNode(
         if (ts.isReturnStatement(stmt) && stmt.expression) {
           // If there are bindings, wrap in IIFE
           if (i > 0) {
-            const blockStmts: ts.Statement[] = [...statements.slice(0, i), stmt];
-            const block = ctx.factory.createBlock(blockStmts, true);
-            const arrowFn = ctx.factory.createArrowFunction(
-              undefined,
-              undefined,
-              [],
-              undefined,
-              ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-              block
-            );
-            return ctx.factory.createCallExpression(
-              ctx.factory.createParenthesizedExpression(arrowFn),
-              undefined,
-              []
-            );
+            return createIIFE(ctx, [...statements.slice(0, i), stmt]);
           }
           return stmt.expression;
         }
@@ -808,49 +1485,77 @@ function inlineFromNode(
       }
     }
 
-    // Can't inline block body
+    // Can't inline block body (loops, try, …) — keep the ordinary call.
     return undefined;
   }
 
   // Substitute parameters in the expression body
-  return substituteParams(ctx, body, substitutions);
+  return substituteParamRefs(ctx, cleanBody, names, callArgs) as ts.Expression;
+}
+
+/** Expression body, or a block simple enough to inline/flatten (no loops, try, …). */
+function isInlineableShape(body: ts.Node): boolean {
+  if (!ts.isBlock(body)) return true;
+  const c = classifyInlineFailureDetailed(body);
+  return c.reason === null || c.canFlatten;
 }
 
 /**
- * Substitute parameter references with concrete argument expressions.
- *
- * Replacements are stripped of source positions to prevent TypeScript's
- * printer from attaching comments from the original source file into the
- * inlined output (the replacement nodes come from the call site and carry
- * real positions; mixing them with synthetic template nodes causes the
- * printer to emit stray comments at those positions).
+ * `((p1, p2) => <body>)(a1, a2)` — the method itself, as an arrow applied to
+ * the call's arguments. Only for bodies that don't depend on their receiver
+ * (the caller checks `methodDependsOnReceiver`). Type annotations are dropped:
+ * they may name the instance module's types or the method's type parameters.
  */
-function substituteParams(
+function applyAsIIFE(
   ctx: MacroContext,
-  node: ts.Node,
-  substitutions: Map<string, ts.Expression>
-): ts.Expression {
-  // Strip comments from the template body to prevent the printer from emitting
-  // stray comments (e.g. JSDoc from the typeclass definition) into inlined code.
-  const cleanNode = stripCommentsDeep(node);
+  fn: InlineableFunction,
+  callArgs: readonly ts.Expression[]
+): ts.Expression | undefined {
+  if (!fn.body) return undefined;
+  const f = ctx.factory;
+  const params = fn.parameters.map((p) =>
+    f.createParameterDeclaration(
+      undefined,
+      p.dotDotDotToken,
+      cloneNodeDeep(p.name),
+      undefined,
+      undefined,
+      p.initializer ? cloneNodeDeep(p.initializer) : undefined
+    )
+  );
+  const body = stripCommentsDeep(cloneNodeDeep(fn.body));
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    params,
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    ts.isBlock(body) || !ts.isObjectLiteralExpression(body)
+      ? (body as ts.ConciseBody)
+      : f.createParenthesizedExpression(body)
+  );
+  return f.createCallExpression(
+    f.createParenthesizedExpression(arrow),
+    undefined,
+    callArgs.map((a) => cloneNodeDeep(a))
+  );
+}
 
-  const stripped = new Map<string, ts.Expression>();
-  for (const [key, value] of substitutions) {
-    stripped.set(key, stripPositions(value));
-  }
-
-  function visit(n: ts.Node): ts.Node {
-    if (ts.isIdentifier(n)) {
-      const replacement = stripped.get(n.text);
-      if (replacement) {
-        return replacement;
-      }
-    }
-    return ts.visitEachChild(n, visit, ctx.transformContext);
-  }
-
-  const result = ts.visitNode(cleanNode, visit);
-  return result as ts.Expression;
+/** `(() => { ...statements })()` */
+function createIIFE(ctx: MacroContext, statements: ts.Statement[]): ts.Expression {
+  const arrowFn = ctx.factory.createArrowFunction(
+    undefined,
+    undefined,
+    [],
+    undefined,
+    ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    ctx.factory.createBlock(statements, true)
+  );
+  return ctx.factory.createCallExpression(
+    ctx.factory.createParenthesizedExpression(arrowFn),
+    undefined,
+    []
+  );
 }
 
 // ============================================================================
@@ -1283,108 +1988,63 @@ export function flattenReturnsToExpression(
   if (!analysis.canFlatten) {
     return undefined;
   }
+  // Prologue statements are wrapped in an arrow IIFE, which can't hold the
+  // enclosing function's own `await`/`yield`.
+  let suspends = false;
+  walkNode(body, TOP_LEVEL_STATE, { suspend: () => (suspends = true) });
+  if (suspends) return undefined;
 
-  // Extract statements, separating bindings from control flow
-  const bindings: ts.VariableStatement[] = [];
-  const controlFlow: ts.Statement[] = [];
-
-  for (const stmt of body.statements) {
-    if (ts.isVariableStatement(stmt)) {
-      bindings.push(stmt);
-    } else {
-      controlFlow.push(stmt);
-    }
-  }
-
-  // Flatten the control flow into a ternary expression
-  const ternary = flattenStatements(ctx, controlFlow);
-  if (!ternary) {
-    return undefined;
-  }
-
-  // If no bindings, return the bare ternary
-  if (bindings.length === 0) {
-    return ternary;
-  }
-
-  // Wrap in a block with return for the IIFE
-  const blockStatements: ts.Statement[] = [...bindings, ctx.factory.createReturnStatement(ternary)];
-
-  const block = ctx.factory.createBlock(blockStatements, true);
-
-  // Create IIFE: (() => { bindings; return ternary; })()
-  const arrowFn = ctx.factory.createArrowFunction(
-    undefined,
-    undefined,
-    [],
-    undefined,
-    ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    block
-  );
-
-  return ctx.factory.createCallExpression(
-    ctx.factory.createParenthesizedExpression(arrowFn),
-    undefined,
-    []
-  );
+  return flattenStatementList(ctx, body.statements);
 }
 
 /**
- * Flatten a sequence of control flow statements into a nested ternary expression.
+ * Flatten a statement list that ends in a return into one expression,
+ * preserving evaluation order (tc#4):
  *
- * Handles:
- * - if (cond) return expr;  → guard clause
- * - if (cond) return expr; else return expr2;  → full branch
- * - if (cond) { ...stmts; return expr; } else { ... }  → nested flattening
- * - return expr;  → terminal expression
+ * - `return expr;` → terminal expression
+ * - `if (cond) return a;` (guard) / `if … else …` → nested ternary
+ * - `const` bindings and expression statements → an IIFE prologue placed at
+ *   the position they appear, i.e. only on the path that reaches them:
+ *   `if (a == null) return 0; const n = a.length; return n;` becomes
+ *   `a == null ? 0 : (() => { const n = a.length; return n; })()` — the
+ *   binding is never hoisted above its guard, and side-effecting statements
+ *   are kept rather than dropped.
  */
-function flattenStatements(
+function flattenStatementList(
   ctx: MacroContext,
-  statements: ts.Statement[]
+  statements: readonly ts.Statement[]
 ): ts.Expression | undefined {
-  if (statements.length === 0) {
-    return undefined;
-  }
-
-  // Process statements in reverse order to build nested ternaries from the bottom up
   let result: ts.Expression | undefined;
+  let prologue: ts.Statement[] = []; // collected in reverse
+  const flushPrologue = (): void => {
+    if (prologue.length === 0 || result === undefined) return;
+    result = createIIFE(ctx, [...prologue.reverse(), ctx.factory.createReturnStatement(result)]);
+    prologue = [];
+  };
 
   for (let i = statements.length - 1; i >= 0; i--) {
     const stmt = statements[i];
-
     if (ts.isReturnStatement(stmt)) {
-      // Terminal return statement
-      if (stmt.expression) {
-        if (result === undefined) {
-          result = stmt.expression;
-        } else {
-          // This shouldn't happen in well-formed code (unreachable after return)
-          return undefined;
-        }
-      } else {
-        // return; without expression - use undefined
-        if (result === undefined) {
-          result = ctx.factory.createIdentifier("undefined");
-        } else {
-          return undefined;
-        }
-      }
+      // Anything after a return is unreachable — not a shape we flatten.
+      if (result !== undefined || prologue.length > 0) return undefined;
+      result = stmt.expression ?? ctx.factory.createIdentifier("undefined");
+    } else if (
+      (ts.isVariableStatement(stmt) && (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0) ||
+      ts.isExpressionStatement(stmt)
+    ) {
+      // Must be followed by the code that produces the value.
+      if (result === undefined) return undefined;
+      prologue.push(stmt);
     } else if (ts.isIfStatement(stmt)) {
+      flushPrologue();
       const flattened = flattenIfStatement(ctx, stmt, result);
-      if (!flattened) {
-        return undefined;
-      }
+      if (!flattened) return undefined;
       result = flattened;
-    } else if (ts.isExpressionStatement(stmt)) {
-      // Skip expression statements (side effects before control flow)
-      // They'll be handled by the IIFE wrapper if needed
-      continue;
     } else {
-      // Unsupported statement type
       return undefined;
     }
   }
-
+  flushPrologue();
   return result;
 }
 
@@ -1442,63 +2102,14 @@ function flattenIfStatement(
  * Flatten a branch (then/else block) to an expression.
  */
 function flattenBranch(ctx: MacroContext, branch: ts.Statement): ts.Expression | undefined {
-  // Single return statement
   if (ts.isReturnStatement(branch)) {
     return branch.expression ?? ctx.factory.createIdentifier("undefined");
   }
-
-  // Block with statements
   if (ts.isBlock(branch)) {
-    // Collect bindings and find the return
-    const bindings: ts.VariableStatement[] = [];
-    const controlFlow: ts.Statement[] = [];
-
-    for (const stmt of branch.statements) {
-      if (ts.isVariableStatement(stmt)) {
-        bindings.push(stmt);
-      } else {
-        controlFlow.push(stmt);
-      }
-    }
-
-    // Flatten control flow
-    const flattened = flattenStatements(ctx, controlFlow);
-    if (!flattened) {
-      return undefined;
-    }
-
-    // If no bindings, return bare expression
-    if (bindings.length === 0) {
-      return flattened;
-    }
-
-    // Wrap in IIFE with bindings
-    const blockStatements: ts.Statement[] = [
-      ...bindings,
-      ctx.factory.createReturnStatement(flattened),
-    ];
-
-    const block = ctx.factory.createBlock(blockStatements, true);
-    const arrowFn = ctx.factory.createArrowFunction(
-      undefined,
-      undefined,
-      [],
-      undefined,
-      ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      block
-    );
-
-    return ctx.factory.createCallExpression(
-      ctx.factory.createParenthesizedExpression(arrowFn),
-      undefined,
-      []
-    );
+    return flattenStatementList(ctx, branch.statements);
   }
-
-  // Single if statement as branch
   if (ts.isIfStatement(branch)) {
     return flattenIfStatement(ctx, branch, undefined);
   }
-
   return undefined;
 }

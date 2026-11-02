@@ -1,0 +1,11 @@
+const m = await import(process.cwd() + "/dist/index.js");
+const { ConnectionIO, Transactor, sequence, TypedFragment, orTyped, andTyped } = m;
+const calls = [];
+const conn = { async query(s,p){calls.push(["q",s,p]); return [{id:1}];}, async execute(s,p){calls.push(["e",s,p]); return 3;}, async begin(){}, async commit(){}, async rollback(){} };
+const xa = Transactor.fromConnection(conn);
+console.log("pure.map", await xa.run(ConnectionIO.pure(2).map(x=>x*10)));
+const upd = new TypedFragment(["DELETE FROM t WHERE id = ", ""], [1]).toUpdate();
+console.log("execute.map", await xa.run(ConnectionIO.execute(upd).map(n=>n+1)), calls);
+console.log("sequence", await xa.run(sequence([ConnectionIO.pure(1), ConnectionIO.pure(2)])));
+const a = new TypedFragment(["a = ", ""], [1]), b = new TypedFragment(["b = ", ""], [2]), c = new TypedFragment(["c = ", ""], [3]);
+console.log("and(or(a,b),c)", andTyped(orTyped(a,b), c).query.text);

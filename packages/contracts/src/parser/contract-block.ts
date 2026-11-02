@@ -20,7 +20,11 @@
  */
 
 import * as ts from "typescript";
-import { ContractCondition, extractConditionsFromBlock } from "./predicate.js";
+import {
+  type ContractCondition,
+  type ContractBlockDiagnostic,
+  extractConditionsFromBlock,
+} from "./predicate.js";
 
 /**
  * Parsed contract blocks from a function body.
@@ -40,15 +44,25 @@ export interface ParsedContractBlocks {
 export interface EnsuresBlock {
   /** The conditions to check */
   conditions: ContractCondition[];
-  /** The name of the result parameter (if `ensures: (result) => { ... }`) */
+  /**
+   * The name the conditions use for the return value: the arrow parameter of
+   * `ensures: (r) => { ... }`, or `"result"` for the block / expression forms
+   * (`ensures: { result > 0; }`), which the docs use with an implicit
+   * `result`. Undefined only when the arrow form declares no parameter.
+   */
   resultParam?: string;
+  /** True when `resultParam` is the implicit `result` of the block form. */
+  implicitResult?: boolean;
 }
 
 /**
  * Parse a function body to extract requires:/ensures: labeled blocks.
  * Returns the contract conditions and the remaining body statements.
  */
-export function parseContractBlocks(body: ts.Block | undefined): ParsedContractBlocks {
+export function parseContractBlocks(
+  body: ts.Block | undefined,
+  onDiagnostic?: ContractBlockDiagnostic
+): ParsedContractBlocks {
   if (!body) {
     return { requires: [], ensures: [], body: [] };
   }
@@ -62,13 +76,13 @@ export function parseContractBlocks(body: ts.Block | undefined): ParsedContractB
       const label = stmt.label.text;
 
       if (label === "requires") {
-        const conditions = parseLabeledConditions(stmt.statement);
+        const conditions = parseLabeledConditions(stmt.statement, onDiagnostic);
         requires.push(...conditions);
         continue;
       }
 
       if (label === "ensures") {
-        const ensuresBlock = parseEnsuresBlock(stmt.statement);
+        const ensuresBlock = parseEnsuresBlock(stmt.statement, onDiagnostic);
         ensures.push(ensuresBlock);
         continue;
       }
@@ -85,58 +99,48 @@ export function parseContractBlocks(body: ts.Block | undefined): ParsedContractB
  * Handles both block form `requires: { ... }` and single expression
  * `requires: condition;`
  */
-function parseLabeledConditions(statement: ts.Statement): ContractCondition[] {
-  if (ts.isBlock(statement)) {
-    return extractConditionsFromBlock(statement);
-  }
-
-  if (ts.isExpressionStatement(statement)) {
-    return extractConditionsFromBlock(statement);
-  }
-
-  return [];
+function parseLabeledConditions(
+  statement: ts.Statement,
+  onDiagnostic?: ContractBlockDiagnostic
+): ContractCondition[] {
+  return extractConditionsFromBlock(statement, onDiagnostic);
 }
 
 /**
  * Parse an ensures block, which may be:
- * - `ensures: { conditions }` (no result param)
- * - `ensures: (result) => { conditions }` (with result param)
+ * - `ensures: { conditions }` (implicit `result`)
+ * - `ensures: condition;` (implicit `result`)
+ * - `ensures: (result) => { conditions }` / `ensures: (r) => expr`
  */
-function parseEnsuresBlock(statement: ts.Statement): EnsuresBlock {
-  // Case: ensures: (result) => { ... }
+function parseEnsuresBlock(
+  statement: ts.Statement,
+  onDiagnostic?: ContractBlockDiagnostic
+): EnsuresBlock {
   if (ts.isExpressionStatement(statement)) {
     const expr = statement.expression;
-
-    if (ts.isArrowFunction(expr) && expr.parameters.length >= 1) {
-      const resultParam = expr.parameters[0].name.getText();
-      const conditions = extractConditionsFromArrowBody(expr.body);
+    if (ts.isArrowFunction(expr)) {
+      if (expr.parameters.length > 1) {
+        onDiagnostic?.(
+          expr,
+          "An `ensures: (result) => ...` block takes a single parameter (the return value).",
+          "error"
+        );
+      }
+      const p = expr.parameters[0];
+      if (p && !ts.isIdentifier(p.name)) {
+        onDiagnostic?.(p, "The `ensures` result parameter must be a plain identifier.", "error");
+      }
+      const resultParam = p && ts.isIdentifier(p.name) ? p.name.text : undefined;
+      const conditions = ts.isBlock(expr.body)
+        ? extractConditionsFromBlock(expr.body, onDiagnostic)
+        : extractConditionsFromBlock(ts.factory.createExpressionStatement(expr.body), onDiagnostic);
       return { conditions, resultParam };
     }
-
-    // Single expression: ensures: condition;
-    return {
-      conditions: extractConditionsFromBlock(statement),
-    };
   }
 
-  // Block form: ensures: { ... }
-  if (ts.isBlock(statement)) {
-    return {
-      conditions: extractConditionsFromBlock(statement),
-    };
-  }
-
-  return { conditions: [] };
-}
-
-/**
- * Extract conditions from an arrow function body.
- */
-function extractConditionsFromArrowBody(body: ts.ConciseBody): ContractCondition[] {
-  if (ts.isBlock(body)) {
-    return extractConditionsFromBlock(body);
-  }
-
-  // Expression body: (result) => result > 0
-  return extractConditionsFromBlock(ts.factory.createExpressionStatement(body));
+  return {
+    conditions: extractConditionsFromBlock(statement, onDiagnostic),
+    resultParam: "result",
+    implicitResult: true,
+  };
 }

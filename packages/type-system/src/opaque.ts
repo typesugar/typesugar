@@ -24,12 +24,7 @@
  * ## The Solution
  *
  * ```typescript
- * const UserId = opaqueModule<number>()({
- *   // Smart constructor with validation
- *   create: (n) => {
- *     if (n <= 0) throw new Error("UserId must be positive");
- *     return n;
- *   },
+ * const UserId = opaqueModule<number, "UserId">("UserId", (n) => n > 0)({
  *   // Operations that can see the representation
  *   toString: (id) => `User#${id}`,
  *   eq: (a, b) => a === b,
@@ -79,8 +74,7 @@ export type ReprOf<T> = T extends Opaque<infer Repr, string> ? Repr : T;
 /**
  * Extract the opaque type from a module.
  */
-export type OpaqueType<M> =
-  M extends OpaqueModule<infer Repr, string, infer _Ops> ? Opaque<Repr, string> : never;
+export type OpaqueType<M> = M extends { readonly create: (repr: any) => infer O } ? O : never;
 
 /**
  * An opaque module — contains the smart constructor and operations.
@@ -119,13 +113,19 @@ export type OpaqueOps<Repr> = Record<string, (...args: any[]) => any>;
 /**
  * Create an opaque type module.
  *
- * @param brand - The brand name for this opaque type
+ * @param brand - The brand name for this opaque type. It is also the TYPE-level
+ *   brand (`Brand`), so two modules over the same `Repr` are not
+ *   interchangeable. When passing type arguments explicitly, pass both:
+ *   `opaqueModule<number, "UserId">("UserId")` (TSP-7: with only `Repr` the
+ *   brand used to be erased to `string`).
  * @param validate - Optional validation function (returns true if valid)
- * @returns A function that takes operations and returns the complete module
+ * @returns A function that takes operations and returns the complete module.
+ *   Operation results are returned as-is (NOT re-branded as the opaque type):
+ *   an operation's result is never validated, so it cannot be claimed valid.
  *
  * @example
  * ```typescript
- * const Email = opaqueModule<string>("Email", (s) => /^.+@.+\..+$/.test(s))({
+ * const Email = opaqueModule<string, "Email">("Email", (s) => /^.+@.+\..+$/.test(s))({
  *   domain: (email) => email.split("@")[1],
  *   local: (email) => email.split("@")[0],
  *   toString: (email) => email,
@@ -137,15 +137,15 @@ export type OpaqueOps<Repr> = Record<string, (...args: any[]) => any>;
  * Email.domain(email);                             // "example.com"
  * ```
  */
-export function opaqueModule<Repr>(
-  brand: string,
+export function opaqueModule<Repr, Brand extends string>(
+  brand: Brand,
   validate?: (repr: Repr) => boolean
 ): <Ops extends Record<string, (repr: Repr, ...args: any[]) => any>>(
   ops: Ops
-) => OpaqueModuleResult<Repr, Ops> {
+) => OpaqueModuleResult<Repr, Ops, Brand> {
   return <Ops extends Record<string, (repr: Repr, ...args: any[]) => any>>(
     ops: Ops
-  ): OpaqueModuleResult<Repr, Ops> => {
+  ): OpaqueModuleResult<Repr, Ops, Brand> => {
     const create = (repr: Repr): any => {
       if (validate && !validate(repr)) {
         throw new Error(`Invalid ${brand}: ${JSON.stringify(repr)} failed validation`);
@@ -192,16 +192,19 @@ export function opaqueModule<Repr>(
 export type OpaqueModuleResult<
   Repr,
   Ops extends Record<string, (repr: Repr, ...args: any[]) => any>,
+  Brand extends string = string,
 > = {
-  readonly __brand: string;
-  readonly create: (repr: Repr) => Opaque<Repr, string>;
-  readonly unwrap: (opaque: Opaque<Repr, string>) => Repr;
+  readonly __brand: Brand;
+  readonly create: (repr: Repr) => Opaque<Repr, Brand>;
+  readonly unwrap: (opaque: Opaque<Repr, Brand>) => Repr;
   readonly isValid: (repr: Repr) => boolean;
-  readonly tryCreate: (repr: Repr) => Opaque<Repr, string> | undefined;
+  readonly tryCreate: (repr: Repr) => Opaque<Repr, Brand> | undefined;
 } & {
-  // Wrap operations to accept Opaque<Repr, Brand> instead of Repr
+  // Wrap operations to accept Opaque<Repr, Brand> instead of Repr. The result
+  // type is left as the op returns it: re-typing a `Repr`-shaped result as
+  // `Opaque<Repr, Brand>` would claim a validation that never ran.
   readonly [K in keyof Ops]: Ops[K] extends (repr: Repr, ...args: infer Args) => infer R
-    ? (opaque: Opaque<Repr, string>, ...args: Args) => R extends Repr ? Opaque<Repr, string> : R
+    ? (opaque: Opaque<Repr, Brand>, ...args: Args) => R
     : never;
 };
 
@@ -210,7 +213,7 @@ export type OpaqueModuleResult<
 // ============================================================================
 
 /** Opaque positive integer */
-export const PositiveInt = opaqueModule<number>(
+export const PositiveInt = opaqueModule<number, "PositiveInt">(
   "PositiveInt",
   (n: number) => Number.isInteger(n) && n > 0
 )({
@@ -220,7 +223,7 @@ export const PositiveInt = opaqueModule<number>(
 });
 
 /** Opaque non-empty string */
-export const NonEmptyString = opaqueModule<string>(
+export const NonEmptyString = opaqueModule<string, "NonEmptyString">(
   "NonEmptyString",
   (s: string) => s.length > 0
 )({
@@ -232,7 +235,7 @@ export const NonEmptyString = opaqueModule<string>(
 });
 
 /** Opaque email address */
-export const EmailAddress = opaqueModule<string>("EmailAddress", (s: string) =>
+export const EmailAddress = opaqueModule<string, "EmailAddress">("EmailAddress", (s: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
 )({
   toString: (s: string) => s,
@@ -241,7 +244,7 @@ export const EmailAddress = opaqueModule<string>("EmailAddress", (s: string) =>
 });
 
 /** Opaque URL */
-export const SafeUrl = opaqueModule<string>("SafeUrl", (s: string) => {
+export const SafeUrl = opaqueModule<string, "SafeUrl">("SafeUrl", (s: string) => {
   try {
     new URL(s);
     return true;

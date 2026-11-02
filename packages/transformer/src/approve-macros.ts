@@ -28,6 +28,7 @@ const COLORS = {
   dim: "\x1b[2m",
   green: "\x1b[32m",
   yellow: "\x1b[33m",
+  red: "\x1b[31m",
   cyan: "\x1b[36m",
 };
 
@@ -45,6 +46,27 @@ async function confirm(question: string): Promise<boolean> {
 }
 
 export async function runApproveMacros(options: ApproveMacrosOptions): Promise<void> {
+  // Read the config of the project we were pointed at (searching upward
+  // from its tsconfig directory), not whatever is above the cwd — the file
+  // we may write below lives there (deep review 2026-10, core #35).
+  const projectRoot = path.dirname(path.resolve(options.project));
+  typesugarConfig.load({ searchFrom: projectRoot });
+
+  // Fail loudly before doing anything else if the existing config couldn't
+  // be loaded: the approval list in it can't be read, and writing a fresh
+  // file would overwrite it (core #20).
+  const loadError = typesugarConfig.getLoadError();
+  if (loadError) {
+    const where = loadError.filepath ? ` ${loadError.filepath}` : "";
+    console.error(
+      `${COLORS.red}✗${COLORS.reset} Could not load the typesugar config file${where}: ` +
+        `${loadError.message}\n` +
+        `  approve-macros will not modify or create a config file until this is fixed.`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const parsed = readTsConfig(options.project);
   const program = ts.createProgram(parsed.fileNames, parsed.options);
   const importedModules = collectImportedModules(program);
@@ -86,7 +108,7 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
   }
 
   const result = writeApprovedMacroPackages({
-    projectRoot: path.dirname(path.resolve(options.project)),
+    projectRoot,
     existingConfigPath: typesugarConfig.getConfigFilePath(),
     newPackages: newlyBlocked,
   });
@@ -106,6 +128,10 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
         `${COLORS.yellow}⚠${COLORS.reset} Could not automatically patch ${result.path} ` +
           `(unrecognized shape). Add this to its "security" field by hand:\n\n${result.snippet}\n`
       );
+      process.exitCode = 1;
+      break;
+    case "refused":
+      console.error(`${COLORS.red}✗${COLORS.reset} Not writing ${result.path}: ${result.reason}.`);
       process.exitCode = 1;
       break;
   }

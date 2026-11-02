@@ -421,6 +421,10 @@ export interface DiskCacheEntry {
   dependencyHashes: Record<string, string>;
   /** Transformer version for cache invalidation */
   transformerVersion: string;
+  /** {@link computeCacheConfigKey} of the configuration that produced this entry */
+  configKey?: string;
+  /** Macro diagnostics reported when the entry was produced (replayed on a hit) */
+  diagnostics?: unknown[];
   /** Timestamp when entry was created */
   timestamp: number;
 }
@@ -437,8 +441,80 @@ interface ManifestEntry {
   lastAccess: number;
 }
 
-/** Current disk cache format version */
-const DISK_CACHE_VERSION = "1";
+/**
+ * Current disk cache format version. Bump on any change to the entry shape
+ * or to what a cached `code` means. "2": entries carry a `configKey` and
+ * diagnostics (review findings #3/#15).
+ */
+const DISK_CACHE_VERSION = "2";
+
+let cachedTypesugarVersion: string | undefined;
+
+/**
+ * The installed `@typesugar/transformer` version, read from its package.json
+ * (walking up from this module). Part of every disk-cache key so upgrading
+ * typesugar never serves output produced by an older transformer.
+ */
+export function getTypesugarVersion(): string {
+  if (cachedTypesugarVersion !== undefined) return cachedTypesugarVersion;
+  let version = "unknown";
+  try {
+    let dir = typeof __dirname === "string" ? __dirname : process.cwd();
+    for (let i = 0; i < 8; i++) {
+      const pkgPath = path.join(dir, "package.json");
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
+          name?: string;
+          version?: string;
+        };
+        if (pkg.name === "@typesugar/transformer" && pkg.version) {
+          version = pkg.version;
+          break;
+        }
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // keep "unknown"
+  }
+  cachedTypesugarVersion = version;
+  return version;
+}
+
+/** JSON.stringify with sorted object keys (stable across key order). */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "undefined";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const entries = Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`);
+  return `{${entries.join(",")}}`;
+}
+
+/**
+ * Key identifying everything OTHER than file contents that affects a cached
+ * transform: typesugar version, cache format, compiler options, cfg config
+ * and what kind of output is stored (e.g. expanded TS vs emitted JS -- two
+ * commands sharing a cache dir must never read each other's entries).
+ */
+export function computeCacheConfigKey(parts: {
+  compilerOptions?: unknown;
+  cfgConfig?: unknown;
+  kind?: string;
+  extra?: unknown;
+}): string {
+  const input = stableStringify({
+    version: getTypesugarVersion(),
+    format: DISK_CACHE_VERSION,
+    compilerOptions: parts.compilerOptions ?? null,
+    cfgConfig: parts.cfgConfig ?? null,
+    kind: parts.kind ?? "expanded-ts",
+    extra: parts.extra ?? null,
+  });
+  return crypto.createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
 
 /**
  * DiskTransformCache - Content-addressable disk cache for transform results
@@ -475,7 +551,18 @@ export class DiskTransformCache {
     writes: 0,
   };
 
-  constructor(cacheDir: string = ".typesugar-cache/transforms") {
+  private configKey: string;
+
+  /**
+   * @param options.configKey - {@link computeCacheConfigKey} of the current
+   *   configuration. Entries written under a different key (other compiler
+   *   options, cfg config, typesugar version or output kind) are never served.
+   */
+  constructor(
+    cacheDir: string = ".typesugar-cache/transforms",
+    options: { configKey?: string } = {}
+  ) {
+    this.configKey = options.configKey ?? computeCacheConfigKey({});
     this.cacheDir = path.resolve(cacheDir);
     this.manifestPath = path.join(this.cacheDir, "manifest.json");
     this.loadManifest();
@@ -516,8 +603,8 @@ export class DiskTransformCache {
 
       const entry = JSON.parse(fs.readFileSync(cacheFile, "utf-8")) as DiskCacheEntry;
 
-      // Version check
-      if (entry.transformerVersion !== DISK_CACHE_VERSION) {
+      // Version / configuration check
+      if (entry.transformerVersion !== DISK_CACHE_VERSION || entry.configKey !== this.configKey) {
         this.stats.staleHits++;
         return undefined;
       }
@@ -553,9 +640,10 @@ export class DiskTransformCache {
     dependencies: string[],
     dependencyHashes: Record<string, string>,
     code: string,
-    sourceMap: RawSourceMap | null
+    sourceMap: RawSourceMap | null,
+    diagnostics: unknown[] = []
   ): void {
-    // Compute cache key from content + dependencies
+    // Compute cache key from content + dependencies + configuration
     const cacheKey = this.computeCacheKey(fileName, contentHash, dependencyHashes);
 
     const entry: DiskCacheEntry = {
@@ -565,8 +653,11 @@ export class DiskTransformCache {
       dependencies,
       dependencyHashes,
       transformerVersion: DISK_CACHE_VERSION,
+      configKey: this.configKey,
+      diagnostics,
       timestamp: Date.now(),
     };
+    const previousKey = this.manifest.get(fileName)?.cacheKey;
 
     // Write to disk
     try {
@@ -576,6 +667,16 @@ export class DiskTransformCache {
 
       const cacheFile = path.join(this.cacheDir, `${cacheKey}.json`);
       fs.writeFileSync(cacheFile, JSON.stringify(entry), "utf-8");
+
+      // The file's previous entry is superseded: delete it rather than
+      // leaving an orphan behind on every edit.
+      if (previousKey && previousKey !== cacheKey) {
+        try {
+          fs.unlinkSync(path.join(this.cacheDir, `${previousKey}.json`));
+        } catch {
+          // already gone
+        }
+      }
 
       // Update manifest
       this.manifest.set(fileName, {
@@ -698,7 +799,7 @@ export class DiskTransformCache {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}:${v}`)
       .join("|");
-    const input = `${fileName}\0${contentHash}\0${depPart}\0${DISK_CACHE_VERSION}`;
+    const input = `${fileName}\0${contentHash}\0${depPart}\0${DISK_CACHE_VERSION}\0${this.configKey}`;
     return crypto.createHash("sha256").update(input).digest("hex").slice(0, 16);
   }
 }

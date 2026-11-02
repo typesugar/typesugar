@@ -18,6 +18,10 @@
 
 /**
  * Reader monad - a computation that reads from an environment
+ *
+ * Stack safety: `traverse`, `sequence` and `replicateA` are loops and are
+ * stack-safe. A long hand-built chain of `flatMap`s is NOT (each step adds a
+ * JS stack frame when run).
  */
 export class Reader<R, A> {
   constructor(private readonly _run: (r: R) => A) {}
@@ -238,10 +242,8 @@ export function flatten<R, A>(rra: Reader<R, Reader<R, A>>): Reader<R, A> {
  * Traverse an array with a Reader-returning function
  */
 export function traverse<R, A, B>(arr: A[], f: (a: A) => Reader<R, B>): Reader<R, B[]> {
-  return arr.reduce(
-    (acc: Reader<R, B[]>, a: A) => acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
-    Reader.pure([])
-  );
+  // A single loop (stack-safe, linear) rather than a nested flatMap chain.
+  return new Reader((r) => arr.map((a) => f(a).run(r)));
 }
 
 /**
@@ -255,8 +257,7 @@ export function sequence<R, A>(readers: Reader<R, A>[]): Reader<R, A[]> {
  * Execute a Reader action repeatedly n times
  */
 export function replicateA<R, A>(n: number, ra: Reader<R, A>): Reader<R, A[]> {
-  if (n <= 0) return Reader.pure([]);
-  return ra.flatMap((a) => replicateA(n - 1, ra).map((as) => [a, ...as]));
+  return traverse(Array.from({ length: Math.max(0, n) }), () => ra);
 }
 
 // ============================================================================

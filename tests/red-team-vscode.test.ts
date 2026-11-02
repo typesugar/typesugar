@@ -129,7 +129,10 @@ describe("VSCode Extension Configuration Edge Cases", () => {
     it("has valid configuration schema", () => {
       const configuration = contributes.configuration as {
         title: string;
-        properties: Record<string, { type: string; default: unknown; description: string }>;
+        properties: Record<
+          string,
+          { type: string; default: unknown; description?: string; markdownDescription?: string }
+        >;
       };
 
       expect(configuration.title).toBe("typesugar");
@@ -138,8 +141,11 @@ describe("VSCode Extension Configuration Edge Cases", () => {
       for (const [key, prop] of Object.entries(configuration.properties)) {
         expect(key).toMatch(/^typesugar\.\w+$/);
         expect(["boolean", "string", "number", "array", "object"]).toContain(prop.type);
-        expect(typeof prop.description).toBe("string");
-        expect(prop.description.length).toBeGreaterThan(10);
+        // VS Code accepts `markdownDescription` in place of `description`
+        // (used by typesugar.comptimeInEditor, added in tooling review).
+        const description = prop.description ?? prop.markdownDescription;
+        expect(typeof description).toBe("string");
+        expect(description!.length).toBeGreaterThan(10);
       }
     });
 

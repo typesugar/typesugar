@@ -348,37 +348,61 @@ export class Semaphore {
  * A simple unbounded queue
  */
 export class Queue<A> {
-  private constructor(private readonly ref: Ref<A[]>) {}
+  // Mutable ring-less buffer with a head index: offer/take are amortised O(1)
+  // (the previous Ref<A[]> copied the whole array on every offer/take).
+  private items: A[] = [];
+  private head = 0;
+
+  private constructor(initial: A[]) {
+    this.items = initial.slice();
+  }
+
+  private compact(): void {
+    if (this.head > 1024 && this.head * 2 > this.items.length) {
+      this.items = this.items.slice(this.head);
+      this.head = 0;
+    }
+  }
 
   /**
    * Offer an element to the queue
    */
   offer(a: A): IO<void> {
-    return this.ref.update((arr) => [...arr, a]);
+    return IO.delay(() => {
+      this.items.push(a);
+    });
   }
 
   /**
    * Offer multiple elements
    */
   offerAll(as: A[]): IO<void> {
-    return this.ref.update((arr) => [...arr, ...as]);
+    return IO.delay(() => {
+      for (const a of as) this.items.push(a);
+    });
+  }
+
+  private takeNow(): { ok: true; value: A } | { ok: false } {
+    if (this.head >= this.items.length) return { ok: false };
+    const value = this.items[this.head];
+    this.items[this.head] = undefined as A;
+    this.head++;
+    if (this.head === this.items.length) {
+      this.items = [];
+      this.head = 0;
+    } else {
+      this.compact();
+    }
+    return { ok: true, value };
   }
 
   /**
    * Take an element from the queue (waits if empty)
    */
   take(): IO<A> {
-    return IO.flatMap(this.ref.get(), (arr) => {
-      if (arr.length > 0) {
-        return this.ref.modify((current) => {
-          if (current.length > 0) {
-            const [head, ...tail] = current;
-            return [head, tail];
-          }
-          // Race condition - retry
-          throw new Error("Queue empty on take");
-        });
-      }
+    return IO.suspend(() => {
+      const r = this.takeNow();
+      if (r.ok) return IO.pure(r.value);
       // Wait and retry
       return IO.flatMap(IO.sleep(10), () => this.take());
     });
@@ -388,12 +412,9 @@ export class Queue<A> {
    * Try to take an element (returns None if empty)
    */
   tryTake(): IO<Option<A>> {
-    return this.ref.modify((arr) => {
-      if (arr.length > 0) {
-        const [head, ...tail] = arr;
-        return [Some(head), tail];
-      }
-      return [None as Option<A>, arr];
+    return IO.delay(() => {
+      const r = this.takeNow();
+      return r.ok ? Some(r.value) : (None as Option<A>);
     });
   }
 
@@ -401,41 +422,46 @@ export class Queue<A> {
    * Peek at the head (doesn't remove)
    */
   peek(): IO<Option<A>> {
-    return IO.map(this.ref.get(), (arr) => (arr.length > 0 ? Some(arr[0]) : None));
+    return IO.delay(() => (this.head < this.items.length ? Some(this.items[this.head]) : None));
   }
 
   /**
    * Get the size
    */
   size(): IO<number> {
-    return IO.map(this.ref.get(), (arr) => arr.length);
+    return IO.delay(() => this.items.length - this.head);
   }
 
   /**
    * Check if empty
    */
   isEmpty(): IO<boolean> {
-    return IO.map(this.ref.get(), (arr) => arr.length === 0);
+    return IO.delay(() => this.items.length - this.head === 0);
   }
 
   /**
    * Take all elements
    */
   takeAll(): IO<A[]> {
-    return this.ref.getAndSet([]);
+    return IO.delay(() => {
+      const out = this.items.slice(this.head);
+      this.items = [];
+      this.head = 0;
+      return out;
+    });
   }
 
   /**
    * Create a new queue
    */
   static make<A>(): IO<Queue<A>> {
-    return IO.map(Ref.make<A[]>([]), (ref) => new Queue(ref));
+    return IO.delay(() => new Queue<A>([]));
   }
 
   /**
    * Create a queue with initial elements
    */
   static of<A>(...elements: A[]): IO<Queue<A>> {
-    return IO.map(Ref.make<A[]>(elements), (ref) => new Queue(ref));
+    return IO.delay(() => new Queue<A>(elements));
   }
 }

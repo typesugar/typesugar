@@ -10,6 +10,7 @@
  */
 
 import type { Kind } from "../hkt.js";
+import type { Functor } from "./functor.js";
 
 // ============================================================================
 // Semigroupal
@@ -27,33 +28,23 @@ export interface Semigroupal<F> {
 // ============================================================================
 
 /**
- * Product of three effects.
+ * Product of three effects, as a flat tuple `[A, B, C]`.
  *
- * NOTE: The runtime tuple shape is nested: [[A, B], C], not flat [A, B, C].
- * This is because Semigroupal only provides binary `product` and has no `map`
- * to flatten the result. The type signature uses `as unknown as` to present
- * a flat tuple type, but consumers should be aware of the nesting if they
- * inspect the runtime value directly.
- *
- * For a properly flat tuple, use an Apply/Applicative instance with mapN instead.
+ * Requires `map` as well as `product`: binary `product` alone produces the
+ * nested shape `[[A, B], C]`, and flattening it needs a Functor.
  */
 export function product3<F>(
-  F: Semigroupal<F>
+  F: Semigroupal<F> & Functor<F>
 ): <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>) => Kind<F, [A, B, C]> {
-  return <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>): Kind<F, [A, B, C]> => {
-    const ab = F.product(fa, fb);
-    return F.product(ab, fc) as unknown as Kind<F, [A, B, C]>;
-  };
+  return <A, B, C>(fa: Kind<F, A>, fb: Kind<F, B>, fc: Kind<F, C>): Kind<F, [A, B, C]> =>
+    F.map(F.product(F.product(fa, fb), fc), ([[a, b], c]): [A, B, C] => [a, b, c]);
 }
 
 /**
- * Product of four effects.
- *
- * NOTE: Runtime tuple shape is nested: [[A, B], [C, D]], not flat [A, B, C, D].
- * See product3 for details.
+ * Product of four effects, as a flat tuple. See product3.
  */
 export function product4<F>(
-  F: Semigroupal<F>
+  F: Semigroupal<F> & Functor<F>
 ): <A, B, C, D>(
   fa: Kind<F, A>,
   fb: Kind<F, B>,
@@ -65,21 +56,15 @@ export function product4<F>(
     fb: Kind<F, B>,
     fc: Kind<F, C>,
     fd: Kind<F, D>
-  ): Kind<F, [A, B, C, D]> => {
-    const ab = F.product(fa, fb);
-    const cd = F.product(fc, fd);
-    return F.product(ab, cd) as unknown as Kind<F, [A, B, C, D]>;
-  };
+  ): Kind<F, [A, B, C, D]> =>
+    F.map(F.product(product3(F)(fa, fb, fc), fd), ([[a, b, c], d]): [A, B, C, D] => [a, b, c, d]);
 }
 
 /**
- * Product of five effects.
- *
- * NOTE: Runtime tuple shape is nested: [[[A, B], [C, D]], E], not flat.
- * See product3 for details.
+ * Product of five effects, as a flat tuple. See product3.
  */
 export function product5<F>(
-  F: Semigroupal<F>
+  F: Semigroupal<F> & Functor<F>
 ): <A, B, C, D, E>(
   fa: Kind<F, A>,
   fb: Kind<F, B>,
@@ -93,10 +78,14 @@ export function product5<F>(
     fc: Kind<F, C>,
     fd: Kind<F, D>,
     fe: Kind<F, E>
-  ): Kind<F, [A, B, C, D, E]> => {
-    const abcd = product4(F)(fa, fb, fc, fd);
-    return F.product(abcd, fe) as unknown as Kind<F, [A, B, C, D, E]>;
-  };
+  ): Kind<F, [A, B, C, D, E]> =>
+    F.map(F.product(product4(F)(fa, fb, fc, fd), fe), ([[a, b, c, d], e]): [A, B, C, D, E] => [
+      a,
+      b,
+      c,
+      d,
+      e,
+    ]);
 }
 
 // ============================================================================

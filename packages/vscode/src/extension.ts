@@ -39,16 +39,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const outputChannel = vscode.window.createOutputChannel("Typesugar");
   outputChannel.appendLine("typesugar extension activating...");
 
-  // Disable built-in TypeScript validation — the typesugar LSP provides its own
-  // diagnostics on the transformed code with position mapping. Having both active
-  // produces duplicate errors (one from raw TS, one from the LSP with macro awareness).
-  const tsConfig = vscode.workspace.getConfiguration("typescript");
-  if (tsConfig.get<boolean>("validate.enable") !== false) {
-    await tsConfig.update("validate.enable", false, vscode.ConfigurationTarget.Workspace);
-    outputChannel.appendLine(
-      "Disabled built-in TypeScript validation (typesugar LSP handles diagnostics)"
-    );
-  }
+  // The extension does NOT touch `typescript.validate.enable` (deep-review
+  // tooling #6). It used to write `false` into the workspace settings on every
+  // activation — before the server had even started, and never restored — so a
+  // failed start or an uninstall left the user's repo with TypeScript
+  // validation silently off (and a modified .vscode/settings.json). The
+  // built-in TS diagnostics are macro-aware anyway via the bundled tsserver
+  // plugin (`typescriptServerPlugins`); overlap between it and the LSP is the
+  // open "one engine or two" product question, not something to paper over
+  // by rewriting user settings.
 
   // --- Start LSP server ---
   const serverModule = resolveServerPath();
@@ -59,9 +58,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   outputChannel.appendLine(`Starting LSP server: ${serverModule}`);
 
+  // Run the server under VS Code's own Node (`module:` form forks the
+  // extension host's runtime) over IPC — not whatever `node` is on PATH, which
+  // may be missing or too old (deep-review tooling #26). The server's
+  // createConnection() picks the transport up from the `--node-ipc` argument
+  // the client adds.
   const serverOptions: ServerOptions = {
-    run: { command: "node", args: [serverModule, "--stdio"], transport: TransportKind.stdio },
-    debug: { command: "node", args: [serverModule, "--stdio"], transport: TransportKind.stdio },
+    run: { module: serverModule, transport: TransportKind.ipc },
+    debug: {
+      module: serverModule,
+      transport: TransportKind.ipc,
+      options: { execArgv: ["--nolazy", "--inspect=6009"] },
+    },
   };
 
   // Register virtual document content providers
@@ -80,6 +88,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       { language: "typescriptreact", scheme: "file" },
     ],
     outputChannel,
+    // comptime blocks run code with the editor's privileges, so the server
+    // only evaluates them when the user opted in AND the workspace is trusted.
+    initializationOptions: {
+      comptimeInEditor:
+        vscode.workspace.isTrusted === true &&
+        vscode.workspace.getConfiguration("typesugar").get<boolean>("comptimeInEditor") === true,
+    },
     // Intercept executeCommand to add VS Code-specific UI (peek widget, diff view).
     // vscode-languageclient auto-registers the server's executeCommandProvider commands,
     // so we use middleware instead of registerCommand to avoid "already exists" conflicts.

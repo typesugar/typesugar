@@ -1,25 +1,26 @@
 /**
- * Macro Capability Tracking
+ * Macro Capability Tracking — EXPERIMENTAL, NOT ENFORCED.
  *
- * Defines what operations a macro is allowed to perform. Macros declare
- * their required capabilities, and the system provides a restricted
- * MacroContext that only exposes the requested operations.
+ * @experimental Nothing in typesugar applies these yet (deep review core #39,
+ * SECURITY-REVIEW.md F4): macro definitions have no `capabilities` field, the
+ * transformer never calls {@link createRestrictedContext} or
+ * {@link resolveCapabilities}, and `needsFileSystem` is not read anywhere
+ * (not even by the proxy). Every macro runs with the full `MacroContext` and
+ * ordinary Node access. Do not rely on this module for security.
  *
- * Inspired by: Scala 3 `Quotes` context, Rust proc-macro capability flags
+ * Intended design: macros declare their required capabilities, and the
+ * system provides a restricted MacroContext that only exposes the requested
+ * operations (inspired by Scala 3 `Quotes`, Rust proc-macro capability flags).
+ * Today the proxy can be applied by hand:
  *
  * @example
  * ```typescript
- * defineExpressionMacro({
- *   name: "myMacro",
- *   capabilities: {
- *     needsTypeChecker: false,  // Simple syntactic transform
- *     needsFileSystem: false,
- *   },
- *   expand(ctx, callExpr, args) {
- *     // ctx.typeChecker will throw if accessed
- *     // ctx.getTypeOf() will throw if called
- *   },
- * });
+ * const restricted = createRestrictedContext(
+ *   ctx,
+ *   resolveCapabilities({ needsTypeChecker: false }),
+ *   "myMacro"
+ * );
+ * restricted.getTypeOf(node); // throws: needsTypeChecker not declared
  * ```
  */
 
@@ -37,7 +38,10 @@ export interface MacroCapabilities {
   /** Whether the macro needs access to the TypeScript type checker */
   needsTypeChecker?: boolean;
 
-  /** Whether the macro needs file system access (for include macros) */
+  /**
+   * Whether the macro needs file system access (for include macros).
+   * NOT ENFORCED: nothing reads this flag, including `createRestrictedContext`.
+   */
   needsFileSystem?: boolean;
 
   /** Whether the macro needs project-wide analysis (for collectTypes) */
@@ -50,7 +54,7 @@ export interface MacroCapabilities {
   maxTimeout?: number;
 }
 
-/** Default capabilities: everything enabled */
+/** Default capabilities (only consulted by {@link resolveCapabilities}; see the module note). */
 export const DEFAULT_CAPABILITIES: Required<MacroCapabilities> = {
   needsTypeChecker: true,
   needsFileSystem: false,

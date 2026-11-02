@@ -6,8 +6,10 @@
  * - `includeBytes(path)` — embed file contents as a Uint8Array literal
  * - `includeJson<T>(path)` — parse JSON at compile time, embed as object literal
  *
- * Also extends the comptime sandbox with a `readFile(path)` function for
- * use inside `comptime()` blocks.
+ * - `includeText(path)` — alias for `includeStr`
+ *
+ * Paths are resolved relative to the source file and must stay inside the
+ * project (the tsconfig directory or the program's current directory).
  *
  * Inspired by: Rust `include_str!`/`include_bytes!`, Zig `@embedFile`, Nim `staticRead`
  *
@@ -84,17 +86,46 @@ function resolveRelativePath(ctx: MacroContext, relativePath: string): string {
 
   const sourceDir = path.dirname(ctx.sourceFile.fileName);
   const resolved = path.normalize(path.resolve(sourceDir, relativePath));
-  const projectRoot = path.normalize(ctx.program.getCurrentDirectory());
+  const roots = projectRoots(ctx, sourceDir);
 
-  if (!resolved.startsWith(projectRoot + path.sep) && resolved !== projectRoot) {
+  if (!roots.some((root) => isWithin(root, resolved))) {
     throw new Error(
       `Security: path "${relativePath}" resolves to "${resolved}" which is ` +
-        `outside the project root "${projectRoot}". ` +
+        `outside the project root "${roots.join('" / "')}". ` +
         `File access is restricted to the project directory.`
     );
   }
 
   return resolved;
+}
+
+/** `target` is `root` itself or lies beneath it (no string-prefix tricks). */
+function isWithin(root: string, target: string): boolean {
+  const rel = path.relative(root, target);
+  return rel === "" || (rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel));
+}
+
+/** A filesystem root ("/", "C:\\") is never a meaningful project root. */
+function isFilesystemRoot(dir: string): boolean {
+  return dir === "" || path.parse(dir).root === dir;
+}
+
+/**
+ * Directories that count as "the project": the directory of the tsconfig the
+ * program was built from, and the program's current directory. Either may be
+ * missing or meaningless (single-file transforms use cwd "/"), in which case
+ * the source file's own directory is the only root.
+ */
+function projectRoots(ctx: MacroContext, sourceDir: string): string[] {
+  const roots: string[] = [];
+  const configFilePath = ctx.program.getCompilerOptions().configFilePath;
+  if (typeof configFilePath === "string" && configFilePath) {
+    roots.push(path.normalize(path.dirname(path.resolve(configFilePath))));
+  }
+  const cwd = path.normalize(ctx.program.getCurrentDirectory());
+  if (!isFilesystemRoot(cwd)) roots.push(cwd);
+  const usable = roots.filter((r) => !isFilesystemRoot(r));
+  return usable.length > 0 ? usable : [path.normalize(sourceDir)];
 }
 
 /**
@@ -134,6 +165,7 @@ function extractPathArg(
 
 export const includeStrMacro = defineExpressionMacro({
   name: "includeStr",
+  cacheable: false, // depends on file contents on disk, not just the call text
   module: "typesugar",
   description: "Read a file at compile time and embed its contents as a string literal.",
 
@@ -175,6 +207,7 @@ export const includeStrMacro = defineExpressionMacro({
 
 export const includeBytesMacro = defineExpressionMacro({
   name: "includeBytes",
+  cacheable: false, // depends on file contents on disk, not just the call text
   module: "typesugar",
   description: "Read a file at compile time and embed its contents as a Uint8Array literal.",
 
@@ -225,6 +258,7 @@ export const includeBytesMacro = defineExpressionMacro({
 
 export const includeJsonMacro = defineExpressionMacro({
   name: "includeJson",
+  cacheable: false, // depends on file contents on disk, not just the call text
   module: "typesugar",
   description:
     "Read and parse a JSON file at compile time, embedding the result as an object literal.",
@@ -277,6 +311,7 @@ export const includeJsonMacro = defineExpressionMacro({
 
 export const includeTextMacro = defineExpressionMacro({
   name: "includeText",
+  cacheable: false, // depends on file contents on disk, not just the call text
   module: "typesugar",
   description: "Read a text file at compile time with optional encoding. Alias for includeStr.",
 

@@ -4,7 +4,7 @@
 
 Expression templates and loop fusion for TypeScript — iterator chains like `.filter().map().reduce()` execute in a single pass with no intermediate arrays.
 
-> **Current Status:** Runtime fusion via `LazyPipeline` class. Single-pass iteration with no intermediate arrays is achieved, but the pipeline object itself exists at runtime. Phase 2 will add compile-time macro analysis to eliminate the pipeline class entirely.
+> **Current Status:** Runtime fusion via `LazyPipeline` (single pass, no intermediate arrays; the pipeline object exists at runtime). With the typesugar transformer, `fused(chain)` additionally compiles a chain into one loop: array/tuple receivers (`map`/`filter` → `reduce`/`find`/`some`/`every`/`forEach`, with normal `(value, index, array)` callback arguments) and `lazy(iterable)` roots (all LazyPipeline-compatible `map`/`filter`/`take` → terminal steps, with LazyPipeline semantics). Any chain it cannot fuse without changing its meaning is left as-is; without the transformer `fused` is the identity.
 
 ## Installation
 

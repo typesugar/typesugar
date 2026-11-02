@@ -1,0 +1,11 @@
+process.chdir('/Users/deapovey/src/personal/typesugar');
+const t=require('/Users/deapovey/src/personal/typesugar/packages/transformer/dist/index.cjs');
+require('/Users/deapovey/src/personal/typesugar/packages/units/dist/macros.cjs');
+const code=`import { units } from "@typesugar/units";
+const meters = 42;
+export const speed = units\`100 km/h\`;
+export const d = units\`5 m\`;
+export const w = units\`5 toString\`;
+`;
+const r=t.transformCode(code,{fileName:'/Users/deapovey/src/personal/typesugar/tests/__u.ts'});
+console.log(r.code); console.log((r.diagnostics||[]).map(d=>d.message||d.messageText));

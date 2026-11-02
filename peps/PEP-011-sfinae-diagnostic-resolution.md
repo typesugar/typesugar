@@ -123,6 +123,8 @@ This rule primarily helps with extension methods on **concrete types that don't 
 
 This rule makes `const id: UserId = 42` work without `wrap()`, since at runtime `UserId` IS `number`.
 
+> **Updated 2026-10, deep review.** The text above (and the claim that `const id: UserId = 42` works without `wrap()`) no longer describes the implementation. The rule now has error code **TS2345 only** and is scoped to one case: the argument of a call whose parameter is declared `UnwrapNewtype<T>`, i.e. `wrap<T>(value)`, `newtypeCtor<T>()` and `validatedNewtype<T>()` constructor calls, where TypeScript reports a spurious TS2345 because it infers `Base` as the whole branded intersection. The argument is suppressed only if it fits the newtype's base and does not itself carry a newtype brand (re-branding `wrap<Meters>(feet)` stays an error). **Implicit `Base -> Newtype` assignment (`const id: UserId = 42`, `getUser(42)`) is reported**, as are brand mismatches: the transformer rewrites nothing there, and hiding them would remove the type safety newtypes exist to provide. Newtypes are identified by declaration (the `__brand` member of the `Newtype` alias), not by a name substring. See `createNewtypeAssignmentRule` in `packages/macros/src/diagnostic-suppression-rules.ts`.
+
 #### Rule 4: MacroGenerated (existing)
 
 **Error codes:** Any
@@ -286,6 +288,7 @@ SFINAE suppresses diagnostics, which could theoretically hide real errors. Mitig
 - Phantom errors from typesugar rewrites no longer confuse developers
 - Extension methods on concrete types become usable in IDE without red squiggles
 - Newtype assignments work without ceremony (`wrap()`/`unwrap()` become optional)
+  - _Updated 2026-10, deep review: no longer true. `wrap()` is required to construct a newtype; the rule only hides the spurious TS2345 on the `wrap()`/constructor argument. See the note under Rule 3._
 - Foundation for PEP-012 (Type Macros) implicit conversions at opaque type boundaries
 - General mechanism -- one system for all current and future rewrite categories
 

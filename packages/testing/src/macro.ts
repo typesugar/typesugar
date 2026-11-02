@@ -23,6 +23,7 @@ import {
   defineDeriveMacro,
   defineAttributeMacro,
   globalRegistry,
+  isSyntheticNode,
   type MacroContext,
   type DeriveTypeInfo,
   type DeriveFieldInfo,
@@ -33,77 +34,261 @@ import {
 export { createMacroTestContext, parseSource, type TestMacroContext } from "./macro-context.js";
 
 // ============================================================================
+// Shared codegen helpers
+// ============================================================================
+
+/** Module the emitted runtime-helper references are imported from. */
+const RUNTIME_MODULE = "@typesugar/testing";
+
+function isValidIdentifierName(name: string): boolean {
+  if (name.length === 0) return false;
+  let i = 0;
+  for (const ch of name) {
+    const cp = ch.codePointAt(0)!;
+    const ok =
+      i === 0
+        ? ts.isIdentifierStart(cp, ts.ScriptTarget.Latest)
+        : ts.isIdentifierPart(cp, ts.ScriptTarget.Latest);
+    if (!ok) return false;
+    i++;
+  }
+  // Reserved words are fine here: this is only used for property names.
+  return true;
+}
+
+/**
+ * Reference a runtime helper exported by @typesugar/testing, guaranteeing the
+ * import (aliased if the name is taken). Returns a FRESH identifier each call:
+ * `ensureImport` hands back a cached node that is also the import
+ * specifier's name, and placing that one node instance in the expansion too
+ * lets trivia/positions assigned to one occurrence leak into the other.
+ */
+function runtimeRef(ctx: MacroContext, name: string): ts.Identifier {
+  return ctx.factory.createIdentifier(ctx.ensureImport(name, RUNTIME_MODULE).text);
+}
+
+/** A property name node: a bare identifier when valid, else a string literal. */
+function propertyName(factory: ts.NodeFactory, name: string): ts.PropertyName {
+  return isValidIdentifierName(name)
+    ? factory.createIdentifier(name)
+    : factory.createStringLiteral(name);
+}
+
+/** `const <name>[: type] = <init>;` */
+function constStatement(
+  factory: ts.NodeFactory,
+  name: ts.Identifier | string,
+  init: ts.Expression,
+  type?: ts.TypeNode,
+  flags: ts.NodeFlags = ts.NodeFlags.Const
+): ts.VariableStatement {
+  return factory.createVariableStatement(
+    undefined,
+    factory.createVariableDeclarationList(
+      [factory.createVariableDeclaration(name, undefined, type, init)],
+      flags
+    )
+  );
+}
+
+/** `(() => { ...statements })()`, async + awaited when `isAsync`. */
+function iife(factory: ts.NodeFactory, statements: ts.Statement[], isAsync = false): ts.Expression {
+  const call = factory.createCallExpression(
+    factory.createParenthesizedExpression(
+      factory.createArrowFunction(
+        isAsync ? [factory.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
+        undefined,
+        [],
+        undefined,
+        factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+        factory.createBlock(statements, true)
+      )
+    ),
+    undefined,
+    []
+  );
+  return isAsync ? factory.createAwaitExpression(call) : call;
+}
+
+/** Plain data -> AST literal (strings, numbers, booleans, null, undefined, arrays, objects). */
+function dataToExpression(factory: ts.NodeFactory, value: unknown): ts.Expression {
+  if (value === null) return factory.createNull();
+  if (value === undefined) return factory.createIdentifier("undefined");
+  if (typeof value === "string") return factory.createStringLiteral(value);
+  if (typeof value === "boolean") return value ? factory.createTrue() : factory.createFalse();
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return factory.createIdentifier("NaN");
+    if (!Number.isFinite(value)) {
+      const inf = factory.createIdentifier("Infinity");
+      return value < 0 ? factory.createPrefixUnaryExpression(ts.SyntaxKind.MinusToken, inf) : inf;
+    }
+    if (value < 0 || Object.is(value, -0)) {
+      return factory.createPrefixUnaryExpression(
+        ts.SyntaxKind.MinusToken,
+        factory.createNumericLiteral(-value)
+      );
+    }
+    return factory.createNumericLiteral(value);
+  }
+  if (Array.isArray(value)) {
+    return factory.createArrayLiteralExpression(value.map((v) => dataToExpression(factory, v)));
+  }
+  if (typeof value === "object") {
+    return factory.createObjectLiteralExpression(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) =>
+        factory.createPropertyAssignment(propertyName(factory, k), dataToExpression(factory, v))
+      ),
+      false
+    );
+  }
+  throw new Error(`@typesugar/testing: cannot emit ${typeof value} as a literal`);
+}
+
+/** Whether `node` contains an `await` that belongs to ITS function (not a nested one). */
+function containsOwnAwait(node: ts.Node): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isAwaitExpression(n)) {
+      found = true;
+      return;
+    }
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return;
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+// ============================================================================
 // powerAssert() — Power Assertions with Sub-Expression Capture
 // ============================================================================
 
+/** The tree diagram shows "  assert(<expr>)", so values are offset by 9 columns. */
+const ASSERT_PREFIX_LEN = 9; // "  assert(".length
+
+function isSelfExplanatoryLiteral(n: ts.Expression): boolean {
+  return (
+    ts.isNumericLiteral(n) ||
+    ts.isStringLiteral(n) ||
+    ts.isNoSubstitutionTemplateLiteral(n) ||
+    n.kind === ts.SyntaxKind.TrueKeyword ||
+    n.kind === ts.SyntaxKind.FalseKeyword ||
+    n.kind === ts.SyntaxKind.NullKeyword
+  );
+}
+
+function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+
 /**
- * Walk a binary/property-access/call expression tree and collect every
- * meaningful sub-expression. Returns an array of { expr, source } pairs
- * where `expr` is the AST node and `source` is its source text.
+ * Rebuild `expr` so every meaningful sub-expression records its value into
+ * `values[i]` AS IT IS EVALUATED — `(values[i] = <sub>)` — so on failure the
+ * diagram shows the values from the one real evaluation. Nothing is evaluated
+ * twice (side effects such as `n++` happen once), and sub-expressions that
+ * short-circuiting skipped are simply absent from `values`.
+ *
+ * Positions that must stay un-wrapped for the program to mean the same thing
+ * are left alone: assignment / `++`/`--` targets, method-call callees (wrapping
+ * would lose `this`), the inner links of an optional chain (wrapping would end
+ * the chain early), `super`, and `import(...)`.
  */
-function collectSubExpressions(
-  node: ts.Expression,
-  sourceFile: ts.SourceFile
-): Array<{ node: ts.Expression; source: string; displayOffset: number }> {
-  const exprStart = node.getStart(sourceFile);
-  const subs: Array<{ node: ts.Expression; source: string; displayOffset: number }> = [];
+function instrumentAssertion(
+  factory: ts.NodeFactory,
+  expr: ts.Expression,
+  sourceFile: ts.SourceFile,
+  values: ts.Identifier
+): { instrumented: ts.Expression; positions: number[] } {
+  const exprStart = expr.getStart(sourceFile);
+  const positions: number[] = [];
 
-  // Compute the column position where this sub-expression's value indicator
-  // should appear in the tree diagram. For property access, position at the
-  // property name; for binary ops, at the operator; otherwise at the start.
-  function getDisplayOffset(n: ts.Expression): number {
-    if (ts.isPropertyAccessExpression(n)) {
-      return n.name.getStart(sourceFile) - exprStart;
-    }
-    if (ts.isBinaryExpression(n)) {
-      return n.operatorToken.getStart(sourceFile) - exprStart;
-    }
+  // Column where this sub-expression's value indicator appears in the diagram:
+  // at the property name for property access, the operator for binary ops,
+  // otherwise the start.
+  const displayOffset = (n: ts.Expression): number => {
+    if (ts.isPropertyAccessExpression(n)) return n.name.getStart(sourceFile) - exprStart;
+    if (ts.isBinaryExpression(n)) return n.operatorToken.getStart(sourceFile) - exprStart;
     return n.getStart(sourceFile) - exprStart;
-  }
+  };
 
-  function walk(n: ts.Expression): void {
-    // Skip literals — they're self-explanatory
-    if (
-      ts.isNumericLiteral(n) ||
-      ts.isStringLiteral(n) ||
-      n.kind === ts.SyntaxKind.TrueKeyword ||
-      n.kind === ts.SyntaxKind.FalseKeyword ||
-      n.kind === ts.SyntaxKind.NullKeyword
-    ) {
-      return;
+  const inChain = (n: ts.Node): boolean => (n.flags & ts.NodeFlags.OptionalChain) !== 0;
+
+  const visit = (n: ts.Expression, record: boolean): ts.Expression => {
+    if (isSelfExplanatoryLiteral(n) || n.kind === ts.SyntaxKind.SuperKeyword) return n;
+    // A macro-generated sub-tree has no source position to draw a column for.
+    if (isSyntheticNode(n)) return n;
+
+    // Allocate the index before visiting children: pre-order, matching the
+    // left-to-right reading order of the diagram.
+    let index = -1;
+    if (record) {
+      index = positions.length;
+      positions.push(displayOffset(n) + ASSERT_PREFIX_LEN);
     }
 
-    // Collect this sub-expression with its display column offset
-    const source = n.getText(sourceFile);
-    subs.push({ node: n, source, displayOffset: getDisplayOffset(n) });
-
-    // Recurse into children
+    let rebuilt: ts.Expression = n;
     if (ts.isBinaryExpression(n)) {
-      walk(n.left);
-      walk(n.right);
+      const left = isAssignmentOperator(n.operatorToken.kind) ? n.left : visit(n.left, true);
+      rebuilt = factory.updateBinaryExpression(n, left, n.operatorToken, visit(n.right, true));
     } else if (ts.isPropertyAccessExpression(n)) {
-      walk(n.expression);
-    } else if (ts.isCallExpression(n)) {
-      walk(n.expression);
-      for (const arg of n.arguments) {
-        walk(arg);
-      }
+      const chainLink = inChain(n) && inChain(n.expression);
+      rebuilt = factory.updatePropertyAccessExpression(n, visit(n.expression, !chainLink), n.name);
     } else if (ts.isElementAccessExpression(n)) {
-      walk(n.expression);
-      walk(n.argumentExpression);
+      const chainLink = inChain(n) && inChain(n.expression);
+      rebuilt = factory.updateElementAccessExpression(
+        n,
+        visit(n.expression, !chainLink),
+        visit(n.argumentExpression, true)
+      );
+    } else if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const isMethodCall =
+        ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee);
+      const keepCallee =
+        isMethodCall ||
+        callee.kind === ts.SyntaxKind.ImportKeyword ||
+        callee.kind === ts.SyntaxKind.SuperKeyword ||
+        (inChain(n) && inChain(callee));
+      const newCallee =
+        callee.kind === ts.SyntaxKind.ImportKeyword || callee.kind === ts.SyntaxKind.SuperKeyword
+          ? callee
+          : visit(callee, !keepCallee);
+      const newArgs = n.arguments.map((arg) =>
+        ts.isSpreadElement(arg)
+          ? factory.updateSpreadElement(arg, visit(arg.expression, true))
+          : visit(arg, true)
+      );
+      rebuilt = factory.updateCallExpression(n, newCallee, n.typeArguments, newArgs);
     } else if (ts.isPrefixUnaryExpression(n)) {
-      walk(n.operand);
+      const mutates =
+        n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken;
+      if (!mutates) {
+        rebuilt = factory.updatePrefixUnaryExpression(n, visit(n.operand, true));
+      }
     } else if (ts.isParenthesizedExpression(n)) {
-      walk(n.expression);
+      rebuilt = factory.updateParenthesizedExpression(n, visit(n.expression, true));
     } else if (ts.isConditionalExpression(n)) {
-      walk(n.condition);
-      walk(n.whenTrue);
-      walk(n.whenFalse);
+      rebuilt = factory.updateConditionalExpression(
+        n,
+        visit(n.condition, true),
+        n.questionToken,
+        visit(n.whenTrue, true),
+        n.colonToken,
+        visit(n.whenFalse, true)
+      );
     }
-  }
 
-  walk(node);
-  return subs;
+    if (index < 0) return rebuilt;
+    return factory.createParenthesizedExpression(
+      factory.createAssignment(
+        factory.createElementAccessExpression(values, factory.createNumericLiteral(index)),
+        rebuilt
+      )
+    );
+  };
+
+  return { instrumented: visit(expr, true), positions };
 }
 
 export const assertMacro = defineExpressionMacro({
@@ -129,179 +314,64 @@ export const assertMacro = defineExpressionMacro({
     const customMessage = args.length === 2 ? args[1] : undefined;
     const factory = ctx.factory;
     const sourceFile = ctx.sourceFile;
+    const fail = runtimeRef(ctx, "__powerAssertFail");
+    const values = ctx.generateUniqueName("pa_vals");
 
-    // Get the full source text of the assertion expression
-    const exprSource = expr.getText(sourceFile);
-
-    // Collect all meaningful sub-expressions
-    const subs = collectSubExpressions(expr, sourceFile);
-
-    // Build: const __vals__ = [sub1, sub2, ...] (evaluated left-to-right)
-    const valElements = subs.map((s) => s.node);
-
-    // Compute display column positions for each sub-expression.
-    // The tree diagram shows "  assert(<expr>)" so the prefix is 9 chars.
-    const ASSERT_PREFIX_LEN = 9; // "  assert(".length
-    const displayPositions = subs.map((s) => s.displayOffset + ASSERT_PREFIX_LEN);
-
-    // Generate the power assertion IIFE with tree diagram output:
+    // Generates:
     //
-    // (() => {
-    //   const __result__ = <expr>;
-    //   if (!__result__) {
-    //     const __vals__ = [<sub1>, <sub2>, ...];
-    //     let __msg__ = <customMessage>;
-    //     // Build tree diagram with column-aligned values
-    //     ...
-    //     throw new Error(__diagram__);
-    //   }
-    // })()
+    //   (() => {
+    //     const <values>: any[] = [];
+    //     if (!(<expr, each sub-expression wrapped as (<values>[i] = sub)>))
+    //       __powerAssertFail("<expr source>", [<display columns>], <values>, <message>);
+    //   })()
     //
-    // We build this as a string and parse it, then splice in the real
-    // expression nodes for correctness. Display positions are embedded
-    // as compile-time constants.
-
-    const code = `(() => {
-  const __pa_result__ = undefined;
-  if (!__pa_result__) {
-    const __pa_vals__: any[] = [];
-    let __pa_msg__: any = undefined;
-    var __pa_fv__ = __pa_vals__.map((v: any) => {
-      try { return JSON.stringify(v); } catch(e) { return String(v); }
-    });
-    var __pa_it__: any[] = [${displayPositions.join(", ")}].map((p: any, i: any) => {
-      return [p, __pa_fv__[i]];
-    }).sort((a: any, b: any) => {
-      return a[1].length - b[1].length || a[0] - b[0];
-    });
-    var __pa_d__ = "\\n\\nPower Assert Failed" + (__pa_msg__ ? ": " + __pa_msg__ : "") + "\\n\\n  assert(" + ${JSON.stringify(exprSource)} + ")\\n";
-    const __pa_row__ = (vs: any, ps: any) => {
-      var cs = vs.concat(ps.map((p: any) => { return [p, "|"]; }));
-      cs.sort((a: any, b: any) => { return a[0] - b[0]; });
-      var s = "", c = 0;
-      for (var k = 0; k < cs.length; k++) {
-        if (cs[k][0] < c) continue;
-        if (c < cs[k][0]) { s += " ".repeat(cs[k][0] - c); c = cs[k][0]; }
-        s += cs[k][1]; c += cs[k][1].length;
-      }
-      return s;
-    };
-    var __pa_ap__ = __pa_it__.map((x: any) => { return x[0]; });
-    __pa_d__ += __pa_row__([], __pa_ap__) + "\\n";
-    var __pa_rm__: any[] = __pa_it__.slice();
-    while (__pa_rm__.length > 0) {
-      var __pa_rw__: any[] = [], __pa_nx__: any[] = [], __pa_le__ = -Infinity;
-      for (var k = 0; k < __pa_rm__.length; k++) {
-        var dc = __pa_rm__[k][0];
-        if (dc >= __pa_le__ + 1) {
-          __pa_rw__.push([dc, __pa_rm__[k][1]]);
-          __pa_le__ = dc + __pa_rm__[k][1].length;
-        } else {
-          __pa_nx__.push(__pa_rm__[k]);
-        }
-      }
-      __pa_d__ += __pa_row__(__pa_rw__, __pa_nx__.map((x: any) => { return x[0]; })) + "\\n";
-      __pa_rm__ = __pa_nx__;
+    // (async + awaited when the expression awaits). The expression is
+    // evaluated exactly once; the diagram is built by the runtime helper.
+    let instrumented: ts.Expression;
+    let positions: number[];
+    let exprSource: string;
+    if (isSyntheticNode(expr)) {
+      // A macro-generated argument has no source text or positions to draw a
+      // diagram from: assert it plainly (still evaluated once).
+      ctx.reportWarning(
+        callExpr,
+        "assert(): argument is macro-generated, so the failure message will not include a sub-expression diagram"
+      );
+      instrumented = expr;
+      positions = [];
+      exprSource = ts
+        .createPrinter({ removeComments: true })
+        .printNode(ts.EmitHint.Expression, expr, sourceFile);
+    } else {
+      ({ instrumented, positions } = instrumentAssertion(factory, expr, sourceFile, values));
+      exprSource = expr.getText(sourceFile);
     }
-    throw new Error(__pa_d__);
-  }
-})()`;
 
-    const stmts = ctx.parseStatements(code);
-    // The parsed code is an ExpressionStatement wrapping a CallExpression (IIFE)
-    const iife = stmts[0];
-    if (!ts.isExpressionStatement(iife)) return callExpr;
+    const failArgs: ts.Expression[] = [
+      factory.createStringLiteral(exprSource),
+      factory.createArrayLiteralExpression(positions.map((p) => factory.createNumericLiteral(p))),
+      values,
+    ];
+    if (customMessage) failArgs.push(customMessage);
 
-    const iifeCall = iife.expression as ts.CallExpression;
-    const arrowFn = (iifeCall.expression as ts.ParenthesizedExpression)
-      .expression as ts.ArrowFunction;
-    const block = arrowFn.body as ts.Block;
-
-    // Now rebuild the block with real expression nodes spliced in.
-    // Statement 0: const __pa_result__ = <expr>
-    const resultDecl = block.statements[0] as ts.VariableStatement;
-    const resultVarDecl = resultDecl.declarationList.declarations[0];
-    const newResultDecl = factory.updateVariableDeclaration(
-      resultVarDecl,
-      resultVarDecl.name,
-      undefined,
-      undefined,
-      expr
-    );
-    const newResultStmt = factory.updateVariableStatement(
-      resultDecl,
-      resultDecl.modifiers,
-      factory.updateVariableDeclarationList(resultDecl.declarationList, [newResultDecl])
-    );
-
-    // Statement 1: if (!__pa_result__) { ... }
-    const ifStmt = block.statements[1] as ts.IfStatement;
-    const ifBlock = ifStmt.thenStatement as ts.Block;
-
-    // ifBlock[0]: const __pa_vals__ = [<real sub-expressions>]
-    const valsDecl = ifBlock.statements[0] as ts.VariableStatement;
-    const valsVarDecl = valsDecl.declarationList.declarations[0];
-    const newValsDecl = factory.updateVariableDeclaration(
-      valsVarDecl,
-      valsVarDecl.name,
-      undefined,
-      undefined,
-      factory.createArrayLiteralExpression(valElements)
-    );
-    const newValsStmt = factory.updateVariableStatement(
-      valsDecl,
-      valsDecl.modifiers,
-      factory.updateVariableDeclarationList(valsDecl.declarationList, [newValsDecl])
-    );
-
-    // ifBlock[1]: let __pa_msg__ = <customMessage or undefined>
-    const msgDecl = ifBlock.statements[1] as ts.VariableStatement;
-    const msgVarDecl = msgDecl.declarationList.declarations[0];
-    const newMsgDecl = factory.updateVariableDeclaration(
-      msgVarDecl,
-      msgVarDecl.name,
-      undefined,
-      undefined,
-      customMessage ?? factory.createIdentifier("undefined")
-    );
-    const newMsgStmt = factory.updateVariableStatement(
-      msgDecl,
-      msgDecl.modifiers,
-      factory.updateVariableDeclarationList(msgDecl.declarationList, [newMsgDecl])
-    );
-
-    // Rebuild the if-block with patched statements
-    const newIfBlock = factory.updateBlock(ifBlock, [
-      newValsStmt,
-      newMsgStmt,
-      ...ifBlock.statements.slice(2),
-    ]);
-
-    const newIfStmt = factory.updateIfStatement(
-      ifStmt,
-      ifStmt.expression,
-      newIfBlock,
-      ifStmt.elseStatement
-    );
-
-    // Rebuild the arrow function body
-    const newBlock = factory.updateBlock(block, [newResultStmt, newIfStmt]);
-
-    const newArrow = factory.updateArrowFunction(
-      arrowFn,
-      arrowFn.modifiers,
-      arrowFn.typeParameters,
-      arrowFn.parameters,
-      arrowFn.type,
-      arrowFn.equalsGreaterThanToken,
-      newBlock
-    );
-
-    // Rebuild the IIFE
-    return factory.createCallExpression(
-      factory.createParenthesizedExpression(newArrow),
-      undefined,
-      []
+    return iife(
+      factory,
+      [
+        constStatement(
+          factory,
+          values,
+          factory.createArrayLiteralExpression([]),
+          factory.createArrayTypeNode(factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword))
+        ),
+        factory.createIfStatement(
+          factory.createPrefixUnaryExpression(
+            ts.SyntaxKind.ExclamationToken,
+            factory.createParenthesizedExpression(instrumented)
+          ),
+          factory.createExpressionStatement(factory.createCallExpression(fail, undefined, failArgs))
+        ),
+      ],
+      containsOwnAwait(expr) || (customMessage !== undefined && containsOwnAwait(customMessage))
     );
   },
 });
@@ -319,73 +389,270 @@ export const ArbitraryDerive = defineDeriveMacro({
     _target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[] {
+    const f = ctx.factory;
     const { name, fields } = typeInfo;
     const fnName = `arbitrary${name}`;
+    // The seeded PRNG is a runtime helper imported once per file (not a
+    // top-level function emitted per derived type, which collided — TS2393).
+    const seeded = runtimeRef(ctx, "__seededRandom");
+    const rng = f.createIdentifier("_rng");
+    const seed = f.createIdentifier("seed");
+    const count = f.createIdentifier("count");
+    const results = f.createIdentifier("results");
+    const i = f.createIdentifier("i");
+    const typeRef = () => f.createTypeReferenceNode(name);
+    const numberType = () => f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword);
+    const exportMod = () => [f.createModifier(ts.SyntaxKind.ExportKeyword)];
+    const seedDefined = () =>
+      f.createBinaryExpression(
+        seed,
+        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+        f.createIdentifier("undefined")
+      );
 
-    // Generate a random value for each field based on its type
-    const fieldGenerators = fields.map((field) => {
-      const gen = getArbitraryForType(field);
-      return `    ${field.name}: ${gen}`;
-    });
+    // export function arbitraryX(seed?: number): X {
+    //   const _rng = seed !== undefined ? __seededRandom(seed) : Math.random;
+    //   return { field: <generator>, ... };
+    // }
+    const single = f.createFunctionDeclaration(
+      exportMod(),
+      undefined,
+      fnName,
+      undefined,
+      [
+        f.createParameterDeclaration(
+          undefined,
+          undefined,
+          seed,
+          f.createToken(ts.SyntaxKind.QuestionToken),
+          numberType()
+        ),
+      ],
+      typeRef(),
+      f.createBlock(
+        [
+          constStatement(
+            f,
+            rng,
+            f.createConditionalExpression(
+              seedDefined(),
+              f.createToken(ts.SyntaxKind.QuestionToken),
+              f.createCallExpression(seeded, undefined, [seed]),
+              f.createToken(ts.SyntaxKind.ColonToken),
+              f.createPropertyAccessExpression(f.createIdentifier("Math"), "random")
+            )
+          ),
+          f.createReturnStatement(
+            f.createObjectLiteralExpression(
+              fields.map((field) =>
+                f.createPropertyAssignment(
+                  propertyName(f, field.name),
+                  arbitraryForField(f, rng, field)
+                )
+              ),
+              true
+            )
+          ),
+        ],
+        true
+      )
+    );
 
-    const code = `
-export function ${fnName}(seed?: number): ${name} {
-  const _rng = seed !== undefined ? _seededRandom(seed) : Math.random;
-  return {
-${fieldGenerators.join(",\n")}
-  };
-}
+    // export function arbitraryXMany(count: number, seed?: number): X[] {
+    //   const results: X[] = [];
+    //   for (let i = 0; i < count; i++)
+    //     results.push(arbitraryX(seed !== undefined ? seed + i : undefined));
+    //   return results;
+    // }
+    const many = f.createFunctionDeclaration(
+      exportMod(),
+      undefined,
+      `${fnName}Many`,
+      undefined,
+      [
+        f.createParameterDeclaration(undefined, undefined, count, undefined, numberType()),
+        f.createParameterDeclaration(
+          undefined,
+          undefined,
+          seed,
+          f.createToken(ts.SyntaxKind.QuestionToken),
+          numberType()
+        ),
+      ],
+      f.createArrayTypeNode(typeRef()),
+      f.createBlock(
+        [
+          constStatement(
+            f,
+            results,
+            f.createArrayLiteralExpression([]),
+            f.createArrayTypeNode(typeRef())
+          ),
+          f.createForStatement(
+            f.createVariableDeclarationList(
+              [f.createVariableDeclaration(i, undefined, undefined, f.createNumericLiteral(0))],
+              ts.NodeFlags.Let
+            ),
+            f.createBinaryExpression(i, ts.SyntaxKind.LessThanToken, count),
+            f.createPostfixUnaryExpression(i, ts.SyntaxKind.PlusPlusToken),
+            f.createBlock(
+              [
+                f.createExpressionStatement(
+                  f.createCallExpression(
+                    f.createPropertyAccessExpression(results, "push"),
+                    undefined,
+                    [
+                      f.createCallExpression(f.createIdentifier(fnName), undefined, [
+                        f.createConditionalExpression(
+                          seedDefined(),
+                          f.createToken(ts.SyntaxKind.QuestionToken),
+                          f.createBinaryExpression(seed, ts.SyntaxKind.PlusToken, i),
+                          f.createToken(ts.SyntaxKind.ColonToken),
+                          f.createIdentifier("undefined")
+                        ),
+                      ]),
+                    ]
+                  )
+                ),
+              ],
+              true
+            )
+          ),
+          f.createReturnStatement(results),
+        ],
+        true
+      )
+    );
 
-export function ${fnName}Many(count: number, seed?: number): ${name}[] {
-  const results: ${name}[] = [];
-  for (let i = 0; i < count; i++) {
-    results.push(${fnName}(seed !== undefined ? seed + i : undefined));
-  }
-  return results;
-}
-`;
-
-    // Also generate the seeded random helper if not already present
-    const helperCode = `
-function _seededRandom(seed: number): () => number {
-  let s = seed;
-  return () => {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return (s >>> 0) / 0xffffffff;
-  };
-}
-`;
-
-    return [...ctx.parseStatements(helperCode), ...ctx.parseStatements(code)];
+    return [single, many];
   },
 });
 
-function getArbitraryForType(field: DeriveFieldInfo): string {
-  const typeStr = field.typeString.toLowerCase();
-
-  if (field.optional) {
-    const inner = getArbitraryForBaseType(typeStr);
-    return `(_rng() > 0.5 ? ${inner} : undefined)`;
-  }
-
-  return getArbitraryForBaseType(typeStr);
+/** `_rng()` */
+function rngCall(f: ts.NodeFactory, rng: ts.Identifier): ts.Expression {
+  return f.createCallExpression(rng, undefined, []);
 }
 
-function getArbitraryForBaseType(typeStr: string): string {
+/** `Math.floor(<e>)` */
+function mathFloor(f: ts.NodeFactory, e: ts.Expression): ts.Expression {
+  return f.createCallExpression(
+    f.createPropertyAccessExpression(f.createIdentifier("Math"), "floor"),
+    undefined,
+    [e]
+  );
+}
+
+function arbitraryForField(
+  f: ts.NodeFactory,
+  rng: ts.Identifier,
+  field: DeriveFieldInfo
+): ts.Expression {
+  const base = arbitraryForBaseType(f, rng, field.typeString.toLowerCase());
+  if (!field.optional) return base;
+  // (_rng() > 0.5 ? <base> : undefined)
+  return f.createParenthesizedExpression(
+    f.createConditionalExpression(
+      f.createBinaryExpression(
+        rngCall(f, rng),
+        ts.SyntaxKind.GreaterThanToken,
+        f.createNumericLiteral(0.5)
+      ),
+      f.createToken(ts.SyntaxKind.QuestionToken),
+      base,
+      f.createToken(ts.SyntaxKind.ColonToken),
+      f.createIdentifier("undefined")
+    )
+  );
+}
+
+function arbitraryForBaseType(
+  f: ts.NodeFactory,
+  rng: ts.Identifier,
+  typeStr: string
+): ts.Expression {
   if (typeStr === "number") {
-    return "(_rng() * 200 - 100)";
+    // (_rng() * 200 - 100)
+    return f.createParenthesizedExpression(
+      f.createBinaryExpression(
+        f.createBinaryExpression(
+          rngCall(f, rng),
+          ts.SyntaxKind.AsteriskToken,
+          f.createNumericLiteral(200)
+        ),
+        ts.SyntaxKind.MinusToken,
+        f.createNumericLiteral(100)
+      )
+    );
   }
   if (typeStr === "string") {
-    return `String.fromCharCode(...Array.from({ length: Math.floor(_rng() * 20) + 1 }, () => Math.floor(_rng() * 26) + 97))`;
+    // String.fromCharCode(...Array.from({ length: Math.floor(_rng() * 20) + 1 },
+    //                                   () => Math.floor(_rng() * 26) + 97))
+    const scaled = (n: number) =>
+      mathFloor(
+        f,
+        f.createBinaryExpression(
+          rngCall(f, rng),
+          ts.SyntaxKind.AsteriskToken,
+          f.createNumericLiteral(n)
+        )
+      );
+    return f.createCallExpression(
+      f.createPropertyAccessExpression(f.createIdentifier("String"), "fromCharCode"),
+      undefined,
+      [
+        f.createSpreadElement(
+          f.createCallExpression(
+            f.createPropertyAccessExpression(f.createIdentifier("Array"), "from"),
+            undefined,
+            [
+              f.createObjectLiteralExpression([
+                f.createPropertyAssignment(
+                  "length",
+                  f.createBinaryExpression(
+                    scaled(20),
+                    ts.SyntaxKind.PlusToken,
+                    f.createNumericLiteral(1)
+                  )
+                ),
+              ]),
+              f.createArrowFunction(
+                undefined,
+                undefined,
+                [],
+                undefined,
+                f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+                f.createBinaryExpression(
+                  scaled(26),
+                  ts.SyntaxKind.PlusToken,
+                  f.createNumericLiteral(97)
+                )
+              ),
+            ]
+          )
+        ),
+      ]
+    );
   }
   if (typeStr === "boolean") {
-    return "(_rng() > 0.5)";
+    // (_rng() > 0.5)
+    return f.createParenthesizedExpression(
+      f.createBinaryExpression(
+        rngCall(f, rng),
+        ts.SyntaxKind.GreaterThanToken,
+        f.createNumericLiteral(0.5)
+      )
+    );
   }
   if (typeStr.includes("[]") || typeStr.startsWith("array")) {
-    return "[]";
+    return f.createArrayLiteralExpression([]);
   }
-  // Default: empty object
-  return "({} as any)";
+  // Default: ({} as any)
+  return f.createParenthesizedExpression(
+    f.createAsExpression(
+      f.createObjectLiteralExpression([]),
+      f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
+    )
+  );
 }
 
 // ============================================================================
@@ -425,18 +692,27 @@ export const testCasesAttribute = defineAttributeMacro({
       return target;
     }
 
+    const f = ctx.factory;
     const casesArray = args[0] as ts.ArrayLiteralExpression;
     const fnName = target.name?.text ?? "anonymous";
-    const params = target.parameters;
     const body = target.body;
+    const isAsync = (target.modifiers ?? []).some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
 
     if (!body) {
       ctx.reportError(target, "@testCases: function must have a body");
       return target;
     }
 
+    // Printing is used ONLY for the human-readable test label text (a string
+    // literal); the generated code itself reuses the original AST nodes, so
+    // macros inside the body or the case values are still expanded.
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed, removeComments: true });
+    const labelText = (e: ts.Expression): string =>
+      isSyntheticNode(e)
+        ? printer.printNode(ts.EmitHint.Expression, e, ctx.sourceFile)
+        : e.getText(ctx.sourceFile);
+
     const statements: ts.Statement[] = [];
-    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
     for (let i = 0; i < casesArray.elements.length; i++) {
       const caseExpr = casesArray.elements[i];
@@ -446,57 +722,68 @@ export const testCasesAttribute = defineAttributeMacro({
         continue;
       }
 
-      // Extract property values for the test case label
-      const props = new Map<string, string>();
+      const props = new Map<string, ts.Expression>();
       for (const prop of caseExpr.properties) {
         if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
-          const valText = printer.printNode(
-            ts.EmitHint.Expression,
-            prop.initializer,
-            ctx.sourceFile
-          );
-          props.set(prop.name.text, valText);
+          props.set(prop.name.text, prop.initializer);
+        } else if (ts.isShorthandPropertyAssignment(prop)) {
+          props.set(prop.name.text, prop.name);
         }
       }
 
-      // Build a descriptive test name
       const caseLabel = Array.from(props.entries())
-        .map(([k, v]) => `${k}=${v}`)
+        .map(([k, v]) => `${k}=${labelText(v).replace(/\s+/g, " ")}`)
         .join(", ");
 
-      // Generate: it("fnName (case #i: label)", () => { ... })
-      // where the body destructures the case object into the function params
-      const paramNames = params.map((p) => (ts.isIdentifier(p.name) ? p.name.text : `_p${i}`));
+      // it("<fn> (case #<n>: <label>)", () => { let <param> = <value>; ...body })
+      const bindings: ts.Statement[] = [];
+      for (const p of target.parameters) {
+        if (!ts.isIdentifier(p.name)) continue;
+        const value = props.get(p.name.text);
+        if (value === undefined) continue;
+        bindings.push(constStatement(f, p.name.text, value, undefined, ts.NodeFlags.Let));
+      }
 
-      const destructure = paramNames
-        .map((name) => {
-          const val = props.get(name);
-          return val !== undefined ? `const ${name} = ${val};` : "";
-        })
-        .filter(Boolean)
-        .join("\n  ");
-
-      const bodyText = printer.printNode(ts.EmitHint.Unspecified, body, ctx.sourceFile);
-      // Strip the outer braces from the function body
-      const innerBody = bodyText.replace(/^\{/, "").replace(/\}$/, "").trim();
-
-      const testCode = `
-it("${fnName} (case #${i + 1}: ${caseLabel.replace(/"/g, '\\"')})", () => {
-  ${destructure}
-  ${innerBody}
-});
-`;
-
-      statements.push(...ctx.parseStatements(testCode));
+      statements.push(
+        f.createExpressionStatement(
+          f.createCallExpression(f.createIdentifier("it"), undefined, [
+            f.createStringLiteral(`${fnName} (case #${i + 1}: ${caseLabel})`),
+            f.createArrowFunction(
+              isAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined,
+              undefined,
+              [],
+              undefined,
+              f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+              f.createBlock([...bindings, ...body.statements], true)
+            ),
+          ])
+        )
+      );
     }
 
-    return statements;
+    // One Block rather than an array of statements: the transformer only
+    // re-visits the FIRST node an attribute macro returns (extra statements
+    // are spliced in un-visited), so with an array, macros in the body of
+    // every case after the first would never expand. A block of `it(...)`
+    // calls is equivalent at the top level of a test file.
+    return f.createBlock(statements, true);
   },
 });
 
 // ============================================================================
 // assertSnapshot() — Snapshot Testing with Source Capture
 // ============================================================================
+
+/** The source file's path relative to the program's root directory, '/'-separated. */
+function projectRelativePath(ctx: MacroContext): string {
+  const norm = (p: string) => p.replace(/\\/g, "/");
+  const file = norm(ctx.sourceFile.fileName);
+  let root = norm(ctx.program.getCurrentDirectory());
+  if (root && !root.endsWith("/")) root += "/";
+  if (root && file.startsWith(root)) return file.slice(root.length);
+  // Outside the project root: the basename is the only machine-independent part.
+  return file.slice(file.lastIndexOf("/") + 1);
+}
 
 export const assertSnapshotMacro = defineExpressionMacro({
   name: "assertSnapshot",
@@ -522,18 +809,20 @@ export const assertSnapshotMacro = defineExpressionMacro({
     const factory = ctx.factory;
 
     // Capture the source text of the expression at compile time
-    const exprSource = expr.getText ? expr.getText(ctx.sourceFile) : "<expression>";
+    const exprSource = isSyntheticNode(expr) ? "<expression>" : expr.getText(ctx.sourceFile);
 
-    // Get file and line info
-    const start = callExpr.getStart(ctx.sourceFile);
-    const { line } = ctx.sourceFile.getLineAndCharacterOfPosition(start);
-    const fileName = ctx.sourceFile.fileName;
+    // The label is part of the snapshot KEY, so it must be stable across
+    // machines and edits: a project-relative path (not the absolute path of
+    // whoever wrote the snapshot) and no line number (inserting a line above
+    // must not orphan every snapshot below it). Vitest/Jest already number
+    // repeated keys within a test.
+    const fileName = projectRelativePath(ctx);
 
     // Generate:
     // expect(<expr>).toMatchSnapshot(
-    //   `<fileName>:<line> — <exprSource>` + (snapshotName ? ` [${snapshotName}]` : "")
+    //   `<file> — <exprSource>` + (snapshotName ? ` [${snapshotName}]` : "")
     // )
-    const snapshotLabel = `${fileName}:${line + 1} — ${exprSource}`;
+    const snapshotLabel = `${fileName} — ${exprSource}`;
 
     const snapshotArgs: ts.Expression[] = [];
 
@@ -662,133 +951,124 @@ export const forAllMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    const factory = ctx.factory;
-    const generator = args[0];
-    const count = args.length === 3 ? args[1] : factory.createNumericLiteral(100);
-    const property = args.length === 3 ? args[2] : args[1];
+    const f = ctx.factory;
+    const generatorArg = args[0];
+    const countArg = args.length === 3 ? args[1] : f.createNumericLiteral(100);
+    const propertyArg = args.length === 3 ? args[2] : args[1];
 
-    // Generate hygienic variable names
-    const iName = ctx.generateUniqueName("fa_i").text;
-    const valueName = ctx.generateUniqueName("fa_value").text;
-    const eName = ctx.generateUniqueName("fa_e").text;
-    const errName = ctx.generateUniqueName("fa_err").text;
+    const gen = ctx.generateUniqueName("fa_gen");
+    const count = ctx.generateUniqueName("fa_count");
+    const prop = ctx.generateUniqueName("fa_prop");
+    const i = ctx.generateUniqueName("fa_i");
+    const value = ctx.generateUniqueName("fa_value");
+    const e = ctx.generateUniqueName("fa_e");
+    const err = ctx.generateUniqueName("fa_err");
+    const str = (s: string) => f.createStringLiteral(s);
+    const plus = (a: ts.Expression, b: ts.Expression) =>
+      f.createBinaryExpression(a, ts.SyntaxKind.PlusToken, b);
 
-    // Generate:
     // (() => {
+    //   const <gen> = <generator>, <count> = <count>, <prop> = <property>;  (each evaluated once)
     //   for (let <i> = 0; <i> < <count>; <i>++) {
-    //     const <value> = <generator>(<i>);
-    //     try {
-    //       (<property>)(<value>);
-    //     } catch (<e>) {
+    //     const <value> = <gen>(<i>);
+    //     try { <prop>(<value>); }
+    //     catch (<e>) {
     //       const <err> = <e> instanceof Error ? <e>.message : String(<e>);
-    //       throw new Error(
-    //         `Property failed after ${<i> + 1} tests.\n` +
-    //         `Failing input: ${JSON.stringify(<value>)}\n` +
-    //         `Error: ${<err>}`
-    //       );
+    //       throw new Error("Property failed after " + (<i> + 1) + " tests.\n" +
+    //         "Failing input: " + JSON.stringify(<value>) + "\n" + "Error: " + <err>);
     //     }
     //   }
     // })()
-
-    const code = `(() => {
-  for (let ${iName} = 0; ${iName} < 100; ${iName}++) {
-    const ${valueName} = undefined;
-    try {
-      undefined;
-    } catch (${eName}) {
-      const ${errName} = ${eName} instanceof Error ? ${eName}.message : String(${eName});
-      throw new Error(
-        "Property failed after " + (${iName} + 1) + " tests.\\n" +
-        "Failing input: " + JSON.stringify(${valueName}) + "\\n" +
-        "Error: " + ${errName}
-      );
-    }
-  }
-})()`;
-
-    const stmts = ctx.parseStatements(code);
-    const iifeStmt = stmts[0] as ts.ExpressionStatement;
-    const iifeCall = iifeStmt.expression as ts.CallExpression;
-    const arrowFn = (iifeCall.expression as ts.ParenthesizedExpression)
-      .expression as ts.ArrowFunction;
-    const block = arrowFn.body as ts.Block;
-    const forStmt = block.statements[0] as ts.ForStatement;
-    const forBlock = forStmt.statement as ts.Block;
-
-    // Patch the for condition to use the real count
-    const newForStmt = factory.updateForStatement(
-      forStmt,
-      forStmt.initializer,
-      factory.createBinaryExpression(
-        factory.createIdentifier(iName),
-        factory.createToken(ts.SyntaxKind.LessThanToken),
-        count
+    const loop = f.createForStatement(
+      f.createVariableDeclarationList(
+        [f.createVariableDeclaration(i, undefined, undefined, f.createNumericLiteral(0))],
+        ts.NodeFlags.Let
       ),
-      forStmt.incrementor,
-      forStmt.statement
+      f.createBinaryExpression(i, ts.SyntaxKind.LessThanToken, count),
+      f.createPostfixUnaryExpression(i, ts.SyntaxKind.PlusPlusToken),
+      f.createBlock(
+        [
+          constStatement(f, value, f.createCallExpression(gen, undefined, [i])),
+          f.createTryStatement(
+            f.createBlock([
+              f.createExpressionStatement(f.createCallExpression(prop, undefined, [value])),
+            ]),
+            f.createCatchClause(
+              e,
+              f.createBlock(
+                [
+                  constStatement(
+                    f,
+                    err,
+                    f.createConditionalExpression(
+                      f.createBinaryExpression(
+                        e,
+                        ts.SyntaxKind.InstanceOfKeyword,
+                        f.createIdentifier("Error")
+                      ),
+                      f.createToken(ts.SyntaxKind.QuestionToken),
+                      f.createPropertyAccessExpression(e, "message"),
+                      f.createToken(ts.SyntaxKind.ColonToken),
+                      f.createCallExpression(f.createIdentifier("String"), undefined, [e])
+                    )
+                  ),
+                  f.createThrowStatement(
+                    f.createNewExpression(f.createIdentifier("Error"), undefined, [
+                      plus(
+                        plus(
+                          plus(
+                            plus(
+                              plus(
+                                plus(
+                                  str("Property failed after "),
+                                  f.createParenthesizedExpression(
+                                    plus(i, f.createNumericLiteral(1))
+                                  )
+                                ),
+                                str(" tests.\n")
+                              ),
+                              str("Failing input: ")
+                            ),
+                            f.createCallExpression(
+                              f.createPropertyAccessExpression(
+                                f.createIdentifier("JSON"),
+                                "stringify"
+                              ),
+                              undefined,
+                              [value]
+                            )
+                          ),
+                          str("\nError: ")
+                        ),
+                        err
+                      ),
+                    ])
+                  ),
+                ],
+                true
+              )
+            ),
+            undefined
+          ),
+        ],
+        true
+      )
     );
 
-    // Patch <value> = <generator>(<i>)
-    const valueDecl = forBlock.statements[0] as ts.VariableStatement;
-    const valueVarDecl = valueDecl.declarationList.declarations[0];
-    const newValueDecl = factory.updateVariableDeclaration(
-      valueVarDecl,
-      valueVarDecl.name,
-      undefined,
-      undefined,
-      factory.createCallExpression(generator, undefined, [factory.createIdentifier(iName)])
-    );
-    const newValueStmt = factory.updateVariableStatement(
-      valueDecl,
-      valueDecl.modifiers,
-      factory.updateVariableDeclarationList(valueDecl.declarationList, [newValueDecl])
-    );
-
-    // Patch try body: (<property>)(<value>)
-    const tryStmt = forBlock.statements[1] as ts.TryStatement;
-    const tryBlock = tryStmt.tryBlock;
-    const newTryBlock = factory.updateBlock(tryBlock, [
-      factory.createExpressionStatement(
-        factory.createCallExpression(factory.createParenthesizedExpression(property), undefined, [
-          factory.createIdentifier(valueName),
-        ])
+    return iife(f, [
+      f.createVariableStatement(
+        undefined,
+        f.createVariableDeclarationList(
+          [
+            f.createVariableDeclaration(gen, undefined, undefined, generatorArg),
+            f.createVariableDeclaration(count, undefined, undefined, countArg),
+            f.createVariableDeclaration(prop, undefined, undefined, propertyArg),
+          ],
+          ts.NodeFlags.Const
+        )
       ),
+      loop,
     ]);
-
-    const newTryStmt = factory.updateTryStatement(
-      tryStmt,
-      newTryBlock,
-      tryStmt.catchClause,
-      tryStmt.finallyBlock
-    );
-
-    // Rebuild
-    const newForBlock = factory.updateBlock(forBlock, [newValueStmt, newTryStmt]);
-
-    const finalForStmt = factory.updateForStatement(
-      newForStmt,
-      newForStmt.initializer,
-      newForStmt.condition,
-      newForStmt.incrementor,
-      newForBlock
-    );
-
-    const newBody = factory.updateBlock(block, [finalForStmt]);
-    const newArrow = factory.updateArrowFunction(
-      arrowFn,
-      arrowFn.modifiers,
-      arrowFn.typeParameters,
-      arrowFn.parameters,
-      arrowFn.type,
-      arrowFn.equalsGreaterThanToken,
-      newBody
-    );
-
-    return factory.createCallExpression(
-      factory.createParenthesizedExpression(newArrow),
-      undefined,
-      []
-    );
   },
 });
 
@@ -796,11 +1076,85 @@ export const forAllMacro = defineExpressionMacro({
 // assertType<T>(value) — Runtime Type Assertion with Detailed Diagnostics
 // ============================================================================
 
+type Literal = string | number | boolean | null | undefined;
+type Check = "string" | "number" | "boolean" | "bigint" | "symbol" | "array";
+
 /**
- * `assertType<T>(value)` uses compile-time type information (via `typeInfo<T>()`)
- * to validate that a runtime value matches the expected structure. On failure,
- * it produces rich diagnostics showing exactly which fields are missing, have
- * wrong types, or have unexpected values.
+ * Describe `type` as primitive checks + allowed literal values, or return
+ * "any" (unchecked) / null (not a primitive type).
+ */
+function primitiveShape(
+  checker: ts.TypeChecker,
+  type: ts.Type
+): { checks: Check[]; literals: Literal[] } | "any" | null {
+  const parts = type.isUnion() ? type.types : [type];
+  const checks = new Set<Check>();
+  const literals: Literal[] = [];
+  for (const t of parts) {
+    const fl = t.flags;
+    if (fl & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return "any";
+    if (t.isStringLiteral()) literals.push(t.value);
+    else if (t.isNumberLiteral()) literals.push(t.value);
+    else if (fl & ts.TypeFlags.BooleanLiteral)
+      literals.push((t as { intrinsicName?: string }).intrinsicName === "true");
+    else if (fl & ts.TypeFlags.StringLike) checks.add("string");
+    else if (fl & ts.TypeFlags.NumberLike) checks.add("number");
+    else if (fl & ts.TypeFlags.BooleanLike) checks.add("boolean");
+    else if (fl & ts.TypeFlags.BigIntLike) checks.add("bigint");
+    else if (fl & ts.TypeFlags.ESSymbolLike) checks.add("symbol");
+    else if (fl & ts.TypeFlags.Null) literals.push(null);
+    else if (fl & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) literals.push(undefined);
+    else if (checker.isArrayType(t) || checker.isTupleType(t)) checks.add("array");
+    else return null;
+  }
+  return { checks: [...checks], literals };
+}
+
+/** Build the runtime `__TypeSpec` (as plain data) for `type`. */
+function typeSpecFor(checker: ts.TypeChecker, type: ts.Type, location: ts.Node): unknown {
+  const prim = primitiveShape(checker, type);
+  if (prim === "any") return { kind: "any" };
+  if (prim) {
+    if (prim.checks.length === 1 && prim.checks[0] === "array" && prim.literals.length === 0) {
+      return { kind: "array" };
+    }
+    return { kind: "primitive", ...prim };
+  }
+  if (type.isUnion()) {
+    // A union mixing object and primitive members (or several object shapes)
+    // has no single field list to check; only common properties are reliable.
+    const allObjects = type.types.every((t) => (t.flags & ts.TypeFlags.Object) !== 0);
+    if (!allObjects) return { kind: "any" };
+  }
+
+  const fields = checker.getPropertiesOfType(type).map((prop) => {
+    const propType = checker.getTypeOfSymbolAtLocation(prop, location);
+    const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+    const shape = primitiveShape(
+      checker,
+      optional ? checker.getNonNullableType(propType) : propType
+    );
+    const usable = shape && shape !== "any" ? shape : { checks: [], literals: [] };
+    return {
+      name: prop.name,
+      type: checker.typeToString(propType),
+      optional,
+      checks: usable.checks,
+      literals: usable.literals,
+    };
+  });
+  return { kind: "object", fields };
+}
+
+/**
+ * `assertType<T>(value)` uses compile-time type information to validate that
+ * a runtime value matches the expected structure. On failure, it produces
+ * rich diagnostics showing exactly which fields are missing, have wrong
+ * types, or have unexpected values.
+ *
+ * Primitive and literal types (`assertType<number>(5)`, `assertType<"a" | "b">(x)`)
+ * are checked by `typeof` / value; object types field by field (including
+ * literal-typed fields such as `{ kind: "click" }`).
  *
  * @example
  * ```typescript
@@ -816,7 +1170,7 @@ export const forAllMacro = defineExpressionMacro({
  * // Fails with detailed diagnostics:
  * // "Type assertion failed for 'User':
  * //   - Field 'id': expected number, got string
- * //   - Field 'name': missing (required)"
+ * //   - Field 'name': missing (required, expected string)"
  * assertType<User>({ id: "not-a-number" });
  * ```
  */
@@ -831,7 +1185,7 @@ export const assertTypeMacro = defineExpressionMacro({
     callExpr: ts.CallExpression,
     args: readonly ts.Expression[]
   ): ts.Expression {
-    const factory = ctx.factory;
+    const f = ctx.factory;
     const typeArgs = callExpr.typeArguments;
 
     if (!typeArgs || typeArgs.length !== 1) {
@@ -850,221 +1204,27 @@ export const assertTypeMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    const valueExpr = args[0];
-    const customMessage = args.length === 2 ? args[1] : undefined;
     const typeArg = typeArgs[0];
-
-    // Get type information at compile time
-    const type = ctx.typeChecker.getTypeFromTypeNode(typeArg);
-    const typeName = ctx.typeChecker.typeToString(type);
-    const properties = ctx.typeChecker.getPropertiesOfType(type);
-
-    // Build field metadata array at compile time
-    const fieldInfos: Array<{
-      name: string;
-      type: string;
-      optional: boolean;
-    }> = properties.map((prop) => {
-      const propType = ctx.typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
-      return {
-        name: prop.name,
-        type: ctx.typeChecker.typeToString(propType),
-        optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
-      };
-    });
-
-    // Generate unique variable names
-    const valueName = ctx.generateUniqueName("at_value").text;
-    const errorsName = ctx.generateUniqueName("at_errors").text;
-    const fieldName = ctx.generateUniqueName("at_field").text;
-    const actualName = ctx.generateUniqueName("at_actual").text;
-
-    // Build the field metadata as an array literal
-    const fieldMetaElements = fieldInfos.map((f) =>
-      factory.createObjectLiteralExpression([
-        factory.createPropertyAssignment("name", factory.createStringLiteral(f.name)),
-        factory.createPropertyAssignment("type", factory.createStringLiteral(f.type)),
-        factory.createPropertyAssignment(
-          "optional",
-          f.optional ? factory.createTrue() : factory.createFalse()
-        ),
-      ])
-    );
-
-    // Generate the runtime validation code
-    // This IIFE checks each field and collects detailed errors
-    const code = `(() => {
-  const ${valueName} = undefined;
-  const ${errorsName}: string[] = [];
-
-  // Check that value is an object
-  if (typeof ${valueName} !== "object" || ${valueName} === null) {
-    throw new Error(
-      "Type assertion failed for '${typeName}': expected object, got " +
-      (${valueName} === null ? "null" : typeof ${valueName})
-    );
-  }
-
-  // Field metadata from compile-time type info
-  const __at_fields__ = [];
-
-  for (const ${fieldName} of __at_fields__) {
-    const ${actualName} = (${valueName} as any)[${fieldName}.name];
-
-    // Check if field exists
-    if (${actualName} === undefined) {
-      if (!${fieldName}.optional) {
-        ${errorsName}.push(\`Field '\${${fieldName}.name}': missing (required, expected \${${fieldName}.type})\`);
-      }
-      continue;
-    }
-
-    // Type validation based on expected type
-    const actualType = typeof ${actualName};
-    const expectedType = ${fieldName}.type;
-
-    // Handle primitive type checks
-    if (expectedType === "string" && actualType !== "string") {
-      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected string, got \${actualType}\`);
-    } else if (expectedType === "number" && actualType !== "number") {
-      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected number, got \${actualType}\`);
-    } else if (expectedType === "boolean" && actualType !== "boolean") {
-      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected boolean, got \${actualType}\`);
-    } else if (expectedType.endsWith("[]") && !Array.isArray(${actualName})) {
-      ${errorsName}.push(\`Field '\${${fieldName}.name}': expected array, got \${actualType}\`);
-    }
-  }
-
-  if (${errorsName}.length > 0) {
-    let msg = "Type assertion failed for '${typeName}'";
-    if (undefined !== undefined) {
-      msg += ": " + undefined;
-    }
-    msg += "\\n  - " + ${errorsName}.join("\\n  - ");
-    throw new Error(msg);
-  }
-})()`;
-
-    const stmts = ctx.parseStatements(code);
-    const iifeStmt = stmts[0] as ts.ExpressionStatement;
-    const iifeCall = iifeStmt.expression as ts.CallExpression;
-    const arrowFn = (iifeCall.expression as ts.ParenthesizedExpression)
-      .expression as ts.ArrowFunction;
-    const block = arrowFn.body as ts.Block;
-
-    // Patch: const <valueName> = <valueExpr>
-    const valueDecl = block.statements[0] as ts.VariableStatement;
-    const valueVarDecl = valueDecl.declarationList.declarations[0];
-    const newValueDecl = factory.updateVariableDeclaration(
-      valueVarDecl,
-      valueVarDecl.name,
-      undefined,
-      undefined,
-      valueExpr
-    );
-    const newValueStmt = factory.updateVariableStatement(
-      valueDecl,
-      valueDecl.modifiers,
-      factory.updateVariableDeclarationList(valueDecl.declarationList, [newValueDecl])
-    );
-
-    // Patch: const __at_fields__ = [<field metadata>]
-    const fieldsDecl = block.statements[3] as ts.VariableStatement;
-    const fieldsVarDecl = fieldsDecl.declarationList.declarations[0];
-    const newFieldsDecl = factory.updateVariableDeclaration(
-      fieldsVarDecl,
-      fieldsVarDecl.name,
-      undefined,
-      undefined,
-      factory.createArrayLiteralExpression(fieldMetaElements, true)
-    );
-    const newFieldsStmt = factory.updateVariableStatement(
-      fieldsDecl,
-      fieldsDecl.modifiers,
-      factory.updateVariableDeclarationList(fieldsDecl.declarationList, [newFieldsDecl])
-    );
-
-    // Find and patch the custom message in the final if block
-    const ifStmt = block.statements[5] as ts.IfStatement;
-    const ifBlock = ifStmt.thenStatement as ts.Block;
-
-    // The message variable is in statement index 1 of the if block
-    // We need to patch: if (undefined !== undefined) to use customMessage
-    const msgIfStmt = ifBlock.statements[1] as ts.IfStatement;
-    let newMsgIfStmt: ts.IfStatement;
-
-    if (customMessage) {
-      newMsgIfStmt = factory.updateIfStatement(
-        msgIfStmt,
-        factory.createBinaryExpression(
-          customMessage,
-          factory.createToken(ts.SyntaxKind.ExclamationEqualsEqualsToken),
-          factory.createIdentifier("undefined")
-        ),
-        factory.createBlock([
-          factory.createExpressionStatement(
-            factory.createBinaryExpression(
-              factory.createIdentifier("msg"),
-              factory.createToken(ts.SyntaxKind.PlusEqualsToken),
-              factory.createBinaryExpression(
-                factory.createStringLiteral(": "),
-                factory.createToken(ts.SyntaxKind.PlusToken),
-                customMessage
-              )
-            )
-          ),
-        ]),
-        undefined
+    if (isSyntheticNode(typeArg)) {
+      ctx.reportWarning(
+        callExpr,
+        "assertType<T>(): the type argument is macro-generated and cannot be resolved by the type checker; left as the runtime call"
       );
-    } else {
-      // Remove the if statement entirely by replacing with empty block
-      newMsgIfStmt = factory.updateIfStatement(
-        msgIfStmt,
-        factory.createFalse(),
-        factory.createBlock([]),
-        undefined
-      );
+      return callExpr;
     }
 
-    const newIfBlock = factory.updateBlock(ifBlock, [
-      ifBlock.statements[0],
-      newMsgIfStmt,
-      ifBlock.statements[2],
-      ifBlock.statements[3],
-    ]);
+    const checker = ctx.typeChecker;
+    const type = checker.getTypeFromTypeNode(typeArg);
+    const spec = typeSpecFor(checker, type, callExpr);
 
-    const newIfStmt = factory.updateIfStatement(
-      ifStmt,
-      ifStmt.expression,
-      newIfBlock,
-      ifStmt.elseStatement
-    );
-
-    // Rebuild the block with patched statements
-    const newBlock = factory.updateBlock(block, [
-      newValueStmt,
-      block.statements[1], // const errors
-      block.statements[2], // if (typeof value !== "object")
-      newFieldsStmt,
-      block.statements[4], // for loop
-      newIfStmt,
-    ]);
-
-    const newArrow = factory.updateArrowFunction(
-      arrowFn,
-      arrowFn.modifiers,
-      arrowFn.typeParameters,
-      arrowFn.parameters,
-      arrowFn.type,
-      arrowFn.equalsGreaterThanToken,
-      newBlock
-    );
-
-    return factory.createCallExpression(
-      factory.createParenthesizedExpression(newArrow),
-      undefined,
-      []
-    );
+    // __assertTypeCheck(<value>, "<T as text>", <spec literal>[, <message>])
+    const callArgs: ts.Expression[] = [
+      args[0],
+      f.createStringLiteral(checker.typeToString(type)),
+      dataToExpression(f, spec),
+    ];
+    if (args.length === 2) callArgs.push(args[1]);
+    return f.createCallExpression(runtimeRef(ctx, "__assertTypeCheck"), undefined, callArgs);
   },
 });
 
@@ -1079,6 +1239,32 @@ export { typeInfoMacro } from "@typesugar/macros";
 // @mock — Generate Mock Implementations from Interfaces
 // ============================================================================
 
+/** Names of the callable (method / function-valued) properties of `type`. */
+function methodNamesOf(checker: ts.TypeChecker, type: ts.Type, location: ts.Node): string[] {
+  const names: string[] = [];
+  for (const prop of checker.getPropertiesOfType(type)) {
+    // Symbol-keyed members ("__@iterator@12") have no string key to mock by.
+    if (prop.name.startsWith("__@")) continue;
+    const propType = checker.getTypeOfSymbolAtLocation(prop, location);
+    if (propType.getCallSignatures().length > 0) names.push(prop.name);
+  }
+  return names;
+}
+
+/** `createMockObject<T>(["m1", "m2", ...])` */
+function createMockObjectCall(
+  ctx: MacroContext,
+  typeNode: ts.TypeNode,
+  methodNames: readonly string[]
+): ts.Expression {
+  const f = ctx.factory;
+  return f.createCallExpression(
+    runtimeRef(ctx, "createMockObject"),
+    [typeNode],
+    [f.createArrayLiteralExpression(methodNames.map((n) => f.createStringLiteral(n)))]
+  );
+}
+
 /**
  * `@mock` decorator that generates a mock implementation from an interface
  * or class declaration. The mock tracks all method calls and allows stubbing
@@ -1086,26 +1272,19 @@ export { typeInfoMacro } from "@typesugar/macros";
  *
  * @example
  * ```typescript
+ * @mock
  * interface UserService {
  *   getUser(id: string): Promise<User>;
  *   createUser(data: UserInput): Promise<User>;
  * }
  *
- * @mock
- * interface UserService {}
- *
- * // Generates:
- * // const mockUserService: MockOf<UserService> = {
- * //   getUser: createMockFn<(id: string) => Promise<User>>(),
- * //   createUser: createMockFn<(data: UserInput) => Promise<User>>(),
- * //   _calls: { getUser: [], createUser: [] },
- * //   _reset: () => { ... }
- * // }
+ * // Generates (createMockObject is imported from @typesugar/testing):
+ * // const mockUserService = createMockObject<UserService>(["getUser", "createUser"]);
  *
  * // Usage in tests:
  * mockUserService.getUser.mockReturnValue(Promise.resolve(testUser));
- * await service.getUser("123");
- * expect(mockUserService.getUser).toHaveBeenCalledWith("123");
+ * await mockUserService.getUser("123");
+ * expect(mockUserService._calls.getUser).toEqual([["123"]]);
  * ```
  */
 export const mockAttribute = defineAttributeMacro({
@@ -1121,107 +1300,37 @@ export const mockAttribute = defineAttributeMacro({
     target: ts.Declaration,
     args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
-    const factory = ctx.factory;
-    const typeChecker = ctx.typeChecker;
+    const f = ctx.factory;
 
-    // Get the name of the interface/class
-    let typeName: string;
-    let type: ts.Type;
-
-    if (ts.isInterfaceDeclaration(target)) {
-      typeName = target.name.text;
-      type = typeChecker.getTypeAtLocation(target);
-    } else if (ts.isClassDeclaration(target) && target.name) {
-      typeName = target.name.text;
-      type = typeChecker.getTypeAtLocation(target);
-    } else {
+    if (!(ts.isInterfaceDeclaration(target) || (ts.isClassDeclaration(target) && target.name))) {
       ctx.reportError(target, "@mock can only be applied to named interfaces or classes");
       return target;
     }
-
-    // Extract method information from the type
-    const properties = typeChecker.getPropertiesOfType(type);
-    const methods: Array<{
-      name: string;
-      signature: string;
-      params: string;
-      returnType: string;
-    }> = [];
-
-    for (const prop of properties) {
-      const propType = typeChecker.getTypeOfSymbolAtLocation(prop, target);
-      const signatures = propType.getCallSignatures();
-
-      if (signatures.length > 0) {
-        const sig = signatures[0];
-        const params = sig.parameters
-          .map((p) => {
-            const paramType = typeChecker.getTypeOfSymbolAtLocation(p, target);
-            return `${p.name}: ${typeChecker.typeToString(paramType)}`;
-          })
-          .join(", ");
-        const returnType = typeChecker.typeToString(sig.getReturnType());
-
-        methods.push({
-          name: prop.name,
-          signature: `(${params}) => ${returnType}`,
-          params,
-          returnType,
-        });
-      }
+    const typeName = target.name!.text;
+    if (isSyntheticNode(target)) {
+      ctx.reportWarning(
+        target,
+        `@mock: '${typeName}' is macro-generated and cannot be inspected by the type checker; no mock was generated`
+      );
+      return target;
     }
 
-    // Check for custom mock name in args
+    const type = ctx.typeChecker.getTypeAtLocation(target);
+    const methodNames = methodNamesOf(ctx.typeChecker, type, target);
+
     let mockVarName = `mock${typeName}`;
     if (args.length > 0 && ts.isStringLiteral(args[0])) {
       mockVarName = args[0].text;
     }
 
-    // Generate mock method implementations
-    const methodImpls = methods
-      .map((m) => `  ${m.name}: createMockFn<${m.signature}>(),`)
-      .join("\n");
-
-    // Generate _calls tracking object
-    const callsInit = methods.map((m) => `    ${m.name}: [] as any[],`).join("\n");
-
-    // Generate _reset implementation
-    const resetCalls = methods.map((m) => `    mock._calls.${m.name} = [];`).join("\n");
-    const resetMocks = methods.map((m) => `    (mock.${m.name} as any).mockReset?.();`).join("\n");
-
-    // Generate the mock object
-    const code = `
-// Mock implementation for ${typeName}
-const ${mockVarName}: MockOf<${typeName}> = (() => {
-  const mock = {
-${methodImpls}
-    _calls: {
-${callsInit}
-    },
-    _reset(): void {
-${resetCalls}
-${resetMocks}
-    },
-  } as unknown as MockOf<${typeName}>;
-
-  // Wire up call tracking
-${methods
-  .map(
-    (m) => `  const _orig_${m.name} = mock.${m.name};
-  mock.${m.name} = ((...args: any[]) => {
-    mock._calls.${m.name}.push(args);
-    return (_orig_${m.name} as any)(...args);
-  }) as any;
-  Object.assign(mock.${m.name}, _orig_${m.name});`
-  )
-  .join("\n")}
-
-  return mock;
-})();
-`;
-
-    // Return both the original declaration and the mock variable
-    return [target, ...ctx.parseStatements(code)];
+    return [
+      target,
+      constStatement(
+        f,
+        mockVarName,
+        createMockObjectCall(ctx, f.createTypeReferenceNode(typeName), methodNames)
+      ),
+    ];
   },
 });
 
@@ -1242,10 +1351,8 @@ export const mockExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
+    _args: readonly ts.Expression[]
   ): ts.Expression {
-    const factory = ctx.factory;
-    const typeChecker = ctx.typeChecker;
     const typeArgs = callExpr.typeArguments;
 
     if (!typeArgs || typeArgs.length !== 1) {
@@ -1254,77 +1361,16 @@ export const mockExpressionMacro = defineExpressionMacro({
     }
 
     const typeArg = typeArgs[0];
-    const type = typeChecker.getTypeFromTypeNode(typeArg);
-    const typeName = typeChecker.typeToString(type);
-
-    // Extract method information
-    const properties = typeChecker.getPropertiesOfType(type);
-    const methods: Array<{
-      name: string;
-      signature: string;
-    }> = [];
-
-    for (const prop of properties) {
-      const propType = typeChecker.getTypeOfSymbolAtLocation(prop, callExpr);
-      const signatures = propType.getCallSignatures();
-
-      if (signatures.length > 0) {
-        const sig = signatures[0];
-        const params = sig.parameters
-          .map((p) => {
-            const paramType = typeChecker.getTypeOfSymbolAtLocation(p, callExpr);
-            return `${p.name}: ${typeChecker.typeToString(paramType)}`;
-          })
-          .join(", ");
-        const returnType = typeChecker.typeToString(sig.getReturnType());
-
-        methods.push({
-          name: prop.name,
-          signature: `(${params}) => ${returnType}`,
-        });
-      }
+    if (isSyntheticNode(typeArg)) {
+      ctx.reportWarning(
+        callExpr,
+        "mock<T>(): the type argument is macro-generated and cannot be resolved by the type checker; left as the runtime call"
+      );
+      return callExpr;
     }
 
-    // Check for custom default values in args
-    const defaultsArg = args.length > 0 ? args[0] : undefined;
-
-    // Generate mock method implementations
-    const methodImpls = methods
-      .map((m) => `    ${m.name}: createMockFn<${m.signature}>(),`)
-      .join("\n");
-
-    // Generate _calls tracking
-    const callsInit = methods.map((m) => `      ${m.name}: [] as any[],`).join("\n");
-
-    // Generate the mock IIFE
-    const code = `(() => {
-  const mock = {
-${methodImpls}
-    _calls: {
-${callsInit}
-    },
-    _reset(): void {
-${methods.map((m) => `      mock._calls.${m.name} = [];`).join("\n")}
-${methods.map((m) => `      (mock.${m.name} as any).mockReset?.();`).join("\n")}
-    },
-  } as unknown as MockOf<${typeName}>;
-
-  // Wire up call tracking
-${methods
-  .map(
-    (m) => `  const _orig_${m.name} = mock.${m.name};
-  mock.${m.name} = ((...args: any[]) => {
-    mock._calls.${m.name}.push(args);
-    return (_orig_${m.name} as any)(...args);
-  }) as any;
-  Object.assign(mock.${m.name}, _orig_${m.name});`
-  )
-  .join("\n")}
-
-  return mock;
-})()`;
-
-    return ctx.parseExpression(code);
+    const type = ctx.typeChecker.getTypeFromTypeNode(typeArg);
+    return createMockObjectCall(ctx, typeArg, methodNamesOf(ctx.typeChecker, type, callExpr));
   },
 });
 

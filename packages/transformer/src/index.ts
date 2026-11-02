@@ -9,7 +9,12 @@
  * public surface from wherever each piece actually lives.
  */
 
-import { macroTransformerFactory } from "./pipeline.js";
+import type * as ts from "typescript";
+import {
+  macroTransformerFactory,
+  type MacroTransformerConfig,
+  type TsPatchTransformerExtras,
+} from "./pipeline.js";
 
 // The Node-host macro transformer factory (config/state/cache plumbing
 // around transformer-core's shared MacroTransformer) now lives in
@@ -21,9 +26,25 @@ export {
   TransformerState,
   saveExpansionCache,
   getExpansionCacheStats,
+  type TsPatchTransformerExtras,
 } from "./pipeline.js";
 
-export default macroTransformerFactory;
+/**
+ * ts-patch entry point: `{ "transform": "@typesugar/transformer", "type": "program" }`.
+ *
+ * ts-patch calls `factory(program, pluginConfig, extras)` where `extras` is
+ * ts-patch's own object (`{ ts, addDiagnostic, removeDiagnostic, diagnostics,
+ * library }`) -- NOT a `TransformerState`. Macro diagnostics are forwarded to
+ * `extras.addDiagnostic`, which ts-patch merges into the emit result, so a
+ * patched `tsc` reports macro errors and exits non-zero.
+ */
+export default function typesugarTsPatchTransformer(
+  program: ts.Program,
+  pluginConfig?: MacroTransformerConfig,
+  extras?: TsPatchTransformerExtras
+): ts.TransformerFactory<ts.SourceFile> {
+  return macroTransformerFactory(program, pluginConfig, extras);
+}
 
 // The single shared macro-dispatch engine (PEP-056).
 export { MacroTransformer } from "@typesugar/transformer-core";

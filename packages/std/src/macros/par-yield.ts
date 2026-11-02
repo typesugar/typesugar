@@ -174,7 +174,12 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 
     // Infer the type constructor from the first bind step
     const firstBind = steps.find((s): s is BindStep => s.kind === "bind")!;
-    const typeConstructorName = inferTypeConstructor(firstBind.effect, typeChecker, ctx.sourceFile);
+    const typeConstructorName = inferTypeConstructor(
+      firstBind.effect,
+      typeChecker,
+      ctx.sourceFile,
+      ctx
+    );
 
     if (!typeConstructorName) {
       ctx.reportError(
@@ -357,6 +362,15 @@ export function validateIndependence(
         );
         valid = false;
       }
+    }
+    // Duplicate names would destructure into duplicate parameters (a
+    // SyntaxError) — `_` discards are the exception (emitted as holes, #11).
+    if (step.name !== "_" && boundNames.has(step.name)) {
+      ctx.reportError(
+        step.node,
+        `${label}: '${step.name}' is bound more than once in this block — use distinct names (or _ to discard).`
+      );
+      valid = false;
     }
     boundNames.add(step.name);
   }

@@ -1,0 +1,12 @@
+const m = await import("/private/tmp/claude-502/-Users-deapovey-src-personal-typesugar/2c1d0d53-b275-4ae9-af0d-cb3583fec3f8/scratchpad/review/ec/out_t9.mjs");
+const t = (l, f) => { try { console.log(l.padEnd(46), f()); } catch (e) { console.log(l.padEnd(46), "THROWS", e.message); } };
+t("is<string|number>({})  [want false]", () => m.isSN({}));
+t("is<A|B>(42)  [want false]", () => m.isUnionObj(42));
+t("is<{v:string|null}>({v:null}) [want true]", () => m.isNullable({ v: null }));
+t("is<'admin'>('root') [want false]", () => m.isLit("root"));
+t("is<1|2|3>(99) [want false]", () => m.isNumLit(99));
+t("is<bigint>('x') [want false]", () => m.isBig("x"));
+t("is<Named>({name,greet}) [want true]", () => m.isNamed({ name: "a", greet: () => "hi" }));
+t("is<{tags:string[]}>({tags:[]}) [want true]", () => m.isAnonArr({ tags: [] }));
+t("is<{name:string}>(null) [want false]", () => m.isObj(null));
+t("is<{name:string}>(undefined) [want false]", () => m.isObj(undefined));

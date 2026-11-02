@@ -251,61 +251,10 @@ class Chain<A> {
   }
 }
 
-// ============================================================================
-// For-yield simulation
-// ============================================================================
-
-/**
- * For comprehension builder using a fluent API
- *
- * @example
- * ```typescript
- * const result = For.from(Some(1))
- *   .flatMap(x => For.from(Some(2)).map(y => x + y));
- * ```
- */
-export const For = {
-  /**
-   * Start a for comprehension from a value
-   */
-  from<F, A>(fa: F): ForComprehension<F, A> {
-    return new ForComprehension(fa);
-  },
-};
-
-class ForComprehension<F, A> {
-  constructor(private readonly fa: F) {}
-
-  /**
-   * Map over the value (yield transformation)
-   */
-  map<B>(f: (a: A) => B): F {
-    // This would need to be specialized per type
-    // For demonstration, we'll return the original
-    return this.fa;
-  }
-
-  /**
-   * FlatMap (bind in for comprehension)
-   */
-  flatMap<B>(f: (a: A) => ForComprehension<F, B>): ForComprehension<F, B> {
-    return f(undefined as A); // Placeholder
-  }
-
-  /**
-   * Filter (if guard in for comprehension)
-   */
-  filter(predicate: (a: A) => boolean): ForComprehension<F, A> {
-    return this; // Placeholder
-  }
-
-  /**
-   * Get the underlying value
-   */
-  get value(): F {
-    return this.fa;
-  }
-}
+// (A `For.from(...)` fluent builder used to be exported here; it was a
+// placeholder — `map` ignored its function and `flatMap` called it with
+// `undefined` — and was removed. Use `OptionFor` / `EitherFor` / `IOFor` /
+// `Do(monad)` above.)
 
 // ============================================================================
 // Computation Expression (F#-style)

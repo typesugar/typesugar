@@ -25,7 +25,7 @@ In addition to macro infrastructure, `@typesugar/core` provides fundamental runt
 ```typescript
 import { invariant, unreachable, debugOnly } from "@typesugar/core";
 
-// Assert invariants (strippable in production)
+// Assert invariants (always checked: no production stripping yet)
 function divide(a: number, b: number): number {
   invariant(b !== 0, "Division by zero");
   return a / b;
@@ -44,12 +44,15 @@ function area(shape: Shape): number {
   }
 }
 
-// Debug-only code (stripped in production builds)
+// Debug-only code. NOTE: not stripped yet, so it runs in every build (1.0)
 debugOnly(() => {
   console.log("Internal state:", state);
   validateDeepInvariants(state);
 });
 ```
+
+> `invariant` and `debugOnly` are not removed from production builds in 1.0:
+> there is no production flag yet. Keep expensive work out of them until it lands.
 
 ## Macro Types
 

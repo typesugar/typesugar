@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as path from "path";
 import { transformCode } from "../src/pipeline.js";
+import { transformWithDecls, DECLS_FILE } from "./opaque-fixture.js";
 import { registerTypeRewrite, clearTypeRewrites } from "@typesugar/core";
 
 beforeEach(() => {
@@ -21,10 +22,11 @@ afterEach(() => {
   clearTypeRewrites();
 });
 
-function registerOptionType(): void {
+function registerOptionType(declarationFile: string = DECLS_FILE): void {
   registerTypeRewrite({
     typeName: "Option",
     sourceModule: "@typesugar/fp/data/option",
+    declarationFile,
     underlyingTypeText: "T | null",
     methods: new Map([
       ["map", "map"],
@@ -41,10 +43,11 @@ function registerOptionType(): void {
   });
 }
 
-function registerEitherType(): void {
+function registerEitherType(declarationFile: string = DECLS_FILE): void {
   registerTypeRewrite({
     typeName: "Either",
     sourceModule: "@typesugar/fp/data/either",
+    declarationFile,
     underlyingTypeText: "{ _tag: 'Left', left: E } | { _tag: 'Right', right: A }",
     constructors: new Map([
       ["Right", { kind: "identity" }],
@@ -91,7 +94,7 @@ class Money { constructor(public amount: number, public currency: string) {} }
 const discount: Option<Money> = Some(new Money(500, "USD"));
 `;
 
-    const result = transformCode(code, { fileName: "annotation-identity.ts" });
+    const result = transformWithDecls(code, "annotation-identity.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const discount = new Money(500");
     expect(result.code).not.toContain("Option<Money>");
@@ -105,7 +108,7 @@ const discount: Option<Money> = Some(new Money(500, "USD"));
 const value: Option<number> = Some(42);
 `;
 
-    const result = transformCode(code, { fileName: "annotation-simple.ts" });
+    const result = transformWithDecls(code, "annotation-simple.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const value = 42");
     expect(result.code).not.toContain("Option<number>");
@@ -120,7 +123,7 @@ declare const x: number;
 const result: Option<number> = Some(x + 1);
 `;
 
-    const result = transformCode(code, { fileName: "annotation-expr.ts" });
+    const result = transformWithDecls(code, "annotation-expr.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("x + 1");
     expect(result.code).not.toContain("Option<number>");
@@ -134,7 +137,7 @@ const result: Option<number> = Some(x + 1);
 let result: Option<string> = Some("hello");
 `;
 
-    const result = transformCode(code, { fileName: "annotation-let.ts" });
+    const result = transformWithDecls(code, "annotation-let.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toMatch(/let result = "hello"/);
     expect(result.code).not.toContain("Option<string>");
@@ -153,7 +156,7 @@ describe("PEP-019 Wave 1: constant constructor annotation erasure", () => {
 const empty: Option<number> = None;
 `;
 
-    const result = transformCode(code, { fileName: "annotation-constant.ts" });
+    const result = transformWithDecls(code, "annotation-constant.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const empty = null");
     expect(result.code).not.toContain("Option<number>");
@@ -172,7 +175,7 @@ describe("PEP-019 Wave 1: multiple opaque types", () => {
 const result: Either<string, number> = Right(42);
 `;
 
-    const result = transformCode(code, { fileName: "annotation-either.ts" });
+    const result = transformWithDecls(code, "annotation-either.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const result = 42");
     expect(result.code).not.toContain("Either<string, number>");
@@ -188,7 +191,7 @@ const opt: Option<number> = Some(1);
 const eith: Either<string, number> = Right(2);
 `;
 
-    const result = transformCode(code, { fileName: "annotation-multi-type.ts" });
+    const result = transformWithDecls(code, "annotation-multi-type.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).toContain("const opt = 1");
     expect(result.code).toContain("const eith = 2");
@@ -210,7 +213,7 @@ declare function getOption(): Option<number>;
 const result: Option<number> = getOption();
 `;
 
-    const result = transformCode(code, { fileName: "annotation-preserve-noctor.ts" });
+    const result = transformWithDecls(code, "annotation-preserve-noctor.ts");
     expect(result.code).toContain("Option<number>");
   });
 
@@ -223,7 +226,7 @@ declare function create<T>(x: T): MyType<T>;
 const result: MyType<number> = create(5);
 `;
 
-    const result = transformCode(code, { fileName: "annotation-preserve-nonopaque.ts" });
+    const result = transformWithDecls(code, "annotation-preserve-nonopaque.ts");
     expect(result.code).toContain("MyType<number>");
   });
 
@@ -234,7 +237,7 @@ const result: MyType<number> = create(5);
 declare const result: Option<number>;
 `;
 
-    const result = transformCode(code, { fileName: "annotation-preserve-noinit.ts" });
+    const result = transformWithDecls(code, "annotation-preserve-noinit.ts");
     expect(result.code).toContain("Option<number>");
   });
 
@@ -275,7 +278,7 @@ function process(opt: Option<number> = Some(0)) {
 }
 `;
 
-    const result = transformCode(code, { fileName: "annotation-param-default.ts" });
+    const result = transformWithDecls(code, "annotation-param-default.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).not.toContain("Option<number>");
     expect(result.code).not.toContain("Some(");
@@ -291,7 +294,7 @@ function process(opt: Option<number> = None) {
 }
 `;
 
-    const result = transformCode(code, { fileName: "annotation-param-none.ts" });
+    const result = transformWithDecls(code, "annotation-param-none.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(result.code).not.toContain("Option<number>");
     expect(result.code).toMatch(/opt\s*=\s*null/);
@@ -306,7 +309,7 @@ function process(opt: Option<number>) {
 }
 `;
 
-    const result = transformCode(code, { fileName: "annotation-param-nodefault.ts" });
+    const result = transformWithDecls(code, "annotation-param-nodefault.ts");
     expect(result.code).toContain("Option<number>");
   });
 });
@@ -325,7 +328,7 @@ const discount: Option<Money> = Some(new Money(500, "USD"));
 console.log(discount);
 `;
 
-    const result = transformCode(code, { fileName: "gate-criteria.ts" });
+    const result = transformWithDecls(code, "gate-criteria.ts");
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     expect(result.code).toContain("const discount = new Money(500");

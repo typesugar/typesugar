@@ -49,7 +49,7 @@ The `-s` flag makes ts-patch silent (no output on success).
     "strict": true,
     "declaration": true,
     "plugins": [
-      { "name": "typesugar/language-service" },
+      { "name": "@typesugar/transformer/language-service" },
       { "transform": "@typesugar/transformer", "type": "program" }
     ]
   },

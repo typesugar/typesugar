@@ -35,7 +35,7 @@ All configuration options for typesugar.
   "compilerOptions": {
     "plugins": [
       {
-        "name": "typesugar/language-service"
+        "name": "@typesugar/transformer/language-service"
       }
     ]
   }

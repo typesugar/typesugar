@@ -8,7 +8,7 @@ Compile-time parser generation from PEG grammars. Think Boost.Spirit, but for Ty
 
 Define grammars with tagged templates or programmatic combinators, get recursive-descent parsers.
 
-> **Current Status:** Phase 1 is production-ready with runtime-interpreted grammars. Phase 2 will add compile-time code generation for zero-cost parsing.
+> **Current Status:** with the typesugar transformer, `grammar` templates are compiled to inline parsers at build time; without it, they are interpreted at runtime.
 
 ## Quick Start
 
@@ -89,6 +89,8 @@ PEG grammar definitions support these constructs:
 
 The first rule defined is the start rule by default.
 
+String literals accept the escapes `\n \r \t \b \f \v \0 \\ \" \' \xHH \uHHHH \u{H…}`; any other escape is a grammar error. A newline ends a rule's sequence, except inside a parenthesized group (which may span lines) or before a `|` continuation. Template interpolation (`${...}`) is not supported and is an error, both at build time and at runtime.
+
 ## Combinator Reference
 
 ### Primitives
@@ -141,9 +143,9 @@ This package uses PEG (Parsing Expression Grammar) semantics:
 
 ## How It Works
 
-**Phase 1 (current):** The `grammar` tagged template parses the PEG definition at runtime into a grammar IR, then builds a recursive-descent parser from that IR. The combinator API builds parsers directly.
+**With the typesugar transformer:** the `grammar` macro parses and validates the PEG definition at build time and replaces the template with an inline recursive-descent parser (no runtime grammar interpretation). Grammar errors, including left recursion, are build errors.
 
-**Phase 2 (planned -- not yet implemented):** The `grammar` macro will generate inlined recursive-descent parser code at compile time via the typesugar transformer, producing zero-overhead parsers with no runtime grammar interpretation. Currently, the `grammar` macro validates grammar syntax at compile time but delegates parsing to the runtime interpreter.
+**Without the transformer:** the runtime `grammar` tag parses the PEG definition into a grammar IR and builds a recursive-descent parser from it (`buildParser(parseGrammarDef(text))`). `generateParserCode(rules)` returns the same inline parser as source text. The combinator API builds parsers directly.
 
 ## Error Reporting
 
@@ -157,10 +159,10 @@ The parser tracks the "furthest failure" position across all alternation branche
 
 ## Comparison to PEG.js / Peggy
 
-| Feature            | PEG.js / Peggy         | @typesugar/parser                                                            |
-| ------------------ | ---------------------- | ---------------------------------------------------------------------------- |
-| Grammar definition | Separate `.pegjs` file | Inline tagged template or combinators                                        |
-| Code generation    | Separate build step    | Phase 2 (planned): compile-time macro                                        |
-| Type safety        | Manual typing          | Full TypeScript inference                                                    |
-| Runtime overhead   | Pre-generated parser   | Phase 1: interpreted; Phase 2 (planned): zero-cost via compile-time inlining |
-| Integration        | Standalone tool        | Part of your TypeScript build                                                |
+| Feature            | PEG.js / Peggy         | @typesugar/parser                                                    |
+| ------------------ | ---------------------- | -------------------------------------------------------------------- |
+| Grammar definition | Separate `.pegjs` file | Inline tagged template or combinators                                |
+| Code generation    | Separate build step    | Compile-time macro (with the transformer)                            |
+| Type safety        | Manual typing          | Full TypeScript inference                                            |
+| Runtime overhead   | Pre-generated parser   | Inlined at compile time with the transformer; interpreted without it |
+| Integration        | Standalone tool        | Part of your TypeScript build                                        |

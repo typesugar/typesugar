@@ -7,6 +7,7 @@
 
 import ts from "typescript";
 import type { MacroContext } from "./types.js";
+import { evaluateConfigCondition } from "./config-condition.js";
 
 // =============================================================================
 // hasExportModifier — Check for `export` keyword on a node
@@ -126,7 +127,25 @@ export function stripDecorator(
  * position-based diagnostics) must skip them or fall back to the printer.
  */
 export function isSyntheticNode(node: ts.Node): boolean {
-  return node.pos === -1 || node.end === -1;
+  return node.pos < 0 || node.end < 0;
+}
+
+/**
+ * Whether a node is backed by real source text, i.e. it was produced by the
+ * parser (not the node factory) and has a valid position.
+ *
+ * Stricter than `!isSyntheticNode(node)`: a factory node that was given a real
+ * text range with `ts.setTextRange` (JSDoc-derived decorators, every node
+ * `visitEachChild`/`factory.update*` rebuilt) has real positions, so
+ * `isSyntheticNode` is false, yet `node.getText()` throws on it because it has
+ * no parent chain to a source file (deep review core #48). Use this before
+ * `getText()`/`getStart()` without an explicit source file. `isSyntheticNode`
+ * stays the positions-only check, because the transformer relies on a
+ * range-carrying rebuilt node still being expandable, and the checker maps such
+ * nodes back to their parse-tree original itself.
+ */
+export function hasSourceText(node: ts.Node): boolean {
+  return !isSyntheticNode(node) && ts.isParseTreeNode(node);
 }
 
 // =============================================================================
@@ -135,6 +154,10 @@ export function isSyntheticNode(node: ts.Node): boolean {
 
 /**
  * Recursively mark AST nodes as synthetic by setting positions to -1.
+ *
+ * MUTATES `node` and its descendants in place. Only use it on nodes you own
+ * (freshly parsed or built); for the user's real AST (e.g. call-site
+ * arguments) use {@link cloneWithoutPositions}.
  *
  * Useful when creating or cloning nodes that should not be associated
  * with specific source positions.
@@ -181,12 +204,53 @@ export function cloneNodeDeep<T extends ts.Node>(node: T): T {
 }
 
 /**
+ * Deep-clone `node` into fresh nodes, keeping each clone's `original` link to
+ * the node it copies (unlike {@link cloneNodeDeep}, which severs it). Keeping
+ * the link matters for nodes from the CURRENT file: TypeScript's emit
+ * substitutions (CommonJS `exports.x`/`module_1.x` renaming, import elision)
+ * find the declaration through `ts.getParseTreeNode(clone)`.
+ */
+function cloneKeepingOriginal<T extends ts.Node>(node: T): T {
+  let clone = ts.visitEachChild(
+    node,
+    (child) => cloneKeepingOriginal(child),
+    undefined as unknown as ts.TransformationContext
+  ) as T;
+  if (clone === node) {
+    clone = (ts.factory as unknown as { cloneNode<U extends ts.Node>(n: U): U }).cloneNode(node);
+  }
+  ts.setOriginalNode(clone, node);
+  return clone;
+}
+
+/**
+ * Non-mutating {@link stripPositions}: returns a synthetic deep copy (pos/end
+ * -1) and leaves `node` — typically the user's real argument node — untouched.
+ * Each copy keeps an `original` link to its source node.
+ */
+export function cloneWithoutPositions<T extends ts.Node>(node: T): T {
+  return stripPositions(cloneKeepingOriginal(node));
+}
+
+/**
+ * Non-mutating {@link stripCommentsDeep}: returns a synthetic, comment-free deep
+ * copy and leaves `node` untouched. Each copy keeps an `original` link to its
+ * source node.
+ */
+export function cloneWithoutComments<T extends ts.Node>(node: T): T {
+  return stripCommentsDeep(cloneKeepingOriginal(node));
+}
+
+/**
  * Recursively strip all comment and position information from an AST subtree.
  *
  * Goes further than stripPositions: also clears comment ranges and synthetic
  * comment arrays to prevent TypeScript's printer from emitting stray comments
  * when real-position nodes are mixed with synthetic ones (e.g. after inlining
  * a macro-generated template with call-site argument nodes).
+ *
+ * MUTATES `node` and its descendants in place. For the user's real AST use
+ * {@link cloneWithoutComments}.
  */
 export function stripCommentsDeep<T extends ts.Node>(node: T): T {
   ts.setTextRange(node, { pos: -1, end: -1 });
@@ -213,10 +277,62 @@ export interface JsValueContext {
 }
 
 /**
+ * Build an expression for a number, including the values that are not numeric
+ * literals: negatives (and `-0`) need a prefix minus, `NaN`/`Infinity` are
+ * identifiers. `factory.createNumericLiteral(-1)` asserts (deep review core #31).
+ */
+export function numberToExpression(factory: ts.NodeFactory, value: number): ts.Expression {
+  if (Number.isNaN(value)) return factory.createIdentifier("NaN");
+  if (value < 0 || Object.is(value, -0)) {
+    return factory.createPrefixUnaryExpression(
+      ts.SyntaxKind.MinusToken,
+      numberToExpression(factory, -value)
+    );
+  }
+  if (value === Infinity) return factory.createIdentifier("Infinity");
+  return factory.createNumericLiteral(value);
+}
+
+/**
+ * Build an expression for a bigint. `createBigIntLiteral` wants the source text
+ * INCLUDING the `n` suffix; `value.toString()` alone prints a plain number.
+ */
+export function bigintToExpression(factory: ts.NodeFactory, value: bigint): ts.Expression {
+  if (value < 0n) {
+    return factory.createPrefixUnaryExpression(
+      ts.SyntaxKind.MinusToken,
+      factory.createBigIntLiteral(`${-value}n`)
+    );
+  }
+  return factory.createBigIntLiteral(`${value}n`);
+}
+
+/** `Object.prototype.toString` tag — works across realms (comptime runs in a vm context). */
+function toStringTag(value: object): string {
+  return Object.prototype.toString.call(value);
+}
+
+/**
+ * Whether `value` is a plain object (`{}` literal or `Object.create(null)`) in
+ * ANY realm — `instanceof`/prototype identity checks fail for values coming out
+ * of comptime's `vm` context.
+ */
+function isPlainObject(value: object): boolean {
+  if (toStringTag(value) !== "[object Object]") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || Object.getPrototypeOf(proto) === null;
+}
+
+/**
  * Convert a JavaScript value to a TypeScript AST expression.
  *
- * Handles: null, undefined, numbers (including negative, Infinity, NaN),
- * strings, booleans, bigint, arrays, RegExp, and plain objects.
+ * Handles: null, undefined, numbers (including negative, `-0`, Infinity, NaN),
+ * strings, booleans, bigint, arrays, RegExp, Date, Map, Set and plain objects —
+ * including values created in another realm (comptime's `vm` context).
+ *
+ * Anything else (functions, symbols, class instances, typed arrays, circular
+ * structures) is reported via `ctx.reportError` and emitted as `undefined`,
+ * never silently turned into `{}` (deep review core #30).
  *
  * @param ctx - Context providing factory and error reporting
  * @param value - The JS value to convert
@@ -227,72 +343,90 @@ export function jsValueToExpression(
   value: unknown,
   errorNode: ts.Node
 ): ts.Expression {
-  if (value === null) {
-    return ctx.factory.createNull();
-  }
+  return valueToExpression(ctx, value, errorNode, new Set());
+}
 
-  if (value === undefined) {
-    return ctx.factory.createIdentifier("undefined");
-  }
+function valueToExpression(
+  ctx: JsValueContext,
+  value: unknown,
+  errorNode: ts.Node,
+  inProgress: Set<object>
+): ts.Expression {
+  const f = ctx.factory;
+  const fail = (what: string): ts.Expression => {
+    ctx.reportError(errorNode, `Cannot serialize ${what} to AST`);
+    return f.createIdentifier("undefined");
+  };
 
-  if (typeof value === "number") {
-    if (value < 0) {
-      return ctx.factory.createPrefixUnaryExpression(
-        ts.SyntaxKind.MinusToken,
-        ctx.factory.createNumericLiteral(Math.abs(value))
+  if (value === null) return f.createNull();
+  if (value === undefined) return f.createIdentifier("undefined");
+  if (typeof value === "number") return numberToExpression(f, value);
+  if (typeof value === "string") return f.createStringLiteral(value);
+  if (typeof value === "boolean") return value ? f.createTrue() : f.createFalse();
+  if (typeof value === "bigint") return bigintToExpression(f, value);
+  if (typeof value !== "object") return fail(`value of type ${typeof value}`);
+
+  if (inProgress.has(value)) return fail("a circular structure");
+  inProgress.add(value);
+  try {
+    const recurse = (v: unknown) => valueToExpression(ctx, v, errorNode, inProgress);
+    const tag = toStringTag(value);
+
+    if (Array.isArray(value)) {
+      return f.createArrayLiteralExpression(value.map(recurse));
+    }
+
+    if (tag === "[object RegExp]") {
+      const re = value as RegExp;
+      return f.createNewExpression(f.createIdentifier("RegExp"), undefined, [
+        f.createStringLiteral(re.source),
+        f.createStringLiteral(re.flags),
+      ]);
+    }
+
+    if (tag === "[object Date]") {
+      return f.createNewExpression(f.createIdentifier("Date"), undefined, [
+        numberToExpression(f, (value as Date).getTime()),
+      ]);
+    }
+
+    if (tag === "[object Map]") {
+      const entries = [...(value as Map<unknown, unknown>)].map(([k, v]) =>
+        f.createArrayLiteralExpression([recurse(k), recurse(v)])
+      );
+      return f.createNewExpression(f.createIdentifier("Map"), undefined, [
+        f.createArrayLiteralExpression(entries),
+      ]);
+    }
+
+    if (tag === "[object Set]") {
+      return f.createNewExpression(f.createIdentifier("Set"), undefined, [
+        f.createArrayLiteralExpression([...(value as Set<unknown>)].map(recurse)),
+      ]);
+    }
+
+    if (!isPlainObject(value)) {
+      const ctorName = (value as { constructor?: { name?: unknown } }).constructor?.name;
+      return fail(
+        `an instance of ${typeof ctorName === "string" && ctorName ? ctorName : tag.slice(8, -1)}`
       );
     }
-    if (!isFinite(value)) {
-      return ctx.factory.createIdentifier(value > 0 ? "Infinity" : "-Infinity");
-    }
-    if (isNaN(value)) {
-      return ctx.factory.createIdentifier("NaN");
-    }
-    return ctx.factory.createNumericLiteral(value);
-  }
 
-  if (typeof value === "string") {
-    return ctx.factory.createStringLiteral(value);
-  }
-
-  if (typeof value === "boolean") {
-    return value ? ctx.factory.createTrue() : ctx.factory.createFalse();
-  }
-
-  if (typeof value === "bigint") {
-    return ctx.factory.createBigIntLiteral(value.toString());
-  }
-
-  if (Array.isArray(value)) {
-    const elements = value.map((el) => jsValueToExpression(ctx, el, errorNode));
-    return ctx.factory.createArrayLiteralExpression(elements);
-  }
-
-  if (value instanceof RegExp) {
-    return ctx.factory.createCallExpression(ctx.factory.createIdentifier("RegExp"), undefined, [
-      ctx.factory.createStringLiteral(value.source),
-      ctx.factory.createStringLiteral(value.flags),
-    ]);
-  }
-
-  if (typeof value === "object") {
     const properties: ts.PropertyAssignment[] = [];
     for (const [key, val] of Object.entries(value)) {
-      properties.push(
-        ctx.factory.createPropertyAssignment(
-          /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
-            ? ctx.factory.createIdentifier(key)
-            : ctx.factory.createStringLiteral(key),
-          jsValueToExpression(ctx, val, errorNode)
-        )
-      );
+      const name =
+        key === "__proto__"
+          ? // `{ __proto__: x }` sets the prototype; a computed key makes an own property.
+            f.createComputedPropertyName(f.createStringLiteral(key))
+          : /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)
+            ? f.createIdentifier(key)
+            : f.createStringLiteral(key);
+      properties.push(f.createPropertyAssignment(name, recurse(val)));
     }
-    return ctx.factory.createObjectLiteralExpression(properties, true);
+    return f.createObjectLiteralExpression(properties, true);
+  } finally {
+    inProgress.delete(value);
   }
-
-  // Functions, symbols, etc. cannot be serialized to AST
-  ctx.reportError(errorNode, `Cannot serialize value of type ${typeof value} to AST`);
-  return ctx.factory.createIdentifier("undefined");
 }
 
 // =============================================================================
@@ -410,54 +544,17 @@ export function getNestedValue(obj: Record<string, unknown>, path: string): unkn
 /**
  * Evaluate a condition expression against a configuration object.
  *
- * Supports: boolean expressions with &&, ||, !, parentheses,
- * equality (==), inequality (!=), and truthy checks.
+ * Delegates to the shared condition grammar in `config-condition.ts`
+ * (`&&`, `||`, `!`, parentheses, `==`/`===`/`!=`/`!==` against quoted strings,
+ * numbers and keywords, dotted-path truthiness). A condition outside the
+ * grammar THROWS `ConfigConditionError` rather than silently evaluating to
+ * false and stripping code (deep review core #16).
  *
- * @param expr - The condition expression (e.g., "debug && !production")
+ * @param expr - The condition expression (e.g., "debug && platform === 'node'")
  * @param config - Configuration object to evaluate against
  */
 export function evaluateConditionExpr(expr: string, config: Record<string, unknown>): boolean {
-  expr = expr.trim();
-
-  // Handle OR (lowest precedence)
-  const orParts = splitTopLevel(expr, "||");
-  if (orParts.length > 1) {
-    return orParts.some((part) => evaluateConditionExpr(part, config));
-  }
-
-  // Handle AND
-  const andParts = splitTopLevel(expr, "&&");
-  if (andParts.length > 1) {
-    return andParts.every((part) => evaluateConditionExpr(part, config));
-  }
-
-  // Handle parentheses
-  if (expr.startsWith("(") && findMatchingParen(expr, 0) === expr.length - 1) {
-    return evaluateConditionExpr(expr.slice(1, -1), config);
-  }
-
-  // Handle negation
-  if (expr.startsWith("!")) {
-    return !evaluateConditionExpr(expr.slice(1), config);
-  }
-
-  // Handle equality: key == 'value' or key == "value"
-  const eqMatch = expr.match(/^([\w.]+)\s*==\s*['"](.+)['"]\s*$/);
-  if (eqMatch) {
-    const value = getNestedValue(config, eqMatch[1]);
-    return String(value) === eqMatch[2];
-  }
-
-  // Handle inequality: key != 'value'
-  const neqMatch = expr.match(/^([\w.]+)\s*!=\s*['"](.+)['"]\s*$/);
-  if (neqMatch) {
-    const value = getNestedValue(config, neqMatch[1]);
-    return String(value) !== neqMatch[2];
-  }
-
-  // Simple key — truthy check
-  const value = getNestedValue(config, expr);
-  return !!value;
+  return evaluateConfigCondition(expr, (p) => getNestedValue(config, p));
 }
 
 // =============================================================================

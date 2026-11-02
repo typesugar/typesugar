@@ -154,12 +154,14 @@ function resolvePackageJson(
  * `"${pkg}/macros"` (relative to the declaring package's own root, through
  * its own exports map). A bare specifier with no leading dot is a facade
  * cross-package reference (e.g. `"@typesugar/macros"`, `"@typesugar/macros/macros"`)
- * and is used as-is. Anything starting with `".."` is rejected — there's no
- * legitimate case for a manifest pointing outside its own package.
+ * and is used as-is. Anything containing a `".."` path segment is rejected —
+ * there's no legitimate case for a manifest pointing outside its own package.
  */
 function resolveManifestTarget(pkg: string, field: string): string | undefined {
   if (field === ".") return pkg;
-  if (field.startsWith("..")) return undefined;
+  // Reject a `..` path SEGMENT anywhere, not just a leading `..`: `./../x`
+  // and `./a/../../x` escape the package root just as `../x` does.
+  if (field.split(/[\\/]/).includes("..")) return undefined;
   if (field.startsWith("./")) return `${pkg}/${field.slice(2)}`;
   if (field.startsWith(".")) return undefined;
   return field;

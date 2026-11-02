@@ -21,17 +21,26 @@ export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Reject with a timeout error if `promise` hasn't settled within `ms`. The
+ * timer is cleared as soon as the race settles, so it never keeps the process
+ * alive or fires late.
+ */
 export function timeout<T>(promise: Promise<T>, ms: number, message?: string): Promise<T> {
-  return Promise.race([
-    promise,
-    delay(ms).then(() => {
-      throw new Error(message ?? `Promise timed out after ${ms}ms`);
-    }),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message ?? `Promise timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
 }
 
+/** Resolve with `fallback` if `promise` hasn't settled within `ms`; the timer is always cleared. */
 export function timeoutOr<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([promise, delay(ms).then(() => fallback)]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
 }
 
 // ============================================================================
@@ -119,6 +128,10 @@ export async function recover<T>(
 }
 
 export async function fallbackTo<T>(promise: Promise<T>, fallback: Promise<T>): Promise<T> {
+  // Mark the fallback as handled up front: if `promise` succeeds, nobody awaits
+  // `fallback`, and its rejection would otherwise be reported as unhandled.
+  // (When `promise` fails, the returned `fallback` still rejects normally.)
+  fallback.catch(() => {});
   try {
     return await promise;
   } catch {

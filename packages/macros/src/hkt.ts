@@ -58,6 +58,7 @@ import {
   extractTypeArgumentsContent,
   stripTypeArguments,
   splitTopLevelTypeArgs,
+  isSyntheticNode,
 } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 
@@ -202,6 +203,17 @@ function resolveTypeConstructorViaTypeCheckerUncached(
   }
 
   if (!symbol) return undefined;
+
+  // An imported name (`import type { Option } from "./data/option.js"`)
+  // resolves to the import alias, whose only declaration is the
+  // ImportSpecifier — follow it to the real declaration.
+  if (symbol.flags & ts.SymbolFlags.Alias) {
+    try {
+      symbol = checker.getAliasedSymbol(symbol);
+    } catch {
+      return undefined;
+    }
+  }
 
   // Get the type and its declarations to find type parameters
   const declarations = symbol.getDeclarations();
@@ -589,7 +601,9 @@ function isUnderscoreMarker(node: ts.TypeNode, checker: ts.TypeChecker | undefin
     ts.isIdentifier(node.typeName) &&
     node.typeName.text === "_"
   ) {
-    if (checker) {
+    // Synthetic nodes (e.g. re-checking our own output) are outside the
+    // checker's contract; match by name only for those.
+    if (checker && !isSyntheticNode(node)) {
       const symbol = checker.getSymbolAtLocation(node.typeName);
       if (symbol) {
         const decl = symbol.declarations?.[0];
@@ -646,152 +660,56 @@ function countUnderscoreMarkers(node: ts.Node, checker: ts.TypeChecker | undefin
 }
 
 /**
- * Replace all `_` marker type references in a type node with `this["__kind__"]`
- * indexed access types. This is the AST-based replacement for the old regex approach.
+ * Replace every `_` marker type reference in `rhs` — under ANY node kind,
+ * via a generic `visitEachChild` walk (deep review #14: the old hand-written
+ * per-kind walker skipped `readonly _[]`, method and index signatures and
+ * emitted them with `_` still in place).
+ *
+ * A marker becomes `this["__kind__"]`, except where `this` is not allowed:
+ * inside an object type literal (`{ get(): _ }`, `{ v: _ }`) `this` is
+ * TS2526. If any marker sits under a type literal, those markers become a
+ * fresh type variable bound once at the top:
+ * `this["__kind__"] extends infer K ? { get(): K } : never` (the check type
+ * is not a naked type parameter, so this does not distribute over unions).
  */
-function replaceUnderscoreInTypeNode(
-  factory: ts.NodeFactory,
-  node: ts.TypeNode,
+function replaceUnderscoreMarkers(
+  ctx: MacroContext,
+  rhs: ts.TypeNode,
   checker: ts.TypeChecker | undefined
 ): ts.TypeNode {
-  if (isUnderscoreMarker(node, checker)) {
-    return factory.createIndexedAccessTypeNode(
+  const factory = ctx.factory;
+  const thisKind = (): ts.TypeNode =>
+    factory.createIndexedAccessTypeNode(
       factory.createThisTypeNode(),
       factory.createLiteralTypeNode(factory.createStringLiteral("__kind__"))
     );
-  }
+  let bound: ts.Identifier | undefined;
 
-  if (ts.isTypeReferenceNode(node)) {
-    if (node.typeArguments) {
-      return factory.updateTypeReferenceNode(
-        node,
-        node.typeName,
-        factory.createNodeArray(
-          node.typeArguments.map((a) => replaceUnderscoreInTypeNode(factory, a, checker))
-        )
-      );
-    }
-    return node;
-  }
-
-  if (ts.isArrayTypeNode(node)) {
-    return factory.updateArrayTypeNode(
-      node,
-      replaceUnderscoreInTypeNode(factory, node.elementType, checker)
-    );
-  }
-
-  if (ts.isUnionTypeNode(node)) {
-    return factory.updateUnionTypeNode(
-      node,
-      factory.createNodeArray(
-        node.types.map((t) => replaceUnderscoreInTypeNode(factory, t, checker))
-      )
-    );
-  }
-
-  if (ts.isIntersectionTypeNode(node)) {
-    return factory.updateIntersectionTypeNode(
-      node,
-      factory.createNodeArray(
-        node.types.map((t) => replaceUnderscoreInTypeNode(factory, t, checker))
-      )
-    );
-  }
-
-  if (ts.isTupleTypeNode(node)) {
-    return factory.updateTupleTypeNode(
-      node,
-      factory.createNodeArray(
-        node.elements.map((el) => {
-          if (ts.isNamedTupleMember(el)) {
-            return factory.updateNamedTupleMember(
-              el,
-              el.dotDotDotToken,
-              el.name,
-              el.questionToken,
-              replaceUnderscoreInTypeNode(factory, el.type, checker)
-            );
-          }
-          return replaceUnderscoreInTypeNode(factory, el, checker);
-        })
-      )
-    );
-  }
-
-  if (ts.isFunctionTypeNode(node)) {
-    const newParams = node.parameters.map((p) => {
-      if (p.type) {
-        return factory.updateParameterDeclaration(
-          p,
-          p.modifiers,
-          p.dotDotDotToken,
-          p.name,
-          p.questionToken,
-          replaceUnderscoreInTypeNode(factory, p.type, checker),
-          p.initializer
-        );
+  const visit =
+    (inTypeLiteral: boolean) =>
+    (node: ts.Node): ts.Node => {
+      if (ts.isTypeNode(node) && isUnderscoreMarker(node, checker)) {
+        if (!inTypeLiteral) return thisKind();
+        bound ??= ctx.generateUniqueName("Kind");
+        return factory.createTypeReferenceNode(bound.text);
       }
-      return p;
-    });
-    return factory.updateFunctionTypeNode(
-      node,
-      node.typeParameters,
-      factory.createNodeArray(newParams),
-      node.type ? replaceUnderscoreInTypeNode(factory, node.type, checker) : node.type
+      return ts.visitEachChild(
+        node,
+        visit(inTypeLiteral || ts.isTypeLiteralNode(node)),
+        ctx.transformContext
+      );
+    };
+
+  let out = visit(false)(rhs) as ts.TypeNode;
+  if (bound) {
+    out = factory.createConditionalTypeNode(
+      thisKind(),
+      factory.createInferTypeNode(factory.createTypeParameterDeclaration(undefined, bound.text)),
+      out,
+      factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword)
     );
   }
-
-  if (ts.isParenthesizedTypeNode(node)) {
-    return factory.updateParenthesizedType(
-      node,
-      replaceUnderscoreInTypeNode(factory, node.type, checker)
-    );
-  }
-
-  if (ts.isConditionalTypeNode(node)) {
-    return factory.updateConditionalTypeNode(
-      node,
-      replaceUnderscoreInTypeNode(factory, node.checkType, checker),
-      replaceUnderscoreInTypeNode(factory, node.extendsType, checker),
-      replaceUnderscoreInTypeNode(factory, node.trueType, checker),
-      replaceUnderscoreInTypeNode(factory, node.falseType, checker)
-    );
-  }
-
-  if (ts.isTypeLiteralNode(node)) {
-    return factory.updateTypeLiteralNode(
-      node,
-      factory.createNodeArray(
-        node.members.map((m) => {
-          if (ts.isPropertySignature(m) && m.type) {
-            return factory.updatePropertySignature(
-              m,
-              m.modifiers,
-              m.name,
-              m.questionToken,
-              replaceUnderscoreInTypeNode(factory, m.type, checker)
-            );
-          }
-          return m;
-        })
-      )
-    );
-  }
-
-  if (ts.isMappedTypeNode(node)) {
-    return factory.updateMappedTypeNode(
-      node,
-      node.readonlyToken,
-      node.typeParameter,
-      node.nameType ? replaceUnderscoreInTypeNode(factory, node.nameType, checker) : undefined,
-      node.questionToken,
-      node.type ? replaceUnderscoreInTypeNode(factory, node.type, checker) : undefined,
-      node.members
-    );
-  }
-
-  return node;
+  return out;
 }
 
 /**
@@ -831,7 +749,17 @@ function expandTier3HKT(
   const factory = ctx.factory;
 
   // Replace _ markers in the RHS type node with this["__kind__"] via AST walking
-  const replacedRhs = replaceUnderscoreInTypeNode(factory, rhs, checker);
+  const replacedRhs = replaceUnderscoreMarkers(ctx, rhs, checker);
+  // Every marker must be gone — a surviving `_` would be emitted as a
+  // reference to the marker type itself.
+  const remaining = countUnderscoreMarkers(replacedRhs, checker);
+  if (remaining !== 0) {
+    ctx.reportError(
+      decorator,
+      `[TS9303] @hkt: internal error — ${remaining} \`_\` placeholder(s) could not be replaced in '${typeName}'`
+    );
+    return node;
+  }
 
   const hasExport = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
   const modifiers = hasExport ? [factory.createModifier(ts.SyntaxKind.ExportKeyword)] : undefined;
@@ -950,7 +878,7 @@ function expandTier2Companion(
 // ============================================================================
 
 /**
- * @hkt attribute macro for interfaces/type aliases
+ * The `@hkt` attribute macro for interfaces/type aliases
  *
  * Tier 2 (type alias with type params, no `_` in RHS):
  *   Generates a companion `*F` interface (last param as hole).

@@ -148,7 +148,7 @@ describe("default values", () => {
 });
 
 describe("optional fields", () => {
-  it("encodes null for missing optional fields", () => {
+  it("omits missing optional fields (review #30: absent stays absent, not null)", () => {
     const s = defineSchema("User", {
       version: 1,
       fields: [
@@ -158,7 +158,8 @@ describe("optional fields", () => {
     });
     const codec = createJsonCodec<{ name: string; bio: string | null }>(s);
     const json = JSON.parse(codec.encode({ name: "Alice" } as any) as string);
-    expect(json.bio).toBeNull();
+    expect("bio" in json).toBe(false);
+    expect(codec.decode(codec.encode({ name: "Alice" } as any))).toEqual({ name: "Alice" });
   });
 });
 

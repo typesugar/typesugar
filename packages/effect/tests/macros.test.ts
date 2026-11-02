@@ -93,7 +93,7 @@ describe("Layer Registry", () => {
     };
 
     registerLayer(info);
-    expect(layerRegistry.has("databaseLive")).toBe(true);
+    expect(layerRegistry.size).toBe(1);
     expect(getLayer("databaseLive")).toEqual(info);
   });
 

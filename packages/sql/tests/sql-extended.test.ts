@@ -226,14 +226,14 @@ describe("parZip", () => {
     expect(zipped).toBeInstanceOf(ConnectionIO);
   });
 
-  it("returns a ConnectionIO (sequential fallback via zip/flatMap)", () => {
+  it("returns a ConnectionIO (sequential fallback via zip/flatMap)", async () => {
     const a = ConnectionIO.pure(10);
     const b = ConnectionIO.pure(20);
     const zipped = parZip(a, b);
-    // parZip delegates to .zip which uses flatMap; the stub flatMap returns
-    // Pure(undefined). We just verify the structure is correct.
+    // parZip delegates to .zip, which is a real FlatMap node (SQL-1).
     expect(zipped).toBeInstanceOf(ConnectionIO);
-    expect(zipped.op._tag).toBe("Pure");
+    expect(zipped.op._tag).toBe("FlatMap");
+    expect(await Transactor.fromConnection(mockDbConnection()).run(zipped)).toEqual([10, 20]);
   });
 });
 
@@ -263,7 +263,7 @@ describe("valuesTyped", () => {
   it("generates a single VALUES row with correct SQL and params", () => {
     const frag = valuesTyped(userWrite, { name: "Alice", email: "a@b.com" });
     const { sql, params } = frag.toQuery().toSql();
-    expect(sql).toBe("(?, ?)");
+    expect(sql).toBe("($1, $2)");
     expect(params).toEqual(["Alice", "a@b.com"]);
   });
 
@@ -271,7 +271,7 @@ describe("valuesTyped", () => {
     const singleWrite = Write.make<{ id: number }>(["id"], [(v) => v.id]);
     const frag = valuesTyped(singleWrite, { id: 99 });
     const { sql, params } = frag.toQuery().toSql();
-    expect(sql).toBe("(?)");
+    expect(sql).toBe("($1)");
     expect(params).toEqual([99]);
   });
 
@@ -293,7 +293,7 @@ describe("valuesManyTyped", () => {
       { name: "Bob", email: "b@b.com" },
     ]);
     const { sql, params } = frag.toQuery().toSql();
-    expect(sql).toBe("(?, ?), (?, ?)");
+    expect(sql).toBe("($1, $2), ($3, $4)");
     expect(params).toEqual(["Alice", "a@b.com", "Bob", "b@b.com"]);
   });
 
@@ -306,7 +306,7 @@ describe("valuesManyTyped", () => {
   it("single row behaves like valuesTyped", () => {
     const frag = valuesManyTyped(userWrite, [{ name: "Charlie", email: "c@c.com" }]);
     const { sql, params } = frag.toQuery().toSql();
-    expect(sql).toBe("(?, ?)");
+    expect(sql).toBe("($1, $2)");
     expect(params).toEqual(["Charlie", "c@c.com"]);
   });
 });
@@ -316,15 +316,17 @@ describe("valuesManyTyped", () => {
 // ============================================================================
 
 describe("setTyped", () => {
+  // setTyped needs per-field metadata (3rd arg) to write partial values (SQL-9)
   const userWrite: Write<{ name: string; email: string; age: number }> = Write.make(
     ["name", "email", "age"],
-    [(u) => u.name, (u) => u.email, (u) => u.age]
+    [(u) => u.name, (u) => u.email, (u) => u.age],
+    ["name", "email", "age"]
   );
 
   it("generates SET clause for all fields", () => {
     const frag = setTyped(userWrite, { name: "Bob", email: "bob@b.com", age: 30 });
     const { sql, params } = frag.toQuery().toSql();
-    expect(sql).toBe("name = ?, email = ?, age = ?");
+    expect(sql).toBe("name = $1, email = $2, age = $3");
     expect(params).toEqual(["Bob", "bob@b.com", 30]);
   });
 
@@ -335,8 +337,8 @@ describe("setTyped", () => {
       age: number;
     }>);
     const { sql, params } = frag.toQuery().toSql();
-    expect(sql).toContain("name = ?");
-    expect(params[0]).toBe("Bob");
+    expect(sql).toBe("name = $1");
+    expect(params).toEqual(["Bob"]);
   });
 });
 

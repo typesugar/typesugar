@@ -89,7 +89,8 @@ console.log(`1. Auto-registration: ${predicates.length} predicates registered on
 // and can eliminate runtime checks
 
 // Positive type → $ > 0
-const positiveFacts: TypeFact[] = [{ variable: "x", predicate: "$ > 0" }];
+// (extractTypeFacts substitutes the parameter name for the predicate's `$`)
+const positiveFacts: TypeFact[] = [{ variable: "x", predicate: "x > 0" }];
 const posProof = tryProve("x > 0", positiveFacts);
 assert(posProof.proven === true);
 

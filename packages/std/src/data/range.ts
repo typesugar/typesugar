@@ -32,12 +32,18 @@ export function rangeBy(r: Range, step: number): Range {
   return { ...r, step };
 }
 
+/**
+ * The same elements in the opposite order: starts at the range's last element
+ * and ends (inclusively) at its first. An empty range reverses to an empty range.
+ */
 export function rangeReversed(r: Range): Range {
+  const n = rangeSize(r);
+  if (n === 0) return { start: r.start, end: r.start, step: -r.step, inclusive: false };
   return {
-    start: r.inclusive ? r.end : r.end - r.step,
+    start: r.start + (n - 1) * r.step,
     end: r.start,
     step: -r.step,
-    inclusive: r.inclusive,
+    inclusive: true,
   };
 }
 
@@ -99,14 +105,16 @@ export function rangeContains(r: Range, value: number): boolean {
   return (value - start) % step === 0;
 }
 
+/** Number of elements the range iterates (always equals `rangeToArray(r).length`). */
 export function rangeSize(r: Range): number {
   const { start, end, step, inclusive } = r;
-  if (step === 0) return 0;
-  const diff = end - start;
-  if ((step > 0 && diff <= 0) || (step < 0 && diff >= 0)) return 0;
-  const count = Math.floor(diff / step);
-  if (inclusive && diff % step === 0) return count + 1;
-  return count + (inclusive ? 0 : 0) || count;
+  if (step === 0 || Number.isNaN(step)) return 0;
+  if (!Number.isFinite(step)) return [...rangeIterator(r)].length; // ±Infinity: at most 1
+  // Number of whole steps from start that stay on the near side of `end`.
+  const steps = (end - start) / step;
+  if (steps < 0) return 0;
+  if (inclusive) return Math.floor(steps) + 1;
+  return Math.ceil(steps);
 }
 
 export function rangeFirst(r: Range): number | undefined {

@@ -34,7 +34,10 @@ export const regexMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
       return node;
     }
 
-    const pattern = template.text;
+    // Use the RAW text: regex`\d+` must become /\d+/, but the cooked `text`
+    // has already turned `\d` into `d`. rawText is set on parsed template
+    // literals; fall back to slicing the source between the backticks if not.
+    const pattern = template.rawText ?? rawTemplateTextFromSource(template) ?? template.text;
 
     // Validate regex at compile time
     try {
@@ -45,12 +48,27 @@ export const regexMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
       return node;
     }
 
-    // Return: new RegExp("pattern")
+    // Return: new RegExp("pattern") — the string literal carries the raw pattern
+    // as its value, so the regex source is exactly what the user wrote.
     return factory.createNewExpression(factory.createIdentifier("RegExp"), undefined, [
       factory.createStringLiteral(pattern),
     ]);
   },
 });
+
+/**
+ * Raw text of a NoSubstitutionTemplateLiteral from the source file, for nodes
+ * whose `rawText` isn't populated. Undefined for synthetic nodes (no position).
+ */
+function rawTemplateTextFromSource(node: ts.NoSubstitutionTemplateLiteral): string | undefined {
+  if (node.pos < 0 || node.end < 0) return undefined;
+  const sf = node.getSourceFile?.();
+  if (!sf) return undefined;
+  const text = node.getText(sf);
+  if (text.length < 2 || text[0] !== "`" || text[text.length - 1] !== "`") return undefined;
+  // Template raw strings normalise CRLF / CR line endings to LF.
+  return text.slice(1, -1).replace(/\r\n?/g, "\n");
+}
 
 // ============================================================================
 // HTML Tagged Template with XSS Protection
@@ -74,16 +92,15 @@ export const htmlMacro: TaggedTemplateMacroDef = defineTaggedTemplateMacro({
     if (ts.isTemplateExpression(template)) {
       // Build: `head` + escapeHtml(expr1) + `mid1` + escapeHtml(expr2) + ...
       let result: ts.Expression = factory.createStringLiteral(template.head.text);
+      const escapeHtmlRef = ctx.ensureImport("__typesugar_escapeHtml", "@typesugar/strings");
 
       for (const span of template.templateSpans) {
-        // INTENTIONALLY UNHYGIENIC: __typesugar_escapeHtml is a runtime helper
-        // exported from @typesugar/strings (the `.` entry). Users must import it
-        // for generated code to work.
-        const escapedValue = factory.createCallExpression(
-          factory.createIdentifier("__typesugar_escapeHtml"),
-          undefined,
-          [span.expression]
-        );
+        // __typesugar_escapeHtml is a runtime helper exported from
+        // @typesugar/strings (the `.` entry). ensureImport adds the import when
+        // the file lacks it (aliased if a local binding has that name).
+        const escapedValue = factory.createCallExpression(escapeHtmlRef, undefined, [
+          span.expression,
+        ]);
 
         result = factory.createBinaryExpression(
           result,

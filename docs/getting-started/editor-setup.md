@@ -74,7 +74,7 @@ For full IDE integration, add the language service plugin to `tsconfig.json`:
 ```json
 {
   "compilerOptions": {
-    "plugins": [{ "name": "typesugar/language-service" }]
+    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
   }
 }
 ```
@@ -182,7 +182,7 @@ Use the TypeScript language server with the typesugar plugin configured in `tsco
 ```json
 {
   "compilerOptions": {
-    "plugins": [{ "name": "typesugar/language-service" }]
+    "plugins": [{ "name": "@typesugar/transformer/language-service" }]
   }
 }
 ```
@@ -197,7 +197,7 @@ require("lspconfig").tsserver.setup({
       includePackageJsonAutoImports = "on",
     },
     plugins = {
-      { name = "typesugar/language-service" },
+      { name = "@typesugar/transformer/language-service" },
     },
   },
 })

@@ -7,6 +7,17 @@
 
 import { LazyPipeline } from "./lazy.js";
 
+/**
+ * Compile-time loop fusion marker. With the typesugar transformer, the
+ * `fused()` macro rewrites the chain inside it into a single loop (see
+ * `@typesugar/fusion/macros`). Without the transformer — or when a chain
+ * cannot be fused without changing its meaning — it is the identity, so
+ * the chain runs with its ordinary semantics.
+ */
+export function fused<T>(chain: T): T {
+  return chain;
+}
+
 /** Create a lazy pipeline from any iterable */
 export function lazy<T>(source: Iterable<T>): LazyPipeline<T> {
   return new LazyPipeline(source);

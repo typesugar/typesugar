@@ -290,7 +290,7 @@ export function cli(args: string[]): void {
   }
 }
 
-// Run CLI if this module is executed directly
-if (typeof require !== "undefined" && require.main === module) {
-  cli(process.argv.slice(2));
-}
+// The executable entry point is `dts-transform-cli.ts` (the
+// `typesugar-dts-transform` bin). This module is a side-effect-free library:
+// the old `require.main === module` check here never ran in the ESM build the
+// bin pointed at, so the bin silently did nothing.

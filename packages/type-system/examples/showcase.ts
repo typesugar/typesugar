@@ -183,7 +183,7 @@ const goodPort = Port.from(443);
 assert(goodPort === 443);
 
 // Custom refinements via composition
-const PositiveInteger = composeRefinements(Int, Positive);
+const PositiveInteger = composeRefinements(Int, Positive, "PositiveInteger");
 const val = PositiveInteger.refine(7);
 assert(val === 7);
 
@@ -263,8 +263,8 @@ assert(emailAddr !== undefined);
 const badEmail = EmailAddress.tryCreate("not-an-email");
 assert(badEmail === undefined);
 
-// Custom opaque module (curried API: opaqueModule<Repr>(brand, validate)(ops))
-const SafeAge = opaqueModule<number>(
+// Custom opaque module (curried API: opaqueModule<Repr, Brand>(brand, validate)(ops))
+const SafeAge = opaqueModule<number, "SafeAge">(
   "SafeAge",
   (n) => Number.isInteger(n) && n >= 0 && n <= 150
 )({
@@ -356,13 +356,13 @@ console.log("7. Existential types: heterogeneous Showable[], packExists/useExist
 
 // Vec tracks array length in the type system
 const empty = Vec.empty<number>();
-assert((empty as number[]).length === 0);
+assert((empty as readonly number[]).length === 0);
 
 const single = Vec.singleton("hello");
-assert((single as string[]).length === 1);
+assert((single as readonly string[]).length === 1);
 
-const three = Vec.from<string, 3>(["a", "b", "c"]);
-assert((three as string[]).length === 3);
+const three = Vec.from(["a", "b", "c"]); // Vec<string, 3>
+assert((three as readonly string[]).length === 3);
 assert(isVec(three));
 
 // Type-level arithmetic on Vec lengths
@@ -375,21 +375,21 @@ typeAssert<Equal<Two, 2>>();
 
 // Operations preserve length information
 const four = Vec.cons("z", three);
-assert((four as string[]).length === 4);
+assert((four as readonly string[]).length === 4);
 
 const appended = Vec.snoc(three, "d");
-assert((appended as string[]).length === 4);
+assert((appended as readonly string[]).length === 4);
 
 // Tuple constructor infers length
 const tup = Vec.tuple(10, 20, 30, 40, 50);
-assert((tup as number[]).length === 5);
+assert((tup as readonly number[]).length === 5);
 
 // Fill and generate
 const zeros = Vec.fill(0, 4);
-assert((zeros as number[]).length === 4);
+assert((zeros as readonly number[]).length === 4);
 
 const indices = Vec.generate(5, (i) => i);
-assert((indices as number[])[2] === 2);
+assert((indices as readonly number[])[2] === 2);
 
 console.log("8. Vec: length-indexed vectors with type-level arithmetic");
 

@@ -1,0 +1,10 @@
+const path = require("path"); const fs = require("fs");
+const R = "/Users/deapovey/src/personal/typesugar/packages";
+const M = require(R + "/macros/dist/index.cjs");
+M.defineSyntaxMacro("sq", { pattern: "$x", expand: "$x * $x" });
+M.defineSyntaxMacro("pick", { arms: [ { pattern: "$a", expand: "[$a]" }, { pattern: "$a, $b", expand: "[$a, $b]" } ] });
+M.defineSyntaxMacro("twice", { pattern: "$x", expand: "($x) + ($x)" });
+const { transformCode } = require(R + "/transformer/dist/pipeline.cjs");
+const f = process.argv[2];
+const r = transformCode(fs.readFileSync(f, "utf8"), { fileName: path.resolve(f) });
+console.log(r.code); for (const d of r.diagnostics) console.log("DIAG", d.message.slice(0,300));

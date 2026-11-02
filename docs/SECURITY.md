@@ -109,8 +109,12 @@ imply a guarantee typesugar cannot currently keep:
   mechanism](https://nodejs.org/api/vm.html#vm_vm_createcontext_contextobject_options).
   Path access is restricted, but a determined `comptime` block can reach the host
   realm. Do not rely on the sandbox to contain untrusted code.
-- **Macro capabilities are advisory (F4)** and **macro output is not statically
-  vetted for dangerous patterns (F5).** See `SECURITY-REVIEW.md`.
+- **Macro capabilities are not enforced at all (F4).** The `MacroCapabilities`
+  types and `createRestrictedContext()` exist in `@typesugar/core`, but nothing
+  attaches capabilities to macro definitions or applies the restriction, so a
+  macro can read files, environment variables and the network whatever it
+  declares. **Macro output is not statically vetted for dangerous patterns
+  (F5).** See `SECURITY-REVIEW.md`.
 
 ## If you only do three things
 

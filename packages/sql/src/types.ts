@@ -10,7 +10,8 @@
  * - Fragment: an SQL string paired with its bound parameters
  * - Fragments compose via concatenation, AND/OR combinators, IN lists, etc.
  * - The sql`` tagged template is the primary entry point
- * - Parameters are always positional ($1, $2, …) in the final output
+ * - Parameters render as Postgres placeholders ($1, $2, …) by default; pass a
+ *   dialect to `render()` for `?` (MySQL/SQLite) — see dialect.ts
  *
  * @example
  * ```typescript
@@ -25,6 +26,14 @@
  * query.params; // ["Alice", 30]
  * ```
  */
+
+import {
+  type DialectLike,
+  FRAGMENT_BRAND,
+  assertSafeIdentifier,
+  quoteIdent,
+  renderFragment,
+} from "./dialect.js";
 
 // ============================================================================
 // Param Types
@@ -47,9 +56,12 @@ export type SqlParam = string | number | boolean | null | Date | Buffer | SqlPar
  * Immutable — every combinator returns a new Fragment.
  */
 export class Fragment {
+  declare readonly [FRAGMENT_BRAND]: true;
+
   /**
    * @param segments - Raw SQL text segments (one more than params)
-   * @param params  - Bound parameter values, interleaved between segments
+   * @param params  - Bound parameter values, interleaved between segments. A
+   *                  Fragment/TypedFragment param is inlined when rendered.
    */
   constructor(
     readonly segments: readonly string[],
@@ -60,31 +72,17 @@ export class Fragment {
   // Rendering
   // --------------------------------------------------------------------------
 
-  /** Render to a parameterised query with positional placeholders ($1, $2, …) */
+  /** Render to a parameterised query with Postgres placeholders ($1, $2, …) */
   get query(): { text: string; params: readonly SqlParam[] } {
-    const allParams: SqlParam[] = [];
-    const parts: string[] = [];
+    return this.render();
+  }
 
-    for (let i = 0; i < this.segments.length; i++) {
-      parts.push(this.segments[i]);
-      if (i < this.params.length) {
-        const param = this.params[i];
-        if (param instanceof Fragment) {
-          // Nested fragment — inline its SQL and collect its params
-          const nested = param.query;
-          // Re-number the nested placeholders
-          const offset = allParams.length;
-          const renumbered = nested.text.replace(/\$(\d+)/g, (_, n) => `$${parseInt(n) + offset}`);
-          parts.push(renumbered);
-          allParams.push(...nested.params);
-        } else {
-          allParams.push(param);
-          parts.push(`$${allParams.length}`);
-        }
-      }
-    }
-
-    return { text: parts.join(""), params: allParams };
+  /**
+   * Render for a specific dialect (default Postgres `$n`; `"mysql"` / `"sqlite"` use `?`).
+   * Nested fragments are inlined and renumbered structurally (see dialect.ts).
+   */
+  render(dialect?: DialectLike): { text: string; params: SqlParam[] } {
+    return renderFragment(this, dialect) as { text: string; params: SqlParam[] };
   }
 
   /** Shorthand: rendered SQL text */
@@ -179,6 +177,14 @@ export class Fragment {
     return new Fragment([sql], []);
   }
 
+  /**
+   * A quoted identifier (column/table name) for the given dialect — see
+   * dialect.ts for the quoting decision. `Fragment.ident("user")` → `"user"`.
+   */
+  static ident(name: string, dialect?: DialectLike): Fragment {
+    return new Fragment([quoteIdent(name, dialect)], []);
+  }
+
   /** A single parameter placeholder */
   static param(value: SqlParam): Fragment {
     return new Fragment(["", ""], [value]);
@@ -193,7 +199,7 @@ export class Fragment {
     if (values.length === 0) {
       return Fragment.raw("FALSE"); // empty IN is always false
     }
-    const segments = [column + " IN ("];
+    const segments = [assertSafeIdentifier(column, "column name") + " IN ("];
     const params: SqlParam[] = [];
     for (let i = 0; i < values.length; i++) {
       segments.push(i < values.length - 1 ? ", " : ")");
@@ -222,7 +228,7 @@ export class Fragment {
    */
   static set(assignments: Record<string, SqlParam>): Fragment {
     const frags = Object.entries(assignments).map(
-      ([col, val]) => new Fragment([`${col} = `, ""], [val])
+      ([col, val]) => new Fragment([`${assertSafeIdentifier(col, "column name")} = `, ""], [val])
     );
     return Fragment.raw("SET ").appendNoSpace(Fragment.commas(frags));
   }
@@ -240,7 +246,9 @@ export class Fragment {
    * Only non-empty fragments are included, joined with AND.
    */
   static whereAnd(fragments: Fragment[]): Fragment {
-    const nonEmpty = fragments.filter((f) => f.segments.join("").trim() !== "");
+    const nonEmpty = fragments.filter(
+      (f) => f.params.length > 0 || f.segments.join("").trim() !== ""
+    );
     if (nonEmpty.length === 0) return Fragment.empty;
     return Fragment.raw("WHERE ").appendNoSpace(Fragment.and(nonEmpty));
   }
@@ -385,14 +393,28 @@ export const ConnectionIO = {
  * Compatible with node-postgres (pg), mysql2, better-sqlite3, etc.
  */
 export interface DbConnection {
-  query(text: string, params: readonly SqlParam[]): Promise<{ rows: Record<string, unknown>[] }>;
+  query(
+    text: string,
+    params: readonly SqlParam[]
+  ): Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }>;
 }
 
 /**
  * Interprets ConnectionIO programs against a database connection.
  */
 export class Transactor {
-  constructor(private readonly conn: DbConnection) {}
+  private readonly dialect: DialectLike | undefined;
+
+  /**
+   * @param conn - the driver connection
+   * @param options.dialect - placeholder style for rendering (default Postgres `$n`)
+   */
+  constructor(
+    private readonly conn: DbConnection,
+    options: { dialect?: DialectLike } = {}
+  ) {
+    this.dialect = options.dialect;
+  }
 
   async run<A>(program: ConnectionIO<A>): Promise<A> {
     switch (program._tag) {
@@ -400,15 +422,17 @@ export class Transactor {
         return program.value;
 
       case "QueryIO": {
-        const { text, params } = program.query;
+        const { text, params } = program.query.fragment.render(this.dialect);
         const result = await this.conn.query(text, params);
         return result.rows.map(program.decoder) as unknown as A;
       }
 
       case "UpdateIO": {
-        const { text, params } = program.update;
+        const { text, params } = program.update.fragment.render(this.dialect);
         const result = await this.conn.query(text, params);
-        return (result.rows.length ?? 0) as unknown as A;
+        // Affected-row count: drivers report it as rowCount (pg) — rows is
+        // empty for UPDATE/DELETE without RETURNING (SQL-15).
+        return (result.rowCount ?? result.rows.length) as unknown as A;
       }
 
       case "FlatMap": {
@@ -426,3 +450,6 @@ export class Transactor {
     }
   }
 }
+
+// Brand Fragment instances so the shared renderer can recognise nested fragments.
+Object.defineProperty(Fragment.prototype, FRAGMENT_BRAND, { value: true });

@@ -19,11 +19,17 @@ import { contract } from "@typesugar/contracts";
 
 @contract
 function add(a: Positive, b: Positive): number {
-  requires: { a > 0 && b > 0 } // Proven by type!
-  ensures: { result > 0 }      // Also provable
+  requires: { a > 0 && b > 0 } // Proven by type (with proveAtCompileTime)
+  ensures: { result > 0 }      // Checked at runtime: the prover has no facts about `result`
   return a + b;
 }
 ```
+
+Importing `@typesugar/contracts-refined` in a file also loads it into the
+transformer (the package declares a `typesugar.macros` entry), so the
+predicates are registered when that file is compiled. Proof elision itself is
+opt-in: set `contracts.proveAtCompileTime: true` (or
+`TYPESUGAR_CONTRACTS_PROVE_AT_COMPILE_TIME=1`).
 
 The explicit `@contract` decorator needs no extra activation — importing the
 `contract` symbol is the opt-in. To use bare `requires:`/`ensures:` blocks

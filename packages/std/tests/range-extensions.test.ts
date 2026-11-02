@@ -105,9 +105,8 @@ describe("Range Extension Methods", () => {
 
     it("reverses a stepped range", () => {
       const r = reversed(step(to(1, 10), 2));
-      // rangeReversed swaps start/end and negates step, creating a new descending range
-      // Original range [1,10] step 2 → reversed is [10,1] step -2 → [10, 8, 6, 4, 2]
-      expect(toArray(r)).toEqual([10, 8, 6, 4, 2]);
+      // Same elements as [1, 3, 5, 7, 9], backwards (deep review #22).
+      expect(toArray(r)).toEqual([9, 7, 5, 3, 1]);
     });
   });
 
@@ -213,10 +212,8 @@ describe("Range Extension Methods", () => {
     });
 
     it("handles stepped ranges", () => {
-      // Note: rangeSize has a known limitation — for stepped inclusive ranges where
-      // the end isn't exactly reachable, it may undercount by 1
-      // Actual array is [1, 3, 5, 7, 9] = 5 elements, but rangeSize returns 4
-      expect(rangeSize(step(to(1, 10), 2))).toBe(4);
+      // [1, 3, 5, 7, 9] (deep review #22 fixed the old undercount).
+      expect(rangeSize(step(to(1, 10), 2))).toBe(5);
     });
   });
 

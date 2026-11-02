@@ -7,8 +7,10 @@
  * not just the minimal `typeName`/`underlyingTypeText`/`matchesUnderlying`
  * used by the mock-based tests in diagnostic-suppression-type-rewrite.test.ts.
  *
- * The rule should care only about `typeName`, `underlyingTypeText`, and
- * `matchesUnderlying`; the additional fields must not interfere.
+ * The rule should care only about `typeName`, `underlyingTypeText`,
+ * `matchesUnderlying` and the entry's identity (`declarationFile` /
+ * `sourceModule`, which scope it to the declaring file); the other fields
+ * must not interfere.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -107,6 +109,9 @@ function fullOptionEntry(): TypeRewriteEntry {
     typeName: "Option",
     underlyingTypeText: "T | null",
     sourceModule: "@typesugar/fp/data/option",
+    // The entry's identity: the rule (like the transformer's symbol-scoped
+    // erasure) only applies it to the type declared in this file.
+    declarationFile: "/test.ts",
     methods: new Map([
       ["map", "map"],
       ["flatMap", "flatMap"],
@@ -136,6 +141,7 @@ function fullEmailEntry(): TypeRewriteEntry {
     typeName: "Email",
     underlyingTypeText: "string",
     sourceModule: "@typesugar/fp/data/email",
+    declarationFile: "/test.ts",
     methods: new Map<string, string>(),
     constructors: new Map<string, ConstructorRewrite>([["Email", { kind: "identity" }]]),
     accessors: new Map<string, AccessorRewrite>(),
@@ -479,7 +485,9 @@ type Newtype<Base, Brand extends string> = Base & {
   readonly [__brand]: Brand;
 };
 type UserId = Newtype<number, "UserId">;
-const id: UserId = 42;
+type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
+declare function wrap<T>(value: UnwrapNewtype<T>): T;
+const id = wrap<UserId>(42);
 `,
       });
 

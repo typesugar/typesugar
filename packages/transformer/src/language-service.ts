@@ -29,12 +29,17 @@ import {
 } from "./pipeline.js";
 import { IdentityPositionMapper, type PositionMapper } from "./position-mapper.js";
 import {
+  config as typesugarConfig,
   filterDiagnostics,
   getDiagnosticSuppressionRules,
   isDiagnosticSuppressionAuditEnabled,
   type PositionMapFn,
 } from "@typesugar/core";
-import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
+import {
+  registerAllDiagnosticSuppressionRules,
+  setComptimeEvaluationEnabled,
+} from "@typesugar/macros";
+import { hashContent } from "./cache.js";
 import {
   mapTextSpanToOriginal,
   computeMacroCodeActions,
@@ -47,6 +52,12 @@ import {
 interface TransformCacheEntry {
   result: TransformResult;
   version: string;
+  /**
+   * Script versions of the file's (transitive) dependencies when it was
+   * transformed. A changed dependency (e.g. an edited type a macro
+   * inspects) re-transforms the dependent (review finding #17).
+   */
+  depVersions: Map<string, string>;
 }
 
 /**
@@ -120,8 +131,24 @@ function init(modules: { typescript: typeof ts }) {
 
         log(`Initializing pipeline with ${fileNames.length} files`);
 
+        // Opening a repository in an editor must not run that repository's
+        // comptime code unless the user opts in; disabled comptime calls are
+        // left unexpanded with a warning.
+        setComptimeEvaluationEnabled(process.env.TYPESUGAR_COMPTIME_IN_EDITOR === "1");
+
+        // Load the project's typesugar config from the project directory
+        // (tsserver's cwd is unrelated to the project).
+        const projectDir = projectName.endsWith(".json")
+          ? path.dirname(projectName)
+          : (info.project.getCurrentDirectory?.() ?? undefined);
+        if (projectDir) typesugarConfig.load({ searchFrom: projectDir });
+
         pipeline = new TransformationPipeline(compilerOptions, fileNames, {
-          verbose: true,
+          // Opt-in (plugin config `"verbose": true` or TYPESUGAR_VERBOSE=1);
+          // was hard-coded on, flooding the tsserver log (review #20).
+          verbose:
+            (info.config as { verbose?: boolean } | undefined)?.verbose === true ||
+            process.env.TYPESUGAR_VERBOSE === "1",
           readFile: (fileName: string): string | undefined => {
             return readOriginalFile(fileName) ?? tsModule.sys?.readFile(fileName);
           },
@@ -144,7 +171,9 @@ function init(modules: { typescript: typeof ts }) {
 
     /**
      * Convert pipeline TransformDiagnostics to ts.Diagnostic[] for a given file.
-     * Positions are in preprocessed space which equals original space for .ts files.
+     * The pipeline already maps their positions back to ORIGINAL-source
+     * coordinates (through the HKT / comprehension rewrites), the same space
+     * the mapped TS diagnostics are reported in.
      */
     function convertMacroDiagnostics(
       transformDiags: TransformDiagnostic[],
@@ -230,7 +259,14 @@ function init(modules: { typescript: typeof ts }) {
       const cached = transformCache.get(normalizedFileName);
 
       if (cached && cached.version === currentVersion) {
-        return cached.result;
+        let depsUnchanged = true;
+        for (const [dep, version] of cached.depVersions) {
+          if (boundGetScriptVersion(dep) !== version) {
+            p.invalidate(dep);
+            depsUnchanged = false;
+          }
+        }
+        if (depsUnchanged) return cached.result;
       }
 
       // Invalidate stale cache entry and clear associated diagnostic caches
@@ -261,19 +297,19 @@ function init(modules: { typescript: typeof ts }) {
           rawMacroDiagnosticCache.delete(normalizedFileName);
         }
 
+        const depVersions = new Map<string, string>();
+        for (const dep of result.dependencies ?? []) {
+          depVersions.set(dep, boundGetScriptVersion(dep));
+        }
+        // Cache unchanged results too, so we don't re-transform on every
+        // getSemanticDiagnostics call.
+        transformCache.set(normalizedFileName, {
+          result,
+          version: currentVersion,
+          depVersions,
+        });
         if (result.changed) {
-          transformCache.set(normalizedFileName, {
-            result,
-            version: currentVersion,
-          });
           log(`Transformed ${normalizedFileName} (changed, ${result.code.length} chars)`);
-        } else {
-          // Even for unchanged files, cache the result if there are diagnostics
-          // so we don't re-transform on every getSemanticDiagnostics call
-          transformCache.set(normalizedFileName, {
-            result,
-            version: currentVersion,
-          });
         }
 
         return result;
@@ -297,15 +333,14 @@ function init(modules: { typescript: typeof ts }) {
 
     // Register all built-in diagnostic suppression rules via the unified registration function
     // (PEP-034 Wave 1). This prevents drift between IDE paths.
+    const positionMapFn: PositionMapFn = (
+      fileName: string,
+      transformedPos: number
+    ): number | null => {
+      const mapper = getMapper(fileName);
+      return mapper.toOriginal(transformedPos);
+    };
     {
-      const positionMapFn: PositionMapFn = (
-        fileName: string,
-        transformedPos: number
-      ): number | null => {
-        const mapper = getMapper(fileName);
-        return mapper.toOriginal(transformedPos);
-      };
-
       const registered = registerAllDiagnosticSuppressionRules({ positionMapFn });
       for (const name of registered) {
         log(`Registered ${name} diagnostic suppression rule`);
@@ -338,7 +373,10 @@ function init(modules: { typescript: typeof ts }) {
       const baseVersion = boundGetScriptVersion(normalizedFileName);
       const result = getTransformResult(normalizedFileName);
       if (result?.changed) {
-        return `${baseVersion}-ts-${result.code.length}`;
+        // Hash, not length: a re-transform (e.g. after a dependency edit)
+        // that produces different code of the same length must still make
+        // TS re-read the snapshot.
+        return `${baseVersion}-ts-${hashContent(result.code)}`;
       }
 
       return baseVersion;
@@ -436,8 +474,14 @@ function init(modules: { typescript: typeof ts }) {
       let suppressionFiltered: readonly ts.Diagnostic[];
       if (program && getDiagnosticSuppressionRules().length > 0) {
         const checker = program.getTypeChecker();
-        suppressionFiltered = filterDiagnostics(diagnostics, checker, (fn) =>
-          program.getSourceFile(fn)
+        suppressionFiltered = filterDiagnostics(
+          diagnostics,
+          checker,
+          (fn) => program.getSourceFile(fn),
+          // This project's program + position map: without it the
+          // OperatorOverload rule suppresses nothing and MacroGenerated uses
+          // whichever project registered last.
+          { program, positionMapFn }
         );
       } else {
         suppressionFiltered = diagnostics;
@@ -475,8 +519,14 @@ function init(modules: { typescript: typeof ts }) {
       let suppressionFiltered: readonly ts.DiagnosticWithLocation[];
       if (program && getDiagnosticSuppressionRules().length > 0) {
         const checker = program.getTypeChecker();
-        suppressionFiltered = filterDiagnostics(diagnostics, checker, (fn) =>
-          program.getSourceFile(fn)
+        suppressionFiltered = filterDiagnostics(
+          diagnostics,
+          checker,
+          (fn) => program.getSourceFile(fn),
+          // This project's program + position map: without it the
+          // OperatorOverload rule suppresses nothing and MacroGenerated uses
+          // whichever project registered last.
+          { program, positionMapFn }
         ) as ts.DiagnosticWithLocation[];
       } else {
         suppressionFiltered = diagnostics;

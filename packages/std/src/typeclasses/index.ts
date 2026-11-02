@@ -45,6 +45,13 @@ export interface Eq<A> {
 }
 typeclass("Eq");
 
+/**
+ * Eq for numbers. Deliberately JS `===` semantics, because this instance backs
+ * the `===` operator rewrite: `equals(NaN, NaN)` is false (so NaN breaks Eq's
+ * reflexivity law) and `equals(-0, 0)` is true. Use `ordNumber.equals` for a
+ * lawful equivalence in which NaN equals itself. `@typesugar/collections`
+ * HashSet/HashMap treat NaN as one key regardless (like native Set/Map).
+ */
 export const eqNumber: Eq<number> = {
   equals: (a, b) => a === b,
   notEquals: (a, b) => a !== b,
@@ -180,8 +187,18 @@ export interface Hash<A> {
 }
 typeclass("Hash");
 
+/**
+ * Hash for numbers. Consistent with both `eqNumber` and `ordNumber`: `0` and
+ * `-0` hash alike, and every NaN hashes to one value. Small integers hash to
+ * themselves; other values (fractions, large integers, ±Infinity) hash their
+ * decimal string, so they don't all collapse to one bucket.
+ */
 export const hashNumber: Hash<number> = {
-  hash: (a) => a | 0,
+  hash: (a) => {
+    if (a !== a) return 0x7fc00000; // NaN
+    if (Number.isInteger(a) && a >= -(2 ** 31) && a < 2 ** 31) return a | 0; // -0 -> 0
+    return hashString.hash(String(a));
+  },
 };
 registerInstanceWithMeta(
   {
@@ -321,14 +338,30 @@ export interface Ord<A> extends Eq<A> {
 }
 typeclass("Ord");
 
+/**
+ * Total order on numbers: `-0` and `0` compare equal, and NaN sorts after every
+ * other number and is equal to itself, so `compare`, `equals` and the comparison
+ * methods always agree (JS `<` / `===` do not for NaN). For non-NaN inputs this
+ * is exactly `<`, `<=`, `>`, `>=`, `===`. Same semantics as `@typesugar/fp`'s
+ * `ordNumber`. (`eqNumber` keeps plain `===` semantics; see there.)
+ */
+const compareNumber = (a: number, b: number): Ordering => {
+  if (a < b) return LT;
+  if (a > b) return GT;
+  if (a === b) return EQ_ORD;
+  // At least one is NaN.
+  const an = a !== a;
+  const bn = b !== b;
+  return an && bn ? EQ_ORD : an ? GT : LT;
+};
 export const ordNumber: Ord<number> = {
-  equals: (a, b) => a === b,
-  notEquals: (a, b) => a !== b,
-  compare: (a, b) => (a < b ? LT : a > b ? GT : EQ_ORD),
-  lessThan: (a, b) => a < b,
-  lessThanOrEqual: (a, b) => a <= b,
-  greaterThan: (a, b) => a > b,
-  greaterThanOrEqual: (a, b) => a >= b,
+  equals: (a, b) => compareNumber(a, b) === EQ_ORD,
+  notEquals: (a, b) => compareNumber(a, b) !== EQ_ORD,
+  compare: compareNumber,
+  lessThan: (a, b) => compareNumber(a, b) === LT,
+  lessThanOrEqual: (a, b) => compareNumber(a, b) !== GT,
+  greaterThan: (a, b) => compareNumber(a, b) === GT,
+  greaterThanOrEqual: (a, b) => compareNumber(a, b) !== LT,
 };
 registerInstanceWithMeta(
   {
@@ -657,6 +690,11 @@ export interface Bounded<A> {
   maxBound(): A;
 }
 
+/**
+ * Bounds by convention: the safe-integer range, not the true extremes of
+ * `number` (which are -Infinity/Infinity; `Number.MAX_VALUE` is the largest
+ * finite value). Values outside these bounds exist.
+ */
 export const boundedNumber: Bounded<number> = {
   minBound: () => Number.MIN_SAFE_INTEGER,
   maxBound: () => Number.MAX_SAFE_INTEGER,
@@ -671,6 +709,12 @@ registerInstanceWithMeta(
   boundedNumber
 );
 
+/**
+ * `bigint` is unbounded: there is no true min or max. This instance is a
+ * convention that mirrors `boundedNumber` (±`Number.MAX_SAFE_INTEGER`) so code
+ * that needs *some* Bounded<bigint> has one; bigints beyond these "bounds" are
+ * valid values and `x <= maxBound()` does not hold for them.
+ */
 export const boundedBigInt: Bounded<bigint> = {
   minBound: () => BigInt("-9007199254740991"),
   maxBound: () => BigInt("9007199254740991"),
@@ -699,6 +743,12 @@ registerInstanceWithMeta(
   boundedBoolean
 );
 
+/**
+ * Strings have a least element (`""`) but no greatest one: any string can be
+ * extended to a larger one. `maxBound` is a convention — 256 copies of U+FFFF,
+ * which is greater than every string of up to 256 code units but less than
+ * longer strings that start with it.
+ */
 export const boundedString: Bounded<string> = {
   minBound: () => "",
   maxBound: () => "\uFFFF".repeat(256),

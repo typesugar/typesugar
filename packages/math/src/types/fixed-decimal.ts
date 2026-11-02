@@ -22,7 +22,8 @@
 
 import type { Numeric, Integral, Ord, Eq } from "@typesugar/std";
 import { makeOrd } from "@typesugar/std";
-import { roundBigInt, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
+import { roundBigInt, roundDiv, type RoundingMode, DEFAULT_ROUNDING_MODE } from "./rounding.js";
+import { parseDecimalString } from "./decimal-string.js";
 
 /**
  * A fixed-point decimal with N decimal places.
@@ -112,54 +113,17 @@ export function fixed<N extends number>(
 }
 
 /**
- * Parse a string into a FixedDecimal.
+ * Parse a string into a FixedDecimal: exact parse, then a single rounding to
+ * `scale` (MU-9: a negative exponent used to multiply by 10^|exp| instead of
+ * dividing). Malformed input throws (MU-19).
  */
 function fixedFromString<N extends number>(
   s: string,
   scale: N,
   mode: RoundingMode
 ): FixedDecimal<N> {
-  s = s.trim();
-
-  // Handle scientific notation
-  const eIndex = s.toLowerCase().indexOf("e");
-  if (eIndex !== -1) {
-    const mantissa = s.slice(0, eIndex);
-    const exponent = parseInt(s.slice(eIndex + 1), 10);
-    const base = fixedFromString(mantissa, scale + Math.max(0, -exponent), mode);
-    if (exponent >= 0) {
-      return (base * 10n ** BigInt(exponent)) as FixedDecimal<N>;
-    }
-    // Negative exponent already handled by increased scale
-    return base as unknown as FixedDecimal<N>;
-  }
-
-  const negative = s.startsWith("-");
-  if (negative || s.startsWith("+")) {
-    s = s.slice(1);
-  }
-
-  const dotIndex = s.indexOf(".");
-  let unscaled: bigint;
-  let inputScale: number;
-
-  if (dotIndex === -1) {
-    unscaled = BigInt(s);
-    inputScale = 0;
-  } else {
-    const intPart = s.slice(0, dotIndex) || "0";
-    const fracPart = s.slice(dotIndex + 1);
-    unscaled = BigInt(intPart + fracPart);
-    inputScale = fracPart.length;
-  }
-
-  if (negative) {
-    unscaled = -unscaled;
-  }
-
-  // Adjust to target scale
-  const result = roundBigInt(unscaled, scale, inputScale, mode);
-  return result as FixedDecimal<N>;
+  const { unscaled, scale: inputScale } = parseDecimalString(s, "FixedDecimal");
+  return roundBigInt(unscaled, scale, inputScale, mode) as FixedDecimal<N>;
 }
 
 /**
@@ -349,70 +313,9 @@ export function fixedDiv<N extends number>(
     throw new RangeError("FixedDecimal division by zero");
   }
 
-  // To maintain precision: multiply dividend by scale factor first
+  // Exact: round (a · 10^scale) / b once, with the shared primitive (MU-4).
   const scaleFactor = getScaleFactor(scale);
-  const scaled = (a as bigint) * scaleFactor;
-  const quotient = scaled / (b as bigint);
-  const remainder = scaled % (b as bigint);
-
-  // Apply rounding based on remainder
-  if (remainder === 0n) {
-    return quotient as FixedDecimal<N>;
-  }
-
-  const negative = a < 0n !== b < 0n;
-  const absRemainder = remainder < 0n ? -remainder : remainder;
-  const absB = b < 0n ? -b : b;
-  const halfB = absB / 2n;
-  const isExactlyHalf = absRemainder === halfB && absB % 2n === 0n;
-  const moreThanHalf = absRemainder > halfB;
-
-  let result = quotient;
-
-  switch (mode) {
-    case "CEIL":
-      if (!negative && remainder !== 0n) result += 1n;
-      break;
-    case "FLOOR":
-      if (negative && remainder !== 0n) result -= 1n;
-      break;
-    case "TRUNC":
-      break;
-    case "HALF_UP":
-      if (moreThanHalf || isExactlyHalf) {
-        result += negative ? -1n : 1n;
-      }
-      break;
-    case "HALF_DOWN":
-      if (moreThanHalf) {
-        result += negative ? -1n : 1n;
-      }
-      break;
-    case "HALF_EVEN":
-      if (moreThanHalf) {
-        result += negative ? -1n : 1n;
-      } else if (isExactlyHalf) {
-        const absResult = result < 0n ? -result : result;
-        if (absResult % 2n !== 0n) {
-          result += negative ? -1n : 1n;
-        }
-      }
-      break;
-    case "HALF_CEIL":
-      if (moreThanHalf || (isExactlyHalf && !negative)) {
-        result += 1n;
-      }
-      break;
-    case "HALF_FLOOR":
-      if (moreThanHalf) {
-        result += negative ? -1n : 1n;
-      } else if (isExactlyHalf && negative) {
-        result -= 1n;
-      }
-      break;
-  }
-
-  return result as FixedDecimal<N>;
+  return roundDiv((a as bigint) * scaleFactor, b as bigint, mode) as FixedDecimal<N>;
 }
 
 /**

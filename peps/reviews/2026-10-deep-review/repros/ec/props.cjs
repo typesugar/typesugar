@@ -1,0 +1,13 @@
+const ts = require("/Users/deapovey/src/personal/typesugar/node_modules/typescript");
+const f = "/Users/deapovey/src/personal/typesugar/tests/__ec_probe.ts";
+const src = `import type { Positive } from "@typesugar/type-system";\nexport function a(x: Positive) { return x; }\n`;
+const host = ts.createCompilerHost({});
+const orig = host.readFile; host.readFile = (p) => p === f ? src : orig(p);
+const oe = host.fileExists; host.fileExists = (p) => p === f || oe(p);
+const gs = host.getSourceFile; host.getSourceFile = (p, l) => p === f ? ts.createSourceFile(p, src, l, true) : gs(p, l);
+const prog = ts.createProgram([f], { moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.Latest, skipLibCheck: true }, host);
+const tc = prog.getTypeChecker(); const sf = prog.getSourceFile(f);
+const fn = sf.statements[1]; const p = fn.parameters[0];
+const t = tc.getTypeAtLocation(p);
+console.log("str", tc.typeToString(t), "isInter", t.isIntersection(), "alias", t.aliasSymbol?.getName());
+for (const m of (t.isIntersection() ? t.types : [t])) console.log(" member", tc.typeToString(m), m.getProperties().map(p => p.name).filter(n => n.includes("refined")), "alias", m.aliasSymbol?.getName());

@@ -1,0 +1,15 @@
+import { match } from "@typesugar/std";
+declare function next(): "a";
+const t1 = match(next()).case("a").then(1);
+const one = "a" as const;
+const t2 = match(one).case(String(s)).then(s.length).else(0);
+declare const o: { _tag: "Some"; value: number } | { _tag: "None" } | null;
+const t3 = match(o).case(Some(v)).then(v).case(None).then(0).else(-1);
+declare const sn: string | number;
+const t4 = match(sn).case(/^a(b)$/).as([_, g]).then(g).else("none");
+declare const v: number;
+const t5 = match(v).case(NaN).then("nan").else("num");
+declare const ar: number[] | string;
+const t6 = match(ar).case(Array([x, y])).then(x + y).else(0);
+declare const strs: "x" | "y";
+const t7 = match(strs).case(String(s)).then(s);

@@ -219,7 +219,7 @@ export function isMultipleOf(n: number, divisor: number): boolean {
 }
 
 export function isPrime(n: number): boolean {
-  if (n < 2) return false;
+  if (!Number.isInteger(n) || n < 2) return false;
   if (n < 4) return true;
   if (n % 2 === 0 || n % 3 === 0) return false;
   for (let i = 5; i * i <= n; i += 6) {
@@ -234,8 +234,11 @@ export function isPerfectSquare(n: number): boolean {
   return s === Math.floor(s);
 }
 
+/** True for 1, 2, 4, 8, ... (any integer power of two, not limited to 32 bits). */
 export function isPowerOfTwo(n: number): boolean {
-  return n > 0 && (n & (n - 1)) === 0;
+  if (!Number.isInteger(n) || n < 1) return false;
+  while (n % 2 === 0) n /= 2;
+  return n === 1;
 }
 
 // ============================================================================
@@ -295,6 +298,8 @@ export function isqrt(n: number): number {
 
 export function digits(n: number, base: number = 10): number[] {
   if (!Number.isInteger(n)) throw new TypeError("digits requires an integer");
+  if (!Number.isInteger(base) || base < 2)
+    throw new RangeError("digits base must be an integer >= 2");
   n = Math.abs(n);
   if (n === 0) return [0];
   const result: number[] = [];
@@ -326,16 +331,19 @@ export function divisors(n: number): number[] {
 // Conversion & Formatting
 // ============================================================================
 
+// toBin/toOct/toHex: the integer part of `n` in that base, with a leading "-"
+// for negatives (no 32-bit wrap-around: toHex(2 ** 32) is "100000000" and
+// toHex(-1) is "-1").
 export function toBin(n: number): string {
-  return (n >>> 0).toString(2);
+  return Math.trunc(n).toString(2);
 }
 
 export function toOct(n: number): string {
-  return (n >>> 0).toString(8);
+  return Math.trunc(n).toString(8);
 }
 
 export function toHex(n: number): string {
-  return (n >>> 0).toString(16);
+  return Math.trunc(n).toString(16);
 }
 
 export function toBase(n: number, base: number): string {
@@ -344,7 +352,7 @@ export function toBase(n: number, base: number): string {
 
 export function toOrdinal(n: number): string {
   const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
+  const v = Math.abs(n) % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
@@ -387,8 +395,12 @@ export function toWords(n: number): string {
     "ninety",
   ];
 
+  // The fractional part is dropped (toward zero): toWords(-1.5) is "negative one",
+  // toWords(-0.5) is "zero".
+  n = Math.trunc(n);
+  if (n === 0) return "zero";
   const negative = n < 0;
-  n = Math.abs(Math.floor(n));
+  n = Math.abs(n);
 
   if (n < 20) return (negative ? "negative " : "") + ones[n];
   if (n < 100)
@@ -443,10 +455,12 @@ export function toPercent(n: number, decimals: number = 0): string {
 }
 
 export function toFileSize(bytes: number, decimals: number = 2): string {
-  if (bytes === 0) return "0 B";
+  if (!Number.isFinite(bytes)) return `${bytes} B`;
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB", "PB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const abs = Math.abs(bytes);
+  // Values below 1 B stay in bytes; beyond PB stay in PB.
+  const i = abs < 1 ? 0 : Math.min(sizes.length - 1, Math.floor(Math.log(abs) / Math.log(k)));
   return parseFloat((bytes / k ** i).toFixed(decimals)) + " " + sizes[i];
 }
 
@@ -510,15 +524,18 @@ export function timesVoid(n: number, fn: (i: number) => void): void {
 }
 
 export function* upTo(start: number, end: number, step: number = 1): Generator<number> {
+  if (!(step > 0)) throw new RangeError("upTo step must be positive");
   for (let i = start; i <= end; i += step) yield i;
 }
 
 export function* downTo(start: number, end: number, step: number = 1): Generator<number> {
+  if (!(step > 0)) throw new RangeError("downTo step must be positive");
   for (let i = start; i >= end; i -= step) yield i;
 }
 
 export function rangeTo(start: number, end: number, step?: number): number[] {
   const s = step ?? (start <= end ? 1 : -1);
+  if (s === 0 || Number.isNaN(s)) throw new RangeError("rangeTo step must be non-zero");
   const result: number[] = [];
   if (s > 0) {
     for (let i = start; i <= end; i += s) result.push(i);
@@ -530,6 +547,7 @@ export function rangeTo(start: number, end: number, step?: number): number[] {
 
 export function rangeUntil(start: number, end: number, step?: number): number[] {
   const s = step ?? (start <= end ? 1 : -1);
+  if (s === 0 || Number.isNaN(s)) throw new RangeError("rangeUntil step must be non-zero");
   const result: number[] = [];
   if (s > 0) {
     for (let i = start; i < end; i += s) result.push(i);

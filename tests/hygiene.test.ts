@@ -310,10 +310,14 @@ describe("reference hygiene (FileBindingCache)", () => {
       expect(cache.importMap.get("React")).toBe("react");
     });
 
-    it("should not collect namespace imports as individual names", () => {
+    // core-3b (deep review core #26): a namespace import binds its local name
+    // (`std`), so it is recorded — as a "namespace" binding — but its members
+    // are not collected as individual names.
+    it("records a namespace import's local name, not its members", () => {
       const source = `import * as std from "@typesugar/std";`;
       const cache = new FileBindingCache(createSourceFile(source));
-      expect(cache.importMap.has("std")).toBe(false);
+      expect(cache.importMap.get("std")).toBe("@typesugar/std");
+      expect(cache.importBindings.get("std")?.kind).toBe("namespace");
       expect(cache.importMap.has("Eq")).toBe(false);
     });
   });
@@ -385,11 +389,20 @@ describe("reference hygiene (FileBindingCache)", () => {
       expect(id.text).toBe("Error");
     });
 
-    it("should not create aliases for known globals even if 'imported'", () => {
+    // Deep review core #27: there is no known-globals fast path for a name the
+    // file rebinds — an imported `Error` is NOT the global, so a reference to
+    // `Error` from another module must be aliased.
+    it("aliases a known-global name when the file imports that name from elsewhere", () => {
       const source = `import { Error } from "some-module";`;
       const cache = new FileBindingCache(createSourceFile(source));
       const id = cache.safeRef("Error", "@typesugar/std");
-      expect(id.text).toBe("Error");
+      expect(id.text).not.toBe("Error");
+      expect(cache.hasPendingImports()).toBe(true);
+    });
+
+    it("returns the bare global when the file does not rebind it", () => {
+      const cache = new FileBindingCache(createSourceFile(`const x = 1;`));
+      expect(cache.safeRef("Error", "@typesugar/std").text).toBe("Error");
       expect(cache.hasPendingImports()).toBe(false);
     });
   });
@@ -565,8 +578,8 @@ describe("reference hygiene (FileBindingCache)", () => {
       expect(cache.importMap.get("React")).toBe("react");
       expect(cache.importMap.get("useState")).toBe("react");
       expect(cache.importMap.get("useEffect")).toBe("react");
-      // Namespace imports don't add individual names
-      expect(cache.importMap.has("utils")).toBe(false);
+      // Namespace imports record their local name (core #26)
+      expect(cache.importMap.get("utils")).toBe("./utils");
       // Type-only imports still add to the map
       expect(cache.importMap.get("SomeType")).toBe("./types");
     });

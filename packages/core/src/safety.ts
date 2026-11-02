@@ -5,9 +5,14 @@
  * These are low-level primitives for asserting invariants, marking
  * unreachable code paths, and conditionally running debug code.
  *
- * - `invariant(condition, message)` — Runtime assertion (strippable in prod)
+ * - `invariant(condition, message)` — Runtime assertion
  * - `unreachable(value?)` — Mark impossible code paths
- * - `debugOnly(fn)` — Code that only runs in development
+ * - `debugOnly(fn)` — Code meant for development only
+ *
+ * NOT STRIPPED IN PRODUCTION (1.0): there is no production flag yet.
+ * `invariant` always compiles to a check and `debugOnly(fn)` always compiles
+ * to `fn()` — in every build. Don't put work you can't afford in production
+ * inside them (deep review core #54).
  *
  * @example
  * ```typescript
@@ -27,7 +32,7 @@
  *   }
  * }
  *
- * // debugOnly — stripped in production builds
+ * // debugOnly — intended to be dev-only; NOT yet stripped, runs in every build
  * debugOnly(() => {
  *   console.log("Internal state:", state);
  *   validateDeepInvariants(state);
@@ -43,7 +48,7 @@ import { defineExpressionMacro, globalRegistry, MacroContext } from "./index.js"
 // ============================================================================
 
 /**
- * Runtime invariant check. Stripped in production builds.
+ * Runtime invariant check. Always runs: there is no production stripping yet.
  *
  * @param condition - The condition that must be true
  * @param message - Error message if the invariant is violated
@@ -67,7 +72,9 @@ export function unreachable(_value?: never): never {
 }
 
 /**
- * Code that only runs in development. Completely erased in production.
+ * Code intended to run only in development. NOT erased yet: the macro
+ * expands `debugOnly(fn)` to `fn()` and the runtime function calls `fn`, in
+ * every build, because there is no production flag yet.
  *
  * @param fn - A function to execute in development only
  */
@@ -82,7 +89,7 @@ export function debugOnly(fn: () => void): void {
 export const invariantMacro = defineExpressionMacro({
   name: "invariant",
   module: "@typesugar/core",
-  description: "Runtime invariant — compiles to a conditional throw (strippable in prod)",
+  description: "Runtime invariant — compiles to a conditional throw (not stripped in prod)",
 
   expand(
     ctx: MacroContext,
@@ -164,7 +171,7 @@ export const unreachableMacro = defineExpressionMacro({
 export const debugOnlyMacro = defineExpressionMacro({
   name: "debugOnly",
   module: "@typesugar/core",
-  description: "Dev-only code block — inlined in dev, completely erased in prod",
+  description: "Dev-only code block — currently inlined in every build (no prod stripping yet)",
 
   expand(
     ctx: MacroContext,
@@ -178,9 +185,8 @@ export const debugOnlyMacro = defineExpressionMacro({
       return callExpr;
     }
 
-    // In dev mode: inline the function call
-    // In prod mode: erase completely (void 0)
-    // For now, we always inline — a production flag would control this
+    // Always inline: there is no production flag yet, so this is NOT erased
+    // in production (documented above; a 1.0 gap, deep review core #54).
     const fn = args[0];
     return factory.createCallExpression(fn, undefined, []);
   },

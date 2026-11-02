@@ -469,3 +469,76 @@ describe("parseAll error reporting", () => {
     expect(() => p.parseAll("abc")).toThrow(/end of input/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Deep-review regressions
+// ---------------------------------------------------------------------------
+
+describe("left recursion through nullable prefixes (TSP-4)", () => {
+  const cases: Array<[string, string]> = [
+    ["optional prefix", `a = "x"? a "y" | "z"`],
+    ["negation prefix", `a = !"q" a | "z"`],
+    ["lookahead prefix", `a = &"z" a | "z"`],
+    ["star prefix", `a = "x"* a | "z"`],
+    ["nullable rule prefix", `a = b a "y" | "z"\nb = "x"*`],
+    ["indirect via nullable rule", `a = b c | "z"\nb = "x"?\nc = a "y"`],
+    ["empty literal prefix", `a = "" a | "z"`],
+  ];
+  for (const [label, src] of cases) {
+    it(`rejects ${label}`, () => {
+      expect(() => parseGrammarDef(src)).toThrow(/Left recursion/);
+    });
+  }
+
+  it("still accepts non-left-recursive grammars with nullable elements", () => {
+    const rules = parseGrammarDef(`a = "x"? "y" a | "z"\nb = "q"* "r"`);
+    expect(buildParser(rules).parse("xyyz").ok).toBe(true);
+  });
+
+  it("accepts a non-nullable element before the recursion", () => {
+    expect(() => parseGrammarDef(`a = "x"? "w" a | "z"`)).not.toThrow();
+  });
+});
+
+describe("string escapes and multi-line groups (TSP-16)", () => {
+  it("supports \\u and \\x escapes", () => {
+    expect(parseGrammarDef(`a = "\\u0041"`).get("a")).toEqual({ type: "literal", value: "A" });
+    expect(parseGrammarDef(`a = "\\x41"`).get("a")).toEqual({ type: "literal", value: "A" });
+    expect(parseGrammarDef(`a = "\\u{1F600}"`).get("a")).toEqual({
+      type: "literal",
+      value: "\u{1F600}",
+    });
+  });
+
+  it("keeps the escapes it already supported", () => {
+    expect(parseGrammarDef(`a = "\\n\\t\\\\\\"'"`).get("a")).toEqual({
+      type: "literal",
+      value: "\n\t\\\"'",
+    });
+  });
+
+  it("rejects malformed and unknown escapes", () => {
+    expect(() => parseGrammarDef(`a = "\\u00G1"`)).toThrow();
+    expect(() => parseGrammarDef(`a = "\\q"`)).toThrow();
+  });
+
+  it("allows a parenthesized group to span lines", () => {
+    const rules = parseGrammarDef(`a = ( "a"\n  "b" )\nb = "c"`);
+    expect(rules.get("a")).toEqual({
+      type: "sequence",
+      rules: [
+        { type: "literal", value: "a" },
+        { type: "literal", value: "b" },
+      ],
+    });
+    expect([...rules.keys()]).toEqual(["a", "b"]);
+    expect(buildParser(rules).parse("ab").ok).toBe(true);
+  });
+});
+
+describe("runtime grammar interpolation (TSP-9)", () => {
+  it("throws instead of silently dropping interpolated values", () => {
+    const y = `"y"`;
+    expect(() => grammar`a = "x" ${y}`).toThrow(/interpolation/i);
+  });
+});

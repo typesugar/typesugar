@@ -476,3 +476,16 @@ describe("configWhenAttrMacro (attribute)", () => {
     expect(ts.isFunctionDeclaration(nodes[0])).toBe(true);
   });
 });
+
+describe("configWhenMacro unsupported condition (review: ConfigConditionError)", () => {
+  it("reports ConfigConditionError via ctx.reportError at the call site", () => {
+    config.set({ level: 3 });
+    const { printed, diagnostics } = runExpressionMacro(`const r = configWhen("level > 1", 1, 2);`);
+    expect(
+      diagnostics.some(
+        (d) => d.severity === "error" && /Unsupported config condition/.test(d.message)
+      )
+    ).toBe(true);
+    expect(printed).toContain("configWhen(");
+  });
+});

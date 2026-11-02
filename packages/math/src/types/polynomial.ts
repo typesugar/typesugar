@@ -45,10 +45,12 @@ export interface Polynomial<F> {
  * Create a polynomial from coefficients.
  * Trims trailing zeros.
  */
-export function polynomial<F>(coeffs: F[]): Polynomial<F> {
-  // Trim trailing zeros
+export function polynomial<F>(coeffs: F[], N?: Numeric<F>): Polynomial<F> {
+  // Trim trailing zeros. Without `N` only number/bigint zeros are recognised;
+  // pass the Numeric instance to trim object coefficients (Rational, Complex,
+  // …) too — every arithmetic operation below does (MU-6).
   let end = coeffs.length;
-  while (end > 0 && isZeroCoeff(coeffs[end - 1])) {
+  while (end > 0 && (N ? isZeroCoeffWith(coeffs[end - 1], N) : isZeroCoeff(coeffs[end - 1]))) {
     end--;
   }
   return { coeffs: coeffs.slice(0, end) };
@@ -107,8 +109,28 @@ function isZeroCoeff(c: unknown): boolean {
   return false;
 }
 
+/**
+ * N-aware zero test: number/bigint directly, otherwise structural equality
+ * with `N.zero()` (e.g. Rational {num: 0n, den: 1n}, Complex {re: 0, im: 0}).
+ * Deliberately not `N.toNumber(c) === 0`, which would call a tiny non-zero
+ * Rational, or a purely imaginary Complex, zero.
+ */
 function isZeroCoeffWith<F>(c: F, N: Numeric<F>): boolean {
-  return N.toNumber(c) === 0;
+  if (typeof c === "number") return c === 0;
+  if (typeof c === "bigint") return c === 0n;
+  return structurallyEqual(c, N.zero());
+}
+
+function structurallyEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a === "number" && typeof b === "number") return a === b; // 0 === -0
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) =>
+    structurallyEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
+  );
 }
 
 // ============================================================================
@@ -185,7 +207,7 @@ export function addPoly<F>(a: Polynomial<F>, b: Polynomial<F>, N: Numeric<F>): P
     result.push(N.add(ai, bi));
   }
 
-  return polynomial(result);
+  return polynomial(result, N);
 }
 
 /**
@@ -201,7 +223,7 @@ export function subPoly<F>(a: Polynomial<F>, b: Polynomial<F>, N: Numeric<F>): P
     result.push(N.sub(ai, bi));
   }
 
-  return polynomial(result);
+  return polynomial(result, N);
 }
 
 /**
@@ -221,7 +243,7 @@ export function mulPoly<F>(a: Polynomial<F>, b: Polynomial<F>, N: Numeric<F>): P
     }
   }
 
-  return polynomial(result);
+  return polynomial(result, N);
 }
 
 /**
@@ -235,7 +257,10 @@ export function negatePoly<F>(p: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
  * Multiply a polynomial by a scalar.
  */
 export function scalePoly<F>(p: Polynomial<F>, scalar: F, N: Numeric<F>): Polynomial<F> {
-  return polynomial(p.coeffs.map((c) => N.mul(c, scalar)));
+  return polynomial(
+    p.coeffs.map((c) => N.mul(c, scalar)),
+    N
+  );
 }
 
 // ============================================================================
@@ -255,7 +280,7 @@ export function derivative<F>(p: Polynomial<F>, N: Numeric<F>): Polynomial<F> {
     result.push(N.mul(p.coeffs[i], N.fromNumber(i)));
   }
 
-  return polynomial(result);
+  return polynomial(result, N);
 }
 
 /**
@@ -272,7 +297,7 @@ export function integral<F>(p: Polynomial<F>, N: Numeric<F>, F: Fractional<F>): 
     result.push(F.div(p.coeffs[i], N.fromNumber(i + 1)));
   }
 
-  return polynomial(result);
+  return polynomial(result, N);
 }
 
 /**
@@ -301,6 +326,10 @@ export function divPoly<F>(
   N: Numeric<F>,
   Fr: Fractional<F>
 ): [Polynomial<F>, Polynomial<F>] {
+  // Trim with the N-aware zero test: `polynomial(coeffs)` without N leaves
+  // trailing object zeros (e.g. Rational 0) in place.
+  a = polynomial([...a.coeffs], N);
+  b = polynomial([...b.coeffs], N);
   if (isZero(b)) {
     throw new RangeError("Polynomial division by zero");
   }
@@ -309,32 +338,26 @@ export function divPoly<F>(
     return [zeroPoly(), a];
   }
 
+  // Long division on a working copy. Each step DROPS the remainder's leading
+  // term explicitly instead of relying on `leadR - (leadR/leadB)·leadB`
+  // cancelling to an exact, trimmable zero (MU-6): that never happens for
+  // object coefficients (Rational looped forever) and often not for floats
+  // (the loop then ran on a residue and overwrote quotient terms). The loop
+  // is bounded by deg(a) − deg(b) + 1 iterations.
   const leadB = leading(b)!;
-  let remainder: Polynomial<F> = { coeffs: [...a.coeffs] };
-  const quotCoeffs: F[] = new Array(degree(a) - degree(b) + 1).fill(N.zero());
+  const db = degree(b);
+  const r: F[] = [...a.coeffs];
+  const quotCoeffs: F[] = new Array(degree(a) - db + 1).fill(N.zero());
 
-  while (!isZero(remainder) && degree(remainder) >= degree(b)) {
-    const leadR = leading(remainder)!;
-    const coeff = Fr.div(leadR, leadB);
-    const degDiff = degree(remainder) - degree(b);
-    quotCoeffs[degDiff] = coeff;
-
-    // Subtract coeff * x^degDiff * b from remainder
-    const subtrahend = scalePoly(b, coeff, N);
-    const shifted = shiftPoly(subtrahend, degDiff, N);
-    remainder = subPoly(remainder, shifted, N);
+  for (let k = r.length - 1; k >= db; k--) {
+    const coeff = Fr.div(r[k], leadB);
+    quotCoeffs[k - db] = coeff;
+    for (let j = 0; j < db; j++) {
+      r[k - db + j] = N.sub(r[k - db + j], N.mul(coeff, b.coeffs[j]));
+    }
   }
 
-  return [polynomial(quotCoeffs), remainder];
-}
-
-/**
- * Shift polynomial by n (multiply by x^n).
- */
-function shiftPoly<F>(p: Polynomial<F>, n: number, N: Numeric<F>): Polynomial<F> {
-  if (n === 0 || isZero(p)) return p;
-  const padding = new Array(n).fill(N.zero());
-  return { coeffs: [...padding, ...p.coeffs] };
+  return [polynomial(quotCoeffs, N), polynomial(r.slice(0, db), N)];
 }
 
 /**

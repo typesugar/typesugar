@@ -221,11 +221,11 @@ export const UserSchema = Schema.Struct({
 interface Point { x: number; y: number; }
 
 // Generates:
-export const PointEqual: Equal.Equal<Point> = {
-  [Equal.symbol]: (self, that) =>
-    self.x === that.x && self.y === that.y
-};
+export const PointEqual = (self: Point, that: Point): boolean =>
+  Equal.equals(self["x"], that["x"]) && Equal.equals(self["y"], that["y"]);
 ```
+
+The result is a plain `(self, that) => boolean` function (an Effect `Equivalence`), not an `Equal.Equal<T>` instance. In Effect 3, `Equal.Equal` is an interface an object implements on itself, so a separate object keyed by `Equal.symbol` would never be consulted by `Equal.equals`. Union types with a literal discriminant get a `switch` over the discriminant.
 
 ### @derive(EffectHash)
 
@@ -234,11 +234,13 @@ export const PointEqual: Equal.Equal<Point> = {
 interface Point { x: number; y: number; }
 
 // Generates:
-export const PointHash: Hash.Hash<Point> = {
-  [Hash.symbol]: (self) =>
-    Hash.combine(Hash.number(self.x))(Hash.number(self.y))
-};
+export const PointHash = (self: Point): number =>
+  Hash.combine(Hash.hash(self["y"]))(
+    Hash.combine(Hash.hash(self["x"]))(Hash.string("Point"))
+  );
 ```
+
+Likewise a plain `(self: T) => number` function rather than a `Hash.Hash<T>` instance. It is seeded with the type name and combines `Hash.hash` of each field, so values that `PointEqual` considers equal hash equally.
 
 ## Extension Methods
 

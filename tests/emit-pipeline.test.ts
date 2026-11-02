@@ -46,22 +46,15 @@ describe("transpileExpanded", () => {
     expect(result.outputText).not.toContain("namespace");
   });
 
-  it("converts companion const→var to avoid redeclaration errors", () => {
+  // Review #20: the regex `fixCompanionConsts` const→var rewrite was removed
+  // (derive has not emitted the `const X: Record<string, any> = {}` companion
+  // shape since PEP-033, and line-regex rewriting of code is forbidden by
+  // CLAUDE.md). transpileExpanded now leaves user `const`s untouched.
+  it("leaves a const next to a same-named namespace as written (no regex const→var pass)", () => {
     const code = `const Point: Record<string, any> = {};\nnamespace Point {\n  export const Eq = { equals: () => true };\n}`;
     const result = transpileExpanded(code, "test.ts", defaultOptions);
-    // Should use var (not const) so var re-declaration from namespace IIFE is legal
-    expect(result.outputText).toContain("var Point = {}");
-    expect(result.outputText).not.toContain("const Point");
-    // Namespace should be compiled to IIFE
-    expect(result.outputText).toContain("(function (Point)");
-    expect(result.outputText).toContain("Point.Eq");
-  });
-
-  it("converts exported companion const→var", () => {
-    const code = `export const MyType: Record<string, any> = {};\nnamespace MyType {\n  export const Debug = {};\n}`;
-    const result = transpileExpanded(code, "test.ts", defaultOptions);
-    expect(result.outputText).toContain("var MyType = {}");
-    expect(result.outputText).not.toMatch(/const MyType/);
+    expect(result.outputText).toContain("const Point = {}");
+    expect(result.outputText).not.toContain("var Point = {}");
   });
 
   it("does not affect non-companion const declarations", () => {
@@ -86,16 +79,10 @@ describe("transpileExpanded", () => {
     expect(result.sourceMapText).toBeUndefined();
   });
 
-  it("returns fixMap when companion const is present", () => {
+  it("fixMap is always null (deprecated; review #20)", () => {
     const code = `const Point: Record<string, any> = {};\nnamespace Point { export const Eq = {}; }`;
-    const result = transpileExpanded(code, "test.ts", defaultOptions);
-    expect(result.fixMap).not.toBeNull();
-  });
-
-  it("returns null fixMap when no companion const", () => {
-    const code = `const x = 42;\nconsole.log(x);`;
-    const result = transpileExpanded(code, "test.ts", defaultOptions);
-    expect(result.fixMap).toBeNull();
+    expect(transpileExpanded(code, "test.ts", defaultOptions).fixMap).toBeNull();
+    expect(transpileExpanded(`const x = 42;`, "test.ts", defaultOptions).fixMap).toBeNull();
   });
 
   it("handles JSX when jsx option provided", () => {
@@ -106,19 +93,6 @@ describe("transpileExpanded", () => {
     });
     expect(result.outputText).not.toContain("<div>");
     expect(result.outputText).toContain("jsx");
-  });
-
-  it("handles multiple companion consts in one file", () => {
-    const code = [
-      `const Point: Record<string, any> = {};`,
-      `namespace Point { export const Eq = {}; }`,
-      `const Color: Record<string, any> = {};`,
-      `namespace Color { export const Debug = {}; }`,
-    ].join("\n");
-    const result = transpileExpanded(code, "test.ts", defaultOptions);
-    expect(result.outputText).toContain("var Point = {}");
-    expect(result.outputText).toContain("var Color = {}");
-    expect(result.outputText).not.toMatch(/const Point|const Color/);
   });
 });
 

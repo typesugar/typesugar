@@ -165,8 +165,9 @@ const constResult = tryProve("true", []);
 assert(constResult.proven === true);
 
 // Type deduction — extract facts from refined types
+// (extractTypeFacts substitutes the parameter name for the predicate's `$`)
 const typeFacts: TypeFact[] = [
-  { variable: "x", predicate: "$ > 0" },
+  { variable: "x", predicate: "x > 0" },
 ];
 const typeResult = tryProve("x > 0", typeFacts);
 assert(typeResult.proven === true);
@@ -195,11 +196,12 @@ registerAlgebraicRule({
 
 // Built-in rules handle common patterns
 const sumPosFacts: TypeFact[] = [
-  { variable: "a", predicate: "$ > 0" },
-  { variable: "b", predicate: "$ > 0" },
+  { variable: "a", predicate: "a > 0" },
+  { variable: "b", predicate: "b > 0" },
 ];
 const algebraResult = tryAlgebraicProof("a + b > 0", sumPosFacts);
-// May or may not prove depending on registered rules
+// Numeric goals are proven by the linear layer (tryProve runs both), not by
+// algebraic rules, which only handle equational laws backed by facts.
 
 console.log("6. Algebraic rules: custom domain-specific proof extensions");
 

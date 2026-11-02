@@ -112,3 +112,20 @@ describe("Schema typeclass", () => {
     });
   });
 });
+
+describe("#32 safeParseAll keeps every error", () => {
+  it("nativeSafeParseAll / safeParseAll accumulate all failures", async () => {
+    const { nativeSchema, nativeSafeParseAll, safeParseAll } = await import("../index.js");
+    const { isInvalid } = await import("@typesugar/fp");
+    const isStr = (v: unknown): v is string => typeof v === "string";
+    for (const r of [
+      nativeSafeParseAll(nativeSchema)(isStr, [1, "a", 2]),
+      safeParseAll(nativeSchema as any)(isStr as any, [1, "a", 2]),
+    ]) {
+      expect(isInvalid(r)).toBe(true);
+      const errs: unknown[] = [];
+      for (let n: any = (r as any).error; n !== null; n = n.tail) errs.push(n.head);
+      expect(errs).toHaveLength(2);
+    }
+  });
+});

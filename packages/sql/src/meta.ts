@@ -34,25 +34,7 @@
  * @module
  */
 
-/**
- * Registration function for specialize integration.
- * This enables zero-cost abstraction when Meta instances are specialized.
- *
- * Note: This is called at module load time to register method sources
- * with the specialize macro's instance registry.
- */
-function registerInstanceMethods(
-  _dictName: string,
-  _brand: string,
-  _methods: Record<string, { source: string; params: string[] }>
-): void {
-  // This function is intentionally a no-op at runtime.
-  // The specialize macro reads these registrations at compile time
-  // by importing this module and analyzing the call sites.
-  //
-  // The actual registration happens via the transformer which
-  // intercepts these calls and populates the instanceMethodRegistry.
-}
+import { decodeNumber, decodeArray } from "./typeclasses.js";
 
 // ============================================================================
 // Core Types
@@ -111,9 +93,11 @@ export interface Get<A> {
  * Create a Get instance from a decoder function.
  */
 export function makeGet<A>(
-  decode: (value: unknown) => A | null,
+  rawDecode: (value: unknown) => A | null,
   sqlTypes: readonly SqlTypeName[]
 ): Get<A> {
+  // Missing column (`undefined`) is SQL NULL, never fed to the decoder (SQL-7).
+  const decode = (value: unknown): A | null => rawDecode(value === undefined ? null : value);
   return {
     _tag: "Get",
     get: decode,
@@ -184,11 +168,13 @@ export interface Meta<A> {
  * Create a Meta instance from a decoder and encoder.
  */
 export function makeMeta<A>(
-  decode: (value: unknown) => A | null,
+  rawDecode: (value: unknown) => A | null,
   encode: (value: A) => unknown,
   sqlType: SqlTypeName,
   readTypes?: readonly SqlTypeName[]
 ): Meta<A> {
+  // Missing column (`undefined`) is SQL NULL, never fed to the decoder (SQL-7).
+  const decode = (value: unknown): A | null => rawDecode(value === undefined ? null : value);
   return {
     _tag: "Meta",
     get: decode,
@@ -218,18 +204,22 @@ export const stringMeta: Meta<string> = makeMeta(
 );
 
 /** Meta instance for numbers (integers and floats) */
-export const numberMeta: Meta<number> = makeMeta(
-  (v) => (typeof v === "number" ? v : v === null ? null : Number(v)),
-  (v) => v,
+export const numberMeta: Meta<number> = makeMeta(decodeNumber, (v) => v, "NUMERIC", [
+  "INTEGER",
+  "INT",
+  "BIGINT",
+  "SMALLINT",
+  "REAL",
+  "DOUBLE PRECISION",
   "NUMERIC",
-  ["INTEGER", "INT", "BIGINT", "SMALLINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL"]
-);
+  "DECIMAL",
+]);
 
 /** Meta instance for integers specifically */
 export const intMeta: Meta<number> = makeMeta(
   (v) => {
-    if (v === null) return null;
-    const n = typeof v === "number" ? v : Number(v);
+    const n = decodeNumber(v);
+    if (n === null) return null;
     return Number.isInteger(n) ? n : Math.trunc(n);
   },
   (v) => Math.trunc(v),
@@ -356,7 +346,7 @@ export function nullable<A>(meta: Meta<A>): Meta<A | null> {
     (v) => (v === null ? null : meta.get(v)),
     (v) => (v === null ? null : meta.put(v as A)),
     meta.sqlType,
-    meta.sqlTypes
+    [...meta.sqlTypes, "NULL"]
   );
 }
 
@@ -366,18 +356,8 @@ export function nullable<A>(meta: Meta<A>): Meta<A | null> {
  */
 export function arrayMeta<A>(elementMeta: Meta<A>): Meta<A[]> {
   return makeMeta(
-    (v) => {
-      if (v === null) return null;
-      if (!Array.isArray(v)) return null;
-      const result: A[] = [];
-      for (const item of v) {
-        const decoded = elementMeta.get(item);
-        if (decoded !== null) {
-          result.push(decoded);
-        }
-      }
-      return result;
-    },
+    // Positions preserved; NULL elements need nullable(elementMeta) (SQL-17).
+    (v) => decodeArray(v, elementMeta),
     (v) => v.map((item) => elementMeta.put(item)),
     "ARRAY"
   );
@@ -392,7 +372,7 @@ export function optional<A>(meta: Meta<A>): Meta<A | undefined> {
     (v) => (v === null || v === undefined ? undefined : (meta.get(v) ?? undefined)),
     (v) => (v === undefined ? null : meta.put(v as A)),
     meta.sqlType,
-    meta.sqlTypes
+    [...meta.sqlTypes, "NULL"]
   );
 }
 
@@ -427,79 +407,15 @@ export interface Write<A> {
   readonly write: (value: A) => readonly unknown[];
   /** The column names in parameter order */
   readonly columns: readonly string[];
+  /**
+   * Optional per-column metadata: the TypeScript field each column comes from,
+   * and its single-field extractor (same order as `columns`). Present on
+   * derived Writes and `Write.make(columns, extractors, fields)`; required by
+   * `setTyped`, which writes only the fields present in a partial value.
+   */
+  readonly fields?: readonly string[];
+  readonly extractors?: readonly ((value: A) => unknown)[];
 }
-
-// ============================================================================
-// Register Meta instances for specialize
-// ============================================================================
-
-// These registrations allow `specialize` to inline Meta operations
-
-registerInstanceMethods("stringMeta", "Meta", {
-  get: {
-    source: '(v) => (typeof v === "string" ? v : v === null ? null : String(v))',
-    params: ["v"],
-  },
-  unsafeGet: {
-    source:
-      '(v) => { const r = typeof v === "string" ? v : v === null ? null : String(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
-    params: ["v"],
-  },
-  put: {
-    source: "(v) => v",
-    params: ["v"],
-  },
-});
-
-registerInstanceMethods("numberMeta", "Meta", {
-  get: {
-    source: '(v) => (typeof v === "number" ? v : v === null ? null : Number(v))',
-    params: ["v"],
-  },
-  unsafeGet: {
-    source:
-      '(v) => { const r = typeof v === "number" ? v : v === null ? null : Number(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
-    params: ["v"],
-  },
-  put: {
-    source: "(v) => v",
-    params: ["v"],
-  },
-});
-
-registerInstanceMethods("booleanMeta", "Meta", {
-  get: {
-    source:
-      '(v) => { if (v === null) return null; if (typeof v === "boolean") return v; if (v === "t" || v === "true" || v === 1) return true; if (v === "f" || v === "false" || v === 0) return false; return Boolean(v); }',
-    params: ["v"],
-  },
-  unsafeGet: {
-    source:
-      '(v) => { const r = booleanMeta.get(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
-    params: ["v"],
-  },
-  put: {
-    source: "(v) => v",
-    params: ["v"],
-  },
-});
-
-registerInstanceMethods("dateMeta", "Meta", {
-  get: {
-    source:
-      '(v) => { if (v === null) return null; if (v instanceof Date) return v; if (typeof v === "string" || typeof v === "number") { const d = new Date(v); return isNaN(d.getTime()) ? null : d; } return null; }',
-    params: ["v"],
-  },
-  unsafeGet: {
-    source:
-      '(v) => { const r = dateMeta.get(v); if (r === null) throw new Error("Unexpected NULL"); return r; }',
-    params: ["v"],
-  },
-  put: {
-    source: "(v) => v.toISOString()",
-    params: ["v"],
-  },
-});
 
 // ============================================================================
 // Type-Level Utilities

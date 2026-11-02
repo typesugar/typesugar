@@ -6,7 +6,7 @@
  */
 
 import * as ts from "typescript";
-import type { MacroContext } from "@typesugar/core";
+import { isSyntheticNode, type MacroContext } from "@typesugar/core";
 import type { DoNotationMeta } from "@typesugar/macros";
 
 // ============================================================================
@@ -239,8 +239,13 @@ function inferTypeConstructorFromAST(expr: ts.Expression): string | undefined {
 export function inferTypeConstructor(
   expr: ts.Expression,
   typeChecker: ts.TypeChecker,
-  sourceFile?: ts.SourceFile
+  sourceFile?: ts.SourceFile,
+  ctx?: Pick<MacroContext, "reportWarning">
 ): string | undefined {
+  // CLAUDE.md rule 3: a macro-generated node is outside the checker's
+  // contract — use the AST-only inference for it instead of asking.
+  if (isSyntheticNode(expr)) return inferTypeConstructorFromAST(expr);
+
   // TypeScript's checker can throw an internal TypeError when it encounters
   // unresolvable call expressions with object-literal arguments (e.g. when the
   // imported module can't be resolved — the call becomes an error call, and
@@ -252,8 +257,17 @@ export function inferTypeConstructor(
   try {
     type = typeChecker.getTypeAtLocation(expr);
     typeString = typeChecker.typeToString(type);
-  } catch {
-    return inferTypeConstructorFromAST(expr);
+  } catch (e) {
+    const fromAst = inferTypeConstructorFromAST(expr);
+    // Degrading is fine, silently degrading is not (deep review #32).
+    ctx?.reportWarning(
+      expr,
+      `do-notation: the type checker failed on this expression (${e instanceof Error ? e.message : String(e)}); ` +
+        (fromAst
+          ? `inferred '${fromAst}' from its syntax instead.`
+          : `its type constructor could not be inferred.`)
+    );
+    return fromAst;
   }
 
   // Handle Array<T> or T[]
@@ -364,14 +378,60 @@ export function inferTypeConstructor(
 export function collectReferencedIdentifiers(expr: ts.Expression): Set<string> {
   const refs = new Set<string>();
 
-  function walk(node: ts.Node): void {
-    if (ts.isIdentifier(node)) {
-      refs.add(node.text);
-    }
-    ts.forEachChild(node, walk);
+  // Names that are NOT value references (deep review #12): property names
+  // after `.`, object-literal keys, and names bound by nested functions
+  // (parameters shadow outer bindings within that function). Type positions
+  // are skipped entirely.
+  function bindingNames(name: ts.BindingName, out: Set<string>): void {
+    if (ts.isIdentifier(name)) out.add(name.text);
+    else
+      for (const el of name.elements) {
+        if (ts.isBindingElement(el)) bindingNames(el.name, out);
+      }
   }
 
-  walk(expr);
+  function walk(node: ts.Node, shadowed: ReadonlySet<string>): void {
+    if (ts.isTypeNode(node)) return;
+    if (ts.isIdentifier(node)) {
+      if (!shadowed.has(node.text)) refs.add(node.text);
+      return;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      walk(node.expression, shadowed);
+      return;
+    }
+    if (ts.isQualifiedName(node)) {
+      walk(node.left, shadowed);
+      return;
+    }
+    if (ts.isPropertyAssignment(node)) {
+      if (ts.isComputedPropertyName(node.name)) walk(node.name.expression, shadowed);
+      walk(node.initializer, shadowed);
+      return;
+    }
+    if (ts.isShorthandPropertyAssignment(node)) {
+      walk(node.name, shadowed);
+      if (node.objectAssignmentInitializer) walk(node.objectAssignmentInitializer, shadowed);
+      return;
+    }
+    if (ts.isFunctionLike(node)) {
+      const inner = new Set(shadowed);
+      for (const p of node.parameters) bindingNames(p.name, inner);
+      if ((ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node)) && node.name) {
+        inner.add(node.name.text);
+      }
+      for (const p of node.parameters) if (p.initializer) walk(p.initializer, inner);
+      if (ts.isMethodDeclaration(node) && ts.isComputedPropertyName(node.name)) {
+        walk(node.name.expression, shadowed);
+      }
+      const body = (node as { body?: ts.Node }).body;
+      if (body) walk(body, inner);
+      return;
+    }
+    ts.forEachChild(node, (child) => walk(child, shadowed));
+  }
+
+  walk(expr, new Set());
   return refs;
 }
 
@@ -394,6 +454,24 @@ export function createArrowFn(
     undefined,
     factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     body
+  );
+}
+
+/**
+ * Array binding pattern for a destructured tuple of bind results:
+ * `[a, b]`, with `_` discards emitted as holes (`[, b]`) — two `_` binders
+ * would otherwise be a duplicate-parameter SyntaxError (deep review #11).
+ */
+export function createTupleBindingPattern(
+  factory: ts.NodeFactory,
+  names: readonly string[]
+): ts.ArrayBindingPattern {
+  return factory.createArrayBindingPattern(
+    names.map((name) =>
+      name === "_"
+        ? factory.createOmittedExpression()
+        : factory.createBindingElement(undefined, undefined, factory.createIdentifier(name))
+    )
   );
 }
 
@@ -452,11 +530,27 @@ const STD_BRANDS: DoFallbackTable = {
     },
   },
   Iterable: {
-    FlatMap: { exportName: "flatMapIterable" },
+    FlatMap: {
+      exportName: "flatMapIterable",
+      doMeta: {
+        bind: "flatMap",
+        map: "map",
+        style: "static",
+        receiver: "flatMapIterable",
+      },
+    },
     ParCombine: { exportName: "parCombineIterable" },
   },
   AsyncIterable: {
-    FlatMap: { exportName: "flatMapAsyncIterable" },
+    FlatMap: {
+      exportName: "flatMapAsyncIterable",
+      doMeta: {
+        bind: "flatMap",
+        map: "map",
+        style: "static",
+        receiver: "flatMapAsyncIterable",
+      },
+    },
     ParCombine: { exportName: "parCombineAsyncIterable" },
   },
 };
@@ -590,7 +684,14 @@ export function createMetadataJoin(
   factory: ts.NodeFactory,
   doMeta: DoNotationMeta,
   binds: Array<{ name: string; effect: ts.Expression }>,
-  body: ts.Expression
+  body: ts.Expression,
+  /**
+   * How to continue from the joined effect. Defaults to the ParCombine
+   * instance's own `map`. A nested `par:` inside `let:` whose body is itself
+   * an effect passes the FlatMap instance's bind method/style instead, so the
+   * result is flattened rather than nested (deep review #9).
+   */
+  continuation?: { meta: DoNotationMeta; method: string }
 ): ts.Expression {
   const join = factory.createCallExpression(
     factory.createPropertyAccessExpression(
@@ -603,10 +704,9 @@ export function createMetadataJoin(
   const destructuredParam = factory.createParameterDeclaration(
     undefined,
     undefined,
-    factory.createArrayBindingPattern(
-      binds.map((b) =>
-        factory.createBindingElement(undefined, undefined, factory.createIdentifier(b.name))
-      )
+    createTupleBindingPattern(
+      factory,
+      binds.map((b) => b.name)
     )
   );
   const arrow = factory.createArrowFunction(
@@ -617,6 +717,9 @@ export function createMetadataJoin(
     factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     body
   );
+  if (continuation) {
+    return createStyleAwareCall(factory, continuation.meta, continuation.method, join, arrow);
+  }
   return createStyleAwareCall(factory, doMeta, doMeta.map, join, arrow);
 }
 

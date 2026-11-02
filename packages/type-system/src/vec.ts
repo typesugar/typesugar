@@ -10,6 +10,8 @@
  * - **Length-preserving operations**: Operations update the type-level length
  * - **Compile-time proofs**: The prover knows `Vec<T, N>.length === N`
  * - **Runtime validation**: Constructors verify length at runtime
+ * - **Immutable**: a Vec is a frozen, readonly array, so its length cannot
+ *   drift from `N` (the prover relies on `Vec<T, N>.length === N`)
  *
  * ## Usage
  *
@@ -17,7 +19,8 @@
  * // Create vectors with known length
  * const empty = Vec.empty<string>();           // Vec<string, 0>
  * const single = Vec.singleton("hello");       // Vec<string, 1>
- * const three = Vec.from<string, 3>(["a", "b", "c"]); // Vec<string, 3>
+ * const three = Vec.from(["a", "b", "c"]);    // Vec<string, 3> (length inferred from the tuple)
+ * const checked = Vec.from(arr, 3);            // Vec<T, 3> (length checked at runtime)
  *
  * // Operations preserve length information
  * const four = Vec.cons("z", three);           // Vec<string, 4>
@@ -37,9 +40,9 @@
  * TypeScript doesn't have built-in type-level arithmetic, so we use
  * template literal types to encode length operations:
  *
- * - `Add<N, M>` → `N + M` (computed at type level for small numbers)
- * - `Sub<N, M>` → `N - M`
- * - `Min<N, M>` → `min(N, M)`
+ * - `Add<N, M>` → `N + M` (computed at type level for operands 0-10)
+ * - `Sub<N, M>` → `N - M` (non-negative results, operands 0-10)
+ * - `Min<N, M>` → `min(N, M)` (operands 0-10)
  *
  * For larger numbers, lengths are computed at runtime and encoded as `number`.
  */
@@ -51,8 +54,8 @@ import { type Refined } from "./refined.js";
 // ============================================================================
 
 /**
- * Type-level addition for small numbers (0-20).
- * Falls back to `number` for larger values.
+ * Type-level addition for small operands (each 0-10, so results 0-20).
+ * Falls back to `number` when either operand is outside 0-10.
  */
 export type Add<A extends number, B extends number> = A extends keyof AdditionTable
   ? B extends keyof AdditionTable[A]
@@ -61,8 +64,9 @@ export type Add<A extends number, B extends number> = A extends keyof AdditionTa
   : number;
 
 /**
- * Type-level subtraction for small numbers.
- * Returns 0 if result would be negative.
+ * Type-level subtraction for small operands (each 0-10).
+ * Falls back to `number` when the result would be negative or either operand
+ * is outside 0-10.
  */
 export type Sub<A extends number, B extends number> = A extends keyof SubtractionTable
   ? B extends keyof SubtractionTable[A]
@@ -71,16 +75,20 @@ export type Sub<A extends number, B extends number> = A extends keyof Subtractio
   : number;
 
 /**
- * Type-level minimum.
+ * Type-level minimum for small operands (each 0-10).
+ * Falls back to `number` when either operand is outside 0-10.
+ *
+ * (`SubtractionTable[A]` has exactly the keys `0..A`, so `B extends keyof
+ * SubtractionTable[A]` means `B <= A`.)
  */
-export type Min<A extends number, B extends number> = A extends number
-  ? B extends number
-    ? Sub<A, Sub<A, B>> extends infer R
-      ? R extends number
-        ? R
+export type Min<A extends number, B extends number> = A extends keyof SubtractionTable
+  ? B extends keyof SubtractionTable[A]
+    ? B
+    : B extends keyof SubtractionTable
+      ? A extends keyof SubtractionTable[B]
+        ? A
         : number
       : number
-    : number
   : number;
 
 // Lookup tables for small number arithmetic
@@ -194,7 +202,7 @@ type SubtractionTable = {
  * `Vec<T, N>` is an array of `T` with exactly `N` elements.
  * The length is tracked at the type level via the brand.
  */
-export type Vec<T, N extends number> = Refined<T[], `Vec<${N}>`> & {
+export type Vec<T, N extends number> = Refined<readonly T[], `Vec<${N}>`> & {
   readonly length: N;
 };
 
@@ -223,7 +231,7 @@ export function isVec<T>(value: unknown): value is Vec<T, number> {
  * Create a Vec from an array with runtime length validation.
  * @throws If array length doesn't match expected length N
  */
-function createVec<T, N extends number>(arr: T[], expectedLength: N): Vec<T, N> {
+function createVec<T, N extends number>(arr: readonly T[], expectedLength: N): Vec<T, N> {
   if (arr.length !== expectedLength) {
     throw new Error(`Vec length mismatch: expected ${expectedLength}, got ${arr.length}`);
   }
@@ -241,7 +249,9 @@ function createVec<T, N extends number>(arr: T[], expectedLength: N): Vec<T, N> 
     writable: false,
   });
 
-  return vec as Vec<T, N>;
+  // TSP-6: freeze so `push`/`pop`/`splice`/index writes cannot break the
+  // length invariant that the prover treats as a proven fact.
+  return Object.freeze(vec) as Vec<T, N>;
 }
 
 /**
@@ -261,12 +271,35 @@ function unsafeVec<T, N extends number>(arr: T[]): Vec<T, N> {
     enumerable: false,
     writable: false,
   });
-  return vec as Vec<T, N>;
+  return Object.freeze(vec) as Vec<T, N>;
 }
 
 // ============================================================================
 // Smart Constructors
 // ============================================================================
+
+/**
+ * Create a Vec from an array.
+ *
+ * - `Vec.from([1, 2, 3])` — the length is inferred from the tuple type
+ *   (`Vec<number, 3>`); a plain `number[]` gives `Vec<number, number>`.
+ * - `Vec.from(arr, 3)` — the length is checked at runtime (throws on mismatch).
+ *
+ * TSP-6: `from<T, N>(arr)` used to "check" `arr.length` against itself and
+ * let `N` be inferred from the contextual return type, so
+ * `const v: Vec<number, 3> = Vec.from([1, 2])` type-checked.
+ */
+function vecFrom<A extends readonly unknown[] | []>(arr: A): Vec<A[number], A["length"]>;
+function vecFrom<T, N extends number>(arr: readonly T[], length: N): Vec<T, N>;
+/**
+ * @deprecated Explicit `Vec.from<T, N>(arr)` is an UNCHECKED assertion that
+ * `arr.length === N` (nothing at runtime can know `N`). Use `Vec.from(tuple)`
+ * or `Vec.from(arr, n)` instead.
+ */
+function vecFrom<T, N extends number>(arr: readonly T[]): Vec<T, N>;
+function vecFrom(arr: readonly unknown[], length?: number): Vec<unknown, number> {
+  return createVec(arr, length === undefined ? arr.length : length);
+}
 
 /**
  * Vec constructor namespace.
@@ -310,9 +343,7 @@ export const Vec = {
    * Vec.from<string, 3>(["a", "b"]); // Error: length mismatch
    * ```
    */
-  from<T, N extends number>(arr: T[]): Vec<T, N> {
-    return createVec(arr, arr.length as N);
-  },
+  from: vecFrom,
 
   /**
    * Create a Vec from a tuple with inferred length.
@@ -366,7 +397,7 @@ export const Vec = {
    * ```
    */
   cons<T, N extends number>(head: T, tail: Vec<T, N>): Vec<T, Add<N, 1>> {
-    const newArr = [head, ...(tail as T[])];
+    const newArr = [head, ...(tail as readonly T[])];
     return unsafeVec<T, Add<N, 1>>(newArr);
   },
 
@@ -381,7 +412,7 @@ export const Vec = {
    * ```
    */
   snoc<T, N extends number>(init: Vec<T, N>, last: T): Vec<T, Add<N, 1>> {
-    const newArr = [...(init as T[]), last];
+    const newArr = [...(init as readonly T[]), last];
     return unsafeVec<T, Add<N, 1>>(newArr);
   },
 
@@ -397,7 +428,7 @@ export const Vec = {
    * ```
    */
   append<T, N extends number, M extends number>(a: Vec<T, N>, b: Vec<T, M>): Vec<T, Add<N, M>> {
-    const newArr = [...(a as T[]), ...(b as T[])];
+    const newArr = [...(a as readonly T[]), ...(b as readonly T[])];
     return unsafeVec<T, Add<N, M>>(newArr);
   },
 
@@ -411,10 +442,10 @@ export const Vec = {
    * ```
    */
   head<T, N extends number>(vec: Vec<T, N>): N extends 0 ? never : T {
-    if ((vec as T[]).length === 0) {
+    if ((vec as readonly T[]).length === 0) {
       throw new Error("Cannot get head of empty Vec");
     }
-    return (vec as T[])[0] as any;
+    return (vec as readonly T[])[0] as any;
   },
 
   /**
@@ -428,10 +459,10 @@ export const Vec = {
    * ```
    */
   tail<T, N extends number>(vec: Vec<T, N>): Vec<T, Sub<N, 1>> {
-    if ((vec as T[]).length === 0) {
+    if ((vec as readonly T[]).length === 0) {
       throw new Error("Cannot get tail of empty Vec");
     }
-    return unsafeVec<T, Sub<N, 1>>((vec as T[]).slice(1));
+    return unsafeVec<T, Sub<N, 1>>((vec as readonly T[]).slice(1));
   },
 
   /**
@@ -444,7 +475,7 @@ export const Vec = {
    * ```
    */
   last<T, N extends number>(vec: Vec<T, N>): N extends 0 ? never : T {
-    const arr = vec as T[];
+    const arr = vec as readonly T[];
     if (arr.length === 0) {
       throw new Error("Cannot get last of empty Vec");
     }
@@ -462,7 +493,7 @@ export const Vec = {
    * ```
    */
   init<T, N extends number>(vec: Vec<T, N>): Vec<T, Sub<N, 1>> {
-    const arr = vec as T[];
+    const arr = vec as readonly T[];
     if (arr.length === 0) {
       throw new Error("Cannot get init of empty Vec");
     }
@@ -480,7 +511,7 @@ export const Vec = {
    * ```
    */
   take<T, N extends number, M extends number>(vec: Vec<T, N>, count: M): Vec<T, Min<N, M>> {
-    return unsafeVec<T, Min<N, M>>((vec as T[]).slice(0, count));
+    return unsafeVec<T, Min<N, M>>((vec as readonly T[]).slice(0, count));
   },
 
   /**
@@ -494,7 +525,7 @@ export const Vec = {
    * ```
    */
   drop<T, N extends number, M extends number>(vec: Vec<T, N>, count: M): Vec<T, Sub<N, M>> {
-    return unsafeVec<T, Sub<N, M>>((vec as T[]).slice(count));
+    return unsafeVec<T, Sub<N, M>>((vec as readonly T[]).slice(count));
   },
 
   /**
@@ -503,7 +534,7 @@ export const Vec = {
    * @throws If index is out of bounds
    */
   get<T, N extends number>(vec: Vec<T, N>, index: number): T {
-    const arr = vec as T[];
+    const arr = vec as readonly T[];
     if (index < 0 || index >= arr.length) {
       throw new Error(`Vec index out of bounds: ${index} not in [0, ${arr.length})`);
     }
@@ -520,7 +551,7 @@ export const Vec = {
    * ```
    */
   map<T, U, N extends number>(vec: Vec<T, N>, fn: (value: T, index: number) => U): Vec<U, N> {
-    return unsafeVec<U, N>((vec as T[]).map(fn));
+    return unsafeVec<U, N>((vec as readonly T[]).map(fn));
   },
 
   /**
@@ -534,8 +565,8 @@ export const Vec = {
    * ```
    */
   zip<T, U, N extends number>(a: Vec<T, N>, b: Vec<U, N>): Vec<[T, U], N> {
-    const arrA = a as T[];
-    const arrB = b as U[];
+    const arrA = a as readonly T[];
+    const arrB = b as readonly U[];
     const result: [T, U][] = [];
     for (let i = 0; i < arrA.length; i++) {
       result.push([arrA[i], arrB[i]]);
@@ -547,14 +578,14 @@ export const Vec = {
    * Reverse a Vec, preserving length.
    */
   reverse<T, N extends number>(vec: Vec<T, N>): Vec<T, N> {
-    return unsafeVec<T, N>([...(vec as T[])].reverse());
+    return unsafeVec<T, N>([...(vec as readonly T[])].reverse());
   },
 
   /**
    * Convert Vec back to a regular array.
    */
   toArray<T, N extends number>(vec: Vec<T, N>): T[] {
-    return [...(vec as T[])];
+    return [...(vec as readonly T[])];
   },
 
   /**
@@ -562,7 +593,7 @@ export const Vec = {
    * At compile time, this is known to equal N.
    */
   length<T, N extends number>(vec: Vec<T, N>): N {
-    return (vec as T[]).length as N;
+    return (vec as readonly T[]).length as N;
   },
 } as const;
 

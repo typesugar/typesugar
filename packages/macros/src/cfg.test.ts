@@ -11,7 +11,7 @@
  *   any explicit setCfgConfig. Real env vars are saved/restored per test.
  * - evaluateCfgCondition: simple truthy checks, negation, equality (`==`),
  *   inequality (`!=`), AND / OR, parentheses, dotted paths, missing keys,
- *   and the documented `===` quirk (the evaluator only matches `==`).
+ *   and `===`/`!==` (supported by the shared core condition grammar).
  * - cfgMacro (expression form): active-true returns the then-expression;
  *   active-false returns `undefined`; arrow/function then-args are wrapped
  *   in IIFEs; else-branch is honoured. Validation errors are reported via
@@ -386,13 +386,10 @@ describe("evaluateCfgCondition", () => {
     expect(evaluateCfgCondition("target.platform")).toBe(true);
   });
 
-  it("treats triple-equals (===) as a non-match — known limitation, falls through to truthy lookup", () => {
-    // The condition parser regex only matches `==` / `!=`. With `===` the
-    // expression falls through to a key lookup with the literal text
-    // 'target.platform === \'browser\'', which has no matching config key
-    // and so is falsy. This documents the surface behaviour.
+  it("supports triple-equals (===) and !== (the form the guide documents)", () => {
     setCfgConfig({ target: { platform: "browser" } });
-    expect(evaluateCfgCondition("target.platform === 'browser'")).toBe(false);
+    expect(evaluateCfgCondition("target.platform === 'browser'")).toBe(true);
+    expect(evaluateCfgCondition("target.platform !== 'browser'")).toBe(false);
   });
 
   it("trims surrounding whitespace from the condition string", () => {
@@ -607,5 +604,37 @@ describe("cfgAttrMacro (attribute form)", () => {
     } finally {
       cleanup();
     }
+  });
+});
+
+// ===========================================================================
+// Review fixes (deep review 2026-10): === conditions and unsupported syntax
+// ===========================================================================
+
+describe("cfgMacro condition handling", () => {
+  beforeEach(() => setCfgConfig({}));
+
+  it(`cfg("platform === 'node'") selects the then branch on node`, () => {
+    setCfgConfig({ platform: "node" });
+    const { printed, diagnostics } = runCfgExpression(`cfg("platform === 'node'", 1, 2);`);
+    expect(diagnostics).toEqual([]);
+    expect(printed).toBe("1");
+  });
+
+  it(`cfg("platform === 'node'") selects the else branch elsewhere`, () => {
+    setCfgConfig({ platform: "browser" });
+    const { printed } = runCfgExpression(`cfg("platform === 'node'", 1, 2);`);
+    expect(printed).toBe("2");
+  });
+
+  it("reports an unsupported condition at the call site instead of picking a branch", () => {
+    setCfgConfig({ level: 3 });
+    const { printed, diagnostics } = runCfgExpression(`cfg("level > 1", 1, 2);`);
+    expect(
+      diagnostics.some(
+        (d) => d.severity === "error" && /Unsupported config condition/.test(d.message)
+      )
+    ).toBe(true);
+    expect(printed).toContain("cfg(");
   });
 });

@@ -52,7 +52,16 @@ function createProgram(
     fileMap.set(name, content);
   }
 
+  const dirs = new Set<string>();
+  for (const name of fileMap.keys()) {
+    for (let d = name.slice(0, name.lastIndexOf("/")); d; d = d.slice(0, d.lastIndexOf("/"))) {
+      dirs.add(d);
+    }
+  }
+
   const host = ts.createCompilerHost(compilerOptions);
+  const origDirectoryExists = host.directoryExists?.bind(host);
+  host.directoryExists = (dir) => dirs.has(dir) || (origDirectoryExists?.(dir) ?? false);
   const origGetSourceFile = host.getSourceFile;
   const origFileExists = host.fileExists;
   const origReadFile = host.readFile;
@@ -73,7 +82,8 @@ function createProgram(
     return fileMap.get(fileName) ?? origReadFile.call(host, fileName);
   };
 
-  const program = ts.createProgram(Array.from(fileMap.keys()), compilerOptions, host);
+  const roots = Array.from(fileMap.keys()).filter((f) => !f.includes("/node_modules/"));
+  const program = ts.createProgram(roots, compilerOptions, host);
   const checker = program.getTypeChecker();
   const diagnostics = ts.getPreEmitDiagnostics(program);
 
@@ -90,7 +100,8 @@ function getDiagnosticsForFile(
 /**
  * Simulate the CLI pipeline's diagnostic filtering:
  * 1. Collect raw diagnostics from ts.getPreEmitDiagnostics()
- * 2. Filter through diagnostic suppression rules (same as cli.ts build())
+ * 2. Filter through diagnostic suppression rules (same as cli.ts build()),
+ *    passing the program as the evaluation context
  * 3. Return filtered diagnostics
  */
 function simulateCliBuild(
@@ -105,7 +116,7 @@ function simulateCliBuild(
 
   const filteredDiagnostics =
     getDiagnosticSuppressionRules().length > 0
-      ? filterDiagnostics(rawDiagnostics, checker, (fn) => program.getSourceFile(fn))
+      ? filterDiagnostics(rawDiagnostics, checker, (fn) => program.getSourceFile(fn), { program })
       : [...rawDiagnostics];
 
   return { rawDiagnostics, filteredDiagnostics, program };
@@ -209,28 +220,26 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
   });
 
   describe("newtype assignment suppression in CLI", () => {
-    it("suppresses TS2322 for Newtype assignment", () => {
+    it("suppresses wrap()'s TS2345 but keeps an implicit Newtype assignment's TS2322", () => {
       registerDiagnosticSuppressionRule(createNewtypeAssignmentRule());
 
       const result = simulateCliBuild({
         "/test.ts": `
           declare const __brand: unique symbol;
           type Newtype<Base, Brand> = Base & { readonly [__brand]: Brand };
+          type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
+          declare function wrap<T>(value: UnwrapNewtype<T>): T;
           type UserId = Newtype<number, "UserId">;
 
+          const ok = wrap<UserId>(42);
           const id: UserId = 42;
         `,
       });
 
-      const rawTs2322 = getDiagnosticsForFile(result.rawDiagnostics, "/test.ts").filter(
-        (d) => d.code === 2322
-      );
-      const filteredTs2322 = getDiagnosticsForFile(result.filteredDiagnostics, "/test.ts").filter(
-        (d) => d.code === 2322
-      );
-
-      expect(rawTs2322.length).toBeGreaterThan(0);
-      expect(filteredTs2322).toHaveLength(0);
+      const codes = (ds: readonly ts.Diagnostic[]) =>
+        getDiagnosticsForFile(ds, "/test.ts").map((d) => d.code);
+      expect(codes(result.rawDiagnostics).sort()).toEqual([2322, 2345]);
+      expect(codes(result.filteredDiagnostics)).toEqual([2322]);
     });
   });
 
@@ -279,13 +288,15 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
         "/test.ts": `
           declare const __brand: unique symbol;
           type Newtype<Base, Brand> = Base & { readonly [__brand]: Brand };
+          type UnwrapNewtype<T> = T extends Newtype<infer Base, string> ? Base : T;
+          declare function wrap<T>(value: UnwrapNewtype<T>): T;
           type UserId = Newtype<number, "UserId">;
 
           // Extension method — TS2339 suppressed by ExtensionMethodCall rule
           const x = (42).clamp(0, 100);
 
-          // Newtype assignment — TS2322 suppressed by NewtypeAssignment rule
-          const id: UserId = 42;
+          // wrap() argument — TS2345 suppressed by NewtypeAssignment rule
+          const id = wrap<UserId>(42);
         `,
       });
 
@@ -474,28 +485,34 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
       registerDiagnosticSuppressionRule(createOperatorOverloadRule());
     });
 
-    it("suppresses TS2365 when operand is a class type", () => {
+    const NUMERIC = `
+          /** @typeclass */
+          interface Numeric<A> {
+            /** @op + */ add(a: A, b: A): A;
+          }
+    `;
+
+    it("suppresses TS2365 when an @op typeclass instance exists for the left operand", () => {
       const result = simulateCliBuild({
-        "/test.ts": `
+        "/test.ts": `${NUMERIC}
           class Vec2 { constructor(public x: number, public y: number) {} }
+          /** @impl Numeric<Vec2> */
+          const numericVec2: Numeric<Vec2> = {
+            add: (a, b) => new Vec2(a.x + b.x, a.y + b.y),
+          };
           const a = new Vec2(1, 2);
           const b = new Vec2(3, 4);
           const c = a + b;
         `,
       });
 
-      const ts2365 = result.filteredDiagnostics.filter((d) => d.code === 2365);
-      expect(ts2365).toHaveLength(0);
+      expect(result.rawDiagnostics.filter((d) => d.code === 2365).length).toBeGreaterThan(0);
+      expect(result.filteredDiagnostics.filter((d) => d.code === 2365)).toHaveLength(0);
     });
 
-    it("does NOT suppress TS2365 when neither operand is object-like", () => {
-      // TS2365 only fires for + on incompatible types. With two class instances
-      // it fires and gets suppressed. Verify the rule checks for object types
-      // by confirming it DOES suppress for classes but wouldn't for primitives.
-      // (TS doesn't produce TS2365 for primitive-only expressions, so we
-      // verify indirectly by checking the rule only fires for object types.)
+    it("does NOT suppress TS2365 for a class with no @op typeclass instance", () => {
       const result = simulateCliBuild({
-        "/test.ts": `
+        "/test.ts": `${NUMERIC}
           class Vec2 { constructor(public x: number, public y: number) {} }
           const a = new Vec2(1, 2);
           const b = new Vec2(3, 4);
@@ -503,12 +520,11 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
         `,
       });
 
-      // The raw diagnostics should have TS2365
       const rawTs2365 = result.rawDiagnostics.filter((d) => d.code === 2365);
       expect(rawTs2365.length).toBeGreaterThan(0);
-      // But filtered should suppress it (class is object-like)
-      const filteredTs2365 = result.filteredDiagnostics.filter((d) => d.code === 2365);
-      expect(filteredTs2365).toHaveLength(0);
+      expect(result.filteredDiagnostics.filter((d) => d.code === 2365)).toHaveLength(
+        rawTs2365.length
+      );
     });
   });
 
@@ -518,10 +534,16 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
       registerDiagnosticSuppressionRule(createMacroCallChainRule());
     });
 
+    const STD = {
+      "/node_modules/@typesugar/std/package.json": `{ "name": "@typesugar/std", "types": "index.d.ts" }`,
+      "/node_modules/@typesugar/std/index.d.ts": `export declare function match(value: unknown): never;`,
+    };
+
     it("suppresses TS2339 on match().case() fluent chain", () => {
       const result = simulateCliBuild({
+        ...STD,
         "/test.ts": `
-          declare function match(value: unknown): never;
+          import { match } from "@typesugar/std";
           const x = match(42).case(1).then("one");
         `,
       });
@@ -530,10 +552,24 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
       expect(ts2339).toHaveLength(0);
     });
 
-    it("suppresses TS2304 for binding variables inside match chain", () => {
+    it("does NOT suppress chain errors when match is a local declaration", () => {
       const result = simulateCliBuild({
         "/test.ts": `
           declare function match(value: unknown): never;
+          const x = match(42).case(1).then("one");
+        `,
+      });
+
+      const raw = result.rawDiagnostics.filter((d) => d.code === 2339);
+      expect(raw.length).toBeGreaterThan(0);
+      expect(result.filteredDiagnostics.filter((d) => d.code === 2339)).toHaveLength(raw.length);
+    });
+
+    it("suppresses TS2304 for binding variables inside match chain", () => {
+      const result = simulateCliBuild({
+        ...STD,
+        "/test.ts": `
+          import { match } from "@typesugar/std";
           const x = match([1,2,3]).case([p, ...rest]).then(p);
         `,
       });

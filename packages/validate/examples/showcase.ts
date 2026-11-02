@@ -237,7 +237,7 @@ console.log("6. Validation errors: path + message for detailed diagnostics");
 // validate<T>() — Generates a ValidatedNel result
 //   const validateUser = validate<User>();
 //   const result = validateUser(data);
-//   if (result._tag === "Valid") { ... }
+//   if (isValid(result)) { result.value } else { result.error /* NonEmptyList */ }
 //
 // These are compile-time macros — they analyze the type T at build time
 // and generate the validation logic. Without the transformer, calling

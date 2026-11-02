@@ -43,9 +43,30 @@ export type ConfigWriteResult =
   | { kind: "created"; path: string }
   | { kind: "patched"; path: string }
   | { kind: "unchanged"; path: string }
-  | { kind: "manual"; path: string; snippet: string };
+  | { kind: "manual"; path: string; snippet: string }
+  /** Nothing written: a config file already exists at `path` but the caller
+   *  didn't pass it as `existingConfigPath` (it wasn't found or failed to
+   *  load), so creating a fresh file would overwrite the user's config. */
+  | { kind: "refused"; path: string; reason: string };
 
 const PATCHABLE_EXTENSIONS = /\.(ts|js|cjs|mjs)$/;
+
+/** Every file name cosmiconfig could treat as the project's config (plus
+ *  `.mjs`, which a user may have written even though it can't be loaded
+ *  synchronously). Used only to refuse to clobber one. */
+const CONFIG_FILE_NAMES = [
+  "typesugar.config.ts",
+  "typesugar.config.js",
+  "typesugar.config.cjs",
+  "typesugar.config.mjs",
+  ".typesugarrc",
+  ".typesugarrc.json",
+  ".typesugarrc.yaml",
+  ".typesugarrc.yml",
+  ".typesugarrc.js",
+  ".typesugarrc.cjs",
+  ".typesugarrc.ts",
+];
 
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 
@@ -55,8 +76,25 @@ export function writeApprovedMacroPackages(
   const { projectRoot, existingConfigPath, newPackages } = options;
 
   if (!existingConfigPath) {
+    // Deep review 2026-10 (core #20): "no config path" used to be taken to
+    // mean "no config file", but it also happens when a config file exists
+    // and failed to load (or wasn't found from the caller's search dir).
+    // Never create a file over one that's already there.
+    const present = CONFIG_FILE_NAMES.map((n) => path.join(projectRoot, n)).find((p) =>
+      fs.existsSync(p)
+    );
+    if (present) {
+      return {
+        kind: "refused",
+        path: present,
+        reason:
+          "a config file already exists here but was not loaded; fix it (or remove it) " +
+          "and re-run, or add the entries by hand",
+      };
+    }
     const targetPath = path.join(projectRoot, "typesugar.config.ts");
-    fs.writeFileSync(targetPath, renderFreshConfig(newPackages), "utf-8");
+    // `wx`: fail rather than overwrite if the file appeared in the meantime.
+    fs.writeFileSync(targetPath, renderFreshConfig(newPackages), { encoding: "utf-8", flag: "wx" });
     return { kind: "created", path: targetPath };
   }
 

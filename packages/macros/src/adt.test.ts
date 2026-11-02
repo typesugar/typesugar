@@ -454,7 +454,10 @@ type Either<E, A> = Left<E, A> | Right<E, A>;
     expect(entry!.transparent).toBe(true);
   });
 
-  it("includes constructors in the registry entry", () => {
+  it("does not register real constructor functions as erasable constructors", () => {
+    // Deep review #3: registering `NotAsked`/`Loading` (which are generated
+    // functions) made the erasure pass rewrite `Loading()` -> `Loading`.
+    // Only null-represented variants are erasable; see adt-review.test.ts.
     const source = `
 interface NotAsked {}
 interface Loading {}
@@ -464,9 +467,7 @@ type Status = NotAsked | Loading;
 `;
     const { entry } = runAdtMacro(source);
 
-    expect(entry!.constructors).toBeDefined();
-    expect(entry!.constructors!.has("NotAsked")).toBe(true);
-    expect(entry!.constructors!.has("Loading")).toBe(true);
+    expect(entry!.constructors).toBeUndefined();
   });
 
   it("sets sourceModule from the file path", () => {

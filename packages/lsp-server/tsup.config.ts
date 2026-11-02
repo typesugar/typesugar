@@ -3,6 +3,9 @@ import { defineConfig } from "tsup";
 export default defineConfig([
   {
     entry: {
+      // Library entry ("." export) — side-effect free.
+      index: "src/index.ts",
+      // The runnable server: opens the LSP connection on load. Bin/script only.
       server: "src/server.ts",
       helpers: "src/helpers.ts",
       manifest: "src/manifest.ts",

@@ -35,4 +35,12 @@ export class MatchError extends Error {
     this.value = value;
     Object.setPrototypeOf(this, MatchError.prototype);
   }
+
+  /**
+   * Throw a `MatchError` for `value`. Expression-position form used by
+   * macro-generated code (`cond ? handler(v) : MatchError.throw(v)`).
+   */
+  static throw(value: unknown): never {
+    throw new MatchError(value);
+  }
 }

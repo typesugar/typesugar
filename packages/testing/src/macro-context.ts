@@ -4,7 +4,12 @@
 
 import * as ts from "typescript";
 import type { MacroContext, ComptimeValue, MacroDiagnostic } from "@typesugar/core";
-import { HygieneContext, DiagnosticBuilder, richToLegacyDiagnostic } from "@typesugar/core";
+import {
+  HygieneContext,
+  FileBindingCache,
+  DiagnosticBuilder,
+  richToLegacyDiagnostic,
+} from "@typesugar/core";
 import type { DiagnosticDescriptor } from "@typesugar/core";
 
 /** Test context with additional test-specific properties */
@@ -14,6 +19,12 @@ export interface TestMacroContext extends MacroContext {
 
   /** Collected warnings during expansion */
   warnings: string[];
+
+  /**
+   * Import declarations that `ensureImport` / aliased `safeRef` calls have
+   * requested so far (what the real transformer would add to the file).
+   */
+  getPendingImports(): ts.ImportDeclaration[];
 }
 
 /**
@@ -30,6 +41,10 @@ export function createMacroTestContext(source: string): TestMacroContext {
 
   let uniqueIdCounter = 0;
   const hygiene = new HygieneContext();
+  // Same import/conflict bookkeeping as the real MacroContextImpl, so
+  // safeRef/ensureImport/tryShortName behave as they do in the transformer.
+  const bindings = new FileBindingCache(sourceFile);
+  const emittedShortNames = new Set<string>();
 
   const ctx: TestMacroContext = {
     program,
@@ -186,7 +201,11 @@ export function createMacroTestContext(source: string): TestMacroContext {
     },
 
     tryShortName(preferred: string): ts.Identifier {
-      return ts.factory.createIdentifier(preferred);
+      if (!emittedShortNames.has(preferred) && !bindings.isNameBound(preferred)) {
+        emittedShortNames.add(preferred);
+        return ts.factory.createIdentifier(preferred);
+      }
+      return ctx.generateUniqueName(preferred);
     },
 
     // Tree-shaking annotation
@@ -204,13 +223,19 @@ export function createMacroTestContext(source: string): TestMacroContext {
       return typeChecker.getTypeAtLocation(node);
     },
 
-    // Safe reference generation (test implementation just returns bare identifier)
-    safeRef(symbol: string, _from: string): ts.Identifier {
-      return ts.factory.createIdentifier(symbol);
+    // Reference hygiene: delegate to core's FileBindingCache — `safeRef`
+    // aliases on a conflicting binding, `ensureImport` always records an
+    // import (aliased on conflict), exactly as in the transformer.
+    safeRef(symbol: string, from: string): ts.Identifier {
+      return bindings.safeRef(symbol, from);
     },
 
-    ensureImport(symbol: string, _from: string): ts.Identifier {
-      return ts.factory.createIdentifier(symbol);
+    ensureImport(symbol: string, from: string): ts.Identifier {
+      return bindings.ensureImport(symbol, from);
+    },
+
+    getPendingImports(): ts.ImportDeclaration[] {
+      return bindings.getPendingImports();
     },
   };
 

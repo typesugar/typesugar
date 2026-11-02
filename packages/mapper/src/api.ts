@@ -37,6 +37,13 @@ export type NestedTransformConfig<From, To> = {
     : never;
 };
 
+/**
+ * Mapping rules for `transformInto` / `transformArrayInto`.
+ *
+ * The macro reads this config at compile time, so it must be written as an
+ * inline object literal in the call. A config held in a variable, spread in,
+ * or built dynamically is reported as an error rather than silently ignored.
+ */
 export interface TransformConfig<From, To> {
   /**
    * Rename fields from the source to the target.
@@ -72,7 +79,7 @@ export interface TransformConfig<From, To> {
    * Key: target field name (must be an object type in To, not an array).
    * Value: config for transforming the source's corresponding nested value.
    *
-   * @experimental Planned for Phase 2 — currently ignored by the macro.
+   * @experimental
    *
    * @example
    * ```ts
@@ -93,7 +100,7 @@ export interface TransformConfig<From, To> {
    * Value: source path (e.g. "address.city").
    * Accepts PathOf keys for type safety; string for deeper paths (macro validates).
    *
-   * @experimental Planned for Phase 2 — currently ignored by the macro.
+   * @experimental
    *
    * @example
    * ```ts
@@ -110,7 +117,7 @@ export interface TransformConfig<From, To> {
    * Config for array-valued fields. Maps each array field name to the
    * TransformConfig for transforming its elements.
    *
-   * @experimental Planned for Phase 2 — currently ignored by the macro.
+   * @experimental
    *
    * @example
    * ```ts

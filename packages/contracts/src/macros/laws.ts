@@ -97,6 +97,7 @@ export const lawsAttribute = defineAttributeMacro({
         lawGenExpr,
         options,
         config,
+        optionExprs: {},
       });
     }
 
@@ -107,6 +108,10 @@ export const lawsAttribute = defineAttributeMacro({
         lawGenExpr,
         options,
         config,
+        optionExprs: {
+          arbitrary: findOptionExpr(args, "arbitrary"),
+          eq: findOptionExpr(args, "eq"),
+        },
       });
     }
 
@@ -123,6 +128,22 @@ interface ExpansionContext {
   lawGenExpr: ts.Expression;
   options: LawsDecoratorOptions;
   config: ReturnType<typeof getLawsConfig>;
+  /** The option expressions themselves (kept as AST, not source text). */
+  optionExprs: { arbitrary?: ts.Expression; eq?: ts.Expression };
+}
+
+function findOptionExpr(args: readonly ts.Expression[], key: string): ts.Expression | undefined {
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+    if (!ts.isObjectLiteralExpression(arg)) continue;
+    for (const prop of arg.properties) {
+      if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === key) {
+        return prop.initializer;
+      }
+      if (ts.isShorthandPropertyAssignment(prop) && prop.name.text === key) return prop.name;
+    }
+  }
+  return undefined;
 }
 
 function expandCompileTime(
@@ -131,29 +152,15 @@ function expandCompileTime(
   decorator: ts.Decorator,
   expCtx: ExpansionContext
 ): ts.Node[] {
-  const { targetName, lawGenExpr, options } = expCtx;
-  const lawGen = lawGenExpr.getText();
-
-  // Generate compile-time verification block
-  // In full implementation, this would invoke the prover for each law
-  const verificationCode = `
-// @laws compile-time verification for ${targetName}
-(function __laws_verify_${targetName}() {
-  const _laws = ${lawGen}(${targetName}${options.eq ? `, ${options.eq}` : ""});
-  for (const _law of _laws) {
-    // Compile-time prover invocation would go here
-    // For now, emit debug info if enabled
-    if (typeof process !== "undefined" && process.env.TYPESUGAR_LAWS_DEBUG) {
-      console.log(\`[laws] Verifying: \${_law.name}\`);
-    }
-  }
-})();
-`;
-
-  const statements = ctx.parseStatements(verificationCode);
-  const strippedTarget = stripDecorator(ctx, target, decorator);
-
-  return [strippedTarget, ...statements];
+  // Compile-time law verification is not implemented. The old expansion
+  // emitted a runtime IIFE that called the law generator at module load and
+  // verified nothing; say so instead of pretending (deep review 2026-10).
+  ctx.reportWarning(
+    decorator,
+    `@laws compile-time mode is not implemented: no laws were verified for ` +
+      `${expCtx.targetName}. Use mode "property-test", or verifyLaws() from a test.`
+  );
+  return [stripDecorator(ctx, target, decorator)];
 }
 
 function expandPropertyTest(
@@ -162,11 +169,10 @@ function expandPropertyTest(
   decorator: ts.Decorator,
   expCtx: ExpansionContext
 ): ts.Node[] {
-  const { targetName, lawGenExpr, options, config } = expCtx;
-  const lawGen = lawGenExpr.getText();
+  const { targetName, lawGenExpr, options, config, optionExprs } = expCtx;
   const iterations = options.iterations ?? config.iterations;
 
-  if (!options.arbitrary) {
+  if (!optionExprs.arbitrary) {
     ctx.reportError(
       decorator,
       "@laws in property-test mode requires an 'arbitrary' option. " +
@@ -175,34 +181,136 @@ function expandPropertyTest(
     return [stripDecorator(ctx, target, decorator)];
   }
 
-  // Generate property-based tests
-  const testCode = `
-// @laws property tests for ${targetName}
-describe("${targetName} laws", () => {
-  const _laws = ${lawGen}(${targetName}${options.eq ? `, ${options.eq}` : ""});
-  
-  for (const _law of _laws) {
-    it(\`satisfies \${_law.name}\`, () => {
-      for (let _i = 0; _i < ${iterations}; _i++) {
-        const _args: unknown[] = [];
-        for (let _j = 0; _j < _law.arity; _j++) {
-          _args.push(${options.arbitrary}.arbitrary());
-        }
-        
-        const _result = _law.check(..._args);
-        if (!_result) {
-          throw new Error(\`Law '\${_law.name}' failed for: \${JSON.stringify(_args)}\`);
-        }
-      }
-    });
-  }
-});
-`;
+  // Built with ts.factory (CLAUDE.md: no string codegen):
+  //
+  // describe("<target> laws", () => {
+  //   const _laws = lawGen(target[, eq]);
+  //   for (const _law of _laws) {
+  //     it(`satisfies ${_law.name}`, () => {
+  //       for (let _i = 0; _i < N; _i++) {
+  //         const _args = [];
+  //         for (let _j = 0; _j < _law.arity; _j++) _args.push(arb.arbitrary());
+  //         if (!_law.check(..._args))
+  //           throw new Error(`Law '${_law.name}' failed for: ${JSON.stringify(_args)}`);
+  //       }
+  //     });
+  //   }
+  // });
+  const f = ctx.factory;
+  const id = (n: string) => f.createIdentifier(n);
+  const lawsId = ctx.generateUniqueName("laws");
+  const lawId = ctx.generateUniqueName("law");
+  const iId = ctx.generateUniqueName("i");
+  const jId = ctx.generateUniqueName("j");
+  const argsId = ctx.generateUniqueName("args");
+  const constDecl = (name: ts.Identifier, init: ts.Expression, flags = ts.NodeFlags.Const) =>
+    f.createVariableDeclarationList(
+      [f.createVariableDeclaration(name, undefined, undefined, init)],
+      flags
+    );
+  const lawName = f.createPropertyAccessExpression(lawId, "name");
+  const arrow = (body: ts.Statement[]) =>
+    f.createArrowFunction(
+      undefined,
+      undefined,
+      [],
+      undefined,
+      f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      f.createBlock(body, true)
+    );
+  const countedLoop = (
+    counter: ts.Identifier,
+    bound: ts.Expression,
+    body: ts.Statement
+  ): ts.Statement =>
+    f.createForStatement(
+      constDecl(counter, f.createNumericLiteral(0), ts.NodeFlags.Let),
+      f.createLessThan(counter, bound),
+      f.createPostfixIncrement(counter),
+      body
+    );
 
-  const statements = ctx.parseStatements(testCode);
-  const strippedTarget = stripDecorator(ctx, target, decorator);
+  const pushArb = f.createExpressionStatement(
+    f.createCallExpression(f.createPropertyAccessExpression(argsId, "push"), undefined, [
+      f.createCallExpression(
+        f.createPropertyAccessExpression(optionExprs.arbitrary, "arbitrary"),
+        undefined,
+        []
+      ),
+    ])
+  );
+  const failure = f.createThrowStatement(
+    f.createNewExpression(id("Error"), undefined, [
+      f.createTemplateExpression(f.createTemplateHead("Law '"), [
+        f.createTemplateSpan(lawName, f.createTemplateMiddle("' failed for: ")),
+        f.createTemplateSpan(
+          f.createCallExpression(
+            f.createPropertyAccessExpression(id("JSON"), "stringify"),
+            undefined,
+            [argsId]
+          ),
+          f.createTemplateTail("")
+        ),
+      ]),
+    ])
+  );
+  const iteration = f.createBlock(
+    [
+      f.createVariableStatement(
+        undefined,
+        constDecl(
+          argsId,
+          f.createAsExpression(
+            f.createArrayLiteralExpression([]),
+            f.createArrayTypeNode(f.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword))
+          )
+        )
+      ),
+      countedLoop(jId, f.createPropertyAccessExpression(lawId, "arity"), pushArb),
+      f.createIfStatement(
+        f.createLogicalNot(
+          f.createCallExpression(f.createPropertyAccessExpression(lawId, "check"), undefined, [
+            f.createSpreadElement(argsId),
+          ])
+        ),
+        failure
+      ),
+    ],
+    true
+  );
+  const itCall = f.createExpressionStatement(
+    f.createCallExpression(id("it"), undefined, [
+      f.createTemplateExpression(f.createTemplateHead("satisfies "), [
+        f.createTemplateSpan(lawName, f.createTemplateTail("")),
+      ]),
+      arrow([countedLoop(iId, f.createNumericLiteral(iterations), iteration)]),
+    ])
+  );
+  const describeCall = f.createExpressionStatement(
+    f.createCallExpression(id("describe"), undefined, [
+      f.createStringLiteral(`${targetName} laws`),
+      arrow([
+        f.createVariableStatement(
+          undefined,
+          constDecl(
+            lawsId,
+            f.createCallExpression(lawGenExpr, undefined, [
+              id(targetName),
+              ...(optionExprs.eq ? [optionExprs.eq] : []),
+            ])
+          )
+        ),
+        f.createForOfStatement(
+          undefined,
+          f.createVariableDeclarationList([f.createVariableDeclaration(lawId)], ts.NodeFlags.Const),
+          lawsId,
+          f.createBlock([itCall], true)
+        ),
+      ]),
+    ])
+  );
 
-  return [strippedTarget, ...statements];
+  return [stripDecorator(ctx, target, decorator), describeCall];
 }
 
 // ============================================================================
@@ -231,11 +339,11 @@ function parseOptions(ctx: MacroContext, args: readonly ts.Expression[]): LawsDe
               break;
 
             case "arbitrary":
-              result.arbitrary = value.getText();
+              result.arbitrary = safeText(value);
               break;
 
             case "eq":
-              result.eq = value.getText();
+              result.eq = safeText(value);
               break;
 
             case "onUndecidable":
@@ -256,6 +364,14 @@ function parseOptions(ctx: MacroContext, args: readonly ts.Expression[]): LawsDe
   }
 
   return result;
+}
+
+function safeText(node: ts.Node): string {
+  try {
+    return node.getText();
+  } catch {
+    return "<expression>";
+  }
 }
 
 function extractTargetName(ctx: MacroContext, target: ts.Node): string | undefined {

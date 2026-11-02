@@ -11,6 +11,7 @@ import * as ts from "typescript";
 import {
   isRegisteredInstance,
   getInstanceMethods,
+  getInstanceMethodsForDeclaration,
   getPrimitiveIntrinsicMethods,
   SpecializationCache,
   createHoistedSpecialization,
@@ -22,6 +23,9 @@ import {
   flattenReturnsToExpression,
   getInstanceName,
   tryExtractInstanceFromSource as sharedTryExtractInstanceFromSource,
+  collectMethodFreeNames,
+  forEachMethodFreeReference,
+  type DictMethod,
   type DictMethodMap,
   type ResultAlgebra,
 } from "@typesugar/macros";
@@ -32,7 +36,7 @@ import {
   isInOptedOutScope,
   isSyntheticNode,
   preserveSourceMap,
-  stripCommentsDeep,
+  cloneWithoutComments,
   extractTypeArgumentsContent,
 } from "@typesugar/core";
 
@@ -95,6 +99,237 @@ export function tryExtractInstanceFromSource(
   argExpr: ts.Expression
 ): DictMethodMap | undefined {
   return sharedTryExtractInstanceFromSource(ctx, argExpr);
+}
+
+// ---------------------------------------------------------------------------
+// Call-site scope checks (deep review 1.0: tc#8, tc#18, core#4, core#9)
+//
+// Shape note (CLAUDE.md "Resolving things a macro just generated"): instance
+// dictionaries are resolved through the CHECKER — a symbol lookup at the call
+// site, then source extraction from that declaration — not through the
+// name-keyed registry, which conflates same-named declarations across files.
+// The registry is consulted only for references the checker cannot resolve
+// at all (nothing exists there that could be shadowed or confused).
+// ---------------------------------------------------------------------------
+
+const VALUE_MEANING = ts.SymbolFlags.Value | ts.SymbolFlags.Alias;
+
+/**
+ * One-line visible trace for a checker failure we degrade on (CLAUDE.md:
+ * a caught checker exception must not vanish silently).
+ */
+function warnCheckerFailure(
+  ctx: MacroContextImpl,
+  node: ts.Node | undefined,
+  what: string,
+  error: unknown
+): void {
+  const at = node && !isSyntheticNode(node) ? node : ctx.sourceFile;
+  ctx.reportWarning(at, `typesugar skipped ${what}: the type checker failed (${error}).`);
+}
+
+/** `"error"` means the checker threw; a warning has already been reported. */
+function resolveNameAt(
+  ctx: MacroContextImpl,
+  name: string,
+  location: ts.Node
+): ts.Symbol | undefined | "error" {
+  try {
+    return ctx.typeChecker.resolveName(name, location, VALUE_MEANING, false);
+  } catch (error) {
+    warnCheckerFailure(ctx, location, `resolving '${name}' at the call site`, error);
+    return "error";
+  }
+}
+
+function sameSymbol(checker: ts.TypeChecker, a: ts.Symbol, b: ts.Symbol): boolean {
+  if (a === b) return true;
+  const resolve = (s: ts.Symbol): ts.Symbol => {
+    if (!(s.flags & ts.SymbolFlags.Alias)) return s;
+    try {
+      return checker.getAliasedSymbol(s);
+    } catch {
+      return s;
+    }
+  };
+  return resolve(a) === resolve(b);
+}
+
+function isModuleScopeDecl(decl: ts.Node): boolean {
+  let node: ts.Node | undefined = decl.parent;
+  while (node && !ts.isSourceFile(node)) {
+    if (ts.isFunctionLike(node) || ts.isBlock(node)) return false;
+    node = node.parent;
+  }
+  return true;
+}
+
+/** A real (program-attached) node to resolve names at, if any. */
+function realLocation(...candidates: (ts.Node | undefined)[]): ts.Node | undefined {
+  for (const c of candidates) {
+    if (!c) continue;
+    if (!isSyntheticNode(c) && c.parent) return c;
+    const original = ts.getOriginalNode(c);
+    if (original && original !== c && !isSyntheticNode(original) && original.parent) {
+      return original;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Would every free identifier of `method`'s body mean the same thing at
+ * `location` as where the method was defined? (A call-site local named like a
+ * module-level helper or like `String` would otherwise capture it — tc#18.)
+ *
+ * With no real location (a synthetic call produced by another rewrite with no
+ * original node) this cannot be checked and returns true — the pre-existing
+ * behaviour; see the report's "Needs from other owners".
+ */
+function methodFreeNamesResolveSameAt(
+  ctx: MacroContextImpl,
+  method: DictMethod,
+  location: ts.Node | undefined
+): boolean {
+  if (!method.node) return false;
+  if (!location) return true;
+  for (const name of collectMethodFreeNames(method.node)) {
+    const actual = resolveNameAt(ctx, name, location);
+    if (actual === "error") return false;
+    const expected = method.freeSymbols?.get(name);
+    if (expected) {
+      if (!actual || !sameSymbol(ctx.typeChecker, actual, expected)) return false;
+      continue;
+    }
+    // No recorded symbol: a body-local name, or a method registered without
+    // checker info (primitive intrinsics, legacy registrations). Accept only
+    // a lib/ambient binding or the call-site file's own module scope.
+    if (!actual) continue;
+    const decls = actual.declarations ?? [];
+    if (decls.length === 0) continue;
+    if (decls.every((d) => d.getSourceFile().isDeclarationFile)) continue;
+    if (decls.every((d) => d.getSourceFile() === ctx.sourceFile && isModuleScopeDecl(d))) continue;
+    return false;
+  }
+  return true;
+}
+
+// Only @typesugar/macros' own primitives.ts instances map to the intrinsics
+// (whose bodies are reflected from exactly those values). Other typesugar
+// packages declare same-named instances with DIFFERENT semantics (e.g.
+// @typesugar/fp's NaN-lawful `ordNumber`) — those must be extracted from
+// their own source like any user instance, not replaced by the intrinsic.
+const TYPESUGAR_PACKAGE_PATH =
+  /[\\/](@typesugar[\\/]macros|typesugar[\\/]packages[\\/]macros)[\\/]/;
+
+/** Does this resolved symbol denote typesugar's own primitive instance of that name? */
+function isTypesugarPrimitive(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  let target = symbol;
+  if (target.flags & ts.SymbolFlags.Alias) {
+    try {
+      target = checker.getAliasedSymbol(target);
+    } catch {
+      return false;
+    }
+  }
+  const decls = target.declarations ?? [];
+  return (
+    decls.length > 0 &&
+    decls.every((d) => TYPESUGAR_PACKAGE_PATH.test(d.getSourceFile().fileName.replace(/\\/g, "/")))
+  );
+}
+
+/**
+ * Resolve the dictionary an `ident.method(...)` call refers to.
+ *
+ * - A real identifier is resolved by the checker; a synthetic one (inside an
+ *   already-inlined body, or emitted by another rewrite) is resolved by name
+ *   at `location` — the original call site.
+ * - A resolved user declaration is extracted from source (acceptance,
+ *   const/mutation, safety and free-symbol checks all apply there). A
+ *   resolved typesugar primitive (`eqNumber` imported from @typesugar/…) maps
+ *   to its intrinsic.
+ * - Only a name that resolves to nothing falls back to the name-keyed
+ *   registry / intrinsics.
+ */
+/**
+ * The instance registered for exactly the declaration `symbol` resolves to
+ * (through an import alias). Registry shape (CLAUDE.md): macros'
+ * `getInstanceMethodsForDeclaration` is a LIVE WeakMap keyed by declaration,
+ * written by `@impl`/`impl()` in the same pass — never conflates same-named
+ * instances, unlike the name-keyed `getInstanceMethods`.
+ */
+function methodsForResolvedDeclaration(
+  ctx: MacroContextImpl,
+  symbol: ts.Symbol
+): DictMethodMap | undefined {
+  let target = symbol;
+  if (target.flags & ts.SymbolFlags.Alias) {
+    try {
+      target = ctx.typeChecker.getAliasedSymbol(target);
+    } catch (error) {
+      warnCheckerFailure(ctx, undefined, `resolving the alias '${symbol.getName()}'`, error);
+      return undefined;
+    }
+  }
+  for (const decl of target.declarations ?? []) {
+    const entry = getInstanceMethodsForDeclaration(decl);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
+function resolveDictForIdentifier(
+  ctx: MacroContextImpl,
+  ident: ts.Identifier,
+  location: ts.Node | undefined,
+  allowIntrinsics: boolean
+): DictMethodMap | undefined {
+  const name = ident.text;
+  let symbol: ts.Symbol | undefined;
+  let extractFrom: ts.Expression | undefined;
+
+  if (!isSyntheticNode(ident) && ident.parent) {
+    try {
+      symbol = ctx.typeChecker.getSymbolAtLocation(ident);
+    } catch (error) {
+      // Decline rather than fall through to the name-keyed registry below:
+      // we don't know what `name` really binds to here.
+      warnCheckerFailure(ctx, ident, `inlining '${name}' (symbol lookup)`, error);
+      return undefined;
+    }
+    extractFrom = ident;
+  } else if (location) {
+    const r = resolveNameAt(ctx, name, location);
+    if (r === "error") return undefined;
+    if (r) symbol = r;
+    const decl = symbol?.declarations?.[0];
+    if (decl) {
+      const declName = (decl as { name?: ts.Node }).name;
+      if (declName && ts.isIdentifier(declName) && !isSyntheticNode(declName)) {
+        extractFrom = declName;
+      }
+    }
+  }
+
+  if (symbol && (symbol.declarations?.length ?? 0) > 0) {
+    const primitive = allowIntrinsics ? getPrimitiveIntrinsicMethods(name) : undefined;
+    if (primitive && isTypesugarPrimitive(ctx.typeChecker, symbol)) return primitive;
+    return (
+      (extractFrom ? tryExtractInstanceFromSource(ctx, extractFrom) : undefined) ??
+      methodsForResolvedDeclaration(ctx, symbol)
+    );
+  }
+
+  // Unresolvable at a known location (no user declaration exists that could
+  // be confused), or a synthetic receiver with no real location to resolve it
+  // at (another rewrite's output, e.g. an operator rewrite that didn't pass
+  // `scopeNode`): the name-keyed registry / intrinsics — the pre-existing
+  // behaviour for that path, see the report's "Needs from other owners".
+  return (
+    getInstanceMethods(name, ctx.program) ??
+    (allowIntrinsics ? getPrimitiveIntrinsicMethods(name) : undefined)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +446,13 @@ export function inlineAutoSpecializeForHoisting(
   const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
   if (!body) return undefined;
 
+  // `F.method(...)` is matched by name: a nested binding named like a dict
+  // parameter would make that match wrong.
+  const bound = new Set<string>();
+  collectBindingNames(body, bound);
+  for (const p of params) if (p.initializer) collectBindingNames(p.initializer, bound);
+  for (const name of dictParamMap.keys()) if (bound.has(name)) return undefined;
+
   const specializedBody = rewriteDictCallsForAutoSpec(ctx, body, dictParamMap);
 
   // Collect type parameter names that become unresolvable once stripped
@@ -240,37 +482,52 @@ export function inlineAutoSpecializeForHoisting(
       return p;
     });
 
-  if (remainingParams.length === 0) {
-    if (ts.isExpression(specializedBody)) {
-      return ctx.factory.createArrowFunction(
-        undefined,
-        undefined,
-        [],
-        undefined,
-        ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        specializedBody
-      );
-    }
-    if (ts.isBlock(specializedBody)) {
-      return ctx.factory.createArrowFunction(
-        undefined,
-        undefined,
-        [],
-        undefined,
-        ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        specializedBody
-      );
-    }
-  }
-
-  return ctx.factory.createArrowFunction(
-    undefined,
+  const modifiers = fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+    ? [ctx.factory.createModifier(ts.SyntaxKind.AsyncKeyword)]
+    : undefined;
+  const specialized = ctx.factory.createArrowFunction(
+    modifiers,
     undefined,
     remainingParams,
     undefined,
     ctx.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
     specializedBody as ts.ConciseBody
   );
+
+  // Every use of a dictionary parameter must have been rewritten away: one
+  // left over (passed to a helper, a method we couldn't inline, …) would be
+  // an unbound identifier once the parameter is removed.
+  let leftover = false;
+  forEachMethodFreeReference(specialized, (id) => {
+    if (dictParamMap.has(id.text)) leftover = true;
+  });
+  if (leftover) return undefined;
+
+  return specialized;
+}
+
+/** Every binding name (variables, parameters, function/class names, catch vars) declared within `node`. */
+function collectBindingNames(node: ts.Node, out: Set<string>): void {
+  const addName = (name: ts.BindingName | undefined): void => {
+    if (!name) return;
+    if (ts.isIdentifier(name)) {
+      out.add(name.text);
+      return;
+    }
+    for (const el of name.elements) if (ts.isBindingElement(el)) addName(el.name);
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isBindingElement(n)) addName(n.name);
+    else if (
+      (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isClassLike(n)) &&
+      n.name &&
+      ts.isIdentifier(n.name)
+    ) {
+      out.add(n.name.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
 }
 
 function typeNodeRefsAny(typeNode: ts.TypeNode, names: Set<string>): boolean {
@@ -294,6 +551,133 @@ function typeNodeRefsAny(typeNode: ts.TypeNode, names: Set<string>): boolean {
 // ---------------------------------------------------------------------------
 // Auto-specialization entry point
 // ---------------------------------------------------------------------------
+
+function argResolvesToDeclaration(ctx: MacroContextImpl, arg: ts.Expression): boolean {
+  if (isSyntheticNode(arg)) return false;
+  let e = arg;
+  while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression;
+  if (ts.isCallExpression(e)) e = e.expression;
+  try {
+    const sym = ctx.typeChecker.getSymbolAtLocation(e);
+    return (sym?.declarations?.length ?? 0) > 0;
+  } catch (error) {
+    warnCheckerFailure(ctx, arg, "auto-specialization (argument symbol lookup)", error);
+    return false;
+  }
+}
+
+const symbolIds = new WeakMap<ts.Symbol, number>();
+let nextSymbolId = 0;
+
+/** A stable identity for the instance an argument denotes (its resolved declaration). */
+function instanceIdentity(ctx: MacroContextImpl, arg: ts.Expression, fallback: string): string {
+  let e = arg;
+  while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression;
+  if (ts.isCallExpression(e)) e = e.expression;
+  if (!isSyntheticNode(e)) {
+    try {
+      let sym = ctx.typeChecker.getSymbolAtLocation(e);
+      if (sym && sym.flags & ts.SymbolFlags.Alias) sym = ctx.typeChecker.getAliasedSymbol(sym);
+      if (sym) {
+        let id = symbolIds.get(sym);
+        if (id === undefined) {
+          id = nextSymbolId++;
+          symbolIds.set(sym, id);
+        }
+        return `#${id}`;
+      }
+    } catch (error) {
+      // Never share a cache entry by bare name when the identity is unknown:
+      // two different same-named instances would get one specialization.
+      warnCheckerFailure(ctx, e, `sharing a specialization for '${fallback}'`, error);
+      return `unresolved:${nextSymbolId++}`;
+    }
+  }
+  return `name:${fallback}`;
+}
+
+/**
+ * Does the callee use its own receiver/activation (`this`, `super`,
+ * `arguments`, `new.target`) outside nested non-arrow functions? The hoisted
+ * specialization is an arrow at the call site, where those mean something
+ * else. (`await` is fine: the specialization keeps `async`.)
+ */
+function calleeUsesReceiver(
+  fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration
+): boolean {
+  let depends = false;
+  const visit = (n: ts.Node): void => {
+    if (depends) return;
+    if (
+      n.kind === ts.SyntaxKind.ThisKeyword ||
+      n.kind === ts.SyntaxKind.SuperKeyword ||
+      ts.isMetaProperty(n) ||
+      (ts.isIdentifier(n) && n.text === "arguments")
+    ) {
+      depends = true;
+      return;
+    }
+    if (ts.isPropertyAccessExpression(n)) {
+      visit(n.expression);
+      return;
+    }
+    if (
+      ts.isFunctionExpression(n) ||
+      ts.isFunctionDeclaration(n) ||
+      ts.isMethodDeclaration(n) ||
+      ts.isClassLike(n) ||
+      ts.isAccessor(n)
+    ) {
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  for (const p of fn.parameters) visit(p);
+  if (fn.body) visit(fn.body);
+  return depends;
+}
+
+/**
+ * Do the callee's free identifiers resolve, at the call site (which is where
+ * the specialization gets hoisted), to the same declarations they resolve to
+ * inside the callee? A caller-local with the same name would otherwise
+ * capture them (core#9).
+ */
+function calleeFreeNamesResolveSameAt(
+  ctx: MacroContextImpl,
+  fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
+  callNode: ts.Node
+): boolean {
+  const location = realLocation(callNode);
+  if (!location) return false;
+  let ok = true;
+  forEachMethodFreeReference(fn, (id) => {
+    if (!ok) return;
+    let expected: ts.Symbol | undefined;
+    try {
+      expected =
+        id.parent && ts.isShorthandPropertyAssignment(id.parent)
+          ? ctx.typeChecker.getShorthandAssignmentValueSymbol(id.parent)
+          : ctx.typeChecker.getSymbolAtLocation(id);
+    } catch {
+      ok = false;
+      return;
+    }
+    const decls = expected?.declarations ?? [];
+    if (!expected || decls.length === 0) return;
+    // Declared inside the callee itself — travels with the body.
+    if (
+      decls.every(
+        (d) => d.getSourceFile() === fn.getSourceFile() && d.pos >= fn.pos && d.end <= fn.end
+      )
+    ) {
+      return;
+    }
+    const actual = resolveNameAt(ctx, id.text, location);
+    if (actual === "error" || !actual || !sameSymbol(ctx.typeChecker, actual, expected)) ok = false;
+  });
+  return ok;
+}
 
 export function tryAutoSpecialize(
   ctx: MacroContextImpl,
@@ -352,7 +736,30 @@ export function tryAutoSpecialize(
 
     let methods = tryExtractInstanceFromSource(ctx, arg);
 
-    if (!methods && isRegisteredInstance(argName, ctx.program)) {
+    // A resolvable argument whose source extraction failed: the
+    // declaration-keyed registry (same declaration, never a same-named one).
+    if (!methods && !isSyntheticNode(arg)) {
+      let e: ts.Expression = arg;
+      while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression;
+      if (ts.isIdentifier(e)) {
+        let sym: ts.Symbol | undefined;
+        try {
+          sym = ctx.typeChecker.getSymbolAtLocation(e);
+        } catch (error) {
+          warnCheckerFailure(ctx, e, `auto-specialization (symbol lookup of '${e.text}')`, error);
+        }
+        if (sym) methods = methodsForResolvedDeclaration(ctx, sym);
+      }
+    }
+
+    // Name-keyed registry only for an argument the checker can't resolve —
+    // a resolvable one that failed extraction is NOT that registry entry
+    // (tc#8 / core#4).
+    if (
+      !methods &&
+      !argResolvesToDeclaration(ctx, arg) &&
+      isRegisteredInstance(argName, ctx.program)
+    ) {
       methods = getInstanceMethods(argName, ctx.program);
     }
 
@@ -381,6 +788,24 @@ export function tryAutoSpecialize(
           `Declare it as a const arrow function or named function so its body can be resolved.`
       );
     }
+    return undefined;
+  }
+
+  // The specialization is a hoisted arrow placed at the call site's block:
+  // a body that depends on its own receiver/activation, or whose free names
+  // resolve differently there (a caller-local `n` shadowing the callee's
+  // module-level `n`), would change meaning (core#9). So would inlining an
+  // instance method whose free names don't resolve the same at the call site.
+  if (
+    fnBody.asteriskToken ||
+    calleeUsesReceiver(fnBody) ||
+    !calleeFreeNamesResolveSameAt(ctx, fnBody, node) ||
+    !instanceArgs.every((a) =>
+      Array.from(a.methods.methods.values()).every((m) =>
+        methodFreeNamesResolveSameAt(ctx, m, realLocation(node))
+      )
+    )
+  ) {
     return undefined;
   }
 
@@ -421,7 +846,12 @@ export function tryAutoSpecialize(
     // TypeChecker may throw on unresolvable symbols — use fnName as fallback
   }
   const dictBrands = instanceArgs.map((a) => a.methods.brand);
-  const cacheKey = SpecializationCache.computeKey(fnSymbolId, dictBrands);
+  // Key by WHICH instance sits at WHICH position — two different Show<Point>
+  // instances (or the same two swapped) must not share a body (tc#9).
+  const dictIdentities = instanceArgs.map(
+    (a) => `${a.index}:${instanceIdentity(ctx, node.arguments[a.index], a.name)}`
+  );
+  const cacheKey = SpecializationCache.computeKey(fnSymbolId, dictIdentities);
 
   const cachedEntry = specCache.get(cacheKey);
   if (cachedEntry) {
@@ -430,7 +860,7 @@ export function tryAutoSpecialize(
     }
     const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
     const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
-    return ctx.factory.createCallExpression(cachedEntry.ident, node.typeArguments, remainingArgs);
+    return ctx.factory.createCallExpression(cachedEntry.ident, undefined, remainingArgs);
   }
 
   try {
@@ -448,7 +878,8 @@ export function tryAutoSpecialize(
 
       const dictParamIndices = new Set(instanceArgs.map((a) => a.index));
       const remainingArgs = Array.from(node.arguments).filter((_, i) => !dictParamIndices.has(i));
-      return ctx.factory.createCallExpression(hoistedIdent, node.typeArguments, remainingArgs);
+      // Type arguments are dropped: the hoisted arrow has no type parameters.
+      return ctx.factory.createCallExpression(hoistedIdent, undefined, remainingArgs);
     } else {
       if (!suppressWarnings) {
         ctx.reportWarning(
@@ -743,41 +1174,6 @@ export function tryReturnTypeDrivenSpecialize(
 const MAX_RECURSIVE_INLINE_DEPTH = 10;
 
 /**
- * Resolve a call's dict name to its methods, guarding the primitive-intrinsic
- * path against identifier shadowing.
- *
- * `instanceName`/`instName` at the two call sites below is matched by bare
- * identifier text alone (`eqNumber`, `ordString`, ...) with no scope check —
- * fine for the per-file `@impl` registry (`getInstanceMethods`), since that
- * registry is populated per-compilation from actually-scanned declarations.
- * But a well-known primitive-intrinsic name has no corresponding user
- * declaration in a correct program: it's either a synthetic identifier the
- * transformer injected itself, or a cloned/position-stripped node from an
- * already-inlined method template — neither resolves via the checker. If
- * `identifier` DOES resolve to a real declaration, it's the user's own local
- * variable shadowing the well-known name (e.g. `const eqNumber = {...}`), not
- * a reference to the actual intrinsic — inlining the intrinsic body there
- * would silently discard the user's own implementation.
- */
-function resolveInstanceOrIntrinsicMethodsSafely(
-  ctx: MacroContextImpl,
-  identifier: ts.Identifier,
-  dictName: string
-): DictMethodMap | undefined {
-  const registered = getInstanceMethods(dictName, ctx.program);
-  if (registered) return registered;
-
-  const primitive = getPrimitiveIntrinsicMethods(dictName);
-  if (!primitive) return undefined;
-
-  const symbol = ctx.typeChecker.getSymbolAtLocation(identifier);
-  if (symbol && (symbol.getDeclarations()?.length ?? 0) > 0) {
-    return undefined;
-  }
-  return primitive;
-}
-
-/**
  * Try to inline a direct method call on a known typeclass instance.
  *
  * Handles patterns like:
@@ -786,54 +1182,60 @@ function resolveInstanceOrIntrinsicMethodsSafely(
  *
  * After initial inlining, recursively resolves nested instance calls
  * (e.g., eqNumber.eq(a.x, b.x) → a.x === b.x).
+ *
+ * `scopeNode` is the source node the call stands for when `node` itself is
+ * synthetic (e.g. the binary expression an operator rewrite replaced); names
+ * in the inlined body are resolved there.
+ *
+ * Declines (returns undefined, keeping the ordinary call) unless the receiver
+ * resolves to that instance's own declaration, the method body's free names
+ * mean the same thing at the call site, and `inlineMethod`'s semantic checks
+ * pass.
  */
 export function tryInlineDerivedInstanceCall(
   ctx: MacroContextImpl,
-  node: ts.CallExpression
+  node: ts.CallExpression,
+  scopeNode?: ts.Node
 ): ts.Expression | undefined {
   if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
   if (!ts.isIdentifier(node.expression.expression)) return undefined;
 
-  const instanceName = node.expression.expression.text;
+  const location = realLocation(node, scopeNode);
   const methodName = node.expression.name.text;
 
-  let methodMap = resolveInstanceOrIntrinsicMethodsSafely(
-    ctx,
-    node.expression.expression,
-    instanceName
-  );
-
-  if (!methodMap) {
-    methodMap = tryExtractInstanceFromSource(ctx, node.expression.expression);
-  }
-
+  const methodMap = resolveDictForIdentifier(ctx, node.expression.expression, location, true);
   if (!methodMap) return undefined;
 
   const method = methodMap.methods.get(methodName);
   if (!method) return undefined;
+  if (!methodFreeNamesResolveSameAt(ctx, method, location)) return undefined;
 
   const inlined = inlineMethod(ctx, method, Array.from(node.arguments));
   if (!inlined) return undefined;
 
-  const result = recursivelyInlineInstanceCalls(ctx, inlined, 0);
+  const result = recursivelyInlineInstanceCalls(ctx, inlined, 0, location);
 
   // Strip comments from the inlined output — the method template can carry
   // trivia from the instance declaration (e.g. JSDoc), which the printer
   // would otherwise emit at the call site. (Behavior unified from the legacy
   // transformer in PEP-053 Wave 3.)
-  return preserveSourceMap(stripCommentsDeep(result), node);
+  return preserveSourceMap(cloneWithoutComments(result), node);
 }
 
 /**
  * Recursively inline nested instance method calls within an expression.
  *
  * After the top-level inline (e.g., eqPoint.eq → body with eqNumber.eq calls),
- * this walks the result and inlines any remaining known instance calls.
+ * this walks the result and inlines any remaining known instance calls. The
+ * nested receivers are synthetic copies; they are resolved by name at the
+ * original call site (`location`), which `methodFreeNamesResolveSameAt` has
+ * already verified binds them to the same declarations the method body saw.
  */
 function recursivelyInlineInstanceCalls(
   ctx: MacroContextImpl,
   node: ts.Expression,
-  depth: number
+  depth: number,
+  location: ts.Node | undefined
 ): ts.Expression {
   if (depth >= MAX_RECURSIVE_INLINE_DEPTH) return node;
 
@@ -843,22 +1245,14 @@ function recursivelyInlineInstanceCalls(
       ts.isPropertyAccessExpression(n.expression) &&
       ts.isIdentifier(n.expression.expression)
     ) {
-      const instName = n.expression.expression.text;
       const methName = n.expression.name.text;
-
-      const methodMap = resolveInstanceOrIntrinsicMethodsSafely(
-        ctx,
-        n.expression.expression,
-        instName
-      );
-      if (methodMap) {
-        const method = methodMap.methods.get(methName);
-        if (method) {
-          const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
-          if (inlined) {
-            const deeper = recursivelyInlineInstanceCalls(ctx, inlined, depth + 1);
-            return ts.visitEachChild(deeper, visit, ctx.transformContext);
-          }
+      const methodMap = resolveDictForIdentifier(ctx, n.expression.expression, location, true);
+      const method = methodMap?.methods.get(methName);
+      if (method && methodFreeNamesResolveSameAt(ctx, method, location)) {
+        const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
+        if (inlined) {
+          const deeper = recursivelyInlineInstanceCalls(ctx, inlined, depth + 1, location);
+          return ts.visitEachChild(deeper, visit, ctx.transformContext);
         }
       }
     }
@@ -881,8 +1275,13 @@ function recursivelyInlineInstanceCalls(
  * 1. Derived instance declarations: `const eqPoint = { ... }`
  * 2. Registration calls: `Eq.registerInstance("Point", eqPoint)`
  *
- * If an instance variable has no references outside its own declaration
- * and registration call, both statements are removed.
+ * If an instance variable has no references outside its own declarator and
+ * registration call, the declarator (and the registration) are removed.
+ *
+ * Never removed (core#5): exported declarations (importers may use them),
+ * sibling declarators in the same statement (`const a = {...}, VERSION = 3`
+ * loses only `a`), and object literals whose evaluation could have side
+ * effects (calls, spreads, computed keys …).
  */
 export function eliminateDeadDerivedInstances(
   statements: ts.Statement[],
@@ -891,20 +1290,31 @@ export function eliminateDeadDerivedInstances(
 ): ts.Statement[] {
   if (inlinedInstanceNames.size === 0) return statements;
 
-  const instanceDecls = new Map<string, { declIndex: number; regIndex?: number }>();
+  interface Candidate {
+    stmtIndex: number;
+    decl: ts.VariableDeclaration;
+    regIndex?: number;
+  }
+  const candidates = new Map<string, Candidate>();
 
   for (let i = 0; i < statements.length; i++) {
     const stmt = statements[i];
 
-    if (ts.isVariableStatement(stmt)) {
+    if (
+      ts.isVariableStatement(stmt) &&
+      !stmt.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.ExportKeyword || m.kind === ts.SyntaxKind.DeclareKeyword
+      )
+    ) {
       for (const decl of stmt.declarationList.declarations) {
         if (
           ts.isIdentifier(decl.name) &&
           decl.initializer &&
           ts.isObjectLiteralExpression(decl.initializer) &&
+          isSideEffectFreeObjectLiteral(decl.initializer) &&
           inlinedInstanceNames.has(decl.name.text)
         ) {
-          instanceDecls.set(decl.name.text, { declIndex: i });
+          candidates.set(decl.name.text, { stmtIndex: i, decl });
         }
       }
     }
@@ -917,39 +1327,98 @@ export function eliminateDeadDerivedInstances(
       stmt.expression.arguments.length >= 2
     ) {
       const lastArg = stmt.expression.arguments[stmt.expression.arguments.length - 1];
-      if (ts.isIdentifier(lastArg) && instanceDecls.has(lastArg.text)) {
-        instanceDecls.get(lastArg.text)!.regIndex = i;
+      if (ts.isIdentifier(lastArg) && candidates.has(lastArg.text)) {
+        candidates.get(lastArg.text)!.regIndex = i;
       }
     }
   }
 
-  if (instanceDecls.size === 0) return statements;
+  if (candidates.size === 0) return statements;
 
-  const toRemove = new Set<number>();
+  const deadDecls = new Set<ts.VariableDeclaration>();
+  const removeStatements = new Set<number>();
 
-  for (const [name, { declIndex, regIndex }] of instanceDecls) {
+  for (const [name, { stmtIndex, decl, regIndex }] of candidates) {
     let hasExternalRef = false;
 
-    for (let i = 0; i < statements.length; i++) {
-      if (i === declIndex || i === regIndex) continue;
-      if (containsIdentifierRef(statements[i], name)) {
-        hasExternalRef = true;
-        break;
+    for (let i = 0; i < statements.length && !hasExternalRef; i++) {
+      if (i === regIndex) continue;
+      if (i === stmtIndex) {
+        // Same statement: only OTHER declarators count, plus this one's own
+        // initializer (a self-reference keeps it — conservative).
+        const stmt = statements[i] as ts.VariableStatement;
+        for (const d of stmt.declarationList.declarations) {
+          if (d === decl) {
+            if (d.initializer && containsIdentifierRef(d.initializer, name)) hasExternalRef = true;
+          } else if (containsIdentifierRef(d, name)) {
+            hasExternalRef = true;
+          }
+        }
+        continue;
       }
+      if (containsIdentifierRef(statements[i], name)) hasExternalRef = true;
     }
 
     if (!hasExternalRef) {
-      toRemove.add(declIndex);
-      if (regIndex !== undefined) toRemove.add(regIndex);
+      deadDecls.add(decl);
+      if (regIndex !== undefined) removeStatements.add(regIndex);
       if (verbose) {
         console.log(`[typesugar] DCE: removed fully-inlined instance '${name}'`);
       }
     }
   }
 
-  if (toRemove.size === 0) return statements;
+  if (deadDecls.size === 0) return statements;
 
-  return statements.filter((_, i) => !toRemove.has(i));
+  const out: ts.Statement[] = [];
+  for (let i = 0; i < statements.length; i++) {
+    if (removeStatements.has(i)) continue;
+    const stmt = statements[i];
+    if (
+      ts.isVariableStatement(stmt) &&
+      stmt.declarationList.declarations.some((d) => deadDecls.has(d))
+    ) {
+      const kept = stmt.declarationList.declarations.filter((d) => !deadDecls.has(d));
+      if (kept.length === 0) continue;
+      out.push(
+        ts.factory.updateVariableStatement(
+          stmt,
+          stmt.modifiers,
+          ts.factory.updateVariableDeclarationList(stmt.declarationList, kept)
+        )
+      );
+      continue;
+    }
+    out.push(stmt);
+  }
+  return out;
+}
+
+/** Can evaluating this object literal be dropped without losing a side effect? */
+function isSideEffectFreeObjectLiteral(obj: ts.ObjectLiteralExpression): boolean {
+  const isPureValue = (e: ts.Expression): boolean => {
+    while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) {
+      e = e.expression;
+    }
+    return (
+      ts.isArrowFunction(e) ||
+      ts.isFunctionExpression(e) ||
+      ts.isIdentifier(e) ||
+      ts.isStringLiteral(e) ||
+      ts.isNumericLiteral(e) ||
+      ts.isNoSubstitutionTemplateLiteral(e) ||
+      e.kind === ts.SyntaxKind.TrueKeyword ||
+      e.kind === ts.SyntaxKind.FalseKeyword ||
+      e.kind === ts.SyntaxKind.NullKeyword ||
+      (ts.isObjectLiteralExpression(e) && isSideEffectFreeObjectLiteral(e))
+    );
+  };
+  return obj.properties.every((p) => {
+    if (p.name && ts.isComputedPropertyName(p.name)) return false;
+    if (ts.isPropertyAssignment(p)) return isPureValue(p.initializer);
+    if (ts.isShorthandPropertyAssignment(p)) return !p.objectAssignmentInitializer;
+    return ts.isMethodDeclaration(p) || ts.isGetAccessor(p) || ts.isSetAccessor(p);
+  });
 }
 
 function containsIdentifierRef(node: ts.Node, name: string): boolean {

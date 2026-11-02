@@ -22,14 +22,24 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./macros": {
-      "types": "./dist/macros.d.ts",
-      "import": "./dist/macros.js",
-      "require": "./dist/macros.cjs"
+      "import": {
+        "types": "./dist/macros.d.ts",
+        "default": "./dist/macros.js"
+      },
+      "require": {
+        "types": "./dist/macros.d.cts",
+        "default": "./dist/macros.cjs"
+      }
     }
   },
   "typesugar": {
@@ -64,7 +74,7 @@
     "@typesugar/transformer": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "files": [
     "dist",

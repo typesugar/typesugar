@@ -460,16 +460,60 @@ export function hasInlineOptOut(
   const lineEnd =
     lineIndex + 1 < lineStarts.length ? lineStarts[lineIndex + 1] : sourceFile.getEnd();
 
-  const lineText = sourceFile.text.slice(lineStart, lineEnd);
+  // Only COMMENT text on the line counts: a marker inside a string literal
+  // (`log("// @ts-no-typesugar")`) is not an opt-out.
+  const comments = commentTextsInRange(sourceFile, lineStart, lineEnd);
 
   // Check for inline opt-out comment
   if (feature) {
-    return (
-      lineText.includes(`@ts-no-typesugar ${feature}`) || lineText.includes("@ts-no-typesugar-all")
+    const featureMarker = new RegExp(`@ts-no-typesugar[ \t]+${escapeRegExp(feature)}(?![\\w-])`);
+    return comments.some(
+      (c) =>
+        featureMarker.test(c) ||
+        c.includes("@ts-no-typesugar-all") ||
+        // The bare marker (no feature word after it) opts out of everything —
+        // the documented `// @ts-no-typesugar` form (deep review core #17).
+        BARE_OPT_OUT.test(c)
     );
   }
 
-  return lineText.includes("@ts-no-typesugar");
+  return comments.some((c) => c.includes("@ts-no-typesugar"));
+}
+
+/** `@ts-no-typesugar` not followed by `-all`/a word char or by a feature name. */
+const BARE_OPT_OUT = /@ts-no-typesugar(?![\w-]|[ \t]+\w)/;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Texts of the comments that START within [start, end) of the file, found by
+ * scanning tokens (with trivia) over that range — so string/template contents
+ * are never mistaken for comments.
+ */
+function commentTextsInRange(sourceFile: ts.SourceFile, start: number, end: number): string[] {
+  const text = sourceFile.text;
+  if (!text.slice(start, end).includes("@ts-no-typesugar")) return []; // fast path
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    /* skipTrivia */ false,
+    sourceFile.languageVariant,
+    text,
+    undefined,
+    start,
+    end - start
+  );
+  const out: string[] = [];
+  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
+    if (
+      kind === ts.SyntaxKind.SingleLineCommentTrivia ||
+      kind === ts.SyntaxKind.MultiLineCommentTrivia
+    ) {
+      out.push(scanner.getTokenText());
+    }
+  }
+  return out;
 }
 
 /**

@@ -22,9 +22,9 @@
  *
  * Output:
  * ```typescript
- * const appLayer = Layer.merge(
- *   userRepoLive.pipe(Layer.provide(databaseLive)),
- *   httpClientLive
+ * // dependencies first, each fed into the next with Layer.provideMerge
+ * const appLayer = httpClientLive.pipe(
+ *   Layer.provideMerge(userRepoLive.pipe(Layer.provideMerge(databaseLive)))
  * )
  * ```
  *
@@ -170,21 +170,21 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
         callExpr,
         "layerMake<R>(...layers) requires a type argument specifying the target services"
       );
-      return emptyLayer(factory);
+      return emptyLayer(ctx);
     }
 
     const { layers: layerArgs, debug } = extractDebugOption(args);
 
     if (layerArgs.length === 0) {
       ctx.reportError(callExpr, "layerMake<R>(...layers) requires at least one layer argument");
-      return emptyLayer(factory);
+      return emptyLayer(ctx);
     }
 
     // Extract the target service names from the type argument
     const targetServices = extractServiceNames(ctx, typeArgs[0]);
     if (targetServices.length === 0) {
       ctx.reportWarning(callExpr, "layerMake<R>() received no recognizable service types in R");
-      return emptyLayer(factory);
+      return emptyLayer(ctx);
     }
 
     // Build LayerInfo for each provided layer argument
@@ -227,7 +227,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
           `Multiple layers provide '${service}': ${names}. ` +
             `Remove duplicates or use resolveLayer<R>() for priority-based resolution.`
         );
-        return emptyLayer(factory);
+        return emptyLayer(ctx);
       }
     }
 
@@ -252,7 +252,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
           `Missing layers for:\n${missingList}\n` +
             `Add the missing layers to layerMake<R>() arguments.`
         );
-        return emptyLayer(factory);
+        return emptyLayer(ctx);
       }
 
       if (resolution.unused.length > 0) {
@@ -270,21 +270,21 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
     } catch (e) {
       if (e instanceof CircularDependencyError) {
         ctx.reportError(callExpr, `Circular layer dependency: ${e.cycle.join(" → ")}`);
-        return emptyLayer(factory);
+        return emptyLayer(ctx);
       }
       ctx.reportError(
         callExpr,
         `Layer resolution failed: ${e instanceof Error ? e.message : String(e)}`
       );
-      return emptyLayer(factory);
+      return emptyLayer(ctx);
     }
   },
 });
 
-function emptyLayer(factory: ts.NodeFactory): ts.Expression {
-  return factory.createPropertyAccessExpression(
-    factory.createIdentifier("Layer"),
-    factory.createIdentifier("empty")
+function emptyLayer(ctx: MacroContext): ts.Expression {
+  return ctx.factory.createPropertyAccessExpression(
+    ctx.ensureImport("Layer", "effect"),
+    ctx.factory.createIdentifier("empty")
   );
 }
 

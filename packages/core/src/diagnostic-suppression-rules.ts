@@ -9,7 +9,10 @@
  */
 
 import type * as ts from "typescript";
-import type { DiagnosticSuppressionRule } from "./diagnostic-suppression.js";
+import type {
+  DiagnosticSuppressionContext,
+  DiagnosticSuppressionRule,
+} from "./diagnostic-suppression.js";
 
 /**
  * Callback that maps a transformed-code position back to the original source.
@@ -27,7 +30,10 @@ export type PositionMapFn = (fileName: string, transformedPos: number) => number
  * are artifacts of the rewrite rather than real user errors.
  *
  * The `mapToOriginal` callback is provided by the transformer or language
- * service plugin at initialization time.
+ * service plugin at initialization time. A `positionMapFn` passed in the
+ * evaluation context takes precedence: in a multi-project host the rule is
+ * registered once per process, so only the per-call mapper is guaranteed to
+ * belong to the project whose diagnostics are being filtered.
  *
  * @param mapToOriginal - Callback that maps (fileName, transformedPos) → originalPos | null
  */
@@ -46,12 +52,18 @@ export function createMacroGeneratedRule(mapToOriginal: PositionMapFn): Diagnost
     name: "MacroGenerated",
     errorCodes: MACRO_GENERATED_SUPPRESS_CODES,
 
-    shouldSuppress(diagnostic: ts.Diagnostic): boolean {
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      _checker?: ts.TypeChecker,
+      _sourceFile?: ts.SourceFile,
+      context?: DiagnosticSuppressionContext
+    ): boolean {
       if (diagnostic.start === undefined || !diagnostic.file) {
         return false;
       }
 
-      const originalPos = mapToOriginal(diagnostic.file.fileName, diagnostic.start);
+      const map = context?.positionMapFn ?? mapToOriginal;
+      const originalPos = map(diagnostic.file.fileName, diagnostic.start);
       return originalPos === null;
     },
   };

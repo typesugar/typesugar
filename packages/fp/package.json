@@ -22,63 +22,103 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./data": {
-      "types": "./dist/data/index.d.ts",
-      "import": "./dist/data/index.js",
-      "require": "./dist/data/index.cjs"
+      "import": {
+        "types": "./dist/data/index.d.ts",
+        "default": "./dist/data/index.js"
+      },
+      "require": {
+        "types": "./dist/data/index.d.cts",
+        "default": "./dist/data/index.cjs"
+      }
     },
     "./data/either": {
-      "types": "./dist/data/either.d.ts",
-      "import": "./dist/data/either.js",
-      "require": "./dist/data/either.cjs"
+      "import": {
+        "types": "./dist/data/either.d.ts",
+        "default": "./dist/data/either.js"
+      },
+      "require": {
+        "types": "./dist/data/either.d.cts",
+        "default": "./dist/data/either.cjs"
+      }
     },
     "./io": {
-      "types": "./dist/io/index.d.ts",
-      "import": "./dist/io/index.js",
-      "require": "./dist/io/index.cjs"
+      "import": {
+        "types": "./dist/io/index.d.ts",
+        "default": "./dist/io/index.js"
+      },
+      "require": {
+        "types": "./dist/io/index.d.cts",
+        "default": "./dist/io/index.cjs"
+      }
     },
     "./typeclasses": {
-      "types": "./dist/typeclasses/index.d.ts",
-      "import": "./dist/typeclasses/index.js",
-      "require": "./dist/typeclasses/index.cjs"
+      "import": {
+        "types": "./dist/typeclasses/index.d.ts",
+        "default": "./dist/typeclasses/index.js"
+      },
+      "require": {
+        "types": "./dist/typeclasses/index.d.cts",
+        "default": "./dist/typeclasses/index.cjs"
+      }
     },
     "./syntax": {
-      "types": "./dist/syntax/index.d.ts",
-      "import": "./dist/syntax/index.js",
-      "require": "./dist/syntax/index.cjs"
-    },
-    "./effect": {
-      "types": "./dist/effect/index.d.ts",
-      "import": "./dist/effect/index.js",
-      "require": "./dist/effect/index.cjs"
+      "import": {
+        "types": "./dist/syntax/index.d.ts",
+        "default": "./dist/syntax/index.js"
+      },
+      "require": {
+        "types": "./dist/syntax/index.d.cts",
+        "default": "./dist/syntax/index.cjs"
+      }
     },
     "./zero-cost": {
-      "types": "./dist/zero-cost/index.d.ts",
-      "import": "./dist/zero-cost/index.js",
-      "require": "./dist/zero-cost/index.cjs"
+      "import": {
+        "types": "./dist/zero-cost/index.d.ts",
+        "default": "./dist/zero-cost/index.js"
+      },
+      "require": {
+        "types": "./dist/zero-cost/index.d.cts",
+        "default": "./dist/zero-cost/index.cjs"
+      }
     },
     "./macros": {
-      "types": "./dist/macros.d.ts",
-      "import": "./dist/macros.js",
-      "require": "./dist/macros.cjs"
+      "import": {
+        "types": "./dist/macros.d.ts",
+        "default": "./dist/macros.js"
+      },
+      "require": {
+        "types": "./dist/macros.d.cts",
+        "default": "./dist/macros.cjs"
+      }
     },
     "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./dist/*.js",
-      "require": "./dist/*.cjs"
+      "import": {
+        "types": "./dist/*.d.ts",
+        "default": "./dist/*.js"
+      },
+      "require": {
+        "types": "./dist/*.d.cts",
+        "default": "./dist/*.cjs"
+      }
     }
   },
   "typesugar": {
     "macros": "./macros"
   },
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json",
+    "build": "tsup && tsc -p tsconfig.build.json && node scripts/emit-dcts.mjs",
     "build:watch": "tsup --watch",
-    "build:dts": "tsc -p tsconfig.build.json",
+    "build:dts": "tsc -p tsconfig.build.json && node scripts/emit-dcts.mjs",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -101,11 +141,18 @@
     "unplugin-typesugar": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "files": [
     "dist",
     "src"
   ],
-  "sideEffects": true
+  "sideEffects": [
+    "./dist/macros.js",
+    "./dist/macros.cjs",
+    "./dist/zero-cost/macros.js",
+    "./dist/zero-cost/macros.cjs",
+    "./src/macros.ts",
+    "./src/zero-cost/macros.ts"
+  ]
 }

@@ -5,9 +5,18 @@
  * Configuration is loaded from (in priority order):
  *
  * 1. Environment variables: TYPESUGAR_* (highest priority, for CI overrides)
- * 2. Config files: typesugar.config.ts, .typesugarrc, etc. (when cosmiconfig is available)
+ * 2. Config files: typesugar.config.ts, .typesugarrc, etc. — the nearest one
+ *    found walking up from `process.cwd()` (or from the directory passed to
+ *    `config.load({ searchFrom })`), stopping at the repository root
  * 3. Programmatic: config.set() calls
  * 4. Defaults (lowest priority)
+ *
+ * (`config.set()` values are applied on top of the merged result, so in
+ * practice they override env/file values until the next reload.)
+ *
+ * A config file that exists but fails to load is reported with a
+ * `console.warn` and through `config.getLoadError()`; it is never silently
+ * treated as "no config".
  *
  * @example
  * ```typescript
@@ -21,6 +30,9 @@
  * config.set({ contracts: { mode: "none" } });
  * ```
  */
+
+import { evaluateConfigCondition } from "./config-condition.js";
+import { searchConfigFile, isNodeRuntime } from "./config-loader.js";
 
 // ============================================================================
 // Types
@@ -96,37 +108,95 @@ export interface TypesugarConfig {
 // Global State
 // ============================================================================
 
+/**
+ * Why file-based config is not in effect, when it isn't (deep review
+ * 2026-10, core #20/#53): `"failed"` = a config file was found but loading
+ * it threw; `"unavailable"` = this runtime can't load config files at all.
+ */
+export interface ConfigLoadError {
+  kind: "failed" | "unavailable";
+  /** The config file that failed to load (`"failed"` only, when known). */
+  filepath?: string;
+  message: string;
+  error?: Error;
+}
+
+// LIMITATION (deep review 2026-10, core #35): this is still ONE config per
+// process, not one per project. A host serving several projects (tsserver
+// with a multi-root workspace, one vite process for several packages) sees
+// whichever project `load({ searchFrom })` last pointed at — or, if nothing
+// calls `load()`, the nearest config above `process.cwd()`. Making every
+// `config.get()` consumer project-aware is a larger refactor than this fix.
 let configStore: TypesugarConfig = {};
 let configLoaded = false;
 let configFilePath: string | undefined;
+let configLoadError: ConfigLoadError | undefined;
+/** Directory the config-file search starts from; `undefined` = `process.cwd()`. */
+let searchFromDir: string | undefined;
 
 // ============================================================================
 // Environment Variable Loading
 // ============================================================================
 
 /**
+ * Map an env-var name (without the `TYPESUGAR_` prefix) to a config path.
+ *
+ * - The FIRST single `_` separates the top-level key from the rest:
+ *   `CONTRACTS_MODE` → `contracts.mode`.
+ * - `__` separates any further nesting levels:
+ *   `CONTRACTS__STRIP__PRECONDITIONS` → `contracts.strip.preconditions`.
+ * - Every other `_` joins words in camelCase:
+ *   `CONTRACTS_PROVE_AT_COMPILE_TIME` → `contracts.proveAtCompileTime`.
+ *
+ * (Deep review 2026-10, core #52: previously every `_` became a `.` and
+ * case was lost, so camelCase keys like `proveAtCompileTime` were
+ * unreachable from the environment.)
+ */
+function envKeyToConfigPath(name: string): string {
+  const camel = (words: string): string =>
+    words
+      .toLowerCase()
+      .split("_")
+      .filter((w) => w.length > 0)
+      .map((w, i) => (i === 0 ? w : w[0].toUpperCase() + w.slice(1)))
+      .join("");
+
+  const levels = name.split("__");
+  const first = levels[0];
+  const sep = first.indexOf("_");
+  const head =
+    sep === -1 ? [camel(first)] : [camel(first.slice(0, sep)), camel(first.slice(sep + 1))];
+  return [...head, ...levels.slice(1).map(camel)].filter((s) => s.length > 0).join(".");
+}
+
+/**
  * Load configuration from environment variables.
- * Variables prefixed with TYPESUGAR_ are parsed into the config object.
+ * Variables prefixed with TYPESUGAR_ are parsed into the config object
+ * (see `envKeyToConfigPath` for the name mapping).
  *
  * Examples:
- *   TYPESUGAR_DEBUG=1                        → { debug: true }
- *   TYPESUGAR_CONTRACTS_MODE=none            → { contracts: { mode: "none" } }
+ *   TYPESUGAR_DEBUG=1                              → { debug: true }
+ *   TYPESUGAR_CONTRACTS_MODE=none                  → { contracts: { mode: "none" } }
+ *   TYPESUGAR_CONTRACTS_PROVE_AT_COMPILE_TIME=1    → { contracts: { proveAtCompileTime: true } }
+ *   TYPESUGAR_CONTRACTS__STRIP__PRECONDITIONS=1    → { contracts: { strip: { preconditions: true } } }
  */
 function loadConfigFromEnv(): TypesugarConfig {
   const envConfig: TypesugarConfig = {};
   const PREFIX = "TYPESUGAR_";
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  if (!proc?.env) return envConfig;
 
-  for (const [key, value] of Object.entries(process.env)) {
+  const entries: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(proc.env)) {
     if (!key.startsWith(PREFIX) || value === undefined) continue;
+    const configPath = envKeyToConfigPath(key.slice(PREFIX.length));
+    if (configPath.length > 0) entries.push([configPath, value]);
+  }
+  // Shallower paths first, so `TYPESUGAR_CONTRACTS=0` can't wipe
+  // `TYPESUGAR_CONTRACTS_MODE=none` depending on environment order.
+  entries.sort(([a], [b]) => a.split(".").length - b.split(".").length || a.localeCompare(b));
 
-    // Convert TYPESUGAR_CONTRACTS_MODE to contracts.mode
-    // Double underscore __ becomes nested object separator
-    const configPath = key
-      .slice(PREFIX.length)
-      .toLowerCase()
-      .replace(/__/g, ".")
-      .replace(/_/g, ".");
-
+  for (const [configPath, value] of entries) {
     // Parse value
     let parsedValue: unknown;
     if (value === "1" || value === "true") {
@@ -218,104 +288,60 @@ function deepMerge(
 }
 
 // ============================================================================
-// Config File Loading (optional cosmiconfig)
+// Config File Loading (see config-loader.ts)
 // ============================================================================
 
-const MODULE_NAME = "typesugar";
+/** Messages already printed, so a repeated reload doesn't spam the same warning. */
+const warnedLoadErrors = new Set<string>();
 
-/**
- * Get a working `require()` for loading `cosmiconfig`, or `undefined` if
- * none is available (browser, or a Node too old to have
- * `process.getBuiltinModule`).
- *
- * `@typesugar/core` builds to (and is consumed as) BOTH a browser bundle
- * (via `packages/playground`, which bundles this package's ESM output
- * directly with `platform: 'browser'`) and Node CJS/ESM — so this can NOT
- * be a static `import { createRequire } from "module"` at the top of the
- * file: esbuild resolves static import specifiers at BUNDLE time
- * regardless of whether the code path ever runs, and "module" doesn't
- * exist for a browser target, hard-failing the playground build. A plain
- * `require("module")` doesn't work either — tsup rewrites bare `require()`
- * calls in ESM output through a runtime shim that itself depends on an
- * ambient `require` existing, which real Node ESM (`dist/index.js`, what
- * any `"type": "module"` consumer — including this repo's own CLI —
- * actually loads) doesn't have.
- *
- * `process.getBuiltinModule(id)` (Node 22.3+) sidesteps both problems: it's
- * a plain runtime property access on `process`, invisible to bundler
- * static analysis (nothing to resolve at build time), and works
- * correctly in real Node ESM without needing an ambient `require` at all.
- * Guarded the same way `profiling.ts`'s `typeof process !== "undefined"`
- * check already is for this package's other Node/browser isomorphic code;
- * gracefully returns `undefined` for a browser or an older Node, exactly
- * matching this function's pre-existing "cosmiconfig not available, use
- * empty config" fallback.
- *
- * Found because file-based config loading (of ANY config file, `.ts`
- * included) had never actually round-tripped in real Node ESM — only
- * appeared to work under `vitest`, since vite-node's own module loader
- * gives `require` a truthy value regardless, unlike a real Node ESM
- * process — surfaced by PEP-055's `approve-macros` re-reading a config
- * file it had just written.
- */
-function getNodeRequire(): NodeRequire | undefined {
-  const proc = globalThis as unknown as {
-    process?: { getBuiltinModule?: (id: string) => unknown };
-  };
-  const moduleBuiltin = proc.process?.getBuiltinModule?.("module") as
-    | typeof import("module")
-    | undefined;
-  if (!moduleBuiltin) return undefined;
-  return moduleBuiltin.createRequire(import.meta.url);
+function warnOnce(message: string): void {
+  if (warnedLoadErrors.has(message)) return;
+  warnedLoadErrors.add(message);
+  console.warn(message);
 }
 
 function loadConfigFromFiles(): TypesugarConfig {
-  try {
-    const nodeRequire = getNodeRequire();
-    if (!nodeRequire) return {};
+  const proc = (globalThis as { process?: { cwd?: () => string } }).process;
+  const from = searchFromDir ?? proc?.cwd?.();
+  if (from === undefined) {
+    // Browser bundle (playground): there is no file system to search.
+    return {};
+  }
 
-    const { cosmiconfigSync } = nodeRequire("cosmiconfig") as {
-      cosmiconfigSync: (
-        name: string,
-        options: { searchPlaces: string[] }
-      ) => {
-        search: () => { filepath?: string; config?: TypesugarConfig; isEmpty?: boolean } | null;
-      };
-    };
-    const explorer = cosmiconfigSync(MODULE_NAME, {
-      // NOTE: no `.mjs` entries. `cosmiconfigSync`'s ExplorerSync validates
-      // every searchPlaces entry has a sync-compatible loader AT
-      // CONSTRUCTION TIME — `.mjs` (ESM) has none (loading it requires an
-      // async `import()`), so including it here throws immediately and
-      // silently discards ALL file-based config for EVERY project, not
-      // just ones that happen to use `.mjs` (the one `catch` below this
-      // swallows the error). Found while wiring PEP-055's `approve-macros`
-      // config read-back: `security.allowedMacroPackages` never round-
-      // tripped through any config file, even `.ts` ones, because the
-      // explorer itself never got past its constructor.
-      searchPlaces: [
-        "package.json",
-        `.${MODULE_NAME}rc`,
-        `.${MODULE_NAME}rc.json`,
-        `.${MODULE_NAME}rc.yaml`,
-        `.${MODULE_NAME}rc.yml`,
-        `.${MODULE_NAME}rc.js`,
-        `.${MODULE_NAME}rc.cjs`,
-        `.${MODULE_NAME}rc.ts`,
-        `${MODULE_NAME}.config.js`,
-        `${MODULE_NAME}.config.cjs`,
-        `${MODULE_NAME}.config.ts`,
-      ],
-    });
-    const result = explorer.search();
-    if (result && !result.isEmpty && result.config) {
+  const result = searchConfigFile(from);
+  switch (result.kind) {
+    case "found":
       configFilePath = result.filepath;
       return result.config as TypesugarConfig;
+    case "none":
+      return {};
+    case "failed": {
+      configLoadError = {
+        kind: "failed",
+        filepath: result.filepath,
+        message: result.error.message,
+        error: result.error,
+      };
+      warnOnce(
+        `[typesugar] Failed to load config file ${result.filepath ?? "(unknown path)"}: ` +
+          `${result.error.message}\n` +
+          `[typesugar] All file-based settings (including security.allowedMacroPackages) ` +
+          `are being ignored; using defaults and TYPESUGAR_* environment variables only.`
+      );
+      return {};
     }
-  } catch {
-    // cosmiconfig not installed or config file error — use empty
+    case "unavailable":
+      configLoadError = { kind: "unavailable", message: result.reason };
+      // Only a real Node process can have a config file worth warning about.
+      if (isNodeRuntime()) {
+        warnOnce(
+          `[typesugar] Config files (typesugar.config.ts, .typesugarrc, ...) cannot be ` +
+            `loaded: ${result.reason}. Only defaults and TYPESUGAR_* environment ` +
+            `variables are in effect.`
+        );
+      }
+      return {};
   }
-  return {};
 }
 
 // ============================================================================
@@ -396,89 +422,46 @@ function reset(): void {
   configStore = {};
   configLoaded = false;
   configFilePath = undefined;
+  configLoadError = undefined;
+  searchFromDir = undefined;
+}
+
+/**
+ * (Re)load configuration, searching for a config file upward from
+ * `options.searchFrom` (default: `process.cwd()`). Discards previous
+ * `config.set()` values, and re-reads the file even if it was loaded before
+ * — call it again after the config file changes (watch mode / LSP hosts).
+ *
+ * Hosts that know the project (the tsconfig directory) should call this
+ * with it, so the config doesn't depend on the process's cwd.
+ */
+function load(options: { searchFrom?: string } = {}): void {
+  reset();
+  searchFromDir = options.searchFrom;
+  initializeConfig();
+}
+
+/**
+ * Why file-based config is not in effect, if it isn't: a config file that
+ * was found but failed to load, or a runtime that can't load config files
+ * at all. `undefined` when the file loaded fine or there simply is none.
+ */
+function getLoadError(): ConfigLoadError | undefined {
+  initializeConfig();
+  return configLoadError;
 }
 
 /**
  * Evaluate a condition string against the configuration.
+ *
+ * Supports dotted paths, quoted strings, numbers, true/false/null/undefined,
+ * `==`/`===`/`!=`/`!==`, `&&`, `||`, `!` and parentheses. Throws a
+ * `ConfigConditionError` for anything else, rather than silently returning
+ * false (deep review 2026-10, core #51).
  */
 function evaluate(condition: string): boolean {
   initializeConfig();
-  return evaluateExpr(condition.trim());
-}
-
-function evaluateExpr(expr: string): boolean {
-  expr = expr.trim();
-
-  // Handle OR
-  const orParts = splitTopLevel(expr, "||");
-  if (orParts.length > 1) {
-    return orParts.some((part) => evaluateExpr(part));
-  }
-
-  // Handle AND
-  const andParts = splitTopLevel(expr, "&&");
-  if (andParts.length > 1) {
-    return andParts.every((part) => evaluateExpr(part));
-  }
-
-  // Handle parentheses
-  if (expr.startsWith("(") && findMatchingParen(expr, 0) === expr.length - 1) {
-    return evaluateExpr(expr.slice(1, -1));
-  }
-
-  // Handle negation
-  if (expr.startsWith("!")) {
-    return !evaluateExpr(expr.slice(1));
-  }
-
-  // Handle equality
-  const eqMatch = expr.match(/^([\w.]+)\s*==\s*['"](.+)['"]\s*$/);
-  if (eqMatch) {
-    return String(get(eqMatch[1])) === eqMatch[2];
-  }
-
-  // Handle inequality
-  const neqMatch = expr.match(/^([\w.]+)\s*!=\s*['"](.+)['"]\s*$/);
-  if (neqMatch) {
-    return String(get(neqMatch[1])) !== neqMatch[2];
-  }
-
-  // Simple path — truthy check
-  return !!get(expr);
-}
-
-function splitTopLevel(expr: string, op: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let current = "";
-
-  for (let i = 0; i < expr.length; i++) {
-    if (expr[i] === "(") depth++;
-    else if (expr[i] === ")") depth--;
-
-    if (depth === 0 && expr.slice(i, i + op.length) === op) {
-      parts.push(current);
-      current = "";
-      i += op.length - 1;
-    } else {
-      current += expr[i];
-    }
-  }
-
-  parts.push(current);
-  return parts;
-}
-
-function findMatchingParen(expr: string, start: number): number {
-  let depth = 0;
-  for (let i = start; i < expr.length; i++) {
-    if (expr[i] === "(") depth++;
-    else if (expr[i] === ")") {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
+  return evaluateConfigCondition(condition, (p) => getNestedValue(configStore, p));
 }
 
 /**
@@ -570,6 +553,8 @@ export const config = {
   has,
   getAll,
   getConfigFilePath,
+  getLoadError,
+  load,
   reset,
   evaluate,
   when,

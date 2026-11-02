@@ -22,14 +22,24 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./runtime": {
-      "types": "./dist/runtime-stubs.d.ts",
-      "import": "./dist/runtime-stubs.js",
-      "require": "./dist/runtime-stubs.cjs"
+      "import": {
+        "types": "./dist/runtime-stubs.d.ts",
+        "default": "./dist/runtime-stubs.js"
+      },
+      "require": {
+        "types": "./dist/runtime-stubs.d.cts",
+        "default": "./dist/runtime-stubs.cjs"
+      }
     }
   },
   "typesugar": {
@@ -54,7 +64,7 @@
   },
   "devDependencies": {},
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "files": [
     "dist",

@@ -8,7 +8,7 @@
 
 import { IO } from "./io.js";
 import { Option, Some, None } from "../data/option.js";
-import { Either, Left, Right } from "../data/either.js";
+import { Either, Left, Right, isLeft } from "../data/either.js";
 
 // ============================================================================
 // Console Output
@@ -97,24 +97,32 @@ export const Console = {
    * Read a line from stdin
    */
   readLine(): IO<string> {
-    return IO.async<string>((cb) => {
-      // Only works in Node.js environment
-      if (typeof process === "undefined" || !process.stdin) {
-        cb(Left(new Error("stdin not available")));
-        return;
-      }
-
-      const readline = require("readline");
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
-      rl.question("", (answer: string) => {
-        rl.close();
-        cb(Right(answer));
-      });
-    });
+    // Only works in Node.js. `node:readline` is loaded with a dynamic import:
+    // a bare `require` is not defined in the ESM build.
+    return IO.flatMap(
+      IO.fromPromise(() =>
+        typeof process === "undefined" || !process.stdin
+          ? Promise.reject(new Error("stdin not available"))
+          : import("node:readline")
+      ),
+      (readline) =>
+        IO.async<string>((cb) => {
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+          });
+          let answered = false;
+          rl.question("", (answer: string) => {
+            answered = true;
+            rl.close();
+            cb(Right(answer));
+          });
+          rl.once("close", () => {
+            if (!answered) cb(Left(new Error("stdin closed before a line was read")));
+          });
+          return () => rl.close();
+        })
+    );
   },
 
   /**
@@ -172,8 +180,8 @@ export const Console = {
    */
   readValidated<A>(promptMsg: string, parse: (s: string) => Either<string, A>): IO<A> {
     const attempt: IO<A> = IO.flatMap(Console.prompt(promptMsg), (input) => {
-      const r: any = parse(input);
-      if (r._tag === "Left") {
+      const r = parse(input);
+      if (isLeft(r)) {
         return IO.flatMap(Console.putErrLn(`Invalid input: ${r.left}`), () => attempt);
       }
       return IO.pure(r.right);

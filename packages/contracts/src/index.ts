@@ -112,6 +112,9 @@
 
 // --- Runtime API ---
 export { requires, ensures, old, decidable, laws } from "./runtime/api.js";
+// Runtime stubs for the @invariant / @contract attribute macros (the import
+// survives macro expansion, so the names must exist at runtime).
+export { invariant, contract } from "./runtime/decorators.js";
 
 // --- Configuration ---
 export {

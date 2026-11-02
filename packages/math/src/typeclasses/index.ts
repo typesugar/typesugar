@@ -84,9 +84,20 @@ export interface Normed<V, F> {
  *
  * @param N - Numeric instance for the field type
  */
+function assertSameLength(a: readonly unknown[], b: readonly unknown[], op: string): void {
+  if (a.length !== b.length) {
+    throw new RangeError(`${op}: dimension mismatch (${a.length} vs ${b.length})`);
+  }
+}
+
 export function vectorSpaceArray<F>(N: Numeric<F>): VectorSpace<F[], F> {
   return {
     vAdd: (a, b) => {
+      // `[]` (vZero) is the zero vector of every dimension, so it is a
+      // two-sided identity (MU-22: vAdd(vZero(), v) used to return []).
+      if (a.length === 0) return b.slice();
+      if (b.length === 0) return a.slice();
+      assertSameLength(a, b, "vAdd");
       const result: F[] = new Array(a.length);
       for (let i = 0; i < a.length; i++) {
         result[i] = N.add(a[i], b[i]);
@@ -117,6 +128,8 @@ export function innerProductArray<F>(N: Numeric<F>): InnerProduct<F[], F> {
     ...vs,
     dot: (a, b) => {
       let sum = N.zero();
+      if (a.length === 0 || b.length === 0) return sum; // zero vector
+      assertSameLength(a, b, "dot");
       for (let i = 0; i < a.length; i++) {
         sum = N.add(sum, N.mul(a[i], b[i]));
       }

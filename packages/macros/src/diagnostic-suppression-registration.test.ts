@@ -9,7 +9,12 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { clearDiagnosticSuppressionRules, getDiagnosticSuppressionRules } from "@typesugar/core";
+import * as ts from "typescript";
+import {
+  clearDiagnosticSuppressionRules,
+  getDiagnosticSuppressionRules,
+  evaluateDiagnosticSuppression,
+} from "@typesugar/core";
 import {
   registerAllDiagnosticSuppressionRules,
   ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES,
@@ -60,5 +65,26 @@ describe("registerAllDiagnosticSuppressionRules", () => {
     registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
     const ruleNames = getDiagnosticSuppressionRules().map((r) => r.name);
     expect(ruleNames).toEqual([...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES]);
+  });
+
+  it("a second project's registration replaces MacroGenerated's mapper (deep-review core #33)", () => {
+    // Project 1: every position maps back to source (nothing generated).
+    registerAllDiagnosticSuppressionRules({ positionMapFn: (_f, pos) => pos });
+    // Project 2 (same tsserver process): everything in its file is generated.
+    registerAllDiagnosticSuppressionRules({ positionMapFn: () => null });
+
+    const rules = getDiagnosticSuppressionRules();
+    expect(rules.filter((r) => r.name === "MacroGenerated")).toHaveLength(1);
+
+    const sf = ts.createSourceFile("p2.ts", "const x = 1;", ts.ScriptTarget.Latest, true);
+    const diag: ts.Diagnostic = {
+      file: sf,
+      start: 6,
+      length: 1,
+      messageText: "Cannot find name 'x'.",
+      category: ts.DiagnosticCategory.Error,
+      code: 2304,
+    };
+    expect(evaluateDiagnosticSuppression(diag, {} as ts.TypeChecker, sf)).toBe(true);
   });
 });

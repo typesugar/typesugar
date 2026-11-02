@@ -2,6 +2,7 @@
  * Effect Testing Utilities Tests
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { Cause, Context, Effect, Exit, Layer } from "effect";
 import {
   mockService,
   testLayer,
@@ -84,22 +85,17 @@ describe("mockService", () => {
   });
 });
 
+class TestServiceTag extends Context.Tag("TestService")<TestServiceTag, TestService>() {}
+class LoggerTag extends Context.Tag("Logger")<LoggerTag, { log(msg: string): void }>() {}
+
 describe("testLayer", () => {
-  it("should create a test layer object", () => {
+  it("should create a real Layer providing the mock", () => {
     const mock = mockService<TestService>();
-    const layer = testLayer("TestService", mock);
+    const layer = testLayer(TestServiceTag, mock);
 
-    expect(layer).toBeDefined();
-    expect((layer as any)._tag).toBe("TestLayer");
-    expect((layer as any).tag).toBe("TestService");
-    expect((layer as any).service).toBe(mock);
-  });
-
-  it("should accept service tag object", () => {
-    const mock = mockService<TestService>();
-    const layer = testLayer({ _tag: "TestService" }, mock);
-
-    expect((layer as any).tag).toBe("TestService");
+    expect(Layer.isLayer(layer)).toBe(true);
+    const got = Effect.runSync(Effect.provide(TestServiceTag, layer));
+    expect(got).toBe(mock);
   });
 });
 
@@ -108,24 +104,21 @@ describe("combineLayers", () => {
     const mock1 = mockService<TestService>();
     const mock2 = mockService<{ log(msg: string): void }>();
 
-    const layer1 = testLayer("Service1", mock1);
-    const layer2 = testLayer("Service2", mock2);
+    const combined = combineLayers(testLayer(TestServiceTag, mock1), testLayer(LoggerTag, mock2));
 
-    const combined = combineLayers(layer1, layer2);
-
-    expect(combined).toBeDefined();
-    expect((combined as any)._tag).toBe("CombinedTestLayers");
-    expect((combined as any).layers).toHaveLength(2);
+    expect(Layer.isLayer(combined)).toBe(true);
+    const [a, b] = Effect.runSync(
+      Effect.provide(Effect.all([TestServiceTag, LoggerTag]), combined)
+    );
+    expect(a).toBe(mock1);
+    expect(b).toBe(mock2);
   });
 });
 
 describe("succeedMock", () => {
-  it("should create a mock that returns a success object", () => {
+  it("should create a mock that returns Effect.succeed(value)", () => {
     const mock = succeedMock({ id: "1", name: "Alice" });
-    const result = mock() as any;
-
-    expect(result._tag).toBe("Success");
-    expect(result.value).toEqual({ id: "1", name: "Alice" });
+    expect(Effect.runSync(mock())).toEqual({ id: "1", name: "Alice" });
   });
 
   it("should track calls", () => {
@@ -140,24 +133,20 @@ describe("succeedMock", () => {
 });
 
 describe("failMock", () => {
-  it("should create a mock that returns a failure object", () => {
+  it("should create a mock that returns Effect.fail(error)", () => {
     const error = new Error("Not found");
     const mock = failMock(error);
-    const result = mock() as any;
-
-    expect(result._tag).toBe("Failure");
-    expect(result.error).toBe(error);
+    expect(Effect.runSync(Effect.flip(mock()))).toBe(error);
   });
 });
 
 describe("dieMock", () => {
-  it("should create a mock that returns a die object", () => {
+  it("should create a mock that returns Effect.die(defect)", () => {
     const defect = new Error("Unexpected");
     const mock = dieMock(defect);
-    const result = mock() as any;
-
-    expect(result._tag).toBe("Die");
-    expect(result.defect).toBe(defect);
+    const exit = Effect.runSyncExit(mock());
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) expect(Cause.isDie(exit.cause)).toBe(true);
   });
 });
 

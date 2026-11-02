@@ -119,6 +119,20 @@ export interface TypeRewriteEntry {
   readonly sourceModule?: string;
 
   /**
+   * Absolute path of the file that declares the type and its companion
+   * constructors/functions (a `.ts` source for a same-project `@opaque`/`@adt`,
+   * or the `.d.ts` that carries the `@opaque` tag for a library type).
+   *
+   * This is the entry's identity: the transformer only erases a constructor
+   * call, constant reference, method call or accessor when the symbol it
+   * resolves to (through import aliases) is declared in this file. Without it,
+   * {@link sourceModule} is used as a best-effort fallback. Bare-name matching
+   * alone rewrote unrelated same-named code (`function Some`, `enum { None }`)
+   * in every file of the process.
+   */
+  readonly declarationFile?: string;
+
+  /**
    * Method name → standalone function name that implements it.
    * The transformer rewrites `x.method(args)` to `fn(x, args)`.
    */
@@ -157,8 +171,19 @@ export interface TypeRewriteEntry {
 // Module-level singleton registry. Populated by @opaque macro at transformer init,
 // consulted by diagnostic suppression rules and the transformer during compilation.
 // For test isolation, use clearTypeRewrites() or the test helpers in test-helpers.ts.
-const byName = new Map<string, TypeRewriteEntry>();
+//
+// Several entries may share a type name (two unrelated `Option` types from
+// different modules). They are kept side by side, keyed by declaration
+// identity ({@link entryIdentity}); the name-only lookups below return the
+// most recently registered one for backward compatibility, while the
+// transformer picks among `getAllTypeRewrites()` by resolved declaration.
+const byName = new Map<string, TypeRewriteEntry[]>();
 const byModule = new Map<string, TypeRewriteEntry[]>();
+
+/** Identity of an entry: its declaring file, else its module, else just the name. */
+function entryIdentity(entry: TypeRewriteEntry): string {
+  return entry.declarationFile ?? entry.sourceModule ?? "";
+}
 
 /**
  * Register an opaque type's underlying representation.
@@ -167,15 +192,22 @@ const byModule = new Map<string, TypeRewriteEntry[]>();
  * The diagnostic suppression rule consults this registry to decide whether to suppress
  * assignment errors involving the registered type.
  *
+ * Re-registering the same type name from the same declaration replaces the
+ * earlier entry; the same name from a different declaration is added
+ * alongside it (and becomes the one name-only lookups return).
+ *
  * @param entry - The type rewrite entry to register
  */
 export function registerTypeRewrite(entry: TypeRewriteEntry): void {
-  byName.set(entry.typeName, entry);
+  const id = entryIdentity(entry);
+  const named = (byName.get(entry.typeName) ?? []).filter((e) => entryIdentity(e) !== id);
+  named.push(entry);
+  byName.set(entry.typeName, named);
 
   if (entry.sourceModule) {
     const list = byModule.get(entry.sourceModule);
     if (list) {
-      const idx = list.findIndex((e) => e.typeName === entry.typeName);
+      const idx = list.findIndex((e) => e.typeName === entry.typeName && entryIdentity(e) === id);
       if (idx >= 0) {
         list[idx] = entry;
       } else {
@@ -187,6 +219,11 @@ export function registerTypeRewrite(entry: TypeRewriteEntry): void {
   }
 }
 
+function latestByName(typeName: string): TypeRewriteEntry | undefined {
+  const list = byName.get(typeName);
+  return list && list.length > 0 ? list[list.length - 1] : undefined;
+}
+
 /**
  * Look up a type rewrite entry by opaque type name.
  *
@@ -194,7 +231,7 @@ export function registerTypeRewrite(entry: TypeRewriteEntry): void {
  * @returns The registry entry, or `undefined` if not registered
  */
 export function getTypeRewrite(typeName: string): TypeRewriteEntry | undefined {
-  return byName.get(typeName);
+  return latestByName(typeName);
 }
 
 /**
@@ -208,7 +245,7 @@ export function hasTypeRewrite(typeName: string): boolean {
  * Get all registered type rewrite entries (snapshot).
  */
 export function getAllTypeRewrites(): readonly TypeRewriteEntry[] {
-  return Array.from(byName.values());
+  return Array.from(byName.values()).flat();
 }
 
 /**
@@ -229,14 +266,14 @@ export function clearTypeRewrites(): void {
  * @returns The matching entry, or `undefined`
  */
 export function findTypeRewrite(typeText: string): TypeRewriteEntry | undefined {
-  const exact = byName.get(typeText);
+  const exact = latestByName(typeText);
   if (exact) return exact;
 
   // Greedy match is intentional: strips everything from the first '<' to the final '>'
   // at end of string, correctly handling nested generics (e.g., "Map<string, Option<number>>" → "Map")
   const stripped = typeText.replace(/<.*>$/, "");
   if (stripped !== typeText) {
-    const generic = byName.get(stripped);
+    const generic = latestByName(stripped);
     if (generic) return generic;
   }
 
@@ -264,5 +301,71 @@ export function getTypeRewritesByModule(sourceModule: string): readonly TypeRewr
  * @returns The matching entry, or `undefined`
  */
 export function getTypeRewriteBySymbol(symbolName: string): TypeRewriteEntry | undefined {
-  return byName.get(symbolName);
+  return latestByName(symbolName);
+}
+
+// ---------------------------------------------------------------------------
+// File/module membership
+// ---------------------------------------------------------------------------
+
+function normalizeSlashes(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+/** Strip a TS/JS (including `.d.ts`) extension from a normalized path. */
+function stripScriptExtension(p: string): string {
+  return p.replace(/\.d\.[cm]?ts$/, "").replace(/\.[cm]?[jt]sx?$/, "");
+}
+
+/** Absolute path (Unix `/...` or Windows `C:/...` / `C:\...`). Browser-safe. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[/\\]/.test(p);
+}
+
+/** Directories a package's published/sources files usually live under. */
+const PACKAGE_CODE_DIRS = ["src", "dist", "lib", "build", "esm", "cjs"];
+
+/**
+ * Is `fileName` (where a resolved symbol is declared) the file/module that
+ * `entry` describes?
+ *
+ * Uses {@link TypeRewriteEntry.declarationFile} when present (exact). Otherwise
+ * falls back to `sourceModule`, compared as a MODULE, never by bare name:
+ *
+ * - an absolute path compares exactly;
+ * - a package subpath `@scope/pkg/sub` (what `@opaque`/`@adt` derive from
+ *   `.../packages/<pkg>/src/<sub>.ts`) matches `<pkg>/<dir>/<sub>` or
+ *   `@scope/pkg/<dir>/<sub>` for a usual code dir (src, dist, ...) -- i.e. the
+ *   package's source or its published `.d.ts`;
+ * - anything else (including a relative "./lib.js") matches as a path suffix
+ *   (the legacy transformer-core `isWithinSourceModule` rule).
+ */
+export function typeRewriteEntryCoversFile(fileName: string, entry: TypeRewriteEntry): boolean {
+  const file = stripScriptExtension(normalizeSlashes(fileName));
+  if (entry.declarationFile) {
+    return stripScriptExtension(normalizeSlashes(entry.declarationFile)) === file;
+  }
+  if (!entry.sourceModule) return false;
+  const mod = normalizeSlashes(entry.sourceModule);
+  if (isAbsolutePath(mod)) return stripScriptExtension(mod) === file;
+
+  const sub = /^((?:@[^/]+\/)?([^/.][^/]*))\/(.+)$/.exec(mod);
+  if (sub) {
+    const [, fullPkg, pkgDir, rest] = sub;
+    const subPath = stripScriptExtension(rest);
+    for (const root of new Set([pkgDir, fullPkg])) {
+      for (const dir of PACKAGE_CODE_DIRS) {
+        const tail = `/${root}/${dir}/${subPath}`;
+        if (file.endsWith(tail) || file.endsWith(`${tail}/index`)) return true;
+      }
+    }
+  }
+
+  // A relative specifier ("./lib.js") can only be compared as a path suffix.
+  const modulePath = stripScriptExtension(mod.replace(/^@/, "").replace(/^(\.\.?\/)+/, ""));
+  return (
+    file === modulePath ||
+    file.endsWith("/" + modulePath) ||
+    file.endsWith("/" + modulePath + "/index")
+  );
 }

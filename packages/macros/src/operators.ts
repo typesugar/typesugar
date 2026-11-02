@@ -21,6 +21,71 @@ import { MacroContext } from "@typesugar/core";
 // pipe() and compose() - Functional composition macros
 // ============================================================================
 
+/**
+ * An argument whose evaluation has no observable side effects and is cheap to
+ * repeat, so it can stay inline in the expansion.
+ */
+function isTrivialArg(e: ts.Expression): boolean {
+  if (ts.isParenthesizedExpression(e)) return isTrivialArg(e.expression);
+  if (
+    ts.isIdentifier(e) ||
+    e.kind === ts.SyntaxKind.ThisKeyword ||
+    ts.isArrowFunction(e) ||
+    ts.isFunctionExpression(e) ||
+    ts.isLiteralExpression(e) ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword ||
+    e.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return true;
+  }
+  if (ts.isPropertyAccessExpression(e)) return isTrivialArg(e.expression);
+  return false;
+}
+
+/**
+ * Hoist non-trivial arguments into parameters of an immediately-invoked arrow
+ * so each is evaluated exactly once, left to right — the same as a call to the
+ * runtime `pipe`/`compose` functions:
+ *
+ *   build([x, a(), f]) with body(xs) => ...   →   ((_a0, _a1) => body)(x, a())
+ *
+ * Trivial arguments stay inline (zero-cost output for the common case).
+ */
+function withHoistedArgs(
+  ctx: MacroContext,
+  args: readonly ts.Expression[],
+  build: (refs: ts.Expression[]) => ts.Expression
+): ts.Expression {
+  const factory = ctx.factory;
+  if (args.every(isTrivialArg)) return build([...args]);
+
+  const params: ts.ParameterDeclaration[] = [];
+  const callArgs: ts.Expression[] = [];
+  const refs = args.map((arg) => {
+    if (isTrivialArg(arg)) return arg;
+    const name = ctx.generateUniqueName("arg");
+    params.push(factory.createParameterDeclaration(undefined, undefined, name));
+    callArgs.push(arg);
+    return name;
+  });
+
+  return factory.createCallExpression(
+    factory.createParenthesizedExpression(
+      factory.createArrowFunction(
+        undefined,
+        undefined,
+        params,
+        undefined,
+        factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+        build(refs)
+      )
+    ),
+    undefined,
+    callArgs
+  );
+}
+
 export const pipeMacro = defineExpressionMacro({
   name: "pipe",
   module: "typesugar",
@@ -39,13 +104,15 @@ export const pipeMacro = defineExpressionMacro({
     const factory = ctx.factory;
 
     // pipe(x, f, g, h) => h(g(f(x)))
-    let result = args[0];
-
-    for (let i = 1; i < args.length; i++) {
-      result = factory.createCallExpression(args[i], undefined, [result]);
-    }
-
-    return result;
+    // pipe(x, a(), b()) => ((_a0, _a1, _a2) => _a2(_a1(_a0)))(x, a(), b())
+    //   (callees are otherwise evaluated right-to-left: b() before a())
+    return withHoistedArgs(ctx, args, (refs) => {
+      let result = refs[0];
+      for (let i = 1; i < refs.length; i++) {
+        result = factory.createCallExpression(refs[i], undefined, [result]);
+      }
+      return result;
+    });
   },
 });
 
@@ -66,21 +133,24 @@ export const composeMacro = defineExpressionMacro({
 
     const factory = ctx.factory;
 
-    const paramName = ctx.generateUniqueName("x");
-
-    let body: ts.Expression = paramName;
-    for (let i = args.length - 1; i >= 0; i--) {
-      body = factory.createCallExpression(args[i], undefined, [body]);
-    }
-
-    return factory.createArrowFunction(
-      undefined,
-      undefined,
-      [factory.createParameterDeclaration(undefined, undefined, paramName)],
-      undefined,
-      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      body
-    );
+    // compose(f, g) => (x) => f(g(x))
+    // compose(memoize(f), g) => ((_a0) => (x) => _a0(g(x)))(memoize(f))
+    //   (otherwise memoize(f) would be re-evaluated on every call)
+    return withHoistedArgs(ctx, args, (refs) => {
+      const paramName = ctx.generateUniqueName("x");
+      let body: ts.Expression = paramName;
+      for (let i = refs.length - 1; i >= 0; i--) {
+        body = factory.createCallExpression(refs[i], undefined, [body]);
+      }
+      return factory.createArrowFunction(
+        undefined,
+        undefined,
+        [factory.createParameterDeclaration(undefined, undefined, paramName)],
+        undefined,
+        factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+        body
+      );
+    });
   },
 });
 

@@ -114,12 +114,14 @@ export interface EffectAnnotation {
 }
 
 // ============================================================================
-// Effect Registry (compile-time state)
+// Effect Registry (runtime, opt-in)
 // ============================================================================
 
 /**
- * Global registry of effect annotations.
- * Populated by @pure and @effect decorators during compilation.
+ * Global registry of effect annotations, populated by explicit
+ * `registerPure` / `registerEffect` calls and queried by `checkEffectCall`.
+ * The `@pure` / `@effect` macros do not read or write it (they resolve the
+ * callee's declaration through the type checker instead).
  *
  * Uses the generic Registry<K,V> abstraction from @typesugar/core with "replace"
  * duplicate strategy for idempotent registration.
@@ -154,8 +156,12 @@ export function registerEffect(name: string, effects: EffectKind[], location?: s
 }
 
 /**
- * Check if calling `callee` from `caller` is valid.
- * Returns an error message if invalid, undefined if OK.
+ * Check if calling `callee` from `caller` is valid, by name, against the
+ * runtime `effectRegistry`. Returns an error message if invalid, undefined if OK.
+ *
+ * Note: the `@pure` / `@effect` macros do NOT use this registry; they resolve
+ * each callee's declaration through the type checker and call
+ * {@link checkEffectAnnotations} directly.
  */
 export function checkEffectCall(caller: string, callee: string): string | undefined {
   const callerAnnotation = effectRegistry.get(caller);
@@ -164,6 +170,19 @@ export function checkEffectCall(caller: string, callee: string): string | undefi
   if (!callerAnnotation || !calleeAnnotation) {
     return undefined; // Unknown functions are allowed (open world assumption)
   }
+  return checkEffectAnnotations(callerAnnotation, calleeAnnotation);
+}
+
+/**
+ * Check a call from a function annotated `caller` to one annotated `callee`.
+ * Returns an error message if invalid, undefined if OK.
+ */
+export function checkEffectAnnotations(
+  callerAnnotation: EffectAnnotation,
+  calleeAnnotation: EffectAnnotation
+): string | undefined {
+  const caller = callerAnnotation.name;
+  const callee = calleeAnnotation.name;
 
   // Pure functions can't call effectful functions
   if (callerAnnotation.pure && !calleeAnnotation.pure) {
@@ -264,7 +283,17 @@ export function async_<T>(value: T): Async<T> {
 }
 
 /**
+ * `@effect("io", ...)` decorator placeholder. The `@effect` macro (in the
+ * `./macros` entry) consumes the decorator at build time; import it from
+ * `@typesugar/type-system` so the macro resolves to this package.
+ */
+export function effect(..._effects: EffectKind[]): (...args: unknown[]) => void {
+  return () => {};
+}
+
+/**
  * Assert that a function is pure at runtime (no-op, for documentation).
+ * This is NOT checked at compile time; use the `@pure` decorator for that.
  */
 export function assertPure<T extends (...args: any[]) => any>(fn: T): T {
   return fn;

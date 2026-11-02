@@ -376,7 +376,7 @@ export class InstanceScanner {
           const callResult: ScannedInstance = {
             typeclassName: parsed.base,
             forTypeString: parsed.args,
-            forType: resolveTypeString(typeChecker, parsed.args),
+            forType: resolveTypeString(typeChecker, parsed.args, stmtNode),
             exportName,
             sourceModule: resolvedPath,
             detectedVia: "impl-tag",
@@ -456,7 +456,7 @@ export class InstanceScanner {
       return {
         typeclassName: parsed.base,
         forTypeString: parsed.args,
-        forType: resolveTypeString(typeChecker, parsed.args),
+        forType: resolveTypeString(typeChecker, parsed.args, node),
         exportName,
         sourceModule: resolvedPath,
         detectedVia: "impl-tag",
@@ -540,11 +540,26 @@ const KEYWORD_TYPES: Record<string, { kind: ts.SyntaxKind; getter: string }> = {
 };
 
 /**
- * Resolve a type name string (e.g., "number") into a ts.Type.
- * Returns undefined for complex types that can't be resolved without context.
+ * Resolve a type name string (e.g., "number", "Point") into a ts.Type.
+ *
+ * Keywords resolve directly. A plain identifier (`Point` in
+ * `/** @impl Show<Point> *\/`) is resolved in the scope of `location` — the
+ * instance's own declaration — so an `@impl`-tagged value WITHOUT a
+ * `: Show<Point>` annotation is still matchable by type (previously its
+ * `forType` stayed undefined and summon/implicits/operators/method sugar
+ * could never find it). Anything more complex (`Pair<number, string>`,
+ * `number[]`, unions) returns undefined; the scanner then borrows the
+ * value's type annotation when it names the same typeclass.
  */
-function resolveTypeString(typeChecker: ts.TypeChecker, typeString: string): ts.Type | undefined {
+function resolveTypeString(
+  typeChecker: ts.TypeChecker,
+  typeString: string,
+  location?: ts.Node
+): ts.Type | undefined {
   const trimmed = typeString.trim();
+  if (!KEYWORD_TYPES[trimmed] && location && /^[A-Za-z_$][\w$]*$/.test(trimmed)) {
+    return resolveTypeNameInScope(typeChecker, trimmed, location);
+  }
   const entry = KEYWORD_TYPES[trimmed];
   if (entry) {
     // Prefer the TypeChecker's internal intrinsic type getter: synthetic
@@ -581,6 +596,59 @@ function resolveTypeString(typeChecker: ts.TypeChecker, typeString: string): ts.
     }
   }
   return undefined;
+}
+
+/**
+ * Resolve a plain type name as seen from `location`'s file: a top-level
+ * interface/type alias/class/enum declared there, a named/default import
+ * bound to that name, or (last) any type symbol in scope (globals). Uses only
+ * real source nodes — the scanner only ever runs over pre-transform source.
+ */
+function resolveTypeNameInScope(
+  typeChecker: ts.TypeChecker,
+  name: string,
+  location: ts.Node
+): ts.Type | undefined {
+  const sourceFile = location.getSourceFile();
+  if (!sourceFile) return undefined;
+  const declaredTypeOf = (nameNode: ts.Identifier): ts.Type | undefined => {
+    try {
+      let sym = typeChecker.getSymbolAtLocation(nameNode);
+      if (sym && sym.flags & ts.SymbolFlags.Alias) sym = typeChecker.getAliasedSymbol(sym);
+      if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return undefined;
+      return typeChecker.getDeclaredTypeOfSymbol(sym);
+    } catch {
+      return undefined;
+    }
+  };
+  for (const stmt of sourceFile.statements) {
+    if (
+      (ts.isInterfaceDeclaration(stmt) ||
+        ts.isTypeAliasDeclaration(stmt) ||
+        ts.isClassDeclaration(stmt) ||
+        ts.isEnumDeclaration(stmt)) &&
+      stmt.name?.text === name
+    ) {
+      return declaredTypeOf(stmt.name);
+    }
+    if (ts.isImportDeclaration(stmt) && stmt.importClause) {
+      const clause = stmt.importClause;
+      if (clause.name?.text === name) return declaredTypeOf(clause.name);
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const el of clause.namedBindings.elements) {
+          if (el.name.text === name) return declaredTypeOf(el.name);
+        }
+      }
+    }
+  }
+  try {
+    const sym = typeChecker
+      .getSymbolsInScope(location, ts.SymbolFlags.Type)
+      .find((s) => s.name === name);
+    return sym ? typeChecker.getDeclaredTypeOfSymbol(sym) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Default scanner instance for use across the pipeline. */

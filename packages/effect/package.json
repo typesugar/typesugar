@@ -22,19 +22,34 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./macros": {
-      "types": "./dist/macros.d.ts",
-      "import": "./dist/macros.js",
-      "require": "./dist/macros.cjs"
+      "import": {
+        "types": "./dist/macros.d.ts",
+        "default": "./dist/macros.js"
+      },
+      "require": {
+        "types": "./dist/macros.d.cts",
+        "default": "./dist/macros.cjs"
+      }
     },
     "./syntax/do": {
-      "types": "./dist/syntax/do.d.ts",
-      "import": "./dist/syntax/do.js",
-      "require": "./dist/syntax/do.cjs"
+      "import": {
+        "types": "./dist/syntax/do.d.ts",
+        "default": "./dist/syntax/do.js"
+      },
+      "require": {
+        "types": "./dist/syntax/do.d.cts",
+        "default": "./dist/syntax/do.cjs"
+      }
     }
   },
   "typesugar": {
@@ -64,7 +79,7 @@
     "@typesugar/type-system": "workspace:*"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0",
+    "typescript": ">=5.0.0 <6.0.0",
     "effect": ">=3.0.0 <4.0.0"
   },
   "peerDependenciesMeta": {

@@ -33,7 +33,14 @@ type P3 = { _tag: "int"; value: 3 };
 type P4 = { _tag: "int"; value: 4 };
 type P5 = { _tag: "int"; value: 5 };
 
-export type DimExp = N5 | N4 | N3 | N2 | N1 | Z0 | P1 | P2 | P3 | P4 | P5;
+/**
+ * Result of exponent arithmetic that left the supported -5..5 range. Not a real
+ * exponent: a quantity whose dimensions contain it is only compatible with
+ * another overflowed quantity, never with a real one (see `AddMap`).
+ */
+export type DimOverflow = { _tag: "int"; value: "overflow" };
+
+export type DimExp = N5 | N4 | N3 | N2 | N1 | Z0 | P1 | P2 | P3 | P4 | P5 | DimOverflow;
 
 // ============================================================================
 // Dimension Type (SI base units)
@@ -65,26 +72,31 @@ export interface Dimensions<
 // Dimension Arithmetic (Type-Level)
 // ============================================================================
 
-// Type-level addition map
+// Type-level addition map. Sums outside -5..5 map to `DimOverflow` (MU-20)
+// rather than saturating at ±5: a saturated L^5·L would be typed L^5 and be
+// wrongly compatible with a real L^5. `DimOverflow` is sticky (any sum or
+// negation involving it is `DimOverflow`) and is not assignable to any real
+// exponent, so an overflowed quantity only type-checks against itself.
 type AddMap = {
   "-5": {
-    "-5": N5;
-    "-4": N5;
-    "-3": N5;
-    "-2": N5;
-    "-1": N5;
+    "-5": DimOverflow;
+    "-4": DimOverflow;
+    "-3": DimOverflow;
+    "-2": DimOverflow;
+    "-1": DimOverflow;
     "0": N5;
     "1": N4;
     "2": N3;
     "3": N2;
     "4": N1;
     "5": Z0;
+    overflow: DimOverflow;
   };
   "-4": {
-    "-5": N5;
-    "-4": N5;
-    "-3": N5;
-    "-2": N5;
+    "-5": DimOverflow;
+    "-4": DimOverflow;
+    "-3": DimOverflow;
+    "-2": DimOverflow;
     "-1": N5;
     "0": N4;
     "1": N3;
@@ -92,11 +104,12 @@ type AddMap = {
     "3": N1;
     "4": Z0;
     "5": P1;
+    overflow: DimOverflow;
   };
   "-3": {
-    "-5": N5;
-    "-4": N5;
-    "-3": N5;
+    "-5": DimOverflow;
+    "-4": DimOverflow;
+    "-3": DimOverflow;
     "-2": N5;
     "-1": N4;
     "0": N3;
@@ -105,10 +118,11 @@ type AddMap = {
     "3": Z0;
     "4": P1;
     "5": P2;
+    overflow: DimOverflow;
   };
   "-2": {
-    "-5": N5;
-    "-4": N5;
+    "-5": DimOverflow;
+    "-4": DimOverflow;
     "-3": N5;
     "-2": N4;
     "-1": N3;
@@ -118,9 +132,10 @@ type AddMap = {
     "3": P1;
     "4": P2;
     "5": P3;
+    overflow: DimOverflow;
   };
   "-1": {
-    "-5": N5;
+    "-5": DimOverflow;
     "-4": N5;
     "-3": N4;
     "-2": N3;
@@ -131,6 +146,7 @@ type AddMap = {
     "3": P2;
     "4": P3;
     "5": P4;
+    overflow: DimOverflow;
   };
   "0": {
     "-5": N5;
@@ -144,6 +160,7 @@ type AddMap = {
     "3": P3;
     "4": P4;
     "5": P5;
+    overflow: DimOverflow;
   };
   "1": {
     "-5": N4;
@@ -156,7 +173,8 @@ type AddMap = {
     "2": P3;
     "3": P4;
     "4": P5;
-    "5": P5;
+    "5": DimOverflow;
+    overflow: DimOverflow;
   };
   "2": {
     "-5": N3;
@@ -168,8 +186,9 @@ type AddMap = {
     "1": P3;
     "2": P4;
     "3": P5;
-    "4": P5;
-    "5": P5;
+    "4": DimOverflow;
+    "5": DimOverflow;
+    overflow: DimOverflow;
   };
   "3": {
     "-5": N2;
@@ -180,9 +199,10 @@ type AddMap = {
     "0": P3;
     "1": P4;
     "2": P5;
-    "3": P5;
-    "4": P5;
-    "5": P5;
+    "3": DimOverflow;
+    "4": DimOverflow;
+    "5": DimOverflow;
+    overflow: DimOverflow;
   };
   "4": {
     "-5": N1;
@@ -192,10 +212,11 @@ type AddMap = {
     "-1": P3;
     "0": P4;
     "1": P5;
-    "2": P5;
-    "3": P5;
-    "4": P5;
-    "5": P5;
+    "2": DimOverflow;
+    "3": DimOverflow;
+    "4": DimOverflow;
+    "5": DimOverflow;
+    overflow: DimOverflow;
   };
   "5": {
     "-5": Z0;
@@ -204,11 +225,26 @@ type AddMap = {
     "-2": P3;
     "-1": P4;
     "0": P5;
-    "1": P5;
-    "2": P5;
-    "3": P5;
-    "4": P5;
-    "5": P5;
+    "1": DimOverflow;
+    "2": DimOverflow;
+    "3": DimOverflow;
+    "4": DimOverflow;
+    "5": DimOverflow;
+    overflow: DimOverflow;
+  };
+  overflow: {
+    "-5": DimOverflow;
+    "-4": DimOverflow;
+    "-3": DimOverflow;
+    "-2": DimOverflow;
+    "-1": DimOverflow;
+    "0": DimOverflow;
+    "1": DimOverflow;
+    "2": DimOverflow;
+    "3": DimOverflow;
+    "4": DimOverflow;
+    "5": DimOverflow;
+    overflow: DimOverflow;
   };
 };
 
@@ -225,6 +261,7 @@ type NegMap = {
   "3": N3;
   "4": N4;
   "5": N5;
+  overflow: DimOverflow;
 };
 
 type DimToString<D extends DimExp> = `${D["value"]}`;
@@ -307,6 +344,15 @@ export type Resistance = Dimensions<P1, P2, N3, N2, Z0, Z0, Z0>; // M*L^2/(T^3*I
  * The dimension is encoded in the type system for compile-time checking.
  */
 export class Unit<D extends Dimensions<DimExp, DimExp, DimExp, DimExp, DimExp, DimExp, DimExp>> {
+  /**
+   * Phantom, type-only member that makes `D` part of the class's structure
+   * (MU-2). Without it `D` appears only in method parameter positions, which
+   * TypeScript compares bivariantly, so every `Unit<…>` was assignable to
+   * every other and no dimension mismatch was ever a compile error. `declare`
+   * emits nothing at runtime; the property does not exist on instances.
+   */
+  declare readonly __dimensions: D;
+
   constructor(
     public readonly value: number,
     public readonly symbol: string = ""

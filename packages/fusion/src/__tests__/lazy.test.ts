@@ -567,3 +567,46 @@ describe("LazyPipeline — correctness vs eager", () => {
     expect(fused).toBe(eager);
   });
 });
+
+describe("take before flatMap (FMG-8)", () => {
+  it("does not truncate the flatMapped output of the last taken element", () => {
+    expect(
+      lazy([1, 2])
+        .take(1)
+        .flatMap((x) => [x, x])
+        .toArray()
+    ).toEqual([1, 1]);
+    expect(
+      lazy([1, 2, 3])
+        .take(2)
+        .flatMap((x) => [x, x, x])
+        .toArray()
+    ).toEqual([1, 1, 1, 2, 2, 2]);
+  });
+
+  it("still stops pulling the source once a take is satisfied", () => {
+    const pulled: number[] = [];
+    function* gen() {
+      for (let i = 0; i < 10; i++) {
+        pulled.push(i);
+        yield i;
+      }
+    }
+    expect(
+      lazy(gen())
+        .take(2)
+        .flatMap((x) => [x, x])
+        .toArray()
+    ).toEqual([0, 0, 1, 1]);
+    expect(pulled).toEqual([0, 1]);
+  });
+
+  it("a take after flatMap still truncates the flattened stream", () => {
+    expect(
+      lazy([1, 2])
+        .flatMap((x) => [x, x])
+        .take(3)
+        .toArray()
+    ).toEqual([1, 1, 2]);
+  });
+});

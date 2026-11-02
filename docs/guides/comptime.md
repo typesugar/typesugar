@@ -2,6 +2,16 @@
 
 The `comptime()` macro evaluates expressions at build time and inlines the result.
 
+::: warning Security: comptime is not a sandbox
+`comptime` code runs inside the compiler process **with the privileges of your build**. It
+runs in a hardened `node:vm` context, but Node documents `vm` as
+[not a security mechanism](https://nodejs.org/api/vm.html), and the permissions below are a
+guard against accidents, not an isolation boundary. Treat `comptime` blocks — including ones in
+dependencies — like build scripts: never build untrusted code outside a disposable, isolated
+environment. Editor integrations (the TypeScript plugin and the LSP server) do not evaluate
+`comptime` unless explicitly enabled; there the call is left unexpanded with a warning.
+:::
+
 ::: tip Try in Playground
 **[Open in Playground →](https://typesugar.org/playground#code=eJxLSS1OUcjMK0ktLlFwzCsuycnMS9dRSE8tyszPs1LIyy9KUUjOz0ktykvMTQUA4IkN0g%3D%3D)** to see comptime in action.
 :::
@@ -53,11 +63,12 @@ The following capabilities are blocked by default but can be explicitly enabled:
 
 - DOM APIs
 - External package imports (in most cases)
-- Non-sandboxed Node.js modules
+- Node.js modules other than the bridged `fs`, `path` and `process` helpers
+- `eval()` / `new Function()` (string code generation is disabled in the comptime context)
 
-## Sandbox Permissions
+## Permissions
 
-By default, `comptime` runs in a restricted sandbox without file system or environment access. You can explicitly grant permissions as the first argument:
+By default, the `fs` and `process.env` helpers available inside `comptime` refuse access. You can explicitly enable them as the first argument:
 
 ### File System Access
 
@@ -73,7 +84,7 @@ comptime({ fs: "write" }, () => {
 });
 ```
 
-Available `fs` operations: `readFileSync`, `existsSync`, `readdirSync`, `statSync`, `writeFileSync`, `mkdirSync`
+Available `fs` operations: `readFileSync`, `existsSync`, `readdirSync`, `statSync`, `writeFileSync`, `mkdirSync`. Paths must be relative and stay inside the project root. `readFileSync` without an encoding returns a `Uint8Array` (with a `toString(encoding)` helper) rather than a Node `Buffer`; `statSync` / `readdirSync({ withFileTypes: true })` return plain objects with `isFile()` / `isDirectory()` / `isSymbolicLink()`.
 
 ### Environment Variables
 
@@ -107,20 +118,15 @@ const config = comptime({ fs: "read", env: "read" }, () => {
 | `env`      | `'read'`  | Read environment variables |
 | `env`      | `true`    | Same as `'read'`           |
 
-### How the Sandbox Works
+### How the comptime context works
 
-The comptime sandbox is implemented using Node.js's `vm` module with an allowlist of safe globals:
+1. **Separate context**: code runs in a fresh `node:vm` context with its own built-ins (`Math`, `JSON`, `Array`, ...). No host-realm object is placed in it, so tricks like `Object.constructor("return process")()` see the context's own `Function`, not the compiler's.
+2. **No string code generation**: `eval` and `new Function` are disabled in the context.
+3. **Bridged helpers**: `fs`, `path`, `process` and `require()` are created inside the context and talk to the compiler only by passing strings; permissions are checked on the compiler side of that bridge.
+4. **Path resolution**: relative paths resolve from the source file's directory and must stay inside the project root.
+5. **Timeout**: evaluation (including promise callbacks) is limited to 5 seconds.
 
-1. **Isolated Context**: Code runs in a separate JavaScript context with no access to the host process
-2. **Proxy Interceptors**: `fs`, `path`, and `process` are wrapped in proxies that check permissions before each operation
-3. **Permission Checking**: Each operation (read, write, env access) validates against the granted permissions
-4. **Path Resolution**: Relative paths are resolved from the source file's directory
-
-This ensures that:
-
-- Untrusted comptime code can't access the file system without explicit permission
-- Permissions are enforced consistently across all access patterns (direct globals, `require()`)
-- Helper functions called from comptime inherit the same permission context
+This prevents accidental file/env access and closes the well-known `vm` escapes, but it is **defence in depth, not isolation** — see the security warning at the top of this page.
 
 ## Use Cases
 
@@ -264,14 +270,14 @@ comptime(() => {
 
 ## Environment Variables
 
-Access is sandboxed by default. To use env vars, pass them explicitly:
+Environment access is off by default. Enable it with the `env` permission:
 
 ```typescript
-// Won't work - process is sandboxed
-comptime(process.env.API_KEY);
+// Fails: env access was not granted
+comptime(() => process.env.API_KEY);
 
 // Works if the var exists at build time
-const API_KEY = comptime(process.env.API_KEY ?? "default");
+const API_KEY = comptime({ env: "read" }, () => process.env.API_KEY ?? "default");
 ```
 
 ## Debugging
@@ -313,7 +319,7 @@ Or enable verbose mode:
 | Feature       | typesugar `comptime`            | Zig `comptime` | Rust `const fn` |
 | ------------- | ------------------------------- | -------------- | --------------- |
 | Full language | Yes                             | Yes            | Limited         |
-| Sandboxed     | Yes (with explicit permissions) | No             | N/A             |
+| Sandboxed     | No (hardened, build privileges) | No             | N/A             |
 | Result types  | JSON-serializable               | Any            | Any             |
 | Recursion     | Yes (limited)                   | Yes            | Yes             |
 | Loops         | Yes                             | Yes            | Yes (nightly)   |

@@ -1,9 +1,9 @@
 /**
- * Zero-Cost Result<T, E> - Compiles to discriminated union checks
+ * Zero-Cost Result<T, E> - a plain `{ ok, value } | { ok, error }` union.
+ *
+ * Runtime-only module (no `typescript` / `@typesugar/core` imports); the
+ * inlining macro lives in `@typesugar/fp/macros`.
  */
-
-import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry, MacroContext } from "@typesugar/core";
 
 // ============================================================================
 // Type-Level API
@@ -42,50 +42,3 @@ export const ZeroCostResultOps = {
     return !result.ok;
   },
 } as const;
-
-export const zeroCostResultMacro = defineExpressionMacro({
-  name: "ZeroCostResultOps",
-  module: "@typesugar/fp",
-  description: "Zero-cost Result — compiles to inlined ok/error checks",
-
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    const factory = ctx.factory;
-    const expr = callExpr.expression;
-
-    if (
-      ts.isPropertyAccessExpression(expr) &&
-      ts.isIdentifier(expr.expression) &&
-      (expr.expression.text === "Result" || expr.expression.text === "ZeroCostResultOps")
-    ) {
-      const method = expr.name.text;
-      if (method === "ok" && args.length === 1) {
-        return factory.createObjectLiteralExpression([
-          factory.createPropertyAssignment("ok", factory.createTrue()),
-          factory.createPropertyAssignment("value", args[0]),
-        ]);
-      }
-      if (method === "err" && args.length === 1) {
-        return factory.createObjectLiteralExpression([
-          factory.createPropertyAssignment("ok", factory.createFalse()),
-          factory.createPropertyAssignment("error", args[0]),
-        ]);
-      }
-      if (method === "isOk" && args.length === 1) {
-        return factory.createPropertyAccessExpression(args[0], "ok");
-      }
-      if (method === "isErr" && args.length === 1) {
-        return factory.createPrefixUnaryExpression(
-          ts.SyntaxKind.ExclamationToken,
-          factory.createPropertyAccessExpression(args[0], "ok")
-        );
-      }
-    }
-    return callExpr;
-  },
-});
-
-globalRegistry.register(zeroCostResultMacro);

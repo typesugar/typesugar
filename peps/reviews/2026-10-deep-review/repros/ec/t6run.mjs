@@ -1,0 +1,15 @@
+const m = await import("/private/tmp/claude-502/-Users-deapovey-src-personal-typesugar/2c1d0d53-b275-4ae9-af0d-cb3583fec3f8/scratchpad/review/ec/out_t6.mjs");
+const { Schema } = await import("/Users/deapovey/src/personal/typesugar/packages/effect/node_modules/effect/dist/esm/index.js");
+const tryIt = (label, f) => { try { console.log(label, "OK", JSON.stringify(f(), (k, v) => typeof v === "bigint" ? v + "n" : v)); } catch (e) { console.log(label, "THROWS", e.message.split("\n")[0]); } };
+tryIt("specialized struct+union {id:1,kind:'a'}", () => m.decUser({ id: 1, kind: "a" }));
+tryIt("real Effect          {id:1,kind:'a'}", () => Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Number, kind: Schema.Union(Schema.Literal("a"), Schema.Literal("b")) }))({ id: 1, kind: "a" }));
+tryIt("specialized BigInt {n:'123'}", () => m.decBig({ n: "123" }));
+tryIt("real Effect BigInt {n:'123'}", () => Schema.decodeUnknownSync(Schema.Struct({ n: Schema.BigInt }))({ n: "123" }));
+tryIt("specialized BigInt {n:5n}", () => m.decBig({ n: 5n }));
+tryIt("real Effect BigInt {n:5n}", () => Schema.decodeUnknownSync(Schema.Struct({ n: Schema.BigInt }))({ n: 5n }));
+tryIt("specialized Literal('x','y') 'y'", () => m.decLit("y"));
+tryIt("real Literal('x','y') 'y'", () => Schema.decodeUnknownSync(Schema.Literal("x", "y"))("y"));
+tryIt("specialized optional {nick: undefined}", () => m.decOpt({ nick: undefined }));
+tryIt("real optional {nick: undefined}", () => Schema.decodeUnknownSync(Schema.Struct({ nick: Schema.optional(Schema.String) }))({ nick: undefined }));
+tryIt("specialized optional {}", () => Object.keys(m.decOpt({})));
+tryIt("real optional {}", () => Object.keys(Schema.decodeUnknownSync(Schema.Struct({ nick: Schema.optional(Schema.String) }))({})));

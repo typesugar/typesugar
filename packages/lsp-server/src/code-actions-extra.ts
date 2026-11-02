@@ -1,7 +1,7 @@
 /**
  * Additional code actions for the LSP server.
  *
- * Provides expand-macro, wrap-in-comptime, and add-derive actions.
+ * Provides expand-macro and wrap-in-comptime actions.
  * Ported from packages/vscode/src/code-actions.ts.
  */
 
@@ -126,35 +126,9 @@ export function computeExtraCodeActions(
     }
   }
 
-  // Add @derive — for classes/interfaces without @derive
-  const classOrInterface = findAncestor(
-    node,
-    (n) => ts.isClassDeclaration(n) || ts.isInterfaceDeclaration(n)
-  );
-
-  if (
-    classOrInterface &&
-    (ts.isClassDeclaration(classOrInterface) || ts.isInterfaceDeclaration(classOrInterface))
-  ) {
-    const decorators = ts.isClassDeclaration(classOrInterface)
-      ? ts.getDecorators(classOrInterface)
-      : undefined;
-    const hasDerive = decorators?.some((d) => getDecoratorName(d) === "derive");
-
-    if (!hasDerive) {
-      const declStart = classOrInterface.getStart(sourceFile);
-
-      actions.push({
-        title: "Add @derive(...)",
-        kind: CodeActionKind.Refactor,
-        command: {
-          title: "Add @derive(...)",
-          command: "typesugar.addDerive",
-          arguments: [uri, declStart],
-        },
-      });
-    }
-  }
+  // No "Add @derive" action (deep-review tooling #23): it used to carry a
+  // `typesugar.addDerive` command that nothing registers, so choosing it did
+  // nothing. It can come back as a real WorkspaceEdit.
 
   return actions;
 }

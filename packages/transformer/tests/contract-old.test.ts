@@ -13,6 +13,7 @@ import * as ts from "typescript";
 import { transformCode } from "../src/pipeline.js";
 import "@typesugar/macros";
 import "@typesugar/contracts/macros";
+import * as contractsRuntime from "@typesugar/contracts";
 
 function transform(code: string) {
   // Repo-relative name (not /virtual/...) so the fixture's activation import
@@ -22,11 +23,18 @@ function transform(code: string) {
 
 /** Transpile transformed TS to JS, run __run__, return its result (or throw). */
 function execRun(tsCode: string): unknown {
-  const js = ts.transpileModule(tsCode.replace(/^\s*import .*$/gm, ""), {
+  // Keep the imports (the generated code imports the typed contract errors
+  // from @typesugar/contracts) and resolve them against the real runtime.
+  const js = ts.transpileModule(tsCode, {
     compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
   }).outputText;
-  const fn = new Function(js + "\n;return __run__();");
-  return fn();
+  const req = (spec: string): unknown => {
+    if (spec === "@typesugar/contracts") return contractsRuntime;
+    return {}; // side-effect-only syntax/marker imports
+  };
+  const mod = { exports: {} };
+  const fn = new Function("require", "exports", "module", js + "\n;return __run__();");
+  return fn(req, mod.exports, mod);
 }
 
 const EXPLICIT = `

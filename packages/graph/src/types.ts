@@ -44,6 +44,7 @@ export interface VerificationResult {
     event: string;
     targets: string[];
   }>;
+  /** Elementary cycles. Computed lazily on first read (can be exponential in size). */
   readonly cycles: ReadonlyArray<ReadonlyArray<string>>;
 }
 

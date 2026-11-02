@@ -25,6 +25,16 @@ staticAssert(CONFIG.TIMEOUT > 0, "timeout must be positive");
 typeAssert<Equal<ReturnType<typeof parse>, AST>>();
 ```
 
+## Notes
+
+- Expanded code imports small runtime helpers (`__powerAssertFail`, `__assertTypeCheck`,
+  `__seededRandom`, `createMockObject`) from `@typesugar/testing`, so the package must be
+  resolvable at test runtime — install it where your tests run, not only where they compile.
+- `mock<T>()` / `@mock` expand to `createMockObject<T>([...method names])`; you can call
+  `createMockObject` directly when the transformer is not configured.
+- `assertSnapshot(expr)` keys snapshots by project-relative file path and expression text (no
+  line number), so adding lines above a snapshot does not orphan it.
+
 ## Documentation
 
 - [Testing guide](https://typesugar.org/guides/testing) — full reference

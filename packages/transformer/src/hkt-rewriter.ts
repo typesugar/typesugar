@@ -257,37 +257,35 @@ function findDescendantTargets(
 // Import injection
 // ---------------------------------------------------------------------------
 
-const KIND_IMPORT_PACKAGES = new Set([
-  "@typesugar/type-system",
-  "@typesugar/fp",
-  "@typesugar",
-  "typesugar",
-]);
-
 /**
- * Check if the source file already imports `Kind` from a typesugar package.
+ * Does the file already bind the name `Kind` at top level -- an import of
+ * `Kind` from ANY module (@typesugar/type-system, @typesugar/fp,
+ * @typesugar/std, a local "./hkt", ...) or its own declaration? Then the
+ * rewritten `Kind<F, A>` refers to that binding and injecting another import
+ * would be a duplicate identifier (TS2300). A namespace import
+ * (`import * as fp from "@typesugar/fp"`) does NOT bind `Kind`, so the
+ * import must still be injected (review finding #14).
  */
 function hasKindImport(sourceFile: ts.SourceFile): boolean {
   for (const stmt of sourceFile.statements) {
-    if (!ts.isImportDeclaration(stmt)) continue;
-
-    const moduleSpec = stmt.moduleSpecifier;
-    if (!ts.isStringLiteral(moduleSpec)) continue;
-    if (!KIND_IMPORT_PACKAGES.has(moduleSpec.text)) continue;
-
-    const clause = stmt.importClause;
-    if (!clause) continue;
-
-    // Namespace import — Kind available as ns.Kind
-    if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-      return true;
-    }
-
-    // Named imports — check for Kind
-    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const specifier of clause.namedBindings.elements) {
-        if (specifier.name.text === "Kind") return true;
+    if (ts.isImportDeclaration(stmt)) {
+      const clause = stmt.importClause;
+      if (!clause) continue;
+      if (clause.name?.text === "Kind") return true;
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const specifier of clause.namedBindings.elements) {
+          if (specifier.name.text === "Kind") return true;
+        }
       }
+    } else if (ts.isImportEqualsDeclaration(stmt)) {
+      if (stmt.name.text === "Kind") return true;
+    } else if (
+      (ts.isTypeAliasDeclaration(stmt) ||
+        ts.isInterfaceDeclaration(stmt) ||
+        ts.isClassDeclaration(stmt)) &&
+      stmt.name?.text === "Kind"
+    ) {
+      return true;
     }
   }
 

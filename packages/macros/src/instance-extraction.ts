@@ -25,6 +25,7 @@ import {
   type MemberMethodResolver,
   extractMethodsFromObjectLiteral,
   registerInstanceMethodsFromAST,
+  methodDependsOnReceiver,
 } from "./specialize.js";
 import { findInstanceInScopeByName } from "./instance-resolver.js";
 
@@ -241,6 +242,98 @@ function objectLiteralFromFunctionBody(
  * Acceptance (`@impl`/`@instance` tag OR typeclass-shaped type annotation —
  * gap 5's unified rule) may be satisfied anywhere along the alias chain.
  */
+/** Is this variable declared `const` (so the binding itself can't be reassigned)? */
+function isConstDeclaration(decl: ts.VariableDeclaration): boolean {
+  return (
+    ts.isVariableDeclarationList(decl.parent) && (decl.parent.flags & ts.NodeFlags.Const) !== 0
+  );
+}
+
+const mutatedObjectNamesCache = new WeakMap<ts.SourceFile, Set<string>>();
+
+function baseIdentifierText(expr: ts.Expression): string | undefined {
+  while (
+    ts.isParenthesizedExpression(expr) ||
+    ts.isPropertyAccessExpression(expr) ||
+    ts.isElementAccessExpression(expr) ||
+    ts.isAsExpression(expr) ||
+    ts.isNonNullExpression(expr)
+  ) {
+    expr = expr.expression;
+  }
+  return ts.isIdentifier(expr) ? expr.text : undefined;
+}
+
+const MUTATING_OBJECT_CALLS = new Set([
+  "Object.assign",
+  "Object.defineProperty",
+  "Object.defineProperties",
+  "Object.setPrototypeOf",
+  "Reflect.set",
+  "Reflect.defineProperty",
+  "Reflect.deleteProperty",
+]);
+
+/**
+ * Names (by text — deliberately coarse) of objects whose members are written
+ * somewhere in this file: `x.m = …`, `x[k] = …`, `x.m++`, `delete x.m`,
+ * `Object.assign(x, …)` and friends. Inlining a member of such an object
+ * would freeze the ORIGINAL method body in place of whatever the object holds
+ * at call time, so those objects are never treated as instances. (Mutation
+ * from another module through an import is not detected — a documented
+ * residual; typeclass instances are expected to be immutable.)
+ */
+function mutatedObjectNames(sf: ts.SourceFile): Set<string> {
+  const cached = mutatedObjectNamesCache.get(sf);
+  if (cached) return cached;
+  const names = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      const base = baseIdentifierText(node.left);
+      if (base) names.add(base);
+    } else if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken ||
+        node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      const base = baseIdentifierText(node.operand);
+      if (base) names.add(base);
+    } else if (ts.isDeleteExpression(node)) {
+      const base = baseIdentifierText(node.expression);
+      if (base) names.add(base);
+    } else if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      MUTATING_OBJECT_CALLS.has(
+        `${node.expression.expression.text}.${node.expression.name.text}`
+      ) &&
+      node.arguments.length > 0
+    ) {
+      const base = baseIdentifierText(node.arguments[0]);
+      if (base) names.add(base);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  mutatedObjectNamesCache.set(sf, names);
+  return names;
+}
+
+/**
+ * Could this declaration's object be changed after initialization, so that
+ * its literal's method bodies no longer describe what a call does?
+ */
+function isPossiblyMutatedInstance(decl: ts.VariableDeclaration): boolean {
+  if (!isConstDeclaration(decl)) return true;
+  if (!ts.isIdentifier(decl.name)) return true;
+  return mutatedObjectNames(decl.getSourceFile()).has(decl.name.text);
+}
+
 function resolveInstanceObjectLiteral(
   checker: ts.TypeChecker,
   expr: ts.Expression,
@@ -303,6 +396,10 @@ function resolveInstanceObjectLiteral(
 
     const accepted =
       inheritedAccepted || hasImplAnnotation(decl) || hasTypeclassTypeAnnotation(decl);
+
+    // A `let`/`var` binding can be reassigned and a mutated object no longer
+    // matches its literal — neither is a sound inlining source.
+    if (isPossiblyMutatedInstance(decl)) continue;
 
     const init = unwrapExpression(decl.initializer);
     if (ts.isObjectLiteralExpression(init)) {
@@ -447,24 +544,39 @@ function isModuleScopeDeclaration(decl: ts.Declaration): boolean {
  *   inside a factory body) — those exist only inside the factory, never at
  *   the call site's module scope.
  * Unsafe methods are dropped so the call falls back to dictionary passing.
+ *
+ * Also unsafe: bodies that depend on their receiver/activation (`this`,
+ * `super`, `arguments`, `new.target`, own `await`/`yield`; async/generator
+ * methods) — `this.state` means something else at the call site (tc#2).
+ *
+ * On success returns the symbols the body's outside references resolve to
+ * here, keyed by name, so each call site can verify the same names resolve to
+ * the same symbols there (tc#18). Returns undefined when unsafe.
  */
 function isSafeToInlineMethod(
   checker: ts.TypeChecker,
   methodNode: ts.Node,
   allowModuleScopeOf: ts.SourceFile | undefined
-): boolean {
-  let safe = true;
+): Map<string, ts.Symbol> | undefined {
+  if (methodDependsOnReceiver(methodNode)) return undefined;
 
-  const checkIdentifier = (id: ts.Identifier): void => {
+  let safe = true;
+  const freeSymbols = new Map<string, ts.Symbol>();
+
+  const checkIdentifier = (id: ts.Identifier, shorthand?: ts.ShorthandPropertyAssignment): void => {
     let symbol: ts.Symbol | undefined;
     try {
-      symbol = checker.getSymbolAtLocation(id);
+      symbol = shorthand
+        ? checker.getShorthandAssignmentValueSymbol(shorthand)
+        : checker.getSymbolAtLocation(id);
     } catch {
       safe = false;
       return;
     }
     const declarations = symbol?.getDeclarations();
-    if (!declarations || declarations.length === 0) return; // e.g. `undefined`
+    if (!symbol || !declarations || declarations.length === 0) return; // e.g. `undefined`
+    if (declarations.every((d) => isNodeWithin(d, methodNode))) return; // method-local
+    freeSymbols.set(id.text, symbol);
     for (const decl of declarations) {
       if (decl.getSourceFile().isDeclarationFile) continue; // lib/ambient
       if (isNodeWithin(decl, methodNode)) continue; // method-local binding
@@ -498,6 +610,12 @@ function isSafeToInlineMethod(
       if (node.body) visit(node.body);
       return;
     }
+    if (ts.isShorthandPropertyAssignment(node)) {
+      // `{ helper }` — the name IS a value reference
+      checkIdentifier(node.name, node);
+      if (node.objectAssignmentInitializer) visit(node.objectAssignmentInitializer);
+      return;
+    }
     if (ts.isIdentifier(node)) {
       checkIdentifier(node);
       return;
@@ -506,7 +624,7 @@ function isSafeToInlineMethod(
   };
 
   visit(methodNode);
-  return safe;
+  return safe ? freeSymbols : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -645,12 +763,13 @@ export function tryExtractInstanceFromSource(
       // in any module.
       const methodFile = method.node.getSourceFile();
       const allowModuleScopeOf = methodFile === ctx.sourceFile ? ctx.sourceFile : undefined;
-      if (!isSafeToInlineMethod(checker, method.node, allowModuleScopeOf)) {
+      const freeSymbols = isSafeToInlineMethod(checker, method.node, allowModuleScopeOf);
+      if (!freeSymbols) {
         continue; // falls back to dictionary passing — always correct
       }
       // Clone so downstream inlining (which strips positions/comments
       // in place) can never corrupt the defining file's AST.
-      methods.set(name, { ...method, node: cloneNodeDeep(method.node) });
+      methods.set(name, { ...method, node: cloneNodeDeep(method.node), freeSymbols });
     }
 
     if (methods.size > 0) {

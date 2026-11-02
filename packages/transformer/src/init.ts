@@ -4,6 +4,7 @@
  * Detects the existing stack and configures typesugar automatically.
  */
 
+import * as ts from "typescript";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
@@ -224,6 +225,40 @@ function detectStack(cwd: string): DetectedStack {
   };
 }
 
+/**
+ * The tsserver plugin name init writes. It must be something a project can
+ * actually resolve: `@typesugar/transformer/language-service` is a real
+ * directory entry of the transformer package (which init installs). The old
+ * `typesugar/language-service` was not exported by the umbrella package, so
+ * the IDE plugin silently never activated.
+ */
+export const LANGUAGE_SERVICE_PLUGIN_NAME = "@typesugar/transformer/language-service";
+
+/** Plugin names that load typesugar's language service (any is fine). */
+export const KNOWN_LANGUAGE_SERVICE_PLUGIN_NAMES = [
+  LANGUAGE_SERVICE_PLUGIN_NAME,
+  "@typesugar/ts-plugin",
+];
+
+/** The broken name older `typesugar init` versions wrote. */
+export const LEGACY_BROKEN_LANGUAGE_SERVICE_PLUGIN_NAME = "typesugar/language-service";
+
+/**
+ * Install commands for a persona's packages: runtime packages (imported by
+ * the app's emitted code, e.g. `typesugar`) go in `dependencies`; build-time
+ * tooling goes in `devDependencies`. Installing everything with `-D` broke
+ * production installs (`npm ci --omit=dev`) of the user's app.
+ */
+export function getInstallCommands(
+  pm: DetectedStack["packageManager"],
+  packages: { runtime: string[]; dev: string[] }
+): string[] {
+  const commands: string[] = [];
+  if (packages.runtime.length > 0) commands.push(getInstallCommand(pm, packages.runtime, false));
+  if (packages.dev.length > 0) commands.push(getInstallCommand(pm, packages.dev, true));
+  return commands;
+}
+
 function getInstallCommand(
   pm: DetectedStack["packageManager"],
   packages: string[],
@@ -242,7 +277,7 @@ function getInstallCommand(
   }
 }
 
-function patchTsConfig(cwd: string): boolean {
+export function patchTsConfig(cwd: string): boolean {
   const tsconfigPath = path.join(cwd, "tsconfig.json");
 
   if (!fs.existsSync(tsconfigPath)) {
@@ -258,7 +293,7 @@ function patchTsConfig(cwd: string): boolean {
         outDir: "./dist",
         rootDir: "./src",
         plugins: [
-          { name: "typesugar/language-service" },
+          { name: LANGUAGE_SERVICE_PLUGIN_NAME },
           { transform: "@typesugar/transformer", type: "program" },
         ],
       },
@@ -271,7 +306,11 @@ function patchTsConfig(cwd: string): boolean {
 
   try {
     const content = fs.readFileSync(tsconfigPath, "utf-8");
-    const tsconfig = JSON.parse(content);
+    // tsconfig.json is JSONC (comments, trailing commas): parse it the way
+    // TypeScript does. (Comments are not preserved on write-back.)
+    const parsedConfig = ts.parseConfigFileTextToJson(tsconfigPath, content);
+    if (parsedConfig.error || typeof parsedConfig.config !== "object") return false;
+    const tsconfig = parsedConfig.config;
 
     if (!tsconfig.compilerOptions) {
       tsconfig.compilerOptions = {};
@@ -287,11 +326,18 @@ function patchTsConfig(cwd: string): boolean {
       type?: string;
     }>;
 
-    const hasLanguageService = plugins.some((p) => p.name === "typesugar/language-service");
+    // Replace the broken name earlier init versions wrote.
+    for (const p of plugins) {
+      if (p.name === LEGACY_BROKEN_LANGUAGE_SERVICE_PLUGIN_NAME)
+        p.name = LANGUAGE_SERVICE_PLUGIN_NAME;
+    }
+    const hasLanguageService = plugins.some(
+      (p) => p.name !== undefined && KNOWN_LANGUAGE_SERVICE_PLUGIN_NAMES.includes(p.name)
+    );
     const hasTransformer = plugins.some((p) => p.transform === "@typesugar/transformer");
 
     if (!hasLanguageService) {
-      plugins.unshift({ name: "typesugar/language-service" });
+      plugins.unshift({ name: LANGUAGE_SERVICE_PLUGIN_NAME });
     }
 
     if (!hasTransformer) {
@@ -683,19 +729,19 @@ export async function runInit(verbose: boolean, options: InitOptions = {}): Prom
   log("");
   header("Installing packages...");
 
-  const allPackages = [...packages.runtime, ...packages.dev];
-  const installCmd = getInstallCommand(stack.packageManager, allPackages, true);
-
-  info(`Running: ${installCmd}`);
-  log("");
+  const installCmds = getInstallCommands(stack.packageManager, packages);
 
   const { execSync } = await import("child_process");
-  try {
-    execSync(installCmd, { cwd, stdio: "inherit" });
-    success("Packages installed");
-  } catch {
-    error("Package installation failed");
-    log(`\nRun manually: ${installCmd}`);
+  for (const installCmd of installCmds) {
+    info(`Running: ${installCmd}`);
+    log("");
+    try {
+      execSync(installCmd, { cwd, stdio: "inherit" });
+      success("Packages installed");
+    } catch {
+      error("Package installation failed");
+      log(`\nRun manually: ${installCmd}`);
+    }
   }
 
   header("Configuring project...");

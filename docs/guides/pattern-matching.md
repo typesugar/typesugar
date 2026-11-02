@@ -37,7 +37,7 @@ Matches compile to optimized output with zero runtime overhead.
 
 ### Literals
 
-Match exact values — numbers, strings, booleans, `null`, `undefined`:
+Match exact values — numbers, strings, booleans, `null`, `undefined`, `NaN`, `Infinity`:
 
 ```typescript
 match(x)
@@ -52,7 +52,7 @@ match(x)
   .else("other");
 ```
 
-**Compiles to:** direct `===` comparisons. 7+ literal arms get a `switch` statement for V8 optimization.
+**Compiles to:** direct `===` comparisons (`Number.isNaN(x)` for `.case(NaN)`). 7+ plain literal arms (no guards, `.or()` or `.as()`) get a `switch` statement for V8 optimization.
 
 ### Variable Binding
 
@@ -181,7 +181,7 @@ match(shape)
   .then(w * h);
 ```
 
-**Compiles to:** optimized switch on the discriminant field. No IIFE for small unions.
+**Compiles to:** a `switch` on the discriminant field inside the match IIFE. Each arm is still tested in full inside its `case` — extra literal/array/nested sub-patterns and guards included — and an arm that doesn't match falls through to the next arm with the same tag, then to the catch-all / `.else()` / `MatchError`. Every arm's bindings live in their own block, so two arms may bind the same name.
 
 ### Type Patterns
 
@@ -207,15 +207,16 @@ match(value)
 
 **Type check mapping:**
 
-| Pattern      | Runtime Check                     |
-| ------------ | --------------------------------- |
-| `String(s)`  | `typeof __m === "string"`         |
-| `Number(n)`  | `typeof __m === "number"`         |
-| `Boolean(b)` | `typeof __m === "boolean"`        |
-| `Array(a)`   | `Array.isArray(__m)`              |
-| `Date(d)`    | `__m instanceof Date`             |
-| `MyClass(v)` | `__m instanceof MyClass`          |
-| `Some(v)`    | Destructure typeclass (see below) |
+| Pattern         | Runtime Check                                                           |
+| --------------- | ----------------------------------------------------------------------- |
+| `String(s)`     | `typeof __m === "string"`                                               |
+| `Number(n)`     | `typeof __m === "number"`                                               |
+| `Boolean(b)`    | `typeof __m === "boolean"`                                              |
+| `Array(a)`      | `Array.isArray(__m)`                                                    |
+| `Array([x, y])` | `Array.isArray(__m)` plus the inner pattern's own test (`length === 2`) |
+| `Date(d)`       | `__m instanceof Date`                                                   |
+| `MyClass(v)`    | `__m instanceof MyClass`                                                |
+| `Some(v)`       | Destructure typeclass (see below)                                       |
 
 ### OR Patterns
 
@@ -241,9 +242,9 @@ match(status)
   .then(`status: ${code}`);
 ```
 
-OR patterns bind no variables (same restriction as Scala).
+Alternatives inside `.or()` can't bind variables (same restriction as Scala) — doing so is a compile error. Bind the matched value with `.as()` instead: `.case(200).or(201).as(code).then(code)`.
 
-**Compiles to:** `(__m === 200 || __m === 201 || __m === 204) ? "success" : ...`
+**Compiles to:** `if (__m === 200 || __m === 201 || __m === 204) return "success";` inside the match IIFE.
 
 ### AS Patterns (Bind Whole While Destructuring)
 
@@ -283,7 +284,7 @@ match(str)
 
 ```typescript
 {
-  const __r = __m.match(/^(\w+)@(\w+)\.(\w+)$/);
+  const __r = typeof __m === "string" ? __m.match(/^(\w+)@(\w+)\.(\w+)$/) : null;
   if (__r !== null) {
     const [_, user, domain, tld] = __r;
     return { user, domain, tld };
@@ -477,6 +478,8 @@ match(x).case("ok").then(200).case("fail").then(500);
 // Second arm needs no check — after excluding "ok", only "fail" remains
 ```
 
+Direct emit only happens when it is provably equivalent: the scrutinee has no side effects (an identifier or a property-access chain — `match(next())` still calls `next()`), and every arm up to the chosen one is a plain literal or `_` with no guard, `.or()` or `.as()`. Otherwise the normal code is generated.
+
 Impossible patterns produce a compile error:
 
 ```
@@ -485,13 +488,15 @@ error[TS9402]: Pattern "pending" can never match type "ok" | "fail"
 
 ### Code Generation Strategies
 
-| Pattern Kind     | Arms <= 6         | Arms > 6               |
-| ---------------- | ----------------- | ---------------------- |
-| All literals     | Ternary chain     | Switch statement       |
-| Discriminant     | Ternary chain     | Switch statement       |
-| Sparse integers  | Ternary chain     | Binary search tree     |
-| Dense integers   | Ternary chain     | Switch (V8 jump table) |
-| Mixed structural | Sequential checks | Sequential checks      |
+| Shape                                                     | Output                                           |
+| --------------------------------------------------------- | ------------------------------------------------ |
+| Scrutinee type is a single literal (see above)            | The chosen arm's expression, nothing else        |
+| One plain literal arm + `.else()`                         | Ternary: `x === lit ? a : b`                     |
+| 7+ plain literal arms                                     | `switch` in an IIFE                              |
+| Object patterns sharing one literal discriminant property | `switch` on the discriminant in an IIFE          |
+| Anything else                                             | `if` chain in an IIFE (scrutinee evaluated once) |
+
+If any arm, guard, `.else()` or the scrutinee contains `await`, the IIFE becomes `await (async () => { ... })()`. A `yield` can't be moved into an arrow function, so a `yield` in a match that needs an IIFE is a compile error — compute the value before the match.
 
 ### Unreachable Pattern Warnings
 

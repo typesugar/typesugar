@@ -280,9 +280,12 @@ describe("Inline union derivation generates correct code", () => {
     // Should reference the discriminant
     expect(result.code).toContain(".kind");
 
-    // Should delegate to per-variant companion instances
-    expect(result.code).toContain("Event_click.Eq.equals");
-    expect(result.code).toContain("Event_key.Eq.equals");
+    // Inline variants have no companion (`Event_click` never existed, so the
+    // old delegation was a runtime ReferenceError — deep review typeclass #14):
+    // each variant's fields are compared inline.
+    expect(result.code).not.toContain("Event_click");
+    expect(result.code).toContain("(a as any).x === (b as any).x");
+    expect(result.code).toContain("(a as any).code === (b as any).code");
   });
 
   it("handles variant with no non-discriminant fields", () => {
@@ -295,9 +298,10 @@ describe("Inline union derivation generates correct code", () => {
     `);
     expectNoDiags(result);
     expect(result.code).toContain("switch");
-    // Delegates to per-variant companion instances
-    expect(result.code).toContain("Token_eof.Eq.equals");
-    expect(result.code).toContain("Token_number.Eq.equals");
+    // Variant fields compared inline; a field-less variant is just `true`.
+    expect(result.code).not.toContain("Token_eof");
+    expect(result.code).toContain('case "eof": return true');
+    expect(result.code).toContain("(a as any).value === (b as any).value");
   });
 
   it("uses _tag as discriminant", () => {
@@ -324,7 +328,7 @@ describe("Inline union derivation generates correct code", () => {
     // Should generate the instance as a namespace companion
     expect(result.code).toContain("namespace Choice");
     expect(result.code).toContain("export const Eq");
-    expect(result.code).toContain("equals: (a: Choice, b: Choice)");
+    expect(result.code).toContain("equals = (a: Choice, b: Choice)");
     // Instances are resolved at compile time via companion namespaces.
     // No runtime registerInstance calls are emitted.
   });

@@ -92,6 +92,7 @@ export {
   type Serializable,
   packExists,
   useExists,
+  existential,
   mapExists,
   forEachExists,
   mapExistsList,
@@ -150,8 +151,28 @@ export {
 // A proper GADT implementation is tracked as a future project.
 
 // Type-Level Arithmetic
-// NOTE: the Add/Sub/Mul/... type macros are build-time only and live in the
-// `./macros` entry. They are not re-exported from this runtime `.` entry.
+// The Add/Sub/Mul/... type MACROS are build-time only and live in the
+// `./macros` entry; they are scoped to this module, so the names must be
+// imported from here. These are the declarations those imports bind to
+// (`Add`/`Sub`/`Min` come from ./vec.js below).
+export type {
+  Mul,
+  Div,
+  Mod,
+  Pow,
+  Negate,
+  Abs,
+  Max,
+  Increment,
+  Decrement,
+  Lt,
+  Lte,
+  Gt,
+  Gte,
+  NumEq,
+  IsEven,
+  IsOdd,
+} from "./arithmetic.js";
 
 // Newtype (Zero-Cost Branding)
 export {
@@ -196,6 +217,7 @@ export {
   createStateMachine,
   createBuilder,
   transition,
+  phantom,
 } from "./phantom.js";
 
 // Effect System Annotations
@@ -213,6 +235,8 @@ export {
   registerPure,
   registerEffect,
   checkEffectCall,
+  checkEffectAnnotations,
+  effect,
   pure,
   io,
   async_ as async,

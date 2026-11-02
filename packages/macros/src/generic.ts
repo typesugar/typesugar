@@ -35,7 +35,7 @@
  */
 
 import * as ts from "typescript";
-import { defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import { defineAttributeMacro, defineDeriveMacro, globalRegistry } from "@typesugar/core";
 import { MacroContext, DeriveFieldInfo, DeriveVariantInfo } from "@typesugar/core";
 import { tryExtractSumType } from "./typeclass.js";
 
@@ -300,34 +300,78 @@ export const genericDerive = defineAttributeMacro({
       ctx.reportError(target, "@derive(Generic) requires interface, class, or type alias");
       return target;
     }
-
-    const typeName = target.name?.text ?? "Anonymous";
-
-    // Check if this is a sum type (discriminated union)
-    if (ts.isTypeAliasDeclaration(target)) {
-      const sumInfo = tryExtractSumType(ctx, target);
-      if (sumInfo) {
-        return expandGenericForSumType(ctx, target, typeName, sumInfo);
-      }
-    }
-
-    // Product type (interface, class, or non-union type alias)
-    return expandGenericForProductType(ctx, target, typeName);
+    return [target, ...expandGeneric(ctx, target)];
   },
 });
 
 /**
- * Build the shared AST statements for a Generic instance:
- * - const declaration with identity to/from
- * - registerGeneric() call
- * The caller provides the registerGenericMeta() call since meta differs per kind.
+ * `@derive(Generic)` — the same expansion as the `@Generic` attribute, but
+ * reachable through `@derive(...)`, which dispatches to
+ * `globalRegistry.getDerive(name)` (an attribute macro alone made
+ * `@derive(Generic)` report "Unknown derive").
+ *
+ * Deliberately has no `module`: the registry's module-scoped index keys on
+ * `module + name`, and this must not displace the `@Generic` attribute macro
+ * registered under the same name.
+ */
+export const genericDeriveMacro = defineDeriveMacro({
+  name: "Generic",
+  description: "Derive Generic instance for structural programming",
+  expand(
+    ctx: MacroContext,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+  ): ts.Statement[] {
+    return expandGeneric(ctx, target);
+  },
+});
+
+/** Shared expansion: the statements that follow the target declaration. */
+function expandGeneric(
+  ctx: MacroContext,
+  target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+): ts.Statement[] {
+  const typeName = target.name?.text ?? "Anonymous";
+
+  // Check if this is a sum type (discriminated union)
+  if (ts.isTypeAliasDeclaration(target)) {
+    const sumInfo = tryExtractSumType(ctx, target);
+    if (sumInfo) {
+      return expandGenericForSumType(ctx, target, typeName, sumInfo);
+    }
+  }
+
+  // Product type (interface, class, or non-union type alias)
+  return expandGenericForProductType(ctx, target, typeName);
+}
+
+/**
+ * Build the runtime statement for a Generic instance:
+ *
+ *   const genericPoint = { to: (value: Point): Point => value, from: (rep: Point): Point => rep };
+ *
+ * The structural metadata is registered at COMPILE time (genericMetaRegistry),
+ * which is what derivation consumes. The emitted code intentionally does not
+ * call `registerGeneric`/`registerGenericMeta`: those live in
+ * `@typesugar/macros` (which loads the TypeScript compiler), the call sites
+ * were emitted without an import (ReferenceError at module load), and
+ * importing the macro package into user runtime code is not acceptable.
+ * Code that wants a runtime registry entry calls `registerGeneric` itself.
  */
 function buildGenericInstanceStatements(
   factory: ts.NodeFactory,
-  typeName: string,
-  metaCall: ts.Statement
+  typeName: string
 ): { statements: ts.Statement[]; instanceName: string } {
   const instanceName = `generic${typeName}`;
+  const typeRef = () => factory.createTypeReferenceNode(typeName);
+  const identity = (param: string) =>
+    factory.createArrowFunction(
+      undefined,
+      undefined,
+      [factory.createParameterDeclaration(undefined, undefined, param, undefined, typeRef())],
+      typeRef(),
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      factory.createIdentifier(param)
+    );
 
   const constDecl = factory.createVariableStatement(
     undefined,
@@ -336,34 +380,11 @@ function buildGenericInstanceStatements(
         factory.createVariableDeclaration(
           instanceName,
           undefined,
-          factory.createTypeReferenceNode("Generic", [
-            factory.createTypeReferenceNode(typeName),
-            factory.createTypeReferenceNode(typeName),
-          ]),
+          undefined,
           factory.createObjectLiteralExpression(
             [
-              factory.createPropertyAssignment(
-                "to",
-                factory.createArrowFunction(
-                  undefined,
-                  undefined,
-                  [factory.createParameterDeclaration(undefined, undefined, "value")],
-                  undefined,
-                  factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-                  factory.createIdentifier("value")
-                )
-              ),
-              factory.createPropertyAssignment(
-                "from",
-                factory.createArrowFunction(
-                  undefined,
-                  undefined,
-                  [factory.createParameterDeclaration(undefined, undefined, "rep")],
-                  undefined,
-                  factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-                  factory.createIdentifier("rep")
-                )
-              ),
+              factory.createPropertyAssignment("to", identity("value")),
+              factory.createPropertyAssignment("from", identity("rep")),
             ],
             true
           )
@@ -373,14 +394,7 @@ function buildGenericInstanceStatements(
     )
   );
 
-  const registerCall = factory.createExpressionStatement(
-    factory.createCallExpression(factory.createIdentifier("registerGeneric"), undefined, [
-      factory.createStringLiteral(typeName),
-      factory.createIdentifier(instanceName),
-    ])
-  );
-
-  return { statements: [constDecl, metaCall, registerCall], instanceName };
+  return { statements: [constDecl], instanceName };
 }
 
 /**
@@ -391,7 +405,7 @@ function expandGenericForProductType(
   ctx: MacroContext,
   target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
   typeName: string
-): ts.Node[] {
+): ts.Statement[] {
   const type = ctx.typeChecker.getTypeAtLocation(target);
   const properties = ctx.typeChecker.getPropertiesOfType(type);
 
@@ -411,31 +425,7 @@ function expandGenericForProductType(
 
   const factory = ctx.factory;
 
-  const metaCall = factory.createExpressionStatement(
-    factory.createCallExpression(factory.createIdentifier("registerGenericMeta"), undefined, [
-      factory.createStringLiteral(typeName),
-      factory.createObjectLiteralExpression(
-        [
-          factory.createPropertyAssignment("kind", factory.createStringLiteral("product")),
-          factory.createPropertyAssignment(
-            "fieldNames",
-            factory.createArrayLiteralExpression(
-              fieldNames.map((n) => factory.createStringLiteral(n))
-            )
-          ),
-          factory.createPropertyAssignment(
-            "fieldTypes",
-            factory.createArrayLiteralExpression(
-              fieldTypes.map((t) => factory.createStringLiteral(t))
-            )
-          ),
-        ],
-        true
-      ),
-    ])
-  );
-
-  const { statements } = buildGenericInstanceStatements(factory, typeName, metaCall);
+  const { statements } = buildGenericInstanceStatements(factory, typeName);
 
   // Also register metadata at compile time for immediate use
   genericMetaRegistry.set(typeName, {
@@ -444,7 +434,7 @@ function expandGenericForProductType(
     fieldTypes,
   });
 
-  return [target, ...statements];
+  return statements;
 }
 
 /**
@@ -459,7 +449,7 @@ function expandGenericForSumType(
     discriminant: string;
     variants: Array<{ tag: string; typeName: string }>;
   }
-): ts.Node[] {
+): ts.Statement[] {
   // Get variant field information for each variant
   const variantMeta: Array<{
     tag: string;
@@ -510,40 +500,7 @@ function expandGenericForSumType(
 
   const factory = ctx.factory;
 
-  const metaCall = factory.createExpressionStatement(
-    factory.createCallExpression(factory.createIdentifier("registerGenericMeta"), undefined, [
-      factory.createStringLiteral(typeName),
-      factory.createObjectLiteralExpression(
-        [
-          factory.createPropertyAssignment("kind", factory.createStringLiteral("sum")),
-          factory.createPropertyAssignment(
-            "discriminant",
-            factory.createStringLiteral(sumInfo.discriminant)
-          ),
-          factory.createPropertyAssignment(
-            "variants",
-            factory.createArrayLiteralExpression(
-              sumInfo.variants.map((v) =>
-                factory.createObjectLiteralExpression(
-                  [
-                    factory.createPropertyAssignment("tag", factory.createStringLiteral(v.tag)),
-                    factory.createPropertyAssignment(
-                      "typeName",
-                      factory.createStringLiteral(v.typeName)
-                    ),
-                  ],
-                  false
-                )
-              )
-            )
-          ),
-        ],
-        true
-      ),
-    ])
-  );
-
-  const { statements } = buildGenericInstanceStatements(factory, typeName, metaCall);
+  const { statements } = buildGenericInstanceStatements(factory, typeName);
 
   // Also register metadata at compile time for immediate use
   genericMetaRegistry.set(typeName, {
@@ -552,12 +509,37 @@ function expandGenericForSumType(
     variants: sumInfo.variants,
   });
 
-  return [target, ...statements];
+  return statements;
 }
 
 // ============================================================================
 // Generic-based Show/Eq/etc derivation
 // ============================================================================
+
+/**
+ * Read field `i` (named `name`) out of a generic representation.
+ *
+ * `@Generic` / `@derive(Generic)` products use the zero-cost IDENTITY
+ * representation (the value itself), while hand-written instances may return
+ * a `Product` (`{ _tag: "Product", fields: [...] }`). Support both, rather than
+ * assuming `rep.fields` exists (which threw on every identity instance).
+ */
+function repField(rep: unknown, i: number, name: string | undefined): unknown {
+  if (
+    rep !== null &&
+    typeof rep === "object" &&
+    (rep as { _tag?: unknown })._tag === "Product" &&
+    Array.isArray((rep as { fields?: unknown }).fields)
+  ) {
+    return (rep as { fields: unknown[] }).fields[i];
+  }
+  if (name === undefined) {
+    throw new Error(
+      `Generic representation is not a Product and no field names are known for field #${i}`
+    );
+  }
+  return (rep as Record<string, unknown>)[name];
+}
 
 /**
  * Create a Show instance for any type with a Generic instance.
@@ -569,7 +551,7 @@ export function deriveShowViaGeneric<T>(
   fieldShows: { show: (a: unknown) => string }[],
   fieldNames: string[]
 ): { show: (a: T) => string } {
-  const gen = getGeneric<T, Product<Field<string, unknown>[]>>(typeName);
+  const gen = getGeneric<T, unknown>(typeName);
   if (!gen) {
     throw new Error(`No Generic instance for ${typeName}`);
   }
@@ -577,7 +559,9 @@ export function deriveShowViaGeneric<T>(
   return {
     show: (a: T): string => {
       const rep = gen.to(a);
-      const parts = fieldNames.map((name, i) => `${name} = ${fieldShows[i].show(rep.fields[i])}`);
+      const parts = fieldNames.map(
+        (name, i) => `${name} = ${fieldShows[i].show(repField(rep, i, name))}`
+      );
       return `${typeName}(${parts.join(", ")})`;
     },
   };
@@ -585,22 +569,28 @@ export function deriveShowViaGeneric<T>(
 
 /**
  * Create an Eq instance for any type with a Generic instance.
+ *
+ * For an identity (non-`Product`) representation the field names come from
+ * `fieldNames`, else from the compile-time Generic metadata for `typeName`.
  */
 export function deriveEqViaGeneric<T>(
   typeName: string,
-  fieldEqs: { eq: (a: unknown, b: unknown) => boolean }[]
+  fieldEqs: { eq: (a: unknown, b: unknown) => boolean }[],
+  fieldNames?: string[]
 ): { eq: (a: T, b: T) => boolean } {
-  const gen = getGeneric<T, Product<Field<string, unknown>[]>>(typeName);
+  const gen = getGeneric<T, unknown>(typeName);
   if (!gen) {
     throw new Error(`No Generic instance for ${typeName}`);
   }
+  const names = () => fieldNames ?? genericMetaRegistry.get(typeName)?.fieldNames;
 
   return {
     eq: (a: T, b: T): boolean => {
       const repA = gen.to(a);
       const repB = gen.to(b);
+      const n = names();
       for (let i = 0; i < fieldEqs.length; i++) {
-        if (!fieldEqs[i].eq(repA.fields[i], repB.fields[i])) {
+        if (!fieldEqs[i].eq(repField(repA, i, n?.[i]), repField(repB, i, n?.[i]))) {
           return false;
         }
       }
@@ -614,5 +604,6 @@ export function deriveEqViaGeneric<T>(
 // ============================================================================
 
 globalRegistry.register(genericDerive);
+globalRegistry.register(genericDeriveMacro);
 
 // All exports are inline (export function, export type, export const)

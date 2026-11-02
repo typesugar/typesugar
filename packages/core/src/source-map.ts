@@ -154,10 +154,35 @@ export class ExpansionTracker {
     return s;
   }
 
+  /**
+   * Source map from `originalSource` to the text {@link generateExpandedCode}
+   * returns (original text with only the macro call sites replaced).
+   *
+   * It does NOT describe printer output (`printer.printFile(...)`), which
+   * reformats the whole file; pairing it with printed code gives wrong
+   * line/column mappings (deep review core #41). Prefer
+   * {@link generateExpandedCodeWithMap}, which returns the code and map as a pair.
+   */
   generateSourceMap(originalSource: string, fileName: string = "source.ts"): RawSourceMap | null {
     const s = this.applyExpansions(originalSource, fileName);
     if (!s) return null;
+    return this.toRawSourceMap(s, fileName);
+  }
 
+  /**
+   * The expanded code ({@link generateExpandedCode}) together with the source
+   * map that describes exactly that text. Returns null if no expansions.
+   */
+  generateExpandedCodeWithMap(
+    originalSource: string,
+    fileName: string = "source.ts"
+  ): { code: string; map: RawSourceMap } | null {
+    const s = this.applyExpansions(originalSource, fileName);
+    if (!s) return null;
+    return { code: s.toString(), map: this.toRawSourceMap(s, fileName) };
+  }
+
+  private toRawSourceMap(s: MagicString, fileName: string): RawSourceMap {
     const map = s.generateMap({
       hires: true,
       source: fileName,

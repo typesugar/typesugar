@@ -626,8 +626,8 @@ async function runCode() {
 
   const tsCode = lastResult.value.code;
 
-  // Run server-side via /api/run — has access to real node_modules
-  // (effect, @typesugar/*, etc.) and Node.js APIs
+  // Run server-side via /api/run (returns 403 when server-side execution is
+  // disabled, as on the public playground)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -657,6 +657,17 @@ async function runCode() {
           timestamp: Date.now(),
         });
       }
+    } else if (response.status === 403) {
+      // Server-side execution is disabled on the public playground. The
+      // in-browser sandbox (createSandboxHtml) is not wired to a message
+      // listener, so there is no runner to fall back to.
+      consoleMessages.value.push({
+        type: "error",
+        args: [
+          "Run is not available on the public playground. Copy the compiled JS and run it locally.",
+        ],
+        timestamp: Date.now(),
+      });
     } else {
       const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
       consoleMessages.value.push({

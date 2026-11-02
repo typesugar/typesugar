@@ -130,18 +130,76 @@ export function throttle<A extends unknown[]>(
 // Memoization (Lodash memoize)
 // ============================================================================
 
+/**
+ * Cache `fn`'s results by argument key.
+ *
+ * The default key is a JSON encoding of the arguments that also distinguishes
+ * values JSON conflates: `undefined`, `NaN`, `±Infinity`, `-0` and bigints get
+ * their own tagged encodings, and functions/symbols are keyed by identity.
+ * Plain objects/arrays are keyed structurally (two equal-looking objects share
+ * an entry). Pass `keyFn` for anything else.
+ *
+ * The cache is unbounded unless `maxSize` is given; then the least recently
+ * used entry is evicted once it holds `maxSize` entries.
+ */
 export function memoize<A extends unknown[], R>(
   fn: (...args: A) => R,
-  keyFn?: (...args: A) => string
+  keyFn?: (...args: A) => string,
+  maxSize: number = Infinity
 ): (...args: A) => R {
   const cache = new Map<string, R>();
+  const key = keyFn ?? ((...args: A) => defaultMemoKey(args));
   return (...args) => {
-    const key = keyFn ? keyFn(...args) : JSON.stringify(args);
-    if (cache.has(key)) return cache.get(key)!;
+    const k = key(...args);
+    if (cache.has(k)) {
+      const hit = cache.get(k)!;
+      if (maxSize !== Infinity) {
+        // Refresh recency.
+        cache.delete(k);
+        cache.set(k, hit);
+      }
+      return hit;
+    }
     const result = fn(...args);
-    cache.set(key, result);
+    cache.set(k, result);
+    if (cache.size > maxSize) cache.delete(cache.keys().next().value as string);
     return result;
   };
+}
+
+const MEMO_TAG = "\u0000memo:";
+const memoIdentityIds = new WeakMap<object, number>();
+const memoSymbolIds = new Map<symbol, number>();
+let memoNextId = 0;
+
+function defaultMemoKey(args: readonly unknown[]): string {
+  return JSON.stringify(args, function (this: unknown, k: string, v: unknown) {
+    // JSON.stringify calls toJSON before the replacer; read the raw holder value
+    // so Dates etc. still use their JSON form, but primitives are tagged.
+    const raw = (this as Record<string, unknown>)[k];
+    switch (typeof raw) {
+      case "undefined":
+        return MEMO_TAG + "undefined";
+      case "bigint":
+        return MEMO_TAG + "bigint:" + raw.toString();
+      case "number":
+        if (!Number.isFinite(raw) || Object.is(raw, -0))
+          return MEMO_TAG + "number:" + (Object.is(raw, -0) ? "-0" : String(raw));
+        return raw;
+      case "function": {
+        let id = memoIdentityIds.get(raw);
+        if (id === undefined) memoIdentityIds.set(raw, (id = memoNextId++));
+        return MEMO_TAG + "fn:" + id;
+      }
+      case "symbol": {
+        let id = memoSymbolIds.get(raw);
+        if (id === undefined) memoSymbolIds.set(raw, (id = memoNextId++));
+        return MEMO_TAG + "sym:" + id;
+      }
+      default:
+        return v;
+    }
+  });
 }
 
 export function memoizeWeak<A extends object, R>(fn: (a: A) => R): (a: A) => R {

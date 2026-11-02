@@ -126,6 +126,16 @@ class LspClient {
     this.notifications = [];
   }
 
+  hasNotification(method: string, predicate?: (params: unknown) => boolean): boolean {
+    return this.notifications.some(
+      (n) => n.method === method && (!predicate || predicate(n.params))
+    );
+  }
+
+  get exited(): boolean {
+    return this.server.exitCode !== null || this.server.signalCode !== null;
+  }
+
   async dispose(): Promise<void> {
     try {
       await this.sendRequest("shutdown", null, 3000);
@@ -833,5 +843,184 @@ interface Metric {
       10000
     )) as { diagnostics: unknown[] } | null;
     expect(reverted, "diagnostics should revert after removing Show").toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deep-review (2026-10) tooling fixes
+// ---------------------------------------------------------------------------
+
+describe("LSP server deep-review fixes", () => {
+  let client: LspClient | undefined;
+
+  afterEach(async () => {
+    if (client) await client.dispose();
+    client = undefined;
+  });
+
+  async function init(dir: string, initializationOptions?: unknown): Promise<LspClient> {
+    const c = new LspClient(SERVER_PATH);
+    await c.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${dir}`,
+      capabilities: {},
+      initializationOptions,
+    });
+    await c.sendNotification("initialized", {});
+    return c;
+  }
+
+  const logContains = (text: string) => (p: unknown) =>
+    String((p as { message?: string }).message ?? "").includes(text);
+
+  // tooling #14: an exception inside the debounced diagnostics timer used to
+  // escape as an uncaught exception and kill the server.
+  it("survives a diagnostics failure in the debounced publish", async () => {
+    const dir = createTempProject({ "a.ts": "export const a: number = 1;\n" });
+    client = await init(dir);
+    // A non-TS document is not a source file of the language-service program,
+    // so getSemanticDiagnostics throws for it.
+    const vueUri = `file://${path.join(dir, "comp.vue")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri: vueUri, languageId: "vue", version: 1, text: "<template/>\n" },
+    });
+    await client.sendNotification("textDocument/didChange", {
+      textDocument: { uri: vueUri, version: 2 },
+      contentChanges: [{ text: "<template></template>\n" }],
+    });
+    await new Promise((r) => setTimeout(r, 1000)); // past the 300ms debounce
+    expect(client.exited, "server process must still be alive").toBe(false);
+    const aUri = `file://${path.join(dir, "a.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: {
+        uri: aUri,
+        languageId: "typescript",
+        version: 1,
+        text: "export const a: number = 1;\n",
+      },
+    });
+    const hover = await client.sendRequest(
+      "textDocument/hover",
+      { textDocument: { uri: aUri }, position: { line: 0, character: 13 } },
+      5000
+    );
+    expect(hover).toBeDefined();
+  });
+
+  // tooling #15: opening a file outside the tsconfig used to recreate the whole
+  // pipeline (and synchronously re-transform the project).
+  it("adds a file outside the tsconfig without recreating the pipeline", async () => {
+    const outside = `import { staticAssert } from "typesugar";\nstaticAssert(false, "outside-file");\n`;
+    const dir = createTempProject({
+      "tsconfig.json": JSON.stringify({
+        compilerOptions: { target: "ES2022", module: "ESNext", moduleResolution: "Bundler" },
+        include: ["src"],
+      }),
+      "src/a.ts": "export const a = 1;\n",
+      "other/b.ts": outside,
+    });
+    client = await init(dir);
+    const bUri = `file://${path.join(dir, "other", "b.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri: bUri, languageId: "typescript", version: 1, text: outside },
+    });
+    const diags = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: Array<{ message: string }> };
+        return pp.uri === bUri && pp.diagnostics.some((d) => d.message.includes("outside-file"));
+      }
+    )) as unknown;
+    expect(diags, "the added file must still be transformed").not.toBeNull();
+    expect(client.hasNotification("window/logMessage", logContains("Recreated pipeline"))).toBe(
+      false
+    );
+  });
+
+  // tooling #23: "Add @derive" invoked typesugar.addDerive, which no server
+  // registers — every command a code action carries must be one the server
+  // advertises in executeCommandProvider.
+  it("offers no code action whose command the server cannot execute", async () => {
+    const source = "class Foo {\n  x = 1;\n}\n";
+    const dir = createTempProject({ "test.ts": source });
+    const c = new LspClient(SERVER_PATH);
+    client = c;
+    const initResult = (await c.sendRequest("initialize", {
+      processId: null,
+      rootUri: `file://${dir}`,
+      capabilities: {},
+    })) as { capabilities: { executeCommandProvider: { commands: string[] } } };
+    await c.sendNotification("initialized", {});
+    const uri = `file://${path.join(dir, "test.ts")}`;
+    await c.sendNotification("textDocument/didOpen", {
+      textDocument: { uri, languageId: "typescript", version: 1, text: source },
+    });
+    const actions = (await c.sendRequest("textDocument/codeAction", {
+      textDocument: { uri },
+      range: { start: { line: 0, character: 6 }, end: { line: 0, character: 6 } },
+      context: { diagnostics: [] },
+    })) as Array<{ command?: { command: string } }>;
+    const known = new Set(initResult.capabilities.executeCommandProvider.commands);
+    for (const a of actions ?? []) {
+      if (a.command) expect(known.has(a.command.command), a.command.command).toBe(true);
+    }
+  });
+
+  // Ledger: opening a file in the editor must not run its comptime blocks
+  // unless the user opted in.
+  const comptimeSource = `import { comptime } from "typesugar";\nexport const x = comptime(() => 1 + 1);\n`;
+  const disabledMsg = "comptime evaluation is disabled";
+
+  it("does not evaluate comptime by default", async () => {
+    const dir = createTempProject({ "test.ts": comptimeSource });
+    client = await init(dir);
+    const uri = `file://${path.join(dir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri, languageId: "typescript", version: 1, text: comptimeSource },
+    });
+    const diags = await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => {
+        const pp = p as { uri: string; diagnostics: Array<{ message: string }> };
+        return pp.uri === uri && pp.diagnostics.some((d) => d.message.includes(disabledMsg));
+      }
+    );
+    expect(diags, "expected the comptime-disabled warning").not.toBeNull();
+  });
+
+  it("evaluates comptime when initializationOptions.comptimeInEditor is true", async () => {
+    const dir = createTempProject({ "test.ts": comptimeSource });
+    client = await init(dir, { comptimeInEditor: true });
+    const uri = `file://${path.join(dir, "test.ts")}`;
+    await client.sendNotification("textDocument/didOpen", {
+      textDocument: { uri, languageId: "typescript", version: 1, text: comptimeSource },
+    });
+    const diags = (await client.waitForNotification(
+      "textDocument/publishDiagnostics",
+      (p: unknown) => (p as { uri: string }).uri === uri
+    )) as { diagnostics: Array<{ message: string }> } | null;
+    expect(diags).not.toBeNull();
+    expect(diags!.diagnostics.some((d) => d.message.includes(disabledMsg))).toBe(false);
+  });
+
+  // 1.0 gap: importing the package's "." entry must not open an LSP connection.
+  it("the library entry (dist/index.js) has no connection side effect on import", async () => {
+    const entry = path.resolve(__dirname, "../dist/index.js");
+    const code = await new Promise<number | null>((resolve) => {
+      const child = spawn(
+        process.execPath,
+        ["--input-type=module", "-e", `await import(${JSON.stringify(entry)}); process.exit(0);`],
+        { stdio: ["ignore", "ignore", "pipe"] }
+      );
+      const timer = setTimeout(() => {
+        child.kill();
+        resolve(-1);
+      }, 15000);
+      child.on("exit", (c) => {
+        clearTimeout(timer);
+        resolve(c);
+      });
+    });
+    expect(code).toBe(0);
   });
 });

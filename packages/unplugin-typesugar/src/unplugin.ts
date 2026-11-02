@@ -7,7 +7,6 @@
  */
 
 import * as ts from "typescript";
-import * as fs from "fs";
 import * as path from "path";
 import { createUnplugin, type UnpluginFactory } from "unplugin";
 import { createPipeline, type TransformationPipeline } from "@typesugar/transformer";
@@ -107,78 +106,173 @@ function needsEmitJs(framework: string): boolean {
   }
 }
 
+/** Strip a bundler query/hash suffix (`/a.ts?v=123`, `/a.vue?vue&type=script`). */
+function fileOf(id: string): string {
+  const q = id.search(/[?#]/);
+  return q === -1 ? id : id.slice(0, q);
+}
+
+/** 1-based line / 0-based column of `pos` in `text` (Rollup/Vite `loc` convention). */
+function lineColumn(text: string, pos: number): { line: number; column: number } {
+  let line = 1;
+  let lineStart = 0;
+  for (let i = 0; i < pos && i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) {
+      line++;
+      lineStart = i + 1;
+    }
+  }
+  return { line, column: pos - lineStart };
+}
+
 export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined> = (
   options = {},
   meta
 ) => {
   let pipeline: TransformationPipeline | undefined;
+  /** Error from creating the pipeline; reported (fatally) by buildStart/transform. */
+  let setupError: unknown;
   const verbose = options?.verbose ?? false;
   const emitJs = needsEmitJs(meta?.framework ?? "unknown");
+  /** Project root: Vite's `config.root` when known, else process.cwd(). */
+  let root = process.cwd();
+  /**
+   * The latest `code` the bundler handed us per file. Earlier plugins in the
+   * chain may already have rewritten the file, so the pipeline must transform
+   * THIS text, not re-read the file from disk (review #20).
+   */
+  const latestCode = new Map<string, string>();
+
+  function ensurePipeline(): TransformationPipeline | undefined {
+    if (pipeline || setupError) return pipeline;
+    try {
+      const configPath = findTsConfig(root, options?.tsconfig);
+      pipeline = createPipeline(configPath, {
+        verbose,
+        diskCache: options?.diskCache,
+        strict: options?.strict,
+        emitJs,
+        readFile: (f) => latestCode.get(path.normalize(f)) ?? ts.sys.readFile(f),
+      });
+      if (verbose) {
+        console.log(`[typesugar] Loaded config from ${configPath}`);
+        console.log(`[typesugar] Program has ${pipeline.getFileNames().length} files`);
+        console.log(`[typesugar] Framework: ${meta?.framework ?? "unknown"}, emitJs: ${emitJs}`);
+      }
+    } catch (error) {
+      setupError = error;
+    }
+    return pipeline;
+  }
 
   return {
     name: "typesugar",
     enforce: "pre",
 
-    buildStart() {
-      try {
-        const configPath = findTsConfig(process.cwd(), options?.tsconfig);
-        pipeline = createPipeline(configPath, {
-          verbose,
-          diskCache: options?.diskCache,
-          strict: options?.strict,
-          emitJs,
-        });
-        if (verbose) {
-          console.log(`[typesugar] Loaded config from ${configPath}`);
-          console.log(`[typesugar] Program has ${pipeline.getFileNames().length} files`);
-          console.log(`[typesugar] Framework: ${meta?.framework ?? "unknown"}, emitJs: ${emitJs}`);
+    vite: {
+      configResolved(config) {
+        if (config.root) root = config.root;
+      },
+      // HMR: an edit to a file must also re-run macros in the files that
+      // depend on it (a derive/reflect macro reads the dependency's types).
+      handleHotUpdate(ctx) {
+        if (!pipeline) return;
+        const file = path.normalize(ctx.file);
+        latestCode.delete(file);
+        const dependents = pipeline.getDependents(file);
+        pipeline.invalidate(file);
+        if (dependents.size === 0) return;
+        const mods = new Set(ctx.modules);
+        for (const dep of dependents) {
+          for (const m of ctx.server.moduleGraph.getModulesByFile(dep) ?? []) mods.add(m);
         }
-      } catch (error) {
-        console.error(String(error));
+        return [...mods];
+      },
+    },
+
+    buildStart() {
+      ensurePipeline();
+      if (setupError) {
+        // Fail the build visibly: continuing would ship raw, unexpanded
+        // macro source (review #6).
+        console.error(
+          `[typesugar] failed to initialise: ${setupError instanceof Error ? setupError.message : String(setupError)}`
+        );
+        throw setupError instanceof Error ? setupError : new Error(String(setupError));
       }
     },
 
     transformInclude(id) {
-      return shouldTransform(id, options?.include, options?.exclude);
+      return shouldTransform(fileOf(id), options?.include, options?.exclude);
     },
 
     transform(code, id) {
-      if (!pipeline) return null;
+      if (typeof code !== "string") return null;
+      const p = ensurePipeline();
+      if (!p) {
+        const msg = `[typesugar] failed to initialise: ${setupError instanceof Error ? setupError.message : String(setupError)}`;
+        this?.error?.(msg);
+        throw new Error(msg);
+      }
 
-      try {
-        // Use the unified pipeline for transformation
-        const result = pipeline.transform(id);
+      const file = path.normalize(fileOf(id));
+      if (latestCode.get(file) !== code) {
+        latestCode.set(file, code);
+        p.invalidate(file);
+      }
 
-        // Only return if the code actually changed
-        if (!result.changed) {
-          return null;
+      const result = p.transform(file);
+
+      // Re-run when anything this file's expansion depends on changes.
+      for (const dep of result.dependencies ?? []) {
+        this?.addWatchFile?.(dep);
+      }
+
+      // Report macro diagnostics through the bundler (review #6): errors
+      // fail the build, warnings are shown. A pipeline crash ("Transform
+      // failed", including UnapprovedMacroPackagesError) is an error too --
+      // it used to return unchanged code, shipping raw macro source.
+      const errors: string[] = [];
+      let firstErrorLoc: { line: number; column: number; file: string } | undefined;
+      for (const d of result.diagnostics) {
+        const loc = { ...lineColumn(result.original || code, d.start), file };
+        if (d.severity === "error") {
+          firstErrorLoc ??= loc;
+          errors.push(`${file}:${loc.line}:${loc.column + 1}: [typesugar] ${d.message}`);
+        } else {
+          this?.warn?.({ id: file, message: `[typesugar] ${d.message}`, loc, plugin: "typesugar" });
         }
+      }
+      if (errors.length > 0) {
+        const message = errors.join("\n");
+        this?.error?.({ id: file, message, loc: firstErrorLoc, plugin: "typesugar" });
+        // this.error throws in Rollup/Vite; make sure no bundler continues.
+        throw new Error(message);
+      }
 
-        if (verbose) {
-          const ext = emitJs ? ".transformed.js" : ".transformed.ts";
-          fs.writeFileSync(id + ext, result.js ?? result.code);
-        }
-
-        return {
-          code: result.js ?? result.code,
-          map: result.jsSourceMap ?? result.sourceMap,
-        };
-      } catch (error) {
-        // If transformation fails, return null to skip this file
-        if (verbose) {
-          console.error(`[typesugar] Transform error for ${id}:`);
-          console.error(error);
-        }
+      // Only return if the code actually changed
+      if (!result.changed) {
         return null;
       }
+
+      if (verbose) {
+        console.log(`[typesugar] Transformed ${file} (${result.code.length} chars)`);
+      }
+
+      return {
+        code: result.js ?? result.code,
+        map: result.jsSourceMap ?? result.sourceMap,
+      };
     },
 
     // File watcher integration for cache invalidation
     watchChange(id) {
       if (pipeline) {
-        pipeline.invalidate(id);
+        const file = path.normalize(fileOf(id));
+        latestCode.delete(file);
+        pipeline.invalidate(file);
         if (verbose) {
-          console.log(`[typesugar] Invalidated cache for ${id}`);
+          console.log(`[typesugar] Invalidated cache for ${file}`);
         }
       }
     },

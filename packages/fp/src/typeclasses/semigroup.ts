@@ -277,13 +277,21 @@ export function monoidTuple<A, B>(MA: Monoid<A>, MB: Monoid<B>): Monoid<[A, B]> 
 export function semigroupRecord<K extends string, V>(S: Semigroup<V>): Semigroup<Record<K, V>> {
   return {
     combine: (x, y) => {
-      const result = { ...x } as Record<K, V>;
-      for (const key in y) {
-        if (key in result) {
-          result[key] = S.combine(result[key], y[key]);
-        } else {
-          result[key] = y[key];
-        }
+      // Own enumerable keys only (`key in obj` would see inherited members
+      // like `constructor`), and keys are defined, not assigned, so a
+      // "__proto__" key is stored as data rather than replacing the prototype.
+      const result = {} as Record<K, V>;
+      const hasOwn = Object.prototype.hasOwnProperty;
+      const put = (key: K, value: V) =>
+        Object.defineProperty(result, key, {
+          value,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      for (const key of Object.keys(x) as K[]) put(key, x[key]);
+      for (const key of Object.keys(y) as K[]) {
+        put(key, hasOwn.call(result, key) ? S.combine(result[key], y[key]) : y[key]);
       }
       return result;
     },

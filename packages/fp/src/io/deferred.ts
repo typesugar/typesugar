@@ -24,7 +24,9 @@ import { Option, Some, None } from "../data/option.js";
  * - Waiting is semantic blocking (non-blocking under the hood)
  */
 export class Deferred<A> {
-  private _value: Option<A> = None;
+  // Explicit flag: Option<A> is A | null, so a null value would read as empty.
+  private _set = false;
+  private _value: A | undefined = undefined;
   private _waiters: Array<(a: A) => void> = [];
 
   private constructor() {}
@@ -34,9 +36,8 @@ export class Deferred<A> {
    */
   get(): IO<A> {
     return IO.async<A>((cb) => {
-      const v: any = this._value;
-      if (v !== null) {
-        cb(Right(v));
+      if (this._set) {
+        cb(Right(this._value as A));
       } else {
         this._waiters.push((a) => cb(Right(a)));
       }
@@ -47,7 +48,9 @@ export class Deferred<A> {
    * Try to get the value (returns None if not yet completed)
    */
   tryGet(): IO<Option<A>> {
-    return IO.delay(() => this._value);
+    // Note: for Deferred<null>, Some(null) is indistinguishable from None —
+    // use isCompleted() to tell them apart.
+    return IO.delay(() => (this._set ? Some(this._value as A) : None));
   }
 
   /**
@@ -56,15 +59,17 @@ export class Deferred<A> {
    */
   complete(a: A): IO<boolean> {
     return IO.delay(() => {
-      if (this._value !== null) {
+      if (this._set) {
         return false;
       }
-      this._value = Some(a);
+      this._set = true;
+      this._value = a;
       // Notify all waiters
-      for (const waiter of this._waiters) {
+      const waiters = this._waiters;
+      this._waiters = [];
+      for (const waiter of waiters) {
         waiter(a);
       }
-      this._waiters = [];
       return true;
     });
   }
@@ -85,7 +90,7 @@ export class Deferred<A> {
    * Check if the Deferred is completed
    */
   isCompleted(): IO<boolean> {
-    return IO.delay(() => this._value !== null);
+    return IO.delay(() => this._set);
   }
 
   /**
@@ -203,12 +208,44 @@ export class TryableDeferred<A> {
  * - put waits until there's room
  */
 export class MVar<A> {
-  private _value: Option<A>;
+  // Explicit flag: Option<A> is A | null, so a null value would read as empty.
+  private _full: boolean;
+  private _value: A | undefined;
   private _takers: Array<(a: A) => void> = [];
+  /** Pending read()s: woken by the next value without consuming it. */
+  private _readers: Array<(a: A) => void> = [];
   private _putters: Array<[A, () => void]> = [];
 
-  private constructor(initial: Option<A>) {
-    this._value = initial;
+  private constructor(initial: { full: boolean; value?: A }) {
+    this._full = initial.full;
+    this._value = initial.value;
+  }
+
+  /** Remove the current value, refilling from the next waiting putter. */
+  private _takeValue(): A {
+    const value = this._value as A;
+    this._full = false;
+    this._value = undefined;
+    if (this._putters.length > 0) {
+      const [newValue, notify] = this._putters.shift()!;
+      this._offer(newValue);
+      notify();
+    }
+    return value;
+  }
+
+  /** Hand a value to readers (all) and then one taker, or store it. */
+  private _offer(a: A): void {
+    const readers = this._readers;
+    this._readers = [];
+    for (const r of readers) r(a);
+    if (this._takers.length > 0) {
+      const taker = this._takers.shift()!;
+      taker(a);
+    } else {
+      this._full = true;
+      this._value = a;
+    }
   }
 
   /**
@@ -216,17 +253,8 @@ export class MVar<A> {
    */
   take(): IO<A> {
     return IO.async<A>((cb) => {
-      // With null-based Option, _value IS the value when it's not null
-      if (this._value !== null) {
-        const value = this._value;
-        this._value = None;
-        // Check if anyone is waiting to put
-        if (this._putters.length > 0) {
-          const [newValue, notify] = this._putters.shift()!;
-          this._value = Some(newValue);
-          notify();
-        }
-        cb(Right(value as any));
+      if (this._full) {
+        cb(Right(this._takeValue()));
       } else {
         this._takers.push((a) => cb(Right(a)));
       }
@@ -237,19 +265,7 @@ export class MVar<A> {
    * Try to take (non-blocking)
    */
   tryTake(): IO<Option<A>> {
-    return IO.delay(() => {
-      if (this._value !== null) {
-        const value = this._value;
-        this._value = None;
-        if (this._putters.length > 0) {
-          const [newValue, notify] = this._putters.shift()!;
-          this._value = Some(newValue);
-          notify();
-        }
-        return Some(value as any);
-      }
-      return None;
-    });
+    return IO.delay(() => (this._full ? Some(this._takeValue()) : None));
   }
 
   /**
@@ -257,14 +273,8 @@ export class MVar<A> {
    */
   put(a: A): IO<void> {
     return IO.async<void>((cb) => {
-      if (this._value === null) {
-        // Check if anyone is waiting to take
-        if (this._takers.length > 0) {
-          const taker = this._takers.shift()!;
-          taker(a);
-        } else {
-          this._value = Some(a);
-        }
+      if (!this._full) {
+        this._offer(a);
         cb(Right(undefined));
       } else {
         this._putters.push([a, () => cb(Right(undefined))]);
@@ -277,13 +287,8 @@ export class MVar<A> {
    */
   tryPut(a: A): IO<boolean> {
     return IO.delay(() => {
-      if (this._value === null) {
-        if (this._takers.length > 0) {
-          const taker = this._takers.shift()!;
-          taker(a);
-        } else {
-          this._value = Some(a);
-        }
+      if (!this._full) {
+        this._offer(a);
         return true;
       }
       return false;
@@ -295,15 +300,10 @@ export class MVar<A> {
    */
   read(): IO<A> {
     return IO.async<A>((cb) => {
-      if (this._value !== null) {
-        cb(Right(this._value as any));
+      if (this._full) {
+        cb(Right(this._value as A));
       } else {
-        // Wait for a value, then peek
-        this._takers.push((a) => {
-          // Put it back and return
-          this._value = Some(a);
-          cb(Right(a));
-        });
+        this._readers.push((a) => cb(Right(a)));
       }
     });
   }
@@ -312,14 +312,14 @@ export class MVar<A> {
    * Try to read (non-blocking)
    */
   tryRead(): IO<Option<A>> {
-    return IO.delay(() => this._value);
+    return IO.delay(() => (this._full ? Some(this._value as A) : None));
   }
 
   /**
    * Check if empty
    */
   isEmpty(): IO<boolean> {
-    return IO.delay(() => this._value === null);
+    return IO.delay(() => !this._full);
   }
 
   /**
@@ -336,14 +336,14 @@ export class MVar<A> {
    * Create an empty MVar
    */
   static empty<A>(): IO<MVar<A>> {
-    return IO.delay(() => new MVar<A>(None));
+    return IO.delay(() => new MVar<A>({ full: false }));
   }
 
   /**
    * Create an MVar with an initial value
    */
   static of<A>(a: A): IO<MVar<A>> {
-    return IO.delay(() => new MVar<A>(Some(a)));
+    return IO.delay(() => new MVar<A>({ full: true, value: a }));
   }
 }
 

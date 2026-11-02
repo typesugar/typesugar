@@ -46,7 +46,23 @@ const wsOrComment: Parser<unknown[]> = many(alt(regex(/[ \t\r\n]/), comment));
 // Grammar expression parsers (recursive descent over PEG syntax)
 // ---------------------------------------------------------------------------
 
-/** Parse a string literal: "..." or '...' */
+/** Single-character escapes accepted inside grammar string literals. */
+const SIMPLE_ESCAPES: Record<string, string> = {
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  b: "\b",
+  f: "\f",
+  v: "\v",
+  "0": "\0",
+  "\\": "\\",
+  '"': '"',
+  "'": "'",
+  "`": "`",
+  "/": "/",
+};
+
+/** Parse a string literal: "..." or '...' (escapes: \n \r \t \b \f \v \0 \\ \" \' \xHH \uHHHH \u{H...}) */
 const quotedLit: Parser<GrammarRule> = mkParser((input, pos) => {
   if (pos >= input.length) return fail(pos, "string literal");
   const q = input[pos];
@@ -58,22 +74,32 @@ const quotedLit: Parser<GrammarRule> = mkParser((input, pos) => {
       i++;
       if (i >= input.length) return fail(i, "escape sequence");
       const esc = input[i];
-      switch (esc) {
-        case "n":
-          value += "\n";
-          break;
-        case "r":
-          value += "\r";
-          break;
-        case "t":
-          value += "\t";
-          break;
-        case "\\":
-          value += "\\";
-          break;
-        default:
-          value += esc;
-          break;
+      const simple = SIMPLE_ESCAPES[esc];
+      if (simple !== undefined) {
+        value += simple;
+      } else if (esc === "x") {
+        const hex = input.slice(i + 1, i + 3);
+        if (!/^[0-9a-fA-F]{2}$/.test(hex)) return fail(i, "two hex digits after \\x");
+        value += String.fromCharCode(parseInt(hex, 16));
+        i += 2;
+      } else if (esc === "u") {
+        if (input[i + 1] === "{") {
+          const close = input.indexOf("}", i + 2);
+          const hex = close === -1 ? "" : input.slice(i + 2, close);
+          const cp = /^[0-9a-fA-F]{1,6}$/.test(hex) ? parseInt(hex, 16) : NaN;
+          if (!(cp <= 0x10ffff)) return fail(i, "a code point \\u{...} (at most 10FFFF)");
+          value += String.fromCodePoint(cp);
+          i = close;
+        } else {
+          const hex = input.slice(i + 1, i + 5);
+          if (!/^[0-9a-fA-F]{4}$/.test(hex)) return fail(i, "four hex digits after \\u");
+          value += String.fromCharCode(parseInt(hex, 16));
+          i += 4;
+        }
+      } else {
+        // Unknown escapes used to be silently kept as the bare character
+        // (so `"\u0041"` became the literal `u0041`); reject them instead.
+        return fail(i - 1, `a known escape sequence (got \\${esc})`);
       }
     } else {
       value += input[i];
@@ -113,7 +139,14 @@ const primary: Parser<GrammarRule> = lazy(() =>
     if (openParen.ok) {
       const inner = wsOrComment.parse(input, openParen.pos);
       const innerPos = inner.ok ? inner.pos : openParen.pos;
-      const expr = alternation.parse(input, innerPos);
+      // Inside a group, newlines don't end the sequence (see `sequence`).
+      groupDepth++;
+      let expr: ParseResult<GrammarRule>;
+      try {
+        expr = alternation.parse(input, innerPos);
+      } finally {
+        groupDepth--;
+      }
       if (!expr.ok) return expr;
       const afterWs = wsOrComment.parse(input, expr.pos);
       const close = char(")").parse(input, afterWs.ok ? afterWs.pos : expr.pos);
@@ -188,12 +221,20 @@ const prefixed: Parser<GrammarRule> = mkParser((input, pos) => {
   return suffixed.parse(input, pos);
 });
 
+/**
+ * Nesting depth of parenthesized groups currently being parsed. At top level a
+ * newline ends a rule's sequence (only `|` continuations may span lines); inside
+ * a group, newlines and comments are ordinary whitespace, so a group can span
+ * lines. Parsing is synchronous, so a module-level counter is safe.
+ */
+let groupDepth = 0;
+
 /** Sequence: prefixed+ */
 const sequence: Parser<GrammarRule> = mkParser((input, pos) => {
   const items: GrammarRule[] = [];
   let cur = pos;
   for (;;) {
-    const wsr = ws.parse(input, cur);
+    const wsr = (groupDepth > 0 ? wsOrComment : ws).parse(input, cur);
     const nextPos = wsr.ok ? wsr.pos : cur;
     // Stop at rule-terminating characters
     if (nextPos >= input.length) break;
@@ -372,32 +413,82 @@ function validateReferences(
 /**
  * Detect direct and indirect left recursion in the grammar.
  * Throws a descriptive error if found.
+ *
+ * A reference is in "left position" if it can be reached without consuming
+ * input. That includes every element of a sequence that follows only nullable
+ * elements (`"x"? a`, `b a` with `b = "x"*`), and the operand of `!` / `&`
+ * predicates, which run at the current position.
  */
 function detectLeftRecursion(rules: Map<string, GrammarRule>): void {
+  const nullable = computeNullable(rules);
   for (const [name] of rules) {
     const visited = new Set<string>();
-    isLeftRecursive(name, rules, visited, [name]);
+    isLeftRecursive(name, rules, nullable, visited, [name]);
+  }
+}
+
+/** Fixpoint: the set of rule names that can succeed without consuming input. */
+function computeNullable(rules: Map<string, GrammarRule>): Set<string> {
+  const nullable = new Set<string>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, rule] of rules) {
+      if (!nullable.has(name) && isNullable(rule, nullable)) {
+        nullable.add(name);
+        changed = true;
+      }
+    }
+  }
+  return nullable;
+}
+
+/** Can `rule` succeed without consuming input, given the nullable rule names so far? */
+function isNullable(rule: GrammarRule, nullable: Set<string>): boolean {
+  switch (rule.type) {
+    case "literal":
+      return rule.value.length === 0;
+    case "charRange":
+    case "any":
+      return false;
+    case "sequence":
+      return rule.rules.every((r) => isNullable(r, nullable));
+    case "alternation":
+      return rule.rules.some((r) => isNullable(r, nullable));
+    case "repetition":
+      return rule.min === 0 || isNullable(rule.rule, nullable);
+    case "optional":
+    case "lookahead":
+      return true;
+    case "negation":
+      return isNullable(rule.then, nullable);
+    case "reference":
+      return nullable.has(rule.name);
+    case "action":
+      return isNullable(rule.rule, nullable);
   }
 }
 
 function isLeftRecursive(
   ruleName: string,
   rules: Map<string, GrammarRule>,
+  nullable: Set<string>,
   visited: Set<string>,
   path: string[]
-): boolean {
+): void {
   const rule = rules.get(ruleName);
-  if (!rule) return false;
-  return firstRefsAre(rule, rules, visited, path);
+  if (!rule) return;
+  checkLeftRefs(rule, rules, nullable, visited, path);
 }
 
-/** Check if a rule can start with a reference that leads to left recursion. */
-function firstRefsAre(
+/** Walk every reference reachable in left position; throw on reaching `path[0]`. */
+function checkLeftRefs(
   rule: GrammarRule,
   rules: Map<string, GrammarRule>,
+  nullable: Set<string>,
   visited: Set<string>,
   path: string[]
-): boolean {
+): void {
   switch (rule.type) {
     case "reference": {
       if (rule.name === path[0]) {
@@ -407,24 +498,35 @@ function firstRefsAre(
             `Rewrite using iteration (e.g., 'a (op a)*' instead of 'a = a op a').`
         );
       }
-      if (visited.has(rule.name)) return false;
+      if (visited.has(rule.name)) return;
       visited.add(rule.name);
-      const target = rules.get(rule.name);
-      if (!target) return false;
-      return firstRefsAre(target, rules, visited, [...path, rule.name]);
+      isLeftRecursive(rule.name, rules, nullable, visited, [...path, rule.name]);
+      return;
     }
     case "sequence":
-      if (rule.rules.length > 0) {
-        return firstRefsAre(rule.rules[0], rules, visited, path);
+      for (const r of rule.rules) {
+        checkLeftRefs(r, rules, nullable, visited, path);
+        if (!isNullable(r, nullable)) break;
       }
-      return false;
+      return;
     case "alternation":
-      return rule.rules.some((r) => firstRefsAre(r, rules, new Set(visited), path));
+      for (const r of rule.rules) checkLeftRefs(r, rules, nullable, visited, path);
+      return;
     case "optional":
     case "repetition":
-      return firstRefsAre(rule.rule, rules, visited, path);
-    default:
-      return false;
+    case "lookahead":
+    case "action":
+      checkLeftRefs(rule.rule, rules, nullable, visited, path);
+      return;
+    case "negation":
+      // `!e then`: `e` runs at the current position, then `then` does too.
+      checkLeftRefs(rule.rule, rules, nullable, visited, path);
+      checkLeftRefs(rule.then, rules, nullable, visited, path);
+      return;
+    case "literal":
+    case "charRange":
+    case "any":
+      return;
   }
 }
 

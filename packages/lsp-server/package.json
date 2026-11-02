@@ -17,17 +17,22 @@
     "node": ">=20"
   },
   "type": "module",
-  "main": "./dist/server.cjs",
-  "module": "./dist/server.js",
-  "types": "./dist/server.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
     "typesugar-lsp": "./bin/typesugar-lsp"
   },
   "exports": {
     ".": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "require": "./dist/server.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "scripts": {
@@ -53,7 +58,7 @@
     "vscode-uri": "^3.1.0"
   },
   "peerDependencies": {
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0 <6.0.0"
   },
   "devDependencies": {
     "vitest": "^3.0.0"
@@ -62,5 +67,8 @@
     "dist",
     "bin"
   ],
-  "sideEffects": false
+  "sideEffects": [
+    "./dist/server*.js",
+    "./dist/server*.cjs"
+  ]
 }

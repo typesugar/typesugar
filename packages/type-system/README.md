@@ -13,17 +13,27 @@ npm install @typesugar/type-system
 ## Quick Start
 
 ```typescript
-import { type Newtype, wrap, unwrap, type Refined, refine } from "@typesugar/type-system";
+import { type Newtype, wrap, unwrap, Port } from "@typesugar/type-system";
+import type { Add, Lt } from "@typesugar/type-system";
 
 // Zero-cost branding
 type UserId = Newtype<number, "UserId">;
 const id = wrap<UserId>(42);
 
-// Compile-time validated refinements
-type Port = Refined<number, "Port">;
-const port = refine<Port>(8080); // ✓
-const bad = refine<Port>(-1); // ✗ Compile error
+// Validated refinements
+const port = Port.refine(8080); // ✓  Refined<number, "Port">
+const bad = Port.refine(-1); // ✗ throws at runtime
+
+// Type-level arithmetic (evaluated by the transformer)
+type Seven = Add<3, 4>; // 7
+type Yes = Lt<1, 2>; // true
 ```
+
+Every macro in this package (`wrap`, `packExists`, `@existential`, `@pure`,
+`@effect("io")`, `Add`/`Mul`/`Lt`/..., etc.) is scoped to
+`@typesugar/type-system`: it only fires when the name is imported from this
+package, so a same-named function or type from another library is never
+rewritten.
 
 ## Documentation
 

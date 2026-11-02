@@ -6,17 +6,31 @@
  * code — the runtime values, types, and pipeline live in the package's `.` entry.
  * See PEP-050.
  *
- * **Phase 1:** Pass through to runtime LazyPipeline construction.
- * The LazyPipeline class handles fusion at runtime (single-pass iteration,
- * no intermediate arrays).
+ * `lazy(...)` is a plain runtime function: the `LazyPipeline` class handles
+ * fusion at runtime (single-pass iteration, no intermediate arrays).
  *
- * **Phase 2 (implemented):** Analyze method chains at compile time and emit
- * fused single-pass loops directly — no LazyPipeline object at runtime.
- * Supports map, filter, and take as intermediate steps.
+ * `fused(chain)` analyzes a method chain at compile time and emits a single
+ * loop directly. Two receiver shapes are fused, each keeping its OWN callback
+ * semantics:
+ *
+ * - **Arrays / tuples** (checked with the type checker): `map`/`filter`
+ *   intermediates and `reduce`(with init)/`find`/`some`/`every`/`forEach`
+ *   terminals. Callbacks receive `(value, index, array)` exactly as the
+ *   Array methods pass them (each stage has its own index counter), are
+ *   evaluated once, and are called without a `this` receiver.
+ * - **`lazy(iterable)` roots**: every intermediate/terminal the fused loop
+ *   supports (`map`, `filter`, `take` / `toArray`, `reduce`, `sum`, `count`,
+ *   `find`, `some`, `every`, `forEach`, `first`, `last`), with LazyPipeline
+ *   semantics (callbacks receive the value only; `find`/`first`/`last` return
+ *   `null` when empty).
+ *
+ * Anything else (another receiver type, an unsupported step, an `await` /
+ * `yield` that the loop's IIFE would capture) is left unfused: the macro
+ * returns the chain expression itself, which has identical semantics.
  */
 
 import * as ts from "typescript";
-import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import { defineExpressionMacro, globalRegistry, isSyntheticNode } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
 
 // ============================================================================
@@ -28,23 +42,10 @@ interface ChainLink {
   args: readonly ts.Expression[];
 }
 
-/**
- * Intermediate step in the parsed pipeline chain.
- */
-type FusionStep =
+type IntermediateStep =
   | { type: "map"; fn: ts.Expression }
   | { type: "filter"; fn: ts.Expression }
-  | { type: "reduce"; fn: ts.Expression; init: ts.Expression }
-  | { type: "take"; count: ts.Expression }
-  | { type: "toArray" }
-  | { type: "sum" }
-  | { type: "count" }
-  | { type: "find"; fn: ts.Expression }
-  | { type: "some"; fn: ts.Expression }
-  | { type: "every"; fn: ts.Expression }
-  | { type: "forEach"; fn: ts.Expression }
-  | { type: "first" }
-  | { type: "last" };
+  | { type: "take"; count: ts.Expression };
 
 type TerminalStep =
   | { type: "reduce"; fn: ts.Expression; init: ts.Expression }
@@ -58,71 +59,16 @@ type TerminalStep =
   | { type: "first" }
   | { type: "last" };
 
-const TERMINAL_METHODS = new Set([
-  "reduce",
-  "toArray",
-  "sum",
-  "count",
-  "find",
-  "some",
-  "every",
-  "forEach",
-  "first",
-  "last",
-]);
+/** Steps that exist on `Array.prototype` (the rest exist only on LazyPipeline). */
+const ARRAY_INTERMEDIATES = new Set(["map", "filter"]);
+const ARRAY_TERMINALS = new Set(["reduce", "find", "some", "every", "forEach"]);
 
 /**
- * Parse a method chain from outermost call down to the root `fused(source)` call.
- * Returns the source expression, the intermediate steps, and the terminal step.
- */
-function parseChain(
-  callExpr: ts.CallExpression
-): { source: ts.Expression; intermediates: FusionStep[]; terminal: TerminalStep } | null {
-  const links: ChainLink[] = [];
-  let current: ts.Expression = callExpr;
-
-  // Walk the chain from outside in: each call is `expr.method(args)`
-  while (ts.isCallExpression(current)) {
-    const expr = current.expression;
-    if (ts.isPropertyAccessExpression(expr)) {
-      const method = expr.name.text;
-      links.push({ method, args: current.arguments });
-      current = expr.expression;
-    } else if (ts.isIdentifier(expr) && expr.text === "fused") {
-      // We've reached the root fused() call
-      if (current.arguments.length < 1) return null;
-      const innerExpr = current.arguments[0];
-      // The argument to fused() should be the chained expression
-      // But actually fused() wraps the whole chain, so the argument is the chain itself.
-      // Re-think: fused(arr.map(...).filter(...).reduce(...))
-      // In this case, `callExpr` IS the fused() call, and the argument is the chain.
-      break;
-    } else {
-      // Not a recognized chain shape
-      return null;
-    }
-  }
-
-  // If we broke out via the fused() identifier path, the argument to fused() is the chain
-  if (
-    ts.isCallExpression(current) &&
-    ts.isIdentifier(current.expression) &&
-    current.expression.text === "fused"
-  ) {
-    // fused(chainExpr) — parse the chain from the argument
-    if (current.arguments.length < 1) return null;
-    return parseArrayChain(current.arguments[0]);
-  }
-
-  return null;
-}
-
-/**
- * Parse a standard array method chain: arr.map(f).filter(g).reduce(h, init)
+ * Parse a standard method chain: src.map(f).filter(g).reduce(h, init)
  */
 function parseArrayChain(
   expr: ts.Expression
-): { source: ts.Expression; intermediates: FusionStep[]; terminal: TerminalStep } | null {
+): { source: ts.Expression; intermediates: IntermediateStep[]; terminal: TerminalStep } | null {
   const links: ChainLink[] = [];
   let current: ts.Expression = expr;
 
@@ -130,7 +76,7 @@ function parseArrayChain(
   while (ts.isCallExpression(current)) {
     const callExpr = current;
     const inner = callExpr.expression;
-    if (ts.isPropertyAccessExpression(inner)) {
+    if (ts.isPropertyAccessExpression(inner) && !callExpr.questionDotToken) {
       links.push({ method: inner.name.text, args: callExpr.arguments });
       current = inner.expression;
     } else {
@@ -150,7 +96,7 @@ function parseArrayChain(
   if (!terminal) return null;
 
   // Parse intermediate steps (everything before the terminal)
-  const intermediates: FusionStep[] = [];
+  const intermediates: IntermediateStep[] = [];
   for (let i = 0; i < links.length - 1; i++) {
     const step = parseIntermediateLink(links[i]);
     if (!step) return null;
@@ -161,47 +107,39 @@ function parseArrayChain(
 }
 
 function parseTerminalLink(link: ChainLink): TerminalStep | null {
+  const n = link.args.length;
   switch (link.method) {
     case "reduce":
-      if (link.args.length < 2) return null;
+      // reduce without an initial value has different semantics; not fused.
+      if (n !== 2) return null;
       return { type: "reduce", fn: link.args[0], init: link.args[1] };
     case "toArray":
-      return { type: "toArray" };
     case "sum":
-      return { type: "sum" };
     case "count":
-      return { type: "count" };
-    case "find":
-      if (link.args.length < 1) return null;
-      return { type: "find", fn: link.args[0] };
-    case "some":
-      if (link.args.length < 1) return null;
-      return { type: "some", fn: link.args[0] };
-    case "every":
-      if (link.args.length < 1) return null;
-      return { type: "every", fn: link.args[0] };
-    case "forEach":
-      if (link.args.length < 1) return null;
-      return { type: "forEach", fn: link.args[0] };
     case "first":
-      return { type: "first" };
     case "last":
-      return { type: "last" };
+      if (n !== 0) return null;
+      return { type: link.method } as TerminalStep;
+    case "find":
+    case "some":
+    case "every":
+    case "forEach":
+      // A thisArg (2nd argument) changes callback binding; not fused.
+      if (n !== 1) return null;
+      return { type: link.method, fn: link.args[0] } as TerminalStep;
     default:
       return null;
   }
 }
 
-function parseIntermediateLink(link: ChainLink): FusionStep | null {
+function parseIntermediateLink(link: ChainLink): IntermediateStep | null {
+  if (link.args.length !== 1) return null;
   switch (link.method) {
     case "map":
-      if (link.args.length < 1) return null;
       return { type: "map", fn: link.args[0] };
     case "filter":
-      if (link.args.length < 1) return null;
       return { type: "filter", fn: link.args[0] };
     case "take":
-      if (link.args.length < 1) return null;
       return { type: "take", count: link.args[0] };
     default:
       return null;
@@ -209,415 +147,420 @@ function parseIntermediateLink(link: ChainLink): FusionStep | null {
 }
 
 // ============================================================================
-// Code Generation — Emit fused for-loop
+// Analysis helpers
 // ============================================================================
 
-/** Counter for generating unique variable names */
-let fusionCounter = 0;
+function skipParens(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return e;
+}
 
-/** Reset counter (for testing) */
-export function resetFusionCounter(): void {
-  fusionCounter = 0;
+function isFunctionLiteral(e: ts.Expression): e is ts.ArrowFunction | ts.FunctionExpression {
+  const inner = skipParens(e);
+  return ts.isArrowFunction(inner) || ts.isFunctionExpression(inner);
 }
 
 /**
- * Generate a fused for-of loop from a parsed pipeline.
+ * Find an `await` / `yield` that would end up inside the loop's non-async,
+ * non-generator arrow IIFE (i.e. one not nested in its own function).
+ */
+function findSuspension(node: ts.Node): ts.AwaitExpression | ts.YieldExpression | undefined {
+  let found: ts.AwaitExpression | ts.YieldExpression | undefined;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isAwaitExpression(n) || ts.isYieldExpression(n)) {
+      found = n;
+      return;
+    }
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) return;
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/**
+ * The most arguments a callback can observe: its declared parameter count
+ * (Infinity with a rest parameter or when it cannot be determined).
+ */
+function maxObservedArgs(ctx: MacroContext, fn: ts.Expression): number {
+  const inner = skipParens(fn);
+  const countParams = (params: readonly ts.ParameterDeclaration[]) =>
+    params.some((p) => p.dotDotDotToken) ? Infinity : params.length;
+  if (ts.isArrowFunction(inner) || ts.isFunctionExpression(inner)) {
+    return countParams(inner.parameters);
+  }
+  // A non-literal callback: ask the checker for its call signatures. A node
+  // without a source position cannot be given to the checker (CLAUDE.md);
+  // assume the worst, which only disables fusion or passes extra arguments.
+  if (isSyntheticNode(inner)) return Infinity;
+  try {
+    const sigs = ctx.typeChecker.getTypeAtLocation(inner).getCallSignatures();
+    if (sigs.length === 0) return Infinity;
+    let max = 0;
+    for (const sig of sigs) {
+      const decl = sig.getDeclaration() as ts.SignatureDeclaration | undefined;
+      if (!decl || !decl.parameters) return Infinity;
+      max = Math.max(max, countParams(decl.parameters));
+    }
+    return max;
+  } catch {
+    return Infinity;
+  }
+}
+
+type ReceiverKind =
+  | { kind: "array"; iterable: ts.Expression }
+  | { kind: "lazy"; iterable: ts.Expression }
+  | { kind: "unknown"; reason?: string };
+
+function classifyReceiver(ctx: MacroContext, source: ts.Expression): ReceiverKind {
+  const src = skipParens(source);
+  if (isSyntheticNode(src)) {
+    return {
+      kind: "unknown",
+      reason: "the receiver is macro-generated, so its type cannot be checked",
+    };
+  }
+  let type: ts.Type;
+  try {
+    type = ctx.typeChecker.getTypeAtLocation(src);
+  } catch (e) {
+    return { kind: "unknown", reason: `type-checking the receiver failed (${String(e)})` };
+  }
+
+  // lazy(iterable) root: iterate the iterable directly.
+  if (
+    ts.isCallExpression(src) &&
+    ts.isIdentifier(src.expression) &&
+    src.expression.text === "lazy" &&
+    src.arguments.length === 1 &&
+    !ts.isSpreadElement(src.arguments[0]) &&
+    type.getSymbol()?.getName() === "LazyPipeline"
+  ) {
+    return { kind: "lazy", iterable: src.arguments[0] };
+  }
+
+  const checker = ctx.typeChecker;
+  const nonNull = checker.getNonNullableType(type);
+  if (nonNull === type && (checker.isArrayType(type) || checker.isTupleType(type))) {
+    return { kind: "array", iterable: source };
+  }
+  return { kind: "unknown" };
+}
+
+// ============================================================================
+// Code Generation — Emit fused loop
+// ============================================================================
+
+/**
+ * @deprecated Generated names now come from `ctx.generateUniqueName`, which is
+ * per-file and reproducible, so there is no module-global counter to reset.
+ */
+export function resetFusionCounter(): void {}
+
+interface Plan {
+  mode: "array" | "lazy";
+  iterable: ts.Expression;
+  intermediates: IntermediateStep[];
+  terminal: TerminalStep;
+}
+
+/**
+ * Generate a fused loop from a parsed pipeline, or `undefined` if it cannot be
+ * fused without changing semantics.
  *
- * Example: map(x => x * 2).filter(x => x > 5).reduce((a, b) => a + b, 0)
- * Becomes:
+ * Example (array): arr.map((x, i) => x * i).filter(x => x > 5).reduce((a, b) => a + b, 0)
  *   (() => {
+ *     let __i0 = 0;
  *     let __acc = 0;
- *     for (const __el of source) {
- *       const __v0 = (x => x * 2)(__el);
- *       if (!((x => x > 5)(__v0))) continue;
- *       __acc = ((a, b) => a + b)(__acc, __v0);
+ *     for (const __el of arr) {
+ *       const __v = ((x, i) => x * i)(__el, __i0++);
+ *       if (!((x => x > 5)(__v))) continue;
+ *       __acc = ((a, b) => a + b)(__acc, __v);
  *     }
  *     return __acc;
  *   })()
  */
-function emitFusedLoop(
-  source: ts.Expression,
-  intermediates: FusionStep[],
-  terminal: TerminalStep
-): ts.Expression {
+function emitFusedLoop(ctx: MacroContext, plan: Plan): ts.Expression | undefined {
   const f = ts.factory;
-  const id = fusionCounter++;
-  const elName = `__el${id}`;
-  const elIdent = f.createIdentifier(elName);
+  const { mode, intermediates, terminal } = plan;
+  // generateUniqueName is per-file (reproducible); inside a hygiene scope it
+  // maps one prefix to one name, so each name in this expansion gets its own
+  // local suffix.
+  let nameIdx = 0;
+  const name = (p: string) => ctx.generateUniqueName(`fusion_${p}${nameIdx++}`);
 
-  const bodyStatements: ts.Statement[] = [];
+  const preamble: ts.Statement[] = [];
+  const declare = (id: ts.Identifier, init: ts.Expression, flags: ts.NodeFlags) =>
+    preamble.push(
+      f.createVariableStatement(
+        undefined,
+        f.createVariableDeclarationList(
+          [f.createVariableDeclaration(id, undefined, undefined, init)],
+          flags
+        )
+      )
+    );
+
+  // Array mode: callbacks may observe the source array (only meaningful for
+  // the first stage — later stages would need an intermediate array that a
+  // fused loop never builds, so those refuse to fuse).
+  let iterable = plan.iterable;
+  let srcIdent: ts.Identifier | undefined;
+  const needsSourceArray = (
+    stage: number,
+    fn: ts.Expression,
+    valueArgIdx: number
+  ): boolean | "refuse" => {
+    if (mode !== "array") return false;
+    if (maxObservedArgs(ctx, fn) < valueArgIdx + 3) return false;
+    return stage === 0 ? true : "refuse";
+  };
+
+  // Pre-scan: decide whether the source array must be named, or refuse.
+  const callbackStages: { fn: ts.Expression; stage: number; valueArgIdx: number }[] = [];
+  intermediates.forEach((s, i) => {
+    if (s.type !== "take") callbackStages.push({ fn: s.fn, stage: i, valueArgIdx: 0 });
+  });
+  if ("fn" in terminal) {
+    callbackStages.push({
+      fn: terminal.fn,
+      stage: intermediates.length,
+      valueArgIdx: terminal.type === "reduce" ? 1 : 0,
+    });
+  }
+  for (const c of callbackStages) {
+    const need = needsSourceArray(c.stage, c.fn, c.valueArgIdx);
+    if (need === "refuse") return undefined;
+    if (need && !srcIdent) {
+      srcIdent = name("src");
+      declare(srcIdent, iterable, ts.NodeFlags.Const);
+      iterable = srcIdent;
+    }
+  }
+
+  /**
+   * Build a call to a stage callback. Function literals are inlined (they are
+   * side-effect free to evaluate and have no receiver); any other callback
+   * expression is evaluated ONCE into a const, then called without `this`.
+   */
+  const callStage = (
+    fn: ts.Expression,
+    leading: ts.Expression[],
+    value: ts.Expression,
+    stage: number
+  ): ts.Expression => {
+    let callee: ts.Expression;
+    if (isFunctionLiteral(fn)) {
+      callee = f.createParenthesizedExpression(skipParens(fn));
+    } else {
+      const fnIdent = name("fn");
+      declare(fnIdent, fn, ts.NodeFlags.Const);
+      callee = fnIdent;
+    }
+    const args: ts.Expression[] = [...leading, value];
+    if (mode === "array") {
+      const observed = maxObservedArgs(ctx, fn);
+      const valueArgIdx = leading.length;
+      if (observed > valueArgIdx + 1) {
+        const idx = name("i");
+        declare(idx, f.createNumericLiteral(0), ts.NodeFlags.Let);
+        args.push(f.createPostfixUnaryExpression(idx, ts.SyntaxKind.PlusPlusToken));
+      }
+      if (observed > valueArgIdx + 2 && stage === 0 && srcIdent) {
+        args.push(srcIdent);
+      }
+    }
+    return f.createCallExpression(callee, undefined, args);
+  };
+
+  const elIdent = name("el");
+  const takeCounters: ts.Identifier[] = [];
+  const hasTake = intermediates.some((s) => s.type === "take");
+  const bodyLabel = hasTake ? name("body") : undefined;
+  // `continue` skips the rest of this element; with a take present we break
+  // out of the labeled body instead so the post-element take check still runs.
+  const skipElement = (): ts.Statement =>
+    bodyLabel ? f.createBreakStatement(bodyLabel) : f.createContinueStatement();
+
+  const body: ts.Statement[] = [];
   let currentValue: ts.Expression = elIdent;
 
-  // Track variable names for intermediate values
-  let varCounter = 0;
-
-  // Track take counters for preamble generation
-  const takeCounters: { name: string; ident: ts.Identifier; count: ts.Expression }[] = [];
-
-  // Generate intermediate steps (map/filter/take)
-  for (const step of intermediates) {
+  intermediates.forEach((step, stage) => {
     if (step.type === "map") {
-      const varName = `__v${id}_${varCounter++}`;
-      const varIdent = f.createIdentifier(varName);
-      // const __v0 = fn(__el)
-      bodyStatements.push(
+      const v = name("v");
+      const call = callStage(step.fn, [], currentValue, stage);
+      body.push(
         f.createVariableStatement(
           undefined,
           f.createVariableDeclarationList(
-            [
-              f.createVariableDeclaration(
-                varIdent,
-                undefined,
-                undefined,
-                f.createCallExpression(step.fn, undefined, [currentValue])
-              ),
-            ],
+            [f.createVariableDeclaration(v, undefined, undefined, call)],
             ts.NodeFlags.Const
           )
         )
       );
-      currentValue = varIdent;
+      currentValue = v;
     } else if (step.type === "filter") {
-      // if (!predicate(current)) continue;
-      bodyStatements.push(
+      const call = callStage(step.fn, [], currentValue, stage);
+      body.push(
         f.createIfStatement(
           f.createPrefixUnaryExpression(
             ts.SyntaxKind.ExclamationToken,
-            f.createParenthesizedExpression(
-              f.createCallExpression(step.fn, undefined, [currentValue])
-            )
+            f.createParenthesizedExpression(call)
           ),
-          f.createContinueStatement()
+          skipElement()
         )
       );
-    } else if (step.type === "take") {
-      // Intermediate take: if (__take_N <= 0) break; __take_N--;
-      const takeName = `__take${id}_${varCounter++}`;
-      const takeIdent = f.createIdentifier(takeName);
-      takeCounters.push({ name: takeName, ident: takeIdent, count: step.count });
-      // if (__take_N <= 0) break;
-      bodyStatements.push(
-        f.createIfStatement(
-          f.createBinaryExpression(
-            takeIdent,
-            ts.SyntaxKind.LessThanEqualsToken,
-            f.createNumericLiteral(0)
-          ),
-          f.createBreakStatement()
-        )
-      );
-      // __take_N--;
-      bodyStatements.push(
+    } else {
+      // take(n): count is evaluated once up front (LazyPipeline evaluates it
+      // when the chain is built). The loop is skipped entirely when a count
+      // is already <= 0, and after each element we stop as soon as any count
+      // reaches 0 — so no extra source element is pulled.
+      const t = name("take");
+      declare(t, step.count, ts.NodeFlags.Let);
+      takeCounters.push(t);
+      body.push(
         f.createExpressionStatement(
-          f.createPostfixUnaryExpression(takeIdent, ts.SyntaxKind.MinusMinusToken)
+          f.createPostfixUnaryExpression(t, ts.SyntaxKind.MinusMinusToken)
         )
       );
     }
-  }
+  });
 
-  // Build preamble statements for take counters
-  const takePreamble: ts.Statement[] = takeCounters.map(({ ident, count }) =>
-    f.createVariableStatement(
-      undefined,
-      f.createVariableDeclarationList(
-        [f.createVariableDeclaration(ident, undefined, undefined, count)],
-        ts.NodeFlags.Let
-      )
-    )
-  );
-
-  // Generate terminal operation
-  return emitTerminal(source, bodyStatements, currentValue, terminal, id, elIdent, takePreamble);
-}
-
-function emitTerminal(
-  source: ts.Expression,
-  bodyStatements: ts.Statement[],
-  currentValue: ts.Expression,
-  terminal: TerminalStep,
-  id: number,
-  elIdent: ts.Identifier,
-  extraPreamble: ts.Statement[] = []
-): ts.Expression {
-  const f = ts.factory;
+  const terminalStage = intermediates.length;
+  const emptyResult = (): ts.Expression => (mode === "array" ? f.createVoidZero() : f.createNull());
+  let postLoop: ts.Statement | undefined;
 
   switch (terminal.type) {
     case "reduce": {
-      const accName = `__acc${id}`;
-      const accIdent = f.createIdentifier(accName);
-      // __acc = fn(__acc, currentValue)
-      bodyStatements.push(
-        f.createExpressionStatement(
-          f.createBinaryExpression(
-            accIdent,
-            ts.SyntaxKind.EqualsToken,
-            f.createCallExpression(terminal.fn, undefined, [accIdent, currentValue])
-          )
-        )
+      const acc = name("acc");
+      // Evaluate the callback (hoisted if needed) before the init, matching
+      // left-to-right argument order.
+      const call = callStage(terminal.fn, [acc], currentValue, terminalStage);
+      declare(acc, terminal.init, ts.NodeFlags.Let);
+      body.push(
+        f.createExpressionStatement(f.createBinaryExpression(acc, ts.SyntaxKind.EqualsToken, call))
       );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [
-          ...extraPreamble,
-          // let __acc = init;
-          f.createVariableStatement(
-            undefined,
-            f.createVariableDeclarationList(
-              [f.createVariableDeclaration(accIdent, undefined, undefined, terminal.init)],
-              ts.NodeFlags.Let
-            )
-          ),
-        ],
-        f.createReturnStatement(accIdent)
-      );
+      postLoop = f.createReturnStatement(acc);
+      break;
     }
-
     case "toArray": {
-      const arrName = `__arr${id}`;
-      const arrIdent = f.createIdentifier(arrName);
-      // __arr.push(currentValue)
-      bodyStatements.push(
+      const arr = name("arr");
+      declare(arr, f.createArrayLiteralExpression([]), ts.NodeFlags.Const);
+      body.push(
         f.createExpressionStatement(
-          f.createCallExpression(f.createPropertyAccessExpression(arrIdent, "push"), undefined, [
+          f.createCallExpression(f.createPropertyAccessExpression(arr, "push"), undefined, [
             currentValue,
           ])
         )
       );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [
-          ...extraPreamble,
-          // const __arr = [];
-          f.createVariableStatement(
-            undefined,
-            f.createVariableDeclarationList(
-              [
-                f.createVariableDeclaration(
-                  arrIdent,
-                  undefined,
-                  undefined,
-                  f.createArrayLiteralExpression([])
-                ),
-              ],
-              ts.NodeFlags.Const
-            )
-          ),
-        ],
-        f.createReturnStatement(arrIdent)
-      );
+      postLoop = f.createReturnStatement(arr);
+      break;
     }
-
-    case "sum": {
-      const sumName = `__sum${id}`;
-      const sumIdent = f.createIdentifier(sumName);
-      // __sum += currentValue
-      bodyStatements.push(
-        f.createExpressionStatement(
-          f.createBinaryExpression(sumIdent, ts.SyntaxKind.PlusEqualsToken, currentValue)
-        )
-      );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [
-          ...extraPreamble,
-          f.createVariableStatement(
-            undefined,
-            f.createVariableDeclarationList(
-              [
-                f.createVariableDeclaration(
-                  sumIdent,
-                  undefined,
-                  undefined,
-                  f.createNumericLiteral(0)
-                ),
-              ],
-              ts.NodeFlags.Let
-            )
-          ),
-        ],
-        f.createReturnStatement(sumIdent)
-      );
-    }
-
+    case "sum":
     case "count": {
-      const countName = `__count${id}`;
-      const countIdent = f.createIdentifier(countName);
-      // __count++
-      bodyStatements.push(
+      const total = name(terminal.type);
+      declare(total, f.createNumericLiteral(0), ts.NodeFlags.Let);
+      body.push(
         f.createExpressionStatement(
-          f.createPostfixUnaryExpression(countIdent, ts.SyntaxKind.PlusPlusToken)
+          terminal.type === "sum"
+            ? f.createBinaryExpression(total, ts.SyntaxKind.PlusEqualsToken, currentValue)
+            : f.createPostfixUnaryExpression(total, ts.SyntaxKind.PlusPlusToken)
         )
       );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [
-          ...extraPreamble,
-          f.createVariableStatement(
-            undefined,
-            f.createVariableDeclarationList(
-              [
-                f.createVariableDeclaration(
-                  countIdent,
-                  undefined,
-                  undefined,
-                  f.createNumericLiteral(0)
-                ),
-              ],
-              ts.NodeFlags.Let
-            )
-          ),
-        ],
-        f.createReturnStatement(countIdent)
-      );
+      postLoop = f.createReturnStatement(total);
+      break;
     }
-
     case "find": {
-      // if (predicate(currentValue)) return currentValue;
-      bodyStatements.push(
-        f.createIfStatement(
-          f.createCallExpression(terminal.fn, undefined, [currentValue]),
-          f.createReturnStatement(currentValue)
-        )
-      );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [...extraPreamble],
-        f.createReturnStatement(f.createNull())
-      );
+      const call = callStage(terminal.fn, [], currentValue, terminalStage);
+      body.push(f.createIfStatement(call, f.createReturnStatement(currentValue)));
+      postLoop = f.createReturnStatement(emptyResult());
+      break;
     }
-
     case "some": {
-      // if (predicate(currentValue)) return true;
-      bodyStatements.push(
-        f.createIfStatement(
-          f.createCallExpression(terminal.fn, undefined, [currentValue]),
-          f.createReturnStatement(f.createTrue())
-        )
-      );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [...extraPreamble],
-        f.createReturnStatement(f.createFalse())
-      );
+      const call = callStage(terminal.fn, [], currentValue, terminalStage);
+      body.push(f.createIfStatement(call, f.createReturnStatement(f.createTrue())));
+      postLoop = f.createReturnStatement(f.createFalse());
+      break;
     }
-
     case "every": {
-      // if (!predicate(currentValue)) return false;
-      bodyStatements.push(
+      const call = callStage(terminal.fn, [], currentValue, terminalStage);
+      body.push(
         f.createIfStatement(
           f.createPrefixUnaryExpression(
             ts.SyntaxKind.ExclamationToken,
-            f.createParenthesizedExpression(
-              f.createCallExpression(terminal.fn, undefined, [currentValue])
-            )
+            f.createParenthesizedExpression(call)
           ),
           f.createReturnStatement(f.createFalse())
         )
       );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [...extraPreamble],
-        f.createReturnStatement(f.createTrue())
-      );
+      postLoop = f.createReturnStatement(f.createTrue());
+      break;
     }
-
     case "forEach": {
-      // fn(currentValue)
-      bodyStatements.push(
-        f.createExpressionStatement(f.createCallExpression(terminal.fn, undefined, [currentValue]))
-      );
-      return wrapInIIFE(source, elIdent, bodyStatements, [...extraPreamble]);
+      const call = callStage(terminal.fn, [], currentValue, terminalStage);
+      body.push(f.createExpressionStatement(call));
+      break;
     }
-
     case "first": {
-      // return currentValue; (immediately, on first element)
-      bodyStatements.push(f.createReturnStatement(currentValue));
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [...extraPreamble],
-        f.createReturnStatement(f.createNull())
-      );
+      body.push(f.createReturnStatement(currentValue));
+      postLoop = f.createReturnStatement(emptyResult());
+      break;
     }
-
     case "last": {
-      const lastName = `__last${id}`;
-      const lastIdent = f.createIdentifier(lastName);
-      // __last = currentValue
-      bodyStatements.push(
+      const last = name("last");
+      declare(last, f.createNull(), ts.NodeFlags.Let);
+      body.push(
         f.createExpressionStatement(
-          f.createBinaryExpression(lastIdent, ts.SyntaxKind.EqualsToken, currentValue)
+          f.createBinaryExpression(last, ts.SyntaxKind.EqualsToken, currentValue)
         )
       );
-      return wrapInIIFE(
-        source,
-        elIdent,
-        bodyStatements,
-        [
-          ...extraPreamble,
-          f.createVariableStatement(
-            undefined,
-            f.createVariableDeclarationList(
-              [f.createVariableDeclaration(lastIdent, undefined, undefined, f.createNull())],
-              ts.NodeFlags.Let
-            )
-          ),
-        ],
-        f.createReturnStatement(lastIdent)
-      );
+      postLoop = f.createReturnStatement(last);
+      break;
     }
   }
-}
 
-/**
- * Wrap body in: (() => { ...preamble; for (const el of source) { ...body }; ...postamble })()
- */
-function wrapInIIFE(
-  source: ts.Expression,
-  elIdent: ts.Identifier,
-  loopBody: ts.Statement[],
-  preamble: ts.Statement[],
-  postLoop?: ts.Statement
-): ts.Expression {
-  const f = ts.factory;
-
-  const forOfStmt = f.createForOfStatement(
-    undefined,
-    f.createVariableDeclarationList([f.createVariableDeclaration(elIdent)], ts.NodeFlags.Const),
-    source,
-    f.createBlock(loopBody, true)
-  );
-
-  const allStatements: ts.Statement[] = [...preamble, forOfStmt];
-  if (postLoop) {
-    allStatements.push(postLoop);
+  // Loop body, with the take bookkeeping when needed.
+  let loopBody: ts.Statement[] = body;
+  if (bodyLabel) {
+    const anyExhausted = takeCounters
+      .map((t) =>
+        f.createBinaryExpression(t, ts.SyntaxKind.LessThanEqualsToken, f.createNumericLiteral(0))
+      )
+      .reduce((a, b) => f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b));
+    loopBody = [
+      f.createLabeledStatement(bodyLabel, f.createBlock(body, true)),
+      f.createIfStatement(anyExhausted, f.createBreakStatement()),
+    ];
   }
 
-  const arrowBody = f.createBlock(allStatements, true);
+  let loop: ts.Statement = f.createForOfStatement(
+    undefined,
+    f.createVariableDeclarationList([f.createVariableDeclaration(elIdent)], ts.NodeFlags.Const),
+    iterable,
+    f.createBlock(loopBody, true)
+  );
+  if (takeCounters.length > 0) {
+    const allPositive = takeCounters
+      .map((t) =>
+        f.createBinaryExpression(t, ts.SyntaxKind.GreaterThanToken, f.createNumericLiteral(0))
+      )
+      .reduce((a, b) => f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b));
+    loop = f.createIfStatement(allPositive, loop);
+  }
+
+  const statements: ts.Statement[] = [...preamble, loop];
+  if (postLoop) statements.push(postLoop);
+
   const arrowFn = f.createArrowFunction(
     undefined,
     undefined,
     [],
     undefined,
     f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    arrowBody
+    f.createBlock(statements, true)
   );
-
   return f.createCallExpression(f.createParenthesizedExpression(arrowFn), undefined, []);
 }
 
@@ -628,9 +571,11 @@ function wrapInIIFE(
 /**
  * The `lazy` expression macro.
  *
- * Phase 1 behavior: pass-through (the runtime LazyPipeline handles fusion).
- * Phase 2 will analyze `.filter().map().reduce()` chains at compile time
- * and emit a fused `for` loop with no intermediate allocations.
+ * Kept for API compatibility but NOT registered: it was a pass-through, and
+ * registering an identity macro made the transformer drop the user's
+ * `import { lazy }` (it removes imports that resolve to macros), so every
+ * `lazy(...)` call outside `fused()` became a ReferenceError at runtime.
+ * `lazy` is an ordinary runtime function.
  */
 export const lazyMacro = defineExpressionMacro({
   name: "lazy",
@@ -642,10 +587,7 @@ export const lazyMacro = defineExpressionMacro({
 });
 
 /**
- * The `fused` expression macro — compile-time loop fusion (Phase 2).
- *
- * Analyzes a chain of array operations (map, filter, reduce, etc.)
- * and fuses them into a single for-of loop at compile time.
+ * The `fused` expression macro — compile-time loop fusion.
  *
  * @example
  * ```typescript
@@ -654,37 +596,70 @@ export const lazyMacro = defineExpressionMacro({
  *
  * // Output (fused into single loop):
  * const result = (() => {
- *   let __acc0 = 0;
- *   for (const __el0 of arr) {
- *     const __v0_0 = (x => x * 2)(__el0);
- *     if (!((x => x > 5)(__v0_0))) continue;
- *     __acc0 = ((a, b) => a + b)(__acc0, __v0_0);
+ *   let __acc = 0;
+ *   for (const __el of arr) {
+ *     const __v = (x => x * 2)(__el);
+ *     if (!((x => x > 5)(__v))) continue;
+ *     __acc = ((a, b) => a + b)(__acc, __v);
  *   }
- *   return __acc0;
+ *   return __acc;
  * })();
  * ```
+ *
+ * When a chain cannot be fused without changing its meaning, the chain is
+ * returned unchanged (equivalent to the runtime `fused(x) => x`).
  */
 export const fusedMacro = defineExpressionMacro({
   name: "fused",
   module: "@typesugar/fusion",
   description: "Fuse element-wise array/vector operations into a single loop",
-  expand(_ctx: MacroContext, callExpr: ts.CallExpression, args: readonly ts.Expression[]) {
-    // If no argument, pass through
-    if (args.length < 1) return callExpr;
+  expand(ctx: MacroContext, callExpr: ts.CallExpression, args: readonly ts.Expression[]) {
+    // fused() with no / extra arguments: leave the call to the runtime identity.
+    if (args.length !== 1) return callExpr;
+    const chainExpr = args[0];
 
-    const chain = parseArrayChain(args[0]);
-    if (!chain) {
-      // Could not parse the chain — fall back to pass-through
-      return callExpr;
+    const chain = parseArrayChain(chainExpr);
+    if (!chain) return chainExpr;
+
+    // The fused loop runs inside a plain arrow IIFE. An await/yield in the
+    // source, a callback expression, a take count or the reduce init would
+    // be moved into it and become a SyntaxError — leave such chains unfused.
+    const suspension = findSuspension(chainExpr);
+    if (suspension) {
+      ctx.reportWarning(
+        suspension,
+        `fused(): chain contains '${ts.isAwaitExpression(suspension) ? "await" : "yield"}' ` +
+          `outside a callback, which cannot be moved into the fused loop; left unfused`
+      );
+      return chainExpr;
     }
 
-    return emitFusedLoop(chain.source, chain.intermediates, chain.terminal);
+    const receiver = classifyReceiver(ctx, chain.source);
+    if (receiver.kind === "unknown") {
+      if (receiver.reason) {
+        ctx.reportWarning(chain.source, `fused(): ${receiver.reason}; left unfused`);
+      }
+      return chainExpr;
+    }
+    if (receiver.kind === "array") {
+      const ok =
+        chain.intermediates.every((s) => ARRAY_INTERMEDIATES.has(s.type)) &&
+        ARRAY_TERMINALS.has(chain.terminal.type);
+      if (!ok) return chainExpr;
+    }
+
+    const fusedLoop = emitFusedLoop(ctx, {
+      mode: receiver.kind,
+      iterable: receiver.iterable,
+      intermediates: chain.intermediates,
+      terminal: chain.terminal,
+    });
+    return fusedLoop ?? chainExpr;
   },
 });
 
 /** Register fusion macros with the global registry. Called on package import. */
 export function register(): void {
-  globalRegistry.register(lazyMacro);
   globalRegistry.register(fusedMacro);
 }
 

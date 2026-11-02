@@ -20,8 +20,8 @@
  *
  * @contract
  * function add(a: Positive, b: Positive): number {
- *   requires: { a > 0 && b > 0 } // ← Proven by type, eliminated at compile-time
- *   ensures: { result > 0 }      // ← Also provable: sum of positives is positive
+ *   requires: { a > 0 && b > 0 } // ← Proven by type (proveAtCompileTime), check elided
+ *   ensures: { result > 0 }      // ← Runtime check: no facts are known about `result`
  *   return a + b;
  * }
  * ```
@@ -497,7 +497,8 @@ registerBuiltinDynamicPredicates();
 registerValidationBridge();
 
 // Log registration in development
-if (process.env.NODE_ENV === "development") {
+// `process` does not exist in browsers; this module runs at import time.
+if (typeof process !== "undefined" && process.env?.NODE_ENV === "development") {
   const subtypingRules = getAllSubtypingDeclarations();
   const decidabilityInfo = getAllDecidabilityInfo();
   console.log(

@@ -184,7 +184,7 @@ When the transformer encounters `value.method()`:
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
 4. **Extension functions in scope**: Imported functions with matching first parameter
-5. **Typeclass methods**: Auto-derived via `summon()`
+5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.
 

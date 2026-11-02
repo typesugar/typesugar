@@ -87,13 +87,14 @@ describe("ESLint Plugin Configuration Edge Cases", () => {
       expect(output).toContain("/* @derive(Eq, Clone, Debug) */");
     });
 
-    it("should handle decorator-like patterns in strings (false positive risk)", () => {
-      // This is a known limitation - regex can't distinguish context
+    // Tooling #16: the regex preprocessing was replaced by a parser (AST)
+    // pass, so a decorator-like string literal is no longer commented out.
+    it("leaves decorator-like patterns in strings untouched", () => {
       const code = `const x = "@derive(Eq)"; // string containing decorator`;
       const result = processor.preprocess!(code, "test.ts");
       const output = result[0] as string;
-      // The regex will incorrectly comment this out
-      expect(output).toContain("/*");
+      expect(output).toContain(`const x = "@derive(Eq)";`);
+      expect(output).not.toContain("/*");
     });
 
     it("should handle nested parentheses in decorator args", () => {

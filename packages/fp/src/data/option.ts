@@ -35,8 +35,10 @@ import type { Semigroup, Monoid } from "../typeclasses/semigroup.js";
  *
  * @example
  * ```ts
- * // Without Defined, this would cause type collapse
- * type BadNested = Option<null>;  // Compile error
+ * // Without Defined, the type silently collapses. This is NOT a compile
+ * // error: Option<null> is just `null`, so Some(null) and None are the
+ * // same value and every Option helper treats Some(null) as None.
+ * type BadNested = Option<null>;  // = null
  *
  * // With Defined, it works correctly
  * type GoodNested = Option<Defined<null>>;  // { value: null } | null

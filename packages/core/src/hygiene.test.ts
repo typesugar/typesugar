@@ -46,10 +46,18 @@ describe("FileBindingCache.ensureImport", () => {
     );
   });
 
-  it("returns a bare reference with no import for a known global", () => {
+  it("imports a module export even when its name matches a known global (core #27)", () => {
+    // ensureImport is always asked for a MODULE's export; resolving it to the
+    // runtime global would reference the wrong value.
     const cache = cacheFor(``);
     const ref = cache.ensureImport("Error", "@typesugar/std");
     expect(ref.text).toBe("Error");
+    expect(printImports(cache)).toEqual([`import { Error } from "@typesugar/std";`]);
+  });
+
+  it("safeRef returns a known global bare when the file does not rebind it", () => {
+    const cache = cacheFor(``);
+    expect(cache.safeRef("Error", "@typesugar/std").text).toBe("Error");
     expect(cache.getPendingImports()).toHaveLength(0);
   });
 

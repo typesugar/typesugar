@@ -3,6 +3,15 @@
  *
  * API mirrors native Map<K, V> for drop-in usage.
  * Auto-specialization compiles HashMap<string, V> to the equivalent of native Map<string, V>.
+ *
+ * Semantics shared with native Map:
+ * - NaN is one key: it is treated as equal to itself even though `Eq<number>`
+ *   (`===` semantics) says `NaN !== NaN`. The supplied `Hash` must give NaN a
+ *   single hash (std's `hashNumber` does).
+ * - Deleting entries while iterating is safe: entries not yet visited are still
+ *   visited unless they were deleted first.
+ *
+ * Differences: iteration follows hash-bucket order, not insertion order.
  */
 
 import type { Eq, Hash } from "@typesugar/std";
@@ -27,9 +36,15 @@ export class HashMap<K, V> {
     return this._size;
   }
 
+  /** `Eq.equals`, plus NaN equal to itself (SameValueZero, like native Map). */
+  private _same(a: K, b: K): boolean {
+    // `x !== x` holds only for NaN.
+    return this._eq.equals(a, b) || (a !== a && b !== b);
+  }
+
   private _findEntry(bucket: Entry<K, V>[], k: K): Entry<K, V> | undefined {
     for (let i = 0; i < bucket.length; i++) {
-      if (this._eq.equals(k, bucket[i].key)) return bucket[i];
+      if (this._same(k, bucket[i].key)) return bucket[i];
     }
     return undefined;
   }
@@ -72,7 +87,7 @@ export class HashMap<K, V> {
     const bucket = this._buckets.get(h);
     if (!bucket) return false;
     for (let i = 0; i < bucket.length; i++) {
-      if (this._eq.equals(k, bucket[i].key)) {
+      if (this._same(k, bucket[i].key)) {
         bucket.splice(i, 1);
         if (bucket.length === 0) this._buckets.delete(h);
         this._size--;
@@ -87,22 +102,31 @@ export class HashMap<K, V> {
     this._size = 0;
   }
 
-  *entries(): IterableIterator<[K, V]> {
-    for (const bucket of this._buckets.values()) {
-      for (const { key, value } of bucket) yield [key, value];
+  /**
+   * Live entries, safe against deletion during iteration. `delete` splices the
+   * live bucket array, so walking it by index would skip the entry after a
+   * deleted one. Walk a snapshot instead, and skip entries deleted since the
+   * snapshot (the bucket left the map, or no longer holds that entry object).
+   */
+  private *_liveEntries(): IterableIterator<Entry<K, V>> {
+    for (const [h, bucket] of this._buckets) {
+      const snapshot = bucket.slice();
+      for (const entry of snapshot) {
+        if (this._buckets.get(h) === bucket && bucket.includes(entry)) yield entry;
+      }
     }
+  }
+
+  *entries(): IterableIterator<[K, V]> {
+    for (const { key, value } of this._liveEntries()) yield [key, value];
   }
 
   *keys(): IterableIterator<K> {
-    for (const bucket of this._buckets.values()) {
-      for (const { key } of bucket) yield key;
-    }
+    for (const { key } of this._liveEntries()) yield key;
   }
 
   *values(): IterableIterator<V> {
-    for (const bucket of this._buckets.values()) {
-      for (const { value } of bucket) yield value;
-    }
+    for (const { value } of this._liveEntries()) yield value;
   }
 
   [Symbol.iterator](): IterableIterator<[K, V]> {

@@ -26,7 +26,13 @@ const velocity = distance.div(time); // Unit<Velocity> (m/s)
 
 // Multiplication combines dimensions
 const force = mass.mul(velocity.div(time)); // Unit<Force> (kg·m/s²)
+
+// Dimension mismatches are compile errors
+// distance.add(time);                       // ✗ Length + Time
+// const m: Unit<Mass> = distance;           // ✗ Length is not Mass
 ```
+
+Each base dimension's exponent is tracked in the range −5..5. Arithmetic that leaves that range produces an overflow dimension, which is compatible only with other overflowed quantities, never with a real one.
 
 ## Documentation
 

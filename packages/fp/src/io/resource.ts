@@ -8,6 +8,7 @@
  */
 
 import { IO, runIO } from "./io.js";
+import { Left, Right } from "../data/either.js";
 
 // ============================================================================
 // Resource Type
@@ -20,40 +21,64 @@ import { IO, runIO } from "./io.js";
  * actions are composed in reverse order (last acquired, first released).
  */
 export class Resource<A> {
-  constructor(
-    private readonly _acquire: IO<A>,
-    private readonly _release: (a: A) => IO<void>
-  ) {}
+  /**
+   * @internal Acquire the value together with its (already bound) finalizer.
+   * Composed resources capture their finalizer chain at acquire time, so
+   * `f` in `flatMap` runs exactly once and nothing is acquired twice.
+   */
+  readonly allocated: IO<readonly [A, IO<void>]>;
+
+  constructor(acquire: IO<A>, release: (a: A) => IO<void>) {
+    this.allocated = IO.map(acquire, (a) => [a, IO.suspend(() => release(a))] as const);
+  }
+
+  private static fromAllocated<A>(allocated: IO<readonly [A, IO<void>]>): Resource<A> {
+    const r = Object.create(Resource.prototype) as { allocated: IO<readonly [A, IO<void>]> };
+    r.allocated = allocated;
+    return r as Resource<A>;
+  }
 
   /**
    * Use the resource with a function
    */
   use<B>(f: (a: A) => IO<B>): IO<B> {
-    return IO.bracket(this._acquire, f, this._release);
+    return IO.bracket(
+      this.allocated,
+      ([a]) => IO.suspend(() => f(a)),
+      ([, release]) => release
+    );
   }
 
   /**
-   * Map over the resource value
+   * Map over the resource value (acquires once, releases the original value)
    */
   map<B>(f: (a: A) => B): Resource<B> {
-    return new Resource(
-      IO.map(this._acquire, f),
-      () => IO.unit // The original release will still run
-    ).combineWith(this, (b, _a) => b);
+    return Resource.fromAllocated(
+      IO.flatMap(this.allocated, ([a, release]) =>
+        IO.onError(
+          IO.delay(() => [f(a), release] as const),
+          () => release
+        )
+      )
+    );
   }
 
   /**
-   * FlatMap - sequence resource acquisition
+   * FlatMap - sequence resource acquisition. Releases inner then outer; the
+   * outer is released if acquiring the inner fails.
    */
   flatMap<B>(f: (a: A) => Resource<B>): Resource<B> {
-    return Resource.make(
-      IO.flatMap(this._acquire, (a) => IO.map(f(a)._acquire, (b) => [a, b] as const)),
-      ([a, b]) => {
-        // Release in reverse order (b first, then a)
-        const rb = f(a);
-        return IO.flatMap(rb._release(b), () => this._release(a));
-      }
-    ).map(([_a, b]) => b);
+    return Resource.fromAllocated(
+      IO.flatMap(this.allocated, ([a, releaseA]) =>
+        IO.onError(
+          IO.map(
+            IO.suspend(() => f(a).allocated),
+            ([b, releaseB]) => [b, IO.guarantee(releaseB, releaseA)] as const
+          ),
+          () => releaseA
+        )
+      )
+    );
   }
 
   /**
@@ -71,20 +96,28 @@ export class Resource<A> {
   }
 
   /**
-   * Add a finalizer that always runs
+   * Add a finalizer that always runs (after this resource's own release)
    */
   onFinalize(finalizer: IO<void>): Resource<A> {
-    return new Resource(this._acquire, (a) => IO.guarantee(this._release(a), finalizer));
+    return Resource.fromAllocated(
+      IO.map(this.allocated, ([a, release]) => [a, IO.guarantee(release, finalizer)] as const)
+    );
   }
 
   /**
-   * Evaluate the resource, returning the value
-   * Note: This doesn't release the resource!
+   * Run an effect on the acquired value (the resource is still released after use)
    */
   evalTap(f: (a: A) => IO<void>): Resource<A> {
-    return new Resource(
-      IO.flatMap(this._acquire, (a) => IO.as(f(a), a)),
-      this._release
+    return Resource.fromAllocated(
+      IO.flatMap(this.allocated, (pair) =>
+        IO.onError(
+          IO.as(
+            IO.suspend(() => f(pair[0])),
+            pair
+          ),
+          () => pair[1]
+        )
+      )
     );
   }
 
@@ -140,10 +173,18 @@ export namespace Resource {
    * Traverse with Resource
    */
   export function traverse<A, B>(arr: A[], f: (a: A) => Resource<B>): Resource<B[]> {
-    return arr.reduce<Resource<B[]>>(
-      (acc, a) => acc.flatMap((bs) => f(a).map((b) => [...bs, b])),
-      pure([] as B[])
-    );
+    // Accumulate into an immutable cons list (O(1) per step), convert once.
+    type Cons = { readonly head: B; readonly tail: Cons } | null;
+    const toArray = (c: Cons): B[] => {
+      const out: B[] = [];
+      for (let x = c; x !== null; x = x.tail) out.push(x.head);
+      return out.reverse();
+    };
+    const go = (i: number, acc: Cons): Resource<B[]> =>
+      i >= arr.length
+        ? pure(toArray(acc))
+        : f(arr[i]).flatMap((b) => go(i + 1, { head: b, tail: acc }));
+    return go(0, null);
   }
 
   /**
@@ -279,6 +320,8 @@ export function eventListenerResource<E>(
 export class ResourcePool<A> {
   private pool: A[] = [];
   private waiters: ((a: A) => void)[] = [];
+  /** Resources created and not yet destroyed (idle + borrowed). */
+  private created = 0;
 
   constructor(
     private readonly create: IO<A>,
@@ -287,20 +330,25 @@ export class ResourcePool<A> {
   ) {}
 
   /**
-   * Borrow a resource from the pool
+   * Borrow a resource from the pool. Creates a new one only while fewer than
+   * `maxSize` exist in total; otherwise waits for one to be returned.
    */
   borrow(): Resource<A> {
     return Resource.make(
       IO.async<A>((cb) => {
         if (this.pool.length > 0) {
-          const resource = this.pool.pop()!;
-          cb({ _tag: "Right", right: resource } as any);
-        } else if (this.pool.length < this.maxSize) {
-          runIO(this.create)
-            .then((a) => cb({ _tag: "Right", right: a } as any))
-            .catch((e) => cb({ _tag: "Left", left: e } as any));
+          cb(Right(this.pool.pop()!));
+        } else if (this.created < this.maxSize) {
+          this.created++;
+          runIO(this.create).then(
+            (a) => cb(Right(a)),
+            (e) => {
+              this.created--;
+              cb(Left(e instanceof Error ? e : new Error(String(e))));
+            }
+          );
         } else {
-          this.waiters.push((a) => cb({ _tag: "Right", right: a } as any));
+          this.waiters.push((a) => cb(Right(a)));
         }
       }),
       (a) => this.release(a)
@@ -322,10 +370,15 @@ export class ResourcePool<A> {
   }
 
   /**
-   * Drain the pool
+   * Drain the pool: destroy every idle resource (each exactly once) and
+   * remove it from the pool. Borrowed resources are returned normally.
    */
   drain(): IO<void> {
-    return IO.void_(IO.traverse(this.pool, (a) => this.destroy(a)));
+    return IO.suspend(() => {
+      const idle = this.pool.splice(0, this.pool.length);
+      this.created -= idle.length;
+      return IO.void_(IO.traverse(idle, (a) => this.destroy(a)));
+    });
   }
 }
 

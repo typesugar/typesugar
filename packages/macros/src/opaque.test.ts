@@ -373,6 +373,18 @@ export function map<A, B>(o: Option<A>, f: (a: A) => B): Option<B> {
     expect(entry!.sourceModule!.length).toBeGreaterThan(0);
   });
 
+  it("sets declarationFile so erasure can match by resolved symbol (ledger, deep review #3)", () => {
+    const source = `
+/** @opaque A | null */
+export interface Option<A> {
+  map<B>(f: (a: A) => B): Option<B>;
+}
+`;
+    const entry = runOpaqueMacro(source);
+    expect(entry!.declarationFile).toBeDefined();
+    expect(entry!.declarationFile!.endsWith(".ts")).toBe(true);
+  });
+
   it("handles interface with no companion functions gracefully", () => {
     const source = `
 /** @opaque number */

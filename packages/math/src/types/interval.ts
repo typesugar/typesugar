@@ -144,35 +144,157 @@ export function intersect(a: Interval, b: Interval): Interval | null {
 /**
  * Interval addition: [a,b] + [c,d] = [a+c, b+d]
  */
+// ----------------------------------------------------------------------------
+// Directed rounding (MU-14)
+//
+// JS has no rounding-mode control, so every endpoint is computed round-to-
+// nearest and then pushed outward by one ulp — but only when the operation was
+// actually inexact. Exactness is decided with error-free transformations
+// (TwoSum for +/−, Dekker's TwoProduct for ×, and a TwoProduct residual for ÷
+// and √), so exact results such as 1+2 or [1,2]·[3,4] stay tight while
+// inexact ones (0.1+0.2) are guaranteed to contain the true result. Where an
+// error-free transformation is not valid (operands near overflow/underflow),
+// the result is widened by one ulp unconditionally, which is still sound
+// because IEEE +, −, ×, ÷ and √ are correctly rounded (error ≤ ½ ulp).
+// ----------------------------------------------------------------------------
+
+const f64 = new Float64Array(1);
+const i64 = new BigInt64Array(f64.buffer);
+
+/** Smallest double greater than x (x for +∞ and NaN). */
+function nextUp(x: number): number {
+  if (Number.isNaN(x) || x === Infinity) return x;
+  if (x === 0) return Number.MIN_VALUE;
+  f64[0] = x;
+  i64[0] += x > 0 ? 1n : -1n;
+  return f64[0];
+}
+
+/** Largest double less than x (x for −∞ and NaN). */
+function nextDown(x: number): number {
+  return -nextUp(-x);
+}
+
+const SPLITTER = 134217729; // 2^27 + 1
+const SAFE_MAX = 2 ** 500; // Dekker splitting / products stay finite below this
+const SAFE_MIN = 2 ** -500; // …and the error terms stay normal above this
+
+function inSafeRange(x: number): boolean {
+  const a = Math.abs(x);
+  return a === 0 || (a >= SAFE_MIN && a <= SAFE_MAX);
+}
+
+/** Exact error of the rounded product: a·b = p + err (Dekker / Veltkamp). */
+function twoProductErr(a: number, b: number, p: number): number {
+  const ca = SPLITTER * a;
+  const ah = ca - (ca - a);
+  const al = a - ah;
+  const cb = SPLITTER * b;
+  const bh = cb - (cb - b);
+  const bl = b - bh;
+  return ah * bh - p + ah * bl + al * bh + al * bl;
+}
+
+/** Bound for a rounded result `r` of finite operands whose float result overflowed. */
+function overflowBound(r: number, dir: "down" | "up"): number {
+  // The exact result is finite; ±∞ is only a valid bound in the outward direction.
+  if (r === Infinity) return dir === "up" ? Infinity : Number.MAX_VALUE;
+  return dir === "down" ? -Infinity : -Number.MAX_VALUE;
+}
+
+/** Round the exact result outward given the sign of (exact − rounded). */
+function directed(r: number, errSign: number, dir: "down" | "up"): number {
+  if (dir === "down") return errSign < 0 ? nextDown(r) : r;
+  return errSign > 0 ? nextUp(r) : r;
+}
+
+function addDir(a: number, b: number, dir: "down" | "up"): number {
+  const s = a + b;
+  if (!Number.isFinite(s)) {
+    return Number.isFinite(a) && Number.isFinite(b) ? overflowBound(s, dir) : s;
+  }
+  // TwoSum: exact error of the rounded sum (no overflow here).
+  const bb = s - a;
+  const err = a - (s - bb) + (b - bb);
+  return directed(s, Math.sign(err), dir);
+}
+
+function mulDir(a: number, b: number, dir: "down" | "up"): number {
+  // 0 · ±∞ is 0 for interval endpoints (the factor is exactly zero), not NaN.
+  if (a === 0 || b === 0) return 0;
+  const p = a * b;
+  if (!Number.isFinite(p)) {
+    return Number.isFinite(a) && Number.isFinite(b) ? overflowBound(p, dir) : p;
+  }
+  if (!inSafeRange(a) || !inSafeRange(b) || !inSafeRange(p)) {
+    return dir === "down" ? nextDown(p) : nextUp(p);
+  }
+  return directed(p, Math.sign(twoProductErr(a, b, p)), dir);
+}
+
+function divDir(a: number, b: number, dir: "down" | "up"): number {
+  const q = a / b;
+  if (!Number.isFinite(q)) {
+    return Number.isFinite(a) && Number.isFinite(b) ? overflowBound(q, dir) : q;
+  }
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return q; // ±∞/x or x/±∞: exact
+  if (q === 0 && a === 0) return 0;
+  if (!inSafeRange(a) || !inSafeRange(b) || !inSafeRange(q) || q === 0) {
+    return dir === "down" ? nextDown(q) : nextUp(q);
+  }
+  // Residual r = a − q·b, exactly; sign(a/b − q) = sign(r) · sign(b).
+  const p = q * b;
+  const r = a - p - twoProductErr(q, b, p);
+  return directed(q, Math.sign(r) * Math.sign(b), dir);
+}
+
+function sqrtDir(x: number, dir: "down" | "up"): number {
+  const s = Math.sqrt(x);
+  if (x === 0 || !Number.isFinite(s)) return s;
+  if (!inSafeRange(x) || !inSafeRange(s)) {
+    return dir === "down" ? Math.max(0, nextDown(s)) : nextUp(s);
+  }
+  // Residual x − s², exactly; its sign is the sign of (√x − s).
+  const p = s * s;
+  const r = x - p - twoProductErr(s, s, p);
+  return directed(s, Math.sign(r), dir);
+}
+
+/** x^n for x >= 0 and integer n >= 1, bounded in direction `dir`. */
+function powNonNegDir(x: number, n: number, dir: "down" | "up"): number {
+  let result = 1;
+  let base = x;
+  let e = n;
+  while (e > 0) {
+    if (e % 2 === 1) result = mulDir(result, base, dir);
+    e = Math.floor(e / 2);
+    if (e > 0) base = mulDir(base, base, dir);
+  }
+  return result;
+}
+
 export function add(a: Interval, b: Interval): Interval {
-  return { lo: a.lo + b.lo, hi: a.hi + b.hi };
+  return { lo: addDir(a.lo, b.lo, "down"), hi: addDir(a.hi, b.hi, "up") };
 }
 
-/**
- * Interval subtraction: [a,b] - [c,d] = [a-d, b-c]
- */
 export function sub(a: Interval, b: Interval): Interval {
-  return { lo: a.lo - b.hi, hi: a.hi - b.lo };
+  return { lo: addDir(a.lo, -b.hi, "down"), hi: addDir(a.hi, -b.lo, "up") };
 }
 
-/**
- * Interval multiplication: [a,b] * [c,d] = [min(ac,ad,bc,bd), max(ac,ad,bc,bd)]
- */
 export function mul(a: Interval, b: Interval): Interval {
-  const products = [a.lo * b.lo, a.lo * b.hi, a.hi * b.lo, a.hi * b.hi];
+  if (isEmpty(a) || isEmpty(b)) return empty;
+  const pairs: Array<[number, number]> = [
+    [a.lo, b.lo],
+    [a.lo, b.hi],
+    [a.hi, b.lo],
+    [a.hi, b.hi],
+  ];
   return {
-    lo: Math.min(...products),
-    hi: Math.max(...products),
+    lo: Math.min(...pairs.map(([x, y]) => mulDir(x, y, "down"))),
+    hi: Math.max(...pairs.map(([x, y]) => mulDir(x, y, "up"))),
   };
 }
 
-/**
- * Interval division: [a,b] / [c,d]
- *
- * If [c,d] contains 0, the result is (-∞, +∞) or split intervals.
- * For simplicity, this implementation returns the hull when dividing by
- * an interval containing zero.
- */
 export function div(a: Interval, b: Interval): Interval {
   if (b.lo <= 0 && b.hi >= 0) {
     // Division by interval containing zero
@@ -180,82 +302,81 @@ export function div(a: Interval, b: Interval): Interval {
       // Division by exactly zero
       return { lo: NaN, hi: NaN };
     }
-    if (b.lo === 0) {
-      // [c,d] with c=0, so 1/[c,d] = [1/d, +∞)
-      return { lo: -Infinity, hi: Infinity };
-    }
-    if (b.hi === 0) {
-      // [c,d] with d=0, so 1/[c,d] = (-∞, 1/c]
-      return { lo: -Infinity, hi: Infinity };
-    }
-    // General case: interval straddles zero
+    // Any interval touching or straddling zero: the quotient is unbounded.
     return { lo: -Infinity, hi: Infinity };
   }
 
   // Normal division: b doesn't contain zero
-  const invB = { lo: 1 / b.hi, hi: 1 / b.lo };
-  return mul(a, invB);
+  const pairs: Array<[number, number]> = [
+    [a.lo, b.lo],
+    [a.lo, b.hi],
+    [a.hi, b.lo],
+    [a.hi, b.hi],
+  ];
+  return {
+    lo: Math.min(...pairs.map(([x, y]) => divDir(x, y, "down"))),
+    hi: Math.max(...pairs.map(([x, y]) => divDir(x, y, "up"))),
+  };
 }
 
-/**
- * Negate an interval: -[a,b] = [-b, -a]
- */
 export function negate(i: Interval): Interval {
   return { lo: -i.hi, hi: -i.lo };
 }
 
-/**
- * Absolute value of an interval.
- */
 export function abs(i: Interval): Interval {
   if (i.lo >= 0) return i;
   if (i.hi <= 0) return negate(i);
   return { lo: 0, hi: Math.max(-i.lo, i.hi) };
 }
 
-/**
- * Square of an interval.
- */
 export function square(i: Interval): Interval {
   if (i.lo >= 0) {
-    return { lo: i.lo * i.lo, hi: i.hi * i.hi };
+    return { lo: mulDir(i.lo, i.lo, "down"), hi: mulDir(i.hi, i.hi, "up") };
   }
   if (i.hi <= 0) {
-    return { lo: i.hi * i.hi, hi: i.lo * i.lo };
+    return { lo: mulDir(i.hi, i.hi, "down"), hi: mulDir(i.lo, i.lo, "up") };
   }
   // Interval contains zero
-  return { lo: 0, hi: Math.max(i.lo * i.lo, i.hi * i.hi) };
+  return { lo: 0, hi: Math.max(mulDir(i.lo, i.lo, "up"), mulDir(i.hi, i.hi, "up")) };
 }
 
-/**
- * Square root of an interval.
- */
 export function sqrt(i: Interval): Interval {
   if (i.hi < 0) {
     return empty;
   }
   return {
-    lo: i.lo <= 0 ? 0 : Math.sqrt(i.lo),
-    hi: Math.sqrt(i.hi),
+    lo: i.lo <= 0 ? 0 : sqrtDir(i.lo, "down"),
+    hi: sqrtDir(i.hi, "up"),
   };
 }
 
 /**
- * Power of an interval (integer exponent).
+ * Integer powers are computed by directed repeated multiplication, so they
+ * contain the exact result. Non-integer exponents go through `Math.pow`,
+ * which is not guaranteed correctly rounded; those endpoints are widened by
+ * two ulps, a heuristic bound rather than a proof.
  */
 export function pow(i: Interval, n: number): Interval {
   if (n === 0) return point(1);
   if (n === 1) return i;
   if (n === 2) return square(i);
 
-  if (n % 2 === 0) {
-    // Even power
-    const absI = abs(i);
-    return { lo: Math.pow(absI.lo, n), hi: Math.pow(absI.hi, n) };
-  } else {
-    // Odd power
-    return { lo: Math.pow(i.lo, n), hi: Math.pow(i.hi, n) };
+  if (Number.isInteger(n)) {
+    if (n < 0) return div(point(1), pow(i, -n));
+    if (n % 2 === 0) {
+      // Even power
+      const absI = abs(i);
+      return { lo: powNonNegDir(absI.lo, n, "down"), hi: powNonNegDir(absI.hi, n, "up") };
+    }
+    // Odd power: monotone increasing; x^n = −(|x|^n) for x < 0.
+    const lo = i.lo >= 0 ? powNonNegDir(i.lo, n, "down") : -powNonNegDir(-i.lo, n, "up");
+    const hi = i.hi >= 0 ? powNonNegDir(i.hi, n, "up") : -powNonNegDir(-i.hi, n, "down");
+    return { lo, hi };
   }
+
+  const widenDown = (x: number) => nextDown(nextDown(x));
+  const widenUp = (x: number) => nextUp(nextUp(x));
+  return { lo: widenDown(Math.pow(i.lo, n)), hi: widenUp(Math.pow(i.hi, n)) };
 }
 
 // ============================================================================

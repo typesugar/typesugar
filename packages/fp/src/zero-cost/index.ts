@@ -1,34 +1,26 @@
 /**
  * Zero-Cost Abstractions for @typesugar/fp
  *
- * This module provides compile-time-optimized versions of Option, Result,
- * and pattern matching that compile away to simple null checks and
- * conditionals — no wrapper objects, no allocations.
+ * `ZeroCostOption<T>` is just `T | null` and `ZeroCostResult<T, E>` a plain
+ * `{ ok: true, value } | { ok: false, error }` union, with small helper
+ * objects (`ZeroCostOptionOps`, `ZeroCostResultOps`). With the typesugar
+ * transformer, direct helper calls (`ZeroCostOptionOps.from(x)`,
+ * `.isSome(x)`, `ZeroCostResultOps.ok(v)`, `.isOk(r)`, ...) are inlined to
+ * the equivalent expression; without it they are ordinary function calls.
+ * There is no method-chain API (`T | null` has no `.map`).
  *
- * Choose this when:
- * - You want zero runtime overhead
- * - You don't need the full typeclass ecosystem
- * - You're working in a hot path or performance-critical code
- *
- * Choose the regular @typesugar/fp data types when:
- * - You want the full monadic API with typeclass instances
- * - You're composing with other @typesugar/fp abstractions
- * - You prefer explicit ADTs (Some/None, Left/Right)
+ * This module is runtime-only; the inlining macros are registered by
+ * `@typesugar/fp/macros`.
  *
  * @example
  * ```typescript
- * import { Option, Result } from "@typesugar/fp/zero-cost";
- * import { match } from "@typesugar/std";
+ * import { ZeroCostOptionOps as Opt, ZeroCostResultOps as Res } from "@typesugar/fp/zero-cost";
  *
- * // Zero-cost Option (compiles to null checks)
- * const name = Option.from(user.name)
- *   .map(n => n.trim())
- *   .unwrapOr("Anonymous");
+ * const name = Opt.from(user.name);              // compiles to: user.name ?? null
+ * const display = Opt.isSome(name) ? name.trim() : "Anonymous";
  *
- * // Zero-cost Result (compiles to { ok, value/error } checks)
- * const parsed = Result.try(() => JSON.parse(input))
- *   .map(data => data.name)
- *   .unwrapOr("unknown");
+ * const parsed = Res.try(() => JSON.parse(input));
+ * const data = Res.isOk(parsed) ? parsed.value : undefined;
  * ```
  */
 

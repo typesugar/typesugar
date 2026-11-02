@@ -342,6 +342,9 @@ export const opaqueAttribute: AttributeMacro = defineAttributeMacro({
       typeName,
       underlyingTypeText,
       sourceModule: resolveSourceModule(ctx.sourceFile),
+      // Exact declaring file: lets the erasure pass match references by
+      // resolved symbol instead of bare name (deep review #3).
+      declarationFile: ctx.sourceFile.fileName,
       methods: methods.size > 0 ? methods : undefined,
       constructors: constructors.size > 0 ? constructors : undefined,
       accessors: accessors.size > 0 ? accessors : undefined,
