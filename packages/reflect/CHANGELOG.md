@@ -1,5 +1,134 @@
 # @typesugar/reflect
 
+## 0.1.2
+
+### Patch Changes
+
+- ab72bde: PEP-058 Wave 1: declare `engines.node >=20` on all published packages and enable npm provenance attestations in the release pipeline.
+- 93ea406: PEP-060 item 1: support TypeScript 6, reject TypeScript 7 with one clear error
+  - **Peer range is now `typescript >=5.9.0 <7.0.0`** on every package (was
+    `>=5.0.0 <6.0.0`). TypeScript 6.0.x still has the JavaScript compiler API typesugar
+    is built on; TypeScript 7 (`typescript@latest` since 7.0) does not. The floor
+    moved up from 5.0 because older releases were measured to break: before 5.5,
+    Node's ESM loader sees none of TypeScript's named exports, so the CLI and the
+    Vite plugin crash on their first `ts.*` access (5.0–5.3 also lack
+    `checker.isTypeAssignableTo` and other APIs typesugar calls); 5.5–5.8 lack
+    `checker.getNonPrimitiveType()`, so `@impl X<object>` instances never resolve.
+    5.9.3 and 6.0.3 build, type-check and pass the core, transformer-core, macros,
+    transformer, std and fp suites. The `library` and `macro-plugin` templates that
+    `typesugar create` copies peer the same range, and all three templates now
+    install `typescript ^5.9.3`.
+  - **`typescript` is now an optional peer** of the packages whose runtime `.` entry
+    never loads it: codec, collections, contracts, erased, fp, fusion, mapper, parser,
+    strings, testing, units, validate and the `typesugar` umbrella. Their `./macros`
+    entries still need TypeScript at build time. `check:runtime-purity` now fails if a
+    package with an optional peer loads `typescript` from its `.` entry, directly or
+    through a dependency.
+  - **TypeScript version guard.** `@typesugar/core` exports `assertSupportedTypeScript`,
+    `getUnsupportedTypeScriptReason`, `UnsupportedTypeScriptError`,
+    `SUPPORTED_TYPESCRIPT_RANGE` and `TYPESCRIPT_SUPPORT_URL`. `@typesugar/macros` runs
+    it first thing at load, and the transformer (pipeline, ts-patch factory, and the
+    language-service plugin, which checks tsserver's own TypeScript), `transformCode`,
+    unplugin, the LSP server and the ESLint processors call it before their first
+    compiler-API access. On TypeScript 7 they all stop with
+    `[typesugar] TypeScript 7.0.2 is not supported: TypeScript 7 removed the JavaScript
+compiler API that typesugar's transformer needs. Install typescript@6 (or 5.9+) as a
+devDependency for typesugar (npm i -D typescript@6); see
+https://typesugar.org/getting-started/troubleshooting#typescript-7` instead of an
+    opaque `Cannot read properties of undefined (reading 'ES2022')`. TypeScript older
+    than 5.9, or a module missing `ts.factory` / `ts.createProgram`, is rejected the
+    same way.
+
+- 5da6803: `typeInfo<T>()` is typed as `TypeInfo`, the shape the macro emits: its runtime stub declared
+  `{ name; fields: { name; type }[] }`, so `info.kind` and `field.optional` were type errors. An
+  optional field's `type` is its declared type (`age?: number` is `"number"`, with
+  `optional: true`), as the guide shows, not the `"number | undefined"` the checker gives an optional
+  property under `strictNullChecks`; a field of a generic declaration (`value?: T`) still shows its
+  instantiated type. The reflect examples run again (`validator<T>()` returns
+  `{ success, value } | { success: false, errors }`).
+- c1e797e: `typeInfo<T>()` reports methods. `TypeInfo` declares `methods`, but the emitted literal had none,
+  so `typeInfo<Calculator>().methods` was `undefined` and the methods were listed as fields. A
+  class's methods and an interface's method signatures now go to `methods`, with each parameter's
+  name, type and optionality and the return type as the type checker gives them (as the `@reflect`
+  class metadata already does); a function-valued property stays a field.
+- Updated dependencies [4d4ce68]
+- Updated dependencies [9bcb9d8]
+- Updated dependencies [0e0fe90]
+- Updated dependencies [f8dcade]
+- Updated dependencies [3400d8c]
+- Updated dependencies [fae35e9]
+- Updated dependencies [f3c8949]
+- Updated dependencies [a7158b3]
+- Updated dependencies [ec2188f]
+- Updated dependencies [81f31db]
+- Updated dependencies [a070a0c]
+- Updated dependencies [01a547c]
+- Updated dependencies [34850dc]
+- Updated dependencies [291dc90]
+- Updated dependencies [5f9af12]
+- Updated dependencies [d3243f9]
+- Updated dependencies [2694138]
+- Updated dependencies [3ae83a6]
+- Updated dependencies [7340c04]
+- Updated dependencies [7d84596]
+- Updated dependencies [592d66b]
+- Updated dependencies [3460709]
+- Updated dependencies [eb77b03]
+- Updated dependencies [4ca9f31]
+- Updated dependencies [0435dc6]
+- Updated dependencies [bec2d2b]
+- Updated dependencies [fbf4ef1]
+- Updated dependencies [8b4060d]
+- Updated dependencies [75f1968]
+- Updated dependencies [e016c8d]
+- Updated dependencies [624d80a]
+- Updated dependencies [e0ba26b]
+- Updated dependencies [4b0d84d]
+- Updated dependencies [76af80e]
+- Updated dependencies [ac891d1]
+- Updated dependencies [c7fb29f]
+- Updated dependencies [508c7d3]
+- Updated dependencies [eb6e5a8]
+- Updated dependencies [6659c44]
+- Updated dependencies [f4ffc81]
+- Updated dependencies [b893cb6]
+- Updated dependencies [914817e]
+- Updated dependencies [851809b]
+- Updated dependencies [05dbbcb]
+- Updated dependencies [dade880]
+- Updated dependencies [d0392e0]
+- Updated dependencies [babbb30]
+- Updated dependencies [a591082]
+- Updated dependencies [4f6ad83]
+- Updated dependencies [928566a]
+- Updated dependencies [63bf193]
+- Updated dependencies [98adbea]
+- Updated dependencies [48b621b]
+- Updated dependencies [57d76a1]
+- Updated dependencies [053978c]
+- Updated dependencies [8aaf40f]
+- Updated dependencies [76672a0]
+- Updated dependencies [c56886c]
+- Updated dependencies [ab72bde]
+- Updated dependencies [2fb4b62]
+- Updated dependencies [93ea406]
+- Updated dependencies [e0694af]
+- Updated dependencies [95b6631]
+- Updated dependencies [f471698]
+- Updated dependencies [5da6803]
+- Updated dependencies [51a72ca]
+- Updated dependencies [616d213]
+- Updated dependencies [dca9c00]
+- Updated dependencies [d7b3911]
+- Updated dependencies [e40c7e3]
+- Updated dependencies [0c9202a]
+- Updated dependencies [5cc34d9]
+- Updated dependencies [8204470]
+- Updated dependencies [c1e797e]
+- Updated dependencies [6edd688]
+- Updated dependencies [615d4c1]
+  - @typesugar/macros@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes

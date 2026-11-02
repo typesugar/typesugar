@@ -1,6 +1,6 @@
 {
   "name": "typesugar-vscode",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "IDE support for typesugar — macro-aware TypeScript through the bundled TypeScript server plugin, syntax highlighting, and macro expansion views",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "private": true,

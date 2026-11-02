@@ -1,6 +1,6 @@
 {
   "name": "typesugar",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Syntactic sugar for TypeScript with zero calories. Typeclasses, operator overloading, pattern matching and more through compile-time macros and zero-cost abstractions.",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
