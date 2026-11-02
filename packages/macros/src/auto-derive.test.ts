@@ -1021,7 +1021,8 @@ describe("built-in Clone derivation", () => {
 
   it("a nested type with an @derive(Clone) companion is cloned through it", () => {
     const { text } = deriveClone(
-      `/** @derive(Clone) */
+      `import type { Clone } from "typesugar";
+       /** @derive(Clone) */
        export interface Address { city: string; lines: string[] }
        export interface Person { name: string; address: Address }`,
       "Person",

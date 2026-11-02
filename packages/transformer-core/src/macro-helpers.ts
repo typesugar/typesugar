@@ -34,6 +34,7 @@ import {
   TS9104,
   isJSDocTagAtLineStart,
   deriveTagNames,
+  isJSDocDeriveActive,
 } from "@typesugar/core";
 
 // Moved to @typesugar/core (the instance scanner in @typesugar/macros needs it
@@ -208,19 +209,24 @@ export function tryExpandJSDocMacros(
     // globalRegistry.getDerive instead — see expandDeriveDecorator).
     if (macroName === "derive" || macroName === "deriving") {
       const tagArgs = parseJSDocMacroArgs(ctx, tag, macroName);
+      // Import-scoped like every other trigger (PEP-052): only the derivables
+      // the file imports or declares apply (isJSDocDeriveActive, the gate
+      // every reader of the tag shares).
+      const args = tagArgs.filter(
+        (a) => !ts.isIdentifier(a) || isJSDocDeriveActive(ctx.sourceFile, a.text)
+      );
+      const inactive = tagArgs.filter((a) => !args.includes(a));
+      if (inactive.length > 0 && importsTypesugar(ctx.sourceFile)) {
+        // A file that uses typesugar most likely forgot the import; in one
+        // that doesn't, the tag is someone else's and is left alone silently.
+        reportInactiveJSDocDerive(ctx, tag, inactive);
+      }
+      if (args.length === 0) continue;
       if (
         ts.isInterfaceDeclaration(currentNode) ||
         ts.isClassDeclaration(currentNode) ||
         ts.isTypeAliasDeclaration(currentNode)
       ) {
-        // Import-scoped like every other trigger (PEP-052): a comment alone,
-        // in a file that asked typesugar for nothing, changes nothing.
-        const args = tagArgs.filter(
-          (a) => !ts.isIdentifier(a) || isJSDocDeriveActivated(ctx.sourceFile, a.text)
-        );
-        const inactive = tagArgs.filter((a) => !args.includes(a));
-        if (inactive.length > 0) reportInactiveJSDocDerive(ctx, tag, inactive);
-        if (args.length === 0) continue;
         const syntheticDecorator = createSyntheticDecorator(ctx, tag, macroName, args);
         const derives = expandDeriveDecorator(ctx, verbose, syntheticDecorator, currentNode, args);
         if (derives) {
@@ -231,7 +237,7 @@ export function tryExpandJSDocMacros(
         // A const, a function, an enum: not a type, so nothing to derive. Said
         // so (TS9102) rather than dropping the tag — a `/** @derive(Eq) */
         // const p = ...` used to be ignored without a word.
-        reportDeriveOnNonType(ctx, tag, tagArgs, currentNode);
+        reportDeriveOnNonType(ctx, tag, args, currentNode);
       }
       continue;
     }
@@ -316,41 +322,13 @@ export function tryExpandJSDocMacros(
   return results.length > 0 ? [currentNode, ...results] : currentNode;
 }
 
-/**
- * Does a JSDoc `@derive X` apply in `sourceFile`? Only when the file binds `X`
- * itself: an import of it (named or default, type-only included) or a
- * top-level declaration of it — or, for a third-party derive macro that has
- * no export to import, when the file imports the macro's package. The import
- * is what says the tag is typesugar's: the decorator form is resolved through
- * the imported `derive`, so a custom decorator of that name is never taken
- * over, and the JSDoc form now needs the same evidence, so another tool's
- * `@derive` tag (or a file that asked typesugar for nothing) is left
- * unchanged (PEP-052 "derivables are imported too";
- * audit/FABLE-AUDIT-2026-11.md F23). An import only a tag uses is not
- * reported as unused (the JSDocDeriveImport suppression rule).
- *
- * Reads the file's own top-level statements and the macro registry, neither
- * of which a pass changes (no same-pass-visibility concern, CLAUDE.md).
- */
-function isJSDocDeriveActivated(sourceFile: ts.SourceFile, name: string): boolean {
-  for (const stmt of sourceFile.statements) {
-    if (ts.isImportDeclaration(stmt)) {
-      const clause = stmt.importClause;
-      if (clause?.name?.text === name) return true;
-      const bindings = clause?.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) {
-        if (bindings.elements.some((el) => el.name.text === name)) return true;
-      }
-      continue;
-    }
-    const declared = (stmt as { name?: ts.Node }).name;
-    if (declared && ts.isIdentifier(declared) && declared.text === name) return true;
-  }
-  for (const macroName of [name, `${name}TC`]) {
-    const macro = lookupMacroByName(sourceFile, macroName, "derive");
-    if (macro?.module && fileImportsModule(sourceFile, macro.module)) return true;
-  }
-  return false;
+/** Does `sourceFile` import anything from typesugar (`typesugar`, `typesugar/…`, `@typesugar/…`)? */
+function importsTypesugar(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some((stmt) => {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) return false;
+    const spec = stmt.moduleSpecifier.text;
+    return spec === "typesugar" || spec.startsWith("typesugar/") || spec.startsWith("@typesugar/");
+  });
 }
 
 function reportInactiveJSDocDerive(

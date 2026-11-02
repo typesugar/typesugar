@@ -172,52 +172,83 @@ function remainingValueReferences(
 /**
  * An import declaration the macros rebuilt (`import { match, type D } from
  * "m"` with the macro `match` removed) is printed verbatim: TypeScript elides
- * type-only syntax only in its own parse-tree declarations, so the emitted
- * JavaScript read `import { type D } from "m"`, a syntax error. In the
- * JavaScript emit, drop what TypeScript would have dropped: a type-only
- * declaration, and a rebuilt declaration's type-only specifiers (the whole
- * declaration when nothing else is left; its comments stay). The macros keep
- * the type-only parts in their output because a pass printed as TypeScript
- * (`typesugar expand`, the strict check of the expansion, declaration emit)
- * still needs those bindings.
+ * only in its own parse-tree declarations, so the emitted JavaScript read
+ * `import { type D } from "m"`, a syntax error, and kept a plain specifier
+ * the code uses only as a type (`import { Show }` of an interface: no such
+ * export at run time). In the JavaScript emit, do the elision TypeScript
+ * would have done: drop a type-only declaration and type-only specifiers,
+ * and — unless `verbatimModuleSyntax` or `emitDecoratorMetadata` keeps them —
+ * the bindings the emitted code doesn't reference as values. A declaration
+ * left with no binding is dropped (its comments stay), or under
+ * `verbatimModuleSyntax` kept as a side-effect import, as TypeScript emits
+ * `import {} from "m"`. The macros keep the type-only parts in their output
+ * because a pass printed as TypeScript (`typesugar expand`, the strict check
+ * of the expansion, declaration emit) still needs those bindings.
  */
 function withoutRebuiltTypeOnlySyntax(
   sourceFile: ts.SourceFile,
-  factory: ts.NodeFactory
+  factory: ts.NodeFactory,
+  options: ts.CompilerOptions
 ): ts.SourceFile {
+  const rebuilt = sourceFile.statements.filter(
+    (s): s is ts.ImportDeclaration =>
+      ts.isImportDeclaration(s) && ts.getParseTreeNode(s) !== s && s.importClause !== undefined
+  );
+  if (rebuilt.length === 0) return sourceFile;
+  const verbatim = !!options.verbatimModuleSyntax;
+  const keepUnused = verbatim || !!options.emitDecoratorMetadata;
+  const bound = new Set<string>();
+  for (const stmt of rebuilt) {
+    const clause = stmt.importClause!;
+    if (clause.name) bound.add(clause.name.text);
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) bound.add(bindings.name.text);
+    else if (bindings) for (const el of bindings.elements) bound.add(el.name.text);
+  }
+  const values = keepUnused ? undefined : remainingValueReferences(sourceFile, bound);
+  const used = (name: ts.Identifier) => !values || values.has(name.text);
+
   let changed = false;
   const statements = sourceFile.statements.map((stmt): ts.Statement => {
-    if (!ts.isImportDeclaration(stmt) || ts.getParseTreeNode(stmt) === stmt) return stmt;
-    const clause = stmt.importClause;
-    if (!clause) return stmt;
-    const bindings = clause.namedBindings;
-    const valueSpecifiers =
-      bindings && ts.isNamedImports(bindings)
-        ? bindings.elements.filter((el) => !el.isTypeOnly)
-        : undefined;
-    if (
-      !clause.isTypeOnly &&
-      valueSpecifiers?.length === (bindings as ts.NamedImports | undefined)?.elements.length
-    ) {
-      return stmt;
+    if (!rebuilt.includes(stmt as ts.ImportDeclaration)) return stmt;
+    const decl = stmt as ts.ImportDeclaration;
+    const clause = decl.importClause!;
+    if (clause.isTypeOnly) {
+      changed = true;
+      return factory.createNotEmittedStatement(decl);
     }
+    const name = clause.name && used(clause.name) ? clause.name : undefined;
+    const bindings = clause.namedBindings;
+    let newBindings: ts.NamedImportBindings | undefined;
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      newBindings = used(bindings.name) ? bindings : undefined;
+    } else if (bindings) {
+      const kept = bindings.elements.filter((el) => !el.isTypeOnly && used(el.name));
+      newBindings =
+        kept.length === bindings.elements.length
+          ? bindings
+          : kept.length > 0
+            ? factory.updateNamedImports(bindings, kept)
+            : undefined;
+    }
+    if (name === clause.name && newBindings === bindings) return decl;
     changed = true;
-    if (clause.isTypeOnly || (!clause.name && valueSpecifiers?.length === 0)) {
-      return factory.createNotEmittedStatement(stmt);
+    if (!name && !newBindings) {
+      return verbatim
+        ? factory.createImportDeclaration(
+            decl.modifiers,
+            undefined,
+            decl.moduleSpecifier,
+            decl.attributes
+          )
+        : factory.createNotEmittedStatement(decl);
     }
     return factory.updateImportDeclaration(
-      stmt,
-      stmt.modifiers,
-      factory.updateImportClause(
-        clause,
-        false,
-        clause.name,
-        valueSpecifiers?.length
-          ? factory.updateNamedImports(bindings as ts.NamedImports, valueSpecifiers)
-          : undefined
-      ),
-      stmt.moduleSpecifier,
-      stmt.attributes
+      decl,
+      decl.modifiers,
+      factory.updateImportClause(clause, false, name, newBindings),
+      decl.moduleSpecifier,
+      decl.attributes
     );
   });
   return changed ? factory.updateSourceFile(sourceFile, statements) : sourceFile;
@@ -229,7 +260,11 @@ export function keepMacroReferencedImports(
   return (context) => (sourceFile) => {
     const resolver = emitResolverOf(context);
     if (!resolver) return sourceFile;
-    sourceFile = withoutRebuiltTypeOnlySyntax(sourceFile, context.factory);
+    sourceFile = withoutRebuiltTypeOnlySyntax(
+      sourceFile,
+      context.factory,
+      context.getCompilerOptions()
+    );
     // Nothing is elided under verbatimModuleSyntax. A file the macros left
     // unchanged is still looked at: `Point(1, 2)` calls a constructor its
     // import's module declares only once expanded.

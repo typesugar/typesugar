@@ -4386,8 +4386,8 @@ export function tryExpandGenericDerive(
     if (!alreadyBound && !MACROS_PRIMITIVE_COMPANIONS.has(deriveName)) {
       throw new Error(
         `the derived ${deriveName}<${typeName}> references '${deriveName}.<primitive>', but ` +
-          `'${deriveName}' is not bound in this file. Import the module that provides ` +
-          `'${deriveName}' with its primitive instances.`
+          `this file binds '${deriveName}' only as a type, or not at all. Import it as a value ` +
+          `(not \`import type\`) from the module that provides it with its primitive instances.`
       );
     }
     if (!alreadyBound) {

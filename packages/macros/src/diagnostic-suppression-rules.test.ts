@@ -85,6 +85,7 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance
 
   it("suppresses TS2339 for `.equals` on a JSDoc @derive(Eq) interface", () => {
     const code = [
+      `import type { Eq } from "typesugar";`,
       `/** @derive(Eq) */`,
       `interface User { id: number }`,
       `declare const u1: User, u2: User;`,
@@ -104,6 +105,7 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance
     // No `@typesugar/std/syntax/eq` import: the transformer leaves
     // `u1.equals(u2)` as written (a TypeError at run time), so the error stays.
     const code = [
+      `import type { Eq } from "typesugar";`,
       `/** @derive(Eq) */`,
       `interface User { id: number }`,
       `declare const u1: User, u2: User;`,
@@ -174,6 +176,7 @@ describe("ExtensionMethodCall: method-syntax activation read from the program (t
   }
 
   const derived = [
+    `import type { Eq } from "typesugar";`,
     `/** @derive(Eq) */`,
     `interface P { x: number }`,
     `declare const p: P;`,

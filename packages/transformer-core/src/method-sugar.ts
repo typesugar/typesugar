@@ -28,8 +28,8 @@ import {
   preserveSourceMap,
   cloneWithoutComments,
   stripTypeArguments,
-  isJSDocTagAtLineStart,
   deriveTagNames,
+  appliedDeriveTagNames,
 } from "@typesugar/core";
 
 import {
@@ -525,8 +525,8 @@ function typeDerivesTypeclass(
     for (const tag of ts.getJSDocTags(decl)) {
       const name = tag.tagName.text;
       if (name !== "derive" && name !== "deriving") continue;
-      if (!isJSDocTagAtLineStart(tag)) continue;
-      if (deriveTagNames(tag).includes(typeclass)) return true;
+      // Only a derive that applies (audit F23).
+      if (appliedDeriveTagNames(tag).includes(typeclass)) return true;
     }
   }
   return false;

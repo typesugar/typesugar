@@ -362,7 +362,11 @@ describe("JSDoc attribute tags on function declarations (docs B#4)", () => {
 
   it("a JSDoc @derive on a function is reported (TS9102) instead of vanishing", () => {
     const result = virtual(
-      [`/** @derive(Eq) */`, `export function f(): number { return 1; }`].join("\n"),
+      [
+        `import type { Eq } from "typesugar";`,
+        `/** @derive(Eq) */`,
+        `export function f(): number { return 1; }`,
+      ].join("\n"),
       "derive-on-function"
     );
     expect(

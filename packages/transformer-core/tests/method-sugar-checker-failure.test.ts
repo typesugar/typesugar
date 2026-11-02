@@ -190,6 +190,7 @@ describe("method sugar: instance-resolution failure is visible (core #43)", () =
     const out = withContext(
       {
         "point.ts": [
+          'import type { Eq } from "typesugar";',
           "/** @derive(Eq) */",
           "export class Point { constructor(public x: number, public y: number) {} }",
         ].join("\n"),

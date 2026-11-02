@@ -33,9 +33,10 @@ import {
   ResolutionScopeTracker,
   scanImportsForScope,
   globalRegistry,
-  isJSDocTagAtLineStart,
-  deriveTagNames,
   isInOptedOutScope,
+  appliedDeriveTagNames,
+  deriveTagNames,
+  isJSDocTagAtLineStart,
 } from "@typesugar/core";
 import { getTypeclassesForMethod } from "./typeclass.js";
 import { getOperatorCandidates, getTypeclassesDeclaringMethod } from "./typeclass-index.js";
@@ -410,9 +411,8 @@ function deriveNamesFromDeclaration(decl: ts.Node): string[] {
   for (const tag of ts.getJSDocTags(decl)) {
     const tagName = tag.tagName.text;
     if (tagName !== "derive" && tagName !== "deriving") continue;
-    if (!isJSDocTagAtLineStart(tag)) continue;
-    // The shared parser: the tag's list only, never prose after it.
-    names.push(...deriveTagNames(tag));
+    // The shared parser, and only the derives that apply (audit F23).
+    names.push(...appliedDeriveTagNames(tag));
   }
 
   return names;
@@ -1375,6 +1375,7 @@ export function createJSDocDeriveImportRule(): DiagnosticSuppressionRule {
           return allBound(n, names);
         }
         if (ts.isImportDeclaration(n)) return !!n.importClause && allBound(n.importClause, names);
+        if (ts.isImportEqualsDeclaration(n)) return names.has(n.name.text);
         if (ts.isStatement(n)) return false;
       }
       return false;
@@ -1408,12 +1409,10 @@ function jsDocDeriveNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
       for (const tag of ts.getJSDocTags(stmt)) {
         const tagName = tag.tagName.text;
         if (tagName !== "derive" && tagName !== "deriving") continue;
-        const text =
-          typeof tag.comment === "string"
-            ? tag.comment
-            : (ts.getTextOfJSDocComment(tag.comment) ?? "");
-        const list = /^\(?\s*([A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*)/.exec(text.trim());
-        if (list) for (const n of list[1].split(",")) names.add(n.trim());
+        // The shared parser, at a real tag position only (prose or a fenced
+        // example mentioning `@derive Eq` doesn't make an import used). Not
+        // the activation gate: the import is what activates the tag.
+        if (isJSDocTagAtLineStart(tag)) for (const n of deriveTagNames(tag)) names.add(n);
       }
     }
   };

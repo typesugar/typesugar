@@ -73,7 +73,7 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { isSyntheticNode, isJSDocTagAtLineStart, deriveTagNames } from "@typesugar/core";
+import { isSyntheticNode, appliedDeriveTagNames } from "@typesugar/core";
 import { getGenericMeta, type GenericMeta } from "./generic.js";
 import type { ResolutionAttempt } from "@typesugar/core";
 // Static: instance-resolver imports nothing from this module, so there is no
@@ -969,8 +969,8 @@ function declaresDerive(t: ts.Type, tc: string): ts.Declaration | undefined {
     for (const tag of ts.getJSDocTags(d)) {
       const n = tag.tagName.text;
       if (n !== "derive" && n !== "deriving") continue;
-      // The shared parser: the tag's list only, never prose after it.
-      if (isJSDocTagAtLineStart(tag) && deriveTagNames(tag).includes(tc)) return d;
+      // The shared parser, and only a derive that applies (audit F23).
+      if (appliedDeriveTagNames(tag).includes(tc)) return d;
     }
     if (ts.canHaveDecorators(d)) {
       for (const dec of ts.getDecorators(d) ?? []) {

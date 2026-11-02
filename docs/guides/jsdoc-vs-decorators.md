@@ -29,8 +29,9 @@ difference is **what plain `tsc` thinks of your source before TypeSugar runs**.
 Both forms also need what they derive imported. In the decorator form `Eq` is
 an argument, so TypeScript needs it anyway. In the JSDoc form the import is what
 marks the tag as TypeSugar's: a `/** @derive(Eq) */` in a file that neither
-imports nor declares `Eq` is ignored, with a warning, so another tool's
-`@derive` tag is never taken for TypeSugar's. An import only a tag uses
+imports nor declares `Eq` is ignored (with a warning, if the file imports
+anything else from TypeSugar), so another tool's `@derive` tag is never taken
+for TypeSugar's. An import only a tag uses
 (`import type { Eq } from "typesugar"`) is not reported as unused by
 `typesugar check` or the editor.
 

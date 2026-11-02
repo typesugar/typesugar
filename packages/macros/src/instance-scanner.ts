@@ -23,7 +23,7 @@ import {
   getOrCreateWeak,
   globalRegistry,
   isJSDocTagAtLineStart,
-  deriveTagNames,
+  appliedDeriveTagNames,
 } from "@typesugar/core";
 import { hasGenericDerivation } from "./auto-derive.js";
 
@@ -986,9 +986,10 @@ export function deriveNamesOf(decl: ts.Node): string[] {
   for (const tag of ts.getJSDocTags(decl)) {
     const tagName = tag.tagName.text;
     if (tagName !== "derive" && tagName !== "deriving") continue;
-    if (!isJSDocTagAtLineStart(tag)) continue;
-    // The shared parser: the leading list only, never prose after it.
-    for (const name of deriveTagNames(tag)) {
+    // The shared parser (the leading list only, never prose after it), and
+    // only the derives that apply: one the file doesn't import was not
+    // expanded, so it has no companion to scan (audit F23).
+    for (const name of appliedDeriveTagNames(tag)) {
       if (/^[A-Za-z_$][\w$]*$/.test(name)) names.push(name);
     }
   }

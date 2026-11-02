@@ -596,6 +596,7 @@ export declare namespace Point {
 
   it("in source: the companion a GenericDerivation will generate (it doesn't exist yet)", () => {
     const mod = createTestModule(`
+import type { Eq } from "typesugar";
 /** @derive(Eq, NotATypeclass) */
 export interface Point { x: number }
 /**
@@ -723,6 +724,7 @@ export const eqB = derived<Eq<string>>();
 
   it("a @derive'd type's companions, and a type an @impl tag names", () => {
     const src = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 export interface P { x: number }
 /** @impl Show<P> */
