@@ -28,14 +28,14 @@ const alice: User = { id: 1, name: "Alice", email: "alice@example.com" };
 const bob: User = { id: 2, name: "Bob", email: "bob@example.com" };
 
 // Operators are activated for this file and an instance is in scope, so they rewrite
-alice === bob; // false (compiles to: alice.id === bob.id && ...)
-alice < bob; // true  (lexicographic field comparison)
+alice === bob; // false (compiles to: User.Eq.equals(alice, bob))
+alice < bob; // true  (compiles to: User.Ord.lessThan(alice, bob), field by field)
 
 // Method syntax too (activated by its marker import above)
-alice.clone(); // deep copy
-alice.toJson(); // JSON serialization
+alice.clone(); // copy (compiles to: User.Clone.clone(alice))
+alice.toJson(); // JSON-ready plain object (compiles to: User.Json.toJson(alice))
 
-// All compile to direct code — no runtime dictionary, no overhead
+// Each one is a direct call to a function generated at compile time
 ```
 
 ## Why typesugar?
@@ -43,13 +43,13 @@ alice.toJson(); // JSON serialization
 | Feature                  | typesugar                              | ts-macros               | Babel macros |
 | ------------------------ | -------------------------------------- | ----------------------- | ------------ |
 | **Typeclass syntax**     | `===`, `.equals()` via scoped imports  | No                      | No           |
-| **Zero-cost**            | Auto-specialized to direct code        | No                      | No           |
+| **Zero-cost**            | Direct calls; in-file instances inline | No                      | No           |
 | **Type-aware**           | Yes — reads the type checker           | No                      | No           |
 | **Compile-time eval**    | Full JS via `vm` sandbox               | `$comptime` (similar)   | No           |
 | **Tagged templates**     | First-class macro category             | Via expression macros   | No           |
 | **Reflection**           | `typeInfo<T>()`, `validator<T>()`      | No                      | No           |
 | **Operator overloading** | `+`, `*`, etc. via typeclass instances | No                      | No           |
-| **Safety**               | Sandboxed, timeout, loud failures      | `$raw` runs unsandboxed | N/A          |
+| **Safety**               | IO off by default, timeout, loud fails | `$raw` runs unsandboxed | N/A          |
 
 **Fast:** with the TS program cached (the editor/watch case), macro transformation
 adds **~4 ms for a 50-line file** and **~12 ms for a 200-line file**; `comptime`
@@ -118,10 +118,9 @@ evaluates ~6M simple expressions/sec. See [docs/PERFORMANCE.md](docs/PERFORMANCE
 
 ### Frozen
 
-Not under active development ([PEP-048](peps/PEP-048-package-triage.md)) — these
-remain in the repo and build, but are not part of typesugar's actively-maintained
-surface and are excluded from release (except where a released package depends on
-them).
+Not under active development ([PEP-048](peps/PEP-048-package-triage.md)). These
+packages still build and are published, but they are not part of typesugar's
+actively maintained surface.
 
 | Package                                        | Description                                                         |
 | ---------------------------------------------- | ------------------------------------------------------------------- |
@@ -168,10 +167,12 @@ const fib10 = comptime(() => {
 
 ### Zero-Cost Typeclasses
 
-Derive instances with `@derive`, activate the syntax you want with an import,
-and everything auto-specializes to eliminate overhead:
+Derive instances with `@derive` and activate the syntax you want with an import.
+Operators and methods compile to direct calls on the generated companion, with
+no runtime dictionary lookup:
 
 ```typescript
+import { derive, Eq, Clone } from "typesugar";
 import "@typesugar/std/syntax/eq/ops"; // activate Eq operator syntax
 import "@typesugar/std/syntax/clone"; // activate Clone method syntax
 
@@ -181,8 +182,8 @@ interface Point { x: number; y: number }
 const p1: Point = { x: 1, y: 2 };
 const p2: Point = { x: 1, y: 2 };
 
-p1 === p2;    // Compiles to: p1.x === p2.x && p1.y === p2.y
-p1.clone();   // Compiles to: { x: p1.x, y: p1.y }
+p1 === p2;    // Compiles to: Point.Eq.equals(p1, p2)  → true
+p1.clone();   // Compiles to: Point.Clone.clone(p1)    → { x: 1, y: 2 }
 ```
 
 ### Type Reflection
@@ -192,6 +193,7 @@ import { typeInfo, fieldNames, validator } from "@typesugar/reflect";
 
 const fields = fieldNames<User>(); // ["id", "name", "email"]
 const validate = validator<User>(); // Runtime validator from types
+validate(data); // { success: true, value } or { success: false, errors }
 ```
 
 ### Extension Methods
@@ -204,7 +206,7 @@ import { clamp, isEven, abs } from "@typesugar/std";
 // These functions take `number` as their first parameter
 // So they can be called as methods on numbers:
 const n = -42;
-n.abs(); // → Math.abs(n) → 42
+n.abs(); // → abs(n) → 42
 n.clamp(0, 100); // → clamp(n, 0, 100) → 0
 (7).isEven(); // → isEven(7) → false
 
@@ -214,7 +216,7 @@ import { head, tail, chunk } from "@typesugar/std";
 const arr = [1, 2, 3, 4, 5];
 arr.head(); // → 1
 arr.tail(); // → [2, 3, 4, 5]
-arr.chunk(2); // → [[1, 2], [3, 4], [5]]
+arr.chunk(2); // → chunk(arr, 2) → [[1, 2], [3, 4], [5]]
 ```
 
 For library authors — mark your functions as extensions explicitly:
@@ -232,11 +234,12 @@ export function distance(p: Point, other: Point): number {
 ### Tagged Templates
 
 ```typescript
-import { sql } from "@typesugar/sql";
+import { sql, Fragment } from "@typesugar/sql";
 import { regex, html } from "@typesugar/strings";
 import { units } from "@typesugar/units";
 
-const query = sql`SELECT * FROM ${table} WHERE id = ${id}`;
+const query = sql`SELECT * FROM ${Fragment.ident(table)} WHERE id = ${id}`;
+// → { text: 'SELECT * FROM "users" WHERE id = $1', params: [5] }
 const pattern = regex`^[a-zA-Z]+$`; // Validated at compile time
 const markup = html`<div>${userInput}</div>`; // XSS-safe
 const speed = units`100 km/h`; // Dimensional analysis
@@ -247,73 +250,92 @@ const speed = units`100 km/h`; // Dimensional analysis
 For library authors — define new typeclasses that integrate with implicit resolution:
 
 ```typescript
-import { typeclass, instance } from "@typesugar/typeclass";
+interface Point {
+  x: number;
+  y: number;
+}
 
 // Define a typeclass
-@typeclass
+/** @typeclass */
 interface Serialize<A> {
   serialize(a: A): Uint8Array;
   deserialize(bytes: Uint8Array): A;
 }
 
-// Provide a custom instance — attaches to Point companion
-@instance
+// Provide an instance — it attaches to the Point companion
+/** @impl Serialize<Point> */
 const serializePoint: Serialize<Point> = {
   serialize: (p) => new Uint8Array([p.x, p.y]),
   deserialize: (b) => ({ x: b[0], y: b[1] }),
 };
 // Access via: Point.Serialize.serialize(myPoint)
 
-// Now it just works
-const bytes = myPoint.serialize();  // Uses custom instance, zero-cost
+// Method syntax works in the file that declares the typeclass. Other files
+// opt in by importing the typeclass's `@syntax-methods` marker module.
+const myPoint: Point = { x: 3, y: 4 };
+const bytes = myPoint.serialize(); // Compiles to: serializePoint.serialize(myPoint)
 ```
 
 ### Operator Overloading
 
-Standard operators resolve to typeclass methods automatically:
+Operators dispatch to typeclass methods tagged `/** @op */`, in files that import
+the typeclass's `/ops` marker (or declare the typeclass):
 
 ```typescript
-interface Vec2 { x: number; y: number }
+import { Semigroup } from "@typesugar/std";
+import "@typesugar/std/syntax/semigroup/ops"; // activate `+` for Semigroup
+
+interface Vec2 {
+  x: number;
+  y: number;
+}
 
 // Define how Vec2 handles + via the Semigroup typeclass
-@instance
+/** @impl Semigroup<Vec2> */
 const vec2Semigroup: Semigroup<Vec2> = {
   combine: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
 };
-// Access via: Vec2.Semigroup.combine(a, b)
 
 // Now + just works on Vec2
 const a: Vec2 = { x: 1, y: 2 };
 const b: Vec2 = { x: 3, y: 4 };
-const c = a + b;  // Compiles to: { x: a.x + b.x, y: a.y + b.y }
-
+const c = a + b; // Compiles to: ({ x: a.x + b.x, y: a.y + b.y }) → { x: 4, y: 6 }
 ```
 
 ### Effect-TS Integration
 
 ```typescript
-import "@typesugar/std/syntax/do"; // activate let:/yield: label syntax
-import { service, layer, resolveLayer, EffectSchema } from "@typesugar/effect";
 import { Effect } from "effect";
+import { derive } from "typesugar";
+import { service, layer, resolveLayer, EffectSchema } from "@typesugar/effect";
 
-// Zero-boilerplate services
+// Zero-boilerplate services (generates DatabaseTag / UserRepoTag)
+@service
+interface Database {
+  query(sql: string): Effect.Effect<string>;
+}
+
 @service
 interface UserRepo {
-  findById(id: string): Effect.Effect<User, NotFound>
+  findById(id: string): Effect.Effect<string>;
 }
 
 // Layers with dependency tracking
+@layer(Database)
+const databaseLive = {
+  query: (sql: string) => Effect.succeed("rows for " + sql),
+};
+
 @layer(UserRepo, { requires: [Database] })
-const userRepoLive =
-let: {
-  db << Database;
-}
-yield: ({ findById: (id) => db.query(...) })
+const userRepoLive = Effect.gen(function* () {
+  const db = yield* DatabaseTag;
+  return { findById: (id: string) => db.query("SELECT " + id) };
+});
 
 // Automatic layer composition
-const runnable = program.pipe(
-  Effect.provide(resolveLayer<UserRepo | EmailService>())
-);
+const program = Effect.flatMap(UserRepoTag, (repo) => repo.findById("42"));
+const runnable = program.pipe(Effect.provide(resolveLayer<UserRepo>()));
+Effect.runSync(runnable); // "rows for SELECT 42"
 
 // Auto-derive Effect Schema
 @derive(EffectSchema)
@@ -334,7 +356,7 @@ The canonical docs live on the microsite: **[typesugar.org](https://typesugar.or
 
 ## Safety
 
-- **Sandboxed** — `comptime` runs in a restricted `vm` context (no filesystem, network, or process access)
+- **IO off by default** — `comptime` runs in a `vm` context with no filesystem or environment access unless the block asks for it (`comptime({ fs: "read" }, () => ...)`). This is not a security boundary: comptime code runs with your build's privileges, so only build code you trust. See [docs/SECURITY.md](docs/SECURITY.md).
 - **Timeout** — 5-second limit on compile-time evaluation
 - **Loud failures** — failed expansions emit `throw new Error(...)` so bugs are never silent
 - **Diagnostics** — all errors flow through the TypeScript diagnostic pipeline
@@ -366,26 +388,15 @@ error[TS9001]: No instance found for `Eq<Color>`
 For more information, see: https://typesugar.org/errors/TS9001
 ```
 
-Every error has a code (TS9001-TS9999), an explanation (`npx typesugar --explain TS9001`), and machine-applicable fixes that your IDE can apply automatically.
+Every error has a code (TS9001-TS9999) with an explanation page at `https://typesugar.org/errors/<code>`, and many carry machine-applicable fixes that your IDE can apply.
 
 For typeclass resolution failures, you get a complete **resolution trace** showing each step attempted and why it failed — including per-field instance checks for auto-derivation. See the [error messages guide](docs/guides/error-messages.md) for details.
 
 ### "Did You Mean to Import...?"
 
-Forgot an import? typesugar knows what's available and suggests it:
-
-```
-error[TS9061]: Macro `comptime` is not defined
-  --> src/app.ts:3:15
-   |
- 3 |   const x = comptime(() => 1 + 1);
-   |             ^^^^^^^
-   |
-   = help: Did you mean to import?
-     + import { comptime } from "typesugar";
-```
-
-This works for macros, typeclasses, extension methods — anything in the typesugar ecosystem.
+An unknown `@derive(...)` name gets a suggestion of which typesugar package
+exports it, when one does. (Import suggestions for other undefined macros and
+extension methods are not implemented yet.)
 
 ### Opt-Out Escape Hatches
 

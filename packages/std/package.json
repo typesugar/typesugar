@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/std",
   "version": "0.1.1",
-  "description": "🧊 Standard typeclasses and extension methods for enriching basic TypeScript types",
+  "description": "Standard typeclasses and extension methods for enriching basic TypeScript types",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

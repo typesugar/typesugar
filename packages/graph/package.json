@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/graph",
   "version": "0.1.1",
-  "description": "🧊 Compile-time graph algorithms and state machine verification — Boost.Graph for TypeScript",
+  "description": "Compile-time graph algorithms and state machine verification — Boost.Graph for TypeScript",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

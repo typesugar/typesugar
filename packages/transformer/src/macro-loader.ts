@@ -34,8 +34,40 @@ export function __setRequireForTesting(req: NodeRequire | undefined): void {
   _requireOverride = req;
 }
 
-function getRequire(): NodeRequire {
-  return _requireOverride ?? _require;
+/**
+ * One `NodeRequire` per importing directory, so a project's macro packages
+ * resolve the way Node would resolve the project's own imports.
+ */
+const projectRequireCache = new Map<string, NodeRequire>();
+
+/**
+ * The `require`s to try, in order, when resolving a macro package imported
+ * from a file in `fromDir`:
+ *
+ * 1. the importing file's own directory -- the user's project. A package
+ *    installed only in the project (pnpm's strict layout puts it in the
+ *    project's `node_modules`, invisible from the transformer's install)
+ *    must still load (docs review 2026-10, docs-authoring "1.0 gaps");
+ * 2. the transformer's own install -- the pre-1.0 behaviour, kept as a
+ *    fallback for hosts whose files have no real on-disk location.
+ *
+ * The test override (if set) replaces both.
+ */
+function requireChain(fromDir?: string): NodeRequire[] {
+  if (_requireOverride) return [_requireOverride];
+  if (!fromDir) return [_require];
+  let req = projectRequireCache.get(fromDir);
+  if (!req) {
+    // createRequire needs a FILE path; it need not exist.
+    req = createRequire(path.join(fromDir, "__typesugar_macro_resolver__.js"));
+    projectRequireCache.set(fromDir, req);
+  }
+  return [req, _require];
+}
+
+/** The directory imports in `fileName` resolve from, if it is a real path. */
+function importerDir(fileName: string): string | undefined {
+  return path.isAbsolute(fileName) ? path.dirname(fileName) : undefined;
 }
 
 /**
@@ -84,7 +116,16 @@ interface ManifestFieldInfo {
    *  relative (`./macros` → `${pkg}/macros`) and facade cross-package
    *  (`@typesugar/macros/macros`) manifest values. */
   target: string;
+  /** The `require` that found the package's package.json; the target is
+   *  loaded through the same one. */
+  req: NodeRequire;
 }
+
+/** Outcome of looking a candidate package up (see `discoverPackage`). */
+type PackageDiscovery =
+  | { kind: "unresolved" }
+  | { kind: "no-manifest" }
+  | ({ kind: "manifest" } & ManifestFieldInfo);
 
 /**
  * Memoizes package.json reads (I/O-bound, and the field itself is
@@ -94,7 +135,14 @@ interface ManifestFieldInfo {
  * state (`config.set(...)` is a public API), so it's recomputed on every
  * call. Cleared by `resetLoadedPackages` (testing only).
  */
-const manifestFieldCache = new Map<string, ManifestFieldInfo | null>();
+const manifestFieldCache = new Map<string, PackageDiscovery>();
+
+/**
+ * Macro targets whose require() threw, with the error message. A failed
+ * load is not retried, but every file importing the package still gets the
+ * warning (see `loadMacroPackagesFromFile`).
+ */
+const failedLoads = new Map<NodeRequire, Map<string, string>>();
 
 /**
  * Resolve and parse a package's own package.json, given its base specifier.
@@ -198,25 +246,28 @@ function isTrusted(pkg: string): boolean {
  * well as the real loader. Result is memoized (see `manifestFieldCache`);
  * trust is deliberately NOT part of what's cached here.
  */
-function resolveManifestField(pkg: string): ManifestFieldInfo | null {
-  if (manifestFieldCache.has(pkg)) {
-    return manifestFieldCache.get(pkg) ?? null;
-  }
+function discoverPackage(pkg: string, fromDir?: string): PackageDiscovery {
+  const key = `${fromDir ?? ""}\0${pkg}`;
+  const cached = manifestFieldCache.get(key);
+  if (cached) return cached;
 
-  let result: ManifestFieldInfo | null = null;
-  const resolved = resolvePackageJson(pkg, getRequire());
-  if (resolved) {
+  let result: PackageDiscovery = { kind: "unresolved" };
+  for (const req of requireChain(fromDir)) {
+    const resolved = resolvePackageJson(pkg, req);
+    if (!resolved) continue;
+    result = { kind: "no-manifest" };
     const typesugarField = resolved.data.typesugar as { macros?: unknown } | undefined;
     const macrosField = typesugarField?.macros;
     if (typeof macrosField === "string") {
       const target = resolveManifestTarget(pkg, macrosField);
       if (target) {
-        result = { target };
+        result = { kind: "manifest", target, req };
       }
     }
+    break;
   }
 
-  manifestFieldCache.set(pkg, result);
+  manifestFieldCache.set(key, result);
   return result;
 }
 
@@ -227,24 +278,63 @@ function resolveManifestField(pkg: string): ManifestFieldInfo | null {
  * trusted/approved. Trust is re-checked against the CURRENT
  * `security.allowedMacroPackages` on every call.
  */
-export function classifyManifestPackages(candidates: Iterable<string>): {
+export function classifyManifestPackages(
+  candidates: Iterable<string>,
+  fromDir?: string
+): {
   toLoad: Map<string, string>;
   blocked: string[];
 } {
   const toLoad = new Map<string, string>();
-  const blocked: string[] = [];
+  const { load, blocked } = classifyCandidates(
+    new Map([...candidates].map((pkg) => [pkg, fromDir]))
+  );
+  for (const [pkg, info] of load) toLoad.set(pkg, info.target);
+  return { toLoad, blocked };
+}
 
-  for (const pkg of candidates) {
-    const field = resolveManifestField(pkg);
-    if (!field) continue;
+/**
+ * Packages that are expected to provide macros (first-party, auto-trusted)
+ * and so warrant a warning when they cannot be resolved at all. A
+ * third-party import that cannot be resolved is not necessarily a macro
+ * package, so it stays silent here (TypeScript reports the missing module).
+ */
+function expectsMacros(pkg: string): boolean {
+  return pkg.startsWith("@typesugar/") || AUTO_TRUSTED_UNSCOPED_PACKAGES.has(pkg);
+}
+
+function classifyCandidates(candidates: Map<string, string | undefined>): {
+  load: Map<string, ManifestFieldInfo>;
+  blocked: string[];
+  unresolved: Array<{ pkg: string; fromDir?: string }>;
+} {
+  const load = new Map<string, ManifestFieldInfo>();
+  const blocked: string[] = [];
+  const unresolved: Array<{ pkg: string; fromDir?: string }> = [];
+
+  for (const [pkg, fromDir] of candidates) {
+    const found = discoverPackage(pkg, fromDir);
+    if (found.kind === "unresolved") {
+      if (expectsMacros(pkg)) unresolved.push({ pkg, fromDir });
+      continue;
+    }
+    if (found.kind !== "manifest") continue;
     if (isTrusted(pkg)) {
-      toLoad.set(pkg, field.target);
+      load.set(pkg, { target: found.target, req: found.req });
     } else {
       blocked.push(pkg);
     }
   }
 
-  return { toLoad, blocked };
+  return { load, blocked, unresolved };
+}
+
+/** A macro package that is imported but whose macros could not be loaded. */
+export interface MacroPackageWarning {
+  /** The imported (base) package name. */
+  pkg: string;
+  /** Human-readable explanation, naming the package. */
+  message: string;
 }
 
 /**
@@ -262,25 +352,43 @@ export function classifyManifestPackages(candidates: Iterable<string>): {
  * prefix-fallback's behavior for this specific ordering rule.
  */
 function loadDiscoveredPackages(
-  candidates: Set<string>,
+  candidates: Map<string, string | undefined>,
   verbose?: boolean
-): { loaded: Set<string>; blocked: string[] } {
-  const { toLoad, blocked } = classifyManifestPackages(candidates);
+): { loaded: Set<string>; blocked: string[]; warnings: MacroPackageWarning[] } {
+  const { load, blocked, unresolved } = classifyCandidates(candidates);
+  const warnings: MacroPackageWarning[] = [];
 
-  const hasTypesugarImport = [...candidates].some(
-    (pkg) => pkg.startsWith("@typesugar/") || AUTO_TRUSTED_UNSCOPED_PACKAGES.has(pkg)
-  );
-  if (hasTypesugarImport) {
-    loadPackage("@typesugar/std", verbose);
+  for (const { pkg, fromDir } of unresolved) {
+    warnings.push({
+      pkg,
+      message:
+        `macro package '${pkg}' could not be resolved` +
+        (fromDir ? ` from ${fromDir}` : "") +
+        `; its macros will not be expanded. Install it in this project.`,
+    });
+  }
+
+  const typesugarImporter = [...candidates].find(([pkg]) => expectsMacros(pkg));
+  if (typesugarImporter) {
+    loadPackage("@typesugar/std", verbose, typesugarImporter[1]);
   }
 
   const loaded = new Set<string>();
-  for (const [pkg, target] of toLoad) {
-    tryLoadModule(pkg, target, verbose);
-    loaded.add(pkg);
+  for (const [pkg, info] of load) {
+    const error = tryLoadModule(pkg, info.target, verbose, info.req);
+    if (error === undefined) {
+      loaded.add(pkg);
+    } else {
+      warnings.push({
+        pkg,
+        message:
+          `macro package '${pkg}' declares macros at '${info.target}' but loading it failed: ` +
+          `${error}. Its macros will not be expanded.`,
+      });
+    }
   }
 
-  return { loaded, blocked };
+  return { loaded, blocked, warnings };
 }
 
 /**
@@ -291,7 +399,9 @@ function loadDiscoveredPackages(
  * Must be called before the visitor pass begins.
  */
 export function loadMacroPackages(program: ts.Program, verbose?: boolean): void {
-  const importedModules = collectImportedModules(program);
+  const importedModules = collectImportedModulesWithDirs(program);
+  // Load warnings are reported per importing file, as diagnostics, by
+  // `loadMacroPackagesFromFile` (the factory calls it for every file).
   const { loaded, blocked } = loadDiscoveredPackages(importedModules, verbose);
 
   if (verbose) {
@@ -315,7 +425,7 @@ export function loadMacroPackages(program: ts.Program, verbose?: boolean): void 
  * Useful for programmatic use or testing.
  */
 export function loadMacroPackage(packageName: string, verbose?: boolean): boolean {
-  return loadPackage(packageName, verbose);
+  return loadPackage(packageName, verbose, process.cwd());
 }
 
 /**
@@ -323,24 +433,34 @@ export function loadMacroPackage(packageName: string, verbose?: boolean): boolea
  * Called per-file during transformation to ensure packages are loaded
  * even when the initial program doesn't include all files.
  */
-export function loadMacroPackagesFromFile(sourceFile: ts.SourceFile, verbose?: boolean): void {
-  const basePkgs = new Set<string>();
+export function loadMacroPackagesFromFile(
+  sourceFile: ts.SourceFile,
+  verbose?: boolean
+): Array<MacroPackageWarning & { node: ts.ImportDeclaration }> {
+  const basePkgs = new Map<string, string | undefined>();
+  const importOf = new Map<string, ts.ImportDeclaration>();
+  const fromDir = importerDir(sourceFile.fileName);
 
   for (const stmt of sourceFile.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
       const mod = stmt.moduleSpecifier.text;
       if (!mod.startsWith(".") && !mod.startsWith("/")) {
         const basePkg = getBasePackageName(mod);
-        if (basePkg) basePkgs.add(basePkg);
+        if (basePkg) {
+          basePkgs.set(basePkg, fromDir);
+          if (!importOf.has(basePkg)) importOf.set(basePkg, stmt);
+        }
       }
     }
   }
 
-  const { blocked } = loadDiscoveredPackages(basePkgs, verbose);
+  const { blocked, warnings } = loadDiscoveredPackages(basePkgs, verbose);
 
   if (blocked.length > 0) {
     throw new UnapprovedMacroPackagesError(blocked);
   }
+
+  return warnings.map((w) => ({ ...w, node: importOf.get(w.pkg)! }));
 }
 
 /**
@@ -349,17 +469,21 @@ export function loadMacroPackagesFromFile(sourceFile: ts.SourceFile, verbose?: b
 export function resetLoadedPackages(): void {
   loadedPackages.clear();
   manifestFieldCache.clear();
+  failedLoads.clear();
+  projectRequireCache.clear();
 }
 
-function loadPackage(pkg: string, verbose?: boolean): boolean {
+function loadPackage(pkg: string, verbose?: boolean, fromDir?: string): boolean {
   if (loadedPackages.has(pkg)) return true;
 
   // Prefer the dedicated `./macros` entry (PEP-050 Case-1 isolation): macro
   // definitions import `typescript` and must NOT live in the `.` runtime entry.
   // Packages that haven't split yet have no `./macros` subpath, so we fall back
   // to the package root (the original behavior).
-  for (const target of [`${pkg}/macros`, pkg]) {
-    if (tryLoadModule(pkg, target, verbose)) return true;
+  for (const req of requireChain(fromDir)) {
+    for (const target of [`${pkg}/macros`, pkg]) {
+      if (tryLoadModule(pkg, target, verbose, req) === undefined) return true;
+    }
   }
   if (verbose) {
     console.log(`[typesugar] Could not load macro package: ${pkg}`);
@@ -367,9 +491,23 @@ function loadPackage(pkg: string, verbose?: boolean): boolean {
   return false;
 }
 
-function tryLoadModule(pkg: string, target: string, verbose?: boolean): boolean {
+/**
+ * require() `target` and register its macros. Returns `undefined` on
+ * success, or the error message when the module could not be loaded.
+ */
+function tryLoadModule(
+  pkg: string,
+  target: string,
+  verbose: boolean | undefined,
+  req: NodeRequire
+): string | undefined {
+  if (loadedPackages.has(pkg)) return undefined;
+  let failedForReq = failedLoads.get(req);
+  if (!failedForReq) failedLoads.set(req, (failedForReq = new Map()));
+  const failed = failedForReq.get(target);
+  if (failed !== undefined) return failed;
   try {
-    const loaded = getRequire()(target);
+    const loaded = req(target);
     loadedPackages.add(pkg);
 
     // Convention: __typesugar_macros__ exports an array of MacroDefinition
@@ -386,7 +524,7 @@ function tryLoadModule(pkg: string, target: string, verbose?: boolean): boolean 
           `[typesugar] Loaded ${loaded.__typesugar_macros__.length} macros from ${target} (convention)`
         );
       }
-      return true;
+      return undefined;
     }
 
     // Side-effect registration: many packages register macros as a side
@@ -395,11 +533,15 @@ function tryLoadModule(pkg: string, target: string, verbose?: boolean): boolean 
     if (verbose) {
       console.log(`[typesugar] Loaded macro package: ${target}`);
     }
-    return true;
-  } catch {
-    // Module not resolvable (e.g. no `./macros` subpath) — caller tries the next
-    // candidate. Silent: missing `./macros` is the normal not-yet-split case.
-    return false;
+    return undefined;
+  } catch (error) {
+    // Not resolvable (e.g. no `./macros` subpath, the normal not-yet-split
+    // case for `loadPackage`) or the module threw while loading. The caller
+    // decides whether that is worth a warning: a manifest-declared target
+    // that fails is (see `loadDiscoveredPackages`).
+    const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    failedForReq.set(target, message);
+    return message;
   }
 }
 
@@ -417,18 +559,30 @@ function isMacroDefinition(value: unknown): value is MacroDefinition {
  * Only scans user source files (skips node_modules and .d.ts files).
  */
 export function collectImportedModules(program: ts.Program): Set<string> {
-  const modules = new Set<string>();
+  return new Set(collectImportedModulesWithDirs(program).keys());
+}
+
+/**
+ * As `collectImportedModules`, mapping each package to the directory of the
+ * first file that imports it (where its resolution starts from).
+ */
+function collectImportedModulesWithDirs(program: ts.Program): Map<string, string | undefined> {
+  const modules = new Map<string, string | undefined>();
 
   for (const sourceFile of program.getSourceFiles()) {
     if (sourceFile.fileName.includes("node_modules")) continue;
     if (sourceFile.isDeclarationFile) continue;
+    const fromDir = importerDir(sourceFile.fileName);
+    const add = (basePkg: string) => {
+      if (basePkg && !modules.has(basePkg)) modules.set(basePkg, fromDir);
+    };
 
     for (const stmt of sourceFile.statements) {
       if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
         const mod = stmt.moduleSpecifier.text;
         if (!mod.startsWith(".") && !mod.startsWith("/")) {
           const basePkg = getBasePackageName(mod);
-          if (basePkg) modules.add(basePkg);
+          add(basePkg);
         }
       }
 
@@ -441,7 +595,7 @@ export function collectImportedModules(program: ts.Program): Set<string> {
         const mod = stmt.moduleSpecifier.text;
         if (!mod.startsWith(".") && !mod.startsWith("/")) {
           const basePkg = getBasePackageName(mod);
-          if (basePkg) modules.add(basePkg);
+          add(basePkg);
         }
       }
     }

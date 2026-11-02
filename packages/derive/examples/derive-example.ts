@@ -7,7 +7,6 @@
  * - Clone — deep copying
  * - Debug — debug string representation
  * - Json — JSON serialization/deserialization
- * - Builder — fluent builder pattern
  */
 
 import {
@@ -19,7 +18,6 @@ import {
   Hash,
   Default,
   Json,
-  Builder,
   TypeGuard,
 } from "typesugar";
 
@@ -94,27 +92,6 @@ console.log("toJson():", json);
 
 const parsed = User.fromJson(json);
 console.log("fromJson():", parsed);
-
-// --- Builder Derivation ---
-
-@derive(Builder)
-class Config {
-  host: string = "localhost";
-  port: number = 8080;
-  secure: boolean = false;
-  timeout: number = 30000;
-}
-
-console.log("\n--- Config with Builder ---");
-
-const config = Config.builder()
-  .host("api.example.com")
-  .port(443)
-  .secure(true)
-  .timeout(60000)
-  .build();
-
-console.log("Built config:", config);
 
 // --- Default Derivation ---
 

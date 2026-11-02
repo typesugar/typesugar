@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/mapper",
   "version": "0.1.1",
-  "description": "🧊 Zero-cost compile-time object mapping and transformation",
+  "description": "Zero-cost compile-time object mapping and transformation",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

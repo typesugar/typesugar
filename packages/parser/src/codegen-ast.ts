@@ -12,7 +12,9 @@
  *
  * Hygiene: every helper and rule function is declared inside the emitted IIFE's
  * own function scope, so nothing leaks into or captures from the user's scope.
- * The only free identifiers are the globals `Map` and `Error`.
+ * The only free identifiers are the globals `Map` and `Error`, plus the
+ * caller-supplied `ParseError` reference when one is given (the macro passes
+ * `ctx.ensureImport("ParseError", "@typesugar/parser")`).
  *
  * @module
  */
@@ -28,19 +30,31 @@ type F = ts.NodeFactory;
  * @param factory - The node factory to build with (`ctx.factory` in a macro)
  * @param rules - Named grammar rules (from `parseGrammarDef`)
  * @param startRule - Entry rule (defaults to the first rule)
+ * @param parseErrorRef - Returns a fresh reference to the runtime `ParseError`
+ *   class. When given, `parseAll` throws `new ParseError(input, pos, expected)`
+ *   (same class, fields and message as the runtime parsers); when omitted it
+ *   throws a plain `Error` with the same first message line as
+ *   `generateParserCode`, so the emitted code needs no import.
  */
 export function generateParserAst(
   factory: F,
   rules: Map<string, GrammarRule>,
-  startRule?: string
+  startRule?: string,
+  parseErrorRef?: () => ts.Expression
 ): ts.Expression {
-  return new AstEmitter(factory).program(rules, startRule ?? rules.keys().next().value!);
+  return new AstEmitter(factory, parseErrorRef).program(
+    rules,
+    startRule ?? rules.keys().next().value!
+  );
 }
 
 class AstEmitter {
   private counter = 0;
 
-  constructor(private readonly f: F) {}
+  constructor(
+    private readonly f: F,
+    private readonly parseErrorRef?: () => ts.Expression
+  ) {}
 
   // -------------------------------------------------------------------------
   // Small node helpers
@@ -289,66 +303,73 @@ class AstEmitter {
       );
     }
 
-    // function __lineCol(input, pos) { ... }
-    body.push(
-      this.funcDecl(
-        "__lineCol",
-        ["input", "pos"],
-        [
-          this.varDecl([
-            ["line", this.num(1)],
-            ["col", this.num(1)],
-          ]),
-          f.createForStatement(
-            f.createVariableDeclarationList(
-              [f.createVariableDeclaration("i", undefined, undefined, this.num(0))],
-              ts.NodeFlags.None
-            ),
-            this.bin(
-              this.bin(this.id("i"), ts.SyntaxKind.LessThanToken, this.id("pos")),
-              ts.SyntaxKind.AmpersandAmpersandToken,
-              this.bin(this.id("i"), ts.SyntaxKind.LessThanToken, this.prop("input", "length"))
-            ),
-            f.createPostfixUnaryExpression(this.id("i"), ts.SyntaxKind.PlusPlusToken),
-            f.createBlock(
-              [
-                f.createIfStatement(
-                  this.bin(
-                    this.elem("input", this.id("i")),
-                    ts.SyntaxKind.EqualsEqualsEqualsToken,
-                    this.str("\n")
+    // function __lineCol(input, pos) { ... } (only the plain-Error path uses it)
+    if (!this.parseErrorRef)
+      body.push(
+        this.funcDecl(
+          "__lineCol",
+          ["input", "pos"],
+          [
+            this.varDecl([
+              ["line", this.num(1)],
+              ["col", this.num(1)],
+            ]),
+            f.createForStatement(
+              f.createVariableDeclarationList(
+                [f.createVariableDeclaration("i", undefined, undefined, this.num(0))],
+                ts.NodeFlags.None
+              ),
+              this.bin(
+                this.bin(this.id("i"), ts.SyntaxKind.LessThanToken, this.id("pos")),
+                ts.SyntaxKind.AmpersandAmpersandToken,
+                this.bin(this.id("i"), ts.SyntaxKind.LessThanToken, this.prop("input", "length"))
+              ),
+              f.createPostfixUnaryExpression(this.id("i"), ts.SyntaxKind.PlusPlusToken),
+              f.createBlock(
+                [
+                  f.createIfStatement(
+                    this.bin(
+                      this.elem("input", this.id("i")),
+                      ts.SyntaxKind.EqualsEqualsEqualsToken,
+                      this.str("\n")
+                    ),
+                    f.createBlock(
+                      [
+                        f.createExpressionStatement(
+                          f.createPostfixUnaryExpression(
+                            this.id("line"),
+                            ts.SyntaxKind.PlusPlusToken
+                          )
+                        ),
+                        this.assign("col", this.num(1)),
+                      ],
+                      true
+                    ),
+                    f.createBlock(
+                      [
+                        f.createExpressionStatement(
+                          f.createPostfixUnaryExpression(
+                            this.id("col"),
+                            ts.SyntaxKind.PlusPlusToken
+                          )
+                        ),
+                      ],
+                      true
+                    )
                   ),
-                  f.createBlock(
-                    [
-                      f.createExpressionStatement(
-                        f.createPostfixUnaryExpression(this.id("line"), ts.SyntaxKind.PlusPlusToken)
-                      ),
-                      this.assign("col", this.num(1)),
-                    ],
-                    true
-                  ),
-                  f.createBlock(
-                    [
-                      f.createExpressionStatement(
-                        f.createPostfixUnaryExpression(this.id("col"), ts.SyntaxKind.PlusPlusToken)
-                      ),
-                    ],
-                    true
-                  )
-                ),
-              ],
-              true
-            )
-          ),
-          this.ret(
-            f.createObjectLiteralExpression([
-              f.createPropertyAssignment("line", this.id("line")),
-              f.createPropertyAssignment("col", this.id("col")),
-            ])
-          ),
-        ]
-      )
-    );
+                ],
+                true
+              )
+            ),
+            this.ret(
+              f.createObjectLiteralExpression([
+                f.createPropertyAssignment("line", this.id("line")),
+                f.createPropertyAssignment("col", this.id("col")),
+              ])
+            ),
+          ]
+        )
+      );
 
     // var __rules = new Map(); __rules.set(name, <IR>); ...
     body.push(this.varDecl([["__rules", f.createNewExpression(this.id("Map"), undefined, [])]]));
@@ -360,7 +381,7 @@ class AstEmitter {
       );
     }
 
-    const parseErr = (lc: string, tail: ts.Expression): ts.ThrowStatement =>
+    const plainErr = (lc: string, tail: ts.Expression): ts.ThrowStatement =>
       f.createThrowStatement(
         f.createNewExpression(this.id("Error"), undefined, [
           this.bin(
@@ -387,6 +408,23 @@ class AstEmitter {
         ])
       );
 
+    // `throw new ParseError(input, pos, expected)` when the caller supplied the
+    // class; otherwise a plain Error built from the inlined __lineCol helper.
+    const parseErr = (lc: string, pos: ts.Expression, expected: ts.Expression): ts.Statement[] => {
+      const ref = this.parseErrorRef;
+      if (ref) {
+        return [
+          f.createThrowStatement(
+            f.createNewExpression(ref(), undefined, [this.id("input"), pos, expected])
+          ),
+        ];
+      }
+      return [
+        this.varDecl([[lc, this.call("__lineCol", [this.id("input"), pos])]]),
+        plainErr(lc, expected),
+      ];
+    };
+
     const parseFn = this.funcExpr(
       ["input", "pos"],
       [
@@ -404,24 +442,17 @@ class AstEmitter {
         this.assign("__furthestPos", this.num(0)),
         this.assign("__furthestExpected", this.str("unknown")),
         this.varDecl([["result", this.call(startFn, [this.id("input"), this.num(0)])]]),
-        this.ifThen(this.not(this.prop("result", "ok")), [
-          this.varDecl([
-            ["lc", this.call("__lineCol", [this.id("input"), this.id("__furthestPos")])],
-          ]),
-          parseErr("lc", this.id("__furthestExpected")),
-        ]),
+        this.ifThen(
+          this.not(this.prop("result", "ok")),
+          parseErr("lc", this.id("__furthestPos"), this.id("__furthestExpected"))
+        ),
         this.ifThen(
           this.bin(
             this.prop("result", "pos"),
             ts.SyntaxKind.ExclamationEqualsEqualsToken,
             this.prop("input", "length")
           ),
-          [
-            this.varDecl([
-              ["lc2", this.call("__lineCol", [this.id("input"), this.prop("result", "pos")])],
-            ]),
-            parseErr("lc2", this.str("end of input")),
-          ]
+          parseErr("lc2", this.prop("result", "pos"), this.str("end of input"))
         ),
         this.ret(this.prop("result", "value")),
       ]

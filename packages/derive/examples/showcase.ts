@@ -3,7 +3,7 @@
  *
  * Self-documenting examples of Rust-inspired derive macros that auto-generate
  * implementations for common traits: Eq, Ord, Clone, Debug, Hash, Default,
- * Json, Builder, and TypeGuard.
+ * Json, and TypeGuard.
  *
  * Type assertions used:
  *   typeAssert<Equal<A, B>>()        - A and B are the same type
@@ -194,38 +194,7 @@ try {
 assert(threw);
 
 // ============================================================================
-// 8. Builder DERIVE — Fluent builder pattern
-// ============================================================================
-
-// @derive(Builder) generates a builder class with .withField() methods
-// and a .build() method that constructs the final object.
-
-@derive(Builder)
-interface DatabaseConfig {
-  host: string;
-  port: number;
-  database: string;
-  ssl: boolean;
-}
-
-const dbConfig = new DatabaseConfigBuilder()
-  .withHost("db.example.com")
-  .withPort(5432)
-  .withDatabase("myapp")
-  .withSsl(true)
-  .build();
-
-assert(dbConfig.host === "db.example.com");
-assert(dbConfig.port === 5432);
-assert(dbConfig.database === "myapp");
-assert(dbConfig.ssl === true);
-
-// Builder methods are chainable and return the builder
-const builder = new DatabaseConfigBuilder();
-typeAssert<Equal<ReturnType<typeof builder.withHost>, DatabaseConfigBuilder>>();
-
-// ============================================================================
-// 9. TypeGuard DERIVE — Runtime type guards
+// 8. TypeGuard DERIVE — Runtime type guards
 // ============================================================================
 
 // @derive(TypeGuard) generates an isTypeName() function that performs
@@ -253,7 +222,7 @@ if (isApiResponse(unknown)) {
 }
 
 // ============================================================================
-// 10. COMBINING DERIVES — Multiple derives on one type
+// 9. COMBINING DERIVES — Multiple derives on one type
 // ============================================================================
 
 // Derives compose naturally — add as many as needed.
@@ -298,7 +267,7 @@ assert(isProduct(laptop) === true);
 assert(isProduct({ sku: 123, name: "bad", price: "free" }) === false);
 
 // ============================================================================
-// 11. DERIVE NAMING CONVENTIONS
+// 10. DERIVE NAMING CONVENTIONS
 // ============================================================================
 
 // Each derive produces predictably named functions:
@@ -311,7 +280,6 @@ assert(isProduct({ sku: 123, name: "bad", price: "free" }) === false);
 //   @derive(Default)   → defaultPoint(): Point
 //   @derive(Json)      → pointToJson(value): string
 //                        pointFromJson(json): Point
-//   @derive(Builder)   → class PointBuilder { withX(...).build() }
 //   @derive(TypeGuard)  → isPoint(value): value is Point
 
 // The createDerivedFunctionName helper encodes these conventions:
@@ -328,10 +296,10 @@ assert(createDerivedFunctionName("fromJson", "Point") === "pointFromJson");
 assert(createDerivedFunctionName("is", "Point") === "isPoint");
 
 // ============================================================================
-// 12. REAL-WORLD EXAMPLE — Domain model with full derive suite
+// 11. REAL-WORLD EXAMPLE — Domain model with full derive suite
 // ============================================================================
 
-@derive(Eq, Clone, Debug, Json, Builder, TypeGuard)
+@derive(Eq, Clone, Debug, Json, TypeGuard)
 interface UserProfile {
   username: string;
   email: string;
@@ -339,13 +307,12 @@ interface UserProfile {
   verified: boolean;
 }
 
-// Build a profile with the builder
-const profile = new UserProfileBuilder()
-  .withUsername("alice")
-  .withEmail("alice@example.com")
-  .withDisplayName("Alice Wonderland")
-  .withVerified(true)
-  .build();
+const profile: UserProfile = {
+  username: "alice",
+  email: "alice@example.com",
+  displayName: "Alice Wonderland",
+  verified: true,
+};
 
 assert(profile.username === "alice");
 assert(profile.verified === true);

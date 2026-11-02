@@ -381,7 +381,10 @@ export const codecMacro = defineAttributeMacro({
         )
       )
     );
-    const defineSchemaCall = f.createCallExpression(f.createIdentifier("defineSchema"), undefined, [
+    // Import `defineSchema` (or reuse the file's existing binding): a file
+    // can trigger `/** @codec */` with just `import "@typesugar/codec"`.
+    const defineSchemaId = ctx.ensureImport("defineSchema", "@typesugar/codec");
+    const defineSchemaCall = f.createCallExpression(defineSchemaId, undefined, [
       f.createStringLiteral(name),
       f.createObjectLiteralExpression(optionProps, true),
     ]);

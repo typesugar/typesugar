@@ -4,7 +4,7 @@ Type-safe physical units with compile-time dimensional analysis. Catch dimension
 
 `@typesugar/units` provides a compile-time unit system inspired by `boost::units`. Perform arithmetic on physical quantities with automatic unit tracking — the compiler catches dimension mismatches before runtime.
 
-> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** Not under active development and excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+> 🧊 **Frozen ([PEP-048](https://github.com/typesugar/typesugar/blob/main/peps/PEP-048-package-triage.md)).** Not under active development. It is still published to npm and builds, but is not part of typesugar's actively-maintained surface.
 
 ## Quick Start
 
@@ -30,7 +30,8 @@ const force = mass.mul(velocity.div(time));
 
 ## Type-Safe Arithmetic
 
-With the typesugar transformer, use natural operator syntax:
+Use the `add`, `sub`, `mul` and `div` methods. The dimensions are checked by
+TypeScript itself, so this works with or without the transformer:
 
 ```typescript
 import { meters, seconds } from "@typesugar/units";
@@ -39,21 +40,15 @@ const d1 = meters(100);
 const d2 = meters(50);
 const t = seconds(10);
 
-// Operator syntax (requires typesugar transformer)
-const total = d1 + d2; // 150 meters
-const diff = d1 - d2; // 50 meters
-const velocity = d1 / t; // Unit<Velocity>
-
-// Different-dimension operations caught at compile time
-// const invalid = d1 + t; // ✗ Compile error: can't add meters and seconds
+const total = d1.add(d2); // ✓ 150 m
+const diff = d1.sub(d2); // ✓ 50 m
+const velocity = d1.div(t); // ✓ Unit<Velocity>
+const invalid = d1.add(t); // ✗ Compile error (TS2345): can't add meters and seconds
 ```
 
-Or use explicit method calls:
-
-```typescript
-const total = d1.add(d2); // ✓ 150 meters
-const invalid = d1.add(t); // ✗ Compile error: can't add meters and seconds
-```
+There is no operator syntax for units: `d1 + d2` is plain JavaScript `+` on two
+objects (it concatenates their strings), and `d1 === d2` is reference equality.
+Use `d1.equals(d2)` to compare values.
 
 ## Unit Literals
 
@@ -78,7 +73,7 @@ import { meters, kilometers, feet } from "@typesugar/units";
 const d = kilometers(1);
 console.log(d.value); // 1000 (stored as meters internally)
 console.log(d.symbol); // "km"
-console.log(d.toString()); // "1000 km"
+console.log(d.toString()); // "1 km" — printed in the displayed unit
 
 const f = feet(1);
 console.log(f.value); // 0.3048 (stored as meters)
@@ -111,7 +106,7 @@ workday.to(seconds); // Unit(28800, "s")
 // workday.to(meters);  // ✗ Compile error: can't convert time to length
 ```
 
-> **Note**: `.to()` conversions use multiplicative factors only. This works correctly for temperature _differences_ (e.g., "5 degrees warmer") but not for absolute temperature conversion (0°C ≠ 0K). Absolute temperature conversion requires offset-based calculation which is not currently supported.
+> **Note**: `.to()` applies the target unit's offset as well as its factor, so absolute temperature conversion works: `celsius(0).to(kelvin)` is `273.15 K`.
 
 ## Available Units
 
@@ -167,6 +162,8 @@ workday.to(seconds); // Unit(28800, "s")
 class Unit<D extends Dimensions> {
   readonly value: number; // Value in SI base units
   readonly symbol: string; // Display symbol (e.g., "km", "m/s")
+  readonly displayFactor: number; // SI units per display unit (1000 for km)
+  readonly displayOffset: number; // SI value of the display unit's zero (273.15 for °C)
 
   // Same-dimension operations
   add(other: Unit<D>): Unit<D>;
@@ -187,7 +184,7 @@ class Unit<D extends Dimensions> {
   equals(other: Unit<D>, tolerance?: number): boolean;
 
   // Display
-  toString(): string; // "value symbol"
+  toString(): string; // "value symbol", value in the displayed unit
 }
 ```
 
@@ -206,20 +203,6 @@ type Dimensions<
 ```typescript
 function units(strings: TemplateStringsArray): Unit<Dimensions>;
 ```
-
-## Typeclass Integration
-
-The `Unit` typeclass methods use `@op` JSDoc tags, enabling the typesugar transformer to rewrite operators:
-
-| Operator | Method   | Type Behavior                    |
-| -------- | -------- | -------------------------------- |
-| `+`      | `add`    | Same dimensions required         |
-| `-`      | `sub`    | Same dimensions required         |
-| `*`      | `mul`    | Dimensions multiply (L × T = LT) |
-| `/`      | `div`    | Dimensions divide (L / T = L/T)  |
-| `===`    | `equals` | Same dimensions, tolerance check |
-
-Note: Unlike a simple `Numeric` typeclass, `mul` and `div` change the dimension type, which is the whole point of unit safety.
 
 ## How It Works
 

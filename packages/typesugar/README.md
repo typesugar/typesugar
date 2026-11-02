@@ -8,7 +8,12 @@
 
 typesugar brings Scala 3-style metaprogramming to TypeScript. Write macros that transform code at compile time, eliminating runtime overhead while maintaining full type safety.
 
-This is the umbrella package that re-exports all core typesugar functionality. Install this if you want everything.
+This is the umbrella package. Its root entry (`typesugar`) is runtime-only: it exports the
+typed placeholders you call in your code (`comptime`, `derive`, `pipe`, `summon`, ...) and
+the derive markers (`Eq`, `Clone`, ...), and never loads the TypeScript compiler, so it is
+safe in browser bundles. The macro-authoring APIs (`defineExpressionMacro`,
+`globalRegistry`, ...) are at the `typesugar/core` subpath. The bundler plugins are at
+`typesugar/vite`, `typesugar/webpack`, `typesugar/esbuild` and `typesugar/rollup`.
 
 ## Installation
 
@@ -34,7 +39,7 @@ export default {
 ### 2. Use macros in your code
 
 ```typescript
-import { comptime, derive, pipe } from "typesugar";
+import { comptime, derive, pipe, Eq, Debug, Clone } from "typesugar";
 
 // Compile-time evaluation
 const factorial5 = comptime(() => {
@@ -50,10 +55,13 @@ interface User {
   id: number;
   name: string;
 }
-// Generates: userEq(), debugUser(), cloneUser()
+// Generates companions: User.Eq, User.Debug, User.Clone
+// e.g. User.Eq.equals(a, b), User.Clone.clone(a), User.Debug.debug(a)
 
-// Operator overloading — via typeclass @op JSDoc (e.g., Numeric, Semigroup)
-// When an instance exists: a + b compiles to instance.add(a, b)
+// Operator overloading — via typeclass @op JSDoc (e.g., Numeric, Semigroup),
+// turned on per file with an activation import such as
+// import "@typesugar/std/syntax/semigroup/ops";
+// When an instance exists: a + b compiles to a call to its combine method
 
 // Function composition
 const process = pipe(data, parse, validate, transform);
@@ -68,7 +76,7 @@ Evaluate expressions during compilation — constants, computed values, complex 
 
 ### Derive Macros (`@typesugar/derive`)
 
-Auto-generate implementations: Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard.
+Auto-generate implementations: Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard.
 
 ### Type Reflection (`@typesugar/reflect`)
 
@@ -76,7 +84,7 @@ Compile-time type introspection: `typeInfo<T>()`, `fieldNames<T>()`, `validator<
 
 ### Operator Overloading
 
-Operators (`+`, `-`, `*`, `/`, etc.) dispatch to typeclass methods via `@op` JSDoc tags on typeclass method signatures. When an instance exists, `a + b` compiles directly to the method call — no wrapper needed.
+Operators (`+`, `-`, `*`, `/`, etc.) dispatch to typeclass methods via `@op` JSDoc tags on typeclass method signatures. In a file that imports the typeclass's activation module (for example `import "@typesugar/std/syntax/eq/ops"`), and when an instance exists, `a === b` compiles directly to the method call — no wrapper needed.
 
 ### Typeclasses (`@typesugar/typeclass`)
 
@@ -99,7 +107,7 @@ always-on optimization, not an API you call.
 | `@typesugar/reflect`     | Type reflection                     |
 | `@typesugar/typeclass`   | Typeclass system                    |
 | `unplugin-typesugar`     | Bundler plugins                     |
-| `@typesugar/vscode`      | IDE extension                       |
+| `typesugar-vscode`       | VS Code extension (not on npm)      |
 
 ## Bundler Integration
 
@@ -135,19 +143,26 @@ npx typesugar expand src/file.ts
 
 ## API Reference
 
-### Re-exported from `@typesugar/core`
+### Root entry (`typesugar`)
 
-All core types: `MacroKind`, `MacroContext`, `MacroDefinition`, etc.
+- Placeholders for the built-in macros: `comptime`, `derive`, `pipe`, `compose`, `flow`,
+  `typeclass`, `impl`, `instance`, `summon`, `summonAll`, `extend`, `implicit`,
+  `extension`, `reflect`, `typeInfo`, `fieldNames`, `validator`, `cfg`, `cfgAttr`,
+  `includeStr`, `includeText`, `includeBytes`, `includeJson`, `staticAssert`,
+  `compileError`, `compileWarning`, `tailrec`, `hkt`. These are runtime stubs the
+  transformer replaces; they are functions, not namespaces.
+- Derive markers: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`.
+- `defineConfig(cfg)` — typed helper for `typesugar.config.ts`.
+- All `@typesugar/core` types (`MacroContext`, `MacroDefinition`, ...), as types only.
+- `registerAllMacros()` — deprecated no-op, kept for compatibility. The transformer loads
+  macro packages itself.
 
-### Re-exported Namespaces
+### `typesugar/core`
 
-- `reflect` — from `@typesugar/reflect`
-- `derive` — from `@typesugar/derive`
-- `typeclass` — from `@typesugar/typeclass`
-
-### Functions
-
-- `registerAllMacros()` — Register all built-in macros
+Everything from `@typesugar/core`, as values: `defineExpressionMacro` and the other
+`define*Macro` functions, `globalRegistry`, `config`, and the rest of the macro-authoring
+API. This entry loads the TypeScript compiler, so import it only from build-time code
+(macro definitions, config scripts), never from app code.
 
 ## License
 

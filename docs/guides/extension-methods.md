@@ -62,7 +62,8 @@ import * as std from "@typesugar/std";
 "hello".capitalize(); // → std.capitalize("hello")
 ```
 
-The transformer detects that `std.clamp` exists and has a compatible first parameter type.
+The transformer detects that `std.clamp` exists and has a compatible first parameter type. (The
+same function reached through both a named and a namespace import counts once.)
 
 **Trade-off:** Named imports enable better tree-shaking and make dependencies explicit. Namespace imports are convenient but may include unused code in the bundle.
 
@@ -92,9 +93,12 @@ p1.distance(p2); // → distance(p1, p2)
 p1.midpoint(p2); // → midpoint(p1, p2)
 ```
 
-### @extension Decorator (Per-Function Control)
+### @extension (Per-Function Control)
 
-For individual functions when you don't want a file-level directive:
+For individual functions when you don't want a file-level directive. The decorator form is
+TS1206 under plain `tsc` (decorators aren't allowed on functions); the JSDoc form
+`/** @extension */` does the same and is `tsc`-clean (see
+[JSDoc vs Decorators](./jsdoc-vs-decorators.md)):
 
 ```typescript
 import { extension } from "typesugar";
@@ -104,7 +108,7 @@ export function volume(box: Box): number {
   return box.width * box.height * box.depth;
 }
 
-@extension
+/** @extension */
 export function surface(box: Box): number {
   return 2 * (box.width * box.height + box.height * box.depth + box.width * box.depth);
 }
@@ -129,32 +133,44 @@ import { clamp, abs, ceil, floor, sqrt, isEven, isPrime } from "@typesugar/std";
 ### String Extensions
 
 ```typescript
-import { capitalize, titleCase, truncate, collapseWhitespace } from "@typesugar/std";
+import { capitalize, camelCase, kebabCase, truncate } from "@typesugar/std";
 
 "hello".capitalize(); // "Hello"
-"hello world".titleCase(); // "Hello World"
-"  extra   spaces  ".collapseWhitespace(); // "extra spaces"
+"hello world".camelCase(); // "helloWorld"
+"hello world".kebabCase(); // "hello-world"
 "hello world".truncate(8); // "hello..."
 ```
 
 ### Array Extensions
 
 ```typescript
-import { head, tail, chunk, unique, groupBy } from "@typesugar/std";
+import { head, tail, chunk, unique, arrayGroupBy } from "@typesugar/std";
 
 [1, 2, 3].head(); // 1
 [1, 2, 3].tail(); // [2, 3]
 [1, 2, 3, 4, 5].chunk(2); // [[1, 2], [3, 4], [5]]
 [1, 1, 2, 2, 3].unique(); // [1, 2, 3]
-[1, 2, 3].groupBy((x) => x % 2); // { 1: [1, 3], 0: [2] }
+[1, 2, 3].arrayGroupBy((x) => x % 2); // { 0: [2], 1: [1, 3] }
 ```
 
 ### Range Extensions (Scala/Kotlin-style)
 
-Create lazy ranges with fluent syntax, then chain transformations and queries:
+Create ranges with fluent syntax, then chain transformations and queries. Import every
+function you call as a method — the import is what enables the method syntax:
 
 ```typescript
-import { to, until, step, toArray, contains, first } from "@typesugar/std";
+import {
+  to,
+  until,
+  step,
+  toArray,
+  reversed,
+  contains,
+  first,
+  forEach,
+  map,
+  filter,
+} from "@typesugar/std";
 
 // Create ranges
 (1).to(10); // Range { 1..10 inclusive }
@@ -174,7 +190,9 @@ import { to, until, step, toArray, contains, first } from "@typesugar/std";
 (1).to(10).filter((n) => n % 2 === 0); // [2, 4, 6, 8, 10]
 ```
 
-Ranges are lazy — they don't allocate arrays until you call `.toArray()`, `.map()`, or iterate.
+A `Range` is a plain `{ start, end, step, inclusive }` object, so it doesn't allocate an array
+until you call `.toArray()`, `.map()` or `.filter()`. It is not iterable: use `.forEach()` or
+`.toArray()` rather than `for...of`.
 
 ## Resolution Order
 
@@ -213,51 +231,64 @@ Some(5).map((n) => n * 2);
 If multiple extension functions match the same receiver type and method name, the transformer emits a compile error:
 
 ```typescript
-import { format } from "@typesugar/std";
-import { format } from "./my-date-utils";
+import * as dateA from "./date-utils-a";
+import * as dateB from "./date-utils-b";
 
 date.format(pattern);
-// Error: Ambiguous extension method 'format' for type 'Date'
-// Two extensions match:
-//   - format (from "@typesugar/std")
-//   - format (from "./my-date-utils")
+// Error: Ambiguous extension method 'format' for type 'Date'. Multiple extensions match:
+//   - dateA.format (from "./date-utils-a")
+//   - dateB.format (from "./date-utils-b")
+// Use an explicit qualifier or rename one of the imports to disambiguate.
 ```
 
 Fix by using qualified calls:
 
 ```typescript
-import { format as stdFormat } from "@typesugar/std";
-import { format as myFormat } from "./my-date-utils";
-
-stdFormat(date, pattern); // Explicit choice
+dateA.format(date, pattern); // Explicit choice
 ```
 
 ## Typeclass Extensions
 
-Typeclass methods also work as extension methods:
+Typeclass methods also work as extension methods on types that have an instance — a
+`@derive`d companion or an `@impl` value. For the standard typeclasses, the method syntax is
+off until you import the typeclass's activation module (PEP-052):
 
 ```typescript
-import { Show, Eq } from "@typesugar/std";
+import "@typesugar/std/syntax/eq"; // enables .equals() / .notEquals()
 
-(42).show(); // "42" (from Show<number>)
-"hi".show(); // "\"hi\""
-point.equals(other); // Eq<Point>.equals
-```
-
-When you define a typeclass instance, its methods become callable as extensions:
-
-```typescript
-@typeclass
-interface Printable<A> {
-  print(a: A): void;
+/** @derive(Eq) */
+interface Point {
+  x: number;
+  y: number;
 }
 
-@instance
-const PrintableNumber: Printable<number> = {
-  print: (n) => console.log(n),
+point.equals(other); // → Point.Eq.equals(point, other)
+```
+
+The activation modules are `@typesugar/std/syntax/<typeclass>` (`eq`, `ord`, `clone`, `debug`,
+`default`, `json`, …). Method sugar is not provided for primitives: `(42).equals(42)` is not
+rewritten.
+
+When you define a typeclass and an instance in your own code, its methods become callable as
+extensions with no activation import:
+
+```typescript
+/** @typeclass */
+interface Printable<A> {
+  print(a: A): string;
+}
+
+interface Money {
+  cents: number;
+}
+
+/** @impl Printable<Money> */
+const printableMoney: Printable<Money> = {
+  print: (m) => `$${(m.cents / 100).toFixed(2)}`,
 };
 
-(42).print();  // Calls PrintableNumber.print(42)
+const price: Money = { cents: 1999 };
+price.print(); // → printableMoney.print(price) → "$19.99"
 ```
 
 ## Generic Extensions
@@ -291,14 +322,13 @@ import { first, mapTo } from "./generic-ext";
 The `extend()` wrapper exists but is rarely needed. It wraps a value so that all typeclass methods become callable:
 
 ```typescript
+import "@typesugar/std/syntax/eq";
 import { extend } from "typesugar";
 
 // Explicit typeclass method access
-extend(42).show(); // "42"
-extend(point).equals(other); // true/false
+extend(point).equals(other); // → Point.Eq.equals(point, other)
 
 // Common: just call methods directly (same effect, cleaner syntax)
-(42).show();
 point.equals(other);
 ```
 
@@ -374,15 +404,20 @@ const result = Some(5)
 // Compiles to: getOrElse(filter(map(5, n => n * 2), n => n > 5), () => 0)
 ```
 
-The same works for `Either`:
+`Either` is not `@opaque`, so it has no dot syntax: `Right(42).map(...)` is a type error and
+a runtime `TypeError`. Use the functions from `@typesugar/fp/data/either`:
 
 ```typescript
-import { Right, Left } from "@typesugar/fp";
+import { Right, Left, type Either } from "@typesugar/fp";
+import * as E from "@typesugar/fp/data/either";
 
-Right<string, number>(42)
-  .map((n) => n * 2)
-  .flatMap((n) => (n > 50 ? Right(n) : Left("too small")))
-  .getOrElse(() => -1);
+E.getOrElse(
+  E.flatMap(
+    E.map(Right<string, number>(42), (n) => n * 2),
+    (n): Either<string, number> => (n > 50 ? Right(n) : Left("too small"))
+  ),
+  () => -1
+); // 84
 ```
 
 ### How @opaque Works
@@ -405,17 +440,18 @@ export interface Option<A> {
 
 Within the defining module, the type is "transparent" — implementations can use `=== null` directly without fighting the type system.
 
-### Implicit Conversions
+### Converting to and from the representation
 
-Diagnostic suppression (PEP-011) allows implicit conversion between an `@opaque` type and its underlying representation:
+An `Option<number>` and a `number | null` are the same value at runtime, but not the same type:
+assigning one to the other is a type error. Convert explicitly:
 
 ```typescript
-const nullable: number | null = getFromDatabase();
-const opt: Option<number> = nullable; // No error — same representation
-const raw: number | null = opt; // Also fine
-```
+import * as O from "@typesugar/fp/data/option";
 
-No `fromNullable()` or `toNullable()` ceremony needed.
+const nullable: number | null = getFromDatabase();
+const opt: Option<number> = O.fromNullable(nullable);
+const raw: number | null = O.toNullable(opt);
+```
 
 ## Global Augmentation (Built-in Types)
 

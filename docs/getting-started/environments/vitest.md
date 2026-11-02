@@ -5,7 +5,8 @@ This guide covers setting up typesugar with Vitest for testing.
 ## Installation
 
 ```bash
-npm install --save-dev vitest unplugin-typesugar
+npm install --save-dev vitest unplugin-typesugar @typesugar/transformer
+npm install typesugar @typesugar/std
 ```
 
 ## Configuration
@@ -19,8 +20,9 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
-      // Typecheck expanded output (Vitest doesn't typecheck by default)
-      strict: true,
+      // Optional, experimental: type-check the expanded output
+      // (Vitest doesn't type-check by default)
+      strict: false,
     }),
   ],
   test: {
@@ -31,13 +33,14 @@ export default defineConfig({
 
 ### Typechecking
 
-Vitest uses Vite under the hood, which does NOT typecheck. The `strict: true` option typechecks the expanded macro output at build time.
+Vitest uses Vite under the hood, which does NOT type-check. The `strict: true`
+option type-checks the expanded macro output (experimental).
 
-For full typechecking during development:
+For type-checking, run the typesugar CLI alongside Vitest (plain `tsc --noEmit`
+doesn't expand macros, so it type-checks the unexpanded source):
 
 ```bash
-# Run tsc alongside vitest
-tsc --noEmit && vitest run
+typesugar check && vitest run
 ```
 
 ### Shared Vite Config
@@ -69,8 +72,10 @@ Macros expand before tests run, so you can test both the macro output and the be
 ```typescript
 // src/user.test.ts
 import { describe, it, expect } from "vitest";
-import { comptime } from "typesugar";
-import { derive, Eq, Clone } from "@typesugar/derive";
+import { comptime, derive, Eq, Clone } from "typesugar";
+// Method syntax is opt-in per file (PEP-052)
+import "@typesugar/std/syntax/eq"; // .equals()
+import "@typesugar/std/syntax/clone"; // .clone()
 
 describe("comptime", () => {
   it("evaluates at compile time", () => {
@@ -99,7 +104,9 @@ describe("derive", () => {
 
   it("generates clone method", () => {
     const p1 = new Point(1, 2);
-    const p2 = p1.clone();
+    // Annotate the result: the type checker sees the unexpanded `p1.clone()`, so
+    // without `: Point` the later `p2.equals(...)` isn't rewritten
+    const p2: Point = p1.clone();
 
     expect(p2).not.toBe(p1);
     expect(p2.equals(p1)).toBe(true);
@@ -109,31 +116,33 @@ describe("derive", () => {
 
 ## Testing Macro Output
 
-To test what macros generate, use `@typesugar/testing`:
+To test what macros generate, run code through `transformCode` from
+`@typesugar/transformer` and inspect `code` and `diagnostics`:
 
 ```typescript
 // tests/macros.test.ts
 import { describe, it, expect } from "vitest";
-import { expandCode, assertExpands } from "@typesugar/testing";
+import { transformCode } from "@typesugar/transformer";
 
 describe("macro expansion", () => {
-  it("expands comptime correctly", async () => {
-    const result = await expandCode(`
+  it("expands comptime correctly", () => {
+    const result = transformCode(
+      `
       import { comptime } from "typesugar";
       const x = comptime(1 + 1);
-    `);
-
-    expect(result.code).toContain("const x = 2");
-  });
-
-  it("matches expected output", () => {
-    assertExpands(
-      `import { comptime } from "typesugar"; const x = comptime(21 * 2);`,
-      `const x = 42;`
+    `,
+      { fileName: "example.ts" }
     );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.code).toContain("const x = 2");
   });
 });
 ```
+
+Prefer also running the generated code (or importing a module the plugin expanded)
+over asserting on the printed text alone. `@typesugar/testing` provides runtime test
+helpers (`assert`, `forAll`, `typeAssert`, …), not expansion helpers.
 
 ## Coverage
 
@@ -161,7 +170,9 @@ npx vitest --coverage
 
 ## Workspace Configuration
 
-For monorepos, configure in the workspace root:
+For monorepos, configure in the workspace root (Vitest 2.x uses a
+`vitest.workspace.ts` file; Vitest 3.2+ also accepts `test.projects` in the root
+config):
 
 ```typescript
 // vitest.workspace.ts

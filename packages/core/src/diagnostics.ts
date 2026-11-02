@@ -650,6 +650,26 @@ For sum types, consider:
   seeAlso: "https://typesugar.org/errors/TS9105",
 };
 
+export const TS9106: DiagnosticDescriptor = {
+  code: 9106,
+  severity: "error",
+  category: DiagnosticCategory.DeriveFailed,
+  messageTemplate: "Cannot derive {typeclass} for '{type}'",
+  explanation: `A generic derivation strategy exists for {typeclass}, but it could not build an
+instance for {type}. The notes show the resolution trace: which step failed and why.
+
+Common causes:
+1. A field's type has no {typeclass} instance (e.g. \`unknown\`, a function type, or a
+   type with no @derive/@impl of its own)
+2. The type is generic (e.g. \`Box<T>\`): deriving for generic types is not yet supported
+3. The type's shape could not be read (no fields, or an unsupported type form)
+
+Solutions:
+- Use a concrete field type, or add @derive({typeclass}) / an @impl to the field's type
+- Write the {typeclass} instance by hand with /** @impl {typeclass}<{type}> */`,
+  seeAlso: "https://typesugar.org/errors/TS9106",
+};
+
 // ============================================================================
 // Error Catalog: Macro Syntax (9200-9299)
 // ============================================================================
@@ -947,7 +967,7 @@ Even for eager types, the computed value is wasted.
 
 A comprehension is a labeled statement, so it can't be wrapped in a call or
 in \`void (...)\`. Fix one of:
-1. At module top level, assign it:   const result = let: { ... } yield: { ... }
+1. Assign it:   const result = let: { ... } yield: { ... }
 2. Return it from an arrow function, with \`let:\` on the line after \`=>\`:
      const run = () =>
        let: { ... } yield: { ... }
@@ -1001,6 +1021,28 @@ Fix one of:
 3. For a third-party monad, import any module that exports its
    @impl-annotated instance.`,
   seeAlso: "https://typesugar.org/errors/TS9225",
+};
+
+export const TS9226: DiagnosticDescriptor = {
+  code: 9226,
+  severity: "error",
+  category: DiagnosticCategory.MacroSyntax,
+  messageTemplate: "Non-exhaustive match — missing {what}: {missing}",
+  explanation: `A fluent match(value).case(...).then(...) chain does not cover every
+value of the scrutinee's type, and has no fallback arm. The macro checks
+literal unions (including booleans and null/undefined members) and
+discriminated unions, and lists the cases or variants no arm handles. A
+scrutinee whose values can't be enumerated (number, string, object types
+without a discriminant) always needs a fallback.
+
+Fix one of:
+1. Add an arm for each missing case or variant.
+2. End the chain with .else(handler) to handle every remaining value.
+3. Add a catch-all .case(_).then(...) arm.
+
+The object-handler form match(value, { Variant: handler }) is not
+exhaustiveness-checked; a missing handler throws at runtime.`,
+  seeAlso: "https://typesugar.org/errors/TS9226",
 };
 
 // ============================================================================
@@ -1344,6 +1386,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9103, TS9103],
   [9104, TS9104],
   [9105, TS9105],
+  [9106, TS9106],
 
   // Macro Syntax (9200-9299)
   [9201, TS9201],
@@ -1370,6 +1413,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9223, TS9223],
   [9224, TS9224],
   [9225, TS9225],
+  [9226, TS9226],
 
   // HKT Issues (9300-9399)
   [9301, TS9301],

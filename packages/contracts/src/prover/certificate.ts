@@ -91,12 +91,15 @@ export function succeedCertificate(
   method: ProofMethod,
   step: ProofStep
 ): ProofCertificate {
+  const why = step.justification || step.description;
   return {
     ...cert,
     proven: true,
     method,
     steps: [...cert.steps, step],
-    summary: `Proven by ${method}: ${step.justification}`,
+    // A hand-built step may omit `justification` (or `description`): never
+    // print "undefined" in the summary.
+    summary: why ? `Proven by ${method}: ${why}` : `Proven by ${method}`,
   };
 }
 
@@ -167,7 +170,7 @@ export function formatCertificate(cert: ProofCertificate): string {
     for (let i = 0; i < cert.steps.length; i++) {
       const step = cert.steps[i];
       lines.push(`  ${i + 1}. ${step.rule}`);
-      lines.push(`     ${step.description}`);
+      if (step.description) lines.push(`     ${step.description}`);
       if (step.usedFacts && step.usedFacts.length > 0) {
         lines.push(`     Using: ${step.usedFacts.map((f) => f.predicate).join(", ")}`);
       }

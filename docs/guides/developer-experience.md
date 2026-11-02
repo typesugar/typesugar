@@ -5,7 +5,7 @@ typesugar is designed so that when something goes wrong, you spend your time fix
 ## The Three Pillars
 
 1. **Error messages that help** — Rust-style diagnostics with labeled spans, notes, and auto-fixable suggestions
-2. **Import suggestions** — "Did you mean to import...?" when symbols aren't in scope
+2. **Import hints** — errors such as a missing typeclass instance or an unactivated syntax name the import to add
 3. **Tool compatibility** — ESLint, TypeScript, and "organize imports" all understand typesugar imports
 
 ## Error Messages
@@ -30,44 +30,28 @@ error[TS9001]: No instance found for `Eq<Color>`
 
 Every error includes:
 
-| Part                     | What it does                                                  |
-| ------------------------ | ------------------------------------------------------------- |
-| `error[TS9001]`          | Error code — look it up with `npx typesugar --explain TS9001` |
-| Primary span (`^^^`)     | Points at exactly what went wrong                             |
-| Secondary labels (`---`) | Shows related code that contributes to the error              |
-| `= note:`                | Explains _why_ this is an error                               |
-| `= help:`                | Tells you _what to do_ about it                               |
-| `= suggestion:`          | Machine-applicable fix — your IDE can apply it in one click   |
+| Part                     | What it does                                                |
+| ------------------------ | ----------------------------------------------------------- |
+| `error[TS9001]`          | Error code — look it up in the [error reference](/errors/)  |
+| Primary span (`^^^`)     | Points at exactly what went wrong                           |
+| Secondary labels (`---`) | Shows related code that contributes to the error            |
+| `= note:`                | Explains _why_ this is an error                             |
+| `= help:`                | Tells you _what to do_ about it                             |
+| `= suggestion:`          | Machine-applicable fix — your IDE can apply it in one click |
 
 For the full catalog of error codes and examples, see the [Error Messages Guide](./error-messages.md).
 
 ## Import Suggestions
 
-Scala 3 taught us that missing implicits/imports are the #1 pain point in typeclass-heavy code. typesugar tackles this head-on.
+Scala 3 taught us that missing implicits/imports are the #1 pain point in typeclass-heavy code. typesugar tackles this with hints on the errors that are usually caused by a missing import. For example, a comprehension with no instance in scope (TS9225) or a label whose syntax isn't activated (TS9224) names the import to add.
 
-When you use a symbol that isn't imported, typesugar checks its index of known exports and suggests the right import:
-
-```
-error[TS9061]: Macro `comptime` is not defined
-  --> src/app.ts:3:15
-   |
- 3 |   const x = comptime(() => 1 + 1);
-   |             ^^^^^^^
-   |
-   = help: Did you mean to import?
-     + import { comptime } from "typesugar";
-```
-
-This works for:
-
-- **Macros** — `comptime`, `specialize`, `match`, `cfg`, etc.
-- **Typeclasses** — `Eq`, `Show`, `Ord`, `Functor`, etc.
-- **Extension methods** — `clamp`, `abs`, `capitalize`, `head`, etc.
-- **Types** — `Option`, `Either`, `IO`, etc.
+::: info Planned — not in 1.0
+A general "Did you mean to import?" error for an unimported macro (TS9061) is catalogued but not emitted. Today, calling `comptime(...)` without importing it gives no typesugar diagnostic: the call is left as-is, and TypeScript reports the unknown name.
+:::
 
 ### How It Works
 
-typesugar maintains a `ModuleExportIndex` — a map of every exported symbol across all `@typesugar/*` packages. When a symbol fails to resolve, it searches the index and ranks matches by:
+typesugar maintains a `ModuleExportIndex` — a map of exported symbols across the `@typesugar/*` packages — that import hints draw on. It ranks matches by:
 
 1. **Exact name match** — highest confidence
 2. **Module preference** — prefers `typesugar` (umbrella) over individual packages
@@ -125,7 +109,18 @@ export default [
 ];
 ```
 
-That's it. The language service plugin activates automatically when `@typesugar/transformer` is in your tsconfig plugins.
+The language service plugin is a separate entry in your tsconfig plugins, next to the transformer (`npx typesugar init` adds both):
+
+```json
+{
+  "compilerOptions": {
+    "plugins": [
+      { "name": "@typesugar/transformer/language-service" },
+      { "transform": "@typesugar/transformer", "type": "program" }
+    ]
+  }
+}
+```
 
 ## Opt-Out Directives
 
@@ -185,9 +180,9 @@ Here's what the full experience looks like when you're writing typesugar code:
 
 1. **You write code** using typeclasses, macros, extensions — no boilerplate
 2. **Something goes wrong** — the error points at the exact problem with a fix suggestion
-3. **You forgot an import** — typesugar tells you what to import and from where
+3. **You forgot an import** — for missing instances and unactivated syntax, the error names the import to add
 4. **Your IDE helps** — quick fixes apply suggestions, organize imports works correctly
 5. **You need to debug** — opt out at any granularity, from one line to a whole file
-6. **You look up an error code** — `npx typesugar --explain TS9001` gives the full explanation
+6. **You look up an error code** — the [error reference](/errors/) has a page for each code
 
 The goal: you should never be confused about what went wrong or how to fix it.

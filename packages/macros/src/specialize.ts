@@ -78,6 +78,21 @@ export interface SpecCacheEntry {
  * the function's symbol handles aliased imports (different local names, same
  * function). (deep review 1.0, tc#9)
  */
+/**
+ * Replace every character that cannot appear in an identifier with `_`.
+ * A dictionary's brand can be a type's printed text (`Functor<any[]>` gives
+ * the brand "any[]"), which used to leak into the hoisted name and make the
+ * output unparseable (`const __double_any[]_0__ = ...`).
+ */
+function toIdentifierText(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    out += ts.isIdentifierPart(code, ts.ScriptTarget.ESNext) ? ch : "_";
+  }
+  return out;
+}
+
 export class SpecializationCache {
   private cache = new Map<string, SpecCacheEntry>();
   private hoistedDeclarations: ts.VariableStatement[] = [];
@@ -109,7 +124,7 @@ export class SpecializationCache {
   ): ts.Identifier {
     const sortedBrands = [...dictBrands].sort();
     const baseName = `__${fnName}_${sortedBrands.join("_")}`;
-    return hygiene.createIdentifier(baseName);
+    return hygiene.createIdentifier(toIdentifierText(baseName));
   }
 
   /**

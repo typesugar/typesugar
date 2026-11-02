@@ -1,53 +1,64 @@
 # Derive Macros
 
-Derive macros generate code from type structure, triggered by `@derive(MyDerive)`. The `@derive` decorator generates typeclass instances that work with `summon()` and operator overloading.
+Derive macros generate code from type structure, triggered by `@derive(MyDerive)`. The
+built-in derives (`Eq`, `Ord`, `Clone`, …) generate typeclass instances that work with
+`summon()`; a custom derive generates whatever statements you return.
 
 ## When to Use
 
 - Generate implementations based on fields
 - Create serialization/deserialization
 - Build type guards
-- Generate builder patterns
+- Generate default values or constructors
 
 ## Basic Structure
 
 ```typescript
-import { defineDeriveMacro, type DeriveTypeInfo } from "@typesugar/core";
-import { quoteStatements } from "@typesugar/core/quote";
+import { defineDeriveMacro, globalRegistry } from "@typesugar/core";
+import * as ts from "typescript";
 
-defineDeriveMacro("MyDerive", {
-  expand(ctx, target, typeInfo: DeriveTypeInfo) {
-    // typeInfo contains:
-    // - name: string (type name)
-    // - fields: FieldInfo[] (properties)
-    // - isClass: boolean
-    // - isInterface: boolean
-    // - variants?: VariantInfo[] (for unions)
+globalRegistry.register(
+  defineDeriveMacro({
+    name: "MyDerive",
+    expand(ctx, target, typeInfo) {
+      // target: the interface, class or type alias carrying @derive(MyDerive)
+      // typeInfo: name, fields, kind, variants, ... (see below)
 
-    return quoteStatements(ctx)`
-      ${target}
-      // Generated code here
-    `;
-  },
-});
+      // Return ONLY the new statements. They are inserted after the declaration,
+      // which stays in place, so do not return `target` itself.
+      return [];
+    },
+  })
+);
 ```
+
+Users write `@derive(MyDerive)` with `derive` imported from `typesugar` (or
+`@typesugar/derive`). `MyDerive` itself needs no import.
 
 ## DeriveTypeInfo Structure
 
 ```typescript
 interface DeriveTypeInfo {
   name: string; // "User"
-  fields: FieldInfo[]; // Properties
-  isClass: boolean;
-  isInterface: boolean;
-  typeParameters?: TypeParam[]; // Generic params
-  variants?: VariantInfo[]; // For discriminated unions
+  fields: DeriveFieldInfo[]; // properties (for product types)
+  typeParameters: ts.TypeParameterDeclaration[]; // generic params, [] if none
+  type: ts.Type;
+  kind: "product" | "sum" | "primitive";
+  variants?: DeriveVariantInfo[]; // for sum types (discriminated unions)
+  discriminant?: string; // for sum types: "kind", "_tag", "type", ...
+  isRecursive?: boolean;
 }
 
-interface FieldInfo {
+interface DeriveVariantInfo {
+  tag: string; // discriminant value: "circle"
+  typeName: string; // variant type name: "Circle"
+  fields: DeriveFieldInfo[]; // fields other than the discriminant
+}
+
+interface DeriveFieldInfo {
   name: string; // "email"
-  type: ts.Type; // TypeScript type
   typeString: string; // "string"
+  type: ts.Type;
   optional: boolean;
   readonly: boolean;
 }
@@ -55,256 +66,320 @@ interface FieldInfo {
 
 ## Tutorial: Creating `@derive(Printable)`
 
+`Printable` generates a `printUser(value)` function that formats every field:
+
 ```typescript
-import { defineDeriveMacro } from "@typesugar/core";
-import { quoteStatements, ident } from "@typesugar/core/quote";
+import { defineDeriveMacro, globalRegistry } from "@typesugar/core";
+import * as ts from "typescript";
 
-defineDeriveMacro("Printable", {
-  expand(ctx, target, typeInfo) {
-    const { name, fields } = typeInfo;
+globalRegistry.register(
+  defineDeriveMacro({
+    name: "Printable",
+    expand(ctx, target, typeInfo) {
+      const f = ctx.factory;
+      const { name, fields } = typeInfo;
+      const value = f.createIdentifier("value");
 
-    // Build field printing
-    const fieldPrints = fields.map((f) => `  ${f.name}: \${this.${f.name}}`).join(",\\n");
+      // `User { name: ${value.name}, age: ${value.age} }`
+      const spans = fields.map((field, i) => {
+        const last = i === fields.length - 1;
+        const text = last ? " }" : `, ${fields[i + 1].name}: `;
+        return f.createTemplateSpan(
+          f.createPropertyAccessExpression(value, field.name),
+          last ? f.createTemplateTail(text) : f.createTemplateMiddle(text)
+        );
+      });
+      const body =
+        fields.length === 0
+          ? f.createNoSubstitutionTemplateLiteral(`${name} {}`)
+          : f.createTemplateExpression(
+              f.createTemplateHead(`${name} { ${fields[0].name}: `),
+              spans
+            );
 
-    return quoteStatements(ctx)`
-      ${target}
-      
-      ${ident(name)}.prototype.print = function(): string {
-        return \`${name} {
-${fieldPrints}
-}\`;
-      };
-    `;
-  },
-});
+      // export function printUser<T...>(value: User<T...>): string { return `...`; }
+      const typeArgs = typeInfo.typeParameters.map((tp) => f.createTypeReferenceNode(tp.name));
+      return [
+        f.createFunctionDeclaration(
+          [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+          undefined,
+          `print${name}`,
+          typeInfo.typeParameters,
+          [
+            f.createParameterDeclaration(
+              undefined,
+              undefined,
+              value,
+              undefined,
+              f.createTypeReferenceNode(name, typeArgs.length ? typeArgs : undefined)
+            ),
+          ],
+          f.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
+          f.createBlock([f.createReturnStatement(body)])
+        ),
+      ];
+    },
+  })
+);
 ```
 
 Usage:
 
 ```typescript
+import { derive } from "typesugar";
+
 @derive(Printable)
-class User {
-  constructor(
-    public name: string,
-    public age: number
-  ) {}
+interface User {
+  name: string;
+  age: number;
 }
 
-new User("Alice", 30).print();
-// User {
-//   name: Alice,
-//   age: 30
-// }
+console.log(printUser({ name: "Alice", age: 30 }));
+// User { name: Alice, age: 30 }
 ```
 
-## Simplified Derive API
-
-For simple derives, use the simplified API:
+Compiles to:
 
 ```typescript
-import { defineCustomDerive } from "@typesugar/core";
-
-// String-based (returns code as string)
-defineCustomDerive("Simple", (typeInfo) => {
-  return `
-    ${typeInfo.name}.prototype.simplify = function() {
-      return { type: "${typeInfo.name}" };
-    };
-  `;
-});
+interface User {
+  name: string;
+  age: number;
+}
+export function printUser(value: User): string {
+  return `User { name: ${value.name}, age: ${value.age} }`;
+}
 ```
 
-Or for field-level derives:
-
-```typescript
-import { defineFieldDerive } from "@typesugar/core";
-
-defineFieldDerive("Validate", (field) => {
-  if (field.typeString === "string") {
-    return `if (typeof value.${field.name} !== "string") throw new Error("Invalid ${field.name}");`;
-  }
-  return "";
-});
-```
+Passing `typeInfo.typeParameters` through makes the generated function generic for a
+generic type: `@derive(Printable) interface Box<T> { value: T }` generates
+`function printBox<T>(value: Box<T>): string`.
 
 ## Handling Different Field Types
 
-```typescript
-defineDeriveMacro("Clone", {
-  expand(ctx, target, typeInfo) {
-    const cloneExprs = typeInfo.fields
-      .map((f) => {
-        if (f.typeString.startsWith("Array<")) {
-          return `${f.name}: [...this.${f.name}]`;
-        } else if (f.typeString === "Date") {
-          return `${f.name}: new Date(this.${f.name})`;
-        } else if (f.typeString.includes("{")) {
-          // Object type
-          return `${f.name}: { ...this.${f.name} }`;
-        } else {
-          // Primitive
-          return `${f.name}: this.${f.name}`;
-        }
-      })
-      .join(", ");
+Switch on `field.typeString` (or inspect `field.type` with the checker):
 
-    return quoteStatements(ctx)`
-      ${target}
-      
-      ${ident(typeInfo.name)}.prototype.clone = function(): ${ident(typeInfo.name)} {
-        return new ${ident(typeInfo.name)}(${cloneExprs});
+```typescript
+globalRegistry.register(
+  defineDeriveMacro({
+    name: "Default",
+    expand(ctx, target, typeInfo) {
+      const f = ctx.factory;
+      if (typeInfo.kind !== "product") {
+        ctx.reportError(target, "Default can only be derived for a record type");
+        return [];
+      }
+      const defaultFor = (typeString: string): ts.Expression => {
+        if (typeString === "number") return f.createNumericLiteral(0);
+        if (typeString === "string") return f.createStringLiteral("");
+        if (typeString === "boolean") return f.createFalse();
+        if (typeString.endsWith("[]")) return f.createArrayLiteralExpression([]);
+        return f.createIdentifier("undefined");
       };
-    `;
-  },
-});
+      const props = typeInfo.fields
+        .filter((field) => !field.optional) // optional fields may be left out
+        .map((field) => f.createPropertyAssignment(field.name, defaultFor(field.typeString)));
+
+      // export function defaultUser(): User { return { name: "", age: 0 }; }
+      return [
+        f.createFunctionDeclaration(
+          [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+          undefined,
+          `default${typeInfo.name}`,
+          undefined,
+          [],
+          f.createTypeReferenceNode(typeInfo.name),
+          f.createBlock([f.createReturnStatement(f.createObjectLiteralExpression(props, true))])
+        ),
+      ];
+    },
+  })
+);
 ```
 
 ## Sum Types (Discriminated Unions)
 
-Handle discriminated unions:
+For a union of interfaces sharing a discriminant field, `typeInfo.kind` is `"sum"`, and
+`variants` and `discriminant` are filled in. This derive generates one type guard per
+variant:
 
 ```typescript
-defineDeriveMacro("Match", {
-  expand(ctx, target, typeInfo) {
-    if (!typeInfo.variants) {
-      ctx.reportError(target, "Match requires a discriminated union");
-      return target;
-    }
-
-    const cases = typeInfo.variants
-      .map(
-        (v) => `
-      ${v.discriminant}: (value: ${v.name}) => R
-    `
-      )
-      .join(",\n");
-
-    return quoteStatements(ctx)`
-      ${target}
-      
-      type ${ident(typeInfo.name)}Matcher<R> = {
-        ${cases}
-      };
-      
-      function match${ident(typeInfo.name)}<R>(
-        value: ${ident(typeInfo.name)},
-        matcher: ${ident(typeInfo.name)}Matcher<R>
-      ): R {
-        return matcher[value.tag](value as any);
+globalRegistry.register(
+  defineDeriveMacro({
+    name: "Guards",
+    expand(ctx, target, typeInfo) {
+      const f = ctx.factory;
+      if (typeInfo.kind !== "sum" || !typeInfo.variants || !typeInfo.discriminant) {
+        ctx.reportError(target, "Guards requires a discriminated union");
+        return [];
       }
-    `;
-  },
+      const discriminant = typeInfo.discriminant;
+
+      // export function isCircle(value: Shape): value is Circle { return value.kind === "circle"; }
+      return typeInfo.variants.map((variant) =>
+        f.createFunctionDeclaration(
+          [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+          undefined,
+          `is${variant.typeName}`,
+          undefined,
+          [
+            f.createParameterDeclaration(
+              undefined,
+              undefined,
+              "value",
+              undefined,
+              f.createTypeReferenceNode(typeInfo.name)
+            ),
+          ],
+          f.createTypePredicateNode(
+            undefined,
+            "value",
+            f.createTypeReferenceNode(variant.typeName)
+          ),
+          f.createBlock([
+            f.createReturnStatement(
+              f.createStrictEquality(
+                f.createPropertyAccessExpression(f.createIdentifier("value"), discriminant),
+                f.createStringLiteral(variant.tag)
+              )
+            ),
+          ])
+        )
+      );
+    },
+  })
+);
+```
+
+```typescript
+interface Circle { kind: "circle"; radius: number }
+interface Rect { kind: "rect"; w: number; h: number }
+
+@derive(Guards)
+type Shape = Circle | Rect;
+
+// Generates isCircle(value: Shape): value is Circle and isRect(value: Shape): value is Rect
+shapes.filter(isCircle);
+```
+
+## Simplified Derive API
+
+`@typesugar/macros` has helpers for common shapes. They register the macro for you, and
+their callbacks return AST statements:
+
+```typescript
+import { defineCustomDerive, defineFieldDerive } from "@typesugar/macros";
+import * as ts from "typescript";
+
+// (ctx, info) => ts.Statement[]; info has name, fields (name/type/optional/readonly),
+// typeParams, fieldNames, hasField(), getField()
+defineCustomDerive("TypeName", (ctx, info) => {
+  const f = ctx.factory;
+  // export const UserTypeName = "User";
+  return [
+    f.createVariableStatement(
+      [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+      f.createVariableDeclarationList(
+        [
+          f.createVariableDeclaration(
+            `${info.name}TypeName`,
+            undefined,
+            undefined,
+            f.createStringLiteral(info.name)
+          ),
+        ],
+        ts.NodeFlags.Const
+      )
+    ),
+  ];
 });
 ```
 
-## Generic Types
-
-Handle generic type parameters:
+For field-level derives, the callback runs once per field:
 
 ```typescript
-defineDeriveMacro("Functor", {
-  expand(ctx, target, typeInfo) {
-    if (!typeInfo.typeParameters?.length) {
-      ctx.reportError(target, "Functor requires a type parameter");
-      return target;
-    }
-
-    const typeParam = typeInfo.typeParameters[0].name;
-
-    return quoteStatements(ctx)`
-      ${target}
-      
-      ${ident(typeInfo.name)}.prototype.map = function<B>(
-        f: (a: ${ident(typeParam)}) => B
-      ): ${ident(typeInfo.name)}<B> {
-        // Implementation...
-      };
-    `;
-  },
+// (ctx, typeName, field) => ts.Statement[]
+defineFieldDerive("Getters", (ctx, typeName, field) => {
+  const f = ctx.factory;
+  const cap = field.name[0].toUpperCase() + field.name.slice(1);
+  // export function getUserName(value: User) { return value.name; }
+  return [
+    f.createFunctionDeclaration(
+      [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+      undefined,
+      `get${typeName}${cap}`,
+      undefined,
+      [
+        f.createParameterDeclaration(
+          undefined,
+          undefined,
+          "value",
+          undefined,
+          f.createTypeReferenceNode(typeName)
+        ),
+      ],
+      undefined,
+      f.createBlock([
+        f.createReturnStatement(
+          f.createPropertyAccessExpression(f.createIdentifier("value"), field.name)
+        ),
+      ])
+    ),
+  ];
 });
 ```
 
 ## Dependencies Between Derives
 
-Specify that one derive requires another:
+There is no `requires` field. If your derive must run after another on the same type, use
+`expandAfter`:
 
 ```typescript
-defineDeriveMacro("Ord", {
-  requires: ["Eq"], // Must derive Eq first
-  expand(ctx, target, typeInfo) {
-    // Can assume equals() exists
-    return quoteStatements(ctx)`
-      ${target}
-      
-      ${ident(typeInfo.name)}.prototype.compare = function(other: ${ident(typeInfo.name)}): number {
-        // Implementation using equals()...
-      };
-    `;
-  },
-});
+globalRegistry.register(
+  defineDeriveMacro({
+    name: "Report",
+    expandAfter: ["Printable"], // when both are listed, Printable expands first
+    expand(ctx, target, typeInfo) {
+      return [];
+    },
+  })
+);
 ```
 
-## Static Methods
-
-Add static methods:
-
-```typescript
-defineDeriveMacro("Default", {
-  expand(ctx, target, typeInfo) {
-    const defaults = typeInfo.fields
-      .map((f) => {
-        switch (f.typeString) {
-          case "number":
-            return "0";
-          case "string":
-            return '""';
-          case "boolean":
-            return "false";
-          default:
-            return "undefined as any";
-        }
-      })
-      .join(", ");
-
-    return quoteStatements(ctx)`
-      ${target}
-      
-      ${ident(typeInfo.name)}.default = function(): ${ident(typeInfo.name)} {
-        return new ${ident(typeInfo.name)}(${defaults});
-      };
-    `;
-  },
-});
-```
+`expandAfter` only orders derives that are actually listed; it does not add `Printable` for you.
+Report an error if your derive can't work without another one.
 
 ## Testing Derives
 
+Expand a file that uses the derive and run the result:
+
 ```typescript
-import { expandCode } from "@typesugar/testing";
+import { it, expect } from "vitest";
+import { transformCode } from "@typesugar/transformer";
+import "../src/macros"; // registers Printable
 
-describe("Printable derive", () => {
-  it("generates print method", async () => {
-    const result = await expandCode(`
-      import { derive } from "@typesugar/derive";
-      
-      @derive(Printable)
-      class Point {
-        constructor(public x: number, public y: number) {}
-      }
-    `);
+it("generates printPoint", () => {
+  const result = transformCode(
+    `
+    import { derive } from "typesugar";
 
-    expect(result.code).toContain("Point.prototype.print");
-    expect(result.code).toContain("x: ${this.x}");
-  });
+    @derive(Printable)
+    interface Point { x: number; y: number }
+    `,
+    { fileName: "test.ts" }
+  );
+  expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  expect(result.code).toContain("export function printPoint(value: Point): string");
 });
 ```
 
+[Testing Macros](./testing-macros.md) shows how to execute the expanded code.
+
 ## Best Practices
 
-1. **Handle all field types**: Primitives, objects, arrays, dates
-2. **Support optional fields**: Check `field.optional`
-3. **Handle generics**: Use type parameters correctly
-4. **Declare dependencies**: Use `requires` for derive ordering
+1. **Return only new statements**: The declaration stays where it is
+2. **Handle all field types**: Primitives, objects, arrays, dates
+3. **Support optional fields**: Check `field.optional`
+4. **Handle generics**: Pass `typeInfo.typeParameters` through
 5. **Generate type-safe code**: Include proper type annotations
 
 ## Next Steps

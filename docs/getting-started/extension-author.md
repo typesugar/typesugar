@@ -62,16 +62,22 @@ typesugar supports six kinds of macros:
 
 ## Your First Expression Macro
 
+A macro package has two entries: a **runtime entry** (`.`) with the placeholder
+functions users import, and a **macro entry** (`./macros`) that defines the macros
+and registers them. Only the transformer loads the macro entry, at build time.
+
 Let's create a simple `double()` macro that duplicates an expression at compile time:
 
 ```typescript
-// src/macros/double.ts
-import { defineExpressionMacro, type MacroContext } from "@typesugar/core";
+// src/macros.ts — the macro entry
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
 import * as ts from "typescript";
 
-defineExpressionMacro("double", {
-  expand(ctx: MacroContext, callExpr: ts.CallExpression) {
-    const arg = callExpr.arguments[0];
+export const doubleMacro = defineExpressionMacro({
+  name: "double",
+  module: "my-macros", // only expand double() imported from this package
+  expand(ctx, callExpr, args) {
+    const arg = args[0];
     if (!arg) {
       ctx.reportError(callExpr, "double() requires an argument");
       return callExpr;
@@ -86,7 +92,12 @@ defineExpressionMacro("double", {
   },
 });
 
-// Runtime placeholder (never actually called)
+// defineExpressionMacro only builds the definition; registering it is a separate step
+globalRegistry.register(doubleMacro);
+```
+
+```typescript
+// src/index.ts — the runtime entry (no typescript / @typesugar/core imports)
 export function double<T extends number | string>(value: T): T {
   throw new Error("double() should be compiled away");
 }
@@ -95,71 +106,68 @@ export function double<T extends number | string>(value: T): T {
 Usage:
 
 ```typescript
-import { double } from "./macros/double";
+import { double } from "my-macros";
 
 const x = double(21); // Compiles to: (21) + (21) → 42
 const s = double("ha"); // Compiles to: ("ha") + ("ha") → "haha"
 ```
 
-## Using Quasiquoting
+## Building AST Nodes
 
-For complex AST generation, use the `quote()` helper instead of raw factory calls:
-
-```typescript
-import { defineExpressionMacro } from "@typesugar/core";
-import { quote, ident } from "@typesugar/core/quote";
-
-defineExpressionMacro("assert", {
-  expand(ctx, callExpr) {
-    const condition = callExpr.arguments[0];
-    const message = callExpr.arguments[1];
-
-    // Generate: if (!(condition)) { throw new Error(message) }
-    return quote(ctx)`
-      if (!(${condition})) {
-        throw new Error(${message ?? ctx.createStringLiteral("Assertion failed")})
-      }
-    `;
-  },
-});
-```
-
-Quasiquoting helpers:
-
-- `${expr}` — splice an expression
-- `${ident("name")}` — create an identifier
-- `${spread(stmts)}` — splice an array of statements
+Build output with `ctx.factory` (the `ts.NodeFactory`), as above, rather than by
+printing code strings and parsing them back: AST construction is type-checked,
+composes with other transformations, and doesn't depend on re-parsing.
+`@typesugar/macros` does export a quasi-quote helper (`quote`, `quoteStatements`,
+`ident`, `spread`) and `ctx.parseExpression` / `ctx.parseStatements` exist, but they
+round-trip through text; see [Quasiquoting](../writing-macros/quasiquoting.md)
+before reaching for them.
 
 ## Creating a Derive Macro
 
-Derive macros generate implementations from type structure:
+Derive macros generate code from a type's structure. `typeInfo` gives the type's
+`name`, its `fields` (each with `name`, `typeString`, `optional`, …) and its `kind`
+(`"product"` or `"sum"`):
 
 ```typescript
-import { defineDeriveMacro, type DeriveTypeInfo } from "@typesugar/core";
-import { quoteStatements } from "@typesugar/core/quote";
+// src/macros.ts
+import { defineDeriveMacro, globalRegistry } from "@typesugar/core";
+import * as ts from "typescript";
 
-defineDeriveMacro("Printable", {
-  expand(ctx, target, typeInfo: DeriveTypeInfo) {
-    const { name, fields } = typeInfo;
-
-    const fieldPrints = fields.map((f) => `${f.name}: \${this.${f.name}}`).join(", ");
-
-    return quoteStatements(ctx)`
-      ${target}
-      
-      // Augment the class with a print method
-      ${target}.prototype.print = function() {
-        return \`${name} { ${fieldPrints} }\`;
-      };
-    `;
+export const fieldNamesDerive = defineDeriveMacro({
+  name: "FieldNames",
+  expand(ctx, _target, typeInfo) {
+    const f = ctx.factory;
+    // Generate: export const <Name>FieldNames = ["field1", "field2", ...];
+    return [
+      f.createVariableStatement(
+        [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+        f.createVariableDeclarationList(
+          [
+            f.createVariableDeclaration(
+              `${typeInfo.name}FieldNames`,
+              undefined,
+              undefined,
+              f.createArrayLiteralExpression(
+                typeInfo.fields.map((field) => f.createStringLiteral(field.name))
+              )
+            ),
+          ],
+          ts.NodeFlags.Const
+        )
+      ),
+    ];
   },
 });
+
+globalRegistry.register(fieldNamesDerive);
 ```
 
 Usage:
 
 ```typescript
-@derive(Printable)
+import { derive } from "typesugar";
+
+@derive(FieldNames)
 class Point {
   constructor(
     public x: number,
@@ -167,31 +175,33 @@ class Point {
   ) {}
 }
 
-new Point(1, 2).print(); // "Point { x: 1, y: 2 }"
+PointFieldNames; // ["x", "y"]
 ```
 
 ## Creating a Tagged Template Macro
 
 ```typescript
-import { defineTaggedTemplateMacro } from "@typesugar/core";
+import { defineTaggedTemplateMacro, globalRegistry } from "@typesugar/core";
+import * as ts from "typescript";
 
-defineTaggedTemplateMacro("upper", {
+export const upperMacro = defineTaggedTemplateMacro({
+  name: "upper",
+  module: "my-macros",
   expand(ctx, node) {
     // node is a ts.TaggedTemplateExpression
     const template = node.template;
 
     if (ts.isNoSubstitutionTemplateLiteral(template)) {
-      // Simple case: no interpolations
-      const text = template.text.toUpperCase();
-      return ctx.createStringLiteral(text);
+      // upper`hello` → "HELLO"
+      return ctx.createStringLiteral(template.text.toUpperCase());
     }
 
-    // With interpolations: transform at compile time where possible
-    // or generate runtime code for dynamic parts
-    ctx.reportWarning(node, "upper`...` with interpolations falls back to runtime");
+    ctx.reportError(node, "upper`...` does not support interpolations");
     return node;
   },
 });
+
+globalRegistry.register(upperMacro);
 ```
 
 ## MacroContext API
@@ -212,8 +222,8 @@ Every macro receives a `MacroContext` with:
 - `ctx.createNumericLiteral(value)`
 - `ctx.createArrayLiteral(elements)`
 - `ctx.createObjectLiteral(properties)`
-- `ctx.parseExpression(code)` — parse code string to AST
-- `ctx.parseStatements(code)` — parse code to statements
+- `ctx.parseExpression(code)` / `ctx.parseStatements(code)` — parse code text to AST
+  (prefer `ctx.factory`; see above)
 
 **Type Utilities:**
 
@@ -226,85 +236,115 @@ Every macro receives a `MacroContext` with:
 
 - `ctx.reportError(node, message)` — emit compile error
 - `ctx.reportWarning(node, message)` — emit warning
+- `ctx.diagnostic(descriptor)` — emit a catalogued diagnostic (code, notes, help)
 
 **Compile-Time:**
 
-- `ctx.evaluate(node)` — evaluate expression at compile time
+- `ctx.evaluate(node)` — evaluate at compile time; returns a tagged `ComptimeValue`
+  (`{ kind: "number", value }`, …, or `{ kind: "error", message }`)
 - `ctx.isComptime(node)` — check if evaluatable at compile time
 - `ctx.generateUniqueName(prefix)` — generate hygienic name
+- `ctx.safeRef(symbol, from)` / `ctx.ensureImport(symbol, from)` — refer to an
+  export of another module without name collisions (`ensureImport` also adds the
+  import)
 
 ## Testing Macros
 
-Use `@typesugar/testing` for macro tests:
+Import your macro entry (so the macros register), expand source with
+`transformCode` from `@typesugar/transformer`, and check the diagnostics and the
+output — ideally by running it:
 
 ```typescript
 import { describe, it, expect } from "vitest";
-import { expandMacro, assertExpands } from "@typesugar/testing";
+import { transformCode } from "@typesugar/transformer";
+import "../src/macros"; // registers double()
 
 describe("double macro", () => {
   it("doubles numeric literals", () => {
-    assertExpands(
-      `import { double } from "./double"; const x = double(21);`,
-      `const x = (21) + (21);`
-    );
+    const result = transformCode(`import { double } from "my-macros"; const x = double(21);`, {
+      fileName: "test.ts",
+    });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.code).toContain("const x = (21) + (21);");
   });
 
-  it("reports error for no arguments", async () => {
-    const result = await expandMacro(`double()`);
-    expect(result.errors).toContainEqual(
-      expect.objectContaining({ message: /requires an argument/ })
+  it("reports error for no arguments", () => {
+    const result = transformCode(`import { double } from "my-macros"; double();`, {
+      fileName: "test.ts",
+    });
+    expect(result.diagnostics.map((d) => d.message)).toContainEqual(
+      expect.stringMatching(/requires an argument/)
     );
   });
 });
 ```
+
+For unit-testing an `expand` function directly, `@typesugar/testing/macros` exports
+`createMacroTestContext`. See [Testing Macros](../writing-macros/testing-macros.md).
 
 ## Publishing Your Macros
 
 ### Package Structure
 
 ```
-my-macro-package/
+my-macros/
   package.json
   tsconfig.json
   src/
-    index.ts          # Exports runtime placeholders
-    macros/
-      my-macro.ts     # Macro definition (registers with defineXxxMacro)
+    index.ts          # Runtime entry: placeholders users import
+    macros.ts         # Macro entry: definitions + globalRegistry.register(...)
   dist/
-    index.js
-    index.d.ts
+    index.js / index.cjs / index.d.ts
+    macros.js / macros.cjs / macros.d.ts
 ```
 
 ### package.json
 
 ```json
 {
-  "name": "my-macro-package",
-  "main": "./dist/index.js",
+  "name": "my-macros",
+  "type": "module",
+  "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./macros": {
+      "types": "./dist/macros.d.ts",
+      "import": "./dist/macros.js",
+      "require": "./dist/macros.cjs"
     }
   },
-  "peerDependencies": {
-    "@typesugar/transformer": ">=0.1.0",
-    "typescript": ">=5.0.0"
+  "typesugar": {
+    "macros": "./macros"
   },
-  "dependencies": {
-    "@typesugar/core": "^0.1.0"
+  "peerDependencies": {
+    "@typesugar/core": ">=0.1.0",
+    "typescript": ">=5.0.0"
   }
 }
 ```
 
 ### Key Points
 
-1. **Export runtime placeholders** — Functions users import that throw if not compiled away
-2. **Register macros at import time** — `defineExpressionMacro()` etc. run when your module is imported
-3. **Use `@typesugar/core` as a dependency** — It's the macro registration API
-4. **Document the build requirement** — Users must have `@typesugar/transformer` configured
+1. **Declare `typesugar.macros`** — The transformer only loads a package's macros if
+   its `package.json` has a `typesugar.macros` field naming the macro entry (PEP-055).
+   Without it, your macros are never registered. The transformer loads that entry
+   with `require()`, so ship a CommonJS build of it.
+2. **Users must approve your package** — Packages outside `@typesugar/*` are refused
+   until the user runs `npx typesugar approve-macros`, which adds your package to
+   `security.allowedMacroPackages` in their `typesugar.config.ts`. Say so in your
+   README.
+3. **Export runtime placeholders** — The functions users import, which throw if not
+   compiled away. Keep `typescript` and `@typesugar/core` out of the runtime entry.
+4. **Set `module` on each macro** — so only calls imported from your package expand.
+5. **Document the build requirement** — Users must have `@typesugar/transformer` (or
+   `unplugin-typesugar`) configured.
+
+See [Publishing Macros](../writing-macros/publishing-macros.md) for the build setup.
 
 ## What's Next?
 

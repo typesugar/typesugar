@@ -67,8 +67,13 @@
  */
 
 import * as ts from "typescript";
-import { cloneNodeDeep, defineAttributeMacro, globalRegistry } from "@typesugar/core";
+import { cloneNodeDeep, defineAttributeMacro, globalRegistry, TS9220 } from "@typesugar/core";
 import { MacroContext, AttributeTarget } from "@typesugar/core";
+
+/** Report a user-facing `@tailrec` failure as TS9220 ("@tailrec: {reason}"). */
+function tailrecError(ctx: MacroContext, node: ts.Node, reason: string): void {
+  ctx.diagnostic(TS9220).at(node).withArgs({ reason }).emit();
+}
 
 // ============================================================================
 // Self-call detection
@@ -310,9 +315,10 @@ function transformTailRecursion(
   const body = fn.body!;
 
   if (fn.asteriskToken) {
-    ctx.reportError(
+    tailrecError(
+      ctx,
       fn,
-      `@tailrec: could not optimize '${fnName}' — generator functions are not supported (returning the inner generator is not the same as looping)`
+      `could not optimize '${fnName}' — generator functions are not supported (returning the inner generator is not the same as looping)`
     );
     return undefined;
   }
@@ -322,9 +328,10 @@ function transformTailRecursion(
   for (const param of fn.parameters) {
     if (ts.isIdentifier(param.name) && param.name.text === "this") continue; // TS-only
     if (!ts.isIdentifier(param.name)) {
-      ctx.reportError(
+      tailrecError(
+        ctx,
         param,
-        `@tailrec: could not optimize '${fnName}' — destructured parameters are not supported; take the object/array as a named parameter and destructure it in the body`
+        `could not optimize '${fnName}' — destructured parameters are not supported; take the object/array as a named parameter and destructure it in the body`
       );
       return undefined;
     }
@@ -343,10 +350,7 @@ function transformTailRecursion(
 
   const unsupported = findUnsupportedBodyConstruct(body, fnName);
   if (unsupported) {
-    ctx.reportError(
-      unsupported.node,
-      `@tailrec: could not optimize '${fnName}' — ${unsupported.message}`
-    );
+    tailrecError(ctx, unsupported.node, `could not optimize '${fnName}' — ${unsupported.message}`);
     return undefined;
   }
 
@@ -648,7 +652,7 @@ function transformTailRecursion(
     rewrittenBody = factory.updateBlock(body, rewriteList(body.statements, true));
   } catch (e) {
     if (e instanceof CannotRewrite) {
-      ctx.reportError(e.node, `@tailrec: could not optimize '${fnName}' — ${e.message}`);
+      tailrecError(ctx, e.node, `could not optimize '${fnName}' — ${e.message}`);
       return undefined;
     }
     throw e;
@@ -662,9 +666,10 @@ function transformTailRecursion(
         call.pos >= 0
           ? ` (line ${ctx.sourceFile.getLineAndCharacterOfPosition(call.getStart(ctx.sourceFile)).line + 1})`
           : "";
-      ctx.reportError(
+      tailrecError(
+        ctx,
         call,
-        `@tailrec: could not optimize '${fnName}' — ${nonTailReason(call, body)}${where}`
+        `could not optimize '${fnName}' — ${nonTailReason(call, body)}${where}`
       );
     }
     return undefined;
@@ -759,9 +764,10 @@ export const tailrecAttribute = defineAttributeMacro({
     _args: readonly ts.Expression[]
   ): ts.Node | ts.Node[] {
     if (!ts.isFunctionDeclaration(target)) {
-      ctx.reportError(
+      tailrecError(
+        ctx,
         target,
-        "@tailrec can only be applied to function declarations (not arrow functions, function expressions or methods)"
+        "can only be applied to function declarations (not arrow functions, function expressions or methods)"
       );
       return target;
     }
@@ -770,19 +776,20 @@ export const tailrecAttribute = defineAttributeMacro({
     const fnName = fn.name?.text;
 
     if (!fnName) {
-      ctx.reportError(fn, "@tailrec: function must have a name");
+      tailrecError(ctx, fn, "function must have a name");
       return target;
     }
 
     if (!fn.body) {
-      ctx.reportError(fn, "@tailrec: function must have a body");
+      tailrecError(ctx, fn, "function must have a body");
       return target;
     }
 
     if (collectSelfCalls(fn.body, fnName).length === 0) {
-      ctx.reportError(
+      tailrecError(
+        ctx,
         fn,
-        `@tailrec: function '${fnName}' contains no recursive calls — ` +
+        `function '${fnName}' contains no recursive calls — ` +
           `@tailrec requires at least one self-recursive call in tail position`
       );
       return target;

@@ -18,6 +18,12 @@
  */
 
 import type * as ts from "typescript";
+import {
+  DiagnosticCategory,
+  type DiagnosticBuilder,
+  type DiagnosticDescriptor,
+  type MacroContext,
+} from "@typesugar/core";
 
 // ============================================================================
 // Effect Diagnostic Category
@@ -599,4 +605,37 @@ export function toTsDiagnostic(diag: EffectRichDiagnostic): ts.Diagnostic {
     code: diag.numericCode,
     source: "typesugar-effect",
   };
+}
+
+// ============================================================================
+// Emitting from macros
+// ============================================================================
+
+/**
+ * Emit an Effect diagnostic from a macro through the core diagnostic
+ * pipeline: `reportEffectDiagnostic(ctx, EFFECT001).at(node).withArgs({...}).emit()`.
+ *
+ * The message is prefixed with the Effect code (`[EFFECT001] No layer
+ * provides \`UserRepo\``) and the diagnostic carries the descriptor's
+ * numeric code (9901), so `transformCode` results, the CLI and the language
+ * service all see it as `TS9901`.
+ *
+ * Emitted today: EFFECT001 (missing layer, from `layerMake<R>()` and
+ * `resolveLayer<R>()`) and EFFECT020 (layer cycle, from both). The other
+ * descriptors (EFFECT002/003/010/011/021/030/040) are defined but no macro
+ * reports them yet.
+ */
+export function reportEffectDiagnostic(
+  ctx: Pick<MacroContext, "diagnostic">,
+  descriptor: EffectDiagnosticDescriptor
+): DiagnosticBuilder {
+  const core: DiagnosticDescriptor = {
+    code: descriptor.numericCode,
+    severity: descriptor.severity,
+    category: DiagnosticCategory.MacroExpansion,
+    messageTemplate: `[${descriptor.code}] ${descriptor.messageTemplate}`,
+    explanation: descriptor.explanation,
+    seeAlso: descriptor.seeAlso,
+  };
+  return ctx.diagnostic(core);
 }

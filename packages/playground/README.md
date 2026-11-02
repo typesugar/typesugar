@@ -13,9 +13,9 @@ Browser-compatible bundle for the typesugar interactive playground.
 
 ## Installation
 
-```bash
-npm install @typesugar/playground
-```
+This package is private: it is not published to npm. It is built inside the typesugar
+repository for the documentation site's playground, and used from the workspace
+(`"@typesugar/playground": "workspace:*"`).
 
 ## Usage
 
@@ -52,10 +52,6 @@ Transform TypeScript code with typesugar macros.
 - `changed: boolean` - Whether the code was modified
 - `diagnostics: TransformDiagnostic[]` - Any errors or warnings
 - `preprocessed?: boolean` - Whether preprocessing was applied
-
-### `preprocessCode(code, options?)`
-
-Preprocess code with custom syntax (pipeline `|>`, HKT `F<_>`, cons `::`).
 
 ### `clearCache()`
 

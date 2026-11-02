@@ -30,8 +30,9 @@ import typesugar from "unplugin-typesugar/vite";
 export default defineConfig({
   plugins: [
     typesugar({
-      // Typecheck expanded output (since Vite doesn't typecheck)
-      strict: true,
+      // Optional, experimental: type-check the expanded output
+      // (Vite doesn't type-check; `typesugar check` is the reliable gate)
+      strict: false,
     }),
   ],
   build: {

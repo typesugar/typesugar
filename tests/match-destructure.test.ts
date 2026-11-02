@@ -123,6 +123,19 @@ function str(s: string): ts.StringLiteral {
   return f.createStringLiteral(s);
 }
 
+/**
+ * Evaluate a printed match expansion with the given free variables bound,
+ * so the tests check what the generated code DOES, not only its text.
+ */
+function run(text: string, scope: Record<string, unknown>): unknown {
+  class MatchError extends Error {}
+  const names = Object.keys(scope);
+  return new Function(...names, "MatchError", `return ${text};`)(
+    ...names.map((n) => scope[n]),
+    MatchError
+  );
+}
+
 /** Build a CallExpression: name(args...) */
 function call(name: string, ...args: ts.Expression[]): ts.CallExpression {
   return f.createCallExpression(f.createIdentifier(name), undefined, args);
@@ -136,14 +149,20 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
   beforeEach(() => {
     clearRegisteredExtractors();
     // Reset the global type-rewrite registry so a prior test file that registered
-    // Option/Either as @opaque (None → null constant constructor) can't leak in and
-    // flip this file's default ADT codegen (`_tag === "None"`) to the zero-cost
-    // null form. These tests assert the default, unregistered behavior.
+    // Option/Either as @opaque (None → null constant constructor) can't leak in
+    // and change this file's extractor codegen. These tests assert the default,
+    // unregistered behavior.
     clearTypeRewrites();
   });
 
   // --------------------------------------------------------------------------
   // Gate: match(opt).case(Some(v)).then(v) works with Option
+  //
+  // These scrutinees are bare identifiers with no `_tag` in their type, so the
+  // built-in Some/None/Left/Right/Cons/Nil extractors use @typesugar/fp's real
+  // (untagged) representations (std fix b3b647e8): Option<A> = A | null,
+  // Either = { left } | { right }, List = { head, tail } | null. The
+  // `_tag`-typed scheme is covered by packages/std/tests/match-execution.test.ts.
   // --------------------------------------------------------------------------
   describe("Option extractors: Some/None", () => {
     it("should compile Some(v) to discriminant check + value binding", () => {
@@ -159,9 +178,13 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Some"');
-      expect(text).toContain(".value");
+      expect(text).toContain("_opt != null");
+      expect(text).toContain("const v = _opt;");
+      expect(text).not.toContain("_tag");
       expect(text).not.toContain("extract");
+      expect(run(text, { opt: 5 })).toBe(5);
+      expect(run(text, { opt: 0 })).toBe(0);
+      expect(run(text, { opt: null })).toBe("none");
     });
 
     it("should compile None as zero-arg extractor", () => {
@@ -177,8 +200,12 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "None"');
+      expect(text).toContain("_opt == null");
+      expect(text).not.toContain("_tag");
       expect(text).not.toContain("extract");
+      expect(run(text, { opt: null })).toBe("nothing");
+      expect(run(text, { opt: undefined })).toBe("nothing");
+      expect(run(text, { opt: 3 })).toBe("something");
     });
 
     it("should compile Some(v) + None as multi-arm match", () => {
@@ -195,9 +222,11 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Some"');
-      expect(text).toContain('_tag === "None"');
-      expect(text).toContain(".value");
+      expect(text).toContain("_opt != null");
+      expect(text).toContain("_opt == null");
+      expect(text).not.toContain("_tag");
+      expect(run(text, { opt: "x" })).toBe("x");
+      expect(run(text, { opt: null })).toBe("none");
     });
   });
 
@@ -218,9 +247,12 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Left"');
-      expect(text).toContain(".value");
+      expect(text).toContain('"left" in _either');
+      expect(text).toContain("_either.left");
+      expect(text).not.toContain("_tag");
       expect(text).not.toContain("extract");
+      expect(run(text, { either: { left: "boom" } })).toBe("boom");
+      expect(run(text, { either: { right: 1 } })).toBe("right");
     });
 
     it("should compile Right(val) to discriminant check + value binding", () => {
@@ -236,9 +268,12 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Right"');
-      expect(text).toContain(".value");
+      expect(text).toContain('"right" in _either');
+      expect(text).toContain("_either.right");
+      expect(text).not.toContain("_tag");
       expect(text).not.toContain("extract");
+      expect(run(text, { either: { right: 42 } })).toBe(42);
+      expect(run(text, { either: { left: "e" } })).toBe("left");
     });
   });
 
@@ -295,9 +330,12 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Cons"');
+      expect(text).toContain("_list != null");
       expect(text).toContain(".head");
       expect(text).toContain(".tail");
+      expect(text).not.toContain("_tag");
+      expect(run(text, { list: { head: 1, tail: { head: 2, tail: null } } })).toBe(1);
+      expect(run(text, { list: null })).toBe("empty");
     });
 
     it("should compile Nil as zero-arg extractor", () => {
@@ -312,7 +350,10 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Nil"');
+      expect(text).toContain("_list == null");
+      expect(text).not.toContain("_tag");
+      expect(run(text, { list: null })).toBe("empty");
+      expect(run(text, { list: { head: 1, tail: null } })).toBe("non-empty");
     });
   });
 
@@ -484,8 +525,11 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Some"');
+      expect(text).toContain("_opt != null");
       expect(text).toContain("> 0");
+      expect(run(text, { opt: 7 })).toBe(7);
+      expect(run(text, { opt: -2 })).toBe(-1);
+      expect(run(text, { opt: null })).toBe(-1);
     });
   });
 
@@ -506,9 +550,12 @@ describe("fluent match() extractor patterns (PEP-008 Wave 4)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain('_tag === "Some"');
-      // Nested condition checks .value === 42
-      expect(text).toContain(".value === 42");
+      expect(text).toContain("_opt != null");
+      // fp's Some(v) is the value itself: the nested literal tests it directly
+      expect(text).toContain("_opt === 42");
+      expect(run(text, { opt: 42 })).toBe("found");
+      expect(run(text, { opt: 41 })).toBe("not found");
+      expect(run(text, { opt: null })).toBe("not found");
     });
   });
 

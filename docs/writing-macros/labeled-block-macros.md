@@ -12,42 +12,57 @@ Labeled block macros transform labeled statements like `myLabel: { ... }`.
 ## Basic Structure
 
 ```typescript
-import { defineLabeledBlockMacro } from "@typesugar/core";
+import { defineLabeledBlockMacro, globalRegistry } from "@typesugar/core";
 import * as ts from "typescript";
 
-defineLabeledBlockMacro("myLabel", {
-  expand(ctx, block: ts.Block, continuation?: ts.Block): ts.Statement | ts.Statement[] {
-    // block: the labeled block content
-    // continuation: optional following block (for multi-block macros)
+globalRegistry.register(
+  defineLabeledBlockMacro({
+    name: "myBlock", // the macro's name (what the activation marker names)
+    label: "myLabel", // the label that triggers it; may be an array of aliases
+    continuationLabels: ["then"], // optional: a following block it may consume
+    expand(ctx, mainBlock, continuation) {
+      // mainBlock: the whole `myLabel: { ... }` labeled statement
+      // mainBlock.statement: its body, usually a ts.Block
+      // continuation: the following `then: { ... }` labeled statement, or undefined
 
-    // Return transformed statement(s)
-    return block;
-  },
-});
+      // Return transformed statement(s)
+      return mainBlock.statement;
+    },
+  })
+);
 ```
+
+`expand` receives at most one continuation. Labels must be valid identifiers that aren't
+reserved words, so `try:`, `catch:` and `finally:` can't be used.
 
 ## Activation (PEP-052)
 
 Label syntax is import-scoped: a labeled block only expands in files that
 import a module carrying a `@syntax-labels <macroName>` JSDoc marker. Ship a
-marker module with your macro and point `syntaxModule` at it — the transformer
-uses it in the TS9224 "label syntax not activated" hint:
+marker module with your macro and point `syntaxModule` at it. The transformer
+names it in the TS9224 "label syntax not activated" hint, and an import whose
+specifier is exactly that string activates the macro even where modules can't be
+resolved:
 
 ```typescript
 // my-pkg/src/syntax.ts — the activation marker
 /**
- * @syntax-labels myLabel
+ * @syntax-labels myBlock
  */
 export const __my_pkg_syntax_labels = true;
 ```
 
 ```typescript
-defineLabeledBlockMacro("myLabel", {
-  syntaxModule: "my-pkg/syntax", // named in the TS9224 hint
-  expand(ctx, block) {
-    /* ... */
-  },
-});
+globalRegistry.register(
+  defineLabeledBlockMacro({
+    name: "myBlock",
+    label: "myLabel",
+    syntaxModule: "my-pkg/syntax", // named in the TS9224 hint
+    expand(ctx, mainBlock) {
+      return mainBlock.statement; // ...
+    },
+  })
+);
 ```
 
 Users opt in per file with a side-effect import:
@@ -57,35 +72,86 @@ import "my-pkg/syntax";
 ```
 
 The marker tag names the **macro**, not the label, so one marker activates all
-of a macro's label aliases. The JSDoc must sit on a real exported declaration
-(not a bare `export {}`) so it survives `.d.ts` generation.
+of a macro's label aliases. Use one `@syntax-labels` line per macro. The JSDoc must
+sit on a real exported declaration (not a bare `export {}`) so it survives `.d.ts`
+generation.
+
+Without the import, the block is left alone and the user gets:
+
+```
+warning [TS9224] 'measure:' matches the measure macro, but its label syntax is not activated in this file
+  = help: Add `import "my-pkg/syntax";` to activate measure: blocks in this file.
+```
+
+The examples below all use a helper that returns the block body, or reports an error:
+
+```typescript
+import type { MacroContext } from "@typesugar/core";
+
+/** The `{ ... }` of a labeled statement, or undefined if it isn't a block. */
+function blockOf(ctx: MacroContext, labeled: ts.LabeledStatement): ts.Block | undefined {
+  if (ts.isBlock(labeled.statement)) return labeled.statement;
+  ctx.reportError(labeled, `${labeled.label.text}: must be followed by a block { ... }`);
+  return undefined;
+}
+```
 
 ## Tutorial: Creating `measure:`
 
 A block that measures execution time:
 
 ```typescript
-import { defineLabeledBlockMacro } from "@typesugar/core";
-import { quote, quoteStatements, ident } from "@typesugar/core/quote";
+globalRegistry.register(
+  defineLabeledBlockMacro({
+    name: "measure",
+    label: "measure",
+    syntaxModule: "my-pkg/syntax",
+    expand(ctx, mainBlock) {
+      const block = blockOf(ctx, mainBlock);
+      if (!block) return mainBlock;
+      const f = ctx.factory;
+      const start = ctx.generateUniqueName("start");
+      const now = () =>
+        f.createCallExpression(
+          f.createPropertyAccessExpression(f.createIdentifier("performance"), "now"),
+          undefined,
+          []
+        );
 
-defineLabeledBlockMacro("measure", {
-  expand(ctx, block) {
-    const startVar = ctx.generateUniqueName("start");
-    const endVar = ctx.generateUniqueName("end");
-
-    return quoteStatements(ctx)`
-      const ${startVar} = performance.now();
-      ${block}
-      const ${endVar} = performance.now();
-      console.log(\`Execution time: \${${endVar} - ${startVar}}ms\`);
-    `;
-  },
-});
+      // const start = performance.now();
+      const startDecl = f.createVariableStatement(
+        undefined,
+        f.createVariableDeclarationList(
+          [f.createVariableDeclaration(start, undefined, undefined, now())],
+          ts.NodeFlags.Const
+        )
+      );
+      // console.log(`Execution time: ${performance.now() - start}ms`);
+      const report = f.createExpressionStatement(
+        f.createCallExpression(
+          f.createPropertyAccessExpression(f.createIdentifier("console"), "log"),
+          undefined,
+          [
+            f.createTemplateExpression(f.createTemplateHead("Execution time: "), [
+              f.createTemplateSpan(
+                f.createBinaryExpression(now(), ts.SyntaxKind.MinusToken, start),
+                f.createTemplateTail("ms")
+              ),
+            ]),
+          ]
+        )
+      );
+      return [startDecl, block, report];
+    },
+  })
+);
 ```
 
 Usage:
 
 ```typescript
+import "my-pkg/syntax";
+
 measure: {
   // Code to measure
   expensiveOperation();
@@ -94,214 +160,218 @@ measure: {
 
 Compiles to:
 
-```javascript
-const __start_1 = performance.now();
+```typescript
+const __typesugar_start_s0_0__ = performance.now();
 {
   expensiveOperation();
 }
-const __end_1 = performance.now();
-console.log(`Execution time: ${__end_1 - __start_1}ms`);
+console.log(`Execution time: ${performance.now() - __typesugar_start_s0_0__}ms`);
 ```
+
+Returning `block` (the body) rather than `mainBlock` is what drops the `measure:` label.
 
 ## Multi-Block Macros
 
-Some macros work with multiple consecutive blocks:
+A macro can consume one following block, named in `continuationLabels`:
 
 ```typescript
-defineLabeledBlockMacro("try", {
-  continuationLabels: ["catch", "finally"],
+globalRegistry.register(
+  defineLabeledBlockMacro({
+    name: "attempt",
+    label: "attempt",
+    continuationLabels: ["recover"],
+    syntaxModule: "my-pkg/syntax",
+    expand(ctx, mainBlock, continuation) {
+      const body = blockOf(ctx, mainBlock);
+      if (!body) return mainBlock;
+      if (!continuation) {
+        ctx.reportError(mainBlock, "attempt: needs a following recover: { ... } block");
+        return mainBlock;
+      }
+      const handler = blockOf(ctx, continuation);
+      if (!handler) return mainBlock;
 
-  expand(ctx, tryBlock, catchBlock, finallyBlock) {
-    return quote(ctx)`
-      try ${tryBlock}
-      ${catchBlock ? quote(ctx)`catch (e) ${catchBlock}` : ""}
-      ${finallyBlock ? quote(ctx)`finally ${finallyBlock}` : ""}
-    `;
-  },
-});
+      // try { body } catch (error) { handler }
+      const f = ctx.factory;
+      return f.createTryStatement(
+        body,
+        f.createCatchClause(f.createVariableDeclaration("error"), handler),
+        undefined
+      );
+    },
+  })
+);
 ```
 
 Usage:
 
 ```typescript
-try: {
+attempt: {
   riskyOperation();
 }
-catch: {
-  console.error(e);
+recover: {
+  console.log("failed:", (error as Error).message);
 }
-finally: {
-  cleanup();
+
+// Compiles to:
+try {
+  riskyOperation();
+} catch (error) {
+  console.log("failed:", (error as Error).message);
 }
 ```
+
+The `recover:` block uses `error`, which only exists after expansion, so the user's
+editor reports it as undefined. Design block syntax so that each block type-checks on its
+own where you can.
 
 ## Do-Notation Implementation
 
-The `let:`/`yield:` blocks are implemented as labeled block macros:
-
-```typescript
-defineLabeledBlockMacro("let", {
-  continuationLabels: ["yield"],
-
-  expand(ctx, letBlock, yieldBlock) {
-    // Parse bindings from letBlock
-    const bindings = parseBindings(ctx, letBlock);
-
-    // Build nested flatMap/map calls
-    let result = yieldBlock.statements[0];
-
-    for (let i = bindings.length - 1; i >= 0; i--) {
-      const { name, expr, isLast } = bindings[i];
-      const method = isLast ? "map" : "flatMap";
-
-      result = quote(ctx)`
-        ${expr}.${ident(method)}(${ident(name)} => ${result})
-      `;
-    }
-
-    return result;
-  },
-});
-```
+The `let:`/`yield:` comprehensions in `@typesugar/std` are a labeled block macro
+(`letYield`, labels `let` and `seq`, continuation labels `yield`, `pure` and `return`).
+Its source, in `packages/std/src/macros/let-yield.ts`, is a full worked example of parsing
+bindings out of a block and building a `flatMap`/`map` chain. See the
+[Do-Notation Guide](../guides/do-notation.md) for how it is used.
 
 ## Accessing Block Statements
 
-Iterate over statements in the block:
+Iterate over the statements in the block:
 
 ```typescript
-defineLabeledBlockMacro("log", {
-  expand(ctx, block) {
-    const loggedStatements = block.statements
-      .map((stmt) => {
-        // Wrap each statement with logging
-        return quoteStatements(ctx)`
-        console.log("Executing...");
-        ${stmt}
-      `;
-      })
-      .flat();
+globalRegistry.register(
+  defineLabeledBlockMacro({
+    name: "traced",
+    label: "traced",
+    syntaxModule: "my-pkg/syntax",
+    expand(ctx, mainBlock) {
+      const block = blockOf(ctx, mainBlock);
+      if (!block) return mainBlock;
+      const f = ctx.factory;
+      // Before each statement, log its source text.
+      const statements = block.statements.flatMap((stmt) => [
+        f.createExpressionStatement(
+          f.createCallExpression(
+            f.createPropertyAccessExpression(f.createIdentifier("console"), "log"),
+            undefined,
+            [f.createStringLiteral(`> ${stmt.getText(ctx.sourceFile)}`)]
+          )
+        ),
+        stmt,
+      ]);
+      return f.createBlock(statements, true);
+    },
+  })
+);
 
-    return ctx.factory.createBlock(loggedStatements, true);
-  },
-});
-```
-
-## Variable Bindings
-
-Create bindings within the block scope:
-
-```typescript
-defineLabeledBlockMacro("withContext", {
-  expand(ctx, block) {
-    const contextVar = ctx.generateUniqueName("ctx");
-
-    return quoteStatements(ctx)`
-      const ${contextVar} = createContext();
-      try {
-        ${block}
-      } finally {
-        ${contextVar}.dispose();
-      }
-    `;
-  },
-});
+// traced: { const a = 1; console.log(a + 1); }
+// → { console.log("> const a = 1;"); const a = 1; console.log("> console.log(a + 1);"); console.log(a + 1); }
 ```
 
 ## Conditional Blocks
 
-Handle optional blocks:
+Handle an optional continuation:
 
 ```typescript
-defineLabeledBlockMacro("when", {
-  continuationLabels: ["otherwise"],
-
-  expand(ctx, whenBlock, otherwiseBlock) {
-    // First statement should be a condition
-    const condition = whenBlock.statements[0];
-    const body = whenBlock.statements.slice(1);
-
-    if (otherwiseBlock) {
-      return quote(ctx)`
-        if (${condition}) {
-          ${body}
-        } else {
-          ${otherwiseBlock}
-        }
-      `;
-    }
-
-    return quote(ctx)`
-      if (${condition}) {
-        ${body}
+globalRegistry.register(
+  defineLabeledBlockMacro({
+    name: "when",
+    label: "when",
+    continuationLabels: ["otherwise"],
+    syntaxModule: "my-pkg/syntax",
+    expand(ctx, mainBlock, continuation) {
+      const block = blockOf(ctx, mainBlock);
+      if (!block) return mainBlock;
+      // The first statement of the block is the condition.
+      const [first, ...rest] = block.statements;
+      if (!first || !ts.isExpressionStatement(first)) {
+        ctx.reportError(mainBlock, "when: must start with a condition expression");
+        return mainBlock;
       }
-    `;
-  },
-});
+      const otherwise = continuation ? blockOf(ctx, continuation) : undefined;
+      return ctx.factory.createIfStatement(
+        first.expression,
+        ctx.factory.createBlock(rest, true),
+        otherwise
+      );
+    },
+  })
+);
 ```
 
-## Pattern Matching in Blocks
-
-Parse custom syntax within blocks:
-
 ```typescript
-defineLabeledBlockMacro("match", {
-  expand(ctx, block) {
-    // Expect: match: { value; case1 => expr1; case2 => expr2; }
-    const statements = block.statements;
+when: {
+  n > 3;
+  console.log("big");
+}
+otherwise: {
+  console.log("small");
+}
 
-    // First statement is the value to match
-    const matchValue = statements[0];
-
-    // Rest are cases
-    const cases = statements.slice(1).map(parseCase);
-
-    // Generate switch statement
-    return ctx.factory
-      .createSwitchStatement
-      /* ... */
-      ();
-  },
-});
+// Compiles to:
+if (n > 3) {
+  console.log("big");
+} else {
+  console.log("small");
+}
 ```
 
 ## Error Handling
 
 ```typescript
-defineLabeledBlockMacro("strict", {
-  expand(ctx, block) {
-    if (block.statements.length === 0) {
-      ctx.reportWarning(block, "Empty strict block");
-      return block;
-    }
-
-    // Validate each statement...
-    for (const stmt of block.statements) {
-      if (!isValidStatement(stmt)) {
-        ctx.reportError(stmt, "Invalid statement in strict block");
+globalRegistry.register(
+  defineLabeledBlockMacro({
+    name: "strict",
+    label: "strict",
+    syntaxModule: "my-pkg/syntax",
+    expand(ctx, mainBlock) {
+      const block = blockOf(ctx, mainBlock);
+      if (!block) return mainBlock;
+      if (block.statements.length === 0) {
+        ctx.reportWarning(mainBlock, "empty strict: block");
       }
-    }
+      for (const stmt of block.statements) {
+        if (
+          ts.isVariableStatement(stmt) &&
+          !(stmt.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const))
+        ) {
+          ctx.reportError(stmt, "var is not allowed in a strict: block; use let or const");
+        }
+      }
+      return block;
+    },
+  })
+);
 
-    return block;
-  },
-});
+// strict: { var x = 1; }  →  error: var is not allowed in a strict: block; use let or const
 ```
 
 ## Testing Labeled Block Macros
 
+The test source has to import the activation marker. When the marker can't be resolved
+(as with an in-memory test file), an import whose specifier exactly matches the macro's
+`syntaxModule` still activates it:
+
 ```typescript
-import { expandCode } from "@typesugar/testing";
+import { describe, it, expect } from "vitest";
+import { transformCode } from "@typesugar/transformer";
+import "../src/macros"; // registers measure, with syntaxModule: "my-pkg/syntax"
 
 describe("measure block", () => {
-  it("wraps code with timing", async () => {
-    const result = await expandCode(`
+  it("wraps code with timing", () => {
+    const result = transformCode(
+      `
+      import "my-pkg/syntax";
+      declare function doSomething(): void;
       measure: {
         doSomething();
       }
-    `);
-
+      `,
+      { fileName: "test.ts" }
+    );
     expect(result.code).toContain("performance.now()");
     expect(result.code).toContain("doSomething()");
     expect(result.code).toContain("Execution time");
+    expect(result.code).not.toContain("measure:");
   });
 });
 ```
@@ -309,15 +379,16 @@ describe("measure block", () => {
 ## Best Practices
 
 1. **Generate hygienic names**: Use `ctx.generateUniqueName()`
-2. **Handle empty blocks**: Check `block.statements.length`
-3. **Preserve statement order**: Be careful when reordering
-4. **Document syntax**: Explain what goes in the block
-5. **Support multi-block**: Use `continuationLabels` when needed
+2. **Check the body is a block**: `mainBlock.statement` can be any statement
+3. **Handle empty blocks**: Check `block.statements.length`
+4. **Preserve statement order**: Be careful when reordering
+5. **Document syntax**: Explain what goes in the block
+6. **Ship an activation marker**: And set `syntaxModule` so the TS9224 hint names it
 
 ## Limitations
 
-- Labels must be valid identifiers
-- Cannot nest labeled blocks with same label
+- Labels must be valid identifiers, and not reserved words
+- At most one continuation block per macro
 - Block must be a statement (not expression position)
 
 ## Next Steps

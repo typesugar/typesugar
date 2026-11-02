@@ -50,7 +50,9 @@
  * @module
  */
 
-import { TypedQuery, TypedUpdate } from "./typed-fragment.js";
+// Type-only: typed-fragment.ts imports ConnectionIO (TypedUpdate.run), so a
+// value import here would be a runtime import cycle.
+import type { TypedQuery, TypedUpdate } from "./typed-fragment.js";
 import { Read, SqlRow } from "./meta.js";
 import { Queryable } from "./queryable.js";
 import { Query, Update, type SqlParam } from "./types.js";
@@ -70,6 +72,36 @@ export type RowReader<A> = Pick<Read<A>, "read">;
 
 /** An update accepted by `ConnectionIO.execute`/`executeWithKeys`. */
 export type AnyUpdate = TypedUpdate<readonly unknown[]> | Update;
+
+/**
+ * The reader a Query/QueryMany op decodes with: the Read passed explicitly,
+ * else the query's own decoder (`to`/`map`), else the raw row. Both at once
+ * is ambiguous (which one wins?), so it is rejected instead of silently
+ * ignoring one of them.
+ */
+function resolveReader<A>(
+  method: string,
+  query: AnyQuery<A>,
+  read: RowReader<A> | undefined
+): RowReader<A> {
+  if (read && query.decoder) {
+    throw new TypeError(
+      `ConnectionIO.${method}: this query already decodes its rows (.to()/.map() was ` +
+        `applied); call ConnectionIO.${method}(query) without a Read`
+    );
+  }
+  return read ?? { read: (row) => query.decode(row) as A | null };
+}
+
+/** Enforce a query's `unique()`/`option()` cardinality on the returned rows. */
+function checkCardinality(query: AnyQuery<unknown>, count: number): void {
+  if (query.cardinality === "unique" && count !== 1) {
+    throw new Error(`unique(): expected exactly one row, got ${count}`);
+  }
+  if (query.cardinality === "option" && count > 1) {
+    throw new Error(`option(): expected at most one row, got ${count}`);
+  }
+}
 
 /** Render a query/update for a dialect through the single shared renderer. */
 function renderStatement(
@@ -293,21 +325,31 @@ export class ConnectionIO<A> {
   }
 
   /**
-   * Execute a query returning a single result.
+   * Execute a query returning its first result (`null` if there are no rows).
+   *
+   * Rows are decoded with `read` if given, else with the query's own decoder
+   * (`TypedQuery.to`/`map`, `Query.map`), else returned as-is; passing `read`
+   * for a query that already has a decoder throws. A `unique()`/`option()`
+   * query fails when the row count does not match.
    */
-  static query<A>(query: AnyQuery<A>, read: RowReader<A>): ConnectionIO<A | null> {
+  static query<A>(query: AnyQuery<A>, read?: RowReader<A>): ConnectionIO<A | null> {
     return new ConnectionIO({
       _tag: "Query",
       query,
-      read,
+      read: resolveReader("query", query, read),
     }) as ConnectionIO<A | null>;
   }
 
   /**
-   * Execute a query returning multiple results.
+   * Execute a query returning all results (rows that decode to `null` are
+   * dropped). Decoding and cardinality work as for `query`.
    */
-  static queryMany<A>(query: AnyQuery<A>, read: RowReader<A>): ConnectionIO<A[]> {
-    return new ConnectionIO({ _tag: "QueryMany", query, read }) as ConnectionIO<A[]>;
+  static queryMany<A>(query: AnyQuery<A>, read?: RowReader<A>): ConnectionIO<A[]> {
+    return new ConnectionIO({
+      _tag: "QueryMany",
+      query,
+      read: resolveReader("queryMany", query, read),
+    }) as ConnectionIO<A[]>;
   }
 
   /**
@@ -486,6 +528,7 @@ export class Transactor {
       case "Query": {
         const { sql, params } = renderStatement(op.query, this.dialect);
         const rows = await conn.query(sql, params);
+        checkCardinality(op.query, rows.length);
         if (rows.length === 0) return null;
         return op.read.read(rows[0]);
       }
@@ -493,6 +536,7 @@ export class Transactor {
       case "QueryMany": {
         const { sql, params } = renderStatement(op.query, this.dialect);
         const rows = await conn.query(sql, params);
+        checkCardinality(op.query, rows.length);
         return rows.map((row) => op.read.read(row)).filter((r) => r !== null);
       }
 

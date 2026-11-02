@@ -1,6 +1,6 @@
 # Functional Programming
 
-The `@typesugar/fp` package provides functional programming utilities with zero-cost abstractions. `Option<A>` uses `@opaque` type macros for dot-syntax methods — it's `A | null` at runtime, but TypeScript sees a rich interface. Other types like `Either` use structural discriminated unions.
+The `@typesugar/fp` package provides functional programming utilities with zero-cost abstractions. `Option<A>` uses `@opaque` type macros for dot-syntax methods — it's `A | null` at runtime, but TypeScript sees a rich interface. The other types (`Either`, `IO`, `List`, …) are plain data with standalone functions; they have no dot syntax.
 
 ## Option
 
@@ -27,10 +27,19 @@ const result = findUser(42)
 Some(42); // Option<number> containing 42
 None; // Empty Option<never>
 
-// Implicit conversion via a diagnostic suppression rule — no fromNullable() needed
+// From a nullable value: Option<number> and number | null are different types,
+// so convert explicitly
+import { fromNullable, toNullable } from "@typesugar/fp/data/option";
+
 const nullable: number | null = getFromDb();
-const opt: Option<number> = nullable; // Just works
+const opt: Option<number> = fromNullable(nullable);
+const back: number | null = toNullable(opt);
 ```
+
+Known issue: because `Some(42)` compiles to `42` while `Option<…>` annotations stay in the
+output, expanded-output type checking (`strict: true`) reports errors such as `Type 'number' is
+not assignable to type 'Option<number>'` in code that uses Option. The emitted JavaScript is
+correct.
 
 ### Methods (Dot Syntax)
 
@@ -64,34 +73,38 @@ Some(5)
 
 ## Either
 
-Represents success (`Right`) or failure (`Left`). Uses a structural discriminated union — not `@opaque` (Either allocates real objects, unlike Option's zero-cost `null` encoding).
+Represents success (`Right`) or failure (`Left`). At runtime it is `{ right: value }` or `{ left: error }` — not `@opaque`, so there is no dot syntax: use the functions from `@typesugar/fp/data/either`.
 
 ```typescript
 import { Right, Left, isRight } from "@typesugar/fp";
 import type { Either } from "@typesugar/fp";
+import * as E from "@typesugar/fp/data/either";
 
 function parseNumber(s: string): Either<string, number> {
   const n = parseInt(s, 10);
   return isNaN(n) ? Left("Invalid number") : Right(n);
 }
 
-// Dot syntax — chain validations fluently
-const result = parseNumber("42")
-  .map((n) => n * 2)
-  .flatMap((n) => (n > 50 ? Right(n) : Left("too small")))
-  .getOrElse(() => -1);
+const result = E.getOrElse(
+  E.flatMap(
+    E.map(parseNumber("42"), (n) => n * 2),
+    (n): Either<string, number> => (n > 50 ? Right(n) : Left("too small"))
+  ),
+  () => -1
+); // 84
 ```
 
-### Methods (Dot Syntax)
+### Functions
 
 ```typescript
 const res = Right<string, number>(42);
 
 isRight(res); // true — type guard
-res.map((x) => x * 2); // Right(84)
-res.flatMap((x) => Right(x * 2)); // Right(84)
-res.getOrElse(() => 0); // 42
-res.fold(
+E.map(res, (x) => x * 2); // Right(84), i.e. { right: 84 }
+E.flatMap(res, (x) => Right(x * 2)); // Right(84)
+E.getOrElse(res, () => 0); // 42
+E.fold(
+  res,
   (e) => `Error: ${e}`,
   (x) => `Got ${x}`
 ); // "Got 42"
@@ -120,25 +133,31 @@ V.map2Nel(validateName(name), validateAge(age), (n, a) => ({ name: n, age: a }))
 Represents effectful computations:
 
 ```typescript
-import { IO } from "@typesugar/fp";
+import { IO, runIOSync } from "@typesugar/fp";
 
-const getTime = IO.of(() => new Date());
-const log = (msg: string) => IO.of(() => console.log(msg));
+const getTime = IO.delay(() => new Date());
+const log = (msg: string) => IO.delay(() => console.log(msg));
 
-const program = getTime.flatMap((time) => log(`Current time: ${time}`));
+const program = IO.flatMap(getTime, (time) => log(`Current time: ${time}`));
 
 // Nothing runs until:
-program.unsafeRun();
+runIOSync(program);
 ```
+
+`IO.delay(thunk)` (also `IO.sync`) suspends a side effect. `IO.of(value)` / `IO.pure(value)`
+wrap a value you already have — they take the value, not a thunk.
 
 ### Combining IO
 
 ```typescript
-const readFile = (path: string) => IO.of(() => fs.readFileSync(path, "utf8"));
-const writeFile = (path: string, content: string) => IO.of(() => fs.writeFileSync(path, content));
+import * as fs from "node:fs";
+
+const readFile = (path: string) => IO.delay(() => fs.readFileSync(path, "utf8"));
+const writeFile = (path: string, content: string) =>
+  IO.delay(() => fs.writeFileSync(path, content));
 
 const copyFile = (src: string, dest: string) =>
-  readFile(src).flatMap((content) => writeFile(dest, content));
+  IO.flatMap(readFile(src), (content) => writeFile(dest, content));
 ```
 
 ## List
@@ -146,16 +165,22 @@ const copyFile = (src: string, dest: string) =>
 Immutable linked list:
 
 ```typescript
-import { List, Cons, Nil } from "@typesugar/fp";
+import { listOf, Cons, Nil } from "@typesugar/fp";
+import type { List } from "@typesugar/fp";
+import * as L from "@typesugar/fp/data/list";
 
-const list = List.of(1, 2, 3, 4, 5);
+const list: List<number> = listOf(1, 2, 3, 4, 5);
 
-list.head(); // Some(1)
-list.tail(); // List(2, 3, 4, 5)
-list.map((x) => x * 2); // List(2, 4, 6, 8, 10)
-list.filter((x) => x % 2 === 0); // List(2, 4)
-list.foldLeft(0, (a, b) => a + b); // 15
+L.head(list); // Some(1), i.e. 1
+L.tail(list); // List(2, 3, 4, 5) — typed List | undefined (undefined for an empty list)
+L.map(list, (x) => x * 2); // List(2, 4, 6, 8, 10)
+L.filter(list, (x) => x % 2 === 0); // List(2, 4)
+L.foldLeft(list, 0, (a, b) => a + b); // 15
+L.toArray(list); // [1, 2, 3, 4, 5]
 ```
+
+`List` is a type only; build lists with `listOf(...)`, `listFromArray(arr)` or `Cons`/`Nil`.
+A list is a plain `{ head, tail }` chain (`null` when empty), with no methods.
 
 ## How @opaque Works
 
@@ -173,7 +198,7 @@ export interface Option<A> {
 - **TypeScript sees**: Interface with methods (IDE completions, type inference)
 - **Runtime**: `A | null` (zero allocations)
 - **Transformer**: Rewrites `x.map(f)` → `map(x, f)`
-- **Diagnostic suppression**: `Option<T>` and `T | null` are implicitly convertible
+- **Conversion**: `Option<T>` and `T | null` are not assignable to each other; use `fromNullable` / `toNullable`
 
 ### Publishing @opaque Types in Libraries
 
@@ -227,16 +252,21 @@ Add to your library's `package.json`:
 typesugar supports HKTs for generic FP code:
 
 ```typescript
-import { $, Functor, Monad } from "@typesugar/fp";
+import { optionFunctor, Some } from "@typesugar/fp";
+import type { Functor, Kind } from "@typesugar/fp";
 
 // Works with any Functor
 function double<F>(F: Functor<F>, fa: Kind<F, number>): Kind<F, number> {
   return F.map(fa, (x) => x * 2);
 }
 
-double(FunctorOption, Some(21)); // Some(42)
-double(FunctorArray, [1, 2, 3]); // [2, 4, 6]
+double(optionFunctor, Some(21)); // Some(42), i.e. 42
 ```
+
+`Functor`, `Monad` and `Kind` are types (`import type`); the instances are values such as
+`optionFunctor` and `optionMonad`. Known issue: plain `tsc` reports TS2345 on
+`double(optionFunctor, …)` because the concrete instance type doesn't unify with
+`Functor<F>`; the transformer's build of the same code type-checks and runs.
 
 ## Zero-Cost Abstractions
 
@@ -247,10 +277,16 @@ All FP types compile to efficient JavaScript:
 const result = Some(42)
   .map((x) => x * 2)
   .flatMap((x) => Some(x + 1))
-  .getOrElse(0);
+  .getOrElse(() => 0);
 
-// Compiled — auto-specialized, no annotation needed
-const result = 42 * 2 + 1;
+// Compiled — no Option object, no method dispatch: direct calls on the raw value
+const result = getOrElse(
+  flatMap(
+    map(42, (x) => x * 2),
+    (x) => x + 1
+  ),
+  () => 0
+); // 85
 ```
 
 ## Do-Notation
@@ -260,17 +296,16 @@ Chain monadic operations cleanly. The label syntax is import-scoped (PEP-052) �
 ```typescript
 import "@typesugar/std/syntax/do";
 
-let: {
+const result = let: {
   user << findUser(42);
   posts << fetchPosts(user.id);
   comments << fetchComments(posts[0].id);
 }
-yield: {
-  {
-    (user, posts, comments);
-  }
-}
+yield: ({ user, posts, comments });
 ```
+
+For `Option` this compiles to `flatMapOption.flatMap(findUser(42), user => …)`, importing
+`flatMapOption` for you.
 
 See [Do-Notation Guide](./do-notation.md).
 
@@ -289,7 +324,7 @@ See [Do-Notation Guide](./do-notation.md).
 ### Do
 
 - Use Option instead of null/undefined
-- Use Result for operations that can fail
+- Use Either for operations that can fail
 - Use IO for side effects
 - Trust auto-specialization for performance-critical code — it's always on
 

@@ -32,9 +32,11 @@ Calling it with a known instance auto-specializes the call:
 sortWith([3, 1, 2], numberOrd);
 
 // Compiles to (dictionary gone, comparator inlined):
-__sortWith_number__([3, 1, 2]);
-// where the hoisted __sortWith_number__ is:
-// (items) => items.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+__typesugar___sortWith_number_0__([3, 1, 2]);
+// where the hoisted function, at the top of the module, is:
+// const __typesugar___sortWith_number_0__ = /*#__PURE__*/ items => {
+//   return items.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+// };
 ```
 
 The transformer:
@@ -53,7 +55,7 @@ showNumber)` specializes on both at once.
 
 ### Which instances are recognized
 
-- Instances declared with `/** @impl TC<T> */` (or `@instance`), or with an
+- Instances declared with `/** @impl TC<T> */`, or with an
   explicit typeclass type annotation (`const x: Functor<F> = { ... }`), whose
   object-literal bodies the transformer can read from source — including
   instances imported from other modules (renamed imports too), identifier
@@ -76,17 +78,19 @@ specialize.
 
 ### With `= implicit()`
 
-`= implicit()` composes with auto-specialization: the transformer first fills
-in the instance argument, and the filled-in call then specializes like any
-other.
+`= implicit()` fills in the instance argument at compile time, but in 1.0 the
+filled-in call is **not** then specialized: it keeps dictionary passing.
 
 ```typescript
 function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {
   return items.slice().sort((a, b) => ord.compare(a, b));
 }
 
-sortWith([3, 1, 2]); // instance resolved AND inlined automatically
+sortWith([3, 1, 2]); // compiles to sortWith([3, 1, 2], numberOrd): resolved, not inlined
 ```
+
+To get the inlined version, pass the instance explicitly
+(`sortWith([3, 1, 2], numberOrd)`).
 
 ## When Specialization Is Skipped
 
@@ -128,7 +132,7 @@ along with everything else.
 
 Check the compiled output — the [playground](https://typesugar.org/playground)
 shows it side by side, and [Zero-Cost, Seen](/guides/zero-cost) walks through
-real examples. The hoisted `__fn_Brand__` constants with `/*#__PURE__*/`
+real examples. The hoisted `__typesugar___<fn>_<Brand>_<n>__` constants with `/*#__PURE__*/`
 annotations are the specializations; grep your build output for the original
 dictionary parameter to confirm it's gone.
 

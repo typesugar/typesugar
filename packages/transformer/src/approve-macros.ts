@@ -79,7 +79,8 @@ export async function runApproveMacros(options: ApproveMacrosOptions): Promise<v
   // CURRENT `security.allowedMacroPackages` (via `isTrusted`) — so
   // `blocked` here is exactly "declares typesugar.macros, not
   // @typesugar/*-scoped, not already approved," i.e. what needs approval.
-  const { blocked: newlyBlocked } = classifyManifestPackages(importedModules);
+  // Resolve from the project (the tsconfig's directory), as the build does.
+  const { blocked: newlyBlocked } = classifyManifestPackages(importedModules, projectRoot);
 
   if (newlyBlocked.length === 0) {
     console.log(`${COLORS.green}✓${COLORS.reset} No new macro packages need approval.`);

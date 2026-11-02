@@ -25,6 +25,7 @@ import {
   tryExtractInstanceFromSource as sharedTryExtractInstanceFromSource,
   collectMethodFreeNames,
   forEachMethodFreeReference,
+  getOpMapForTypeclass,
   type DictMethod,
   type DictMethodMap,
   type ResultAlgebra,
@@ -552,6 +553,45 @@ function typeNodeRefsAny(typeNode: ts.TypeNode, names: Set<string>): boolean {
 // Auto-specialization entry point
 // ---------------------------------------------------------------------------
 
+/**
+ * Is `arg` an identifier for a value declared ONLY in .d.ts files (an instance
+ * imported from a compiled package) that is a typeclass instance -- its
+ * declaration carries `@impl`/`@instance`, or its type is a known typeclass
+ * (`Functor<OptionF>`, `Pretty<number>`)? This check keeps ordinary
+ * declaration-only values (config objects, lib globals) from producing noise.
+ */
+function isDeclarationOnlyTypeclassInstance(ctx: MacroContextImpl, arg: ts.Expression): boolean {
+  if (isSyntheticNode(arg)) return false;
+  let e = arg;
+  while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e)) e = e.expression;
+  if (!ts.isIdentifier(e) && !ts.isPropertyAccessExpression(e)) return false;
+  try {
+    const checker = ctx.typeChecker;
+    let sym = checker.getSymbolAtLocation(e);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const decls = sym?.declarations ?? [];
+    if (decls.length === 0 || !decls.every((d) => d.getSourceFile().isDeclarationFile)) {
+      return false;
+    }
+    // Marked as an instance in its declaration (`/** @impl Schema<...> */`
+    // survives into the emitted .d.ts) ...
+    if (
+      decls.some((d) =>
+        ts.getJSDocTags(d).some((t) => t.tagName.text === "impl" || t.tagName.text === "instance")
+      )
+    ) {
+      return true;
+    }
+    // ... or typed as a known typeclass (`Functor<OptionF>`).
+    const type = checker.getTypeAtLocation(e);
+    const tcName = (type.aliasSymbol ?? type.getSymbol())?.getName();
+    return !!tcName && getOpMapForTypeclass(ctx.program, tcName) !== undefined;
+  } catch (error) {
+    warnCheckerFailure(ctx, arg, "auto-specialization (declaration-only instance check)", error);
+    return false;
+  }
+}
+
 function argResolvesToDeclaration(ctx: MacroContextImpl, arg: ts.Expression): boolean {
   if (isSyntheticNode(arg)) return false;
   let e = arg;
@@ -728,6 +768,7 @@ export function tryAutoSpecialize(
     name: string;
     methods: DictMethodMap;
   }[] = [];
+  const declarationOnlyArgs: string[] = [];
 
   for (let i = 0; i < node.arguments.length; i++) {
     const arg = node.arguments[i];
@@ -765,10 +806,30 @@ export function tryAutoSpecialize(
 
     if (methods) {
       instanceArgs.push({ index: i, name: argName, methods });
+    } else if (isDeclarationOnlyTypeclassInstance(ctx, arg)) {
+      declarationOnlyArgs.push(argName);
     }
   }
 
   if (instanceArgs.length === 0) {
+    // A typeclass instance imported from a package's compiled dist has no
+    // readable method bodies, so it can never be inlined. Say so instead of
+    // silently keeping dictionary passing (validate `nativeSchema`, fp
+    // `optionFunctor`).
+    if (declarationOnlyArgs.length > 0 && !suppressWarnings) {
+      const fn = ts.isIdentifier(node.expression)
+        ? node.expression.text
+        : ts.isPropertyAccessExpression(node.expression)
+          ? node.expression.name.text
+          : "<anonymous>";
+      ctx.reportWarning(
+        node,
+        `[TS9602] Auto-specialization of ${fn} skipped — instance ` +
+          `${declarationOnlyArgs.map((n) => `'${n}'`).join(", ")} is only visible as a ` +
+          `declaration (from a .d.ts), so its method bodies cannot be inlined; ` +
+          `falling back to dictionary passing.`
+      );
+    }
     return undefined;
   }
 

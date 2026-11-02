@@ -13,8 +13,13 @@ npm install @typesugar/contracts
 ## Quick Start
 
 ```typescript
+import "@typesugar/contracts/syntax"; // turns on requires: / ensures: blocks in this file
 import { old } from "@typesugar/contracts";
 import { Positive } from "@typesugar/type-system";
+
+interface Account {
+  balance: number;
+}
 
 function withdraw(account: Account, amount: Positive): number {
   requires: {
@@ -26,7 +31,14 @@ function withdraw(account: Account, amount: Positive): number {
   account.balance -= amount;
   return account.balance;
 }
+
+const acc: Account = { balance: 10 };
+withdraw(acc, 3 as Positive); // 7
+withdraw(acc, 100 as Positive); // throws PreconditionError: Insufficient funds
 ```
+
+Without the `@typesugar/contracts/syntax` import, `requires:` and `ensures:` are plain
+labels: the checks don't run, and the compiler only warns (TS9224).
 
 ## Documentation
 

@@ -11,7 +11,7 @@
  * entry, loaded by the transformer at build time. See PEP-050.
  */
 
-import type { Graph, StateMachineDefinition } from "./types.js";
+import type { Graph, StateMachineDefinition, StateMachineInstance } from "./types.js";
 import { parseDigraph, parseStateMachine } from "./dsl.js";
 import { createGraph as createUndirectedGraph } from "./graph.js";
 import { createInstance } from "./state-machine.js";
@@ -73,19 +73,25 @@ export function graph(strings: TemplateStringsArray, ...values: unknown[]): Grap
  * `;
  *
  * const instance = sm.create();
- * // instance.current is typed as "Idle" | "Running" | "Done"
  * ```
+ *
+ * In your source, TypeScript checks this call against this signature, and a
+ * `TemplateStringsArray` cannot carry the DSL text, so states and events are
+ * `string` unless you pass them as type arguments:
+ * ``stateMachine<"Idle" | "Running" | "Done", "start" | "stop">`...` ``.
+ * The macro checks those against the definition (an error if they differ), and
+ * the code it emits is always typed with the definition's literal unions.
  */
-export function stateMachine(
+export function stateMachine<S extends string = string, E extends string = string>(
   strings: TemplateStringsArray,
   ...values: unknown[]
 ): StateMachineDefinition & {
-  create: <S extends string, E extends string>() => ReturnType<typeof createInstance<S, E>>;
+  create: <S2 extends string = S, E2 extends string = E>() => StateMachineInstance<S2, E2>;
 } {
   const def = parseStateMachine(interpolate(strings, values));
   return {
     ...def,
-    create: <S extends string, E extends string>() => createInstance<S, E>(def),
+    create: <S2 extends string = S, E2 extends string = E>() => createInstance<S2, E2>(def),
   };
 }
 

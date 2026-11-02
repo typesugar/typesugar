@@ -191,6 +191,8 @@ export const sidebar: DefaultTheme.SidebarItem[] = [
       { text: "Configuration", link: "/reference/config" },
       { text: "CLI", link: "/reference/cli" },
       { text: "Packages", link: "/reference/packages" },
+      { text: "Macro Kinds", link: "/macro-types" },
+      { text: "Macro Triggers", link: "/macro-triggers" },
     ],
   },
   {
@@ -205,7 +207,11 @@ export const sidebar: DefaultTheme.SidebarItem[] = [
   {
     text: "Architecture",
     collapsed: true,
-    items: [{ text: "How it Works", link: "/architecture" }],
+    items: [
+      { text: "How it Works", link: "/architecture" },
+      { text: "Performance", link: "/PERFORMANCE" },
+      { text: "Security", link: "/SECURITY" },
+    ],
   },
   {
     text: "Error Reference",

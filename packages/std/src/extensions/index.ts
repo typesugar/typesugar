@@ -62,11 +62,10 @@ export {
 // Boolean utilities
 export { toInt as boolToInt } from "./boolean";
 
-// Array utilities
+// Array utilities (`last` is exported below: it serves both Array and Range)
 export {
   head,
   tail,
-  last,
   chunk,
   compact,
   flatten,
@@ -96,13 +95,42 @@ export {
   toMap as objectToMap,
 } from "./object";
 
+import { last as arrayLast } from "./array";
+import { last as rangeLast } from "./range";
+import type { Range } from "../data/range";
+
 // Map/Set utilities
 export { filterMapKeys, filterMapValues, setUnion, setIntersection, setDifference } from "./map";
 
 // Range utilities
-// Note: `to` and `until` come from "./number" via `export * from "./number"`
-// Unique Range methods exported directly for extension method resolution
-export { step, reversed, toArray, iterator, first, contains, RangeExtensions } from "./range";
-// Conflicting names (last, size, isEmpty, forEach, map, filter, reduce):
-// - data/range.ts already exports these with range* prefix (rangeMap, rangeFilter, etc.)
-// - For extension method resolution, import directly: `import { map } from "@typesugar/std/extensions/range"`
+// Note: `to` and `until` come from "./number" via `export * from "./number"`.
+// Range methods are exported under their METHOD names, because the extension
+// resolver pairs `r.size()` with an imported `size` (docs review 2026-10:
+// `(1).to(10).size()` etc. type-checked but threw at runtime). None of these
+// names is exported by anything else at the root except `last` (Array), which
+// dispatches below. The range-prefixed functions in data/range.ts remain.
+export {
+  step,
+  reversed,
+  toArray,
+  iterator,
+  first,
+  contains,
+  size,
+  isEmpty,
+  forEach,
+  map,
+  filter,
+  reduce,
+  RangeExtensions,
+} from "./range";
+
+/**
+ * Last element of an array, or of a {@link Range} (`arr.last()` /
+ * `(1).to(10).last()`). Undefined when empty.
+ */
+export function last<A>(arr: readonly A[]): A | undefined;
+export function last(r: Range): number | undefined;
+export function last<A>(x: readonly A[] | Range): A | number | undefined {
+  return Array.isArray(x) ? arrayLast(x as readonly A[]) : rangeLast(x as Range);
+}

@@ -2,7 +2,7 @@
 
 > 📖 **Full documentation:** [Math guide](https://typesugar.org/guides/math). The microsite is the canonical reference; this README is a quickstart.
 
-> 🧊 **Frozen ([PEP-048](../../peps/PEP-048-package-triage.md)).** Not under active development and excluded from release. It still lives in the repo and builds, but is not part of typesugar's actively-maintained surface.
+> Status: experimental — API may change before 1.0.
 
 Comprehensive math types and typeclasses for TypeScript: exact rationals, complex numbers, arbitrary-precision decimals, type-safe matrices, intervals, modular arithmetic, polynomials, and linear-algebra typeclasses.
 

@@ -1,6 +1,6 @@
 # @typesugar/lsp-common
 
-🧊 Shared IDE infrastructure for the typesugar language tooling.
+Shared IDE infrastructure for the typesugar language tooling.
 
 This is an **internal support package**: it carries the position-mapping,
 AST-helper, and code-action utilities shared by

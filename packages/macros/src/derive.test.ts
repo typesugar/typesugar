@@ -17,7 +17,6 @@ import {
   Hash,
   Default,
   Json,
-  Builder,
   TypeGuard,
   Show,
   createDerivedFunctionName,
@@ -48,18 +47,13 @@ describe("derive markers", () => {
     expect(Json.toString()).toContain("Json");
   });
 
-  it("Builder is a unique symbol", () => {
-    expect(typeof Builder).toBe("symbol");
-    expect(Builder.toString()).toContain("Builder");
-  });
-
   it("TypeGuard is a unique symbol", () => {
     expect(typeof TypeGuard).toBe("symbol");
     expect(TypeGuard.toString()).toContain("TypeGuard");
   });
 
   it("symbol markers are all distinct", () => {
-    const symbols = [Clone, Debug, Default, Json, Builder, TypeGuard];
+    const symbols = [Clone, Debug, Default, Json, TypeGuard];
     const unique = new Set(symbols);
     expect(unique.size).toBe(symbols.length);
   });

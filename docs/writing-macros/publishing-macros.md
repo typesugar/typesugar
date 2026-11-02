@@ -1,8 +1,17 @@
 # Publishing Macros
 
-This guide covers packaging and distributing typesugar macros.
+This guide covers packaging and distributing typesugar macros. For the full background
+(runtime vs. macro entries, `.d.ts` metadata, zero-cost runtime libraries), see
+[Authoring & Shipping a typesugar Library](../guides/authoring-libraries.md).
 
 ## Package Structure
+
+A macro package has two entries:
+
+- `.` (the runtime entry): the placeholders users import. It must not import
+  `typescript` or `@typesugar/core`, or they end up in the app bundle.
+- `./macros` (the macro entry): the definitions and their `globalRegistry.register(...)`
+  calls. Only the transformer loads it, at build time.
 
 ```
 my-macro-package/
@@ -10,14 +19,13 @@ my-macro-package/
   tsconfig.json
   tsup.config.ts
   src/
-    index.ts          # Runtime exports (placeholders)
-    macros/
-      my-macro.ts     # Macro definitions
+    index.ts          # Runtime entry: placeholders
+    macros.ts         # Macro entry: definitions + registration
   tests/
     my-macro.test.ts
   dist/
-    index.js
-    index.d.ts
+    index.js / index.cjs / index.d.ts
+    macros.js / macros.cjs / macros.d.ts
 ```
 
 ## Package Configuration
@@ -38,9 +46,17 @@ my-macro-package/
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./macros": {
+      "types": "./dist/macros.d.ts",
+      "import": "./dist/macros.js",
+      "require": "./dist/macros.cjs"
     }
   },
-  "files": ["dist", "src"],
+  "typesugar": {
+    "macros": "./macros"
+  },
+  "files": ["dist"],
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
@@ -48,20 +64,22 @@ my-macro-package/
   },
   "keywords": ["typesugar", "macro", "typescript"],
   "peerDependencies": {
-    "@typesugar/transformer": ">=0.1.0",
+    "@typesugar/core": ">=0.1.0",
     "typescript": ">=5.0.0"
   },
-  "dependencies": {
-    "@typesugar/core": "^0.1.0"
-  },
   "devDependencies": {
+    "@typesugar/core": "^0.1.0",
     "@typesugar/testing": "^0.1.0",
+    "@typesugar/transformer": "^0.1.0",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
+    "vitest": "^2.0.0"
   }
 }
 ```
+
+The `typesugar.macros` field is what makes the transformer load your `./macros` entry.
+See [Getting Discovered](#getting-discovered).
 
 ### tsconfig.json
 
@@ -91,7 +109,7 @@ my-macro-package/
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/macros.ts"],
   format: ["cjs", "esm"],
   dts: true,
   sourcemap: true,
@@ -100,50 +118,109 @@ export default defineConfig({
 });
 ```
 
+Build both formats. The transformer loads the macro entry with `require()`, so the
+`require` condition of `./macros` must work.
+
 ## Source Structure
 
 ### src/index.ts
 
 ```typescript
-// Re-export runtime placeholders
-export { myMacro } from "./macros/my-macro.js";
-
-// Re-export types
-export type { MyMacroOptions } from "./macros/my-macro.js";
-```
-
-### src/macros/my-macro.ts
-
-```typescript
-import { defineExpressionMacro, type MacroContext } from "@typesugar/core";
-import * as ts from "typescript";
+// The runtime entry: placeholders only. No typescript, no @typesugar/core.
 
 export interface MyMacroOptions {
   verbose?: boolean;
 }
 
-// Register the macro
-defineExpressionMacro("myMacro", {
-  expand(ctx: MacroContext, callExpr: ts.CallExpression): ts.Expression {
-    const arg = callExpr.arguments[0];
+export function myMacro(value: number, options?: MyMacroOptions): number {
+  throw new Error(
+    "myMacro() should be compiled away. Make sure the typesugar transformer is configured."
+  );
+}
+```
 
+### src/macros.ts
+
+```typescript
+// The macro entry: loaded by the transformer at build time.
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import * as ts from "typescript";
+
+export const myMacro = defineExpressionMacro({
+  name: "myMacro",
+  module: "my-macro-package", // only expand myMacro() imported from this package
+  expand(ctx, callExpr, args) {
+    const arg = args[0];
     if (!arg) {
       ctx.reportError(callExpr, "myMacro() requires an argument");
       return callExpr;
     }
-
-    // Transform...
-    return ctx.factory.createBinaryExpression(arg, ts.SyntaxKind.PlusToken, arg);
+    // value + value
+    return ctx.factory.createBinaryExpression(
+      ctx.factory.createParenthesizedExpression(arg),
+      ts.SyntaxKind.PlusToken,
+      ctx.factory.createParenthesizedExpression(arg)
+    );
   },
 });
 
-// Runtime placeholder
-export function myMacro<T>(value: T): T {
-  throw new Error(
-    "myMacro() should be compiled away. " + "Make sure @typesugar/transformer is configured."
-  );
-}
+globalRegistry.register(myMacro);
 ```
+
+Set `module` to your package name. A user who imports `myMacro` from
+`"my-macro-package"` (or from a barrel that re-exports it) gets the expansion; an
+unrelated function that happens to be called `myMacro` is left alone.
+
+## Getting Discovered
+
+The transformer only `require()`s a package's macro entry if that package's own
+`package.json` declares it:
+
+```json
+{ "typesugar": { "macros": "./macros" } }
+```
+
+`"./macros"` resolves through your own `exports` map, to `my-macro-package/macros`. There
+is no other way for a published package to get its macros loaded: no list to be added to,
+no naming convention, and no transformer option that names macro modules. The transformer
+finds your package when a file it compiles imports it, so the user's
+`import { myMacro } from "my-macro-package"` is what triggers loading.
+
+What happens next depends on your package's name:
+
+- **`@typesugar/*` packages** (and the `typesugar` umbrella package) are trusted and load
+  automatically. This scope is reserved for typesugar's own packages.
+- **Any other name** must be approved by the consumer. The first build that sees your
+  package fails with:
+
+  ```
+  The following package(s) declare a "typesugar.macros" entry but are not @typesugar/*-scoped and have not been approved:
+    - my-macro-package
+
+  Run `typesugar approve-macros` to review and approve them.
+  ```
+
+  Running `typesugar approve-macros` lists the new packages, asks for confirmation and
+  records them in the consumer's `typesugar.config.ts`:
+
+  ```typescript
+  import { defineConfig } from "@typesugar/core";
+
+  export default defineConfig({
+    security: {
+      allowedMacroPackages: ["my-macro-package"], // exact names, or "@scope/*"
+    },
+  });
+  ```
+
+  The file is committed, so later builds (local or CI) don't ask again. This is
+  deliberate: compiling code that imports your package runs your package's code at build
+  time. See [Security](../SECURITY.md).
+
+Say this in your README, so consumers aren't surprised by the first failed build.
+
+The same mechanism works for macros inside your own repository: put them in a workspace
+package with a `typesugar.macros` field, depend on it from the app, and approve it once.
 
 ## Documentation
 
@@ -158,18 +235,19 @@ Custom typesugar macros for X.
 
 ```bash
 npm install my-macro-package
+npx typesugar approve-macros   # once: allow this package's macros to run at build time
 ```
 
 ## Requirements
 
-Requires `@typesugar/transformer` to be configured.
+Requires the typesugar transformer to be configured (for example `unplugin-typesugar`).
 
 ## Usage
 
 ```typescript
 import { myMacro } from "my-macro-package";
 
-const result = myMacro(21); // Compiles to: 21 + 21
+const result = myMacro(21); // Compiles to: (21) + (21)
 ```
 
 ## API
@@ -187,14 +265,14 @@ Doubles the value at compile time.
 **Example:**
 
 ```typescript
-myMacro(5); // → 10
-myMacro(x); // → x + x
+myMacro(5); // → (5) + (5)
+myMacro(x); // → (x) + (x)
 ```
 
 ## Requirements
 
 - TypeScript >= 5.0
-- @typesugar/transformer >= 0.1.0
+- @typesugar/core and the typesugar transformer
 ````
 
 ## Testing Before Publish
@@ -213,7 +291,12 @@ npm pack --dry-run
 npm link
 cd /path/to/test/project
 npm link my-macro-package
+npx typesugar approve-macros
 ```
+
+In the test project, check that a call actually expands. If a build leaves `myMacro(21)`
+in the output and the placeholder throws at runtime, the macro entry was not loaded: check
+the `typesugar.macros` field and the `./macros` export.
 
 ## Publishing
 
@@ -250,6 +333,9 @@ npm publish
   }
 }
 ```
+
+Consumers can approve every package in your scope at once with `"@myorg/*"` in
+`allowedMacroPackages`.
 
 ## Monorepo Setup
 
@@ -296,21 +382,40 @@ export function myMacro() {
 }
 ```
 
-### 2. Wrong Peer Dependencies
+### 2. Macros in the Runtime Entry
 
-```json
-// Bad: dependency (bundled, version conflicts)
-"dependencies": {
-  "@typesugar/transformer": "^0.1.0"
-}
+```typescript
+// Bad: src/index.ts re-exports from the file that registers the macros.
+// Every app that imports a placeholder now bundles typescript and @typesugar/core.
+export { myMacro } from "./macros.js";
 
-// Good: peerDependency (user provides)
-"peerDependencies": {
-  "@typesugar/transformer": ">=0.1.0"
+// Good: placeholders live in src/index.ts; definitions live only in src/macros.ts.
+export function myMacro(value: number): number {
+  throw new Error("myMacro() should be compiled away");
 }
 ```
 
-### 3. Missing Type Exports
+### 3. Missing `typesugar.macros` Field
+
+Without it, nothing loads your `./macros` entry, macro calls are left as they are, and the
+placeholders throw at runtime.
+
+### 4. Wrong Dependencies
+
+```json
+// Bad: a regular dependency (duplicate copies, version conflicts)
+"dependencies": {
+  "@typesugar/core": "^0.1.0"
+}
+
+// Good: peerDependency (the user's install provides it)
+"peerDependencies": {
+  "@typesugar/core": ">=0.1.0",
+  "typescript": ">=5.0.0"
+}
+```
+
+### 5. Missing Type Exports
 
 ```typescript
 // Bad: Types not exported
@@ -320,11 +425,11 @@ interface Options {}
 export interface Options {}
 ```
 
-### 4. No Documentation
+### 6. No Documentation
 
 Always document:
 
-- Installation
+- Installation, including the one-time `typesugar approve-macros`
 - Requirements
 - Usage examples
 - API reference
@@ -333,16 +438,20 @@ Always document:
 
 Look at typesugar's own packages for reference:
 
-- `@typesugar/macros` (comptime, derive, operators, etc.)
-- `@typesugar/derive`
+- `@typesugar/strings` (a small macro package with separate `.` and `./macros` entries)
 - `@typesugar/sql`
+- `@typesugar/macros` (comptime, derive, operators, etc.)
 
 ## Checklist
 
 Before publishing:
 
-- [ ] All tests pass
-- [ ] README.md is complete
+- [ ] All tests pass, including ones that run the expanded code
+- [ ] `./macros` entry exists, with a `require` build
+- [ ] `"typesugar": { "macros": "./macros" }` is in package.json
+- [ ] The `.` entry doesn't import `typescript` or `@typesugar/core`
+- [ ] Each macro sets `module` to the package name
+- [ ] README.md is complete, and mentions `typesugar approve-macros`
 - [ ] Types are exported
 - [ ] Runtime placeholder throws helpful error
 - [ ] Peer dependencies are correct

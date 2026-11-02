@@ -564,3 +564,46 @@ describe("compileWarningMacro", () => {
     });
   });
 });
+
+// ===========================================================================
+// Docs review r3 #4 (guides-c #4, authoring #3)
+// ===========================================================================
+
+describe("staticAssertMacro — docs review r3 #4", () => {
+  it("a failing assertion's sentinel comment says FAILED, never ✓", () => {
+    withStaticAssert(`1 + 1 === 3, "math is broken"`, ({ ctx, callExpr, diagnostics }) => {
+      const result = staticAssertMacro.expand(ctx, callExpr, callExpr.arguments);
+      expect(diagnostics()[0].message).toContain("TS9217");
+      const comment = getRemoveComment(result)!;
+      expect(comment).toContain("math is broken");
+      expect(comment).not.toContain("✓");
+      expect(comment).toContain("FAILED");
+    });
+  });
+
+  it("a failing `false` literal's comment says FAILED too", () => {
+    withStaticAssert(`false, "nope"`, ({ ctx, callExpr }) => {
+      const comment = getRemoveComment(staticAssertMacro.expand(ctx, callExpr, callExpr.arguments));
+      expect(comment).not.toContain("✓");
+      expect(comment).toContain("FAILED");
+    });
+  });
+
+  it("`as const` object property reads are compile-time constants", () => {
+    for (const decl of [
+      `const CONFIG = { TIMEOUT: 5 } as const;`,
+      `const CONFIG = { TIMEOUT: 5 } satisfies { TIMEOUT: number };`,
+      `const CONFIG = { TIMEOUT: 5 };`,
+    ]) {
+      const h = makeHarness(`${decl}\nstaticAssert(CONFIG.TIMEOUT > 0, "timeout");`);
+      try {
+        const callExpr = findCall(h.sourceFile, "staticAssert");
+        const result = staticAssertMacro.expand(h.ctx, callExpr, callExpr.arguments);
+        expect(h.ctx.getDiagnostics(), decl).toEqual([]);
+        expect(getRemoveComment(result)).toContain("✓");
+      } finally {
+        h.cleanup();
+      }
+    }
+  });
+});

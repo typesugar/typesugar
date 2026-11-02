@@ -6,13 +6,17 @@ All typesugar packages organized by category.
 
 ### typesugar {#typesugar}
 
-Umbrella package including all common packages.
+Umbrella package. Its root (`typesugar`) is runtime-only: the macro placeholders
+users import (`comptime`, `derive` and the derive markers, `summon`, `implicit`,
+`typeInfo`, `cfg`, `includeStr`, `tailrec`, `defineConfig`, …). The macro-authoring
+APIs are at `typesugar/core`, and `typesugar/vite`, `/webpack`, `/esbuild`,
+`/rollup` and `/transformer` re-export the build integrations. It depends on core,
+macros, transformer, reflect, derive, typeclass, type-system and unplugin-typesugar;
+install `@typesugar/std` separately for the standard typeclasses and syntax imports.
 
 ```bash
-npm install typesugar
+npm install typesugar @typesugar/std
 ```
-
-Includes: core, derive, reflect, typeclass.
 
 **Inspired by:** Umbrella packages (Lodash, Effect)
 
@@ -43,8 +47,8 @@ ComptimeValue;
 
 // Configuration
 config;
-cfg;
-cfgAttr;
+defineConfig;
+// (the cfg() / @cfgAttr placeholders are exported by `typesugar`, not by core)
 
 // Diagnostics
 DiagnosticBuilder;
@@ -73,13 +77,15 @@ npm install @typesugar/macros
 
 ```typescript
 // Typeclass System
-typeclassRegistry;
-instanceRegistry;
+instanceScanner;
+resolveInstance;
 
 // Derive Infrastructure
 defineCustomDerive;
 defineFieldDerive;
-extractTypeInfo;
+
+// Quasiquoting (string-based; prefer ctx.factory)
+(quote, quoteStatements, quoteType, ident, raw, spread);
 
 // Extension Methods
 extensionAttribute; // @extension decorator
@@ -154,15 +160,16 @@ npm install --save-dev @typesugar/eslint-plugin
 **Exports:**
 
 ```typescript
-configs.recommended;
+configs.recommended; // single flat-config objects: use `[typesugar.configs.recommended]`
 configs.full;
 configs.strict;
-processor;
+processors.typesugar;
+processors["typesugar-full"];
 ```
 
 ### @typesugar/testing {#testing}
 
-Power assertions, property-based testing, macro testing.
+Power assertions, property-based testing, and a macro test context.
 
 ```bash
 npm install --save-dev @typesugar/testing
@@ -177,6 +184,9 @@ typeAssert<T>(); // Type-level assertion
 testCases(); // Parameterized tests
 forAll(); // Property-based testing
 assertSnapshot(); // Source-capturing snapshots
+
+// "@typesugar/testing/macros"
+createMacroTestContext(); // MacroContext for unit-testing an expand() function
 ```
 
 **Inspired by:** Power Assert (JS), QuickCheck (Haskell), proptest (Rust)
@@ -200,8 +210,8 @@ npm install @typesugar/std
 ```typescript
 // Extension methods (import functions, call as methods)
 (abs, ceil, floor, sqrt, clamp, isEven, isPrime); // number
-(capitalize, titleCase, strip, truncate); // string
-(head, tail, chunk, unique, groupBy); // array
+(capitalize, truncate, words); // string
+(head, tail, chunk, unique, arrayGroupBy); // array
 
 // Pattern matching — fluent API (PEP-008)
 match(); // Fluent: match(v).case(...).then(...).else(...)
@@ -214,7 +224,10 @@ MatchError; // Runtime error when no pattern matches (extends Error, has .value)
 FlatMap;
 
 // Standard typeclasses
-(Eq, Ord, Show, Hash, Semigroup, Monoid);
+(Eq, Ord, Hash, Semigroup, Monoid);
+
+// Syntax activation (PEP-052): import "@typesugar/std/syntax/<tc>" for method
+// syntax, "@typesugar/std/syntax/<tc>/ops" for operators, ".../syntax/do" for let:/par:
 
 // Hash instances and combinators
 (hashNumber, hashString, hashBoolean, hashBigInt, hashDate);
@@ -240,13 +253,12 @@ npm install @typesugar/typeclass
 **Exports:**
 
 ```typescript
-typeclass();  // decorator
-instance();   // decorator
-derive();     // decorator (generates typeclass instances)
+typeclass(); // decorator
+instance(); // decorator
+derive(); // decorator (generates typeclass instances)
 summon<T>();
-summonAll<...>();
 extend();
-implicit();   // default parameter marker
+implicit(); // default parameter marker
 ```
 
 **Inspired by:** Scala 3 typeclasses, Haskell typeclasses
@@ -265,8 +277,8 @@ npm install @typesugar/derive
 
 ```typescript
 derive(); // decorator
-(Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard);
-(deriveIgnore, deriveWith);
+(Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard);
+(defineCustomDerive, defineFieldDerive); // custom derives
 ```
 
 **Inspired by:** Rust derive macros
@@ -331,13 +343,13 @@ npm install @typesugar/type-system
 
 ```typescript
 // HKT
-($, Kind, _, TypeFunction, ArrayF, PromiseF);
+(Kind, _, TypeFunction, ArrayF, PromiseF);
 
 // Newtype
 (Newtype, wrap, unwrap, newtypeCtor);
 
-// Refinement
-(Refined, refine);
+// Refinement (types; build values with the refinement helpers, not a `refine` macro)
+Refined;
 (Positive, NonNegative, Int, Byte, Port);
 (NonEmpty, Email, Url, Uuid);
 
@@ -367,8 +379,8 @@ requires:; // labeled block
 ensures:; // labeled block
 invariant(); // decorator
 old();
-assert();
-configure();
+(setContractConfig, getContractConfig);
+(PreconditionError, PostconditionError, InvariantError);
 ```
 
 **Inspired by:** Eiffel contracts, Coq proofs
@@ -406,7 +418,7 @@ npm install @typesugar/validate
 is<T>(); // type guard
 assert<T>(); // assertion
 validate<T>(); // validation with error accumulation
-Schema; // schema DSL
+nativeSchema; // Schema instance for the native validators
 ```
 
 **Inspired by:** Zod, io-ts
@@ -460,11 +472,9 @@ npm install @typesugar/fp
 **Exports:**
 
 ```typescript
-// Option (null-based, zero-cost)
+// Option (null-based, zero-cost). The Option/Either/List namespace values are
+// at "@typesugar/fp/data"; the root exports the constructors and types.
 (Option, Some, None);
-
-// Result
-(Result, Ok, Err);
 
 // Either
 (Either, Left, Right);
@@ -634,8 +644,6 @@ npm install @typesugar/collections
 
 **Inspired by:** Scala collections, Haskell Data.Set/Data.Map, Rust std::collections
 
-[Guide](/guides/collections)
-
 ### @typesugar/math {#math}
 
 Math types and typeclasses.
@@ -695,7 +703,7 @@ service(); // decorator
 layer(); // decorator
 layerMake<R>(); // ZIO-style explicit wiring
 resolveLayer<R>(); // implicit wiring from import scope
-formatDebugTree(); // resolved graph visualization
+// "@typesugar/effect/macros": formatDebugTree() — resolved graph visualization
 
 // Derives
 (EffectSchema, EffectEqual, EffectHash);
@@ -738,7 +746,7 @@ Transactor;
 
 Most packages have:
 
-- `typescript: >=5.0.0`
+- `typescript: >=5.0.0 <6.0.0`
 - `@typesugar/transformer: >=0.1.0` (peer)
 
 Check each package's package.json for specifics.

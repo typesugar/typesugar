@@ -164,11 +164,14 @@ export function hasSourceText(node: ts.Node): boolean {
  */
 export function stripPositions<T extends ts.Node>(node: T): T {
   ts.setTextRange(node, { pos: -1, end: -1 });
-  return ts.visitEachChild(
-    node,
-    (child) => stripPositions(child),
-    undefined as unknown as ts.TransformationContext
-  ) as T;
+  // forEachChild, not visitEachChild: it also reaches TOKEN children (`?`,
+  // `:`, `=>`, operators), which visitEachChild without a tokenVisitor skips --
+  // those kept their temp-file offsets, and the printer emitted the user's
+  // comments found at the same offsets in the real file.
+  ts.forEachChild(node, (child) => {
+    stripPositions(child);
+  });
+  return node;
 }
 
 /**
@@ -182,10 +185,14 @@ export function stripPositions<T extends ts.Node>(node: T): T {
  * clone can be freely mutated downstream.
  */
 export function cloneNodeDeep<T extends ts.Node>(node: T): T {
+  // The tokenVisitor clones token children (`?`, `=>`, operators) too, so no
+  // token keeps an offset into the file it came from (see stripPositions).
   let clone = ts.visitEachChild(
     node,
     (child) => cloneNodeDeep(child),
-    undefined as unknown as ts.TransformationContext
+    undefined as unknown as ts.TransformationContext,
+    undefined,
+    (token) => cloneNodeDeep(token)
   ) as T;
   if (clone === node) {
     // Leaf node (no children were replaced) — force a shallow clone.
@@ -257,11 +264,11 @@ export function stripCommentsDeep<T extends ts.Node>(node: T): T {
   ts.setCommentRange(node, { pos: -1, end: -1 });
   ts.setSyntheticLeadingComments(node, undefined);
   ts.setSyntheticTrailingComments(node, undefined);
-  return ts.visitEachChild(
-    node,
-    (child) => stripCommentsDeep(child),
-    undefined as unknown as ts.TransformationContext
-  ) as T;
+  // forEachChild reaches token children too (see stripPositions).
+  ts.forEachChild(node, (child) => {
+    stripCommentsDeep(child);
+  });
+  return node;
 }
 
 // =============================================================================

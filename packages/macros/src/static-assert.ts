@@ -70,10 +70,15 @@ export const staticAssertMacro = defineExpressionMacro({
       }
     }
 
-    // Build a readable comment for the output
-    const comment = messageArg
-      ? ` staticAssert: "${message}" ✓`
-      : ` staticAssert(${printConditionBrief(conditionArg)}) ✓`;
+    // Build a readable comment for the output. The mark must say what
+    // actually happened: a failed assertion (TS9217) printing "✓" in the
+    // output read as a pass (docs review r3 #4).
+    const label = messageArg
+      ? ` staticAssert: "${message}"`
+      : ` staticAssert(${printConditionBrief(conditionArg)})`;
+    const comment = `${label} ✓`;
+    const failedComment = `${label} ✗ FAILED`;
+    const unverifiedComment = `${label} (unverified — not a compile-time constant)`;
 
     // Evaluate the condition at compile time
     const result = ctx.evaluate(conditionArg);
@@ -81,16 +86,13 @@ export const staticAssertMacro = defineExpressionMacro({
     if (result.kind === "error") {
       if (conditionArg.kind === ts.SyntaxKind.FalseKeyword) {
         ctx.diagnostic(TS9217).at(callExpr).withArgs({ message }).emit();
+        return createRemoveExpression(ctx.factory, failedComment);
       } else if (conditionArg.kind === ts.SyntaxKind.TrueKeyword) {
         // Assertion passes — remove the call
-      } else {
-        ctx.diagnostic(TS9219).at(callExpr).note(`Original message: ${message}`).emit();
-        return createRemoveExpression(
-          ctx.factory,
-          ` staticAssert: "${message}" (unverified — not a compile-time constant)`
-        );
+        return createRemoveExpression(ctx.factory, comment);
       }
-      return createRemoveExpression(ctx.factory, comment);
+      ctx.diagnostic(TS9219).at(callExpr).note(`Original message: ${message}`).emit();
+      return createRemoveExpression(ctx.factory, unverifiedComment);
     }
 
     // Convert to boolean
@@ -98,15 +100,17 @@ export const staticAssertMacro = defineExpressionMacro({
 
     if (boolValue === false) {
       ctx.diagnostic(TS9217).at(callExpr).withArgs({ message }).emit();
+      return createRemoveExpression(ctx.factory, failedComment);
     } else if (boolValue === null) {
       ctx
         .diagnostic(TS9219)
         .at(callExpr)
         .note(`Cannot convert ${result.kind} to boolean. Original message: ${message}`)
         .emit();
+      return createRemoveExpression(ctx.factory, unverifiedComment);
     }
 
-    // Assertion passes (or error reported) — replace with a comment
+    // Assertion passes — replace with a comment
     return createRemoveExpression(ctx.factory, comment);
   },
 });

@@ -26,45 +26,64 @@ import "@typesugar/effect/syntax/do"; // activate let:/yield: labels + Effect in
 import { service, layer, resolveLayer } from "@typesugar/effect";
 import { Effect } from "effect";
 
-// Define services with zero boilerplate
+interface User { id: string; email: string }
+
+// Define services with zero boilerplate (generates DatabaseTag, UserRepoTag, ...
+// and accessors such as UserRepo.findById)
+@service
+interface Database {
+  query(sql: string): Effect.Effect<User>;
+}
+
 @service
 interface UserRepo {
-  findById(id: string): Effect.Effect<User, NotFound>
+  findById(id: string): Effect.Effect<User>;
 }
 
 @service
 interface EmailService {
-  send(to: string, body: string): Effect.Effect<void, EmailError>
+  send(to: string, body: string): Effect.Effect<string>;
 }
 
 // Define layers with automatic dependency tracking
-@layer(UserRepo, { requires: [Database] })
-const userRepoLive: Effect.Effect<UserRepo, never, Database> =
-let: {
-  db << Database;
-}
-yield: ({ findById: (id) => db.query(sql`...`) })
+@layer(Database)
+const databaseLive = {
+  query: (sql: string) => Effect.succeed({ id: sql, email: "a@example.com" }),
+};
 
-@layer(EmailService, { requires: [Logger] })
-const emailServiceLive: Effect.Effect<EmailService, never, Logger> =
-let: {
-  log << Logger;
-}
-yield: ({ send: (to, body) => Effect.tryPromise(...) })
+@layer(UserRepo, { requires: [Database] })
+const userRepoLive = Effect.gen(function* () {
+  const db = yield* DatabaseTag;
+  return { findById: (id: string) => db.query(id) };
+});
+
+@layer(EmailService)
+const emailServiceLive = {
+  send: (to: string, body: string) => Effect.succeed(`sent "${body}" to ${to}`),
+};
 
 // Use do-notation for your program logic
-const program: Effect<{ user: User, sent: void }, NotFound | EmailError, UserRepo | EmailService> =
-let: {
-  user << UserRepo.findById(userId);
+const program = let: {
+  user << UserRepo.findById("42");
   sent << EmailService.send(user.email, "Welcome!");
 }
-yield: ({ user, sent })
+yield: ({ user, sent });
 
 // Compose layers automatically
 const runnable = program.pipe(
   Effect.provide(resolveLayer<UserRepo | EmailService>())
 );
+Effect.runSync(runnable);
+// → { user: { id: "42", email: "a@example.com" }, sent: 'sent "Welcome!" to a@example.com' }
 ```
+
+::: warning Layer bodies: use `Effect.gen`, not `let:`
+Inside a layer body, get a dependency with `yield* DatabaseTag` in `Effect.gen`, as
+above. Binding the tag in a `let:` block (`db << DatabaseTag` or `db << Database`)
+fails with "Could not infer type constructor", because the tag is generated in the
+same compilation pass and the type checker hasn't seen it yet. Service accessors
+such as `UserRepo.findById(...)` do work inside `let:`.
+:::
 
 ## @service — Zero-Boilerplate Services
 
@@ -92,7 +111,7 @@ interface UserRepo {
 
 // Generates:
 // - UserRepoTag (Context.Tag class)
-// - UserRepo.findById (accessor that yields from tag)
+// - UserRepo.Tag, UserRepo.findById (accessor: Effect.serviceFunctionEffect(UserRepoTag, _ => _.findById))
 ```
 
 ## @layer — Declarative Layers with Dependency Tracking
@@ -119,14 +138,18 @@ const fullLayer = userRepoLive.pipe(
 
 ```typescript
 @layer(UserRepo, { requires: [Database] })
-const userRepoLive =
-let: {
-  db << Database;
-}
-yield: ({ findById: (id) => db.query(...) })
+const userRepoLive = Effect.gen(function* () {
+  const db = yield* DatabaseTag;
+  return { findById: (id: string) => db.query(id) };
+});
+// → const userRepoLive = Layer.effect(UserRepoTag, Effect.gen(...))
 
-// Layer is registered with its dependencies for automatic resolution
+// Layer is registered with its dependencies for automatic resolution.
+// A plain object becomes Layer.succeed(Tag, object).
 ```
+
+`layerMake<R>(...layers)` is the explicit form: it takes the layers to use (both
+`@layer` consts and ordinary `Layer` values) and wires them for `R`.
 
 ## resolveLayer\<R\>() — Automatic Layer Composition
 
@@ -136,7 +159,7 @@ The `resolveLayer<R>()` macro:
 2. Finds registered layers that provide those services
 3. Builds a dependency graph from `@layer` requirements
 4. Topologically sorts to get correct provision order
-5. Generates `Layer.merge`/`Layer.provide` calls
+5. Generates `Layer.provideMerge` calls
 
 ```typescript
 // Given these layers:
@@ -148,12 +171,13 @@ The `resolveLayer<R>()` macro:
 // This:
 resolveLayer<UserRepo | EmailService>()
 
-// Compiles to:
-Layer.merge(
-  userRepoLive.pipe(Layer.provide(dbLive)),
-  emailServiceLive.pipe(Layer.provide(loggerLive))
-)
+// Compiles to a provideMerge chain in dependency order, e.g. (from the Quick Start):
+userRepoLive.pipe(Layer.provideMerge(emailServiceLive.pipe(Layer.provideMerge(databaseLive))))
 ```
+
+A service with no provider is a compile error: `[EFFECT001] No layer provides
+\`Database\``, with a note naming the layer that requires it. A dependency cycle is
+`[EFFECT020] Circular layer dependency detected`, with the cycle in a note.
 
 ## Do-Notation with E/R Inference
 
@@ -244,6 +268,11 @@ Likewise a plain `(self: T) => number` function rather than a `Hash.Hash<T>` ins
 
 ## Extension Methods
 
+::: tip
+`import { Effect } from "effect"` does not compete with `EffectExt`: a module
+namespace imported by name is not an extension provider (only `import * as X` is).
+:::
+
 Import `EffectExt` to enable fluent method calls that compile to direct function calls:
 
 ```typescript
@@ -267,14 +296,16 @@ Use Effect types with typesugar's generic FP functions:
 
 ```typescript
 import { effectFunctor, effectMonad, chunkFoldable } from "@typesugar/effect";
-import { map, flatMap, fold } from "@typesugar/fp";
+import { Effect, Chunk } from "effect";
 
-// Effect works with generic typeclass functions
-const mapped = map(effectFunctor<never, never>(), myEffect, f);
-const chained = flatMap(effectMonad<never, never>(), myEffect, f);
+const myEffect = Effect.succeed(1);
+
+// Effect instances for code written against Functor / Monad dictionaries
+const mapped = effectFunctor<never, never>().map(myEffect, (x) => x + 1); // Effect<2>
+const chained = effectMonad<never, never>().flatMap(myEffect, (x) => Effect.succeed(x * 3)); // Effect<3>
 
 // Chunk works with Foldable
-const sum = fold(chunkFoldable, 0, chunk, (acc, x) => acc + x);
+const sum = chunkFoldable.foldLeft(Chunk.make(1, 2, 3), 0, (acc, x) => acc + x); // 6
 ```
 
 ### Available Instances
@@ -286,14 +317,14 @@ const sum = fold(chunkFoldable, 0, chunk, (acc, x) => acc + x);
 | Option (Effect's) | Functor, Monad, MonadError              |
 | Either (Effect's) | Functor, Monad, MonadError              |
 
-## Vision: Track 2 — Fx Compile-Away
+## Planned: Track 2 — Fx Compile-Away (not in 1.0)
 
 The current implementation (Track 1) enhances Effect-TS ergonomics while keeping the Effect runtime.
 
 Track 2 (future) introduces `Fx<Value, Error, Requirements>` — a typed effect that compiles away entirely:
 
 ```typescript
-// Future syntax
+// Planned — not in 1.0
 const program = fx<User, NotFound, UserRepo>(() => {
   const repo = summon<UserRepo>();
   return repo.findById(id);
@@ -303,7 +334,8 @@ const program = fx<User, NotFound, UserRepo>(() => {
 // compiles to plain async/await with no Effect runtime
 ```
 
-See [Effect Integration Vision](../vision/effect-integration.md) for the full roadmap.
+This is not implemented. See [Effect Integration Vision](../vision/effect-integration.md)
+(a historical design document) for the exploration behind it.
 
 ## Summary
 

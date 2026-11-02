@@ -9,11 +9,15 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { unplugin, unpluginFactory, type TypesugarPluginOptions } from "unplugin-typesugar";
+import * as path from "path";
 
 // ==========================================================================
 // Attack 1: File Filtering Edge Cases
 // ==========================================================================
 describe("File Filtering Edge Cases", () => {
+  /** An absolute module id under process.cwd(), the glob root outside Vite. */
+  const abs = (rel: string) => path.resolve(process.cwd(), rel);
+
   describe("include pattern handling", () => {
     it("should handle RegExp include patterns", () => {
       const options: TypesugarPluginOptions = {
@@ -27,15 +31,21 @@ describe("File Filtering Edge Cases", () => {
       expect(plugin.transformInclude!("src/app.js")).toBe(false);
     });
 
-    it("should handle string array include patterns", () => {
+    it("should handle string array include patterns (globs)", () => {
+      // Strings are picomatch globs (unplugin-typesugar S#6, d1ecfbdc), not
+      // substrings; relative globs resolve against process.cwd() outside Vite,
+      // and bundlers hand the plugin absolute module ids.
       const options: TypesugarPluginOptions = {
-        include: ["src/", "lib/"],
+        include: ["src/**", "lib/**"],
       };
       const plugin = unpluginFactory(options);
 
-      expect(plugin.transformInclude!("src/app.ts")).toBe(true);
-      expect(plugin.transformInclude!("lib/utils.ts")).toBe(true);
-      expect(plugin.transformInclude!("test/app.ts")).toBe(false);
+      expect(plugin.transformInclude!(abs("src/app.ts"))).toBe(true);
+      expect(plugin.transformInclude!(abs("lib/utils.ts"))).toBe(true);
+      expect(plugin.transformInclude!(abs("test/app.ts"))).toBe(false);
+      // A bare directory name is a glob for that path only, not a prefix.
+      const bare = unpluginFactory({ include: ["src/"] });
+      expect(bare.transformInclude!(abs("src/app.ts"))).toBe(false);
     });
 
     it("should handle empty include array (nothing matches)", () => {
@@ -44,9 +54,11 @@ describe("File Filtering Edge Cases", () => {
       };
       const plugin = unpluginFactory(options);
 
-      // Empty array means no pattern matches
-      expect(plugin.transformInclude!("src/app.ts")).toBe(false);
+      // Empty array means no pattern matches (createFilter alone would treat
+      // it as "match everything", CSS and JSON included)
+      expect(plugin.transformInclude!(abs("src/app.ts"))).toBe(false);
       expect(plugin.transformInclude!("anything.tsx")).toBe(false);
+      expect(plugin.transformInclude!(abs("src/styles.css"))).toBe(false);
     });
   });
 
@@ -63,13 +75,16 @@ describe("File Filtering Edge Cases", () => {
 
     it("should handle string array exclude patterns", () => {
       const options: TypesugarPluginOptions = {
-        exclude: ["__tests__", ".spec."],
+        exclude: ["**/__tests__/**", "**/*.spec.*"],
       };
       const plugin = unpluginFactory(options);
 
-      expect(plugin.transformInclude!("src/app.ts")).toBe(true);
-      expect(plugin.transformInclude!("src/__tests__/app.ts")).toBe(false);
-      expect(plugin.transformInclude!("src/app.spec.ts")).toBe(false);
+      expect(plugin.transformInclude!(abs("src/app.ts"))).toBe(true);
+      expect(plugin.transformInclude!(abs("src/__tests__/app.ts"))).toBe(false);
+      expect(plugin.transformInclude!(abs("src/app.spec.ts"))).toBe(false);
+      // Substrings no longer match: "__tests__" is a glob for that exact path.
+      const substring = unpluginFactory({ exclude: ["__tests__"] });
+      expect(substring.transformInclude!(abs("src/__tests__/app.ts"))).toBe(true);
     });
 
     it("should exclude node_modules by default", () => {
@@ -77,16 +92,24 @@ describe("File Filtering Edge Cases", () => {
 
       expect(plugin.transformInclude!("src/app.ts")).toBe(true);
       expect(plugin.transformInclude!("node_modules/lodash/index.js")).toBe(false);
+      expect(plugin.transformInclude!(abs("node_modules/lodash/index.js"))).toBe(false);
     });
 
-    it("should allow custom exclude to override node_modules default", () => {
+    it("should keep node_modules excluded when a custom exclude is given", () => {
+      // Changed by unplugin-typesugar S#6 (d1ecfbdc): a custom exclude used to
+      // replace the node_modules default; now only an include pattern that
+      // names node_modules opts dependencies in.
       const options: TypesugarPluginOptions = {
         exclude: /\.test\.ts$/, // Custom exclude, no node_modules
       };
       const plugin = unpluginFactory(options);
 
-      // node_modules should now be included (custom exclude takes over)
-      expect(plugin.transformInclude!("node_modules/lodash/index.js")).toBe(true);
+      expect(plugin.transformInclude!(abs("node_modules/lodash/index.js"))).toBe(false);
+      expect(plugin.transformInclude!(abs("src/app.test.ts"))).toBe(false);
+      expect(plugin.transformInclude!(abs("src/app.ts"))).toBe(true);
+
+      const optIn = unpluginFactory({ include: ["**/node_modules/lodash/**"] });
+      expect(optIn.transformInclude!(abs("node_modules/lodash/index.js"))).toBe(true);
     });
   });
 
@@ -97,16 +120,19 @@ describe("File Filtering Edge Cases", () => {
       // Windows-style paths should work
       expect(plugin.transformInclude!("src\\app.ts")).toBe(true);
       expect(plugin.transformInclude!("node_modules\\lodash\\index.js")).toBe(false);
+      expect(plugin.transformInclude!("C:\\proj\\node_modules\\lodash\\index.js")).toBe(false);
     });
 
     it("should handle mixed path separators", () => {
       const options: TypesugarPluginOptions = {
-        include: ["src/components"],
+        include: ["src/components/**"],
       };
       const plugin = unpluginFactory(options);
 
-      expect(plugin.transformInclude!("src/components/Button.tsx")).toBe(true);
-      expect(plugin.transformInclude!("src\\components\\Button.tsx")).toBe(true);
+      expect(plugin.transformInclude!(abs("src/components/Button.tsx"))).toBe(true);
+      expect(plugin.transformInclude!(abs("src/components/Button.tsx").replace(/\//g, "\\"))).toBe(
+        true
+      );
     });
   });
 

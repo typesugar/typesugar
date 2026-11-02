@@ -602,6 +602,26 @@ describe("proof certificates", () => {
     expect(formatted).toContain("constant");
   });
 
+  it("summary never prints 'undefined' when a step has no justification (docs A#20)", async () => {
+    const { createCertificate, succeedCertificate, formatCertificate } =
+      await import("@typesugar/contracts");
+    const facts: TypeFact[] = [{ variable: "x", predicate: "x > 0" }];
+    // The contracts guide's example: a step literal with rule + description only.
+    const cert = succeedCertificate(createCertificate("x >= 0", facts), "linear", {
+      rule: "positive_implies_nonneg",
+      description: "x > 0 implies x >= 0",
+    } as any);
+    const out = formatCertificate(cert);
+    expect(out).not.toContain("undefined");
+    expect(out).toContain("Summary: Proven by linear: x > 0 implies x >= 0");
+
+    const bare = succeedCertificate(createCertificate("y > 0", []), "type", {
+      rule: "r",
+    } as any);
+    expect(formatCertificate(bare)).toMatch(/^Summary: Proven by type$/m);
+    expect(formatCertificate(bare)).not.toContain("undefined");
+  });
+
   it("should convert certificate to proof result", async () => {
     const { createCertificate, succeedCertificate, certificateToResult, createStep } =
       await import("@typesugar/contracts");

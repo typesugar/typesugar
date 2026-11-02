@@ -1,7 +1,7 @@
 # JSDoc vs Decorator Syntax
 
-Every TypeSugar attribute macro — `@derive`, `@typeclass`, `@impl`, `@reflect`,
-`@contract`, `@adt`, `@hkt`, and friends — can be written two ways:
+The TypeSugar attribute macros — `@derive`, `@typeclass`, `@impl`, `@reflect`,
+`@adt`, `@hkt`, `@extension`, `@tailrec`, and friends — can be written two ways:
 
 ```typescript
 // Decorator form
@@ -30,12 +30,43 @@ difference is **what plain `tsc` thinks of your source before TypeSugar runs**.
 | ---------------------- | ------------------ | --------------------- | ------------------------------ |
 | `class`                | ✅ tsc-clean       | ✅ tsc-clean          | Either — decorator reads nicer |
 | `interface`            | ⚠️ TS1206\*        | ✅ tsc-clean          | **JSDoc**                      |
-| `function` declaration | ⚠️ TS1206\*        | ✅ tsc-clean          | **JSDoc**                      |
+| `function` declaration | ⚠️ TS1206\*        | ✅ tsc-clean†         | **JSDoc**                      |
 | `type` alias           | ⚠️ TS1206\*        | ✅ tsc-clean          | **JSDoc**                      |
 
 \* The transformer still understands the decorator and strips it from the
 output; the warning only appears in tooling that runs **without** TypeSugar's
 diagnostic filter (see below).
+
+† On a function declaration, JSDoc dispatches only the attribute macros that
+target functions, such as `/** @tailrec */` and `/** @extension */`. Any other
+macro tag on a function (`/** @typeclass */`, `/** @derive(Eq) */`, …) is
+ignored with the warning "JSDoc macro tag @X is not supported on a function
+declaration and was ignored."
+
+### A JSDoc tag must start its own comment line
+
+A tag only triggers a macro when it begins a line of the comment:
+`/** @derive(Eq) */` or ` * @derive(Eq)` on its own line. A tag mentioned
+mid-sentence (`/** Derives @derive(Eq) for you */`) or inside a fenced code
+example in the comment is treated as prose and does nothing, so documentation
+comments can talk about macros without triggering them.
+
+```typescript
+/**
+ * A 2D point.
+ * @derive(Eq)
+ */
+interface Point {
+  x: number;
+  y: number;
+}
+
+/** @tailrec */
+function sum(n: number, acc = 0): number {
+  if (n <= 0) return acc;
+  return sum(n - 1, acc + n); // compiled to a loop: sum(100000) does not overflow
+}
+```
 
 **Rule of thumb:** use the decorator form on classes, and the JSDoc form on
 everything else (interfaces, functions, type aliases). When in doubt, JSDoc is
@@ -104,10 +135,11 @@ interface Show<A> {
   show(a: A): string;
 }
 
-// ✅ Contract on a function — JSDoc (or just the requires:/ensures: blocks,
-//    auto-detected in files that import "@typesugar/contracts/syntax";
-//    see the Design by Contract guide)
-/** @contract */
+// ✅ Contract on a function — no tag needed: the requires:/ensures: blocks
+//    are auto-detected in files that import "@typesugar/contracts/syntax"
+//    (see the Design by Contract guide)
+import "@typesugar/contracts/syntax";
+
 function withdraw(account: { balance: number }, amount: number): number {
   requires: {
     amount <= account.balance;

@@ -36,6 +36,9 @@ import {
   globalRegistry,
   isSyntheticNode,
   type MacroContext,
+  TS9202,
+  TS9216,
+  TS9226,
 } from "@typesugar/core";
 
 // ============================================================================
@@ -83,6 +86,12 @@ interface ObjectPropertyPattern {
  */
 interface ExtractorDef {
   kind: "sum-variant" | "product" | "custom";
+  /**
+   * A presence test used INSTEAD of the discriminant check — for
+   * @typesugar/fp's untagged representations (Option = `A | null`, List =
+   * `Cons | null`, Either = `{ left } | { right }`).
+   */
+  test?: "not-null" | "null" | { hasKey: string };
   discriminantField?: string;
   discriminantValue?: string | boolean;
   payloadFields?: string[];
@@ -105,11 +114,15 @@ type PatternInfo =
 // Extractor Registry
 // ============================================================================
 
+/** A payload field name meaning "the matched value itself" (fp's `Some(v)`). */
+const SELF_PAYLOAD = "";
+
 /**
- * Built-in extractors for standard FP sum types.
+ * Built-in extractors for `_tag`-discriminated sum types (Effect's
+ * Option/Either, hand-written `{ _tag: "Some"; value }` unions).
  * These generate inlined structural checks (zero-cost — no runtime Destructure call).
  */
-const KNOWN_EXTRACTORS: Record<string, ExtractorDef> = {
+const TAGGED_EXTRACTORS: Record<string, ExtractorDef> = {
   Some: {
     kind: "sum-variant",
     discriminantField: "_tag",
@@ -137,6 +150,43 @@ const KNOWN_EXTRACTORS: Record<string, ExtractorDef> = {
     payloadFields: ["value"],
     zeroArg: false,
   },
+  Cons: {
+    kind: "sum-variant",
+    discriminantField: "_tag",
+    discriminantValue: "Cons",
+    payloadFields: ["head", "tail"],
+    zeroArg: false,
+  },
+  Nil: { kind: "sum-variant", discriminantField: "_tag", discriminantValue: "Nil", zeroArg: true },
+};
+
+/**
+ * Built-in extractors for @typesugar/fp's real (untagged) representations
+ * (docs review 2026-10, B#1): Option<A> is `A | null` (Some(v) binds the
+ * value itself), List<A> is `{ head, tail } | null`, Either<E, A> is
+ * `{ left } | { right }` (fp's `isRight` is `"right" in e`).
+ */
+const FP_EXTRACTORS: Record<string, ExtractorDef> = {
+  Some: { kind: "sum-variant", test: "not-null", payloadFields: [SELF_PAYLOAD], zeroArg: false },
+  None: { kind: "sum-variant", test: "null", zeroArg: true },
+  Left: { kind: "sum-variant", test: { hasKey: "left" }, payloadFields: ["left"], zeroArg: false },
+  Right: {
+    kind: "sum-variant",
+    test: { hasKey: "right" },
+    payloadFields: ["right"],
+    zeroArg: false,
+  },
+  Cons: {
+    kind: "sum-variant",
+    test: "not-null",
+    payloadFields: ["head", "tail"],
+    zeroArg: false,
+  },
+  Nil: { kind: "sum-variant", test: "null", zeroArg: true },
+};
+
+/** `ok`-discriminated results (fp's zero-cost Result): one representation. */
+const RESULT_EXTRACTORS: Record<string, ExtractorDef> = {
   Ok: {
     kind: "sum-variant",
     discriminantField: "ok",
@@ -151,15 +201,35 @@ const KNOWN_EXTRACTORS: Record<string, ExtractorDef> = {
     payloadFields: ["error"],
     zeroArg: false,
   },
-  Cons: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Cons",
-    payloadFields: ["head", "tail"],
-    zeroArg: false,
-  },
-  Nil: { kind: "sum-variant", discriminantField: "_tag", discriminantValue: "Nil", zeroArg: true },
 };
+
+/**
+ * Which representation the built-in Some/None/Left/Right/Cons/Nil
+ * extractors use for the match currently being expanded: `_tag`-based when
+ * the scrutinee's type has a `_tag` property, fp's untagged one otherwise.
+ * Set (and restored) by {@link expandFluentMatch} around each expansion.
+ */
+let taggedBuiltinExtractors = false;
+
+function knownExtractor(name: string): ExtractorDef | undefined {
+  if (Object.prototype.hasOwnProperty.call(RESULT_EXTRACTORS, name)) {
+    return RESULT_EXTRACTORS[name];
+  }
+  const table = taggedBuiltinExtractors ? TAGGED_EXTRACTORS : FP_EXTRACTORS;
+  return Object.prototype.hasOwnProperty.call(table, name) ? table[name] : undefined;
+}
+
+/** Does any non-nullish constituent of the scrutinee's type have a `_tag` property? */
+function scrutineeUsesTags(ctx: MacroContext, scrutinee: ts.Expression): boolean {
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const parts = type.isUnion() ? type.types : [type];
+  return parts.some(
+    (t) =>
+      !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) &&
+      ctx.typeChecker.getPropertyOfType(t, "_tag") !== undefined
+  );
+}
 
 const registeredProductExtractors: Map<string, string[]> = new Map();
 const registeredCustomExtractors: Set<string> = new Set();
@@ -411,7 +481,7 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     if (pattern.text === "undefined" || pattern.text === "NaN" || pattern.text === "Infinity") {
       return { kind: "literal", node: pattern };
     }
-    const zeroArgDef = KNOWN_EXTRACTORS[pattern.text];
+    const zeroArgDef = knownExtractor(pattern.text);
     if (zeroArgDef && zeroArgDef.zeroArg) {
       return { kind: "extractor", extractorName: pattern.text, bindings: [], def: zeroArgDef };
     }
@@ -497,7 +567,7 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     const name = pattern.expression.text;
 
     // Check extractor registries before falling back to type-constructor
-    const knownDef = KNOWN_EXTRACTORS[name];
+    const knownDef = knownExtractor(name);
     const productFields = registeredProductExtractors.get(name);
     const isCustom = registeredCustomExtractors.has(name);
 
@@ -796,6 +866,8 @@ function coveredVariantKey(pattern: PatternInfo, discriminantField: string): str
     return key;
   }
   if (pattern.kind === "extractor" && pattern.def.kind === "sum-variant") {
+    // fp's `None`/`Nil` are `null`: they cover the null member.
+    if (pattern.def.test === "null") return "null";
     if (pattern.def.discriminantField !== discriminantField) return undefined;
     if (!pattern.bindings.every(patternCoversAll)) return undefined;
     const discValue = pattern.def.discriminantValue;
@@ -827,6 +899,24 @@ function checkExhaustiveness(
     }
   }
 
+  // fp's untagged extractors: `Some(v)`/`Cons(h, t)` + `None`/`Nil` cover
+  // non-null + null; `Left(e)` + `Right(a)` cover both Either variants.
+  const fpCovered = new Set<string>();
+  for (const arm of arms) {
+    if (arm.guard) continue;
+    for (const pat of [arm.pattern, ...arm.alternatives]) {
+      const p = analyzePattern(pat);
+      if (p.kind !== "extractor" || !p.def.test || !p.bindings.every(patternCoversAll)) continue;
+      fpCovered.add(typeof p.def.test === "string" ? p.def.test : `has:${p.def.test.hasKey}`);
+    }
+  }
+  if (
+    (fpCovered.has("not-null") && fpCovered.has("null")) ||
+    (fpCovered.has("has:left") && fpCovered.has("has:right"))
+  ) {
+    return;
+  }
+
   const analysis = getScrutineeAnalysis(ctx, scrutinee);
   if (!analysis) return;
 
@@ -846,10 +936,12 @@ function checkExhaustiveness(
 
       const missing = [...analysis.literalMembers].filter((m) => !covered.has(m));
       if (missing.length > 0) {
-        ctx.reportError(
-          chainExpr,
-          `Non-exhaustive match — missing cases: ${missing.join(", ")}. Add the missing cases or use .else() / _ to handle remaining values.`
-        );
+        ctx
+          .diagnostic(TS9226)
+          .at(chainExpr)
+          .withArgs({ what: "cases", missing: missing.join(", ") })
+          .help("Add the missing cases or use .else() / _ to handle remaining values.")
+          .emit();
       }
       break;
     }
@@ -869,19 +961,26 @@ function checkExhaustiveness(
       const expected = [...analysis.variantValues, ...(analysis.nullishMembers ?? [])];
       const missing = expected.filter((m) => !covered.has(m));
       if (missing.length > 0) {
-        ctx.reportError(
-          chainExpr,
-          `Non-exhaustive match — missing variants: ${missing.join(", ")} (discriminant: "${analysis.discriminantField}"). Add the missing cases or use .else() / _ to handle remaining values.`
-        );
+        ctx
+          .diagnostic(TS9226)
+          .at(chainExpr)
+          .withArgs({
+            what: "variants",
+            missing: `${missing.join(", ")} (discriminant: "${analysis.discriminantField}")`,
+          })
+          .help("Add the missing cases or use .else() / _ to handle remaining values.")
+          .emit();
       }
       break;
     }
 
     case "non-enumerable": {
-      ctx.reportError(
-        chainExpr,
-        `Non-exhaustive match — scrutinee type is not enumerable. Add .else() or a _ wildcard to handle all remaining values.`
-      );
+      ctx
+        .diagnostic(TS9226)
+        .at(chainExpr)
+        .withArgs({ what: "a fallback", missing: "the scrutinee type is not enumerable" })
+        .help("Add .else() or a _ wildcard to handle all remaining values.")
+        .emit();
       break;
     }
 
@@ -1485,6 +1584,20 @@ export function expandFluentMatch(
   chainExpr: ts.CallExpression,
   rootArgs: readonly ts.Expression[]
 ): ts.Expression {
+  const prev = taggedBuiltinExtractors;
+  taggedBuiltinExtractors = rootArgs[0] !== undefined && scrutineeUsesTags(ctx, rootArgs[0]);
+  try {
+    return expandFluentMatchInner(ctx, chainExpr, rootArgs);
+  } finally {
+    taggedBuiltinExtractors = prev;
+  }
+}
+
+function expandFluentMatchInner(
+  ctx: MacroContext,
+  chainExpr: ts.CallExpression,
+  rootArgs: readonly ts.Expression[]
+): ts.Expression {
   const { links } = parseChain(chainExpr);
   const scrutinee = rootArgs[0];
 
@@ -1752,8 +1865,9 @@ function collectBindings(
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
           const field = payloadFields[i];
-          if (!field) continue;
-          const fieldAccess = f.createPropertyAccessExpression(accessor, field);
+          if (field === undefined) continue;
+          const fieldAccess =
+            field === SELF_PAYLOAD ? accessor : f.createPropertyAccessExpression(accessor, field);
           stmts.push(...collectBindings(f, binding, fieldAccess));
         }
       } else if (def.kind === "product") {
@@ -1920,6 +2034,52 @@ function buildCondition(
 
     case "extractor": {
       const { def, bindings } = pattern;
+
+      if (def.kind === "sum-variant" && def.test) {
+        const nullCmp = (op: ts.BinaryOperator) =>
+          f.createBinaryExpression(accessor, op, f.createNull());
+        const parts: ts.Expression[] = [];
+        if (def.test === "not-null") {
+          parts.push(nullCmp(ts.SyntaxKind.ExclamationEqualsToken));
+        } else if (def.test === "null") {
+          parts.push(nullCmp(ts.SyntaxKind.EqualsEqualsToken));
+        } else {
+          // `in` throws on primitives: test for an object first (#14).
+          if (!skipObjectGuard) {
+            parts.push(
+              nullCmp(ts.SyntaxKind.ExclamationEqualsToken),
+              f.createBinaryExpression(
+                f.createTypeOfExpression(accessor),
+                ts.SyntaxKind.EqualsEqualsEqualsToken,
+                f.createStringLiteral("object")
+              )
+            );
+          }
+          parts.push(
+            f.createBinaryExpression(
+              f.createStringLiteral(def.test.hasKey),
+              ts.SyntaxKind.InKeyword,
+              accessor
+            )
+          );
+        }
+        const payloadFields = def.payloadFields ?? [];
+        for (let i = 0; i < bindings.length; i++) {
+          const binding = bindings[i];
+          const field = payloadFields[i];
+          if (field === undefined || binding.kind === "wildcard" || binding.kind === "variable")
+            continue;
+          const nested = buildCondition(
+            f,
+            binding,
+            field === SELF_PAYLOAD ? accessor : f.createPropertyAccessExpression(accessor, field)
+          );
+          if (nested) parts.push(nested);
+        }
+        return parts.reduce((a, b) =>
+          f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
+        );
+      }
 
       if (def.kind === "sum-variant") {
         const discField = def.discriminantField ?? "_tag";
@@ -2785,6 +2945,12 @@ function expandObjectHandlerMatch(
   const paramName = f.createUniqueName("_m");
   let tagExpr: ts.Expression;
   let tagType: ts.Type;
+  // Object dispatch reads the discriminant ONCE into a const (`const _k =
+  // _m.kind`) and compares that: TS narrows `_m` through the aliased
+  // discriminant, and the non-exhaustive throw can name `_k` — reading
+  // `_m.kind` there failed strict checking because every variant has
+  // already narrowed `_m` to `never` (docs review r3 guides-b #3).
+  let discriminantDecl: ts.Statement | undefined;
 
   if (isPrimitive) {
     tagExpr = paramName;
@@ -2812,7 +2978,22 @@ function expandObjectHandlerMatch(
       return deferToRuntimeMatch(ctx, callExpr);
     }
     if (!discProp || !discriminant) return deferToRuntimeMatch(ctx, callExpr);
-    tagExpr = f.createPropertyAccessExpression(paramName, discriminant);
+    const tagName = f.createUniqueName("_k");
+    discriminantDecl = f.createVariableStatement(
+      undefined,
+      f.createVariableDeclarationList(
+        [
+          f.createVariableDeclaration(
+            tagName,
+            undefined,
+            undefined,
+            f.createPropertyAccessExpression(paramName, discriminant)
+          ),
+        ],
+        ts.NodeFlags.Const
+      )
+    );
+    tagExpr = tagName;
     tagType = ctx.typeChecker.getTypeOfSymbol(discProp);
   } else {
     // Mixed primitive/object or nullable unions: the runtime switches between
@@ -2820,12 +3001,17 @@ function expandObjectHandlerMatch(
     return deferToRuntimeMatch(ctx, callExpr);
   }
 
-  const callHandler = (h: ts.Expression) =>
-    f.createCallExpression(
-      ts.isArrowFunction(h) || ts.isFunctionExpression(h) ? f.createParenthesizedExpression(h) : h,
+  // An inline handler that declares no parameters (`circle: () => "c"`) is
+  // called with none — passing the value failed strict checking with
+  // "Expected 0 arguments, but got 1" (docs review r3 guides-b #3).
+  const callHandler = (h: ts.Expression) => {
+    const inline = ts.isArrowFunction(h) || ts.isFunctionExpression(h);
+    return f.createCallExpression(
+      inline ? f.createParenthesizedExpression(h) : h,
       undefined,
-      [paramName]
+      inline && h.parameters.length === 0 ? [] : [paramName]
     );
+  };
 
   let result: ts.Expression;
   if (wildcardHandler) {
@@ -2899,7 +3085,12 @@ function expandObjectHandlerMatch(
     [f.createParameterDeclaration(undefined, undefined, paramName)],
     undefined,
     f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-    f.createBlock([f.createReturnStatement(result)], true)
+    f.createBlock(
+      discriminantDecl
+        ? [discriminantDecl, f.createReturnStatement(result)]
+        : [f.createReturnStatement(result)],
+      true
+    )
   );
   return f.createCallExpression(f.createParenthesizedExpression(arrow), undefined, [value]);
 }
@@ -2915,7 +3106,14 @@ function expandMatch(
   }
 
   if (args.length < 2) {
-    ctx.reportError(callExpr, "match() requires at least a value argument");
+    ctx
+      .diagnostic(TS9216)
+      .at(callExpr)
+      .withArgs({ macro: "match(value, handlers)", min: "2" })
+      .help(
+        "Pass a handlers object (`match(value, { Variant: handler })`) or use the fluent form `match(value).case(...)`."
+      )
+      .emit();
     return callExpr;
   }
 
@@ -2941,10 +3139,16 @@ function expandMatch(
     return expandObjectHandlerMatch(ctx, callExpr, value, handlersOrArms, explicitDiscriminant);
   }
 
-  ctx.reportError(
-    handlersOrArms,
-    "match() second argument must be an object literal { variant: handler }"
-  );
+  ctx
+    .diagnostic(TS9202)
+    .at(handlersOrArms)
+    .withArgs({
+      macro: "match()",
+      index: "2",
+      expected: "object literal { variant: handler }",
+      received: ts.SyntaxKind[handlersOrArms.kind],
+    })
+    .emit();
   return callExpr;
 }
 

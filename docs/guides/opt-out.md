@@ -13,22 +13,21 @@ Sometimes you need to disable typesugar transformations temporarily — for debu
 
 ## File-Level Opt-Out
 
-Place at the top of your file (after imports):
+Make it the first statement of the file, before the imports, written as a plain
+string statement (`"use no typesugar";`, not `("use no typesugar");`):
 
 ```typescript
-import { Option, match } from "@typesugar/fp";
+"use no typesugar";
 
-("use no typesugar");
+import { comptime } from "typesugar";
 
-// Everything below is untransformed
-function process(opt: Option<number>) {
-  // This won't expand the match macro
-  return match(opt, {
-    Some: (n) => n * 2,
-    None: () => 0,
-  });
-}
+// Everything in this file is untransformed
+export const y = comptime(() => 3 + 4); // left as a runtime call (which throws)
 ```
+
+A parenthesised `("use no typesugar");` is an ordinary expression, not a directive, and
+is ignored. Prettier adds those parentheses to a string statement that comes after an
+import, which is another reason to keep the directive at the very top.
 
 ## Function-Level Opt-Out
 
@@ -62,11 +61,11 @@ const fast = add(numericPoint, p1, p2); // Auto-specialized: inlined
 const slow = add(numericPoint, p1, p2); // @ts-no-typesugar — Left as-is
 ```
 
-You can also use `@ts-no-typesugar-all` to skip all typesugar transformations on that line:
+You can also use `@ts-no-typesugar-all` to skip all typesugar transformations on that line.
+Like every line marker, it applies only to the line it is written on, not to the next line:
 
 ```typescript
-// @ts-no-typesugar-all
-const x = extend(myValue, Show).show(); // No transformation at all
+const x = (42).clamp(0, 100); // @ts-no-typesugar-all — no transformation at all
 ```
 
 ## Feature-Specific Opt-Out
@@ -75,6 +74,9 @@ Disable only certain categories of transformation:
 
 ```typescript
 "use no typesugar extensions";
+
+import { comptime } from "typesugar";
+import { clamp } from "@typesugar/std";
 
 // Extension methods won't be rewritten
 (42).clamp(0, 100); // Will error at runtime — clamp is not a native method
@@ -99,7 +101,7 @@ You can combine multiple features:
 "use no typesugar extensions";
 "use no typesugar derive";
 
-// Both extensions and derive are disabled
+// Both extensions and derive are disabled (keep these before the imports)
 ```
 
 Or use line-level feature opt-out:
@@ -188,33 +190,9 @@ export function legacyFunction() {
 }
 ```
 
-## Configuration-Level Opt-Out
-
-You can also configure opt-out patterns in `tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "plugins": [
-      {
-        "name": "@typesugar/transformer",
-        "resolution": {
-          "mode": "automatic",
-          "fileOverrides": {
-            "**/*.legacy.ts": "explicit",
-            "**/vendor/**": "explicit"
-          }
-        }
-      }
-    ]
-  }
-}
-```
-
-See the [Architecture doc](/architecture#macro-resolution) for more on resolution modes.
-
 ## Notes
 
-- Opt-out is detected at transform time, not compile time — the directive string itself is removed from output
+- Opt-out is detected at transform time; the directive string stays in the output, where it is a harmless no-op
+- There is no configuration-file opt-out: use the directives above, or leave the files out of the bundler plugin's `include` / add them to `exclude`
 - Opt-out applies to the current scope and all nested scopes
 - When debugging, remember that opted-out code may have type errors if it depends on macro-generated types

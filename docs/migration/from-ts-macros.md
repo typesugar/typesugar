@@ -13,6 +13,13 @@ This guide maps ts-macros concepts to typesugar.
 
 ## Macro Definition
 
+In typesugar a macro is a definition object passed to `defineExpressionMacro(...)`
+(and friends), which you then **register** with `globalRegistry.register(...)`. The
+definitions live in your package's macro entry (`./macros`), which the transformer
+loads because your `package.json` declares `"typesugar": { "macros": "./macros" }`
+(see [Publishing Macros](../writing-macros/publishing-macros.md)). The runtime entry
+exports placeholder functions with the same names.
+
 ### Basic Expression Macro
 
 ```typescript
@@ -23,17 +30,26 @@ export const $double = macro((value: number) => {
   return `${value} + ${value}`;
 });
 
-// typesugar
-import { defineExpressionMacro } from "@typesugar/core";
-import { quote } from "@typesugar/core/quote";
+// typesugar — src/macros.ts (macro entry)
+import { defineExpressionMacro, globalRegistry } from "@typesugar/core";
+import * as ts from "typescript";
 
-defineExpressionMacro("double", {
-  expand(ctx, callExpr) {
-    const value = callExpr.arguments[0];
-    return quote(ctx)`${value} + ${value}`;
+export const doubleMacro = defineExpressionMacro({
+  name: "double",
+  module: "my-macros", // expand only when imported from this package
+  expand(ctx, _callExpr, [value]) {
+    // (value) + (value)
+    const f = ctx.factory;
+    return f.createBinaryExpression(
+      f.createParenthesizedExpression(value),
+      ts.SyntaxKind.PlusToken,
+      f.createParenthesizedExpression(value)
+    );
   },
 });
+globalRegistry.register(doubleMacro);
 
+// typesugar — src/index.ts (runtime entry)
 export function double(value: number): number {
   throw new Error("Should be compiled away");
 }
@@ -48,12 +64,14 @@ export const $add = macro((a: number, b: number) => {
 });
 
 // typesugar
-defineExpressionMacro("add", {
-  expand(ctx, callExpr) {
-    const [a, b] = callExpr.arguments;
-    return quote(ctx)`${a} + ${b}`;
+export const addMacro = defineExpressionMacro({
+  name: "add",
+  module: "my-macros",
+  expand(ctx, _callExpr, [a, b]) {
+    return ctx.factory.createBinaryExpression(a, ts.SyntaxKind.PlusToken, b);
   },
 });
+globalRegistry.register(addMacro);
 ```
 
 ## Usage Syntax
@@ -66,49 +84,28 @@ const result = $double!(5);
 const result = double(5); // No special syntax
 ```
 
-## String Templates → Quasiquoting
+## String Templates → AST (or Quasiquoting)
 
-### Simple Templates
-
-```typescript
-// ts-macros
-return `console.log(${expr})`;
-
-// typesugar
-return quote(ctx)`console.log(${expr})`;
-```
-
-### Multiple Statements
+typesugar macros return AST nodes. Building them with `ctx.factory` is the
+recommended style: it is type-checked and doesn't round-trip through the parser. If
+you are porting many string templates, `@typesugar/macros` also exports a
+quasi-quote helper that parses a template with spliced nodes:
 
 ```typescript
 // ts-macros
-return `
-  const temp = ${expr};
-  console.log(temp);
-  temp;
-`;
+return `${a} + ${b}`;
 
-// typesugar
-return quoteStatements(ctx)`
-  const temp = ${expr};
-  console.log(temp);
-  return temp;
-`;
+// typesugar, quasi-quote
+import { quote } from "@typesugar/macros";
+return quote(ctx)`${a} + ${b}`;
+
+// typesugar, AST (preferred)
+return ctx.factory.createBinaryExpression(a, ts.SyntaxKind.PlusToken, b);
 ```
 
-### Identifiers
-
-```typescript
-// ts-macros
-const name = "myVar";
-return `const ${name} = 42`;
-
-// typesugar
-import { ident } from "@typesugar/core/quote";
-
-const name = "myVar";
-return quote(ctx)`const ${ident(name)} = 42`;
-```
+The other quasi-quote helpers are `quoteStatements` (several statements), `ident`
+(splice an identifier by name), `raw` and `spread`. See
+[Quasiquoting](../writing-macros/quasiquoting.md).
 
 ## Type Access
 
@@ -123,7 +120,9 @@ export const $showType = macro(<T>() => {
 });
 
 // typesugar
-defineExpressionMacro("showType", {
+export const showTypeMacro = defineExpressionMacro({
+  name: "showType",
+  module: "my-macros",
   expand(ctx, callExpr) {
     const typeArg = callExpr.typeArguments?.[0];
     if (!typeArg) return callExpr;
@@ -131,9 +130,10 @@ defineExpressionMacro("showType", {
     const type = ctx.typeChecker.getTypeFromTypeNode(typeArg);
     const typeStr = ctx.typeChecker.typeToString(type);
 
-    return ctx.createStringLiteral(typeStr);
+    return ctx.createStringLiteral(typeStr); // showType<User>() → "User"
   },
 });
+globalRegistry.register(showTypeMacro);
 ```
 
 ### Type Properties
@@ -148,7 +148,9 @@ export const $keys = macro(<T>() => {
 });
 
 // typesugar
-defineExpressionMacro("keys", {
+export const keysMacro = defineExpressionMacro({
+  name: "keys",
+  module: "my-macros",
   expand(ctx, callExpr) {
     const typeArg = callExpr.typeArguments?.[0];
     if (!typeArg) return callExpr;
@@ -157,9 +159,10 @@ defineExpressionMacro("keys", {
     const props = ctx.getPropertiesOfType(type);
     const names = props.map((p) => ctx.createStringLiteral(p.getName()));
 
-    return ctx.createArrayLiteral(names);
+    return ctx.createArrayLiteral(names); // keys<User>() → ["id", "name"]
   },
 });
+globalRegistry.register(keysMacro);
 ```
 
 ## Decorator Macros
@@ -178,19 +181,42 @@ export const $logged = decoratorMacro((target: Function) => {
 });
 
 // typesugar
-defineAttributeMacro("logged", {
-  expand(ctx, decorator, target) {
-    if (!ts.isFunctionDeclaration(target)) return target;
-
-    const name = target.name?.getText(ctx.sourceFile);
-    return quoteStatements(ctx)`
-      function ${ident(name)}(...args) {
-        console.log("Calling ${name}");
-        return originalFn.apply(this, args);
-      }
-    `;
+export const loggedMacro = defineAttributeMacro({
+  name: "logged",
+  module: "my-macros",
+  validTargets: ["function"],
+  expand(ctx, _decorator, target) {
+    if (!ts.isFunctionDeclaration(target) || !target.body || !target.name) return target;
+    const f = ctx.factory;
+    // console.log("Calling <name>");
+    const log = f.createExpressionStatement(
+      f.createCallExpression(
+        f.createPropertyAccessExpression(f.createIdentifier("console"), "log"),
+        undefined,
+        [f.createStringLiteral(`Calling ${target.name.text}`)]
+      )
+    );
+    // Same function, decorator removed, log prepended to the body
+    return f.updateFunctionDeclaration(
+      target,
+      target.modifiers?.filter((m) => !ts.isDecorator(m)),
+      target.asteriskToken,
+      target.name,
+      target.typeParameters,
+      target.parameters,
+      target.type,
+      f.updateBlock(target.body, [log, ...target.body.statements])
+    );
   },
 });
+globalRegistry.register(loggedMacro);
+
+// Usage: the decorator form triggers a custom attribute macro. The JSDoc form
+// (`/** @logged */`) works too, in files that import the macro's `module`.
+@logged
+function greet(name: string) {
+  return "hi " + name;
+}
 ```
 
 ## Compile-Time Evaluation
@@ -252,14 +278,15 @@ double(5);
 
 ### AST Construction
 
-ts-macros uses string templates. typesugar uses quasiquoting with full type safety:
+ts-macros uses string templates. typesugar macros return AST nodes, built with
+`ctx.factory` (or, when porting, the `quote` helper from `@typesugar/macros`):
 
 ```typescript
 // ts-macros: string interpolation
 return `${a} + ${b}`;
 
-// typesugar: AST splicing
-return quote(ctx)`${a} + ${b}`;
+// typesugar: AST
+return ctx.factory.createBinaryExpression(a, ts.SyntaxKind.PlusToken, b);
 ```
 
 ### Type Information
@@ -290,21 +317,23 @@ ts-macros doesn't require this because of the `$!` syntax.
 ## Migration Steps
 
 1. **Update imports**: `ts-macros` → `@typesugar/core`
-2. **Convert macro definitions**: `macro()` → `defineExpressionMacro()`
-3. **Add runtime placeholders**: Export functions that throw
-4. **Update call sites**: `$macro!(args)` → `macro(args)`
-5. **Convert string templates**: Use `quote()` instead
-6. **Update config**: Change plugin in tsconfig.json
+2. **Convert macro definitions**: `macro()` → `defineExpressionMacro({ name, module, expand })`, then `globalRegistry.register(...)` in a `./macros` entry
+3. **Declare the macro entry**: add `"typesugar": { "macros": "./macros" }` to `package.json`
+4. **Add runtime placeholders**: Export functions that throw
+5. **Update call sites**: `$macro!(args)` → `macro(args)`
+6. **Convert string templates**: build AST with `ctx.factory` (or `quote()` from `@typesugar/macros`)
+7. **Update config**: Change plugin in tsconfig.json
+8. **Approve the package in consuming projects**: macro packages outside `@typesugar/*` need `npx typesugar approve-macros` once per project
 
 ## Feature Comparison
 
-| Feature           | ts-macros    | typesugar               |
-| ----------------- | ------------ | ----------------------- |
-| Expression macros | Yes          | Yes                     |
-| Decorator macros  | Yes          | Yes                     |
-| Type macros       | Limited      | Yes                     |
-| Compile-time eval | Yes          | Yes                     |
-| Quasiquoting      | No (strings) | Yes                     |
-| IDE support       | Limited      | Full (language service) |
-| Testing utilities | No           | Yes                     |
-| Built-in macros   | Few          | Many (packages)         |
+| Feature           | ts-macros    | typesugar                                 |
+| ----------------- | ------------ | ----------------------------------------- |
+| Expression macros | Yes          | Yes                                       |
+| Decorator macros  | Yes          | Yes                                       |
+| Type macros       | Limited      | Yes                                       |
+| Compile-time eval | Yes          | Yes                                       |
+| Quasiquoting      | No (strings) | Yes (`@typesugar/macros`)                 |
+| IDE support       | Limited      | Full (language service)                   |
+| Testing utilities | No           | `transformCode`, `createMacroTestContext` |
+| Built-in macros   | Few          | Many (packages)                           |

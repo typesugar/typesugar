@@ -43,9 +43,9 @@ function run(body: string) {
   const req = (s: string) =>
     s === "@typesugar/std" ? std : s === "@typesugar/std/syntax/do" ? stdDo : {};
   let runError: unknown;
-  // Only run output that compiled cleanly: the output of a failed compile
-  // (the TS9226 "unsupported shape" cases) is not meant to run, and running
-  // it left an async ReferenceError as an unhandled rejection in the suite.
+  // Only run output that compiled cleanly: the output of a failed compile is
+  // not meant to run, and running it can leave an async ReferenceError as an
+  // unhandled rejection in the suite.
   if (errors.length === 0) {
     try {
       new Function("require", "exports", "module", js)(req, mod.exports, mod);
@@ -65,36 +65,37 @@ function ok(r: ReturnType<typeof run>) {
   return r.exports;
 }
 
-// Shapes the downstream `const x = let;` merge mis-compiles (silently wrong
-// value / syntax errors at runtime) are now a clear compile error (TS9226).
-const expectUnsupported = (r: ReturnType<typeof run>) =>
-  expect(r.errors.join("\n")).toMatch(/TS9226|not supported/);
-
+// Shapes the old `const x = let;` merge mis-compiled were a TS9226 error;
+// since the docs review (2026-10, A#9) the preprocessor moves them into
+// statement position and they compile and run.
 describe("(1) leading / nested par: in expression position", () => {
-  it("const r = let: { a << ...; par: { b << ... } } yield: {...} is a compile error", () => {
-    expectUnsupported(
+  it("const r = let: { a << ...; par: { b << ... } } yield: {...}", async () => {
+    const ex = ok(
       run(
         `export const r = let: { a << Promise.resolve(1); par: { b << Promise.resolve(2) } } yield: { a + b }`
       )
     );
+    await expect(ex.r).resolves.toBe(3);
   });
 
-  it("const r = par: { ... } yield: {...} is a compile error", () => {
-    expectUnsupported(
+  it("const r = par: { ... } yield: {...}", async () => {
+    const ex = ok(
       run(
         `export const r = par: { a << Promise.resolve(1); b << Promise.resolve(2) } yield: { a + b }`
       )
     );
+    await expect(ex.r).resolves.toBe(3);
   });
 
-  it("arrow body with a leading par: is a compile error", () => {
-    expectUnsupported(
+  it("arrow body with a leading par:", async () => {
+    const ex = ok(
       run(`export const f = () =>
 let: {
   par: { a << Promise.resolve(1); b << Promise.resolve(2) }
 }
 yield: { a + b }`)
     );
+    await expect((ex.f as () => Promise<unknown>)()).resolves.toBe(3);
   });
 
   it("a `par:` inside a string does not trigger the error", async () => {
@@ -104,13 +105,14 @@ yield: { a + b }`)
 });
 
 describe("(2) inside a function body", () => {
-  it("const r = let: ... inside a function is a compile error (not mangled code)", () => {
-    expectUnsupported(
+  it("const r = let: ... inside a function", () => {
+    const ex = ok(
       run(`export function f() {
   const r = let: { x << [1, 2]; } yield: { x * 10 };
   return r;
 }`)
     );
+    expect((ex.f as () => unknown)()).toEqual([10, 20]);
   });
 
   it("return let: ... inside a function", () => {

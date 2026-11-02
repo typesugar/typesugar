@@ -9,17 +9,24 @@ export default defineConfig({
   plugins: [
     typesugar({
       verbose: false,
+      // Globs, matched against the absolute module path (relative ones resolve
+      // against the repo root). These used to be substring matches, so
+      // "packages/transformer" also covered transformer-core and "tests" covered
+      // every tests/ and __tests__/ directory; the globs below keep exactly that
+      // set (checked against every tracked .ts/.js file). Test files are
+      // therefore NOT macro-expanded by this plugin: they call the transformer
+      // programmatically, or exercise the runtime stubs on purpose.
       exclude: [
-        // Don't transform core package - it defines macros, doesn't use them
-        "packages/core",
-        // Don't transform transformer package tests - they test the transformer itself
-        "packages/transformer",
-        // Don't transform unplugin tests
-        "packages/unplugin-typesugar",
-        // Don't transform vscode package - it uses 'vscode' module which needs special aliasing
-        "packages/vscode",
-        // Don't transform root tests - they programmatically test the transformer
-        "tests",
+        // Core defines macros, doesn't use them
+        "packages/core/**",
+        // The transformer packages test the transformer itself
+        "packages/transformer*/**",
+        "packages/unplugin-typesugar/**",
+        // vscode uses the 'vscode' module, which needs special aliasing
+        "packages/vscode/**",
+        // Test files (root tests/ and every package's tests/ and __tests__/)
+        "**/tests/**",
+        "**/__tests__/**",
       ],
     }),
   ],

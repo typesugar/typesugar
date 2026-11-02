@@ -15,32 +15,27 @@
  * and subsequent `name << expr` statements are error-recovered BinaryExpressions.
  * The recovered AST is too fragile to stitch with `ts.factory.update*`.
  *
- * Instead: we parse once with TS, detect the broken-shape AST, use MagicString
- * to rewrite the source (wrapping the bad expression-position usage in a block
- * that binds the comprehension to a synthetic const), and let `transformCode`
- * reparse the rewritten source. After the rewrite, TS's normal ASI path kicks
- * in and the existing `const x = let;`-merge path in the transformer handles
- * the inner `const __letyield_N = let: {...} yield: {...}` pattern.
+ * Instead: we parse once with TS, detect the broken-shape AST, re-parse the
+ * comprehension text on its own (where it is a clean statement-position
+ * `LabeledStatement` + continuation), and use MagicString to move it into
+ * statement position, followed by a statement that reads its value through a
+ * synthetic tag. `transformCode` then reparses the rewritten source, which now
+ * parses without error recovery:
  *
- * Patterns handled:
- *   1. Arrow body:     (x) =>              let: {...} yield: {...}
- *   2. return + comp:  return              let: {...} yield: {...}  (same line or next)
- *   3. export default: export default      let: {...} yield: {...}
+ *   1. Arrow body:     (x) => COMP          → (x) => { COMP; return __letyield_N; }
+ *   2. return:         return COMP          → { COMP; return __letyield_N; }
+ *                      (same line or next)
+ *   3. export default: export default COMP  → COMP; export default __letyield_N;
+ *   4. declaration:    const r = COMP       → COMP; const r = __letyield_N;
  *
- * Shapes the downstream merge would mis-compile (a `par:`/`all:` block in
- * expression position, `const x = let:` inside a function body) are reported
- * as TS9226 errors instead of being rewritten.
- *
- * Arrow and return wrap with a double `{ { … } }` Block; the inner Block absorbs
- * the stray `}` from the user's `let:` block so the trailing `yield:` parses as
- * a sibling of the broken VariableStatement (the existing merge's input shape).
- * The transformer then flattens the synthesized Block and simplifies the body.
- *
- * `export default` hoists instead: the comprehension moves to a top-level
- * `const __letyield_N = let: {...} yield: {...}` and the export references the
- * new name. Hoisting works because the existing merge handles the broken VarStmt
- * at SourceFile level (where a stray `}` is an error but doesn't corrupt
- * surrounding expressions, as it would inside a ParenthesizedExpression/IIFE).
+ * The std `let:`/`par:` macros recognise the tag statement right after the
+ * comprehension (`findValueSlot` in std's comprehension-utils.ts) and bind
+ * their result to it (`const __letyield_N = <chain>;`); the transformer then
+ * collapses `{ const __letyield_N = E; return __letyield_N; }` back into
+ * `=> E` / `return E`. Because the comprehension is parsed as an ordinary
+ * statement, every form works in every one of these positions: `par:`/`all:`,
+ * nested `par:` groups, a `||`/`??` fallback on the first bind, and
+ * `yield: <expr>` continuations (docs review 2026-10, A#9/A#10/S#2).
  *
  * `await let:/yield:` is intentionally NOT rewritten — any wrap inside a
  * function body runs into the same stray-`}` problem as iife, and no reliable
@@ -140,104 +135,92 @@ export function preprocessExpressionComprehensions(
     }
 
     // Pattern A: arrow body is a bare `let|par|seq|all` Identifier.
+    //   (x) => let: {...} yield: {...}
+    //   → (x) => { let: {...} yield: {...}; return __tag; }
     if (ts.isArrowFunction(node) && isBrokenCompIdentifier(node.body)) {
-      const span = findLabeledBlockSpan(source, node.body.end);
-      if (span && isParallelShape(node.body, span.end)) {
-        diagnostics.push(
-          unsupportedShape(node.body, sourceFile, node.body.text, "with a `par:`/`all:` block")
-        );
-      } else if (span) {
-        const tag = nextTag();
+      const labelStart = node.body.getStart(sourceFile);
+      const comp = parseComprehensionAt(source, labelStart, fileName);
+      if (comp) {
         rewrites.push({
-          kind: "arrow",
-          wrapStart: (node.body as ts.Identifier).getStart(sourceFile),
-          wrapEnd: span.end,
-          tag,
-        });
-      }
-    }
-
-    // Pattern C: `export default <Identifier "let|par|seq|all">` — hoist the
-    // comprehension to a top-level `const __letyield_N = …` and rewrite the
-    // export to reference that name. An IIFE wrap here would work, but TS's
-    // error-recovery inside `(() => { … })()` eats one too many `}`s and
-    // detaches the trailing `()`, leaving the function uninvoked.
-    if (
-      ts.isExportAssignment(node) &&
-      !node.isExportEquals &&
-      isBrokenCompIdentifier(node.expression)
-    ) {
-      const span = findLabeledBlockSpan(source, node.expression.end);
-      if (span) {
-        const tag = nextTag();
-        rewrites.push({
-          kind: "export-default-hoist",
-          exportStart: node.getStart(sourceFile),
-          letStart: (node.expression as ts.Identifier).getStart(sourceFile),
-          wrapEnd: span.end,
-          tag,
-        });
-      }
-    }
-
-    // Pattern B2: `return let: {...} yield: {...}` on ONE line -- parsed as
-    // `return let` (the label as an identifier expression). Same rewrite as
-    // Pattern B.
-    if (ts.isReturnStatement(node) && isBrokenCompIdentifier(node.expression)) {
-      const span = findLabeledBlockSpan(source, node.expression.end);
-      if (span && isParallelShape(node.expression, span.end)) {
-        diagnostics.push(
-          unsupportedShape(
-            node.expression,
-            sourceFile,
-            node.expression.text,
-            "with a `par:`/`all:` block"
-          )
-        );
-      } else if (span) {
-        rewrites.push({
-          kind: "return",
-          returnStart: node.getStart(sourceFile),
-          labelStart: node.expression.getStart(sourceFile),
-          wrapEnd: span.end,
+          kind: "block-return",
+          start: labelStart,
+          labelStart,
+          comp,
           tag: nextTag(),
         });
       }
     }
 
-    // Pattern D: `const r = let|par|seq|all: {...} <cont>: {...}`. At module
-    // level with a plain first bind this is handled downstream by the
-    // transformer's `const x = let;` merge. Shapes that merge mangles into
-    // wrong code are reported as errors instead (no rewrite):
-    //   - inside a function body (the parser's stray `}` closes the function);
-    //   - `const r = par:|all: {...}`;
-    //   - a leading or nested `par:`/`all:` inside the block.
-    // Text-shuffling workarounds were tried and break on what FOLLOWS the
-    // declaration, so an explicit diagnostic is the conservative choice.
+    // Pattern C: `export default <Identifier "let|par|seq|all">`
+    //   → let: {...} yield: {...}; export default __tag;
+    if (
+      ts.isExportAssignment(node) &&
+      !node.isExportEquals &&
+      isBrokenCompIdentifier(node.expression)
+    ) {
+      const labelStart = node.expression.getStart(sourceFile);
+      const comp = parseComprehensionAt(source, labelStart, fileName);
+      if (comp) {
+        rewrites.push({
+          kind: "hoist",
+          start: node.getStart(sourceFile),
+          labelStart,
+          comp,
+          tag: nextTag(),
+          prefix: "export default ",
+        });
+      }
+    }
+
+    // Pattern B2: `return let: {...} yield: {...}` on ONE line -- parsed as
+    // `return let` (the label as an identifier expression).
+    //   → { let: {...} yield: {...}; return __tag; }
+    if (ts.isReturnStatement(node) && isBrokenCompIdentifier(node.expression)) {
+      const labelStart = node.expression.getStart(sourceFile);
+      const comp = parseComprehensionAt(source, labelStart, fileName);
+      if (comp) {
+        rewrites.push({
+          kind: "block-return",
+          start: node.getStart(sourceFile),
+          labelStart,
+          comp,
+          tag: nextTag(),
+        });
+      }
+    }
+
+    // Pattern D: `const r = let|par|seq|all: {...} <cont>: {...}`.
+    //   → let: {...} <cont>: {...}; const r = __tag;
+    // (Always hoisted: the transformer's older `const x = let;` merge works
+    // on the error-recovered parse and mangles a fallback first bind, a
+    // `par:` group, `yield: <expr>`, generics in a bind, … — docs review
+    // 2026-10, A#10.)
     if (
       ts.isVariableStatement(node) &&
       node.declarationList.declarations.length >= 1 &&
       isBrokenCompIdentifier(node.declarationList.declarations[0].initializer)
     ) {
       const init = node.declarationList.declarations[0].initializer as ts.Identifier;
-      const span = findLabeledBlockSpan(source, init.end);
-      if (span) {
-        const label = init.text;
-        const reason = !ts.isSourceFile(node.parent)
-          ? "inside a function or block body"
-          : label === "par" || label === "all"
-            ? `with a top-level \`${label}:\` block`
-            : containsParallelLabel(source, init.end, span.end)
-              ? "with a leading or nested `par:`/`all:` block"
-              : undefined;
-        if (reason) {
-          diagnostics.push(unsupportedShape(init, sourceFile, label, reason));
-        }
+      const labelStart = init.getStart(sourceFile);
+      const comp = parseComprehensionAt(source, labelStart, fileName);
+      if (comp) {
+        const start = node.getStart(sourceFile);
+        rewrites.push({
+          kind: "hoist",
+          start,
+          labelStart,
+          comp,
+          tag: nextTag(),
+          prefix: source.slice(start, labelStart),
+        });
       }
     }
 
     // Pattern B: bare `return;` (no expression, ASI-inserted) immediately followed in
     // the enclosing block by a LabeledStatement whose label is a main-comp label.
+    //   return
+    //   let: {...} yield: {...}
+    //   → { let: {...} yield: {...}; return __tag; }
     if (ts.isReturnStatement(node) && node.expression === undefined) {
       const parent = node.parent;
       if (parent && (ts.isBlock(parent) || ts.isSourceFile(parent) || ts.isModuleBlock(parent))) {
@@ -246,16 +229,15 @@ export function preprocessExpressionComprehensions(
         if (idx >= 0 && idx + 1 < siblings.length) {
           const next = siblings[idx + 1];
           if (ts.isLabeledStatement(next) && MAIN_LABELS.has(next.label.text)) {
-            // Find the full span including any continuation labels after `next`.
-            const span = findLabeledBlockSpanFromLabeled(source, next);
-            if (span) {
-              const tag = nextTag();
+            const labelStart = next.getStart(sourceFile);
+            const comp = parseComprehensionAt(source, labelStart, fileName);
+            if (comp) {
               rewrites.push({
-                kind: "return",
-                returnStart: node.getStart(sourceFile),
-                labelStart: next.getStart(sourceFile),
-                wrapEnd: span.end,
-                tag,
+                kind: "block-return",
+                start: node.getStart(sourceFile),
+                labelStart,
+                comp,
+                tag: nextTag(),
               });
             }
           }
@@ -266,13 +248,6 @@ export function preprocessExpressionComprehensions(
     ts.forEachChild(node, visit);
   }
 
-  /** A `par:`/`all:` comprehension, or one containing such a block. */
-  function isParallelShape(label: ts.Identifier, end: number): boolean {
-    return (
-      label.text === "par" || label.text === "all" || containsParallelLabel(source, label.end, end)
-    );
-  }
-
   visit(sourceFile);
 
   if (rewrites.length === 0) {
@@ -281,36 +256,38 @@ export function preprocessExpressionComprehensions(
 
   const s = new MagicString(source);
 
+  // Every rewrite leaves the user's comprehension text untouched, in
+  // STATEMENT position (where it parses cleanly), and follows it with a
+  // statement that reads its value through the synthetic tag. The std
+  // let:/par: macros see that follow-up statement and bind their result to
+  // the tag (`const __tag = <chain>;`); the transformer then collapses
+  // `{ const __tag = E; return __tag; }` back into `=> E` / `return E`.
   for (const rw of rewrites) {
-    // The INNER `{ ... }` around `const __tag = let: {...} yield: {...}; return __tag;`
-    // is load-bearing: TypeScript's error-recovery parses the broken
-    // `const __tag = let: { first-bind-name << ...` shape as a two-decl
-    // VariableStatement whose ObjectBindingPattern ends implicitly (no `}`
-    // consumed). The real `}` that closes the user's `let:` block would
-    // otherwise close the *enclosing* function/arrow block, orphaning the
-    // trailing `yield: { ... }`. An extra Block wrapper absorbs that `}` so
-    // the subsequent `yield:`/`return` parse as siblings of the broken
-    // VariableStatement — the shape the existing const-x-equals-let merge in
-    // `transformer/src/index.ts` expects.
+    const end = rw.comp.end;
+    // A separator before the follow-up statement unless the comprehension
+    // already ends a statement (`}` of a block, or `;`).
+    const last = source[end - 1];
+    const sep = last === "}" || last === ";" ? "" : ";";
     switch (rw.kind) {
-      case "arrow":
-        // (x) => let: {...} yield: {...}
-        // → (x) => { { const __tag = let: {...} yield: {...}; return __tag; } }
-        s.prependLeft(rw.wrapStart, `{ { const ${rw.tag} = `);
-        s.appendRight(rw.wrapEnd, `; return ${rw.tag}; } }`);
+      case "block-return":
+        if (rw.start < rw.labelStart) {
+          // `return COMP;` — the `;` closing the return goes inside the block.
+          s.overwrite(rw.start, rw.labelStart, "{ ");
+          const semi = source.slice(end).match(/^[ \t]*;/);
+          s.appendRight(end + (semi ? semi[0].length : 0), `${sep} return ${rw.tag}; }`);
+        } else {
+          s.prependLeft(rw.labelStart, "{ ");
+          s.appendRight(end, `${sep} return ${rw.tag}; }`);
+        }
         break;
-      case "export-default-hoist":
-        // export default\n let: {...} yield: {...}
-        // → const __tag = let: {...} yield: {...};\nexport default __tag;
-        s.overwrite(rw.exportStart, rw.letStart, `const ${rw.tag} = `);
-        s.appendRight(rw.wrapEnd, `;\nexport default ${rw.tag};`);
+      case "hoist": {
+        s.remove(rw.start, rw.labelStart);
+        // Close the moved declaration unless the source already does (`;`)
+        // or continues it (`, other = …`).
+        const after = source.slice(end).match(/^[ \t]*([;,])?/)?.[1];
+        s.appendRight(end, `${sep} ${rw.prefix}${rw.tag}${after ? "" : ";"}`);
         break;
-      case "return":
-        // return\n let: {...} yield: {...}
-        // → { { const __tag = let: {...} yield: {...}; return __tag; } }
-        s.overwrite(rw.returnStart, rw.labelStart, `{ { const ${rw.tag} = `);
-        s.appendRight(rw.wrapEnd, `; return ${rw.tag}; } }`);
-        break;
+      }
     }
   }
 
@@ -373,66 +350,67 @@ function findYieldLabelsIn(
 // Helpers
 // ============================================================================
 
-type Rewrite =
-  | { kind: "arrow"; wrapStart: number; wrapEnd: number; tag: string }
-  | { kind: "return"; returnStart: number; labelStart: number; wrapEnd: number; tag: string }
-  | {
-      kind: "export-default-hoist";
-      exportStart: number;
-      letStart: number;
-      wrapEnd: number;
-      tag: string;
-    };
-
-/** Error for an expression-position comprehension shape that would be mis-compiled. */
-function unsupportedShape(
-  at: ts.Node,
-  sourceFile: ts.SourceFile,
-  label: string,
-  reason: string
-): PreprocessDiagnostic {
-  return {
-    code: 9226,
-    start: at.getStart(sourceFile),
-    length: label.length,
-    message:
-      `\`${label}:\` comprehension in expression position ${reason} is not supported ` +
-      `and would compile to wrong code. Use it in statement position, as a module-level ` +
-      `\`const x = let: {...}\` with plain binds, as an arrow body, or after \`return\`.`,
-    severity: "error",
-  };
+/** A comprehension parsed cleanly in statement position (see parseComprehensionAt). */
+interface ParsedComprehension {
+  /** End offset (in the original source) of the last labeled block / continuation. */
+  end: number;
+  main: ts.LabeledStatement;
+  continuation?: ts.LabeledStatement;
 }
 
-/**
- * Does `source[start..end]` contain a `par:` / `all:` label (an identifier
- * token followed by `:` and `{`)? Token-based, so strings/comments/template
- * text never match.
- */
-function containsParallelLabel(source: string, start: number, end: number): boolean {
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    /*skipTrivia*/ true,
-    ts.LanguageVariant.Standard,
-    source
-  );
-  scanner.setTextPos(start);
-  let prevIsParallel = false;
-  let prevColon = false;
-  while (scanner.getTextPos() < end) {
-    const tok = scanner.scan();
-    if (tok === ts.SyntaxKind.EndOfFileToken) break;
-    if (tok === ts.SyntaxKind.TemplateHead) {
-      if (!consumeTemplateSubstitutions(scanner)) break;
-      prevIsParallel = prevColon = false;
-      continue;
+type Rewrite =
+  /** `=> COMP` / `return COMP` → `{ COMP; return __tag; }` (from `start`). */
+  | {
+      kind: "block-return";
+      start: number;
+      labelStart: number;
+      comp: ParsedComprehension;
+      tag: string;
     }
-    if (prevColon && tok === ts.SyntaxKind.OpenBraceToken) return true;
-    prevColon = prevIsParallel && tok === ts.SyntaxKind.ColonToken;
-    prevIsParallel =
-      tok === ts.SyntaxKind.Identifier &&
-      (scanner.getTokenValue() === "par" || scanner.getTokenValue() === "all");
+  /** `<prefix>COMP` → `COMP; <prefix>__tag` (`export default `, `const r = `). */
+  | {
+      kind: "hoist";
+      start: number;
+      labelStart: number;
+      comp: ParsedComprehension;
+      tag: string;
+      prefix: string;
+    };
+
+/**
+ * Parse the comprehension that starts at `labelStart` the way it parses in
+ * STATEMENT position — i.e. parse `source.slice(labelStart)` on its own, where
+ * `let: { … }` is a real LabeledStatement and the continuation
+ * (`yield: { … }` or `yield: <expr>`) is its sibling. Returns the span and the
+ * clean AST, or undefined when the text there is not a comprehension (e.g. a
+ * genuine variable named `par`).
+ */
+function parseComprehensionAt(
+  source: string,
+  labelStart: number,
+  fileName: string
+): ParsedComprehension | undefined {
+  const sf = ts.createSourceFile(
+    fileName,
+    source.slice(labelStart),
+    ts.ScriptTarget.Latest,
+    /*setParentNodes*/ true
+  );
+  const [main, next] = sf.statements;
+  if (
+    !main ||
+    !ts.isLabeledStatement(main) ||
+    !MAIN_LABELS.has(main.label.text) ||
+    !ts.isBlock(main.statement) ||
+    main.getStart(sf) !== 0
+  ) {
+    return undefined;
   }
-  return false;
+  const continuation =
+    next && ts.isLabeledStatement(next) && CONTINUATION_LABELS.has(next.label.text)
+      ? next
+      : undefined;
+  return { end: labelStart + (continuation ?? main).end, main, continuation };
 }
 
 function hasPotentialComprehension(source: string): boolean {
@@ -454,108 +432,6 @@ function isTypeNode(node: ts.Node): boolean {
     node.kind === ts.SyntaxKind.FunctionType ||
     node.kind === ts.SyntaxKind.ConstructorType
   );
-}
-
-/**
- * Given a position just after a parsed `let|par|seq|all` identifier, scan
- * forward with ts.createScanner and confirm the source actually contains
- * `: { ... }` followed by zero or more `<contLabel>: { ... }` blocks. Returns
- * the end position of the last labeled block, or undefined if the shape
- * doesn't match (e.g., genuine `let` variable reference).
- */
-function findLabeledBlockSpan(source: string, startPos: number): { end: number } | undefined {
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    /*skipTrivia*/ true,
-    ts.LanguageVariant.Standard,
-    source
-  );
-  scanner.setTextPos(startPos);
-
-  // Expect `:` immediately after the label identifier.
-  let tok = scanner.scan();
-  if (tok !== ts.SyntaxKind.ColonToken) return undefined;
-
-  // Expect `{` and balance braces.
-  const firstEnd = scanBracedBlock(scanner);
-  if (firstEnd === -1) return undefined;
-  let lastEnd = firstEnd;
-
-  // Zero or more continuation labels: `yield: { ... }`, `pure: { ... }`, etc.
-  while (true) {
-    const savedPos = scanner.getTextPos();
-    const nextTok = scanner.scan();
-    if (!isContinuationLabelToken(nextTok, scanner)) {
-      scanner.setTextPos(savedPos);
-      break;
-    }
-    const colon = scanner.scan();
-    if (colon !== ts.SyntaxKind.ColonToken) {
-      scanner.setTextPos(savedPos);
-      break;
-    }
-    const contEnd = scanBracedBlock(scanner);
-    if (contEnd === -1) break;
-    lastEnd = contEnd;
-  }
-
-  return { end: lastEnd };
-}
-
-/**
- * Variant for when we already have the parsed LabeledStatement for the main
- * block — we use the main block's end position as the scan start, and look
- * for continuation labels after it.
- */
-function findLabeledBlockSpanFromLabeled(
-  source: string,
-  labeled: ts.LabeledStatement
-): { end: number } | undefined {
-  let end = labeled.end;
-
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    /*skipTrivia*/ true,
-    ts.LanguageVariant.Standard,
-    source
-  );
-  scanner.setTextPos(end);
-
-  while (true) {
-    const savedPos = scanner.getTextPos();
-    const nextTok = scanner.scan();
-    if (!isContinuationLabelToken(nextTok, scanner)) {
-      scanner.setTextPos(savedPos);
-      break;
-    }
-    const colon = scanner.scan();
-    if (colon !== ts.SyntaxKind.ColonToken) {
-      scanner.setTextPos(savedPos);
-      break;
-    }
-    const contEnd = scanBracedBlock(scanner);
-    if (contEnd === -1) break;
-    end = contEnd;
-  }
-
-  return { end };
-}
-
-/**
- * Check whether the current token is one of our continuation labels.
- *
- * `yield`, `return`, and `in` come back from the scanner as keyword tokens
- * (not Identifier), so we dispatch on kind rather than matching scanner
- * output text against a string set.
- */
-function isContinuationLabelToken(tok: ts.SyntaxKind, scanner: ts.Scanner): boolean {
-  if (tok === ts.SyntaxKind.YieldKeyword) return true;
-  if (tok === ts.SyntaxKind.ReturnKeyword) return true;
-  if (tok === ts.SyntaxKind.InKeyword) return true;
-  if (tok === ts.SyntaxKind.Identifier) {
-    return CONTINUATION_LABELS.has(scanner.getTokenValue());
-  }
-  return false;
 }
 
 /**

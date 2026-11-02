@@ -153,6 +153,9 @@ export default defineConfig({
     },
   },
 
+  // TODO(docs review 2026-10): this hides every dead internal link. Replace it
+  // with a targeted list (e.g. [/^\/llms(-full)?\.txt$/]) once the remaining dead
+  // links are fixed, so a broken link fails the docs build.
   ignoreDeadLinks: true,
   cleanUrls: true,
 

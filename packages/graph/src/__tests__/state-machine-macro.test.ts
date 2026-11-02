@@ -106,3 +106,91 @@ export const n = sm.__stateCount;
     expect(run(code).n).toBe(12);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Docs review r3 (guides-b #6): states and events were typed `string`, so
+// `m.create().transition("nope")` type-checked and threw at runtime.
+// ---------------------------------------------------------------------------
+
+const SM_DSL = `
+  @initial Idle
+  @terminal Done
+  Idle --start--> Running
+  Running --stop--> Done
+`;
+
+function strictDiags(src: string): string[] {
+  const r = transformCode(src, { fileName: FILE, strictOutput: true });
+  return (r.diagnostics ?? []).map((d: any) => String(d.message ?? d.messageText));
+}
+
+/** Type-check SOURCE (not output) against the package's own src. */
+function typecheckSource(code: string): string[] {
+  const file = path.resolve(__dirname, "__sm_typecheck_input.ts");
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    types: [],
+  };
+  const host = ts.createCompilerHost(options);
+  const origGet = host.getSourceFile.bind(host);
+  host.getSourceFile = (f, lang, ...rest) =>
+    f === file ? ts.createSourceFile(f, code, lang, true) : origGet(f, lang, ...rest);
+  const origExists = host.fileExists.bind(host);
+  host.fileExists = (f) => f === file || origExists(f);
+  const program = ts.createProgram([file], options, host);
+  const sf = program.getSourceFile(file)!;
+  return program
+    .getSemanticDiagnostics(sf)
+    .map((d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
+}
+
+describe("stateMachine macro: literal state/event types (r3)", () => {
+  it("the emitted instance is typed with the DSL's literal unions", () => {
+    const ok = strictDiags(`import { stateMachine } from "@typesugar/graph";
+const m = stateMachine\`${SM_DSL}\`;
+const s: "Idle" | "Running" | "Done" = m.create().transition("start").current;
+export { s };
+`);
+    expect(ok.filter((d) => d.includes("strictOutput"))).toEqual([]);
+    const bad = strictDiags(`import { stateMachine } from "@typesugar/graph";
+const m = stateMachine\`${SM_DSL}\`;
+export const x = m.create().transition("nope");
+`);
+    expect(bad.join("\n")).toMatch(/strictOutput.*"nope".*not assignable/);
+  });
+
+  it("explicit tag type arguments make the SOURCE type-check precisely", () => {
+    const diags = typecheckSource(`import { stateMachine } from "../index.js";
+const m = stateMachine<"Idle" | "Running" | "Done", "start" | "stop">\`${SM_DSL}\`;
+const ok = m.create().transition("start");
+// @ts-expect-error -- not an event of this machine
+m.create().transition("nope");
+const cur: "Idle" | "Running" | "Done" = ok.current;
+void cur;
+`);
+    expect(diags).toEqual([]);
+  });
+
+  it("explicit type arguments that disagree with the DSL are a macro error", () => {
+    const { diagnostics } = expand(`import { stateMachine } from "@typesugar/graph";
+export const m = stateMachine<"Idle" | "Running", "start" | "stop" | "pause">\`${SM_DSL}\`;
+`);
+    const all = diagnostics.join("\n");
+    expect(all).toMatch(/states.*missing.*Done/);
+    expect(all).toMatch(/events.*not in the definition.*pause/);
+  });
+
+  it("matching explicit type arguments expand and run", () => {
+    const { code, diagnostics } = expand(`import { stateMachine } from "@typesugar/graph";
+const m = stateMachine<"Idle" | "Running" | "Done", "start" | "stop">\`${SM_DSL}\`;
+export const cur = m.create().transition("start").current;
+`);
+    expect(diagnostics).toEqual([]);
+    expect(run(code).cur).toBe("Running");
+  });
+});

@@ -215,3 +215,73 @@ describe("#32 validate<T>() returns fp ValidatedNel", () => {
     expect(bad.error.tail.tail).toBe(null);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Docs review r3 (guides-c #6, start #7): the generated code must type-check.
+// strictOutput reported TS2339 "Property 'name' does not exist on type
+// 'object'" for every member read; type-check the emitted code here.
+// ---------------------------------------------------------------------------
+
+function typecheckOutput(code: string): string[] {
+  const file = path.resolve(__dirname, "../../__validate_typecheck_input.ts");
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    types: [],
+  };
+  const host = ts.createCompilerHost(options);
+  const origGet = host.getSourceFile.bind(host);
+  host.getSourceFile = (f, lang, ...rest) =>
+    f === file ? ts.createSourceFile(f, code, lang, true) : origGet(f, lang, ...rest);
+  const origExists = host.fileExists.bind(host);
+  host.fileExists = (f) => f === file || origExists(f);
+  const program = ts.createProgram([file], options, host);
+  const sf = program.getSourceFile(file)!;
+  return [...program.getSyntacticDiagnostics(sf), ...program.getSemanticDiagnostics(sf)].map(
+    (d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`
+  );
+}
+
+describe("r3: generated validators type-check", () => {
+  const body = `
+    interface Addr { city: string; "zip-code"?: string }
+    interface User {
+      name: string;
+      age: number;
+      tags: string[];
+      pair: [string, number?];
+      rest: [number, ...string[]];
+      addr?: Addr;
+      extra: Record<string, number>;
+    }
+    export const isUser = is<User>();
+    export const checkUser = validate<User>();
+    export const assertUser = assert<User>();
+  `;
+  it("is/validate/assert output has no type errors and still runs", () => {
+    const e = expand(body);
+    expect(e.errors).toEqual([]);
+    expect(typecheckOutput(e.code)).toEqual([]);
+    const m = run(e.code);
+    const good = {
+      name: "a",
+      age: 1,
+      tags: ["x"],
+      pair: ["p"],
+      rest: [1, "a", "b"],
+      addr: { city: "c", "zip-code": "z" },
+      extra: { a: 1 },
+    };
+    expect(m.isUser(good)).toBe(true);
+    expect(m.isUser({ ...good, addr: { city: 1 } })).toBe(false);
+    expect(m.isUser({ ...good, extra: { a: "x" } })).toBe(false);
+    expect(m.checkUser(good)).toEqual({ value: good });
+    expect(m.checkUser({ ...good, tags: [1] }).error.head.path).toBe("$.tags[0]");
+    expect(m.assertUser(good).name).toBe("a");
+    expect(() => m.assertUser({ ...good, rest: ["no"] })).toThrow(/Validation failed/);
+  });
+});

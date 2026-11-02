@@ -1,10 +1,131 @@
 # Configuration Reference
 
-All configuration options for typesugar.
+All configuration options for typesugar. There are four places settings live:
+
+| Where                                                         | What it controls                                                            |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [`typesugar.config.ts`](#typesugar-config-ts)                 | Project-wide settings: contracts, debug, feature flags, macro-package trust |
+| [`TYPESUGAR_*` environment variables](#environment-variables) | Overrides for the config file (CI, one-off builds)                          |
+| [tsconfig.json plugin entries](#tsconfig-json)                | The ts-patch transformer and the editor (language-service) plugin           |
+| [Bundler plugin options](#bundler-plugins-unplugin-typesugar) | Which files the Vite/esbuild/Webpack/Rollup plugin transforms               |
+
+## `typesugar.config.ts`
+
+The project config file. typesugar looks for the nearest one, walking up from the
+directory being compiled (the tsconfig directory for the CLI and `approve-macros`,
+otherwise the working directory) and stopping at the repository root.
+
+```typescript
+// typesugar.config.ts
+import { defineConfig } from "@typesugar/core"; // also exported by "typesugar"
+
+export default defineConfig({
+  debug: false,
+  contracts: {
+    mode: "full",
+    proveAtCompileTime: false,
+    strip: { preconditions: false, postconditions: false, invariants: false },
+  },
+  features: {
+    experimental: false,
+  },
+  security: {
+    allowedMacroPackages: ["some-typesugar-library"],
+  },
+});
+```
+
+Within one directory these file names are tried in order; the first one found wins:
+`typesugar.config.ts`, `typesugar.config.js`, `typesugar.config.cjs`, `.typesugarrc`,
+`.typesugarrc.json`, `.typesugarrc.yaml`, `.typesugarrc.yml`, `.typesugarrc.js`,
+`.typesugarrc.cjs`, `.typesugarrc.ts`, and finally a `"typesugar"` field in
+`package.json`. (`.mjs` config files are not supported.)
+
+A config file that exists but fails to load is reported as a warning, and only the
+defaults and `TYPESUGAR_*` variables apply; `typesugar approve-macros` refuses to
+write anything until the file loads.
+
+### `TypesugarConfig` keys
+
+| Key                              | Type                                   | Default  | Description                                                                                        |
+| -------------------------------- | -------------------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `debug`                          | boolean                                | `false`  | Debug mode                                                                                         |
+| `contracts.mode`                 | `"full"` \| `"assertions"` \| `"none"` | `"full"` | `full`: all checks; `assertions`: class invariants only; `none`: all contract checks stripped      |
+| `contracts.proveAtCompileTime`   | boolean                                | `false`  | Try to prove conditions at compile time and drop the runtime checks that are proven (experimental) |
+| `contracts.strip.preconditions`  | boolean                                | `false`  | Strip `requires` checks                                                                            |
+| `contracts.strip.postconditions` | boolean                                | `false`  | Strip `ensures` checks                                                                             |
+| `contracts.strip.invariants`     | boolean                                | `false`  | Strip `@invariant` checks                                                                          |
+| `features`                       | `Record<string, boolean>`              | `{}`     | Feature flags, readable from config conditions (e.g. `"features.experimental"`)                    |
+| `security.allowedMacroPackages`  | string[]                               | `[]`     | Non-`@typesugar/*` packages allowed to load macros (names, or `"@scope/*"`). See below             |
+| any other key                    | unknown                                | —        | Custom values, readable with `config.get("your.key")` from `@typesugar/core`                       |
+
+`TypesugarConfig` also declares a `resolution` block (`mode`, `fileOverrides`,
+`prelude`, `trace`); the 1.0 macros don't read it, since instance resolution is
+always import-scoped (PEP-052).
+
+### `security.allowedMacroPackages`
+
+A package that declares a `typesugar.macros` entry in its `package.json` provides
+macros. Packages under `@typesugar/*` (and `typesugar` itself) are trusted
+automatically. Every other macro package runs code inside your build, so it is
+refused, and the build fails with "…have not been approved. Run
+`typesugar approve-macros`…", until its name is in this list.
+
+Don't edit the list by hand unless you have to: run
+[`npx typesugar approve-macros`](./cli.md#approve-macros), which finds the
+unapproved packages, asks for confirmation (or not, with `--yes`), and writes them
+here. It creates `typesugar.config.ts` if there is none, and otherwise rewrites only
+the `allowedMacroPackages` value. Review each entry as you would a new production
+dependency, and commit the file.
+
+### Reading config from code
+
+```typescript
+import { config } from "@typesugar/core";
+
+config.get("debug"); // boolean
+config.get("contracts.mode"); // "full" | "assertions" | "none"
+config.set({ contracts: { mode: "none" } }); // programmatic override (until reload)
+```
+
+`@typesugar/contracts` also has `setContractConfig({ mode, proveAtCompileTime, strip })`
+and `getContractConfig()`, which read and write the same `contracts` block.
+
+## Environment Variables
+
+`TYPESUGAR_*` variables override the config file (environment beats file beats
+defaults). The name maps to a config path like this:
+
+- the first single `_` separates the top-level key: `TYPESUGAR_CONTRACTS_MODE` →
+  `contracts.mode`
+- `__` separates any further nesting: `TYPESUGAR_CONTRACTS__STRIP__PRECONDITIONS` →
+  `contracts.strip.preconditions`
+- every other `_` joins words in camelCase: `TYPESUGAR_CONTRACTS_PROVE_AT_COMPILE_TIME`
+  → `contracts.proveAtCompileTime`
+
+Values `1`/`true` become `true`, `0`/`false`/empty become `false`, digits become a
+number, and anything else stays a string.
+
+```bash
+TYPESUGAR_CONTRACTS_MODE=none typesugar build
+TYPESUGAR_DEBUG=1 typesugar build
+```
+
+Other variables typesugar reads:
+
+| Variable                                  | Effect                                                                                     |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `TYPESUGAR_CFG_<NAME>`                    | Sets a `cfg()` condition (see [below](#conditional-compilation-cfg))                       |
+| `TYPESUGAR_PROFILE=1`                     | Print timing reports                                                                       |
+| `TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS=1` | Show diagnostics hidden by the suppression rules (same as `--show-suppressed-diagnostics`) |
+| `TYPESUGAR_VERBOSE=1`                     | Verbose logging from the TypeScript language-service plugin                                |
+| `TYPESUGAR_COMPTIME_IN_EDITOR=1`          | Evaluate `comptime(...)` inside the editor (off by default)                                |
 
 ## tsconfig.json
 
 ### Transformer Plugin
+
+Used by ts-patch (`tsc`) and read by the typesugar CLI:
 
 ```json
 {
@@ -13,7 +134,8 @@ All configuration options for typesugar.
       {
         "transform": "@typesugar/transformer",
         "type": "program",
-        "verbose": false
+        "verbose": false,
+        "cfgConfig": { "debug": true }
       }
     ]
   }
@@ -22,11 +144,16 @@ All configuration options for typesugar.
 
 **Options:**
 
-| Option      | Type    | Default     | Description                        |
-| ----------- | ------- | ----------- | ---------------------------------- |
-| `transform` | string  | —           | Must be `"@typesugar/transformer"` |
-| `type`      | string  | `"program"` | Plugin type (use `"program"`)      |
-| `verbose`   | boolean | `false`     | Enable verbose logging             |
+| Option      | Type                      | Default              | Description                                            |
+| ----------- | ------------------------- | -------------------- | ------------------------------------------------------ |
+| `transform` | string                    | —                    | Must be `"@typesugar/transformer"`                     |
+| `type`      | string                    | `"program"`          | Plugin type (use `"program"`)                          |
+| `verbose`   | boolean                   | `false`              | Enable verbose logging                                 |
+| `cfgConfig` | `Record<string, unknown>` | `{}`                 | Conditions for `cfg()` / `@cfgAttr`                    |
+| `cacheDir`  | string \| `false`         | `".typesugar-cache"` | Directory for the expansion cache; `false` disables it |
+
+Macro packages are not listed here: they are found through the `typesugar.macros`
+field in each package's `package.json`.
 
 ### Language Service Plugin
 
@@ -42,24 +169,29 @@ All configuration options for typesugar.
 }
 ```
 
-Provides IDE integration for macro expansion previews.
+Makes the editor's TypeScript server see expanded code, so valid macro code doesn't
+show false errors. Its only option is `"verbose": true` (or `TYPESUGAR_VERBOSE=1`).
 
-## Vite Plugin (unplugin-typesugar)
+## Bundler Plugins (unplugin-typesugar)
+
+The same options apply to every bundler entry point (`unplugin-typesugar/vite`,
+`/esbuild`, `/webpack`, `/rollup`):
 
 ```typescript
 // vite.config.ts
+import { defineConfig } from "vite";
 import typesugar from "unplugin-typesugar/vite";
 
 export default defineConfig({
   plugins: [
     typesugar({
-      strict: false,
-      verbose: false,
-      include: ["**/*.ts", "**/*.tsx"],
-      exclude: ["node_modules/**", "**/*.d.ts"],
       tsconfig: "./tsconfig.json",
-      macroModules: [],
-      config: {},
+      include: ["src/**/*.ts", "src/**/*.tsx"],
+      exclude: ["**/*.d.ts"],
+      verbose: false,
+      diskCache: false,
+      strict: false,
+      cfgConfig: { debug: process.env.NODE_ENV !== "production" },
     }),
   ],
 });
@@ -67,92 +199,85 @@ export default defineConfig({
 
 **Options:**
 
-| Option         | Type     | Default                   | Description                    |
-| -------------- | -------- | ------------------------- | ------------------------------ |
-| `strict`       | boolean  | `false`                   | Typecheck expanded output      |
-| `verbose`      | boolean  | `false`                   | Enable verbose logging         |
-| `include`      | string[] | `["**/*.ts", "**/*.tsx"]` | File patterns to process       |
-| `exclude`      | string[] | `["node_modules/**"]`     | File patterns to ignore        |
-| `tsconfig`     | string   | Auto-detected             | Path to tsconfig.json          |
-| `macroModules` | string[] | `[]`                      | Additional macro module paths  |
-| `config`       | object   | `{}`                      | Conditional compilation config |
+| Option      | Type                                          | Default        | Description                                                                                                                           |
+| ----------- | --------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig`  | string                                        | auto-detected  | Path to tsconfig.json (searched upward from the working directory)                                                                    |
+| `include`   | `RegExp \| string \| Array<RegExp \| string>` | `/\.[jt]sx?$/` | Files to transform (see matching rules below)                                                                                         |
+| `exclude`   | same as `include`                             | none           | Files to skip                                                                                                                         |
+| `verbose`   | boolean                                       | `false`        | Enable verbose logging                                                                                                                |
+| `diskCache` | boolean \| string                             | `false`        | Disk-backed transform cache; a string sets its directory                                                                              |
+| `strict`    | boolean \| `"incremental"`                    | `false`        | Type-check the expanded output at build end and fail the build on errors (experimental). `"incremental"` re-checks only changed files |
+| `cfgConfig` | `Record<string, unknown>`                     | `{}`           | Conditions for `cfg()` / `@cfgAttr`                                                                                                   |
 
-## Webpack Plugin
+**How `include` / `exclude` match:**
+
+- Strings are globs (picomatch syntax) matched against the absolute module path. A
+  relative glob such as `"src/**/*.ts"` is resolved against the project root (Vite's
+  `root`, otherwise the working directory). A glob starting with `**` matches anywhere.
+- RegExps are tested against the module path.
+- Files under `node_modules` are always skipped, even when you pass your own
+  `exclude`, unless an `include` pattern names `node_modules`.
+- `include: []` transforms nothing.
+
+**Webpack** (CommonJS config) needs `.default`:
 
 ```javascript
 // webpack.config.js
-const typesugar = require("unplugin-typesugar/webpack");
+const typesugar = require("unplugin-typesugar/webpack").default;
 
 module.exports = {
-  plugins: [
-    typesugar({
-      strict: false,
-      verbose: false,
-      include: ["**/*.ts"],
-      exclude: ["node_modules/**"],
-    }),
-  ],
+  plugins: [typesugar({ include: ["src/**/*.ts"] })],
 };
 ```
 
-Same options as Vite plugin.
-
-## esbuild Plugin
+**esbuild:**
 
 ```typescript
-// build.ts
 import { build } from "esbuild";
 import typesugar from "unplugin-typesugar/esbuild";
 
-build({
-  plugins: [
-    typesugar({
-      strict: false,
-      verbose: false,
-    }),
-  ],
+await build({
+  entryPoints: ["src/index.ts"],
+  bundle: true,
+  outdir: "dist",
+  plugins: [typesugar()],
 });
 ```
 
-Same options as Vite plugin.
-
-## Rollup Plugin
+**Rollup:**
 
 ```javascript
 // rollup.config.js
 import typesugar from "unplugin-typesugar/rollup";
 
 export default {
-  plugins: [
-    typesugar({
-      strict: false, // typecheck expanded output
-      verbose: false,
-    }),
-  ],
+  plugins: [typesugar()],
 };
 ```
 
-Same options as Vite plugin.
+**Type-checking:** bundlers don't type-check. Run `typesugar check` in CI (not
+`tsc --noEmit`, which never runs the macros), or set `strict: true`.
 
-**Typechecking:** Rollup does NOT typecheck. Use `strict: true` or run `tsc --noEmit` separately.
+## Conditional Compilation (`cfg`)
 
-## Conditional Compilation Config
+`cfg()` and `@cfgAttr` read their conditions from one of two sources:
 
-Pass configuration for `cfg()` and `@cfgAttr`:
+- the `cfgConfig` option — of the bundler plugin, or of the tsconfig transformer
+  entry. When it is set, it **replaces** the environment variables below; they are
+  not merged.
+- otherwise, `TYPESUGAR_CFG_<NAME>` environment variables — `TYPESUGAR_CFG_DEBUG=1`
+  sets `debug: true`; `__` nests (`TYPESUGAR_CFG_TARGET__PLATFORM=web` sets
+  `target.platform`)
 
 ```typescript
 typesugar({
-  config: {
+  cfgConfig: {
     debug: process.env.NODE_ENV === "development",
-    production: process.env.NODE_ENV === "production",
     platform: "web",
-    "feature.experimental": false,
-    "feature.analytics": true,
+    feature: { experimental: false, analytics: true },
   },
 });
 ```
-
-Or in tsconfig.json:
 
 ```json
 {
@@ -160,10 +285,8 @@ Or in tsconfig.json:
     "plugins": [
       {
         "transform": "@typesugar/transformer",
-        "config": {
-          "debug": true,
-          "production": false
-        }
+        "type": "program",
+        "cfgConfig": { "debug": true, "production": false }
       }
     ]
   }
@@ -172,31 +295,26 @@ Or in tsconfig.json:
 
 ## ESLint Plugin
 
-### Flat Config (eslint.config.js)
+Flat config only (ESLint 9 or later):
 
 ```javascript
+// eslint.config.js
 import typesugar from "@typesugar/eslint-plugin";
 
 export default [
   // Recommended: lightweight processor
-  ...typesugar.configs.recommended,
+  typesugar.configs.recommended,
 
   // Or: full transformer (slower, more accurate)
-  // ...typesugar.configs.full,
+  // typesugar.configs.full,
 
   // Or: strict mode
-  // ...typesugar.configs.strict,
+  // typesugar.configs.strict,
 ];
 ```
 
-### Legacy Config (.eslintrc)
-
-```json
-{
-  "extends": ["plugin:@typesugar/recommended"],
-  "plugins": ["@typesugar"]
-}
-```
+Each `configs.*` entry is a single config object, so it goes in the array as is (not
+spread with `...`).
 
 ## VSCode Extension
 
@@ -207,16 +325,18 @@ Settings in `.vscode/settings.json` or user settings:
   "typesugar.enableCodeLens": true,
   "typesugar.enableInlayHints": true,
   "typesugar.enableDiagnostics": true,
-  "typesugar.manifestPath": "typesugar.manifest.json"
+  "typesugar.manifestPath": "typesugar.manifest.json",
+  "typesugar.comptimeInEditor": false
 }
 ```
 
-| Setting             | Type    | Default                     | Description             |
-| ------------------- | ------- | --------------------------- | ----------------------- |
-| `enableCodeLens`    | boolean | `true`                      | Show expansion previews |
-| `enableInlayHints`  | boolean | `true`                      | Show type hints         |
-| `enableDiagnostics` | boolean | `true`                      | Show macro errors       |
-| `manifestPath`      | string  | `"typesugar.manifest.json"` | Path to manifest file   |
+| Setting             | Type    | Default                     | Description                                                                                        |
+| ------------------- | ------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `enableCodeLens`    | boolean | `true`                      | Show expansion previews                                                                            |
+| `enableInlayHints`  | boolean | `true`                      | Show inlay hints for bind types and comptime results                                               |
+| `enableDiagnostics` | boolean | `true`                      | Run background macro expansion for diagnostics                                                     |
+| `manifestPath`      | string  | `"typesugar.manifest.json"` | Path to the macro manifest file                                                                    |
+| `comptimeInEditor`  | boolean | `false`                     | Evaluate `comptime(...)` in the editor (trusted workspaces only); comptime inlay results need this |
 
 ## ts-patch
 
@@ -244,61 +364,22 @@ Add to package.json:
 npx ts-patch check
 ```
 
-## Jest (ts-jest)
+## Jest
 
-```javascript
-// jest.config.js
-module.exports = {
-  transform: {
-    "^.+\\.tsx?$": [
-      "ts-jest",
-      {
-        astTransformers: {
-          before: [
-            {
-              path: "@typesugar/transformer",
-              options: { verbose: false },
-            },
-          ],
-        },
-      },
-    ],
-  },
-};
-```
+There is no working ts-jest integration: ts-jest's `astTransformers` need a module
+that exports `name`, `version` and `factory`, and `@typesugar/transformer` doesn't
+provide one. Use [Vitest](../getting-started/environments/vitest.md) with
+`unplugin-typesugar/vite` for tests. See the [Jest page](../getting-started/environments/jest.md).
 
-## Package-Specific Config
+## Comptime
 
-### @typesugar/contracts
-
-```typescript
-import { configure } from "@typesugar/contracts";
-
-configure({
-  mode: "enabled", // "enabled" | "disabled" | "assume"
-});
-```
-
-### Comptime Configuration
-
-Timeout for compile-time evaluation (default: 5000ms):
-
-```json
-{
-  "compilerOptions": {
-    "plugins": [
-      {
-        "transform": "@typesugar/transformer",
-        "comptimeTimeout": 10000
-      }
-    ]
-  }
-}
-```
+`comptime()` evaluation has a fixed 5-second timeout; it isn't configurable.
+File-system and environment access are off unless the block asks for them, e.g.
+`comptime({ fs: "read" }, () => …)`. See the [comptime guide](../guides/comptime.md).
 
 ## Environment Detection
 
-typesugar auto-detects:
+`typesugar init` and `typesugar doctor` auto-detect:
 
 - **Package manager**: npm, pnpm, yarn, bun (from lock files)
 - **Bundler**: Vite, Webpack, esbuild, Rollup, Next.js (from dependencies)

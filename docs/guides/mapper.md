@@ -303,11 +303,11 @@ The macro analyzes source and target types at compile time:
 
 `transformInto()` is a compile-time macro. The function call is **completely erased** and replaced with a direct object literal.
 
-**Source code:**
+**Source code** (with the Quick Start's `User` and `UserDTO`):
 
 ```typescript
 const dto = transformInto<User, UserDTO>(user, {
-  rename: { firstName: "first_name" },
+  rename: { firstName: "first_name", lastName: "last_name" },
   const: { role: "user" },
 });
 ```
@@ -317,6 +317,7 @@ const dto = transformInto<User, UserDTO>(user, {
 ```javascript
 const dto = {
   firstName: user.first_name,
+  lastName: user.last_name,
   age: user.age,
   role: "user",
 };

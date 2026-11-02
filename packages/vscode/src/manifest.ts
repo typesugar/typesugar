@@ -119,7 +119,7 @@ export function createDefaultManifest(): MacroManifest {
         derive: {
           module: "typesugar",
           description: "Auto-derive implementations",
-          args: ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json", "Builder"],
+          args: ["Eq", "Ord", "Clone", "Debug", "Hash", "Default", "Json"],
         },
         operators: {
           module: "typesugar",

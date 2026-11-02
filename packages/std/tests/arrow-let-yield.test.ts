@@ -135,12 +135,13 @@ describe("let:/yield: in expression position", () => {
   });
 
   describe("export default + let:/yield:", () => {
-    it("hoists to a top-level const and exports it", async () => {
+    it("exports the comprehension chain directly", async () => {
       const result = await transformCode(EXPORT_DEFAULT_SOURCE, { fileName: "input.ts" });
       const out = result.code;
 
-      expect(out).toMatch(/const __letyield_\d+\s*=\s*Effect\.flatMap\(/);
-      expect(out).toMatch(/export default __letyield_\d+/);
+      // The value-slot temp is collapsed back into the export.
+      expect(out).toMatch(/export default Effect\.flatMap\(/);
+      expect(out).not.toMatch(/__letyield_/);
       expect(out).not.toContain("let: {");
       expect(out).not.toContain("yield: {");
 
@@ -163,7 +164,11 @@ describe("let:/yield: in expression position", () => {
       const result = await transformCode(TOP_LEVEL_SOURCE, { fileName: "input.ts" });
       const out = result.code;
 
-      expect(out).toMatch(/const prog\s*=\s*Effect\.flatMap\(/);
+      // The preprocessor hoists every expression-position comprehension
+      // (docs review 2026-10): `const __letyield_N = <chain>; const prog = __letyield_N;`.
+      expect(out).toMatch(
+        /const prog\s*=\s*Effect\.flatMap\(|const (__letyield_\d+)\s*=\s*Effect\.flatMap\([\s\S]*const prog\s*=\s*\1;/
+      );
       expect(out).not.toContain("let: {");
       expect(out).not.toContain("yield: {");
 

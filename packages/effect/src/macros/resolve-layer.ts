@@ -36,6 +36,7 @@
 import * as ts from "typescript";
 import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
 import { getLayersForService, type LayerInfo } from "./layer.js";
+import { EFFECT001, EFFECT020, reportEffectDiagnostic } from "../diagnostics.js";
 import {
   resolveGraph,
   generateLayerComposition,
@@ -179,23 +180,22 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
       const resolution = resolveGraph(requiredServices, findLayers, undefined, sourceFile.fileName);
 
       if (resolution.missing.length > 0) {
-        const missingList = resolution.missing.join(", ");
-        const hints = resolution.missing
-          .filter((m) => outOfScope.has(m))
-          .map(
-            (m) =>
-              `'${m}' is provided by ${outOfScope
-                .get(m)!
-                .map((l) => `${l.name} (${l.sourceFile})`)
-                .join(", ")}, which is not imported by this file`
-          );
-        ctx.reportError(
-          callExpr,
-          `No @layer found for required services: ${missingList}. ` +
-            (hints.length > 0
-              ? hints.join("; ") + ". Import that module or pass the layer to layerMake<R>()."
-              : `Register layers using @layer(${resolution.missing[0]}) decorator.`)
-        );
+        for (const m of resolution.missing) {
+          const diag = reportEffectDiagnostic(ctx, EFFECT001).at(callExpr).withArgs({ service: m });
+          const providers = outOfScope.get(m);
+          if (providers) {
+            diag
+              .note(
+                `'${m}' is provided by ${providers
+                  .map((l) => `${l.name} (${l.sourceFile})`)
+                  .join(", ")}, which is not imported by this file`
+              )
+              .help("Import that module or pass the layer to layerMake<R>().");
+          } else {
+            diag.help(`Add a layer with @layer(${m}).`);
+          }
+          diag.emit();
+        }
         return emptyLayer(ctx);
       }
 
@@ -213,7 +213,10 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
       return generateLayerComposition(ctx, resolution, layerExprMap);
     } catch (e) {
       if (e instanceof CircularDependencyError) {
-        ctx.reportError(callExpr, `Circular layer dependency: ${e.cycle.join(" → ")}`);
+        reportEffectDiagnostic(ctx, EFFECT020)
+          .at(callExpr)
+          .note(`Dependency cycle: ${e.cycle.join(" → ")}`)
+          .emit();
         return emptyLayer(ctx);
       }
       ctx.reportError(

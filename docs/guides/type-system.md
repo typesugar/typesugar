@@ -25,7 +25,7 @@ const bad = Port.refine(-1); // throws at runtime
 ```
 
 > **Macros expand only when imported from `@typesugar/type-system`.** `wrap`, `unwrap`,
-> `newtypeCtor`, `unsafeRefine`, `opaqueModule`, `@pure`, `@effect`, the type-level arithmetic
+> `newtypeCtor`, `opaqueModule`, `@pure`, `@effect`, the type-level arithmetic
 > macros, and the rest are scoped to that module: the transformer rewrites an identifier only
 > if it resolves to an import from `@typesugar/type-system`. A same-named function from another
 > library (or a locally defined one) is left alone.
@@ -83,6 +83,7 @@ import {
 type UserId = Newtype<number, "UserId">;
 type Meters = Newtype<number, "Meters">;
 type Feet = Newtype<number, "Feet">;
+type Email = Newtype<string, "Email">;
 
 // Wrap values (compiles away to nothing)
 const id = wrap<UserId>(42);
@@ -104,8 +105,13 @@ const mkUserId = newtypeCtor<UserId>();
 const id2 = mkUserId(42);
 
 // Validated constructor (validation runs, wrapping is zero-cost)
-const mkEmail = validatedNewtype<Email>(s => s.includes("@"));
+const mkEmail = validatedNewtype<Email>((s) => s.includes("@"));
 ```
+
+These examples type-check with plain `tsc` as well as under the transformer.
+One wrinkle: `wrap` erases to its bare argument, so with `strictOutput` on, the
+expanded `calculateArea(10, 5)` gets a warning that `number` is not assignable
+to `Meters`. The program itself is unaffected.
 
 ### The Branding Spectrum
 
@@ -133,10 +139,10 @@ const checked = Email.safe("not-an-email"); // { ok: false, error: "..." }
 // MaxLength(5) and MaxLength(100) are different types
 const atMost5 = MaxLength<number, 5>(5);
 const short = atMost5.refine([1, 2, 3]); // Refined<number[], "MaxLength<5>">
-
-// Escape hatch: skip validation (the macro erases it to its argument)
-// unsafeRefine<Port>(n)
 ```
+
+There is no `unsafeRefine` escape hatch in 1.0 (it is neither exported nor
+registered as a macro).
 
 ### Higher-Kinded Types (HKT)
 
@@ -262,7 +268,7 @@ const pairs: Vec<[number, string], 3> = Vec.zip(v3, Vec.from(["a", "b", "c"]));
 
 // Use with contracts: length is provable
 function processTriple(v: Vec<number, 3>): number {
-  requires(Vec.length(v) === 3); // PROVEN: type fact
+  requires(Vec.length(v) === 3); // the type guarantees it, but the runtime check stays in the output
   return Vec.head(v) + Vec.last(v);
 }
 ```
@@ -286,7 +292,7 @@ const UserId = opaqueModule<number, "UserId">(
   (n) => n > 0 // optional validator
 )({
   // operations receive the underlying representation
-  toString: (n) => `user-${n}`,
+  toString: (n: number) => `user-${n}`,
 });
 type UserId = Opaque<number, "UserId">;
 
@@ -373,7 +379,7 @@ or `@async` decorator; use `@effect("io")`, `@effect("async")`, etc. The `pure`,
 
 ### HKT
 
-- `Kind<F, A>` / `$<F, A>` — Phantom kind marker: type constructor F applied to type A
+- `Kind<F, A>` — Phantom kind marker: type constructor F applied to type A
 - `_` — Hole marker for `@hkt` type aliases (Tier 3): `type ArrayF = Array<_>`
 - `TypeFunction` — Base interface for type-level functions
 - `Apply<F, A>` — Eagerly resolve a type-level function (rarely needed)
@@ -392,12 +398,11 @@ or `@async` decorator; use `@effect("io")`, `@effect("async")`, etc. The `pure`,
 - `Positive`, `NonNegative`, `Int`, `Byte`, `Port` — Number refinements
 - `NonEmpty`, `Email`, `Url`, `Uuid` — String refinements
 - `MaxLength(n)`, `MinLength(n)` — Array refinements; the bound is part of the brand (`"MaxLength<5>"`)
-- `unsafeRefine(value)` — Macro that skips validation
 
 ### Type-Level Arithmetic
 
 - `Add`, `Sub`, `Mul`, `Div`, `Mod`, `Pow` — Operations
-- `Lt`, `Lte`, `Gt`, `Gte`, `Eq` — Comparisons
+- `Lt`, `Lte`, `Gt`, `Gte`, `NumEq` — Comparisons
 - `Inc`, `Dec`, `Negate`, `Abs` — Unary operations
 
 ### Length-Indexed Arrays

@@ -93,11 +93,16 @@ import { Schema, NativeSchema, nativeSchema, Validator } from "@typesugar/valida
 
 ### What is `Schema<F>`?
 
-`Schema<F>` is a typeclass where `F` represents a type-level function for schema types:
+`Schema<F>` is a typeclass where `F` represents a type-level function for schema types.
+The package ships one instance, for native validators:
 
-- For Zod: `Kind<ZodF, User>` = `ZodType<User>`
-- For Valibot: `Kind<ValibotF, User>` = `BaseSchema<User>`
-- For native validators: `Kind<ValidatorF, User>` = `(x: unknown) => x is User`
+- `Kind<ValidatorF, User>` = `(x: unknown) => x is User` (`nativeSchema`)
+
+No Zod or Valibot instance ships with 1.0. To use one of those libraries, write
+the instance yourself with `makeSchema` (see
+[Creating Custom Schema Instances](#creating-custom-schema-instances)) over your
+own type-level function, for example a `ZodF` where `Kind<ZodF, User>` =
+`ZodType<User>`.
 
 ### Schema Interface
 
@@ -140,10 +145,9 @@ function processBody<F, A>(S: Schema<F>, schema: Kind<F, A>, data: unknown): A {
   return S.parse(schema, data);
 }
 
-// Passing a known dictionary auto-specializes the call at compile time —
-// no annotation needed. This is zero-cost:
-// processBody(zodSchema, mySchema, data)
-// Compiles to: mySchema.parse(data)
+// Passing a known dictionary auto-specializes the call at compile time
+// when the instance's source is visible to the compiler (see Zero-Cost below):
+// processBody(nativeSchema, isUser, data)
 ```
 
 ### Derived Operations
@@ -227,16 +231,15 @@ const isUser = (value: unknown): value is User => {
 };
 ```
 
-Since specialization is always-on, a `Schema` instance passed to a generic
-function auto-specializes and the dictionary is eliminated:
-
-```typescript
-// Before specialization
-const user = S.parse(schema, data);
-
-// After specialization (zero-cost)
-const user = schema.parse(data);
-```
+A `Schema` instance passed to a generic function such as `processBody` above
+is specialized (the dictionary is eliminated and `parse` is inlined) only when
+the compiler can see the instance's source: an instance you declare with
+`/** @impl Schema<...> */` in your own project, or `nativeSchema` when
+`@typesugar/validate` is compiled from source in the same program. Across a
+published package boundary it is **not** specialized yet: a `nativeSchema`
+imported from the installed `@typesugar/validate` package keeps dictionary
+passing (correct, just not zero-cost), and a TS9602 warning says so: the
+package's `.d.ts` has no method bodies to inline.
 
 ## API Reference
 

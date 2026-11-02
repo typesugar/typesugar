@@ -27,13 +27,17 @@ describe("@typesugar/derive exports", () => {
         "Hash",
         "Default",
         "Json",
-        "Builder",
         "TypeGuard",
       ];
 
       for (const sym of expectedSymbols) {
         expect(exports[sym], `${sym} should be exported`).toBeDefined();
       }
+    });
+
+    it("does not export the Builder marker (no Builder derive is registered)", async () => {
+      const exports: Record<string, unknown> = await import("../src/index.js");
+      expect(exports.Builder).toBeUndefined();
     });
   });
 

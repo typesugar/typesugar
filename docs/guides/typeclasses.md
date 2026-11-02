@@ -17,7 +17,7 @@ Typeclasses enable ad-hoc polymorphism — adding behavior to types without modi
 ## Defining a Typeclass
 
 ```typescript
-import { typeclass, instance, summon } from "@typesugar/typeclass";
+import { summon } from "@typesugar/typeclass";
 
 /** @typeclass */
 interface Show<A> {
@@ -59,22 +59,29 @@ This generates:
 
 ## Creating Instances
 
+Tag each instance with `/** @impl Typeclass<Type> */`:
+
 ```typescript
-@instance
+/** @impl Show<number> */
 const ShowNumber: Show<number> = {
   show: (n) => n.toString(),
 };
 
-@instance
+/** @impl Show<string> */
 const ShowString: Show<string> = {
   show: (s) => `"${s}"`,
 };
 
-@instance
+/** @impl Show<boolean> */
 const ShowBoolean: Show<boolean> = {
-  show: (b) => b ? "true" : "false",
+  show: (b) => (b ? "true" : "false"),
 };
 ```
+
+A bare `@instance` decorator on a `const` is an error ("@impl requires
+arguments"); the JSDoc tag has to name the typeclass and type. A `const` whose
+type annotation is `Show<number>` also counts as a `Show<number>` instance for
+resolution, tagged or not.
 
 ## Using Typeclasses
 
@@ -88,20 +95,12 @@ const showStr = summon<Show<string>>();
 showStr.show("hello"); // "\"hello\""
 ```
 
-### Generic Functions
+### Generic Functions: `= implicit()`
 
-```typescript
-function print<A>(value: A, S: Show<A> = summon<Show<A>>()): void {
-  console.log(S.show(value));
-}
-
-print(42); // "42"
-print("hello"); // "\"hello\""
-```
-
-### With `= implicit()`
-
-Mark typeclass parameters with `= implicit()` to have them auto-filled:
+In a generic function, mark typeclass parameters with `= implicit()` to have
+them filled in at each call site. (`= summon<Show<A>>()` does not work here: `A`
+is a type parameter, so there is no instance to find, and you get TS9001 with a
+hint to use `= implicit()` instead.)
 
 ```typescript
 import { implicit } from "@typesugar/typeclass";
@@ -115,7 +114,7 @@ print(42); // "42"
 print("hello"); // "\"hello\""
 
 // Or pass explicitly to override
-print(42, customShow);
+print(42, { show: (n: number) => `#${n}` }); // "#42"
 ```
 
 `= implicit()` is a default parameter marker — you can see from the signature which params are implicit, and override any of them by passing an argument explicitly. It's valid TypeScript even without the transformer (it just throws at runtime).
@@ -123,7 +122,7 @@ print(42, customShow);
 ## Deriving Instances
 
 Nothing is ambient (PEP-052): a type gets an instance only when you ask for
-one, either with `@derive` or by writing an `@instance`/`@impl` by hand. There
+one, either with `@derive` or by writing an `@impl` instance by hand. There
 is no "the compiler noticed a typeclass operation on a `Point` and synthesized
 an instance from its fields" behavior — that would mean a type's behavior
 depended on which files happen to import which typeclasses, which is exactly
@@ -149,17 +148,11 @@ summon<Eq<Point>>().equals(new Point(1, 2), new Point(1, 2)); // true
 
 ### For Generics
 
-```typescript
-@instance
-function ShowArray<A>(SA: Show<A>): Show<A[]> {
-  return {
-    show: (arr) => `[${arr.map(a => SA.show(a)).join(", ")}]`,
-  };
-}
-
-summon<Show<number[]>>().show([1, 2, 3]);
-// "[1, 2, 3]"
-```
+Not yet supported in 1.0: an instance that is itself generic (a
+`Show<A[]>` built from a `Show<A>`) cannot be declared. `@impl` on a function
+declaration is ignored with a warning, and `summon<Show<number[]>>()` then fails
+with TS9001. Write a concrete instance per element type (`Show<number[]>`) or
+pass the element instance explicitly.
 
 ## Extension Methods
 
@@ -255,7 +248,7 @@ interface Semigroup<A> {
   combine(a: A, b: A): A;
 }
 
-@instance
+/** @impl Semigroup<string> */
 const SemigroupString: Semigroup<string> = {
   combine: (a, b) => a + b,
 };
@@ -271,7 +264,7 @@ interface Monoid<A> extends Semigroup<A> {
   empty: A;
 }
 
-@instance
+/** @impl Monoid<string> */
 const MonoidString: Monoid<string> = {
   combine: (a, b) => a + b,
   empty: "",
@@ -356,8 +349,8 @@ const p2: Point = { x: 3, y: 4 };
 // Written as:
 const p3 = p1 + p2;
 
-// Compiles to:
-const p3 = Point.Numeric.add(p1, p2);
+// Compiles to (the instance method is inlined):
+const p3 = { x: p1.x + p2.x, y: p1.y + p2.y };
 ```
 
 <details>
@@ -539,8 +532,22 @@ Most users never need anything beyond Tier 0/1. The explicit tiers exist for lib
 
 ```typescript
 summon<Functor<Option>>().map(null, (x: number) => x); // null
+```
+
+`summon<Functor<Array>>()` needs an `Array` instance in scope like any other;
+without one it is a TS9001 compile error. Declare it the same way:
+
+```typescript
+/** @impl Functor<Array> */
+const arrayFunctor = {
+  map: (fa, f) => fa.map(f),
+};
+
 summon<Functor<Array>>().map([1, 2, 3], (x) => x * 2); // [2, 4, 6]
 ```
+
+Because `Array` is a global, no `Array.Functor` companion is generated (you get
+a warning saying so); refer to the instance as `arrayFunctor`.
 
 ## Migrating from `TypeFunction` to `@impl`
 
@@ -584,9 +591,9 @@ Existing `TypeFunction` interfaces still work — this is backwards compatible. 
 
 Instances are resolved at compile time:
 
-1. Exact match for the type
-2. Generic instance with inferred parameters
-3. Derived instance from `@derive`
+1. Exact match for the type (an `@impl` instance, or a `const` annotated with
+   the instance type)
+2. Derived instance from `@derive`
 
 If no instance is found, you get a compile error.
 
@@ -594,17 +601,23 @@ If no instance is found, you get a compile error.
 
 Keep to one instance per type per typeclass.
 
-> **Not enforced in 1.0.** typesugar does not check coherence yet: two
-> `@instance` declarations for the same (typeclass, type) pair both compile with
-> no diagnostic, and which one a call site resolves to is unspecified. The
-> diagnostics reserved for this (TS9050, TS9051, TS9006) are defined but not
-> emitted, and `CoherenceChecker` in `@typesugar/core` is an experimental API that
-> nothing calls. Until checking lands, avoid duplicate instances yourself, and use
-> a newtype wrapper when you need a second behaviour for the same type.
+> **Declarations are not checked in 1.0; call sites are.** Two instance
+> declarations for the same (typeclass, type) pair both compile with no
+> diagnostic: the declaration-side diagnostics reserved for this (TS9050,
+> TS9051, TS9006) are defined but not emitted, and `CoherenceChecker` in
+> `@typesugar/core` is an experimental API that nothing calls. But a call site
+> that needs the instance (`summon`, `= implicit()`) reports an
+> error when more than one is in scope:
+>
+> "Ambiguous Show instance for 'number': ShowNumber, ShowNumber2 are all in
+> scope. Keep exactly one in scope, or pass the instance explicitly."
+>
+> Avoid duplicate instances, and use a newtype wrapper when you need a second
+> behaviour for the same type.
 
 ```typescript
-// Avoid: a second Show<number> compiles today, and resolution between the two is unspecified
-@instance
+// Avoid: this declaration compiles, but summon<Show<number>>() is then an ambiguity error
+/** @impl Show<number> */
 const ShowNumber2: Show<number> = {
   show: (n) => `num(${n})`,
 };
@@ -617,7 +630,7 @@ const ShowNumber2: Show<number> = {
 | Zero-cost         | Yes (via specialize) | Partial  | No       | Yes      |
 | HKT               | Yes                  | Yes      | Yes      | No       |
 | Orphan instances  | Allowed              | Allowed  | Allowed  | No       |
-| Coherence         | Not checked (1.0)    | Optional | Enforced | Enforced |
+| Coherence         | Ambiguity at use     | Optional | Enforced | Enforced |
 | Extension methods | Yes                  | Yes      | No       | Yes      |
 
 ## Best Practices

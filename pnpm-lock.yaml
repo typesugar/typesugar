@@ -998,6 +998,9 @@ importers:
       '@ampproject/remapping':
         specifier: ^2.3.0
         version: 2.3.0
+      '@rollup/pluginutils':
+        specifier: ^5.3.0
+        version: 5.3.0(rollup@4.59.0)
       '@typesugar/core':
         specifier: workspace:*
         version: link:../core

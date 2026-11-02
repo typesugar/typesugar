@@ -17,6 +17,14 @@ import { setComptimeEvaluationEnabled } from "@typesugar/macros";
 // here. If you add a new package with macros, add it here too — otherwise the
 // playground will silently fall through to runtime fallbacks.
 //
+// Known exception: @typesugar/validate/macros is NOT listed. It registers an
+// expression macro named `assert`, which @typesugar/testing already owns, so
+// loading both throws "Expression macro 'assert' is already registered" at
+// import time. The global registry is keyed by macro name, so the two cannot
+// coexist until one is renamed. `is<T>()` / `validate<T>()` therefore stay
+// unexpanded on the playground. (@typesugar/reflect has no macros of its own:
+// `typeInfo` is registered by @typesugar/macros, which is listed.)
+//
 // IMPORTANT: Each of these packages must externalize @typesugar/core (and
 // @typesugar/macros if they import it) in their tsup.config.ts so they share
 // the same globalRegistry and instanceRegistry.

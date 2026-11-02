@@ -1,40 +1,55 @@
 # Error Messages
 
-typesugar error messages are modeled after Rust's compiler — they show you the problem, the context, and a fix.
+typesugar error messages are modeled after Rust's compiler — they tell you the problem, why it
+happened, and a fix.
 
 ## What They Look Like
 
-Here's what happens when you try to compare two values and typesugar can't derive `Eq`:
+Here's what `summon` reports when it can't find or derive an `Eq` instance, because one field's
+type has no `Eq`:
 
-```
-error[TS9001]: No instance found for `Eq<Color>`
-  --> src/palette.ts:12:5
-   |
-10 |   interface Palette { primary: Color; accent: Color }
-11 |
-12 |   p1 === p2
-   |      ^^^ Eq<Palette> requires Eq for all fields
-   |
- 8 |   interface Color { r: number; g: number; b: number }
-   |   --------- field `primary` has type `Color`
-   |
-   = note: Auto-derivation requires Eq instances for all fields
-   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
-   = suggestion: add-derive-eq
-     + @derive(Eq)
-     + interface Color { r: number; g: number; b: number }
+```typescript
+import { summon } from "typesugar";
+import type { Eq } from "@typesugar/std";
 
-For more information, see: https://typesugar.org/errors/TS9001
+interface Color {
+  r: number;
+  g: number;
+  b: number;
+}
+interface Point {
+  x: number;
+  y: number;
+  color: Color;
+}
+
+const eqPoint = summon<Eq<Point>>();
 ```
 
-Every error has:
+```
+src/palette.ts(15,17): error TS9001: [typesugar] [TS9001] No instance found for `Eq<Point>`
+  = note: resolution trace for Eq<Point>:
+  = note:   1. explicit-instance: Eq<Point> — not found — no @impl/@instance value for this type in scope
+  = note:   2. auto-derive via Generic: Eq<Point> — FAILED — see child attempts
+  = note:     derivation-strategy: Eq — ok
+  = note:     generic-meta: GenericMeta for Point: { x: number, y: number, color: Color } — FAILED — one or more fields lack required instance
+  = note:       field-check: field `x`: number — ok — number has Eq
+  = note:       field-check: field `y`: number — ok — number has Eq
+  = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
+  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+    Add: import { Eq } from "typesugar";
+```
 
-- **Error code** (TS9001) — look up the full explanation with `npx typesugar --explain TS9001`
-- **Primary span** — points at exactly what went wrong
-- **Secondary labels** — show related code (like the field that caused the problem)
-- **Notes** — explain why this happened
+The CLI (`typesugar build` / `check`) prints each diagnostic in the familiar `tsc` layout —
+`file(line,col): error TS<code>: message` — and your editor shows the same text at the primary
+location. A diagnostic carries:
+
+- **Error code** (TS9001) — look up the full explanation in the [Error Code Reference](/errors/)
+  (each page is at `/errors/TS<code>`). Diagnostics that don't have a dedicated code yet are
+  reported as TS9999.
+- **Primary location** — the expression or declaration that went wrong
+- **Notes** — explain why this happened (such as the resolution trace above)
 - **Help** — tell you what to do
-- **Suggestions** — machine-applicable fixes your IDE can apply with one click
 
 ## Error Categories
 
@@ -56,62 +71,58 @@ Full reference: [Error Code Reference](/errors/)
 
 ### Missing Typeclass Instance (TS9001)
 
-The most common error. You're using `===`, `.show()`, or `summon()` on a type that doesn't have the required typeclass.
-
-```
-error[TS9001]: No instance found for `Show<ApiResponse>`
-  --> src/api.ts:24:10
-   |
-24 |   console.log(response.show())
-   |                        ^^^^ Show<ApiResponse> is required
-   |
-   = note: ApiResponse has field `headers` of type `Headers` which lacks Show
-   = help: Provide @instance Show<Headers>, or use JSON.stringify() instead
-```
+The most common error: `summon()`, an `= implicit()` parameter, or another macro needs a
+typeclass instance for a type that doesn't have one (see the example at the top of the page).
 
 **Fixes:**
 
-- Add `@derive(Show)` to both `ApiResponse` and `Headers`
-- Provide a manual `@instance` for the problematic field type
+- Add `@derive(...)` to the type (and to the field types it lists as lacking the instance)
+- Provide a manual `@impl` instance for the problematic field type
 - If it's a third-party type, create a newtype wrapper
 
-### Derive Field Error (TS9101)
+### Derive Field Error
 
-Auto-derivation builds instances from field instances. If a field's type doesn't have the required instance, you get a precise error pointing at the field:
+Auto-derivation builds instances from field instances. If a field's type doesn't have the
+required instance, the error names the field:
+
+```typescript
+/** @derive(Eq) */
+interface UserProfile {
+  id: number;
+  metadata: unknown;
+}
+```
 
 ```
-error[TS9101]: Cannot auto-derive Eq<UserProfile>: field `metadata` has type `unknown` which lacks Eq
-  --> src/user.ts:5:3
-   |
- 3 |   interface UserProfile {
- 4 |     id: number;
- 5 |     metadata: unknown;
-   |     ^^^^^^^^ this field prevents auto-derivation
-   |
-   = note: `unknown` cannot implement Eq — it could be anything
-   = help: Use a concrete type instead of `unknown`, or provide @instance Eq<UserProfile>
+error TS9106: [typesugar] [TS9106] Cannot derive Eq for 'UserProfile'
+  = note: resolution trace for Eq<UserProfile>:
+  1. derivation-strategy: Eq — ok
+  2. generic-meta: GenericMeta for UserProfile: { id: number, metadata: unknown } — FAILED — one or more fields lack required instance
+    field-check: field `id`: number — ok — number has Eq
+    field-check: field `metadata`: unknown — FAILED — unknown lacks Eq
 ```
+
+Use a concrete type instead of `unknown`, or provide the instance by hand.
 
 ### Non-Exhaustive Match (Pattern Matching)
 
 The fluent `match().case().then()` API requires all cases to be handled. Missing cases produce a compile error:
 
+```typescript
+type Color = "red" | "green" | "blue";
+match(color).case("red").then(0xff0000);
 ```
-error: Non-exhaustive match — missing cases: blue, green. Add the missing cases or use .else() / _ to handle remaining values.
-  --> src/color.ts:12:5
-   |
-10 | type Color = "red" | "green" | "blue";
-11 |
-12 | match(color).case("red").then(0xff0000);
-   |       ^^^^^ missing cases: blue, green
-   |
-   = help: Add .case("blue").then(0x0000ff).case("green").then(0x00ff00), or use .else(value) for a catch-all
+
+```
+error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "green", "blue"
+  = help: Add the missing cases or use .else() / _ to handle remaining values.
 ```
 
 For non-enumerable types (string, number, objects), you must add `.else()` or a `_` wildcard:
 
 ```
-error: Non-exhaustive match — scrutinee type is not enumerable. Add .else() or a _ wildcard to handle all remaining values.
+error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing a fallback: the scrutinee type is not enumerable
+  = help: Add .else() or a _ wildcard to handle all remaining values.
 ```
 
 **Fixes:**
@@ -120,33 +131,14 @@ error: Non-exhaustive match — scrutinee type is not enumerable. Add .else() or
 - Use `.else(value)` or `.case(_).then(value)` for catch-all
 - Runtime safety net: when no pattern matches, the generated code throws `MatchError` with `.value` set to the unmatched value
 
-### Import Suggestion (TS9061)
+### Import Suggestion (TS9061, TS9062)
 
-Forgot to import something? typesugar knows what's available:
-
-```
-error[TS9061]: Macro `comptime` is not defined
-  --> src/app.ts:3:15
-   |
- 3 |   const x = comptime(() => fibonacci(10));
-   |             ^^^^^^^
-   |
-   = help: Did you mean to import?
-     + import { comptime } from "typesugar";
-```
-
-This also works for typeclasses and extension methods:
-
-```
-error[TS9062]: Method `clamp` does not exist on type `number`
-  --> src/math.ts:7:20
-   |
- 7 |   const safe = value.clamp(0, 100);
-   |                      ^^^^^ not a native number method
-   |
-   = help: Did you mean to import?
-     + import { clamp } from "@typesugar/std";
-```
+> **Planned, not emitted in 1.0.** TS9061 ("Macro `comptime` is not defined", with an import
+> suggestion) and TS9062 ("Method `clamp` does not exist on type `number`", suggesting
+> `import { clamp } from "@typesugar/std"`) are reserved codes. Today a missing macro import gives
+> TypeScript's own TS2304 ("Cannot find name 'comptime'"), and a missing extension import gives
+> TS2339 — or, for a method `@typesugar/std` declares globally such as `(42).clamp()`, a runtime
+> `TypeError` because the call is not rewritten. Import the macro or extension function by name.
 
 ### Coherence Violation (TS9050)
 
@@ -170,69 +162,73 @@ error[TS9050]: Conflicting instance of `Show` for type `Point`
    = help: Remove one instance, or use a newtype wrapper for different behaviors
 ```
 
-### Comptime Evaluation Error (TS9501)
+### Comptime Evaluation Error (TS9209)
 
 When compile-time code throws:
 
-```
-error[TS9501]: Compile-time evaluation failed: Cannot read file './missing.json'
-  --> src/config.ts:3:15
-   |
- 3 |   const cfg = comptime({ fs: 'read' }, () => {
-   |               ^^^^^^^
- 4 |     return JSON.parse(fs.readFileSync('./missing.json', 'utf8'));
-   |                                       ^^^^^^^^^^^^^^^^ file not found
- 5 |   });
-   |
-   = note: comptime blocks run at compile time — file paths are relative to the source file
-   = help: Check that the file exists at the expected path
+```typescript
+const cfg = comptime({ fs: "read" }, () => {
+  return JSON.parse(fs.readFileSync("./missing.json", "utf8"));
+});
 ```
 
-### Tail Recursion Error (TS9220)
+```
+error TS9209: [typesugar] [TS9209] Cannot evaluate expression at compile time
+  = note: Compile-time evaluation failed at src/config.ts:3:13
+  Source: comptime(() => {
+    return JSON.parse(fs.readFileSync("./missing.json", "utf8"));
+})
+  Error: ENOENT: no such file or directory, open '/path/to/project/src/missing.json'
+```
 
-`@tailrec` tells you exactly which call isn't in tail position:
+Relative paths resolve against the source file's directory, and file access is confined to the
+project (tsconfig) directory.
+
+### Tail Recursion Error
+
+`@tailrec` tells you which function it couldn't optimize and the line of the call:
+
+```typescript
+/** @tailrec */
+function factorial(n: number): number {
+  if (n <= 1) return 1;
+  return n * factorial(n - 1);
+}
+```
 
 ```
-error[TS9220]: @tailrec: recursive call is not in tail position
-  --> src/math.ts:4:10
-   |
- 3 |   @tailrec
- 4 |   function factorial(n: number): number {
- 5 |     if (n <= 1) return 1;
- 6 |     return n * factorial(n - 1);
-   |            ^^^^^^^^^^^^^^^^^^^^ `n * ...` wraps the recursive call
-   |
-   = help: Rewrite with an accumulator:
-     + function factorial(n: number, acc = 1): number {
-     +   if (n <= 1) return acc;
-     +   return factorial(n - 1, n * acc);
-     + }
+error TS9220: [typesugar] [TS9220] @tailrec: could not optimize 'factorial' — recursive call is not in tail position (line 7)
 ```
+
+Rewrite with an accumulator — `function factorial(n: number, acc = 1): number`, returning
+`factorial(n - 1, n * acc)`.
 
 ### Auto-Specialization Skipped (TS9602)
 
 Specialization is an always-on compiler optimization (PEP-053) — there is no
 macro to call for it. When a call passes a known typeclass instance but the
 transformer can't prove the inlining is sound, it falls back to dictionary
-passing (always correct, just not zero-cost) and emits TS9602:
+passing (always correct, just not zero-cost) and emits a TS9602 warning:
+
+```typescript
+function processItems<A>(M: Mapper<A>, items: A): A {
+  try {
+    return M.map(items, (x) => x + 1);
+  } catch (e) {
+    return items;
+  }
+}
+
+const r = processItems(boxMapper, { v: 1 });
+```
 
 ```
-warning[TS9602]: Auto-specialization of processItems skipped — try/catch
-  --> src/process.ts:12:15
-   |
-10 |   function processItems<F>(F: Functor<F>, items: Kind<F, Item>) {
-11 |     try {
-12 |       return F.map(items, validate);
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^
-13 |     } catch (e) { return items; }
-14 |   }
-   |
-   = help: Move error handling outside the specialized function
+warning TS9602: [typesugar] [TS9602] Auto-specialization of processItems skipped — try/catch. Move error handling outside the specialized function
 ```
 
 Common reasons for skipping:
 
-- **Function body not resolvable**: Can't find the function definition. Use `const fn = ...` or named `function`.
+- **Function body not resolvable**: Can't find the function definition (for example, it comes from a compiled package). Use `const fn = ...` or named `function` in your own code.
 - **Early return**: Multiple return paths prevent inlining. Extract into helpers.
 - **try/catch**: Error handling blocks inlining. Handle errors at a higher level.
 - **Loops**: Iteration prevents inlining. Use Array methods or recursive helpers.
@@ -243,60 +239,30 @@ the line above), or keep specialization but silence the warning with
 `// @no-specialize-warn`:
 
 ```typescript
-// (arrayFunctor is an @impl Functor<Array> instance in scope)
 // @no-specialize-warn
-const result = processItems(arrayFunctor, items); // Still specialized, no warning
+const r2 = processItems(boxMapper, { v: 2 }); // no warning
 ```
 
-## CLI: `--explain`
+## Explaining a Code
 
-Get the full explanation for any error code:
-
-```bash
-$ npx typesugar --explain TS9001
-
-error[TS9001]: No instance found for typeclass
-
-The typeclass system could not find or auto-derive an instance.
-
-Possible causes:
-1. The type has no @instance declaration for this typeclass
-2. Auto-derivation failed (e.g., a field lacks a required instance)
-3. The type is opaque or from a library without typeclass support
-
-Solutions:
-- Add @derive(Eq) to the type definition
-- Provide an explicit @instance implementation
-- Check that all fields have the required instances
-
-See also: https://typesugar.org/errors/TS9001
-```
+There is no `--explain` CLI flag. Every code has a page in the
+[Error Code Reference](/errors/) — `/errors/TS9001` and so on — with the explanation, causes and
+fixes. Codes marked _reserved_ there are defined but not emitted by the compiler yet.
 
 ## Resolution Traces
 
-When typeclass resolution fails (e.g., `summon<Eq<Point>>()` can't find an instance), error messages now include a detailed resolution trace showing exactly what was tried and why each path failed:
+When typeclass resolution fails (e.g., `summon<Eq<Point>>()` can't find an instance), the error includes a resolution trace showing exactly what was tried and why each path failed (this is the trace from the example at the top of the page):
 
 ```
-error[TS9001]: No instance found for `Eq<Point>`
-  --> src/example.ts:15:10
-   |
-15 |   summon<Eq<Point>>()
-   |   ^^^^^^^^^^^^^^^^^^
-   |
-   = note: resolution trace for Eq<Point>:
-   = note:   1. explicit-instance: Eq<Point> — not found
-   = note:      no @instance or @derive registered
-   = note:   2. auto-derive via Generic: Eq<Point> — FAILED
-   = note:      see child attempts
-   = note:        derivation-strategy: Eq — ok
-   = note:        generic-meta: GenericMeta for Point: { x: number, y: number, color: Color } — ok
-   = note:          field-check: field `x`: number — ok
-   = note:            number has Eq
-   = note:          field-check: field `y`: number — ok
-   = note:            number has Eq
-   = note:          field-check: field `color`: Color — FAILED
-   = note:            Color lacks Eq
-   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+= note: resolution trace for Eq<Point>:
+= note:   1. explicit-instance: Eq<Point> — not found — no @impl/@instance value for this type in scope
+= note:   2. auto-derive via Generic: Eq<Point> — FAILED — see child attempts
+= note:     derivation-strategy: Eq — ok
+= note:     generic-meta: GenericMeta for Point: { x: number, y: number, color: Color } — FAILED — one or more fields lack required instance
+= note:       field-check: field `x`: number — ok — number has Eq
+= note:       field-check: field `y`: number — ok — number has Eq
+= note:       field-check: field `color`: Color — FAILED — Color lacks Eq
+= help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
 ```
 
 The trace shows:
@@ -336,7 +302,7 @@ new DiagnosticBuilder(TS9201, sourceFile, emitter)
   .emit();
 ```
 
-This produces:
+Rendered with `renderDiagnosticCLI` (also from `@typesugar/core`), this looks like:
 
 ```
 error[TS9201]: myMacro expects 2 argument(s), got 0

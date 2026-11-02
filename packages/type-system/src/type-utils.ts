@@ -44,9 +44,11 @@ export type Equal<A, B> =
 /**
  * Type-level subtype check.
  *
- * Returns `true` if `A` extends `B`.
+ * Returns `true` if `A` extends `B`. Not distributive: `Extends<never, B>` is
+ * `true` and `Extends<string | number, string>` is `false` (a naked
+ * `A extends B` would give `never` and `boolean`).
  */
-export type Extends<A, B> = A extends B ? true : false;
+export type Extends<A, B> = [A] extends [B] ? true : false;
 
 /**
  * Type-level NOT.

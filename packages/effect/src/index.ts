@@ -225,6 +225,7 @@ export {
   EffectDiagnosticCategory,
   formatEffectDiagnosticCLI,
   toTsDiagnostic,
+  reportEffectDiagnostic,
   type EffectDiagnosticDescriptor,
   type EffectLabeledSpan,
   type EffectCodeSuggestion,

@@ -4,7 +4,7 @@
  * This package re-exports derive functionality from @typesugar/macros.
  * It provides:
  * - @derive decorator for deriving implementations
- * - Built-in derives: Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard
+ * - Built-in derives: Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard
  * - Utilities for creating custom derives
  *
  * @example
@@ -28,7 +28,7 @@
 export { derive } from "@typesugar/macros";
 
 // Derive name symbols for use in @derive() decorators
-export { Eq, Ord, Clone, Debug, Hash, Default, Json, Builder, TypeGuard } from "@typesugar/macros";
+export { Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard } from "@typesugar/macros";
 
 // For testing and advanced use
 export { createDerivedFunctionName } from "@typesugar/macros";

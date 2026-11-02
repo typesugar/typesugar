@@ -38,19 +38,25 @@ afterEach(() => {
 type Diags = ReturnType<ReturnType<typeof createMacroContext>["getDiagnostics"]>;
 
 /** Expand the first `comptime(...)` call in `source` with the real macro. */
-function expandComptime(source: string): { printed: string; diagnostics: Diags } {
-  const filePath = path.join(tmpDir, `t_${Math.random().toString(36).slice(2)}.ts`);
+function expandComptime(
+  source: string,
+  opts: { dir?: string; cwd?: string; extraOptions?: ts.CompilerOptions } = {}
+): { printed: string; diagnostics: Diags } {
+  const dir = opts.dir ?? tmpDir;
+  const cwd = opts.cwd ?? tmpDir;
+  const filePath = path.join(dir, `t_${Math.random().toString(36).slice(2)}.ts`);
   fs.writeFileSync(filePath, `declare function comptime(...a: any[]): any;\n${source}`);
   try {
     const options: ts.CompilerOptions = {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.ESNext,
       noEmit: true,
+      ...opts.extraOptions,
     };
     const host = ts.createCompilerHost(options);
     const program = ts.createProgram([filePath], options, {
       ...host,
-      getCurrentDirectory: () => tmpDir,
+      getCurrentDirectory: () => cwd,
     });
     const sourceFile = program.getSourceFile(filePath)!;
     let call: ts.CallExpression | undefined;
@@ -219,6 +225,48 @@ describe("comptime sandbox: bridged helpers still work", () => {
       `comptime({ fs: "write" }, () => { fs.writeFileSync("./out.txt", "w"); return 1; });`
     );
     expect(fs.readFileSync(path.join(tmpDir, "out.txt"), "utf8")).toBe("w");
+  });
+});
+
+describe("comptime fs project root is the project (tsconfig) directory, not the cwd", () => {
+  // Docs review 2026-10 (guides-a 1.0 gaps): the root was
+  // `program.getCurrentDirectory()` (= process.cwd()), so a build started from
+  // another directory rejected every path in the project as "outside the
+  // project root".
+  let projDir: string;
+  let otherCwd: string;
+  beforeAll(() => {
+    projDir = path.join(tmpDir, "proj");
+    otherCwd = path.join(tmpDir, "elsewhere");
+    fs.mkdirSync(path.join(projDir, "src"), { recursive: true });
+    fs.mkdirSync(path.join(projDir, "data"), { recursive: true });
+    fs.mkdirSync(otherCwd, { recursive: true });
+    fs.writeFileSync(path.join(projDir, "tsconfig.json"), "{}");
+    fs.writeFileSync(path.join(projDir, "data", "x.txt"), "project data");
+  });
+
+  const read = `comptime({ fs: "read" }, () => fs.readFileSync("../data/x.txt", "utf8"));`;
+
+  it("uses the tsconfig directory from compilerOptions.configFilePath", () => {
+    const { printed } = expandComptime(read, {
+      dir: path.join(projDir, "src"),
+      cwd: otherCwd,
+      extraOptions: { configFilePath: path.join(projDir, "tsconfig.json") },
+    });
+    expect(printed).toBe(`"project data"`);
+  });
+
+  it("falls back to the nearest tsconfig.json above the source file", () => {
+    const { printed } = expandComptime(read, { dir: path.join(projDir, "src"), cwd: otherCwd });
+    expect(printed).toBe(`"project data"`);
+  });
+
+  it("still rejects paths outside that project directory", () => {
+    const { printed } = expandComptime(
+      `comptime({ fs: "read" }, () => fs.readFileSync("../../data.txt", "utf8"));`,
+      { dir: path.join(projDir, "src"), cwd: otherCwd }
+    );
+    expect(printed).toContain("outside the project root");
   });
 });
 

@@ -37,7 +37,9 @@ No. Macros expand at compile time. The output is plain JavaScript with no typesu
 
 ### Do I need to configure TypeScript?
 
-For most bundlers, no. The bundler plugin handles transformation.
+For most bundlers, the bundler plugin handles transformation. You still want the
+language-service plugin in `tsconfig.json` so your editor sees expanded code, and
+`typesugar check` (not `tsc --noEmit`) to type-check in CI.
 
 For `tsc`, you need [ts-patch](https://github.com/nonara/ts-patch):
 
@@ -48,7 +50,9 @@ npx ts-patch install
 
 ### Can I use typesugar with Next.js?
 
-Yes, configure the Webpack plugin in `next.config.js`:
+Yes, with Webpack (not Turbopack, which doesn't run Webpack plugins; Next.js 16+
+needs `next dev --webpack` / `next build --webpack`). Configure the plugin in
+`next.config.js`:
 
 ```javascript
 const typesugar = require("unplugin-typesugar/webpack");
@@ -71,7 +75,9 @@ Not directly. SWC doesn't support TypeScript transformers. Use ts-patch with tsc
 
 Common reasons:
 
-1. **Missing import** — Macros only expand when imported from their package:
+1. **Missing import** — Macros only expand when imported from their package. Operator
+   and method sugar (`===`, `.clone()`, …) also needs its syntax import, e.g.
+   `import "@typesugar/std/syntax/clone"`:
 
    ```typescript
    // ✗ Won't expand — no import
@@ -87,6 +93,9 @@ Common reasons:
 3. **Transformer not configured** — Check your bundler configuration.
 
 4. **File excluded** — Check that your file isn't in an excluded pattern.
+
+5. **Third-party macros not approved** — A non-`@typesugar/*` macro package fails the
+   build until you run `npx typesugar approve-macros`.
 
 ### Can I use macros in type positions?
 
@@ -104,26 +113,35 @@ This logs every expansion to the console.
 
 ### Can macros access the file system?
 
-Yes, `comptime()` can run arbitrary code at compile time:
+Only when the `comptime` block asks for it. File-system and environment access are
+off by default; grant them with a permissions object, and use the `fs` object the
+sandbox provides (not an imported `fs`):
 
 ```typescript
 import { comptime } from "typesugar";
-import fs from "fs";
 
-const schema = comptime(fs.readFileSync("schema.json", "utf8"));
+const schema = comptime({ fs: "read" }, () => fs.readFileSync("./schema.json", "utf8"));
+// → const schema = "{\"title\":\"x\"}\n";
 ```
 
-Be careful with side effects — they run at compile time!
+Paths must be relative and stay inside the project (tsconfig) directory. Writes need
+`{ fs: "write" }`. Be careful with side effects — they run at compile time, with your
+build's privileges. See the [comptime guide](./guides/comptime.md).
 
 ### Are macros type-safe?
 
-Yes. Macros have access to TypeScript's type checker and can use type information in their transformations. The output is also type-checked by TypeScript.
+Macros have access to TypeScript's type checker and can use type information in
+their transformations. `typesugar check`/`build` type-check your source (filtering
+the errors that only exist before expansion); type-checking the expanded output too
+needs `--strict` (experimental).
 
 ## Packages
 
-### What's the difference between @typesugar/typesugar and individual packages?
+### What's the difference between `typesugar` and individual packages?
 
-`typesugar` is an umbrella package that re-exports commonly used macros. Individual packages (`@typesugar/derive`, `@typesugar/reflect`, etc.) can be installed separately if you only need specific functionality.
+`typesugar` is an umbrella package that re-exports commonly used macros (its root is
+runtime-only; the authoring APIs are at `typesugar/core`). Install `@typesugar/std`
+alongside it for the standard typeclasses and syntax imports. Individual packages (`@typesugar/derive`, `@typesugar/reflect`, etc.) can be installed separately if you only need specific functionality.
 
 ### Do I need @typesugar/core?
 
@@ -145,7 +163,10 @@ Macros generate code, but don't optimize it. Standard JavaScript minifiers (Ters
 
 ### Can I cache macro results?
 
-The transformer caches some internal state, but macro results themselves aren't cached across builds. Each compilation re-expands all macros.
+Yes. `typesugar build --cache` (or `run --cache`) keeps a disk cache of transformed
+files, the bundler plugin has a `diskCache` option, and the transformer keeps a
+macro-expansion cache in `.typesugar-cache` (the `cacheDir` plugin option). See
+[Performance](./PERFORMANCE.md).
 
 ## Troubleshooting
 
@@ -173,7 +194,8 @@ Make sure source maps are enabled in your bundler. typesugar preserves source lo
 
 ### How do I create a custom macro?
 
-See [Writing Macros](./writing-macros.md).
+See [Writing Macros](./writing-macros/) and the
+[Extension Author Guide](./getting-started/extension-author.md).
 
 ### Where can I report bugs?
 

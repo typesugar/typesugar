@@ -170,6 +170,15 @@ function isTypeMatch(
 ): boolean {
   if (!candidateType) return false;
 
+  // `any` (including the checker's error type for an unresolvable type
+  // argument, e.g. a bare generic `Array` in `Functor<Array>`) is assignable
+  // both ways to every type, so without this guard it "matches" whichever
+  // instance is scanned first — a silently wrong instance (docs review C#6).
+  // `any` only matches an instance declared for `any`.
+  if ((fieldType.flags & ts.TypeFlags.Any) !== (candidateType.flags & ts.TypeFlags.Any)) {
+    return false;
+  }
+
   // Bidirectional assignability = exact match (handles aliases like `type MyNum = number`)
   return (
     typeChecker.isTypeAssignableTo(fieldType, candidateType) &&

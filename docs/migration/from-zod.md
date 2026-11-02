@@ -1,15 +1,19 @@
 # typesugar for Zod Users
 
-This guide maps Zod concepts to their typesugar equivalents.
+This guide maps Zod concepts to their typesugar equivalents. The validators come from
+[`@typesugar/validate`](../guides/validate.md): `is<T>()` builds a type guard,
+`validate<T>()` a validator that collects errors, and `assert<T>()` one that throws.
+They are macros, generated from your TypeScript types at compile time.
 
 ## Overview
 
-| Zod                | typesugar                 |
-| ------------------ | ------------------------- |
-| Runtime validation | Compile-time + runtime    |
-| Schema DSL         | TypeScript types + macros |
-| `z.infer<T>`       | Direct types              |
-| `safeParse`        | `validator<T>()`          |
+| Zod                       | typesugar                 |
+| ------------------------- | ------------------------- |
+| Runtime validation        | Compile-time + runtime    |
+| Schema DSL                | TypeScript types + macros |
+| `z.infer<T>`              | Direct types              |
+| `safeParse`               | `validate<T>()`           |
+| `schema.parse` as a guard | `is<T>()`                 |
 
 ## Basic Types
 
@@ -21,7 +25,9 @@ const schema = z.string();
 const result = schema.parse(value);
 
 // typesugar
-const isString = validator<string>();
+import { is } from "@typesugar/validate";
+
+const isString = is<string>();
 if (isString(value)) {
   // value is typed as string
 }
@@ -42,7 +48,7 @@ interface User {
   name: string;
   age: number;
 }
-const isUser = validator<User>();
+const isUser = is<User>();
 ```
 
 ### Arrays
@@ -52,7 +58,8 @@ const isUser = validator<User>();
 const schema = z.array(z.string());
 
 // typesugar
-const isStringArray = validator<string[]>();
+const isStringArray = is<string[]>();
+isStringArray(["a", 1]); // false
 ```
 
 ### Optionals
@@ -84,14 +91,27 @@ if (result.success) {
   console.log(result.error);
 }
 
-// typesugar
-import { validator } from "@typesugar/reflect";
+// typesugar: a type guard
+import { is } from "@typesugar/validate";
 
-const isUser = validator<User>();
+const isUser = is<User>();
 if (isUser(data)) {
   console.log(data.name); // data is typed as User
 } else {
   console.log("Invalid data");
+}
+```
+
+`validator<T>()` from `@typesugar/reflect` is a different shape: it returns a result
+object, `{ success: true, value } | { success: false, errors }`, so don't use it
+directly in an `if` (the object is always truthy, so invalid data would pass):
+
+```typescript
+import { validator } from "@typesugar/reflect";
+
+const r = validator<User>()(data);
+if (r.success) {
+  console.log(r.value.name);
 }
 ```
 
@@ -104,18 +124,16 @@ result.error?.issues.forEach((issue) => {
   console.log(issue.path, issue.message);
 });
 
-// typesugar: use contracts for detailed checks
-import { requires } from "@typesugar/contracts";
+// typesugar: validate<T>() accumulates errors with their paths
+import { validate } from "@typesugar/validate";
 
-function processUser(data: unknown): User {
-  requires: {
-    (typeof data === "object" && data !== null, "must be object");
-    ("name" in data && typeof data.name === "string", "name must be string");
-    ("age" in data && typeof data.age === "number", "age must be number");
-  }
-  return data as User;
-}
+const checkUser = validate<User>();
+const result = checkUser({ name: 1 });
+// → { error: { head: { path: "$.name", message: "expected string" }, tail: null } }
 ```
+
+The result is a `ValidatedNel` from `@typesugar/fp`: a success value, or a non-empty
+list of `{ path, message }` errors.
 
 ## Type Inference
 
@@ -130,7 +148,7 @@ type User = z.infer<typeof UserSchema>;
 interface User {
   name: string;
 }
-const isUser = validator<User>(); // derived from type
+const isUser = is<User>(); // derived from type
 ```
 
 ### Fields Info
@@ -153,8 +171,8 @@ const keys = fieldNames<User>(); // ["name", "age"]
 const PositiveNumber = z.number().positive();
 
 // typesugar
-import { Refined, Positive } from "@typesugar/contracts-refined";
-type PositiveNumber = Refined<number, Positive>;
+import type { Positive } from "@typesugar/type-system";
+type PositiveNumber = Positive; // = Refined<number, "Positive">
 ```
 
 ### Branded Types
@@ -165,9 +183,9 @@ const UserId = z.string().brand<"UserId">();
 type UserId = z.infer<typeof UserId>;
 
 // typesugar
-import { Newtype, newtype } from "@typesugar/type-system";
+import { wrap, type Newtype } from "@typesugar/type-system";
 type UserId = Newtype<string, "UserId">;
-const userId = newtype<UserId>("user-123");
+const userId = wrap<UserId>("user-123");
 ```
 
 ## Unions
@@ -182,7 +200,9 @@ const Result = z.discriminatedUnion("status", [
 // typesugar
 type Result = { status: "success"; data: string } | { status: "error"; error: string };
 
-const isResult = validator<Result>();
+const isResult = is<Result>();
+isResult({ status: "error", error: "x" }); // true
+isResult({ status: "nope" }); // false
 ```
 
 ## Serialization
@@ -195,6 +215,7 @@ const user = UserSchema.parse(JSON.parse(jsonString));
 
 // typesugar
 import { derive, Json } from "@typesugar/derive";
+import "@typesugar/std/syntax/json"; // activates User.fromJson / user.toJson()
 
 @derive(Json)
 class User {
@@ -204,7 +225,9 @@ class User {
   ) {}
 }
 
-const user = User.fromJson(jsonString);
+// fromJson takes an already-parsed value, checks the required fields and their
+// types (throws on a mismatch), and returns a plain object — not a User instance
+const user = User.fromJson(JSON.parse(jsonString));
 ```
 
 ## Async Validation
@@ -216,9 +239,10 @@ const schema = z.string().refine(async (val) => {
 });
 
 // typesugar: use regular async functions
-async function validate(value: string): Promise<boolean> {
-  const isValid = validator<string>()(value);
-  if (!isValid) return false;
+const isString = is<string>();
+
+async function checkValue(value: unknown): Promise<boolean> {
+  if (!isString(value)) return false;
   return await checkDatabase(value);
 }
 ```
@@ -248,7 +272,7 @@ Zod schemas add to bundle size. typesugar validators compile away:
 const schema = z.object({ ... });  // Runtime code
 
 // typesugar: compiled to optimized code
-const isUser = validator<User>();  // Generates inline checks
+const isUser = is<User>();  // Generates inline checks
 ```
 
 ### Type-First

@@ -9,10 +9,16 @@ import * as ts from "typescript";
 import { parseGrammarDef, buildParser } from "../grammar.js";
 import { generateParserCode } from "../codegen.js";
 import { generateParserAst } from "../codegen-ast.js";
+import { ParseError } from "../combinators.js";
 import type { Grammar } from "../types.js";
 
-function fromAst(src: string): Grammar<unknown> {
-  const expr = generateParserAst(ts.factory, parseGrammarDef(src));
+function fromAst(src: string, withParseError = false): Grammar<unknown> {
+  const expr = generateParserAst(
+    ts.factory,
+    parseGrammarDef(src),
+    undefined,
+    withParseError ? () => ts.factory.createIdentifier("ParseError") : undefined
+  );
   const text = ts
     .createPrinter()
     .printNode(
@@ -20,7 +26,7 @@ function fromAst(src: string): Grammar<unknown> {
       expr,
       ts.createSourceFile("o.ts", "", ts.ScriptTarget.Latest)
     );
-  return new Function(`return ${text}`)();
+  return new Function("ParseError", `return ${text}`)(ParseError);
 }
 
 function fromText(src: string): Grammar<unknown> {
@@ -33,7 +39,9 @@ function outcome(g: Grammar<unknown>, input: string) {
   try {
     all = { value: g.parseAll(input) };
   } catch (e) {
-    all = { error: (e as Error).message };
+    // First line only: ParseError (runtime, and the macro's AST) appends a
+    // context snippet on a second line that the plain-Error emitters omit.
+    all = { error: (e as Error).message.split("\n")[0] };
   }
   return { parse: r.ok ? { ok: true, value: r.value, pos: r.pos } : r, all };
 }
@@ -76,6 +84,29 @@ describe("AST codegen, text codegen and runtime agree", () => {
         const r = outcome(rt, input);
         if ("error" in (r.all as object) || "error" in (a.all as object)) {
           expect(a.all).toEqual(r.all);
+        }
+        // With a ParseError reference (what the macro passes), the AST parser
+        // throws exactly what the runtime does: same class, fields, message.
+        const thrown = (g: Grammar<unknown>): unknown => {
+          try {
+            g.parseAll(input);
+            return undefined;
+          } catch (e) {
+            return e;
+          }
+        };
+        const eAst = thrown(fromAst(src, true)) as ParseError | undefined;
+        const eRt = thrown(rt) as ParseError | undefined;
+        if (eRt || eAst) {
+          expect(eAst).toBeInstanceOf(ParseError);
+          expect(eRt).toBeInstanceOf(ParseError);
+          expect([eAst!.message, eAst!.pos, eAst!.expected, eAst!.line, eAst!.col]).toEqual([
+            eRt!.message,
+            eRt!.pos,
+            eRt!.expected,
+            eRt!.line,
+            eRt!.col,
+          ]);
         }
       }
     });

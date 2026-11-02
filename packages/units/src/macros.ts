@@ -47,6 +47,11 @@ function parseUnitLiteral(text: string): { value: number; unit: string } | null 
  */
 export const unitsMacro = defineExpressionMacro({
   name: "units",
+  // Only the placeholder exported by @typesugar/units (or a barrel that
+  // re-exports it, e.g. @typesugar/math's `units`) activates the macro, not
+  // any function that happens to be named `units` -- @typesugar/math's own
+  // modular `units(modulus)` (exported as `modUnits`) used to be expanded.
+  module: "@typesugar/units",
   description: "Parse unit literals at compile time",
 
   expand(
@@ -121,7 +126,7 @@ function parseAndCreateUnit(ctx: MacroContext, text: string, errorNode: ts.Node)
 
   // If no unit specified, just return the number
   if (!unit) {
-    return factory.createNumericLiteral(value);
+    return numberLiteral(factory, value);
   }
 
   const fnName = lookupUnitAlias(unit);
@@ -133,7 +138,22 @@ function parseAndCreateUnit(ctx: MacroContext, text: string, errorNode: ts.Node)
 
   const ref = constructorRef(ctx, fnName, errorNode);
   if (!ref) return errorNode as ts.Expression;
-  return factory.createCallExpression(ref, undefined, [factory.createNumericLiteral(value)]);
+  return factory.createCallExpression(ref, undefined, [numberLiteral(factory, value)]);
+}
+
+/**
+ * A numeric literal for `value`. TypeScript's factory rejects negative
+ * numeric literals (they are `-` applied to a positive literal in the AST),
+ * so a negative literal such as `-5 m` used to crash the expansion.
+ */
+function numberLiteral(factory: ts.NodeFactory, value: number): ts.Expression {
+  if (value < 0 || Object.is(value, -0)) {
+    return factory.createPrefixUnaryExpression(
+      ts.SyntaxKind.MinusToken,
+      factory.createNumericLiteral(-value)
+    );
+  }
+  return factory.createNumericLiteral(value);
 }
 
 /**

@@ -20,7 +20,7 @@ typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driv
 
 1. **Zero-Cost or Don't Ship It** — Every abstraction must compile away to what you'd write by hand. No runtime dictionary lookups, no wrapper types, no closure allocation. If it can be done at compile time, it must be.
 
-2. **Explicit Instances, Always-On Specialization** — Instances are never ambient (PEP-052): a type needs `@derive(Eq)` or a hand-written `@instance`/`@impl` before `p1 === p2` means anything beyond native `===`, and `===`/method sugar only rewrite in files that activate the typeclass's syntax (import `@typesugar/std/syntax/eq/ops`, or declare the typeclass locally). Once an instance exists and is in scope, specialization (inlining the dictionary methods) is unconditional and automatic — there is no macro to call for it (PEP-053 deleted `specialize()`/`specialize$()`/`mono()`/`inlineCall()`/`fn.specialize()`). `p1 === p2` compiles to `p1.x === p2.x && p1.y === p2.y`, not `Point.Eq.equals(p1, p2)`; the typeclass abstraction is erased entirely. The only escape hatch is `// @no-specialize` to opt a call out.
+2. **Explicit Instances, Always-On Specialization** — Instances are never ambient (PEP-052): a type needs `@derive(Eq)` or a hand-written `@instance`/`@impl` before `p1 === p2` means anything beyond native `===`, and `===`/method sugar only rewrite in files that activate the typeclass's syntax (import `@typesugar/std/syntax/eq/ops`, or declare the typeclass locally). Once an instance exists and is in scope, the sugar compiles to a direct call on it: with `@derive(Eq) interface Point`, `p1 === p2` compiles to `Point.Eq.equals(p1, p2)` (a call to a generated function, no runtime lookup). Specialization (inlining the dictionary method body at the call site) is automatic where the instance's method bodies are visible to the compiler — e.g. an in-file `/** @impl */` instance of an `@op` method compiles `a + b` to the method body itself — and there is no macro to call for it (PEP-053 deleted `specialize()`/`specialize$()`/`mono()`/`inlineCall()`/`fn.specialize()`). Instances imported from a package's compiled `.d.ts` are not specialized. The only escape hatch is `// @no-specialize` to opt a call out.
 
 3. **JSDoc Macros, Not Decorators** — Use `/** @typeclass */`, `/** @impl TC<T> */`, `/** @derive Eq, Ord */`, `/** @op + */`. No preprocessor required. For HKT typeclasses, `/** @impl Functor<Option> */` resolves the type constructor via TypeChecker (Tier 1) — no `@hkt` or `*F` needed. Partial application works: `/** @impl Functor<Either<string>> */`. Resolution failures emit TS9305.
 
@@ -30,7 +30,7 @@ typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driv
 
 6. **Library Import Patterns** — Three kinds of imports, each with a specific purpose:
    - **Named imports for extensions**: `import { clamp, isEven } from "@typesugar/std"` — activates extension methods
-   - **Side-effect imports for macros**: `import "@typesugar/std/macros"` — registers `let:`, `par:`, `match`, etc.
+   - **Side-effect imports for syntax activation** (PEP-052): `import "@typesugar/std/syntax/do"` activates `let:`/`seq:`/`par:`/`all:` labels; `import "@typesugar/std/syntax/eq"` activates `.equals()` method syntax; `import "@typesugar/std/syntax/eq/ops"` activates `===` (and implies the method form). Macro packages themselves are found through the `typesugar.macros` field in their package.json, not through side-effect imports.
    - **Type-only imports for typeclasses**: `import type { Eq, Ord } from "@typesugar/std"` — no runtime cost
 
    Libraries must re-export everything from `index.ts` (barrel exports) and handle name conflicts with explicit aliases (e.g. `export { toInt as parseIntSafe } from "./string"`).
@@ -39,13 +39,13 @@ typesugar uses standard TypeScript files (`.ts` / `.tsx`). All features are driv
 
 8. **Reuse `specialize.ts` for Inlining** — `inlineMethod()` is the gold standard for zero-cost. The auto-specialization pipeline (`tryAutoSpecialize` in `packages/transformer-core/src/specialization.ts` — the single shared implementation both transformers use, PEP-053) is what creates specialized functions today — there is no explicit `specialize()`/`fn.specialize()` call. Study `packages/macros/src/specialize.ts` before implementing new transformations.
 
-9. **Use `quote()` for AST Construction** — Tagged template quasiquoting with `spread`, `ident`, `raw` helpers. Never use raw `ts.factory` calls in macro implementations.
+9. **Build AST Nodes with `ts.factory`** — Generate code by building AST nodes directly (`ts.factory.create*` / `ctx.factory`), not by printing code strings and parsing them back with `quote()`, `ctx.parseStatements()` or `ctx.parseExpression()`. String-to-AST parsing is allowed only at the call sites listed in [CLAUDE.md](CLAUDE.md) ("Code generation: prefer AST over string manipulation"); a new one needs an entry there with its justification.
 
 10. **Respect Package Boundaries** — Typeclass machinery in `@typesugar/typeclass`, typeclass definitions in `@typesugar/std`, FP data types in `@typesugar/fp`, collection hierarchy in `@typesugar/collections`. Don't mix.
 
 11. **HKT: Use Tier 0/1 by Default** — Write `F<A>` in typeclass bodies (the transformer rewrites to `Kind<F, A>`). Use `@impl Functor<Option>` for instances (the macro resolves the type constructor). Manual `TypeFunction` interfaces are the escape hatch. When writing manual interfaces, `_` MUST use `this["__kind__"]` — unsound phantom types must NOT implement Functor/Monad. Write `F<A>` in `.ts` files, never Scala's `F[_]`.
 
-12. **Search Before Building** — Check `packages/*/src/`, `typeclassRegistry`, `instanceRegistry`, existing macros, and extension files before implementing anything new. The feature likely already exists.
+12. **Search Before Building** — Check `packages/*/src/`, the instance resolver (`packages/macros/src/instance-resolver.ts`, `instance-scanner.ts`), existing macros, and extension files before implementing anything new. The feature likely already exists.
 
 13. **Pattern Matching Conventions** — `match()` supports two forms: fluent (`.case().then().else()`) and legacy (object handler). Always prefer the fluent API for new code. The fluent API supports structural patterns (array, object, type, regex, OR, AS, nested, extractors), compile-time exhaustiveness, and optimized code generation. `when()`, `otherwise()`, and `P.*` are deprecated — use `.case().if().then()` and `.else()` instead. `match` lives in `@typesugar/std`, not `@typesugar/fp`. See [docs/guides/pattern-matching.md](docs/guides/pattern-matching.md) for the full guide and [PEP-008](peps/PEP-008-pattern-matching.md) for the spec.
 
@@ -70,17 +70,19 @@ For macro authoring reference, see the `macro-authoring` skill.
 packages/
 │
 │   ## Build Infrastructure
+├── typesugar/          # typesugar — umbrella package (runtime root; authoring APIs at typesugar/core)
 ├── core/               # @typesugar/core — macro registration, types, context
 ├── macros/             # @typesugar/macros — built-in macro implementations
 ├── transformer/        # @typesugar/transformer — ts-patch transformer plugin (Node.js)
 ├── transformer-core/   # @typesugar/transformer-core — browser-compatible transform core
 ├── unplugin-typesugar/ # unplugin-typesugar — build tool integrations (Vite, esbuild, Rollup, Webpack)
 ├── ts-plugin/          # @typesugar/ts-plugin — TypeScript language service plugin
+├── lsp-common/         # @typesugar/lsp-common — shared language-service helpers
+├── lsp-server/         # @typesugar/lsp-server — standalone LSP server (frozen)
 │
 │   ## Developer Experience
 ├── vscode/             # @typesugar/vscode — VS Code/Cursor extension
 ├── eslint-plugin/      # @typesugar/eslint-plugin — ESLint processor and rules
-├── prettier-plugin/    # @typesugar/prettier-plugin — Prettier formatting
 ├── testing/            # @typesugar/testing — powerAssert, comptimeAssert, ArbitraryDerive
 ├── playground/         # @typesugar/playground — browser playground (runtime bundle + transform)
 │
@@ -104,7 +106,6 @@ packages/
 │
 │   ## Data Structures & Algorithms
 ├── fp/                 # @typesugar/fp — functional programming (Option, Result, IO)
-├── hlist/              # @typesugar/hlist — heterogeneous lists (Boost.Fusion)
 ├── fusion/             # @typesugar/fusion — iterator fusion, expression templates (Blitz++)
 ├── parser/             # @typesugar/parser — PEG parser generation (Boost.Spirit)
 ├── collections/        # @typesugar/collections — collection typeclasses, HashSet, HashMap
@@ -113,7 +114,6 @@ packages/
 ├── codec/              # @typesugar/codec — versioned codecs, schema evolution (serde)
 ├── math/               # @typesugar/math — math types and typeclasses
 ├── mapper/             # @typesugar/mapper — zero-cost object mapping
-├── symbolic/           # @typesugar/symbolic — symbolic math, calculus, simplification
 │
 │   ## Ecosystem Integrations
 ├── effect/             # @typesugar/effect — Effect TS integration (@service, @layer, layerMake, resolveLayer, derives)
@@ -132,7 +132,6 @@ packages/
 | `@typesugar/std`              | Standard typeclasses (Eq, Ord, Show, Hash, Semigroup, FlatMap), built-in extensions, `let:/seq:` and `par:/all:` do-notation, `match` | FP data types                             |
 | `@typesugar/fp`               | FP data types (Option, Either, IO, List, etc.) and their typeclass instances                                                          | General-purpose utilities                 |
 | `@typesugar/collections`      | Collection typeclass hierarchy (IterableOnce, Iterable, Seq, MapLike, SetLike), HashSet, HashMap                                      | Typeclass definitions (those live in std) |
-| `@typesugar/hlist`            | Heterogeneous lists with compile-time type tracking, labeled HList, map/fold operations                                               | Typeclass instances                       |
 | `@typesugar/parser`           | PEG grammar DSL, parser combinators, tagged template macro                                                                            | Compile-time code gen                     |
 | `@typesugar/fusion`           | Single-pass lazy iterator pipelines, element-wise vec operations                                                                      | Matrix operations                         |
 | `@typesugar/graph`            | GraphLike<G,N,E> typeclass, graph algorithms (topo sort, SCC, Dijkstra), state machines                                               | Visual rendering                          |
@@ -148,11 +147,15 @@ packages/
 
 ### `@derive` vs Auto-derivation
 
-| Mechanism                 | What it does                                              | When to use                                    |
-| ------------------------- | --------------------------------------------------------- | ---------------------------------------------- |
-| Auto-derivation (default) | Automatically synthesizes instances for product/sum types | **Always** — this is the default behavior      |
-| `@derive(TC)`             | Same as auto-derivation, but documents intent explicitly  | Documentation — makes capabilities visible     |
-| `@impl` (or `@instance`)  | Custom hand-written instance, overrides auto-derivation   | When auto-derived behavior isn't what you want |
+| Mechanism                | What it does                                              | When to use                                 |
+| ------------------------ | --------------------------------------------------------- | ------------------------------------------- |
+| `@derive(TC)`            | Generates a companion instance (`Point.Eq`)               | Whenever operator/method sugar should apply |
+| `@impl` (or `@instance`) | Custom hand-written instance                              | When derived behavior isn't what you want   |
+| Auto-derivation          | Synthesizes an instance on demand for an explicit request | `summon<Eq<P>>()` / `= implicit()` only     |
+
+Instances are never ambient: with operator syntax activated but no `@derive`/`@impl`,
+`p1 === p2` stays native `===`. Auto-derivation only answers explicit requests
+(`summon`, `implicit()`), and only when every field already has an instance.
 
 `@deriving` is a deprecated alias for `@derive`; use `@derive` in new code.
 
@@ -164,7 +167,7 @@ packages/
 2. Check [docs/architecture.md](docs/architecture.md) for the compilation pipeline
 3. Check existing macros in `packages/macros/src/` for patterns to follow
 4. Reuse `specialize.ts` infrastructure for inlining
-5. Use `quote()` for AST construction instead of raw `factory` calls
+5. Build AST with `ts.factory`, not code strings (see CLAUDE.md for the exception list)
 6. Add tests in `tests/` directory
 7. Update docs if user-facing
 
@@ -234,41 +237,43 @@ If you add a new `@typesugar/*` package with runtime exports:
 
 ## Quick Lookup: "I Need To..."
 
-| Need                            | Use                                                                     | Location                                      |
-| ------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------- |
-| Inline a method body            | `inlineMethod(ctx, method, callArgs)`                                   | `packages/macros/src/specialize.ts`           |
-| Register a new expression macro | `defineExpressionMacro(name, macro)`                                    | `packages/core/src/registry.ts`               |
-| Register a new attribute macro  | `defineAttributeMacro(name, macro)`                                     | `packages/core/src/registry.ts`               |
-| Register a new derive macro     | `defineDeriveMacro(name, macro)`                                        | `packages/core/src/registry.ts`               |
-| Create AST from code string     | `ctx.parseExpression(code)`, `ctx.parseStatements(code)`                | `packages/core/src/context.ts`                |
-| Create AST with splicing        | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``                  | `packages/macros/src/quote.ts`                |
-| Get type information            | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`     | `packages/core/src/context.ts`                |
-| Evaluate at compile time        | `ctx.evaluate(node)`, `ctx.isComptime(node)`                            | `packages/core/src/context.ts`                |
-| Report compile error            | `ctx.reportError(node, message)`                                        | `packages/core/src/context.ts`                |
-| Generate unique names           | `ctx.generateUniqueName(prefix)`                                        | `packages/core/src/context.ts`                |
-| Safe reference (hygiene)        | `ctx.safeRef(symbol, from)`                                             | `packages/core/src/context.ts`                |
-| Track typeclass instances       | `instanceRegistry`, `findInstance()`                                    | `packages/macros/src/typeclass.ts`            |
-| Mark file as extension source   | `"use extension";` directive at file top                                | `packages/core/src/resolution-scope.ts`       |
-| Mark function as extension      | `@extension` decorator                                                  | `packages/macros/src/extension.ts`            |
-| Extract type metadata           | `extractMetaFromTypeChecker(ctx, typeName)`                             | `packages/macros/src/auto-derive.ts`          |
-| Detect discriminated unions     | `tryExtractSumType(ctx, target)`                                        | `packages/macros/src/typeclass.ts`            |
-| Define pattern-based macro      | `defineSyntaxMacro(name, options)`                                      | `packages/macros/src/syntax-macro.ts`         |
-| Define custom derive (simple)   | `defineCustomDerive(name, callback)`                                    | `packages/macros/src/custom-derive.ts`        |
-| Chain macro transformations     | `pipeline(name).pipe(...).build()`                                      | `packages/core/src/pipeline.ts`               |
-| Read config values              | `config.get(path)`, `config.evaluate(condition)`                        | `packages/core/src/config.ts`                 |
-| Include file at compile time    | `includeStr()`, `includeJson()`                                         | `packages/macros/src/include.ts`              |
-| Assert at compile time          | `staticAssert(cond, msg)`                                               | `packages/macros/src/static-assert.ts`        |
-| Register FlatMap instance       | `registerFlatMap<F>(name, impl)`                                        | `packages/std/src/typeclasses/flatmap.ts`     |
-| Use do-notation for monads      | `let: { x << ... } yield: { ... }`                                      | `packages/std/src/macros/let-yield.ts`        |
-| Check if node is opted out      | `isInOptedOutScope(sourceFile, node, tracker, feature?)`                | `packages/core/src/resolution-scope.ts`       |
-| Get import suggestions          | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`        | `packages/core/src/import-suggestions.ts`     |
-| Emit rich diagnostic            | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()`    | `packages/core/src/diagnostics.ts`            |
-| Register an @opaque type        | `/** @opaque UnderlyingType */` on interface                            | `packages/macros/src/opaque.ts`               |
-| Look up type rewrite entry      | `typeRewriteRegistry.get(typeName)`                                     | `packages/core/src/type-rewrite-registry.ts`  |
-| Register type rewrite           | `typeRewriteRegistry.register(entry)`                                   | `packages/core/src/type-rewrite-registry.ts`  |
-| Check diagnostic suppression    | `evaluateDiagnosticSuppression(diagnostic, checker, sourceFile)`        | `packages/core/src/diagnostic-suppression.ts` |
-| Work on match exhaustiveness    | `analyzeScrutineeType()`, `isAllPureLiteralArms()`, `ScrutineeAnalysis` | `packages/std/src/macros/match-v2.ts`         |
-| Write fluent pattern match      | `match(v).case(...).if(...).then(...).else(...)`                        | `packages/std/src/macros/match.ts`            |
+| Need                           | Use                                                                      | Location                                            |
+| ------------------------------ | ------------------------------------------------------------------------ | --------------------------------------------------- |
+| Inline a method body           | `inlineMethod(ctx, method, callArgs)`                                    | `packages/macros/src/specialize.ts`                 |
+| Define an expression macro     | `defineExpressionMacro({ name, module, expand })` (returns it)           | `packages/core/src/registry.ts`                     |
+| Define an attribute macro      | `defineAttributeMacro({ name, module, validTargets, expand })`           | `packages/core/src/registry.ts`                     |
+| Define a derive macro          | `defineDeriveMacro({ name, expand })`                                    | `packages/core/src/registry.ts`                     |
+| Register macros                | `globalRegistry.register(m)`, `registerMacros(globalRegistry, ...ms)`    | `packages/core/src/registry.ts`                     |
+| Build AST nodes                | `ctx.factory.create*` (`ts.factory`)                                     | TypeScript API                                      |
+| Create AST from code string    | `ctx.parseExpression(code)` — exception list only, see CLAUDE.md         | `packages/core/src/context.ts`                      |
+| Create AST with splicing       | `` quote(ctx)`...` ``, `` quoteStatements(ctx)`...` ``                   | `packages/macros/src/quote.ts`                      |
+| Get type information           | `ctx.typeChecker`, `ctx.getTypeOf(node)`, `ctx.getTypeString(node)`      | `packages/core/src/context.ts`                      |
+| Evaluate at compile time       | `ctx.evaluate(node)`, `ctx.isComptime(node)`                             | `packages/core/src/context.ts`                      |
+| Report compile error           | `ctx.reportError(node, message)`                                         | `packages/core/src/context.ts`                      |
+| Generate unique names          | `ctx.generateUniqueName(prefix)`                                         | `packages/core/src/context.ts`                      |
+| Safe reference (hygiene)       | `ctx.safeRef(symbol, from)`                                              | `packages/core/src/context.ts`                      |
+| Resolve typeclass instances    | `resolveInstance()`, `findInstanceInScopeByName()`, `instanceScanner`    | `packages/macros/src/instance-resolver.ts`          |
+| Mark file as extension source  | `"use extension";` directive at file top                                 | `packages/core/src/resolution-scope.ts`             |
+| Mark function as extension     | `@extension` decorator                                                   | `packages/macros/src/extension.ts`                  |
+| Extract type metadata (derive) | `extractTypeInfo(ctx, node)`                                             | `packages/transformer-core/src/macro-helpers.ts`    |
+| Detect discriminated unions    | `tryExtractSumType(ctx, target)`                                         | `packages/macros/src/typeclass.ts`                  |
+| Define pattern-based macro     | `defineSyntaxMacro(name, options)`                                       | `packages/macros/src/syntax-macro.ts`               |
+| Define custom derive (simple)  | `defineCustomDerive(name, callback)`                                     | `packages/macros/src/custom-derive.ts`              |
+| Chain macro transformations    | `pipeline(name).pipe(...).build()`                                       | `packages/core/src/pipeline.ts`                     |
+| Read config values             | `config.get(path)`, `config.evaluate(condition)`                         | `packages/core/src/config.ts`                       |
+| Include file at compile time   | `includeStr()`, `includeJson()`                                          | `packages/macros/src/include.ts`                    |
+| Assert at compile time         | `staticAssert(cond, msg)`                                                | `packages/macros/src/static-assert.ts`              |
+| Make a type usable in `let:`   | `/** @impl FlatMap<F> */` instance with a `@do-methods` JSDoc tag        | `packages/std/src/typeclasses/flatmap-instances.ts` |
+| Use do-notation for monads     | `let: { x << ... } yield: { ... }` + `import "@typesugar/std/syntax/do"` | `packages/std/src/macros/let-yield.ts`              |
+| Check if node is opted out     | `isInOptedOutScope(sourceFile, node, tracker, feature?)`                 | `packages/core/src/resolution-scope.ts`             |
+| Get import suggestions         | `getSuggestionsForSymbol(name)`, `getSuggestionsForMethod(name)`         | `packages/core/src/import-suggestions.ts`           |
+| Emit rich diagnostic           | `DiagnosticBuilder(descriptor, sourceFile, emitter).at(node).emit()`     | `packages/core/src/diagnostics.ts`                  |
+| Register an @opaque type       | `/** @opaque UnderlyingType */` on interface                             | `packages/macros/src/opaque.ts`                     |
+| Look up type rewrite entry     | `getTypeRewrite(typeName)`, `findTypeRewrite(typeText)`                  | `packages/core/src/type-rewrite-registry.ts`        |
+| Register type rewrite          | `registerTypeRewrite(entry)`                                             | `packages/core/src/type-rewrite-registry.ts`        |
+| Check diagnostic suppression   | `evaluateDiagnosticSuppression(diagnostic, checker, sourceFile)`         | `packages/core/src/diagnostic-suppression.ts`       |
+| Work on match exhaustiveness   | `analyzeScrutineeType()`, `isAllPureLiteralArms()`, `ScrutineeAnalysis`  | `packages/std/src/macros/match.ts`                  |
+| Write fluent pattern match     | `match(v).case(...).if(...).then(...).else(...)`                         | `packages/std/src/macros/match.ts`                  |
 
 ---
 
