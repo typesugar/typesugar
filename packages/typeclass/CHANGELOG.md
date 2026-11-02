@@ -1,5 +1,204 @@
 # @typesugar/typeclass
 
+## 0.2.0
+
+### Minor Changes
+
+- d3243f9: New `derived<TC<T>>()`: declare a derived instance once, in your own module,
+  for a type you can't put `@derive` on (a library type such as `Feature` from
+  `@types/geojson`):
+
+  ```ts
+  // geo-instances.ts
+  import type { Feature } from "geojson";
+  import type { Clone } from "@typesugar/std";
+  import { derived } from "typesugar";
+
+  export const cloneFeature = derived<Clone<Feature>>();
+  ```
+
+  - The call expands to the same code `@derive(Clone)` generates (one
+    derivation, emitted once), with field instances from scope: a hand-written
+    `Clone<GeoJsonProperties>` declared above it is used for `properties`.
+  - The const is the instance: `summon`, `= implicit()` and method syntax find
+    it in every file that imports the module, as they find a typed or `@impl`
+    const. An `@impl` tag is optional (and must agree if present).
+    `export const cloneFeature: Clone<Feature> = derived();` is the same
+    instance, typed by its annotation, and its `.d.ts` is that annotation as
+    written. Neither form leaves a `typesugar` import in the `.d.ts`.
+  - Every typeclass `@derive` supports through a structural derivation (Eq,
+    Ord, Clone, Debug, Hash, Default, Json, TypeGuard, Show, Semigroup, Monoid).
+  - Errors: a field with no instance that can't be derived is TS9107 at the
+    `derived` line, naming the field and its type; a type with free type
+    parameters is TS9011 (not supported yet); anything but the initializer of a
+    top-level `const` is TS9010. Two instances in scope at a use site are the
+    existing ambiguity error.
+  - Exported from the `typesugar` root and `@typesugar/typeclass` (runtime stub,
+    like `summon`).
+
+  **Deprecated: `summon` and `= implicit()` deriving in place.** When no
+  instance is in scope they still derive one at the call site, a new copy at
+  each call, but now warn once per typeclass and type per file with TS9009,
+  which names the `derived` declaration to write. A later release removes the
+  fallback, and such a call becomes TS9001. TS9001 for a type declared outside
+  the project now suggests `derived<...>()`.
+
+### Patch Changes
+
+- a6584d7: Docs: instances are declared with `/** @impl Typeclass<Type> */` on a const
+  - The `@typesugar/typeclass` README quick start showed `@instance("Show<number>")`
+    as a decorator on a `const`, which TypeScript rejects (TS1206: decorators are
+    not valid on variables). It now uses `/** @impl Show<number> */`.
+  - The TS9002 and TS9003 explanations no longer show the decorator-on-a-const
+    "legacy" form, and TS9006, TS9007/TS9050, TS9104, TS9401, TS9802 and TS9803
+    recommend `@impl` instead of `@instance`.
+  - The TS9001 and TS9102 error pages' examples are rewritten against what the
+    transformer does: `p1 === p2` on a type with no `Eq` instance is not TS9001
+    (it stays reference equality, with no diagnostic); TS9001 comes from
+    `summon` on a type parameter or on a type with no instance that can't be
+    derived. TS9102's page described a missing field instance (that is TS9101)
+    and showed an `@noDerive` field annotation, which doesn't exist.
+
+- 89c895b: Package descriptions: the umbrella package uses the project tagline;
+  `@typesugar/typeclass` no longer claims auto-derivation (instances come from
+  `@derive` and `derived()`); `@typesugar/derive` says it is the `@derive` macros;
+  `@typesugar/lsp-common` describes the language-service helpers it holds, not the
+  removed LSP server.
+- 98adbea: PEP-052 Wave 4: de-magicking — HKT typeclass knowledge is
+  declaration-derived and the dead post-registry surfaces are gone.
+  - REMOVED: `hktTypeclassNames`, `registerHKTTypeclass`, the
+    `hktExpansionRegistry` hardcoded seeds, and the hand-written HKT signature
+    templates. `isHKTTypeclass` now derives from the `@typeclass` interface
+    declaration (type parameter used as `Kind<F,…>`, including through
+    `extends` chains — the op-index flattens heritage). fp's typeclass
+    interfaces (Functor…Alternative) now carry `@typeclass` tags and are read
+    exactly like third-party typeclasses.
+  - REMOVED: the `InstanceMeta` type, all no-op 1-arg
+    `registerInstanceWithMeta` calls, the legacy transformer's import
+    pre-scan, the dead `knownTypeclasses` scope chain
+    (`isTypeclassInScope`/`getInScopeTypeclasses`/`registerImportedTypeclass`),
+    the test-only ResultAlgebra helpers
+    (`unsafeResultAlgebra`/`hasResultAlgebra`/`getAllResultAlgebras`), and
+    `register-instances.ts` (`registerStdInstances` survives as a deprecated
+    runtime no-op stub).
+  - NEW: `@do-instance-module <specifier>` JSDoc tag — do-notation instance
+    providers self-describe their activation import; the TS9225 hint consults a
+    program-wide index first and falls back to a small static table only for
+    providers whose declaration files are unreachable in the program.
+
+- ab72bde: PEP-058 Wave 1: declare `engines.node >=20` on all published packages and enable npm provenance attestations in the release pipeline.
+- 93ea406: PEP-060 item 1: support TypeScript 6, reject TypeScript 7 with one clear error
+  - **Peer range is now `typescript >=5.9.0 <7.0.0`** on every package (was
+    `>=5.0.0 <6.0.0`). TypeScript 6.0.x still has the JavaScript compiler API typesugar
+    is built on; TypeScript 7 (`typescript@latest` since 7.0) does not. The floor
+    moved up from 5.0 because older releases were measured to break: before 5.5,
+    Node's ESM loader sees none of TypeScript's named exports, so the CLI and the
+    Vite plugin crash on their first `ts.*` access (5.0–5.3 also lack
+    `checker.isTypeAssignableTo` and other APIs typesugar calls); 5.5–5.8 lack
+    `checker.getNonPrimitiveType()`, so `@impl X<object>` instances never resolve.
+    5.9.3 and 6.0.3 build, type-check and pass the core, transformer-core, macros,
+    transformer, std and fp suites. The `library` and `macro-plugin` templates that
+    `typesugar create` copies peer the same range, and all three templates now
+    install `typescript ^5.9.3`.
+  - **`typescript` is now an optional peer** of the packages whose runtime `.` entry
+    never loads it: codec, collections, contracts, erased, fp, fusion, mapper, parser,
+    strings, testing, units, validate and the `typesugar` umbrella. Their `./macros`
+    entries still need TypeScript at build time. `check:runtime-purity` now fails if a
+    package with an optional peer loads `typescript` from its `.` entry, directly or
+    through a dependency.
+  - **TypeScript version guard.** `@typesugar/core` exports `assertSupportedTypeScript`,
+    `getUnsupportedTypeScriptReason`, `UnsupportedTypeScriptError`,
+    `SUPPORTED_TYPESCRIPT_RANGE` and `TYPESCRIPT_SUPPORT_URL`. `@typesugar/macros` runs
+    it first thing at load, and the transformer (pipeline, ts-patch factory, and the
+    language-service plugin, which checks tsserver's own TypeScript), `transformCode`,
+    unplugin, the LSP server and the ESLint processors call it before their first
+    compiler-API access. On TypeScript 7 they all stop with
+    `[typesugar] TypeScript 7.0.2 is not supported: TypeScript 7 removed the JavaScript
+compiler API that typesugar's transformer needs. Install typescript@6 (or 5.9+) as a
+devDependency for typesugar (npm i -D typescript@6); see
+https://typesugar.org/getting-started/troubleshooting#typescript-7` instead of an
+    opaque `Cannot read properties of undefined (reading 'ES2022')`. TypeScript older
+    than 5.9, or a module missing `ts.factory` / `ts.createProgram`, is rejected the
+    same way.
+
+- Updated dependencies [4d4ce68]
+- Updated dependencies [9bcb9d8]
+- Updated dependencies [0e0fe90]
+- Updated dependencies [f8dcade]
+- Updated dependencies [3400d8c]
+- Updated dependencies [fae35e9]
+- Updated dependencies [f3c8949]
+- Updated dependencies [a7158b3]
+- Updated dependencies [ec2188f]
+- Updated dependencies [81f31db]
+- Updated dependencies [a070a0c]
+- Updated dependencies [01a547c]
+- Updated dependencies [34850dc]
+- Updated dependencies [291dc90]
+- Updated dependencies [5f9af12]
+- Updated dependencies [d3243f9]
+- Updated dependencies [2694138]
+- Updated dependencies [3ae83a6]
+- Updated dependencies [7340c04]
+- Updated dependencies [7d84596]
+- Updated dependencies [592d66b]
+- Updated dependencies [3460709]
+- Updated dependencies [eb77b03]
+- Updated dependencies [4ca9f31]
+- Updated dependencies [0435dc6]
+- Updated dependencies [bec2d2b]
+- Updated dependencies [fbf4ef1]
+- Updated dependencies [8b4060d]
+- Updated dependencies [75f1968]
+- Updated dependencies [e016c8d]
+- Updated dependencies [624d80a]
+- Updated dependencies [e0ba26b]
+- Updated dependencies [4b0d84d]
+- Updated dependencies [76af80e]
+- Updated dependencies [ac891d1]
+- Updated dependencies [c7fb29f]
+- Updated dependencies [508c7d3]
+- Updated dependencies [eb6e5a8]
+- Updated dependencies [6659c44]
+- Updated dependencies [f4ffc81]
+- Updated dependencies [b893cb6]
+- Updated dependencies [914817e]
+- Updated dependencies [851809b]
+- Updated dependencies [05dbbcb]
+- Updated dependencies [dade880]
+- Updated dependencies [d0392e0]
+- Updated dependencies [babbb30]
+- Updated dependencies [a591082]
+- Updated dependencies [4f6ad83]
+- Updated dependencies [928566a]
+- Updated dependencies [63bf193]
+- Updated dependencies [98adbea]
+- Updated dependencies [48b621b]
+- Updated dependencies [57d76a1]
+- Updated dependencies [053978c]
+- Updated dependencies [8aaf40f]
+- Updated dependencies [76672a0]
+- Updated dependencies [c56886c]
+- Updated dependencies [ab72bde]
+- Updated dependencies [2fb4b62]
+- Updated dependencies [93ea406]
+- Updated dependencies [e0694af]
+- Updated dependencies [95b6631]
+- Updated dependencies [f471698]
+- Updated dependencies [5da6803]
+- Updated dependencies [51a72ca]
+- Updated dependencies [616d213]
+- Updated dependencies [dca9c00]
+- Updated dependencies [d7b3911]
+- Updated dependencies [e40c7e3]
+- Updated dependencies [0c9202a]
+- Updated dependencies [5cc34d9]
+- Updated dependencies [8204470]
+- Updated dependencies [c1e797e]
+- Updated dependencies [6edd688]
+- Updated dependencies [615d4c1]
+  - @typesugar/macros@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes
