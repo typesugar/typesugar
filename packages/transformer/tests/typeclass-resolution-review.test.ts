@@ -323,7 +323,8 @@ export const e = summon<Eq<T>>();`,
 
   it("@derive(Eq) with a field of another @derive(Eq) type composes companions", () => {
     const t = transformAll({
-      "main.ts": `/** @derive(Eq) */
+      "main.ts": `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export interface PN { x: number }
 /** @derive(Eq) */
 export interface LN { a: PN; b?: PN }`,
@@ -337,7 +338,8 @@ export interface LN { a: PN; b?: PN }`,
 
   it("@derive(Show) with an optional field", () => {
     const t = transformAll({
-      "main.ts": `/** @derive(Show) */
+      "main.ts": `import type { Show } from "typesugar";
+/** @derive(Show) */
 export interface SO { name?: string; n: number }`,
     });
     expect(errors(t, "main.ts")).toEqual([]);
@@ -347,7 +349,8 @@ export interface SO { name?: string; n: number }`,
 
   it("a failed derive reports the field trace, not 'Unknown derive'", () => {
     const t = transformAll({
-      "main.ts": `/** @derive(Eq) */
+      "main.ts": `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export interface H { when: Date }`,
     });
     const errs = errors(t, "main.ts");
@@ -357,7 +360,8 @@ export interface H { when: Date }`,
 
   it("@derive(Eq)/@derive(Semigroup) don't import @typesugar/macros at runtime", () => {
     const t = transformAll({
-      "main.ts": `/** @derive(Eq, Semigroup) */
+      "main.ts": `import type { Eq, Semigroup } from "typesugar";
+/** @derive(Eq, Semigroup) */
 export interface P { x: number; y: string; ok: boolean; xs: number[] }`,
     });
     expect(errors(t, "main.ts")).toEqual([]);
@@ -440,7 +444,8 @@ export const both = summonAll<Show<Point>, Eq<Point>>();`,
 describe("#14 sum-type derivation", () => {
   it("@derive(Eq/Ord/Hash) on a union of plain interfaces runs", () => {
     const t = transformAll({
-      "main.ts": `interface A { kind: "a"; x: number }
+      "main.ts": `import type { Eq, Ord, Hash } from "typesugar";
+interface A { kind: "a"; x: number }
 interface B { kind: "b"; y: string }
 /** @derive(Eq, Ord, Hash) */
 export type U = A | B;`,
@@ -463,7 +468,8 @@ export type U = A | B;`,
 
   it("inline object-literal variants (no U_a companion referenced)", () => {
     const t = transformAll({
-      "main.ts": `/** @derive(Eq) */
+      "main.ts": `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export type S = { tag: "c"; r: number } | { tag: "s"; side: number };`,
     });
     expect(errors(t, "main.ts")).toEqual([]);
@@ -501,7 +507,8 @@ export const s = summon<Show<Point>>();`,
 describe("#20 partial discriminated unions", () => {
   it("a union member without a literal discriminant is a TS9103 error", () => {
     const t = transformAll({
-      "main.ts": `interface A { kind: "a"; x: number }
+      "main.ts": `import type { Eq } from "typesugar";
+interface A { kind: "a"; x: number }
 interface B { kind: string; y: number }
 /** @derive(Eq) */
 export type U = A | B;`,

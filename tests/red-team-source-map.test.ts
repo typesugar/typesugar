@@ -107,7 +107,8 @@ const after = "end";
 
   it("expansion that introduces newlines: single-line call → multi-line output", () => {
     // @derive(Eq) on an interface generates multi-line namespace companion
-    const code = `/** @derive(Eq) */
+    const code = `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 interface Point { x: number; y: number; }
 const after = "end";
 `;
@@ -203,7 +204,8 @@ const after = "end";
   });
 
   it("multiple @derive expansions in sequence", () => {
-    const code = `/** @derive(Eq) */
+    const code = `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 interface Point { x: number; y: number; }
 
 /** @derive(Eq) */

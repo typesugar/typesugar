@@ -51,6 +51,7 @@ describe("pipeline source map (what the editor plugin maps positions through)", 
 
   it("maps every token after a template literal with substitutions in an expanded file", () => {
     const code =
+      `import type { Eq } from "typesugar";\n` +
       `/** @derive(Eq) */\n` +
       `interface Point { x: number; y: number; }\n` +
       `\n` +
@@ -72,6 +73,7 @@ describe("pipeline source map (what the editor plugin maps positions through)", 
 
   it("maps tokens after a regular expression literal containing a backtick", () => {
     const code =
+      `import type { Eq } from "typesugar";\n` +
       `/** @derive(Eq) */\n` +
       `interface Point { x: number; y: number; }\n` +
       `\n` +
@@ -89,6 +91,7 @@ describe("pipeline source map (what the editor plugin maps positions through)", 
   it("records no expansion for a macro that hands back the call (comptime switched off)", () => {
     const code =
       `import { comptime } from "@typesugar/macros";\n` +
+      `import type { Eq } from "typesugar";\n` +
       `/** @derive(Eq) */\n` +
       `interface Point { x: number; y: number; }\n` +
       `export const a = comptime(() => 40 + 2);\n`;
@@ -159,6 +162,7 @@ function lineCol(text: string, offset: number): ts.LineAndCharacter {
 }
 
 const DERIVE_SRC =
+  `import type { Eq } from "typesugar";\n` +
   `// navigation across a @derive expansion\n` +
   `/** @derive(Eq) */\n` +
   `interface Vec {\n` +

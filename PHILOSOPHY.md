@@ -22,6 +22,7 @@ TypeScript developers often face a choice between expressive, type-safe code and
 ### What it looks like in practice
 
 ```typescript
+import type { Eq } from "typesugar";
 import "@typesugar/std/syntax/eq/ops"; // === means Eq in this file
 
 /** @derive(Eq) */
@@ -246,6 +247,7 @@ In Haskell and Scala 3, deriving a typeclass instance takes an explicit annotati
 What reflection removes is the work, not the annotation. One line asks for an instance, and the type checker writes it from the type's structure:
 
 ```typescript
+import type { Clone, Eq, Show } from "typesugar";
 import "@typesugar/std/syntax/eq/ops"; // === means Eq in this file
 import "@typesugar/std/syntax/clone"; // .clone() means Clone
 

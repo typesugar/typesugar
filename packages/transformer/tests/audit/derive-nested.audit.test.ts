@@ -86,7 +86,7 @@ export const same = t1 === t2;
 
 describe("audit F23: JSDoc @derive must not activate without an import", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F23 (PEP-052 named-trigger rule; tryExpandGenericDerive injects "@typesugar/macros")
-  it.fails("a file with `/** @derive Eq */` and NO imports is left byte-for-byte unchanged", () => {
+  it("a file with `/** @derive Eq */` and NO imports is left byte-for-byte unchanged", () => {
     const code = `
 /** @derive Eq */
 class P { constructor(public x: number) {} }

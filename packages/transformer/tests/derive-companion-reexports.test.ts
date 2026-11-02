@@ -28,7 +28,8 @@ const repoRoot = path.resolve(pkgRoot, "..", "..");
 const cliPath = path.join(pkgRoot, "dist", "cli.js");
 
 const FILES: Record<string, string> = {
-  "src/vec.ts": `/** @derive(Eq, Clone) */
+  "src/vec.ts": `import type { Eq, Clone } from "typesugar";
+/** @derive(Eq, Clone) */
 export interface Vec {
   x: number;
   y: number;

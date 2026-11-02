@@ -42,9 +42,12 @@ here` on a `@derive`d interface). `typesugar check` filters those.
 
 Every attribute macro has **two spellings**. Prefer **JSDoc** — it is portable
 and never upsets a plain `tsc`. The decorator form is nicer to read but relies
-on typesugar's diagnostic filtering.
+on typesugar's diagnostic filtering. Either way, import what you derive: a JSDoc
+`@derive(Eq)` in a file that doesn't import `Eq` is ignored (with a warning).
 
 ```ts
+import type { Eq, Clone, Debug } from "typesugar";
+
 /** @derive(Eq, Clone, Debug) */
 interface Point {
   x: number;

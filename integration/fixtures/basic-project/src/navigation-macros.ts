@@ -1,5 +1,5 @@
 // Integration test fixture: navigation across macro expansions
-import { pipe } from "typesugar";
+import { pipe, type Eq } from "typesugar";
 
 /** @derive(Eq) */
 interface Vec {

@@ -5,7 +5,7 @@
 // - staticAssert macro error reported on its own line
 // - hover on `trailing`, after every expansion, must not drift
 
-import { comptime, staticAssert } from "typesugar";
+import { comptime, staticAssert, type Eq } from "typesugar";
 
 const answer = comptime(() => 6 * 7);
 

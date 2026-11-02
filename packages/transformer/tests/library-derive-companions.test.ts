@@ -36,6 +36,8 @@ const hasBuild =
   fs.existsSync(path.join(repoRoot, "packages", "unplugin-typesugar", "dist", "tsup.js"));
 
 const LIBRARY = `import { derive, Eq } from "typesugar";
+import type { Ord, Clone, Show } from "typesugar";
+import type { Destructure } from "@typesugar/std";
 
 /** @derive(Eq, Ord, Clone, Show, Destructure) */
 export interface Point {
@@ -170,7 +172,9 @@ type Builder = "typesugar build" | "tsup withTypesugar";
  * value, and `typesugar build` dropped the index's `export { Vec }`.
  */
 const VEC_LIBRARY = {
-  "src/shape.ts": `/** @derive(Eq, Clone) */
+  "src/shape.ts": `import type { Eq, Clone } from "typesugar";
+
+/** @derive(Eq, Clone) */
 export interface Vec {
   x: number;
   y: number;

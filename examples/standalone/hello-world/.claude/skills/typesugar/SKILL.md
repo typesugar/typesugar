@@ -71,6 +71,8 @@ Attribute macros have two spellings; **JSDoc is the portable one** (a plain
 typesugar's diagnostic filtering:
 
 ```ts
+import type { Eq, Clone, Debug } from "typesugar"; // a JSDoc @derive needs these imported
+
 /** @derive(Eq, Clone, Debug) */
 interface Point {
   x: number;

@@ -56,9 +56,8 @@ Attribute macros use decorators to transform declarations.
 ### Examples
 
 ```typescript
-import { derive } from "@typesugar/derive";
+import { derive, Eq, Clone, Debug, Json } from "typesugar";
 import { reflect } from "@typesugar/reflect";
-import { typeclass, instance, derive } from "@typesugar/typeclass";
 
 // @derive — auto-generate typeclass instances
 @derive(Eq, Clone, Debug, Json)

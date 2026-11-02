@@ -411,6 +411,13 @@ export function forAll<T>(
 // Mock Utilities
 // ============================================================================
 
+/**
+ * Runtime placeholder token for `@derive(Arbitrary)`: the name a file imports
+ * so a JSDoc `/** @derive Arbitrary *\/` applies (a JSDoc derive needs its
+ * derivable imported), and so the decorator form's argument resolves.
+ */
+export const Arbitrary = "Arbitrary";
+
 export { type MockOf, type MockFn, createMockFn } from "./mock-fn.js";
 import type { MockOf } from "./mock-fn.js";
 

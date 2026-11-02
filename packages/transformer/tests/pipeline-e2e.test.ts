@@ -17,7 +17,7 @@ import "@typesugar/macros";
 // A `@derive(Eq)` expansion — a real transformation, so cache/source-map
 // assertions are non-vacuous. (This used `type F<_> = ...`, which only counted
 // as "changed" because every file used to be reprinted, macros or not.)
-const MACRO_SRC = `/** @derive(Eq) */\ninterface Box { value: 1 }\n`;
+const MACRO_SRC = `import type { Eq } from "typesugar";\n/** @derive(Eq) */\ninterface Box { value: 1 }\n`;
 
 function createPipelineFromFiles(files: Map<string, string>): TransformationPipeline {
   return new TransformationPipeline(
@@ -181,7 +181,10 @@ describe("Pipeline E2E: cache invalidation", () => {
     const result1 = pipeline.transform("/test/main.ts");
 
     // Update file content
-    files.set("/test/main.ts", `/** @derive(Eq) */\ninterface Box { value: 99 }\n`);
+    files.set(
+      "/test/main.ts",
+      `import type { Eq } from "typesugar";\n/** @derive(Eq) */\ninterface Box { value: 99 }\n`
+    );
 
     // Invalidate cache
     pipeline.invalidate("/test/main.ts");

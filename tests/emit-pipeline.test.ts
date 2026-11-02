@@ -103,6 +103,7 @@ describe("transpileExpanded", () => {
 describe("emitJs pipeline integration", () => {
   it("populates js field when emitJs is enabled and file changed", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -118,6 +119,7 @@ interface Point { x: number; y: number; }
 
   it("js output does not contain sourceMappingURL comment", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -128,6 +130,7 @@ interface Point { x: number; y: number; }
 
   it("js output does not contain type annotations", () => {
     const code = `
+import type { Clone, Eq } from "typesugar";
 /** @derive(Eq, Clone) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -140,6 +143,7 @@ interface Point { x: number; y: number; }
 
   it("does not populate js when emitJs is false", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -162,6 +166,7 @@ interface Point { x: number; y: number; }
 
   it("populates jsSourceMap when emitJs is enabled", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -178,6 +183,7 @@ interface Point { x: number; y: number; }
   it("jsSourceMap maps JS positions back to original source", () => {
     // Use dynamic import for trace-mapping since it's ESM
     const code = `
+import type { Debug } from "typesugar";
 const greeting: string = "hello";
 /** @derive(Debug) */
 interface Msg { text: string; }
@@ -196,6 +202,7 @@ console.log(greeting);
 
   it("macro-generated lines map back to @derive annotation (2A)", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -227,6 +234,7 @@ interface Point { x: number; y: number; }
 
   it("preserves runtime semantics of @derive output", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -256,6 +264,7 @@ console.log(val);
 
   it("produces js on second transform (in-memory cache hit)", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Cached { a: number; }
     `.trim();
@@ -321,6 +330,7 @@ staticAssert(false, "intentional failure");
     // @derive generates a companion namespace for the derived implementations.
     // For interfaces, a companion const is also emitted for declaration merging.
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -392,6 +402,7 @@ export interface Point { x: number; y: number; }
 
   it("@derive(Eq) with multiple interfaces does not crash", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
 
@@ -410,7 +421,7 @@ const p: Point = { x: 1, y: 2 };
 
   it("@derive(Eq) through full pipeline does not crash", () => {
     const code = `
-import { staticAssert } from "typesugar";
+import { type Eq, staticAssert } from "typesugar";
 
 const x: number = "wrong";
 
@@ -504,6 +515,7 @@ describe("composeSourceMapChain", () => {
 describe("expand --js equivalent", () => {
   it("expand without emitJs returns TypeScript with namespaces", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();
@@ -515,6 +527,7 @@ interface Point { x: number; y: number; }
 
   it("expand with emitJs returns JavaScript without namespaces", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
     `.trim();

@@ -15,7 +15,8 @@ import {
   type Files,
 } from "./external-types-harness.js";
 
-const POINT = `/** @derive(Eq, Ord, Clone) */
+const POINT = `import type { Eq, Ord, Clone } from "typesugar";
+/** @derive(Eq, Ord, Clone) */
 export interface Point {
   x: number;
   y: number;
@@ -68,7 +69,8 @@ describe("@derive companions from another source file", () => {
   it("a type whose field is another file's derived type uses that type's companion", () => {
     const t = transformAll({
       "point.ts": POINT,
-      "segment.ts": `import { Point } from "./point";
+      "segment.ts": `import type { Eq } from "typesugar";
+import { Point } from "./point";
 /** @derive(Eq) */
 export interface Segment {
   from: Point;
@@ -86,7 +88,8 @@ describe("one derived type reached through two import bindings", () => {
     // Before: "Ambiguous Eq instance for type 'Vec': Vec.Eq, Vec.Eq" — the
     // two bindings were two candidates although both are vec.ts's `Vec`.
     const t = transformAll({
-      "vec.ts": `/** @derive(Eq) */
+      "vec.ts": `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export interface Vec {
   x: number;
   y: number;
@@ -122,7 +125,8 @@ describe("operators find the instances summon finds (review round 2)", () => {
   // at the declaration) both stayed reference comparisons, silently at the
   // use site, although summon<Eq<...>>() found Shape's instance and reported
   // TS9001 for Box's.
-  const BOX = `/** @derive(Eq) */
+  const BOX = `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export interface Box<T> { value: T }
 /** @derive(Eq) */
 export type Shape = { kind: "c"; r: number } | { kind: "s"; side: number };

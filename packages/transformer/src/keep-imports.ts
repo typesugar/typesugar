@@ -169,16 +169,71 @@ function remainingValueReferences(
   return names;
 }
 
+/**
+ * An import declaration the macros rebuilt (`import { match, type D } from
+ * "m"` with the macro `match` removed) is printed verbatim: TypeScript elides
+ * type-only syntax only in its own parse-tree declarations, so the emitted
+ * JavaScript read `import { type D } from "m"`, a syntax error. In the
+ * JavaScript emit, drop what TypeScript would have dropped: a type-only
+ * declaration, and a rebuilt declaration's type-only specifiers (the whole
+ * declaration when nothing else is left; its comments stay). The macros keep
+ * the type-only parts in their output because a pass printed as TypeScript
+ * (`typesugar expand`, the strict check of the expansion, declaration emit)
+ * still needs those bindings.
+ */
+function withoutRebuiltTypeOnlySyntax(
+  sourceFile: ts.SourceFile,
+  factory: ts.NodeFactory
+): ts.SourceFile {
+  let changed = false;
+  const statements = sourceFile.statements.map((stmt): ts.Statement => {
+    if (!ts.isImportDeclaration(stmt) || ts.getParseTreeNode(stmt) === stmt) return stmt;
+    const clause = stmt.importClause;
+    if (!clause) return stmt;
+    const bindings = clause.namedBindings;
+    const valueSpecifiers =
+      bindings && ts.isNamedImports(bindings)
+        ? bindings.elements.filter((el) => !el.isTypeOnly)
+        : undefined;
+    if (
+      !clause.isTypeOnly &&
+      valueSpecifiers?.length === (bindings as ts.NamedImports | undefined)?.elements.length
+    ) {
+      return stmt;
+    }
+    changed = true;
+    if (clause.isTypeOnly || (!clause.name && valueSpecifiers?.length === 0)) {
+      return factory.createNotEmittedStatement(stmt);
+    }
+    return factory.updateImportDeclaration(
+      stmt,
+      stmt.modifiers,
+      factory.updateImportClause(
+        clause,
+        false,
+        clause.name,
+        valueSpecifiers?.length
+          ? factory.updateNamedImports(bindings as ts.NamedImports, valueSpecifiers)
+          : undefined
+      ),
+      stmt.moduleSpecifier,
+      stmt.attributes
+    );
+  });
+  return changed ? factory.updateSourceFile(sourceFile, statements) : sourceFile;
+}
+
 export function keepMacroReferencedImports(
   program?: ts.Program
 ): ts.TransformerFactory<ts.SourceFile> {
   return (context) => (sourceFile) => {
+    const resolver = emitResolverOf(context);
+    if (!resolver) return sourceFile;
+    sourceFile = withoutRebuiltTypeOnlySyntax(sourceFile, context.factory);
     // Nothing is elided under verbatimModuleSyntax. A file the macros left
     // unchanged is still looked at: `Point(1, 2)` calls a constructor its
     // import's module declares only once expanded.
     if (context.getCompilerOptions().verbatimModuleSyntax) return sourceFile;
-    const resolver = emitResolverOf(context);
-    if (!resolver) return sourceFile;
     // The file as written, when the macros changed it: only then can a
     // reference the source has be gone from the expansion.
     const written = ts.getParseTreeNode(sourceFile);

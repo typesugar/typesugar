@@ -143,19 +143,26 @@ function generated(code: string, after: string): string {
     .split("\nexport const sum")[0];
 }
 
-const POINT = `/** @derive(Destructure) */
+// A JSDoc @derive only applies when the file binds the derivable itself.
+const IMPORT = `import type { Destructure } from "@typesugar/std";
+`;
+
+const POINT_SRC = `/** @derive(Destructure) */
 export interface Point {
   readonly x: number;
   readonly y: number;
 }
 `;
 
-const SHAPE = `/** @derive(Destructure) */
+const SHAPE_SRC = `/** @derive(Destructure) */
 export type Shape =
   | { kind: "circle"; r: number }
   | { kind: "rect"; w: number; h: number }
   | { kind: "empty" };
 `;
+
+const POINT = IMPORT + POINT_SRC;
+const SHAPE = IMPORT + SHAPE_SRC;
 
 describe("@derive(Destructure) on a product interface", () => {
   it("generates a constructor function and a zero-cost instance (pinned)", () => {
@@ -241,6 +248,8 @@ export const make = () => Point(7, 8);
   it("merges with the companion namespace of other derives (function first)", () => {
     const r = run({
       "main.ts": `import "@typesugar/std/syntax/eq/ops";
+import type { Eq } from "typesugar";
+import type { Destructure } from "@typesugar/std";
 /** @derive(Eq, Destructure) */
 export interface Point { x: number; y: number }
 export const same = (a: Point, b: Point) => Point.Eq.equals(a, b);
@@ -258,7 +267,7 @@ export const same = (a: Point, b: Point) => Point.Eq.equals(a, b);
 
   it("a generic interface gets a generic constructor and instance", () => {
     const r = run({
-      "main.ts": `import { match } from "@typesugar/std";
+      "main.ts": `import { match, type Destructure } from "@typesugar/std";
 /** @derive(Destructure) */
 export interface Box<T> { value: T; label?: string }
 export const open = (b: Box<number>) => match(b).case(Box(v, l)).then(v + (l ?? "").length);
@@ -394,7 +403,7 @@ export function area(s: Shape): number {
 
   it("variants that are named interfaces keep their names", () => {
     const r = run({
-      "main.ts": `import { match } from "@typesugar/std";
+      "main.ts": `import { match, type Destructure } from "@typesugar/std";
 /** @derive(Destructure) */
 export type Result = Ok | Err;
 export interface Ok { ok: true; value: number }
@@ -443,7 +452,7 @@ export const make = () => [Circle(1), Dog(true)];
 
   it("a generic union: Option-style", () => {
     const r = run({
-      "main.ts": `import { match } from "@typesugar/std";
+      "main.ts": `import { match, type Destructure } from "@typesugar/std";
 /** @derive(Destructure) */
 export type Maybe<A> = { _tag: "Just"; value: A } | { _tag: "Nothing" };
 export const get = (m: Maybe<number>) => match(m).case(Just(v)).then(v).case(Nothing).then(-1);
@@ -461,7 +470,7 @@ export const make = () => [Just("x"), Nothing()];
 
 describe("published libraries: the .d.ts carries the extractors", () => {
   it("declares the functions and the instances with their descriptors", () => {
-    const r = run({ "main.ts": POINT + SHAPE });
+    const r = run({ "main.ts": IMPORT + POINT_SRC + SHAPE_SRC });
     expect(r.errors).toEqual([]);
     const dts = r.dts["main.ts"];
     expect(dts).toContain("export declare function Point(x: number, y: number): Point;");
@@ -475,7 +484,7 @@ describe("published libraries: the .d.ts carries the extractors", () => {
   });
 
   it("a consumer of the .d.ts inlines them (no extract() call)", () => {
-    const lib = run({ "shape.ts": POINT + SHAPE, "main.ts": "export {};\n" });
+    const lib = run({ "shape.ts": IMPORT + POINT_SRC + SHAPE_SRC, "main.ts": "export {};\n" });
     const r = run({
       "shape.d.ts": lib.dts["shape.ts"],
       "main.ts": `import { match } from "@typesugar/std";
@@ -499,7 +508,8 @@ describe("ambiguities are compile errors", () => {
 
   it("a value of the same name already exists", () => {
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export interface Point { x: number }
 export const Point = 1;
 `)
@@ -508,7 +518,8 @@ export const Point = 1;
 
   it("a variant name would shadow a global", () => {
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export type Res = { kind: "error"; message: string } | { kind: "done" };
 `)
     ).toEqual([expect.stringContaining("'Error' would shadow the global Error")]);
@@ -516,7 +527,8 @@ export type Res = { kind: "error"; message: string } | { kind: "done" };
 
   it("two variants get the same name", () => {
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export type T = { kind: "a-b"; x: number } | { kind: "a_b"; y: number };
 `)
     ).toEqual([expect.stringContaining("both variants would be named AB")]);
@@ -524,7 +536,8 @@ export type T = { kind: "a-b"; x: number } | { kind: "a_b"; y: number };
 
   it("a variant tag that isn't a name", () => {
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export type T = { kind: "2d"; x: number } | { kind: "3d"; y: number };
 `)
     ).toEqual([expect.stringContaining('"2d" does not make an extractor name')]);
@@ -532,7 +545,8 @@ export type T = { kind: "2d"; x: number } | { kind: "3d"; y: number };
 
   it("an inline variant with a boolean discriminant has no name", () => {
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export type R = { ok: true; value: number } | { ok: false; error: string };
 `)
     ).toEqual([expect.stringContaining("name the variants with interfaces")]);
@@ -540,12 +554,14 @@ export type R = { ok: true; value: number } | { ok: false; error: string };
 
   it("no discriminant, or more than one", () => {
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export type U = { a: number } | { b: string };
 `)
     ).toEqual([expect.stringContaining("no discriminant")]);
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export type U = { kind: "a"; type: "x" } | { kind: "b"; type: "y" };
 `)
     ).toEqual([expect.stringContaining("more than one discriminant (kind, type)")]);
@@ -553,7 +569,8 @@ export type U = { kind: "a"; type: "x" } | { kind: "b"; type: "y" };
 
   it("an interface that extends another: the field order is ambiguous", () => {
     expect(
-      errorsFor(`interface Base { id: string }
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+interface Base { id: string }
 /** @derive(Destructure) */
 export interface Point extends Base { x: number }
 `)
@@ -562,7 +579,9 @@ export interface Point extends Base { x: number }
 
   it("a named variant with derives of its own, declared before the union", () => {
     expect(
-      errorsFor(`/** @derive(Eq) */
+      errorsFor(`import type { Eq } from "typesugar";
+import type { Destructure } from "@typesugar/std";
+/** @derive(Eq) */
 export interface Circle { kind: "circle"; r: number }
 export interface Square { kind: "square"; s: number }
 /** @derive(Destructure) */
@@ -573,7 +592,8 @@ export type Shape = Circle | Square;
 
   it("a class is not supported", () => {
     expect(
-      errorsFor(`/** @derive(Destructure) */
+      errorsFor(`import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
 export class Point { constructor(public x: number) {} }
 `)
     ).toEqual([expect.stringContaining("not on a class")]);

@@ -486,7 +486,7 @@ export interface Monoid<A> extends Semigroup<A> { empty(): A }
     const files: Files = {
       "tc.ts": TC_FILE,
       "money.ts": `export interface Money ${MONEY}\n`,
-      "owned.ts": `/** @derive(${TCS.join(", ")}) */\nexport interface Money ${MONEY}\n`,
+      "owned.ts": `import type { ${TCS.join(", ")} } from "typesugar";\n/** @derive(${TCS.join(", ")}) */\nexport interface Money ${MONEY}\n`,
       "instances.ts": `import type { ${TCS.join(", ")} } from "./tc";
 import type { Money } from "./money";
 import { derived } from "typesugar";

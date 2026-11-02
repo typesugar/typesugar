@@ -1,5 +1,5 @@
 // Integration test fixture: TypeScript quick fixes after macro expansions
-import { pipe } from "typesugar";
+import { pipe, type Eq } from "typesugar";
 
 /** @derive(Eq) */
 interface Pair {

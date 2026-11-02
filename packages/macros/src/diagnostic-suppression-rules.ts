@@ -1330,6 +1330,98 @@ export function createMacroDecoratorRule(): DiagnosticSuppressionRule {
 }
 
 // ===========================================================================
+// JSDocDeriveImport — an import a JSDoc @derive tag uses is not unused
+// ===========================================================================
+
+/**
+ * "'X' is declared but its value is never read" (6133), "All imports in
+ * import declaration are unused" (6192), "'X' is declared but never used"
+ * (6196).
+ */
+const UNUSED_IMPORT_CODES: readonly number[] = [6133, 6192, 6196];
+
+/**
+ * Create the JSDocDeriveImport diagnostic suppression rule.
+ *
+ * A JSDoc `/** @derive Eq *\/` applies only when the file imports `Eq`
+ * (audit/FABLE-AUDIT-2026-11.md F23), but TypeScript doesn't count a JSDoc
+ * tag as a use, so under `noUnusedLocals` that import is reported unused —
+ * the moment the user writes what typesugar asks for. The macro does use it:
+ * the import is what activates the derive. Suppressed only when every name
+ * the reported import (or specifier) binds is named by an `@derive` /
+ * `@deriving` tag in the same file.
+ */
+export function createJSDocDeriveImportRule(): DiagnosticSuppressionRule {
+  const derivedNames = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+  return {
+    name: "JSDocDeriveImport",
+    errorCodes: UNUSED_IMPORT_CODES,
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      _checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile
+    ): boolean {
+      if (diagnostic.start === undefined) return false;
+      let names = derivedNames.get(sourceFile);
+      if (!names) derivedNames.set(sourceFile, (names = jsDocDeriveNames(sourceFile)));
+      if (names.size === 0) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      for (let n: ts.Node | undefined = node; n; n = n.parent) {
+        if (ts.isImportSpecifier(n)) return names.has(n.name.text);
+        if (ts.isImportClause(n)) {
+          // The default binding alone, or the whole clause.
+          if (n.name && node === n.name) return names.has(n.name.text);
+          return allBound(n, names);
+        }
+        if (ts.isImportDeclaration(n)) return !!n.importClause && allBound(n.importClause, names);
+        if (ts.isStatement(n)) return false;
+      }
+      return false;
+    },
+  };
+}
+
+/** Every name `clause` binds is in `names` (a namespace import never is). */
+function allBound(clause: ts.ImportClause, names: ReadonlySet<string>): boolean {
+  const bound: string[] = [];
+  if (clause.name) bound.push(clause.name.text);
+  const bindings = clause.namedBindings;
+  if (bindings && ts.isNamespaceImport(bindings)) return false;
+  if (bindings) for (const el of bindings.elements) bound.push(el.name.text);
+  return bound.length > 0 && bound.every((b) => names.has(b));
+}
+
+/**
+ * The names the file's `@derive` / `@deriving` JSDoc tags list, in both
+ * spellings (`@derive Eq, Clone` and `@derive(Eq, Clone)`), on declarations at
+ * the top level or inside namespaces.
+ */
+function jsDocDeriveNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const names = new Set<string>();
+  const visit = (statements: readonly ts.Statement[]): void => {
+    for (const stmt of statements) {
+      if (ts.isModuleDeclaration(stmt) && stmt.body && ts.isModuleBlock(stmt.body)) {
+        visit(stmt.body.statements);
+        continue;
+      }
+      for (const tag of ts.getJSDocTags(stmt)) {
+        const tagName = tag.tagName.text;
+        if (tagName !== "derive" && tagName !== "deriving") continue;
+        const text =
+          typeof tag.comment === "string"
+            ? tag.comment
+            : (ts.getTextOfJSDocComment(tag.comment) ?? "");
+        const list = /^\(?\s*([A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*)/.exec(text.trim());
+        if (list) for (const n of list[1].split(",")) names.add(n.trim());
+      }
+    }
+  };
+  visit(sourceFile.statements);
+  return names;
+}
+
+// ===========================================================================
 // Rule 7: MacroCallChain — suppress errors inside typesugar match() chains
 // ===========================================================================
 

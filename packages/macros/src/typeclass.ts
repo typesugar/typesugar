@@ -4367,12 +4367,17 @@ export function tryExpandGenericDerive(
     // provide `TC.<primitive>` at runtime is @typesugar/macros, and only for
     // the typeclasses it actually exports with primitive members — importing
     // any other name from it would bind `undefined`.
+    // A VALUE binding: `import type { Ord }` (which a JSDoc @derive needs to
+    // apply at all) is erased, so `Ord.number` read through it would throw.
     const alreadyBound = ctx.sourceFile.statements.some(
       (s) =>
         (ts.isImportDeclaration(s) &&
+          !s.importClause?.isTypeOnly &&
           s.importClause?.namedBindings &&
           ts.isNamedImports(s.importClause.namedBindings) &&
-          s.importClause.namedBindings.elements.some((e) => e.name.text === deriveName)) ||
+          s.importClause.namedBindings.elements.some(
+            (e) => e.name.text === deriveName && !e.isTypeOnly
+          )) ||
         (ts.isVariableStatement(s) &&
           s.declarationList.declarations.some(
             (d) => ts.isIdentifier(d.name) && d.name.text === deriveName

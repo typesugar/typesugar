@@ -28,6 +28,7 @@ function errorsOf(diags: { severity: string }[]) {
 describe("PEP-052 Wave 8: @deriving JSDoc tag — parity between legacy and transformer-core", () => {
   it("both pipelines derive Eq from a JSDoc tag", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 export interface Point { x: number; y: number; }
     `.trim();
@@ -46,6 +47,7 @@ export interface Point { x: number; y: number; }
 
   it("both pipelines derive multiple typeclasses from one @deriving tag", () => {
     const code = `
+import type { Eq, Show } from "typesugar";
 /** @deriving Eq, Show */
 export interface Range { start: number; end: number; }
     `.trim();
@@ -63,6 +65,7 @@ export interface Range { start: number; end: number; }
 
   it("both pipelines accept @derive (not just @deriving) as a JSDoc tag", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @derive Eq */
 export interface Coord { x: number; y: number; }
     `.trim();
@@ -78,6 +81,7 @@ export interface Coord { x: number; y: number; }
 
   it("both pipelines strip optional wrapping parens: @deriving (Eq, Show)", () => {
     const code = `
+import type { Eq, Show } from "typesugar";
 /** @deriving (Eq, Show) */
 export interface Wrapped { value: number; }
     `.trim();
@@ -165,6 +169,7 @@ describe("PEP-052 Wave 8: derive diagnostics (TS9101/TS9103/TS9104) — parity b
   // all three fixtures below). These tests are the parity gate for that fix.
   it("both pipelines report TS9101 for a function-typed field", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 interface HasFunction { x: number; callback: () => void; }
     `.trim();
@@ -185,6 +190,7 @@ interface HasFunction { x: number; callback: () => void; }
 
   it("both pipelines report TS9103 for a union without a discriminant", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 type NoDiscriminant = { name: string } | { age: number };
     `.trim();
@@ -198,6 +204,7 @@ type NoDiscriminant = { name: string } | { age: number };
 
   it("both pipelines report TS9104 for an empty interface", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 interface EmptyType {}
     `.trim();
@@ -220,6 +227,7 @@ interface EmptyType {}
     // incorrectly counted a method as a derivable data field instead of
     // reporting "no fields" here.
     const code = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 class HasOnlyMethods { getValue() { return 1; } get computed() { return 2; } }
     `.trim();
@@ -248,6 +256,7 @@ class HasOnlyMethods { getValue() { return 1; } get computed() { return 2; } }
   // construct — a union always has ≥2 members once you write a `|`).
   it("neither pipeline reports TS9103 for an ordinary (non-union) product type", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 type Wrapper = { value: number };
     `.trim();

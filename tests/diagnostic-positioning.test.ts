@@ -762,7 +762,8 @@ interface MyTC<A> {
 
 describe("@derive diagnostic positioning", () => {
   it("position mapper maps code BEFORE @derive expansion back correctly", () => {
-    const code = `const before = "marker";
+    const code = `import type { Eq } from "typesugar";
+const before = "marker";
 
 /** @derive(Eq) */
 interface Point { x: number; y: number; }
@@ -780,7 +781,8 @@ const y = 1;
   });
 
   it("position mapper maps code AFTER @derive expansion back correctly", () => {
-    const code = `/** @derive(Eq) */
+    const code = `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 interface Point { x: number; y: number; }
 
 const after = "marker";
@@ -797,7 +799,8 @@ const after = "marker";
 
   it("@derive error itself points to the decorator", () => {
     // Use a type with a field that can't be derived (function type)
-    const code = `/** @derive(Eq) */
+    const code = `import type { Eq } from "typesugar";
+/** @derive(Eq) */
 interface Bad { fn: () => void; }
 `;
     const result = transform(code);
@@ -818,7 +821,7 @@ interface Bad { fn: () => void; }
 
 describe("mixed-macro diagnostic positioning", () => {
   it("file with @derive + pipe + staticAssert — all error positions correct", () => {
-    const code = `import { pipe, staticAssert } from "typesugar";
+    const code = `import { type Eq, pipe, staticAssert } from "typesugar";
 
 /** @derive(Eq) */
 interface Point { x: number; y: number; }

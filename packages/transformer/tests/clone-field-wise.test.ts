@@ -619,7 +619,8 @@ export const sameAddress = p2.address === p1.address;
 
   it("Clone section: the Shape example compiles to what the guide shows", () => {
     const t = transformAll({
-      "shape.ts": `/** @derive(Clone) */
+      "shape.ts": `import type { Clone } from "typesugar";
+/** @derive(Clone) */
 export interface Shape {
   id: number;
   points: number[][];
@@ -721,7 +722,8 @@ export class Registry extends Map<string, number> {
 
   it("no comment from the user's file leaks into a derived Map clone", () => {
     const t = transformAll({
-      "bag.ts": `/** @derive(Clone) */
+      "bag.ts": `import type { Clone } from "typesugar";
+/** @derive(Clone) */
 export interface Bag {
   d: Date;
   mp: Map<string, number[]>;

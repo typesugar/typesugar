@@ -33,7 +33,11 @@ globalRegistry.register(
 ```
 
 Users write `@derive(MyDerive)` with `derive` imported from `typesugar` (or
-`@typesugar/derive`). `MyDerive` itself needs no import.
+`@typesugar/derive`). The JSDoc form, `/** @derive(MyDerive) */`, applies only
+when the file imports `MyDerive`, or the package your macro names as its
+`module`. Export a `MyDerive` token from your package so users can import it,
+as `@typesugar/effect` does for `EffectSchema` (`export const EffectSchema =
+"EffectSchema"`); it also lets the decorator form's argument resolve.
 
 ## DeriveTypeInfo Structure
 

@@ -339,6 +339,7 @@ describe("a derived union narrowed to one variant by assignment", () => {
   it("=== still dispatches to the union's Eq (the variable's declared type)", () => {
     const code = [
       `import "@typesugar/std/syntax/eq/ops";`,
+      `import type { Eq } from "typesugar";`,
       `/** @derive(Eq) */`,
       `type Shape = { kind: "c"; r: number } | { kind: "s"; side: number };`,
       `const s1: Shape = { kind: "c", r: 1 }, s2: Shape = { kind: "c", r: 1 };`,
@@ -360,6 +361,7 @@ describe("a derived union narrowed to one variant by assignment", () => {
     const code = [
       `import "@typesugar/std/syntax/eq/ops";`,
       `interface Foo { x: number }`,
+      `import type { Eq } from "typesugar";`,
       `/** @derive(Eq) */`,
       `interface Bar { x: number; y: number }`,
       `const a: Foo = { x: 1 };`,
@@ -418,8 +420,9 @@ describe("a derived union narrowed to one variant by assignment", () => {
     expect(r.code).toContain("same = (a: number) => [1 === a, a === 1]");
   });
 
-  it("without the Eq import, TS9804 names the union's Eq", () => {
+  it("without the eq/ops syntax import, TS9804 names the union's Eq", () => {
     const code = [
+      `import type { Eq } from "typesugar";`,
       `/** @derive(Eq) */`,
       `type Shape = { kind: "c"; r: number } | { kind: "s"; side: number };`,
       `const s1: Shape = { kind: "c", r: 1 }, s2: Shape = { kind: "c", r: 1 };`,
@@ -443,7 +446,11 @@ describe("an operator before its type's @derive declaration", () => {
   for (const order of ["use first", "declaration first"]) {
     it(`rewrites to P.Eq (${order})`, () => {
       const body = order === "use first" ? [...use, ...decl] : [...decl, ...use];
-      const code = [`import "@typesugar/std/syntax/eq/ops";`, ...body].join("\n");
+      const code = [
+        `import "@typesugar/std/syntax/eq/ops";`,
+        `import type { Eq } from "typesugar";`,
+        ...body,
+      ].join("\n");
       const r = transformCode(code, { fileName: `eq-order-${counter++}.ts` });
       expect(r.diagnostics).toEqual([]);
       expect(r.code).toContain("return P.Eq.equals(a, b);");
@@ -467,6 +474,7 @@ describe("an operator before its type's @derive declaration", () => {
   it("at module top level above the declaration (the companion isn't assigned yet): an error that says so", () => {
     const code = [
       `import "@typesugar/std/syntax/eq/ops";`,
+      `import type { Eq } from "typesugar";`,
       `const a = { x: 1 } as P, b = { x: 1 } as P;`,
       `export const r = a === b;`,
       ...decl,
@@ -489,7 +497,11 @@ describe("a use above its type's @derive that runs before the companion is assig
 
   /** Transform, then run: the result is the exports, or the compile errors. */
   function outcome(lines: string[]): { errors: string[]; exports?: Record<string, unknown> } {
-    const code = [`import "@typesugar/std/syntax/eq/ops";`, ...lines].join("\n");
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      `import type { Eq } from "typesugar";`,
+      ...lines,
+    ].join("\n");
     const r = transformCode(code, { fileName: `eq-early-${counter++}.ts` });
     const errs = errors(r).map((d) => d.message);
     if (errs.length > 0) return { errors: errs };
@@ -522,6 +534,7 @@ describe("a use above its type's @derive that runs before the companion is assig
   it("a function only called below the declaration (directly, or through another) still rewrites", () => {
     const code = [
       `import "@typesugar/std/syntax/eq/ops";`,
+      `import type { Eq } from "typesugar";`,
       vals,
       `function same(p: P, q: P) { return p === q; }`,
       `function viaHelper(p: P, q: P) { return same(p, q); }`,
@@ -547,7 +560,13 @@ describe("a use above its type's @derive in code a class runs at definition time
   const decl = [`/** @derive(Eq) */`, `interface P { x: number }`];
   const vals = `const a = { x: 1 } as P, b = { x: 1 } as P;`;
   const compileErrors = (lines: string[]) => {
-    const code = [`import "@typesugar/std/syntax/eq/ops";`, vals, ...lines, ...decl].join("\n");
+    const code = [
+      `import "@typesugar/std/syntax/eq/ops";`,
+      `import type { Eq } from "typesugar";`,
+      vals,
+      ...lines,
+      ...decl,
+    ].join("\n");
     return errors(transformCode(code, { fileName: `eq-class-early-${counter++}.ts` })).map(
       (d) => d.message
     );
@@ -612,6 +631,7 @@ describe("a use above its type's @derive in code a class runs at definition time
   it("class members that only run once the class is used below still rewrite", () => {
     const code = [
       `import "@typesugar/std/syntax/eq/ops";`,
+      `import type { Eq } from "typesugar";`,
       vals,
       `class Box {`,
       `  static make(p: P) { return new Box(p); }`,
@@ -642,7 +662,14 @@ describe("a class referring to itself at definition time runs only what that ref
   const vals = `const a = { x: 1 } as P, b = { x: 1 } as P;`;
   const compile = (lines: string[], tail: string[]) =>
     transformCode(
-      [`import "@typesugar/std/syntax/eq/ops";`, vals, ...lines, ...decl, ...tail].join("\n"),
+      [
+        `import "@typesugar/std/syntax/eq/ops";`,
+        `import type { Eq } from "typesugar";`,
+        vals,
+        ...lines,
+        ...decl,
+        ...tail,
+      ].join("\n"),
       { fileName: `eq-class-self-${counter++}.ts` }
     );
 

@@ -628,7 +628,11 @@ describe("@deriving is a deprecated alias of @derive", () => {
 
   it("the JSDoc form derives and warns", () => {
     const r = transformCode(
-      [`/** @deriving Eq */`, `class P { constructor(public x: number) {} }`].join("\n"),
+      [
+        `import type { Eq } from "typesugar";`,
+        `/** @deriving Eq */`,
+        `class P { constructor(public x: number) {} }`,
+      ].join("\n"),
       { fileName: "/virtual/deriving-jsdoc.ts" }
     );
     expect(r.code).toMatch(/namespace P \{[\s\S]*export const Eq/);

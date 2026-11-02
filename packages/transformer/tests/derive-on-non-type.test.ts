@@ -97,7 +97,8 @@ export interface Point { x: number }
     // JSDoc's @example content ends at the next line-start tag; only a code
     // fence makes a line-start tag example code. This @derive used to be
     // ignored, leaving \`Point.Eq\` a ReferenceError at run time.
-    const r = expand(`/**
+    const r = expand(`import type { Eq } from "typesugar";
+/**
  * A point.
  * @example
  * const p: Point = { x: 1, y: 2 };
@@ -128,7 +129,8 @@ export let l = 2;
   });
 
   it("on an interface it still derives", () => {
-    const r = expand(`/** @derive(Eq) */
+    const r = expand(`import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export interface Point { x: number; y: number }
 `);
     expect(r.diagnostics).toEqual([]);
