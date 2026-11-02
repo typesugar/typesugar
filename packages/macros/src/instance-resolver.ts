@@ -325,6 +325,24 @@ export function resolveInstance(
     const own = resolveInStages(ctx, tcName, enumType, scanner, excludeLocal, true, useSite);
     if (own) return own;
   }
+  // The same holds for any named type: an instance declared for the type
+  // itself (by symbol) wins over one that only matches structurally, in
+  // EVERY stage — not just within one. Otherwise a local `Eq<Vec>` (Vec of
+  // the same shape as Point) was picked for a `Point` by the local stage
+  // before the imports stage could find the imported `Eq<Point>`
+  // (audit/FABLE-AUDIT-2026-11.md F15). Skipped where it can't find anything
+  // the pass below wouldn't: a primitive (no symbol), an anonymous object
+  // type (its `__type`/`__object` symbol is no declaration an instance can
+  // name), and an enum (searched by identity just above).
+  const own = typeSymbol(typeChecker, forType);
+  if (
+    !enumType &&
+    own &&
+    !(own.flags & (ts.SymbolFlags.TypeLiteral | ts.SymbolFlags.ObjectLiteral))
+  ) {
+    const exact = resolveInStages(ctx, tcName, forType, scanner, excludeLocal, true, useSite);
+    if (exact) return exact;
+  }
   return resolveInStages(ctx, tcName, forType, scanner, excludeLocal, false, useSite);
 }
 

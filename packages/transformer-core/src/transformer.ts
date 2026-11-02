@@ -110,6 +110,27 @@ function isDirectiveStatement(s: ts.Statement): boolean {
   return ts.isExpressionStatement(s) && ts.isStringLiteral(s.expression);
 }
 
+/**
+ * Does the output reference a name: some identifier in `statements` spelled
+ * `name`, other than a property name after a dot (`x.name` never reads the
+ * binding). Over-inclusive on purpose — a false "yes" only keeps an import.
+ */
+function referencedNames(statements: readonly ts.Statement[]): (name: string) => boolean {
+  const names = new Set<string>();
+  // An explicit stack: an output file can hold an expression thousands of
+  // levels deep. A property access contributes only its object, so a `.name`
+  // is skipped by position, never by node identity (one identifier object
+  // may sit in both a `.name` and a value position).
+  const stack: ts.Node[] = [...statements];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    if (ts.isIdentifier(n)) names.add(n.text);
+    else if (ts.isPropertyAccessExpression(n)) stack.push(n.expression);
+    else ts.forEachChild(n, (child) => void stack.push(child));
+  }
+  return (name) => names.has(name);
+}
+
 class MacroTransformer {
   private additionalStatements: ts.Statement[] = [];
 
@@ -1066,8 +1087,12 @@ class MacroTransformer {
     }
 
     if (ts.isSourceFile(node)) {
-      const pendingImports = this.ctx.fileBindingCache.getPendingImports();
       const hoistedDecls = this.specCache.getHoistedDeclarations();
+      const pendingImports = this.ctx.fileBindingCache.hasPendingImports()
+        ? this.ctx.fileBindingCache.getPendingImports(
+            referencedNames([...cleanedStatements, ...hoistedDecls])
+          )
+        : [];
 
       if (pendingImports.length > 0 || hoistedDecls.length > 0) {
         // Insert after the leading directive prologue ("use client", "use strict":

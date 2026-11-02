@@ -146,9 +146,17 @@ keyed by type name, and say in a comment which comparison you used.
 A synthesized AST node (`pos`/`end` of `-1`, never part of the `Program`
 the checker was built from) is outside the checker's supported contract —
 `getTypeAtLocation`, `getSymbolAtLocation`, and diagnostic-span code can
-all throw on it. This is a real, load-bearing constraint in this codebase,
-not a hypothetical: `cli.ts` catches it by name (`"start < 0"`) at three
-separate checker entry points.
+all throw on it (`Error: start < 0` from `createTextSpan`). This is a real,
+load-bearing constraint in this codebase, not a hypothetical.
+
+The corollary: **never strip positions off a node the program owns.**
+`stripPositions`/`stripCommentsDeep` mutate in place; use them only on a
+copy (`cloneNodeDeep`, or `cloneWithoutPositions`/`cloneWithoutComments`,
+which copy tokens and NodeArrays too). Until the 2026-11 audit (F20) the
+transform stripped real argument and method nodes, a watch rebuild that
+reused the SourceFile crashed the checker, and `cli.ts` papered over it
+with three `"start < 0"` catches; those are gone, so a throw there now is a
+real bug.
 
 Use `isSyntheticNode(node)` (`@typesugar/core`) to skip before calling the
 checker on a node that might be macro-generated, rather than a fresh

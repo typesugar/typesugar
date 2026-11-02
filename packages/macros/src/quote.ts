@@ -32,7 +32,7 @@
 import * as ts from "typescript";
 import { MacroContext } from "@typesugar/core";
 import { MacroContextImpl } from "@typesugar/core";
-import { stripPositions, getPrinter, getDummySourceFile } from "@typesugar/core";
+import { cloneNodeDeep, getPrinter, getDummySourceFile } from "@typesugar/core";
 import { needsParentheses } from "./syntax-macro.js";
 
 // =============================================================================
@@ -344,7 +344,7 @@ function parseTypeNode(code: string): ts.TypeNode {
 
   const stmt = tempSource.statements[0];
   if (ts.isTypeAliasDeclaration(stmt)) {
-    return stripPositions(stmt.type);
+    return cloneNodeDeep(stmt.type);
   }
 
   throw new Error(`Failed to parse type: ${code}`);

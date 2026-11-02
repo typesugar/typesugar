@@ -874,9 +874,28 @@ function resolveDictForIdentifier(
     }
     extractFrom = ident;
   } else if (location) {
-    const r = resolveNameAt(ctx, name, location);
-    if (r === "error") return undefined;
-    if (r) symbol = r;
+    // A generated receiver: an import the expansion is adding (an instance
+    // found by module scan or through an `import type`, ensureImport'ed by
+    // the operator rewrite) resolves to that module's export, so its body can
+    // be inlined — and then the import is never injected, because nothing
+    // references it (audit/FABLE-AUDIT-2026-11.md F17). Otherwise by name at
+    // the call site.
+    const pending = ctx.fileBindingCache.getPendingImport(name);
+    if (pending) {
+      try {
+        symbol = moduleExport(ctx, pending.from, pending.symbol);
+        if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+          symbol = ctx.typeChecker.getAliasedSymbol(symbol);
+        }
+      } catch (error) {
+        warnCheckerFailure(ctx, location, `inlining '${name}' (its pending import)`, error);
+        return undefined;
+      }
+    } else {
+      const r = resolveNameAt(ctx, name, location);
+      if (r === "error") return undefined;
+      if (r) symbol = r;
+    }
     const decl = symbol?.declarations?.[0];
     if (decl) {
       const declName = (decl as { name?: ts.Node }).name;

@@ -291,21 +291,26 @@ function clampSyntheticPositions<T extends ts.Node>(node: T): T {
 /**
  * Detach scratch-file `=>` tokens from synthetic arrow functions.
  *
- * A macro that parsed a code template (`ctx.parseStatements`) gets nodes back
- * via `stripPositions`, which uses visitEachChild without a token visitor and
- * so never reaches an arrow's `equalsGreaterThanToken`: the token keeps its
- * offset in the scratch file. The printer then emits the CURRENT file's
- * comments found at that offset between `)` and `=>` -- a syntax error
+ * A macro that built nodes by parsing a code template in a scratch file of its
+ * own, and didn't copy them, hands back arrows whose `equalsGreaterThanToken`
+ * keeps its offset in the scratch file. The printer then emits the CURRENT
+ * file's comments found at that offset between `)` and `=>` -- a syntax error
  * ("Line terminator not permitted before arrow"). This is the AST-level
  * replacement for the old line-regex `stripLeakedArrowComments` pass over
  * printed output (review finding #5), which corrupted string/template
- * literals.
+ * literals. (`ctx.parseExpression`/`parseStatements` return synthesized
+ * copies since audit F20, so this only catches other macros' scratch nodes.)
+ *
+ * The synthetic arrow (ours: `pos` -1) gets a fresh token; the old one is
+ * never changed, since it may belong to one of the program's own files, and
+ * resetting it would corrupt that file's AST for the next build (audit F20).
  */
 function detachScratchArrowTokens(root: ts.Node): void {
   // Iterative: a file can hold an expression thousands of levels deep.
   forEachDescendant(root, (node) => {
     if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
-      ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
+      (node as { equalsGreaterThanToken: ts.EqualsGreaterThanToken }).equalsGreaterThanToken =
+        ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken);
     }
   });
 }

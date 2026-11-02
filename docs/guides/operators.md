@@ -22,7 +22,9 @@ const comparison = a < b; // Compiles to: ordRational.lessThan(a, b)
 rationalToString(sum); // "5/6"
 ```
 
-The instances (`numericRational`, …) are imported for you. TypeScript checks the
+The instances (`numericRational`, …) are imported for you when the call goes
+through them. When the method is inlined instead, nothing is imported: a type you
+import with `import type` stays a type-only dependency. TypeScript checks the
 source as written, where `a * b` on two objects is an error (TS2362/TS2363, or TS2365
 for `+` and comparisons) whose result it types as `number`. `typesugar check` and
 `typesugar build` drop those errors where the operator is rewritten, and the TS2345 /

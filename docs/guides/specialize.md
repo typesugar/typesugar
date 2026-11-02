@@ -85,6 +85,15 @@ name the body uses as a value must be a value at your call site: a class you
 import only as a type (`import type { Pt }`, `import { isPt, type Pt }`, or
 through an `export type` re-export) emits no binding, so `isPt.make(3)` is
 not inlined as `new Pt(3)` there.
+Inlining keeps the call's meaning: each argument is evaluated once, in order,
+even when the body uses it twice, out of order, or not at all, and a body
+that needs its receiver (`this`, `arguments`) or is `async` or a generator
+is not inlined. Default, rest and destructured parameters are inlined
+directly where that is exact (`(a, b, sep = ",") => a + sep + b` called with
+two arguments becomes `a + "," + b`, `({ x, y })` over a variable `p` reads
+`p.x` and `p.y`, `(...xs) => xs.length` becomes `[1, 2, 3].length`).
+Otherwise the method is applied in place, `((p) => body)(arg)`: still no
+dictionary lookup, and the same evaluation as the call.
 Methods with self-contained bodies still specialize. The same goes for a
 method whose body calls a macro (say, a recursive `clone` that calls
 `summon<Clone<Tree>>()`): its source is not yet expanded, so it is called

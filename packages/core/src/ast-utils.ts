@@ -211,6 +211,26 @@ export function stripPositions<T extends ts.Node>(node: T): T {
 }
 
 /**
+ * `ts.visitNodes`, but always returning a NEW NodeArray. `visitNodes` hands
+ * back the input array when no element changed — always the case for an empty
+ * list (`v.slice()`'s arguments) — so a "deep clone" would share it with the
+ * original, and stripping the clone's positions (stripPositions resets
+ * NodeArray ranges too) would reset the original's (audit F20 residual).
+ */
+const freshNodeArrays = ((
+  nodes: ts.NodeArray<ts.Node> | undefined,
+  visitor: ts.Visitor,
+  test?: (node: ts.Node) => boolean,
+  start?: number,
+  count?: number
+) => {
+  const visited = ts.visitNodes(nodes, visitor, test, start, count);
+  return visited === nodes && nodes
+    ? ts.factory.createNodeArray([...nodes], nodes.hasTrailingComma)
+    : visited;
+}) as ts.NodesVisitor;
+
+/**
  * Deep-clone an AST subtree into fresh synthetic nodes (pos/end -1, comment
  * ranges cleared).
  *
@@ -227,7 +247,7 @@ export function cloneNodeDeep<T extends ts.Node>(node: T): T {
     node,
     (child) => cloneNodeDeep(child),
     undefined as unknown as ts.TransformationContext,
-    undefined,
+    freshNodeArrays,
     (token) => cloneNodeDeep(token)
   ) as T;
   if (clone === node) {
@@ -254,10 +274,15 @@ export function cloneNodeDeep<T extends ts.Node>(node: T): T {
  * find the declaration through `ts.getParseTreeNode(clone)`.
  */
 function cloneKeepingOriginal<T extends ts.Node>(node: T): T {
+  // Tokens and NodeArrays are copied too (as in cloneNodeDeep): the callers
+  // strip the copy in place, and a token or list shared with the original
+  // would be stripped on the user's real file (audit F20 residual).
   let clone = ts.visitEachChild(
     node,
     (child) => cloneKeepingOriginal(child),
-    undefined as unknown as ts.TransformationContext
+    undefined as unknown as ts.TransformationContext,
+    freshNodeArrays,
+    (token) => cloneKeepingOriginal(token)
   ) as T;
   if (clone === node) {
     clone = (ts.factory as unknown as { cloneNode<U extends ts.Node>(n: U): U }).cloneNode(node);

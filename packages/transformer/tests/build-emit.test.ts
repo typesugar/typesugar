@@ -4,11 +4,10 @@
  * Verifies that program.emit() with the macro transformer does not crash,
  * and that post-emit diagnostic collection is safe.
  *
- * Background: Macro expansion creates synthetic AST nodes with pos = -1
- * (via stripPositions). After emit, TypeScript's deferred checker callbacks
- * may reference these nodes. getPreEmitDiagnostics() then crashes in
- * createTextSpan with "Error: start < 0". The fix: collect pre-emit
- * diagnostics before emit, and wrap post-emit checker access in try/catch.
+ * Background: macro expansion used to strip positions (pos = -1) off nodes
+ * the program owns, so a later getPreEmitDiagnostics() crashed in
+ * createTextSpan with "Error: start < 0". The transform now copies before
+ * stripping (audit/FABLE-AUDIT-2026-11.md F20); these tests lock that in.
  */
 
 import { describe, it, expect } from "vitest";
@@ -127,17 +126,10 @@ console.log(a);
       before: [macroTransformerFactory(program, { verbose: false })],
     });
 
-    // Post-emit getPreEmitDiagnostics may crash on synthetic nodes.
-    // This test documents the known behavior. If the root cause is fixed
-    // (e.g. by not using pos=-1), change this to expect no throw.
-    // For now, the CLI must collect diagnostics BEFORE emit.
-    try {
-      ts.getPreEmitDiagnostics(program);
-      // If it doesn't throw, that's also fine (means the root cause was fixed)
-    } catch (e: unknown) {
-      expect(e).toBeInstanceOf(Error);
-      expect((e as Error).message).toContain("start < 0");
-    }
+    // This used to crash ("start < 0"): the transform stripped positions off
+    // the program's own nodes. It no longer mutates them
+    // (audit/FABLE-AUDIT-2026-11.md F20), so the checker stays usable.
+    expect(() => ts.getPreEmitDiagnostics(program)).not.toThrow();
   });
 
   it("strict-style transform on a fresh source copy does not pollute the program (PEP-033 N5)", () => {

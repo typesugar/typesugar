@@ -79,10 +79,11 @@ const ShowBoolean: Show<boolean> = {
 ```
 
 Decorators are not valid on a `const` in TypeScript, so an instance is always
-the JSDoc tag, and the tag has to name the typeclass and type (a bare
-`/** @impl */` is an error, "@impl requires arguments"). A `const` whose
-type annotation is `Show<number>` also counts as a `Show<number>` instance for
-resolution, tagged or not.
+the JSDoc tag. A bare `/** @impl */` (or `/** @instance */`) reads the
+typeclass and type from the `const`'s annotation (`const ShowBoolean:
+Show<boolean>`); with neither a tag argument nor such an annotation it is an
+error. A `const` whose type annotation is `Show<number>` also counts as a
+`Show<number>` instance for resolution, tagged or not.
 
 ## Using Typeclasses
 
@@ -758,8 +759,9 @@ that fallback is deprecated.
 TypeScript's types are structural, so an instance for one type can also match a
 different type of the same shape (two classes with the same fields, `UserId` and
 `Email`, both with `@derive(Eq)`). That is not ambiguous: the instance declared for
-the value's own type wins. A same-shape instance is used only for a type with no
-instance of its own.
+the value's own type wins, wherever it is declared: for a `Point` value, an imported
+`Eq<Point>` beats a local `Eq<Vec>` whose `Vec` has the same shape. A same-shape
+instance is used only for a type with no instance of its own.
 
 An enum is assignable to and from `number` (or `string`), so a `Show<number>`
 instance matches an enum value too. A value of an enum type, or one of its
