@@ -69,7 +69,7 @@ function expandedValueReferences(
 ): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node, parent: ts.Node | undefined): void => {
-    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    if (isTypePosition(node)) return;
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;
     if (ts.isIdentifier(node)) {
       if (!importNames.has(node.text) || names.has(node.text)) return;
@@ -85,7 +85,24 @@ function expandedValueReferences(
   return names;
 }
 
-/** Does the user's identifier refer to the file's import of that name (or to nothing the checker knows)? */
+/**
+ * Type positions: type nodes, and the type-only uses an
+ * ExpressionWithTypeArguments has (a class's `implements`, an interface's
+ * `extends`). A class's `extends Base` is a value.
+ */
+function isTypePosition(node: ts.Node): boolean {
+  if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return true;
+  if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return true;
+  return ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword;
+}
+
+/**
+ * Does the user's identifier refer to the file's import of that name (or to
+ * nothing the checker knows)? No symbol has to count: a user call of a
+ * derived constructor (`Point(1, 2)` where the import is the interface) has
+ * none, because the checker never saw the generated value. Names that are
+ * never references are excluded before this, by `isNameNotReference`.
+ */
 function resolvesToImport(id: ts.Identifier, checker: ts.TypeChecker | undefined): boolean {
   if (!checker) return false;
   let symbol: ts.Symbol | undefined;
@@ -129,6 +146,8 @@ function isNameNotReference(id: ts.Identifier, parent: ts.Node): boolean {
   if (ts.isLabeledStatement(parent) || ts.isBreakOrContinueStatement(parent)) {
     return parent.label === id;
   }
+  // `<svg xlink:title=...>`: both halves of a JSX namespaced name are text.
+  if (ts.isJsxNamespacedName(parent)) return true;
   return false;
 }
 
@@ -147,14 +166,7 @@ function remainingValueReferences(
 ): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node, parent: ts.Node | undefined): void => {
-    if (!includeTypes) {
-      // Type positions: type nodes, and the type-only uses an
-      // ExpressionWithTypeArguments has (a class's `implements`, an
-      // interface's `extends`). A class's `extends Base` is a value.
-      if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
-      if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
-      if (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) return;
-    }
+    if (!includeTypes && isTypePosition(node)) return;
     if (ts.isImportDeclaration(node)) return;
     if (ts.isExportDeclaration(node)) {
       if (!node.moduleSpecifier && node.exportClause && ts.isNamedExports(node.exportClause)) {

@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import * as ts from "typescript";
 
 import "@typesugar/macros";
 import "@typesugar/std/macros";
@@ -238,4 +239,72 @@ describe("PEP-052 in-memory fallback vs @do-methods tag consistency", () => {
       expect(m![1].trim()).toBe(tag);
     });
   }
+});
+
+describe("a self-receiver instance is imported from the module it was resolved in", () => {
+  // `@do-methods style=static receiver=<itself>` makes the comprehension call
+  // the instance by name; when it comes from another module it must be
+  // imported from THAT module (the file's own import of it), not from a
+  // brand-keyed table (`Option` → "@typesugar/fp").
+  const root = new URL(".", import.meta.url).pathname;
+  const instancesFile = `${root}__do_receiver_instances.ts`;
+  const instances = (brand: string, name: string, exported = true) => `
+export interface ${brand}<A> { readonly value: A }
+export const mk = <A>(value: A): ${brand}<A> => ({ value });
+/**
+ * @impl FlatMap<${brand}>
+ * @do-methods style=static receiver=${name}
+ */
+${exported ? "export " : ""}const ${name} = {
+  map: <A, B>(fa: ${brand}<A>, f: (a: A) => B): ${brand}<B> => mk(f(fa.value)),
+  flatMap: <A, B>(fa: ${brand}<A>, f: (a: A) => ${brand}<B>): ${brand}<B> => f(fa.value),
+};
+`;
+  const user = `
+import "@typesugar/std/syntax/do";
+import { mk } from "./__do_receiver_instances";
+export const r =
+let: {
+  x << mk(1);
+  y << mk(2);
+}
+yield: { x + y }
+`;
+  const run = (brand: string, name: string, exported = true) =>
+    transformCode(user, {
+      fileName: `${root}__do_receiver_user_${brand}${exported ? "" : "_local"}.ts`,
+      readFile: (f) =>
+        f === instancesFile ? instances(brand, name, exported) : ts.sys.readFile(f),
+      fileExists: (f) => f === instancesFile || ts.sys.fileExists(f),
+    });
+
+  it("a user Option instance is not imported from @typesugar/fp", () => {
+    const result = run("Option", "myFlatMapOption");
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("myFlatMapOption.flatMap(");
+    expect(result.code).not.toContain("@typesugar/fp");
+    expect(result.code).toMatch(
+      /import \{[^}]*\bmyFlatMapOption\b[^}]*\} from "\.\/__do_receiver_instances"/
+    );
+  });
+
+  it("an instance the imported module does not export is not imported from it", () => {
+    // The resolver accepts a non-exported local of an imported module; that
+    // specifier can't supply it, so the brand's activation module is used.
+    const result = run("Option", "flatMapOption", false);
+    expect(result.code).toContain("flatMapOption.flatMap(");
+    expect(result.code).not.toMatch(
+      /import \{[^}]*\bflatMapOption\b[^}]*\} from "\.\/__do_receiver_instances"/
+    );
+    expect(result.code).toMatch(/import \{[^}]*\bflatMapOption\b[^}]*\} from "@typesugar\/fp"/);
+  });
+
+  it("a user instance for a brand with no known module is imported, not left unbound", () => {
+    const result = run("Box", "flatMapBox");
+    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.code).toContain("flatMapBox.flatMap(");
+    expect(result.code).toMatch(
+      /import \{[^}]*\bflatMapBox\b[^}]*\} from "\.\/__do_receiver_instances"/
+    );
+  });
 });

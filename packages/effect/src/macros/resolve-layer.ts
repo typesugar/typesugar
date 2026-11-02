@@ -35,7 +35,7 @@
 
 import * as ts from "typescript";
 import { type ExpressionMacro, type MacroContext, defineExpressionMacro } from "@typesugar/core";
-import { getLayersForService, type LayerInfo } from "./layer.js";
+import { beginLayerPass, getLayersForService, type LayerInfo } from "./layer.js";
 import { EFFECT001, EFFECT020, reportEffectDiagnostic } from "../diagnostics.js";
 import {
   resolveGraph,
@@ -149,6 +149,7 @@ export const resolveLayerMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory, sourceFile } = ctx;
+    beginLayerPass(ctx);
 
     // Get the type argument R from resolveLayer<R>()
     const typeArgs = callExpr.typeArguments;

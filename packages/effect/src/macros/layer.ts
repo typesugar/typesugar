@@ -86,7 +86,53 @@ function layerKey(info: Pick<LayerInfo, "sourceFile" | "name">): string {
  * same layer from the same file).
  */
 export function registerLayer(info: LayerInfo): void {
-  layerRegistry.set(layerKey(info), info);
+  const key = layerKey(info);
+  layerRegistry.set(key, info);
+  passOwnedLayers.delete(key);
+}
+
+/**
+ * Keys of the entries the `@layer` macro wrote during a transform pass — the
+ * ones a later pass of the same file replaces ({@link beginLayerPass}).
+ * Entries registered through the public {@link registerLayer} API are the
+ * caller's to manage and are left alone.
+ */
+const passOwnedLayers = new Set<string>();
+
+/**
+ * The transform passes already seen (one `MacroContext` per file pass, in both
+ * the pipeline and the plain transformer factory). Weak, so a finished pass's
+ * context — and the Program it holds — is not kept alive.
+ */
+const seenLayerPasses = new WeakSet<MacroContext>();
+
+/**
+ * Called first by every macro that reads or writes this registry (`@layer`,
+ * `layerMake`, `resolveLayer`): on the first call in a new pass of a file,
+ * drop the entries `@layer` wrote for that file in its earlier passes, so a
+ * file that is
+ * transformed again (watch mode, language service) only has the entries its
+ * CURRENT source registers — an `@layer` removed or renamed since then stops
+ * matching. Same contract as core's `withStandaloneExtensionFile`, which the
+ * transformer calls at the start of each file's pass; there is no such hook
+ * a macro package can register, so the pass is detected from its context.
+ *
+ * Limitation: a file whose new source has none of these macros is never
+ * cleared, so its old entries stay visible to OTHER files until it uses one
+ * again (or the process restarts).
+ */
+export function beginLayerPass(ctx: MacroContext): void {
+  if (seenLayerPasses.has(ctx)) return;
+  seenLayerPasses.add(ctx);
+  const file = ctx.sourceFile.fileName;
+  for (const key of passOwnedLayers) {
+    const info = layerRegistry.get(key);
+    // (an entry already removed, e.g. by layerRegistry.clear(), is forgotten too)
+    if (!info || info.sourceFile === file) {
+      layerRegistry.delete(key);
+      passOwnedLayers.delete(key);
+    }
+  }
 }
 
 /**
@@ -280,14 +326,18 @@ export const layerAttribute: AttributeMacro = defineAttributeMacro({
     // Detect layer type
     const layerType = detectLayerType(ctx, target.initializer);
 
-    // Register the layer
-    registerLayer({
+    // Register the layer (after dropping this file's entries from an
+    // earlier pass, on the first registry use in this pass).
+    beginLayerPass(ctx);
+    const info: LayerInfo = {
       name: varName,
       provides: serviceName,
       requires,
       sourceFile: ctx.sourceFile.fileName,
       layerType,
-    });
+    };
+    registerLayer(info);
+    passOwnedLayers.add(layerKey(info));
 
     // Generate the wrapped layer
     const wrappedInitializer = generateLayerWrapper(

@@ -439,11 +439,22 @@ export class FileBindingCache {
 
   /**
    * Whether `symbol` is already imported as a plain VALUE named import of the
-   * export `symbol` from `from` (the only form a bare reference may reuse).
+   * export `symbol` from `from` (the only form a bare reference may reuse),
+   * and no binding anywhere else in the file shadows it. A parameter or
+   * nested local named like the import (`function f(Eq: number)`) would
+   * capture a bare reference emitted inside its scope; `localDecls` is
+   * file-wide, so this over-aliases when the shadowing scope is elsewhere,
+   * which is harmless (pre-merge review 2026-11).
    */
   private isReusableImport(symbol: string, from: string): boolean {
     const b = this.importBindings.get(symbol);
-    return b !== undefined && b.kind === "named" && b.module === from && b.importedName === symbol;
+    return (
+      b !== undefined &&
+      b.kind === "named" &&
+      b.module === from &&
+      b.importedName === symbol &&
+      !this.localDecls.has(symbol)
+    );
   }
 
   /**
@@ -460,7 +471,8 @@ export class FileBindingCache {
    *
    * Uses three-tier resolution:
    * - Tier 0: Known JS globals — always safe
-   * - Tier 1: Check file import map — safe if from same module
+   * - Tier 1: Check file import map — safe if from same module and no
+   *   nested binding shadows it
    * - Tier 2: Check local declarations — conflict if declared
    *
    * @param symbol - The symbol name to reference (e.g., "Eq")
@@ -489,7 +501,7 @@ export class FileBindingCache {
     if (this.importMap.has(symbol)) {
       this.stats.tier1++;
       if (this.isReusableImport(symbol, from)) {
-        // Same module — no conflict, use cache
+        // Same module, not shadowed — no conflict, use cache
         let cached = this.identifierCache.get(cacheKey);
         if (!cached) {
           cached = ts.factory.createIdentifier(symbol);
@@ -497,7 +509,7 @@ export class FileBindingCache {
         }
         return cached;
       }
-      // Different module — conflict!
+      // Different module/kind, or shadowed by a local — conflict!
       this.stats.conflicts++;
       return this.getOrCreateAlias(symbol, from);
     }

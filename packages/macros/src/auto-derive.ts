@@ -1703,11 +1703,16 @@ function cloneNonNull(g: CloneGen, t: ts.Type, x: string, path: string): string 
     return cloneInstanceCall(g, t, x, false) ?? cloneUnion(g, t, x, path);
   }
 
-  // Built-in object types.
+  // Built-in object types — after a Clone instance in scope, which clones
+  // them like any other type (`@impl Clone<Map<string, Item>>`, derive guide).
   if (isLibType(ctx, t)) {
+    const viaInstance = cloneInstanceCall(g, t, x, false);
+    if (viaInstance) return viaInstance;
     const name = t.symbol.name;
     if (name === "Date") return `new Date(${x}.getTime())`;
-    if (name === "RegExp") return `new RegExp(${x})`;
+    // `new RegExp(re)` copies source and flags but resets lastIndex (a
+    // global/sticky regex's position): carry it over.
+    if (name === "RegExp") return `Object.assign(new RegExp(${x}), { lastIndex: ${x}.lastIndex })`;
     if (name === "ArrayBuffer") return `${x}.slice(0)`;
     if (CLONE_TYPED_ARRAYS.has(name)) return `${x}.slice()`;
     const args = (t as ts.TypeReference).target
@@ -2083,22 +2088,30 @@ function cloneProductBody(g: CloneGen, t: ts.Type, x: string, path: string): str
       ? `Object.assign(${proto}, ${x}, { ${overrides.join(", ")} })`
       : `Object.assign(${proto}, ${x})`;
   }
-  if (props.length === 0) {
-    // `{ [k: string]: V }` / `Record<string, V>`: values cloned through V's Clone.
-    const index = checker.getIndexInfosOfType(t).find((i) => i.keyType.flags & ts.TypeFlags.String);
-    if (index) {
-      const k = lambdaName(g, "k");
-      const v = lambdaName(g, "v");
-      g.depth++;
-      let cv: string | undefined;
-      try {
-        cv = cloneValue(g, index.type, v, `${path}[string]`);
-      } finally {
-        g.depth--;
-      }
-      if (cv !== undefined) {
-        return `Object.fromEntries(Object.entries(${x}).map(([${k}, ${v}]) => [${k}, ${cv}]))`;
-      }
+  // `{ [k: string]: V }` / `Record<string, V>`: values cloned through V's
+  // Clone. Beside declared properties (`{ id: string; [k: string]: V }`) the
+  // index-signature entries are the keys the type doesn't declare: those are
+  // cloned through V, the declared ones are left to their own clone above.
+  const index = checker.getIndexInfosOfType(t).find((i) => i.keyType.flags & ts.TypeFlags.String);
+  if (index) {
+    const k = lambdaName(g, "k");
+    const v = lambdaName(g, "v");
+    g.depth++;
+    let cv: string | undefined;
+    try {
+      cv = cloneValue(g, index.type, v, `${path}[string]`);
+    } finally {
+      g.depth--;
+    }
+    if (cv !== undefined) {
+      const value =
+        props.length === 0
+          ? cv
+          : `${JSON.stringify(checker.getPropertiesOfType(t).map((p) => p.name))}.includes(${k}) ? ${v} : ${cv}`;
+      const entries = `Object.fromEntries(Object.entries(${x}).map(([${k}, ${v}]) => [${k}, ${value}]))`;
+      if (props.length === 0) return entries;
+      // After `...x`, which keeps the declared fields' types for the checker.
+      parts.splice(1, 0, `...${entries}`);
     }
   }
   return `{ ${parts.join(", ")} }`;

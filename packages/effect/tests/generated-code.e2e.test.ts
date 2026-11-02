@@ -705,6 +705,55 @@ export const prog = Effect.flatMap(UserRepoTag, (r) => r.findById("42"));
 });
 
 // ============================================================================
+// Pre-merge review: a stale @layer registry entry must not override the
+// current declaration (long-lived hosts re-transform the same file)
+// ============================================================================
+
+describe("layerMake<R>() ignores a stale @layer entry for a re-transformed file", () => {
+  it("a const that lost its @layer is wired by its real Layer type", () => {
+    layerRegistry.clear();
+    try {
+      const before = expand(`
+import { Effect } from "effect";
+import { service, layer } from "@typesugar/effect";
+
+@service
+interface Database {
+  query(sql: string): Effect.Effect<string>;
+}
+
+@layer(Database)
+const live = { query: (sql: string) => Effect.succeed(sql) };
+`);
+      expect(before.errors).toEqual([]);
+      // Same file, edited: \`live\` is now a plain Layer of another service.
+      const after = expand(`
+import { Context, Effect, Layer } from "effect";
+import { layerMake } from "@typesugar/effect";
+
+interface Cache {
+  get(k: string): Effect.Effect<string>;
+}
+const CacheTag = Context.GenericTag<Cache>("Cache");
+
+const live: Layer.Layer<Cache, never, never> = Layer.succeed(CacheTag, {
+  get: (k: string) => Effect.succeed("cached " + k),
+});
+
+export const appLayer = layerMake<Cache>(live);
+export const prog = Effect.flatMap(CacheTag, (c) => c.get("x"));
+`);
+      expect(after.errors).toEqual([]);
+      expect(after.code).not.toMatch(/appLayer = Layer\.empty/);
+      const m = run(after.code);
+      expect(Effect.runSync(Effect.provide(m.prog, m.appLayer))).toBe("cached x");
+    } finally {
+      layerRegistry.clear();
+    }
+  });
+});
+
+// ============================================================================
 // Docs review r3 (guides-a #6): `let:` binding a same-file @service Tag
 // ============================================================================
 // `DatabaseTag` is synthesized by @service in the same pass, so the checker

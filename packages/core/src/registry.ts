@@ -328,6 +328,13 @@ class MacroRegistryImpl implements MacroRegistry {
   private labels = new Map<string, LabeledBlockMacro>();
 
   /**
+   * Bumped whenever {@link getAll}'s contents change (a macro is added, or
+   * {@link clear}), so callers can memoise an index derived from it without
+   * copying it on every call (transformer-core `isMacroModuleSpecifier`).
+   */
+  version = 0;
+
+  /**
    * Whether `incoming` is the same definition as `existing`, which already
    * holds its identity: the same object, or a copy of it (an ESM/CJS or
    * src/dist duplicate of one package re-registering on load).
@@ -385,6 +392,10 @@ class MacroRegistryImpl implements MacroRegistry {
         this.labels.set(label, macro);
         this.index("labeled-block", label, macro);
       }
+      // Some labels were already held by this same macro (it gained labels
+      // since it was registered): it is already in `macros` and its syntax
+      // module already registered — only the new labels needed adding.
+      if (fresh.length < labels.length) return;
     } else {
       const kindLabel = `${macro.kind[0].toUpperCase()}${macro.kind.slice(1)} macro`;
       if (macro.module !== undefined) {
@@ -413,6 +424,7 @@ class MacroRegistryImpl implements MacroRegistry {
     }
 
     this.macros.push(macro);
+    this.version++;
 
     // PEP-052 Wave 2/6 unification: a macro's `syntaxModule` (attribute or
     // labeled-block macros only) names the module whose import activates its
@@ -527,6 +539,7 @@ class MacroRegistryImpl implements MacroRegistry {
     this.byModule.clear();
     this.legacy.clear();
     this.labels.clear();
+    this.version++;
   }
 }
 

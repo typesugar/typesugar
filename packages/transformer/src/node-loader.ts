@@ -201,6 +201,31 @@ function isNotFound(error: unknown): boolean {
   return code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
 }
 
+/**
+ * A TypeScript module the expansion left alone goes on to Node, which runs
+ * it only with type stripping (22.18+ / 23.6+) or tsx in the chain. Older
+ * Node (the `module.register()` fallback reaches back to 20.6) rejects the
+ * extension; say why and what to do, keeping Node's error code.
+ */
+function explainUnknownExtension(url: string, error: unknown): unknown {
+  const code = (error as { code?: unknown } | null)?.code;
+  const fileName = filePathOf(url);
+  if (code !== "ERR_UNKNOWN_FILE_EXTENSION" || !fileName || !isLoaderCandidate(fileName)) {
+    return error;
+  }
+  const reason = error instanceof Error ? error.message : String(error);
+  return Object.assign(
+    new Error(
+      `${reason}\n[typesugar] typesugar/register compiles only the TypeScript files whose ` +
+        `macros it expands; Node ${process.version} cannot run the others itself. Use Node ` +
+        `22.18+ / 23.6+ (type stripping), or add tsx (node --import typesugar/register ` +
+        `--import tsx ...).`,
+      { cause: error }
+    ),
+    { code }
+  );
+}
+
 /** Default compiler factory: the built compile module beside this file. */
 function defaultCreateCompiler(): LoaderCompiler {
   // CommonJS on purpose: it loads synchronously on every Node the loader
@@ -245,7 +270,13 @@ export function createNodeLoaderHooks(options: NodeLoaderHooksOptions = {}): Nod
     },
 
     load(url, context, nextLoad) {
-      return compiled(url, context) ?? nextLoad(url, context);
+      const own = compiled(url, context);
+      if (own) return own;
+      try {
+        return nextLoad(url, context);
+      } catch (error) {
+        throw explainUnknownExtension(url, error);
+      }
     },
 
     async resolveAsync(specifier, context, nextResolve) {
@@ -265,7 +296,13 @@ export function createNodeLoaderHooks(options: NodeLoaderHooksOptions = {}): Nod
     },
 
     async loadAsync(url, context, nextLoad) {
-      return compiled(url, context) ?? (await nextLoad(url, context));
+      const own = compiled(url, context);
+      if (own) return own;
+      try {
+        return await nextLoad(url, context);
+      } catch (error) {
+        throw explainUnknownExtension(url, error);
+      }
     },
   };
 }

@@ -136,3 +136,25 @@ describe("MU-14: outward rounding", () => {
     }
   });
 });
+
+describe("MU-14: infinite and non-integer edge cases", () => {
+  it("div of two intervals unbounded above is [0, ∞], not NaN", () => {
+    expect(div(interval(1, Infinity), interval(1, Infinity))).toEqual({ lo: 0, hi: Infinity });
+    expect(div(interval(-Infinity, -1), interval(1, Infinity))).toEqual({
+      lo: -Infinity,
+      hi: 0,
+    });
+    expect(div(entire, interval(1, Infinity))).toEqual({ lo: -Infinity, hi: Infinity });
+  });
+
+  it("pow with a negative non-integer exponent is decreasing, so endpoints swap", () => {
+    const r = pow(interval(1, 4), -0.5);
+    expect(r.lo).toBeLessThanOrEqual(0.5);
+    expect(r.hi).toBeGreaterThanOrEqual(1);
+    expect(r.lo).toBeGreaterThan(0.49);
+    expect(r.hi).toBeLessThan(1.01);
+    const z = pow(interval(0, 4), -0.5);
+    expect(z.lo).toBeLessThanOrEqual(0.5);
+    expect(z.hi).toBe(Infinity);
+  });
+});

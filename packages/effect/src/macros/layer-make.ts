@@ -42,7 +42,7 @@ import {
   defineExpressionMacro,
   isSyntheticNode,
 } from "@typesugar/core";
-import { getLayer, type LayerInfo } from "./layer.js";
+import { beginLayerPass, getLayer, type LayerInfo } from "./layer.js";
 import { EFFECT001, EFFECT020, reportEffectDiagnostic } from "../diagnostics.js";
 import {
   resolveGraph,
@@ -130,6 +130,10 @@ function extractLayerInfoFromType(
  * on the declaring file having been transformed earlier in this process,
  * exactly like `resolveLayer<R>()`; the entry is keyed by the declaration's
  * own file, so a same-named layer in another file never matches.
+ *
+ * The registry outlives a pass (watch mode, language service); the expand
+ * below calls `beginLayerPass` first, so this file's entries from an earlier
+ * pass are gone and only what its current source registered is found.
  */
 function lookupRegisteredLayer(
   ctx: MacroContext,
@@ -221,6 +225,7 @@ export const layerMakeMacro: ExpressionMacro = defineExpressionMacro({
     args: readonly ts.Expression[]
   ): ts.Expression {
     const { factory } = ctx;
+    beginLayerPass(ctx);
 
     // Get the type argument R from layerMake<R>(...)
     const typeArgs = callExpr.typeArguments;

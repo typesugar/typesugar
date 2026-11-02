@@ -233,6 +233,14 @@ function mulDir(a: number, b: number, dir: "down" | "up"): number {
 }
 
 function divDir(a: number, b: number, dir: "down" | "up"): number {
+  // ±∞/±∞ is NaN in IEEE, but for interval endpoints both operands are
+  // unbounded, so the quotient can be any value of that sign: bound it by
+  // [0, ∞] (or [−∞, 0]). The other endpoint pairs supply the tighter side.
+  if (!Number.isFinite(a) && !Number.isFinite(b)) {
+    const positive = a > 0 === b > 0;
+    if (dir === "down") return positive ? 0 : -Infinity;
+    return positive ? Infinity : 0;
+  }
   const q = a / b;
   if (!Number.isFinite(q)) {
     return Number.isFinite(a) && Number.isFinite(b) ? overflowBound(q, dir) : q;
@@ -376,6 +384,8 @@ export function pow(i: Interval, n: number): Interval {
 
   const widenDown = (x: number) => nextDown(nextDown(x));
   const widenUp = (x: number) => nextUp(nextUp(x));
+  // x^n is increasing on x ≥ 0 for n > 0 and decreasing for n < 0.
+  if (n < 0) return { lo: widenDown(Math.pow(i.hi, n)), hi: widenUp(Math.pow(i.lo, n)) };
   return { lo: widenDown(Math.pow(i.lo, n)), hi: widenUp(Math.pow(i.hi, n)) };
 }
 

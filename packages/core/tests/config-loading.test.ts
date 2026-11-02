@@ -259,6 +259,37 @@ describe("#52 env-var mapping", () => {
     expect(config.get("debug")).toBe(true);
   });
 
+  it("leaves out variables other code reads directly from process.env", () => {
+    // Pre-merge review 2026-11: these have their own meaning; merged into
+    // config they would add stray keys (`profile`, `verbose`, ...) that
+    // override a user's own same-named keys in config conditions.
+    process.env.TYPESUGAR_PROFILE = "1";
+    process.env.TYPESUGAR_VERBOSE = "1";
+    process.env.TYPESUGAR_NO_COLOR = "1";
+    process.env.TYPESUGAR_SHOW_SUPPRESSED_DIAGNOSTICS = "1";
+    process.env.TYPESUGAR_COMPTIME_IN_EDITOR = "1";
+    process.env.TYPESUGAR_CFG_DEBUG = "1";
+    write(".typesugarrc.json", JSON.stringify({ profile: "prod" }));
+    config.load({ searchFrom: tmpRoot });
+    expect(config.get("profile")).toBe("prod");
+    expect(config.evaluate("profile === 'prod'")).toBe(true);
+    expect(config.get("verbose")).toBeUndefined();
+    expect(config.get("no")).toBeUndefined();
+    expect(config.get("show")).toBeUndefined();
+    expect(config.get("comptime")).toBeUndefined();
+    expect(config.get("cfg")).toBeUndefined();
+  });
+
+  it("only canonical integers become numbers", () => {
+    process.env.TYPESUGAR_APP_BUILD = "0123";
+    process.env.TYPESUGAR_APP_ID = "12345678901234567890";
+    process.env.TYPESUGAR_APP_LEVEL = "42";
+    config.reset();
+    expect(config.get("app.build")).toBe("0123");
+    expect(config.get("app.id")).toBe("12345678901234567890");
+    expect(config.get("app.level")).toBe(42);
+  });
+
   it("deeper keys are not wiped by a shallower one regardless of env order", () => {
     process.env.TYPESUGAR_CONTRACTS_MODE = "none";
     process.env.TYPESUGAR_CONTRACTS = "0";

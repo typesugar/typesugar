@@ -65,6 +65,7 @@ import {
   moduleMatchesMacro,
   fallbackNameLookup,
   fallbackNameLookupWithImports,
+  lookupMacroByName,
   resolveSymbolToMacro,
   resolveMacroFromSymbol as resolveMacroFromSymbolFn,
   scanImportsForExtension,
@@ -2022,12 +2023,15 @@ class MacroTransformer {
         }
       }
 
-      const macro = (
-        identNode
-          ? (this.resolveMacroFromSymbol(identNode, macroName, "attribute") ??
-            globalRegistry.getAttribute(macroName))
-          : globalRegistry.getAttribute(macroName)
-      ) as AttributeMacro | undefined;
+      // The bare-name fallback picks among same-named macros of several
+      // modules by the file's imports (lookupMacroByName), as every other
+      // bare-name site does; `getAttribute` would return none for such a name.
+      const resolved = identNode
+        ? this.resolveMacroFromSymbol(identNode, macroName, "attribute")
+        : undefined;
+      const macro = (resolved ?? lookupMacroByName(this.ctx.sourceFile, macroName, "attribute")) as
+        | AttributeMacro
+        | undefined;
       if (macro) {
         if (this.verbose) {
           console.log(`[typesugar] Expanding attribute macro: ${macroName}`);
