@@ -11,7 +11,7 @@ stays green while the bug exists and flips red (prompting `it.fails` → `it`) o
 it is fixed. Controls in the same files are plain `it` and prove the harness.
 
 ```
-pnpm --filter @typesugar/transformer vitest run tests/audit     # 53 tests; one it.fails left (F23)
+pnpm --filter @typesugar/transformer vitest run tests/audit     # all findings fixed; no it.fails left
 ```
 
 To see the raw failures, temporarily swap `it.fails(` → `it(` in a file and rerun.
@@ -31,8 +31,8 @@ To see the raw failures, temporarily swap `it.fails(` → `it(` in a file and re
 **Status (2026-11-01).** The audit was written against `main` (`218278b1`),
 but the open PR stack #80 → #81 → #82 → #83 rewrites the same files. Rebased onto
 the #83 tip, 30 of the 34 `it.fails` tests already passed; PR #84 (stacked on #83)
-fixes F15's structural half, F17's second half, F19 and three F20 residuals, inlines
-F5/F6/F8 exactly instead of through an IIFE, and leaves F23 open for a decision.
+fixes F15's structural half, F17's second half, F19 and three F20 residuals, and inlines
+F5/F6/F8 exactly instead of through an IIFE; PR #TBD fixes F23.
 Each finding below carries its status line.
 
 **Top three.**
@@ -503,7 +503,7 @@ instance (`Eq.array(Eq.string)`) or a precise diagnostic.
 
 ### F23 — JSDoc `@derive` activates with no import and injects a compile-time package · Medium
 
-**Status:** open — needs a decision (see the PR): the docs disagree on whether a derivable must be imported for the JSDoc form, and an import used only by a JSDoc tag is "unused" to `noUnusedLocals` and lint autofix.
+**Status:** fixed in PR #TBD (stacked on #84). A JSDoc `@derive X` applies only when the file binds `X` itself (an import, type-only included, or a top-level declaration) or, for a derive macro with no export to import, imports the macro's package; otherwise it is ignored with a warning, so another tool's `@derive` tag is never taken for typesugar's. A new `JSDocDeriveImport` suppression rule keeps `typesugar check` and the editor from reporting such an import as unused. `@typesugar/testing` exports an `Arbitrary` token to import.
 
 ```ts
 /** @derive Eq */ class P { … }           // no imports at all in the file
