@@ -29,8 +29,29 @@ const result = Some(5)
 const doubled = pipe(5, (n) => n * 2); // 10
 ```
 
+The constructors are also extractor patterns for `match` from `@typesugar/std`: fp ships a
+`Destructure` instance for each of `Some`/`None`, `Left`/`Right`, `Cons`/`Nil` and
+`Valid`/`Invalid`, and the pattern compiles to the test on the real representation:
+
+```typescript
+import { match } from "@typesugar/std";
+
+declare const opt: Option<number>;
+match(opt)
+  .case(Some(v))
+  .then(v * 2)
+  .case(None)
+  .then(0);
+// if (_opt != null) { const v = _opt as unknown as number; return v * 2; } return 0;
+```
+
+`Some` and `None` cover `Option`, so the `None` arm needs no test and there is no
+`MatchError` (nor an import of `@typesugar/std`) in the output. `Option` is `@opaque`, so
+`v` is asserted to the payload type `number`, which `_opt != null` alone doesn't give the
+type checker.
+
 ## Documentation
 
 - [Functional Programming guide](https://typesugar.org/guides/fp) — Option, Either, IO, typeclasses, transformers
 - [Zero-cost @opaque types](https://typesugar.org/guides/type-system)
-- [Do-notation](https://typesugar.org/guides/do-notation) · [Pattern matching](https://typesugar.org/guides/match)
+- [Do-notation](https://typesugar.org/guides/do-notation) · [Pattern matching](https://typesugar.org/guides/pattern-matching)

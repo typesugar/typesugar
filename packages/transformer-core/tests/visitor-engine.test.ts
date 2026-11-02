@@ -496,6 +496,125 @@ describe("native method vs imported object member", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A named import of a typeclass instance serves only receivers of the
+// instance's own type (by identity). `number` is assignable to a numeric
+// enum, and `n.show()` on `n: number` became `showColor.show(n)`.
+// ---------------------------------------------------------------------------
+describe("imported typeclass instance as an extension provider", () => {
+  const files = (main: string) => ({
+    "/inst.ts": `
+      /** @typeclass */
+      export interface Show<A> { show(a: A): string; }
+      export enum Color { Red, Green }
+      /** @impl Show<Color> */
+      export const showColor: Show<Color> = { show: (c) => Color[c] };
+    `,
+    "/main.ts": main,
+  });
+
+  it("does not serve a number receiver from an instance for a numeric enum", () => {
+    const r = run(
+      files(`
+        import { showColor } from "./inst";
+        export function f(n: number) { return n.show(); }
+      `),
+      "/main.ts"
+    );
+    expect(r.code).not.toContain("showColor.show(n)");
+  });
+
+  it("still serves a receiver of the instance's own type", () => {
+    const r = run(
+      files(`
+        import { Color, showColor } from "./inst";
+        export function f(c: Color) { return c.show(); }
+        export const g = Color.Red.show();
+      `),
+      "/main.ts"
+    );
+    expect(r.code).toContain("showColor.show(c)");
+    expect(r.code).toContain("showColor.show(Color.Red)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Method sugar reads a `@derive` tag's list, not its prose: a typeclass named
+// in the description after the tag is not derived (the regex over the whole
+// tag comment made `p.show()` a call on a `Point.Show` that never exists).
+// ---------------------------------------------------------------------------
+describe("method sugar and a @derive tag followed by prose", () => {
+  it("does not treat a typeclass named in the prose as derived", () => {
+    const r = run(
+      {
+        "/main.ts": `
+          /** @typeclass */
+          export interface Show<A> { show(a: A): string; }
+          /**
+           * @derive(Eq)
+           * Points compare by value; Show them with toString.
+           */
+          export interface Point { x: number; }
+          export function f(p: Point) { return p.show(); }
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).not.toContain("Point.Show");
+  });
+
+  it("still treats a typeclass in the list as derived", () => {
+    const r = run(
+      {
+        "/main.ts": `
+          /** @typeclass */
+          export interface Show<A> { show(a: A): string; }
+          /**
+           * @derive Eq, Show
+           * Points compare by value.
+           */
+          export interface Point { x: number; }
+          export function f(p: Point) { return p.show(); }
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).toContain("Point.Show.show(p)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A d.ts bundler renames a clashing declaration (`interface Read$1`,
+// `export { Read$1 as Read }`, as in @typesugar/sql's dist): the typeclass
+// is still `Read`, so `summon<Read<User>>()` finds the `@impl Read<User>`.
+// It was TS9001 "No instance found for `Read$1<User>`" for every consumer of
+// the published package.
+// ---------------------------------------------------------------------------
+describe("typeclass declared under a bundler-renamed name in a .d.ts", () => {
+  it("summon resolves the instance by the exported name", () => {
+    const r = run(
+      {
+        "/lib.d.ts": `
+          interface Read$1<A> { read(row: unknown): A; }
+          declare const Read$1: { make<A>(f: (row: unknown) => A): Read$1<A> };
+          export { Read$1 as Read };
+        `,
+        "/main.ts": `
+          import { summon } from "typesugar";
+          import { Read } from "./lib";
+          interface User { id: number; }
+          /** @impl Read<User> */
+          export const readUser: Read<User> = { read: (row) => row as User };
+          export const r = summon<Read<User>>();
+        `,
+      },
+      "/main.ts"
+    );
+    expect(errorsOf(r)).toEqual([]);
+    expect(r.code).toContain("export const r = readUser;");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Attribute macro returning several statements: every one is visited
 // ---------------------------------------------------------------------------
 describe("attribute macro results after the first are visited", () => {

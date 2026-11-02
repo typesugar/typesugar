@@ -7,8 +7,8 @@
  * (`__sql_build`, `sql`, `Fragment`, the query builder, typeclasses, …) live in the
  * package's `.` entry. See PEP-050.
  *
- * Provides the compile-time macros: `sql`, `sql$`/`@schema`, `@deriving(Meta)`,
- * and `@deriving(Read|Write|Codec)`, plus the `validateSqlSyntax` macro util and
+ * Provides the compile-time macros: `sql`, `sql$`/`@schema`, `@derive(Meta)`,
+ * and `@derive(Read|Write|Codec)`, plus the `validateSqlSyntax` macro util and
  * the `registerSchema` compile-time registration helper.
  */
 

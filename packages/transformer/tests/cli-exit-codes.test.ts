@@ -37,6 +37,9 @@ const TSCONFIG = {
     // src/kill.ts uses `process`; TypeScript 6 no longer auto-includes @types.
     types: ["node"],
     outDir: "out",
+    // TypeScript 6 requires it with outDir (TS5011), which would count as an
+    // error in the watch summaries.
+    rootDir: "src",
   },
   include: ["src"],
 };
@@ -99,6 +102,12 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
     good = makeProject("typesugar-cli-good-", {
       ...GOOD_FILES,
       "src/kill.ts": `process.kill(process.pid, "SIGKILL");\n`,
+      // Top-level await (sql's showcase): the run bundle targeted es2020.
+      "src/tla.ts": `const v = await Promise.resolve(7);\nconsole.log("TLA", v);\nexport {};\n`,
+      // A CommonJS dependency that require()s a Node builtin (unplugin's
+      // showcase): esbuild's ESM bundle has no `require` for it.
+      "src/legacy.cjs": `const path = require("path");\nmodule.exports = { sep: path.sep };\n`,
+      "src/cjs-dep.ts": `// @ts-ignore -- untyped CJS fixture\nimport legacy from "./legacy.cjs";\nconsole.log("SEP", legacy.sep);\n`,
     });
   });
 
@@ -145,6 +154,18 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
     expect(output).toContain('RESULT ["x","y"] 42');
   }, 120_000);
 
+  it("run: top-level await works (the bundle targets the Node it runs on)", () => {
+    const { status, output } = runCli(["run", "src/tla.ts"], good);
+    expect(status, output).toBe(0);
+    expect(output).toContain("TLA 7");
+  }, 120_000);
+
+  it("run: a bundled CommonJS module can require() a Node builtin", () => {
+    const { status, output } = runCli(["run", "src/cjs-dep.ts"], good);
+    expect(status, output).toBe(0);
+    expect(output).toContain(`SEP ${path.sep}`);
+  }, 120_000);
+
   it("run: a child killed by a signal is a failure, not exit 0", () => {
     const { status, output } = runCli(["run", "src/kill.ts"], good);
     expect(status, output).not.toBe(0);
@@ -182,10 +203,167 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
       expect(output).toMatch(/Watching for file changes/);
       expect(output).not.toContain("TS2315");
       expect(output).toContain("boom-from-comptime");
+      // The macro error is counted (TypeScript's own summary never saw it).
+      expect(output).toContain("Found 1 error. Watching for file changes.");
     } finally {
       fs.rmSync(project, { recursive: true, force: true });
     }
   }, 120_000);
+
+  it("watch: the error count is what is reported, at the positions as written, across a rebuild", async () => {
+    // A statement-position comprehension: TypeScript reports its own syntax
+    // (the labels, the bound names, each `a << e`) and the suppression filter
+    // hides all of it -- but TypeScript's "Found N errors" counted it ("Found
+    // 18 errors" over two printed). The expression-position one is rewritten
+    // (`COMP; export const both = __letyield_0;`, one line up), and watch
+    // reported `nope` at the rewritten line 4 where check says line 5.
+    const project = makeProject("typesugar-cli-watch-count-", {
+      "src/stmt.ts": `import "@typesugar/std/syntax/do";
+export async function go() {
+  let: {
+    a << Promise.resolve(1);
+    b << Promise.resolve(2);
+  }
+  yield: a + b;
+}
+`,
+      "src/comp.ts": `import "@typesugar/std/syntax/do";
+export const both =
+  let: {
+    a << Promise.resolve(1);
+    b << Promise.resolve(nope);
+  }
+  yield: a + b;
+export const bad: number = "oops";
+`,
+    });
+    const comp = path.join(project, "src", "comp.ts");
+    try {
+      const child = spawn(process.execPath, [cliPath, "watch"], {
+        cwd: project,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      let cycles = 0;
+      const done = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 100_000);
+        const onData = (chunk: Buffer): void => {
+          output += chunk.toString();
+          const seen = output.match(/Watching for file changes/g)?.length ?? 0;
+          if (seen === cycles) return;
+          cycles = seen;
+          if (cycles === 1) {
+            // Drive one rebuild: a second error, after the rewritten region
+            // (a moment after the watchers are up, or FSEvents can miss it).
+            setTimeout(() => fs.appendFileSync(comp, `export const bad2: string = 42;\n`), 1000);
+          } else {
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+        child.stdout.on("data", onData);
+        child.stderr.on("data", onData);
+      });
+      await done;
+      const exited = new Promise((resolve) => child.on("close", resolve));
+      child.kill("SIGTERM");
+      await exited;
+
+      const runs = output.split(/File change detected/);
+      expect(runs, output).toHaveLength(2);
+      const [first, second] = runs;
+      // Positions as written (check says the same).
+      expect(first, output).toContain("comp.ts(5,26): error TS2304: Cannot find name 'nope'.");
+      expect(first).toContain("comp.ts(8,14): error TS2322");
+      expect(output).not.toContain("comp.ts(4,26)");
+      expect(output).not.toContain("__letyield");
+      expect(second).toContain("comp.ts(9,14): error TS2322");
+      // Each run's summary counts the errors it printed.
+      for (const run of runs) {
+        const printed = run.match(/: error TS\d+/g)?.length ?? 0;
+        expect(run, output).toContain(
+          `Found ${printed} error${printed === 1 ? "" : "s"}. Watching for file changes.`
+        );
+      }
+      expect(first).toContain("Found 2 errors.");
+      expect(second).toContain("Found 3 errors.");
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  }, 150_000);
+
+  it("watch: runs the expanded check of what the filter hid, as check does, across a rebuild (review 8)", async () => {
+    // `user` is bound by the comprehension, so the source-level check can't
+    // see `user.nme` (the filter hides "Cannot find name 'user'"): only the
+    // expanded check reports TS2551. watch printed "Found 0 errors".
+    const written = (field: string, use: string) => `import "@typesugar/std/syntax/do";
+const fetchUser = (id: number) => Promise.resolve({ id, name: "u" + id });
+const fetchAge = (_n: string) => Promise.resolve(40);
+export const describe = (id: number) =>
+  let: {
+    user << fetchUser(id);
+    age << fetchAge(user.${field});
+  }
+  yield: \`\${user.name} is \${${use}}\`;
+`;
+    const project = makeProject("typesugar-cli-watch-blind-", {
+      "src/a.ts": written("nme", "age"),
+    });
+    const a = path.join(project, "src", "a.ts");
+    // What check reports for each version, as `a.ts(line,col): error TSn`.
+    const checkReports = (text: string): string => {
+      fs.writeFileSync(a, text);
+      const out = runCli(["check"], project).output;
+      return /a\.ts\(\d+,\d+\): error TS\d+/.exec(out)?.[0] ?? `(nothing in: ${out})`;
+    };
+    const second = written("name", "age.toUpperCase()");
+    const secondReport = checkReports(second);
+    expect(secondReport).toMatch(/TS2339$/);
+    const firstReport = checkReports(written("nme", "age"));
+    expect(firstReport).toMatch(/TS2551$/);
+    try {
+      const child = spawn(process.execPath, [cliPath, "watch"], {
+        cwd: project,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      let cycles = 0;
+      const done = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 100_000);
+        const onData = (chunk: Buffer): void => {
+          output += chunk.toString();
+          const seen = output.match(/Watching for file changes/g)?.length ?? 0;
+          if (seen === cycles) return;
+          cycles = seen;
+          if (cycles === 1) {
+            // One rebuild: fix that error, make another in the comprehension.
+            setTimeout(() => fs.writeFileSync(a, second), 1000);
+          } else {
+            clearTimeout(timer);
+            resolve();
+          }
+        };
+        child.stdout.on("data", onData);
+        child.stderr.on("data", onData);
+      });
+      await done;
+      const exited = new Promise((resolve) => child.on("close", resolve));
+      child.kill("SIGTERM");
+      await exited;
+
+      const runs = output.split(/File change detected/);
+      expect(runs, output).toHaveLength(2);
+      const [firstRun, secondRun] = runs;
+      // What check reports, where check reports it.
+      expect(firstRun, output).toContain(firstReport);
+      expect(firstRun).toContain("Found 1 error. Watching for file changes.");
+      expect(secondRun, output).not.toContain("TS2551");
+      expect(secondRun).toContain(secondReport);
+      expect(secondRun).toContain("Found 1 error. Watching for file changes.");
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  }, 150_000);
 
   it("typesugar-dts-transform bin rewrites @opaque interfaces", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-dts-bin-"));
@@ -202,6 +380,72 @@ describe.skipIf(!hasBuild)("typesugar CLI exit codes", () => {
       expect(fs.readFileSync(dts, "utf-8")).toContain("export type Option<A> = A | null;");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!hasBuild)("typesugar expand --ast (review 7)", () => {
+  it("prints the tree as JSON (no 'Converting circular structure')", () => {
+    const project = makeProject("typesugar-expand-ast-", {
+      "src/a.ts": `import { comptime } from "typesugar";\nexport const n = comptime(() => 1 + 2);\n`,
+    });
+    try {
+      const r = spawnSync(process.execPath, [cliPath, "expand", "--ast", "src/a.ts"], {
+        cwd: project,
+        encoding: "utf-8",
+        timeout: 120_000,
+      });
+      expect(r.status, r.stderr).toBe(0);
+      const tree = JSON.parse(r.stdout) as { kindName: string; statements: unknown[] };
+      expect(tree.kindName).toBe("SourceFile");
+      expect(r.stdout).toContain('"kindName": "VariableStatement"');
+      // comptime expanded: the literal is in the tree, under its real kind name.
+      expect(r.stdout).toMatch(/"kindName": "NumericLiteral",\s*"text": "3"/);
+      expect(r.stdout).not.toContain("comptime(");
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("expanding a vendored file loads what a build of it loads: its @typesugar/* dependency (secE)", () => {
+    // vendor/evil is project code, and its bare @typesugar/x resolves (as
+    // Node does) to vendor/evil/node_modules/@typesugar/x: trusted by name,
+    // as in a build (SECURITY.md, "What typesugar trusts").
+    const project = makeProject("typesugar-expand-secE-", {
+      "src/use.ts": `import { helper } from "../vendor/evil/index.js";\nexport const h = helper;\n`,
+      "vendor/evil/package.json": JSON.stringify({
+        name: "evil",
+        version: "1.0.0",
+        type: "module",
+      }),
+      "vendor/evil/index.ts": `import { y } from "@typesugar/x";\nexport const helper = y;\n`,
+      "vendor/evil/node_modules/@typesugar/x/package.json": JSON.stringify({
+        name: "@typesugar/x",
+        version: "1.0.0",
+        typesugar: { macros: "./macros.cjs" },
+        exports: { ".": "./index.js", "./macros.cjs": "./macros.cjs" },
+      }),
+      "vendor/evil/node_modules/@typesugar/x/index.js": `export const y = 1;\n`,
+      "vendor/evil/node_modules/@typesugar/x/index.d.ts": `export declare const y: number;\n`,
+      "vendor/evil/node_modules/@typesugar/x/macros.cjs":
+        `require("fs").writeFileSync(require("path").join(__dirname, "RAN"), "executed");\n` +
+        `module.exports = { __typesugar_macros__: [] };\n`,
+    });
+    const marker = path.join(project, "vendor/evil/node_modules/@typesugar/x/RAN");
+    try {
+      for (const args of [["--ast"], []]) {
+        const r = spawnSync(
+          process.execPath,
+          [cliPath, "expand", ...args, "vendor/evil/index.ts"],
+          { cwd: project, encoding: "utf-8", timeout: 120_000 }
+        );
+        expect(r.status, r.stderr).toBe(0);
+        expect(fs.existsSync(marker), `expand ${args.join(" ")}`).toBe(true);
+        expect(r.stderr).not.toMatch(/not loaded/);
+        fs.rmSync(marker);
+      }
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
     }
   }, 120_000);
 });

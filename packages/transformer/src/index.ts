@@ -10,16 +10,20 @@
  */
 
 import type * as ts from "typescript";
+import * as path from "path";
+import { config as typesugarConfig } from "@typesugar/core";
 import {
   macroTransformerFactory,
   type MacroTransformerConfig,
   type TsPatchTransformerExtras,
 } from "./pipeline.js";
+import { keepMacroReferencedImports } from "./keep-imports.js";
 
 // The Node-host macro transformer factory (config/state/cache plumbing
 // around transformer-core's shared MacroTransformer) now lives in
 // pipeline.ts -- see its doc comment for what it reconstructs that
 // transformer-core's browser-safe createTransformerFactory can't.
+export { keepMacroReferencedImports } from "./keep-imports.js";
 export {
   macroTransformerFactory,
   type MacroTransformerConfig,
@@ -43,7 +47,32 @@ export default function typesugarTsPatchTransformer(
   pluginConfig?: MacroTransformerConfig,
   extras?: TsPatchTransformerExtras
 ): ts.TransformerFactory<ts.SourceFile> {
-  return macroTransformerFactory(program, pluginConfig, extras);
+  // The project's typesugar.config.* is searched from its tsconfig's
+  // directory, as every other host does, not from the cwd: `tspc -p
+  // packages/app` run from the repository root missed packages/app's config.
+  // tsc sets `configFilePath` for a project build; without one (files on the
+  // command line) the search stays at the cwd.
+  const configFilePath = program.getCompilerOptions().configFilePath;
+  if (typeof configFilePath === "string" && configFilePath) {
+    typesugarConfig.load({
+      searchFrom: path.dirname(path.resolve(program.getCurrentDirectory(), configFilePath)),
+    });
+  }
+  // `tsc -b` builds several projects in one process: each program's files
+  // expand under its own project's config (review 8).
+  const projectConfig = typesugarConfig.capture();
+  const macros = typesugarConfig.runWith(projectConfig, () =>
+    macroTransformerFactory(program, pluginConfig, extras)
+  );
+  // ts-patch runs this inside tsc's JavaScript emit: keep the imports the
+  // expanded code references (keep-imports.ts).
+  const keep = keepMacroReferencedImports(program);
+  return (context) => {
+    const expand = typesugarConfig.runWith(projectConfig, () => macros(context));
+    const keepImports = keep(context);
+    return (sourceFile) =>
+      typesugarConfig.runWith(projectConfig, () => keepImports(expand(sourceFile)));
+  };
 }
 
 // TypeScript-major guard (PEP-060 item 1), re-exported for hosts that only
@@ -85,6 +114,18 @@ export {
 } from "./virtual-host.js";
 
 export { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
+
+// .d.ts from the expanded program (`typesugar build`, the tsup helper).
+export {
+  emitDeclarations,
+  emitExpandedDeclarations,
+  expandProgramSources,
+  captureExpandedSource,
+  createExpandedHost,
+  formatDiagnosticsForConsole,
+  type EmitDeclarationsOptions,
+  type EmitDeclarationsResult,
+} from "./declarations.js";
 
 export {
   type PositionMapper,

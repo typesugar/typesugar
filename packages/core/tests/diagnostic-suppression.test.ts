@@ -304,6 +304,46 @@ describe("filterDiagnostics", () => {
     const result = filterDiagnostics([diagNoFile], dummyChecker, () => undefined);
     expect(result).toHaveLength(1);
   });
+
+  it("reports a rule's replacement diagnostics in place of the suppressed one, once each", () => {
+    // Review 6: suppressing tsc's only report of a call (its first failing
+    // argument) must not hide the next argument's error.
+    const replacement = makeDiagnostic(2345, "the next argument", sf, 14);
+    registerDiagnosticSuppressionRule({
+      name: "Replace2362",
+      errorCodes: [2362, 2363],
+      shouldSuppress: () => true,
+      replacementDiagnostics: () => [replacement],
+    });
+    const result = filterDiagnostics(
+      [
+        makeDiagnostic(1000, "before", sf, 0),
+        makeDiagnostic(2362, "left", sf, 4),
+        makeDiagnostic(2363, "right", sf, 8),
+        makeDiagnostic(1001, "after", sf, 20),
+      ],
+      dummyChecker,
+      () => sf
+    );
+    expect(result.map((d) => d.messageText)).toEqual(["before", "the next argument", "after"]);
+  });
+
+  it("keeps the original diagnostic when computing its replacements throws", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    registerDiagnosticSuppressionRule({
+      name: "BrokenReplacement",
+      errorCodes: [2345],
+      shouldSuppress: () => true,
+      replacementDiagnostics: () => {
+        throw new Error("boom");
+      },
+    });
+    const original = makeDiagnostic(2345, "original", sf, 0);
+    const result = filterDiagnostics([original], dummyChecker, () => sf);
+    expect(result).toEqual([original]);
+    expect(warn.mock.calls.join("\n")).toMatch(/BrokenReplacement.*boom/);
+    warn.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------

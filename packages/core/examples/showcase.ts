@@ -130,20 +130,22 @@ assert(config.evaluate("!debug") === false);
 assert(config.evaluate("debug && contracts.mode == 'full'") === true);
 assert(config.evaluate("debug || nonexistent") === true);
 
-// Conditional values — compile-time if/else
-const debugValue = config.when("debug", "debug-mode", "release-mode");
-assert(debugValue === "debug-mode");
-
+// Conditional values — compile-time if/else. config.when(...) is a MACRO: it
+// is decided while the file is compiled, from the BUILD's config
+// (typesugar.config.ts, TYPESUGAR_* environment), and replaced by the chosen
+// value. The config.set() calls in this file run later, at run time, and
+// don't affect it. This build sets no `debug`, so:
+const buildValue = config.when("debug", "debug-mode", "release-mode");
+assert(buildValue === "release-mode");
 config.set({ debug: false });
-const releaseValue = config.when("debug", "debug-mode", "release-mode");
-assert(releaseValue === "release-mode");
 
-// Resolution mode per file
-assert(config.getResolutionModeForFile("src/main.ts") === "automatic");
-
-// Prelude typeclasses are available without import in automatic mode
+// Resolution is import-scoped (PEP-052): a file uses a typeclass's syntax
+// only by importing it, and there is no ambient prelude by default.
+assert(config.getResolutionModeForFile("src/main.ts") === "import-scoped");
+assert(config.isInPrelude("Eq") === false);
+// A project can still opt into a prelude.
+config.set({ resolution: { prelude: ["Eq", "Show"] } });
 assert(config.isInPrelude("Eq") === true);
-assert(config.isInPrelude("Show") === true);
 assert(config.isInPrelude("CustomTypeclass") === false);
 
 // defineConfig provides type-safe config authoring
@@ -191,7 +193,9 @@ assert(area({ kind: "circle", radius: 1 }) === Math.PI);
 assert(area({ kind: "square", side: 2 }) === 4);
 
 // debugOnly — code that only runs in development, erased in production
-let debugRan = false;
+// (`as boolean`: TypeScript can't see the callback assign it, and would
+// narrow the flag to `false` at the assert below.)
+let debugRan = false as boolean;
 debugOnly(() => {
   debugRan = true;
 });
@@ -218,8 +222,10 @@ assert(deriveErrors.length > 0);
 // The full catalog covers all error ranges
 assert(DIAGNOSTIC_CATALOG.size > 40);
 
-// Diagnostic categories cover all subsystems
-typeAssert<Extends<"typeclass" | "syntax" | "expansion" | "derive", DiagnosticCategory>>();
+// Diagnostic categories cover all subsystems. DiagnosticCategory is a string
+// enum, so a string literal is not assignable to it; its values are the
+// template-literal type `${DiagnosticCategory}`.
+typeAssert<Extends<"typeclass" | "syntax" | "expansion" | "derive", `${DiagnosticCategory}`>>();
 
 // RichDiagnostic supports labeled spans, notes, help, and code suggestions
 const mockDiagnostic: RichDiagnostic = {
@@ -336,6 +342,7 @@ registerExport({
   name: "ShowcaseType",
   module: "@typesugar/showcase",
   kind: "type",
+  isReexport: false,
 });
 
 const suggestions = getSuggestionsForSymbol("ShowcaseType");

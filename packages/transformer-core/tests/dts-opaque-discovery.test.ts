@@ -119,6 +119,22 @@ export function getOrElse<A>(opt: Option<A>, defaultValue: () => A): A;
     expect(entry!.constructors?.get("None")).toEqual({ kind: "constant", value: "null" });
   });
 
+  it("ignores '@opaque' in prose (typesugar's own .d.ts has one)", () => {
+    const dts = `
+/**
+ * Describes how a method call on an @opaque type can be inlined.
+ */
+export interface MethodInlinePattern {
+  readonly kind: "fold";
+}
+export function inline(p: MethodInlinePattern): MethodInlinePattern;
+`;
+    const source = `import { inline } from "my-lib";`;
+    const program = createTestProgram(source, dts);
+    discoverOpaqueTypesFromImports(program.getSourceFile("/test/source.ts")!, program);
+    expect(getTypeRewrite("MethodInlinePattern")).toBeUndefined();
+  });
+
   it("discovers @opaque on an interface (e.g. @typesugar/fp Option) — PEP-033 N3b", () => {
     // fp publishes Option as an `@opaque interface` (so it can declare its
     // dot-syntax method surface for type-checking) rather than a type alias.

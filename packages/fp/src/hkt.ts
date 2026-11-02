@@ -8,7 +8,7 @@
  *
  * The HKT encoding exists only at the type level. At runtime:
  * - Type-level functions (`OptionF`, `EitherF`) are erased completely
- * - `Kind<OptionF, number>` resolves to `Option<number>` via preprocessor
+ * - `@impl` checks an instance against its `Kind<OptionF, A>` signatures expanded to `Option<A>`
  * - The `specialize` macro inlines dictionary methods at call sites
  * - No closures, no indirect dispatch, no dictionary objects in hot paths
  *
@@ -28,7 +28,7 @@
  *    }
  *    ```
  *
- * 3. **Final** (resolved for known type functions):
+ * 3. **Final** (what an unannotated `@impl` instance `satisfies`, expanded for known type functions):
  *    ```typescript
  *    // Kind<OptionF, A> → Option<A>
  *    map<A, B>(fa: Option<A>, f: (a: A) => B): Option<B>;

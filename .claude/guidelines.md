@@ -13,19 +13,19 @@ Reference guide for working with the typesugar codebase. For active rule enforce
 
 Cursor rules handle active enforcement. Refer to these for details:
 
-| Rule             | Purpose                                                                   | File                                       |
-| ---------------- | ------------------------------------------------------------------------- | ------------------------------------------ |
-| Test workflow    | Targeted test runs, `pnpm test:failed`, always use `tee`                  | `.cursor/rules/test-workflow.mdc`          |
-| Collections      | Typeclass hierarchy, MapLike `undefined` handling (never `!== undefined`) | `.cursor/rules/collections-patterns.mdc`   |
-| HKT conventions  | Use `F<_>` not `F[_]`, type-level functions must use `this["__kind__"]`   | `.cursor/rules/hkt-conventions.mdc`        |
-| Zero-cost        | `summon()` must be compile-time, favor autoderivation                     | `.cursor/rules/zero-cost-guidelines.mdc`   |
-| Code quality     | No `as unknown as`, mid-file imports, double iteration                    | `.cursor/rules/code-quality-checklist.mdc` |
-| Design first     | Confirm approach for macros/transformer changes                           | `.cursor/rules/design-before-building.mdc` |
-| Branding         | Lowercase "typesugar", 🧊 emoji, #8b5cf6 purple                           | `.cursor/rules/branding.mdc`               |
-| Check existing   | Search `src/macros/`, registries before building                          | `.cursor/rules/check-existing-first.mdc`   |
-| TODOs            | Place in `packages/<name>/TODO.md`, not repo root                         | `.cursor/rules/todo-in-packages.mdc`       |
-| Preferences      | Autonomous execution, prefer "everything", Scala 3/Rust/Zig patterns      | `.cursor/rules/user-preferences.mdc`       |
-| Module lifecycle | Package creation checklist, docs linkage, red team tests                  | `.cursor/rules/module-lifecycle.mdc`       |
+| Rule             | Purpose                                                                    | File                                       |
+| ---------------- | -------------------------------------------------------------------------- | ------------------------------------------ |
+| Test workflow    | Targeted test runs, `pnpm test:failed`, always use `tee`                   | `.cursor/rules/test-workflow.mdc`          |
+| Collections      | Typeclass hierarchy, MapLike `undefined` handling (never `!== undefined`)  | `.cursor/rules/collections-patterns.mdc`   |
+| HKT conventions  | Use `F<_>` not `F[_]`, type-level functions must use `this["__kind__"]`    | `.cursor/rules/hkt-conventions.mdc`        |
+| Zero-cost        | `summon()` must be compile-time; instances come from `@derive`/`derived()` | `.cursor/rules/zero-cost-guidelines.mdc`   |
+| Code quality     | No `as unknown as`, mid-file imports, double iteration                     | `.cursor/rules/code-quality-checklist.mdc` |
+| Design first     | Confirm approach for macros/transformer changes                            | `.cursor/rules/design-before-building.mdc` |
+| Branding         | Lowercase "typesugar", 🧊 emoji, #8b5cf6 purple                            | `.cursor/rules/branding.mdc`               |
+| Check existing   | Search `src/macros/`, registries before building                           | `.cursor/rules/check-existing-first.mdc`   |
+| TODOs            | Place in `packages/<name>/TODO.md`, not repo root                          | `.cursor/rules/todo-in-packages.mdc`       |
+| Preferences      | Autonomous execution, prefer "everything", Scala 3/Rust/Zig patterns       | `.cursor/rules/user-preferences.mdc`       |
+| Module lifecycle | Package creation checklist, docs linkage, red team tests                   | `.cursor/rules/module-lifecycle.mdc`       |
 
 ## Key Directories
 
@@ -39,10 +39,10 @@ src/
 packages/
 ├── core/               # @typesugar/core — macro registration infrastructure
 ├── macros/             # @typesugar/macros — built-in macro implementations
-├── transformer/        # @typesugar/transformer — ts-patch transformer plugin
+├── transformer/        # @typesugar/transformer — Node.js pipeline: CLI, register loader, language service
 ├── std/               # @typesugar/std — standard library, match(), FlatMap, do-notation
-├── typeclass/          # @typesugar/typeclass — typeclass machinery (@typeclass, @instance)
-├── fp/                # @typesugar/fp — Option, Result, IO, List
+├── typeclass/          # @typesugar/typeclass — typeclass machinery (@typeclass, @impl, summon, derived)
+├── fp/                # @typesugar/fp — Option, Either, IO, List
 └── [many more packages] — See AGENTS.md for full tree
 ```
 
@@ -57,9 +57,9 @@ packages/
 
 ### When working with typeclasses
 
-- Auto-derivation preferred when all fields have instances
-- `summon<TC<T>>()` for explicit resolution in generic code
-- Extension methods resolve automatically — no wrapper needed
+- Instances are explicit (PEP-052): `@derive(TC)` on a type, `derived<TC<T>>()` for a type you don't own, or a hand-written `/** @impl */`
+- `summon<TC<T>>()` finds an instance in scope (its in-place derivation fallback is deprecated, TS9009)
+- Method and operator syntax rewrite only in files that import the typeclass's syntax marker (`@typesugar/std/syntax/<tc>`)
 - `Op<"+">` typeclass return types enable operator overloading
 
 ### When testing

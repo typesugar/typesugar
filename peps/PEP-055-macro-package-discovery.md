@@ -309,6 +309,65 @@ approval for everything else — modeled on pnpm's `approve-builds`.**
   is the same bar `postinstall` scripts, Babel plugins, and bundler plugins
   already clear via explicit dependency+approval steps — this brings macro
   packages to parity with that norm, not below it.
+- **Relative imports (added 2026-10, PR #83).** A macro package can also be
+  reached by a relative import (a package's own examples importing
+  `../src`, a workspace sibling, a vendored directory). See the decision
+  below for how those are trusted.
+
+### Decision (2026-10-22, Dean): the project tree is trusted
+
+PR #83 first answered "a relative path bypasses `@typesugar/*` scope
+ownership" (review 5: a vendored directory claiming
+`"@typesugar/totally-official"` was executed) by establishing a package's
+identity only from directories the project "owns": an owned-roots model
+(the outermost project above the tsconfig, its declared workspace packages,
+git-worktree detection, workspace-glob parsing), config files read only from
+owned directories (`config.load({ onlyIn })`), warnings for everything
+reached any other way, and a "not approvable" list in `approve-macros`.
+Reviews 6 and 7 kept finding ways round it (sec1, secB-secF), and each fix
+made legitimate layouts (nested projects, vendored code, worktrees) harder
+to use. It defended the repository against itself.
+
+Dean's decision: macros run code at build time and in the editor, and the
+realistic risks are three, each with its own layer:
+
+1. **A malicious npm dependency**, including a transitive one. It gets
+   build-time execution even where install scripts are blocked (pnpm 10,
+   `--ignore-scripts`). This PEP's gate stays: a macro package inside
+   `node_modules` loads only if it is `@typesugar/*` (or `typesugar`) or
+   listed in `allowedMacroPackages`. Its name is what Node resolution gives
+   from the importing project file's location (pnpm and nested installs work
+   as in Node). A relative path into `node_modules` is judged as a bare
+   import of the package its path names (`node_modules/<name>`), not by that
+   package's own `name`. Files inside `node_modules` are not scanned, so a
+   dependency's own imports never load macros.
+2. **Files written into the user's own repository.** Anyone who can do that
+   can already edit `vite.config.ts`, `eslint.config.js` or `package.json`
+   scripts, which every build tool runs. So the project tree is trusted: a
+   macro package reached by a relative import whose real path is not inside
+   `node_modules` is project code and loads with no name check and no
+   warning. It is loaded by real path, never under its claimed name, so it
+   cannot stand in for a dependency of that name. Config files are read as
+   before PR #83 (walk up, stopping at `.git`), starting from the tsconfig's
+   directory when there is one; that also fixed `tspc -p packages/app` from
+   the repository root missing packages/app's config (the ts-patch entry
+   searched from the cwd). Accepted risk: someone who can write to your
+   repository can run code when you build, as with every config file.
+3. **Opening an untrusted repository in VS Code.** VS Code Workspace Trust is
+   the layer: the extension declares `untrustedWorkspaces: false`, so it and
+   its TypeScript server plugin stay off in Restricted Mode (SECURITY.md has
+   what VS Code does and doesn't cover, and other editors).
+
+Removed: the owned-roots machinery (`projectRootsOf`, `owningRoot`,
+`enclosingProjectRoot`, worktree detection, workspace-glob parsing),
+`loadProjectConfig` and core's `config.load({ onlyIn })`, the
+unverified-package warnings, and `approve-macros`' "not approvable" list.
+Kept: loaded macro entries keyed by real path, `export … from` re-exports
+scanned like imports, `approve-macros` running the build's own discovery
+(`scanMacroPackages`), and the `expand --ast` serialization fix. Bare
+imports of a workspace package by name still go through the gate (they
+resolve through a `node_modules` link); only relative imports are project
+code.
 
 ### What does NOT change
 

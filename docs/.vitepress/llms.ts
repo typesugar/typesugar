@@ -35,8 +35,10 @@ const SUMMARY =
   "metaprogramming (typeclasses, derivation, pattern matching, operator " +
   "overloading, compile-time evaluation) that expands to plain, zero-cost " +
   "TypeScript at build time. Source files are valid TypeScript, but they " +
-  "must be compiled through a typesugar-aware pipeline (the unplugin for " +
-  "bundlers, or ts-patch for tsc) for macros to expand.";
+  "must be compiled through a typesugar-aware pipeline for macros to expand: " +
+  "a bundler plugin (unplugin-typesugar, or withTypesugar() from " +
+  "typesugar/tsup), `typesugar build` in place of tsc, or " +
+  "`node --import typesugar/register` to run files directly.";
 
 /** Flatten the sidebar tree into ordered leaf links (deduped, site-relative). */
 function collectSidebarLinks(items: DefaultTheme.SidebarItem[]): string[] {

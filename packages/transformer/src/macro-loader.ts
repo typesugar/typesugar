@@ -34,35 +34,69 @@ export function __setRequireForTesting(req: NodeRequire | undefined): void {
   _requireOverride = req;
 }
 
-/**
- * One `NodeRequire` per importing directory, so a project's macro packages
- * resolve the way Node would resolve the project's own imports.
- */
+// ============================================================================
+// What typesugar trusts (SECURITY.md; PEP-055, decision of 2026-10-22)
+//
+// - The project tree is trusted. A macro package reached by a RELATIVE
+//   import (or `export … from`) whose real path is not inside a
+//   `node_modules` directory is project code -- a vendored directory, a
+//   workspace sibling, a nested project, the package's own `../src` -- and
+//   is loaded whatever its package.json calls itself, with no approval and
+//   no warning. Someone who can write files into the repository can already
+//   edit vite.config.ts, eslint.config.js or package.json scripts, which
+//   every build runs; refusing their macros adds friction, not safety.
+//   Its macros entry is its own file (`projectEntry`), never a package of
+//   the same name found by name; a bare entry naming another package is a
+//   dependency of the project package (gated below).
+// - A package inside `node_modules` is a dependency, and keeps PEP-055's
+//   gate: `@typesugar/*` (and `typesugar`) are trusted, anything else must be
+//   in `security.allowedMacroPackages` (`typesugar approve-macros`), or the
+//   build fails. Its name is what Node resolution gives from the importing
+//   file's location (pnpm and nested installs work as Node does). A
+//   relative path into `node_modules` is judged as a bare import of the
+//   package its path names (`node_modules/<name>`).
+// - Files inside `node_modules` are never scanned (`isScannedFile`), so a
+//   dependency's own imports never load macros.
+//
+// Every host -- check, build, watch, expand, doctor and the declarations
+// emit (through `macroTransformerFactory`), the ts-patch entry, the
+// TransformationPipeline (language service, unplugin, the Node loader,
+// ESLint) and approve-macros (`scanMacroPackages`) -- goes through the
+// functions below: `collectCandidates` decides what a file's imports reach,
+// `classifyCandidates` applies the gate.
+// ============================================================================
+
+/** One `NodeRequire` per directory resolved from. */
 const projectRequireCache = new Map<string, NodeRequire>();
 
 /**
- * The `require`s to try, in order, when resolving a macro package imported
- * from a file in `fromDir`:
+ * The `require`s to try, in order, when resolving a macro package by name:
  *
- * 1. the importing file's own directory -- the user's project. A package
- *    installed only in the project (pnpm's strict layout puts it in the
- *    project's `node_modules`, invisible from the transformer's install)
- *    must still load (docs review 2026-10, docs-authoring "1.0 gaps");
- * 2. the transformer's own install -- the pre-1.0 behaviour, kept as a
- *    fallback for hosts whose files have no real on-disk location.
+ * 1. from each directory in `dirs` (normally the importing file's own
+ *    directory) -- the user's project. A package installed only in the
+ *    project (pnpm's strict layout puts it in the project's `node_modules`,
+ *    invisible from the transformer's install) must still load (docs review
+ *    2026-10);
+ * 2. the transformer's own install -- the pre-1.0 behaviour (its own
+ *    dependencies), kept as a fallback for hosts whose files have no real
+ *    on-disk location.
  *
  * The test override (if set) replaces both.
  */
-function requireChain(fromDir?: string): NodeRequire[] {
+function requireChain(dirs: readonly string[]): NodeRequire[] {
   if (_requireOverride) return [_requireOverride];
-  if (!fromDir) return [_require];
-  let req = projectRequireCache.get(fromDir);
-  if (!req) {
-    // createRequire needs a FILE path; it need not exist.
-    req = createRequire(path.join(fromDir, "__typesugar_macro_resolver__.js"));
-    projectRequireCache.set(fromDir, req);
+  const chain: NodeRequire[] = [];
+  for (const dir of dirs) {
+    let req = projectRequireCache.get(dir);
+    if (!req) {
+      // createRequire needs a FILE path; it need not exist.
+      req = createRequire(path.join(dir, "__typesugar_macro_resolver__.js"));
+      projectRequireCache.set(dir, req);
+    }
+    chain.push(req);
   }
-  return [req, _require];
+  chain.push(_require);
+  return chain;
 }
 
 /** The directory imports in `fileName` resolve from, if it is a real path. */
@@ -71,11 +105,52 @@ function importerDir(fileName: string): string | undefined {
 }
 
 /**
- * Tracks which packages have already been loaded in this process.
- * Prevents redundant require() calls across multiple transformer
- * factory invocations (e.g., in watch mode).
+ * The directories a program's project-wide loads (the @typesugar/std
+ * preload) resolve from: the tsconfig's directory when the host set
+ * `configFilePath` (tsserver, tsc/ts-patch; the CLI doesn't, since TypeScript
+ * 6 then requires an explicit `rootDir`), the directory holding the program's
+ * root files, and its current directory.
  */
-const loadedPackages = new Set<string>();
+function programDirs(program: ts.Program): string[] {
+  const dirs: string[] = [];
+  const cwd = path.resolve(program.getCurrentDirectory());
+  const configFilePath = program.getCompilerOptions().configFilePath;
+  if (typeof configFilePath === "string" && configFilePath) {
+    dirs.push(path.dirname(path.resolve(cwd, configFilePath)));
+  }
+  const rootsDir = commonDirectory(program.getRootFileNames().map((f) => path.resolve(cwd, f)));
+  if (rootsDir && !dirs.includes(rootsDir)) dirs.push(rootsDir);
+  if (!dirs.includes(cwd)) dirs.push(cwd);
+  return dirs;
+}
+
+/** The deepest directory containing every one of `files`. */
+function commonDirectory(files: string[]): string | undefined {
+  if (files.length === 0) return undefined;
+  let common = path.dirname(files[0]);
+  for (const f of files.slice(1)) {
+    while (common !== path.dirname(common) && !isInside(f, common)) common = path.dirname(common);
+  }
+  return common;
+}
+
+/**
+ * Macro entry modules already require()d in this process, by the REAL path
+ * of the resolved entry file. Prevents redundant require() calls across
+ * multiple transformer factory invocations (e.g., in watch mode). Keyed by
+ * path, not package name: a name is only what a package.json claims, and a
+ * project directory claiming `@typesugar/std` must not stand in for the real
+ * one.
+ */
+const loadedEntries = new Set<string>();
+
+/**
+ * Package names whose macros are loaded from the package that name resolves
+ * to as a dependency (a bare import, or a relative path into node_modules).
+ * A later load of the same name is skipped. Project code (see the section
+ * comment) is loaded by path and never enters this set.
+ */
+const loadedPackageNames = new Set<string>();
 
 /**
  * Thrown when the manifest-based discovery scan (PEP-055) finds a package
@@ -129,8 +204,8 @@ type PackageDiscovery =
 
 /**
  * Memoizes package.json reads (I/O-bound, and the field itself is
- * immutable for a given install) per package name for this process.
- * Deliberately does NOT cache the trust decision — that depends on
+ * immutable for a given install) per (directories, package name) for this
+ * process. Deliberately does NOT cache the trust decision — that depends on
  * `security.allowedMacroPackages`, which is mutable process-wide config
  * state (`config.set(...)` is a public API), so it's recomputed on every
  * call. Cleared by `resetLoadedPackages` (testing only).
@@ -227,7 +302,8 @@ const AUTO_TRUSTED_UNSCOPED_PACKAGES = new Set(["typesugar"]);
 /**
  * Check whether `pkg` is allowed to register macros outside the
  * auto-trusted `@typesugar/*` scope, per `security.allowedMacroPackages`
- * (exact names, or `"@scope/*"` wildcard entries).
+ * (exact names, or `"@scope/*"` wildcard entries). Applies to dependencies
+ * only: project code is not gated (see the section comment).
  */
 function isTrusted(pkg: string): boolean {
   if (pkg.startsWith("@typesugar/") || AUTO_TRUSTED_UNSCOPED_PACKAGES.has(pkg)) return true;
@@ -241,18 +317,19 @@ function isTrusted(pkg: string): boolean {
 }
 
 /**
- * Resolve a single package's manifest field, if any. Never calls require()
- * — pure discovery, safe to call from `approve-macros`'s dry-run scan as
- * well as the real loader. Result is memoized (see `manifestFieldCache`);
- * trust is deliberately NOT part of what's cached here.
+ * Resolve a single package's manifest field, if any, from `dirs` (then
+ * typesugar's install; see `requireChain`). Never calls require() — pure
+ * discovery, safe to call from `approve-macros`'s dry-run scan as well as the
+ * real loader. Result is memoized (see `manifestFieldCache`); trust is
+ * deliberately NOT part of what's cached here.
  */
-function discoverPackage(pkg: string, fromDir?: string): PackageDiscovery {
-  const key = `${fromDir ?? ""}\0${pkg}`;
+function discoverPackage(pkg: string, dirs: readonly string[]): PackageDiscovery {
+  const key = `${dirs.join("\0")}\0\0${pkg}`;
   const cached = manifestFieldCache.get(key);
   if (cached) return cached;
 
   let result: PackageDiscovery = { kind: "unresolved" };
-  for (const req of requireChain(fromDir)) {
+  for (const req of requireChain(dirs)) {
     const resolved = resolvePackageJson(pkg, req);
     if (!resolved) continue;
     result = { kind: "no-manifest" };
@@ -273,8 +350,9 @@ function discoverPackage(pkg: string, fromDir?: string): PackageDiscovery {
 
 /**
  * Classify a set of candidate base package names against the manifest
- * discovery mechanism. Returns packages to load (mapped to their resolved
- * target specifier) and packages that declared the field but aren't
+ * discovery mechanism, resolving each from `fromDir` (default: typesugar's
+ * own install). Returns packages to load (mapped to their resolved target
+ * specifier) and packages that declared the field but aren't
  * trusted/approved. Trust is re-checked against the CURRENT
  * `security.allowedMacroPackages` on every call.
  */
@@ -287,7 +365,7 @@ export function classifyManifestPackages(
 } {
   const toLoad = new Map<string, string>();
   const { load, blocked } = classifyCandidates(
-    new Map([...candidates].map((pkg) => [pkg, fromDir]))
+    [...candidates].map((pkg) => ({ pkg, importerDir: fromDir }))
   );
   for (const [pkg, info] of load) toLoad.set(pkg, info.target);
   return { toLoad, blocked };
@@ -303,7 +381,17 @@ function expectsMacros(pkg: string): boolean {
   return pkg.startsWith("@typesugar/") || AUTO_TRUSTED_UNSCOPED_PACKAGES.has(pkg);
 }
 
-function classifyCandidates(candidates: Map<string, string | undefined>): {
+/**
+ * A dependency a file reaches: a bare import of `pkg` in a file in
+ * `importerDir`, or a relative path into `<importerDir>/node_modules/<pkg>`
+ * (undefined `importerDir`: no real path; typesugar's install only).
+ */
+interface BareCandidate {
+  pkg: string;
+  importerDir?: string;
+}
+
+function classifyCandidates(candidates: Iterable<BareCandidate>): {
   load: Map<string, ManifestFieldInfo>;
   blocked: string[];
   unresolved: Array<{ pkg: string; fromDir?: string }>;
@@ -312,16 +400,18 @@ function classifyCandidates(candidates: Map<string, string | undefined>): {
   const blocked: string[] = [];
   const unresolved: Array<{ pkg: string; fromDir?: string }> = [];
 
-  for (const [pkg, fromDir] of candidates) {
-    const found = discoverPackage(pkg, fromDir);
+  for (const { pkg, importerDir: fromDir } of candidates) {
+    const found = discoverPackage(pkg, fromDir ? [fromDir] : []);
     if (found.kind === "unresolved") {
-      if (expectsMacros(pkg)) unresolved.push({ pkg, fromDir });
+      if (expectsMacros(pkg) && !unresolved.some((u) => u.pkg === pkg)) {
+        unresolved.push({ pkg, fromDir });
+      }
       continue;
     }
     if (found.kind !== "manifest") continue;
     if (isTrusted(pkg)) {
-      load.set(pkg, { target: found.target, req: found.req });
-    } else {
+      if (!load.has(pkg)) load.set(pkg, { target: found.target, req: found.req });
+    } else if (!blocked.includes(pkg)) {
       blocked.push(pkg);
     }
   }
@@ -338,21 +428,21 @@ export interface MacroPackageWarning {
 }
 
 /**
- * Discover and load macro packages from a set of candidate base package
- * names (drawn from a program's or a single file's imports). Shared by
+ * Discover and load macro packages from a set of dependency candidates
+ * (drawn from a program's or a single file's imports). Shared by
  * `loadMacroPackages`/`loadMacroPackagesFromFile` so the "always load
  * @typesugar/std first" ordering guarantee and the discovery mechanism
  * itself stay in one place.
  *
- * `hasTypesugarImport` is computed from the RAW candidate set, not the
- * (possibly narrower) set of packages that actually declare a
- * `typesugar.macros` field — preserving std's "load first for any
- * @typesugar/* import" guarantee even for @typesugar/* packages that carry
- * no macros of their own (e.g. a pure runtime library), matching the old
- * prefix-fallback's behavior for this specific ordering rule.
+ * The std preload is decided from the RAW candidate set, not the (possibly
+ * narrower) set of packages that actually declare a `typesugar.macros` field
+ * — preserving std's "load first for any @typesugar/* import" guarantee even
+ * for @typesugar/* packages that carry no macros of their own (e.g. a pure
+ * runtime library), matching the old prefix-fallback's behavior for this
+ * specific ordering rule.
  */
 function loadDiscoveredPackages(
-  candidates: Map<string, string | undefined>,
+  candidates: BareCandidate[],
   verbose?: boolean
 ): { loaded: Set<string>; blocked: string[]; warnings: MacroPackageWarning[] } {
   const { load, blocked, unresolved } = classifyCandidates(candidates);
@@ -368,9 +458,13 @@ function loadDiscoveredPackages(
     });
   }
 
-  const typesugarImporter = [...candidates].find(([pkg]) => expectsMacros(pkg));
+  const typesugarImporter = candidates.find(({ pkg }) => expectsMacros(pkg));
   if (typesugarImporter) {
-    loadPackage("@typesugar/std", verbose, typesugarImporter[1]);
+    loadPackage(
+      "@typesugar/std",
+      verbose,
+      typesugarImporter.importerDir ? [typesugarImporter.importerDir] : []
+    );
   }
 
   const loaded = new Set<string>();
@@ -400,10 +494,21 @@ function loadDiscoveredPackages(
  * Must be called before the visitor pass begins.
  */
 export function loadMacroPackages(program: ts.Program, verbose?: boolean): void {
-  const importedModules = collectImportedModulesWithDirs(program);
+  // @typesugar/std's macros are part of the built-in set (the derive macro
+  // behind `@derive(Destructure)`): `@derive` is a built-in tag, so a file
+  // names that derive without importing anything, and a program that imports
+  // no typesugar package at all got "Unknown derive: 'Destructure'". A
+  // program that imports one loads std anyway (loadDiscoveredPackages), so
+  // this is the same set either way. Resolved from the project's
+  // directories, then from typesugar's install; when neither has it, the
+  // derive is reported as unknown, as before.
+  loadPackage("@typesugar/std", verbose, programDirs(program));
+
   // Load warnings are reported per importing file, as diagnostics, by
   // `loadMacroPackagesFromFile` (the factory calls it for every file).
-  const { loaded, blocked } = loadDiscoveredPackages(importedModules, verbose);
+  const { dependencies, project } = collectProgramCandidates(program);
+  const { loaded, blocked } = loadDiscoveredPackages(dependencies, verbose);
+  loadProjectMacroPackages(project, verbose);
 
   if (verbose) {
     const all = globalRegistry.getAll();
@@ -422,66 +527,164 @@ export function loadMacroPackages(program: ts.Program, verbose?: boolean): void 
 }
 
 /**
- * Force-load a specific macro package by name.
- * Useful for programmatic use or testing.
+ * What a build of `program` would refuse to load, without loading anything
+ * -- `typesugar approve-macros`'s scan. The same discovery as
+ * `loadMacroPackages` and `loadMacroPackagesFromFile` (same files, same
+ * imports, same resolution): `blocked` is the dependencies that declare
+ * macros but are not `@typesugar/*` and not approved (the build fails on
+ * these). Project code is never blocked.
  */
-export function loadMacroPackage(packageName: string, verbose?: boolean): boolean {
-  return loadPackage(packageName, verbose, process.cwd());
+export function scanMacroPackages(program: ts.Program): { blocked: string[] } {
+  return { blocked: classifyCandidates(collectProgramCandidates(program).dependencies).blocked };
 }
 
 /**
- * Load macro packages based on imports in a single source file.
- * Called per-file during transformation to ensure packages are loaded
- * even when the initial program doesn't include all files.
+ * Force-load a specific macro package by name, resolved from the current
+ * directory (then typesugar's own install).
+ * Useful for programmatic use or testing.
+ */
+export function loadMacroPackage(packageName: string, verbose?: boolean): boolean {
+  return loadPackage(packageName, verbose, [process.cwd()]);
+}
+
+/** An import or re-export declaration with a string module specifier. */
+type ModuleDeclaration = ts.ImportDeclaration | ts.ExportDeclaration;
+
+/** A file's import and `export … from` declarations, with their specifiers. */
+function moduleDeclarations(
+  sourceFile: ts.SourceFile
+): Array<{ specifier: string; node: ModuleDeclaration }> {
+  const out: Array<{ specifier: string; node: ModuleDeclaration }> = [];
+  for (const stmt of sourceFile.statements) {
+    if (
+      (ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt)) &&
+      stmt.moduleSpecifier &&
+      ts.isStringLiteral(stmt.moduleSpecifier)
+    ) {
+      out.push({ specifier: stmt.moduleSpecifier.text, node: stmt });
+    }
+  }
+  return out;
+}
+
+function isRelativeSpecifier(specifier: string): boolean {
+  return specifier.startsWith(".") || specifier.startsWith("/");
+}
+
+/** Is `p` inside a `node_modules` directory (a path segment)? */
+function inNodeModules(p: string): boolean {
+  return p.split(/[\\/]/).includes("node_modules");
+}
+
+/**
+ * Files the loader scans: a program's own sources, not declarations, and
+ * nothing inside `node_modules` -- a dependency's own imports never load
+ * macros.
+ */
+function isScannedFile(sourceFile: ts.SourceFile): boolean {
+  return !inNodeModules(sourceFile.fileName) && !sourceFile.isDeclarationFile;
+}
+
+/** What one import or re-export reaches (see `candidateOf`). */
+type ImportCandidate =
+  | { kind: "dependency"; candidate: BareCandidate }
+  | { kind: "project"; rel: ProjectMacroPackage; inside: boolean };
+
+/**
+ * What the import of `specifier` in `fileName` reaches: a dependency (a bare
+ * specifier, or a relative path whose real path is inside `node_modules`),
+ * a project macro package (a relative path to a package outside
+ * `node_modules` that declares macros), or nothing.
+ */
+function candidateOf(fileName: string, specifier: string): ImportCandidate | undefined {
+  const fromDir = importerDir(fileName);
+  if (!isRelativeSpecifier(specifier)) {
+    const pkg = getBasePackageName(specifier);
+    return pkg ? { kind: "dependency", candidate: { pkg, importerDir: fromDir } } : undefined;
+  }
+  if (!fromDir) return undefined;
+  const dir = realPath(relativeTargetDir(fromDir, specifier));
+  const dep = nodeModulesPackageOf(dir);
+  if (dep) return { kind: "dependency", candidate: dep };
+  if (inNodeModules(dir)) return undefined; // `node_modules` itself, or `.bin`
+  const rel = projectMacroPackageAt(dir);
+  if (!rel) return undefined;
+  // A bare manifest value (`"@typesugar/macros"`, a facade's) names ANOTHER
+  // package: resolved by name from the package's directory, it is a
+  // dependency like any other, and keeps the approval gate (review 8).
+  if (!rel.field.startsWith(".")) {
+    return {
+      kind: "dependency",
+      candidate: { pkg: getBasePackageName(rel.field), importerDir: rel.dir },
+    };
+  }
+  const from = realPath(fromDir);
+  return { kind: "project", rel, inside: from === rel.dir || isInside(from, rel.dir) };
+}
+
+/**
+ * Load macro packages based on imports (and `export … from` re-exports) in a
+ * single source file. Called per-file during transformation to ensure
+ * packages are loaded even when the initial program doesn't include all
+ * files. Resolution depends only on where the file is.
  */
 export function loadMacroPackagesFromFile(
   sourceFile: ts.SourceFile,
   verbose?: boolean
-): Array<MacroPackageWarning & { node: ts.ImportDeclaration }> {
-  const basePkgs = new Map<string, string | undefined>();
-  const importOf = new Map<string, ts.ImportDeclaration>();
-  const fromDir = importerDir(sourceFile.fileName);
+): Array<MacroPackageWarning & { node: ModuleDeclaration }> {
+  if (!isScannedFile(sourceFile)) return [];
+  const dependencies: BareCandidate[] = [];
+  const importOf = new Map<string, ModuleDeclaration>();
+  const project = new Map<string, ProjectImport>();
+  const projectImportOf = new Map<string, ModuleDeclaration>();
 
-  for (const stmt of sourceFile.statements) {
-    if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
-      const mod = stmt.moduleSpecifier.text;
-      if (!mod.startsWith(".") && !mod.startsWith("/")) {
-        const basePkg = getBasePackageName(mod);
-        if (basePkg) {
-          basePkgs.set(basePkg, fromDir);
-          if (!importOf.has(basePkg)) importOf.set(basePkg, stmt);
-        }
+  for (const { specifier, node } of moduleDeclarations(sourceFile)) {
+    const found = candidateOf(sourceFile.fileName, specifier);
+    if (found?.kind === "dependency") {
+      const { pkg } = found.candidate;
+      if (!importOf.has(pkg)) {
+        dependencies.push(found.candidate);
+        importOf.set(pkg, node);
       }
+    } else if (found?.kind === "project") {
+      addProjectImport(project, found);
+      if (!projectImportOf.has(found.rel.dir)) projectImportOf.set(found.rel.dir, node);
     }
   }
 
-  const { blocked, warnings } = loadDiscoveredPackages(basePkgs, verbose);
+  const { blocked, warnings } = loadDiscoveredPackages(dependencies, verbose);
 
   if (blocked.length > 0) {
     throw new UnapprovedMacroPackagesError(blocked);
   }
 
-  return warnings.map((w) => ({ ...w, node: importOf.get(w.pkg)! }));
+  const result = warnings.map((w) => ({ ...w, node: importOf.get(w.pkg)! }));
+  for (const { dir, ...w } of loadProjectMacroPackages(project, verbose)) {
+    result.push({ ...w, node: projectImportOf.get(dir)! });
+  }
+  return result;
 }
 
 /**
  * Reset the loaded-packages tracker. For testing only.
  */
 export function resetLoadedPackages(): void {
-  loadedPackages.clear();
+  loadedEntries.clear();
+  loadedPackageNames.clear();
   manifestFieldCache.clear();
   failedLoads.clear();
   projectRequireCache.clear();
+  projectPackageCache.clear();
 }
 
-function loadPackage(pkg: string, verbose?: boolean, fromDir?: string): boolean {
-  if (loadedPackages.has(pkg)) return true;
+function loadPackage(pkg: string, verbose: boolean | undefined, dirs: readonly string[]): boolean {
+  if (loadedPackageNames.has(pkg)) return true;
 
   // Prefer the dedicated `./macros` entry (PEP-050 Case-1 isolation): macro
   // definitions import `typescript` and must NOT live in the `.` runtime entry.
   // Packages that haven't split yet have no `./macros` subpath, so we fall back
   // to the package root (the original behavior).
-  for (const req of requireChain(fromDir)) {
+  for (const req of requireChain(dirs)) {
     for (const target of [`${pkg}/macros`, pkg]) {
       if (tryLoadModule(pkg, target, verbose, req) === undefined) return true;
     }
@@ -492,27 +695,35 @@ function loadPackage(pkg: string, verbose?: boolean, fromDir?: string): boolean 
   return false;
 }
 
+/** Prefix of a load error where only some `__typesugar_macros__` entries conflicted. */
+const PARTIAL_LOAD = "some of its macros conflict with registered ones: ";
+
 /**
  * require() `target` and register its macros. Returns `undefined` on
  * success, or the error message when the module could not be loaded.
  */
-/** Prefix of a load error where only some `__typesugar_macros__` entries conflicted. */
-const PARTIAL_LOAD = "some of its macros conflict with registered ones: ";
-
 function tryLoadModule(
   pkg: string,
   target: string,
   verbose: boolean | undefined,
-  req: NodeRequire
+  req: NodeRequire,
+  /** False for project code, loaded by path (see `loadedPackageNames`). */
+  byName = true
 ): string | undefined {
-  if (loadedPackages.has(pkg)) return undefined;
+  if (byName && loadedPackageNames.has(pkg)) return undefined;
   let failedForReq = failedLoads.get(req);
   if (!failedForReq) failedLoads.set(req, (failedForReq = new Map()));
   const failed = failedForReq.get(target);
   if (failed !== undefined) return failed;
   try {
+    const entry = realPath(req.resolve(target));
+    if (loadedEntries.has(entry)) {
+      if (byName) loadedPackageNames.add(pkg);
+      return undefined;
+    }
     const loaded = req(target);
-    loadedPackages.add(pkg);
+    loadedEntries.add(entry);
+    if (byName) loadedPackageNames.add(pkg);
 
     // Convention: __typesugar_macros__ exports an array of MacroDefinition
     // objects that should be registered. This is the preferred pattern for
@@ -573,54 +784,254 @@ function isMacroDefinition(value: unknown): value is MacroDefinition {
   );
 }
 
+// ============================================================================
+// Relative imports
+// ============================================================================
+
 /**
- * Collect all non-relative module specifiers imported across the program.
- * Only scans user source files (skips node_modules and .d.ts files).
+ * A macro package that is project code: the package a relative import lands
+ * in (decided by the imported FILE's nearest package.json, not by the
+ * specifier's text), outside `node_modules`, that declares
+ * `typesugar.macros`. `packages/mapper/examples/showcase.ts` imports
+ * `transformInto` from "../src/index.js" -- the defining module itself; a
+ * vendored directory or a workspace sibling may be imported the same way.
+ * Loaded under no name check (see the section comment), keyed by real path.
  */
-export function collectImportedModules(program: ts.Program): Set<string> {
-  return new Set(collectImportedModulesWithDirs(program).keys());
+interface ProjectMacroPackage {
+  /** The name its package.json gives. */
+  pkg: string;
+  /** The package's directory (where its package.json is), by real path. */
+  dir: string;
+  /** Its `typesugar.macros` value: `"."` or `"./…"` (see `projectEntry`), else a bare specifier. */
+  field: string;
+  /** Its package.json has an `exports` map, so a `${name}/…` self-reference resolves inside it. */
+  hasExports: boolean;
+  /** `target`: the self-reference (`${name}/macros`); `req`: from its package.json. */
+  info: ManifestFieldInfo;
+}
+
+/** A project macro package and whether every importing file is inside it. */
+interface ProjectImport {
+  rel: ProjectMacroPackage;
+  /** Every importing file is inside the package (its own build/examples/tests). */
+  insideOnly: boolean;
+}
+
+/** Nearest-package.json lookups, per directory (null: none, or not a macro package). */
+const projectPackageCache = new Map<string, ProjectMacroPackage | null>();
+
+function realPath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/** The directory a relative specifier lands in ("../src/index.js" for a .ts file: its directory). */
+function relativeTargetDir(fromDir: string, specifier: string): string {
+  const target = path.resolve(fromDir, specifier);
+  try {
+    return fs.statSync(target).isDirectory() ? target : path.dirname(target);
+  } catch {
+    return path.dirname(target);
+  }
 }
 
 /**
- * As `collectImportedModules`, mapping each package to the directory of the
- * first file that imports it (where its resolution starts from).
+ * For a directory (real path) inside `node_modules`: the package its path
+ * names -- `<base>/node_modules/<name>` or `<base>/node_modules/@scope/<name>`,
+ * at the LAST `node_modules` segment (pnpm's `.pnpm/<id>/node_modules/<name>`
+ * included) -- as the bare import of `<name>` from `<base>` that Node would
+ * resolve to it. Its own package.json's `name` is not consulted: a bare
+ * import is judged by the name it uses.
  */
-function collectImportedModulesWithDirs(program: ts.Program): Map<string, string | undefined> {
-  const modules = new Map<string, string | undefined>();
+function nodeModulesPackageOf(dir: string): BareCandidate | undefined {
+  const segments = dir.split(path.sep);
+  const at = segments.lastIndexOf("node_modules");
+  if (at < 0) return undefined;
+  const first = segments[at + 1];
+  if (!first || first.startsWith(".")) return undefined;
+  const pkg = first.startsWith("@")
+    ? segments[at + 2]
+      ? `${first}/${segments[at + 2]}`
+      : ""
+    : first;
+  if (!pkg) return undefined;
+  return { pkg, importerDir: segments.slice(0, at).join(path.sep) || path.sep };
+}
 
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.fileName.includes("node_modules")) continue;
-    if (sourceFile.isDeclarationFile) continue;
-    const fromDir = importerDir(sourceFile.fileName);
-    const add = (basePkg: string) => {
-      if (basePkg && !modules.has(basePkg)) modules.set(basePkg, fromDir);
+/** The project macro package containing `dir` (a real path outside node_modules), if any. */
+function projectMacroPackageAt(start: string): ProjectMacroPackage | undefined {
+  const visited: string[] = [];
+  let found: ProjectMacroPackage | null = null;
+  for (let dir = start; ; ) {
+    const cached = projectPackageCache.get(dir);
+    if (cached !== undefined) {
+      found = cached;
+      break;
+    }
+    visited.push(dir);
+    const pkgJson = path.join(dir, "package.json");
+    if (fs.existsSync(pkgJson)) {
+      // The nearest package.json decides, macro package or not.
+      found = readProjectMacroPackage(dir, pkgJson);
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  for (const d of visited) projectPackageCache.set(d, found);
+  return found ?? undefined;
+}
+
+function readProjectMacroPackage(dir: string, pkgJson: string): ProjectMacroPackage | null {
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(fs.readFileSync(pkgJson, "utf-8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const name = data.name;
+  const field = (data.typesugar as { macros?: unknown } | undefined)?.macros;
+  if (typeof name !== "string" || typeof field !== "string") return null;
+  const target = resolveManifestTarget(name, field);
+  if (!target) return null;
+  return {
+    pkg: name,
+    dir,
+    field,
+    hasExports: data.exports !== undefined,
+    info: { target, req: createRequire(pkgJson) },
+  };
+}
+
+/**
+ * The file a project macro package's `"."`/`"./…"` manifest value names,
+ * inside the package: through its own `exports` map when it has one (Node's
+ * self-reference), else as a path in its directory. Never by name from the
+ * node_modules above it: without an `exports` map, `${name}/macros` resolved
+ * there, so a vendored fork of an npm package ran the npm copy's macros,
+ * unapproved (review 8). An entry whose real path is outside the package
+ * (a symlink out of it) is refused. Resolved on each load, so a package's
+ * own build sees its macros entry once it is built.
+ */
+function projectEntry(rel: ProjectMacroPackage): { entry: string } | { refused: string } {
+  const candidates = rel.hasExports ? [rel.info.target] : [];
+  candidates.push(path.join(rel.dir, rel.field));
+  let outside: string | undefined;
+  for (const candidate of candidates) {
+    let resolved: string;
+    try {
+      resolved = rel.info.req.resolve(candidate);
+    } catch {
+      continue; // not exported, or not there (yet)
+    }
+    const real = realPath(resolved);
+    if (isInside(real, rel.dir)) return { entry: resolved };
+    outside ??= real;
+  }
+  if (outside !== undefined) {
+    return {
+      refused:
+        `its macros entry '${rel.field}' resolves to ${outside}, outside the package, ` +
+        `so it was not loaded`,
     };
+  }
+  // Not resolvable: loading the path reports why.
+  return { entry: path.join(rel.dir, rel.field) };
+}
 
-    for (const stmt of sourceFile.statements) {
-      if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
-        const mod = stmt.moduleSpecifier.text;
-        if (!mod.startsWith(".") && !mod.startsWith("/")) {
-          const basePkg = getBasePackageName(mod);
-          add(basePkg);
-        }
-      }
+/** Record a project macro package one importing file reaches. */
+function addProjectImport(
+  found: Map<string, ProjectImport>,
+  { rel, inside }: { rel: ProjectMacroPackage; inside: boolean }
+): void {
+  // Keyed by directory: two directories may give one name.
+  const prev = found.get(rel.dir);
+  found.set(rel.dir, { rel, insideOnly: (prev?.insideOnly ?? true) && inside });
+}
 
-      // Also check re-exports: export { foo } from "pkg"
-      if (
-        ts.isExportDeclaration(stmt) &&
-        stmt.moduleSpecifier &&
-        ts.isStringLiteral(stmt.moduleSpecifier)
-      ) {
-        const mod = stmt.moduleSpecifier.text;
-        if (!mod.startsWith(".") && !mod.startsWith("/")) {
-          const basePkg = getBasePackageName(mod);
-          add(basePkg);
-        }
+/**
+ * Load the project macro packages reached by relative imports. A load
+ * failure is a warning, except when every importing file is inside the
+ * package itself: that is the package's own build (its macros entry may not
+ * be built yet), where its bare-name load is silent too.
+ */
+function loadProjectMacroPackages(
+  found: Map<string, ProjectImport>,
+  verbose?: boolean
+): Array<MacroPackageWarning & { dir: string }> {
+  const warnings: Array<MacroPackageWarning & { dir: string }> = [];
+  for (const { rel, insideOnly } of found.values()) {
+    const resolved = projectEntry(rel);
+    if ("refused" in resolved) {
+      warnings.push({
+        pkg: rel.pkg,
+        dir: rel.dir,
+        message:
+          `macro package '${rel.pkg}' (imported by a relative path, from ${rel.dir}): ` +
+          `${resolved.refused}. Its macros will not be expanded.`,
+      });
+      continue;
+    }
+    const error = tryLoadModule(rel.pkg, resolved.entry, verbose, rel.info.req, false);
+    if (error === undefined || insideOnly) continue;
+    warnings.push({
+      pkg: rel.pkg,
+      dir: rel.dir,
+      message:
+        `macro package '${rel.pkg}' (imported by a relative path, from ${rel.dir}) declares ` +
+        `macros at '${rel.field}' but loading it failed: ${error}. Its macros will not ` +
+        `be expanded.`,
+    });
+  }
+  return warnings;
+}
+
+/** Is `file` inside directory `dir`? */
+function isInside(file: string, dir: string): boolean {
+  const rel = path.relative(dir, file);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/**
+ * Every dependency and project macro package the program's scanned files
+ * reach -- the same declarations `loadMacroPackagesFromFile` reads, decided
+ * by the same `candidateOf`.
+ */
+function collectProgramCandidates(program: ts.Program): {
+  dependencies: BareCandidate[];
+  project: Map<string, ProjectImport>;
+} {
+  const dependencies: BareCandidate[] = [];
+  const project = new Map<string, ProjectImport>();
+  const seen = new Set<string>();
+  for (const sourceFile of program.getSourceFiles()) {
+    if (!isScannedFile(sourceFile)) continue;
+    for (const { specifier } of moduleDeclarations(sourceFile)) {
+      const found = candidateOf(sourceFile.fileName, specifier);
+      if (found?.kind === "project") {
+        addProjectImport(project, found);
+      } else if (found?.kind === "dependency") {
+        const key = `${found.candidate.importerDir ?? ""}\0${found.candidate.pkg}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dependencies.push(found.candidate);
       }
     }
   }
+  return { dependencies, project };
+}
 
-  return modules;
+/**
+ * The base package names of every dependency the program's scanned files
+ * import or re-export (bare specifiers, and relative paths into
+ * node_modules).
+ */
+export function collectImportedModules(program: ts.Program): Set<string> {
+  return new Set(collectProgramCandidates(program).dependencies.map((c) => c.pkg));
 }
 
 /**

@@ -60,7 +60,7 @@ function declaredNames(stmt: ts.Statement): string[] {
 export function transformWithDecls(
   code: string,
   fileName: string,
-  options: { declsFile?: string; declNames?: Set<string> } = {}
+  options: { declsFile?: string; declNames?: Set<string>; strictOutput?: boolean } = {}
 ): TransformResult & { consumerCode: string; declsCode: string } {
   const declsFile = options.declsFile ?? DECLS_FILE;
   const names = options.declNames ?? DEFAULT_DECL_NAMES;
@@ -72,7 +72,9 @@ export function transformWithDecls(
     const stmtNames = declaredNames(stmt);
     const text = stmt.getFullText(sf).trim();
     if (stmtNames.length > 0 && stmtNames.every((n) => names.has(n))) {
-      decls.push(`export ${text}`);
+      // A leading JSDoc (`/** @opaque A | null */`) stays in front of `export`.
+      const jsDoc = /^\/\*\*[\s\S]*?\*\/\s*/.exec(text)?.[0] ?? "";
+      decls.push(`${jsDoc}export ${text.slice(jsDoc.length)}`);
       moved.push(...stmtNames);
     } else {
       rest.push(text);
@@ -92,6 +94,7 @@ export function transformWithDecls(
     readFile: (f) => (f === declsFile ? declsCode : ts.sys.readFile(f)),
     fileExists: (f) => f === declsFile || ts.sys.fileExists(f),
     transformerConfig: { cacheDir: false },
+    strictOutput: options.strictOutput,
   });
   return Object.assign(result, { consumerCode, declsCode });
 }

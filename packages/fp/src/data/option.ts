@@ -143,6 +143,34 @@ export function Some<A>(value: A): Option<A> {
  */
 export const None: Option<never> = null as any;
 
+// ============================================================================
+// Pattern matching: Destructure instances (std's match(), match: switch)
+// ============================================================================
+//
+// `match(o).case(Some(v))` resolves these by the constructor's symbol. The
+// `@destructure` descriptor is what the macro inlines (zero cost: a null
+// test and a direct binding); `extract` is the same logic as a function.
+
+/**
+ * `Some(v)` in a pattern: matches a non-null Option and binds its value.
+ *
+ * @impl Destructure<typeof Some, Option<unknown>, unknown>
+ * @destructure not-null -> self
+ */
+export const destructureSome = {
+  extract: <A>(o: Option<A>): A | undefined => (o != null ? (o as unknown as A) : undefined),
+};
+
+/**
+ * `None` in a pattern: matches the empty Option (`null`).
+ *
+ * @impl Destructure<typeof None, Option<unknown>, []>
+ * @destructure null
+ */
+export const destructureNone = {
+  extract: <A>(o: Option<A>): [] | undefined => (o == null ? [] : undefined),
+};
+
 /**
  * Create an Option from a nullable value
  * Identity function - Option<A> is already A | null

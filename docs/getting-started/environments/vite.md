@@ -5,7 +5,7 @@ This guide covers setting up typesugar with Vite projects, including frameworks 
 ## Installation
 
 ```bash
-npm install --save-dev unplugin-typesugar @typesugar/transformer ts-patch
+npm install --save-dev unplugin-typesugar @typesugar/transformer
 npm install typesugar @typesugar/std   # the macros and runtime you import
 ```
 

@@ -15,10 +15,16 @@ import {
   type PositionMapFn,
 } from "@typesugar/core";
 import {
+  createDerivedCompanionAccessRule,
+  createDerivedDeclarationReferenceRule,
   createExtensionMethodCallRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
+  createMatchSwitchRule,
+  createContractBlockRule,
+  createComprehensionBlockRule,
   createOperatorOverloadRule,
+  createRewrittenOperatorResultRule,
   createTypeRewriteAssignmentRule,
 } from "./diagnostic-suppression-rules.js";
 
@@ -58,14 +64,32 @@ export function registerAllDiagnosticSuppressionRules(
   if (registerDiagnosticSuppressionRuleOnce(createMacroCallChainRule())) {
     registered.push("MacroCallChain");
   }
+  if (registerDiagnosticSuppressionRuleOnce(createMatchSwitchRule())) {
+    registered.push("MatchSwitch");
+  }
+  if (registerDiagnosticSuppressionRuleOnce(createContractBlockRule())) {
+    registered.push("ContractBlock");
+  }
+  if (registerDiagnosticSuppressionRuleOnce(createComprehensionBlockRule())) {
+    registered.push("ComprehensionBlock");
+  }
   if (registerDiagnosticSuppressionRuleOnce(createMacroDecoratorRule())) {
     registered.push("MacroDecorator");
   }
   if (registerDiagnosticSuppressionRuleOnce(createOperatorOverloadRule())) {
     registered.push("OperatorOverload");
   }
+  if (registerDiagnosticSuppressionRuleOnce(createRewrittenOperatorResultRule())) {
+    registered.push("RewrittenOperatorResult");
+  }
   if (registerDiagnosticSuppressionRuleOnce(createTypeRewriteAssignmentRule())) {
     registered.push("TypeRewriteAssignment");
+  }
+  if (registerDiagnosticSuppressionRuleOnce(createDerivedCompanionAccessRule())) {
+    registered.push("DerivedCompanionAccess");
+  }
+  if (registerDiagnosticSuppressionRuleOnce(createDerivedDeclarationReferenceRule())) {
+    registered.push("DerivedDeclarationReference");
   }
 
   return registered;
@@ -79,7 +103,13 @@ export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "MacroGenerated",
   "ExtensionMethodCall",
   "MacroCallChain",
+  "MatchSwitch",
+  "ContractBlock",
+  "ComprehensionBlock",
   "MacroDecorator",
   "OperatorOverload",
+  "RewrittenOperatorResult",
   "TypeRewriteAssignment",
+  "DerivedCompanionAccess",
+  "DerivedDeclarationReference",
 ] as const;

@@ -26,7 +26,14 @@ function fromAst(src: string, withParseError = false): Grammar<unknown> {
       expr,
       ts.createSourceFile("o.ts", "", ts.ScriptTarget.Latest)
     );
-  return new Function("ParseError", `return ${text}`)(ParseError);
+  // TypeScript (the macro's output is type-checked where it is expanded):
+  // transpiled before it is run.
+  const js = ts.transpileModule(`module.exports = ${text};`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const mod = { exports: {} as Grammar<unknown> };
+  new Function("module", "exports", "ParseError", js)(mod, mod.exports, ParseError);
+  return mod.exports;
 }
 
 function fromText(src: string): Grammar<unknown> {

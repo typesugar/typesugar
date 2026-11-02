@@ -264,7 +264,10 @@ describe("Wave 5: switch optimization", () => {
     const output = printExpr(result);
 
     expect(output).not.toContain("switch");
-    expect(output).toContain("if (");
+    // Plain literal arms ending in .else() are a conditional chain (F18), not an IIFE.
+    expect(output).toBe(
+      'x === 1 ? "r1" : x === 2 ? "r2" : x === 3 ? "r3" : x === 4 ? "r4" : x === 5 ? "r5" : x === 6 ? "r6" : "default"'
+    );
   });
 
   it("should NOT use switch when arms have guards", () => {
@@ -677,7 +680,7 @@ describe("Wave 5: fully-covered arm optimization", () => {
 
     expect(output).toContain('=== "ok"');
     expect(output).not.toContain('=== "fail"');
-    expect(output).toContain("return 2");
+    expect(output).toBe('x === "ok" ? 1 : 2');
   });
 
   it("should omit runtime check for last arm of 3-member union", () => {
@@ -699,7 +702,7 @@ describe("Wave 5: fully-covered arm optimization", () => {
     expect(output).toContain('=== "a"');
     expect(output).toContain('=== "b"');
     expect(output).not.toContain('=== "c"');
-    expect(output).toContain("return 3");
+    expect(output).toBe('x === "a" ? 1 : x === "b" ? 2 : 3');
   });
 
   it("should NOT optimize when arm has a guard", () => {

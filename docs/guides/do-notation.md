@@ -215,6 +215,29 @@ A comprehension's value can be used in these positions. Every form works in ever
 
 In a `const` or `export default`, the output is the chain itself (`const r = p.then(…)`), with no temporary variable.
 
+The arrow-body, `return` and `export default` positions are rewritten as text before TypeScript parses the file. The bundler plugins (unplugin-typesugar) and `typesugar build`, `check`, `watch` and `expand` all do this. ts-patch's `tsc` can't: it hands typesugar a program that is already parsed, where `(id) => let: { … }` is a syntax error. With ts-patch, build code that uses these positions with `typesugar build` or a bundler plugin instead.
+
+### Type Checking
+
+`typesugar check` and `typesugar build` type-check the code as you wrote it, where a comprehension is not valid TypeScript. They hide exactly the errors its own syntax causes, in any position: the `let:`/`yield:` labels (`let` and `yield` are reserved words in strict code), each bind's `<<`, and a bound name where the expansion declares it (at its step, in later steps, in `yield:`). The editor shows none of these either: the language-service plugin checks the expanded code.
+
+Everything else in a step is still reported, at the line you wrote: an unknown name, a wrong argument (`fetchAge(42)` for a `string` parameter), a bound name used before the step that binds it, by another binding in the same `par:` group, or outside the comprehension.
+
+Before expansion a bound name has no type, so the code as written can't type-check an expression that uses one. `check` and `build` therefore also type-check the expansion of each comprehension, and report what it finds at the line you wrote:
+
+```typescript
+const describe = (id: number) =>
+  let: {
+    user << fetchUser(id);
+    age << fetchAge(user.nme); // error: Property 'nme' does not exist … Did you mean 'name'?
+  }
+  yield: `${user.name} is ${age}`;
+```
+
+The editor reports it too. The expansion is checked only where the code as written has bound names (the comprehensions, fluent `match()` chains, `match:` switches and `ensures:` blocks of the file, and `@impl` instances), and only what lies inside them is reported. An error in code the macro generated is reported at the nearest code of yours around it; one in a statement the macro generated whole, with no line of yours to point at, is left out. `typesugar check --strict` checks the whole expansion and reports those too, in the expanded code.
+
+A bound name that is also the name of an outer declaration (a DOM global such as `name` or `top`, or a variable of yours) is checked as that declaration before expansion. The errors that come from its type there are hidden too, on the name itself or a member/call chain that starts at it (`name.trim()`).
+
 ### Object Literals in Yield
 
 Both of these yield an object literal:

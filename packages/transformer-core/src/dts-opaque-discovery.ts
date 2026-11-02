@@ -400,7 +400,11 @@ function extractOpaqueTagFromNode(node: ts.Node, fullText: string): string | und
   for (const range of commentRanges) {
     if (range.kind !== ts.SyntaxKind.MultiLineCommentTrivia) continue;
     const comment = fullText.slice(range.pos, range.end);
-    const match = /@opaque\s+(.+?)(?:\s*\*\/|\s*\n\s*\*\s*@|\s*$)/m.exec(comment);
+    // Only a tag that starts a comment line: "an @opaque type" in prose is not one.
+    const match =
+      /^[ \t]*(?:\/\*\*)?[ \t]*\*?[ \t]*@opaque\s+(.+?)(?:\s*\*\/|\s*\n\s*\*\s*@|\s*$)/m.exec(
+        comment
+      );
     if (match) {
       return match[1].trim().replace(/\s*\*\s*$/, "");
     }

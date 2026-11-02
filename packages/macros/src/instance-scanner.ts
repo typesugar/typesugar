@@ -4,6 +4,11 @@
  * Scans a module's exports for typeclass instances by detecting:
  * 1. `@impl("TC<Type>")` JSDoc tags (primary)
  * 2. Explicit type annotations matching `TC<Type>` (secondary fallback)
+ * 3. Call-form initializers: `impl("TC<Type>", {...})`, and
+ *    `derived<TC<Type>>()` (a derived instance, declared once)
+ * 4. `@derive(TC)` companions (`Type.TC`) of an exported type: from the
+ *    type's `@derive` annotation, or, in a `.d.ts`, from the `@impl` tag the
+ *    derive puts on each companion member
  *
  * This enables @derive and summon to resolve instances by searching imports
  * rather than relying on a central registry — any package can provide
@@ -13,7 +18,14 @@
  */
 
 import * as ts from "typescript";
-import { parseTypeInstantiation, getOrCreateWeak } from "@typesugar/core";
+import {
+  parseTypeInstantiation,
+  getOrCreateWeak,
+  globalRegistry,
+  isJSDocTagAtLineStart,
+  deriveTagNames,
+} from "@typesugar/core";
+import { hasGenericDerivation } from "./auto-derive.js";
 
 /**
  * Result of scanning a module export for typeclass instance information.
@@ -30,9 +42,18 @@ export interface ScannedInstance {
   /** Resolved file path of the source module */
   sourceModule: string;
   /** How this instance was detected */
-  detectedVia: "impl-tag" | "type-annotation" | "derived";
+  detectedVia: "impl-tag" | "type-annotation" | "derived" | "derived-call";
   /** Do-notation emission metadata from a `@do-methods` JSDoc tag, if present */
   doMeta?: DoNotationMeta;
+  /**
+   * The declaration this instance comes from, after following re-exports:
+   * the variable declaration of a value, or the type's declaration for a
+   * `@derive` companion. Two scan hits with the same origin (and typeclass)
+   * are one instance reached through two bindings (`import { Vec }` and
+   * `import { Vec as V2 }` from two re-exporting modules), compared by node
+   * identity, not by the names they were reached by.
+   */
+  origin?: ts.Node;
 }
 
 /**
@@ -161,7 +182,45 @@ export function parseDoMethodsTag(node: ts.Node): DoNotationMeta | undefined {
  * A program-less fallback partition exists for unit tests that build their own
  * one-off programs; `clearCache()` clears only that fallback.
  */
+/**
+ * Told when the checker throws on a node during a scan and the scan skips
+ * or degrades what it was reading (`what`, e.g. "the exports of a module").
+ * The resolver turns it into a warning (CLAUDE.md: a caught checker failure
+ * that degrades must leave a visible trace). The node may be in another file.
+ */
+export type ScannerCheckerFailure = (node: ts.Node, error: unknown, what: string) => void;
+
 export class InstanceScanner {
+  /** The current scan's failure callback (set for the duration of a public scan). */
+  private failureSink: ScannerCheckerFailure | undefined;
+  /** Reported (node, what) pairs: each failure is reported once. */
+  private reportedFailures = new WeakMap<ts.Node, Set<string>>();
+
+  private checkerFailed = (node: ts.Node, error: unknown, what: string): void => {
+    const seen = getOrCreateWeak(this.reportedFailures, node, () => new Set<string>());
+    if (seen.has(what)) return;
+    seen.add(what);
+    if (this.failureSink) {
+      this.failureSink(node, error, what);
+    } else {
+      // No caller to report to: still visible (never swallowed).
+      console.warn(
+        `[typesugar] instance scan skipped ${what} in ${node.getSourceFile?.()?.fileName ?? "?"}: ` +
+          `the type checker failed (${error}).`
+      );
+    }
+  };
+
+  private withFailureSink<T>(sink: ScannerCheckerFailure | undefined, run: () => T): T {
+    const prev = this.failureSink;
+    if (sink) this.failureSink = sink;
+    try {
+      return run();
+    } finally {
+      this.failureSink = prev;
+    }
+  }
+
   private cacheByProgram = new WeakMap<ts.Program, Map<string, ScannedInstance[]>>();
   private fallbackCache = new Map<string, ScannedInstance[]>();
 
@@ -228,6 +287,18 @@ export class InstanceScanner {
     typeChecker: ts.TypeChecker,
     moduleSymbol: ts.Symbol,
     resolvedPath: string,
+    program?: ts.Program,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanModuleImpl(typeChecker, moduleSymbol, resolvedPath, program)
+    );
+  }
+
+  private scanModuleImpl(
+    typeChecker: ts.TypeChecker,
+    moduleSymbol: ts.Symbol,
+    resolvedPath: string,
     program?: ts.Program
   ): ScannedInstance[] {
     const cache = this.cacheFor(program);
@@ -239,7 +310,10 @@ export class InstanceScanner {
     let exports: ts.Symbol[];
     try {
       exports = typeChecker.getExportsOfModule(moduleSymbol);
-    } catch {
+    } catch (error) {
+      const decl = moduleSymbol?.declarations?.[0];
+      if (decl) this.checkerFailed(decl, error, "the exports of this module");
+      else console.warn(`[typesugar] instance scan skipped ${resolvedPath}: ${error}`);
       cache.set(resolvedPath, []);
       return [];
     }
@@ -254,11 +328,89 @@ export class InstanceScanner {
   }
 
   /**
+   * The instances a module exports inside namespace re-exports
+   * (`export * as TC from "./typeclasses"`, which may itself re-export
+   * `export * as ShowOps from "./show"` → `TC.ShowOps.showNumber`), each
+   * reachable by that path from an import of the module. Nested up to three
+   * namespaces deep; a module reached twice is scanned once. Kept apart from
+   * {@link scanModule} (which every import scan uses): a package's namespaces
+   * can hold another typeclass family's same-named instances, so this is only
+   * for the typeclass's home package (`resolveFromTypeclassHome`). Namespaces
+   * are followed by symbol (each alias's target module), not by name. A
+   * checker failure propagates: the caller, which has a MacroContext, reports
+   * it (CLAUDE.md caught-failure rule).
+   */
+  scanNamespaceReexports(
+    typeChecker: ts.TypeChecker,
+    moduleSymbol: ts.Symbol,
+    resolvedPath: string,
+    program?: ts.Program,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanNamespaceReexportsImpl(typeChecker, moduleSymbol, resolvedPath, program)
+    );
+  }
+
+  private scanNamespaceReexportsImpl(
+    typeChecker: ts.TypeChecker,
+    moduleSymbol: ts.Symbol,
+    resolvedPath: string,
+    program?: ts.Program
+  ): ScannedInstance[] {
+    const cache = this.cacheFor(program);
+    const cacheKey = resolvedPath + "::namespaces";
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+    const results: ScannedInstance[] = [];
+    const visited = new Set<ts.Symbol>([moduleSymbol]);
+    const walk = (mod: ts.Symbol, prefix: string, depth: number): void => {
+      for (const sym of typeChecker.getExportsOfModule(mod)) {
+        if (!(sym.flags & ts.SymbolFlags.Alias)) continue;
+        const target = typeChecker.getAliasedSymbol(sym);
+        // `export * as Ns from "..."`: the alias's target is a module (its
+        // declaration is the source file), not a value or a type.
+        if (!(target.flags & ts.SymbolFlags.ValueModule)) continue;
+        if (!target.declarations?.some(ts.isSourceFile) || visited.has(target)) continue;
+        visited.add(target);
+        const path = `${prefix}${sym.getName()}.`;
+        for (const member of typeChecker.getExportsOfModule(target)) {
+          results.push(
+            ...this.scanExport(typeChecker, member, resolvedPath, `${path}${member.getName()}`)
+          );
+        }
+        if (depth < 3) walk(target, path, depth + 1);
+      }
+    };
+    walk(moduleSymbol, "", 1);
+    cache.set(cacheKey, results);
+    return results;
+  }
+
+  /**
    * Clear the program-less fallback cache (used by unit tests). Per-program caches
    * are invalidated automatically when their program is collected.
    */
   clearCache(): void {
     this.fallbackCache.clear();
+  }
+
+  /**
+   * The typeclass instances one value declaration declares (an `@impl` tag, a
+   * `TC<T>` annotation, `impl("TC<T>", ...)` or `derived<TC<T>>()`), read the
+   * same way a module scan reads it. Empty when the declaration is not an
+   * instance. Used by extension-method resolution to recognise an imported
+   * value as an instance and learn the type it is for.
+   */
+  scanValueDeclaration(
+    typeChecker: ts.TypeChecker,
+    decl: ts.Node,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    const name = ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) ? decl.name.text : "";
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanDeclaration(typeChecker, decl, name, decl.getSourceFile().fileName)
+    );
   }
 
   /**
@@ -268,18 +420,21 @@ export class InstanceScanner {
   private scanExport(
     typeChecker: ts.TypeChecker,
     sym: ts.Symbol,
-    resolvedPath: string
+    resolvedPath: string,
+    exportName: string = sym.getName()
   ): ScannedInstance[] {
     const results: ScannedInstance[] = [];
-    const exportName = sym.getName();
 
     // Follow aliased symbols (re-exports) to their original declarations
     let resolvedSym = sym;
     if (resolvedSym.flags & ts.SymbolFlags.Alias) {
       try {
         resolvedSym = typeChecker.getAliasedSymbol(resolvedSym);
-      } catch {
+      } catch (error) {
         // Can't resolve alias — use original symbol
+        const decl = sym.declarations?.[0];
+        if (decl)
+          this.checkerFailed(decl, error, `the re-export '${exportName}' (read as declared)`);
       }
     }
 
@@ -287,9 +442,76 @@ export class InstanceScanner {
     if (!declarations || declarations.length === 0) return results;
 
     for (const decl of declarations) {
-      results.push(...this.scanDeclaration(typeChecker, decl, exportName, resolvedPath));
+      if (ts.isModuleDeclaration(decl)) {
+        results.push(...this.scanNamespaceMembers(typeChecker, decl, exportName, resolvedPath));
+      } else if (
+        ts.isInterfaceDeclaration(decl) ||
+        ts.isClassDeclaration(decl) ||
+        ts.isTypeAliasDeclaration(decl)
+      ) {
+        results.push(
+          ...deriveCompanionInstances(
+            typeChecker,
+            resolvedSym,
+            decl,
+            exportName,
+            resolvedPath,
+            this.checkerFailed
+          )
+        );
+      } else {
+        results.push(...this.scanDeclaration(typeChecker, decl, exportName, resolvedPath));
+      }
     }
 
+    // A derive companion is found twice in a `.d.ts`: from the type's
+    // `@derive` tag and from the companion member's own `@impl` tag.
+    const seen = new Set<string>();
+    return results.filter((r) => {
+      const key = `${r.typeclassName}\0${r.exportName}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
+   * Instances declared as members of an exported namespace, reachable as
+   * `Ns.member`: chiefly the companions `@derive` generates (`namespace Point
+   * { export const Eq = ... }`), which carry an `@impl Eq<Point>` tag so that
+   * a library's `.d.ts` says what they are. Only members a consumer can
+   * reach: exported ones, or every member of an ambient (`declare`)
+   * namespace, as in a `.d.ts`.
+   */
+  private scanNamespaceMembers(
+    typeChecker: ts.TypeChecker,
+    decl: ts.ModuleDeclaration,
+    exportName: string,
+    resolvedPath: string
+  ): ScannedInstance[] {
+    const body = decl.body;
+    if (!body || !ts.isModuleBlock(body)) return [];
+    const ambient =
+      decl.getSourceFile().isDeclarationFile ||
+      (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Ambient) !== 0;
+    const results: ScannedInstance[] = [];
+    for (const stmt of body.statements) {
+      if (!ts.isVariableStatement(stmt)) continue;
+      const exported =
+        ambient || (stmt.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false);
+      if (!exported) continue;
+      for (const member of stmt.declarationList.declarations) {
+        if (!ts.isIdentifier(member.name)) continue;
+        results.push(
+          ...this.scanDeclaration(
+            typeChecker,
+            member,
+            `${exportName}.${member.name.text}`,
+            resolvedPath
+          )
+        );
+      }
+    }
     return results;
   }
 
@@ -306,6 +528,13 @@ export class InstanceScanner {
     resolvedPath: string
   ): ScannedInstance[] {
     const results: ScannedInstance[] = [];
+
+    // An instance is a value: a variable. A function or class that happens to
+    // carry an `@impl` tag is not one — typesugar's own `impl()` declaration
+    // has a fenced `/** @impl Eq<Point> */` example in its JSDoc, which
+    // `ts.getJSDocTags` reports as a tag, and the name-based fallback in
+    // implicit() used to emit a reference to `impl` as an `Eq<Point>`.
+    if (!ts.isVariableDeclaration(decl) && !ts.isVariableStatement(decl)) return results;
 
     // JSDoc attaches to the VariableStatement, not the VariableDeclaration.
     // Walk up if needed.
@@ -345,6 +574,7 @@ export class InstanceScanner {
       ) {
         implResult.forType = typeResult.forType;
       }
+      implResult.origin = varDecl ?? decl;
       results.push(implResult);
       return results; // @impl tag takes precedence
     }
@@ -352,6 +582,11 @@ export class InstanceScanner {
     // Strategy 2: Type annotation on variable declaration
     if (typeResult) {
       if (doMeta) typeResult.doMeta = doMeta;
+      // `const x: TC<T> = derived()`: the annotation says what the instance
+      // is, and the initializer that it is derived (so a resolver can drop it
+      // when its derivation fails, as for `derived<TC<T>>()`).
+      if (varDecl && derivedCallOf(varDecl)) typeResult.detectedVia = "derived-call";
+      typeResult.origin = varDecl;
       results.push(typeResult);
       return results;
     }
@@ -376,18 +611,82 @@ export class InstanceScanner {
           const callResult: ScannedInstance = {
             typeclassName: parsed.base,
             forTypeString: parsed.args,
-            forType: resolveTypeString(typeChecker, parsed.args, stmtNode),
+            forType: resolveTypeString(typeChecker, parsed.args, stmtNode, this.checkerFailed),
             exportName,
             sourceModule: resolvedPath,
             detectedVia: "impl-tag",
           };
           if (doMeta) callResult.doMeta = doMeta;
+          callResult.origin = varDecl;
           results.push(callResult);
         }
       }
     }
 
+    // Strategy 4: `const x = derived<TC<T>>()` declares a derived instance;
+    // the initializer says what it is, so no @impl tag is needed. In emitted
+    // `.d.ts` it is `x: TC<T>`, which Strategy 2 finds. Shape (CLAUDE.md
+    // "Resolving things a macro just generated"): this reads the source as
+    // written, and that is enough here — the declaration and its
+    // `derived<...>()` initializer are in the source before the pass starts;
+    // only the initializer's expansion is generated mid-pass, and nothing
+    // here depends on it.
+    if (results.length === 0 && varDecl) {
+      const derivedResult = this.extractFromDerivedCall(
+        typeChecker,
+        varDecl,
+        exportName,
+        resolvedPath
+      );
+      if (derivedResult) results.push(derivedResult);
+    }
+
     return results;
+  }
+
+  /**
+   * `const x = derived<TC<T>>()`, where `derived` is imported from typesugar
+   * (`typesugar` or an `@typesugar/*` package, possibly renamed).
+   */
+  private extractFromDerivedCall(
+    typeChecker: ts.TypeChecker,
+    decl: ts.VariableDeclaration,
+    exportName: string,
+    resolvedPath: string
+  ): ScannedInstance | null {
+    const init = derivedCallOf(decl);
+    if (!init) return null;
+    const typeArg = init.typeArguments?.length === 1 ? init.typeArguments[0] : undefined;
+    if (
+      !typeArg ||
+      !ts.isTypeReferenceNode(typeArg) ||
+      !ts.isIdentifier(typeArg.typeName) ||
+      typeArg.typeArguments?.length !== 1
+    ) {
+      return null;
+    }
+    let forType: ts.Type | undefined;
+    let forTypeString: string;
+    try {
+      forType = typeChecker.getTypeFromTypeNode(typeArg.typeArguments[0]);
+      forTypeString = typeChecker.typeToString(forType);
+    } catch (error) {
+      forTypeString = typeArg.typeArguments[0].getText();
+      this.checkerFailed(
+        typeArg.typeArguments[0],
+        error,
+        `the type of the derived instance '${exportName}' (matched by name only)`
+      );
+    }
+    return {
+      typeclassName: typeArg.typeName.text,
+      forTypeString,
+      forType,
+      exportName,
+      sourceModule: resolvedPath,
+      detectedVia: "derived-call",
+      origin: decl,
+    };
   }
 
   /**
@@ -401,6 +700,17 @@ export class InstanceScanner {
    * with the exports-only {@link scanModule} scan of the same path.
    */
   scanLocalFile(
+    typeChecker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    program?: ts.Program,
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanLocalFileImpl(typeChecker, sourceFile, program)
+    );
+  }
+
+  private scanLocalFileImpl(
     typeChecker: ts.TypeChecker,
     sourceFile: ts.SourceFile,
     program?: ts.Program
@@ -431,6 +741,78 @@ export class InstanceScanner {
   }
 
   /**
+   * The `@derive` companions of this file's own top-level type declarations
+   * (`/** @derive(Eq) *\/ interface P` → `P.Eq`), exported or not, read from
+   * the annotations as {@link scanModule} reads another file's
+   * ({@link deriveCompanionInstances}).
+   *
+   * Registry shape (CLAUDE.md "Resolving things a macro just generated"):
+   * this reads the pass-start source, which is enough here because the
+   * `@derive` annotation is there before the pass starts and the companion's
+   * name and type follow from it; a use ABOVE the declaration is visited
+   * before the derive expands, so the live `getSynthesized` table can't
+   * have it yet. Whether the companion is assigned when the use runs is the
+   * caller's question (see `resolveInstance`'s `useSite`).
+   */
+  scanLocalDeriveCompanions(
+    typeChecker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    program?: ts.Program,
+    /**
+     * Told when the checker fails on a declaration, which is then skipped:
+     * the caller makes it visible (CLAUDE.md: a degraded checker failure
+     * must leave a trace). Once per declaration, as the result is cached.
+     */
+    onCheckerFailure?: ScannerCheckerFailure
+  ): ScannedInstance[] {
+    return this.withFailureSink(onCheckerFailure, () =>
+      this.scanLocalDeriveCompanionsImpl(typeChecker, sourceFile, program)
+    );
+  }
+
+  private scanLocalDeriveCompanionsImpl(
+    typeChecker: ts.TypeChecker,
+    sourceFile: ts.SourceFile,
+    program?: ts.Program
+  ): ScannedInstance[] {
+    const cache = this.cacheFor(program);
+    const cacheKey = sourceFile.fileName + "::local-derive";
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+    const results: ScannedInstance[] = [];
+    for (const stmt of sourceFile.statements) {
+      if (
+        !ts.isInterfaceDeclaration(stmt) &&
+        !ts.isClassDeclaration(stmt) &&
+        !ts.isTypeAliasDeclaration(stmt)
+      ) {
+        continue;
+      }
+      if (!stmt.name) continue;
+      let sym: ts.Symbol | undefined;
+      try {
+        sym = typeChecker.getSymbolAtLocation(stmt.name);
+      } catch (error) {
+        this.checkerFailed(stmt.name, error, `'${stmt.name.text}'s @derive companions`);
+        sym = undefined;
+      }
+      if (!sym) continue;
+      results.push(
+        ...deriveCompanionInstances(
+          typeChecker,
+          sym,
+          stmt,
+          stmt.name.text,
+          sourceFile.fileName,
+          this.checkerFailed
+        )
+      );
+    }
+    cache.set(cacheKey, results);
+    return results;
+  }
+
+  /**
    * Extract instance info from an @impl or @instance JSDoc tag.
    */
   private extractFromImplTag(
@@ -443,6 +825,8 @@ export class InstanceScanner {
     for (const tag of tags) {
       const tagName = tag.tagName.text;
       if (tagName !== "impl" && tagName !== "instance") continue;
+      // A tag in prose or a fenced example is not this declaration's tag.
+      if (!isJSDocTagAtLineStart(tag)) continue;
 
       const comment =
         typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
@@ -456,7 +840,7 @@ export class InstanceScanner {
       return {
         typeclassName: parsed.base,
         forTypeString: parsed.args,
-        forType: resolveTypeString(typeChecker, parsed.args, node),
+        forType: resolveTypeString(typeChecker, parsed.args, node, this.checkerFailed),
         exportName,
         sourceModule: resolvedPath,
         detectedVia: "impl-tag",
@@ -494,8 +878,13 @@ export class InstanceScanner {
     try {
       resolvedType = typeChecker.getTypeFromTypeNode(typeArgs[0]);
       forTypeStr = typeChecker.typeToString(resolvedType);
-    } catch {
+    } catch (error) {
       forTypeStr = typeArgs[0].getText();
+      this.checkerFailed(
+        typeArgs[0],
+        error,
+        `the type of the instance '${exportName}' (matched by name only)`
+      );
     }
 
     return {
@@ -507,6 +896,132 @@ export class InstanceScanner {
       detectedVia: "type-annotation",
     };
   }
+}
+
+/**
+ * The companions `@derive` gives an exported type, as instances:
+ * `/** @derive(Eq) *\/ export interface Point` has `Point.Eq`, an `Eq<Point>`.
+ *
+ * - In a `.d.ts` (a published library), the companion is a member of the
+ *   type's merged namespace. Only a member that is really there counts: the
+ *   tag says which typeclasses, the declaration file says what exists (a
+ *   derive that failed, or one that emits something other than a companion,
+ *   has no member). The member's own `@impl` tag finds it too (the decorator
+ *   form leaves no `@derive` in a `.d.ts`); {@link InstanceScanner.scanExport}
+ *   drops the duplicate.
+ * - In source, the companion does not exist yet: it is generated when the
+ *   declaring file is transformed, which may be before or after the file
+ *   asking. Registry shape (CLAUDE.md "Resolving things a macro just
+ *   generated"): this reads the source as written, which is enough, because
+ *   the `@derive` annotation is in the source before any pass starts and the
+ *   companion's name and type follow from it (`Type.TC`, for the type
+ *   itself). Only derives that generate a companion count: a typeclass with
+ *   a GenericDerivation and no derive macro of the same name (the order
+ *   expandDeriveDecorator tries them in).
+ *
+ * The instance's type is the declared type of the type's own symbol (by
+ * identity, CLAUDE.md "Deciding what a type is"), never a type looked up by
+ * the tag's text.
+ */
+function deriveCompanionInstances(
+  typeChecker: ts.TypeChecker,
+  typeSymbol: ts.Symbol,
+  decl: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
+  exportName: string,
+  resolvedPath: string,
+  onFailure: ScannerCheckerFailure
+): ScannedInstance[] {
+  const names = deriveNamesOf(decl);
+  if (names.length === 0) return [];
+  const inDeclarationFile = decl.getSourceFile().isDeclarationFile;
+  let forType: ts.Type | undefined;
+  try {
+    forType = typeChecker.getDeclaredTypeOfSymbol(typeSymbol);
+  } catch (error) {
+    onFailure(decl.name ?? decl, error, `'${exportName}'s @derive companions`);
+    return [];
+  }
+  const results: ScannedInstance[] = [];
+  for (const tc of new Set(names)) {
+    if (inDeclarationFile) {
+      const member = typeSymbol.exports?.get(ts.escapeLeadingUnderscores(tc));
+      if (!member || !(member.flags & ts.SymbolFlags.Value)) continue;
+    } else if (!hasGenericDerivation(tc) || globalRegistry.getDerive(tc)) {
+      continue;
+    }
+    results.push({
+      typeclassName: tc,
+      forTypeString: decl.name?.text ?? exportName,
+      forType,
+      exportName: `${exportName}.${tc}`,
+      sourceModule: resolvedPath,
+      detectedVia: "derived",
+      origin: decl,
+    });
+  }
+  return results;
+}
+
+/**
+ * The typeclass names a type declaration derives, from either form:
+ * `@derive(Eq, Clone)` as a decorator, or a `/** @derive(Eq, Clone) *\/` /
+ * `@derive Eq, Clone` / `@deriving ...` JSDoc tag. Tags in prose or fenced
+ * examples don't count. Reading the names is syntax (which typeclasses the
+ * annotation names), not a decision about what a type is.
+ */
+export function deriveNamesOf(decl: ts.Node): string[] {
+  const names: string[] = [];
+  if (ts.canHaveDecorators(decl)) {
+    for (const dec of ts.getDecorators(decl) ?? []) {
+      const e = dec.expression;
+      if (
+        ts.isCallExpression(e) &&
+        ts.isIdentifier(e.expression) &&
+        (e.expression.text === "derive" || e.expression.text === "deriving")
+      ) {
+        for (const arg of e.arguments) if (ts.isIdentifier(arg)) names.push(arg.text);
+      }
+    }
+  }
+  for (const tag of ts.getJSDocTags(decl)) {
+    const tagName = tag.tagName.text;
+    if (tagName !== "derive" && tagName !== "deriving") continue;
+    if (!isJSDocTagAtLineStart(tag)) continue;
+    // The shared parser: the leading list only, never prose after it.
+    for (const name of deriveTagNames(tag)) {
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * The `derived<...>()` call initializing the const `decl`
+ * (`const x = derived<TC<T>>()` or `const x: TC<T> = derived()`), where
+ * `derived` is imported from typesugar; undefined otherwise.
+ */
+export function derivedCallOf(decl: ts.VariableDeclaration): ts.CallExpression | undefined {
+  let init = decl.initializer;
+  while (init && ts.isParenthesizedExpression(init)) init = init.expression;
+  if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return undefined;
+  if (!(decl.parent.flags & ts.NodeFlags.Const)) return undefined;
+  if (!importsDerivedAs(decl.getSourceFile(), init.expression.text)) return undefined;
+  return init;
+}
+
+/** Does `sf` import typesugar's `derived` under the local name `local`? */
+function importsDerivedAs(sf: ts.SourceFile, local: string): boolean {
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const spec = stmt.moduleSpecifier.text;
+    if (spec !== "typesugar" && !spec.startsWith("@typesugar/")) continue;
+    const nb = stmt.importClause?.namedBindings;
+    if (!nb || !ts.isNamedImports(nb) || stmt.importClause!.isTypeOnly) continue;
+    for (const el of nb.elements) {
+      if (el.name.text === local && (el.propertyName ?? el.name).text === "derived") return true;
+    }
+  }
+  return false;
 }
 
 // ============================================================================
@@ -554,12 +1069,22 @@ const KEYWORD_TYPES: Record<string, { kind: ts.SyntaxKind; getter: string }> = {
 function resolveTypeString(
   typeChecker: ts.TypeChecker,
   typeString: string,
-  location?: ts.Node
+  location?: ts.Node,
+  onFailure?: ScannerCheckerFailure
 ): ts.Type | undefined {
   const trimmed = typeString.trim();
   if (!KEYWORD_TYPES[trimmed] && location && /^[A-Za-z_$][\w$]*$/.test(trimmed)) {
-    return resolveTypeNameInScope(typeChecker, trimmed, location);
+    return resolveTypeNameInScope(typeChecker, trimmed, location, onFailure);
   }
+  const failed = (error: unknown): void => {
+    if (location) {
+      onFailure?.(
+        location,
+        error,
+        `the type '${trimmed}' an @impl tag names (matched by name only)`
+      );
+    }
+  };
   const entry = KEYWORD_TYPES[trimmed];
   if (entry) {
     // Prefer the TypeChecker's internal intrinsic type getter: synthetic
@@ -570,8 +1095,8 @@ function resolveTypeString(
     if (typeof tc[entry.getter] === "function") {
       try {
         return tc[entry.getter]();
-      } catch {
-        /* fall through */
+      } catch (error) {
+        failed(error); // then the synthetic-node fallback below
       }
     }
     // Fallback: try synthetic node (works in some TS host configurations).
@@ -591,7 +1116,8 @@ function resolveTypeString(
         return undefined;
       }
       return resolved;
-    } catch {
+    } catch (error) {
+      failed(error);
       return undefined;
     }
   }
@@ -607,7 +1133,8 @@ function resolveTypeString(
 function resolveTypeNameInScope(
   typeChecker: ts.TypeChecker,
   name: string,
-  location: ts.Node
+  location: ts.Node,
+  onFailure?: ScannerCheckerFailure
 ): ts.Type | undefined {
   const sourceFile = location.getSourceFile();
   if (!sourceFile) return undefined;
@@ -617,7 +1144,8 @@ function resolveTypeNameInScope(
       if (sym && sym.flags & ts.SymbolFlags.Alias) sym = typeChecker.getAliasedSymbol(sym);
       if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return undefined;
       return typeChecker.getDeclaredTypeOfSymbol(sym);
-    } catch {
+    } catch (error) {
+      onFailure?.(nameNode, error, `the type '${name}' an @impl tag names (matched by name only)`);
       return undefined;
     }
   };
@@ -646,7 +1174,8 @@ function resolveTypeNameInScope(
       .getSymbolsInScope(location, ts.SymbolFlags.Type)
       .find((s) => s.name === name);
     return sym ? typeChecker.getDeclaredTypeOfSymbol(sym) : undefined;
-  } catch {
+  } catch (error) {
+    onFailure?.(location, error, `the type '${name}' an @impl tag names (matched by name only)`);
     return undefined;
   }
 }

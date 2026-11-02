@@ -1,7 +1,7 @@
 {
   "name": "typesugar-monorepo",
   "private": true,
-  "description": "Syntactic sugar for TypeScript with zero calories: compile-time macros inspired by Rust, Scala 3 and Zig",
+  "description": "Syntactic sugar for TypeScript with zero calories. Typeclasses, operator overloading, pattern matching and more through compile-time macros and zero-cost abstractions.",
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/setup-ts-plugin.js",

@@ -47,6 +47,7 @@ export declare function memo<F extends (...args: unknown[]) => unknown>(fn: F): 
  * Derive macro that generates validation for a class.
  *
  * @example
+ * ```typescript
  * @derive(Validation)
  * class User {
  *   @validate.email
@@ -55,5 +56,6 @@ export declare function memo<F extends (...args: unknown[]) => unknown>(fn: F): 
  *   @validate.min(0)
  *   age: number;
  * }
+ * ```
  */
 export const Validation = Symbol("Validation");

@@ -22,10 +22,15 @@ const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..",
 const hasBuild = fs.existsSync(cliPath);
 
 /** Run the CLI with stdin closed — i.e. exactly how CI or an agent runs it. */
-function runCli(args: string[], cwd: string): { status: number; output: string } {
+function runCli(
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env
+): { status: number; output: string } {
   try {
     const output = execFileSync(process.execPath, [cliPath, ...args], {
       cwd,
+      env,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"], // stdin: ignore → not a TTY
       timeout: 60_000,
@@ -40,72 +45,109 @@ function runCli(args: string[], cwd: string): { status: number; output: string }
   }
 }
 
-describe.skipIf(!hasBuild)("typesugar init — non-interactive", () => {
-  let tmpDir: string;
+/**
+ * `init` installs packages (`npm install --save-dev ...`) and runs `npx
+ * ts-patch install`: real network installs, 10-45 s and flaky. These tests
+ * check what `init` decides and writes, so `npm`/`npx` on PATH are stand-ins
+ * that record their arguments and succeed.
+ */
+function fakePackageManager(dir: string): { env: NodeJS.ProcessEnv; calls(): string[] } {
+  const bin = path.join(dir, ".fake-bin");
+  const log = path.join(dir, ".fake-bin-calls");
+  fs.mkdirSync(bin);
+  for (const tool of ["npm", "npx"]) {
+    const script = path.join(bin, tool);
+    fs.writeFileSync(script, `#!/bin/sh\necho "${tool} $*" >> "${log}"\n`);
+    fs.chmodSync(script, 0o755);
+  }
+  return {
+    env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
+    calls: () => (fs.existsSync(log) ? fs.readFileSync(log, "utf-8").trim().split("\n") : []),
+  };
+}
 
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-init-ni-"));
-    fs.writeFileSync(
-      path.join(tmpDir, "package.json"),
-      JSON.stringify({ name: "fixture", version: "1.0.0", private: true }, null, 2)
-    );
-    fs.writeFileSync(
-      path.join(tmpDir, "tsconfig.json"),
-      JSON.stringify({ compilerOptions: { target: "ES2020" } }, null, 2)
-    );
-  });
+describe.skipIf(!hasBuild || process.platform === "win32")(
+  "typesugar init — non-interactive",
+  () => {
+    let tmpDir: string;
+    let pm: ReturnType<typeof fakePackageManager>;
 
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-init-ni-"));
+      pm = fakePackageManager(tmpDir);
+      fs.writeFileSync(
+        path.join(tmpDir, "package.json"),
+        JSON.stringify({ name: "fixture", version: "1.0.0", private: true }, null, 2)
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, "tsconfig.json"),
+        JSON.stringify({ compilerOptions: { target: "ES2020" } }, null, 2)
+      );
+    });
 
-  it("without --yes and without a TTY: fails FAST with an actionable message (never hangs)", () => {
-    const { status, output } = runCli(["init"], tmpDir);
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
 
-    expect(status).not.toBe(0);
-    expect(output).toContain("not a TTY");
-    // It must tell you the way out, not just complain.
-    expect(output).toContain("--yes");
-  });
+    it("without --yes and without a TTY: fails FAST with an actionable message (never hangs)", () => {
+      const { status, output } = runCli(["init"], tmpDir, pm.env);
 
-  it("rejects an invalid --persona instead of silently guessing", () => {
-    const { status, output } = runCli(["init", "--yes", "--persona", "wizard"], tmpDir);
+      expect(status).not.toBe(0);
+      expect(output).toContain("not a TTY");
+      // It must tell you the way out, not just complain.
+      expect(output).toContain("--yes");
+    });
 
-    expect(status).not.toBe(0);
-    expect(output).toContain("Invalid --persona");
-    expect(output).toContain("app-developer");
-  });
+    it("rejects an invalid --persona instead of silently guessing", () => {
+      const { status, output } = runCli(["init", "--yes", "--persona", "wizard"], tmpDir, pm.env);
 
-  it("--yes --no-ai runs end to end with no TTY and configures the project", () => {
-    const { status, output } = runCli(["init", "--yes", "--no-ai"], tmpDir);
+      expect(status).not.toBe(0);
+      expect(output).toContain("Invalid --persona");
+      expect(output).toContain("app-developer");
+    });
 
-    expect(status, `init failed:\n${output}`).toBe(0);
+    it("--yes --no-ai runs end to end with no TTY and configures the project", () => {
+      const { status, output } = runCli(["init", "--yes", "--no-ai"], tmpDir, pm.env);
 
-    // The persona question answered itself with the safe default.
-    expect(output).toContain("app-developer");
+      expect(status, `init failed:\n${output}`).toBe(0);
 
-    // And it actually did the work.
-    const tsconfig = fs.readFileSync(path.join(tmpDir, "tsconfig.json"), "utf-8");
-    expect(tsconfig).toContain("@typesugar/transformer");
+      // The persona question answered itself with the safe default.
+      expect(output).toContain("app-developer");
 
-    // --no-ai was honored.
-    expect(fs.existsSync(path.join(tmpDir, "AGENTS.md"))).toBe(false);
-  });
+      // It installed the app-developer packages and patched TypeScript.
+      const calls = pm.calls();
+      expect(calls.some((c) => /^npm install --save-dev .*@typesugar\/transformer/.test(c))).toBe(
+        true
+      );
+      expect(calls).toContain("npx ts-patch install -s");
 
-  it("--yes --ai scaffolds the AI context with no TTY", () => {
-    const { status, output } = runCli(["init", "--yes", "--ai", "--persona", "end-user"], tmpDir);
+      // And it actually did the work.
+      const tsconfig = fs.readFileSync(path.join(tmpDir, "tsconfig.json"), "utf-8");
+      expect(tsconfig).toContain("@typesugar/transformer");
 
-    expect(status, `init failed:\n${output}`).toBe(0);
-    expect(output).toContain("end-user");
+      // --no-ai was honored.
+      expect(fs.existsSync(path.join(tmpDir, "AGENTS.md"))).toBe(false);
+    });
 
-    const agents = path.join(tmpDir, "AGENTS.md");
-    expect(fs.existsSync(agents)).toBe(true);
-    expect(fs.readFileSync(agents, "utf-8")).toContain("typesugar:begin");
-    expect(fs.existsSync(path.join(tmpDir, ".claude", "skills", "typesugar", "SKILL.md"))).toBe(
-      true
-    );
-  });
-});
+    it("--yes --ai scaffolds the AI context with no TTY", () => {
+      const { status, output } = runCli(
+        ["init", "--yes", "--ai", "--persona", "end-user"],
+        tmpDir,
+        pm.env
+      );
+
+      expect(status, `init failed:\n${output}`).toBe(0);
+      expect(output).toContain("end-user");
+
+      const agents = path.join(tmpDir, "AGENTS.md");
+      expect(fs.existsSync(agents)).toBe(true);
+      expect(fs.readFileSync(agents, "utf-8")).toContain("typesugar:begin");
+      expect(fs.existsSync(path.join(tmpDir, ".claude", "skills", "typesugar", "SKILL.md"))).toBe(
+        true
+      );
+    });
+  }
+);
 
 describe.skipIf(!hasBuild)("typesugar create — non-interactive", () => {
   let tmpDir: string;

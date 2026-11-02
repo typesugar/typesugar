@@ -48,7 +48,9 @@ import {
   widen,
 } from "../src/index.js";
 
-import { requires, tryProve, type TypeFact, trySimpleLinearProof } from "@typesugar/contracts";
+import { requires, type TypeFact, trySimpleLinearProof } from "@typesugar/contracts";
+// The proof engine imports `typescript`: it is exported from the macros entry.
+import { tryProve } from "@typesugar/contracts/macros";
 // Byte, Int, NonEmpty used only as brand strings in hasRefinementPredicate() calls
 import { Positive, NonNegative, Port, Percentage } from "@typesugar/type-system";
 
@@ -185,26 +187,26 @@ console.log("4. Subtyping rules: Positive→NonNegative, Byte→Int, custom chai
 // Built-in decidability annotations are registered for all built-in types
 const allDecidability = getAllDecidabilityInfo();
 
-// Query decidability for specific brands
+// Query decidability for specific brands (the queries take the brand name)
 const posDecidability = getDecidability("Positive");
 if (posDecidability) {
-  const strategy = getPreferredStrategy(posDecidability);
-  const canProve = isCompileTimeDecidable(posDecidability.decidability);
-  const needsRuntime = requiresRuntimeCheck(posDecidability.decidability);
+  const strategy = getPreferredStrategy("Positive");
+  const canProve = isCompileTimeDecidable("Positive");
+  const needsRuntime = requiresRuntimeCheck("Positive");
 
-  // Positive should be decidable at compile time
-  assert(typeof canProve === "boolean");
-  assert(typeof needsRuntime === "boolean");
+  assert(typeof strategy === "string");
+  assert(canProve === !needsRuntime);
 }
 
 // Register decidability for custom types
 registerDecidability({
   brand: "Latitude",
   decidability: "runtime",
+  preferredStrategy: "type",
 });
 const latDecidability = getDecidability("Latitude");
 assert(latDecidability !== undefined);
-assert(requiresRuntimeCheck(latDecidability!.decidability) === true);
+assert(requiresRuntimeCheck("Latitude") === true);
 
 registerDecidability({
   brand: "PositiveEven",
@@ -234,11 +236,11 @@ assert(extractVecLength("Vec<10>") === 10);
 // Vec constructors
 const v3 = VecConstructors.from<number, 3>([1, 2, 3]);
 assert(isVec(v3));
-assert((v3 as number[]).length === 3);
+assert(v3.length === 3);
 
 const v0 = VecConstructors.empty<string>();
 assert(isVec(v0));
-assert((v0 as string[]).length === 0);
+assert(v0.length === 0);
 
 // Type-level arithmetic
 type Five = Add<3, 2>;
@@ -286,7 +288,7 @@ function acceptNonNegative(n: NonNegative): void {
 
 const pos = Positive.refine(42);
 // Positive → NonNegative via subtyping rule
-const widened = widen<typeof pos, NonNegative>(pos);
+const widened = widen<NonNegative>(pos);
 acceptNonNegative(widened);
 
 console.log("7. Real-world: server config with compile-time proof elision");

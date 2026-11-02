@@ -7,7 +7,8 @@
  * 1. Environment variables: TYPESUGAR_* (highest priority, for CI overrides)
  * 2. Config files: typesugar.config.ts, .typesugarrc, etc. — the nearest one
  *    found walking up from `process.cwd()` (or from the directory passed to
- *    `config.load({ searchFrom })`), stopping at the repository root
+ *    `config.load({ searchFrom })`), stopping at the repository root, and
+ *    never one inside a `node_modules` directory (a dependency's)
  * 3. Programmatic: config.set() calls
  * 4. Defaults (lowest priority)
  *
@@ -55,12 +56,16 @@ export interface ContractsConfig {
 }
 
 /**
- * Resolution mode for typeclass and operator lookup.
+ * Resolution mode for typeclass and operator lookup. Accepted for
+ * compatibility but not read in 1.0: resolution is always import-scoped
+ * (PEP-052), with no "automatic" or "explicit" behaviour.
  */
 export type ResolutionMode = "automatic" | "import-scoped" | "explicit";
 
 /**
- * Resolution configuration.
+ * Resolution configuration. The 1.0 macros don't read it: resolution is
+ * always import-scoped, with no prelude (PEP-052). `config.isInPrelude` and
+ * `config.isTracingEnabled` still answer from it for callers of their own.
  */
 export interface ResolutionConfig {
   /** Global resolution mode */
@@ -121,18 +126,38 @@ export interface ConfigLoadError {
   error?: Error;
 }
 
-// LIMITATION (deep review 2026-10, core #35): this is still ONE config per
-// process, not one per project. A host serving several projects (tsserver
-// with a multi-root workspace, one vite process for several packages) sees
-// whichever project `load({ searchFrom })` last pointed at — or, if nothing
-// calls `load()`, the nearest config above `process.cwd()`. Making every
-// `config.get()` consumer project-aware is a larger refactor than this fix.
-let configStore: TypesugarConfig = {};
-let configLoaded = false;
-let configFilePath: string | undefined;
-let configLoadError: ConfigLoadError | undefined;
-/** Directory the config-file search starts from; `undefined` = `process.cwd()`. */
-let searchFromDir: string | undefined;
+/**
+ * One loaded configuration. `config.get()` reads the CURRENT one. A host
+ * serving several projects in one process (tsserver, the Node loader, one
+ * vite process for several packages) keeps each project's with
+ * `config.capture()` after `config.load()`, and makes it current around that
+ * project's work with `config.runWith()` -- the TransformationPipeline does
+ * this when given `config` (review 8: with one config per process, the
+ * project loaded last applied to every project, its
+ * `security.allowedMacroPackages` included).
+ */
+interface ConfigState {
+  store: TypesugarConfig;
+  loaded: boolean;
+  filePath: string | undefined;
+  loadError: ConfigLoadError | undefined;
+  /** Directory the config-file search starts from; `undefined` = `process.cwd()`. */
+  searchFromDir: string | undefined;
+}
+
+function newState(searchFromDir?: string): ConfigState {
+  return { store: {}, loaded: false, filePath: undefined, loadError: undefined, searchFromDir };
+}
+
+let current: ConfigState = newState();
+
+/**
+ * A project's loaded configuration, from `config.capture()`; opaque. Pass
+ * it to `config.runWith()` (or a TransformationPipeline's `config` option).
+ */
+export interface ConfigSnapshot {
+  readonly __typesugarConfigSnapshot: true;
+}
 
 // ============================================================================
 // Environment Variable Loading
@@ -302,7 +327,7 @@ function warnOnce(message: string): void {
 
 function loadConfigFromFiles(): TypesugarConfig {
   const proc = (globalThis as { process?: { cwd?: () => string } }).process;
-  const from = searchFromDir ?? proc?.cwd?.();
+  const from = current.searchFromDir ?? proc?.cwd?.();
   if (from === undefined) {
     // Browser bundle (playground): there is no file system to search.
     return {};
@@ -311,12 +336,12 @@ function loadConfigFromFiles(): TypesugarConfig {
   const result = searchConfigFile(from);
   switch (result.kind) {
     case "found":
-      configFilePath = result.filepath;
+      current.filePath = result.filepath;
       return result.config as TypesugarConfig;
     case "none":
       return {};
     case "failed": {
-      configLoadError = {
+      current.loadError = {
         kind: "failed",
         filepath: result.filepath,
         message: result.error.message,
@@ -331,7 +356,7 @@ function loadConfigFromFiles(): TypesugarConfig {
       return {};
     }
     case "unavailable":
-      configLoadError = { kind: "unavailable", message: result.reason };
+      current.loadError = { kind: "unavailable", message: result.reason };
       // Only a real Node process can have a config file worth warning about.
       if (isNodeRuntime()) {
         warnOnce(
@@ -352,7 +377,7 @@ function loadConfigFromFiles(): TypesugarConfig {
  * Initialize configuration from all sources.
  */
 function initializeConfig(): void {
-  if (configLoaded) return;
+  if (current.loaded) return;
 
   const defaults: TypesugarConfig = {
     debug: false,
@@ -368,8 +393,8 @@ function initializeConfig(): void {
   const envConfig = loadConfigFromEnv();
 
   // Merge: defaults < fileConfig < envConfig
-  configStore = deepMerge(deepMerge(defaults, fileConfig), envConfig) as TypesugarConfig;
-  configLoaded = true;
+  current.store = deepMerge(deepMerge(defaults, fileConfig), envConfig) as TypesugarConfig;
+  current.loaded = true;
 }
 
 // ============================================================================
@@ -381,7 +406,7 @@ function initializeConfig(): void {
  */
 function get<T = unknown>(path: string): T | undefined {
   initializeConfig();
-  return getNestedValue(configStore, path) as T | undefined;
+  return getNestedValue(current.store, path) as T | undefined;
 }
 
 /**
@@ -389,7 +414,7 @@ function get<T = unknown>(path: string): T | undefined {
  */
 function set(values: Partial<TypesugarConfig>): void {
   initializeConfig();
-  configStore = deepMerge(configStore, values) as TypesugarConfig;
+  current.store = deepMerge(current.store, values) as TypesugarConfig;
 }
 
 /**
@@ -404,7 +429,7 @@ function has(path: string): boolean {
  */
 function getAll(): Readonly<TypesugarConfig> {
   initializeConfig();
-  return configStore;
+  return current.store;
 }
 
 /**
@@ -412,18 +437,15 @@ function getAll(): Readonly<TypesugarConfig> {
  */
 function getConfigFilePath(): string | undefined {
   initializeConfig();
-  return configFilePath;
+  return current.filePath;
 }
 
 /**
  * Reset configuration to defaults (mainly for testing).
  */
 function reset(): void {
-  configStore = {};
-  configLoaded = false;
-  configFilePath = undefined;
-  configLoadError = undefined;
-  searchFromDir = undefined;
+  // A new state, not a cleared one: a snapshot a host captured stays intact.
+  current = newState();
 }
 
 /**
@@ -436,9 +458,33 @@ function reset(): void {
  * with it, so the config doesn't depend on the process's cwd.
  */
 function load(options: { searchFrom?: string } = {}): void {
-  reset();
-  searchFromDir = options.searchFrom;
+  current = newState(options.searchFrom);
   initializeConfig();
+}
+
+/**
+ * The current (loaded) configuration, to make current again later with
+ * `runWith` -- after `load({ searchFrom: projectDir })`, that project's.
+ * Later `config.set()` calls made while it is current apply to it.
+ */
+function capture(): ConfigSnapshot {
+  initializeConfig();
+  return current as unknown as ConfigSnapshot;
+}
+
+/**
+ * Run `fn` with `snapshot` as the current configuration, then restore the
+ * previous one. Synchronous, like everything that reads config (macro
+ * expansion has no async boundary), so nothing else runs in between.
+ */
+function runWith<T>(snapshot: ConfigSnapshot, fn: () => T): T {
+  const previous = current;
+  current = snapshot as unknown as ConfigState;
+  try {
+    return fn();
+  } finally {
+    current = previous;
+  }
 }
 
 /**
@@ -448,7 +494,7 @@ function load(options: { searchFrom?: string } = {}): void {
  */
 function getLoadError(): ConfigLoadError | undefined {
   initializeConfig();
-  return configLoadError;
+  return current.loadError;
 }
 
 /**
@@ -461,7 +507,7 @@ function getLoadError(): ConfigLoadError | undefined {
  */
 function evaluate(condition: string): boolean {
   initializeConfig();
-  return evaluateConfigCondition(condition, (p) => getNestedValue(configStore, p));
+  return evaluateConfigCondition(condition, (p) => getNestedValue(current.store, p));
 }
 
 /**
@@ -555,6 +601,8 @@ export const config = {
   getConfigFilePath,
   getLoadError,
   load,
+  capture,
+  runWith,
   reset,
   evaluate,
   when,

@@ -30,6 +30,8 @@ typeAssert<Equal<ReturnType<typeof parse>, AST>>();
 - Expanded code imports small runtime helpers (`__powerAssertFail`, `__assertTypeCheck`,
   `__seededRandom`, `createMockObject`) from `@typesugar/testing`, so the package must be
   resolvable at test runtime — install it where your tests run, not only where they compile.
+- Macros inside `assert(...)` (`summon<…>()`, `extend(x).m()`, extension methods, operators)
+  expand before the assertion is instrumented, so they work as they do anywhere else.
 - `mock<T>()` / `@mock` expand to `createMockObject<T>([...method names])`; you can call
   `createMockObject` directly when the transformer is not configured.
 - `assertSnapshot(expr)` keys snapshots by project-relative file path and expression text (no

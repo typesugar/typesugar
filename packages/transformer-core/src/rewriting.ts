@@ -14,7 +14,17 @@ import {
   transformHKTDeclaration,
   getOperatorCandidates,
   resolveInstance,
+  companionAssignedBefore,
+  scanWarnings,
+  deriveNamesOf,
   type ResolvedInstance,
+  rewrittenOperandType,
+  isPrimitiveTypedBinary,
+  isPrimitiveByFlags,
+  declaredDispatchTypes,
+  admitsNullish,
+  isNullOrUndefinedExpr,
+  type OperatorChainHooks,
 } from "@typesugar/macros";
 
 import {
@@ -28,6 +38,7 @@ import {
   ExpressionMacro,
   TaggedTemplateMacroDef,
   TypeMacro,
+  TS9001,
   globalResolutionScope,
   isInOptedOutScope,
   isSyntheticNode,
@@ -40,6 +51,9 @@ import {
   extractTypeArgumentsContent,
   stripTypeArguments,
   cloneWithoutComments,
+  relativeImportStyleOf,
+  sourceSpecifierExtension,
+  type RelativeImportStyle,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -599,13 +613,6 @@ export function tryTransformHKTDeclaration(
 // Operator rewriting entry point (PEP-052: import-scoped, registry-free)
 // ---------------------------------------------------------------------------
 
-function isNullOrUndefinedExpr(node: ts.Expression): boolean {
-  if (node.kind === ts.SyntaxKind.NullKeyword) return true;
-  if (ts.isIdentifier(node) && node.text === "undefined") return true;
-  if (ts.isVoidExpression(node)) return true;
-  return false;
-}
-
 /**
  * Whether operator rewriting is opted out at `node`: the whole file
  * (`"use no typesugar"`), the documented `operators` feature
@@ -620,16 +627,13 @@ function isOperatorRewriteOptedOut(ctx: MacroContextImpl, node: ts.Node): boolea
   );
 }
 
-const OPERATOR_PRIMITIVE_TYPES = new Set([
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "null",
-  "undefined",
-  "any",
-  "unknown",
-]);
+/** The operator-chain typing's hooks (`@typesugar/macros` operator-chain-types) for this file. */
+function chainHooks(ctx: MacroContextImpl): OperatorChainHooks {
+  return {
+    optedOut: (node) => isOperatorRewriteOptedOut(ctx, node),
+    warn: (node, message) => ctx.reportWarning(node, message),
+  };
+}
 
 export function tryRewriteTypeclassOperator(
   ctx: MacroContextImpl,
@@ -639,18 +643,35 @@ export function tryRewriteTypeclassOperator(
 ): ts.Expression | undefined {
   // Skip synthetic nodes (from macro-generated code) — the checker can crash.
   if (isSyntheticNode(node)) return undefined;
+  // An operand that is itself `a + b`, `a < b`, ... is typed number, bigint,
+  // string, boolean or any by TypeScript's own rules, never an instance type,
+  // so it can't dispatch (nor need a TS9804 hint). Decided without the
+  // checker: its type of a binary expression is not cached, so asking for it
+  // re-checks the whole subtree, and doing that at every level of
+  // `1 + 1 + ... + 1` made a 10,000-term line take tens of minutes. Checked
+  // first: the opt-out and activation checks below walk up the node's
+  // ancestors, which at every level of a long chain is quadratic.
+  // The exception is an operand that is itself a typeclass operator whose
+  // method returns the instance type (`a + b` → `add(a, b): A`): `a + b + c`
+  // dispatches on that type (rewrittenOperandType, memoized per node, so a
+  // long chain is walked once).
+  const sfn = ctx.sourceFile.fileName;
+  const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
+  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
+  // PEP-052 activation gate: rewrite only if the file activated a typeclass that
+  // maps this operator (imported `@syntax-operators` marker or in-file `@typeclass`).
+  const activatedForOps =
+    definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
+  let chainType: ts.Type | undefined;
+  if (isPrimitiveTypedBinary(node.left)) {
+    if (activatedForOps.size === 0) return undefined;
+    chainType = rewrittenOperandType(ctx, node.left, activatedForOps, chainHooks(ctx));
+    if (!chainType) return undefined;
+  }
   if (isOperatorRewriteOptedOut(ctx, node)) return undefined;
 
   const opString = getOperatorString(node.operatorToken.kind);
   if (!opString) return undefined;
-
-  // PEP-052 activation gate: rewrite only if the file activated a typeclass that
-  // maps this operator (imported `@syntax-operators` marker or in-file `@typeclass`).
-  const sfn = ctx.sourceFile.fileName;
-  const activatedOps = globalResolutionScope.getActivatedOperatorSyntax(sfn);
-  const definedTcs = globalResolutionScope.getDefinedTypeclasses(sfn);
-  const activatedForOps =
-    definedTcs.size === 0 ? activatedOps : new Set([...activatedOps, ...definedTcs]);
 
   const candidates =
     activatedForOps.size === 0 ? [] : getOperatorCandidates(ctx.program, activatedForOps, opString);
@@ -662,15 +683,9 @@ export function tryRewriteTypeclassOperator(
 
   if (isNullOrUndefinedExpr(node.right) || isNullOrUndefinedExpr(node.left)) return undefined;
 
-  let leftType: ts.Type;
-  let rightType: ts.Type;
-  let typeName: string;
   if (isSyntheticNode(node.left) || isSyntheticNode(node.right)) return undefined;
-  try {
-    leftType = ctx.typeChecker.getTypeAtLocation(node.left);
-    rightType = ctx.typeChecker.getTypeAtLocation(node.right);
-    typeName = ctx.typeChecker.typeToString(leftType);
-  } catch (error) {
+
+  const operandTypeFailed = (error: unknown): undefined => {
     ctx.reportWarning(
       node,
       candidates.length > 0
@@ -680,29 +695,83 @@ export function tryRewriteTypeclassOperator(
             `operator-syntax import: the operand types could not be resolved (${error}).`
     );
     return undefined;
-  }
+  };
 
-  if (
-    (rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0 ||
-    (leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0
-  ) {
+  // The left operand first: the right one is only needed when the left can
+  // dispatch (so a right-nested chain isn't re-checked at each level either).
+  // A const bound to a rewritten operator (`const p = a * b`, typed number by
+  // TypeScript) has the rewritten type too.
+  let leftType: ts.Type;
+  try {
+    leftType =
+      chainType ??
+      (ts.isIdentifier(node.left)
+        ? rewrittenOperandType(ctx, node.left, activatedForOps, chainHooks(ctx))
+        : undefined) ??
+      ctx.typeChecker.getTypeAtLocation(node.left);
+  } catch (error) {
+    return operandTypeFailed(error);
+  }
+  if ((leftType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) return undefined;
+
+  // An operand whose type admits null/undefined (`P | undefined`, visible
+  // under strictNullChecks): the instance is resolved for the non-null type,
+  // and a comparison keeps the native result when that operand is nullish at
+  // run time (see buildNullSafeComparison), instead of passing it to the
+  // instance, which would throw. Decided by the type's flags, not its text.
+  const nullableLeft = admitsNullish(leftType);
+  let typeName: string;
+  try {
+    if (nullableLeft) leftType = ctx.typeChecker.getNonNullableType(leftType);
+    typeName = ctx.typeChecker.typeToString(leftType);
+  } catch (error) {
+    return operandTypeFailed(error);
+  }
+  // Primitive by the type's flags, not its printed name (CLAUDE.md "by identity").
+  if (isPrimitiveByFlags(leftType)) {
     return undefined;
   }
 
-  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
+  // The right operand may be a rewritten operator too (`a + b * 2`: `b * 2`
+  // becomes `scale(b, 2)`, a V, though TypeScript types it number): its type
+  // is the one the rewrite gives it, as for the left (rewrittenOperandType).
+  let rightType: ts.Type;
+  try {
+    const rightChain = rewrittenOperandType(ctx, node.right, activatedForOps, chainHooks(ctx));
+    rightType = rightChain ?? ctx.typeChecker.getTypeAtLocation(node.right);
+  } catch (error) {
+    return operandTypeFailed(error);
+  }
+  if ((rightType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) return undefined;
+  const nullableRight = admitsNullish(rightType);
+  try {
+    if (nullableRight) rightType = ctx.typeChecker.getNonNullableType(rightType);
+  } catch (error) {
+    return operandTypeFailed(error);
+  }
 
+  // The operand's type at the operator may be NARROWED (`const s: Shape =
+  // { kind: "c", r: 1 }` makes `s` the "c" variant): the operands' declared
+  // types are tried too, the same ones the diagnostic filter tries
+  // (declaredDispatchTypes, operator-chain-types.ts).
+  let dispatchTypes: ts.Type[] | undefined;
+  const typesToTry = (): ts.Type[] =>
+    (dispatchTypes ??= declaredDispatchTypes(ctx, node, leftType, rightType, chainHooks(ctx)));
   /** No activated typeclass rewrote this: warn if an inactive one would have. */
   const hintIfInactiveMatch = (): undefined => {
     if (!mayHint) return undefined;
     let inactive: { typeclass: string; method: string } | undefined;
     try {
-      inactive = findInactiveOperatorMatch(ctx, {
-        operator: opString,
-        arity: "binary",
-        activated: activatedForOps,
-        operandType: leftType,
-        rightType,
-      });
+      for (const operandType of [leftType, ...typesToTry()]) {
+        inactive = findInactiveOperatorMatch(ctx, {
+          operator: opString,
+          arity: "binary",
+          activated: activatedForOps,
+          operandType,
+          rightType,
+        });
+        if (inactive) break;
+      }
     } catch (error) {
       ctx.reportWarning(
         node,
@@ -722,7 +791,15 @@ export function tryRewriteTypeclassOperator(
     | { typeclass: string; method: string; rightOperandIsSelf: boolean; resolved: ResolvedInstance }
     | undefined;
   for (const candidate of candidates) {
-    const result = resolveInstance(ctx, candidate.typeclass, leftType);
+    // `node` as the use site: a companion of a type declared below the
+    // operator in this file is found from its `@derive` annotation.
+    let result = resolveInstance(ctx, candidate.typeclass, leftType, undefined, undefined, node);
+    if (!result) {
+      for (const t of typesToTry()) {
+        result = resolveInstance(ctx, candidate.typeclass, t, undefined, undefined, node);
+        if (result) break;
+      }
+    }
     if (!result) continue;
     if (result.kind === "ambiguous") {
       ctx.reportError(
@@ -751,7 +828,17 @@ export function tryRewriteTypeclassOperator(
     };
   }
 
-  if (!matched) return hintIfInactiveMatch();
+  if (!matched) {
+    if (
+      reportDerivedWithoutInstance(ctx, node, opString, typeName, candidates, [
+        leftType,
+        ...typesToTry(),
+      ])
+    ) {
+      return undefined;
+    }
+    return hintIfInactiveMatch();
+  }
 
   // The instance was resolved from the LEFT operand only. For a method whose
   // right parameter is the typeclass's type parameter (`add(a: A, b: A)`), the
@@ -809,11 +896,227 @@ export function tryRewriteTypeclassOperator(
   }
   const instanceRef = buildInstanceReferenceExpression(factory, instName, importedIdentifier);
   const methodAccess = factory.createPropertyAccessExpression(instanceRef, matched.method);
+  if ((nullableLeft || nullableRight) && COMPARISON_OPERATORS.has(node.operatorToken.kind)) {
+    return preserveSourceMap(
+      buildNullSafeComparison(
+        ctx,
+        node.operatorToken.kind as ts.BinaryOperator,
+        methodAccess,
+        cloneWithoutComments(left),
+        cloneWithoutComments(right),
+        nullableLeft,
+        nullableRight
+      ),
+      node
+    );
+  }
   const rewritten = factory.createCallExpression(methodAccess, undefined, [
     cloneWithoutComments(left),
     cloneWithoutComments(right),
   ]);
   return preserveSourceMap(rewritten, node);
+}
+
+/**
+ * An activated operator found no instance for an operand whose type DECLARES
+ * `@derive(TC)` for the operator's typeclass (`a === b` on a `Box<number>`
+ * where `@derive(Eq) interface Box<T>`): left alone, the operator would stay
+ * JavaScript's own (a reference comparison for objects) on a type whose author
+ * asked for TC's, silently, while `summon<TC<...>>()` reports TS9001. Report
+ * the same TS9001 here, at the operator. Which type is decided by identity
+ * (CLAUDE.md "Deciding what a type is"): the operand type's own symbol and its
+ * declarations' `@derive` annotations, never its printed name. Returns
+ * whether it reported.
+ */
+function reportDerivedWithoutInstance(
+  ctx: MacroContextImpl,
+  node: ts.BinaryExpression,
+  opString: string,
+  typeName: string,
+  candidates: ReadonlyArray<{ typeclass: string }>,
+  operandTypes: readonly ts.Type[]
+): boolean {
+  for (const t of operandTypes) {
+    const sym = t.aliasSymbol ?? t.symbol;
+    for (const decl of sym?.declarations ?? []) {
+      if (
+        !ts.isInterfaceDeclaration(decl) &&
+        !ts.isClassDeclaration(decl) &&
+        !ts.isTypeAliasDeclaration(decl)
+      ) {
+        continue;
+      }
+      const derives = deriveNamesOf(decl);
+      const tc = candidates.find((c) => derives.includes(c.typeclass))?.typeclass;
+      if (!tc) continue;
+      const declName = decl.name?.text ?? sym!.name;
+      const generic = (decl.typeParameters?.length ?? 0) > 0;
+      // The companion exists, but is declared below this module-top-level
+      // use, which runs before it is assigned (companionAssignedBefore).
+      const below =
+        !generic && !companionAssignedBefore(node, decl, ctx.typeChecker, scanWarnings(ctx));
+      ctx
+        .diagnostic(TS9001)
+        .at(node.operatorToken)
+        .withArgs({ typeclass: tc, type: typeName })
+        .note(
+          below
+            ? `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
+                `@derive(${tc}), but its companion ${declName}.${tc} is declared below this ` +
+                `line, and this can run before that (at module top level, in a function ` +
+                `called or passed to a call above it, or while a class above it is defined: ` +
+                `a static initializer or block, a computed name, a decorator), when it isn't ` +
+                `assigned yet. It was ` +
+                `left as JavaScript's own '${opString}'.`
+            : `'${opString}' on '${typeName}' dispatches to ${tc}: '${declName}' declares ` +
+                `@derive(${tc}), but no ${tc}<${typeName}> instance is in scope, so it was left ` +
+                `as JavaScript's own '${opString}'.`
+        )
+        .help(
+          below
+            ? `Move the declaration of '${declName}' above this line, or use '${opString}' ` +
+                `inside a function that is only called below it.`
+            : generic
+              ? `@derive on a generic type doesn't derive an instance for its instantiations yet. ` +
+                `Declare one for this instantiation as a top-level const of a module of your own, ` +
+                `\`derived<${tc}<${typeName}>>()\`, and import it here (or write it with @impl).`
+              : `See the error at '${declName}''s @derive(${tc}), or put a ${tc}<${typeName}> instance in scope.`
+        )
+        .emit();
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Operators whose native result on a nullish operand is a boolean, never a throw. */
+const COMPARISON_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+]);
+
+/**
+ * Reading it again gives the same value with no effect: an identifier,
+ * `this`, a literal, or a property-access chain on one of those (`this.p`,
+ * `a.b.c`, not `a?.b`). Property reads are taken as stable the way
+ * TypeScript's narrowing takes them (it narrows `this.p` by `this.p === o`);
+ * a getter is read again, as it would be by code that tests and then uses it.
+ * Anything else (a call, `new`, an index with a computed key) is evaluated
+ * once by the arrow in {@link buildNullSafeComparison}.
+ */
+function isRereadable(e: ts.Expression): boolean {
+  if (ts.isPropertyAccessExpression(e) && !e.questionDotToken) return isRereadable(e.expression);
+  return (
+    ts.isIdentifier(e) ||
+    e.kind === ts.SyntaxKind.ThisKeyword ||
+    ts.isStringLiteral(e) ||
+    ts.isNumericLiteral(e) ||
+    ts.isBigIntLiteral(e) ||
+    e.kind === ts.SyntaxKind.TrueKeyword ||
+    e.kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+/**
+ * `l OP r` dispatched to `method(l, r)` when an operand's type admits
+ * null/undefined, with the native result whenever an operand is nullish at
+ * run time, in a shape that keeps TypeScript's narrowing (the expanded code
+ * type-checks under `strict`, as `typesugar build --strict` checks it):
+ *
+ *   c === p   →   c === p || (c != null && P.Eq.equals(c, p))
+ *   c !== p   →   c !== p && (c == null || P.Eq.notEquals(c, p))
+ *   c < p     →   c != null && P.Ord.lessThan(c, p)
+ *
+ * (`==` / `!=` the same with the loose operator.) Equality: the leading native
+ * comparison is the operator itself, so a nullish operand gets exactly its
+ * native result, and in the branch where the whole is true (false for `!==`)
+ * TypeScript narrows `c` as it narrowed the original `c === p`: by the native
+ * disjunct, or by `c != null` in the other. The short-circuit on the native
+ * result is sound for a lawful Eq: `===` implies equal (reflexivity), and
+ * `!==` is decided by `notEquals` whenever both are values. Ordering: a
+ * nullish operand gives false. Natively it is a coercion (`undefined < x` is
+ * false, `null <= null` true) that TypeScript rejects under strictNullChecks
+ * (TS18048), so no checked program relies on it; it never reaches the
+ * instance, which would throw. Only the nullable operands are tested.
+ *
+ * Operands are evaluated in order, and once unless re-reading is free
+ * ({@link isRereadable}): otherwise both are passed to an arrow,
+ * `((l, r) => ...)(f(), g())`, whose parameters TypeScript types from the
+ * arguments.
+ */
+function buildNullSafeComparison(
+  ctx: MacroContextImpl,
+  op: ts.BinaryOperator,
+  method: ts.Expression,
+  left: ts.Expression,
+  right: ts.Expression,
+  nullableLeft: boolean,
+  nullableRight: boolean
+): ts.Expression {
+  const f = ctx.factory;
+  const inline = isRereadable(left) && isRereadable(right);
+  // The arrow's body references only its parameters and the instance, so a
+  // parameter needs only to differ from the instance reference's root name.
+  let root: ts.Expression = method;
+  while (ts.isPropertyAccessExpression(root)) root = root.expression;
+  const taken = ts.isIdentifier(root) ? root.text : "";
+  const param = (base: string) => (base === taken ? `${base}_` : base);
+  const lName = inline ? undefined : param("l");
+  const rName = inline ? undefined : param("r");
+  const l = (): ts.Expression => (lName ? f.createIdentifier(lName) : cloneWithoutComments(left));
+  const r = (): ts.Expression => (rName ? f.createIdentifier(rName) : cloneWithoutComments(right));
+  const and = (a: ts.Expression, b: ts.Expression) =>
+    f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b);
+  const or = (a: ts.Expression, b: ts.Expression) =>
+    f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b);
+  const nullTest = (e: ts.Expression, isNull: boolean) =>
+    f.createBinaryExpression(
+      e,
+      isNull ? ts.SyntaxKind.EqualsEqualsToken : ts.SyntaxKind.ExclamationEqualsToken,
+      f.createNull()
+    );
+  /** The nullable operands' tests: `l != null`, ... (`l == null` with `isNull`). */
+  const tests = (isNull: boolean): ts.Expression[] => [
+    ...(nullableLeft ? [nullTest(l(), isNull)] : []),
+    ...(nullableRight ? [nullTest(r(), isNull)] : []),
+  ];
+  const call = () => f.createCallExpression(method, undefined, [l(), r()]);
+  const native = () => f.createBinaryExpression(l(), op, r());
+  let body: ts.Expression;
+  switch (op) {
+    case ts.SyntaxKind.EqualsEqualsEqualsToken:
+    case ts.SyntaxKind.EqualsEqualsToken:
+      // l === r || (l != null && r != null && method(l, r))
+      body = or(native(), f.createParenthesizedExpression([...tests(false), call()].reduce(and)));
+      break;
+    case ts.SyntaxKind.ExclamationEqualsEqualsToken:
+    case ts.SyntaxKind.ExclamationEqualsToken:
+      // l !== r && (l == null || r == null || method(l, r))
+      body = and(native(), f.createParenthesizedExpression([...tests(true), call()].reduce(or)));
+      break;
+    default:
+      // l != null && r != null && method(l, r)
+      body = [...tests(false), call()].reduce(and);
+  }
+  if (inline) return f.createParenthesizedExpression(body);
+  const arrow = f.createArrowFunction(
+    undefined,
+    undefined,
+    [
+      f.createParameterDeclaration(undefined, undefined, lName!),
+      f.createParameterDeclaration(undefined, undefined, rName!),
+    ],
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    body
+  );
+  return f.createCallExpression(f.createParenthesizedExpression(arrow), undefined, [left, right]);
 }
 
 /** Prefix-unary operator tokens that `@op` on a one-parameter method can map. */
@@ -883,9 +1186,10 @@ export function tryRewriteTypeclassUnaryOperator(
     return undefined;
   }
   if ((operandType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0) return undefined;
-  if (OPERATOR_PRIMITIVE_TYPES.has(stripTypeArguments(typeName))) return undefined;
-  const base = ctx.typeChecker.getBaseTypeOfLiteralType(operandType);
-  if (OPERATOR_PRIMITIVE_TYPES.has(ctx.typeChecker.typeToString(base))) return undefined;
+  // By flags, as for the binary form: a literal operand (`-1`, `!true`) is
+  // primitive too, which the printed name of its base type only matched
+  // for some primitives.
+  if (isPrimitiveByFlags(operandType)) return undefined;
 
   let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
   for (const candidate of candidates) {
@@ -1215,6 +1519,67 @@ function isWithinSourceModule(filePath: string, sourceModule: string): boolean {
 }
 
 /**
+ * The module specifier the file being transformed imports `entry`'s companion
+ * functions from: the entry's own `sourceModule` (a package subpath such as
+ * `@typesugar/fp/data/option`), except when that is the absolute path of a
+ * project source file (`resolveSourceModule`'s fallback), which put `import {
+ * map } from "/home/…/src/opt.ts"` into JavaScript. For that file, the
+ * specifier this file already imports it by (resolved by the checker), else a
+ * relative path in the style of this file's other relative imports
+ * (`./opt.js`, `./opt.mjs` for an `opt.mts`).
+ */
+function companionModuleSpecifier(
+  ctx: MacroContextImpl,
+  entry: TypeRewriteEntry
+): string | undefined {
+  const declarationFile = entry.declarationFile && normalizeSlashes(entry.declarationFile);
+  if (
+    !entry.sourceModule ||
+    !isAbsolutePath(normalizeSlashes(entry.sourceModule)) ||
+    !declarationFile ||
+    /\.d\.[cm]?ts$/.test(declarationFile) ||
+    !isAbsolutePath(declarationFile)
+  ) {
+    return entry.sourceModule;
+  }
+  const target = stripScriptExtension(declarationFile);
+  let relativeStyle: RelativeImportStyle;
+  for (const stmt of ctx.sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt)) continue;
+    const spec = stmt.moduleSpecifier;
+    if (!spec || !ts.isStringLiteral(spec) || isSyntheticNode(spec)) continue;
+    if (spec.text.startsWith(".")) relativeStyle ??= relativeImportStyleOf(spec.text);
+    let resolved: string | undefined;
+    try {
+      resolved = ctx.typeChecker
+        .getSymbolAtLocation(spec)
+        ?.declarations?.find((d): d is ts.SourceFile => ts.isSourceFile(d))?.fileName;
+    } catch {
+      resolved = undefined;
+    }
+    if (resolved && stripScriptExtension(normalizeSlashes(resolved)) === target) return spec.text;
+  }
+  // The extension as module resolution reads it: a companion in `opt.mts` is
+  // `./opt.mjs`, not `./opt.js` (review 8).
+  const extension = sourceSpecifierExtension(
+    declarationFile,
+    relativeStyle,
+    ctx.program.getCompilerOptions()
+  );
+  return relativeModulePath(normalizeSlashes(ctx.sourceFile.fileName), target) + extension;
+}
+
+/** `./x` / `../x` from the directory of `fromFile` to `toPath` (both absolute, `/`-separated). */
+function relativeModulePath(fromFile: string, toPath: string): string {
+  const from = fromFile.split("/").slice(0, -1);
+  const to = toPath.split("/");
+  let common = 0;
+  while (common < from.length && common < to.length - 1 && from[common] === to[common]) common++;
+  const up = from.length - common;
+  return (up === 0 ? "./" : "../".repeat(up)) + to.slice(common).join("/");
+}
+
+/**
  * Rewrite a method call on an @opaque type.
  *
  * When a `methodInlines` pattern is registered for the method, the call is
@@ -1288,8 +1653,9 @@ export function tryRewriteOpaqueMethodCall(
   // uses the shared reference-hygiene mechanism (ctx.ensureImport) and the
   // identifier IT RETURNS (which may be a conflict-safe alias), matching the
   // pattern already used by method-sugar.ts / tryRewriteTypeclassOperator.
-  const resolvedFnName = entry.sourceModule
-    ? ctx.ensureImport(standaloneFnName, entry.sourceModule).text
+  const companionModule = companionModuleSpecifier(ctx, entry);
+  const resolvedFnName = companionModule
+    ? ctx.ensureImport(standaloneFnName, companionModule).text
     : standaloneFnName;
 
   if (verbose) {
@@ -1749,197 +2115,4 @@ export function tryEraseOpaqueConstantRef(
   }
 
   return preserveSourceMap(buildConstantExpression(ctx.factory, ctor.value ?? "undefined"), node);
-}
-
-// ---------------------------------------------------------------------------
-// @opaque type annotation erasure (PEP-019 Wave 1)
-// ---------------------------------------------------------------------------
-
-/**
- * Extract an opaque type rewrite entry from a TypeNode (e.g., `Option<Money>`).
- * Returns the entry whose declaration the type reference resolves to (through
- * import aliases) -- not merely one that shares its name.
- */
-function getOpaqueEntryFromTypeNode(
-  ctx: MacroContextImpl,
-  typeNode: ts.TypeNode
-): TypeRewriteEntry | undefined {
-  if (!ts.isTypeReferenceNode(typeNode)) return undefined;
-
-  const nameNode = ts.isIdentifier(typeNode.typeName)
-    ? typeNode.typeName
-    : ts.isQualifiedName(typeNode.typeName)
-      ? typeNode.typeName.right
-      : undefined;
-  if (!nameNode) return undefined;
-
-  const typeName = nameNode.text;
-  const candidates = getAllTypeRewrites().filter((e) => e.typeName === typeName);
-  if (candidates.length === 0) return undefined;
-
-  const sym = resolveReferencedSymbol(ctx, nameNode, ts.SymbolFlags.Type);
-  if (!sym) return undefined;
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    if (symbolDeclaredByEntry(sym, candidates[i])) return candidates[i];
-  }
-  return undefined;
-}
-
-/**
- * Check if an initializer expression would be erased by opaque constructor
- * erasure for the given type rewrite entry -- the same symbol-resolved check
- * `tryEraseOpaqueConstructorCall`/`tryEraseOpaqueConstantRef` apply, so the
- * annotation is stripped exactly when the initializer really is erased.
- */
-function wouldBeOpaqueErased(
-  ctx: MacroContextImpl,
-  init: ts.Expression,
-  entry: TypeRewriteEntry
-): boolean {
-  if (!entry.constructors) return false;
-
-  if (ts.isCallExpression(init) && ts.isIdentifier(init.expression)) {
-    const resolved = resolveConstructorRewrite(ctx, init.expression);
-    if (!resolved || resolved.entry !== entry) return false;
-    const { ctor } = resolved;
-    return !(ctor.kind === "custom" && ctor.value === init.expression.text);
-  }
-
-  if (ts.isIdentifier(init)) {
-    const resolved = resolveConstructorRewrite(ctx, init);
-    return resolved !== undefined && resolved.entry === entry && resolved.ctor.kind === "constant";
-  }
-
-  return false;
-}
-
-/**
- * When a variable declaration has a type annotation referencing an @opaque type
- * and its initializer would be erased by opaque constructor/constant erasure,
- * strip the type annotation to prevent invalid TypeScript output.
- *
- * `const x: Option<Money> = Some(m)` → `const x = m`
- * `const x: Option<Money> = None` → `const x = null`
- */
-export function tryStripOpaqueTypeAnnotation(
-  ctx: MacroContextImpl,
-  verbose: boolean,
-  visit: VisitFn,
-  node: ts.VariableDeclaration
-): ts.VariableDeclaration | undefined {
-  if (!node.type || !node.initializer) return undefined;
-
-  const opaqueEntry = getOpaqueEntryFromTypeNode(ctx, node.type);
-  if (!opaqueEntry) return undefined;
-
-  // For same-project opaque types (transparent), skip stripping inside
-  // the defining module where the implementation uses the raw representation.
-  if (opaqueEntry.transparent && isInDefiningModule(ctx, opaqueEntry)) {
-    return undefined;
-  }
-
-  // For library-imported opaque types (non-transparent), the published .d.ts
-  // has a type alias (e.g., `type Option<A> = A | null`), so the annotation
-  // is valid after constructor erasure — keep it.
-  if (!opaqueEntry.transparent) return undefined;
-
-  if (!wouldBeOpaqueErased(ctx, node.initializer, opaqueEntry)) return undefined;
-
-  if (verbose) {
-    console.log(
-      `[typesugar] Type annotation erasure: stripping ${opaqueEntry.typeName} from variable declaration`
-    );
-  }
-
-  const visitedName = ts.visitNode(node.name, visit) as ts.BindingName;
-  const visitedInit = ts.visitNode(node.initializer, visit) as ts.Expression;
-
-  return preserveSourceMap(
-    ctx.factory.updateVariableDeclaration(
-      node,
-      visitedName,
-      node.exclamationToken,
-      undefined,
-      visitedInit
-    ),
-    node
-  );
-}
-
-/**
- * When a function parameter has a type annotation referencing an @opaque type
- * and a default value that would be erased by opaque constructor/constant erasure,
- * strip the type annotation to prevent invalid TypeScript output.
- *
- * `function f(x: Option<Money> = Some(m))` → `function f(x = m)`
- */
-export function tryStripOpaqueParamAnnotation(
-  ctx: MacroContextImpl,
-  verbose: boolean,
-  visit: VisitFn,
-  node: ts.ParameterDeclaration
-): ts.ParameterDeclaration | undefined {
-  if (!node.type || !node.initializer) return undefined;
-
-  const opaqueEntry = getOpaqueEntryFromTypeNode(ctx, node.type);
-  if (!opaqueEntry) return undefined;
-
-  if (opaqueEntry.transparent && isInDefiningModule(ctx, opaqueEntry)) {
-    return undefined;
-  }
-
-  // Library-imported opaque types have erased type aliases — annotation is valid
-  if (!opaqueEntry.transparent) return undefined;
-
-  if (!wouldBeOpaqueErased(ctx, node.initializer, opaqueEntry)) return undefined;
-
-  if (verbose) {
-    console.log(
-      `[typesugar] Type annotation erasure: stripping ${opaqueEntry.typeName} from parameter`
-    );
-  }
-
-  const visitedName = ts.visitNode(node.name, visit) as ts.BindingName;
-  const visitedInit = ts.visitNode(node.initializer, visit) as ts.Expression;
-
-  return preserveSourceMap(
-    ctx.factory.updateParameterDeclaration(
-      node,
-      node.modifiers,
-      node.dotDotDotToken,
-      visitedName,
-      node.questionToken,
-      undefined,
-      visitedInit
-    ),
-    node
-  );
-}
-
-/**
- * When a function's return type annotation references an @opaque type
- * and the body contains return statements using erased opaque constructors,
- * strip the return type to prevent invalid TypeScript output.
- *
- * `function findPort(...): Option<number> { return Some(x); }`
- * → `function findPort(...) { return x; }`
- */
-export function shouldStripOpaqueReturnType(
-  ctx: MacroContextImpl,
-  returnType: ts.TypeNode | undefined,
-  _body: ts.Block | ts.ConciseBody | undefined
-): boolean {
-  if (!returnType) return false;
-
-  const opaqueEntry = getOpaqueEntryFromTypeNode(ctx, returnType);
-  if (!opaqueEntry) return false;
-
-  if (opaqueEntry.transparent && isInDefiningModule(ctx, opaqueEntry)) {
-    return false;
-  }
-
-  // Library-imported opaque types have erased type aliases — annotation is valid
-  if (!opaqueEntry.transparent) return false;
-
-  return true;
 }

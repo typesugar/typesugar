@@ -41,7 +41,11 @@ import {
   withStandaloneExtensionFile,
 } from "@typesugar/core";
 
-import { getActivatedLabeledBlock, emitLabelSyntaxNotActivatedHint } from "./label-activation.js";
+import {
+  getActivatedLabeledBlock,
+  emitLabelSyntaxNotActivatedHint,
+  isLabeledBlockShaped,
+} from "./label-activation.js";
 
 import {
   createMacroErrorExpression as createMacroErrorExpr,
@@ -55,6 +59,7 @@ import {
 import {
   recordMacroImport,
   cleanupMacroImports,
+  removeErasableSyntaxImports,
   resolveModuleSpecifier,
   findImportModuleForName,
   moduleMatchesMacro,
@@ -70,6 +75,7 @@ import {
   tryReturnTypeDrivenSpecialize as tryReturnTypeDrivenSpecializeFn,
   tryInlineDerivedInstanceCall as tryInlineDerivedInstanceCallFn,
   eliminateDeadDerivedInstances as eliminateDeadDerivedInstancesFn,
+  type StatementTemps,
 } from "./specialization.js";
 
 import {
@@ -79,6 +85,7 @@ import {
   parseDecorator,
   sortDecoratorsByDependency,
   expandDeriveDecorator,
+  functionsFirst,
 } from "./macro-helpers.js";
 
 import {
@@ -92,9 +99,6 @@ import {
   tryEraseOpaqueConstructorCall as tryEraseOpaqueConstructorCallFn,
   tryEraseOpaqueConstantRef as tryEraseOpaqueConstantRefFn,
   tryEraseOpaqueAccessor as tryEraseOpaqueAccessorFn,
-  tryStripOpaqueTypeAnnotation as tryStripOpaqueTypeAnnotationFn,
-  tryStripOpaqueParamAnnotation as tryStripOpaqueParamAnnotationFn,
-  shouldStripOpaqueReturnType as shouldStripOpaqueReturnTypeFn,
 } from "./rewriting.js";
 
 import { tryResolveTypeclassMethod as tryResolveTypeclassMethodFn } from "./method-sugar.js";
@@ -124,6 +128,11 @@ class MacroTransformer {
   private implicitScopeStack: ImplicitScope[] = [];
 
   private specCache = new SpecializationCache();
+  /**
+   * The statement of a statement list being visited, and the `const`s an
+   * inlined operator chain in it binds before it (tryInlineDerivedInstanceCall).
+   */
+  private statementTemps: StatementTemps | undefined;
 
   private inlinedInstanceNames = new Set<string>();
 
@@ -325,7 +334,12 @@ class MacroTransformer {
     methodName: string,
     receiverType: ts.Type
   ): StandaloneExtensionInfo | undefined {
-    const sourceFile = node.getSourceFile();
+    // The file being transformed, not `node.getSourceFile()`: a call that a
+    // macro rebuilt with `factory.update*` (extend()'s fallback, a re-visited
+    // macro result) keeps its source range but has no parent chain, so
+    // getSourceFile() returned undefined and import-scoped extensions were
+    // never found for it.
+    const sourceFile = this.ctx.sourceFile;
 
     let methodCache = this.importExtensionCache.get(receiverType);
     if (!methodCache) {
@@ -396,7 +410,62 @@ class MacroTransformer {
       return this.simplifyComprehensionArrow(this.visitDispatch(node));
     }
 
+    if (ts.isBinaryExpression(node) && ts.isBinaryExpression(node.left)) {
+      return this.visitLeftNestedBinary(node);
+    }
+
     return this.visitDispatch(node);
+  }
+
+  /**
+   * A left-nested binary chain (`"a" + "b" + ... + "z"`, `1 + 1 + ... + 1`:
+   * each level's LEFT operand is the next binary expression), visited with a
+   * loop instead of one recursion per level. Recursing through `visit` →
+   * `visitDispatch` → `ts.visitEachChild` → `visitNode` for each level
+   * overflowed the stack at a depth of about 2,000 (generated code — long
+   * string concatenations, big literal tables — goes deeper, and tsc's own
+   * checker and printer handle such chains iteratively).
+   *
+   * Same steps, in the same order, as the recursive visit: top-down, each
+   * level gets `visitDispatch`'s per-node step (`tryTransform`; a binary
+   * expression has no implicit parameters or trigger labels) before any of
+   * its children are visited, and the first level something transforms (or
+   * one `visit` treats specially: pre-visited, synthetic, or not a binary
+   * expression) ends the descent and is visited as usual. Then bottom-up,
+   * each level's right operand is visited after its whole left subtree, as
+   * `visitEachChild` does, and the level is rebuilt with
+   * `updateBinaryExpression` (which returns the original node when nothing
+   * changed).
+   */
+  private visitLeftNestedBinary(root: ts.BinaryExpression): ts.Node | ts.Node[] {
+    const visitor = this.visit.bind(this);
+    const spine: ts.BinaryExpression[] = [];
+    let n: ts.Expression = root;
+    let bottom: ts.Expression;
+    for (;;) {
+      if (
+        !ts.isBinaryExpression(n) ||
+        n.pos === -1 ||
+        (spine.length > 0 && this.preVisitedArgs.has(n))
+      ) {
+        bottom = ts.visitNode(n, visitor, ts.isExpression)!;
+        break;
+      }
+      const transformed = this.tryTransform(n);
+      if (transformed !== undefined) {
+        bottom = ts.visitNode(n, () => transformed, ts.isExpression)!;
+        break;
+      }
+      spine.push(n);
+      n = n.left;
+    }
+    let result = bottom;
+    for (let i = spine.length - 1; i >= 0; i--) {
+      const level = spine[i];
+      const right = ts.visitNode(level.right, visitor, ts.isExpression)!;
+      result = this.ctx.factory.updateBinaryExpression(level, result, level.operatorToken, right);
+    }
+    return result;
   }
 
   private visitDispatch(node: ts.Node): ts.Node | ts.Node[] {
@@ -487,6 +556,44 @@ class MacroTransformer {
           `checked. Move the logic into a function declaration or method.`
       );
     }
+  }
+
+  /**
+   * The temporaries hoisted before `stmt` go after its leading comments, not
+   * between them and the statement (review 7): the comments move onto the
+   * first temporary -- except a JSDoc comment right before the statement,
+   * which documents the statement and stays on it (`out`, what `stmt` became).
+   * Skipped for the first statement of a file (its header comments are
+   * emitted with the file, before any temporary, and copying them would
+   * print them twice) and for an `out` with no source position (its source
+   * comments are not printed from the source range anyway).
+   */
+  private moveLeadingCommentsAbove(
+    stmt: ts.Statement,
+    out: ts.Node,
+    first: ts.Statement,
+    container: ts.SourceFile | ts.Block | ts.ModuleBlock
+  ): void {
+    if (isSyntheticNode(stmt) || isSyntheticNode(out)) return;
+    if (ts.isSourceFile(container) && container.statements[0] === stmt) return;
+    const text = this.ctx.sourceFile.text;
+    const ranges = ts.getLeadingCommentRanges(text, stmt.pos);
+    if (!ranges || ranges.length === 0) return;
+    const last = ranges[ranges.length - 1];
+    const keepDoc =
+      last.kind === ts.SyntaxKind.MultiLineCommentTrivia && text.startsWith("/**", last.pos);
+    const moved = keepDoc ? ranges.slice(0, -1) : ranges;
+    if (moved.length === 0) return;
+    for (const r of moved) {
+      const raw = text.slice(r.pos, r.end);
+      const body =
+        r.kind === ts.SyntaxKind.SingleLineCommentTrivia ? raw.slice(2) : raw.slice(2, -2);
+      ts.addSyntheticLeadingComment(first, r.kind, body, r.hasTrailingNewLine);
+    }
+    // Leading comments are printed from the comment range's start: from the
+    // JSDoc, or from the statement's first token (none).
+    const from = keepDoc ? last.pos : stmt.getStart(this.ctx.sourceFile);
+    ts.setCommentRange(out, { pos: from, end: out.end });
   }
 
   private visitStatementContainer(
@@ -743,10 +850,11 @@ class MacroTransformer {
 
       if (ts.isLabeledStatement(stmt)) {
         const labelName = stmt.label.text;
-        // Only block-shaped labels are dispatch candidates — an ordinary loop
+        // Only labels on the statement their macro expects (a block, or a
+        // switch for `match:`) are dispatch candidates — an ordinary loop
         // label that collides with a macro label (`all: for (…)`) must never
         // be hijacked, activated or not.
-        const macro = ts.isBlock(stmt.statement)
+        const macro = isLabeledBlockShaped(stmt)
           ? getActivatedLabeledBlock(this.ctx, labelName, stmt)
           : undefined;
 
@@ -778,6 +886,21 @@ class MacroTransformer {
               macro.expand(this.ctx, stmt, continuation)
             );
             let expanded = Array.isArray(result) ? result : [result];
+
+            // A macro that could not expand returns its main block unchanged,
+            // after reporting why (let:/par: do this on every failure path).
+            // The continuation was consumed above: put it back after the
+            // block, or the output silently loses it, and the language
+            // service, which checks the output, never reports the errors in
+            // it (an undefined name in `yield:`) that `check` does. A held
+            // `const x = let` goes back in front, in its original place.
+            if (expanded.includes(stmt)) {
+              if (pendingVarDecl) {
+                expanded = [pendingVarDecl.stmt, ...expanded];
+                pendingVarDecl = undefined;
+              }
+              if (continuation) expanded = [...expanded, continuation];
+            }
 
             // If there's a pending `const x = let`, merge the expanded expression
             // into a variable declaration: `const x = <expanded expression>;`
@@ -863,7 +986,21 @@ class MacroTransformer {
         pendingVarDecl = undefined;
       }
 
-      const visited = this.visit(stmt);
+      const prevTemps = this.statementTemps;
+      const temps: StatementTemps = { anchor: stmt, declarations: [] };
+      this.statementTemps = temps;
+      let visited: ts.Node | ts.Node[];
+      try {
+        visited = this.visit(stmt);
+      } finally {
+        this.statementTemps = prevTemps;
+      }
+      if (temps.declarations.length > 0) {
+        newStatements.push(...temps.declarations);
+        const out = Array.isArray(visited) ? visited.find((n) => ts.isStatement(n)) : visited;
+        if (out) this.moveLeadingCommentsAbove(stmt, out, temps.declarations[0], node);
+        modified = true;
+      }
       if (visited) {
         if (Array.isArray(visited)) {
           for (const n of visited as ts.Node[]) {
@@ -918,6 +1055,15 @@ class MacroTransformer {
     let cleanedStatements = ts.isSourceFile(node)
       ? cleanupMacroImports(this.ctx.factory, this.macroImportSpecifiers, collapsed, this.verbose)
       : collapsed;
+    // Only in a file that changed anyway (a nested expansion counts): an
+    // unchanged file must stay byte-identical, never reprinted.
+    if (
+      ts.isSourceFile(node) &&
+      (cleanedStatements.length !== node.statements.length ||
+        cleanedStatements.some((s, i) => s !== node.statements[i]))
+    ) {
+      cleanedStatements = removeErasableSyntaxImports(this.ctx.factory, cleanedStatements);
+    }
 
     if (ts.isSourceFile(node)) {
       const pendingImports = this.ctx.fileBindingCache.getPendingImports();
@@ -1045,88 +1191,18 @@ class MacroTransformer {
   // ---------------------------------------------------------------------------
 
   private tryTransform(node: ts.Node): ts.Node | ts.Node[] | undefined {
-    // PEP-019: Strip opaque type annotations before visiting children,
-    // so `const x: Option<T> = Some(v)` becomes `const x = v`.
-    if (ts.isVariableDeclaration(node)) {
-      const stripped = tryStripOpaqueTypeAnnotationFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (stripped !== undefined) {
-        return stripped;
-      }
-    }
+    // `@opaque` annotations are kept as written in every position (PEP-019's
+    // stripping is gone): expanded code is checked against the runtime view
+    // of opaque types (opaqueTypesAsUnderlying), and declarations emitted
+    // from the expanded program keep the types the author wrote.
 
-    if (ts.isParameter(node)) {
-      const stripped = tryStripOpaqueParamAnnotationFn(
-        this.ctx,
-        this.verbose,
-        this.visit.bind(this),
-        node
-      );
-      if (stripped !== undefined) {
-        return stripped;
-      }
-    }
-
-    // PEP-019 Wave 5: Strip opaque return type annotations from functions
-    if (ts.isFunctionDeclaration(node) && node.type) {
-      if (shouldStripOpaqueReturnTypeFn(this.ctx, node.type, undefined)) {
-        const visited = ts.visitEachChild(
-          node,
-          this.visit.bind(this),
-          this.ctx.transformContext
-        ) as ts.FunctionDeclaration;
-        return this.ctx.factory.updateFunctionDeclaration(
-          visited,
-          visited.modifiers,
-          visited.asteriskToken,
-          visited.name,
-          visited.typeParameters,
-          visited.parameters,
-          undefined,
-          visited.body
-        );
-      }
-    }
-    if (ts.isFunctionExpression(node) && node.type) {
-      if (shouldStripOpaqueReturnTypeFn(this.ctx, node.type, undefined)) {
-        const visited = ts.visitEachChild(
-          node,
-          this.visit.bind(this),
-          this.ctx.transformContext
-        ) as ts.FunctionExpression;
-        return this.ctx.factory.updateFunctionExpression(
-          visited,
-          visited.modifiers,
-          visited.asteriskToken,
-          visited.name,
-          visited.typeParameters,
-          visited.parameters,
-          undefined,
-          visited.body
-        );
-      }
-    }
-    if (ts.isArrowFunction(node) && node.type) {
-      if (shouldStripOpaqueReturnTypeFn(this.ctx, node.type, undefined)) {
-        const visited = ts.visitEachChild(
-          node,
-          this.visit.bind(this),
-          this.ctx.transformContext
-        ) as ts.ArrowFunction;
-        return this.ctx.factory.updateArrowFunction(
-          visited,
-          visited.modifiers,
-          visited.typeParameters,
-          visited.parameters,
-          undefined,
-          visited.equalsGreaterThanToken,
-          visited.body
-        );
-      }
+    // `export const cloneFeature = derived<Clone<Feature>>();` expands to the
+    // derived object; the declaration keeps the instance type as its
+    // annotation, so the expanded program (and a `.d.ts` emitted from it)
+    // types the const `Clone<Feature>`, not the object literal's shape.
+    if (ts.isVariableDeclaration(node) && !node.type && node.initializer) {
+      const annotated = this.tryAnnotateDerivedInstance(node);
+      if (annotated !== undefined) return annotated;
     }
 
     // Chain macro detection: fluent APIs like match(x).case(42).then("yes")
@@ -1374,7 +1450,12 @@ class MacroTransformer {
         : tryRewriteTypeclassUnaryOperatorFn(this.ctx, this.verbose, this.visit.bind(this), node);
       if (result !== undefined) {
         if (ts.isCallExpression(result)) {
-          const inlined = tryInlineDerivedInstanceCallFn(this.ctx, result, node);
+          const inlined = tryInlineDerivedInstanceCallFn(
+            this.ctx,
+            result,
+            node,
+            this.statementTemps
+          );
           if (inlined !== undefined) {
             if (
               ts.isPropertyAccessExpression(result.expression) &&
@@ -1540,6 +1621,43 @@ class MacroTransformer {
   // Expression macro expansion (kept here due to cache interaction)
   // ---------------------------------------------------------------------------
 
+  /**
+   * `const x = derived<TC<T>>()` (no annotation): visit the declaration, and
+   * when the call was expanded, annotate it with the call's type argument
+   * `TC<T>` (the original node; it is in this file). Undefined when the
+   * initializer is not a `derived` call, so the caller visits as usual.
+   */
+  private tryAnnotateDerivedInstance(
+    node: ts.VariableDeclaration
+  ): ts.VariableDeclaration | undefined {
+    let init = node.initializer!;
+    while (ts.isParenthesizedExpression(init)) init = init.expression;
+    if (
+      !ts.isCallExpression(init) ||
+      !ts.isIdentifier(init.expression) ||
+      init.typeArguments?.length !== 1 ||
+      isSyntheticNode(init)
+    ) {
+      return undefined;
+    }
+    const macro = this.resolveMacroFromSymbol(init.expression, init.expression.text, "expression");
+    if (macro?.name !== "derived" || macro.module !== "@typesugar/typeclass") return undefined;
+    const visited = ts.visitEachChild(node, this.visit.bind(this), this.ctx.transformContext);
+    let out = visited.initializer;
+    while (out && ts.isParenthesizedExpression(out)) out = out.expression;
+    // Not expanded (an error was reported): leave the declaration as written.
+    if (!out || out === init || (ts.isCallExpression(out) && out.expression === init.expression)) {
+      return visited;
+    }
+    return this.ctx.factory.updateVariableDeclaration(
+      visited,
+      visited.name,
+      visited.exclamationToken,
+      init.typeArguments[0],
+      visited.initializer
+    );
+  }
+
   private tryExpandExpressionMacro(node: ts.CallExpression): ts.Expression | undefined {
     // Skip synthetic nodes (created by macro expansion) to avoid re-expansion loops.
     if (isSyntheticNode(node)) {
@@ -1611,6 +1729,50 @@ class MacroTransformer {
 
     try {
       const before = cacheKey ? this.sideEffectSnapshot() : undefined;
+
+      // `expandArgumentsFirst` macros (assert()) get their arguments already
+      // expanded, and their result is NOT visited again: the arguments in it
+      // are done, and a second visit could re-run a rewrite that kept its
+      // node's source position (an implicits fill, an updated call).
+      if (macro.expandArgumentsFirst) {
+        const expandedArgs = node.arguments.map(
+          (a) => ts.visitNode(a, this.visit.bind(this)) as ts.Expression
+        );
+        const argsChanged = expandedArgs.some((a, i) => a !== node.arguments[i]);
+        const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, expandedArgs));
+        if (result === node) {
+          return argsChanged
+            ? this.ctx.factory.updateCallExpression(
+                node,
+                node.expression,
+                node.typeArguments,
+                expandedArgs
+              )
+            : node;
+        }
+        if (this.expansionTracker) {
+          const expandedText = this.printNodeSafe(result);
+          if (expandedText) {
+            this.expansionTracker.recordExpansion(
+              macroName,
+              node,
+              this.ctx.sourceFile,
+              expandedText
+            );
+          }
+        }
+        if (cacheKey && before && !argsChanged) {
+          const after = this.sideEffectSnapshot();
+          if (
+            after.diagnostics === before.diagnostics &&
+            after.pendingImports === before.pendingImports
+          ) {
+            this.cacheExpression(cacheKey, result);
+          }
+        }
+        return preserveSourceMap(result, node);
+      }
+
       const result = this.ctx.hygiene.withScope(() => macro.expand(this.ctx, node, node.arguments));
 
       // A macro that hands back the call itself (comptime with evaluation
@@ -1814,7 +1976,11 @@ class MacroTransformer {
       // `@deriving(...)` is the deprecated alias (expandDeriveDecorator warns).
       if (isDerive) {
         const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
-        if (derives) extraStatements.push(...derives);
+        if (derives) {
+          extraStatements.push(...derives);
+          // Several @derive decorators: functions before namespaces (TS2434).
+          extraStatements.splice(0, extraStatements.length, ...functionsFirst(extraStatements));
+        }
         // Handled even when it generated nothing (each failure is reported):
         // drop the decorator, which is not valid TypeScript on an interface
         // or type alias and would be an undefined decorator on a class. The

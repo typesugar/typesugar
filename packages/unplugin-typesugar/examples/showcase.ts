@@ -38,14 +38,15 @@ const fullOptions: TypesugarPluginOptions = {
   include: /\.[jt]sx?$/,
   exclude: /node_modules/,
   verbose: true,
-  extensions: ["hkt", "pipeline", "cons"],
+  diskCache: ".typesugar-cache",
+  strict: "incremental",
+  cfgConfig: { debug: true, platform: "node" },
 };
 
 assert(fullOptions.verbose === true);
-assert(fullOptions.extensions!.length === 3);
-assert(fullOptions.extensions!.includes("hkt"));
-assert(fullOptions.extensions!.includes("pipeline"));
-assert(fullOptions.extensions!.includes("cons"));
+assert(fullOptions.diskCache === ".typesugar-cache");
+assert(fullOptions.strict === "incremental");
+assert(fullOptions.cfgConfig!.platform === "node");
 
 // String array patterns for include/exclude
 const stringPatterns: TypesugarPluginOptions = {
@@ -56,17 +57,12 @@ const stringPatterns: TypesugarPluginOptions = {
 assert((stringPatterns.include as string[]).length === 2);
 assert((stringPatterns.exclude as string[]).length === 2);
 
-// Selective syntax extensions — enable only what you need
-const hktOnly: TypesugarPluginOptions = {
-  extensions: ["hkt"],
-};
+// Strict mode: type-check the expanded output at the end of every build
+const strictFull: TypesugarPluginOptions = { strict: true };
+const noCache: TypesugarPluginOptions = { diskCache: false };
 
-const pipelineOnly: TypesugarPluginOptions = {
-  extensions: ["pipeline"],
-};
-
-assert(hktOnly.extensions!.length === 1);
-assert(pipelineOnly.extensions!.length === 1);
+assert(strictFull.strict === true);
+assert(noCache.diskCache === false);
 
 // ============================================================================
 // 2. UNPLUGIN FACTORY - Universal Plugin Creation
@@ -101,7 +97,7 @@ assert(unplugin !== undefined);
 //       include: /\.tsx?$/,
 //       exclude: /node_modules/,
 //       verbose: process.env.DEBUG === "1",
-//       extensions: ["hkt", "pipeline"],
+//       strict: "incremental",
 //     }),
 //   ],
 // });
@@ -126,7 +122,7 @@ assert(unplugin !== undefined);
 //   plugins: [
 //     typesugar({
 //       tsconfig: "./tsconfig.json",
-//       extensions: ["hkt", "pipeline", "cons"],
+//       diskCache: true,
 //     }),
 //   ],
 // };
@@ -151,7 +147,7 @@ assert(unplugin !== undefined);
 //   plugins: [
 //     typesugar({
 //       verbose: true,
-//       extensions: ["pipeline"],
+//       cfgConfig: { debug: false },
 //     }),
 //   ],
 // };
@@ -179,7 +175,7 @@ assert(unplugin !== undefined);
 //   plugins: [
 //     typesugar({
 //       tsconfig: "./tsconfig.json",
-//       extensions: ["hkt", "cons"],
+//       include: /src\/.*\.ts$/,
 //     }),
 //   ],
 // });

@@ -5,7 +5,8 @@ Consistent branding across CLI, docs, packages, and GitHub.
 ## Identity
 
 - **Name:** typesugar (always lowercase)
-- **Tagline:** Syntactic sugar for TypeScript with zero calories
+- **Tagline:** Syntactic sugar for TypeScript with zero calories.
+- **Sub-tagline:** Typeclasses, operator overloading, pattern matching and more through compile-time macros and zero-cost abstractions.
 - **Logo:** Crystalline sugar cube, purple-to-pink gradient, four-pointed sparkles
 
 ## Emoji Convention

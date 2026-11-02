@@ -48,6 +48,8 @@ function run(code: string, extraGlobals: Record<string, unknown> = {}): RunResul
   const modules: Record<string, unknown> = {
     "@typesugar/testing": runtime,
     typesugar: {},
+    // An activation marker: imported for its effect on the transform only.
+    "@typesugar/std/syntax/eq/ops": {},
   };
   const requireFn = (id: string) => {
     if (id in modules) return modules[id];
@@ -272,6 +274,110 @@ describe("assert() — evaluates each sub-expression once (finding #17)", () => 
     expect(exports.getCalls()).toBe(0);
   });
 
+  // Round-2 docs finding: the argument used to be instrumented BEFORE the
+  // macros inside it expanded, so `summon<…>()` became `(vals[i] = summon)()`
+  // and threw "summon() must be processed by the typesugar transformer" at
+  // run time, and a receiver wrapped in `(vals[i] = xs)` lost the type that
+  // extension / method-syntax rewriting needs. No diagnostic either way.
+  it("expands summon, extend, typeclass method syntax and @extension calls inside the argument", () => {
+    const { code, diagnostics } = compile(
+      [
+        `import { assert } from "@typesugar/testing";`,
+        `import { summon, extend } from "typesugar";`,
+        `/** @typeclass */`,
+        `interface Show<A> { show(a: A): string }`,
+        `/** @impl Show<number> */`,
+        "const showNumber: Show<number> = { show: (n) => `#${n}` };",
+        `/** @extension */`,
+        `function twice(n: number): number { return n * 2; }`,
+        `function showAll<A>(xs: A[], S: Show<A>): string { return xs.map((x) => S.show(x)).join(","); }`,
+        `const xs = [1, 2];`,
+        `const n = 3;`,
+        `export function viaSummon() { assert(showAll(xs, summon<Show<number>>()) === "#1,#2"); }`,
+        `export function viaExtend() { assert(extend(n).show() === "#3"); }`,
+        `export function viaMethodSyntax() { assert(n.show() === "#3"); }`,
+        `export function viaExtension() { assert(n.twice() === 6); }`,
+        `export function failing() { assert(n.twice() === summon<Show<number>>().show(n).length); }`,
+      ].join("\n")
+    );
+    expect(diagnostics).toEqual([]);
+    expect(code).not.toMatch(/=\s*summon\)|=\s*extend\)/);
+    const { exports } = run(code);
+    expect(() => exports.viaSummon()).not.toThrow();
+    expect(() => exports.viaExtend()).not.toThrow();
+    expect(() => exports.viaMethodSyntax()).not.toThrow();
+    expect(() => exports.viaExtension()).not.toThrow();
+    // Still a power assertion: the diagram shows the user's source and the
+    // values of the source sub-expressions the expansion kept (`n`, the
+    // `.length` of the summoned instance's result). A call a macro rewrote
+    // (`n.twice()` -> `twice(n)`) has no source column, so no value.
+    let message = "";
+    try {
+      exports.failing();
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(/Power Assert Failed/);
+    expect(message).toContain("assert(n.twice() === summon<Show<number>>().show(n).length)");
+    expect(message).toContain('"#3"');
+    expect(message).toMatch(/\b3\s+2\b/);
+    expect(message).toContain("false");
+  });
+
+  it("a typeclass operator inside the argument: the diagram shows the operands' values", () => {
+    // The operator rewrite (`p === q` -> `eqP.equals(p, q)`) passes copies of
+    // the operands, which have no source position; the diagram was empty
+    // (`__powerAssertFail("p === q", [], ...)`). A copy is drawn at its
+    // original's column.
+    const cases = {
+      // A derived companion from std's Eq: `P.Eq.equals(p, q)`.
+      derived: [
+        `import { assert } from "@typesugar/testing";`,
+        `import "@typesugar/std/syntax/eq/ops";`,
+        `/** @derive(Eq) */`,
+        `interface P { x: number }`,
+      ],
+      // An in-file instance, whose method is inlined: `p.x === q.x`.
+      inlined: [
+        `import { assert } from "@typesugar/testing";`,
+        `/** @typeclass */`,
+        `interface Same<A> {`,
+        `  /** @op === */ same(a: A, b: A): boolean;`,
+        `}`,
+        `interface P { x: number }`,
+        `/** @impl Same<P> */`,
+        `const sameP: Same<P> = { same: (a, b) => a.x === b.x };`,
+      ],
+    };
+    for (const [name, head] of Object.entries(cases)) {
+      const { code, diagnostics } = compile(
+        [
+          ...head,
+          `const p: P = { x: 1 }, q: P = { x: 2 };`,
+          `export function go() { assert(p === q); }`,
+          `export function ok() { assert(p === { x: 1 }); }`,
+        ].join("\n"),
+        // In the repo, so `@typesugar/std/syntax/eq/ops` resolves.
+        `${process.cwd()}/__power_assert_operator_${name}__.test.ts`
+      );
+      expect(diagnostics, name).toEqual([]);
+      expect(code, name).not.toMatch(/p === q;?\s*\)/);
+      expect(code, name).not.toMatch(/__powerAssertFail\("p === q", \[\]/);
+      const { exports } = run(code);
+      expect(() => exports.ok(), name).not.toThrow();
+      let message = "";
+      try {
+        exports.go();
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message, name).toMatch(/Power Assert Failed/);
+      expect(message, name).toContain("assert(p === q)");
+      expect(message, name).toMatch(/x.*1/);
+      expect(message, name).toMatch(/x.*2/);
+    }
+  });
+
   it("supports await inside the assertion", async () => {
     const { code, diagnostics } = compile(
       [
@@ -324,6 +430,46 @@ describe("forAll() — executes", () => {
     expect(() => exports.bad()).toThrow(
       /Property failed after 3 tests\.\nFailing input: 2\nError: two/
     );
+  });
+});
+
+describe("forAll() — the expansion type-checks", () => {
+  it("unannotated generator and property parameters stay typed (check --strict)", () => {
+    // The expansion bound the arguments to consts (`const gen = (seed) =>
+    // seed * 2`), which lost the contextual type forAll's signature gave
+    // them: TS7006 for every unannotated `seed` / `value` under
+    // `typesugar check --strict` (testing.test.ts).
+    const { code, diagnostics } = compile(
+      [
+        `import { forAll } from "@typesugar/testing";`,
+        `export const seen: number[] = [];`,
+        `export function ok() { forAll((seed) => ({ n: seed }), 3, (value) => { seen.push(value.n); }); }`,
+      ].join("\n")
+    );
+    expect(diagnostics).toEqual([]);
+    const fileName = "/virtual/forall-typecheck.ts";
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const read = host.getSourceFile.bind(host);
+    host.getSourceFile = (f, v, ...rest) =>
+      f === fileName ? ts.createSourceFile(f, code, v, true) : read(f, v, ...rest);
+    const program = ts.createProgram([fileName], options, host);
+    const errors = ts
+      .getPreEmitDiagnostics(program, program.getSourceFile(fileName))
+      .map((d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, " ")}`)
+      // The test file's own import (no such module in this virtual program).
+      .filter((m) => !m.startsWith("TS2307"));
+    expect(errors).toEqual([]);
+    const { exports } = run(code);
+    exports.ok();
+    expect(exports.seen).toEqual([0, 1, 2]);
   });
 });
 

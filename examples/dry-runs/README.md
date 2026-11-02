@@ -27,7 +27,9 @@ pnpm build          # typesugar build            — emit to dist/
 
 The package names are prefixed `typesugar-example-dry-run-*`, so they are
 excluded from the repo's `pnpm build` / `typecheck` (which filter out
-`typesugar-example-*`). They have no test files and are not run by `vitest`.
+`typesugar-example-*`). They have no test files and are not run by `vitest`;
+CI's **Examples** job runs `check`, `build` and `start` for each of them (and
+for the other `typesugar-example-*` packages).
 
 > Note: the scenarios assume the `@typesugar/*` packages are built (`pnpm build`
 > at the repo root). `typesugar run`/`check` resolve macros from the built

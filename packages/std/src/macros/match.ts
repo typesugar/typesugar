@@ -36,10 +36,18 @@ import {
   globalRegistry,
   isSyntheticNode,
   type MacroContext,
+  typeToPortableTypeNode,
   TS9202,
   TS9216,
   TS9226,
 } from "@typesugar/core";
+import {
+  extractorErrorReported,
+  resolveExtractor,
+  SELF_PAYLOAD,
+  type ExtractorDef,
+  type PayloadTyping,
+} from "./match-extractors.js";
 
 // ============================================================================
 // Chain Parsing
@@ -51,7 +59,8 @@ interface ChainLink {
   node: ts.CallExpression;
 }
 
-interface CaseArm {
+/** @internal shared with match-switch.ts */
+export interface CaseArm {
   pattern: ts.Expression;
   alternatives: ts.Expression[];
   guard?: ts.Expression;
@@ -63,44 +72,36 @@ interface CaseArm {
 // Pattern Types
 // ============================================================================
 
-interface ArrayElementPattern {
+/** @internal shared with match-switch.ts */
+export interface ArrayElementPattern {
   pattern: PatternInfo;
   isRest: boolean;
 }
 
-interface ObjectPropertyPattern {
+/** @internal shared with match-switch.ts */
+export interface ObjectPropertyPattern {
   key: string;
   pattern: PatternInfo;
   isRest: boolean;
-}
-
-/**
- * Defines how an extractor pattern checks and binds values.
- *
- * - `sum-variant`: Tagged union variant (e.g. Some, Left). Checks a discriminant
- *   field and extracts payload fields.
- * - `product`: Structural type (e.g. Point). Checks required fields exist and
- *   maps positional bindings to field names.
- * - `custom`: User-defined Destructure instance. Generates an `extract()` call
- *   with undefined check.
- */
-interface ExtractorDef {
-  kind: "sum-variant" | "product" | "custom";
   /**
-   * A presence test used INSTEAD of the discriminant check — for
-   * @typesugar/fp's untagged representations (Option = `A | null`, List =
-   * `Cons | null`, Either = `{ left } | { right }`).
+   * The scrutinee's type guarantees the field is there (a required field of
+   * the one variant a discriminant switch's `case` selects), so the test
+   * omits `"key" in x`. Set only by the discriminant switch.
    */
-  test?: "not-null" | "null" | { hasKey: string };
-  discriminantField?: string;
-  discriminantValue?: string | boolean;
-  payloadFields?: string[];
-  productFields?: string[];
-  zeroArg: boolean;
+  present?: boolean;
 }
 
-type PatternInfo =
-  | { kind: "literal"; node: ts.Expression }
+// ExtractorDef and SELF_PAYLOAD live in match-extractors.ts (Destructure instances).
+export { SELF_PAYLOAD, type ExtractorDef } from "./match-extractors.js";
+
+/** @internal shared with match-switch.ts */
+export type PatternInfo =
+  /**
+   * `key`: the value, in `getLiteralValueFromType` form, of a constant
+   * pattern (`K.A`, an enum member) read from its type; a syntactic literal's
+   * key is read from its syntax (getPatternLiteralKey).
+   */
+  | { kind: "literal"; node: ts.Expression; key?: string }
   | { kind: "wildcard" }
   | { kind: "variable"; name: string }
   | { kind: "array"; elements: ArrayElementPattern[]; hasRest: boolean }
@@ -114,160 +115,91 @@ type PatternInfo =
 // Extractor Registry
 // ============================================================================
 
-/** A payload field name meaning "the matched value itself" (fp's `Some(v)`). */
-const SELF_PAYLOAD = "";
+/**
+ * The context of the match being expanded, for resolving extractor names to
+ * `Destructure` instances (match-extractors.ts). Set by
+ * {@link withBuiltinExtractorsFor} around each expansion.
+ */
+let extractorContext: MacroContext | undefined;
 
 /**
- * Built-in extractors for `_tag`-discriminated sum types (Effect's
- * Option/Either, hand-written `{ _tag: "Some"; value }` unions).
- * These generate inlined structural checks (zero-cost — no runtime Destructure call).
+ * The extractor `name` stands for: the `Destructure` instance in scope for
+ * it (match-extractors.ts). There are no name-based built-ins: Some/None,
+ * Left/Right, Cons/Nil and Valid/Invalid are instances shipped by
+ * @typesugar/fp next to the types, and any other type brings its own.
  */
-const TAGGED_EXTRACTORS: Record<string, ExtractorDef> = {
-  Some: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Some",
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  None: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "None",
-    zeroArg: true,
-  },
-  Left: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Left",
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  Right: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Right",
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  Cons: {
-    kind: "sum-variant",
-    discriminantField: "_tag",
-    discriminantValue: "Cons",
-    payloadFields: ["head", "tail"],
-    zeroArg: false,
-  },
-  Nil: { kind: "sum-variant", discriminantField: "_tag", discriminantValue: "Nil", zeroArg: true },
-};
+function extractorFor(name: ts.Identifier): ExtractorDef | undefined {
+  return extractorContext ? resolveExtractor(extractorContext, name) : undefined;
+}
+
+/** Built-ins a type-constructor pattern tests without `instanceof`. */
+const NON_INSTANCEOF_CONSTRUCTORS = new Set([
+  "String",
+  "Number",
+  "Boolean",
+  "BigInt",
+  "Symbol",
+  "Function",
+  "Object",
+  "Array",
+]);
 
 /**
- * Built-in extractors for @typesugar/fp's real (untagged) representations
- * (docs review 2026-10, B#1): Option<A> is `A | null` (Some(v) binds the
- * value itself), List<A> is `{ head, tail } | null`, Either<E, A> is
- * `{ left } | { right }` (fp's `isRight` is `"right" in e`).
+ * Why `Name(...)`, which has no `Destructure` instance, can't be a
+ * type-constructor pattern, or undefined when it can. That pattern is a type
+ * test, `value instanceof Name`, binding the whole value to its one argument:
+ * a second argument would be silently dropped (and whatever it names left
+ * unbound, or captured from an outer scope), and a `Name` that is not a class
+ * makes the `instanceof` throw or test nothing. Whether it is a class is
+ * decided through the checker (the symbol, alias-resolved: a class, or a
+ * value with construct signatures such as `Date`), not by name.
  */
-const FP_EXTRACTORS: Record<string, ExtractorDef> = {
-  Some: { kind: "sum-variant", test: "not-null", payloadFields: [SELF_PAYLOAD], zeroArg: false },
-  None: { kind: "sum-variant", test: "null", zeroArg: true },
-  Left: { kind: "sum-variant", test: { hasKey: "left" }, payloadFields: ["left"], zeroArg: false },
-  Right: {
-    kind: "sum-variant",
-    test: { hasKey: "right" },
-    payloadFields: ["right"],
-    zeroArg: false,
-  },
-  Cons: {
-    kind: "sum-variant",
-    test: "not-null",
-    payloadFields: ["head", "tail"],
-    zeroArg: false,
-  },
-  Nil: { kind: "sum-variant", test: "null", zeroArg: true },
-};
-
-/** `ok`-discriminated results (fp's zero-cost Result): one representation. */
-const RESULT_EXTRACTORS: Record<string, ExtractorDef> = {
-  Ok: {
-    kind: "sum-variant",
-    discriminantField: "ok",
-    discriminantValue: true,
-    payloadFields: ["value"],
-    zeroArg: false,
-  },
-  Err: {
-    kind: "sum-variant",
-    discriminantField: "ok",
-    discriminantValue: false,
-    payloadFields: ["error"],
-    zeroArg: false,
-  },
-};
-
-/**
- * Which representation the built-in Some/None/Left/Right/Cons/Nil
- * extractors use for the match currently being expanded: `_tag`-based when
- * the scrutinee's type has a `_tag` property, fp's untagged one otherwise.
- * Set (and restored) by {@link expandFluentMatch} around each expansion.
- */
-let taggedBuiltinExtractors = false;
-
-function knownExtractor(name: string): ExtractorDef | undefined {
-  if (Object.prototype.hasOwnProperty.call(RESULT_EXTRACTORS, name)) {
-    return RESULT_EXTRACTORS[name];
+function typeConstructorProblem(pattern: ts.CallExpression): string | undefined {
+  const callee = pattern.expression as ts.Identifier;
+  const name = callee.text;
+  if (extractorErrorReported(callee)) return undefined; // already an error
+  const noInstance =
+    `no Destructure instance for ${name} is in scope, so ${name}(...) is a type test ` +
+    `(\`value instanceof ${name}\`) that binds the whole value to one name`;
+  // How to give `name` an instance: @derive(Destructure) takes an interface,
+  // object type or union, not a class (whose instance is written by hand).
+  const giveInstance =
+    `a Destructure instance (@derive(Destructure) on an interface or type alias, or ` +
+    `/** @impl Destructure<typeof ${name}, ...> */ written by hand for a class)`;
+  if (pattern.arguments.length > 1) {
+    return (
+      `${name}(...) has ${pattern.arguments.length} arguments, but ${noInstance}. ` +
+      `Bind the whole value, ${name}(v), and read its fields; or give ${name} ${giveInstance} ` +
+      `to bind them in the pattern.`
+    );
   }
-  const table = taggedBuiltinExtractors ? TAGGED_EXTRACTORS : FP_EXTRACTORS;
-  return Object.prototype.hasOwnProperty.call(table, name) ? table[name] : undefined;
-}
-
-/** Does any non-nullish constituent of the scrutinee's type have a `_tag` property? */
-function scrutineeUsesTags(ctx: MacroContext, scrutinee: ts.Expression): boolean {
-  const type = getScrutineeType(ctx, scrutinee);
-  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
-  const parts = type.isUnion() ? type.types : [type];
-  return parts.some(
-    (t) =>
-      !(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) &&
-      ctx.typeChecker.getPropertyOfType(t, "_tag") !== undefined
-  );
-}
-
-const registeredProductExtractors: Map<string, string[]> = new Map();
-const registeredCustomExtractors: Set<string> = new Set();
-
-/**
- * Register a product type extractor for pattern matching.
- * Maps positional bindings to field names in declaration order.
- *
- * @example
- * ```typescript
- * registerProductExtractor("Point", ["x", "y"]);
- * // Now match(p).case(Point(x, y)).then(x + y) works
- * ```
- */
-export function registerProductExtractor(name: string, fields: string[]): void {
-  registeredProductExtractors.set(name, fields);
-}
-
-/**
- * Register a custom Destructure extractor for pattern matching.
- * The extractor must have a static `extract(input): Output | undefined` method.
- *
- * @example
- * ```typescript
- * registerCustomExtractor("Email");
- * // Now match(s).case(Email({ user, domain })).then(...) works
- * ```
- */
-export function registerCustomExtractor(name: string): void {
-  registeredCustomExtractors.add(name);
-}
-
-/**
- * Clear all registered extractors. Useful for test isolation.
- */
-export function clearRegisteredExtractors(): void {
-  registeredProductExtractors.clear();
-  registeredCustomExtractors.clear();
+  if (NON_INSTANCEOF_CONSTRUCTORS.has(name)) return undefined;
+  const ctx = extractorContext;
+  if (!ctx || isSyntheticNode(callee)) return undefined;
+  const checker = ctx.typeChecker;
+  let sym: ts.Symbol | undefined;
+  try {
+    sym = checker.getSymbolAtLocation(callee);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (sym && sym.flags & ts.SymbolFlags.Class) return undefined;
+    const valueType =
+      sym && sym.flags & ts.SymbolFlags.Value
+        ? checker.getTypeOfSymbolAtLocation(sym, callee)
+        : undefined;
+    if (valueType && valueType.getConstructSignatures().length > 0) return undefined;
+  } catch (e) {
+    // Degrade to the type test, visibly (CLAUDE.md).
+    ctx.reportWarning(
+      callee,
+      `match: could not check that ${name} is a class (${e instanceof Error ? e.message : String(e)}); ` +
+        `${name}(...) is compiled to \`instanceof ${name}\`.`
+    );
+    return undefined;
+  }
+  return sym
+    ? `${name} is not a class, and ${noInstance}, which needs a class (or a built-in ` +
+        `constructor such as Date). Give ${name} ${giveInstance} to match its fields.`
+    : `${name} is not in scope: ${name}(...) needs a class, or a Destructure instance for ${name}.`;
 }
 
 /**
@@ -408,7 +340,8 @@ function parseArms(
 // ============================================================================
 
 /** `NaN` never equals itself — literal checks on it must use `Number.isNaN`. */
-function isNaNLiteral(node: ts.Expression): boolean {
+/** @internal shared with match-switch.ts */
+export function isNaNLiteral(node: ts.Expression): boolean {
   return ts.isIdentifier(node) && node.text === "NaN";
 }
 
@@ -416,7 +349,8 @@ function isNaNLiteral(node: ts.Expression): boolean {
  * The runtime test for a literal pattern: `accessor === lit`, or
  * `Number.isNaN(accessor)` for `NaN`.
  */
-function literalCheck(
+/** @internal shared with match-switch.ts */
+export function literalCheck(
   f: ts.NodeFactory,
   accessor: ts.Expression,
   lit: ts.Expression
@@ -449,7 +383,29 @@ function patternHasBindings(p: PatternInfo): boolean {
   }
 }
 
-function analyzePattern(pattern: ts.Expression): PatternInfo {
+/** The unsupported sub-patterns of `p` (`p` itself too unless `top`). */
+function nestedUnsupportedPatterns(
+  p: PatternInfo,
+  top = false
+): Array<PatternInfo & { kind: "unsupported" }> {
+  switch (p.kind) {
+    case "unsupported":
+      return top ? [] : [p];
+    case "array":
+      return p.elements.flatMap((e) => nestedUnsupportedPatterns(e.pattern));
+    case "object":
+      return p.properties.flatMap((pr) => nestedUnsupportedPatterns(pr.pattern));
+    case "type-constructor":
+      return nestedUnsupportedPatterns(p.binding);
+    case "extractor":
+      return p.bindings.flatMap((b) => nestedUnsupportedPatterns(b));
+    default:
+      return [];
+  }
+}
+
+/** @internal shared with match-switch.ts */
+export function analyzePattern(pattern: ts.Expression): PatternInfo {
   // Literals
   if (ts.isNumericLiteral(pattern)) {
     return { kind: "literal", node: pattern };
@@ -481,7 +437,7 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     if (pattern.text === "undefined" || pattern.text === "NaN" || pattern.text === "Infinity") {
       return { kind: "literal", node: pattern };
     }
-    const zeroArgDef = knownExtractor(pattern.text);
+    const zeroArgDef = extractorFor(pattern);
     if (zeroArgDef && zeroArgDef.zeroArg) {
       return { kind: "extractor", extractorName: pattern.text, bindings: [], def: zeroArgDef };
     }
@@ -567,9 +523,7 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     const name = pattern.expression.text;
 
     // Check extractor registries before falling back to type-constructor
-    const knownDef = knownExtractor(name);
-    const productFields = registeredProductExtractors.get(name);
-    const isCustom = registeredCustomExtractors.has(name);
+    const knownDef = extractorFor(pattern.expression);
 
     // Zero-arg extractors (e.g. None, Nil) should not be called with arguments
     if (knownDef && knownDef.zeroArg && pattern.arguments.length > 0) {
@@ -583,24 +537,20 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     if (knownDef && !knownDef.zeroArg) {
       const bindings =
         pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
+      const extracted = knownDef.payloadFields ?? knownDef.productFields;
+      if (extracted && bindings.length > extracted.length) {
+        return {
+          kind: "unsupported",
+          node: pattern,
+          reason: `${name}(...) binds ${bindings.length} values, but its extractor yields ${extracted.length}`,
+        };
+      }
       return { kind: "extractor", extractorName: name, bindings, def: knownDef };
     }
 
-    if (productFields) {
-      const def: ExtractorDef = { kind: "product", productFields, zeroArg: false };
-      const bindings =
-        pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
-      return { kind: "extractor", extractorName: name, bindings, def };
-    }
-
-    if (isCustom) {
-      const def: ExtractorDef = { kind: "custom", zeroArg: false };
-      const bindings =
-        pattern.arguments.length > 0 ? Array.from(pattern.arguments).map(analyzePattern) : [];
-      return { kind: "extractor", extractorName: name, bindings, def };
-    }
-
     // Fall through to type-constructor for String, Date, etc.
+    const problem = typeConstructorProblem(pattern);
+    if (problem) return { kind: "unsupported", node: pattern, reason: problem };
     const binding =
       pattern.arguments.length >= 1
         ? analyzePattern(pattern.arguments[0])
@@ -613,7 +563,43 @@ function analyzePattern(pattern: ts.Expression): PatternInfo {
     return { kind: "regex", node: pattern };
   }
 
+  // Constants: `K.A` (an enum member), `Mode.Fast` on an `as const` object.
+  const constant = constantPattern(pattern);
+  if (constant) return constant;
+
   return { kind: "unsupported", node: pattern };
+}
+
+/**
+ * A qualified name (`K.A`, `ns.K.A`) whose type is a single literal value is
+ * a constant pattern: an equality test against it, with that value's key for
+ * exhaustiveness. Decided by the checker, not by the names: the type of the
+ * expression must be one string/number/boolean literal (an enum member's
+ * type is one). Undefined (an unsupported pattern) for anything else, or
+ * when no checker can be asked (a synthetic node, no expansion context).
+ */
+function constantPattern(pattern: ts.Expression): PatternInfo | undefined {
+  if (!ts.isPropertyAccessExpression(pattern) || !isQualifiedName(pattern)) return undefined;
+  const ctx = extractorContext;
+  if (!ctx || isSyntheticNode(pattern)) return undefined;
+  let key: string | undefined;
+  try {
+    key = getLiteralValueFromType(ctx.typeChecker.getTypeAtLocation(pattern));
+  } catch (e) {
+    ctx.reportWarning(
+      pattern,
+      `match: could not read the type of constant pattern '${pattern.getText()}' ` +
+        `(${e instanceof Error ? e.message : String(e)}); it is treated as unsupported.`
+    );
+    return undefined;
+  }
+  return key === undefined ? undefined : { kind: "literal", node: pattern, key };
+}
+
+/** `a.b`, `a.b.c`: property accesses on an identifier, no calls or `?.`. */
+function isQualifiedName(e: ts.Expression): boolean {
+  if (ts.isIdentifier(e)) return true;
+  return ts.isPropertyAccessExpression(e) && !e.questionDotToken && isQualifiedName(e.expression);
 }
 
 // ============================================================================
@@ -632,7 +618,8 @@ export interface ScrutineeAnalysis {
   nullishMembers?: Set<string>;
 }
 
-function getLiteralValueFromType(type: ts.Type): string | undefined {
+/** @internal shared with match-switch.ts */
+export function getLiteralValueFromType(type: ts.Type): string | undefined {
   if (type.isStringLiteral()) return JSON.stringify(type.value);
   if (type.isNumberLiteral()) return String(type.value);
   if (type.flags & ts.TypeFlags.BooleanLiteral) {
@@ -641,13 +628,27 @@ function getLiteralValueFromType(type: ts.Type): string | undefined {
   return undefined;
 }
 
-function nullishKeyOfType(type: ts.Type): string | undefined {
+/** @internal shared with match-switch.ts */
+export function nullishKeyOfType(type: ts.Type): string | undefined {
   if (type.flags & ts.TypeFlags.Null) return "null";
   if (type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return "undefined";
   return undefined;
 }
 
-export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): ScrutineeAnalysis {
+/**
+ * @param narrowedFromUnion - The scrutinee is a variable or property whose
+ *   DECLARED type is a discriminated union, narrowed here (by assignment or
+ *   control flow) to fewer variants. Only then is a single object type (or
+ *   one object type plus null/undefined) a one-variant discriminated union:
+ *   `const c: Shape = { kind: "circle", ... }` is the circle variant. A plain
+ *   object type with a literal-typed field (`interface Cfg { version: 1 }`)
+ *   is not a variant of anything and stays non-enumerable.
+ */
+export function analyzeScrutineeType(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  narrowedFromUnion = false
+): ScrutineeAnalysis {
   if (type.flags & ts.TypeFlags.Boolean) {
     return { kind: "boolean", literalMembers: new Set(["true", "false"]) };
   }
@@ -681,7 +682,12 @@ export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): Sc
       return { kind: "literal-union", literalMembers: litMembers };
     }
 
-    const disc = members.length >= 2 ? findDiscriminant(checker, members) : undefined;
+    // One object member (`Circle | null`) is a one-variant discriminated
+    // union only when narrowed from a declared one (see narrowedFromUnion).
+    const disc =
+      members.length >= 2 || (members.length === 1 && narrowedFromUnion)
+        ? findDiscriminant(checker, members)
+        : undefined;
     if (disc) {
       return {
         kind: "discriminated-union",
@@ -701,6 +707,21 @@ export function analyzeScrutineeType(checker: ts.TypeChecker, type: ts.Type): Sc
 
   if (type.flags & (ts.TypeFlags.String | ts.TypeFlags.Number | ts.TypeFlags.BigInt)) {
     return { kind: "non-enumerable" };
+  }
+
+  // A single object type narrowed from a declared discriminated union is a
+  // one-variant discriminated union: `const c: Shape = { kind: "circle", ... }`
+  // narrows `c` to the circle variant, which an arm `{ kind: "circle", radius }`
+  // covers completely (it was "not enumerable", TS9226).
+  if (narrowedFromUnion && type.flags & ts.TypeFlags.Object) {
+    const disc = findDiscriminant(checker, [type]);
+    if (disc) {
+      return {
+        kind: "discriminated-union",
+        discriminantField: disc.field,
+        variantValues: disc.values,
+      };
+    }
   }
 
   if (type.flags & (ts.TypeFlags.Object | ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
@@ -759,7 +780,8 @@ function findDiscriminant(
  */
 const scrutineeTypeCache = new WeakMap<ts.Node, { type?: ts.Type }>();
 
-function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): ts.Type | undefined {
+/** @internal shared with match-switch.ts */
+export function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): ts.Type | undefined {
   const cached = scrutineeTypeCache.get(scrutinee);
   if (cached) return cached.type;
   let type: ts.Type | undefined;
@@ -778,15 +800,223 @@ function getScrutineeType(ctx: MacroContext, scrutinee: ts.Expression): ts.Type 
   return type;
 }
 
+/**
+ * Whether `scrutinee` names a variable, parameter or property whose DECLARED
+ * type (read from its symbol, so narrowing doesn't apply) is a discriminated
+ * union of two or more object types, and its type here is narrower. Decided
+ * through the checker (the declared type's members and their literal-typed
+ * fields), not by names.
+ */
+function isNarrowedFromUnion(ctx: MacroContext, scrutinee: ts.Expression, type: ts.Type): boolean {
+  const checker = ctx.typeChecker;
+  try {
+    const declaredType = declaredTypeOfScrutinee(ctx, scrutinee);
+    if (!declaredType) return false;
+    const declared = checker.getNonNullableType(declaredType);
+    if (declared === checker.getNonNullableType(type) || !declared.isUnion()) return false;
+    const objects = declared.types.filter((t) => (t.flags & ts.TypeFlags.Object) !== 0);
+    return objects.length >= 2 && findDiscriminant(checker, objects) !== undefined;
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: could not read the scrutinee's declared type (${e instanceof Error ? e.message : String(e)}); ` +
+        `it is checked as its narrowed type, without the one-variant rule.`
+    );
+    return false;
+  }
+}
+
+/**
+ * The DECLARED type of a scrutinee that names a variable, parameter or
+ * property: read from its symbol (aliases followed), so narrowing doesn't
+ * apply. Undefined for any other expression, or a synthetic one (the checker
+ * isn't asked about those). Checker failures propagate to the caller, which
+ * reports them.
+ */
+function declaredTypeOfScrutinee(ctx: MacroContext, scrutinee: ts.Expression): ts.Type | undefined {
+  let e = scrutinee;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  const named = ts.isIdentifier(e) ? e : ts.isPropertyAccessExpression(e) ? e.name : undefined;
+  if (!named || isSyntheticNode(named)) return undefined;
+  const checker = ctx.typeChecker;
+  let sym = checker.getSymbolAtLocation(named);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  if (!sym || !(sym.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property))) return undefined;
+  return checker.getTypeOfSymbol(sym);
+}
+
+/**
+ * How the generated code reads the scrutinee.
+ *
+ * - `members`: the non-nullish members of the type the read has, for the
+ *   discriminant switch's field tests.
+ * - `assertion`: a fresh type node to assert the read to (`x as Shape`), or
+ *   undefined to read the scrutinee as it is.
+ */
+interface ScrutineeReading {
+  members?: readonly ts.Type[];
+  assertion?: () => ts.TypeNode | undefined;
+}
+
+const scrutineeReadingCache = new WeakMap<ts.Node, ScrutineeReading>();
+
+function isObjectLike(t: ts.Type): boolean {
+  return (t.flags & ts.TypeFlags.Object) !== 0 || t.isIntersection();
+}
+
+function isLiteralLike(t: ts.Type): boolean {
+  return getLiteralValueFromType(t) !== undefined || (t.flags & ts.TypeFlags.EnumLiteral) !== 0;
+}
+
+/**
+ * The type the generated code should read the scrutinee at.
+ *
+ * The expansion reads the scrutinee from a const (`const _s = s;`), which
+ * has the type TypeScript has NARROWED `s` to here. A match is written
+ * against the declared type, though: `const circle: Shape = { kind: "circle",
+ * ... }` narrows `circle` to the circle variant, and the expansion's `case
+ * "square":` was then unreachable to TypeScript (TS2678), and `"side" in
+ * _circle` narrowed `side` to `unknown` (TS18046): errors in valid code once
+ * the expansion is type-checked (as `typesugar check` does a match chain's).
+ *
+ * So the read is asserted back to the declared type when the narrowing took
+ * union members away: `const _circle = circle as Shape;`. Only members of
+ * the kind that is left come back (objects for an object, literals for a
+ * literal): `s: Shape | string` narrowed to `Shape` by `typeof` is not read
+ * as `Shape | string`, and null/undefined the narrowing removed stay
+ * removed, so the null guard (decided on the narrowed type) still fits.
+ * Decided by type identity (union members compared as types), not by name.
+ *
+ * The node is the checker's (`typeToTypeNode`), written as this file can
+ * name it (core's `typeToPortableTypeNode`); when it can't be, the read
+ * stays as it was. The assertion is erased from the JavaScript.
+ */
+function scrutineeReading(ctx: MacroContext, scrutinee: ts.Expression): ScrutineeReading {
+  const cached = scrutineeReadingCache.get(scrutinee);
+  if (cached) return cached;
+  const reading = computeScrutineeReading(ctx, scrutinee);
+  scrutineeReadingCache.set(scrutinee, reading);
+  return reading;
+}
+
+function computeScrutineeReading(ctx: MacroContext, scrutinee: ts.Expression): ScrutineeReading {
+  const narrowed = getScrutineeType(ctx, scrutinee);
+  if (!narrowed || narrowed.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return {};
+  const narrowedMembers = narrowed.isUnion() ? narrowed.types : [narrowed];
+  const nonNullish = (list: readonly ts.Type[]) => list.filter((t) => !nullishKeyOfType(t));
+  const asIs: ScrutineeReading = { members: nonNullish(narrowedMembers) };
+
+  const checker = ctx.typeChecker;
+  try {
+    const declared = declaredTypeOfScrutinee(ctx, scrutinee);
+    if (!declared || declared === narrowed || !declared.isUnion()) return asIs;
+    const declaredMembers = declared.types;
+    // Narrowing filters a union's members; anything else (an intersection
+    // from `in`, a subtype from `instanceof`) is read as it is.
+    if (!narrowedMembers.every((t) => declaredMembers.includes(t))) return asIs;
+    const left = nonNullish(narrowedMembers);
+    const sameKind =
+      left.length === 0
+        ? undefined
+        : left.every(isObjectLike)
+          ? isObjectLike
+          : left.every(isLiteralLike)
+            ? isLiteralLike
+            : undefined;
+    if (!sameKind) return asIs;
+    const kept = declaredMembers.filter((t) => narrowedMembers.includes(t) || sameKind(t));
+    if (kept.length === narrowedMembers.length) return asIs;
+
+    const members = nonNullish(kept);
+    const dropped = declaredMembers.filter((t) => !kept.includes(t));
+    const enclosing = scrutinee;
+    const file = ctx.sourceFile;
+    const nodeOf = (t: ts.Type) => typeToPortableTypeNode(ctx.program, checker, file, t, enclosing);
+    const build = (): ts.TypeNode | undefined => {
+      if (dropped.length === 0) return nodeOf(declared);
+      // Only null/undefined dropped: the declared type's own node without
+      // them (`Shape | null` → `Shape`), so an alias keeps its name.
+      if (dropped.every((t) => nullishKeyOfType(t))) {
+        const whole = nodeOf(declared);
+        if (whole && ts.isUnionTypeNode(whole)) {
+          const rest = whole.types.filter((n) => !isNullishTypeNode(n));
+          if (rest.length === 1) return rest[0];
+          if (rest.length > 1) return ctx.factory.createUnionTypeNode(rest);
+        }
+      }
+      const nodes = members.map(nodeOf);
+      if (nodes.some((n) => n === undefined)) return undefined;
+      return nodes.length === 1
+        ? nodes[0]
+        : ctx.factory.createUnionTypeNode(nodes as ts.TypeNode[]);
+    };
+    // Expressible at all? Otherwise the read stays as it is.
+    if (!build()) return { members };
+    return { members, assertion: build };
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: could not write the scrutinee's declared type (${e instanceof Error ? e.message : String(e)}); ` +
+        `the generated code reads it at its narrowed type.`
+    );
+    return asIs;
+  }
+}
+
+function isNullishTypeNode(n: ts.TypeNode): boolean {
+  if (n.kind === ts.SyntaxKind.UndefinedKeyword) return true;
+  return ts.isLiteralTypeNode(n) && n.literal.kind === ts.SyntaxKind.NullKeyword;
+}
+
+/** `scrutinee`, asserted to its declared type when {@link scrutineeReading} says so. */
+function readScrutinee(ctx: MacroContext, scrutinee: ts.Expression): ts.Expression {
+  const node = scrutineeReading(ctx, scrutinee).assertion?.();
+  return node ? ctx.factory.createAsExpression(scrutinee, node) : scrutinee;
+}
+
+/**
+ * The fields a value is sure to have when its discriminant `field` is the
+ * literal `key`: the required fields of the one member of `members` whose
+ * `field` can be `key`. Undefined when the tag doesn't pick out one member
+ * (two carry it, a member's `field` isn't a literal, or a member has no such
+ * field and so could carry anything there).
+ */
+function fieldsTheTagGuarantees(
+  checker: ts.TypeChecker,
+  members: readonly ts.Type[],
+  field: string,
+  key: string
+): Set<string> | undefined {
+  let variant: ts.Type | undefined;
+  for (const member of members) {
+    if (!isObjectLike(member)) return undefined;
+    const prop = checker.getPropertyOfType(member, field);
+    if (!prop) return undefined;
+    const t = checker.getTypeOfSymbol(prop);
+    const values = (t.isUnion() ? t.types : [t]).map(getLiteralValueFromType);
+    if (values.some((v) => v === undefined)) return undefined;
+    if (!values.includes(key)) continue;
+    if (variant) return undefined;
+    variant = member;
+  }
+  if (!variant) return undefined;
+  const present = new Set<string>();
+  for (const prop of checker.getPropertiesOfType(variant)) {
+    if (!(prop.flags & ts.SymbolFlags.Optional)) present.add(prop.getName());
+  }
+  return present;
+}
+
 /** Scrutinee analysis, or undefined for any/unknown/unavailable types. */
-function getScrutineeAnalysis(
+/** @internal shared with match-switch.ts */
+export function getScrutineeAnalysis(
   ctx: MacroContext,
   scrutinee: ts.Expression
 ): ScrutineeAnalysis | undefined {
   const type = getScrutineeType(ctx, scrutinee);
   if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
   try {
-    return analyzeScrutineeType(ctx.typeChecker, type);
+    return analyzeScrutineeType(ctx.typeChecker, type, isNarrowedFromUnion(ctx, scrutinee, type));
   } catch (e) {
     ctx.reportWarning(
       scrutinee,
@@ -801,8 +1031,10 @@ function getScrutineeAnalysis(
 // Wave 5: Exhaustiveness Checking
 // ============================================================================
 
-function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
+/** @internal shared with match-switch.ts */
+export function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
   if (pattern.kind !== "literal") return undefined;
+  if (pattern.key !== undefined) return pattern.key;
   const node = pattern.node;
   if (ts.isStringLiteral(node)) return JSON.stringify(node.text);
   if (ts.isNumericLiteral(node)) return String(Number(node.text));
@@ -817,7 +1049,8 @@ function getPatternLiteralKey(pattern: PatternInfo): string | undefined {
   return undefined;
 }
 
-function patternCoversAll(pattern: PatternInfo): boolean {
+/** @internal shared with match-switch.ts */
+export function patternCoversAll(pattern: PatternInfo): boolean {
   return pattern.kind === "wildcard" || pattern.kind === "variable";
 }
 
@@ -851,19 +1084,44 @@ function coveredLiteralKeys(pattern: PatternInfo, members: Set<string>): string[
  * Discriminant value a pattern covers COMPLETELY for a discriminated union:
  * `{ kind: "a" }` (other props only bind), `Some(x)`, or a nullish literal.
  * `{ kind: "a", extra: 1 }` covers nothing — it only matches part of "a".
+ *
+ * An object pattern's other properties are tests too: the generated code
+ * checks `"extra" in _v` for each one the variant doesn't require
+ * (buildCondition; the discriminant switch drops the test only for a field
+ * the variant requires). So `{ kind: "b", extra }`, with `extra` optional in
+ * the `b` variant, matches only the `b` values that have it, and covers
+ * nothing: `requiredFields(key)` (the fields the variant with that tag
+ * requires, read from the scrutinee's type) decides, and the optional ones
+ * it binds are reported in `optionalBound` for the diagnostic.
  */
-function coveredVariantKey(pattern: PatternInfo, discriminantField: string): string | undefined {
+function coveredVariantKey(
+  pattern: PatternInfo,
+  discriminantField: string,
+  requiredFields?: (key: string) => ReadonlySet<string> | undefined,
+  optionalBound?: Map<string, Set<string>>
+): string | undefined {
   if (pattern.kind === "object") {
     let key: string | undefined;
+    const tested: string[] = [];
     for (const prop of pattern.properties) {
       if (prop.isRest) continue;
       if (prop.key === discriminantField && prop.pattern.kind === "literal") {
         key = getPatternLiteralKey(prop.pattern);
       } else if (!patternCoversAll(prop.pattern)) {
         return undefined;
+      } else {
+        tested.push(prop.key);
       }
     }
-    return key;
+    if (key === undefined || !requiredFields || tested.length === 0) return key;
+    // Unknown (the checker couldn't say): judged by the pattern alone, as before.
+    const required = requiredFields(key);
+    const optional = required ? tested.filter((k) => !required.has(k)) : [];
+    if (optional.length === 0) return key;
+    const names = optionalBound?.get(key) ?? new Set<string>();
+    for (const k of optional) names.add(k);
+    optionalBound?.set(key, names);
+    return undefined;
   }
   if (pattern.kind === "extractor" && pattern.def.kind === "sum-variant") {
     // fp's `None`/`Nil` are `null`: they cover the null member.
@@ -889,103 +1147,291 @@ function checkExhaustiveness(
   hasElse: boolean
 ): void {
   if (hasElse) return;
+  const patterns = arms
+    .filter((arm) => !arm.guard)
+    .flatMap((arm) => [arm.pattern, ...arm.alternatives].map(analyzePattern));
+  reportMissingCases(ctx, chainExpr, findMissingCases(ctx, scrutinee, patterns), ".else() / _");
+}
 
-  for (const arm of arms) {
-    if (arm.guard) continue;
-    const pattern = analyzePattern(arm.pattern);
-    if (patternCoversAll(pattern)) return;
-    for (const alt of arm.alternatives) {
-      if (patternCoversAll(analyzePattern(alt))) return;
-    }
-  }
+/**
+ * What a set of unguarded patterns leaves uncovered of the scrutinee's type.
+ * `complete` also when the type can't be analysed (any/unknown/unavailable),
+ * which the callers treat as "nothing to report".
+ * @internal shared with the `match:` switch (match-switch.ts)
+ */
+export type MatchCoverage =
+  /** `unanalysed`: the type couldn't be analysed, so nothing is reported — and nothing proven. */
+  | { kind: "complete"; unanalysed?: true }
+  | { kind: "missing"; what: "cases" | "variants"; missing: string }
+  | { kind: "not-enumerable" };
 
-  // fp's untagged extractors: `Some(v)`/`Cons(h, t)` + `None`/`Nil` cover
-  // non-null + null; `Left(e)` + `Right(a)` cover both Either variants.
-  const fpCovered = new Set<string>();
-  for (const arm of arms) {
-    if (arm.guard) continue;
-    for (const pat of [arm.pattern, ...arm.alternatives]) {
-      const p = analyzePattern(pat);
-      if (p.kind !== "extractor" || !p.def.test || !p.bindings.every(patternCoversAll)) continue;
-      fpCovered.add(typeof p.def.test === "string" ? p.def.test : `has:${p.def.test.hasKey}`);
-    }
-  }
+/** @internal shared with the `match:` switch (match-switch.ts) */
+export function findMissingCases(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  patterns: readonly PatternInfo[]
+): MatchCoverage {
+  if (patterns.some(patternCoversAll)) return { kind: "complete" };
+  // A product extractor (`@destructure always -> x, y`) whose bindings bind
+  // everything matches every value.
   if (
-    (fpCovered.has("not-null") && fpCovered.has("null")) ||
-    (fpCovered.has("has:left") && fpCovered.has("has:right"))
+    patterns.some(
+      (p) => p.kind === "extractor" && p.def.test === "always" && p.bindings.every(patternCoversAll)
+    )
   ) {
-    return;
+    return { kind: "complete" };
   }
+
+  // Untagged extractor tests (fp's Option/List/Either/Validated): `not-null`
+  // + `null` cover everything; `has k` tests cover the scrutinee's union when
+  // every non-nullish member has a required `k` from the set (and a nullish
+  // member, if any, is covered by a `null` test).
+  const fpCovered = new Set<string>();
+  const hasKeys = new Set<string>();
+  for (const p of patterns) {
+    if (p.kind !== "extractor" || !p.def.test || !p.bindings.every(patternCoversAll)) continue;
+    if (typeof p.def.test === "string") fpCovered.add(p.def.test);
+    else hasKeys.add(p.def.test.hasKey);
+  }
+  if (fpCovered.has("not-null") && fpCovered.has("null")) return { kind: "complete" };
+  if (hasKeys.size > 0 && coveredByKeyTests(ctx, scrutinee, hasKeys, fpCovered.has("null"))) {
+    return { kind: "complete" };
+  }
+
+  if (arrayPatternsCoverType(ctx, scrutinee, patterns)) return { kind: "complete" };
 
   const analysis = getScrutineeAnalysis(ctx, scrutinee);
-  if (!analysis) return;
+  if (!analysis) return { kind: "complete", unanalysed: true };
 
   switch (analysis.kind) {
     case "literal-union":
     case "boolean": {
-      if (!analysis.literalMembers) return;
+      if (!analysis.literalMembers) return { kind: "complete", unanalysed: true };
       const covered = new Set<string>();
-      for (const arm of arms) {
-        if (arm.guard) continue;
-        for (const pat of [arm.pattern, ...arm.alternatives]) {
-          for (const k of coveredLiteralKeys(analyzePattern(pat), analysis.literalMembers)) {
-            covered.add(k);
-          }
-        }
+      for (const p of patterns) {
+        for (const k of coveredLiteralKeys(p, analysis.literalMembers)) covered.add(k);
       }
-
       const missing = [...analysis.literalMembers].filter((m) => !covered.has(m));
-      if (missing.length > 0) {
-        ctx
-          .diagnostic(TS9226)
-          .at(chainExpr)
-          .withArgs({ what: "cases", missing: missing.join(", ") })
-          .help("Add the missing cases or use .else() / _ to handle remaining values.")
-          .emit();
-      }
-      break;
+      return missing.length > 0
+        ? { kind: "missing", what: "cases", missing: missing.join(", ") }
+        : { kind: "complete" };
     }
 
     case "discriminated-union": {
-      if (!analysis.variantValues || !analysis.discriminantField) return;
-      const covered = new Set<string>();
-
-      for (const arm of arms) {
-        if (arm.guard) continue;
-        for (const pat of [arm.pattern, ...arm.alternatives]) {
-          const key = coveredVariantKey(analyzePattern(pat), analysis.discriminantField);
-          if (key !== undefined) covered.add(key);
-        }
+      if (!analysis.variantValues || !analysis.discriminantField) {
+        return { kind: "complete", unanalysed: true };
       }
-
+      const field = analysis.discriminantField;
+      const members = variantMembers(ctx, scrutinee);
+      const required = (key: string): ReadonlySet<string> | undefined => {
+        if (!members) return undefined;
+        try {
+          return fieldsTheTagGuarantees(ctx.typeChecker, members, field, key);
+        } catch (e) {
+          ctx.reportWarning(
+            scrutinee,
+            `match: could not read which fields the ${key} variant requires ` +
+              `(${e instanceof Error ? e.message : String(e)}); its arms are checked by their patterns alone.`
+          );
+          return undefined;
+        }
+      };
+      const optionalBound = new Map<string, Set<string>>();
+      const covered = new Set<string>();
+      for (const p of patterns) {
+        const key = coveredVariantKey(p, field, required, optionalBound);
+        if (key !== undefined) covered.add(key);
+      }
       const expected = [...analysis.variantValues, ...(analysis.nullishMembers ?? [])];
       const missing = expected.filter((m) => !covered.has(m));
-      if (missing.length > 0) {
-        ctx
-          .diagnostic(TS9226)
-          .at(chainExpr)
-          .withArgs({
-            what: "variants",
-            missing: `${missing.join(", ")} (discriminant: "${analysis.discriminantField}")`,
-          })
-          .help("Add the missing cases or use .else() / _ to handle remaining values.")
-          .emit();
-      }
-      break;
+      if (missing.length === 0) return { kind: "complete" };
+      const notes = missing
+        .filter((m) => optionalBound.has(m))
+        .map((m) => {
+          const names = [...optionalBound.get(m)!].map((n) => `"${n}"`).join(", ");
+          return (
+            `the ${m} arm matches only when optional field${optionalBound.get(m)!.size > 1 ? "s" : ""} ` +
+            `${names} ${optionalBound.get(m)!.size > 1 ? "are" : "is"} present`
+          );
+        });
+      return {
+        kind: "missing",
+        what: "variants",
+        missing:
+          `${missing.join(", ")} (discriminant: "${field}")` +
+          (notes.length > 0 ? `; ${notes.join("; ")}` : ""),
+      };
     }
 
-    case "non-enumerable": {
-      ctx
-        .diagnostic(TS9226)
-        .at(chainExpr)
-        .withArgs({ what: "a fallback", missing: "the scrutinee type is not enumerable" })
-        .help("Add .else() or a _ wildcard to handle all remaining values.")
-        .emit();
-      break;
-    }
+    case "non-enumerable":
+      return { kind: "not-enumerable" };
 
     case "unknown":
-      break;
+      return { kind: "complete", unanalysed: true };
+  }
+}
+
+/**
+ * The index of the first unguarded arm after which the unguarded arms so far
+ * PROVABLY cover the scrutinee's type (-1 if none): from there on, the arm
+ * needs no test and nothing after it — no later arm, no `.else()`, no
+ * `MatchError` — can run. "Provably" is {@link findMissingCases} saying
+ * complete for a type it could analyse: a literal union whose members are
+ * all matched, a discriminated union whose variants are, `null` + `not-null`
+ * extractors (Some/None, Cons/Nil), `has` extractors covering every member
+ * (Left/Right, Valid/Invalid), derived variant extractors covering every tag.
+ * An arm that is itself a catch-all (`_`, a binding) is left to the normal
+ * path, which already ends there. A value outside the static type (an `any`
+ * cast) takes the last arm, as in TypeScript's own exhaustive switch.
+ */
+function findCoveringArmIndex(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  arms: CaseArm[]
+): number {
+  const patterns: PatternInfo[] = [];
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
+    if (arm.guard) continue;
+    const own = [arm.pattern, ...arm.alternatives].map(analyzePattern);
+    if (own.some(patternCoversAll)) return -1;
+    patterns.push(...own);
+    const coverage = findMissingCases(ctx, scrutinee, patterns);
+    if (coverage.kind === "complete" && !coverage.unanalysed) return i;
+  }
+  return -1;
+}
+
+/**
+ * Do array patterns that can't fail on it cover every member of the
+ * scrutinee's type? A tuple member `[A, B]` is covered by `[x, y]` (its
+ * arity, every element a binding: `Array.isArray(_p) && _p.length === 2`
+ * always holds for it), or by `[x, ...rest]` when the tuple has at least
+ * that many elements; any array by `[...xs]`. A `null`/`undefined` member
+ * needs its own literal arm. Decided by the checker's tuple types
+ * (`isTupleType`, element flags), not by names.
+ */
+function arrayPatternsCoverType(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  patterns: readonly PatternInfo[]
+): boolean {
+  const arrays = patterns.filter((p): p is PatternInfo & { kind: "array" } => p.kind === "array");
+  if (arrays.length === 0) return false;
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const checker = ctx.typeChecker;
+  const literalKeys = new Set(patterns.map(getPatternLiteralKey));
+  try {
+    return (type.isUnion() ? type.types : [type]).every((member) => {
+      const nk = nullishKeyOfType(member);
+      if (nk) return literalKeys.has(nk);
+      return arrays.some((p) => arrayPatternCannotFail(checker, p, member));
+    });
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: could not read the scrutinee's tuple type (${e instanceof Error ? e.message : String(e)}); ` +
+        `its array patterns are not counted as covering it.`
+    );
+    return false;
+  }
+}
+
+/** Does the array pattern `p` match every value of `type` (see arrayPatternsCoverType)? */
+function arrayPatternCannotFail(
+  checker: ts.TypeChecker,
+  p: PatternInfo & { kind: "array" },
+  type: ts.Type
+): boolean {
+  const fixed = p.elements.filter((e) => !e.isRest);
+  const rest = p.elements.find((e) => e.isRest);
+  if (rest && !patternCoversAll(rest.pattern)) return false;
+  if (checker.isArrayType(type)) return !!rest && fixed.length === 0;
+  if (!checker.isTupleType(type)) return false;
+  const target = (type as ts.TypeReference).target as ts.TupleType;
+  const variable = (target.combinedFlags & ts.ElementFlags.Variable) !== 0;
+  const lengthOk = rest
+    ? fixed.length <= target.minLength
+    : !variable && target.minLength === fixed.length && target.fixedLength === fixed.length;
+  if (!lengthOk) return false;
+  const elementTypes = variable ? undefined : checker.getTypeArguments(type as ts.TypeReference);
+  return fixed.every((e, i) => {
+    if (patternCoversAll(e.pattern)) return true;
+    const elementType = elementTypes?.[i];
+    return (
+      e.pattern.kind === "array" &&
+      elementType !== undefined &&
+      arrayPatternCannotFail(checker, e.pattern, elementType)
+    );
+  });
+}
+
+/**
+ * The scrutinee type's non-nullish members (the variants of a discriminated
+ * union, or the one variant it is narrowed to), or undefined when the
+ * checker can't say.
+ */
+function variantMembers(ctx: MacroContext, scrutinee: ts.Expression): ts.Type[] | undefined {
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type) return undefined;
+  return (type.isUnion() ? type.types : [type]).filter((t) => !nullishKeyOfType(t));
+}
+
+/** Does every member of the scrutinee's union have a required key from `keys`? */
+function coveredByKeyTests(
+  ctx: MacroContext,
+  scrutinee: ts.Expression,
+  keys: ReadonlySet<string>,
+  nullCovered: boolean
+): boolean {
+  const type = getScrutineeType(ctx, scrutinee);
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const members = type.isUnion() ? type.types : [type];
+  try {
+    return members.every((m) => {
+      if (m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) {
+        return nullCovered;
+      }
+      return [...keys].some((k) => {
+        const prop = ctx.typeChecker.getPropertyOfType(m, k);
+        return prop !== undefined && (prop.flags & ts.SymbolFlags.Optional) === 0;
+      });
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Emit TS9226 for an incomplete {@link MatchCoverage}; `fallback` names the
+ * construct that covers the rest (`.else() / _`, `default:`).
+ * @internal shared with the `match:` switch (match-switch.ts)
+ */
+export function reportMissingCases(
+  ctx: MacroContext,
+  at: ts.Node,
+  coverage: MatchCoverage,
+  fallback: string
+): void {
+  if (coverage.kind === "missing") {
+    ctx
+      .diagnostic(TS9226)
+      .at(at)
+      .withArgs({ what: coverage.what, missing: coverage.missing })
+      .help(`Add the missing cases or use ${fallback} to handle remaining values.`)
+      .emit();
+  } else if (coverage.kind === "not-enumerable") {
+    ctx
+      .diagnostic(TS9226)
+      .at(at)
+      .withArgs({ what: "a fallback", missing: "the scrutinee type is not enumerable" })
+      .help(
+        fallback === ".else() / _"
+          ? "Add .else() or a _ wildcard to handle all remaining values."
+          : `Add ${fallback} to handle all remaining values.`
+      )
+      .emit();
   }
 }
 
@@ -993,7 +1439,8 @@ function checkExhaustiveness(
 // Wave 5: Dead Arm & Unreachable Pattern Detection
 // ============================================================================
 
-function checkUnreachablePatterns(ctx: MacroContext, arms: CaseArm[]): void {
+/** @internal shared with match-switch.ts */
+export function checkUnreachablePatterns(ctx: MacroContext, arms: CaseArm[]): void {
   const seenLiterals = new Set<string>();
   let seenCatchAll = false;
 
@@ -1184,16 +1631,24 @@ function generateSwitchIIFE(
   const scrutineeName = scrutineeShortName(ctx, scrutinee);
 
   const clauses: ts.CaseOrDefaultClause[] = [];
+  // With the literal union covered, the covering arm is the `default:` and
+  // there is no MatchError (as in the conditional chain and the IIFE).
+  const coveringIdx = elseResult === undefined ? findCoveringArmIndex(ctx, scrutinee, arms) : -1;
 
-  for (const arm of arms) {
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
     const pattern = analyzePattern(arm.pattern);
     if (pattern.kind !== "literal") continue;
+    if (i === coveringIdx) {
+      clauses.push(f.createDefaultClause([f.createReturnStatement(arm.result)]));
+      break;
+    }
     clauses.push(f.createCaseClause(pattern.node, [f.createReturnStatement(arm.result)]));
   }
 
   if (elseResult !== undefined) {
     clauses.push(f.createDefaultClause([f.createReturnStatement(elseResult)]));
-  } else {
+  } else if (coveringIdx === -1) {
     clauses.push(
       f.createDefaultClause([createMatchErrorThrow(ctx, f.createIdentifier(scrutineeName.text))])
     );
@@ -1208,7 +1663,14 @@ function generateSwitchIIFE(
     f.createVariableStatement(
       undefined,
       f.createVariableDeclarationList(
-        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        [
+          f.createVariableDeclaration(
+            scrutineeName,
+            undefined,
+            undefined,
+            readScrutinee(ctx, scrutinee)
+          ),
+        ],
         ts.NodeFlags.Const
       )
     ),
@@ -1357,6 +1819,9 @@ function generateDiscriminantSwitchIIFE(
   const needsNullGuard = !(
     analysis?.kind === "discriminated-union" && analysis.nullishMembers === undefined
   );
+  // The variant each tag selects, from the type the switch reads the value
+  // at: its required fields need no `"field" in _s` test in that case.
+  const members = scrutineeReading(ctx, scrutinee).members;
 
   // Group arms by discriminant value, preserving source order. Arms with
   // different tags are mutually exclusive, so grouping keeps first-match.
@@ -1368,13 +1833,31 @@ function generateDiscriminantSwitchIIFE(
   }
 
   const caseClauses: ts.CaseOrDefaultClause[] = [];
+  // Tags with an arm that always returns: the switch can't fall out of them.
+  const returningTags = new Set<string>();
   for (const group of groups.values()) {
     const body: ts.Statement[] = [];
+    const present = members
+      ? fieldsTheTagGuarantees(
+          ctx.typeChecker,
+          members,
+          dm.discriminantKey,
+          group[0].discriminantKey
+        )
+      : undefined;
     for (const discArm of group) {
+      const residual: PatternInfo & { kind: "object" } = present
+        ? {
+            ...discArm.residualPattern,
+            properties: discArm.residualPattern.properties.map((p) =>
+              !p.isRest && present.has(p.key) ? { ...p, present: true } : p
+            ),
+          }
+        : discArm.residualPattern;
       const armStmts = generateArmStatements(
         ctx,
         f,
-        discArm.residualPattern,
+        residual,
         scrutineeRef(),
         discArm.arm.guard,
         discArm.arm.result,
@@ -1382,12 +1865,32 @@ function generateDiscriminantSwitchIIFE(
         true
       );
       // Each arm in its own block so same-named bindings can't collide (#1).
-      if (armStmts.length === 1 && ts.isBlock(armStmts[0])) body.push(armStmts[0]);
-      else body.push(f.createBlock(armStmts, true));
+      const armBlock =
+        armStmts.length === 1 && ts.isBlock(armStmts[0])
+          ? armStmts[0]
+          : f.createBlock(armStmts, true);
+      body.push(armBlock);
+      // An arm with no test left and no guard always returns: the later arms
+      // for this tag, and the `break`, can't run.
+      if (alwaysExits(armBlock)) {
+        returningTags.add(group[0].discriminantKey);
+        break;
+      }
     }
-    body.push(f.createBreakStatement());
-    caseClauses.push(f.createCaseClause(group[0].discriminantValue, [f.createBlock(body, true)]));
+    if (!returningTags.has(group[0].discriminantKey)) body.push(f.createBreakStatement());
+    // One arm that returns: its block is the case's block.
+    const caseBlock =
+      body.length === 1 && ts.isBlock(body[0]) ? body[0] : f.createBlock(body, true);
+    caseClauses.push(f.createCaseClause(group[0].discriminantValue, [caseBlock]));
   }
+  // The switch can't fall out when it switches on a non-nullish object (no
+  // guard around it) and every variant of the type it reads the value at
+  // has a tag in `returningTags`; then nothing after it can run.
+  const exhaustive =
+    !needsNullGuard &&
+    members !== undefined &&
+    members.length > 0 &&
+    members.every((m) => variantTagsReturn(ctx.typeChecker, m, dm.discriminantKey, returningTags));
 
   const switchStmt = f.createSwitchStatement(
     f.createPropertyAccessExpression(scrutineeRef(), dm.discriminantKey),
@@ -1398,7 +1901,14 @@ function generateDiscriminantSwitchIIFE(
     f.createVariableStatement(
       undefined,
       f.createVariableDeclarationList(
-        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        [
+          f.createVariableDeclaration(
+            scrutineeName,
+            undefined,
+            undefined,
+            readScrutinee(ctx, scrutinee)
+          ),
+        ],
         ts.NodeFlags.Const
       )
     ),
@@ -1424,7 +1934,14 @@ function generateDiscriminantSwitchIIFE(
   }
 
   // Fallback (reached by unmatched tags, failed guards/residual tests, and
-  // non-objects): catch-all arm, then else / MatchError.
+  // non-objects): catch-all arm, then else / MatchError. After an exhaustive
+  // switch with no catch-all or else, the MatchError would be dead code that
+  // keeps a runtime import of @typesugar/std; a value outside the static type
+  // (an `any` cast) leaves the switch with `undefined`, as from TypeScript's
+  // own exhaustive switch.
+  if (exhaustive && !dm.catchAllArm && elseResult === undefined) {
+    return wrapInIIFE(ctx, chainExpr, stmts, movedExpressions(scrutinee, arms, elseResult));
+  }
   if (dm.catchAllArm) {
     const pat = analyzePattern(dm.catchAllArm.pattern);
     stmts.push(
@@ -1449,6 +1966,39 @@ function generateDiscriminantSwitchIIFE(
   }
 
   return wrapInIIFE(ctx, chainExpr, stmts, movedExpressions(scrutinee, arms, elseResult));
+}
+
+/**
+ * Does `stmt` always leave the function: a `return` or `throw`, or a block
+ * whose last statement does? Read from the statements generated here (an arm
+ * with a test or a guard ends in an `if`, so it doesn't).
+ */
+function alwaysExits(stmt: ts.Statement | undefined): boolean {
+  if (stmt === undefined) return false;
+  if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt)) return true;
+  return ts.isBlock(stmt) && alwaysExits(stmt.statements[stmt.statements.length - 1]);
+}
+
+/**
+ * Is every value the variant `member` allows for the discriminant `field` a
+ * tag in `tags` (getLiteralValueFromType form)? False when a value isn't a
+ * literal, so a variant whose tag is `string` is never covered. Decided by
+ * the member's own property type, through the checker.
+ */
+function variantTagsReturn(
+  checker: ts.TypeChecker,
+  member: ts.Type,
+  field: string,
+  tags: ReadonlySet<string>
+): boolean {
+  if (!isObjectLike(member)) return false;
+  const prop = checker.getPropertyOfType(member, field);
+  if (!prop) return false;
+  const t = checker.getTypeOfSymbol(prop);
+  return (t.isUnion() ? t.types : [t]).every((v) => {
+    const key = getLiteralValueFromType(v);
+    return key !== undefined && tags.has(key);
+  });
 }
 
 // ============================================================================
@@ -1519,44 +2069,6 @@ function tryDirectEmit(
   return undefined;
 }
 
-/**
- * For union scrutinees, check if after all preceding arms the remaining type
- * is fully covered by the current arm, allowing unconditional emit.
- * Returns the index of the first arm that can be emitted unconditionally
- * (covers all remaining type slots), or -1 if none.
- */
-function findFullyCoveredArmIndex(
-  ctx: MacroContext,
-  scrutinee: ts.Expression,
-  arms: CaseArm[]
-): number {
-  const analysis = getScrutineeAnalysis(ctx, scrutinee);
-  if (!analysis) return -1;
-
-  if (
-    (analysis.kind === "literal-union" || analysis.kind === "boolean") &&
-    analysis.literalMembers
-  ) {
-    const remaining = new Set(analysis.literalMembers);
-    for (let i = 0; i < arms.length; i++) {
-      const arm = arms[i];
-      if (arm.guard) continue;
-      const pattern = analyzePattern(arm.pattern);
-      const key = getPatternLiteralKey(pattern);
-      if (key !== undefined) remaining.delete(key);
-      for (const alt of arm.alternatives) {
-        const altKey = getPatternLiteralKey(analyzePattern(alt));
-        if (altKey !== undefined) remaining.delete(altKey);
-      }
-      if (remaining.size === 0) {
-        return i;
-      }
-    }
-  }
-
-  return -1;
-}
-
 // ============================================================================
 // Code Generation
 // ============================================================================
@@ -1584,12 +2096,26 @@ export function expandFluentMatch(
   chainExpr: ts.CallExpression,
   rootArgs: readonly ts.Expression[]
 ): ts.Expression {
-  const prev = taggedBuiltinExtractors;
-  taggedBuiltinExtractors = rootArgs[0] !== undefined && scrutineeUsesTags(ctx, rootArgs[0]);
+  return withBuiltinExtractorsFor(ctx, rootArgs[0], () =>
+    expandFluentMatchInner(ctx, chainExpr, rootArgs)
+  );
+}
+
+/**
+ * Run `fn` with `ctx` as the context extractor names are resolved in.
+ * @internal shared with match-switch.ts
+ */
+export function withBuiltinExtractorsFor<T>(
+  ctx: MacroContext,
+  _scrutinee: ts.Expression | undefined,
+  fn: () => T
+): T {
+  const prevCtx = extractorContext;
+  extractorContext = ctx;
   try {
-    return expandFluentMatchInner(ctx, chainExpr, rootArgs);
+    return fn();
   } finally {
-    taggedBuiltinExtractors = prev;
+    extractorContext = prevCtx;
   }
 }
 
@@ -1630,6 +2156,26 @@ function expandFluentMatchInner(
     }
   }
 
+  // A sub-pattern the macro can't compile has no test (buildCondition) and
+  // matched anything: `{ k: f(), n }` tested only `"n" in _m`. Report it,
+  // as an unsupported top-level pattern is.
+  let nestedUnsupported = false;
+  for (const arm of arms) {
+    for (const pat of [arm.pattern, ...arm.alternatives]) {
+      for (const bad of nestedUnsupportedPatterns(analyzePattern(pat), true)) {
+        ctx.reportError(
+          bad.node,
+          bad.reason
+            ? `match: ${bad.reason}`
+            : `match: unsupported sub-pattern (supported: literals, constants such as enum members, _, ` +
+                `identifiers, arrays, objects, type constructors, regex, and extractors)`
+        );
+        nestedUnsupported = true;
+      }
+    }
+  }
+  if (nestedUnsupported) return chainExpr;
+
   // Wave 5: Exhaustiveness check (type-driven, gracefully degrades)
   checkExhaustiveness(ctx, chainExpr, scrutinee, arms, elseResult !== undefined);
 
@@ -1643,21 +2189,14 @@ function expandFluentMatchInner(
   const directResult = tryDirectEmit(ctx, scrutinee, arms, elseResult);
   if (directResult !== undefined) return directResult;
 
-  // Optimization: single literal arm + else, no guard, no or, no as → ternary
-  if (arms.length === 1 && elseResult !== undefined) {
-    const arm = arms[0];
-    if (arm.alternatives.length === 0 && !arm.asPattern) {
-      const pattern = analyzePattern(arm.pattern);
-      if (pattern.kind === "literal" && !arm.guard) {
-        return generateTernary(ctx, scrutinee, arm, pattern.node, elseResult);
-      }
-    }
-  }
-
   // Wave 5: Switch optimization for 7+ pure literal arms
   if (arms.length >= SWITCH_THRESHOLD && isAllPureLiteralArms(arms)) {
     return generateSwitchIIFE(ctx, chainExpr, scrutinee, arms, elseResult);
   }
+
+  // Literal arms with a terminal value → `x === a ? r1 : x === b ? r2 : r3`
+  const chain = tryGenerateConditionalChain(ctx, scrutinee, arms, elseResult);
+  if (chain !== undefined) return chain;
 
   // PEP-019 Wave 3: Discriminant switch for object patterns sharing a discriminant key
   const discMatch = analyzeDiscriminantPattern(arms);
@@ -1668,22 +2207,120 @@ function expandFluentMatchInner(
   return generateIIFE(ctx, chainExpr, scrutinee, arms, elseResult);
 }
 
-function generateTernary(
+/**
+ * Compile a match whose arms bind nothing — plain literals (each `.case(lit)`
+ * with any number of literal `.or(lit)`s) and extractors with no bindings
+ * (`None`, `Nil`, `Some(_)`), no guard, no `.as()` — optionally ending in a
+ * `_` arm, to a conditional chain with no IIFE:
+ *
+ *   match(t).case("a").or("b").then(1).case("c").then(2).else(3)
+ *   → t === "a" || t === "b" ? 1 : t === "c" ? 2 : 3
+ *   match(o).case(None).then("none").case(Some(_)).then("some")
+ *   → o == null ? "none" : "some"
+ *
+ * This is what a person writes, and what the guide documents
+ * (`x === "ok" ? 200 : 500`). Before the Turf case study (Stage 3) only a
+ * single arm + `.else()` got it; anything longer became an arrow IIFE — a
+ * closure per evaluation — with a dead `throw new MatchError` after a fully
+ * covering last arm, which added a runtime import of `@typesugar/std`.
+ *
+ * Taken only when it is provably equivalent to the IIFE:
+ * - The chain ends in a value that needs no throw: `.else()`, a `_` arm, or
+ *   an arm after which the arms provably cover the scrutinee's type
+ *   ({@link findCoveringArmIndex}; that arm is unconditional, as in the
+ *   IIFE). Otherwise the IIFE's MatchError is needed and it is used.
+ * - Reading the scrutinee in every test is the same as reading it once: it
+ *   is an identifier or `this`, or (literal arms only) it is read by exactly
+ *   one test. A property access is not enough — it may be a getter (the
+ *   IIFE reads it once into a const). An extractor's test may read it more
+ *   than once (`x != null && "left" in x`), so it needs an identifier or
+ *   `this`. With no test at all it must be side-effect free, since the chain
+ *   would not evaluate it.
+ * Arms that bind names need a block for their `const`s, so they keep the IIFE.
+ * The results move nowhere (no arrow), so `await`/`yield` in them keep
+ * their meaning.
+ */
+function tryGenerateConditionalChain(
   ctx: MacroContext,
   scrutinee: ts.Expression,
-  arm: CaseArm,
-  literalNode: ts.Expression,
-  elseResult: ts.Expression
-): ts.Expression {
+  arms: CaseArm[],
+  elseResult: ts.Expression | undefined
+): ts.Expression | undefined {
   const f = ctx.factory;
-  const condition = literalCheck(f, scrutinee, literalNode);
-  return f.createConditionalExpression(
-    condition,
-    f.createToken(ts.SyntaxKind.QuestionToken),
-    arm.result,
-    f.createToken(ts.SyntaxKind.ColonToken),
-    elseResult
-  );
+  const tests: { patterns: PatternInfo[]; result: ts.Expression }[] = [];
+  let terminal: ts.Expression | undefined;
+
+  let coveringIdx: number | undefined;
+  const coveredAt = () => (coveringIdx ??= findCoveringArmIndex(ctx, scrutinee, arms));
+
+  for (let i = 0; i < arms.length; i++) {
+    const arm = arms[i];
+    if (arm.guard || arm.asPattern) return undefined;
+    const pattern = analyzePattern(arm.pattern);
+    if (pattern.kind === "wildcard" && arm.alternatives.length === 0) {
+      terminal = arm.result;
+      break;
+    }
+    const patterns = [pattern, ...arm.alternatives.map(analyzePattern)];
+    for (const p of patterns) {
+      const testOnly =
+        p.kind === "literal" ||
+        (p.kind === "extractor" &&
+          (p.def.kind === "sum-variant" || p.def.kind === "product") &&
+          !patternHasBindings(p));
+      if (!testOnly) return undefined;
+    }
+    if (coveredAt() === i) {
+      terminal = arm.result;
+      break;
+    }
+    tests.push({ patterns, result: arm.result });
+  }
+  terminal ??= elseResult;
+  if (terminal === undefined) return undefined;
+
+  const literalOnly = tests.every((t) => t.patterns.every((p) => p.kind === "literal"));
+  const reads = tests.reduce((n, t) => n + t.patterns.length, 0);
+  const rereadable = ts.isIdentifier(scrutinee) || scrutinee.kind === ts.SyntaxKind.ThisKeyword;
+  if (!rereadable && (reads > 1 || (reads === 1 && !literalOnly))) return undefined;
+  if (reads === 0 && !isSideEffectFree(scrutinee)) return undefined;
+  // One node per read, as the IIFE path does with its `_m` references; at
+  // the declared type, as the IIFE's const is (scrutineeReading).
+  const reading = scrutineeReading(ctx, scrutinee);
+  const asserted = (e: ts.Expression): ts.Expression => {
+    const node = reading.assertion?.();
+    return node ? f.createParenthesizedExpression(f.createAsExpression(e, node)) : e;
+  };
+  const read = (): ts.Expression =>
+    asserted(
+      !rereadable
+        ? scrutinee
+        : ts.isIdentifier(scrutinee)
+          ? f.createIdentifier(scrutinee.text)
+          : f.createThis()
+    );
+
+  const skipObjectGuard = !literalOnly && isGuaranteedObject(ctx, scrutinee);
+  const scrutineeType = literalOnly ? undefined : getScrutineeType(ctx, scrutinee);
+  const test = (p: PatternInfo): ts.Expression =>
+    p.kind === "literal"
+      ? literalCheck(f, read(), p.node)
+      : (buildCondition(f, p, read(), skipObjectGuard, scrutineeType) ?? f.createTrue());
+
+  let result = terminal;
+  for (let i = tests.length - 1; i >= 0; i--) {
+    const condition = tests[i].patterns
+      .map(test)
+      .reduce((a, b) => f.createBinaryExpression(a, ts.SyntaxKind.BarBarToken, b));
+    result = f.createConditionalExpression(
+      condition,
+      f.createToken(ts.SyntaxKind.QuestionToken),
+      tests[i].result,
+      f.createToken(ts.SyntaxKind.ColonToken),
+      result
+    );
+  }
+  return result;
 }
 
 // ============================================================================
@@ -1691,13 +2328,42 @@ function generateTernary(
 // ============================================================================
 
 /**
+ * The expression an extractor's payload position reads: the value itself
+ * (`self`), asserted to its payload type when the value's type doesn't
+ * narrow to it (`o as unknown as number` for an `@opaque` Option, see
+ * `PayloadTyping`), or one of its fields.
+ * @internal shared with match-switch.ts
+ */
+export function payloadAccess(
+  f: ts.NodeFactory,
+  accessor: ts.Expression,
+  field: string,
+  typing: PayloadTyping | undefined
+): ts.Expression {
+  if (field !== SELF_PAYLOAD) return f.createPropertyAccessExpression(accessor, field);
+  if (!typing?.selfCast) return accessor;
+  return f.createAsExpression(
+    f.createAsExpression(accessor, f.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)),
+    typing.selfCast
+  );
+}
+
+/** `(x as unknown as T)` where a test uses it as an operand, for the reader. */
+function asOperand(f: ts.NodeFactory, e: ts.Expression): ts.Expression {
+  return ts.isAsExpression(e) ? f.createParenthesizedExpression(e) : e;
+}
+
+/**
  * Collect all variable bindings from a pattern tree (for nested patterns).
  * Returns binding statements that destructure from the given accessor expression.
+ * `accessorType` is the accessor's static type when known (the scrutinee's,
+ * or an extractor payload's), which types extractor payloads under it.
  */
 function collectBindings(
   f: ts.NodeFactory,
   pattern: PatternInfo,
-  accessor: ts.Expression
+  accessor: ts.Expression,
+  accessorType?: ts.Type
 ): ts.Statement[] {
   switch (pattern.kind) {
     case "variable":
@@ -1854,7 +2520,7 @@ function collectBindings(
     }
 
     case "type-constructor":
-      return collectBindings(f, pattern.binding, accessor);
+      return collectBindings(f, pattern.binding, accessor, accessorType);
 
     case "extractor": {
       const { def, bindings } = pattern;
@@ -1862,13 +2528,19 @@ function collectBindings(
 
       if (def.kind === "sum-variant") {
         const payloadFields = def.payloadFields ?? [];
+        const typing = accessorType && def.payloadTyping?.(accessorType);
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
           const field = payloadFields[i];
           if (field === undefined) continue;
-          const fieldAccess =
-            field === SELF_PAYLOAD ? accessor : f.createPropertyAccessExpression(accessor, field);
-          stmts.push(...collectBindings(f, binding, fieldAccess));
+          stmts.push(
+            ...collectBindings(
+              f,
+              binding,
+              payloadAccess(f, accessor, field, typing),
+              typing?.types[i]
+            )
+          );
         }
       } else if (def.kind === "product") {
         const fields = def.productFields ?? [];
@@ -1901,11 +2573,13 @@ function collectBindings(
  * Build the structural condition expression for a pattern.
  * Returns undefined for patterns that always match (wildcard, variable).
  */
-function buildCondition(
+/** @internal shared with match-switch.ts */
+export function buildCondition(
   f: ts.NodeFactory,
   pattern: PatternInfo,
   accessor: ts.Expression,
-  skipObjectGuard = false
+  skipObjectGuard = false,
+  accessorType?: ts.Type
 ): ts.Expression | undefined {
   switch (pattern.kind) {
     case "literal":
@@ -1992,13 +2666,15 @@ function buildCondition(
       }
 
       for (const prop of nonRestProps) {
-        parts.push(
-          f.createBinaryExpression(
-            f.createStringLiteral(prop.key),
-            ts.SyntaxKind.InKeyword,
-            accessor
-          )
-        );
+        if (!prop.present) {
+          parts.push(
+            f.createBinaryExpression(
+              f.createStringLiteral(prop.key),
+              ts.SyntaxKind.InKeyword,
+              accessor
+            )
+          );
+        }
 
         if (prop.pattern.kind === "literal") {
           parts.push(
@@ -2026,7 +2702,7 @@ function buildCondition(
       const ctorCheck = buildTypeConstructorCheck(f, pattern.constructorName, accessor);
       const inner = patternCoversAll(pattern.binding)
         ? undefined
-        : buildCondition(f, pattern.binding, accessor);
+        : buildCondition(f, pattern.binding, accessor, false, accessorType);
       return inner
         ? f.createBinaryExpression(ctorCheck, ts.SyntaxKind.AmpersandAmpersandToken, inner)
         : ctorCheck;
@@ -2043,6 +2719,8 @@ function buildCondition(
           parts.push(nullCmp(ts.SyntaxKind.ExclamationEqualsToken));
         } else if (def.test === "null") {
           parts.push(nullCmp(ts.SyntaxKind.EqualsEqualsToken));
+        } else if (def.test === "always") {
+          // a product type: every value matches; only the payload's own tests apply
         } else {
           // `in` throws on primitives: test for an object first (#14).
           if (!skipObjectGuard) {
@@ -2064,6 +2742,7 @@ function buildCondition(
           );
         }
         const payloadFields = def.payloadFields ?? [];
+        const typing = accessorType && def.payloadTyping?.(accessorType);
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
           const field = payloadFields[i];
@@ -2072,10 +2751,13 @@ function buildCondition(
           const nested = buildCondition(
             f,
             binding,
-            field === SELF_PAYLOAD ? accessor : f.createPropertyAccessExpression(accessor, field)
+            asOperand(f, payloadAccess(f, accessor, field, typing)),
+            false,
+            typing?.types[i]
           );
           if (nested) parts.push(nested);
         }
+        if (parts.length === 0) return undefined;
         return parts.reduce((a, b) =>
           f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
         );
@@ -2110,14 +2792,18 @@ function buildCondition(
 
         // Recurse into nested patterns on payload fields
         const payloadFields = def.payloadFields ?? [];
+        const typing = accessorType && def.payloadTyping?.(accessorType);
         for (let i = 0; i < bindings.length; i++) {
           const binding = bindings[i];
           const field = payloadFields[i];
-          if (!field || binding.kind === "wildcard" || binding.kind === "variable") continue;
+          if (field === undefined || binding.kind === "wildcard" || binding.kind === "variable")
+            continue;
           const nested = buildCondition(
             f,
             binding,
-            f.createPropertyAccessExpression(accessor, field)
+            asOperand(f, payloadAccess(f, accessor, field, typing)),
+            false,
+            typing?.types[i]
           );
           if (nested) parts.push(nested);
         }
@@ -2286,7 +2972,8 @@ function generateOrArmStatements(
   f: ts.NodeFactory,
   arm: CaseArm,
   scrutineeRef: ts.Expression,
-  skipObjectGuard = false
+  skipObjectGuard = false,
+  scrutineeType?: ts.Type
 ): ts.Statement[] {
   const allPatterns = [arm.pattern, ...arm.alternatives];
   const conditions: ts.Expression[] = [];
@@ -2298,7 +2985,7 @@ function generateOrArmStatements(
       hasUnconditional = true;
       break;
     }
-    const cond = buildCondition(f, analyzed, scrutineeRef, skipObjectGuard);
+    const cond = buildCondition(f, analyzed, scrutineeRef, skipObjectGuard, scrutineeType);
     if (cond) {
       conditions.push(cond);
     }
@@ -2446,9 +3133,10 @@ function generateCustomExtractorArm(
   const extName = pattern.extractorName;
   const tempName = ctx.tryShortName("_ext");
 
-  // const __ext = ExtractorName.extract(__m)
+  // const _ext = destructureX.extract(_m) — the Destructure instance, called once
+  const instance = pattern.def.instance?.(ctx) ?? f.createIdentifier(extName);
   const extractCall = f.createCallExpression(
-    f.createPropertyAccessExpression(f.createIdentifier(extName), "extract"),
+    f.createPropertyAccessExpression(instance, "extract"),
     undefined,
     [scrutineeRef]
   );
@@ -2526,7 +3214,8 @@ function generateArmStatements(
   guard: ts.Expression | undefined,
   result: ts.Expression,
   asPattern?: ts.Expression,
-  skipObjectGuard = false
+  skipObjectGuard = false,
+  scrutineeType?: ts.Type
 ): ts.Statement[] {
   const asBindings = asPattern ? generateAsBindings(f, asPattern, scrutineeRef) : [];
 
@@ -2591,8 +3280,8 @@ function generateArmStatements(
     case "array":
     case "object":
     case "type-constructor": {
-      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard);
-      const bindings = collectBindings(f, pattern, scrutineeRef);
+      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard, scrutineeType);
+      const bindings = collectBindings(f, pattern, scrutineeRef, scrutineeType);
 
       const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
       if (guard) {
@@ -2617,8 +3306,8 @@ function generateArmStatements(
       }
 
       // Sum-variant and product extractors: inlined structural checks (zero-cost)
-      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard);
-      const bindings = collectBindings(f, pattern, scrutineeRef);
+      const condition = buildCondition(f, pattern, scrutineeRef, skipObjectGuard, scrutineeType);
+      const bindings = collectBindings(f, pattern, scrutineeRef, scrutineeType);
 
       const bodyStatements: ts.Statement[] = [...asBindings, ...bindings];
       if (guard) {
@@ -2643,7 +3332,7 @@ function generateArmStatements(
         pattern.node,
         pattern.reason
           ? `match: ${pattern.reason}`
-          : `match: unsupported pattern kind (only literals, _, identifiers, arrays, objects, type constructors, regex, and extractors supported)`
+          : `match: unsupported pattern kind (only literals, constants such as enum members, _, identifiers, arrays, objects, type constructors, regex, and extractors supported)`
       );
       return [];
   }
@@ -2657,7 +3346,8 @@ function generateArmStatements(
  * Check if a type is guaranteed to be a non-null object (no null, undefined, or primitives).
  * When true, per-arm `typeof === "object" && != null` guards can be skipped.
  */
-function isGuaranteedObject(ctx: MacroContext, scrutinee: ts.Expression): boolean {
+/** @internal shared with match-switch.ts */
+export function isGuaranteedObject(ctx: MacroContext, scrutinee: ts.Expression): boolean {
   const type = getScrutineeType(ctx, scrutinee);
   if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
 
@@ -2698,43 +3388,59 @@ function generateIIFE(
   // Skip per-arm typeof/null guards when scrutinee is guaranteed to be a non-null object
   const skipObjectGuard = isGuaranteedObject(ctx, scrutinee);
 
-  // const __m = scrutinee;
+  // Wave 5: the arm after which the arms provably cover the scrutinee's type
+  const coveringIdx = findCoveringArmIndex(ctx, scrutinee, arms);
+
+  // const __m = scrutinee;  — at its declared type (scrutineeReading), unless
+  // an arm covers the NARROWED type: that arm binds with no test, so its
+  // reads need the narrowed type.
   statements.push(
     f.createVariableStatement(
       undefined,
       f.createVariableDeclarationList(
-        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        [
+          f.createVariableDeclaration(
+            scrutineeName,
+            undefined,
+            undefined,
+            coveringIdx === -1 ? readScrutinee(ctx, scrutinee) : scrutinee
+          ),
+        ],
         ts.NodeFlags.Const
       )
     )
   );
 
-  // Wave 5: Find the arm index where the type is fully narrowed
-  const fullyCoveredIdx = findFullyCoveredArmIndex(ctx, scrutinee, arms);
+  // The extractor payloads under the scrutinee are typed from its type.
+  const scrutineeType = getScrutineeType(ctx, scrutinee);
+  let terminated = false;
 
   for (let i = 0; i < arms.length; i++) {
     const arm = arms[i];
     const scrutineeRef = f.createIdentifier(scrutineeName.text);
 
-    // Wave 5: Emit unconditional return when type is fully narrowed
-    // Still generate bindings for AS patterns and complex patterns that need destructuring
-    if (fullyCoveredIdx !== -1 && i >= fullyCoveredIdx && !arm.guard) {
+    // Wave 5: the covering arm returns unconditionally: no test, only its
+    // bindings (AS patterns and destructuring), and nothing after it.
+    if (i === coveringIdx) {
       if (arm.asPattern) {
         const asBindings = generateAsBindings(f, arm.asPattern, scrutineeRef);
         statements.push(...asBindings);
       }
       const armPattern = analyzePattern(arm.pattern);
       if (armPattern.kind !== "literal" && armPattern.kind !== "wildcard") {
-        const bindings = collectBindings(f, armPattern, scrutineeRef);
+        const bindings = collectBindings(f, armPattern, scrutineeRef, scrutineeType);
         statements.push(...bindings);
       }
       statements.push(f.createReturnStatement(arm.result));
-      continue;
+      // Every later arm (and the else / MatchError) is unreachable.
+      break;
     }
 
     // OR patterns: build || chain of conditions
     if (arm.alternatives.length > 0) {
-      statements.push(...generateOrArmStatements(ctx, f, arm, scrutineeRef, skipObjectGuard));
+      statements.push(
+        ...generateOrArmStatements(ctx, f, arm, scrutineeRef, skipObjectGuard, scrutineeType)
+      );
       continue;
     }
 
@@ -2755,13 +3461,29 @@ function generateIIFE(
       arm.guard,
       arm.result,
       arm.asPattern,
-      skipObjectGuard
+      skipObjectGuard,
+      scrutineeType
     );
     statements.push(...armStatements);
+    // An unguarded product extractor that binds without testing
+    // (`@destructure always`) always returns: nothing after it can run.
+    if (
+      !arm.guard &&
+      pattern.kind === "extractor" &&
+      pattern.def.test === "always" &&
+      pattern.bindings.every((b) => b.kind === "variable" || b.kind === "wildcard")
+    ) {
+      terminated = true;
+      break;
+    }
   }
 
-  // else clause or MatchError
-  if (elseResult !== undefined) {
+  // else clause or MatchError — unless an arm already returns unconditionally
+  // (a fully covering arm, or an unguarded `_` / binding). A dead
+  // `throw new MatchError` there still imported `@typesugar/std` at runtime.
+  if (terminated || alwaysExits(statements[statements.length - 1])) {
+    // terminated
+  } else if (elseResult !== undefined) {
     statements.push(f.createReturnStatement(elseResult));
   } else {
     statements.push(createMatchErrorThrow(ctx, f.createIdentifier(scrutineeName.text)));
@@ -2856,6 +3578,24 @@ function literalsForHandlerKey(f: ts.NodeFactory, key: string, tagType: ts.Type)
   }
   if (wantBool) out.push(key === "true" ? f.createTrue() : f.createFalse());
   return out;
+}
+
+/**
+ * Does some handler key name every member of `tagType`, a union of literal
+ * types (string, number or boolean literals)? False when a member is not a
+ * literal (`string`, `number`, an object), so a wide tag keeps its fallback.
+ */
+function handlersCoverTag(entries: ReadonlyArray<{ keys: string[] }>, tagType: ts.Type): boolean {
+  const members = tagType.isUnion() ? tagType.types : [tagType];
+  const keys = new Set(entries.flatMap((e) => e.keys));
+  return members.every((t) => {
+    if (t.isStringLiteral()) return keys.has(t.value);
+    if (t.isNumberLiteral()) return keys.has(String(t.value));
+    if (t.flags & ts.TypeFlags.BooleanLiteral) {
+      return keys.has((t as { intrinsicName?: string }).intrinsicName ?? "");
+    }
+    return false;
+  });
 }
 
 /**
@@ -3013,8 +3753,23 @@ function expandObjectHandlerMatch(
     );
   };
 
+  // Handlers for every member of the tag's literal union: the last handler
+  // needs no test, and nothing after it (MatchError, the non-exhaustive
+  // throw) can run, as with the fluent form's covering arm. A value outside
+  // the static type takes the last handler. Members compared as types.
+  const covering =
+    wildcardHandler === undefined && handlersCoverTag(entries, tagType)
+      ? entries.reduce<(typeof entries)[number] | undefined>(
+          (last, e) =>
+            e.keys.some((k) => literalsForHandlerKey(f, k, tagType).length > 0) ? e : last,
+          undefined
+        )
+      : undefined;
+
   let result: ts.Expression;
-  if (wildcardHandler) {
+  if (covering) {
+    result = callHandler(covering.handler);
+  } else if (wildcardHandler) {
     result = callHandler(wildcardHandler);
   } else if (isPrimitive) {
     result = f.createCallExpression(
@@ -3054,6 +3809,7 @@ function expandObjectHandlerMatch(
   // Build ternary chain from last to first
   for (let i = entries.length - 1; i >= 0; i--) {
     const { keys, handler, node } = entries[i];
+    if (entries[i] === covering) continue;
     const conditions = keys.flatMap((k) =>
       literalsForHandlerKey(f, k, tagType).map((lit) =>
         f.createBinaryExpression(tagExpr, ts.SyntaxKind.EqualsEqualsEqualsToken, lit)

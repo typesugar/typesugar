@@ -124,6 +124,16 @@
         "types": "./dist/dts-transform.d.cts",
         "default": "./dist/dts-transform.cjs"
       }
+    },
+    "./register": {
+      "import": {
+        "types": "./dist/register.d.ts",
+        "default": "./dist/register.js"
+      },
+      "require": {
+        "types": "./dist/register.d.cts",
+        "default": "./dist/register.cjs"
+      }
     }
   },
   "scripts": {
@@ -163,5 +173,10 @@
     "templates",
     "ai"
   ],
-  "sideEffects": false
+  "sideEffects": [
+    "./dist/register.js",
+    "./dist/register.cjs",
+    "./dist/register-hooks.js",
+    "./dist/register-hooks.cjs"
+  ]
 }

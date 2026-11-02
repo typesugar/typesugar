@@ -125,7 +125,7 @@ function emittedFor(ctx: MacroContext, target: DeriveTarget): Set<string> {
 // ============================================================================
 
 /**
- * @derive(Read) — Derives a Read instance for a product type.
+ * `@derive(Read)` derives a Read instance for a product type.
  *
  * ```typescript
  * export const ReadUser: Read<User> = Read.make([...mappings], (fields) => fields as User);
@@ -154,7 +154,7 @@ export const deriveReadMacro = defineDeriveMacro({
 // ============================================================================
 
 /**
- * @derive(Write) — Derives a Write instance for a product type (with per-field
+ * `@derive(Write)` derives a Write instance for a product type (with per-field
  * metadata, so `setTyped` can write partial values).
  */
 export const deriveWriteMacro = defineDeriveMacro({
@@ -185,7 +185,7 @@ export const deriveWriteMacro = defineDeriveMacro({
 // ============================================================================
 
 /**
- * @derive(Codec) — Derives ReadT and WriteT plus a combined CodecT instance.
+ * `@derive(Codec)` derives ReadT and WriteT plus a combined CodecT instance.
  *
  * `ReadT`/`WriteT` are emitted only if this derive list has not already
  * emitted them (`@derive(Read, Write, Codec)` emits each exactly once).

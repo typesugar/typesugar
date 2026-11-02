@@ -78,3 +78,15 @@ export function getActivatedLabeledBlock(
   }
   return undefined;
 }
+
+/**
+ * Is `stmt` shaped as the labeled-block macro for its label (if any) expects?
+ * `let: { ... }` needs a block, `match: switch (...) { ... }` a switch
+ * (`LabeledBlockMacro.statement`). Checked before the activation gate, so an
+ * ordinary label on a loop (`all: for (...)`) never warns or dispatches.
+ */
+export function isLabeledBlockShaped(stmt: ts.LabeledStatement): boolean {
+  const macro = globalRegistry.getLabeledBlock(stmt.label.text);
+  if ((macro?.statement ?? "block") === "switch") return ts.isSwitchStatement(stmt.statement);
+  return ts.isBlock(stmt.statement);
+}

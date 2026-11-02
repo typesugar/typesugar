@@ -12,7 +12,22 @@ This is internal design material, kept for history. It predates
 (specialization is automatic; there is no `specialize()` API), so parts of it
 describe a model the shipped compiler **no longer implements**.
 
-For how typesugar actually works today, see the [guides](/guides/).
+Claims below that no longer hold include:
+
+- **Instances are not synthesized on demand.** Derivation is explicit:
+  `@derive(TC)` on a type, or `derived<TC<T>>()` for a type you don't own.
+  `summon` and `= implicit()` find instances that are in scope; their old
+  fallback of deriving one in place is deprecated and warns
+  [TS9009](/errors/TS9009).
+- **`p1 === p2` does not "just work".** Operators and method syntax are rewritten
+  only in files that import the syntax marker
+  (`import "@typesugar/std/syntax/eq/ops"`); without it, `===` keeps its
+  JavaScript meaning.
+- **There are no global instance registries** to search: resolution is
+  import-scoped.
+
+For how typesugar actually works today, see the [guides](/guides/), in particular
+[Typeclasses](/guides/typeclasses) and [Operators](/guides/operators).
 :::
 
 ## Abstract

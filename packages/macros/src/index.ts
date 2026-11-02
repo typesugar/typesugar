@@ -67,6 +67,20 @@ export {
 } from "./derive.js";
 export { pipeMacro, composeMacro, getOperatorString } from "./operators.js";
 export {
+  rewrittenChainType,
+  rewrittenOperandType,
+  operatorRewriteResult,
+  declaredDispatchTypes,
+  declaredOperandType,
+  isPrimitiveTypedBinary,
+  isPrimitiveByFlags,
+  admitsNullish,
+  isNullOrUndefinedExpr,
+  chainBinary,
+  PRIMITIVE_RESULT_OPERATORS,
+  type OperatorChainHooks,
+} from "./operator-chain-types.js";
+export {
   reflectAttribute,
   typeInfoMacro,
   fieldNamesMacro,
@@ -84,6 +98,7 @@ export {
   implAttribute,
   implMacro,
   summonMacro,
+  derivedMacro,
   extendMacro,
   withDerivationContext,
   resolveFieldInstance,
@@ -119,6 +134,7 @@ export {
   getInlineFailureHelp,
   inlineMethod,
   collectMethodFreeNames,
+  collectMethodLocalBindings,
   forEachMethodFreeReference,
   methodDependsOnReceiver,
   flattenReturnsToExpression,
@@ -132,6 +148,7 @@ export {
   type DictMethod,
   type InlineFailureReason,
   type InlineClassification,
+  type InlineOptions,
   type FlattenAnalysis,
   type MemberMethodResolver,
 } from "./specialize.js";
@@ -252,18 +269,23 @@ export {
 export {
   InstanceScanner,
   instanceScanner,
+  deriveNamesOf,
   parseDoMethodsTag,
   DEFAULT_DO_METHODS,
   type ScannedInstance,
   type DoNotationMeta,
+  type ScannerCheckerFailure,
 } from "./instance-scanner.js";
 export {
   resolveInstance,
+  companionAssignedBefore,
   buildInstanceReference,
+  buildImportedReference,
   clearResolverCache,
   findInstanceInScopeByName,
   resolveDoNotationInstance,
   brandMatchesForType,
+  scanWarnings,
   type ResolvedDoNotationInstance,
   type ResolvedInstance,
   type AmbiguousInstances,
@@ -271,6 +293,18 @@ export {
   type ResolutionSource,
 } from "./instance-resolver.js";
 export { getDoInstanceModule } from "./do-instance-index.js";
+// --- Import-scoped extension providers (shared by the rewrite and the ExtensionMethodCall rule) ---
+export {
+  findImportedExtensionMatches,
+  checkImportedSymbolForExtension,
+  isExtensionEnabledIn,
+  hasExtensionDecorator,
+  isDefaultLibMember,
+  isGlobalAugmentationStub,
+  instanceServesReceiver,
+  type ExtensionImportEnv,
+  type ImportedExtensionMatch,
+} from "./extension-imports.js";
 export {
   getOpMapForTypeclass,
   getOperatorCandidates,
@@ -278,6 +312,7 @@ export {
   getMethodCandidates,
   getTypeclassesDeclaringMethod,
   isHktTypeclass,
+  isTypeclassDeclared,
   type TypeclassOpInfo,
 } from "./typeclass-index.js";
 
@@ -364,7 +399,7 @@ export {
 } from "./extension.js";
 
 // --- Opaque type macro (PEP-012) ---
-export { opaqueAttribute } from "./opaque.js";
+export { opaqueAttribute, registerOpaqueInterface } from "./opaque.js";
 
 // --- ADT macro (PEP-014) ---
 export { adtAttribute } from "./adt.js";
@@ -373,9 +408,16 @@ export { adtAttribute } from "./adt.js";
 export {
   createExtensionMethodCallRule,
   createMacroCallChainRule,
+  createMatchSwitchRule,
+  createContractBlockRule,
   createMacroDecoratorRule,
   createOperatorOverloadRule,
+  createRewrittenOperatorResultRule,
   createTypeRewriteAssignmentRule,
+  createDerivedCompanionAccessRule,
+  createDerivedDeclarationReferenceRule,
+  generatedValueNames,
+  isDerivedValueSymbol,
 } from "./diagnostic-suppression-rules.js";
 
 // --- Unified Diagnostic Suppression Registration (PEP-034) ---
@@ -423,6 +465,7 @@ export {
   deriving,
   summon,
   summonAll,
+  derived,
   extend,
   // Extension method decorator
   extension,

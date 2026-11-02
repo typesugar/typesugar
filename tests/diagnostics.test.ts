@@ -284,8 +284,12 @@ describe("Inline union derivation generates correct code", () => {
     // old delegation was a runtime ReferenceError — deep review typeclass #14):
     // each variant's fields are compared inline.
     expect(result.code).not.toContain("Event_click");
-    expect(result.code).toContain("(a as any).x === (b as any).x");
-    expect(result.code).toContain("(a as any).code === (b as any).code");
+    // Through locals of the variant's type, so each comparison is type-checked.
+    expect(result.code.replace(/\s+/g, " ")).toContain(
+      'const __a = a as Extract<Event, { kind: "click"; }>;'
+    );
+    expect(result.code).toContain("__a.x === __b.x");
+    expect(result.code).toContain("__a.code === __b.code");
   });
 
   it("handles variant with no non-discriminant fields", () => {
@@ -301,7 +305,7 @@ describe("Inline union derivation generates correct code", () => {
     // Variant fields compared inline; a field-less variant is just `true`.
     expect(result.code).not.toContain("Token_eof");
     expect(result.code).toContain('case "eof": return true');
-    expect(result.code).toContain("(a as any).value === (b as any).value");
+    expect(result.code).toContain("__a.value === __b.value");
   });
 
   it("uses _tag as discriminant", () => {

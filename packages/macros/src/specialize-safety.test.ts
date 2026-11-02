@@ -17,8 +17,10 @@ import {
 } from "./specialize.js";
 
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+let fresh = 0;
 const ctx = {
   factory: ts.factory,
+  generateUniqueName: (prefix: string) => ts.factory.createIdentifier(`__${prefix}_${fresh++}`),
   transformContext: (ts as unknown as { nullTransformationContext: ts.TransformationContext })
     .nullTransformationContext,
 } as unknown as Parameters<typeof inlineMethod>[0];
@@ -174,6 +176,84 @@ describe("inlineMethod: argument evaluation [tc#3, core#6]", () => {
   it("inlines a single, in-order side-effecting argument (coverage)", () => {
     const text = check("{ show: (a) => String(a) }", "show", "f()", prelude);
     expect(text).toBe("String(f())");
+  });
+});
+
+describe("inlineMethod: object-literal arguments are projected, not wrapped in an IIFE", () => {
+  // `a + b + c` on a product type rewrites to `add(add(a, b), c)`; the inner
+  // call inlines to an object literal, which the outer body reads property by
+  // property. Each `p.x` reads the literal's `x` initializer directly.
+  const vec = "{ add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }) }";
+  const pts = "const a = { x: 1, y: 2 }, b = { x: 3, y: 4 }, c = { x: 5, y: 6 }";
+
+  it("inlines a once-read object-literal argument with no IIFE (Vec chain)", () => {
+    const text = check(vec, "add", "({ x: a.x + b.x, y: a.y + b.y }), c", pts);
+    expect(text).toBe("({ x: (a.x + b.x) + c.x, y: (a.y + b.y) + c.y })");
+  });
+
+  it("projects both arguments when both are object literals ((a + b) + (c + a))", () => {
+    const text = check(
+      vec,
+      "add",
+      "({ x: a.x + b.x, y: a.y + b.y }), ({ x: c.x + a.x, y: c.y + a.y })",
+      pts
+    );
+    expect(text).not.toContain("=>");
+  });
+
+  it("does not let a projected initializer's names be captured by a remaining parameter", () => {
+    // The literal reads the OUTER `b`; the remaining parameter is also `b`.
+    const text = check(vec, "add", "({ x: b.x, y: b.y }), a", pts);
+    expect(text).not.toContain("=>");
+  });
+
+  it("does not let a body local capture a projected initializer's names", () => {
+    check(
+      "{ f: (p, q) => { const k = 2; return p.x * k + q; } }",
+      "f",
+      "({ x: k }), 1",
+      "const k = 10"
+    );
+  });
+
+  it("binds a property read more than once to one parameter (no duplicated work, no intermediate object)", () => {
+    const rat = "{ add: (a, b) => ({ n: a.n * b.d + b.n * a.d, d: a.d * b.d }) }";
+    const text = check(
+      rat,
+      "add",
+      "({ n: p.n * q.d + q.n * p.d, d: p.d * q.d }), r",
+      "const p = { n: 1, d: 2 }, q = { n: 1, d: 3 }, r = { n: 1, d: 6 }"
+    );
+    // No object literal is passed as an argument any more.
+    expect(text).not.toMatch(/\(\(\{|, \(\{/);
+  });
+
+  it("keeps an effectful initializer evaluated once, in order", () => {
+    check(
+      vec,
+      "add",
+      "({ x: f(), y: g() }), c",
+      "const c = { x: 'c', y: 'c' }; function f() { log.push('f'); return 'F'; } function g() { log.push('g'); return 'G'; }"
+    );
+  });
+
+  it("keeps the literal's reads before an effectful sibling argument", () => {
+    check(
+      vec,
+      "add",
+      "({ x: a.x, y: a.y }), bump()",
+      "const a = { x: 1, y: 1 }; function bump() { a.x = 100; return { x: 0, y: 0 }; }"
+    );
+  });
+
+  it("does not project a write, a method call, or a missing property", () => {
+    check("{ f: (p) => (p.x = 1, p.x) }", "f", "({ x: 0 })");
+    check("{ f: (p) => p.m() }", "f", "({ m: h })", "function h() { return this === undefined; }");
+    check("{ f: (p) => p.toString() }", "f", "({ x: 1 })");
+  });
+
+  it("does not project a property read inside a nested function", () => {
+    check("{ f: (p) => () => p.x }", "f", "({ x: v })", "let v = 1");
   });
 });
 

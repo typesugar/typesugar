@@ -182,14 +182,13 @@ const areEqual = eqPoint.equals(p1, p2);
     expect(result.code).toContain("p1.x === p2.x && p1.y === p2.y");
     // `Point` is not declared in this file, so no `namespace Point` companion
     // is emitted (it would create a brand-new runtime `Point` value that
-    // shadows any imported/global one — deep review typeclass #10); a
-    // warning says so instead.
+    // shadows any imported/global one — deep review typeclass #10). That is
+    // the normal case for an instance of a type you don't own (every
+    // library's instances), and nothing at the @impl can change it, so it is
+    // not warned about: a `Point.Eq` written anywhere is TypeScript's TS2339
+    // where it is written.
     expect(result.code).not.toContain("namespace Point");
-    expect(
-      result.diagnostics.some(
-        (d) => d.severity === "warning" && /no 'Point.Eq' companion/.test(d.message)
-      )
-    ).toBe(true);
+    expect(result.diagnostics.filter((d) => /companion/.test(d.message))).toEqual([]);
   });
 
   it("removes registration call along with declaration", () => {
@@ -407,5 +406,34 @@ const same = eqWrapper.equals(w1, w2);
     // Should be a direct expression, not wrapped in an IIFE
     expect(result.code).not.toContain("(() =>");
     expect(result.code).toContain("w1.value === w2.value");
+  });
+});
+
+describe("@impl companion warnings: only where the @impl could change the outcome", () => {
+  it("no warning for an instance of an imported type (effect's FlatMap<Effect>)", () => {
+    const r = transformCode(
+      `import { Effect } from "effect";
+/** @impl FlatMap<Effect> */
+export const flatMapEffect = { map: (fa: unknown, f: (a: unknown) => unknown) => f(fa) };
+`,
+      { fileName: "impl-imported-type.ts" }
+    );
+    expect(r.diagnostics.filter((d) => /companion/.test(d.message))).toEqual([]);
+    expect(r.code).not.toContain("namespace Effect");
+  });
+
+  it("still warns for a class declared after the instance (move the instance)", () => {
+    const r = transformCode(
+      `/** @impl Eq<Late> */
+const eqLate = { equals: (a: Late, b: Late) => a.v === b.v };
+class Late { constructor(public v: number) {} }
+`,
+      { fileName: "impl-class-after.ts" }
+    );
+    expect(
+      r.diagnostics.some(
+        (d) => d.severity === "warning" && /no 'Late.Eq' companion/.test(d.message)
+      )
+    ).toBe(true);
   });
 });

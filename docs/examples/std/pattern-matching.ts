@@ -4,7 +4,7 @@
 import { match } from "@typesugar/std";
 
 // ============================================================
-// 1. Discriminated union — match compiles to an optimized IIFE
+// 1. Discriminated union — match compiles to a switch on `kind`
 // ============================================================
 
 type Shape =
@@ -108,8 +108,8 @@ console.log(`cyan: ${colorType("cyan")}`);
 // ============================================================
 
 // When matching a union type, the compiler verifies every variant
-// is handled. Try commenting out a .case() below — you'll get:
-//   error: Non-exhaustive match — missing case "west"
+// is handled. Try deleting the .else() and the "west" .case() below — you'll get:
+//   error TS9226: Non-exhaustive match — missing cases: "west"
 
 type Direction = "north" | "south" | "east" | "west";
 
@@ -124,4 +124,4 @@ function opposite(d: Direction): string {
 console.log(`\nopposite("north"): ${opposite("north")}`);
 console.log(`opposite("east"): ${opposite("east")}`);
 
-// 👀 Check JS Output — match() compiles to ternary chains or switch IIFEs
+// 👀 Check JS Output — match() compiles to conditional chains, or to a switch / if chain

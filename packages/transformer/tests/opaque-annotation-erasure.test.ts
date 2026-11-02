@@ -1,11 +1,18 @@
 /**
- * PEP-019 Wave 1: @opaque type annotation erasure tests.
+ * `@opaque` annotations in expanded code.
  *
- * When an @opaque constructor is erased (e.g., `Some(x)` → `x`), the type
- * annotation on the containing variable declaration becomes invalid TypeScript.
- * The transformer must also strip or rewrite the annotation.
+ * Expansion erases `Some(x)` to `x`, so an `Option<number>` in expanded code
+ * holds a `number | null`. PEP-019 Wave 1 stripped the annotation, but only
+ * on a variable or a parameter default initialized by an erased constructor,
+ * and only for same-project types: `function fo(o: Option<number>)` called
+ * as `fo(Some(2))` became `fo(2)` against an `Option<number>` parameter, and
+ * `const a: Option<number> = Some(3)` with a library type became `= 3`,
+ * both errors under strictOutput. Stripping also changed the declarations
+ * emitted from the expanded program (`x: Money` for `x: Option<Money>`).
  *
- * `const discount: Option<Money> = Some(m)` → `const discount = m`
+ * Now every annotation is kept as written, and expanded code is checked
+ * against the runtime view of `@opaque` types (`opaqueTypesAsUnderlying`),
+ * which is what it is written against.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -58,6 +65,7 @@ function registerEitherType(declarationFile: string = DECLS_FILE): void {
 }
 
 const optionDeclarations = `
+/** @opaque A | null */
 interface Option<A> {
   readonly value: A;
   map<B>(f: (a: A) => B): Option<B>;
@@ -74,6 +82,7 @@ declare function filter<A>(o: Option<A>, pred: (a: A) => boolean): Option<A>;
 `.trim();
 
 const eitherDeclarations = `
+/** @opaque { _tag: 'Left', left: E } | { _tag: 'Right', right: A } */
 interface Either<E, A> {
   readonly _tag: string;
 }
@@ -81,167 +90,115 @@ declare function Right<A>(a: A): Either<never, A>;
 declare function Left<E>(e: E): Either<E, never>;
 `.trim();
 
-// ---------------------------------------------------------------------------
-// Variable declarations with identity constructors
-// ---------------------------------------------------------------------------
+function expandStrict(code: string, fileName: string) {
+  const result = transformWithDecls(code, fileName, { strictOutput: true });
+  return {
+    code: result.code,
+    errors: result.diagnostics.filter((d) => d.severity === "error").map((d) => d.message),
+    strict: result.diagnostics
+      .filter((d) => d.message.startsWith("[strictOutput]"))
+      .map((d) => d.message),
+  };
+}
 
-describe("PEP-019 Wave 1: variable declaration annotation erasure", () => {
-  it("strips Option<T> annotation when identity constructor is erased", () => {
+describe("@opaque annotations: kept in every position, and the expanded code type-checks", () => {
+  it("variables: an erased constructor, an erased constant, a raw value", () => {
     registerOptionType();
-
-    const code = `${optionDeclarations}
+    const r = expandStrict(
+      `${optionDeclarations}
 class Money { constructor(public amount: number, public currency: string) {} }
 const discount: Option<Money> = Some(new Money(500, "USD"));
-`;
-
-    const result = transformWithDecls(code, "annotation-identity.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("const discount = new Money(500");
-    expect(result.code).not.toContain("Option<Money>");
-    expect(result.code).not.toContain("Some(");
-  });
-
-  it("strips annotation with simple type argument", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-const value: Option<number> = Some(42);
-`;
-
-    const result = transformWithDecls(code, "annotation-simple.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("const value = 42");
-    expect(result.code).not.toContain("Option<number>");
-    expect(result.code).not.toContain("Some(");
-  });
-
-  it("strips annotation with expression argument", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-declare const x: number;
-const result: Option<number> = Some(x + 1);
-`;
-
-    const result = transformWithDecls(code, "annotation-expr.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("x + 1");
-    expect(result.code).not.toContain("Option<number>");
-    expect(result.code).not.toContain("Some(");
-  });
-
-  it("strips annotation with let declaration", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-let result: Option<string> = Some("hello");
-`;
-
-    const result = transformWithDecls(code, "annotation-let.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toMatch(/let result = "hello"/);
-    expect(result.code).not.toContain("Option<string>");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Variable declarations with constant constructors
-// ---------------------------------------------------------------------------
-
-describe("PEP-019 Wave 1: constant constructor annotation erasure", () => {
-  it("strips Option<T> annotation when None is erased to null", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
+let greeting: Option<string> = Some("hello");
 const empty: Option<number> = None;
-`;
-
-    const result = transformWithDecls(code, "annotation-constant.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("const empty = null");
-    expect(result.code).not.toContain("Option<number>");
+const raw: Option<number> = 3;
+console.log(discount, greeting, empty, raw);
+`,
+      "annotation-variables.ts"
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.strict).toEqual([]);
+    expect(r.code).toContain('const discount: Option<Money> = new Money(500, "USD");');
+    expect(r.code).toContain('let greeting: Option<string> = "hello";');
+    expect(r.code).toContain("const empty: Option<number> = null;");
+    expect(r.code).toContain("const raw: Option<number> = 3;");
+    expect(r.code).not.toContain("Some(");
   });
-});
 
-// ---------------------------------------------------------------------------
-// Multiple opaque types
-// ---------------------------------------------------------------------------
+  it("parameters: an erased argument, an erased default, a method call on the parameter", () => {
+    registerOptionType();
+    const r = expandStrict(
+      `${optionDeclarations}
+function fo(o: Option<number>): number {
+  return o.getOrElse(() => 0);
+}
+function withDefault(opt: Option<number> = Some(0)) {
+  return opt;
+}
+function withNone(opt: Option<number> = None) {
+  return opt;
+}
+console.log(fo(Some(2)), withDefault(), withNone());
+`,
+      "annotation-parameters.ts"
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.strict).toEqual([]);
+    expect(r.code).toContain("function fo(o: Option<number>): number");
+    expect(r.code).toMatch(/getOrElse\w*\(o, \(\) => 0\)/);
+    expect(r.code).toContain("function withDefault(opt: Option<number> = 0)");
+    expect(r.code).toContain("function withNone(opt: Option<number> = null)");
+    expect(r.code).toContain("fo(2)");
+  });
 
-describe("PEP-019 Wave 1: multiple opaque types", () => {
-  it("strips Either<E, A> annotation when Right is erased", () => {
+  it("returns, properties, arrays and type arguments", () => {
+    registerOptionType();
+    const r = expandStrict(
+      `${optionDeclarations}
+function find(n: number): Option<number> {
+  return n > 0 ? Some(n) : None;
+}
+const half = (n: number): Option<number> => Some(n / 2);
+interface Holder { value: Option<number> }
+const holder: Holder = { value: Some(1) };
+class Box {
+  field: Option<string> = Some("x");
+}
+const list: Option<number>[] = [Some(1), None];
+const table: Map<string, Option<number>> = new Map([["a", Some(1)]]);
+function id<T>(x: T): T { return x; }
+const viaGeneric = id<Option<number>>(Some(4));
+console.log(find(1), half(2), holder, new Box(), list, table, viaGeneric);
+`,
+      "annotation-positions.ts"
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.strict).toEqual([]);
+    expect(r.code).toContain("function find(n: number): Option<number>");
+    expect(r.code).toContain("return n > 0 ? n : null;");
+    expect(r.code).toContain("const half = (n: number): Option<number> => n / 2;");
+    expect(r.code).toContain("value: Option<number>;");
+    expect(r.code).toContain('field: Option<string> = "x";');
+    expect(r.code).toContain("const list: Option<number>[] = [1, null];");
+    expect(r.code).toContain("const viaGeneric = id<Option<number>>(4);");
+    expect(r.code).not.toContain("Some(");
+  });
+
+  it("Either", () => {
     registerEitherType();
-
-    const code = `${eitherDeclarations}
+    const r = expandStrict(
+      `${eitherDeclarations}
 const result: Either<string, number> = Right(42);
-`;
-
-    const result = transformWithDecls(code, "annotation-either.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("const result = 42");
-    expect(result.code).not.toContain("Either<string, number>");
+function f(e: Either<string, number>) { return e; }
+console.log(result, f(Left("no")));
+`,
+      "annotation-either.ts"
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.strict).toEqual([]);
+    expect(r.code).toContain("const result: Either<string, number> = 42;");
   });
 
-  it("handles both Option and Either in the same file", () => {
-    registerOptionType();
-    registerEitherType();
-
-    const code = `${optionDeclarations}
-${eitherDeclarations}
-const opt: Option<number> = Some(1);
-const eith: Either<string, number> = Right(2);
-`;
-
-    const result = transformWithDecls(code, "annotation-multi-type.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).toContain("const opt = 1");
-    expect(result.code).toContain("const eith = 2");
-    expect(result.code).not.toContain("Option<number>");
-    expect(result.code).not.toContain("Either<string, number>");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Negative cases: annotation should NOT be stripped
-// ---------------------------------------------------------------------------
-
-describe("PEP-019 Wave 1: annotation preservation (negative cases)", () => {
-  it("preserves annotation when initializer is not an opaque constructor", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-declare function getOption(): Option<number>;
-const result: Option<number> = getOption();
-`;
-
-    const result = transformWithDecls(code, "annotation-preserve-noctor.ts");
-    expect(result.code).toContain("Option<number>");
-  });
-
-  it("preserves annotation when type is not opaque", () => {
-    registerOptionType();
-
-    const code = `
-interface MyType<T> { value: T; }
-declare function create<T>(x: T): MyType<T>;
-const result: MyType<number> = create(5);
-`;
-
-    const result = transformWithDecls(code, "annotation-preserve-nonopaque.ts");
-    expect(result.code).toContain("MyType<number>");
-  });
-
-  it("preserves annotation when no initializer", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-declare const result: Option<number>;
-`;
-
-    const result = transformWithDecls(code, "annotation-preserve-noinit.ts");
-    expect(result.code).toContain("Option<number>");
-  });
-
-  it("preserves annotation inside transparent scope (defining file)", () => {
+  it("inside the defining module (transparent), nothing is rewritten", () => {
     const definingFile = path.resolve("option.ts");
     registerTypeRewrite({
       typeName: "Option",
@@ -264,77 +221,29 @@ const result: Option<number> = Some(42);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Function parameter annotation erasure
-// ---------------------------------------------------------------------------
-
-describe("PEP-019 Wave 1: parameter default annotation erasure", () => {
-  it("strips annotation from parameter with opaque default value", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-function process(opt: Option<number> = Some(0)) {
-  return opt;
+describe("@opaque annotations with @typesugar/fp's real Option (its .d.ts)", () => {
+  it("function fo(o: Option<number>) called as fo(Some(2)), and the other positions: no strictOutput error", () => {
+    const fileName = path.resolve(__dirname, "__opaque_fp_strict__.ts");
+    const r = transformCode(
+      `import { Some, None, type Option } from "@typesugar/fp";
+function fo(o: Option<number>): number {
+  return o.getOrElse(() => 0);
 }
-`;
-
-    const result = transformWithDecls(code, "annotation-param-default.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).not.toContain("Option<number>");
-    expect(result.code).not.toContain("Some(");
-    expect(result.code).toMatch(/opt\s*=\s*0/);
-  });
-
-  it("strips annotation from parameter with None default", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-function process(opt: Option<number> = None) {
-  return opt;
-}
-`;
-
-    const result = transformWithDecls(code, "annotation-param-none.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-    expect(result.code).not.toContain("Option<number>");
-    expect(result.code).toMatch(/opt\s*=\s*null/);
-  });
-
-  it("preserves annotation on parameter without default", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-function process(opt: Option<number>) {
-  return opt;
-}
-`;
-
-    const result = transformWithDecls(code, "annotation-param-nodefault.ts");
-    expect(result.code).toContain("Option<number>");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Gate criteria test
-// ---------------------------------------------------------------------------
-
-describe("PEP-019 Wave 1: gate criteria", () => {
-  it("const discount: Option<Money> = Some(x) → const discount = x", () => {
-    registerOptionType();
-
-    const code = `${optionDeclarations}
-class Money { constructor(public amount: number, public currency: string) {} }
-const discount: Option<Money> = Some(new Money(500, "USD"));
-console.log(discount);
-`;
-
-    const result = transformWithDecls(code, "gate-criteria.ts");
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-
-    expect(result.code).toContain("const discount = new Money(500");
-    expect(result.code).not.toContain("Option<Money>");
-    expect(result.code).not.toContain("Some(");
-
-    expect(result.code).toContain("console.log(discount)");
+const a: Option<number> = Some(3);
+const b: Option<number> = None;
+const list: Option<number>[] = [Some(1), None];
+const inc = (x: Option<number>): Option<number> => x.map((n) => n + 1);
+class Holder { value: Option<number> = Some(1); }
+function id<T>(x: T): T { return x; }
+const viaGeneric = id<Option<number>>(Some(4));
+console.log(fo(Some(2)), a, b, list, inc(a), new Holder(), viaGeneric);
+`,
+      { fileName, strictOutput: true, transformerConfig: { cacheDir: false } }
+    );
+    expect(r.diagnostics.map((d) => d.message)).toEqual([]);
+    expect(r.code).toContain("function fo(o: Option<number>): number");
+    expect(r.code).toContain("const a: Option<number> = 3;");
+    expect(r.code).toContain("fo(2)");
+    expect(r.code).toContain("const viaGeneric = id<Option<number>>(4);");
   });
 });

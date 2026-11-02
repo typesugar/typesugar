@@ -92,7 +92,7 @@ Available features:
 | `macros`      | Expression macros, tagged templates, type macros, labeled blocks                       |
 | `derive`      | `@derive()` decorator expansion                                                        |
 | `extensions`  | Standalone extension method rewriting, typeclass instance-method sugar (`a.equals(b)`) |
-| `typeclasses` | `@typeclass`, `@instance`, `summon()`                                                  |
+| `typeclasses` | `@typeclass`, `@impl`, `summon()`                                                      |
 | `operators`   | Operator overloading                                                                   |
 
 You can combine multiple features:

@@ -5,13 +5,32 @@
  * They used to test `_tag`/`.value`, so no arm ever matched (silent wrong arm).
  *
  * The fp declarations below mirror packages/fp/src/data/{option,either,list}.ts
- * (std's tests cannot load @typesugar/fp at runtime). `_tag` unions keep the
- * tagged scheme — see match-execution.test.ts "Option-like | null scrutinee".
+ * (std's tests cannot load @typesugar/fp at runtime), including fp's
+ * Destructure instances: the extractors come from those, not from match.ts.
  */
 import { describe, it, expect } from "vitest";
 import { transformAndRun } from "./match-exec-helpers.js";
 
 type Fn = (...args: unknown[]) => unknown;
+
+/**
+ * The Destructure instances @typesugar/fp ships next to these types
+ * (packages/fp/src/data/{option,either,list}.ts), descriptor and all.
+ */
+const instance = (ctor: string, input: string, descriptor: string) => `
+/**
+ * @impl Destructure<typeof ${ctor}, ${input}, unknown>
+ * @destructure ${descriptor}
+ */
+const destructure${ctor} = { extract: (v: ${input}): unknown => v };`;
+const INSTANCES = [
+  instance("Some", "Option<unknown>", "not-null -> self"),
+  instance("None", "Option<unknown>", "null"),
+  instance("Left", "Either<unknown, unknown>", "has left -> left"),
+  instance("Right", "Either<unknown, unknown>", "has right -> right"),
+  instance("Cons", "List<unknown>", "not-null -> head, tail"),
+  instance("Nil", "List<unknown>", "null"),
+].join("\n");
 
 const FP = `import { match } from "@typesugar/std";
 type Option<A> = A | null;
@@ -26,6 +45,7 @@ interface Cons<A> { readonly head: A; readonly tail: List<A> }
 type List<A> = Cons<A> | null;
 function Cons<A>(head: A, tail: List<A>): List<A> { return { head, tail }; }
 const Nil: List<never> = null;
+${INSTANCES}
 `;
 
 function run(code: string) {

@@ -9,7 +9,9 @@ export default defineConfig({
     webpack: "src/webpack.ts",
     esbuild: "src/esbuild.ts",
     rollup: "src/rollup.ts",
+    tsup: "src/tsup.ts",
     cli: "src/cli.ts",
+    register: "src/register.ts",
   },
   format: ["cjs", "esm"],
   dts: !process.env.TYPESUGAR_SKIP_DTS,
@@ -24,5 +26,9 @@ export default defineConfig({
     "@typesugar/derive",
     "@typesugar/typeclass",
     "unplugin-typesugar",
+    // Type-only: the derive markers' typeclass aliases (src/derive-markers.ts).
+    "@typesugar/std",
+    "@typesugar/fp",
+    "tsup",
   ],
 });

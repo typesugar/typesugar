@@ -18,7 +18,12 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { cloneNodeDeep, extractTypeArgumentsContent } from "@typesugar/core";
+import {
+  cloneNodeDeep,
+  extractTypeArgumentsContent,
+  globalRegistry,
+  isSyntheticNode,
+} from "@typesugar/core";
 import {
   type DictMethod,
   type DictMethodMap,
@@ -30,16 +35,48 @@ import {
 import { findInstanceInScopeByName } from "./instance-resolver.js";
 
 /**
- * The slice of MacroContext extraction needs. Both transformer pipelines'
- * context implementations satisfy this structurally.
+ * The context extraction needs: a full MacroContext, since resolving a
+ * companion path (`Point.Numeric`) goes through the instance resolver's scope
+ * walk, which asks the `derived` macro whether a `derived<TC<T>>()` const
+ * derived (and may try the derivation). Both transformer pipelines' contexts
+ * are one.
  */
-export type InstanceExtractionContext = Pick<
-  MacroContext,
-  "typeChecker" | "program" | "sourceFile" | "hygiene"
->;
+export type InstanceExtractionContext = MacroContext;
 
 /** Alias/identifier chains longer than this bail out (cycle guard). */
 const MAX_RESOLUTION_DEPTH = 5;
+
+/**
+ * Told when a checker call fails while an instance's methods are read for
+ * inlining, and the method is then called through its instance instead
+ * (always correct). The caller makes it visible (CLAUDE.md: a caught checker
+ * failure that degrades leaves a trace); see {@link inliningFailureReporter}.
+ */
+export type InliningCheckerFailure = (node: ts.Node, error: unknown) => void;
+
+const reportedInliningFailures = new WeakMap<ts.SourceFile, Set<string>>();
+
+/**
+ * One warning per (file, failing node) when the checker fails on an instance
+ * method's body and its calls aren't inlined: at the node when it is in the
+ * file being transformed, else at that file, naming the other one.
+ */
+export function inliningFailureReporter(ctx: MacroContext): InliningCheckerFailure {
+  return (node, error) => {
+    let seen = reportedInliningFailures.get(ctx.sourceFile);
+    if (!seen) reportedInliningFailures.set(ctx.sourceFile, (seen = new Set()));
+    const sf = isSyntheticNode(node) ? undefined : node.getSourceFile?.();
+    const key = `${sf?.fileName ?? ""}:${isSyntheticNode(node) ? -1 : node.pos}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const here = sf === ctx.sourceFile;
+    ctx.reportWarning(
+      here ? node : ctx.sourceFile,
+      `typesugar did not inline an instance method${here || !sf ? "" : ` (in ${sf.fileName})`}: ` +
+        `the type checker failed reading its body (${error}); calls go through the instance.`
+    );
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Instance name extraction
@@ -180,18 +217,14 @@ function unwrapExpression(expr: ts.Expression): ts.Expression {
 /**
  * Resolve a symbol at a location, following import aliases to the original
  * declaration (PEP-053 Wave 2 gap 1 — cross-module instances resolve to their
- * ImportSpecifier without this, and extraction bails).
+ * ImportSpecifier without this, and extraction bails). A checker failure is
+ * not caught here: it reaches the caller's catch, which reports it
+ * ({@link inliningFailureReporter}) and calls through the instance.
  */
 function resolveAliasedSymbol(checker: ts.TypeChecker, node: ts.Node): ts.Symbol | undefined {
   let symbol = checker.getSymbolAtLocation(node);
   if (!symbol) return undefined;
-  if (symbol.flags & ts.SymbolFlags.Alias) {
-    try {
-      symbol = checker.getAliasedSymbol(symbol);
-    } catch {
-      return undefined;
-    }
-  }
+  if (symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
   return symbol;
 }
 
@@ -482,7 +515,8 @@ function makeMemberResolver(ctx: InstanceExtractionContext, depth: number): Memb
           if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
             try {
               symbol = checker.getAliasedSymbol(symbol);
-            } catch {
+            } catch (error) {
+              inliningFailureReporter(ctx)(expr, error);
               return undefined;
             }
           }
@@ -503,8 +537,10 @@ function makeMemberResolver(ctx: InstanceExtractionContext, depth: number): Memb
         }
         return undefined;
       }
-    } catch {
-      // TypeChecker may throw on unresolvable symbols — skip this member
+    } catch (error) {
+      // TypeChecker may throw on unresolvable symbols — skip this member,
+      // visibly.
+      inliningFailureReporter(ctx)(expr, error);
     }
     return undefined;
   };
@@ -553,15 +589,154 @@ function isModuleScopeDeclaration(decl: ts.Declaration): boolean {
  * here, keyed by name, so each call site can verify the same names resolve to
  * the same symbols there (tc#18). Returns undefined when unsafe.
  */
+/**
+ * Is `node` a call (or tagged template) of a macro: a callee named like a
+ * registered expression or tagged-template macro that is not a declaration of
+ * the user's own (it is imported, declared only in a `.d.ts`, or unresolved)?
+ * A false positive only costs an inlining: the method is then called through
+ * its dictionary, which is always correct.
+ */
+function callsMacro(
+  checker: ts.TypeChecker,
+  node: ts.Node,
+  onCheckerFailure?: InliningCheckerFailure
+): boolean {
+  const callee = ts.isCallExpression(node)
+    ? node.expression
+    : ts.isTaggedTemplateExpression(node)
+      ? node.tag
+      : undefined;
+  if (!callee || !ts.isIdentifier(callee)) return false;
+  const name = callee.text;
+  if (
+    globalRegistry.getCandidates(name, "expression").length === 0 &&
+    globalRegistry.getCandidates(name, "tagged-template").length === 0
+  ) {
+    return false;
+  }
+  // A synthetic callee is outside the checker's contract (CLAUDE.md): by name.
+  if (isSyntheticNode(callee)) return true;
+  let symbol: ts.Symbol | undefined;
+  try {
+    symbol = checker.getSymbolAtLocation(callee);
+  } catch (error) {
+    onCheckerFailure?.(callee, error);
+    return true; // can't tell: treat it as the macro
+  }
+  if (!symbol || symbol.flags & ts.SymbolFlags.Alias) return true;
+  const decls = symbol.getDeclarations() ?? [];
+  return decls.length === 0 || decls.every((d) => d.getSourceFile().isDeclarationFile);
+}
+
+/**
+ * Does `node` (an instance method's body) contain a macro call? Such a method
+ * is never inlined from its source: see {@link callsMacro}.
+ */
+export function containsMacroCall(
+  checker: ts.TypeChecker,
+  node: ts.Node,
+  onCheckerFailure?: InliningCheckerFailure
+): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found || ts.isTypeNode(n)) return;
+    if (callsMacro(checker, n, onCheckerFailure)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** What {@link methodInlineSymbols} found: see `DictMethod.freeSymbols` / `typeSymbols`. */
+export interface MethodInlineSymbols {
+  freeSymbols: Map<string, ts.Symbol>;
+  typeSymbols: Map<string, ts.Symbol>;
+}
+
+/**
+ * The checker-backed half of a method's inlining contract, computed where the
+ * method is defined (a real, program-attached node): `undefined` when the
+ * body can't be inlined anywhere (see {@link isSafeToInlineMethod}), else the
+ * symbols its value and type names resolve to there, which each call site
+ * must resolve the same names to before (and while) inlining it.
+ *
+ * `allowModuleScopeOf`: the file whose module-scope bindings count as in
+ * scope. `@impl` registration passes the instance's own file — a call site
+ * in another file is then checked name by name (`methodFreeNamesResolveSameAt`
+ * in transformer-core), where a module-private helper resolves to nothing.
+ */
+export function methodInlineSymbols(
+  checker: ts.TypeChecker,
+  methodNode: ts.Node,
+  allowModuleScopeOf: ts.SourceFile | undefined,
+  onCheckerFailure?: InliningCheckerFailure
+): MethodInlineSymbols | undefined {
+  if (isSyntheticNode(methodNode)) return undefined;
+  return isSafeToInlineMethod(checker, methodNode, allowModuleScopeOf, onCheckerFailure);
+}
+
+/**
+ * Record, by name, what each type name a method mentions (`Option<A>`,
+ * `typeof x`, `as Acc<B>`) resolves to where it is written. Names declared
+ * inside the method itself (its own type parameters) are left out: once the
+ * body is inlined they are bound nowhere, so a call whose body names one is
+ * not inlined (transformer-core's `reexpressInlinedTypes`; by symbol
+ * identity, never by name: CLAUDE.md "Deciding what a type is").
+ */
+function collectTypeSymbols(
+  checker: ts.TypeChecker,
+  typeNode: ts.Node,
+  methodNode: ts.Node,
+  into: Map<string, ts.Symbol>,
+  onCheckerFailure?: InliningCheckerFailure
+): void {
+  const leftmost = (n: ts.Node): ts.Identifier | undefined => {
+    while (ts.isQualifiedName(n) || ts.isPropertyAccessExpression(n)) {
+      n = ts.isQualifiedName(n) ? n.left : n.expression;
+    }
+    return ts.isIdentifier(n) ? n : undefined;
+  };
+  const visit = (n: ts.Node): void => {
+    const id = ts.isTypeReferenceNode(n)
+      ? leftmost(n.typeName)
+      : ts.isExpressionWithTypeArguments(n)
+        ? leftmost(n.expression)
+        : ts.isTypeQueryNode(n)
+          ? leftmost(n.exprName)
+          : undefined;
+    if (id && !into.has(id.text)) {
+      let symbol: ts.Symbol | undefined;
+      try {
+        symbol = checker.getSymbolAtLocation(id);
+      } catch (error) {
+        // Unrecorded: a call site can't name it, so it isn't inlined there.
+        onCheckerFailure?.(id, error);
+        symbol = undefined;
+      }
+      const decls = symbol?.getDeclarations() ?? [];
+      if (symbol && decls.length > 0 && !decls.every((d) => isNodeWithin(d, methodNode))) {
+        into.set(id.text, symbol);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(typeNode);
+}
+
 function isSafeToInlineMethod(
   checker: ts.TypeChecker,
   methodNode: ts.Node,
-  allowModuleScopeOf: ts.SourceFile | undefined
-): Map<string, ts.Symbol> | undefined {
+  allowModuleScopeOf: ts.SourceFile | undefined,
+  onCheckerFailure?: InliningCheckerFailure
+): MethodInlineSymbols | undefined {
   if (methodDependsOnReceiver(methodNode)) return undefined;
 
   let safe = true;
   const freeSymbols = new Map<string, ts.Symbol>();
+  const typeSymbols = new Map<string, ts.Symbol>();
 
   const checkIdentifier = (id: ts.Identifier, shorthand?: ts.ShorthandPropertyAssignment): void => {
     let symbol: ts.Symbol | undefined;
@@ -569,7 +744,8 @@ function isSafeToInlineMethod(
       symbol = shorthand
         ? checker.getShorthandAssignmentValueSymbol(shorthand)
         : checker.getSymbolAtLocation(id);
-    } catch {
+    } catch (error) {
+      onCheckerFailure?.(id, error);
       safe = false;
       return;
     }
@@ -594,7 +770,20 @@ function isSafeToInlineMethod(
 
   const visit = (node: ts.Node): void => {
     if (!safe) return;
-    if (ts.isTypeNode(node)) return; // types are erased
+    if (ts.isTypeNode(node)) {
+      // Types are erased at run time, but an inlined body's annotations are
+      // still type-checked at the call site (`check --strict`).
+      collectTypeSymbols(checker, node, methodNode, typeSymbols, onCheckerFailure);
+      return;
+    }
+    if (callsMacro(checker, node, onCheckerFailure)) {
+      // The transformer expands this call in the instance's OWN file; the
+      // source is what was written, not what runs. Inlining it would copy the
+      // raw macro call (`summon<Clone<Tree>>()`) into the call site, where it
+      // is never expanded and throws at run time.
+      safe = false;
+      return;
+    }
     if (ts.isPropertyAccessExpression(node)) {
       visit(node.expression); // `.name` resolves to a type member — skip it
       return;
@@ -624,7 +813,7 @@ function isSafeToInlineMethod(
   };
 
   visit(methodNode);
-  return safe ? freeSymbols : undefined;
+  return safe ? { freeSymbols, typeSymbols } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -656,7 +845,10 @@ function computeBrand(
         }
       }
     } catch {
-      // getText() may fail on synthetic nodes — fall through to name fallback
+      // Not a checker call, and not a degrading fallback: getText() fails on
+      // a synthetic annotation, and the brand is then the instance's name,
+      // which is unique. The brand only names the hoisted copy and keys the
+      // specialization cache.
     }
   }
 
@@ -683,6 +875,17 @@ function resolveCompanionInstanceExpression(
   const typeName = expr.expression.text;
   const tcName = expr.name.text;
   if (!PASCAL_CASE.test(typeName) || !PASCAL_CASE.test(tcName)) return undefined;
+  // A reference the checker cannot resolve is a generated companion
+  // (`Point.Eq` from a same-pass `@derive`/`@impl`, absent from the program
+  // the checker was built from). One it CAN resolve is whatever it resolves
+  // to: the name lookup below is used only when that is the instance const
+  // it finds (`export const Point = { Numeric: numericPoint }`). The enum
+  // member `Op.Eq` beside an `@impl Eq<Op>` is that member, not the instance.
+  // Compared by symbol, not by the dotted name.
+  const checker = ctx.typeChecker;
+  const propSym = isSyntheticNode(expr) ? undefined : checker.getSymbolAtLocation(expr.name);
+  const propDecl = propSym?.declarations?.length ? propSym.valueDeclaration : undefined;
+  if (propSym?.declarations?.length && !propDecl) return undefined;
 
   const hit = findInstanceInScopeByName(ctx, tcName, typeName);
   if (!hit) return undefined;
@@ -695,11 +898,38 @@ function resolveCompanionInstanceExpression(
     if (!ts.isVariableStatement(stmt)) continue;
     for (const decl of stmt.declarationList.declarations) {
       if (ts.isIdentifier(decl.name) && decl.name.text === hit.exportName && decl.initializer) {
+        if (propDecl && !propertyIsValueOf(checker, propDecl, decl.name)) return undefined;
         return decl.name;
       }
     }
   }
   return undefined;
+}
+
+/**
+ * Does the property declaration `prop` (`Numeric: numericPoint`, a shorthand
+ * `{ numericPoint }`, or a namespace's `export const Numeric = numericPoint`)
+ * hold the value declared as `constName`? By symbol identity; an enum member
+ * or any other declaration holds no instance const.
+ */
+function propertyIsValueOf(
+  checker: ts.TypeChecker,
+  prop: ts.Declaration,
+  constName: ts.Identifier
+): boolean {
+  let valueSym: ts.Symbol | undefined;
+  if (ts.isShorthandPropertyAssignment(prop)) {
+    valueSym = checker.getShorthandAssignmentValueSymbol(prop);
+  } else if (
+    (ts.isPropertyAssignment(prop) || ts.isVariableDeclaration(prop)) &&
+    prop.initializer &&
+    ts.isIdentifier(prop.initializer)
+  ) {
+    valueSym = checker.getSymbolAtLocation(prop.initializer);
+  }
+  if (!valueSym) return false;
+  if (valueSym.flags & ts.SymbolFlags.Alias) valueSym = checker.getAliasedSymbol(valueSym);
+  return valueSym === checker.getSymbolAtLocation(constName);
 }
 
 /**
@@ -763,21 +993,33 @@ export function tryExtractInstanceFromSource(
       // in any module.
       const methodFile = method.node.getSourceFile();
       const allowModuleScopeOf = methodFile === ctx.sourceFile ? ctx.sourceFile : undefined;
-      const freeSymbols = isSafeToInlineMethod(checker, method.node, allowModuleScopeOf);
-      if (!freeSymbols) {
+      const symbols = isSafeToInlineMethod(
+        checker,
+        method.node,
+        allowModuleScopeOf,
+        inliningFailureReporter(ctx)
+      );
+      if (!symbols) {
         continue; // falls back to dictionary passing — always correct
       }
       // Clone so downstream inlining (which strips positions/comments
       // in place) can never corrupt the defining file's AST.
-      methods.set(name, { ...method, node: cloneNodeDeep(method.node), freeSymbols });
+      methods.set(name, {
+        ...method,
+        node: cloneNodeDeep(method.node),
+        declaration: method.node,
+        ...symbols,
+      });
     }
 
     if (methods.size > 0) {
       registerInstanceMethodsFromAST(argName, brand, methods, ctx.program);
       return { brand, methods };
     }
-  } catch {
-    // TypeChecker or AST traversal may throw — fall back to registry lookup
+  } catch (error) {
+    // TypeChecker or AST traversal may throw — fall back to registry lookup,
+    // visibly.
+    inliningFailureReporter(ctx)(argExpr, error);
   }
 
   return undefined;

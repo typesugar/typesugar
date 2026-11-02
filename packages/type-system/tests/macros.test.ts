@@ -94,6 +94,35 @@ export const same = useExists(p, (w: any) => w) === useExists(p, (w: any) => w);
   });
 });
 
+describe("packExists keeps the existential's type in the expansion", () => {
+  // `typesugar check --strict` in type-system: `return packExists({...} as
+  // ShowWitness<unknown>)` in a function returning `Exists<ShowWitness<unknown>>`
+  // expanded to `(w => ({ use: f => f(w) }))(...)`, whose type has no
+  // `__exists_brand__` (TS2741) — the runtime packExists asserts `as Exists<W>`.
+  it("the expanded code type-checks where the result is an Exists", () => {
+    const { code, errors } =
+      expand(`import { packExists, useExists, type Exists } from "@typesugar/type-system";
+interface ShowWitness<T> { readonly value: T; readonly show: (t: T) => string }
+export function showable<T>(value: T, show: (t: T) => string): Exists<ShowWitness<unknown>> {
+  return packExists({ value, show } as ShowWitness<unknown>);
+}
+export const shown = useExists(showable(42, String), ({ value, show }) => show(value));
+`);
+    expect(errors).toEqual([]);
+    expect(typeErrors(code)).toEqual([]);
+    expect(run(code).shown).toBe("42");
+  });
+
+  it("asserts nothing when the type has no name at the call site", () => {
+    const { code, errors } = expand(`import { packExists } from "@typesugar/type-system";
+export const p = packExists({ v: 1 });
+`);
+    expect(errors).toEqual([]);
+    expect(code).not.toContain("import(");
+    expect(typeErrors(code)).toEqual([]);
+  });
+});
+
 describe("TSP-5: @pure / @effect checking", () => {
   it("reports a @pure function calling an @effect function", () => {
     const { errors } = expand(`import { pure, effect } from "@typesugar/type-system";

@@ -14,7 +14,8 @@ description: >-
 
 typesugar is a **compile-time macro system** for TypeScript. Source files are
 valid TypeScript, but they must be compiled through a typesugar-aware pipeline
-(the `unplugin-typesugar` bundler plugin, or `ts-patch` for raw `tsc`) for
+(the `unplugin-typesugar` bundler plugin, `withTypesugar()` for tsup, `ts-patch`
+for raw `tsc`, or `node --import typesugar/register` for scripts and tests) for
 macros to expand. Everything expands at build time to plain TypeScript — no
 runtime library, no runtime cost.
 
@@ -49,9 +50,13 @@ Most "typesugar is broken" reports are one of:
 
 ## Setup invariants — violating these silently breaks expansion
 
-1. **The build plugin must stay in the bundler config** (`plugins: [typesugar(), …]`)
-   or ts-patch must stay installed for `tsc` builds. Removing it does not
-   simplify the build; it turns every macro into dead code.
+1. **The build plugin must stay in the bundler config** (`plugins: [typesugar(), …]`,
+   or `withTypesugar(…)` around a tsup config), ts-patch must stay installed for
+   `tsc` builds, and `--import typesugar/register` must stay on Node/tsx
+   commands that run TypeScript directly. Removing it does not simplify the
+   build; it turns every macro into dead code. A library's `.d.ts` must come
+   from the expanded program (`withTypesugar` with `dts: true`, or
+   `typesugar build`), not plain `tsc`.
 2. **The `plugins` entry in `tsconfig.json`** powers the editor. Keep it.
 3. **Never delete a macro import that looks unused.** `derive`, `Eq`,
    `comptime` etc. are consumed by the transformer, not by the emitted JS.
@@ -100,9 +105,17 @@ const area = match(shape)
 // Missing a variant is a compile error.
 ```
 
+For arms that need statements (`return`, `break`, loops), label a `switch`
+with `match:` (after `import "@typesugar/std/syntax/match"`). Extractor
+patterns (`.case(Some(v))`) resolve `Destructure` instances by the
+constructor's symbol; `@derive(Destructure)` makes them for your own types.
+
 Other forms: `comptime(expr)` (build-time evaluation, inlined as a literal),
 `/** @impl Show<Point> */` on a `const` (hand-written instance),
-`/** @typeclass */` (declare a typeclass).
+`export const cloneFeature = derived<Clone<Feature>>()` (a derived instance for a
+type you don't own, such as a library's; import its module where it's used),
+`/** @typeclass */` (declare a typeclass). A TS9009 warning means `summon`
+derived an instance in place, which is deprecated: declare one instead.
 
 ## When adding typesugar to a project
 

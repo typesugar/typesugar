@@ -8,12 +8,12 @@ Browser-compatible transformation core for typesugar macro expansion.
 
 This package provides the core macro transformation logic with **zero Node.js dependencies**. It can run in any JavaScript environment: browsers, Node.js, Deno, Bun, Web Workers, etc.
 
-The main `@typesugar/transformer` package depends on this for the actual transformation logic, while adding Node.js-specific features like file caching, macro package loading, and ts-patch integration.
+The main `@typesugar/transformer` package depends on this for the actual transformation logic, while adding Node.js-specific features like file caching, macro package loading, the `typesugar` CLI, the Node loader and the editor plugin.
 
 ```
 @typesugar/transformer-core    ← Pure transformation (this package)
           ↑
-@typesugar/transformer         ← Node.js plugin (ts-patch, caching, CLI)
+@typesugar/transformer         ← Node.js pipeline (CLI, loader, caching)
 @typesugar/playground          ← Browser bundle (interactive playground)
 ```
 

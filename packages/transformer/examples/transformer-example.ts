@@ -93,11 +93,11 @@ const config: MacroTransformerConfig = {
   // Enable verbose logging during transformation
   verbose: false,
 
-  // Timeout for comptime() evaluation (ms)
-  timeout: 5000,
+  // Track expansions for source maps and diagnostics
+  trackExpansions: true,
 
-  // Custom macro directories to scan
-  macroDirectories: [],
+  // Disk cache for macro expansions (false disables it)
+  cacheDir: false,
 };
 
 console.log("Transformer config:", config);

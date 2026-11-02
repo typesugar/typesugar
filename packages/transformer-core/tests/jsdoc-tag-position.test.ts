@@ -98,4 +98,48 @@ describe("JSDoc macro tags only dispatch at a real tag position", () => {
       ["typeclass", true],
     ]);
   });
+  // JSDoc's @example content ends at the next line-start tag (that's how
+  // TypeScript parses it and how an IDE renders it); only a code fence makes
+  // a line-start `@tag` example code. A real tag after an @example used to be
+  // ignored, so `@typeclass` under a fenced @example registered nothing.
+  it("a line-start tag after an @example's plain lines is a real tag", () => {
+    const code = [
+      "/**",
+      " * A point.",
+      " * @example",
+      " * const p: Point = { x: 1, y: 2 };",
+      " * @derive(Eq)",
+      " */",
+      "interface Point { x: number; y: number }",
+      "",
+    ].join("\n");
+    const tags = ts.getJSDocTags(firstStatement(code));
+    expect(tags.map((t) => [t.tagName.text, isJSDocTagAtLineStart(t)])).toEqual([
+      ["example", true],
+      ["derive", true],
+    ]);
+  });
+
+  it("a tag after a fenced @example is a real tag; one inside the fence is not", () => {
+    const code = [
+      "/**",
+      " * Group.",
+      " * @example",
+      ` * ${FENCE}typescript`,
+      " * @derive(Eq)",
+      " * interface Other { x: number }",
+      ` * ${FENCE}`,
+      " *",
+      " * @typeclass",
+      " */",
+      "interface Group<A> { invert(a: A): A; }",
+      "",
+    ].join("\n");
+    const tags = ts.getJSDocTags(firstStatement(code));
+    expect(tags.map((t) => [t.tagName.text, isJSDocTagAtLineStart(t)])).toEqual([
+      ["example", true],
+      ["derive", false],
+      ["typeclass", true],
+    ]);
+  });
 });

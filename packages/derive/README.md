@@ -2,7 +2,7 @@
 
 > 📖 **Full documentation:** [Derive Macros guide](https://typesugar.org/guides/derive). The microsite is the canonical reference; this README is a quickstart.
 
-Auto-derive typeclass instances (`Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`) from a type's structure. Each derive generates a plain-object instance in a companion namespace (`User.Eq`, `User.Clone`, ...), with the field logic inlined.
+Auto-derive typeclass instances (`Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json`, `TypeGuard`) from a type's structure. Each derive generates a plain-object instance in a companion namespace (`User.Eq`, `User.Clone`, ...), with the field logic inlined. `Clone` is field-wise, like Rust's `#[derive(Clone)]`: arrays and nested objects are copied, not shared. For a type you can't annotate (one from a library), `derived<Clone<Feature>>()` from `typesugar` generates the same instance.
 
 ## Installation
 

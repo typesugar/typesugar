@@ -78,7 +78,14 @@ export type Refined<Base, Brand extends string> = Base & {
 /**
  * Extract the base type from a Refined type.
  */
-export type BaseOf<T> = T extends Refined<infer Base, string> ? Base : T;
+export type BaseOf<T> = T extends { readonly [__refined__]: infer Brand extends string }
+  ? // Matched against the exact brand, so the brand member is removed from
+    // the intersection and Base is what is left. Against `string`, the
+    // literal brand did not match and Base was the whole refined type.
+    T extends Refined<infer Base, Brand>
+    ? Base
+    : never
+  : T;
 
 /**
  * A refinement — a predicate paired with a brand.

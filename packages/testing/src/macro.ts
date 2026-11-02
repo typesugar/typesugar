@@ -197,32 +197,59 @@ function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
 function instrumentAssertion(
   factory: ts.NodeFactory,
   expr: ts.Expression,
+  source: ts.Expression,
   sourceFile: ts.SourceFile,
   values: ts.Identifier
 ): { instrumented: ts.Expression; positions: number[] } {
-  const exprStart = expr.getStart(sourceFile);
+  const exprStart = source.getStart(sourceFile);
+  const exprEnd = source.getEnd();
   const positions: number[] = [];
+
+  // `expr` has already been macro-expanded (assert is `expandArgumentsFirst`).
+  // A node a nested macro generated is synthetic: it has no column of its
+  // own. If it is a COPY of a source node (an expansion that reuses an
+  // operand clones it, keeping an `original` link: the operands of a
+  // rewritten `a === b`, the receiver of a rewritten `n.show()`), it is drawn
+  // at that source node's column; anything else synthetic is not recorded,
+  // but its children are still visited by the same rules. A source node from
+  // outside the assertion (reused by an expansion) has no column in this
+  // diagram either. One source node is drawn once: an expansion that reads an
+  // operand twice (`c === p || (c != null && ...)`) records the first read,
+  // which is always evaluated.
+  const sourceOf = (n: ts.Node): ts.Node | undefined => {
+    if (!isSyntheticNode(n)) return n;
+    const original = ts.getOriginalNode(n);
+    return original !== n && !isSyntheticNode(original) ? original : undefined;
+  };
+  const drawn = new Set<ts.Node>();
+  const hasColumn = (n: ts.Expression): boolean => {
+    const src = sourceOf(n);
+    return (
+      !!src && !drawn.has(src) && src.getStart(sourceFile) >= exprStart && src.getEnd() <= exprEnd
+    );
+  };
 
   // Column where this sub-expression's value indicator appears in the diagram:
   // at the property name for property access, the operator for binary ops,
-  // otherwise the start.
+  // otherwise the start. Read from the source node (see sourceOf).
   const displayOffset = (n: ts.Expression): number => {
-    if (ts.isPropertyAccessExpression(n)) return n.name.getStart(sourceFile) - exprStart;
-    if (ts.isBinaryExpression(n)) return n.operatorToken.getStart(sourceFile) - exprStart;
-    return n.getStart(sourceFile) - exprStart;
+    const src = sourceOf(n) ?? n;
+    if (ts.isPropertyAccessExpression(src)) return src.name.getStart(sourceFile) - exprStart;
+    if (ts.isBinaryExpression(src)) return src.operatorToken.getStart(sourceFile) - exprStart;
+    return src.getStart(sourceFile) - exprStart;
   };
 
   const inChain = (n: ts.Node): boolean => (n.flags & ts.NodeFlags.OptionalChain) !== 0;
 
-  const visit = (n: ts.Expression, record: boolean): ts.Expression => {
+  const visit = (n: ts.Expression, wantRecord: boolean): ts.Expression => {
     if (isSelfExplanatoryLiteral(n) || n.kind === ts.SyntaxKind.SuperKeyword) return n;
-    // A macro-generated sub-tree has no source position to draw a column for.
-    if (isSyntheticNode(n)) return n;
+    const record = wantRecord && hasColumn(n);
 
     // Allocate the index before visiting children: pre-order, matching the
     // left-to-right reading order of the diagram.
     let index = -1;
     if (record) {
+      drawn.add(sourceOf(n)!);
       index = positions.length;
       positions.push(displayOffset(n) + ASSERT_PREFIX_LEN);
     }
@@ -296,6 +323,11 @@ export const assertMacro = defineExpressionMacro({
   module: "@typesugar/testing",
   description:
     "Assert with sub-expression capture — on failure, shows the value of every sub-expression",
+  // Instrumenting first wrapped `summon` in `summon<Show<number>>()` as
+  // `(values[i] = summon)()` (so it never expanded and threw at run time) and
+  // hid extension-method receivers from the checker: expand the argument's
+  // macros first, then instrument what they produced.
+  expandArgumentsFirst: true,
 
   expand(
     ctx: MacroContext,
@@ -310,7 +342,9 @@ export const assertMacro = defineExpressionMacro({
       return callExpr;
     }
 
+    // `args` are already macro-expanded; `callExpr.arguments` is the source.
     const expr = args[0];
+    const source = callExpr.arguments[0] ?? expr;
     const customMessage = args.length === 2 ? args[1] : undefined;
     const factory = ctx.factory;
     const sourceFile = ctx.sourceFile;
@@ -330,7 +364,7 @@ export const assertMacro = defineExpressionMacro({
     let instrumented: ts.Expression;
     let positions: number[];
     let exprSource: string;
-    if (isSyntheticNode(expr)) {
+    if (isSyntheticNode(source)) {
       // A macro-generated argument has no source text or positions to draw a
       // diagram from: assert it plainly (still evaluated once).
       ctx.reportWarning(
@@ -343,8 +377,14 @@ export const assertMacro = defineExpressionMacro({
         .createPrinter({ removeComments: true })
         .printNode(ts.EmitHint.Expression, expr, sourceFile);
     } else {
-      ({ instrumented, positions } = instrumentAssertion(factory, expr, sourceFile, values));
-      exprSource = expr.getText(sourceFile);
+      ({ instrumented, positions } = instrumentAssertion(
+        factory,
+        expr,
+        source,
+        sourceFile,
+        values
+      ));
+      exprSource = source.getText(sourceFile);
     }
 
     const failArgs: ts.Expression[] = [
@@ -967,8 +1007,7 @@ export const forAllMacro = defineExpressionMacro({
     const plus = (a: ts.Expression, b: ts.Expression) =>
       f.createBinaryExpression(a, ts.SyntaxKind.PlusToken, b);
 
-    // (() => {
-    //   const <gen> = <generator>, <count> = <count>, <prop> = <property>;  (each evaluated once)
+    // (function <T>(<gen>: (seed: number) => T, <count>: number, <prop>: (value: T) => void): void {
     //   for (let <i> = 0; <i> < <count>; <i>++) {
     //     const <value> = <gen>(<i>);
     //     try { <prop>(<value>); }
@@ -978,7 +1017,7 @@ export const forAllMacro = defineExpressionMacro({
     //         "Failing input: " + JSON.stringify(<value>) + "\n" + "Error: " + <err>);
     //     }
     //   }
-    // })()
+    // })(<generator>, <count>, <property>)  (each evaluated once, in order)
     const loop = f.createForStatement(
       f.createVariableDeclarationList(
         [f.createVariableDeclaration(i, undefined, undefined, f.createNumericLiteral(0))],
@@ -1055,19 +1094,40 @@ export const forAllMacro = defineExpressionMacro({
       )
     );
 
-    return iife(f, [
-      f.createVariableStatement(
+    // The arguments are passed to a generic function typed like forAll's
+    // own signature, `<T>(gen: (seed: number) => T, count: number, prop:
+    // (value: T) => void)`, rather than bound to consts: that evaluates each
+    // once, in order, as before, and keeps the contextual types the call
+    // gave unannotated parameters (`(seed) => …`, `(value) => …`), which a
+    // const loses — TS7006 under `typesugar check --strict` (turf case
+    // study, round 2). A function expression, not an arrow: `<T>(…) =>`
+    // reads as JSX in a .tsx file.
+    const tRef = () => f.createTypeReferenceNode("T");
+    const param = (name: ts.Identifier, type: ts.TypeNode) =>
+      f.createParameterDeclaration(undefined, undefined, name, undefined, type);
+    const fnType = (paramName: string, paramType: ts.TypeNode, result: ts.TypeNode) =>
+      f.createFunctionTypeNode(
         undefined,
-        f.createVariableDeclarationList(
-          [
-            f.createVariableDeclaration(gen, undefined, undefined, generatorArg),
-            f.createVariableDeclaration(count, undefined, undefined, countArg),
-            f.createVariableDeclaration(prop, undefined, undefined, propertyArg),
-          ],
-          ts.NodeFlags.Const
-        )
-      ),
-      loop,
+        [f.createParameterDeclaration(undefined, undefined, paramName, undefined, paramType)],
+        result
+      );
+    const runner = f.createFunctionExpression(
+      undefined,
+      undefined,
+      undefined,
+      [f.createTypeParameterDeclaration(undefined, "T")],
+      [
+        param(gen, fnType("seed", f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword), tRef())),
+        param(count, f.createKeywordTypeNode(ts.SyntaxKind.NumberKeyword)),
+        param(prop, fnType("value", tRef(), f.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword))),
+      ],
+      f.createKeywordTypeNode(ts.SyntaxKind.VoidKeyword),
+      f.createBlock([loop], true)
+    );
+    return f.createCallExpression(f.createParenthesizedExpression(runner), undefined, [
+      generatorArg,
+      countArg,
+      propertyArg,
     ]);
   },
 });

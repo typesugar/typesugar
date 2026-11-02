@@ -213,6 +213,10 @@ The invariant is checked:
 It is not checked for static members, getters, `private`/`protected`/`#private`
 members, or when the method throws (the original exception propagates).
 
+A method of an `@invariant` class can have its own `requires:`/`ensures:` blocks
+(with or without `@contract`): its preconditions are checked first, then the body
+runs and the invariant is checked, then its postconditions.
+
 Another example, guarding a balance:
 
 ```typescript

@@ -50,6 +50,20 @@ describe("core #17: hasInlineOptOut", () => {
     expect(hasInlineOptOut(sf, call, "macros")).toBe(true);
   });
 
+  it("a marker after a template literal with a substitution counts (turf r2)", () => {
+    // The comment scanner read the closing `}` of `${y}` as a brace and the
+    // template's last backtick as the start of a NEW template, which then
+    // swallowed the comment: `grammar\`a ${y}\` // @ts-no-typesugar` still
+    // expanded (and reported) the macro.
+    const { sf, call } = callOnLine("f(() => g(`a ${y} b ${z}`)); // @ts-no-typesugar\n", 0);
+    expect(hasInlineOptOut(sf, call, "macros")).toBe(true);
+    const nested = callOnLine("f(`a ${`b ${c} d`} e`, { k: 1 }); // @ts-no-typesugar\n", 0);
+    expect(hasInlineOptOut(nested.sf, nested.call, "macros")).toBe(true);
+    // ...and a marker inside the template's text still does not.
+    const inText = callOnLine("f(`${y} // @ts-no-typesugar`);\n", 0);
+    expect(hasInlineOptOut(inText.sf, inText.call, "macros")).toBe(false);
+  });
+
   it("a marker inside a string literal does not count", () => {
     const { sf, call } = callOnLine(`const s = log("// @ts-no-typesugar");\n`, 0);
     expect(hasInlineOptOut(sf, call)).toBe(false);

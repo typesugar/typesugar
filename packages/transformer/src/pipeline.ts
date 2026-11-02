@@ -21,11 +21,19 @@ import {
   PROFILING_ENABLED,
   type FileTimings,
   config,
+  type ConfigSnapshot,
   assertSupportedTypeScript,
+  opaqueTypesAsUnderlying,
+  forEachDescendant,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
-import { MacroTransformer, discoverOpaqueTypesFromImports } from "@typesugar/transformer-core";
+import {
+  MacroTransformer,
+  discoverOpaqueTypesFromImports,
+  registerProgramOpaqueTypes,
+} from "@typesugar/transformer-core";
 import { loadMacroPackages, loadMacroPackagesFromFile } from "./macro-loader.js";
+import { isComprehensionSyntaxActivatedIn, mayContainComprehension } from "./comprehension-gate.js";
 import { VirtualCompilerHost, type PreprocessedFile } from "./virtual-host.js";
 import { composeSourceMaps, composeSourceMapChain } from "./source-map-utils.js";
 import {
@@ -293,13 +301,34 @@ function clampSyntheticPositions<T extends ts.Node>(node: T): T {
  * printed output (review finding #5), which corrupted string/template
  * literals.
  */
-function detachScratchArrowTokens(node: ts.Node): void {
-  if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
-    ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
-  }
-  ts.forEachChild(node, (child) => {
-    detachScratchArrowTokens(child);
+function detachScratchArrowTokens(root: ts.Node): void {
+  // Iterative: a file can hold an expression thousands of levels deep.
+  forEachDescendant(root, (node) => {
+    if (ts.isArrowFunction(node) && node.pos < 0 && node.equalsGreaterThanToken.pos >= 0) {
+      ts.setTextRange(node.equalsGreaterThanToken, { pos: -1, end: -1 });
+    }
   });
+}
+
+/**
+ * Register the `@opaque` types `program` can see — those declared in its own
+ * source files and those of the `.d.ts` files its sources import — before
+ * anything is expanded, as the transformer does for each file it transforms
+ * (turf case study, round 2). The TypeRewriteAssignment suppression rule
+ * matches against these registrations: `typesugar check` and
+ * `emitDeclarations()` filter the source's diagnostics BEFORE they expand
+ * anything, so without this `const o: Option<number> = numberOrNull` was
+ * reported there while `build` (which filters after emit) and the editor hid
+ * it. Idempotent: both registrations are once per program / `.d.ts` file.
+ */
+export function registerTypeRewritesBeforeFiltering(program: ts.Program, verbose?: boolean): void {
+  registerProgramOpaqueTypes(program, verbose);
+  for (const sourceFile of program.getSourceFiles()) {
+    if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
+      continue;
+    }
+    discoverOpaqueTypesFromImports(sourceFile, program, verbose);
+  }
 }
 
 /**
@@ -427,7 +456,10 @@ export function macroTransformerFactory(
       // Scan for imports and opt-out directives
       scanImportsForScope(sourceFile, globalResolutionScope, program);
 
-      // Discover @opaque types from imported .d.ts files (external libraries).
+      // @opaque types declared in this program's source files, whichever
+      // file is transformed first (once per program), and those of imported
+      // .d.ts files (external libraries).
+      registerProgramOpaqueTypes(program, verbose);
       discoverOpaqueTypesFromImports(sourceFile, program, verbose);
 
       // Check for file-level opt-out
@@ -474,6 +506,14 @@ export function macroTransformerFactory(
               // Keep zero values
             }
           }
+        }
+        // A synthetic node (a JSDoc tag's parsed arguments) has no position:
+        // getStart() returns -1, and a negative start crashed the CLI's
+        // diagnostic printer ("position cannot precede the beginning of the
+        // file") instead of reporting the error.
+        if (start < 0 || length < 0) {
+          start = 0;
+          length = 0;
         }
 
         const errorCode =
@@ -577,6 +617,16 @@ export interface TransformResult {
 export interface PipelineOptions {
   /** Enable verbose logging */
   verbose?: boolean;
+  /**
+   * The project's typesugar config (`config.capture()` after
+   * `config.load({ searchFrom: projectDir })`), made current around every
+   * transform and strict check this pipeline runs. A host serving several
+   * projects in one process passes it, so one project's config (its
+   * `security.allowedMacroPackages` included) never applies to another's
+   * files (review 8). `createPipeline` sets it. Without it, the pipeline
+   * reads whatever config is current.
+   */
+  config?: ConfigSnapshot;
   /** Macro transformer config */
   transformerConfig?: MacroTransformerConfig;
   /** Custom file reader (defaults to ts.sys.readFile) */
@@ -675,6 +725,21 @@ function leafOf(node: ts.Node): { kind: LeafKind; text: string } | undefined {
 }
 
 /**
+ * What to do about a transform that ran out of stack: something in the file
+ * nests too deeply for a recursive step (in practice, a very long chain of
+ * typeclass operators on objects, `a + a + ... + a` thousands of terms long,
+ * each rewritten level of which is rebuilt around its left operand).
+ */
+function stackOverflowHint(error: unknown): string {
+  if (!(error instanceof RangeError) || !/call stack/i.test(error.message)) return "";
+  return (
+    ". An expression in this file nests too deeply for the transformer (for example, a " +
+    "chain of thousands of typeclass operators, `a + b + ...`). Split it into intermediate " +
+    "consts (`const s1 = a + b + ...; const s2 = s1 + ...`)."
+  );
+}
+
+/**
  * Generate a source map by walking the transformed AST and reading
  * `getSourceMapRange()` from each node. Correlates AST nodes with output
  * positions using TypeScript's scanner for token-boundary precision.
@@ -700,7 +765,7 @@ function leafOf(node: ts.Node): { kind: LeafKind; text: string } | undefined {
  * regular expression can do the same). Every position after the first
  * `${...}` was then unmapped (PEP-060 item 5).
  */
-function generateASTSourceMap(
+export function generateASTSourceMap(
   originalCode: string,
   transformedSF: ts.SourceFile,
   outputCode: string,
@@ -713,15 +778,14 @@ function generateASTSourceMap(
   // quote style or escapes the printer chose.
   const outputTokens: Array<{ kind: LeafKind; text: string; pos: number }> = [];
   const outputSF = ts.createSourceFile(fileName, outputCode, ts.ScriptTarget.Latest, false);
-  const collectLeaves = (node: ts.Node): void => {
+  // Iterative, in forEachChild (document) order: an expression in the output
+  // can be thousands of levels deep (a long generated chain).
+  forEachDescendant(outputSF, (node) => {
     const leaf = leafOf(node);
-    if (leaf) {
-      outputTokens.push({ ...leaf, pos: node.getStart(outputSF) });
-      return;
-    }
-    ts.forEachChild(node, collectLeaves);
-  };
-  collectLeaves(outputSF);
+    if (!leaf) return;
+    outputTokens.push({ ...leaf, pos: node.getStart(outputSF) });
+    return false;
+  });
 
   if (outputTokens.length === 0) return null;
 
@@ -816,13 +880,15 @@ function generateASTSourceMap(
   // Walk the transformed AST depth-first, matching leaves to output tokens.
   // For statements, also emit a statement-level mapping at the start so that
   // positions between tokens (whitespace, operators) map to the correct line.
-  function walkNode(node: ts.Node): void {
+  // Iterative (forEachDescendant visits in the same order as a recursive
+  // forEachChild walk): an expression can be thousands of levels deep.
+  function walkNode(node: ts.Node): false | void {
     const range = ts.getSourceMapRange(node);
 
     const leaf = leafOf(node);
     if (leaf) {
       // Only map nodes that have a valid source position
-      if (range.pos < 0 || range.end < 0) return;
+      if (range.pos < 0 || range.end < 0) return false;
 
       // Skip leading trivia to get the actual token start in the original
       const origPos = skipTrivia(range.pos);
@@ -831,15 +897,14 @@ function generateASTSourceMap(
       if (token) {
         addMapping(token.pos, origPos);
       }
-      return;
+      return false;
     }
 
-    // Non-leaf: recurse into children (forEachChild visits in source order)
-    ts.forEachChild(node, walkNode);
+    // Non-leaf: its children next (forEachChild order, source order)
   }
 
   // Walk the full AST for token-level precision
-  walkNode(transformedSF);
+  forEachDescendant(transformedSF, walkNode);
 
   // Add line-start mappings: for each output line that has at least one
   // token mapping, add a col-0 mapping pointing to the same original line.
@@ -945,7 +1010,12 @@ export function transpileExpanded(
   code: string,
   fileName: string,
   compilerOptions: ts.CompilerOptions,
-  options?: { sourceMap?: boolean; jsx?: ts.JsxEmit }
+  options?: {
+    sourceMap?: boolean;
+    jsx?: ts.JsxEmit;
+    /** Module system to emit (default ESNext: imports/exports kept). */
+    module?: ts.ModuleKind;
+  }
 ): {
   outputText: string;
   sourceMapText?: string;
@@ -958,11 +1028,16 @@ export function transpileExpanded(
   fixMap?: RawSourceMap | null;
 } {
   const emitSourceMap = options?.sourceMap ?? true;
+  // `code` is already expanded. Leave out the project's `plugins`: a
+  // ts-patched TypeScript applies each `{ "transform": ... }` entry in
+  // transpileModule too, which would run the typesugar transformer a second
+  // time over its own output (a @typeclass companion emitted twice).
+  const { plugins: _plugins, ...transpileOptions } = compilerOptions;
 
   const result = ts.transpileModule(code, {
     compilerOptions: {
-      ...compilerOptions,
-      module: ts.ModuleKind.ESNext,
+      ...transpileOptions,
+      module: options?.module ?? ts.ModuleKind.ESNext,
       target: compilerOptions.target ?? ts.ScriptTarget.ESNext,
       sourceMap: emitSourceMap,
       declaration: false,
@@ -1087,10 +1162,20 @@ export class TransformationPipeline {
     return new TransformationPipeline(compilerOptions, fileNames, options);
   }
 
+  /** Run `fn` with this pipeline's project config current (see `PipelineOptions.config`). */
+  private withProjectConfig<T>(fn: () => T): T {
+    const snapshot = this.options.config;
+    return snapshot ? config.runWith(snapshot, fn) : fn();
+  }
+
   /**
    * Transform a single file
    */
   transform(fileName: string): TransformResult {
+    return this.withProjectConfig(() => this.transformFile(fileName));
+  }
+
+  private transformFile(fileName: string): TransformResult {
     const transformStart = PROFILING_ENABLED ? performance.now() : 0;
     profiler.start("transform");
 
@@ -1553,11 +1638,9 @@ export class TransformationPipeline {
     const mode = this.options.strict;
     if (!mode) return [];
 
-    if (mode === "incremental") {
-      return this.incrementalStrictTypecheck();
-    }
-
-    return this.fullStrictTypecheck();
+    return this.withProjectConfig(() =>
+      mode === "incremental" ? this.incrementalStrictTypecheck() : this.fullStrictTypecheck()
+    );
   }
 
   /**
@@ -1747,6 +1830,11 @@ export class TransformationPipeline {
     return this.fileNames;
   }
 
+  /** The compiler options this pipeline's Program is built with. */
+  getCompilerOptions(): ts.CompilerOptions {
+    return this.compilerOptions;
+  }
+
   /**
    * Check if a file should be transformed (based on extensions)
    */
@@ -1789,24 +1877,14 @@ export class TransformationPipeline {
     // the transformer repeats later) is only worth paying for files that can
     // possibly contain a comprehension label. Everything else skips both the
     // scan AND the preprocessor.
-    if (!/\b(?:let|seq|par|all)\s*:/.test(code)) return false;
+    if (!mayContainComprehension(code)) return false;
     const scanFile =
       this.program?.getSourceFile(fileName) ??
       ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
-    // The comprehension macros live in a macro package (@typesugar/std)
-    // that is normally loaded lazily by the transformer factory / per-file
-    // import scan -- AFTER this gate on the first file, which then saw an
-    // empty registry and skipped the rewrite (review finding #9). Load
-    // packages first; both calls are idempotent.
+    // The program-wide macro packages first (review finding #9); the gate,
+    // shared with the CLI (comprehension-gate.ts), loads the file's own.
     this.ensureTransformerFactory();
-    loadMacroPackagesFromFile(scanFile, this.verbose);
-    const letMacro = globalRegistry.getLabeledBlock("let")?.name;
-    const parMacro = globalRegistry.getLabeledBlock("par")?.name;
-    if (!letMacro && !parMacro) return false;
-    scanImportsForScope(scanFile, globalResolutionScope, this.program ?? undefined);
-    return [letMacro, parMacro].some(
-      (name) => name && globalResolutionScope.isLabelSyntaxActivated(fileName, name)
-    );
+    return isComprehensionSyntaxActivatedIn(scanFile, this.program ?? undefined, this.verbose);
   }
 
   /** Drop the Program (and the factory bound to it); rebuilt lazily. */
@@ -2063,7 +2141,7 @@ export class TransformationPipeline {
             file: sourceFile.fileName,
             start: 0,
             length: 0,
-            message: `Transform failed: ${error}`,
+            message: `Transform failed: ${error}${stackOverflowHint(error)}`,
             severity: "error",
           },
         ],
@@ -2344,7 +2422,12 @@ export function createPipeline(
   // a bundler/IDE host's cwd is often not the project.
   config.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
 
-  return new TransformationPipeline(parsed.options, parsed.fileNames, options);
+  // This project's config stays with its pipeline (one process may build
+  // several: the Node loader keeps one per tsconfig).
+  return new TransformationPipeline(parsed.options, parsed.fileNames, {
+    config: config.capture(),
+    ...options,
+  });
 }
 
 /**
@@ -2451,15 +2534,19 @@ function typecheckOutput(
   const origReadFile = host.readFile.bind(host);
   const origFileExists = host.fileExists.bind(host);
 
+  // Every file is served in the runtime view of @opaque types, the view the
+  // expanded code is written against (opaqueTypesAsUnderlying).
+  const serve = (f: string, text: string | undefined) =>
+    text === undefined ? undefined : opaqueTypesAsUnderlying(f, text);
   host.readFile = (f) => {
     const virtual = virtualFiles.get(f);
-    if (virtual !== undefined) return virtual;
+    if (virtual !== undefined) return serve(f, virtual);
     if (knownFiles.has(f)) {
       const custom = readFile(f);
-      if (custom !== undefined) return custom;
+      if (custom !== undefined) return serve(f, custom);
     }
     if (f.includes("lib.") && f.endsWith(".d.ts")) return origReadFile(f);
-    return readFile(f);
+    return serve(f, readFile(f));
   };
   host.fileExists = (f) => {
     if (knownFiles.has(f)) return true;

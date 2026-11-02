@@ -14,21 +14,39 @@
 // ============================================================================
 
 // Option is both a type (Option<A> = A | null) and a namespace object
-export { Option, Some, None, isSome, isNone, defined, unwrapDefined } from "./option.js";
+export {
+  Option,
+  Some,
+  None,
+  isSome,
+  isNone,
+  defined,
+  unwrapDefined,
+  destructureSome,
+  destructureNone,
+} from "./option.js";
 export type { Defined } from "./option.js";
 
 // ============================================================================
 // Either — Typed error handling
 // ============================================================================
 
-export { Either, Left, Right, isLeft, isRight } from "./either.js";
+export {
+  Either,
+  Left,
+  Right,
+  isLeft,
+  isRight,
+  destructureLeft,
+  destructureRight,
+} from "./either.js";
 
 // ============================================================================
 // List — Persistent linked list
 // ============================================================================
 
 export type { List } from "./list.js";
-export { Cons, Nil, isCons, isNil } from "./list.js";
+export { Cons, Nil, isCons, isNil, destructureCons, destructureNil } from "./list.js";
 
 // ============================================================================
 // NonEmptyList — List with at least one element
@@ -47,6 +65,8 @@ export {
   Validated,
   Valid,
   Invalid,
+  destructureValid,
+  destructureInvalid,
   valid,
   invalid,
   validNel,

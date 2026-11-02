@@ -53,6 +53,25 @@ await esbuild.build({
 });
 ```
 
+## tsup
+
+Wrap the config in `withTypesugar`. It adds the esbuild plugin and, with `dts: true`,
+emits the declarations from the expanded program for tsup's `dts` step (which on its own
+type-checks the unexpanded source):
+
+```typescript
+// tsup.config.ts
+import { defineConfig } from "tsup";
+import { withTypesugar } from "unplugin-typesugar/tsup"; // or "typesugar/tsup"
+
+export default defineConfig(
+  withTypesugar({ entry: ["src/index.ts"], format: ["esm", "cjs"], dts: true })
+);
+```
+
+The plugin options go in a second argument. See
+[With tsup](https://typesugar.org/getting-started/environments/esbuild#with-tsup).
+
 ## Rollup
 
 ```typescript
@@ -148,6 +167,7 @@ This means macros are fully expanded before your code reaches the bundler's opti
 - `unplugin-typesugar/webpack` — Webpack plugin
 - `unplugin-typesugar/esbuild` — esbuild plugin
 - `unplugin-typesugar/rollup` — Rollup plugin
+- `unplugin-typesugar/tsup` — `withTypesugar(options, pluginOptions?)` for tsup configs
 - `unplugin-typesugar` — Core unplugin factory
 
 ### Types

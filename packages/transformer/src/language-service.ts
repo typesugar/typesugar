@@ -41,6 +41,7 @@ import {
   setComptimeEvaluationEnabled,
 } from "@typesugar/macros";
 import { hashContent } from "./cache.js";
+import { enclosingSourceSite, sourceTokenLength } from "./generated-diagnostic-site.js";
 import {
   mapTextSpanToOriginal,
   mapSourceSpanToOriginal,
@@ -221,6 +222,21 @@ function lineAndCharacterOf(lineStarts: number[], position: number): ts.LineAndC
   return { line: lo, character: position - lineStarts[lo] };
 }
 
+/**
+ * Is this tsserver project a dependency's: its tsconfig (or, for a
+ * non-configured project, its directory) inside a node_modules directory,
+ * by path or by real path?
+ */
+function isDependencyProject(projectName: string): boolean {
+  const inNodeModules = (p: string) => p.split(/[\\/]/).includes("node_modules");
+  if (inNodeModules(projectName)) return true;
+  try {
+    return inNodeModules(fs.realpathSync(projectName));
+  } catch {
+    return false;
+  }
+}
+
 function init(modules: { typescript: typeof ts }) {
   console.log("[typesugar] Language service plugin v2 (transform-first) initializing...");
   const tsModule = modules.typescript;
@@ -251,6 +267,15 @@ function init(modules: { typescript: typeof ts }) {
       /packages[\\/](transformer|core|macros|preprocessor|ts-plugin|eslint-plugin|prettier-plugin)[\\/]/;
     if (projectName.includes("/dev/null/inferredProject") || infraPattern.test(projectName)) {
       log(`Skipping typesugar plugin for non-user project: ${projectName}`);
+      return info.languageService;
+    }
+    // 3. A dependency's own project. Opening a file inside node_modules gives
+    //    it the dependency's tsconfig (node_modules/evil/tsconfig.json) as its
+    //    project; expanding macros there would load that dependency's config
+    //    and its macros as if it were the user's project (review 8). A
+    //    dependency is not the project (SECURITY.md): the editor ignores it.
+    if (isDependencyProject(projectName)) {
+      log(`Skipping typesugar plugin for a project inside node_modules: ${projectName}`);
       return info.languageService;
     }
 
@@ -325,12 +350,16 @@ function init(modules: { typescript: typeof ts }) {
 
         // Load the project's typesugar config from the project directory
         // (tsserver's cwd is unrelated to the project).
+        // tsserver serves every open project from one process, and config
+        // is read through one process-wide `config`: the pipeline keeps this
+        // project's (`config` below) so another project's never applies here.
         const projectDir = projectName.endsWith(".json")
           ? path.dirname(projectName)
           : (info.project.getCurrentDirectory?.() ?? undefined);
         if (projectDir) typesugarConfig.load({ searchFrom: projectDir });
 
         pipeline = new TransformationPipeline(compilerOptions, fileNames, {
+          config: projectDir ? typesugarConfig.capture() : undefined,
           // Opt-in (plugin config `"verbose": true` or TYPESUGAR_VERBOSE=1);
           // was hard-coded on, flooding the tsserver log (review #20).
           verbose:
@@ -668,16 +697,48 @@ function init(modules: { typescript: typeof ts }) {
     // ---------------------------------------------------------------------------
 
     /**
-     * Map a single diagnostic's positions back to original source
+     * Map a single diagnostic's positions back to original source. One in
+     * macro-generated code (no source mapping at its start) is placed at the
+     * nearest node around it that came from the source, as the CLI's
+     * expanded check places it (generated-diagnostic-site.ts): an `@impl`
+     * instance's missing member is TS1360 at the generated `satisfies`, and
+     * dropping it hid the error the instance has. Only errors and warnings
+     * (`attribute`): a suggestion about generated code is nothing the user
+     * can act on. Null when no node around it came from the source.
      */
-    function mapDiagnostic(diag: ts.Diagnostic, mapper: PositionMapper): ts.Diagnostic | null {
+    function mapDiagnostic(
+      diag: ts.Diagnostic,
+      mapper: PositionMapper,
+      fileName: string,
+      attribute: boolean
+    ): ts.Diagnostic | null {
       if (diag.start === undefined) return diag;
 
       const originalStart = mapper.toOriginal(diag.start);
 
-      // If we can't map the position, it's in macro-generated code — suppress it
       if (originalStart === null) {
-        return null;
+        if (
+          !attribute ||
+          (diag.category !== tsModule.DiagnosticCategory.Error &&
+            diag.category !== tsModule.DiagnosticCategory.Warning)
+        ) {
+          return null;
+        }
+        const result = expandedResult(fileName);
+        const sf = diag.file ?? oldLS.getProgram()?.getSourceFile(fileName);
+        if (!result || !sf || sf.text !== result.code) return null;
+        const site = enclosingSourceSite(
+          tsModule,
+          sf,
+          diag.start,
+          (start) => mapper.toOriginal(start) ?? undefined
+        );
+        if (site === undefined) return null;
+        return {
+          ...diag,
+          start: site,
+          length: sourceTokenLength(result.original, site),
+        };
       }
 
       // Map the length as well
@@ -697,20 +758,28 @@ function init(modules: { typescript: typeof ts }) {
     }
 
     /**
-     * Map an array of diagnostics
+     * Map an array of diagnostics. One placed at a source node from generated
+     * code (see mapDiagnostic) is left out when the same error is already
+     * reported there.
      */
     function mapDiagnostics<T extends ts.Diagnostic>(
       diagnostics: readonly T[],
-      fileName: string
+      fileName: string,
+      attribute = true
     ): T[] {
       const mapper = getMapper(fileName);
       const mapped: T[] = [];
+      const seen = new Set<string>();
+      const key = (d: ts.Diagnostic) =>
+        `${d.start}\0${d.code}\0${tsModule.flattenDiagnosticMessageText(d.messageText, "\n")}`;
 
       for (const diag of diagnostics) {
-        const mappedDiag = mapDiagnostic(diag, mapper);
-        if (mappedDiag !== null) {
-          mapped.push(mappedDiag as T);
-        }
+        const mappedDiag = mapDiagnostic(diag, mapper, fileName, attribute);
+        if (mappedDiag === null) continue;
+        const k = key(mappedDiag);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        mapped.push(mappedDiag as T);
       }
 
       return mapped;
@@ -790,7 +859,7 @@ function init(modules: { typescript: typeof ts }) {
         suppressionFiltered = diagnostics;
       }
 
-      return mapDiagnostics(suppressionFiltered, fileName);
+      return mapDiagnostics(suppressionFiltered, fileName, false);
     };
 
     // ---------------------------------------------------------------------------

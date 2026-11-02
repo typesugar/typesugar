@@ -71,8 +71,9 @@ const ageField = userInfo.fields!.find((f) => f.name === "age")!;
 assert(ageField.optional === true);
 assert(ageField.type === "number");
 
-// TypeInfo structure is fully typed
-typeAssert<Extends<typeof userInfo, { name: string; kind: string; fields: FieldInfo[] }>>();
+// TypeInfo structure is fully typed (fields is optional: a primitive or a
+// function type has none, hence the `!`s above)
+typeAssert<Extends<typeof userInfo, { name: string; kind: string; fields?: FieldInfo[] }>>();
 
 // ============================================================================
 // 3. typeInfo<T>() ON DIFFERENT TYPE KINDS
@@ -112,15 +113,15 @@ const calcInfo = typeInfo<Calculator>();
 assert(calcInfo.name === "Calculator");
 assert(calcInfo.kind === "class");
 
-// Methods have parameter info and return types
-if (calcInfo.methods) {
-  const addMethod = calcInfo.methods.find((m) => m.name === "add");
-  assert(addMethod !== undefined);
-  assert(addMethod!.parameters.length === 2);
-  assert(addMethod!.returnType === "number");
+// Methods have parameter info and return types, and are not fields
+assert(calcInfo.fields!.map((f) => f.name).join() === "result");
+const addMethod = calcInfo.methods!.find((m) => m.name === "add");
+assert(addMethod !== undefined);
+assert(addMethod!.parameters.length === 2);
+assert(addMethod!.parameters[0].type === "number");
+assert(addMethod!.returnType === "number");
 
-  typeAssert<Extends<typeof addMethod, MethodInfo | undefined>>();
-}
+typeAssert<Extends<typeof addMethod, MethodInfo | undefined>>();
 
 // ============================================================================
 // 4. fieldNames<T>() — Get field names as a tuple

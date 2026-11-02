@@ -1,17 +1,12 @@
 /**
- * Typesugar Prelude System
+ * Typesugar Prelude System — NOT CONSULTED in 1.0.
  *
- * The prelude provides a set of commonly-used typeclasses and extensions
- * that are always available in "automatic" resolution mode without explicit imports.
- *
- * In automatic mode, when the transformer encounters:
- *   - `p1 === p2` it resolves to `Eq<Point>.equals(p1, p2)`
- *   - `p1.show()` it resolves to `Show<Point>.show(p1)`
- *
- * Without prelude, users would need:
- *   import { Eq, Show } from "@typesugar/std";
- *
- * The prelude makes these common typeclasses "just work" for better DX.
+ * This was the set of typeclasses an "automatic" resolution mode put in scope
+ * without imports. Since PEP-052 there are no resolution modes and no prelude:
+ * instances come from scope, and operator/method syntax is activated per file
+ * by a `@syntax-*` marker import (`import "@typesugar/std/syntax/eq/ops"`).
+ * Nothing in the transformer reads this table; it stays exported only because
+ * removing a public export is a breaking change for 1.0 to decide.
  *
  * @module
  */

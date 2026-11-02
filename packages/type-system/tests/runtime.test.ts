@@ -230,3 +230,35 @@ export { a, b, c, d, e };
     expect(errs).toEqual([]);
   });
 });
+
+describe("BaseOf strips the brand, so widen<Target>(value) type-checks", () => {
+  // BaseOf<NonNegative> inferred the whole `number & { brand }` (the brand
+  // `string` in the pattern did not match the literal brand), so widen's
+  // parameter required the TARGET's brand and the documented
+  // `widen<NonNegative>(pos)` was a type error (contracts-refined showcase).
+  it("BaseOf of a refined number is number", () => {
+    const errs =
+      typeErrors(`import type { BaseOf, NonNegative, Refined } from "@typesugar/type-system";
+export const n: BaseOf<NonNegative> = 1;
+export const o: BaseOf<Refined<{ a: number }, "X">> = { a: 1 };
+export const u: BaseOf<string> = "plain types are their own base";
+`);
+    expect(errs).toEqual([]);
+  });
+
+  it("widen<NonNegative>(Positive.refine(42))", () => {
+    const errs = typeErrors(`import { Positive, NonNegative, widen } from "@typesugar/type-system";
+const pos = Positive.refine(42);
+export const nn: NonNegative = widen<NonNegative>(pos);
+`);
+    expect(errs).toEqual([]);
+  });
+
+  it("widen still rejects a value with a different base type", () => {
+    const errs = typeErrors(`import { NonEmpty, NonNegative, widen } from "@typesugar/type-system";
+declare const s: NonEmpty;
+export const nn: NonNegative = widen<NonNegative>(s);
+`);
+    expect(errs.length).toBeGreaterThan(0);
+  });
+});

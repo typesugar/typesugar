@@ -97,7 +97,7 @@ import {
   unique,
   zip,
   partition,
-  arrayGroupBy,
+  groupBy,
   sortBy,
   intersperse,
   takeWhile,
@@ -212,7 +212,7 @@ assert(copyableNumber.copy(42) === 42);
 const now = new Date();
 const copied = copyableDate.copy(now);
 assert(copied.getTime() === now.getTime());
-assert(copied !== now); // different object
+assert(!Object.is(copied, now)); // different object (reference inequality, never rewritten to Eq)
 
 const arrCopier = copyableArray(copyableNumber);
 const original = [1, 2, 3];
@@ -424,7 +424,9 @@ const omitted = omit(obj, ["a", "d"]);
 assert(omitted.b === 2);
 assert(!("a" in omitted));
 
-const merged = deepMerge(
+// The sources are typed Partial<T> (shallow), so a source that adds a nested
+// key the target lacks needs T spelled out.
+const merged = deepMerge<Record<string, unknown>>(
   { theme: { color: "blue", size: 12 } },
   { theme: { color: "red", font: "mono" } }
 );
@@ -440,7 +442,8 @@ assert((merged as any).theme.font === "mono");
 const p = pair(1, "hello");
 assert(fst(p) === 1);
 assert(snd(p) === "hello");
-typeAssert<Equal<typeof p, readonly [1, "hello"]>>();
+// pair<A, B> infers widened element types, like any generic call.
+typeAssert<Equal<typeof p, readonly [number, string]>>();
 
 const swapped = swap(p);
 assert(fst(swapped) === "hello");
@@ -650,8 +653,8 @@ class Box<A> {
   map<B>(f: (a: A) => B): Box<B> {
     return new Box(f(this.value));
   }
-  ap<B>(this: Box<(a: A) => B>, boxA: Box<A>): Box<B> {
-    return new Box(this.value(boxA.value));
+  ap<X, B>(this: Box<(x: X) => B>, boxX: Box<X>): Box<B> {
+    return new Box(this.value(boxX.value));
   }
 }
 
@@ -759,30 +762,18 @@ typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, stri
 //   /** @op * */ mul(a: A, b: A): A;
 // }
 
-// When transformer sees `point1 === point2` where Point has an Eq instance:
-// 1. Gets the type of point1 → "Point"
-// 2. Looks up syntaxRegistry for "===" → finds Eq.equals
-// 3. Looks up instanceRegistry for Eq<Point> → finds eqPoint instance
-// 4. Rewrites to: eqPoint.equals(point1, point2)
-
-// To enable operator dispatch for custom types, either:
-// 1. Use @derive(Eq, Ord) to auto-derive instances (recommended)
-// 2. Use @instance to register custom instances
-// 3. Call registerInstanceWithMeta() programmatically
-
-// NOTE: The following verifications require the typesugar transformer to be active.
-// When running with tsx directly, the compile-time registries may not be shared
-// across bundled modules. These tests pass when compiled with the full toolchain.
+// When the transformer sees `point1 === point2` in a file that imports
+// "@typesugar/std/syntax/eq/ops", and Point has an Eq instance in scope:
+// 1. Finds the typeclass method tagged `@op ===` (Eq.equals)
+// 2. Resolves Eq<Point> from scope: an @impl or @derive in this file, a
+//    derived<Eq<Point>>() const, or one of those imported from another module
+// 3. Rewrites to: Point.Eq.equals(point1, point2) (or eqPoint.equals(...))
 //
-// Verify the typeclasses have syntax mappings (requires transformer):
-//   import { getSyntaxForOperator } from "@typesugar/macros";
-//   const eqSyntax = getSyntaxForOperator("===");
-//   assert(eqSyntax?.some(e => e.typeclass === "Eq" && e.method === "equals"));
-//
-// Verify instances are registered (requires transformer):
-//   import { findInstance } from "@typesugar/macros";
-//   const eqNumInst = findInstance("Eq", "number");
-//   assert(eqNumInst?.instanceName === "eqNumber");
+// To enable operator dispatch for custom types:
+// 1. Use @derive(Eq, Ord) on the type (recommended)
+// 2. Write an instance: /** @impl Eq<Point> */ const eqPoint: Eq<Point> = { ... }
+// 3. For a type you don't own: export const eqPoint = derived<Eq<Point>>();
+// and activate the operator syntax: import "@typesugar/std/syntax/eq/ops";
 
 // ============================================================================
 // 15. = implicit() — Auto-Resolution of Typeclass Instances
@@ -999,9 +990,9 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 //    - Typeclasses define which operators map to which methods via @op JSDoc
 //    - `Eq<A>.equals → ===`, `Ord<A>.lessThan → <`, `Numeric<A>.add → +`
 //
-// 2. **Instance Registration** (Section 14)
+// 2. **Instance Resolution** (Section 14)
 //    - std instances are resolved from scope (PEP-052), no registration
-//    - Enables summon<Eq<number>>(), findInstance("Eq", "number"), etc.
+//    - Enables summon<Eq<number>>(), = implicit() and operator dispatch
 //
 // 3. **= implicit() Pattern** (Section 15)
 //    - Generic functions with = implicit() default typeclass params
@@ -1017,7 +1008,7 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 //
 // 6. **let:/yield: and par:/yield:** (Section 12)
 //    - Do-notation via FlatMap typeclass
-//    - Instance lookup via unified registry
+//    - FlatMap instance resolved from scope
 
 // ============================================================================
 // SHOWCASE COMPLETE

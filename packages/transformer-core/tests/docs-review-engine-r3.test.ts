@@ -578,3 +578,65 @@ describe("a .d.ts instance marked /** @impl */ (validate nativeSchema)", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Method syntax on a literal receiver (round-2 docs finding)
+// ---------------------------------------------------------------------------
+
+describe("typeclass method syntax on a literal receiver", () => {
+  it("(7).show(), const n = 3; n.show(), 'a'.show(), true.show() and a literal prefix operand are rewritten and run", () => {
+    const result = transform(
+      [
+        `declare function log(v: unknown): void;`,
+        `/** @typeclass */`,
+        `interface Show<A> { show(a: A): string }`,
+        `/** @impl Show<number> */`,
+        "const showNumber: Show<number> = { show: (n) => `n${n}` };",
+        `/** @impl Show<string> */`,
+        "const showString: Show<string> = { show: (s) => `s${s}` };",
+        `/** @impl Show<boolean> */`,
+        "const showBoolean: Show<boolean> = { show: (b) => `b${b}` };",
+        `const n = 3;`,
+        `let m: number = 4;`,
+        `log((7).show());`,
+        `log(n.show());`,
+        `log(m.show());`,
+        `log("a".show());`,
+        `log(true.show());`,
+        `log((-1).show());`,
+      ].join("\n")
+    );
+    expect(errors(result)).toEqual([]);
+    expect(result.code).not.toMatch(/\)\.show\(\)|\bn\.show\(\)|"a"\.show\(\)|true\.show\(\)/);
+    expect(run(result.code)).toEqual(["n7", "n3", "n4", "sa", "btrue", "n-1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A primitive-typed import is not an extension namespace (std showcase)
+// ---------------------------------------------------------------------------
+
+describe("an imported number constant does not provide its global-augmentation stubs", () => {
+  // std exports `LT`/`EQ_ORD`/`GT` (numbers) and augments `interface Number`
+  // with `clamp` so that `(150).clamp(0, 100)` type-checks. `LT.clamp` -- the
+  // stub, seen through LT's apparent type -- was offered as an extension next
+  // to the real `clamp` import: "Ambiguous extension method 'clamp'".
+  it("(0).to(10) with `LT` imported from the same module resolves to `to`", () => {
+    const result = transform(
+      [
+        `import { to, toArray, LT } from "fakerange";`,
+        `declare function log(v: unknown): void;`,
+        `log(toArray((0).to(2)));`,
+        `log(LT);`,
+      ].join("\n"),
+      {
+        ...FAKE_RANGE,
+        "node_modules/fakerange/index.d.ts":
+          FAKE_RANGE["node_modules/fakerange/index.d.ts"] + "\nexport declare const LT: -1;",
+      }
+    );
+    expect(errors(result)).toEqual([]);
+    expect(result.code).toContain("to((0), 2)");
+    expect(run(result.code, { fakerange: { ...RANGE_RUNTIME, LT: -1 } })).toEqual([[0, 1, 2], -1]);
+  });
+});

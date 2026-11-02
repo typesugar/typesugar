@@ -39,9 +39,10 @@ diagnostic filter (see below).
 
 † On a function declaration, JSDoc dispatches only the attribute macros that
 target functions, such as `/** @tailrec */` and `/** @extension */`. Any other
-macro tag on a function (`/** @typeclass */`, `/** @derive(Eq) */`, …) is
-ignored with the warning "JSDoc macro tag @X is not supported on a function
-declaration and was ignored."
+macro tag on a function (`/** @typeclass */`, …) is ignored with the warning
+"JSDoc macro tag @X is not supported on a function declaration and was
+ignored." `@derive` on a function, a `const` or an `enum` is an error,
+[TS9102](/errors/TS9102): it only goes on an interface, class or type alias.
 
 ### A JSDoc tag must start its own comment line
 
@@ -49,7 +50,15 @@ A tag only triggers a macro when it begins a line of the comment:
 `/** @derive(Eq) */` or ` * @derive(Eq)` on its own line. A tag mentioned
 mid-sentence (`/** Derives @derive(Eq) for you */`) or inside a fenced code
 example in the comment is treated as prose and does nothing, so documentation
-comments can talk about macros without triggering them.
+comments can talk about macros without triggering them. An `@example` without a
+fence ends at the next line-start tag, as in any JSDoc: a ` * @derive(Eq)` line
+after an example's code is a real tag, so fence example code that shows one. On a declaration `@derive` can't apply to (the `const` of a derive macro
+you are writing), a `@derive(X)` line followed by more text,
+`@derive(Read) — derives a Read instance`, is documentation too.
+
+A `@derive` tag's list is the parenthesized names, or the comma-separated names that start the
+tag (`@derive Eq, Clone`). Text after the list, on the same line or the lines below it, is
+description: a typeclass named there is not derived.
 
 ```typescript
 /**

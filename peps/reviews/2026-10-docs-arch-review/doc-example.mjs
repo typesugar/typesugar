@@ -11,13 +11,17 @@
 //
 // Prints: macro diagnostics, output type errors (strictOutput), the generated
 // code, and with --run the result of executing it under node.
+//
+// <repo> is the checkout this script is in (three directories up), so it runs
+// against that worktree's dist; set REPO=/path/to/checkout to use another one.
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
-const REPO = "/Users/deapovey/src/personal/typesugar";
+const REPO = path.resolve(process.env.REPO || fileURLToPath(new URL("../../..", import.meta.url)));
 const args = process.argv.slice(2);
 const run = args.includes("--run");
 const underIdx = args.indexOf("--under");

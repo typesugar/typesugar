@@ -24,7 +24,8 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { createMacroContext, type MacroContext } from "@typesugar/core";
-import { reflectAttribute, typeInfoMacro } from "./reflect.js";
+import { reflectAttribute, typeInfoMacro, fieldNamesMacro, type TypeInfo } from "./reflect.js";
+import { typeInfo as typeInfoStub } from "./runtime-stubs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -557,6 +558,168 @@ describe("typeInfoMacro (expression form)", () => {
     expect(fields.elements).toHaveLength(2);
   });
 
+  it("an optional field's type is its declared type, without the undefined optionality adds", () => {
+    // Before: `age?: number` reported type "number | undefined" (the checker's
+    // type of the optional property under strict), beside optional: true.
+    const source =
+      STUB +
+      `interface U { age?: number; nick?: string | null; id: number | undefined }\nconst t = typeInfo<U>();`;
+    const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
+    const fields = getArrayProp(expanded as ts.ObjectLiteralExpression, "fields")!;
+    const types = Object.fromEntries(
+      fields.elements.map((e) => {
+        const o = e as ts.ObjectLiteralExpression;
+        return [getStringProp(o, "name"), getStringProp(o, "type")];
+      })
+    );
+    expect(types).toEqual({ age: "number", nick: "string | null", id: "number | undefined" });
+  });
+
+  it("emits a class's methods with their signatures, apart from its fields (turf r2)", () => {
+    // Before: typeInfo<Calculator>() had no `methods` (TypeInfo declares it),
+    // so reflect-example.ts printed none, and listed the methods as fields.
+    const source =
+      STUB +
+      `class Calc {
+  label = "c";
+  onDone: () => void = () => {};
+  add(a: number, b: number): number { return a + b; }
+  async load(id: string, retries?: number) { return id.length + (retries ?? 0); }
+}
+const t = typeInfo<Calc>();`;
+    const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
+    const obj = expanded as ts.ObjectLiteralExpression;
+    const fieldNames = getArrayProp(obj, "fields")!.elements.map((e) =>
+      getStringProp(e as ts.ObjectLiteralExpression, "name")
+    );
+    expect(fieldNames.sort()).toEqual(["label", "onDone"]);
+    const methods = getArrayProp(obj, "methods")!.elements.map(
+      (e) => e as ts.ObjectLiteralExpression
+    );
+    const byName = Object.fromEntries(methods.map((m) => [getStringProp(m, "name"), m]));
+    expect(Object.keys(byName).sort()).toEqual(["add", "load"]);
+    expect(getStringProp(byName.add, "returnType")).toBe("number");
+    expect(getBoolProp(byName.add, "isAsync")).toBe(false);
+    expect(getBoolProp(byName.load, "isAsync")).toBe(true);
+    expect(getStringProp(byName.load, "returnType")).toBe("Promise<number>");
+    const params = getArrayProp(byName.load, "parameters")!.elements.map((e) => {
+      const p = e as ts.ObjectLiteralExpression;
+      return [getStringProp(p, "name"), getStringProp(p, "type"), getBoolProp(p, "optional")];
+    });
+    expect(params).toEqual([
+      ["id", "string", false],
+      ["retries", "number", true],
+    ]);
+  });
+
+  it("instantiates a generic class's method parameters, optional ones too (review 8)", () => {
+    // `set(v?: T)` was reported as "T" (its annotation, uninstantiated)
+    // beside `get()`'s "number". An optional parameter or field of a
+    // generic type shows its instantiated type, without the `undefined` its
+    // optionality adds (as a non-generic one does).
+    const source =
+      STUB +
+      `class Box<T> {
+  label?: T;
+  constructor(public value: T) {}
+  set(v?: T): void { if (v !== undefined) this.value = v; }
+  get(): T { return this.value; }
+  put(v: T, retries?: number): void {}
+}
+const t = typeInfo<Box<number>>();`;
+    const { expanded } = runTypeInfoMacro(source, (sf) =>
+      findFirst(sf, (n): n is ts.CallExpression => ts.isCallExpression(n) && !!n.typeArguments)
+    );
+    const obj = expanded as ts.ObjectLiteralExpression;
+    const methods = Object.fromEntries(
+      getArrayProp(obj, "methods")!.elements.map((e) => {
+        const m = e as ts.ObjectLiteralExpression;
+        const params = getArrayProp(m, "parameters")!.elements.map((pe) => {
+          const p = pe as ts.ObjectLiteralExpression;
+          return [getStringProp(p, "name"), getStringProp(p, "type"), getBoolProp(p, "optional")];
+        });
+        return [getStringProp(m, "name"), { params, returnType: getStringProp(m, "returnType") }];
+      })
+    );
+    expect(methods.get.returnType).toBe("number");
+    expect(methods.set.params).toEqual([["v", "number", true]]);
+    expect(methods.put.params).toEqual([
+      ["v", "number", false],
+      ["retries", "number", true],
+    ]);
+    const fields = Object.fromEntries(
+      getArrayProp(obj, "fields")!.elements.map((e) => {
+        const f = e as ts.ObjectLiteralExpression;
+        return [getStringProp(f, "name"), getStringProp(f, "type")];
+      })
+    );
+    expect(fields).toEqual({ label: "number", value: "number" });
+  });
+
+  it("drops only the undefined optionality adds, from any union (review 9)", () => {
+    // `Box<boolean>`'s `label?: T` was "boolean | undefined" (the checker's
+    // `undefined | false | true` has two other members), and `Box<string |
+    // number>`'s "string | number | undefined", where the non-generic forms
+    // are "boolean" and "string | number".
+    const typeOf = (arg: string) => {
+      const source =
+        STUB +
+        `class Box<T> {
+  label?: T;
+  maybe?: T | undefined;
+  constructor(public value: T) {}
+  set(v?: T): void {}
+}
+const t = typeInfo<Box<${arg}>>();`;
+      const { expanded } = runTypeInfoMacro(source, (sf) =>
+        findFirst(sf, (n): n is ts.CallExpression => ts.isCallExpression(n) && !!n.typeArguments)
+      );
+      const obj = expanded as ts.ObjectLiteralExpression;
+      const fields = Object.fromEntries(
+        getArrayProp(obj, "fields")!.elements.map((e) => {
+          const f = e as ts.ObjectLiteralExpression;
+          return [getStringProp(f, "name"), getStringProp(f, "type")];
+        })
+      );
+      const set = getArrayProp(obj, "methods")!
+        .elements.map((e) => e as ts.ObjectLiteralExpression)
+        .find((m) => getStringProp(m, "name") === "set")!;
+      const param = getArrayProp(set, "parameters")!.elements[0] as ts.ObjectLiteralExpression;
+      return { label: fields.label, maybe: fields.maybe, set: getStringProp(param, "type") };
+    };
+    expect(typeOf("boolean")).toEqual({
+      label: "boolean",
+      maybe: "boolean | undefined",
+      set: "boolean",
+    });
+    expect(typeOf("string | number")).toEqual({
+      label: "string | number",
+      maybe: "string | number | undefined",
+      set: "string | number",
+    });
+    // `null` is the type's own, not optionality's.
+    expect(typeOf("string | null")).toEqual({
+      label: "string | null",
+      maybe: "string | null | undefined",
+      set: "string | null",
+    });
+  });
+
+  it("emits an interface's method signatures as methods", () => {
+    const source =
+      STUB +
+      `interface Repo { name: string; find(id: number): string | undefined; }
+const t = typeInfo<Repo>();`;
+    const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
+    const obj = expanded as ts.ObjectLiteralExpression;
+    const methods = getArrayProp(obj, "methods")!.elements.map(
+      (e) => e as ts.ObjectLiteralExpression
+    );
+    expect(methods.map((m) => getStringProp(m, "name"))).toEqual(["find"]);
+    expect(getStringProp(methods[0], "returnType")).toBe("string | undefined");
+    expect(getArrayProp(obj, "fields")!.elements).toHaveLength(1);
+  });
+
   it("emits empty fields for an empty interface", () => {
     const source = STUB + `interface E {}\nconst t = typeInfo<E>();`;
     const { expanded } = runTypeInfoMacro(source, (sf) => findFirst(sf, ts.isCallExpression));
@@ -573,5 +736,60 @@ describe("typeInfoMacro (expression form)", () => {
     expect(diagnostics.length).toBeGreaterThanOrEqual(1);
     expect(diagnostics[0].message).toMatch(/exactly one type argument/);
     expect(ts.isCallExpression(expanded)).toBe(true);
+  });
+});
+
+describe("typeInfo<T>()'s declared type", () => {
+  it("is TypeInfo, the shape the macro emits (checked by typecheck)", () => {
+    // Before: the runtime stub declared `{ name; fields: { name; type }[] }`,
+    // so `info.kind` and `info.fields[0].optional` were type errors and a
+    // TypeInfo-typed parameter rejected the result.
+    const take = (info: TypeInfo): string => info.kind;
+    const call = (): TypeInfo => typeInfoStub<{ a: number }>();
+    expect(typeof take).toBe("function");
+    expect(() => call()).toThrow(/must be processed by the typesugar transformer/);
+  });
+});
+
+describe("fieldNamesMacro", () => {
+  const STUB = `declare function fieldNames<T>(): string[];\n`;
+  function names(source: string): string[] {
+    const { program, sourceFile, cleanup } = createProgramFromSource(STUB + source);
+    try {
+      let out: ts.Expression = ts.factory.createVoidZero();
+      ts.transform(sourceFile, [
+        (transformContext) => {
+          const ctx: MacroContext = createMacroContext(program, sourceFile, transformContext);
+          const call = findFirst(
+            sourceFile,
+            (n): n is ts.CallExpression => ts.isCallExpression(n) && !!n.typeArguments
+          );
+          out = fieldNamesMacro.expand(ctx, call, call.arguments);
+          return (sf) => sf;
+        },
+      ]);
+      return (out as ts.ArrayLiteralExpression).elements.map((e) => (e as ts.StringLiteral).text);
+    } finally {
+      cleanup();
+    }
+  }
+
+  it("lists the fields typeInfo<T>().fields lists: no methods (review 8)", () => {
+    // fieldNames<Box<number>>() was ['label', 'value', 'set', 'get'] while
+    // typeInfo<Box<number>>().fields had only label and value.
+    expect(
+      names(`class Box<T> {
+  label?: T;
+  onDone: () => void = () => {};
+  constructor(public value: T) {}
+  set(v?: T): void {}
+  get(): T { return this.value; }
+}
+const f = fieldNames<Box<number>>();`).sort()
+    ).toEqual(["label", "onDone", "value"]);
+    expect(
+      names(`interface Repo { name: string; find(id: number): string; }
+const f = fieldNames<Repo>();`)
+    ).toEqual(["name"]);
   });
 });

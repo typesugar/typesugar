@@ -72,7 +72,24 @@ import {
   findStandaloneExtension as findStandaloneExtensionForExtend,
   buildStandaloneExtensionCall,
 } from "./extension.js";
-import { registerInstanceMethodsFromAST, extractMethodsFromObjectLiteral } from "./specialize.js";
+import {
+  registerInstanceMethodsFromAST,
+  extractMethodsFromObjectLiteral,
+  type DictMethod,
+} from "./specialize.js";
+// Static: instance-extraction imports only specialize and instance-resolver.
+import {
+  containsMacroCall,
+  inliningFailureReporter,
+  methodInlineSymbols,
+} from "./instance-extraction.js";
+import { derivedCallOf } from "./instance-scanner.js";
+import {
+  warnDerivedInPlace,
+  notOwnedTypeHelp,
+  primitiveInstanceHelp,
+  suggestedInstanceName,
+} from "./derived-in-place.js";
 import {
   formatResolutionTrace,
   generateHelpFromTrace,
@@ -81,14 +98,29 @@ import {
 } from "@typesugar/core";
 import type { DerivationResult } from "./auto-derive.js";
 import { globalResolutionScope } from "@typesugar/core";
-import { TS9001, TS9005, TS9008, TS9101, TS9106, TS9203, TS9305 } from "@typesugar/core";
+import {
+  TS9001,
+  TS9005,
+  TS9008,
+  TS9010,
+  TS9011,
+  TS9101,
+  TS9106,
+  TS9107,
+  TS9203,
+  TS9305,
+} from "@typesugar/core";
 import { getSuggestionsForTypeclass } from "@typesugar/core";
 import { resolveTypeConstructorViaTypeChecker, parseTypeConstructor } from "./hkt.js";
 import {
   resolveInstance,
+  resolveFromTypeclassHome,
+  followTypeclassSymbol,
+  typeclassKeyName,
   hasInstanceInScopeByName,
   buildInstanceReference,
 } from "./instance-resolver.js";
+import { setDerivedCallCheck } from "./derived-call-check.js";
 // Circular by design (typeclass-index seeds from this module's STANDARD_TYPECLASS_DEFS);
 // only referenced inside macro `expand` bodies, so the binding is resolved at call time.
 import {
@@ -1634,6 +1666,17 @@ function getOrCreateCompanionSet(ctx: MacroContext): Map<string, string> {
   return m;
 }
 
+/** Does a type-argument list have more than one argument (`A, B<C, D>`)? */
+function hasTopLevelComma(text: string): boolean {
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === "<" || ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ">" || ch === ")" || ch === "]" || ch === "}") depth--;
+    else if (ch === "," && depth === 0) return true;
+  }
+  return false;
+}
+
 /**
  * Decide whether `@impl TC<typeName>` may emit a `namespace typeName { export
  * const TC = ... }` companion. Only a plain identifier naming an interface,
@@ -1642,16 +1685,37 @@ function getOrCreateCompanionSet(ctx: MacroContext): Map<string, string> {
  * string>`, `number[]`, `string | null`) or would create a NEW runtime value
  * that shadows an imported or global binding (`import { Point }` →
  * `var Point = {}` → `new Point()` is no longer a constructor). Returns the
- * declaration, or a reason string for the warning.
+ * declaration, a reason string for a warning (not a plain type name), or
+ * `undefined` for no companion and no warning: the type isn't declared here,
+ * or it is an enum.
+ *
+ * Not declared here: it is how every instance for a type you don't own is
+ * written (a library's `@impl FlatMap<Effect>`, `@impl Functor<Array>`),
+ * nothing at the `@impl` can give the type a companion, and a `Type.TC`
+ * written anywhere is TypeScript's own error where it is written. Warning
+ * there fired on every library instance (effect, fusion) in every build that
+ * transformed them.
+ *
+ * An enum (any kind) never gets one either. Its runtime object is the user's
+ * data: a merged `namespace Op { export const Eq = eqOp }` overwrites the
+ * member `Op.Eq`, and a string enum's `Object.values(Status)` lists the
+ * instance (review 5, item 2). The companion is not needed for resolution --
+ * the `@impl` const is found by its declared type (`resolveInstance`'s
+ * enum-first lookup in instance-resolver.ts) -- so leaving it out costs only
+ * the `Op.Eq` spelling, and a use of that is TypeScript's own "no property"
+ * error.
  */
 function findCompanionHost(
   sourceFile: ts.SourceFile,
   typeName: string
-): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration | string {
+): ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration | string | undefined {
   if (!/^[A-Za-z_$][\w$]*$/.test(typeName)) {
     return `'${typeName}' is not a plain type name`;
   }
   for (const stmt of sourceFile.statements) {
+    if (ts.isEnumDeclaration(stmt) && stmt.name.text === typeName) {
+      return undefined;
+    }
     if (
       (ts.isInterfaceDeclaration(stmt) ||
         ts.isTypeAliasDeclaration(stmt) ||
@@ -1661,7 +1725,7 @@ function findCompanionHost(
       return stmt;
     }
   }
-  return `'${typeName}' is not declared in this file (a companion namespace would shadow the imported or global '${typeName}')`;
+  return undefined;
 }
 
 // ============================================================================
@@ -1726,7 +1790,7 @@ export const implAttribute = defineAttributeMacro({
     if (args.length === 0) {
       ctx.reportError(
         target,
-        '@impl requires arguments: @impl("Type"), @impl("Typeclass<Type>"), or @impl(Typeclass, Type)'
+        "@impl requires arguments: the typeclass and type, as /** @impl Typeclass<Type> */ on a const"
       );
       return target;
     }
@@ -1813,38 +1877,84 @@ export const implAttribute = defineAttributeMacro({
     if (isHKTInstance && decl) {
       // Tier 1 implicit resolution: if typeName isn't a known type function,
       // try to resolve it via TypeChecker and auto-register
-      const { base: resolvedBase } = parseTypeConstructor(typeName);
+      const { base: resolvedBase, fixedArgs } = parseTypeConstructor(typeName);
       const expansions = hktExpansionsFor(ctx.program);
-      if (!expansions.has(typeName) && !expansions.has(resolvedBase)) {
-        let resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
-        if (resolution) {
-          // Auto-register the base type as an HKT expansion
+      const registered = expansions.has(typeName) || expansions.has(resolvedBase);
+      // False when the instance's type argument is valid but has no
+      // single-hole expansion: then no expanded type is emitted at all.
+      // Decided on every instance (resolution is memoized per program), not
+      // only the first that registers the name: `EitherF` after
+      // `EitherF<string>` registered `EitherF` → `Either` must not expand to
+      // `Either<A>`.
+      let expandable = true;
+      let resolution = resolveTypeConstructorViaTypeChecker(ctx, typeName);
+      // A generic type-level function (`EitherF<E>`) is not the data type to
+      // expand into: `EitherF<A>` is not `Either<?, A>` (turf case study,
+      // round 2). It is a valid HKT argument; handle it as a `*F` name below.
+      const isTypeFunction = resolution?.isTypeFunction === true;
+      if (isTypeFunction) resolution = undefined;
+      if (resolution) {
+        // Auto-register the base type as an HKT expansion
+        if (!registered) {
           registerHKTExpansion(ctx.program, resolution.baseType, resolution.baseType);
-        } else if (resolvedBase.length > 1 && resolvedBase.endsWith("F")) {
-          // `*F` convention (replaces the old hardcoded seed table): `OptionF`
-          // names the TypeFunction encoding of `Option`. The encoding interface
-          // itself is not generic, so resolve the stripped base name instead and
-          // register the `*F` spelling as an expansion to it.
-          const strippedBase = resolvedBase.slice(0, -1);
-          resolution = resolveTypeConstructorViaTypeChecker(ctx, strippedBase);
-          if (resolution) {
-            registerHKTExpansion(ctx.program, resolvedBase, resolution.baseType);
-          }
         }
-        if (!resolution) {
-          ctx.diagnostic(TS9305).at(target).withArgs({ type: typeName }).emit();
+        // `Either` with nothing fixed has two holes: `Either<A>` would be wrong.
+        if (resolution.arity - resolution.fixedArgs.length !== 1) expandable = false;
+      } else if (resolvedBase.length > 1 && resolvedBase.endsWith("F")) {
+        // `*F` convention (replaces the old hardcoded seed table): `OptionF`
+        // names the TypeFunction encoding of `Option`. The encoding interface
+        // itself is not generic, so resolve the stripped base name instead and
+        // register the `*F` spelling as an expansion to it.
+        const strippedBase = resolvedBase.slice(0, -1);
+        resolution = resolveTypeConstructorViaTypeChecker(ctx, strippedBase);
+        if (resolution && resolution.arity - fixedArgs.length === 1) {
+          if (!registered) registerHKTExpansion(ctx.program, resolvedBase, resolution.baseType);
+        } else if (resolution) {
+          // `EitherF` (no `E` fixed) for `Either<E, A>`: no single hole to
+          // substitute, so `Either<A>` would be wrong. Leave the type alone.
+          expandable = false;
         }
       }
+      if (!resolution && isTypeFunction) expandable = false;
+      else if (!resolution && !registered) {
+        ctx.diagnostic(TS9305).at(target).withArgs({ type: typeName }).emit();
+      }
 
-      const expandedType = generateHKTExpandedType(ctx, tcName, typeName);
+      const expandedType = expandable ? generateHKTExpandedType(ctx, tcName, typeName) : undefined;
       if (expandedType) {
-        const newDecl = factory.updateVariableDeclaration(
-          decl,
-          decl.name,
-          decl.exclamationToken,
-          expandedType,
-          decl.initializer
-        );
+        // An unannotated instance keeps the type of its own initializer and
+        // `satisfies` the expanded type instead of being annotated with it
+        // (turf case study, round 2): as an annotation it dropped every member
+        // the typeclass doesn't declare (`_tag`, `orElse` on fp's
+        // `flatMapOption`) from the instance's type and .d.ts, and the
+        // expansion's check reported them as excess properties. `satisfies`
+        // still contextually types unannotated method parameters (and `this`
+        // in an object-literal method) and checks the instance's members; the
+        // target is the expanded type intersected with an index signature, so
+        // an extra member is allowed but a missing or misspelled one is an
+        // error at the instance, as it was with the annotation (review 8: an
+        // all-optional target reported `mapp` for `map` nowhere, and made
+        // `this.map(...)` "possibly undefined"). Erased, like the annotation:
+        // zero-cost. A user's own annotation is replaced as before.
+        const newDecl =
+          !decl.type && decl.initializer
+            ? factory.updateVariableDeclaration(
+                decl,
+                decl.name,
+                decl.exclamationToken,
+                undefined,
+                factory.createSatisfiesExpression(
+                  parenthesizeForSatisfies(factory, decl.initializer),
+                  asOpenSatisfiesTarget(factory, expandedType)
+                )
+              )
+            : factory.updateVariableDeclaration(
+                decl,
+                decl.name,
+                decl.exclamationToken,
+                expandedType,
+                decl.initializer
+              );
 
         if (ts.isVariableStatement(target)) {
           const newDeclList = factory.updateVariableDeclarationList(target.declarationList, [
@@ -1862,24 +1972,19 @@ export const implAttribute = defineAttributeMacro({
 
     // Bridge to specialization registry: extract methods from the object literal
     // and register them for zero-cost specialization
-    let objLiteral: ts.ObjectLiteralExpression | undefined;
-    if (ts.isVariableStatement(updatedTarget)) {
-      const d = (updatedTarget as ts.VariableStatement).declarationList.declarations[0];
-      if (d?.initializer && ts.isObjectLiteralExpression(d.initializer)) {
-        objLiteral = d.initializer;
-      }
-    } else if (ts.isVariableDeclaration(updatedTarget)) {
-      if (
-        (updatedTarget as ts.VariableDeclaration).initializer &&
-        ts.isObjectLiteralExpression((updatedTarget as ts.VariableDeclaration).initializer!)
-      ) {
-        objLiteral = (updatedTarget as ts.VariableDeclaration)
-          .initializer as ts.ObjectLiteralExpression;
-      }
-    }
+    // Read from the declaration as written: the expansion may have wrapped
+    // the initializer in `satisfies` (above).
+    const objLiteral =
+      decl?.initializer && ts.isObjectLiteralExpression(decl.initializer)
+        ? decl.initializer
+        : undefined;
 
     if (objLiteral) {
-      const methods = extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene);
+      const methods = inlineableMethods(
+        ctx,
+        extractMethodsFromObjectLiteral(objLiteral, ctx.hygiene),
+        objLiteral
+      );
       if (methods.size > 0) {
         registerInstanceMethodsFromAST(varName, typeName, methods, ctx.program, decl);
       }
@@ -1904,16 +2009,23 @@ export const implAttribute = defineAttributeMacro({
       "any",
       "object",
     ];
-    if (!primitives.includes(typeName)) {
+    // A multi-parameter typeclass (`@impl Destructure<typeof Some, Option<A>, A>`)
+    // has no single type to hang a companion on; the instance is found by its
+    // own resolver (std match-extractors.ts), so there is nothing to warn about.
+    if (!primitives.includes(typeName) && !hasTopLevelComma(typeName)) {
       const host = findCompanionHost(ctx.sourceFile, typeName);
       const emitted = getOrCreateCompanionSet(ctx);
       const key = `${typeName}.${tcName}`;
       const hostAfterImpl =
+        host !== undefined &&
         typeof host !== "string" &&
         ts.isClassDeclaration(host) &&
         !isSyntheticNode(target) &&
         host.pos > target.pos;
-      if (typeof host === "string" || hostAfterImpl) {
+      if (host === undefined) {
+        // Not declared in this file, or an enum: no companion, and nothing to
+        // warn about (see findCompanionHost).
+      } else if (typeof host === "string" || hostAfterImpl) {
         const why =
           typeof host === "string"
             ? host
@@ -2045,6 +2157,43 @@ function getHKTExpansion(program: ts.Program, hktName: string): string {
 /** Test-only accessor for the per-program HKT expansion lookup. */
 export function getHKTExpansionForTest(program: ts.Program, hktName: string): string {
   return getHKTExpansion(program, hktName);
+}
+
+/** `e` as the left operand of `satisfies`, parenthesized unless it is a primary expression. */
+function parenthesizeForSatisfies(factory: ts.NodeFactory, e: ts.Expression): ts.Expression {
+  return ts.isObjectLiteralExpression(e) ||
+    ts.isArrayLiteralExpression(e) ||
+    ts.isIdentifier(e) ||
+    ts.isCallExpression(e) ||
+    ts.isPropertyAccessExpression(e) ||
+    ts.isParenthesizedExpression(e)
+    ? e
+    : factory.createParenthesizedExpression(e);
+}
+
+/**
+ * The `satisfies` target for an unannotated `@impl` instance: the expanded
+ * typeclass type `t`, as declared (required members stay required, so a
+ * missing or misspelled member is reported at the instance, and `this` in an
+ * object-literal method has them), intersected with `{ readonly [member:
+ * string]: unknown }`, so a member the typeclass doesn't declare (`_tag`,
+ * `orElse`) is not an excess property (see the `@impl` handler).
+ */
+function asOpenSatisfiesTarget(factory: ts.NodeFactory, t: ts.TypeNode): ts.TypeNode {
+  const index = factory.createIndexSignature(
+    [factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+    [
+      factory.createParameterDeclaration(
+        undefined,
+        undefined,
+        "member",
+        undefined,
+        factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword)
+      ),
+    ],
+    factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword)
+  );
+  return factory.createIntersectionTypeNode([t, factory.createTypeLiteralNode([index])]);
 }
 
 /**
@@ -2364,6 +2513,7 @@ export function tryExtractSumType(
 // Resolution order:
 // 1. Explicit instance (@instance or @deriving) → inline reference
 // 2. Auto-derivation via TypeChecker → inspect A's fields, derive if possible
+//    (deprecated: warns TS9009; declare the instance with derived<TC<A>>())
 // 3. Compile error — no silent runtime fallback
 // ============================================================================
 
@@ -2422,6 +2572,139 @@ function summonTargetType(ctx: MacroContext, innerType: ts.TypeNode): ts.Type {
   return checker.getTypeFromTypeNode(innerType);
 }
 
+/**
+ * `methods` as the specialization registry may inline them at call sites:
+ *
+ * - Without those whose body calls a macro (`summon<Clone<Tree>>()` in a
+ *   recursive instance). A method's source still holds the macro call that
+ *   the transformer expands only in the instance's own file, so inlining it
+ *   would copy an unexpanded call that throws at run time.
+ * - Each with the symbols its free value and type names resolve to here
+ *   (`methodInlineSymbols`, the instance's own file's module scope allowed),
+ *   and without those that can't be inlined anywhere (a `this`-dependent
+ *   body). A call site in another file then has to resolve every name to the
+ *   same symbol: `ordNumber.eqv` in a test file must not become
+ *   `compareNumber(x, y) === EQ` where neither name is in scope (turf case
+ *   study, round 2).
+ *
+ * A method that isn't inlined is called through its dictionary, which is
+ * always correct. The checks read the ORIGINAL object literal's members
+ * (real nodes, for the checker); `methods` are copies.
+ */
+function inlineableMethods(
+  ctx: MacroContext,
+  methods: Map<string, DictMethod>,
+  objLiteral: ts.ObjectLiteralExpression
+): Map<string, DictMethod> {
+  for (const prop of objLiteral.properties) {
+    const name =
+      prop.name && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+        ? prop.name.text
+        : undefined;
+    const method = name ? methods.get(name) : undefined;
+    if (!name || !method) continue;
+    if (containsMacroCall(ctx.typeChecker, prop, inliningFailureReporter(ctx))) {
+      methods.delete(name);
+      continue;
+    }
+    const real = ts.getOriginalNode(prop);
+    const fnNode = ts.isPropertyAssignment(real) ? real.initializer : real;
+    // A synthetic member is outside the checker's contract (CLAUDE.md); it is
+    // registered without symbols, and the call site then accepts only names
+    // bound inside the body, by lib/ambient declarations, or by its own module.
+    if (isSyntheticNode(fnNode) || !fnNode.parent) continue;
+    const symbols = methodInlineSymbols(
+      ctx.typeChecker,
+      fnNode,
+      fnNode.getSourceFile(),
+      inliningFailureReporter(ctx)
+    );
+    if (!symbols) methods.delete(name);
+    else methods.set(name, { ...method, declaration: fnNode, ...symbols });
+  }
+  return methods;
+}
+
+/**
+ * The top-level `const` whose initializer evaluates `node` while it is being
+ * initialized (no function in between): `export const cloneFeature =
+ * summon<Clone<Feature>>()`. Such a const is never the instance `node`
+ * resolves to (`const cloneFeature = cloneFeature` throws at run time); a
+ * summon inside a function in the initializer (a recursive instance
+ * referring to itself) is evaluated later and may resolve to it.
+ */
+function initializedDeclarationName(node: ts.Node): string | undefined {
+  let n: ts.Node | undefined = node;
+  while (n && n.parent) {
+    const parent: ts.Node = n.parent;
+    if (ts.isFunctionLike(parent) || ts.isClassLike(parent)) return undefined;
+    if (ts.isVariableDeclaration(parent)) {
+      return parent.initializer === n &&
+        ts.isIdentifier(parent.name) &&
+        ts.isVariableStatement(parent.parent.parent) &&
+        ts.isSourceFile(parent.parent.parent.parent)
+        ? parent.name.text
+        : undefined;
+    }
+    if (ts.isStatement(parent)) return undefined;
+    n = parent;
+  }
+  return undefined;
+}
+
+/**
+ * The declaration whose WHOLE initializer is `node` (parentheses aside), when
+ * it is a `const` at the top level of its module: `export const cloneFeature
+ * = derived<Clone<Feature>>()`. The instance scanner discovers exactly these
+ * declarations (top-level variable statements), so this is where a
+ * `derived<...>()` instance can be declared.
+ */
+function topLevelConstInitialized(node: ts.Node): ts.VariableDeclaration | undefined {
+  let n: ts.Node = node;
+  while (n.parent && ts.isParenthesizedExpression(n.parent)) n = n.parent;
+  const decl = n.parent;
+  if (!decl || !ts.isVariableDeclaration(decl) || decl.initializer !== n) return undefined;
+  if (!ts.isIdentifier(decl.name)) return undefined;
+  const list = decl.parent;
+  if (!ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const)) return undefined;
+  const stmt = list.parent;
+  return ts.isVariableStatement(stmt) && ts.isSourceFile(stmt.parent) ? decl : undefined;
+}
+
+/**
+ * `Feature` written with no type arguments, for `interface Feature<G =
+ * Geometry, P = Props>`, means `Feature<Geometry, Props>` to TypeScript. The
+ * derivation would otherwise mirror the declared type `Feature<G, P>`, whose
+ * fields are the type parameters. Returns that defaulted type for a bare
+ * reference to a generic type whose type parameters ALL have defaults (a
+ * generic without defaults, `Box<A>`, can't be written bare, so it keeps the
+ * declared-type behaviour), else undefined.
+ */
+function defaultedGenericType(ctx: MacroContext, typeNode: ts.TypeNode): ts.Type | undefined {
+  if (!ts.isTypeReferenceNode(typeNode) || typeNode.typeArguments?.length) return undefined;
+  if (isSyntheticNode(typeNode)) return undefined; // outside the checker's contract
+  try {
+    let sym = ctx.typeChecker.getSymbolAtLocation(typeNode.typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = ctx.typeChecker.getAliasedSymbol(sym);
+    const generic = sym?.declarations?.find(
+      (d): d is ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration =>
+        (ts.isInterfaceDeclaration(d) ||
+          ts.isTypeAliasDeclaration(d) ||
+          ts.isClassDeclaration(d)) &&
+        (d.typeParameters?.length ?? 0) > 0
+    );
+    if (!generic || !generic.typeParameters!.every((tp) => tp.default)) return undefined;
+    return ctx.typeChecker.getTypeFromTypeNode(typeNode);
+  } catch (e) {
+    ctx.reportWarning(
+      typeNode,
+      `could not resolve the default type arguments of '${typeNode.getText()}' ` +
+        `(${e instanceof Error ? e.message : String(e)}); deriving for its declared type.`
+    );
+    return undefined;
+  }
+}
+
 /** If `typeNode` names a type parameter in scope (`A` in `Show<A>`), its name. */
 function typeParameterName(ctx: MacroContext, typeNode: ts.TypeNode): string | undefined {
   if (!ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) return undefined;
@@ -2442,6 +2725,47 @@ function typeParameterName(ctx: MacroContext, typeNode: ts.TypeNode): string | u
  * resolution trace. Reports ambiguity instead of picking one. Returns
  * undefined after reporting a diagnostic. Shared by `summon` and `summonAll`.
  */
+/**
+ * The typeclass the `TC` of `summon<TC<T>>()` / `derived<TC<T>>()` denotes,
+ * by identity: the checker follows imports, renames (`Clone as Copyable`) and
+ * type aliases that forward to another type (`typesugar`'s `type Clone<A> =
+ * import("@typesugar/std").Clone<A>`, next to its derive marker) to the
+ * typeclass's own declaration, never comparing spellings. Instances and
+ * derivations are still keyed by that declaration's NAME (module-qualified
+ * identity is PEP-060 item 13), so its name is what this returns. A name
+ * that isn't a type here (a value-only marker, an unresolved name, a
+ * macro-generated node the checker can't see) keeps its written spelling.
+ */
+function typeclassNameOf(ctx: MacroContext, typeName: ts.EntityName): string {
+  return typeclassOf(ctx, typeName).name;
+}
+
+/**
+ * {@link typeclassNameOf} plus the typeclass's symbol (undefined when the name
+ * isn't a type here), for searching the typeclass's own package.
+ */
+export function typeclassOf(
+  ctx: MacroContext,
+  typeName: ts.EntityName
+): { name: string; symbol?: ts.Symbol } {
+  const written = getNodeText(typeName);
+  if (isSyntheticNode(typeName)) return { name: written };
+  try {
+    const start = ctx.typeChecker.getSymbolAtLocation(typeName);
+    const sym = followTypeclassSymbol(ctx.typeChecker, start);
+    return sym
+      ? { name: typeclassKeyName(ctx.typeChecker, start, sym), symbol: sym }
+      : { name: written };
+  } catch (e) {
+    ctx.reportWarning(
+      typeName,
+      `couldn't resolve the typeclass ${written} with the type checker ` +
+        `(${e instanceof Error ? e.message : String(e)}); using the name as written.`
+    );
+    return { name: written };
+  }
+}
+
 export function summonInstanceExpression(
   ctx: MacroContext,
   typeArg: ts.TypeNode,
@@ -2456,7 +2780,8 @@ export function summonInstanceExpression(
     return undefined;
   }
 
-  const tcName = getNodeText(typeArg.typeName);
+  const typeclass = typeclassOf(ctx, typeArg.typeName);
+  const tcName = typeclass.name;
   const innerTypeArgs = typeArg.typeArguments;
 
   if (!innerTypeArgs || innerTypeArgs.length === 0) {
@@ -2509,7 +2834,19 @@ export function summonInstanceExpression(
   } else {
     try {
       const forType = summonTargetType(ctx, innerType);
-      const scopeResult = resolveInstance(ctx, tcName, forType);
+      let scopeResult = resolveInstance(
+        ctx,
+        tcName,
+        forType,
+        undefined,
+        initializedDeclarationName(errorNode),
+        errorNode
+      );
+      // Then the typeclass's own package (`Ord` imported from `typesugar` is
+      // `@typesugar/std`'s, whose instances the file doesn't import).
+      if (!scopeResult && typeclass.symbol) {
+        scopeResult = resolveFromTypeclassHome(ctx, typeclass.symbol, tcName, forType).result;
+      }
       if (scopeResult && scopeResult.kind === "resolved") {
         return buildInstanceReference(ctx, scopeResult);
       }
@@ -2542,7 +2879,21 @@ export function summonInstanceExpression(
   try {
     const { tryDeriveViaGeneric } =
       require("./auto-derive.js") as typeof import("./auto-derive.js");
-    derivationResult = tryDeriveViaGeneric(ctx, tcName, typeName);
+    // The type by identity (CLAUDE.md): the symbol `innerType` names here,
+    // so a local type shadowing an outer one of the same name is the local
+    // one. Not for an instantiation (`Box<number>`), which summon doesn't
+    // derive (its concrete type isn't passed; the declared type's fields are
+    // type parameters).
+    const isInstantiation =
+      ts.isTypeReferenceNode(innerType) && (innerType.typeArguments?.length ?? 0) > 0;
+    derivationResult = tryDeriveViaGeneric(
+      ctx,
+      tcName,
+      typeName,
+      undefined,
+      defaultedGenericType(ctx, innerType),
+      isInstantiation ? undefined : typeSymbolOfReference(ctx, innerType)
+    );
   } catch {
     derivationResult = {
       expression: null,
@@ -2569,6 +2920,15 @@ export function summonInstanceExpression(
   }
 
   if (derivationResult.expression) {
+    // Deprecated (TS9009): summon will find instances only. The instance
+    // belongs in a declaration, `derived<TC<T>>()`, which other files find.
+    warnDerivedInPlace(
+      ctx,
+      errorNode,
+      tcName,
+      typeName,
+      ts.isCallExpression(errorNode) && topLevelConstInitialized(errorNode) !== undefined
+    );
     return derivationResult.expression;
   }
 
@@ -2593,6 +2953,27 @@ export function summonInstanceExpression(
 
   const tcSuggestions = getSuggestionsForTypeclass(tcName);
   const typeParam = typeParameterName(ctx, innerType);
+  const notOwned = (() => {
+    if (typeParam || isSyntheticNode(innerType)) return undefined;
+    try {
+      const target = summonTargetType(ctx, innerType);
+      const primitive = primitiveInstanceHelp(target, tcName, typeName, ctx.program);
+      return primitive ? { replace: primitive } : notOwnedTypeHelp(ctx, target, tcName, typeName);
+    } catch (e) {
+      ctx.reportWarning(
+        errorNode,
+        `summon<${tcName}<${typeName}>>(): could not tell where '${typeName}' is declared ` +
+          `(${e instanceof Error ? e.message : String(e)}); the help below omits derived<...>().`
+      );
+      return undefined;
+    }
+  })();
+  const helpText =
+    typeof notOwned === "object"
+      ? notOwned.replace
+      : notOwned
+        ? `${helpMessage}\n    ${notOwned}`
+        : helpMessage;
   if (typeParam) {
     // `function f<A>(x: A, S: Show<A> = summon<Show<A>>())`: summon resolves
     // at the definition site, where `A` is still abstract. The supported form
@@ -2606,13 +2987,532 @@ export function summonInstanceExpression(
       `For an instance parameter, use \`= implicit()\` instead (the caller supplies the instance): ` +
         `\`${tcName.charAt(0)}: ${tcName}<${typeName}> = implicit()\``
     );
-  } else if (tcSuggestions.length > 0) {
-    builder.help(`${helpMessage}\n    Add: ${tcSuggestions[0].importStatement}`);
+  } else if (tcSuggestions.length > 0 && !typeclass.symbol) {
+    // Only when the typeclass itself isn't in scope: suggesting an import of
+    // the `Eq` the file already imported (the instance is what's missing)
+    // was wrong.
+    builder.help(`${helpText}\n    Add: ${tcSuggestions[0].importStatement}`);
   } else {
-    builder.help(helpMessage);
+    builder.help(helpText);
   }
 
   builder.emit();
+  return undefined;
+}
+
+// ============================================================================
+// derived<TC<T>>() - Expression Macro: declare a derived instance, once
+// ============================================================================
+// `export const cloneFeature = derived<Clone<Feature>>();` derives the
+// instance from Feature's structure, in place of the call, with the same
+// derivation `@derive(Clone)` and summon's fallback use (tryDeriveViaGeneric).
+// The const is the instance: the instance scanner registers a top-level const
+// initialized by `derived<TC<T>>()` (no @impl tag needed). The checker types
+// it `TC<T>` from the stub's signature, so a `.d.ts` emitted from the source
+// declares it with that type, which the scanner finds by its annotation; the
+// transformer annotates the expanded declaration with `TC<T>` too
+// (`tryAnnotateDerivedInstance`), so the expanded program agrees.
+// ============================================================================
+
+export const derivedMacro = defineExpressionMacro({
+  name: "derived",
+  module: "@typesugar/typeclass",
+  description:
+    "Derive a typeclass instance once, from a type's structure, as the initializer of a top-level const",
+  // Field instances are resolved from THIS file's scope.
+  cacheable: false,
+
+  expand(
+    ctx: MacroContext,
+    callExpr: ts.CallExpression,
+    args: readonly ts.Expression[]
+  ): ts.Expression {
+    const decl = topLevelConstInitialized(callExpr);
+    const outcomes = derivedOutcomesFor(ctx.program);
+    // A reference to the const from inside its own derivation (a type that
+    // contains itself) is to the instance being declared.
+    if (decl) outcomes.set(decl, "expanding");
+    const expr = derivedInstanceExpression(ctx, callExpr, args);
+    if (decl) outcomes.set(decl, expr ? "ok" : "failed");
+    return expr ?? callExpr;
+  },
+});
+
+/**
+ * The outcome of each `derived<TC<T>>()` const's derivation, per program.
+ * Registry shape (CLAUDE.md "Resolving things a macro just generated"): live,
+ * same-pass state, written when the macro expands and read by the instance
+ * resolver, which must not resolve to a const whose derivation failed (it is
+ * the un-expanded stub). Keyed by the declaration node.
+ */
+type DerivedOutcome = "expanding" | "ok" | "failed";
+const derivedOutcomes = new WeakMap<ts.Program, Map<ts.VariableDeclaration, DerivedOutcome>>();
+function derivedOutcomesFor(program: ts.Program): Map<ts.VariableDeclaration, DerivedOutcome> {
+  let m = derivedOutcomes.get(program);
+  if (!m) derivedOutcomes.set(program, (m = new Map()));
+  return m;
+}
+
+/**
+ * Whether the `derived<...>()` const `decl` is an instance: its derivation
+ * didn't fail. Read from the expansion's recorded outcome; for a const of the
+ * file being transformed that is used ABOVE its declaration (not expanded
+ * yet), the derivation is tried here, with the same arguments the expansion
+ * uses (tryDeriveViaGeneric caches the result, so the expansion reuses it). A
+ * const in another file that hasn't been transformed yet counts: that file
+ * reports its own failure.
+ */
+function derivedCallSucceeds(ctx: MacroContext, decl: ts.VariableDeclaration): boolean {
+  const outcomes = derivedOutcomesFor(ctx.program);
+  const known = outcomes.get(decl);
+  if (known) return known !== "failed";
+  if (decl.getSourceFile().fileName !== ctx.sourceFile.fileName) return true;
+  const call = derivedCallOf(decl);
+  const typeArg = call?.typeArguments?.length === 1 ? call.typeArguments[0] : decl.type;
+  if (
+    !call ||
+    !typeArg ||
+    !ts.isTypeReferenceNode(typeArg) ||
+    !ts.isIdentifier(typeArg.typeName) ||
+    typeArg.typeArguments?.length !== 1 ||
+    isSyntheticNode(typeArg)
+  ) {
+    return true; // the expansion reports the shape error
+  }
+  outcomes.set(decl, "expanding");
+  let ok = true;
+  try {
+    const { tryDeriveViaGeneric } =
+      require("./auto-derive.js") as typeof import("./auto-derive.js");
+    const subject = derivedSubject(ctx, typeArg.typeArguments[0]);
+    ok =
+      !subject ||
+      tryDeriveViaGeneric(
+        ctx,
+        typeclassNameOf(ctx, typeArg.typeName),
+        subject.typeName,
+        undefined,
+        subject.concrete,
+        subject.symbol
+      ).expression !== null;
+  } catch (e) {
+    // Visible degrade (CLAUDE.md): keep the instance; its expansion reports.
+    ctx.reportWarning(
+      decl,
+      `couldn't check whether this derived<...>() instance derives ` +
+        `(${e instanceof Error ? e.message : String(e)}); using it.`
+    );
+  } finally {
+    outcomes.delete(decl);
+  }
+  if (!ok) outcomes.set(decl, "failed");
+  return ok;
+}
+setDerivedCallCheck(derivedCallSucceeds);
+
+/**
+ * The symbol a type reference names, by identity (CLAUDE.md "Deciding what a
+ * type is"): imports and renames followed to the declaration, as the checker
+ * resolves the name at the reference, so a local type shadowing an outer or
+ * global one of the same name is the local one. Undefined for a synthetic
+ * node (outside the checker's contract), a non-reference, or a name that
+ * isn't a type; a checker failure is warned about and is undefined too.
+ */
+function typeSymbolOfReference(ctx: MacroContext, typeNode: ts.TypeNode): ts.Symbol | undefined {
+  if (!ts.isTypeReferenceNode(typeNode) || isSyntheticNode(typeNode)) return undefined;
+  try {
+    const checker = ctx.typeChecker;
+    let sym = checker.getSymbolAtLocation(typeNode.typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!sym) return undefined;
+    if (sym.flags & ts.SymbolFlags.Type) return sym;
+    const exported = checker.getExportSymbolOfSymbol(sym);
+    return exported.flags & ts.SymbolFlags.Type ? exported : undefined;
+  } catch (e) {
+    ctx.reportWarning(
+      typeNode,
+      `could not resolve '${getNodeText(typeNode)}' with the type checker ` +
+        `(${e instanceof Error ? e.message : String(e)}); looking it up by name.`
+    );
+    return undefined;
+  }
+}
+
+/**
+ * What `derived<TC<T>>()` derives for: `T`'s name (as the derivation writes
+ * it in generated code), its concrete type when that differs from the
+ * declared one, and its symbol by identity. Undefined (after reporting) when
+ * the checker can't resolve `T`.
+ */
+function derivedSubject(
+  ctx: MacroContext,
+  innerType: ts.TypeNode,
+  report?: { at: ts.Node; tcName: string }
+): { typeName: string; concrete?: ts.Type; symbol?: ts.Symbol } | undefined {
+  const typeText = getNodeText(innerType).replace(/\s+/g, " ").trim();
+  const bare = !ts.isTypeReferenceNode(innerType) || !innerType.typeArguments?.length;
+  const symbol = typeSymbolOfReference(ctx, innerType);
+  if (ts.isTypeReferenceNode(innerType) && bare) {
+    // As summon: the bare name of a generic with defaults means its defaults.
+    return {
+      typeName: getNodeText(innerType.typeName),
+      concrete: defaultedGenericType(ctx, innerType),
+      symbol,
+    };
+  }
+  try {
+    return { typeName: typeText, concrete: ctx.typeChecker.getTypeFromTypeNode(innerType), symbol };
+  } catch (e) {
+    if (report) {
+      ctx.reportError(
+        report.at,
+        `derived<${report.tcName}<${typeText}>>(): the type checker could not resolve '${typeText}' ` +
+          `(${e instanceof Error ? e.message : String(e)}).`
+      );
+    }
+    return undefined;
+  }
+}
+
+/** The names of type parameters `typeNode` refers to (`G` in `Feature<G>`). */
+function freeTypeParameters(ctx: MacroContext, typeNode: ts.TypeNode): string[] {
+  const names: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isTypeReferenceNode(n) && ts.isIdentifier(n.typeName) && !isSyntheticNode(n)) {
+      const sym = ctx.typeChecker.getSymbolAtLocation(n.typeName);
+      if (sym && sym.flags & ts.SymbolFlags.TypeParameter && !names.includes(n.typeName.text)) {
+        names.push(n.typeName.text);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(typeNode);
+  return names;
+}
+
+/** The `@impl`/`@instance` tag text on the statement declaring `decl`, if any. */
+function implTagText(decl: ts.VariableDeclaration): string | undefined {
+  for (const tag of ts.getJSDocTags(decl.parent.parent)) {
+    if (tag.tagName.text !== "impl" && tag.tagName.text !== "instance") continue;
+    const c = typeof tag.comment === "string" ? tag.comment : ts.getTextOfJSDocComment(tag.comment);
+    if (c) return c.replace(/^["'()\s]+|["'()\s]+$/g, "").trim();
+  }
+  return undefined;
+}
+
+/** Split a type-argument list at its top-level commas: `A, B<C, D>` → `["A", "B<C, D>"]`. */
+function splitTypeArgs(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "<" || c === "(" || c === "[" || c === "{") depth++;
+    else if ((c === ">" && text[i - 1] !== "=") || c === ")" || c === "]" || c === "}") depth--;
+    else if (c === "," && depth === 0) {
+      out.push(text.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start).trim());
+  return out.filter((t) => t.length > 0);
+}
+
+/**
+ * Whether the type text of an `@impl` tag (`number[]`, `P2`, `Box<number>`)
+ * denotes the same type as `node`, the type argument of `derived<TC<T>>()`,
+ * as seen from `location`. By identity, not spelling (CLAUDE.md): names are
+ * resolved in scope through imports and aliases, and compared by declared
+ * type (so `type P2 = Pt` is `Pt`); `X[]` and `Array<X>` are one type;
+ * keywords by the checker's intrinsic type; type arguments recursively. A
+ * form this doesn't model (a union, an object literal) falls back to the
+ * text with whitespace removed.
+ */
+function tagTypeMatches(
+  checker: ts.TypeChecker,
+  text: string,
+  node: ts.TypeNode,
+  location: ts.Node,
+  warn: (message: string) => void
+): boolean {
+  const t = text.trim();
+  const sameText = () => t.replace(/\s+/g, "") === getNodeText(node).replace(/\s+/g, "");
+  // Normalize `X[]` / `Array<X>` / `ReadonlyArray<X>` on both sides.
+  const textElem = /^(.*)\[\]$/.exec(t)?.[1];
+  const nodeElem = ts.isArrayTypeNode(node)
+    ? node.elementType
+    : ts.isTypeOperatorNode(node) &&
+        node.operator === ts.SyntaxKind.ReadonlyKeyword &&
+        ts.isArrayTypeNode(node.type)
+      ? node.type.elementType
+      : undefined;
+  const parsed = parseTypeInstantiation(t);
+  const unalias = (sym: ts.Symbol | undefined): ts.Symbol | undefined =>
+    sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+  // A name in scope at the tag, resolved through the checker; a qualified
+  // one (`geo.Point` with `import * as geo`, or a namespace member) by its
+  // first segment in scope, then each member of the module or namespace.
+  const lookup = (name: string): ts.Symbol | undefined => {
+    const [first, ...rest] = name.split(".");
+    let sym = unalias(
+      checker
+        .getSymbolsInScope(
+          location,
+          rest.length > 0
+            ? ts.SymbolFlags.Namespace | ts.SymbolFlags.Alias
+            : ts.SymbolFlags.Type | ts.SymbolFlags.Alias
+        )
+        .find((x) => x.name === first)
+    );
+    for (const member of rest) {
+      if (!sym) return undefined;
+      sym = unalias(checker.getExportsOfModule(sym).find((x) => x.name === member));
+    }
+    return sym;
+  };
+  const nodeSymbol = (n: ts.TypeReferenceNode): ts.Symbol | undefined => {
+    let sym = checker.getSymbolAtLocation(n.typeName);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    return sym;
+  };
+  const sameDeclaredType = (a: ts.Symbol | undefined, b: ts.Symbol | undefined) =>
+    !!a &&
+    !!b &&
+    (a === b || checker.getDeclaredTypeOfSymbol(a) === checker.getDeclaredTypeOfSymbol(b));
+  const isArraySymbol = (sym: ts.Symbol | undefined) =>
+    !!sym && (sym === lookup("Array") || sym === lookup("ReadonlyArray"));
+  try {
+    if (textElem !== undefined || nodeElem) {
+      const tElem =
+        textElem ??
+        (parsed && isArraySymbol(lookup(parsed.base)) ? splitTypeArgs(parsed.args)[0] : undefined);
+      const nElem =
+        nodeElem ??
+        (ts.isTypeReferenceNode(node) &&
+        node.typeArguments?.length === 1 &&
+        isArraySymbol(nodeSymbol(node))
+          ? node.typeArguments[0]
+          : undefined);
+      if (tElem !== undefined && nElem) {
+        return tagTypeMatches(checker, tElem, nElem, location, warn);
+      }
+      return sameText();
+    }
+    if (ts.isTypeReferenceNode(node)) {
+      const base = parsed ? parsed.base : t;
+      if (!/^[A-Za-z_$][\w$.]*$/.test(base)) return sameText();
+      const tArgs = parsed ? splitTypeArgs(parsed.args) : [];
+      const nArgs = node.typeArguments ?? [];
+      if (!sameDeclaredType(lookup(base), nodeSymbol(node))) {
+        // `Array<number>` vs `number[]` is handled above; anything else differs.
+        return false;
+      }
+      return (
+        tArgs.length === nArgs.length &&
+        tArgs.every((a, i) => tagTypeMatches(checker, a, nArgs[i], location, warn))
+      );
+    }
+    // Keywords (`number`): the checker's intrinsic types are singletons.
+    if (ts.SyntaxKind.FirstKeyword <= node.kind && node.kind <= ts.SyntaxKind.LastKeyword) {
+      return t === getNodeText(node).trim();
+    }
+    return sameText();
+  } catch (e) {
+    // Visible degrade (CLAUDE.md): the comparison falls back to the text.
+    warn(`(${e instanceof Error ? e.message : String(e)}); comparing the @impl tag as text.`);
+    return sameText();
+  }
+}
+
+function derivedInstanceExpression(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression,
+  args: readonly ts.Expression[]
+): ts.Expression | undefined {
+  // `derived<Clone<Feature>>()`, or `const cloneFeature: Clone<Feature> =
+  // derived()`, which takes the instance type from the annotation (and whose
+  // `.d.ts` is then that annotation, as written).
+  const typeArg = callExpr.typeArguments?.length
+    ? callExpr.typeArguments.length === 1
+      ? callExpr.typeArguments[0]
+      : undefined
+    : topLevelConstInitialized(callExpr)?.type;
+  if (
+    !typeArg ||
+    !ts.isTypeReferenceNode(typeArg) ||
+    !ts.isIdentifier(typeArg.typeName) ||
+    typeArg.typeArguments?.length !== 1
+  ) {
+    ctx.reportError(
+      callExpr,
+      "derived() needs the instance type, a typeclass (by its name) applied to one type: " +
+        "derived<Clone<Feature>>(), or an annotated const: " +
+        "`export const cloneFeature: Clone<Feature> = derived();`"
+    );
+    return undefined;
+  }
+  if (args.length > 0) {
+    ctx.reportError(callExpr, "derived<...>() takes no arguments: the type argument says it all");
+    return undefined;
+  }
+
+  const tcName = typeclassNameOf(ctx, typeArg.typeName);
+  const innerType = typeArg.typeArguments[0];
+  const typeText = getNodeText(innerType).replace(/\s+/g, " ").trim();
+  const withArgs = { typeclass: tcName, type: typeText };
+
+  // A synthetic type argument is outside the checker's contract (CLAUDE.md).
+  if (isSyntheticNode(innerType)) {
+    ctx.reportError(
+      callExpr,
+      `derived<${tcName}<${typeText}>>(): the type argument is macro-generated, so its type ` +
+        `can't be read; write derived<...>() with a type of your own source.`
+    );
+    return undefined;
+  }
+
+  const typeParams = freeTypeParameters(ctx, innerType);
+  if (typeParams.length > 0) {
+    ctx
+      .diagnostic(TS9011)
+      .at(callExpr)
+      .withArgs(withArgs)
+      .note(
+        `${typeParams.map((n) => `\`${n}\``).join(", ")} ${typeParams.length === 1 ? "is a type parameter" : "are type parameters"}, ` +
+          `so there is no concrete type to derive ${tcName} for.`
+      )
+      .help(`Declare one instance per concrete type, e.g. derived<${tcName}<Feature<Point>>>()`)
+      .emit();
+    return undefined;
+  }
+
+  const decl = topLevelConstInitialized(callExpr);
+  if (!decl) {
+    ctx
+      .diagnostic(TS9010)
+      .at(callExpr)
+      .withArgs(withArgs)
+      .help(
+        `Declare it as \`export const ${suggestedInstanceName(tcName, typeText)} = derived<${tcName}<${typeText}>>();\` ` +
+          `at the top level of a module, or summon<${tcName}<${typeText}>>() an instance that is in scope.`
+      )
+      .emit();
+    return undefined;
+  }
+
+  // An @impl tag is optional (the initializer says what the instance is), but
+  // one that names something else is a contradiction.
+  const tag = implTagText(decl);
+  if (tag !== undefined) {
+    const parsed = parseTypeInstantiation(tag);
+    // Compared through the checker (tagTypeMatches): the tag's typeclass by
+    // identity (alias-resolved, as `tcName` is), and its type argument as a
+    // type, so `@impl Eq<number[]>` agrees with derived<Eq<Array<number>>>()
+    // and an alias of the type agrees with the type.
+    const tagArgs = parsed ? splitTypeArgs(parsed.args) : [];
+    let tagTc = parsed?.base;
+    if (parsed && /^[A-Za-z_$][\w$]*$/.test(parsed.base)) {
+      try {
+        const sym = ctx.typeChecker
+          .getSymbolsInScope(decl, ts.SymbolFlags.Type | ts.SymbolFlags.Alias)
+          .find((x) => x.name === parsed.base);
+        const tc = followTypeclassSymbol(ctx.typeChecker, sym);
+        if (tc) tagTc = typeclassKeyName(ctx.typeChecker, sym, tc);
+      } catch (e) {
+        ctx.reportWarning(
+          decl,
+          `couldn't resolve the typeclass of @impl ${tag} with the type checker ` +
+            `(${e instanceof Error ? e.message : String(e)}); comparing it by name.`
+        );
+      }
+    }
+    const same =
+      parsed !== undefined &&
+      tagTc === tcName &&
+      tagArgs.length === 1 &&
+      tagTypeMatches(ctx.typeChecker, tagArgs[0], innerType, decl, (m) =>
+        ctx.reportWarning(decl, `couldn't compare @impl ${tag} with the type checker ${m}`)
+      );
+    if (!same) {
+      ctx.reportError(
+        callExpr,
+        `@impl ${tag} doesn't match derived<${tcName}<${typeText}>>(): the instance is the ` +
+          `one derived<...>() names. Remove the tag (it is optional), or make it @impl ${tcName}<${typeText}>.`
+      );
+      return undefined;
+    }
+  }
+
+  const { tryDeriveViaGeneric, hasGenericDerivation } =
+    require("./auto-derive.js") as typeof import("./auto-derive.js");
+  const subject = derivedSubject(ctx, innerType, { at: callExpr, tcName });
+  if (!subject) return undefined;
+
+  // The type by identity, not by name (CLAUDE.md): `subject.symbol` is what
+  // `T` resolves to at this reference.
+  const result = tryDeriveViaGeneric(
+    ctx,
+    tcName,
+    subject.typeName,
+    undefined,
+    subject.concrete,
+    subject.symbol
+  );
+  if (result.expression) {
+    // As @derive's companion const: the initializer needs no parentheses.
+    let expr = result.expression;
+    while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+    return expr;
+  }
+
+  if (result.failedField) {
+    const f = result.failedField;
+    const builder = ctx
+      .diagnostic(TS9107)
+      .at(callExpr)
+      .withArgs({
+        ...withArgs,
+        field: f.variant ? `${f.variant}.${f.name}` : f.name,
+        fieldType: f.type,
+      });
+    for (const n of formatResolutionTrace({
+      sought: `${tcName}<${typeText}>`,
+      attempts: result.trace,
+      finalResult: "failed",
+    })) {
+      builder.note(n);
+    }
+    builder
+      .help(
+        `Put a ${tcName}<${f.type}> instance in scope here (declare one, or derived<${tcName}<${f.type}>>() ` +
+          `when it can be derived), or write ${tcName}<${typeText}> by hand with /** @impl ${tcName}<${typeText}> */.`
+      )
+      .emit();
+    return undefined;
+  }
+
+  const builder = ctx.diagnostic(TS9106).at(callExpr).withArgs(withArgs);
+  if (!hasGenericDerivation(tcName)) {
+    builder.note(
+      globalRegistry.getDerive(tcName)
+        ? `${tcName} is derived by a @derive macro, which needs the type's own declaration; ` +
+            `derived<...>() works for the typeclasses with a structural derivation ` +
+            `(Eq, Ord, Clone, Debug, Hash, Default, Json, TypeGuard, Show, Semigroup, Monoid).`
+        : `No derivation is registered for ${tcName}, so there is nothing to derive it with.`
+    );
+  }
+  builder
+    .note(
+      formatResolutionTrace({
+        sought: `${tcName}<${typeText}>`,
+        attempts: result.trace,
+        finalResult: "failed",
+      }).join("\n")
+    )
+    .help(
+      `Write the ${tcName}<${typeText}> instance by hand with /** @impl ${tcName}<${typeText}> */`
+    )
+    .emit();
   return undefined;
 }
 
@@ -2627,6 +3527,87 @@ export function summonInstanceExpression(
 // extend(point).equals(otherPoint)
 // // Resolves to: eqPoint.equals(point, otherPoint)
 // ============================================================================
+
+/**
+ * The error for `extend(x)` not called as `extend(x).method(...)` -- typically
+ * `const e = extend(x); e.show()`. By design that is not supported:
+ * `extend(x).m(args)` compiles to `instance.m(x, args)`, so there is no
+ * wrapper object to store (a runtime wrapper would cost what extend() exists
+ * to avoid, and would need to know every method it will be used with). The
+ * message names the user's own value and, when `extend(x)` initialises a
+ * variable, the first method called on that variable, with the three things
+ * to write instead.
+ */
+function extendWithoutMethodMessage(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression,
+  value: ts.Expression
+): string {
+  const real = !isSyntheticNode(value);
+  const valueText = real ? value.getText(ctx.sourceFile) : "value";
+
+  // `const e = extend(x)`: find the first `e.m(...)` call in the file, by the
+  // variable's SYMBOL (checker identity), not by its name.
+  let methodName: string | undefined;
+  const decl = callExpr.parent;
+  if (
+    real &&
+    !isSyntheticNode(callExpr) &&
+    ts.isVariableDeclaration(decl) &&
+    decl.initializer === callExpr &&
+    ts.isIdentifier(decl.name)
+  ) {
+    try {
+      const varSym = ctx.typeChecker.getSymbolAtLocation(decl.name);
+      const find = (n: ts.Node): void => {
+        if (methodName) return;
+        if (
+          ts.isCallExpression(n) &&
+          ts.isPropertyAccessExpression(n.expression) &&
+          ts.isIdentifier(n.expression.expression) &&
+          !isSyntheticNode(n.expression.expression) &&
+          varSym !== undefined &&
+          ctx.typeChecker.getSymbolAtLocation(n.expression.expression) === varSym
+        ) {
+          methodName = n.expression.name.text;
+          return;
+        }
+        ts.forEachChild(n, find);
+      };
+      find(ctx.sourceFile);
+    } catch (e) {
+      ctx.reportWarning(
+        callExpr,
+        `extend(): could not look up how '${decl.name.text}' is used ` +
+          `(${e instanceof Error ? e.message : String(e)}); the help below uses a placeholder method.`
+      );
+    }
+  }
+  const m = methodName ?? "method";
+
+  let typeText = "T";
+  if (real) {
+    try {
+      typeText = ctx.typeChecker.typeToString(
+        ctx.typeChecker.getBaseTypeOfLiteralType(ctx.typeChecker.getTypeAtLocation(value))
+      );
+    } catch {
+      // Display only: the placeholder `T` is shown instead.
+    }
+  }
+  const tc = methodName
+    ? (getTypeclassesDeclaringMethod(ctx.program, methodName)[0]?.typeclass ?? "TC")
+    : "TC";
+
+  return (
+    `extend(${valueText}) must be called as a method in the same expression: ` +
+    `extend(${valueText}).${m}(). It compiles to a direct call on the ` +
+    `${tc === "TC" ? "typeclass" : tc} instance, so there is no wrapper value to store in a ` +
+    `variable. Write extend(${valueText}).${m}(), or method syntax ` +
+    `${valueText}.${m}(), or keep the instance itself: ` +
+    `const S = summon<${tc}<${typeText}>>(); S.${m}(${valueText}).`
+  );
+}
 
 export const extendMacro = defineExpressionMacro({
   name: "extend",
@@ -2659,10 +3640,7 @@ export const extendMacro = defineExpressionMacro({
     // Its `.expression` is the `.method` property access on `extend(value)`.
     const methodAccess = callExpr.expression;
     if (!ts.isPropertyAccessExpression(methodAccess)) {
-      ctx.reportError(
-        callExpr,
-        "extend() must be followed by a method call, e.g., extend(value).show()"
-      );
+      ctx.reportError(callExpr, extendWithoutMethodMessage(ctx, callExpr, args[0]));
       return callExpr;
     }
 
@@ -2731,13 +3709,44 @@ export const extendMacro = defineExpressionMacro({
       return buildStandaloneExtensionCall(ctx.factory, standaloneExt, value, extraArgs);
     }
 
-    // No match in registries — strip the extend() wrapper and emit
-    // value.method(args) so the transformer's implicit extension rewriting
-    // (which includes import-scoped resolution) can handle it.
-    return f.createCallExpression(
-      f.createPropertyAccessExpression(value, methodName),
-      undefined,
-      extraArgs
+    // An unconstrained type parameter has no instance or extension to
+    // dispatch to here, and `x.show()` would fail at run time: say how
+    // generic code gets one. (A constrained one, `T extends number`, is left
+    // to the method-call rewrite below, which can use the constraint.)
+    const constraint =
+      valueType && valueType.flags & ts.TypeFlags.TypeParameter
+        ? ctx.typeChecker.getBaseConstraintOfType(valueType)
+        : undefined;
+    if (
+      valueType &&
+      valueType.flags & ts.TypeFlags.TypeParameter &&
+      (!constraint || constraint.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any))
+    ) {
+      const valueText = value.getText(ctx.sourceFile);
+      const tc = getTypeclassesDeclaringMethod(ctx.program, methodName)[0]?.typeclass ?? "TC";
+      ctx.reportError(
+        callExpr,
+        `extend(${valueText}).${methodName}(): '${typeName}' is a type parameter, so no ` +
+          `${tc} instance can be chosen for it here. Take the instance as a parameter ` +
+          `(S: ${tc}<${typeName}> = implicit()) and call S.${methodName}(${valueText}); ` +
+          `typesugar fills it in at each call site with a concrete type.`
+      );
+      return callExpr;
+    }
+
+    // No instance and no registered standalone extension: emit
+    // value.method(args) for the transformer's own method-call rewriting
+    // (import-scoped extensions, typeclass method syntax). It must be an
+    // UPDATE of the written call, keeping its source range: the visitor never
+    // rewrites a synthetic call, so a fresh `value.method(args)` node was left
+    // as is (`extend(150).clamp(0, 100)` -> `150..clamp(0, 100)`, a run-time
+    // "is not a function"). The checker is only asked about `value`, which is
+    // the user's own node.
+    return f.updateCallExpression(
+      callExpr,
+      f.updatePropertyAccessExpression(methodAccess, value, methodAccess.name),
+      callExpr.typeArguments,
+      callExpr.arguments
     );
   },
 });
@@ -2848,7 +3857,11 @@ export const implMacro = defineExpressionMacro({
 
     // Extract and register methods for specialization (if object literal)
     if (ts.isObjectLiteralExpression(objectLiteralArg)) {
-      const methods = extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene);
+      const methods = inlineableMethods(
+        ctx,
+        extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene),
+        objectLiteralArg
+      );
       if (methods.size > 0) {
         registerInstanceMethodsFromAST(instanceName, forType, methods, ctx.program, varDecl);
       }
@@ -3162,6 +4175,7 @@ export function registerTypeclassMacros(): void {
     })
   );
   globalRegistry.register(summonMacro);
+  globalRegistry.register(derivedMacro);
   globalRegistry.register(extendMacro);
 }
 
@@ -3374,19 +4388,23 @@ export function tryExpandGenericDerive(
       )
     );
 
-    const reExport = ts.factory.createVariableStatement(
-      [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-      ts.factory.createVariableDeclarationList(
-        [
-          ts.factory.createVariableDeclaration(
-            deriveName,
-            undefined,
-            typeAnnotation,
-            ts.factory.createIdentifier(hoistedName)
-          ),
-        ],
-        ts.NodeFlags.Const
-      )
+    const reExport = withImplTag(
+      ts.factory.createVariableStatement(
+        [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+        ts.factory.createVariableDeclarationList(
+          [
+            ts.factory.createVariableDeclaration(
+              deriveName,
+              undefined,
+              typeAnnotation,
+              ts.factory.createIdentifier(hoistedName)
+            ),
+          ],
+          ts.NodeFlags.Const
+        )
+      ),
+      deriveName,
+      typeName
     );
 
     const namespaceDecl = ts.factory.createModuleDeclaration(
@@ -3400,12 +4418,16 @@ export function tryExpandGenericDerive(
     statements.push(namespaceDecl);
   } else {
     // Standard path: wrap in namespace directly (no shadowing risk).
-    const companionProperty = ts.factory.createVariableStatement(
-      [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
-      ts.factory.createVariableDeclarationList(
-        [ts.factory.createVariableDeclaration(deriveName, undefined, typeAnnotation, expr)],
-        ts.NodeFlags.Const
-      )
+    const companionProperty = withImplTag(
+      ts.factory.createVariableStatement(
+        [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+        ts.factory.createVariableDeclarationList(
+          [ts.factory.createVariableDeclaration(deriveName, undefined, typeAnnotation, expr)],
+          ts.NodeFlags.Const
+        )
+      ),
+      deriveName,
+      typeName
     );
 
     const namespaceDecl = ts.factory.createModuleDeclaration(
@@ -3428,6 +4450,23 @@ export function tryExpandGenericDerive(
       derived: true,
     },
   };
+}
+
+/**
+ * `/** @impl TC<Type> *\/` on a derive companion member. The tag says what
+ * the member is wherever only its declaration is visible: a library's
+ * `.d.ts` keeps it (declaration emit copies JSDoc), and a consumer's instance
+ * scanner finds `Type.TC` by it. A decorator `@derive(TC)` leaves no trace in
+ * a `.d.ts` otherwise. Nothing transforms the expanded output again, so the
+ * tag never dispatches the `@impl` macro.
+ */
+function withImplTag(stmt: ts.VariableStatement, tcName: string, typeName: string) {
+  return ts.addSyntheticLeadingComment(
+    stmt,
+    ts.SyntaxKind.MultiLineCommentTrivia,
+    `* @impl ${tcName}<${typeName}> `,
+    true
+  );
 }
 
 // ============================================================================

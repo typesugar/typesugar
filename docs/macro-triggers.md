@@ -15,10 +15,10 @@ The transformer recognizes several distinct trigger patterns:
 | Type Macro          | `TypeReference`            | `Add<3, 4>`               | `defineTypeMacro()`                             |
 | Labeled Block       | `LabeledStatement`         | `let: { x << Some(1) }`   | `defineLabeledBlockMacro()`                     |
 | HKT Syntax          | `TypeParameter`            | `F<A>`                    | Auto-detected                                   |
-| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@instance`                            |
+| Extension Method    | `CallExpression`           | `x.show()`                | Auto via `@impl`                                |
 | Operator Overload   | `BinaryExpression`         | `a + b`                   | Via `@op` JSDoc on typeclass methods            |
 | Implicit Parameter  | `CallExpression`           | `fn(x, ord = implicit())` | `= implicit()` marker                           |
-| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@instance`                            |
+| Auto-Specialization | `CallExpression`           | `fn(optionMonad, x)`      | Auto via `@impl`                                |
 
 ---
 
@@ -76,15 +76,17 @@ interface Show<A> {
 
 // Operator overloading via @op JSDoc on typeclass methods
 
-@instance("Show<Point>")
-const showPoint = {
+// A const takes the JSDoc trigger: TypeScript has no decorators on variables.
+/** @impl Show<Point> */
+const showPoint: Show<Point> = {
   show: (p) => `(${p.x}, ${p.y})`,
 };
 ```
 
 > On interfaces, functions, and type aliases the equivalent JSDoc trigger
 > (`/** @typeclass */`) is preferred — plain `tsc` flags the decorator form with
-> TS1206 (TypeSugar suppresses it). See
+> TS1206 (TypeSugar suppresses it). On a `const` only the JSDoc trigger works
+> (`/** @impl Show<Point> */`). See
 > [JSDoc vs Decorator Syntax](./guides/jsdoc-vs-decorators.md).
 
 **Registration:**
@@ -234,7 +236,27 @@ yield: {
 
 The macro consumes both the main labeled block (`let:`) and any following continuation blocks (`yield:`).
 
-**Activation (PEP-052):** label syntax is import-scoped. A matching label only expands in files that import a module carrying a `@syntax-labels <macroName>` marker — `import "@typesugar/std/syntax/do";` for the `let:`/`seq:`/`par:`/`all:` comprehensions, `import "@typesugar/contracts/syntax";` for the `requires:`/`ensures:` contract trigger labels. Without the import the label is left as plain JavaScript and the transformer warns (TS9224) with a hint naming the `syntaxModule` import to add. Ordinary loop labels that collide with a macro label produce no warning.
+A labeled-block macro can instead be attached to a `switch` (`statement: "switch"`). The
+`match:` statement form of pattern matching is one:
+
+```typescript
+import "@typesugar/std/syntax/match";
+
+match: switch (geom) {
+  case { type: "Point", coordinates: [x, y] }:
+    draw(x, y);
+    break;
+  case { type: "LineString", coordinates }:
+    for (const c of coordinates) draw(c[0], c[1]);
+    break;
+}
+// Compiles to: switch (geom.type) { case "Point": { const [x, y] = geom.coordinates; ... } ... }
+```
+
+With only literal cases the output is the switch itself, label removed (kept when a case uses `break match;`); the macro adds the
+exhaustiveness check (TS9226). See [Pattern Matching → Statement form](./guides/pattern-matching.md#statement-form-match-switch).
+
+**Activation (PEP-052):** label syntax is import-scoped. A matching label only expands in files that import a module carrying a `@syntax-labels <macroName>` marker — `import "@typesugar/std/syntax/do";` for the `let:`/`seq:`/`par:`/`all:` comprehensions, `import "@typesugar/std/syntax/match";` for `match:` switches, `import "@typesugar/contracts/syntax";` for the `requires:`/`ensures:` contract trigger labels. Without the import the label is left as plain JavaScript and the transformer warns (TS9224) with a hint naming the `syntaxModule` import to add. Ordinary loop labels that collide with a macro label produce no warning (a label is a candidate only on the statement its macro expects: a block, or a switch for `match:`). A macro whose `syntaxModule` has nothing to run sets `erasableSyntaxModule: true`, and the transformer removes that side-effect import from its output (`syntax/match` does; `syntax/do` also provides instances, so it stays).
 
 **Registration:**
 
@@ -305,7 +327,7 @@ This enables Scala 3-style implicit extension methods. When the transformer sees
 
 - Method syntax for the typeclass is active in the file: import its `@syntax-methods` marker module (`@typesugar/std/syntax/eq`, `…/clone`, `…/json`, `@typesugar/fp/syntax/show`, …) or declare the typeclass in the same file. Without it the call is left alone and fails at runtime.
 - For a typeclass from a package other than `@typesugar/std`, the typeclass itself must also be imported (a type-only import is enough), as `Show` is above.
-- The type has an instance in scope (`@derive`, or an explicit `@impl`/`@instance`). Instances are never ambient.
+- The type has an instance in scope (`@derive`, an explicit `@impl`/`@instance`, or a `derived<TC<T>>()` const). Instances are never ambient.
 - The method is declared in the typeclass.
 
 **Transformer Location:** `tryRewriteExtensionMethod()` in `packages/transformer-core/src/rewriting.ts`

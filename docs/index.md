@@ -227,7 +227,7 @@ _TypeScript's missing standard library_
 Batteries included for everyday TypeScript:
 
 - **Extension methods** — `(42).clamp(0, 100)`, `"hello".capitalize()`, `[1,2,3].chunk(2)`
-- **Pattern matching** — exhaustive `match()` with discriminated unions, guards, OR patterns
+- **Pattern matching** — exhaustive `match()` with discriminated unions, guards, OR patterns, extractors, and a statement form (`match: switch`)
 - **Reflection** — `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` at compile time
 - **Object mapping** — `transformInto()` for zero-cost struct-to-struct conversion
 - **Derive macros** — `@derive(Eq, Ord, Clone, Debug, Hash, Json, Default, TypeGuard)`
@@ -377,7 +377,7 @@ error [TS9001] No instance found for `Eq<Palette>`
   = note:     derivation-strategy: Eq — ok
   = note:     generic-meta: GenericMeta for Palette: { primary: Color } — FAILED — one or more fields lack required instance
   = note:       field-check: field `primary`: Color — FAILED — Color lacks Eq
-  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+  = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 Look up any error code in the [error reference](/errors/) (`https://typesugar.org/errors/TS9001`).
@@ -420,7 +420,7 @@ function debug() {
 
 | Package                                               | Description                                          |
 | ----------------------------------------------------- | ---------------------------------------------------- |
-| [@typesugar/typeclass](/reference/packages#typeclass) | `@typeclass`, `@instance`, `summon()`                |
+| [@typesugar/typeclass](/reference/packages#typeclass) | `@typeclass`, `@impl`, `summon()`                    |
 | [@typesugar/derive](/reference/packages#derive)       | `@derive(Eq, Clone, Debug, Json, ...)`               |
 | [@typesugar/reflect](/reference/packages#reflect)     | `typeInfo<T>()`, `fieldNames<T>()`, `validator<T>()` |
 

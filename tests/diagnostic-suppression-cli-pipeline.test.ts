@@ -20,6 +20,8 @@ import {
   standaloneExtensionRegistry,
   registerTypeRewrite,
   clearTypeRewrites,
+  globalRegistry,
+  defineAttributeMacro,
 } from "@typesugar/core";
 import {
   createExtensionMethodCallRule,
@@ -422,6 +424,28 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
             if (n <= 1) return acc;
             return factorial(n - 1, n * acc);
           }
+        `,
+      });
+
+      const ts1206 = result.filteredDiagnostics.filter((d) => d.code === 1206);
+      expect(ts1206).toHaveLength(0);
+    });
+
+    it("suppresses TS1206 on any registered attribute macro (@reflect interface)", () => {
+      // The rule's name table missed @typesugar/reflect's `@reflect`, which
+      // its guide puts on an interface, so `typesugar check` reported TS1206.
+      globalRegistry.register(
+        defineAttributeMacro({
+          name: "__reflectLike1206",
+          validTargets: ["interface"],
+          expand: (_ctx, _dec, target) => target,
+        })
+      );
+      const result = simulateCliBuild({
+        "/test.ts": `
+          function __reflectLike1206(target: any): any { return target; }
+          @__reflectLike1206
+          interface User { id: number; }
         `,
       });
 

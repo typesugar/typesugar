@@ -10,6 +10,8 @@
  * - Heterogeneous collections
  */
 import { describe, it, expect } from "vitest";
+import * as path from "path";
+import * as ts from "typescript";
 import {
   eraseWith,
   showable,
@@ -446,5 +448,47 @@ describe("heterogeneous usage patterns", () => {
     ];
 
     expect(showAll(items)).toEqual(["num:42", "str:hello", "arr:1,2"]);
+  });
+});
+
+describe("mapErased / filterErased keep the element type (type level)", () => {
+  // They took ErasedList<Caps> and gave the callback an Erased<Caps>, so on a
+  // WithShow[] (Erased<readonly Capability[]> & { show }) the callback lost
+  // the show capability: `mapErased(items, (e) => show(e))` was a type error
+  // (erased showcase, under `typesugar check`).
+  function typeErrors(src: string): string[] {
+    const dir = path.resolve(__dirname, "..");
+    const fileName = path.join(dir, "__erased_typecheck_input__.ts");
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const orig = host.getSourceFile.bind(host);
+    host.getSourceFile = (f, lang, ...rest) =>
+      path.resolve(f) === fileName
+        ? ts.createSourceFile(f, src, lang, true)
+        : orig(f, lang, ...rest);
+    const origExists = host.fileExists.bind(host);
+    host.fileExists = (f) => path.resolve(f) === fileName || origExists(f);
+    const program = ts.createProgram([fileName], options, host);
+    return ts
+      .getPreEmitDiagnostics(program, program.getSourceFile(fileName))
+      .map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+  }
+
+  it("the callback sees the list's own element type", () => {
+    const errs =
+      typeErrors(`import { showable, show, mapErased, filterErased, type WithShow } from "./src/index.js";
+const items: WithShow[] = [showable(42, (v) => String(v)), showable("s", (v) => v)];
+export const lengths: number[] = mapErased(items, (e) => show(e).length);
+export const kept: readonly WithShow[] = filterErased(items, (e) => show(e).length <= 2);
+`);
+    expect(errs).toEqual([]);
   });
 });

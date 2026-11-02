@@ -31,10 +31,10 @@
  * ```
  *
  * This is just an intersection type - TypeScript stores it without
- * recursive computation. The preprocessor then resolves:
- *
- * - `Kind<OptionF, number>` → `Option<number>` (known type function)
- * - `Kind<F, A>` → unchanged (F is a type parameter)
+ * recursive computation, and nothing rewrites it: `Kind<OptionF, number>`
+ * stays this marker. `Apply<OptionF, number>` computes `Option<number>`, and
+ * `@impl Functor<Option>` expands the instance's own signatures to the
+ * concrete types.
  *
  * ## Usage
  *
@@ -116,14 +116,14 @@ export interface TypeFunction {
  * forcing TypeScript to compute the result. This is fast to type-check
  * because it's just an intersection type.
  *
- * The preprocessor resolves `Kind<OptionF, A>` → `Option<A>` for known
- * type functions, leaving generic usages like `Kind<F, A>` unchanged.
+ * It is not computed: `Kind<OptionF, number>` is not `Option<number>` to the
+ * checker (use {@link Apply} for that). Generic HKT signatures use it, and
+ * `@impl` expands an instance's signatures to the concrete types.
  *
  * @example
  * ```typescript
- * // After preprocessor:
- * const x: Kind<OptionF, number> = Some(1);  // Resolves to Option<number>
- * function id<F>(fa: Kind<F, number>): Kind<F, number> { return fa; }  // Stays as Kind<F, number>
+ * function id<F>(fa: Kind<F, number>): Kind<F, number> { return fa; }
+ * type N = Apply<OptionF, number>; // Option<number>
  * ```
  */
 export type Kind<F, A> = F & { readonly __kind__: A };
@@ -138,8 +138,9 @@ export type Kind<F, A> = F & { readonly __kind__: A };
  * type Result = Apply<OptionF, number>;  // Option<number>
  * ```
  *
- * Note: The preprocessor automatically resolves `Kind<OptionF, A>` to
- * `Option<A>` for known type functions, so you rarely need `Apply` directly.
+ * `Kind<OptionF, A>` is never resolved to `Option<A>` (the preprocessor that
+ * did so was removed in PEP-047), so `Apply` is the way to name the concrete
+ * type.
  */
 export type Apply<F extends TypeFunction, A> = (F & { readonly __kind__: A })["_"];
 

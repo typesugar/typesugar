@@ -6,96 +6,79 @@
  */
 
 import { Effect, pipe } from "effect";
-import { gen$, map$, flatMap$, pipe$ } from "@typesugar/effect";
+// Extension methods on Effect values: eff.map(f) -> EffectExt.map(eff, f).
+import { EffectExt } from "@typesugar/effect";
+// do-notation (let:/yield:, par:) over Effect, with its FlatMap/ParCombine
+// instances in scope.
+import "@typesugar/effect/syntax/do";
 
 console.log("=== Effect-TS Adapter Example ===\n");
 
-// --- gen$ — Effect.gen Shorthand ---
+// --- Effect.gen — unchanged Effect-TS ---
 
-console.log("--- gen$ ---");
+console.log("--- Effect.gen ---");
 
-const program1 = gen$(function* () {
+const program1 = Effect.gen(function* () {
   const x = yield* Effect.succeed(10);
   const y = yield* Effect.succeed(20);
   return x + y;
 });
 
-// Equivalent to:
-// Effect.gen(function* () { ... });
+console.log("gen result:", Effect.runSync(program1));
 
-console.log("gen$ result:", Effect.runSync(program1));
+// --- Extension methods — eff.map(f), eff.flatMap(f) ---
 
-// --- map$ — Effect.map Shorthand ---
+console.log("\n--- extension methods ---");
 
-console.log("\n--- map$ ---");
+const doubled = Effect.succeed(21).map((x) => x * 2);
 
-const doubled = map$(Effect.succeed(21), (x) => x * 2);
+// Compiles to:
+// EffectExt.map(Effect.succeed(21), x => x * 2);
 
-// Equivalent to:
-// Effect.map(Effect.succeed(21), x => x * 2);
+console.log("map result:", Effect.runSync(doubled));
 
-console.log("map$ result:", Effect.runSync(doubled));
+const chained = Effect.succeed(5).flatMap((x) => Effect.succeed(x * 10));
 
-// --- flatMap$ — Effect.flatMap Shorthand ---
+// Compiles to:
+// EffectExt.flatMap(Effect.succeed(5), x => Effect.succeed(x * 10));
 
-console.log("\n--- flatMap$ ---");
+console.log("flatMap result:", Effect.runSync(chained));
 
-const chained = flatMap$(Effect.succeed(5), (x) => Effect.succeed(x * 10));
+// --- pipe — unchanged Effect-TS ---
 
-// Equivalent to:
-// Effect.flatMap(Effect.succeed(5), x => Effect.succeed(x * 10));
+console.log("\n--- pipe ---");
 
-console.log("flatMap$ result:", Effect.runSync(chained));
-
-// --- pipe$ — Effect.pipe Shorthand ---
-
-console.log("\n--- pipe$ ---");
-
-const piped = pipe$(
+const piped = pipe(
   Effect.succeed(5),
   Effect.map((x) => x * 2),
   Effect.flatMap((x) => Effect.succeed(x + 10)),
   Effect.map((x) => `Result: ${x}`),
 );
 
-// Equivalent to:
-// Effect.pipe(
-//   Effect.succeed(5),
-//   Effect.map(x => x * 2),
-//   ...
-// );
-
-console.log("pipe$ result:", Effect.runSync(piped));
+console.log("pipe result:", Effect.runSync(piped));
 
 // --- Labeled Block Syntax ---
 
 console.log("\n--- Labeled Block Syntax ---");
 
-// Using let: / yield: blocks for do-notation
-// (This syntax is transformed at compile time)
-
-/*
-let: {
-  user << getUserById(id)
-  posts << getPostsForUser(user.id)
-}
-yield: {
-  { user, posts }
-}
-*/
-
-// Compiles to:
 const getUserById = (id: number) => Effect.succeed({ id, name: `User${id}` });
 const getPostsForUser = (userId: number) =>
   Effect.succeed([`Post1 by ${userId}`, `Post2 by ${userId}`]);
 
-const programWithBlocks = Effect.flatMap(getUserById(1), (user) =>
-  Effect.flatMap(getPostsForUser(user.id), (posts) =>
-    Effect.succeed({ user, posts }),
-  ),
-);
+// A comprehension is an expression: return it from an arrow function, with
+// let: on the line after the `=>`.
+const userWithPosts = (id: number) =>
+  let: {
+    user << getUserById(id);
+    posts << getPostsForUser(user.id);
+  }
+  yield: ({ user, posts });
 
-console.log("Labeled block result:", Effect.runSync(programWithBlocks));
+// Compiles to:
+// Effect.flatMap(getUserById(id), (user) =>
+//   Effect.map(getPostsForUser(user.id), (posts) => ({ user, posts })));
+
+console.log("Labeled block result:", Effect.runSync(userWithPosts(1)));
 
 // --- Real-World Example ---
 
@@ -122,7 +105,7 @@ const getPosts = (userId: number): Effect.Effect<Post[]> =>
     { id: 2, title: "Second Post", authorId: userId },
   ]);
 
-const fetchUserWithPosts = gen$(function* () {
+const fetchUserWithPosts = Effect.gen(function* () {
   const user = yield* getUser(1);
   const posts = yield* getPosts(user.id);
   return {

@@ -222,12 +222,15 @@ describe("Derive Edge Cases - Ord", () => {
 });
 
 describe("Derive Edge Cases - Clone", () => {
-  // Clone uses Object.assign or spread
+  // A plain spread, which derived Clone used to be. Derived Clone is now
+  // field-wise (Rust's #[derive(Clone)]): see "built-in Clone derivation" in
+  // packages/macros/src/auto-derive.test.ts. The prototype, Symbol-key and
+  // getter cases below still describe the spread a derived clone starts from.
   function manualClone<T extends Record<string, any>>(value: T): T {
     return { ...value };
   }
 
-  it("Shallow clone doesn't deep copy nested objects", () => {
+  it("A plain spread doesn't deep copy nested objects", () => {
     interface Nested {
       data: { count: number };
     }
@@ -240,7 +243,7 @@ describe("Derive Edge Cases - Clone", () => {
 
     // Mutating clone affects original!
     cloned.data.count = 99;
-    expect(original.data.count).toBe(99); // Bug: shallow clone
+    expect(original.data.count).toBe(99); // shared: why derived Clone clones each field
   });
 
   it("Clone loses prototype chain", () => {

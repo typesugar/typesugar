@@ -283,3 +283,67 @@ describe("#53 no silent no-op when file config cannot be loaded at all", () => {
     expect(warn).toHaveBeenCalled();
   });
 });
+
+describe("review 8: nothing inside node_modules is read", () => {
+  const marker = () => path.join(tmpRoot, "node_modules/dep/RAN");
+  const RUNS =
+    `require("fs").writeFileSync(require("path").join(__dirname, "RAN"), "ran");\n` +
+    `module.exports = { security: { allowedMacroPackages: ["dep"] } };\n`;
+
+  it("a dependency's config file is skipped (never run); the project's above it is found", () => {
+    write(".typesugarrc.json", JSON.stringify({ contracts: { mode: "none" } }));
+    write("node_modules/dep/typesugar.config.cjs", RUNS);
+    config.load({ searchFrom: path.join(tmpRoot, "node_modules/dep") });
+    expect(fs.existsSync(marker())).toBe(false);
+    expect(config.get("security.allowedMacroPackages")).toBeUndefined();
+    expect(config.getConfigFilePath()).toBe(path.join(tmpRoot, ".typesugarrc.json"));
+  });
+
+  it("a dependency's package.json typesugar block is skipped", () => {
+    write(
+      "node_modules/@scope/dep/package.json",
+      JSON.stringify({
+        name: "@scope/dep",
+        typesugar: { macros: "./m.cjs", security: { allowedMacroPackages: ["@scope/dep"] } },
+      })
+    );
+    config.load({ searchFrom: path.join(tmpRoot, "node_modules/@scope/dep") });
+    expect(config.get("security.allowedMacroPackages")).toBeUndefined();
+    expect(config.getConfigFilePath()).toBeUndefined();
+  });
+
+  it("a node_modules symlink to a project directory is the project (decided by real path)", () => {
+    write("libs/x/.typesugarrc.json", JSON.stringify({ contracts: { mode: "assertions" } }));
+    fs.mkdirSync(path.join(tmpRoot, "node_modules"));
+    fs.symlinkSync(path.join(tmpRoot, "libs/x"), path.join(tmpRoot, "node_modules/x"), "dir");
+    config.load({ searchFrom: path.join(tmpRoot, "node_modules/x") });
+    expect(config.getConfigFilePath()).toBe(path.join(tmpRoot, "libs/x/.typesugarrc.json"));
+  });
+});
+
+describe("review 8: one config per project (capture / runWith)", () => {
+  it("a captured project's config is current inside runWith, and only there", () => {
+    write("a/.typesugarrc.json", JSON.stringify({ contracts: { mode: "none" } }));
+    write("b/.typesugarrc.json", JSON.stringify({ contracts: { mode: "assertions" } }));
+    config.load({ searchFrom: path.join(tmpRoot, "a") });
+    const a = config.capture();
+    config.load({ searchFrom: path.join(tmpRoot, "b") });
+    expect(config.get("contracts.mode")).toBe("assertions");
+    expect(config.runWith(a, () => config.get("contracts.mode"))).toBe("none");
+    expect(config.runWith(a, () => config.getConfigFilePath())).toBe(
+      path.join(tmpRoot, "a/.typesugarrc.json")
+    );
+    expect(config.get("contracts.mode")).toBe("assertions");
+    // set() applies to the config current at the time, and stays with it.
+    config.runWith(a, () => config.set({ debug: true }));
+    expect(config.get("debug")).toBe(false);
+    expect(config.runWith(a, () => config.get("debug"))).toBe(true);
+    // A throw still restores the previous config.
+    expect(() =>
+      config.runWith(a, () => {
+        throw new Error("boom");
+      })
+    ).toThrow("boom");
+    expect(config.get("contracts.mode")).toBe("assertions");
+  });
+});

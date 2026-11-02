@@ -59,7 +59,7 @@ import {
 
   // Macros
   sql,
-} from "../src/index.js";
+} from "@typesugar/sql";
 
 // ============================================================================
 // 1. FRAGMENT BASICS — Composable SQL Building Blocks
@@ -231,68 +231,64 @@ typeAssert<Extends<typeof typedUpdate, Update>>();
 // Primitive instances are provided for common types.
 
 // stringMeta: string ↔ TEXT
-assert(stringMeta.get.read("hello") === "hello");
-assert(stringMeta.put.write("world") === "world");
+assert(stringMeta.get("hello") === "hello");
+assert(stringMeta.put("world") === "world");
 
 // numberMeta: number ↔ NUMERIC
-assert(numberMeta.get.read(42) === 42);
-assert(numberMeta.put.write(3.14) === 3.14);
+assert(numberMeta.get(42) === 42);
+assert(numberMeta.put(3.14) === 3.14);
 
 // intMeta: rounds to integer
-assert(intMeta.get.read(42) === 42);
+assert(intMeta.get(42) === 42);
 
 // booleanMeta: boolean ↔ BOOLEAN
-assert(booleanMeta.get.read(true) === true);
-assert(booleanMeta.put.write(false) === false);
+assert(booleanMeta.get(true) === true);
+assert(booleanMeta.put(false) === false);
 
 // nullable() wraps a Meta to handle NULL
 const nullableMeta = nullable(stringMeta);
-assert(nullableMeta.get.read(null) === null);
-assert(nullableMeta.get.read("hello") === "hello");
-assert(nullableMeta.put.write(null) === null);
+assert(nullableMeta.get(null) === null);
+assert(nullableMeta.get("hello") === "hello");
+assert(nullableMeta.put(null) === null);
 
 // optional() wraps to handle undefined
 const optionalMeta = optional(numberMeta);
-assert(optionalMeta.get.read(undefined) === undefined);
-assert(optionalMeta.get.read(42) === 42);
+assert(optionalMeta.get(undefined) === undefined);
+assert(optionalMeta.get(42) === 42);
 
 // arrayMeta() for array columns
 const arrayOfStrings = arrayMeta(stringMeta);
-const arr = arrayOfStrings.get.read(["a", "b", "c"]);
+const arr = arrayOfStrings.get(["a", "b", "c"]);
 assert(Array.isArray(arr) && arr.length === 3);
 
 // ============================================================================
 // 7. DERIVE TYPECLASSES — Auto-Generate Read/Write/Codec
 // ============================================================================
 
-// deriveRead() generates a Read instance from field Metas
-const userRead = deriveRead<User>({
-  id: numberMeta,
-  name: stringMeta,
-  email: stringMeta,
-});
-const userRow = { id: 1, name: "Alice", email: "alice@example.com" };
-const user = userRead.read(userRow);
+// deriveRead() generates a Read instance from each field's column config: its
+// Meta, and optionally the column name (default: the field in snake_case)
+const userColumns = {
+  id: { meta: numberMeta },
+  name: { meta: stringMeta },
+  email: { meta: stringMeta, column: "email_address" },
+};
+const userRead = deriveRead<User>(userColumns);
+const userRow = { id: 1, name: "Alice", email_address: "alice@example.com" };
+const user = userRead.read(userRow)!; // null when a required column is missing
 assert(user.id === 1);
 assert(user.name === "Alice");
 assert(user.email === "alice@example.com");
 
-// deriveWrite() generates a Write instance
-const userWrite = deriveWrite<User>({
-  id: numberMeta,
-  name: stringMeta,
-  email: stringMeta,
-});
+// deriveWrite() generates a Write instance: the SQL parameters in column order
+const userWrite = deriveWrite<User>(userColumns);
 const written = userWrite.write({ id: 1, name: "Bob", email: "bob@example.com" });
-assert(written.id === 1);
-assert(written.name === "Bob");
+assert(written.length === 3);
+assert(written[0] === 1);
+assert(written[1] === "Bob");
+assert(userWrite.columns.join(",") === "id,name,email_address");
 
 // deriveCodec() combines Read + Write
-const userCodec = deriveCodec<User>({
-  id: numberMeta,
-  name: stringMeta,
-  email: stringMeta,
-});
+const userCodec = deriveCodec<User>(userColumns);
 assert(typeof userCodec.read === "function");
 assert(typeof userCodec.write === "function");
 
@@ -308,37 +304,32 @@ assert(toSnakeCase("id") === "id");
 // ConnectionIO describes database operations without executing them.
 // Programs are pure and composable — execution happens via Transactor.
 
-// ConnectionIO.pure() lifts a value
+// ConnectionIO.pure() lifts a value; a program is an operation, not a result
 const pureProgram = ConnectionIO.pure(42);
-assert(pureProgram._tag === "Pure");
-assert(pureProgram.value === 42);
+assert(pureProgram.op._tag === "Pure");
 
-// ConnectionIO.map() transforms results
-const mappedProgram = ConnectionIO.map(
-  ConnectionIO.pure(10),
-  (x) => x * 2
+// .map() transforms results, .flatMap() sequences programs
+const mappedProgram = ConnectionIO.pure(10).map((x) => x * 2);
+assert(mappedProgram.op._tag === "FlatMap");
+
+const sequencedProgram = ConnectionIO.pure("Alice").flatMap((name) =>
+  ConnectionIO.pure(`Hello, ${name}!`)
 );
-assert(mappedProgram._tag === "FlatMap");
+assert(sequencedProgram.op._tag === "FlatMap");
 
-// ConnectionIO.flatMap() sequences operations
-const sequencedProgram = ConnectionIO.flatMap(
-  ConnectionIO.pure("Alice"),
-  (name) => ConnectionIO.pure(`Hello, ${name}!`)
-);
-assert(sequencedProgram._tag === "FlatMap");
-
-// ConnectionIO.query() creates a query operation
-const queryProgram = ConnectionIO.query(
+// ConnectionIO.queryMany() runs a query and decodes every row with a Read
+const readUser = { read: (row: Record<string, unknown>) => row as unknown as User };
+const queryProgram = ConnectionIO.queryMany(
   new Query<User>(Fragment.raw("SELECT * FROM users")),
-  (row) => row as unknown as User
+  readUser
 );
-assert(queryProgram._tag === "QueryIO");
+assert(queryProgram.op._tag === "QueryMany");
 
-// ConnectionIO.update() creates an update operation
-const updateProgram = ConnectionIO.update(
+// ConnectionIO.execute() runs an update, giving the affected row count
+const updateProgram = ConnectionIO.execute(
   new Update(sql`INSERT INTO logs (message) VALUES (${"test"})`)
 );
-assert(updateProgram._tag === "UpdateIO");
+assert(updateProgram.op._tag === "Execute");
 
 // ============================================================================
 // 9. EITHER — Error Handling in ConnectionIO
@@ -348,8 +339,8 @@ assert(updateProgram._tag === "UpdateIO");
 const success: Either<string, number> = Right(42);
 const failure: Either<string, number> = Left("not found");
 
-assert(success._tag === "Right" && success.value === 42);
-assert(failure._tag === "Left" && failure.value === "not found");
+assert(success._tag === "Right" && success.right === 42);
+assert(failure._tag === "Left" && failure.left === "not found");
 
 // ============================================================================
 // 10. TYPED FRAGMENTS — Type-Tracked SQL Composition
@@ -358,10 +349,12 @@ assert(failure._tag === "Left" && failure.value === "not found");
 // TypedFragment carries type information through composition.
 // TypedQuery and TypedUpdate are typed wrappers.
 
-const tf1 = TypedFragment.raw("SELECT * FROM users");
+// (the sql$ macro builds these from a template, with the parameter types
+// inferred; the constructor takes the text segments and the parameters)
+const tf1 = new TypedFragment(["SELECT * FROM users"], []);
 assert(tf1.toFragment() instanceof Fragment);
 
-const tf2 = TypedFragment.param("active", true);
+const tf2 = new TypedFragment(["active = ", ""], [true]);
 assert(tf2.toFragment().values[0] === true);
 
 // emptyTyped is the identity
@@ -376,32 +369,29 @@ assert(emptyTf.toFragment().text === "");
 // Here we test with a mock connection.
 
 const mockConn: DbConnection = {
-  query: async (text: string, params: readonly SqlParam[]) => ({
-    rows: [{ id: 1, name: "Alice", email: "alice@example.com" }],
-  }),
+  query: async (text: string, params: readonly unknown[]) => [
+    { id: 1, name: "Alice", email: "alice@example.com" },
+  ],
+  execute: async () => 1,
+  begin: async () => {},
+  commit: async () => {},
+  rollback: async () => {},
 };
 
-const transactor = new Transactor(mockConn);
+const transactor = Transactor.fromConnection(mockConn);
 
 // Run a pure program
 const pureResult = await transactor.run(ConnectionIO.pure("hello"));
 assert(pureResult === "hello", "Transactor should handle Pure");
 
 // Run a query program
-const queryResult = await transactor.run(
-  ConnectionIO.query(
-    new Query<User>(Fragment.raw("SELECT * FROM users")),
-    (row) => row as unknown as User
-  )
-);
+const queryResult = await transactor.run(queryProgram);
 assert(Array.isArray(queryResult), "Query result should be an array");
 assert(queryResult[0].name === "Alice");
 
 // Run a flatMap chain
 const chainResult = await transactor.run(
-  ConnectionIO.flatMap(ConnectionIO.pure(1), (id) =>
-    ConnectionIO.pure(`User ${id}`)
-  )
+  ConnectionIO.pure(1).flatMap((id) => ConnectionIO.pure(`User ${id}`))
 );
 assert(chainResult === "User 1");
 
@@ -410,27 +400,28 @@ assert(chainResult === "User 1");
 // ============================================================================
 
 // sequence() runs multiple programs and collects results
-const seqProgram = sequence([
-  ConnectionIO.pure(1),
-  ConnectionIO.pure(2),
-  ConnectionIO.pure(3),
-]);
-assert(seqProgram._tag === "FlatMap" || seqProgram._tag === "Pure");
+const seqResult = await transactor.run(
+  sequence([ConnectionIO.pure(1), ConnectionIO.pure(2), ConnectionIO.pure(3)])
+);
+assert(seqResult.join(",") === "1,2,3");
 
 // traverse() maps over a list and sequences the results
-const travProgram = traverse([1, 2, 3], (n) => ConnectionIO.pure(n * 10));
-assert(travProgram._tag === "FlatMap" || travProgram._tag === "Pure");
+const travResult = await transactor.run(traverse([1, 2, 3], (n) => ConnectionIO.pure(n * 10)));
+assert(travResult.join(",") === "10,20,30");
 
-// when() conditionally runs a program
-const conditionalProgram = when(true, ConnectionIO.pure("ran"));
-assert(conditionalProgram._tag === "Pure");
+// when() runs a program only if the condition holds
+let ran = 0;
+const effect = ConnectionIO.delay(() => {
+  ran++;
+});
+await transactor.run(when(true, effect));
+await transactor.run(when(false, effect));
+assert(ran === 1);
 
-const skippedProgram = when(false, ConnectionIO.pure("skipped"));
-assert(skippedProgram._tag === "Pure");
-
-// whenA() for effectful conditionals
-const effectualProgram = whenA(true, () => ConnectionIO.pure("effect"));
-assert(effectualProgram._tag === "Pure" || effectualProgram._tag === "FlatMap");
+// whenA() gives the result, or null when skipped
+const kept = await transactor.run(whenA(true, ConnectionIO.pure("effect")));
+const skipped = await transactor.run(whenA(false, ConnectionIO.pure("effect")));
+assert(kept === "effect" && skipped === null);
 
 // ============================================================================
 // 13. REAL-WORLD PATTERN — Repository with ConnectionIO
@@ -438,25 +429,24 @@ assert(effectualProgram._tag === "Pure" || effectualProgram._tag === "FlatMap");
 
 // In a real application:
 //
-// @deriving(Read, Write)
+// /** @derive(Read, Write) */
 // interface User { id: number; name: string; email: string }
 //
 // const findById = (id: number) =>
 //   ConnectionIO.query(
 //     sql`SELECT id, name, email FROM users WHERE id = ${id}`.toQuery<User>(),
-//     summon<Read<User>>().read
+//     summon<Read<User>>()
 //   );
 //
 // const updateEmail = (id: number, email: string) =>
-//   ConnectionIO.update(
+//   ConnectionIO.execute(
 //     sql`UPDATE users SET email = ${email} WHERE id = ${id}`.toUpdate()
 //   );
 //
 // const transferEmail = (fromId: number, toId: number) =>
-//   ConnectionIO.flatMap(findById(fromId), (users) => {
-//     if (users.length === 0) return ConnectionIO.pure(0);
-//     return updateEmail(toId, users[0].email);
-//   });
+//   findById(fromId).flatMap((user) =>
+//     user === null ? ConnectionIO.pure(0) : updateEmail(toId, user.email)
+//   );
 //
 // // Execute within a transaction
 // await transactor.transact(transferEmail(1, 2));

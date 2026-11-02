@@ -462,6 +462,61 @@ describe("recordMacroImport + cleanupMacroImports", () => {
     expect(cleaned.some((s) => ts.isImportDeclaration(s))).toBe(false);
   });
 
+  // Turf case study (Stage 1): `import { summon, Clone } from "typesugar";
+  // summon<Clone<P>>()` expands to an instance literal, so `Clone` (a value
+  // export used only inside the macro's type argument) has no use left. tsc
+  // and esbuild elide it, unless verbatimModuleSyntax is on: then the emitted
+  // JS kept `import { Clone } from "typesugar"`, a runtime dependency.
+  it("drops a non-macro specifier whose every use was inside an expanded macro call", () => {
+    const { typeChecker, files } = buildProgram({
+      "/main.ts": `import { summon, Clone } from "./mod";\nexport const c = summon<Clone<number>>();\n`,
+      "/mod.ts": `export function summon<T>(): T { return null as any; }\nexport const Clone = 1;\nexport type Clone<A> = { clone(a: A): A };\n`,
+    });
+    const main = files.get("/main.ts")!;
+    const sym = typeChecker.getSymbolAtLocation(getIdentifier(main, "summon"))!;
+    const tracked = new Map<
+      ts.ImportDeclaration,
+      Set<ts.ImportSpecifier | "namespace" | "default">
+    >();
+    recordMacroImport(tracked, sym);
+    // The summon call expanded to an instance literal.
+    const f = ts.factory;
+    const expandedDecl = f.createVariableStatement(
+      [f.createModifier(ts.SyntaxKind.ExportKeyword)],
+      f.createVariableDeclarationList(
+        [f.createVariableDeclaration("c", undefined, undefined, f.createObjectLiteralExpression())],
+        ts.NodeFlags.Const
+      )
+    );
+    const imports = main.statements.filter(ts.isImportDeclaration);
+    const cleaned = cleanupMacroImports(f, tracked, [...imports, expandedDecl], false);
+    expect(cleaned.filter(ts.isImportDeclaration)).toHaveLength(0);
+  });
+
+  it("keeps a non-macro specifier the expanded code still uses, as a value or a type", () => {
+    const { typeChecker, files } = buildProgram({
+      "/main.ts":
+        `import { summon, Clone } from "./mod";\n` +
+        `export const c = summon<Clone<number>>();\n` +
+        `export function f(x: Clone<number>) { return x; }\n`,
+      "/mod.ts": `export function summon<T>(): T { return null as any; }\nexport const Clone = 1;\nexport type Clone<A> = { clone(a: A): A };\n`,
+    });
+    const main = files.get("/main.ts")!;
+    const sym = typeChecker.getSymbolAtLocation(getIdentifier(main, "summon"))!;
+    const tracked = new Map<
+      ts.ImportDeclaration,
+      Set<ts.ImportSpecifier | "namespace" | "default">
+    >();
+    recordMacroImport(tracked, sym);
+    const imports = main.statements.filter(ts.isImportDeclaration);
+    const fn = main.statements.find(ts.isFunctionDeclaration)!;
+    const cleaned = cleanupMacroImports(ts.factory, tracked, [...imports, fn], false);
+    const decls = cleaned.filter(ts.isImportDeclaration);
+    expect(decls).toHaveLength(1);
+    const named = decls[0].importClause!.namedBindings as ts.NamedImports;
+    expect(named.elements.map((e) => e.name.text)).toEqual(["Clone"]);
+  });
+
   it("is a no-op when the tracked map is empty", () => {
     const { files } = buildProgram({
       "/main.ts": `import { Foo } from "./mod";\nFoo();\n`,

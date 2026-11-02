@@ -223,7 +223,7 @@ describe("fluent match() macro (PEP-008 Wave 1)", () => {
       expect(text).toContain("x === undefined");
     });
 
-    it("should compile multiple literal arms to IIFE", () => {
+    it("should compile multiple literal arms + else to a conditional chain (no IIFE)", () => {
       const { ctx, printExpr } = createTestContext();
       const { outermost, rootArgs } = buildChain(
         ident("x"),
@@ -237,7 +237,8 @@ describe("fluent match() macro (PEP-008 Wave 1)", () => {
       const result = expandFluentMatch(ctx, outermost, rootArgs);
       const text = printExpr(result);
 
-      expect(text).toContain("=>");
+      expect(text).not.toContain("=>");
+      expect(text).toBe('x === 1 ? "one" : x === 2 ? "two" : "other"');
       expect(text).toContain("=== 1");
       expect(text).toContain("=== 2");
       expect(text).toContain('"one"');
@@ -1748,20 +1749,8 @@ describe("Code review fixes", () => {
     expect(text).toContain("return");
   });
 
-  it("H1: zero-arg extractor with arguments should report error", () => {
-    const { ctx } = createTestContext();
-    const nilCall = f.createCallExpression(ident("Nil"), undefined, [ident("v")]);
-    const { outermost, rootArgs } = buildChain(
-      ident("x"),
-      { method: "case", args: [nilCall] },
-      { method: "then", args: [ident("v")] }
-    );
-
-    expandFluentMatch(ctx, outermost, rootArgs);
-    const diagnostics = ctx.getDiagnostics();
-    const errors = diagnostics.filter((d) => d.severity === "error");
-    expect(errors.some((e) => e.message.includes("zero-arg"))).toBe(true);
-  });
+  // H1 (a zero-arg extractor called with arguments) needs a Destructure
+  // instance in scope: packages/std/tests/match-destructure-instances.test.ts.
 
   it("H3: computed property key in object pattern should report error", () => {
     const { ctx } = createTestContext();
@@ -1809,6 +1798,7 @@ describe("PEP-019 Wave 2: shorter match variable names", () => {
       { method: "case", args: [num(1)] },
       { method: "then", args: [str("one")] },
       { method: "case", args: [num(2)] },
+      { method: "if", args: [ident("flag")] }, // a guard keeps the IIFE (literal-only arms are a conditional chain)
       { method: "then", args: [str("two")] },
       { method: "else", args: [str("other")] }
     );
@@ -1894,6 +1884,7 @@ describe("PEP-019 Wave 2: shorter match variable names", () => {
       { method: "case", args: [num(1)] },
       { method: "then", args: [str("one")] },
       { method: "case", args: [num(2)] },
+      { method: "if", args: [ident("flag")] }, // a guard keeps the IIFE (literal-only arms are a conditional chain)
       { method: "then", args: [str("two")] },
       { method: "else", args: [str("other")] }
     );
@@ -1915,6 +1906,7 @@ describe("PEP-019 Wave 2: shorter match variable names", () => {
       { method: "case", args: [num(1)] },
       { method: "then", args: [str("one")] },
       { method: "case", args: [num(2)] },
+      { method: "if", args: [ident("flag")] }, // a guard keeps the IIFE (literal-only arms are a conditional chain)
       { method: "then", args: [str("two")] },
       { method: "else", args: [str("other")] }
     );
@@ -1928,6 +1920,7 @@ describe("PEP-019 Wave 2: shorter match variable names", () => {
       { method: "case", args: [num(3)] },
       { method: "then", args: [str("three")] },
       { method: "case", args: [num(4)] },
+      { method: "if", args: [ident("flag")] }, // a guard keeps the IIFE (literal-only arms are a conditional chain)
       { method: "then", args: [str("four")] },
       { method: "else", args: [str("other")] }
     );

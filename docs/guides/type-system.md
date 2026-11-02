@@ -169,11 +169,21 @@ The `_` type is `never & "__kind__"` — TypeScript reduces it to `never` (valid
 For full control, define type-level functions manually:
 
 ```typescript
-import { type Kind, type TypeFunction, type ArrayF, type PromiseF } from "@typesugar/type-system";
+import {
+  type Apply,
+  type Kind,
+  type TypeFunction,
+  type ArrayF,
+  type PromiseF,
+} from "@typesugar/type-system";
 
-// Apply a type constructor
-type Result = Kind<ArrayF, number>; // → number[]
-type AsyncResult = Kind<PromiseF, string>; // → Promise<string>
+// Apply a type constructor (computes the type)
+type Result = Apply<ArrayF, number>; // number[]
+type AsyncResult = Apply<PromiseF, string>; // Promise<string>
+
+// Kind<F, A> is the uncomputed marker generic HKT signatures use:
+// Kind<ArrayF, number> is not number[] to the checker.
+type Marker = Kind<ArrayF, number>;
 
 // Define your own
 interface ArrayF extends TypeFunction {

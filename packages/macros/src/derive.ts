@@ -76,7 +76,7 @@ export const Ord = Object.freeze({
   bigint: ordBigint,
   array: ordArray,
 });
-/** Derive deep cloning (clone method) */
+/** Derive a field-wise copy (clone method), like Rust's `#[derive(Clone)]`: each field goes through its own Clone */
 export const Clone: unique symbol = Symbol("Clone");
 /** Derive debug string representation (debug method) */
 export const Debug: unique symbol = Symbol("Debug");

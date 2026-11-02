@@ -36,8 +36,7 @@ src/palette.ts(15,17): error TS9001: [typesugar] [TS9001] No instance found for 
   = note:       field-check: field `x`: number — ok — number has Eq
   = note:       field-check: field `y`: number — ok — number has Eq
   = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
-  = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
-    Add: import { Eq } from "typesugar";
+  = help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 The CLI (`typesugar build` / `check`) prints each diagnostic in the familiar `tsc` layout —
@@ -78,7 +77,29 @@ typeclass instance for a type that doesn't have one (see the example at the top 
 
 - Add `@derive(...)` to the type (and to the field types it lists as lacking the instance)
 - Provide a manual `@impl` instance for the problematic field type
-- If it's a third-party type, create a newtype wrapper
+- If it's a type you don't own (from a library, such as `Feature` from
+  `@types/geojson`), declare its instance once in a module of your own and
+  import that module: by hand, or derived with
+  `export const cloneFeature = derived<Clone<Feature>>();`. The TS9001 help
+  says so for such a type. See
+  [Instances for types you don't own](./typeclasses.md#external-types).
+
+### Instance Derived in Place (TS9009, warning)
+
+When no instance is in scope, `summon<TC<T>>()` and `= implicit()` still
+derive one from the type's structure, a new copy at each call site, and warn
+once per type per file:
+
+```
+warning TS9009: [typesugar] [TS9009] No instance for `Clone<Feature>` in scope; derived one here
+  = help: Declare it once with `export const cloneFeature = derived<Clone<Feature>>();` in a module of your own, and import that module where the instance is used. summon and implicit() will stop deriving instances in a future release.
+```
+
+This fallback is deprecated. Declare the instance once, with `@derive` on a
+type you own or `derived<TC<T>>()` for one you don't. A summon that is itself
+the initializer of a top-level const (`export const cloneFeature =
+summon<Clone<Feature>>()`) is already that declaration: write
+`derived<Clone<Feature>>()` there.
 
 ### Derive Field Error
 
@@ -129,7 +150,8 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing a fallback: 
 
 - Add the missing `.case()` arms for literal unions and discriminated unions
 - Use `.else(value)` or `.case(_).then(value)` for catch-all
-- Runtime safety net: when no pattern matches, the generated code throws `MatchError` with `.value` set to the unmatched value
+- Runtime safety net: when the arms can't be shown to cover the value, the generated code ends in a throw of `MatchError` with `.value` set to the unmatched value ([Runtime Safety Net](./pattern-matching.md#runtime-safety-net))
+- The statement form, a `match:` label on a `switch`, reports a missing case with the same TS9226
 
 ### Import Suggestion (TS9061, TS9062)
 
@@ -152,11 +174,11 @@ Two instances for the same (typeclass, type) pair would be reported like this:
 error[TS9050]: Conflicting instance of `Show` for type `Point`
   --> src/rendering.ts:10:1
    |
- 4 |   @instance const debugShow: Show<Point> = { ... };
-   |   --------- first instance defined here
+ 4 |   const debugShow: Show<Point> = { ... }; // /** @impl Show<Point> */ above
+   |         --------- first instance defined here
    |
-10 |   @instance const prettyShow: Show<Point> = { ... };
-   |   ^^^^^^^^^ conflicting instance
+10 |   const prettyShow: Show<Point> = { ... }; // /** @impl Show<Point> */ above
+   |         ^^^^^^^^^^ conflicting instance
    |
    = note: Each (typeclass, type) pair must have exactly one instance
    = help: Remove one instance, or use a newtype wrapper for different behaviors
@@ -208,7 +230,8 @@ Rewrite with an accumulator — `function factorial(n: number, acc = 1): number`
 Specialization is an always-on compiler optimization (PEP-053) — there is no
 macro to call for it. When a call passes a known typeclass instance but the
 transformer can't prove the inlining is sound, it falls back to dictionary
-passing (always correct, just not zero-cost) and emits a TS9602 warning:
+passing (always correct, just not zero-cost) and emits a
+[TS9602](/errors/TS9602) warning:
 
 ```typescript
 function processItems<A>(M: Mapper<A>, items: A): A {
@@ -229,11 +252,13 @@ warning TS9602: [typesugar] [TS9602] Auto-specialization of processItems skipped
 Common reasons for skipping:
 
 - **Function body not resolvable**: Can't find the function definition (for example, it comes from a compiled package). Use `const fn = ...` or named `function` in your own code.
+- **Instance only visible as a declaration**: The instance comes from a package's compiled `.d.ts` (`ordNumber` from `@typesugar/std`, a library's `Point.Eq`), whether you pass it or `= implicit()` fills it in, so there are no method bodies to inline. Declare the instance in your own source if the call is hot.
 - **Early return**: Multiple return paths prevent inlining. Extract into helpers.
 - **try/catch**: Error handling blocks inlining. Handle errors at a higher level.
 - **Loops**: Iteration prevents inlining. Use Array methods or recursive helpers.
 - **Mutable variables**: `let` bindings prevent inlining. Use `const` or fold/reduce patterns.
 - **Propagated `= implicit()` call**: The body calls another `= implicit()` function without passing the instance, so the instance would be dropped from that inner call. Pass the instance through explicitly if you want the inner call inlined too.
+- **A name not in scope at the call site**: An instance method's body uses a name the call site can't see (a helper private to the instance's module, or one that module imports and yours doesn't): `the method's body uses 'compareNumber', which is not in scope here`. The call goes through the instance. Export and import the helper, or declare the instance where the call is, if the call is hot.
 
 Opt a call out of specialization entirely with `// @no-specialize` (same line or
 the line above), or keep specialization but silence the warning with
@@ -263,7 +288,7 @@ When typeclass resolution fails (e.g., `summon<Eq<Point>>()` can't find an insta
 = note:       field-check: field `x`: number — ok — number has Eq
 = note:       field-check: field `y`: number — ok — number has Eq
 = note:       field-check: field `color`: Color — FAILED — Color lacks Eq
-= help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+= help: Add @derive(Eq) to Color, or provide an instance: /** @impl Eq<Color> */
 ```
 
 The trace shows:
@@ -279,12 +304,13 @@ This makes debugging typeclass issues much easier — instead of guessing why de
 
 Resolution traces appear in error messages from:
 
-| Source             | When traces appear                                             |
-| ------------------ | -------------------------------------------------------------- |
-| `summon<TC<T>>()`  | No explicit or auto-derived instance found                     |
-| `= implicit()`     | Implicit parameter resolution failed                           |
-| Operator rewriting | No typeclass with `Op<"+">` found (verbose mode only)          |
-| Extension methods  | No typeclass or standalone extension found (verbose mode only) |
+| Source             | When traces appear                                                                             |
+| ------------------ | ---------------------------------------------------------------------------------------------- |
+| `summon<TC<T>>()`  | No instance in scope, and the deprecated in-place derivation ([TS9009](/errors/TS9009)) failed |
+| `= implicit()`     | Implicit parameter resolution failed                                                           |
+| `derived<TC<T>>()` | The type, or one of its fields, can't be derived                                               |
+| Operator rewriting | No typeclass with `Op<"+">` found (verbose mode only)                                          |
+| Extension methods  | No typeclass or standalone extension found (verbose mode only)                                 |
 
 ## For Macro Authors
 

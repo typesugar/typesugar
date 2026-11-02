@@ -20,9 +20,33 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { rewriteHKTTypeReferences, hasHKTPatterns } from "./hkt-rewriter.js";
+import {
+  captureExpandedSource,
+  emitExpandedDeclarations,
+  expandProgramSources,
+  preprocessHKTForProgram as preprocessForProgram,
+  wantsDeclarations,
+  withoutDeclarations,
+} from "./declarations.js";
 import { VirtualCompilerHost } from "./virtual-host.js";
+import { keepMacroReferencedImports } from "./keep-imports.js";
+import {
+  expandedCheckRegions,
+  inBlindSpot,
+  mapExpandedDiagnostics,
+  typecheckExpandedProgram,
+} from "./strict-check.js";
 import { initHasher, DiskTransformCache, hashContent } from "./cache.js";
 import { UnapprovedMacroPackagesError } from "./macro-loader.js";
+import {
+  isComprehensionSyntaxActivatedIn,
+  mapRewrittenDiagnostic,
+  mayContainComprehension,
+  preprocessorDiagnostics,
+  rewriteComprehensions,
+  rewriteProgramComprehensions,
+  type ProgramComprehensionRewrite,
+} from "./comprehension-gate.js";
 import { readTsConfig } from "./tsconfig-utils.js";
 import {
   TransformationPipeline,
@@ -30,6 +54,7 @@ import {
   formatExpansions,
   transpileExpanded,
   macroTransformerFactory,
+  registerTypeRewritesBeforeFiltering,
   saveExpansionCache,
   getExpansionCacheStats,
   TransformerState,
@@ -40,6 +65,7 @@ import {
   setDiagnosticSuppressionAuditMode,
   profiler,
   PROFILING_ENABLED,
+  type RawSourceMap,
   config as typesugarConfig,
 } from "@typesugar/core";
 import { registerAllDiagnosticSuppressionRules } from "@typesugar/macros";
@@ -74,6 +100,10 @@ interface CliOptions {
   strict?: boolean | "incremental";
   /** Show suppressed diagnostics for debugging */
   showSuppressedDiagnostics?: boolean;
+  /** build: write only `.d.ts` files (from the expanded program) */
+  emitDeclarationOnly?: boolean;
+  /** build: directory for `.d.ts` files (overrides the tsconfig) */
+  declarationDir?: string;
   /** approve-macros: skip the confirmation prompt (for CI use) */
   yes?: boolean;
   /** init: scaffold AI-assistant context (AGENTS.md). undefined = ask. */
@@ -183,6 +213,8 @@ function parseArgs(args: string[]): CliOptions {
   let ai: boolean | undefined;
   let yes = false;
   let persona: CliOptions["persona"];
+  let emitDeclarationOnly = false;
+  let declarationDir: string | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -213,6 +245,14 @@ function parseArgs(args: string[]): CliOptions {
       strict = true;
     } else if (arg === "--show-suppressed-diagnostics") {
       showSuppressedDiagnostics = true;
+    } else if (arg === "--emitDeclarationOnly" || arg === "--emit-declaration-only") {
+      emitDeclarationOnly = true;
+    } else if (arg === "--declarationDir" || arg === "--declaration-dir") {
+      declarationDir = args[++i];
+      if (!declarationDir) {
+        console.error(`${arg} needs a directory`);
+        process.exit(1);
+      }
     } else if (arg === "--ai") {
       ai = true;
     } else if (arg === "--no-ai") {
@@ -246,6 +286,8 @@ function parseArgs(args: string[]): CliOptions {
     cache,
     strict,
     showSuppressedDiagnostics,
+    emitDeclarationOnly,
+    declarationDir,
     ai,
     yes,
     persona,
@@ -278,12 +320,13 @@ OPTIONS:
   -v, --verbose          Enable verbose logging
   --cache [dir]          Enable disk cache for build/run (default: .typesugar-cache/transforms)
   --no-cache             Disable disk cache
-  --strict               Also typecheck the expanded output [build/check]. Experimental:
-                         the per-file expansion check may report false positives
-                         (e.g. spurious TS2304) and is degraded gracefully if the
-                         checker hits synthetic node positions. Off by default.
+  --strict               Also typecheck all of the expanded output [build/check]; an
+                         error only in generated code is reported in the expanded code.
+                         Experimental. Off by default.
   --strict=incremental   Incremental strict typecheck (only changed files) [build/check]
   --show-suppressed-diagnostics  Show suppressed diagnostics (audit mode)
+  --emitDeclarationOnly  Write only .d.ts files, from the expanded program [build]
+  --declarationDir <dir> Directory for .d.ts files (overrides tsconfig) [build]
   -h, --help             Show this help message
 
 APPROVE-MACROS OPTIONS:
@@ -318,6 +361,7 @@ EXAMPLES:
   typesugar build --project tsconfig.build.json
   typesugar build --strict                     # Typecheck expanded output (full)
   typesugar build --strict=incremental          # Incremental strict typecheck
+  typesugar build --emitDeclarationOnly         # .d.ts only (after tsup/esbuild/vite)
   typesugar watch --verbose
   typesugar check --strict
   typesugar expand src/main.ts
@@ -348,17 +392,6 @@ function loadProjectConfig(tsconfigPath: string): void {
   typesugarConfig.load({ searchFrom: path.dirname(path.resolve(tsconfigPath)) });
 }
 
-/**
- * HKT `F<_>` preprocessing for a file served to a ts.Program (build/watch).
- * Returns the rewritten text, or `undefined` when the file is left as-is.
- */
-function preprocessForProgram(fileName: string, source: string): string | undefined {
-  if (!/\.[jt]sx?$/.test(fileName) || /node_modules/.test(fileName)) return undefined;
-  if (!hasHKTPatterns(source)) return undefined;
-  const result = rewriteHKTTypeReferences(source, fileName);
-  return result.changed ? result.code : undefined;
-}
-
 /** Stable identity for de-duplicating a diagnostic reported by two passes. */
 function diagnosticKey(d: ts.Diagnostic): string {
   const text = ts.flattenDiagnosticMessageText(d.messageText, "\n");
@@ -375,6 +408,28 @@ function dedupeDiagnostics(diagnostics: readonly ts.Diagnostic[]): ts.Diagnostic
     out.push(d);
   }
   return out;
+}
+
+/**
+ * The expanded check's diagnostics (at the positions as written) that the
+ * source as written does not already report (`writtenTs`): an error is not
+ * repeated at the same place, nor with the same message on the same line.
+ */
+function notReportedAsWritten(
+  writtenTs: readonly ts.Diagnostic[],
+  expanded: readonly ts.Diagnostic[]
+): ts.Diagnostic[] {
+  const sameError = (d: ts.Diagnostic): string[] => {
+    if (!d.file || d.start === undefined) return [];
+    const line = d.file.getLineAndCharacterOfPosition(d.start).line;
+    const message = ts.flattenDiagnosticMessageText(d.messageText, "\n");
+    return [
+      `${d.file.fileName}\0@${d.start}`,
+      `${d.file.fileName}\0${line}\0${d.code}\0${message}`,
+    ];
+  };
+  const reported = new Set(writtenTs.flatMap(sameError));
+  return expanded.filter((d) => !sameError(d).some((k) => reported.has(k)));
 }
 
 function reportDiagnostics(diagnostics: readonly ts.Diagnostic[]): number {
@@ -438,10 +493,28 @@ function build(options: CliOptions): void {
   }
 
   const noEmit = options.command === "check";
-  const compilerOptions: ts.CompilerOptions = {
+  const configDir = path.dirname(path.resolve(options.project));
+  const projectOptions: ts.CompilerOptions = {
     ...config.options,
-    ...(noEmit ? { noEmit: true } : {}),
+    ...(options.declarationDir ? { declarationDir: path.resolve(options.declarationDir) } : {}),
   };
+  // Declarations come from the EXPANDED program (declarations.ts): the program
+  // the macros run against is built with declaration emit switched off.
+  const declarationOnly =
+    !noEmit &&
+    (options.emitDeclarationOnly === true || projectOptions.emitDeclarationOnly === true);
+  const emitDeclarations =
+    !noEmit &&
+    (declarationOnly || (wantsDeclarations(projectOptions) && projectOptions.noEmit !== true));
+  if (declarationOnly && !projectOptions.declarationDir && !projectOptions.outDir) {
+    console.error(
+      `🧊 --emitDeclarationOnly needs somewhere to write: set "declarationDir" or "outDir" in ${options.project}, or pass --declarationDir <dir>.`
+    );
+    process.exit(1);
+  }
+  const compilerOptions: ts.CompilerOptions = emitDeclarations
+    ? withoutDeclarations(projectOptions, configDir)
+    : { ...projectOptions, ...(noEmit ? { noEmit: true } : {}) };
 
   // Initialize disk cache if enabled
   const diskCache = options.cache
@@ -502,24 +575,50 @@ function build(options: CliOptions): void {
 
   // Stage 2: Create program with preprocessed content and run macro transformer
   profiler.start("cli.build.createProgram");
-  const program = ts.createProgram(config.fileNames, compilerOptions, host);
+  let program = ts.createProgram(config.fileNames, compilerOptions, host);
   profiler.end("cli.build.createProgram");
+
+  // Stage 2b: expression-position comprehensions (`(id) => let: {...} yield:
+  // ...`), the pipeline's text rewrite (comprehension-gate.ts): it needs the
+  // file's activation scan, so it runs on the parsed program, and the
+  // rewritten text is served through the host to a rebuilt program, whose
+  // diagnostics are mapped back to the positions the user wrote.
+  profiler.start("cli.build.comprehensions");
+  const comprehensionRewrites = rewriteProgramComprehensions(
+    program,
+    (f) => path.resolve(f),
+    options.verbose
+  );
+  if ([...comprehensionRewrites.values()].some((rw) => rw.source !== rw.original)) {
+    for (const [resolved, rw] of comprehensionRewrites) preprocessedFiles.set(resolved, rw.source);
+    program = ts.createProgram(config.fileNames, compilerOptions, host, program);
+  }
+  profiler.end("cli.build.comprehensions");
+  const originalSourceFiles = new Map<string, ts.SourceFile>();
+  const originalFile = (fileName: string, text: string): ts.SourceFile => {
+    let sf = originalSourceFiles.get(fileName);
+    if (!sf) {
+      sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
+      originalSourceFiles.set(fileName, sf);
+    }
+    return sf;
+  };
+  const toWrittenPositions = (ds: readonly ts.Diagnostic[]): ts.Diagnostic[] =>
+    ds.flatMap(
+      (d) =>
+        mapRewrittenDiagnostic(d, comprehensionRewrites, (f) => path.resolve(f), originalFile) ?? []
+    );
 
   // Macro diagnostics side channel. TypeScript drops diagnostics a `before`
   // transformer reports via context.addDiagnostic during program.emit(), so
   // without this a macro error (e.g. a throwing comptime) printed nothing and
-  // the build exited 0. `collectMacroDiagnostics` is switched off while the
-  // --strict pass runs the transformer over detached re-parsed copies (no
-  // type info there, so its macro diagnostics are not authoritative).
+  // the build exited 0.
   const macroDiagnostics: ts.Diagnostic[] = [];
-  let collectMacroDiagnostics = true;
 
   profiler.start("cli.build.createTransformerFactory");
   const transformerFactory = macroTransformerFactory(program, {
     verbose: options.verbose,
-    onDiagnostic: (d) => {
-      if (collectMacroDiagnostics) macroDiagnostics.push(d);
-    },
+    onDiagnostic: (d) => macroDiagnostics.push(d),
   });
   profiler.end("cli.build.createTransformerFactory");
 
@@ -565,110 +664,9 @@ function build(options: CliOptions): void {
       }
     : undefined;
 
-  // Strict mode: typecheck expanded output before emit
-  let strictDiagnostics: ts.Diagnostic[] = [];
-  if (options.strict) {
-    profiler.start("cli.build.strictTypecheck");
-    collectMacroDiagnostics = false;
-
-    // Transform all source files
-    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-    const expandedFiles = new Map<string, string>();
-
-    for (const fileName of config.fileNames) {
-      const sourceFile = program.getSourceFile(fileName);
-      if (!sourceFile) continue;
-
-      // Transform a FRESH copy of the source, not the program's own SourceFile.
-      // ts.transform attaches synthetic nodes (pos = -1) to the tree it walks;
-      // running it on `program`'s SourceFile pollutes that program's checker and
-      // crashes the subsequent program.emit()/getPreEmitDiagnostics in
-      // createTextSpan ("start < 0"). A re-parsed copy isolates the strict pass.
-      const scriptKind = /\.tsx$/.test(sourceFile.fileName)
-        ? ts.ScriptKind.TSX
-        : /\.jsx$/.test(sourceFile.fileName)
-          ? ts.ScriptKind.JSX
-          : /\.js$/.test(sourceFile.fileName)
-            ? ts.ScriptKind.JS
-            : ts.ScriptKind.TS;
-      const freshSource = ts.createSourceFile(
-        sourceFile.fileName,
-        sourceFile.text,
-        sourceFile.languageVersion,
-        true,
-        scriptKind
-      );
-
-      // Run the transformer
-      const transformResult = ts.transform(freshSource, [transformerFactory], compilerOptions);
-      const transformedFile = transformResult.transformed[0];
-
-      // Print the transformed source
-      const expandedCode = printer.printFile(transformedFile);
-      expandedFiles.set(path.resolve(fileName), expandedCode);
-
-      transformResult.dispose();
-    }
-    collectMacroDiagnostics = true;
-
-    // Create a virtual host serving expanded files
-    const expandedHost = ts.createCompilerHost(compilerOptions);
-    const origExpandedReadFile = expandedHost.readFile.bind(expandedHost);
-    expandedHost.readFile = (fileName) => {
-      const resolved = path.resolve(fileName);
-      const expanded = expandedFiles.get(resolved);
-      if (expanded !== undefined) {
-        return expanded;
-      }
-      return origExpandedReadFile(fileName);
-    };
-
-    // Create a new program over the EXPANDED files (served by expandedHost) for
-    // type checking. NOTE: do NOT pass `program` as the old program for
-    // structural reuse — its source files carry the transformer's synthetic
-    // nodes (pos = -1), which TypeScript's checker can reuse and then crash on
-    // in createTextSpan ("start < 0") when building diagnostic spans. The
-    // expanded files are freshly parsed strings, so there is nothing safe to
-    // reuse — but expandedHost MUST be passed so the program reads the expanded
-    // output rather than the original on-disk source.
-    const expandedProgram = ts.createProgram(
-      config.fileNames,
-      { ...compilerOptions, noEmit: true },
-      expandedHost
-    );
-
-    // Get type errors from expanded program. Guard against the synthetic-node
-    // "start < 0" crash so --strict degrades gracefully instead of aborting the
-    // whole build with an unhandled exception.
-    try {
-      strictDiagnostics = [...ts.getPreEmitDiagnostics(expandedProgram)];
-    } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes("start < 0")) {
-        console.error(
-          "🧊 Warning: --strict typecheck skipped — the checker crashed on synthetic node positions in the expanded output."
-        );
-        strictDiagnostics = [];
-      } else {
-        throw e;
-      }
-    }
-
-    const strictElapsed = profiler.end("cli.build.strictTypecheck");
-    if (options.verbose) {
-      const modeLabel = options.strict === "incremental" ? " (incremental, first run — full)" : "";
-      console.log(
-        `🧊 Strict typecheck${modeLabel}: ${strictDiagnostics.length} diagnostics (${strictElapsed.toFixed(0)}ms)`
-      );
-    }
-  }
-
   // Collect pre-emit diagnostics BEFORE emit. After emit, the transformer's
   // synthetic nodes (pos = -1) cause deferred checker callbacks to crash in
   // createTextSpan when getPreEmitDiagnostics triggers getGlobalDiagnostics.
-  // The --strict block above already runs the transformer via ts.transform,
-  // which can pollute this program's checker with synthetic nodes, so guard
-  // the same "start < 0" crash here (in strict mode the expanded-output
-  // diagnostics are authoritative anyway).
   profiler.start("cli.build.preEmitDiagnostics");
   let preEmitDiagnostics: readonly ts.Diagnostic[] = [];
   try {
@@ -687,13 +685,29 @@ function build(options: CliOptions): void {
   // TS diagnostics are suppression-filtered BEFORE the transformer touches
   // the program's own SourceFiles (check mode below), so the filter's
   // checker calls never see synthetic nodes there.
+  // What the filter hid, by rule: where it hid the names a comprehension
+  // (or `match()` chain, `match:` case, or `ensures:`) binds, the source-level check could not
+  // check their uses, so the expansion of those constructs is type-checked
+  // too (strict-check.ts `blindSpotRegions`), as are `@impl` instances,
+  // checked against their typeclass only in the expansion
+  // (`instanceRegions`).
+  const suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];
   const filterTsDiagnostics = (raw: readonly ts.Diagnostic[]): readonly ts.Diagnostic[] => {
     if (getDiagnosticSuppressionRules().length === 0) return raw;
+    // `check` filters before anything is expanded: register what the
+    // TypeRewriteAssignment rule matches against first.
+    registerTypeRewritesBeforeFiltering(program, options.verbose);
     // getTypeChecker() after emit may trigger deferred callbacks that crash on
     // synthetic nodes — catch and fall back to unfiltered diagnostics.
     try {
       const checker = program.getTypeChecker();
-      return filterDiagnostics(raw, checker, (fn) => program.getSourceFile(fn), { program });
+      return filterDiagnostics(
+        raw,
+        checker,
+        (fn) => program.getSourceFile(fn),
+        { program },
+        (diagnostic, rule) => suppressed.push({ diagnostic, rule })
+      );
     } catch (e: unknown) {
       if (e instanceof Error && e.message.includes("start < 0")) {
         console.error(
@@ -706,37 +720,160 @@ function build(options: CliOptions): void {
   };
 
   let tsDiagnostics: readonly ts.Diagnostic[];
-  if (noEmit) {
+  // Expanded text of the files the macros changed, and its source map back
+  // to the program's text: for the declaration emit and the expanded type
+  // check (the expansion the build really made).
+  const expandedSources = new Map<string, string>();
+  const expandedMaps = new Map<string, () => RawSourceMap | null>();
+  if (noEmit || declarationOnly) {
     // `check`: program.emit() is a no-op under noEmit, so the macro
     // transformer would never run and macro errors would go unreported.
-    // Run it explicitly over every file emit would have transformed.
-    tsDiagnostics = filterTsDiagnostics([...preEmitDiagnostics, ...strictDiagnostics]);
+    // Run it explicitly over every file emit would have transformed, and
+    // keep the printed result.
+    tsDiagnostics = filterTsDiagnostics(preEmitDiagnostics);
     profiler.start("cli.build.checkExpand");
-    for (const sourceFile of program.getSourceFiles()) {
-      if (sourceFile.isDeclarationFile || program.isSourceFileFromExternalLibrary(sourceFile)) {
-        continue;
-      }
-      const transformResult = ts.transform(sourceFile, [transformerFactory], compilerOptions);
-      transformResult.dispose();
+    // Printed only when something reads it: the expanded check runs only if
+    // the filter hid something, and then needs every changed file expanded
+    // (a file's expansion can use what another's declares).
+    const print =
+      emitDeclarations ||
+      Boolean(options.strict) ||
+      expandedCheckRegions(suppressed, program).size > 0;
+    for (const [f, text] of expandProgramSources(
+      program,
+      transformerFactory,
+      expandedMaps,
+      print
+    )) {
+      expandedSources.set(f, text);
     }
     profiler.end("cli.build.checkExpand");
   } else {
     profiler.start("cli.build.emit");
     const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
-      before: [transformerFactory],
+      before: [
+        transformerFactory,
+        captureExpandedSource(program, expandedSources, expandedMaps),
+        keepMacroReferencedImports(program),
+      ],
     });
     profiler.end("cli.build.emit");
-    tsDiagnostics = filterTsDiagnostics([
-      ...preEmitDiagnostics,
-      ...emitResult.diagnostics,
+    tsDiagnostics = filterTsDiagnostics([...preEmitDiagnostics, ...emitResult.diagnostics]);
+  }
+
+  // The expanded type check (strict-check.ts): the expansion as a program
+  // of its own, reusing this program's SourceFiles for every unchanged file,
+  // its diagnostics filtered against the expanded program itself and mapped
+  // back to the source through the expansion's source map. By default, only
+  // the constructs where the filter hid the names they bind, which the
+  // source-level check therefore could not check the uses of (`user.nme` in
+  // a comprehension, where `user` is undeclared as written), and `@impl`
+  // instances (an unannotated one meets its typeclass only in the
+  // expansion's `satisfies`): their files are checked, and what lies inside
+  // them reported. A diagnostic in generated code is placed at the nearest
+  // node around it that came from the source (the `satisfies` at the
+  // instance); one whose whole statement is generated is dropped. `--strict`
+  // checks and reports every file, that one in the expanded text.
+  let strictDiagnostics: ts.Diagnostic[] = [];
+  let expandedPositionDiagnostics: ts.Diagnostic[] = [];
+  const blindSpots = expandedCheckRegions(suppressed, program);
+  const expandedCheckFiles = options.strict
+    ? undefined
+    : new Set([...expandedSources.keys()].filter((f) => blindSpots.has(f)));
+  if (!expandedCheckFiles || expandedCheckFiles.size > 0) {
+    profiler.start("cli.build.strictTypecheck");
+    const startedAt = performance.now();
+    const { mapped, unmapped } = mapExpandedDiagnostics(
+      typecheckExpandedProgram({
+        rootNames: config.fileNames,
+        options: compilerOptions,
+        host,
+        expanded: expandedSources,
+        reuse: program,
+        files: expandedCheckFiles,
+      }),
+      { program, expanded: expandedSources, maps: expandedMaps }
+    );
+    strictDiagnostics = options.strict ? mapped : mapped.filter((d) => inBlindSpot(d, blindSpots));
+    if (options.strict) expandedPositionDiagnostics = unmapped;
+    profiler.end("cli.build.strictTypecheck");
+    const strictElapsed = performance.now() - startedAt;
+    if (options.verbose) {
+      const label = options.strict
+        ? `Strict typecheck${options.strict === "incremental" ? " (incremental, first run — full)" : ""}`
+        : `Expanded typecheck of ${expandedCheckFiles!.size} file(s)`;
+      console.log(
+        `🧊 ${label}: ${mapped.length + unmapped.length} diagnostics, ${unmapped.length} only in generated code${
+          options.strict ? "" : " (dropped)"
+        } (${strictElapsed.toFixed(0)}ms)`
+      );
+    }
+  }
+
+  // `.d.ts` from the expanded program. Its diagnostics (declaration-emit
+  // errors such as isolatedDeclarations) are about the expanded code, so they
+  // bypass the suppression filter too. noEmitOnError is decided here, on the
+  // filtered diagnostics: the expanded program itself never blocks its emit.
+  const declarationDiagnostics: ts.Diagnostic[] = [];
+  if (emitDeclarations) {
+    const hasErrors = [
+      ...tsDiagnostics,
       ...strictDiagnostics,
-    ]);
+      ...expandedPositionDiagnostics,
+      ...macroDiagnostics,
+    ].some((d) => d.category === ts.DiagnosticCategory.Error);
+    if (!(projectOptions.noEmitOnError && hasErrors)) {
+      profiler.start("cli.build.declarations");
+      const result = emitExpandedDeclarations({
+        rootNames: config.fileNames,
+        options: projectOptions,
+        host,
+        expanded: expandedSources,
+      });
+      declarationDiagnostics.push(...result.diagnostics);
+      profiler.end("cli.build.declarations");
+    }
   }
 
   // Macro diagnostics are real errors, never phantom ones: they bypass the
   // suppression filter (which exists for TS errors caused by typesugar
   // rewrites — extension methods, newtype assignment, opaque types).
-  const allDiagnostics = dedupeDiagnostics([...tsDiagnostics, ...macroDiagnostics]);
+  // Positions in a comprehension-rewritten file are mapped back to the text
+  // as written, the expanded check's through the expansion's source map
+  // first; --strict's diagnostics only in generated code and the
+  // declaration diagnostics are about the expanded text, which they are
+  // positioned in.
+  const comprehensionFileName = new Map(
+    program.getSourceFiles().map((sf) => [path.resolve(sf.fileName), sf.fileName] as const)
+  );
+  // An error the source as written already reports is not repeated by the
+  // expanded check: not at the same place, nor with the same message on the
+  // same line.
+  const writtenTs = toWrittenPositions(tsDiagnostics);
+  const expandedDiagnostics = notReportedAsWritten(
+    writtenTs,
+    toWrittenPositions(strictDiagnostics)
+  );
+  // In the expanded text, where positions can't be compared: the same error
+  // in the same file.
+  const sameErrorInFile = (d: ts.Diagnostic) =>
+    `${d.file?.fileName}\0${d.code}\0${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`;
+  const reportedInFile = new Set(writtenTs.map(sameErrorInFile));
+  const generatedOnly = expandedPositionDiagnostics.filter(
+    (d) => !reportedInFile.has(sameErrorInFile(d))
+  );
+  const allDiagnostics = dedupeDiagnostics([
+    ...preprocessorDiagnostics(
+      comprehensionRewrites,
+      (resolved) => comprehensionFileName.get(resolved) ?? resolved,
+      originalFile
+    ),
+    ...writtenTs,
+    ...expandedDiagnostics,
+    ...generatedOnly,
+    ...toWrittenPositions(macroDiagnostics),
+    ...declarationDiagnostics,
+  ]);
 
   const errorCount = reportDiagnostics(allDiagnostics);
 
@@ -805,6 +942,91 @@ function watch(options: CliOptions): void {
   // Track the current program for diagnostic suppression filtering in watch mode
   let currentProgram: ts.Program | undefined;
 
+  // The errors printed since the last summary. TypeScript's own "Found N
+  // errors" counts every diagnostic it produced, including the ones the
+  // suppression filter hid and none of the macro diagnostics, so watch
+  // prints its own summary from this.
+  let reportedErrors = 0;
+  const report = (diagnostics: readonly ts.Diagnostic[]): void => {
+    reportedErrors += reportDiagnostics(diagnostics);
+  };
+
+  // The comprehension rewrite of each file as last read, so diagnostics map
+  // back to the positions as written, as in `build`. Updated on every read,
+  // which is how the watch program sees an edit. Keyed by canonical name:
+  // on a case-insensitive file system watch re-reads a changed file by its
+  // lower-cased path, while diagnostics carry the name as first read.
+  const canonical = (fileName: string): string => {
+    const resolved = path.resolve(fileName);
+    return ts.sys.useCaseSensitiveFileNames ? resolved : resolved.toLowerCase();
+  };
+  const comprehensionRewrites = new Map<string, ProgramComprehensionRewrite>();
+  const originalSourceFiles = new Map<string, ts.SourceFile>();
+  const originalFile = (fileName: string, text: string): ts.SourceFile => {
+    let sf = originalSourceFiles.get(fileName);
+    if (!sf || sf.text !== text) {
+      sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
+      originalSourceFiles.set(fileName, sf);
+    }
+    return sf;
+  };
+  const toWrittenPosition = (d: ts.Diagnostic): ts.Diagnostic | undefined =>
+    mapRewrittenDiagnostic(d, comprehensionRewrites, canonical, originalFile);
+
+  // The expanded check `build` and `check` run (strict-check.ts), once per
+  // cycle (review 8: watch skipped it, so `user.nme` in a comprehension was
+  // "Found 0 errors"). Per cycle: what the suppression filter hid, and the
+  // TS diagnostics printed (at the positions as written), which the check
+  // doesn't repeat. Across cycles: the expanded text of each file the macros
+  // changed, as last emitted -- the builder re-emits only affected files.
+  let suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];
+  let printedTs: ts.Diagnostic[] = [];
+  const expandedSources = new Map<string, string>();
+  const expandedMaps = new Map<string, () => RawSourceMap | null>();
+  /** A `before` transformer, ahead of the macros: a re-emitted file's last expansion is gone. */
+  const forgetExpansion: ts.TransformerFactory<ts.SourceFile> = () => (sourceFile) => {
+    const resolved = path.resolve(sourceFile.fileName);
+    expandedSources.delete(resolved);
+    expandedMaps.delete(resolved);
+    return sourceFile;
+  };
+  const expandedCheck = (program: ts.Program): ts.Diagnostic[] => {
+    const blindSpots = expandedCheckRegions(suppressed, program);
+    // Files no longer in the program have no expansion that counts.
+    const expanded = new Map([...expandedSources].filter(([f]) => program.getSourceFile(f)));
+    const files = new Set([...expanded.keys()].filter((f) => blindSpots.has(f)));
+    if (files.size === 0) return [];
+    // Every other file as this program read it (preprocessed), so the
+    // expanded program reuses its SourceFiles.
+    const host = ts.createCompilerHost(program.getCompilerOptions());
+    host.readFile = (f) => program.getSourceFile(f)?.text ?? watchSystem.readFile(f);
+    try {
+      const { mapped } = mapExpandedDiagnostics(
+        typecheckExpandedProgram({
+          rootNames: program.getRootFileNames(),
+          options: program.getCompilerOptions(),
+          host,
+          expanded,
+          reuse: program,
+          files,
+        }),
+        { program, expanded, maps: expandedMaps }
+      );
+      const found = mapped
+        .filter((d) => inBlindSpot(d, blindSpots))
+        .flatMap((d) => toWrittenPosition(d) ?? []);
+      return notReportedAsWritten(printedTs, found);
+    } catch (e: unknown) {
+      // Watch keeps running; say what this cycle didn't check.
+      console.error(
+        `🧊 Warning: the expanded type check was skipped this cycle — ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
+      return [];
+    }
+  };
+
   // Serve HKT-preprocessed text to the watch program, exactly as `build`
   // does — with the raw ts.sys, `F<A>` on a type parameter is TS2315 in watch.
   const watchSystem: ts.System = {
@@ -812,7 +1034,17 @@ function watch(options: CliOptions): void {
     readFile: (fileName, encoding) => {
       const source = ts.sys.readFile(fileName, encoding);
       if (source === undefined) return undefined;
-      return preprocessForProgram(fileName, source) ?? source;
+      const hkt = preprocessForProgram(fileName, source) ?? source;
+      // Expression-position comprehensions, as `build` rewrites them
+      // (comprehension-gate.ts).
+      comprehensionRewrites.delete(canonical(fileName));
+      if (!mayContainComprehension(hkt) || !/\.[jt]sx?$/.test(fileName)) return hkt;
+      const scanFile = ts.createSourceFile(fileName, hkt, ts.ScriptTarget.Latest, false);
+      if (!isComprehensionSyntaxActivatedIn(scanFile, undefined, options.verbose)) return hkt;
+      const rewrite = rewriteComprehensions(hkt, fileName);
+      if (!rewrite) return hkt;
+      comprehensionRewrites.set(canonical(fileName), rewrite);
+      return rewrite.source;
     },
   };
 
@@ -834,7 +1066,8 @@ function watch(options: CliOptions): void {
             [diagnostic],
             checker,
             (fn) => program.getSourceFile(fn),
-            { program }
+            { program },
+            (hidden, rule) => suppressed.push({ diagnostic: hidden, rule })
           );
           if (filtered.length === 0) return;
         } catch (e: unknown) {
@@ -847,9 +1080,31 @@ function watch(options: CliOptions): void {
           }
         }
       }
-      reportDiagnostics([diagnostic]);
+      // Undefined for one on the comprehension preprocessor's own tag.
+      const written = toWrittenPosition(diagnostic);
+      if (written) {
+        printedTs.push(written);
+        report([written]);
+      }
     },
     (diagnostic) => {
+      // A cycle starts: "Starting compilation in watch mode..." (6031),
+      // "File change detected. Starting incremental compilation..." (6032).
+      if (diagnostic.code === 6031 || diagnostic.code === 6032) {
+        reportedErrors = 0;
+        suppressed = [];
+        printedTs = [];
+      }
+      // TypeScript's summary, "Found N errors. Watching for file changes."
+      // (6193 / 6194): replaced by the count of what was printed. It comes
+      // after every diagnostic of the cycle, so the expanded check runs here.
+      if (diagnostic.code === 6193 || diagnostic.code === 6194) {
+        if (currentProgram) report(expandedCheck(currentProgram));
+        const n = reportedErrors;
+        reportedErrors = 0;
+        console.log(`🧊 Found ${n} error${n === 1 ? "" : "s"}. Watching for file changes.`);
+        return;
+      }
       const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
       console.log(`🧊 ${message}`);
     }
@@ -886,20 +1141,31 @@ function watch(options: CliOptions): void {
     ) => {
       const result = origEmit(targetSourceFile, writeFile, cancellationToken, emitOnlyDtsFiles, {
         ...customTransformers,
-        before: [transformerFactory, ...(customTransformers?.before ?? [])],
+        before: [
+          forgetExpansion,
+          transformerFactory,
+          captureExpandedSource(program, expandedSources, expandedMaps),
+          keepMacroReferencedImports(program),
+          ...(customTransformers?.before ?? []),
+        ],
       });
       // Macro diagnostics never reach `result.diagnostics` (TS drops what a
       // `before` transformer adds), so report them from the state's side
-      // channel. TS's own "Found N errors" summary does not count these.
-      const macroDiagnostics = dedupeDiagnostics(transformerState.takeDiagnostics());
-      if (macroDiagnostics.length > 0) {
-        const macroErrors = reportDiagnostics(macroDiagnostics);
-        if (macroErrors > 0) {
-          console.error(
-            `🧊 ${macroErrors} macro error${macroErrors === 1 ? "" : "s"} (TypeScript's error count does not include these).`
-          );
-        }
-      }
+      // channel, with the comprehension preprocessor's own (TS9223) for the
+      // program's rewritten files; the summary counts both.
+      const rewritten = new Map(
+        [...comprehensionRewrites].filter(([resolved]) => program.getSourceFile(resolved))
+      );
+      report(
+        dedupeDiagnostics([
+          ...preprocessorDiagnostics(
+            rewritten,
+            (resolved) => program.getSourceFile(resolved)?.fileName ?? resolved,
+            originalFile
+          ),
+          ...transformerState.takeDiagnostics().flatMap((d) => toWrittenPosition(d) ?? []),
+        ])
+      );
       return result;
     };
 
@@ -908,6 +1174,69 @@ function watch(options: CliOptions): void {
 
   console.log("🧊 Starting watch mode...");
   ts.createWatchProgram(host);
+}
+
+/**
+ * A syntax tree as plain JSON for `expand --ast`: each node's kind (and its
+ * name), its own primitive fields (`escapedText`, `text`, operator tokens'
+ * kinds, ...), and its syntactic children under the property that holds
+ * them. Only children reached through `ts.forEachChild` are followed, so the
+ * checker's and binder's back-pointers (`parent`, `flowNode`, `original`,
+ * `symbol`, ...) are never visited: they are cyclic ("Converting circular
+ * structure to JSON", review 7) and not part of the tree anyway.
+ */
+/** SyntaxKind names, preferring the real name over a `First*`/`Last*` range marker. */
+const syntaxKindNames = (() => {
+  const isMarker = (name: string) => /^(First|Last)[A-Z]/.test(name);
+  const names = new Map<number, string>();
+  for (const [name, value] of Object.entries(ts.SyntaxKind)) {
+    if (typeof value !== "number") continue;
+    const seen = names.get(value);
+    if (seen === undefined || (isMarker(seen) && !isMarker(name))) names.set(value, name);
+  }
+  return names;
+})();
+
+function syntaxTreeToJson(node: ts.Node): unknown {
+  const children = new Set<unknown>();
+  ts.forEachChild(
+    node,
+    (child) => void children.add(child),
+    (array) => void children.add(array)
+  );
+  const SKIP = new Set([
+    "pos",
+    "end",
+    "flags",
+    "parent",
+    "id",
+    "transformFlags",
+    "modifierFlagsCache",
+  ]);
+  const out: Record<string, unknown> = {
+    kind: node.kind,
+    kindName: syntaxKindNames.get(node.kind) ?? ts.SyntaxKind[node.kind],
+  };
+  if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) out.text = ts.idText(node);
+  // A source file's own fields are bookkeeping (and `text` is the source
+  // BEFORE expansion); its name and its statements are the tree.
+  if (ts.isSourceFile(node)) out.fileName = node.fileName;
+  for (const [key, value] of Object.entries(node)) {
+    if (SKIP.has(key)) continue;
+    if (ts.isSourceFile(node) && !children.has(value)) continue;
+    if (children.has(value)) {
+      out[key] = Array.isArray(value)
+        ? (value as readonly ts.Node[]).map(syntaxTreeToJson)
+        : syntaxTreeToJson(value as ts.Node);
+    } else if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 function expand(options: CliOptions): void {
@@ -945,36 +1274,19 @@ function expand(options: CliOptions): void {
       process.exit(1);
     }
 
+    // Macro diagnostics (a macro package that could not be loaded, a macro
+    // error) go to stderr; stdout stays the JSON tree.
+    const macroDiagnostics: ts.Diagnostic[] = [];
     const transformerFactory = macroTransformerFactory(program, {
       verbose: options.verbose,
+      onDiagnostic: (d) => macroDiagnostics.push(d),
     });
 
     const result = ts.transform(sourceFile, [transformerFactory]);
     const transformedSourceFile = result.transformed[0];
+    reportDiagnostics(dedupeDiagnostics(macroDiagnostics));
 
-    const ast = JSON.stringify(
-      transformedSourceFile,
-      (key, value) => {
-        if (
-          key === "parent" ||
-          key === "pos" ||
-          key === "end" ||
-          key === "flags" ||
-          key === "symbol" ||
-          key === "emitNode"
-        ) {
-          return undefined;
-        }
-        if (typeof value === "object" && value !== null && "kind" in value) {
-          return {
-            ...value,
-            kindName: ts.SyntaxKind[value.kind],
-          };
-        }
-        return value;
-      },
-      2
-    );
+    const ast = JSON.stringify(syntaxTreeToJson(transformedSourceFile), null, 2);
     console.log(ast);
     result.dispose();
     return;
@@ -1036,7 +1348,16 @@ function transformFile(
     allFiles.push(filePath);
   }
 
-  const program = ts.createProgram(allFiles, config.options, host);
+  let program = ts.createProgram(allFiles, config.options, host);
+  // Expression-position comprehensions, as `build` rewrites them.
+  const rewrites = rewriteProgramComprehensions(program, (f) => path.resolve(f), options.verbose);
+  if ([...rewrites.values()].some((rw) => rw.source !== rw.original)) {
+    for (const sf of program.getSourceFiles()) {
+      const rw = rewrites.get(path.resolve(sf.fileName));
+      if (rw) host.setContentOverride(sf.fileName, rw.source);
+    }
+    program = ts.createProgram(allFiles, config.options, host, program);
+  }
   const sourceFile = program.getSourceFile(filePath);
 
   if (!sourceFile) {
@@ -1190,7 +1511,15 @@ async function run(options: CliOptions): Promise<void> {
       bundle: true,
       format: "esm",
       platform: "node",
-      target: "es2020",
+      // The bundle runs on this Node (engines: >=20), so target it: es2020
+      // rejected top-level await, which an ESM entry may use.
+      target: "node20",
+      // A bundled CommonJS module's require() of a Node builtin goes through
+      // esbuild's __require shim, which throws "Dynamic require of 'path' is
+      // not supported" in an ESM bundle unless a `require` is in scope.
+      banner: {
+        js: 'import { createRequire as __typesugarCreateRequire } from "node:module";\nconst require = __typesugarCreateRequire(import.meta.url);',
+      },
       outfile: tempFile,
       logLevel: options.verbose ? "info" : "silent",
       absWorkingDir: fileDir,

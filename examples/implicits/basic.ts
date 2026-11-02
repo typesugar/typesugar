@@ -4,36 +4,36 @@
  * This example demonstrates the `= implicit()` default parameter pattern that
  * provides Scala 3-style implicit parameters with automatic propagation.
  *
- * Run with: npx tsx examples/implicits/basic.ts
- * (Uses the macro transformer to expand implicit() calls)
+ * Run with: pnpm start (typesugar run basic.ts)
+ * See the expansion with: pnpm expand
  */
 
-import { typeclass, instance, implicit, summonAll } from "typesugar";
+import { implicit, summonAll } from "typesugar";
 
 // ----------------------------------------------------------------------------
 // 1. Define a typeclass
 // ----------------------------------------------------------------------------
 
-@typeclass
+/** @typeclass */
 interface Show<A> {
   show(a: A): string;
 }
 
 // ----------------------------------------------------------------------------
-// 2. Register instances using @instance
+// 2. Declare instances with @impl
 // ----------------------------------------------------------------------------
 
-@instance
+/** @impl Show<number> */
 const showNumber: Show<number> = {
   show: (a) => String(a),
 };
 
-@instance
+/** @impl Show<string> */
 const showString: Show<string> = {
   show: (a) => JSON.stringify(a),
 };
 
-@instance
+/** @impl Show<boolean> */
 const showBoolean: Show<boolean> = {
   show: (a) => a ? "true" : "false",
 };
@@ -42,13 +42,13 @@ const showBoolean: Show<boolean> = {
 // 3. Use = implicit() to mark parameters as implicit
 // ----------------------------------------------------------------------------
 
-// Basic usage - S defaults to implicit(), auto-resolved from the registry
+// Basic usage - S defaults to implicit(), resolved from the instances in scope
 function show<A>(a: A, S: Show<A> = implicit()): string {
   return S.show(a);
 }
 
 // When called, the implicit parameter is filled in automatically!
-// show(42) → show(42, Show.summon<number>("number"))
+// show(42) → show(42, showNumber)
 console.log("show(42):", show(42));
 console.log('show("hello"):', show("hello"));
 console.log("show(true):", show(true));
@@ -82,8 +82,10 @@ console.log("showNested(42):", showNested(42));
 // 5. Explicit Override - Pass custom instance when needed
 // ----------------------------------------------------------------------------
 
-const fancyShowNumber: Show<number> = {
-  show: (a) => `✨${a}✨`,
+// Not annotated `: Show<number>`: a top-level const of that type counts as an
+// instance itself, and would make show(42) ambiguous.
+const fancyShowNumber = {
+  show: (a: number) => `✨${a}✨`,
 };
 
 // When you pass the instance explicitly, it overrides the global one
@@ -98,12 +100,12 @@ console.log("showTwice(42, fancyShowNumber):", showTwice(42, fancyShowNumber));
 // Sometimes you have multiple parameters that look like typeclasses.
 // Only the ones with = implicit() are auto-resolved:
 
-@typeclass
+/** @typeclass */
 interface Eq<A> {
   equals(a: A, b: A): boolean;
 }
 
-@instance
+/** @impl Eq<number> */
 const eqNumber: Eq<number> = {
   equals: (a, b) => a === b,
 };
@@ -132,7 +134,7 @@ console.log("findFirst([1,2,3,4,5], 3, compareFn):", result);
 // 7. summonAll - Get multiple instances at once
 // ----------------------------------------------------------------------------
 
-const [showNum, eqNum] = summonAll<Show<number>, Eq<number>>();
+const [showNum, eqNum] = summonAll<[Show<number>, Eq<number>]>();
 console.log("\n--- summonAll ---");
 console.log("showNum.show(123):", showNum.show(123));
 console.log("eqNum.equals(1, 1):", eqNum.equals(1, 1));
@@ -144,7 +146,7 @@ console.log("eqNum.equals(1, 1):", eqNum.equals(1, 1));
 //   show(42)
 //
 // Output:
-//   show(42, Show.summon<number>("number"))
+//   show(42, showNumber)
 //
 // With propagation:
 //   function outer<A>(a: A, S: Show<A> = implicit()) {
@@ -152,7 +154,7 @@ console.log("eqNum.equals(1, 1):", eqNum.equals(1, 1));
 //   }
 //
 //   outer(42)
-//   → outer(42, Show.summon<number>("number"))
+//   → outer(42, showNumber)
 //   → show(42, S)  // S from outer's param, not global
 //
 // Explicit override:

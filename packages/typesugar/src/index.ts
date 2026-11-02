@@ -107,6 +107,7 @@ export {
   deriving,
   summon,
   summonAll,
+  derived,
   extend,
   implicit,
   // Extension method decorator
@@ -149,7 +150,8 @@ export {
 
 // Derive name markers (@derive(Eq, Ord, ...)). These are runtime values
 // that survive in user code after expansion (`import { derive, Eq }` is
-// kept), so they must come from a TypeScript-free module too.
+// kept), so they must come from a TypeScript-free module too. Most are also
+// their typeclass's type (`Clone<Point>`): see derive-markers.ts.
 export {
   Eq,
   Ord,

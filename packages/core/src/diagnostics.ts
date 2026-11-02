@@ -279,13 +279,17 @@ export const TS9001: DiagnosticDescriptor = {
   explanation: `The typeclass system could not find or auto-derive an instance.
 
 Possible causes:
-1. The type has no @impl/@instance declaration for this typeclass
+1. The type has no @derive, @impl/@instance or derived<...>() instance for this
+   typeclass in scope (declared in this file or in a module it imports)
 2. Auto-derivation failed (e.g., a field lacks a required instance)
 3. The type is opaque or from a library without typeclass support
 
 Solutions:
-- Add @deriving({typeclass}) JSDoc tag to the type definition
+- Add @derive({typeclass}) to the type definition
 - Provide an explicit @impl implementation (JSDoc: /** @impl Typeclass<Type> */)
+- For a type you don't own (from a library), declare its instance once in a
+  module of your own and import that module: by hand with @impl, or derived with
+  export const x = derived<Typeclass<Type>>();
 - Check that all fields have the required instances`,
   seeAlso: "https://typesugar.org/errors/TS9001",
 };
@@ -297,20 +301,13 @@ export const TS9002: DiagnosticDescriptor = {
   messageTemplate: "@impl/@instance must annotate a const declaration",
   explanation: `@impl (or @instance) is used to register a typeclass instance.
 
-Preferred JSDoc syntax:
+Correct (a JSDoc tag on a const; decorators are not valid on a const in TypeScript):
   /** @impl Show<Point> */
   const showPoint: Show<Point> = { show: (p) => \`(\${p.x}, \${p.y})\` };
 
-Legacy decorator syntax:
-  @impl("Show<Point>")
-  const showPoint: Show<Point> = { show: (p) => \`(\${p.x}, \${p.y})\` };
-
 Incorrect:
-  @impl  // ✗ Not a const
-  function showPoint() { ... }
-
-  @impl  // ✗ Missing type annotation
-  const showPoint = { ... };`,
+  /** @impl Show<Point> */  // ✗ Not a const
+  function showPoint() { ... }`,
   seeAlso: "https://typesugar.org/errors/TS9002",
 };
 
@@ -321,15 +318,11 @@ export const TS9003: DiagnosticDescriptor = {
   messageTemplate: "@impl/@instance requires explicit type annotation (e.g., Typeclass<Type>)",
   explanation: `The @impl/@instance macro needs to know both the typeclass and the type.
 
-Preferred JSDoc syntax:
+Correct (a JSDoc tag on a const; decorators are not valid on a const in TypeScript):
   /** @impl Show<Point> */
   const showPoint: Show<Point> = { ... };
 
 The JSDoc comment specifies the typeclass and type directly.
-
-Legacy decorator syntax:
-  @impl("Show<Point>")
-  const showPoint: Show<Point> = { ... };
 
 Incorrect:
   /** @impl */
@@ -383,7 +376,7 @@ This creates ambiguity in instance resolution. The transformer will use
 the first registered instance, but this may not be the intended behavior.
 
 To fix:
-1. Remove duplicate @instance declarations
+1. Remove duplicate @impl declarations
 2. Or use explicit instance selection with summon()`,
   seeAlso: "https://typesugar.org/errors/TS9006",
 };
@@ -421,6 +414,71 @@ Incorrect:
   seeAlso: "https://typesugar.org/errors/TS9008",
 };
 
+export const TS9009: DiagnosticDescriptor = {
+  code: 9009,
+  severity: "warning",
+  category: DiagnosticCategory.TypeclassResolution,
+  messageTemplate: "No instance for `{typeclass}<{type}>` in scope; derived one here",
+  explanation: `\`summon<{typeclass}<{type}>>()\` (or an \`= implicit()\` parameter) found no
+instance for {type} in scope, so it derived one from the type's structure,
+right here. Each such call site gets its own copy of the instance, and
+nothing else in the program can find it.
+
+This fallback is deprecated: a later release makes \`summon\` and
+\`implicit()\` find instances only, and this call will then fail with TS9001.
+
+Declare the instance once instead, in a module of your own, and import that
+module where the instance is used:
+
+  \`export const cloneFeature = derived<Clone<Feature>>();\`   // instances.ts
+
+\`derived<TC<T>>()\` emits the same code that \`@derive(TC)\` generates, and the
+const it initializes is an instance that \`summon\`, \`= implicit()\` and method
+syntax find in every file that imports the module. For a type you own,
+\`@derive(TC)\` on its declaration does the same.
+
+When the warning points at a summon that initializes a top-level const
+(\`export const cloneFeature = summon<Clone<Feature>>()\`), that const is
+already the declaration: write \`derived<Clone<Feature>>()\` there instead.`,
+  seeAlso: "https://typesugar.org/errors/TS9009",
+};
+
+export const TS9010: DiagnosticDescriptor = {
+  code: 9010,
+  severity: "error",
+  category: DiagnosticCategory.TypeclassResolution,
+  messageTemplate: "derived<{typeclass}<{type}>>() must initialize a top-level const",
+  explanation: `\`derived<TC<T>>()\` declares an instance: the const it initializes is the
+instance that \`summon\`, \`= implicit()\` and method syntax find. So it must be
+the whole initializer of a \`const\` at the top level of a module:
+
+  \`export const cloneFeature = derived<Clone<Feature>>();\`
+  \`export const cloneFeature: Clone<Feature> = derived();\`   // the same, typed by the annotation
+
+Anywhere else (inside a function, an array or an object, or as a \`let\` or
+\`var\`) there would be no declaration for other code to find, and each
+evaluation would build a new copy. To get an instance as a value, summon it.`,
+  seeAlso: "https://typesugar.org/errors/TS9010",
+};
+
+export const TS9011: DiagnosticDescriptor = {
+  code: 9011,
+  severity: "error",
+  category: DiagnosticCategory.TypeclassResolution,
+  messageTemplate:
+    "derived<{typeclass}<{type}>>(): instances for generic types are not supported yet",
+  explanation: `The type argument names a type parameter, so there is no concrete type to
+derive the instance for. typesugar 1.0 has no generic instances (one
+\`Clone<Feature<G>>\` for every \`G\`), so \`derived<...>()\` takes a concrete type:
+
+  \`export const cloneFeature = derived<Clone<Feature>>();\`               // Feature's defaults
+  \`export const clonePointFeature = derived<Clone<Feature<Point>>>();\`   // one instantiation
+
+Declare one instance per concrete type you need, or write the generic
+function by hand and pass its instances explicitly.`,
+  seeAlso: "https://typesugar.org/errors/TS9011",
+};
+
 // Coherence Checking (9050-9059)
 
 export const TS9050: DiagnosticDescriptor = {
@@ -432,8 +490,8 @@ export const TS9050: DiagnosticDescriptor = {
 
 Typesugar requires coherence: each (typeclass, type) pair must have exactly one instance.
 This error occurs when:
-1. Two @instance declarations exist for the same typeclass and type
-2. Both @derive and @instance are used for the same pair
+1. Two @impl declarations exist for the same typeclass and type
+2. Both @derive and @impl are used for the same pair
 3. Two libraries provide conflicting instances
 
 The error shows both instance locations. To fix:
@@ -577,8 +635,10 @@ Field \`{field}\` has type \`{fieldType}\`, which has no {typeclass} instance.
 
 Solutions:
 1. Add @derive({typeclass}) to {fieldType}
-2. Provide a manual @instance {typeclass}<{fieldType}>
-3. If {fieldType} is external, create a newtype wrapper`,
+2. Provide a manual @impl {typeclass}<{fieldType}> instance
+3. If {fieldType} comes from a library, write that instance in a module of
+   your own and import it (see "Instances for types you don't own" in the
+   typeclasses guide)`,
   seeAlso: "https://typesugar.org/errors/TS9101",
 };
 
@@ -587,15 +647,19 @@ export const TS9102: DiagnosticDescriptor = {
   severity: "error",
   category: DiagnosticCategory.DeriveFailed,
   messageTemplate: "@derive({typeclass}) requires an interface, class, or type alias",
-  explanation: `The @derive decorator can only be applied to:
+  explanation: `@derive (the JSDoc tag or the decorator) describes a type, so it can only be
+applied to:
 - interface declarations
 - class declarations
 - type alias declarations
 
-It cannot be applied to:
-- function declarations
-- variable declarations
-- other kinds of declarations`,
+On anything else (a const, a function, an enum) it derives nothing, and is
+reported instead of being ignored. A \`@derive(X)\` line followed by prose
+(\`@derive(Read) — derives a Read instance\`) on such a declaration is
+documentation, not a tag, as is one in a fenced example. A line-start
+\`@derive(X)\` after an unfenced \`@example\` is a real tag: JSDoc ends the
+example there, so fence example code that shows \`@derive\`. For a type you don't own, declare its instance
+with \`export const eqT = derived<Eq<T>>();\` in a module of your own.`,
   seeAlso: "https://typesugar.org/errors/TS9102",
 };
 
@@ -630,7 +694,7 @@ because there's nothing to compare, hash, clone, etc.
 
 Solutions:
 1. Add fields to the type
-2. Provide a manual @instance implementation
+2. Provide a manual @impl instance
 3. Use a singleton pattern if the type is intentionally empty`,
   seeAlso: "https://typesugar.org/errors/TS9104",
 };
@@ -663,11 +727,40 @@ Common causes:
    type with no @derive/@impl of its own)
 2. The type is generic (e.g. \`Box<T>\`): deriving for generic types is not yet supported
 3. The type's shape could not be read (no fields, or an unsupported type form)
+4. The type can't be built field by field at all, and the note says why: a built-in
+   type from TypeScript's lib (Array, Map, Date: use a library's instance; the lib's
+   utility types such as Readonly<T>, Partial<T> and Record<K, V> over an ordinary
+   object type do derive; over a built-in, as in Readonly<Map<K, V>>, they are built-ins too), or Clone of
+   a class with #private members or one that extends a built-in such as Map
 
 Solutions:
 - Use a concrete field type, or add @derive({typeclass}) / an @impl to the field's type
 - Write the {typeclass} instance by hand with /** @impl {typeclass}<{type}> */`,
   seeAlso: "https://typesugar.org/errors/TS9106",
+};
+
+export const TS9107: DiagnosticDescriptor = {
+  code: 9107,
+  severity: "error",
+  category: DiagnosticCategory.DeriveFailed,
+  messageTemplate:
+    "Cannot derive {typeclass}<{type}>: field `{field}` has type `{fieldType}`, which has no {typeclass} instance and can't be derived",
+  explanation: `\`derived<{typeclass}<{type}>>()\` builds the instance field by field. For the
+field named in the message there is no {typeclass} instance in scope, and
+{typeclass}'s derivation can't build one from the field's type: it compares or
+combines primitives, arrays and tuples inline, and everything else through an
+instance.
+
+Give the field's type an instance, in scope where \`derived<...>()\` is
+written, and it is used for that field:
+
+  \`export const eqProperties: Eq<GeoJsonProperties> = { equals, notEquals };\`
+  \`export const eqFeature = derived<Eq<Feature>>();\`   // compares properties with eqProperties
+
+or derive one for it first (\`derived<{typeclass}<FieldType>>()\`, or \`@derive\` on
+a type you own), or write the whole instance by hand with
+\`/** @impl {typeclass}<{type}> */\`.`,
+  seeAlso: "https://typesugar.org/errors/TS9107",
 };
 
 // ============================================================================
@@ -1028,16 +1121,25 @@ export const TS9226: DiagnosticDescriptor = {
   severity: "error",
   category: DiagnosticCategory.MacroSyntax,
   messageTemplate: "Non-exhaustive match — missing {what}: {missing}",
-  explanation: `A fluent match(value).case(...).then(...) chain does not cover every
-value of the scrutinee's type, and has no fallback arm. The macro checks
-literal unions (including booleans and null/undefined members) and
-discriminated unions, and lists the cases or variants no arm handles. A
-scrutinee whose values can't be enumerated (number, string, object types
-without a discriminant) always needs a fallback.
+  explanation: `A fluent match(value).case(...).then(...) chain, or a match: switch
+statement, does not cover every value of the scrutinee's type, and has no
+fallback arm. The macro checks literal unions (including booleans and
+null/undefined members) and discriminated unions, and lists the cases or
+variants no arm handles. A
+scrutinee whose values can't be enumerated (number, string, arrays, object
+types without a discriminant) always needs a fallback; a tuple type is
+covered by an arm of its length whose elements are all bindings ([x, y]).
+
+In the fluent form, every property an object pattern names is tested for
+presence. An arm that names a field its variant declares optional
+(.case({ kind: "b", extra }) with extra?: string) matches only the values
+that have that key, so it doesn't cover the variant; the message names the
+field. Add an arm for the variant without it after that one.
 
 Fix one of:
 1. Add an arm for each missing case or variant.
-2. End the chain with .else(handler) to handle every remaining value.
+2. End the chain with .else(handler) to handle every remaining value
+   (in a match: switch, add a default: that does more than throw).
 3. Add a catch-all .case(_).then(...) arm.
 
 The object-handler form match(value, { Variant: handler }) is not
@@ -1154,7 +1256,7 @@ export const TS9401: DiagnosticDescriptor = {
   explanation: `The called method is not available as an extension on this type.
 
 Extension methods come from:
-1. Typeclass instances (@instance, @derive)
+1. Typeclass instances (@impl, @derive)
 2. Explicit registerExtensions() calls
 3. Import-scoped extension namespaces
 
@@ -1225,6 +1327,43 @@ Incorrect:
 };
 
 // ============================================================================
+// Error Catalog: Specialization (9600-9699)
+// ============================================================================
+
+export const TS9602: DiagnosticDescriptor = {
+  code: 9602,
+  severity: "warning",
+  category: DiagnosticCategory.MacroExpansion,
+  messageTemplate: "Auto-specialization of {fn} skipped — {reason}",
+  explanation: `A call that passes a typeclass instance (explicitly, or filled in by
+= implicit()) is normally specialized: the function body is copied with the
+instance's methods inlined, so no dictionary is passed at run time. When the
+transformer can't do that soundly, the call keeps dictionary passing. The
+result is correct, just not zero-cost, and this warning makes the cost visible.
+
+Reasons:
+- The instance is only visible as a declaration (it comes from a package's
+  .d.ts, passed explicitly or found by = implicit()), so its method bodies
+  can't be inlined. For a hot path, declare the instance in your own source.
+- The function body can't be resolved: declare the function as a const arrow
+  function or a named function.
+- The body can't be inlined as an expression: a loop, try/catch, a throw,
+  mutable let bindings, or early returns that can't be flattened.
+- The body calls another = implicit() function without passing its instance,
+  relying on it being propagated; the specialized copy couldn't pass it on.
+- An instance method's body uses a name that isn't in scope at the call site
+  (a helper private to the instance's module, one it imports and the call
+  site doesn't, or a class the call site imports only as a type, with
+  import type or a type specifier). The call goes through the instance
+  instead of inlining it.
+
+Opt-outs (same line before the call, or a comment line directly above):
+  // @no-specialize        keep dictionary passing, no specialization
+  // @no-specialize-warn   keep specializing, but don't warn when skipped`,
+  seeAlso: "https://typesugar.org/errors/TS9602",
+};
+
+// ============================================================================
 // Error Catalog: Import/Module Resolution (9700-9799)
 // ============================================================================
 
@@ -1245,12 +1384,13 @@ export const TS9702: DiagnosticDescriptor = {
   severity: "warning",
   category: DiagnosticCategory.ImportResolution,
   messageTemplate: "Operator `{operator}` on {type} is not rewritten in explicit mode",
-  explanation: `In explicit resolution mode, operators are only rewritten when
-the typeclass is explicitly imported and used.
+  explanation: `Reserved: not emitted. It belonged to the "explicit" resolution mode,
+which 1.0 doesn't have (the config's resolution.mode is not read; see PEP-052).
 
-To enable automatic rewriting:
-1. Import the typeclass: import { Eq } from "@typesugar/std"
-2. Or switch to automatic mode in typesugar.config.json`,
+An operator on a type with an instance is rewritten only in a file that
+activates the typeclass's operator syntax, e.g.
+  import "@typesugar/std/syntax/eq/ops";
+Without that import the operator stays native and TS9804 says which import to add.`,
   seeAlso: "https://typesugar.org/errors/TS9702",
 };
 
@@ -1314,7 +1454,7 @@ They cannot be registered with @operator because @operator is for standard JavaS
 
 To overload an operator for your own type:
 - Annotate a typeclass method with @op (e.g. /** @op + */ add(b: A): A)
-- Provide an @instance so the transformer can resolve the operator to that method`,
+- Provide an instance (/** @impl Typeclass<Type> */ or @derive) so the transformer can resolve the operator to that method`,
   seeAlso: "https://typesugar.org/errors/TS9802",
 };
 
@@ -1325,11 +1465,11 @@ export const TS9803: DiagnosticDescriptor = {
   messageTemplate: "Operator '{operator}' has no registered overload for the operand type",
   explanation: `The transformer encountered an operator expression it cannot resolve:
 - No typeclass method is annotated with @op for this operator on the operand type
-- No @instance provides that behavior for the type
+- No instance (@impl or @derive) provides that behavior for the type
 
 The expression will be left as-is, which may cause a type or runtime error.
 
-To overload an operator, annotate a typeclass method with @op and provide an @instance:
+To overload an operator, annotate a typeclass method with @op and provide an instance (@impl or @derive):
   /** @op + */
   add(b: A): A { ... }`,
   seeAlso: "https://typesugar.org/errors/TS9803",
@@ -1400,6 +1540,9 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9006, TS9006],
   [9007, TS9007],
   [9008, TS9008],
+  [9009, TS9009],
+  [9010, TS9010],
+  [9011, TS9011],
 
   // Coherence Checking (9050-9059)
   [9050, TS9050],
@@ -1419,6 +1562,7 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   [9104, TS9104],
   [9105, TS9105],
   [9106, TS9106],
+  [9107, TS9107],
 
   // Macro Syntax (9200-9299)
   [9201, TS9201],
@@ -1462,6 +1606,9 @@ export const DIAGNOSTIC_CATALOG: Map<number, DiagnosticDescriptor> = new Map([
   // Comptime (9500-9599)
   [9501, TS9501],
   [9502, TS9502],
+
+  // Specialization (9600-9699)
+  [9602, TS9602],
 
   // Import/Module Resolution (9700-9799)
   [9701, TS9701],

@@ -27,7 +27,7 @@ describe("emitExtensionRegistrations", () => {
     const regs = emitExtensionRegistrations(ts.factory, statements);
     expect(regs).toHaveLength(1);
     const printed = printStatements(regs);
-    expect(printed).toContain("globalThis.__typesugar_registerExtension");
+    expect(printed).toContain("(globalThis as any).__typesugar_registerExtension");
     expect(printed).toContain('"head"');
     expect(printed).toContain('"Array"');
   });
@@ -88,9 +88,39 @@ describe("PEP-027 'use extension' dispatch wiring (end-to-end)", () => {
     );
 
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    expect(result.code).toContain("globalThis.__typesugar_registerExtension");
+    expect(result.code).toContain("(globalThis as any).__typesugar_registerExtension");
     expect(result.code).toContain('"head"');
     expect(result.code).toContain('"Array"');
+  });
+
+  it("the registration calls type-check under noImplicitAny (check --strict)", () => {
+    // `globalThis.__typesugar_registerExtension?.(...)` was TS7017 ("typeof
+    // globalThis has no index signature") in every "use extension" file of
+    // @typesugar/std and @typesugar/graph under `typesugar check --strict`.
+    const result = transformCode(
+      [
+        '"use extension";',
+        "export function head(self: Array<number>): number { return self[0]; }",
+      ].join("\n"),
+      { fileName: "extension-registration-typecheck.ts" }
+    );
+    const fileName = "/virtual/extension-registration-typecheck.ts";
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      strict: true,
+      noEmit: true,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const read = host.getSourceFile.bind(host);
+    host.getSourceFile = (f, v, ...rest) =>
+      f === fileName ? ts.createSourceFile(f, result.code, v, true) : read(f, v, ...rest);
+    const program = ts.createProgram([fileName], options, host);
+    const errors = ts
+      .getPreEmitDiagnostics(program, program.getSourceFile(fileName))
+      .map((d) => `TS${d.code}`);
+    expect(errors).toEqual([]);
   });
 
   it("does not append registration calls for a file without the directive", () => {

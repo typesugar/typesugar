@@ -33,6 +33,10 @@
  * - #37: within a directory, `typesugar.config.*` and `.typesugarrc*` win
  *   over package.json, and a package.json `"typesugar"` field that is only
  *   the PEP-055 macro manifest (`{ "macros": ... }`) is not project config.
+ * - Review 8: nothing inside a `node_modules` directory is read -- neither a
+ *   config file nor a package.json `"typesugar"` block. A dependency is not
+ *   the project (SECURITY.md); a search that starts inside one (an editor
+ *   opening a dependency's file) walks past it to the project.
  */
 
 import type * as TS from "typescript";
@@ -242,8 +246,28 @@ export function searchConfigFile(searchFrom: string): ConfigFileSearchResult {
     return { kind: "failed", filepath: undefined, error: toError(e) };
   }
 
-  let dir = path.resolve(searchFrom);
+  // Decided by real path, as the macro loader decides what is project code: a
+  // node_modules symlink to a project directory is the project.
+  const realPath = (p: string): string => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  let dir = realPath(path.resolve(searchFrom));
   for (;;) {
+    // A directory inside node_modules is a dependency's: its config file and
+    // its package.json "typesugar" block are never read (review 8). Reading
+    // one ran the dependency's code (a typesugar.config.cjs) and let it
+    // approve its own macros (security.allowedMacroPackages) for the project.
+    // The walk carries on up to the project that contains it.
+    if (inNodeModules(dir)) {
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+      continue;
+    }
     let result: ReturnType<ReturnType<CosmiconfigSync>["search"]>;
     try {
       result = explorer.search(dir);
@@ -272,6 +296,11 @@ export function searchConfigFile(searchFrom: string): ConfigFileSearchResult {
     dir = parent;
   }
   return { kind: "none" };
+}
+
+/** Is `p` inside a `node_modules` directory (a path segment)? */
+function inNodeModules(p: string): boolean {
+  return p.split(/[\\/]/).includes("node_modules");
 }
 
 function toError(e: unknown): Error {

@@ -14,7 +14,7 @@ TypeScript developers often face a choice between expressive, type-safe code and
 
 ### What "zero-cost" means
 
-- **No dictionary passing** -- Typeclass methods are inlined at call sites, not looked up through objects
+- **No dictionary lookup** -- An operator or method resolves to one instance at compile time: a direct call on it, or its method body inlined where the body is in the program
 - **No wrapper types** -- HKT encoding exists only in the type system; at runtime, `Kind<OptionF, number>` is just `Option<number>`
 - **No indirection** -- Generic code compiles to direct calls, not chains of `.map()` and `.flatMap()` on wrapper objects
 - **No closure allocation** -- Comprehension macros emit flat code, not nested callbacks
@@ -22,6 +22,9 @@ TypeScript developers often face a choice between expressive, type-safe code and
 ### What it looks like in practice
 
 ```typescript
+import "@typesugar/std/syntax/eq/ops"; // === means Eq in this file
+
+/** @derive(Eq) */
 interface Point {
   x: number;
   y: number;
@@ -34,25 +37,31 @@ const p2: Point = { x: 1, y: 2 };
 p1 === p2;
 
 // Compiles to:
-p1.x === p2.x && p1.y === p2.y;
+Point.Eq.equals(p1, p2); // Point.Eq.equals is (a, b) => a.x === b.x && a.y === b.y
 ```
 
-No `Eq` instance was declared. No `@derive` annotation was written. The compiler saw `===` on a `Point`, auto-derived structural equality from the type's fields, and inlined the comparison directly. The typeclass abstraction exists at author-time. At runtime, it's gone.
+No `Eq` instance was written by hand. One annotation asked for it; the compiler read the type's fields, generated the structural comparison, and rewrote `===` to a direct call on it. The typeclass abstraction exists at author-time. At runtime, what's left is the function you would have written.
 
 The same applies to generic code:
 
 ```typescript
 // You write:
-function double<F>(fa: Kind<F, number>, F: Monad<F>): Kind<F, number> {
-  return F.map(fa, (x) => x * 2);
-}
-double(Some(21));
+/** @impl Ord<number> */
+const numberOrd: Ord<number> = { compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0) /* , ... */ };
 
-// Compiles to:
-isSome(Some(21)) ? Some(Some(21).value * 2) : None;
+function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {
+  return items.slice().sort((a, b) => ord.compare(a, b));
+}
+sortWith([3, 1, 2]);
+
+// Compiles to a copy of sortWith for numbers, with compare's body in place of the call:
+const __typesugar___sortWith_number_0__ = (items: number[]): number[] => {
+  return items.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+};
+__typesugar___sortWith_number_0__([3, 1, 2]);
 ```
 
-The generic function, the Monad dictionary, the `map` method -- all gone. What remains is the concrete option check you would have written by hand.
+The `Ord` dictionary and the `compare` call are gone. What remains is the comparison you would have written by hand. (An instance that only exists as a declaration, from a package's `.d.ts`, has no body to inline, so a call with one keeps passing it; see [Auto-specialization as the default](#auto-specialization-as-the-default).)
 
 ---
 
@@ -156,7 +165,7 @@ interface Functor<F extends URIS> { map: <A, B>(fa: Kind<F, A>, f: (a: A) => B) 
 const Functor: Functor1<URI> = { URI, map: (fa, f) => ... };
 ```
 
-The `F<A>` rewrite works in IDE, bundlers, and `tsc` + ts-patch. For raw `tsc` without ts-patch, users can write `Kind<F, A>` directly.
+The `F<A>` rewrite runs wherever typesugar reads the source before TypeScript does: the editor plugin, the bundler plugins, `typesugar build`/`check` and the Node loader. A plain or ts-patched `tsc` type-checks the source as written, so there, write `Kind<F, A>` directly.
 
 ---
 
@@ -230,33 +239,36 @@ function describe(s: Status): string {
 
 No runtime wrapper. No tag boilerplate. Just types and field presence.
 
-### Auto-derivation as the default
+### Deriving is one annotation away
 
-In Haskell and Scala 3, deriving typeclass instances requires explicit annotation (`deriving` clauses, `derives` keywords). typesugar goes further: **auto-derivation is the default, not opt-in**.
+In Haskell and Scala 3, deriving a typeclass instance takes an explicit annotation (`deriving` clauses, `derives` keywords). typesugar works the same way: instances are never ambient. `p1 === p2` on a `Point` with no `Eq<Point>` in scope stays JavaScript's `===`; it doesn't quietly become a structural comparison because the compiler could have derived one.
 
-The compiler treats every type as derivable unless told otherwise. When it sees `p1 === p2` on a `Point`, it doesn't look for an explicit `Eq<Point>` instance first and give up if there isn't one. Instead:
-
-1. Check for an explicit `@instance` -- use it if found (custom behavior wins)
-2. Check for an explicit `@deriving` -- use the generated instance if found
-3. **Auto-derive via the type checker** -- inspect the type's fields, verify all fields have instances, synthesize an implementation on the spot
-4. Report a compile error with a resolution trace if derivation is impossible
-
-Step 3 is what makes typesugar feel different. The programmer never writes `@derive(Eq)` on `Point`. They just use `===`, and the compiler figures it out:
+What reflection removes is the work, not the annotation. One line asks for an instance, and the type checker writes it from the type's structure:
 
 ```typescript
+import "@typesugar/std/syntax/eq/ops"; // === means Eq in this file
+import "@typesugar/std/syntax/clone"; // .clone() means Clone
+
+/** @derive(Eq, Show, Clone) */
 interface Point {
   x: number;
   y: number;
 }
 
-p1 === p2; // Auto-derived: p1.x === p2.x && p1.y === p2.y
-p1.show(); // Auto-derived: `Point(x = ${p1.x}, y = ${p1.y})`
-p1.clone(); // Auto-derived: { x: p1.x, y: p1.y }
+p1 === p2; // Point.Eq.equals(p1, p2): p1.x === p2.x && p1.y === p2.y
+Point.Show.show(p1); // `Point(x = ${p1.x}, y = ${p1.y})`
+p1.clone(); // Point.Clone.clone(p1): each field cloned through its own Clone
 ```
 
-`@derive(Eq, Show, Clone)` still exists, but its role is **documentation**, not activation. It says "this type supports these capabilities" to human readers. The compiler would derive them anyway.
+For a type you can't annotate, one from a library, `derived<TC<T>>()` runs the same derivation once, in a module of your own, and the `const` it initializes is the instance:
 
-This is the Scala 3 Mirror model taken to its logical conclusion: if the type checker can see the structure of a type, and all its constituent parts have the required instances, the compiler should just do it.
+```typescript
+export const cloneFeature = derived<Clone<Feature>>();
+```
+
+Resolution then looks in scope: the type's own `@derive` companion, an `@impl` or typed instance `const` (hand-written, or `derived`) declared in the file or in a module it imports. If none is found, it reports an error with a resolution trace. (`summon` and `= implicit()` still derive an instance in place when none is in scope, but that fallback is deprecated and warns with TS9009.)
+
+This is the Scala 3 Mirror model: the type checker sees the structure of a type, and when all its constituent parts have the required instances, it writes the instance for you. You decide where it exists.
 
 ---
 
@@ -279,48 +291,53 @@ double(arrayMonad, [1, 2, 3]);
 ### Implicit resolution + auto-specialization
 
 ```typescript
-function double<F>(fa: Kind<F, number>, F: Monad<F> = implicit()): Kind<F, number> {
-  return F.map(fa, (x) => x * 2);
+import { implicit } from "typesugar";
+import type { Ord } from "@typesugar/std";
+
+function sortWith<T>(items: T[], ord: Ord<T> = implicit()): T[] {
+  return items.slice().sort((a, b) => ord.compare(a, b));
 }
 
-// Macro infers F from the argument type, summons the instance, specializes:
-double(Some(21)); // Compiles to: isSome(Some(21)) ? Some(Some(21).value * 2) : None
+// The transformer infers T = number from the argument and fills in the instance in scope:
+sortWith([3, 1, 2]); // Compiles to: sortWith([3, 1, 2], ordNumber)
 ```
 
 The `= implicit()` default parameter marker is typesugar's equivalent of Scala 2's `implicit` keyword on individual parameters. TypeScript doesn't support multiple parameter lists (Scala 3's `using` clauses), so `= implicit()` is the natural encoding -- it's valid TypeScript, self-documenting, and the transformer resolves it at compile time. Callers can always override by passing the argument explicitly.
 
-The dictionary parameter exists for the type checker. The macro eliminates it, summons the correct instance, and inlines the methods.
+The dictionary parameter exists for the type checker. The macro fills it in with the instance in scope, and the completed call is then specialized like any call that passes an instance (below) when the function's body allows it. The type parameter must be inferable from the other arguments: for a higher-kinded `F` (`double(fa: Kind<F, number>, F: Monad<F> = implicit())`) it isn't yet, so pass the instance explicitly, as in `double(optionMonad, Some(21))`.
 
 ### Auto-specialization as the default
 
-Auto-derivation answers "where does the instance come from?" Auto-specialization answers "what happens to it at the call site?"
+Instance resolution answers "where does the instance come from?" Auto-specialization answers "what happens to it at the call site?"
 
 In a traditional dictionary-passing FP system, even after resolving the correct instance, the runtime still calls methods through an object: `Point.Eq.equals(p1, p2)`. The object allocation exists. The method dispatch is indirect. The abstraction has a cost.
 
-typesugar's default is to **inline the method body at every call site**. When the compiler resolves `Eq<Point>`, it doesn't emit a reference to a `Point.Eq` companion -- it emits the comparison directly:
+typesugar's default is to **call the resolved instance directly, and inline its method body where the body is visible**. No dictionary is looked up at run time: an operator or method resolves to one specific instance at compile time. With a `@derive(Eq)` instance, `p1 === p2` becomes a direct call on the generated companion; with a hand-written instance in your source, the method body itself is substituted:
 
 ```typescript
-// What the compiler resolves:     Eq<Point> with equals = (a, b) => a.x === b.x && a.y === b.y
-// What it emits:                  p1.x === p2.x && p1.y === p2.y
+// @derive(Eq) on Point:
+p1 === p2; // emits: Point.Eq.equals(p1, p2)
+
+// /** @impl Eq<Point> */ const eqPoint: Eq<Point> = { equals: (a, b) => a.x === b.x && a.y === b.y, ... }
+p1 === p2; // emits: p1.x === p2.x && p1.y === p2.y
 ```
 
-This is the zero-cost guarantee made concrete. The typeclass system is a compile-time organizational tool -- it determines _what_ code to generate. But the generated code contains no trace of the typeclass abstraction. No dictionary objects. No method lookups. No indirection.
+This is the zero-cost guarantee made concrete. The typeclass system is a compile-time organizational tool -- it determines _what_ code to generate. The generated code calls the function you would have written, or contains its body. No dictionary objects. No method lookups through a registry.
 
-The same principle applies to generic code. When `double(Some(21))` is compiled, the compiler doesn't just fill in the `Monad<OptionF>` dictionary -- it inlines `map`, sees the concrete `Option` type, and emits the `isSome` check directly. The generic function ceases to exist at runtime.
+The same principle applies to generic code: a call that passes an instance to a generic function (`sortWith(xs, ordNumber)`, or one that `= implicit()` filled in) is specialized when the function's body is simple enough and the instance's body is in the program, with the instance's methods substituted into a copy of the function (`sortWith([3, 1, 2])` with a `/** @impl Ord<number> */` of your own becomes a call to a `number` copy of `sortWith`). Otherwise the call keeps passing the dictionary: an instance from a package's `.d.ts` (like `ordNumber` above) has no body to substitute, and a function body with loops, `try` or mutable `let` can't be inlined. For a call that passes the instance itself, the transformer says which with [TS9602](https://typesugar.org/guides/error-messages#auto-specialization-skipped-ts9602). See the [specialization guide](https://typesugar.org/guides/specialize).
 
 This is what Rust calls monomorphization, applied to typeclass dispatch. The abstraction is real at author-time and gone at run-time.
 
 ### Progressive disclosure
 
-The defaults (auto-derive, auto-specialize, implicit resolution) mean most users never think about the machinery. But for library authors or performance-sensitive code, every layer is accessible:
+The defaults (one-line derives, auto-specialization, implicit resolution) mean most users never think about the machinery. But for library authors or performance-sensitive code, every layer is accessible:
 
-| Level                     | What you write                      | Who it's for                          |
-| ------------------------- | ----------------------------------- | ------------------------------------- |
-| Just use it               | `p1 === p2`, `p1.show()`            | Everyone                              |
-| Explicit derivation       | `@deriving(Eq, Show)`               | Documentation, making intent explicit |
-| Explicit instance         | `@instance const eq: Eq<T> = {...}` | Custom behavior                       |
-| Explicit specialization   | `fn.specialize(dict)`               | Named specialized functions           |
-| Manual dictionary passing | `double(optionMonad, x)`            | Full control, no magic                |
+| Level                     | What you write                                    | Who it's for           |
+| ------------------------- | ------------------------------------------------- | ---------------------- |
+| Just use it               | `@derive(Eq)` + `p1 === p2` (with its activation) | Everyone               |
+| Explicit instance         | `/** @impl Eq<T> */ const eq: Eq<T> = {...}`      | Custom behavior        |
+| Instance for a library    | `export const eqT = derived<Eq<T>>()`             | Types you don't own    |
+| Manual dictionary passing | `double(optionMonad, x)`                          | Full control, no magic |
 
 Each level adds visibility into what the compiler is doing. None of them are required -- the system defaults to the most automatic option and lets you take control when you want to.
 
@@ -413,27 +430,20 @@ Both categories share the rule: **defining something in the current file makes i
 
 ### Typeclasses: import-scoped with local override
 
-Typeclasses (`@typeclass`), their instances (`@impl`), operator syntax (`@op`), and do-notation (`let:`, `par:`) all flow through `findInstance()`, which checks `isTypeclassInScope()`. This is the most restrictive scope gate.
+Since PEP-052 there are no resolution modes and no ambient registry. Two things decide what a typeclass does in a file, and both are visible in the file:
 
-The three resolution modes control what's in scope:
-
-| Mode            | What's in scope                      | Use case                                     |
-| --------------- | ------------------------------------ | -------------------------------------------- |
-| `automatic`     | Everything registered                | Quick scripts, single-file demos, playground |
-| `import-scoped` | Imported + prelude + locally defined | Production code (default)                    |
-| `explicit`      | Only locally defined                 | Maximum control, no magic                    |
-
-In production (`import-scoped`), you must import a typeclass for it to activate:
+- **Instances come from scope.** An instance exists where it was declared: the type's `@derive` companion, an `/** @impl */` const, or a `derived<TC<T>>()` const, in this file or in a module it imports. Nothing is registered globally, and nothing is derived because it could be.
+- **Syntax is activated by an import.** Operators (`===`, `<`, `+`) and method sugar (`p.clone()`) for a typeclass rewrite only in a file that imports that typeclass's activation module, the way Scala's cats activates `import cats.syntax.eq.*`:
 
 ```typescript
-import { Eq } from "@typesugar/std";
+import "@typesugar/std/syntax/eq/ops"; // === and !== mean Eq in this file
 
-p1 === p2; // Eq is in scope → auto-derives and rewrites
+p1 === p2; // rewrites to Point.Eq.equals(p1, p2), for a Point with an Eq instance in scope
 ```
 
-Without the import, `===` is plain JavaScript identity comparison. This is the Scala 3 model: **imports are activation**. No surprise behavior from features you didn't ask for.
+Without the activation import, `===` is plain JavaScript identity comparison, and when the operands' type has an `Eq` instance the transformer warns ([TS9804](https://typesugar.org/errors/TS9804)) with the import to add. This is the Scala 3 model: **imports are activation**. No surprise behavior from features you didn't ask for.
 
-But if you define a typeclass in the current file, it's in scope regardless of mode:
+But if you define a typeclass in the current file, its syntax works there without an activation import:
 
 ```typescript
 /** @typeclass */
@@ -448,14 +458,7 @@ const addableMoney = { add: (a, b) => new Money(a.cents + b.cents, a.currency) }
 price + tax; // Works — Addable is defined here, no import needed
 ```
 
-This cascades to everything that depends on `findInstance()`:
-
-- **Operator overloading** (`@op`) — if the typeclass is locally defined, its operator syntax works
-- **Instance lookup** (`@impl`) — instances for locally-defined typeclasses are found
-- **Auto-derivation** (`@derive`) — locally-defined typeclasses can auto-derive
-- **Do-notation** (`let:`, `par:`) — if `FlatMap` is locally defined, comprehensions work
-
-The rationale: requiring you to import from yourself would be absurd. This also makes single-file compilation (playground, scripts, tests) work naturally.
+This covers its operator syntax (`@op`) and its method syntax (`p.describe()` for a locally defined `Describe`). The rationale: requiring you to import from yourself would be absurd. This also makes single-file compilation (playground, scripts, tests) work naturally.
 
 ### Extensions: two mechanisms, two scoping models
 
@@ -528,16 +531,17 @@ There's one special scope: **transparent scope**. Inside the file that defines t
 
 These have no scoping subtlety — if you import `match` from `@typesugar/std`, it works. If you don't import it, the call is left as-is.
 
-### Prelude: the built-in exceptions
+### No prelude
 
-Some typeclasses are so fundamental they're always in scope in `import-scoped` mode, even without explicit imports:
+No typeclass's syntax is on by default, not even `Eq`'s. `p1 === p2` with a derived `Eq` and no activation import stays `===` (with a TS9804 warning), and `p1.clone()` stays a method call. The activation imports for std's typeclasses:
 
-- `Eq` — structural equality (`===`)
-- `Ord` — comparison (`<`, `>`, `<=`, `>=`)
-- `Show` — string representation (`.show()`)
-- `Clone` — structural cloning (`.clone()`)
-
-The prelude is configurable via `typesugar.config.ts`, but the defaults match what most TypeScript developers expect: comparison and equality just work.
+| Syntax                     | Activation import                               |
+| -------------------------- | ----------------------------------------------- |
+| `===`, `!==`, `==`, `!=`   | `import "@typesugar/std/syntax/eq/ops";`        |
+| `<`, `>`, `<=`, `>=` (Ord) | `import "@typesugar/std/syntax/ord/ops";`       |
+| `a + b` (Semigroup)        | `import "@typesugar/std/syntax/semigroup/ops";` |
+| `p.clone()`                | `import "@typesugar/std/syntax/clone";`         |
+| `let:` / `par:` blocks     | `import "@typesugar/std/syntax/do";`            |
 
 ### Resolution order
 
@@ -547,9 +551,7 @@ When you write `x.foo()` or `a + b`, the compiler resolves in a fixed order:
 2. **Type rewrite methods** — If `x` is an `@opaque` type with a rewrite for `foo`, apply it
 3. **Extension functions** — If an imported or registered function matches the receiver type
 4. **Typeclass instances** — If an in-scope typeclass provides the method/operator
-5. **Auto-derivation** — If the type's structure supports synthesizing the instance
-
-Each step is more specific than the next. Native properties always win. Type rewrites are explicit (you defined the `@opaque` type). Extensions require import or `@extension`. Typeclasses require scope resolution. Auto-derivation is the most "magical" — it only triggers when everything else fails and the type's structure permits it.
+   Each step is more specific than the next. Native properties always win. Type rewrites are explicit (you defined the `@opaque` type). Extensions require import or `@extension`. Typeclasses require scope resolution: an instance exists only where you declared one (`@derive`, `@impl`, or `derived<TC<T>>()` for a type you don't own).
 
 ### Why scoping matters
 
@@ -559,21 +561,20 @@ Without scoping, every `+` in your codebase would trigger a typeclass lookup. Ev
 - **Surprising** — A library you imported could change the meaning of `+` in your code
 - **Fragile** — Instance conflicts between packages would be silent and confusing
 
-Scoping makes the system predictable: you opt in to features by importing them, you get what you define for free, and there's a clear upgrade path from `explicit` → `import-scoped` → `automatic` as you gain confidence.
+Scoping makes the system predictable: you opt in to features by importing them, and you get what you define for free.
 
 ### Summary: scoping cheat sheet
 
-| Feature                       | Scope model                     | Same-file?                  | Cross-file?                |
-| ----------------------------- | ------------------------------- | --------------------------- | -------------------------- |
-| `@typeclass` + `@op`          | Import-gated                    | ✅ Always                   | Must import                |
-| `@impl` instances             | Import-gated (of the typeclass) | ✅ Always                   | Typeclass must be in scope |
-| `@derive`                     | Import-gated                    | ✅ Always                   | Typeclass must be in scope |
-| `let:` / `par:` (do-notation) | Import-gated (FlatMap)          | ✅ Always                   | FlatMap must be in scope   |
-| `@extension` functions        | Registration-gated              | ✅ Always                   | Global after registration  |
-| Import-resolved extensions    | Import-gated                    | N/A (import-only)           | Must import the function   |
-| `"use extension"` exports     | Import-gated                    | Defining file uses directly | Consumers import           |
-| `@opaque` type rewrites       | Registration-gated              | ✅ (transparent scope)      | Global after registration  |
-| Expression macros             | Name-based                      | ✅                          | Must import the function   |
+| Feature                         | Scope model                          | Same-file?                  | Cross-file?                 |
+| ------------------------------- | ------------------------------------ | --------------------------- | --------------------------- |
+| Operators (`@op`), method sugar | Activation import                    | ✅ Typeclass defined here   | Import its `syntax` module  |
+| `@impl` / `@derive` / `derived` | In scope where declared              | ✅ Always                   | Import the declaring module |
+| `let:` / `par:` (do-notation)   | Activation import + FlatMap in scope | ✅ With the import          | FlatMap instance in scope   |
+| `@extension` functions          | Registration-gated                   | ✅ Always                   | Global after registration   |
+| Import-resolved extensions      | Import-gated                         | N/A (import-only)           | Must import the function    |
+| `"use extension"` exports       | Import-gated                         | Defining file uses directly | Consumers import            |
+| `@opaque` type rewrites         | Registration-gated                   | ✅ (transparent scope)      | Global after registration   |
+| Expression macros               | Name-based                           | ✅                          | Must import the function    |
 
 ---
 
@@ -593,22 +594,20 @@ import { clamp } from "@typesugar/std";
 n.clamp(0, 100);
 ```
 
-```typescript
-type UserId = Newtype<number, "UserId">;
-
-// TypeScript: "Type 'number' is not assignable to type 'UserId'" (TS2322)
-// typesugar:  UserId is a newtype over number → runtime identity → not an error
-const id: UserId = 42;
-```
-
 ### What makes this principled
 
 This isn't blanket diagnostic suppression. Each suppression is justified by a specific rewrite rule:
 
 1. **Extension methods** -- A function with matching first parameter is in scope → TS2339 suppressed
-2. **Newtype assignment** -- Source matches the newtype's base type → TS2322/TS2345 suppressed
-3. **Opaque type boundaries** -- Source matches the opaque type's underlying representation → TS2322/TS2345 suppressed
-4. **Macro-generated code** -- Diagnostic position doesn't map to original source → suppressed
+2. **Opaque type boundaries** -- Source matches the opaque type's underlying representation → TS2322/TS2345 suppressed
+3. **Labeled-block syntax** -- A comprehension (`let:`/`par:`), a `match: switch` or a contract's `ensures:` declares names and removes labels when it expands → the reserved-word, unused-label and "Cannot find name" errors on exactly those labels and names suppressed
+4. **Fluent `match()` chains** -- The chain's methods and the names its patterns bind exist only after the macro consumes the chain → suppressed for that chain
+5. **Operator overloading** -- An `@op` instance for the left operand is in scope → TS2365 suppressed, and the rewritten result type-checked as the instance type
+6. **Derived declarations** -- A `@derive` companion (`Point.Eq`) or a derived value (`@derive(Destructure)`'s constructor) used before expansion creates it → suppressed for exactly what that derive declares
+7. **Macro decorators** -- A typesugar macro decorator on an interface or type alias → TS1206 suppressed
+8. **Macro-generated code** -- Diagnostic position doesn't map to original source → suppressed
+
+(Newtypes need no rule: `@typesugar/type-system`'s `wrap` and the newtype constructors type-check as written.)
 
 If no rule matches, the error stands. The system is auditable: `--show-suppressed-diagnostics` prints every suppressed diagnostic with its justification.
 
@@ -753,7 +752,7 @@ The lesson isn't "don't build ambitious features." It's "be honest about what yo
 
 typesugar exists to prove that TypeScript developers don't have to choose between expressiveness and performance. Through compile-time transformation:
 
-- **Everything works by default** -- Auto-derivation and auto-specialization mean you write `p1 === p2` and the compiler handles the rest. No annotations, no imports, no ceremony.
+- **Little ceremony** -- One `@derive` (or `derived<TC<T>>()`) and one activation import, and `p1 === p2` compiles to a direct call on the generated instance; auto-specialization inlines it where the body is visible.
 - **Abstract code becomes concrete** -- Generics resolve, dictionaries inline, method bodies are substituted at call sites. The abstraction exists at author-time and is gone at runtime.
 - **Type information drives code generation** -- The compiler reads your types and generates optimal code from their structure. Reflection replaces boilerplate.
 - **The type system does more work** -- Native encodings over complex tricks. If TypeScript already handles it, don't build machinery around it.
@@ -786,7 +785,7 @@ Zero-cost abstractions aren't a feature. They're the philosophy.
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  TypeScript Compiler (tsc)                   │
-│  (with ts-patch for transformer integration)                │
+│  (via a bundler plugin, the typesugar CLI, or ts-patch)     │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -878,4 +877,4 @@ const reflect = defineAttributeMacro({
 1. No runtime side effects in comptime (sandboxed — no fs, net, process)
 2. Compile-time evaluation has a 5-second timeout
 3. Decorators only work on classes (not interfaces or type aliases) — use expression macros for those
-4. Depends on ts-patch for transformer integration (or the unplugin/Vite integration)
+4. Needs a typesugar-aware build (a bundler plugin, `typesugar build`, or the `typesugar/register` Node loader); a plain `tsc` doesn't expand macros

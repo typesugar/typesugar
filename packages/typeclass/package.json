@@ -1,7 +1,7 @@
 {
   "name": "@typesugar/typeclass",
   "version": "0.1.1",
-  "description": "Scala 3-style typeclass macros with auto-derivation for typesugar",
+  "description": "Scala 3-style typeclass macros for typesugar: @typeclass, @impl, summon, derived and implicit parameters",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",

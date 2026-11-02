@@ -57,6 +57,8 @@ export * from "./comprehension-utils.js";
 export * from "./let-yield.js";
 export * from "./par-yield.js";
 export * from "./match.js";
+export * from "./match-switch.js";
+export * from "./derive-destructure.js";
 export { registerStdInstances } from "./register-instances-runtime.js";
 
 // ============================================================================

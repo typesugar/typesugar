@@ -4,7 +4,7 @@ typesugar is designed so that when something goes wrong, you spend your time fix
 
 ## The Three Pillars
 
-1. **Error messages that help** — Rust-style diagnostics with labeled spans, notes, and auto-fixable suggestions
+1. **Error messages that help** — every diagnostic has a code, and many carry notes (such as a resolution trace) and a suggested fix
 2. **Import hints** — errors such as a missing typeclass instance or an unactivated syntax name the import to add
 3. **Tool compatibility** — ESLint, TypeScript, and "organize imports" all understand typesugar imports
 
@@ -12,32 +12,42 @@ typesugar is designed so that when something goes wrong, you spend your time fix
 
 typesugar errors follow the Rust/Elm model: show the code, point at the problem, explain why, suggest a fix.
 
-```
-error[TS9001]: No instance found for `Eq<Color>`
-  --> src/palette.ts:12:5
-   |
-10 |   interface Palette { primary: Color; accent: Color }
-11 |
-12 |   p1 === p2
-   |      ^^^ Eq<Palette> requires Eq for all fields
-   |
- 8 |   interface Color { r: number; g: number; b: number }
-   |   --------- field `primary` has type `Color`
-   |
-   = note: Auto-derivation requires Eq instances for all fields
-   = help: Add @derive(Eq) to Color, or provide @instance Eq<Color>
+Here `@derive(Eq)` can't build an `Eq` for `Palette`, because its fields' type has none:
+
+```typescript
+import { derive, Eq } from "typesugar";
+
+interface Color {
+  r: number;
+  g: number;
+  b: number;
+}
+
+@derive(Eq)
+interface Palette {
+  primary: Color;
+  accent: Color;
+}
 ```
 
-Every error includes:
+```
+src/palette.ts(9,9): error TS9106: [typesugar] [TS9106] Cannot derive Eq for 'Palette'
+  = note: resolution trace for Eq<Palette>:
+  1. derivation-strategy: Eq — ok
+  2. generic-meta: GenericMeta for Palette: { primary: Color, accent: Color } — FAILED — one or more fields lack required instance
+    field-check: field `primary`: Color — FAILED — Color lacks Eq
+    field-check: field `accent`: Color — FAILED — Color lacks Eq
+```
 
-| Part                     | What it does                                                |
-| ------------------------ | ----------------------------------------------------------- |
-| `error[TS9001]`          | Error code — look it up in the [error reference](/errors/)  |
-| Primary span (`^^^`)     | Points at exactly what went wrong                           |
-| Secondary labels (`---`) | Shows related code that contributes to the error            |
-| `= note:`                | Explains _why_ this is an error                             |
-| `= help:`                | Tells you _what to do_ about it                             |
-| `= suggestion:`          | Machine-applicable fix — your IDE can apply it in one click |
+The fix is `@derive(Eq)` on `Color` too. The CLI prints diagnostics in the `tsc` layout, and
+your editor shows the same text at the same place. Every error includes:
+
+| Part             | What it does                                               |
+| ---------------- | ---------------------------------------------------------- |
+| `error TS9106`   | Error code — look it up in the [error reference](/errors/) |
+| Location         | Points at exactly what went wrong                          |
+| `= note:`        | Explains _why_ this is an error                            |
+| `= help:` (many) | Tells you _what to do_ about it                            |
 
 For the full catalog of error codes and examples, see the [Error Messages Guide](./error-messages.md).
 
@@ -169,7 +179,7 @@ const x = comptime(() => 1 + 1); // Still transformed → 2
 | `macros`      | Expression macros, tagged templates, type macros, labeled blocks |
 | `derive`      | `@derive()` decorator expansion                                  |
 | `extensions`  | Standalone extension method rewriting                            |
-| `typeclasses` | `@typeclass`, `@instance`, `summon()`                            |
+| `typeclasses` | `@typeclass`, `@impl`, `summon()`                                |
 | `operators`   | Operator overloading                                             |
 
 Full details: [Opt-Out Guide](./opt-out.md)

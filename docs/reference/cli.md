@@ -32,14 +32,32 @@ typesugar build [options]
 - `-v, --verbose` — Enable verbose logging
 - `--cache [dir]` — Enable disk cache for faster rebuilds (default: `.typesugar-cache/transforms`)
 - `--no-cache` — Disable disk cache
-- `--strict` — Also type-check the expanded output. Experimental: the per-file
-  expansion check may report false positives (e.g. a spurious TS2304). Off by default.
+- `--strict` — Also type-check all of the expanded output: the code the build emits, as a
+  program of its own. An error is reported at the line you wrote when the expansion
+  came from it; one in code a macro generated is reported at the nearest code of yours
+  around it (an `@impl` instance's missing member, at the instance), and only when a
+  macro generated the whole statement at its position in the expanded code
+  (`typesugar expand <file>` shows it); one the source already reports is not
+  repeated. Experimental, off by default. Without it, `build` type-checks the expansion
+  only of the constructs whose bound names the source can't check and of `@impl`
+  instances (see `check` below).
 - `--strict=incremental` — Like `--strict`, but only re-checks changed files
 - `--show-suppressed-diagnostics` — Also print the diagnostics typesugar's
   suppression rules filtered out (audit mode)
+- `--emitDeclarationOnly` — Write only `.d.ts` files. Use it after a bundler (tsup,
+  esbuild, Vite) has built the JavaScript.
+- `--declarationDir <dir>` — Directory for the `.d.ts` files, overriding the tsconfig.
+  `--emitDeclarationOnly` needs this, `declarationDir` or `outDir`.
 
 `build` emits `.js`/`.d.ts` and exits non-zero if any diagnostics (including macro
 errors) are found.
+
+The `.d.ts` files are emitted from the **expanded** program, so they describe what the
+macros produce: an exported `function area(s: Shape) { return match(s)… }` is declared
+`area(s: Shape): number`, and the declarations import nothing from typesugar. (Plain `tsc`
+and tsup's own `dts` step see the unexpanded source instead.) Declaration-emit errors are
+reported against the expanded code. `noEmitOnError` is decided on the same diagnostics
+`build` reports.
 
 **Examples:**
 
@@ -58,6 +76,9 @@ typesugar build --cache
 
 # Build with strict mode (typecheck expanded output)
 typesugar build --strict
+
+# Only the .d.ts files, into types/
+typesugar build --emitDeclarationOnly --declarationDir types
 ```
 
 ### watch
@@ -84,6 +105,13 @@ typesugar watch
 typesugar watch --verbose
 ```
 
+Each rebuild reports what `check` would, at the positions as written, and ends with
+`Found N errors. Watching for file changes.`, where N counts the errors it printed: macro errors
+included, diagnostics the suppression rules hid left out. That includes the type check of the
+expansion of the constructs whose bound names the source can't check (see `check` below), so
+`user.nme` in a comprehension is reported on every rebuild, as `check` reports it. `--strict` has
+no effect in watch.
+
 ### check
 
 Type-check with macro expansion, but don't emit files. **Exits non-zero on
@@ -97,16 +125,22 @@ typesugar check [options]
 
 - `-p, --project <path>` — Path to tsconfig.json
 - `-v, --verbose` — Enable verbose logging
-- `--strict` / `--strict=incremental` — Also type-check the fully expanded output.
-  Experimental: it can surface false positives, so it is off by default and is not
-  a substitute for plain `check`.
+- `--strict` / `--strict=incremental` — Also type-check all of the expanded output (see
+  `build`). Experimental and off by default; an addition to plain `check`, not a
+  substitute for it.
 - `--show-suppressed-diagnostics` — Show suppressed diagnostics (audit mode)
 
 > **`check` vs `build`:** `check` type-checks and emits nothing; `build` emits to
 > your `outDir`. Both report the same diagnostics (after typesugar's diagnostic
 > suppression filtering removes the phantom errors valid pre-expansion source
 > produces) and both exit non-zero when errors are found — so a green `build` means
-> "compiled, no errors detected." Use `typesugar check`, not `tsc --noEmit`, as the
+> "compiled, no errors detected." Where the filter hides the names a construct binds (a
+> do-notation comprehension's steps, a fluent `match()` or `match:` case's pattern, an
+> `ensures:` block's `result`), their uses can't be checked as written: `check` and `build` type-check that
+> construct's expansion and report what is wrong inside it at the line you wrote
+> (`fetchAge(user.nme)` in a comprehension). The same goes for an `@impl` instance without a
+> type annotation, which meets its typeclass only in the expansion: a missing or misspelled
+> member is an error at the instance. The editor reports both too. Use `typesugar check`, not `tsc --noEmit`, as the
 > CI type-check: `tsc --noEmit` never runs the transformer, so it type-checks the
 > unexpanded source.
 >
@@ -197,6 +231,11 @@ typesugar run examples/showcase.ts --cache
 typesugar run src/script.ts --verbose
 ```
 
+To run TypeScript through Node itself (tsx, `node --test`, tape, benchmarks, several
+entry points, other Node flags), use the module hooks instead:
+`node --import typesugar/register src/main.ts`. See
+[Node.js, tsx and node:test](/getting-started/environments/node).
+
 ### preprocess
 
 Preprocess files for HKT syntax only (`F<A>` → `Kind<F, A>`), with no macro expansion. Useful for debugging.
@@ -256,7 +295,8 @@ typesugar init [options]
 2. Installs required packages
 3. Configures tsconfig.json
 4. Patches build configs
-5. Sets up ts-patch
+5. Installs ts-patch and adds a `prepare` script for it (only needed if you build with a
+   patched `tsc`; `typesugar build` and the bundler plugins don't use it)
 6. Writes an example file (`src/typesugar-example.ts`)
 
 **Examples:**
@@ -330,11 +370,12 @@ typesugar doctor [options]
 - package.json exists
 - TypeScript installed and in the supported range `>=5.9.0 <7.0.0` (fails on TypeScript 7, warns below 5.9)
 - tsconfig.json exists
-- Transformer plugin configured
 - Language service plugin configured
-- ts-patch installed
-- ts-patch active (TypeScript patched)
-- prepare script configured
+- Transformer plugin configured, ts-patch installed, ts-patch active (TypeScript patched) and
+  prepare script configured: only for a project that compiles through a patched `tsc`
+  (ts-patch installed, or the tsconfig `transform` plugin with a `tsc`/`tspc` script). A
+  project that builds with `typesugar build`, runs under `node --import typesugar/register`
+  or uses a bundler plugin shows them as skipped.
 - `@typesugar/transformer` installed
 - `skipLibCheck` enabled (warning only)
 - Macro registration
@@ -389,6 +430,14 @@ confirmation writes them into that list. It creates `typesugar.config.ts` if the
 none, and otherwise edits only the `allowedMacroPackages` value, leaving the rest of
 the file as you wrote it. Commit the file.
 
+It uses exactly the build's discovery, so it lists everything the build would refuse:
+dependencies (packages inside `node_modules`) that declare macros, reached by a bare import
+or by a relative path into `node_modules`, each resolved from the importing file as Node
+resolves it. Macro packages reached by a relative path outside `node_modules` (a vendored
+directory, a workspace sibling imported by path) are project code: they load without
+approval and are never listed (see
+[What typesugar trusts](../SECURITY.md#what-typesugar-trusts)).
+
 **Options:**
 
 - `-p, --project <path>` — Path to tsconfig.json (default: tsconfig.json). The config
@@ -436,8 +485,7 @@ typesugar approve-macros --yes
     "build:prod": "typesugar build -p tsconfig.prod.json",
     "watch": "typesugar watch",
     "check": "typesugar check",
-    "expand": "typesugar expand",
-    "prepare": "ts-patch install -s"
+    "expand": "typesugar expand"
   }
 }
 ```

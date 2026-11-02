@@ -84,6 +84,13 @@ transformer.
    names. Emit per-module `.d.ts` (via `tsc --emitDeclarationOnly`) and per-module
    JS, preserving each type's declaring module, its annotations, and stable export
    names.
+   _Narrowed 2026-10 (PR #83), after testing a library built from the
+   `typesugar create library` template:_ the rule is for `@opaque` types, whose
+   companions consumers discover as `export`ed function declarations per module (a
+   bundled `.d.ts` declares them `declare function` with one export list, so
+   `opt.map(f)` isn't rewritten). Instances, `@derive` companions and `Destructure`
+   extractors resolve the same through a bundled `.d.ts`: their JSDoc survives, and
+   instances are imported by their exported names. The authoring guide's rule 1 says so.
 2. **Companions must be importable and collision-free.** Same-named companions for
    different types (Option's `map` vs Either's `map`) cannot share one top-level
    export. Namespace them — **per-type subpath exports** (`@lib/data/option` exports

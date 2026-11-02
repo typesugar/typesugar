@@ -312,6 +312,26 @@ export interface ExpressionMacro extends MacroDefinitionBase {
   chainable?: boolean;
 
   /**
+   * When true, the transformer expands every macro / rewrite inside the
+   * call's arguments FIRST and passes the expanded arguments as `args`
+   * (`callExpr` is still the call as written, for its source text and
+   * diagnostics). The result is then not visited again: the arguments in it
+   * are already expanded, and re-running rewrites on them could apply one
+   * twice.
+   *
+   * Use it for a macro that restructures its argument in a way that would
+   * hide the macros inside it, e.g. `assert()`, which wraps every
+   * sub-expression as `(values[i] = sub)`: done before expansion, that turned
+   * `summon<Show<number>>()` into `(values[i] = summon)()` and gave
+   * extension-method receivers a synthetic node the checker cannot type.
+   *
+   * In the expanded arguments, nodes a nested macro generated are synthetic
+   * (`isSyntheticNode`); the rest keep their source positions. Not applied to
+   * `chainable` macros.
+   */
+  expandArgumentsFirst?: boolean;
+
+  /**
    * Expand the macro call into new AST nodes
    * @param ctx - The macro context
    * @param callExpr - The macro call expression (or outermost chain call if chainable)
@@ -403,6 +423,18 @@ export interface DeriveMacro extends MacroDefinitionBase {
     target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration,
     typeInfo: DeriveTypeInfo
   ): ts.Statement[];
+
+  /**
+   * The value names this derive declares next to the type (functions,
+   * consts), for checks of the source as written, before they exist: an
+   * `import { Circle }` from the module, `export { Circle } from` it, or a
+   * call `Circle(2)` is not an error there. Optional: a derive that only
+   * generates the `Type.TC` companion declares no names of its own.
+   */
+  generatedNames?(
+    checker: ts.TypeChecker,
+    target: ts.InterfaceDeclaration | ts.ClassDeclaration | ts.TypeAliasDeclaration
+  ): readonly string[];
 }
 
 /** Information about a type for derive macros */
@@ -519,6 +551,15 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   continuationLabels?: string[];
 
   /**
+   * The statement the label must be attached to for the macro to apply:
+   * `"block"` (the default, `let: { ... }`) or `"switch"` (`match: switch
+   * (x) { ... }`). A label on any other statement is an ordinary JavaScript
+   * label and is never a dispatch candidate (`all: for (...)` must not be
+   * hijacked).
+   */
+  statement?: "block" | "switch";
+
+  /**
    * Whether the expansion produces a value (vs. a side-effecting block).
    *
    * Comprehensions like `let:/yield:`, `par:/yield:` evaluate to a value
@@ -543,10 +584,22 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   syntaxModule?: string;
 
   /**
+   * The {@link syntaxModule} only activates the label and has nothing to run
+   * (a marker constant). In a file the transformer changed, its side-effect
+   * import (`import "<syntaxModule>";`) is removed from the output, so the
+   * label syntax costs no runtime import. Leave unset for a module with real
+   * runtime content (`@typesugar/std/syntax/do` also provides instances).
+   */
+  erasableSyntaxModule?: boolean;
+
+  /**
    * Expand the labeled block macro
    * @param ctx - The macro context
-   * @param mainBlock - The main labeled statement (e.g., `let: { ... }`)
+   * @param mainBlock - The main labeled statement (e.g., `let: { ... }`, or
+   *   `match: switch (...) { ... }` for a `statement: "switch"` macro)
    * @param continuation - The optional continuation labeled statement (e.g., `yield: { ... }`)
+   * @returns The expansion. On failure, report the error and return `mainBlock`
+   *   unchanged: the transformer then keeps the continuation after it.
    */
   expand(
     ctx: MacroContext,

@@ -63,18 +63,59 @@ showNumber)` specializes on both at once.
   (`eitherFunctor<E>()`), members that reference other instances
   (`map: optionFunctor.map`, shorthand `{ map }`), and companion paths
   (`Point.Numeric`).
-- The std/fp/effect instances (Array/Option/Either/Promise functors and
-  monads, FlatMap instances, etc.) are recognized the same way — from their
-  source declarations, with no special-casing (the compiler's former
-  hard-coded builtin table was removed in PEP-053).
-- Primitive instances (`eqNumber`, `ordString`, ...) inline to native
-  operators (`a === b`, `a < b`) rather than function calls.
+- An instance the compiler only sees as a declaration, because it comes from
+  a package's compiled `.d.ts`, is **not** specialized: the declaration has
+  no method bodies to inline. That covers the instances `@typesugar/std`,
+  `@typesugar/fp` and `@typesugar/effect` ship (`ordNumber`, `eqString`,
+  `optionFunctor`, ...) and a library's `@derive` companions (`Point.Eq`).
+  The call keeps dictionary passing, which is correct, and warns
+  [TS9602](/errors/TS9602) so the
+  cost is visible. For a hot path, declare the instance in your own source
+  (`/** @impl Ord<number> */ const numberOrd = { ... }`, or
+  `derived<Eq<Point>>()` for a type you don't own).
 
-One safety rule for cross-module instances: a method body that references its
-own module's local helpers or imports is not inlined (the identifiers wouldn't
-exist at your call site) — that call keeps dictionary passing, which is always
-correct, just not zero-cost. Methods with self-contained bodies still
-specialize.
+One safety rule for cross-module instances: a method body is inlined only
+where every name it uses resolves, at your call site, to the same declaration
+it does in the instance's module. A body that references its own module's
+local helpers or imports is not inlined (the identifiers wouldn't exist at
+your call site): that call goes through the instance, which is always
+correct, just not zero-cost, and warns TS9602 naming the identifier
+(`the method's body uses 'compareNumber', which is not in scope here`). A
+name the body uses as a value must be a value at your call site: a class you
+import only as a type (`import type { Pt }`, `import { isPt, type Pt }`, or
+through an `export type` re-export) emits no binding, so `isPt.make(3)` is
+not inlined as `new Pt(3)` there.
+Methods with self-contained bodies still specialize. The same goes for a
+method whose body calls a macro (say, a recursive `clone` that calls
+`summon<Clone<Tree>>()`): its source is not yet expanded, so it is called
+through the instance instead of inlined.
+
+An inlined body's type annotations follow the same rule, so the expansion
+type-checks (`typesugar check --strict`) and the `.d.ts` emitted from it has
+the types the source has. A type the call site doesn't import is written
+through an import type (`({ x: 1 }) as import("./ord.js").P`), and the
+method's own type parameter (`A` in `o as unknown as A`) as the call
+instantiates it (`o as unknown as number`). A type that can't be named there
+(an interface private to the instance's module, or a type parameter the call
+doesn't instantiate) keeps the call going through the instance. Nothing is
+ever written as `any`. An exported declaration an inlined call initializes
+(`export const r = mapArr.map(xs, f)`, or a function returning one) is
+declared with the type the source gives it, the typeclass member's (`r:
+unknown` when `map` is declared to return `unknown`), not the inlined body's
+narrower one (`number[]`), unless that type can't be named at the
+declaration (a class local to the function, a class expression's own
+`typeof`): then it keeps the type the expansion infers. An
+argument whose type is narrower than its parameter's (`extract(Nil)`,
+`Nil: null`, for `l: List<A>`) is substituted as it is when the body reads
+the parameter once; when the body reads it more than once, its own tests
+(`l != null ? l.head : …`) would narrow the argument to `never`, so that call
+goes through the instance too.
+
+When every use of an imported instance is inlined, its import is not emitted
+either (`typesugar build`, ts-patch): `import { mkP } from "./ord.js"` would
+load the module for nothing. A binding the code still uses (a call that
+wasn't inlined, `const inst = mkP`, `export { mkP }`), the declaration's
+other bindings and side-effect imports (`import "./setup.js"`) stay.
 
 ### With `= implicit()`
 
@@ -92,7 +133,18 @@ sortWith([3, 1, 2]);
 __typesugar___sortWith_number_0__([3, 1, 2]);
 ```
 
-The same fallbacks and opt-outs apply as for an explicit call.
+The same fallbacks and opt-outs apply as for an explicit call. In
+particular, an instance `= implicit()` finds in a package's `.d.ts` is passed
+but not inlined, with the same TS9602 warning:
+
+```typescript
+import { type Ord } from "@typesugar/std";
+
+sortWith([3, 1, 2]);
+// Compiles to sortWith([3, 1, 2], ordNumber), with `import { ordNumber } from
+// "@typesugar/std"` added, and warns TS9602: 'ordNumber' is only visible as a
+// declaration (from a .d.ts)
+```
 
 There is one extra fallback. Suppose a function's body calls another
 `= implicit()` function without passing the dictionary, and relies on its own
@@ -111,7 +163,7 @@ sortTwice([3, 1, 2]); // compiles to sortTwice([3, 1, 2], numberOrd)
 
 The transformer only inlines what it can prove sound. A call falls back to
 dictionary passing — semantically identical, just not inlined — and emits a
-[TS9602](/guides/error-messages#auto-specialization-skipped-ts9602) warning
+[TS9602](/errors/TS9602) warning
 when the function body:
 
 - can't be resolved (e.g. the function comes from an untyped/dynamic source —
@@ -121,6 +173,12 @@ when the function body:
   (simple guard-clause chains _are_ flattened into ternaries);
 - calls an `= implicit()` function without passing its instance argument
   (see [With `= implicit()`](#with-implicit)).
+
+and when an instance method's body uses a name that isn't in scope at the call
+site (see [Which instances are recognized](#which-instances-are-recognized)).
+
+It also warns TS9602 when the instance itself is only a declaration (from a
+package's `.d.ts`; see [Which instances are recognized](#which-instances-are-recognized)).
 
 Result-returning functions get one extra trick: **return-type-driven
 specialization** rewrites `ok()`/`err()` constructors when a `Result`-typed
@@ -156,6 +214,7 @@ dictionary parameter to confirm it's gone.
 ## Learn More
 
 - [Typeclasses Guide](/guides/typeclasses) — defining typeclasses and instances
+- [TS9602](/errors/TS9602) — auto-specialization skipped
 - [Error Messages Guide](/guides/error-messages) — TS9602 and friends
 - [Macro Triggers Reference](/macro-triggers) — where auto-specialization runs
   in the pipeline

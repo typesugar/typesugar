@@ -18,6 +18,9 @@
 import { assert, typeAssert, type Equal, type Extends } from "@typesugar/testing";
 // Note: `Not` type is available but not used in this showcase (only appears in doc comments)
 
+// The service/layer registries and register() are build-time machinery: they
+// live in the macros entry ("@typesugar/effect/macros"), which imports
+// `typescript`, not in the runtime entry.
 import {
   // @service macro
   // Note: serviceRegistry is exported but not demonstrated here (used internally by @service macro)
@@ -37,6 +40,11 @@ import {
   // Note: resolveLayer is a macro that compiles to Layer composition - cannot be called directly
   // resolveLayer,
 
+  // Registration of the Effect macros
+  register,
+} from "../src/macros.js";
+
+import {
   // @derive macros
   EffectSchema,
   EffectEqual,
@@ -76,13 +84,12 @@ import {
   effectEitherMonad,
   effectInstances,
 
-  // FlatMap registration
+  // FlatMap instance (do-notation)
   flatMapEffect,
-  register,
 } from "../src/index.js";
 
 import type { Effect, Chunk, Option, Either, Stream } from "effect";
-import type { Kind } from "@typesugar/type-system";
+import type { Apply } from "@typesugar/type-system";
 
 // ============================================================================
 // 1. SERVICE REGISTRY — Define and Register Effect Services
@@ -94,9 +101,21 @@ import type { Kind } from "@typesugar/type-system";
 const httpClientInfo: ServiceInfo = {
   name: "HttpClient",
   methods: [
-    { name: "get", paramTypes: ["string"], returnType: "Effect<Response, HttpError>" },
-    { name: "post", paramTypes: ["string", "unknown"], returnType: "Effect<Response, HttpError>" },
+    {
+      name: "get",
+      params: [{ name: "url", typeString: "string" }],
+      returnType: "Effect<Response, HttpError>",
+    },
+    {
+      name: "post",
+      params: [
+        { name: "url", typeString: "string" },
+        { name: "body", typeString: "unknown" },
+      ],
+      returnType: "Effect<Response, HttpError>",
+    },
   ],
+  sourceFile: "http-client.ts",
 };
 
 registerService(httpClientInfo);
@@ -147,28 +166,30 @@ assert(userRepoLayers[0].requires.includes("Database"));
 // ============================================================================
 
 // EffectF<E, R> fixes the error and requirements, varying only the success type.
-// Kind<EffectF<never, never>, number> = Effect<number, never, never>
+// Apply<F, A> computes the applied type: Apply<EffectF<never, never>, number>
+// is Effect<number, never, never>. (Kind<F, A> is the phantom marker HKT
+// signatures use; it is not computed.)
 
-type PureNum = Kind<EffectF<never, never>, number>;
+type PureNum = Apply<EffectF<never, never>, number>;
 typeAssert<Equal<PureNum, Effect.Effect<number, never, never>>>();
 
-type HttpResult = Kind<EffectF<Error, never>, string>;
+type HttpResult = Apply<EffectF<Error, never>, string>;
 typeAssert<Equal<HttpResult, Effect.Effect<string, Error, never>>>();
 
 // ChunkF is a single-parameter type-level function
-type NumberChunk = Kind<ChunkF, number>;
+type NumberChunk = Apply<ChunkF, number>;
 typeAssert<Equal<NumberChunk, Chunk.Chunk<number>>>();
 
 // EffectOptionF wraps Effect's Option
-type MaybeString = Kind<EffectOptionF, string>;
+type MaybeString = Apply<EffectOptionF, string>;
 typeAssert<Equal<MaybeString, Option.Option<string>>>();
 
 // EffectEitherF<E> fixes the error type
-type StringResult = Kind<EffectEitherF<string>, number>;
+type StringResult = Apply<EffectEitherF<string>, number>;
 typeAssert<Equal<StringResult, Either.Either<number, string>>>();
 
 // StreamF<E, R> for streaming
-type EventStream = Kind<StreamF<Error, never>, string>;
+type EventStream = Apply<StreamF<Error, never>, string>;
 typeAssert<Equal<EventStream, Stream.Stream<string, Error, never>>>();
 
 // ============================================================================

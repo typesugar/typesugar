@@ -7,8 +7,13 @@
 
 import type { FusedVec } from "./types.js";
 
-/** Wrap a numeric array for element-wise operations */
-export function vec<T extends number>(data: readonly T[]): FusedVec<T> {
+/**
+ * Wrap a numeric array for element-wise operations. The element type is
+ * `number` unless given explicitly (`vec<Meters>(xs)`): it is not inferred
+ * from the argument, which would make `vec([1, 2, 3])` a vector of the
+ * literals `1 | 2 | 3` that arithmetic results can't be assigned back to.
+ */
+export function vec<T extends number = number>(data: readonly NoInfer<T>[]): FusedVec<T> {
   return { data, length: data.length };
 }
 

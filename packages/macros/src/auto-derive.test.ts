@@ -634,15 +634,13 @@ describe("tryDeriveViaGeneric — TypeChecker mirror synthesis", () => {
     expect(rendered).toContain('"square"');
   });
 
-  it("scope-search fallback (no AST node) currently yields no usable meta for interfaces — known limitation", () => {
-    // BUG/LIMITATION discovered while writing this test:
-    //   extractMetaFromTypeChecker's fallback path uses getSymbolsInScope(...)
-    //   and then getDeclaredTypeOfSymbol(sym). For interface symbols obtained
-    //   that way, getDeclaredTypeOfSymbol returns the empty "any" type, so the
-    //   property scan yields zero data fields and the function returns null.
-    //   In practice, summon/implicits always pass the declaring AST node, which
-    //   avoids the issue. This test pins the current behaviour so we'll notice
-    //   if it changes (intended or otherwise).
+  it("scope-search fallback (no AST node) finds an interface exported from the same file", () => {
+    // This used to be a pinned limitation: getSymbolsInScope returns the
+    // LOCAL symbol of `export interface X`, which is only the export's
+    // stand-in (ExportType), so it was skipped and derivation failed with a
+    // generic-meta miss. The scope search now follows it to the export
+    // symbol, so derived<TC<X>>() / summon<TC<X>>() work for a type
+    // exported from the file they are written in.
     const name = `${TEST_TC_PREFIX}ScopeFallback`;
     let invoked = false;
     makeStrategy(name, {
@@ -657,14 +655,11 @@ describe("tryDeriveViaGeneric — TypeChecker mirror synthesis", () => {
     `;
     withMacroContext(source, (ctx) => {
       const result = tryDeriveViaGeneric(ctx, name, "AdScopeIface");
-      // Current behavior: the scope-search path can't materialize an interface's
-      // properties without the AST node, so derivation fails with a generic-meta miss.
-      expect(result.expression).toBeNull();
+      expect(result.expression).not.toBeNull();
       const metaStep = result.trace.find((t) => t.step === "generic-meta");
-      expect(metaStep?.result).toBe("not-found");
+      expect(metaStep?.result).toBe("found");
     });
-    // deriveProduct is never called because meta extraction failed.
-    expect(invoked).toBe(false);
+    expect(invoked).toBe(true);
   });
 
   it("scope-search fallback DOES work when the AST node is passed (interface path)", () => {
@@ -760,5 +755,280 @@ describe("makePrimitiveChecker", () => {
     expect(numericOnly("string")).toBe(false);
     expect(numericOnly("number[]")).toBe(true);
     expect(numericOnly("number | null")).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Built-in Clone derivation (Turf case study, Stage 1)
+// ===========================================================================
+
+describe("built-in Clone derivation", () => {
+  /**
+   * Derive Clone<typeName> from `source`, print it, and evaluate it to the
+   * instance. `prelude` is JS evaluated before it (classes the clone uses).
+   */
+  function deriveClone(
+    source: string,
+    typeName: string,
+    prelude = ""
+  ): { clone: (a: unknown) => any; text: string; warnings: string[] } {
+    return withMacroContext(source, (ctx, sf) => {
+      const decl = sf.statements.find(
+        (s): s is ts.TypeAliasDeclaration | ts.InterfaceDeclaration =>
+          (ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) && s.name.text === typeName
+      );
+      const result = tryDeriveViaGeneric(ctx, "Clone", typeName, decl);
+      expect(result.expression).not.toBeNull();
+      const text = ts.createPrinter().printNode(ts.EmitHint.Expression, result.expression!, sf);
+      const js = ts.transpileModule(`${prelude}\nexport default ${text};`, {
+        compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
+      }).outputText;
+      const mod = { exports: {} as Record<string, any> };
+      new Function("module", "exports", js)(mod, mod.exports);
+      const warnings = ctx
+        .getDiagnostics()
+        .filter((d) => d.severity === "warning")
+        .map((d) => d.message);
+      return { clone: mod.exports.default.clone, text, warnings };
+    });
+  }
+
+  it("leaves an absent optional field absent, and keeps undeclared properties", () => {
+    const { clone } = deriveClone(
+      `export interface CloneOpt { type: "P"; xs: number[]; bbox?: number[] }`,
+      "CloneOpt"
+    );
+    const original = { type: "P", xs: [1, 2], extra: "kept" };
+    const copy = clone(original);
+    expect(copy).not.toBe(original);
+    expect(Object.keys(copy)).toEqual(["type", "xs", "extra"]);
+    expect(copy).toEqual(original);
+    // Field-wise: the array is cloned, not shared.
+    expect(copy.xs).not.toBe(original.xs);
+    // A present optional field is cloned too, and keeps its key position.
+    const withBbox = { type: "P", bbox: [0, 1], xs: [3] };
+    const c2 = clone(withBbox);
+    expect(Object.keys(c2)).toEqual(["type", "bbox", "xs"]);
+    expect(c2.bbox).toEqual([0, 1]);
+    expect(c2.bbox).not.toBe(withBbox.bbox);
+  });
+
+  it("emits a hand-written-style clone: a spread, then the fields that need cloning", () => {
+    const { text } = deriveClone(
+      `export interface Shape { id: number; name: string; pts: number[]; rows: number[][]; bbox?: [number, number]; tag: "s" | "t" }`,
+      "Shape"
+    );
+    expect(text).toBe(
+      "({ clone: (a: Shape): Shape => ({ ...a, pts: a.pts.slice(), " +
+        "rows: a.rows.map(e => e.slice()), " +
+        "...(a.bbox && { bbox: a.bbox.slice() as typeof a.bbox }) }) })"
+    );
+  });
+
+  it("an all-primitive type is a plain spread", () => {
+    const { text } = deriveClone(
+      `export interface Pt { x: number; y: number; label?: string }`,
+      "Pt"
+    );
+    expect(text).toBe("({ clone: (a: Pt): Pt => ({ ...a }) })");
+  });
+
+  it("clones nested objects, arrays of objects, and nullable fields; the clone is independent", () => {
+    const { clone, text } = deriveClone(
+      `interface Inner { tags: string[]; n: number }
+       export interface Outer {
+         id: number;
+         inner: Inner;
+         items: Inner[];
+         maybe: Inner | null;
+         opt?: Inner;
+         grid: readonly (readonly number[])[];
+       }`,
+      "Outer"
+    );
+    // No runtime instance lookup: Inner (no instance in scope) is inlined.
+    expect(text).not.toMatch(/\.clone\(/);
+    const original = {
+      id: 1,
+      inner: { tags: ["a"], n: 1 },
+      items: [{ tags: ["b"], n: 2 }],
+      maybe: null,
+      grid: [[1, 2]],
+    };
+    const copy = clone(original);
+    expect(copy).toEqual(original);
+    expect(Object.keys(copy)).toEqual(Object.keys(original)); // `opt` stays absent
+    copy.inner.tags.push("x");
+    copy.items[0].tags.push("y");
+    copy.items.push({ tags: [], n: 0 });
+    copy.grid[0].push(3);
+    expect(original.inner.tags).toEqual(["a"]);
+    expect(original.items).toEqual([{ tags: ["b"], n: 2 }]);
+    expect(original.grid).toEqual([[1, 2]]);
+    expect(copy.maybe).toBeNull();
+
+    const withOpt = { ...original, maybe: { tags: ["m"], n: 3 }, opt: { tags: ["o"], n: 4 } };
+    const c2 = clone(withOpt);
+    expect(c2.maybe).toEqual(withOpt.maybe);
+    expect(c2.maybe).not.toBe(withOpt.maybe);
+    expect(c2.opt.tags).not.toBe(withOpt.opt.tags);
+  });
+
+  it("derives for a discriminated union (sum type), per variant", () => {
+    const { clone, text } = deriveClone(
+      `interface CA { type: "A"; xs: number[] }
+       interface CB { type: "B"; y: string }
+       interface CC { type: "C"; xs: number[] }
+       export type CloneAB = CA | CB | CC;`,
+      "CloneAB"
+    );
+    // Variants with the same clone share a case group.
+    expect(text).toBe(
+      "({ clone: (a: CloneAB): CloneAB => { switch (a.type) {\n" +
+        '        case "A":\n' +
+        '        case "C": return { ...a, xs: a.xs.slice() };\n' +
+        '        case "B": return { ...a };\n' +
+        "    } } })"
+    );
+    const a = { type: "A", xs: [1] };
+    const b = { type: "B", y: "s" };
+    expect(clone(a)).toEqual(a);
+    expect(clone(a).xs).not.toBe(a.xs);
+    expect(clone(b)).toEqual(b);
+    expect(clone(b)).not.toBe(b);
+  });
+
+  it("a recursive type derives (no compile-time loop) through a local helper", () => {
+    const { clone, text } = deriveClone(
+      `export interface Tree { value: number; children: Tree[]; parent?: Tree }`,
+      "Tree"
+    );
+    expect(text).toBe(
+      "(() => { const cloneTree = (a: Tree): Tree => ({ ...a, children: a.children.map(cloneTree), " +
+        "...(a.parent && { parent: cloneTree(a.parent) }) }); return { clone: cloneTree }; })()"
+    );
+    const t = { value: 1, children: [{ value: 2, children: [] }] };
+    const c = clone(t);
+    expect(c).toEqual(t);
+    c.children[0].children.push({ value: 3, children: [] });
+    expect(t.children[0].children).toEqual([]);
+  });
+
+  it("recursion through a union (GeometryCollection-shaped)", () => {
+    const { clone, text } = deriveClone(
+      `interface Pt { type: "Point"; coordinates: number[] }
+       interface Coll { type: "Collection"; geometries: Geom[] }
+       export type Geom = Pt | Coll;`,
+      "Geom"
+    );
+    expect(text).toBe(
+      "(() => { const cloneGeom = (a: Geom): Geom => { switch (a.type) {\n" +
+        '    case "Point": return { ...a, coordinates: a.coordinates.slice() };\n' +
+        '    case "Collection": return { ...a, geometries: a.geometries.map(cloneGeom) };\n' +
+        "} }; return { clone: cloneGeom }; })()"
+    );
+    const g = { type: "Collection", geometries: [{ type: "Point", coordinates: [1, 2] }] };
+    const c = clone(g);
+    expect(c).toEqual(g);
+    c.geometries[0].coordinates.reverse();
+    expect(g.geometries[0].coordinates).toEqual([1, 2]);
+  });
+
+  it("any, unknown and function fields are copied by reference", () => {
+    const { clone, text, warnings } = deriveClone(
+      `export interface Bag { data: any; meta: unknown; fn: () => number; list: any[] }`,
+      "Bag"
+    );
+    expect(text).toBe("({ clone: (a: Bag): Bag => ({ ...a, list: a.list.slice() }) })");
+    expect(warnings.filter((w) => w.includes("derived Clone"))).toEqual([]);
+    const data = { deep: [1] };
+    const bag = { data, meta: data, fn: () => 1, list: [data] };
+    const c = clone(bag);
+    expect(c.data).toBe(data);
+    expect(c.meta).toBe(data);
+    expect(c.fn).toBe(bag.fn);
+    expect(c.list).not.toBe(bag.list);
+    expect(c.list[0]).toBe(data);
+  });
+
+  it("an in-scope Clone<any> instance is used for any fields", () => {
+    const { text } = deriveClone(
+      `/** @impl Clone<any> */
+       const cloneAny = { clone: (x: any): any => structuredClone(x) };
+       export interface Bag { data: any; n: number }`,
+      "Bag"
+    );
+    expect(text).toBe("({ clone: (a: Bag): Bag => ({ ...a, data: cloneAny.clone(a.data) }) })");
+  });
+
+  it("Date, Map, Set, RegExp, typed arrays and Record values are copied into new ones", () => {
+    const { clone } = deriveClone(
+      `export interface Lib { when: Date; byId: Map<string, number[]>; ids: Set<number>; rec: Record<string, number[]>; re: RegExp; bytes: Uint8Array }`,
+      "Lib"
+    );
+    const v = {
+      when: new Date(5),
+      byId: new Map([["a", [1]]]),
+      ids: new Set([1]),
+      rec: { r: [2] },
+      re: /x/g,
+      bytes: new Uint8Array([7]),
+    };
+    const c = clone(v);
+    expect(c.when).not.toBe(v.when);
+    expect(c.when.getTime()).toBe(5);
+    expect(c.byId).not.toBe(v.byId);
+    expect(c.byId.get("a")).toEqual([1]);
+    expect(c.byId.get("a")).not.toBe(v.byId.get("a"));
+    expect(c.ids).not.toBe(v.ids);
+    expect([...c.ids]).toEqual([1]);
+    expect(c.rec.r).toEqual([2]);
+    expect(c.rec.r).not.toBe(v.rec.r);
+    expect(c.re).not.toBe(v.re);
+    expect(String(c.re)).toBe("/x/g");
+    expect(c.bytes).not.toBe(v.bytes);
+    expect([...c.bytes]).toEqual([7]);
+  });
+
+  it("tuples: element-wise, keeping the tuple type", () => {
+    const { clone, text } = deriveClone(
+      `interface P { xs: number[] }
+       export interface T { pair: [P, number]; bbox: [number, number] | [number, number, number] }`,
+      "T"
+    );
+    expect(text).toBe(
+      "({ clone: (a: T): T => ({ ...a, pair: [{ ...a.pair[0], xs: a.pair[0].xs.slice() }, a.pair[1]] as typeof a.pair, " +
+        "bbox: a.bbox.slice() as typeof a.bbox }) })"
+    );
+    const v = { pair: [{ xs: [1] }, 2], bbox: [1, 2] };
+    const c = clone(v);
+    expect(c).toEqual(v);
+    expect(c.pair[0].xs).not.toBe((v.pair[0] as { xs: number[] }).xs);
+    expect(c.bbox).not.toBe(v.bbox);
+  });
+
+  it("a nested class without a Clone instance is copied by reference, with a warning", () => {
+    const { clone, warnings } = deriveClone(
+      `class Conn { constructor(public url: string) {} }
+       export interface Holder { conn: Conn; n: number }`,
+      "Holder"
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/'Conn' is a class with no Clone instance in scope/);
+    const conn = { url: "x" };
+    expect(clone({ conn, n: 1 }).conn).toBe(conn);
+  });
+
+  it("a nested type with an @derive(Clone) companion is cloned through it", () => {
+    const { text } = deriveClone(
+      `/** @derive(Clone) */
+       export interface Address { city: string; lines: string[] }
+       export interface Person { name: string; address: Address }`,
+      "Person",
+      "var Address = { Clone: { clone: (a) => ({ ...a, lines: a.lines.slice() }) } };"
+    );
+    expect(text).toBe(
+      "({ clone: (a: Person): Person => ({ ...a, address: Address.Clone.clone(a.address) }) })"
+    );
   });
 });

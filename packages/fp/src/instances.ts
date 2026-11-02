@@ -556,6 +556,9 @@ export const flatMapOption = {
     (fa as any) !== null ? (f(fa as any) as any) : (null as any),
   flatMap: <A, B>(fa: Option<A>, f: (a: A) => Option<B>): Option<B> =>
     (fa as any) !== null ? f(fa as any) : (null as any),
+  /** FlatMap extends Apply: `fab`'s function applied to `fa`'s value, when both are Some. */
+  ap: <A, B>(fab: Option<(a: A) => B>, fa: Option<A>): Option<B> =>
+    (fab as any) !== null && (fa as any) !== null ? ((fab as any)(fa) as any) : (null as any),
   /** `x << fa || alt` / `?? alt` in `let:`: `fa` if it is Some, else `f()`. */
   orElse: <A>(fa: Option<A>, f: (none: null) => Option<A>): Option<A> =>
     (fa as any) !== null ? fa : f(null),
@@ -603,6 +606,9 @@ export const flatMapIO = {
   _tag: "IO" as const,
   map: <A, B>(fa: IO<A>, f: (a: A) => B): IO<B> => IONamespace.map(fa, f),
   flatMap: <A, B>(fa: IO<A>, f: (a: A) => IO<B>): IO<B> => IONamespace.flatMap(fa, f),
+  /** FlatMap extends Apply: run `fab`, then `fa`, and apply. */
+  ap: <A, B>(fab: IO<(a: A) => B>, fa: IO<A>): IO<B> =>
+    IONamespace.flatMap(fab, (f) => IONamespace.map(fa, f)),
 };
 /**
  * FlatMap instance for List.
@@ -616,6 +622,9 @@ export const flatMapList = {
   _tag: "List" as const,
   map: <A, B>(fa: List<A>, f: (a: A) => B): List<B> => listMap(fa, f),
   flatMap: <A, B>(fa: List<A>, f: (a: A) => List<B>): List<B> => listFlatMap(fa, f),
+  /** FlatMap extends Apply: every function of `fab` applied to every value of `fa`. */
+  ap: <A, B>(fab: List<(a: A) => B>, fa: List<A>): List<B> =>
+    listFlatMap(fab, (f) => listMap(fa, f)),
 };
 /**
  * Create FlatMap instance for Validated with a fixed error type E.

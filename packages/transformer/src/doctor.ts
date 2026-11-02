@@ -49,13 +49,40 @@ function readPackageDeps(cwd: string): Record<string, string> {
 }
 
 /**
- * A project that compiles through a bundler with unplugin-typesugar doesn't
- * need ts-patch at all — the ts-patch checks must not fail for it.
+ * Does the project compile through a patched tsc? ts-patch installed, or the
+ * tsconfig's `{ "transform": "@typesugar/transformer" }` plugin together with
+ * a script that runs `tsc`/`tspc`. Only then do the ts-patch checks apply: a
+ * project that builds with `typesugar build`, runs under `node --import
+ * typesugar/register` or uses a bundler plugin expands macros without it.
  */
-function usesBundlerPlugin(cwd: string): boolean {
-  const deps = readPackageDeps(cwd);
-  return Boolean(deps["unplugin-typesugar"]);
+function usesPatchedTsc(cwd: string): boolean {
+  if (readPackageDeps(cwd)["ts-patch"]) return true;
+  if (!hasTransformPlugin(cwd)) return false;
+  let scripts: Record<string, string> = {};
+  try {
+    scripts = JSON.parse(fs.readFileSync(path.join(cwd, "package.json"), "utf-8")).scripts ?? {};
+  } catch {
+    return false;
+  }
+  return Object.values(scripts).some(
+    (script) => typeof script === "string" && /(^|[\s;&|(])(tsc|tspc)(?=$|[\s;&|)])/.test(script)
+  );
 }
+
+/** Does tsconfig.json list `{ "transform": "@typesugar/transformer" }`? */
+function hasTransformPlugin(cwd: string): boolean {
+  const tsconfigPath = path.join(cwd, "tsconfig.json");
+  if (!fs.existsSync(tsconfigPath)) return false;
+  try {
+    const read = readTsConfigPlugins(tsconfigPath);
+    return !("error" in read) && read.plugins.some((p) => p.transform === "@typesugar/transformer");
+  } catch {
+    return false;
+  }
+}
+
+const NO_PATCHED_TSC =
+  "Not needed: no patched tsc (typesugar build, the Node loader and bundler plugins expand macros themselves)";
 
 interface DiagnosticCheck {
   name: string;
@@ -229,11 +256,11 @@ export function checkTransformerPlugin(cwd: string): DiagnosticCheck {
 
     const hasTransformer = read.plugins.some((p) => p.transform === "@typesugar/transformer");
 
-    if (!hasTransformer && usesBundlerPlugin(cwd)) {
+    if (!hasTransformer && !usesPatchedTsc(cwd)) {
       return {
         name: "Transformer plugin configured",
         status: "skip",
-        message: "Not needed: using unplugin-typesugar",
+        message: NO_PATCHED_TSC,
       };
     }
 
@@ -334,11 +361,11 @@ export function checkTsPatch(cwd: string): DiagnosticCheck {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
-    if (!allDeps["ts-patch"] && usesBundlerPlugin(cwd)) {
+    if (!allDeps["ts-patch"] && !usesPatchedTsc(cwd)) {
       return {
         name: "ts-patch installed",
         status: "skip",
-        message: "Not needed: using unplugin-typesugar",
+        message: NO_PATCHED_TSC,
       };
     }
 
@@ -376,14 +403,6 @@ export function checkTsPatchActive(cwd: string): DiagnosticCheck {
     };
   }
 
-  if (!readPackageDeps(cwd)["ts-patch"] && usesBundlerPlugin(cwd)) {
-    return {
-      name: "ts-patch active",
-      status: "skip",
-      message: "Not needed: using unplugin-typesugar",
-    };
-  }
-
   try {
     // ts-patch prepends a `/// tsp-module:` header block to every module it
     // patches (see ts-patch's patch-detail.ts: tspHeaderBlockStart). Check
@@ -396,6 +415,14 @@ export function checkTsPatchActive(cwd: string): DiagnosticCheck {
     const bytesRead = fs.readSync(fd, head, 0, head.length, 0);
     fs.closeSync(fd);
     const isPatched = head.toString("utf-8", 0, bytesRead).includes("/// tsp-module:");
+
+    if (!isPatched && !usesPatchedTsc(cwd)) {
+      return {
+        name: "ts-patch active",
+        status: "skip",
+        message: NO_PATCHED_TSC,
+      };
+    }
 
     if (!isPatched) {
       return {
@@ -420,7 +447,7 @@ export function checkTsPatchActive(cwd: string): DiagnosticCheck {
   }
 }
 
-function checkPrepareScript(cwd: string): DiagnosticCheck {
+export function checkPrepareScript(cwd: string): DiagnosticCheck {
   const pkgPath = path.join(cwd, "package.json");
 
   if (!fs.existsSync(pkgPath)) {
@@ -434,13 +461,12 @@ function checkPrepareScript(cwd: string): DiagnosticCheck {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     const prepareScript = pkg.scripts?.prepare ?? "";
-    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
 
-    if (!allDeps["ts-patch"] && usesBundlerPlugin(cwd)) {
+    if (!usesPatchedTsc(cwd)) {
       return {
         name: "prepare script configured",
         status: "skip",
-        message: "Not needed: using unplugin-typesugar",
+        message: NO_PATCHED_TSC,
       };
     }
 

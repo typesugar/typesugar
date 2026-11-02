@@ -70,6 +70,16 @@
         "types": "./dist/rollup.d.cts",
         "default": "./dist/rollup.cjs"
       }
+    },
+    "./tsup": {
+      "import": {
+        "types": "./dist/tsup.d.ts",
+        "default": "./dist/tsup.js"
+      },
+      "require": {
+        "types": "./dist/tsup.d.cts",
+        "default": "./dist/tsup.cjs"
+      }
     }
   },
   "scripts": {
@@ -85,6 +95,7 @@
     "webpack",
     "esbuild",
     "rollup",
+    "tsup",
     "bundler",
     "plugin"
   ],

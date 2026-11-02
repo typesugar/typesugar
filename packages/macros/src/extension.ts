@@ -277,10 +277,14 @@ function getBaseTypeName(ctx: MacroContext, typeNode: ts.TypeNode): string {
 /**
  * Create a runtime registration call statement that persists in dist.
  *
- * Emits: globalThis.__typesugar_registerExtension?.({...})
+ * Emits: (globalThis as any).__typesugar_registerExtension?.({...})
  *
  * The hook is set up by @typesugar/core at load time. Using globalThis avoids
  * needing an import in the target file (which may not import @typesugar/core).
+ * `as any`, like the companion registry's `(globalThis as any)
+ * .__typesugar_companions`: the hook is declared nowhere the file can see, so
+ * a bare `globalThis.__typesugar_registerExtension` is TS7017 under
+ * noImplicitAny wherever the expansion is type-checked (`check --strict`).
  */
 export function createRegistrationCall(
   factory: ts.NodeFactory,
@@ -298,9 +302,14 @@ export function createRegistrationCall(
     );
   }
 
-  // globalThis.__typesugar_registerExtension?.({ methodName, forType, qualifier })
+  // (globalThis as any).__typesugar_registerExtension?.({ methodName, forType, qualifier })
   const hook = factory.createPropertyAccessExpression(
-    factory.createIdentifier("globalThis"),
+    factory.createParenthesizedExpression(
+      factory.createAsExpression(
+        factory.createIdentifier("globalThis"),
+        factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)
+      )
+    ),
     "__typesugar_registerExtension"
   );
 

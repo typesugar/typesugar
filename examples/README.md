@@ -11,13 +11,17 @@ directory anywhere and `npm install` works.
 | ------------------------------------ | ---------------------------------------------------------- |
 | [`hello-world`](./standalone/hello-world) | `comptime`, `@derive`, operator sugar, `match` — in ~60 lines |
 
-Start here if you want something to run.
+Start here if you want something to run. CI also builds each of them (and a
+library from `typesugar create library`) against the repo's own packages
+(`scripts/build-standalone-examples.mjs`), so a change that breaks them fails
+before a release.
 
 ## Everything else — monorepo fixtures
 
 `basic/`, `implicits/` and `dry-runs/*` depend on the workspace
-(`"typesugar": "workspace:*"`), so they are exercised by this repo's CI and
-they will **not** install outside it. They're dogfood and regression fixtures,
+(`"typesugar": "workspace:*"`), so they are exercised by this repo's CI (the
+Examples job runs each one's `check`, `build` and `start` scripts) and they will
+**not** install outside it. They're dogfood and regression fixtures,
 not templates.
 
 To start a real project, use the scaffolder rather than copying one of these:

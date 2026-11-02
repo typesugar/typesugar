@@ -1,12 +1,12 @@
 /**
  * Resolution Scope Tracking
  *
- * Tracks which typeclasses and extensions are "in scope" for a given file,
- * based on imports and the configured resolution mode.
+ * Tracks which typeclasses and extensions are "in scope" for a given file:
+ * the typeclasses it defines, and the operator / method / label syntax its
+ * `@syntax-*` marker imports activate (PEP-052).
  *
- * In "import-scoped" mode, only imported typeclasses are resolved.
- * In "automatic" mode, all registered typeclasses plus prelude are available.
- * In "explicit" mode, no implicit resolution happens.
+ * Each file's scope still records the configured `resolution.mode`, but
+ * nothing reads it: 1.0 has no "automatic" or "explicit" modes and no prelude.
  */
 
 import * as ts from "typescript";
@@ -505,12 +505,29 @@ function commentTextsInRange(sourceFile: ts.SourceFile, start: number, end: numb
     end - start
   );
   const out: string[] = [];
+  // Template substitutions: the scanner returns a `}` as a plain brace, and
+  // only the caller knows it closes a `${`. Without re-scanning it as the
+  // template's continuation, the template's closing backtick read as the
+  // start of a new template, which swallowed the rest of the line, comments
+  // included (`grammar\`a ${y}\` // @ts-no-typesugar` was not opted out).
+  // Each entry: the brace depth inside one open `${ ... }`.
+  const substitutions: number[] = [];
   for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
     if (
       kind === ts.SyntaxKind.SingleLineCommentTrivia ||
       kind === ts.SyntaxKind.MultiLineCommentTrivia
     ) {
       out.push(scanner.getTokenText());
+    } else if (kind === ts.SyntaxKind.TemplateHead) {
+      substitutions.push(0);
+    } else if (kind === ts.SyntaxKind.OpenBraceToken && substitutions.length > 0) {
+      substitutions[substitutions.length - 1]++;
+    } else if (kind === ts.SyntaxKind.CloseBraceToken && substitutions.length > 0) {
+      if (substitutions[substitutions.length - 1] > 0) {
+        substitutions[substitutions.length - 1]--;
+      } else if (scanner.reScanTemplateToken(false) === ts.SyntaxKind.TemplateTail) {
+        substitutions.pop();
+      } // TemplateMiddle: the next substitution, at depth 0 again
     }
   }
   return out;

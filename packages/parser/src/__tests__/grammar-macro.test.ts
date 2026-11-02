@@ -45,6 +45,107 @@ export const g = grammar\`
 \`;
 `;
 
+/** Type errors in `code` under strict (`@typesugar/parser` resolved to this package's src). */
+function typeErrors(code: string): string[] {
+  const fileName = path.resolve(__dirname, "../../__grammar_macro_typecheck.ts");
+  const pkgDir = path.resolve(__dirname, "../..");
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    types: [],
+    baseUrl: pkgDir,
+    paths: { "@typesugar/parser": ["src/index.ts"] },
+  };
+  const host = ts.createCompilerHost(options);
+  const read = host.getSourceFile.bind(host);
+  host.getSourceFile = (f, v, ...rest) =>
+    path.resolve(f) === fileName ? ts.createSourceFile(f, code, v, true) : read(f, v, ...rest);
+  const exists = host.fileExists.bind(host);
+  host.fileExists = (f) => path.resolve(f) === fileName || exists(f);
+  const program = ts.createProgram([fileName], options, host);
+  return ts
+    .getPreEmitDiagnostics(program, program.getSourceFile(fileName))
+    .map((d) => `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, " ")}`);
+}
+
+/** The .d.ts declaration emit gives for `code` (`@typesugar/parser` resolved to this package's src). */
+function declarationOf(code: string): string {
+  const fileName = path.resolve(__dirname, "../../__grammar_macro_dts.ts");
+  const pkgDir = path.resolve(__dirname, "../..");
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    declaration: true,
+    emitDeclarationOnly: true,
+    skipLibCheck: true,
+    types: [],
+    baseUrl: pkgDir,
+    paths: { "@typesugar/parser": ["src/index.ts"] },
+  };
+  const host = ts.createCompilerHost(options);
+  const read = host.getSourceFile.bind(host);
+  host.getSourceFile = (f, v, ...rest) =>
+    path.resolve(f) === fileName ? ts.createSourceFile(f, code, v, true) : read(f, v, ...rest);
+  const exists = host.fileExists.bind(host);
+  host.fileExists = (f) => path.resolve(f) === fileName || exists(f);
+  let out = "";
+  host.writeFile = (f, text) => {
+    if (f.endsWith("__grammar_macro_dts.d.ts")) out = text;
+  };
+  const program = ts.createProgram([fileName], options, host);
+  program.emit(program.getSourceFile(fileName), undefined, undefined, true);
+  return out;
+}
+
+describe("grammar macro: the expansion type-checks (check --strict)", () => {
+  // review 8: the generated parser's members were typed `any`, so the .d.ts
+  // for `export const g = grammar\`...\`` was a structural object with
+  // `parse: (input: any, pos?: any) => any`, and `g.parse(...)` was `any`
+  // (the runtime tag's type is `Grammar<unknown>`, its parse `ParseResult`).
+  it("keeps the runtime tag's type: Grammar<unknown>, and parse's ParseResult", () => {
+    const { code, diagnostics } = expand(`import { grammar } from "@typesugar/parser";
+export const g = grammar\`
+  start = 'a'..'z'+
+\`;
+export const r = g.parse("abc");
+export const all = g.parseAll("abc");
+`);
+    expect(diagnostics).toEqual([]);
+    expect(typeErrors(code)).toEqual([]);
+    const dts = declarationOf(code);
+    expect(dts).not.toMatch(/\bany\b/);
+    expect(dts).toMatch(/g: import\("@typesugar\/parser"\)\.Grammar<unknown>;/);
+    expect(dts).toMatch(/r: import\("@typesugar\/parser"\)\.ParseResult<unknown>;/);
+    expect(dts).toMatch(/all: unknown;/);
+    expect(run(code).r.ok).toBe(true);
+  });
+
+  // The generated parser's functions had untyped parameters (TS7006 for
+  // every `input`/`pos`/`value`), `var best = null` read as `never`
+  // (TS2339 on `best.pos`), and `parse(input, pos)` required `pos` (TS2554
+  // for `p.parse("x")`): 75 errors in parser's grammar.test.ts.
+  it("has no type errors, and parse's position is optional", () => {
+    const { code, diagnostics } = expand(`import { grammar } from "@typesugar/parser";
+export const g = grammar\`
+  start  = "(" item+ ")" | !"x" digit* | "y"?
+  item   = letter (letter | digit)*
+  letter = 'a'..'z'
+  digit  = '0'..'9'
+\`;
+export const r = g.parse("(ab1)");
+`);
+    expect(diagnostics).toEqual([]);
+    expect(typeErrors(code)).toEqual([]);
+    expect(run(code).r.ok).toBe(true);
+  });
+});
+
 describe("grammar macro: AST codegen (TSP-8)", () => {
   it("expands to an inline parser that works at runtime", () => {
     const { code, diagnostics } = expand(IDENT);
@@ -78,7 +179,9 @@ describe("grammar macro: AST codegen (TSP-8)", () => {
         throw new Error("parseStatements must not be called");
       },
       reportError: (_n: ts.Node, m: string) => errors.push(m),
-      reportWarning: (_n: ts.Node, m: string) => errors.push(m),
+      // No checker in this stub: the parser's type falls back to
+      // `import("@typesugar/parser").Grammar<unknown>`, with a warning.
+      reportWarning: () => {},
       ensureImport: (name: string) => ts.factory.createIdentifier(name),
     };
     const out = grammarMacro.expand(ctx, node);
@@ -90,7 +193,13 @@ describe("grammar macro: AST codegen (TSP-8)", () => {
         out,
         ts.createSourceFile("o.ts", "", ts.ScriptTarget.Latest)
       );
-    const g = new Function(`return ${printed}`)();
+    // TypeScript (its parameters are typed): transpiled before it is run.
+    const js = ts.transpileModule(`module.exports = ${printed};`, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const mod = { exports: {} as any };
+    new Function("module", "exports", js)(mod, mod.exports);
+    const g = mod.exports;
     expect(g.parseAll("xyy")).toEqual(["x", ["y", "y"]]);
   });
 });

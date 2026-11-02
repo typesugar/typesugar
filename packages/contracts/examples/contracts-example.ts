@@ -18,9 +18,10 @@
  * NOTE: This file demonstrates the INTENDED usage with the typesugar transformer.
  *
  * DECORATORS (@contract, @invariant):
- *   These are attribute macros recognized by the transformer during compilation.
- *   They don't need to be imported — the transformer matches them by name.
- *   The declarations below are stubs for TypeScript type-checking only.
+ *   Attribute macros, imported from "@typesugar/contracts" like any macro: the
+ *   transformer recognizes the import (a local function of the same name is
+ *   not the macro). @contract is optional in a file that imports
+ *   "@typesugar/contracts/syntax", which activates requires:/ensures: blocks.
  *
  * RUNTIME FUNCTIONS (requires, ensures, old):
  *   These ARE imported and work both with and without the transformer.
@@ -28,7 +29,7 @@
  *   With the transformer: converted to optimized checks or stripped entirely.
  *
  * TO RUN THIS EXAMPLE:
- *   Compile with typesugar transformer enabled (via ts-patch or tsup with plugin).
+ *   typesugar run examples/contracts-example.ts
  */
 
 // =============================================================================
@@ -46,42 +47,17 @@
 // =============================================================================
 import "@typesugar/contracts-refined";
 
+import "@typesugar/contracts/syntax"; // activates the requires:/ensures: block labels
+import { comptime } from "typesugar";
 import {
   requires,
   ensures,
   old,
-  comptime,
+  contract,
+  invariant,
   registerAlgebraicRule,
 } from "@typesugar/contracts";
 import { Positive, NonNegative, Port, Byte, NonEmpty } from "@typesugar/type-system";
-
-// =============================================================================
-// Decorator Stubs (for TypeScript type-checking without transformer)
-// =============================================================================
-// These are recognized by the typesugar transformer by name.
-// The stubs allow this file to type-check in a regular IDE.
-
-/**
- * @contract — Attribute macro enabling requires:/ensures: labeled blocks.
- * Applied to functions/methods to activate contract parsing.
- */
-function contract<T extends Function>(
-  target: T,
-  context?: ClassMethodDecoratorContext,
-): T {
-  return target; // Stub: real implementation is compile-time
-}
-
-/**
- * @invariant — Class invariant decorator.
- * Inserts the predicate check after every public method and constructor.
- */
-function invariant(
-  predicate: (self: any) => boolean,
-  message?: string,
-): <T extends new (...args: any[]) => any>(target: T, context?: ClassDecoratorContext) => T {
-  return (target) => target; // Stub: real implementation is compile-time
-}
 
 // =============================================================================
 // SECTION 1: Basic Contracts (What Works)
@@ -300,7 +276,7 @@ console.log("isPrime(18):", isPrime(18)); // false
  * Compile-time configuration values.
  * These become literal values in the output, enabling dead code elimination.
  */
-const CONFIG = comptime(() => ({
+const CONFIG = comptime({ env: "read" }, () => ({
   maxRetries: Math.min(10, 3 + 2),
   timeout: 30 * 1000,
   features: {
@@ -874,6 +850,7 @@ console.log("\n=== Section 6: Coq-Inspired Extensions ===\n");
 // Import additional Coq-inspired APIs
 import {
   registerDecidability,
+  registerRefinementPredicate,
   getDecidability,
   canProveAtCompileTime,
   mustCheckAtRuntime,
@@ -900,22 +877,23 @@ import {
  */
 
 // Register decidability for custom brands
+registerRefinementPredicate("AlwaysProvable", "$ === 42");
 registerDecidability({
   brand: "AlwaysProvable",
-  predicate: "$ === 42",  // Trivially constant
   decidability: "compile-time",
   preferredStrategy: "constant",
 });
 
+registerRefinementPredicate("NeedsRuntime", "validateAtRuntime($)");
 registerDecidability({
   brand: "NeedsRuntime",
-  predicate: "validateAtRuntime($)",  // External function
   decidability: "runtime",
+  preferredStrategy: "type",
 });
 
+registerRefinementPredicate("Algebraic", "$ * $ + 1 > 0");
 registerDecidability({
   brand: "Algebraic",
-  predicate: "$ * $ + 1 > 0",  // Non-linear, decidable via algebra
   decidability: "decidable",
   preferredStrategy: "algebra",
 });
@@ -1046,6 +1024,9 @@ cert = addStep(cert, {
 cert = succeedCertificate(cert, "type", {
   rule: "type_identity",
   description: "Proven by type deduction",
+  justification: "the extracted fact is the goal",
+  usedFacts: assumptions,
+  subgoals: [],
 });
 
 console.log("\nCompleted certificate:");

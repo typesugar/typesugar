@@ -350,6 +350,11 @@ Deferred (the registry stays populated for the above until migrated — nothing 
 6. **Operator type-inference parity.** Nested operator chains (`(a + b) === c`),
    unannotated-initializer inference, and union-member instance matching are not
    ported to the scope-based resolver and currently fall through to native.
+   - Nested chains: **DONE** (2026-10, PR #83): an operand that is itself a
+     rewritten operator whose method returns the typeclass's type parameter
+     (`resultIsSelf` in the op index) has the instance type, so `a + b + c`
+     and `a + b < c` dispatch every operator (`rewrittenChainType`, memoized
+     per node). The other two parts remain.
 7. **Version-keyed caching.** Module-fact caches (scanner, importMap, markers,
    op-index) are keyed by path/program; key them by source-file version for
    watch/LSP incremental correctness, and clear them on pipeline invalidation.

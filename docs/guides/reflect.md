@@ -40,9 +40,45 @@ const meta = typeInfo<User>();
 //     { name: "id", type: "number", optional: false, readonly: false },
 //     { name: "name", type: "string", optional: false, readonly: false },
 //     { name: "email", type: "string", optional: true, readonly: false },
-//   ]
+//   ],
+//   methods: [],
 // }
 ```
+
+Methods (a class's methods, an interface's method signatures) are listed in
+`methods`, with the signature the type checker gives them, not in `fields`:
+
+```typescript
+class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+}
+
+const calc = typeInfo<Calculator>();
+// calc.methods:
+// [
+//   {
+//     name: "add",
+//     parameters: [
+//       { name: "a", type: "number", optional: false },
+//       { name: "b", type: "number", optional: false },
+//     ],
+//     returnType: "number",
+//     isAsync: false,
+//     isStatic: false,
+//   },
+// ]
+```
+
+A function-valued property (`onDone: () => void`) is a field.
+
+An optional field or parameter shows its declared type, without the
+`undefined` its optionality adds (`optional: true` says that). For a generic
+type it is the instantiated one: `typeInfo<Box<number>>()` reports
+`set(v?: T)`'s `v` as `"number"`, like `get(): T`'s return type, and
+`typeInfo<Box<boolean>>()` as `"boolean"`. An `undefined` written in the type
+itself (`maybe?: T | undefined`) is kept.
 
 ### fieldNames\<T\>() — Get Field Names
 
@@ -50,6 +86,10 @@ const meta = typeInfo<User>();
 const fields = fieldNames<User>();
 // Compiles to: ["id", "name", "email"]
 ```
+
+The names of the fields `typeInfo<T>().fields` lists: a class's methods and
+an interface's method signatures are not included (a function-valued
+property is).
 
 ### validator\<T\>() — Generate Runtime Validator
 
@@ -170,7 +210,11 @@ type ValidationResult<T> = { success: true; value: T } | { success: false; error
 
 - The generated function returns a `ValidationResult<T>` object — it is **not** a type guard. The
   result is always truthy; check `result.success`.
-- Only the **top level** of `T` is checked. Per field:
+- A `T` made only of primitives and literals (`string | number`, `"a" | "b"`,
+  `boolean | undefined`, an enum) is checked as a whole: `validator<string | number>()`
+  accepts any string or number and fails anything else with
+  `Expected string | number, got object`.
+- For an object type, only the **top level** of `T` is checked. Per field:
   - `string`, `number`, `boolean`, `bigint`, `symbol` — `typeof` check;
   - string/number/boolean literal types, literal unions and enums — `===` against each allowed value;
   - `null` / `undefined` members of a union (e.g. `string | null`) are accepted;

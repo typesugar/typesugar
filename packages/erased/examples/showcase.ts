@@ -32,6 +32,7 @@ import {
   // Types
   type Erased, type WithShow,
   type ShowCapability, type EqCapability, type OrdCapability, type HashCapability,
+  type CloneCapability, type DebugCapability,
 } from "../src/index.js";
 
 // ============================================================================
@@ -79,8 +80,12 @@ assert(show(p1) === "Point(1, 2)");
 assert(equals(p1, p2), "Same coordinates are equal");
 assert(!equals(p1, p3), "Different coordinates are not equal");
 
-// eraseWith for full control over the vtable
-const fullErased = eraseWith(100, {
+// eraseWith for full control over the vtable; the capability list is a type
+// argument (it can't be inferred from the vtable object)
+const fullErased = eraseWith<
+  number,
+  [ShowCapability, EqCapability, OrdCapability, HashCapability, CloneCapability, DebugCapability]
+>(100, {
   show: (v: unknown) => `Value(${v})`,
   equals: (a: unknown, b: unknown) => a === b,
   compare: (a: unknown, b: unknown) => (a as number) - (b as number),
@@ -145,7 +150,7 @@ assert(shortShown.length === 2);
 
 // Create orderable erased values
 function ordNum(n: number) {
-  return eraseWith(n, {
+  return eraseWith<number, [ShowCapability, EqCapability, OrdCapability, HashCapability]>(n, {
     show: (v: unknown) => `${v}`,
     equals: (a: unknown, b: unknown) => a === b,
     compare: (a: unknown, b: unknown) => (a as number) - (b as number),
@@ -178,7 +183,7 @@ assert(bucket1 !== undefined && bucket1.length === 2, "Hash 1 has two elements")
 // 6. CLONE — Deep Copying Erased Values
 // ============================================================================
 
-const cloneable = eraseWith({ data: [1, 2, 3] }, {
+const cloneable = eraseWith<{ data: number[] }, [ShowCapability, CloneCapability]>({ data: [1, 2, 3] }, {
   show: (v: unknown) => JSON.stringify(v),
   clone: (v: unknown) => {
     const obj = v as { data: number[] };
@@ -199,7 +204,7 @@ assert(show(cloneable) === '{"data":[1,2,3]}', "Original unchanged after clone m
 // ============================================================================
 
 // widen drops capabilities at the type level. Zero-cost — identity at runtime.
-const full = eraseWith("test", {
+const full = eraseWith<string, [ShowCapability, EqCapability, OrdCapability]>("test", {
   show: (v: unknown) => `${v}`,
   equals: (a: unknown, b: unknown) => a === b,
   compare: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
@@ -272,7 +277,7 @@ function makePlugin(plugin: Plugin, capabilities: {
   if (capabilities.serialize) {
     vtable["serialize"] = (v: unknown) => capabilities.serialize!(v as Plugin);
   }
-  return eraseWith(plugin, vtable as any);
+  return eraseWith<Plugin, [ShowCapability]>(plugin, vtable as any);
 }
 
 const pluginA = makePlugin(
@@ -386,14 +391,15 @@ function cloneColor(c: Color): Color {
 }
 
 // This is what `erased<[Show, Eq, Clone]>(myColor)` expands to after transformation:
-const erasedColor = eraseWith({ r: 255, g: 128, b: 0 } as Color, {
+type ColorCaps = [ShowCapability, EqCapability, CloneCapability];
+const erasedColor = eraseWith<Color, ColorCaps>({ r: 255, g: 128, b: 0 }, {
   show: (v: unknown) => showColor(v as Color),
   equals: (a: unknown, b: unknown) => eqColor(a as Color, b as Color),
   clone: (v: unknown) => cloneColor(v as Color),
 });
 
 assert(show(erasedColor) === "rgb(255, 128, 0)");
-assert(equals(erasedColor, eraseWith({ r: 255, g: 128, b: 0 } as Color, {
+assert(equals(erasedColor, eraseWith<Color, ColorCaps>({ r: 255, g: 128, b: 0 }, {
   show: (v: unknown) => showColor(v as Color),
   equals: (a: unknown, b: unknown) => eqColor(a as Color, b as Color),
   clone: (v: unknown) => cloneColor(v as Color),
@@ -410,7 +416,7 @@ assert(show(erasedColor) === "rgb(255, 128, 0)", "Original unchanged after clone
 // Multiple @derive types in a heterogeneous collection — the key value proposition
 interface Size { w: number; h: number }
 
-const erasedSize = eraseWith({ w: 1920, h: 1080 } as Size, {
+const erasedSize = eraseWith<Size, [ShowCapability, EqCapability]>({ w: 1920, h: 1080 }, {
   show: (v: unknown) => {
     const s = v as Size;
     return `${s.w}x${s.h}`;

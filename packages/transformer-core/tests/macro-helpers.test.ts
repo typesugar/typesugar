@@ -286,6 +286,30 @@ describe("parseJSDocMacroArgs", () => {
     );
   });
 
+  it("reads only the derive list of a @derive tag followed by prose", () => {
+    // Before: the tag's comment runs to the next tag, so the prose became part
+    // of the list: "Unknown derive: '(Meta)\nUser table schema ...'"
+    // (sql's doobie-style example).
+    for (const [doc, expected] of [
+      [
+        `/**\n * @derive(Eq, Clone)\n * User table schema - generates the instances\n */`,
+        ["Eq", "Clone"],
+      ],
+      [`/**\n * @deriving Eq, Ord\n * Ordered by id, then name.\n */`, ["Eq", "Ord"]],
+      [`/** @derive(Eq) — structural equality, (see the guide) */`, ["Eq"]],
+    ] as const) {
+      withCtx(`${doc}\ninterface Foo { value: number; }`, (ctx, sourceFile) => {
+        const iface = sourceFile.statements.find(ts.isInterfaceDeclaration)!;
+        const tag = ts.getJSDocTags(iface).find((t) => /^deriv/.test(t.tagName.text))!;
+        const args = parseJSDocMacroArgs(ctx, tag, tag.tagName.text);
+        expect(
+          args.map((a) => (a as ts.Identifier).text),
+          doc
+        ).toEqual(expected);
+      });
+    }
+  });
+
   it("returns empty args for unrecognised macro names", () => {
     withCtx(
       `
@@ -635,9 +659,13 @@ describe("expandDeriveDecorator", () => {
         expect(result).toBeUndefined();
         const diags = ctx.getDiagnostics();
         expect(diags.some((d) => d.severity === "error")).toBe(true);
-        expect(diags.some((d) => /interfaces, classes, or type aliases/.test(d.message))).toBe(
-          true
-        );
+        expect(
+          diags.some(
+            (d) =>
+              d.severity === "error" &&
+              /@derive\(Eq\) requires an interface, class, or type alias/.test(d.message)
+          )
+        ).toBe(true);
       }
     );
   });

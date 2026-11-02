@@ -11,8 +11,7 @@ describe("Printable typeclass", () => {
   });
 
   it("prints arrays with printAll", () => {
-    const result = printAll([1, 2, 3]);
-    expect(result).toBe("1, 2, 3");
+    expect(printAll([1, 2, 3])).toBe("1, 2, 3");
   });
 });
 
@@ -22,28 +21,27 @@ describe("Point", () => {
     const p2 = new Point(1, 2);
     const p3 = new Point(3, 4);
 
-    expect(p1.equals(p2)).toBe(true);
-    expect(p1.equals(p3)).toBe(false);
+    expect(Point.Eq.equals(p1, p2)).toBe(true);
+    expect(Point.Eq.equals(p1, p3)).toBe(false);
   });
 
   it("clones correctly", () => {
     const p1 = new Point(1, 2);
-    const p2 = p1.clone();
+    const p2 = Point.Clone.clone(p1);
 
     expect(p2).not.toBe(p1);
-    expect(p2.equals(p1)).toBe(true);
+    expect(Point.Eq.equals(p2, p1)).toBe(true);
   });
 
   it("debugs correctly", () => {
-    const p = new Point(1, 2);
-    expect(p.debug()).toContain("Point");
-    expect(p.debug()).toContain("1");
-    expect(p.debug()).toContain("2");
+    const debug = Point.Debug.debug(new Point(1, 2));
+    expect(debug).toContain("Point");
+    expect(debug).toContain("1");
+    expect(debug).toContain("2");
   });
 
-  it("prints via extension", () => {
-    const p = new Point(1, 2);
-    const result = printPoint(p);
-    expect(result).toBeDefined();
+  it("prints through its Printable instance", () => {
+    expect(printPoint(new Point(1, 2))).toBe("(1, 2)");
+    expect(printAll([new Point(1, 2), new Point(3, 4)])).toBe("(1, 2), (3, 4)");
   });
 });

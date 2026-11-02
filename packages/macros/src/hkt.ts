@@ -84,6 +84,15 @@ export interface TypeConstructorResolution {
   arity: number;
   /** Name of the hole type parameter (the one that varies, typically the last) */
   holeName: string;
+  /**
+   * The type is itself a type-level function of the `Kind` encoding
+   * (`interface EitherF<E> extends TypeFunction { __kind__; _: ... }`): its
+   * parameters are the FIXED ones, not the hole, so it is not a data type
+   * constructor to expand `Kind<F, A>` into. Decided by the encoding's
+   * structural contract (a `__kind__` member on the declared type), through
+   * the checker.
+   */
+  isTypeFunction?: boolean;
 }
 
 /**
@@ -210,7 +219,12 @@ function resolveTypeConstructorViaTypeCheckerUncached(
   if (symbol.flags & ts.SymbolFlags.Alias) {
     try {
       symbol = checker.getAliasedSymbol(symbol);
-    } catch {
+    } catch (error) {
+      ctx.reportWarning(
+        ctx.sourceFile,
+        `typesugar could not resolve the import of '${base}' for @impl: the type checker ` +
+          `failed (${error}).`
+      );
       return undefined;
     }
   }
@@ -250,11 +264,27 @@ function resolveTypeConstructorViaTypeCheckerUncached(
   const holeIndex = arity - 1; // Convention: hole is always the last param
   const holeName = typeParams[holeIndex].name.text;
 
+  let isTypeFunction = false;
+  try {
+    isTypeFunction = checker.getDeclaredTypeOfSymbol(symbol).getProperty("__kind__") !== undefined;
+  } catch (error) {
+    // Treated as a data type constructor, as before — said so (CLAUDE.md: a
+    // caught checker failure that degrades leaves a visible trace). Once per
+    // (program, name): the resolution is memoized.
+    isTypeFunction = false;
+    ctx.reportWarning(
+      ctx.sourceFile,
+      `typesugar treated '${base}' as a data type (not a type-level function) for @impl: ` +
+        `the type checker failed reading it (${error}).`
+    );
+  }
+
   return {
     baseType: base,
     fixedArgs,
     arity,
     holeName,
+    isTypeFunction,
   };
 }
 

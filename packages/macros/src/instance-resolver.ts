@@ -9,6 +9,9 @@
  * 1. Local scope — @impl-annotated values in the current file (incl. non-exported)
  * 2. Explicit imports — values imported by name
  * 3. Module-level search — scanning all exports of imported modules
+ * 4. The typeclass's own package ({@link resolveFromTypeclassHome}), for
+ *    summon/implicit: a typeclass reached through a re-export finds its
+ *    instances where it is declared
  *
  * Resolution is purely scope-based — there is no process-global registry
  * fallback (PEP-052): a file's behavior depends only on its own imports and the
@@ -19,12 +22,14 @@
 
 import * as ts from "typescript";
 import type { MacroContext } from "@typesugar/core";
-import { getOrCreateWeak } from "@typesugar/core";
+import { getOrCreateWeak, isSyntheticNode } from "@typesugar/core";
+import { getDerivedCallCheck } from "./derived-call-check.js";
 import {
   InstanceScanner,
   instanceScanner as defaultScanner,
   type ScannedInstance,
   type DoNotationMeta,
+  type ScannerCheckerFailure,
 } from "./instance-scanner.js";
 
 // ============================================================================
@@ -51,6 +56,14 @@ export interface ResolvedInstance {
   localName?: string;
   /** True when the explicit import that brings it into scope is `import type`. */
   typeOnlyImport?: boolean;
+  /**
+   * The instance is declared for the requested type ITSELF (the same symbol,
+   * after alias resolution), not only for a type of the same structure. Breaks
+   * a tie between structurally identical types (see {@link pickResult}).
+   */
+  sameTypeIdentity?: boolean;
+  /** The declaration the instance comes from ({@link ScannedInstance.origin}). */
+  origin?: ts.Node;
 }
 
 export interface AmbiguousInstances {
@@ -166,7 +179,8 @@ export function clearResolverCache(): void {
 function isTypeMatch(
   typeChecker: ts.TypeChecker,
   fieldType: ts.Type,
-  candidateType: ts.Type | undefined
+  candidateType: ts.Type | undefined,
+  onFailure: ScannerCheckerFailure
 ): boolean {
   if (!candidateType) return false;
 
@@ -181,9 +195,85 @@ function isTypeMatch(
 
   // Bidirectional assignability = exact match (handles aliases like `type MyNum = number`)
   return (
-    typeChecker.isTypeAssignableTo(fieldType, candidateType) &&
-    typeChecker.isTypeAssignableTo(candidateType, fieldType)
+    sameType(typeChecker, fieldType, candidateType) ||
+    isDefaultInstantiation(typeChecker, fieldType, candidateType, onFailure) ||
+    isDefaultInstantiation(typeChecker, candidateType, fieldType, onFailure)
   );
+}
+
+function sameType(checker: ts.TypeChecker, a: ts.Type, b: ts.Type): boolean {
+  return checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a);
+}
+
+/**
+ * Is `candidateType` the requested type itself, by identity: the same type
+ * object, or the same declaring symbol (alias, class, interface) after
+ * import-alias resolution. Compared by symbol, not by name (CLAUDE.md
+ * "Deciding what a type is"): `class UserId` and `class Email` with the same
+ * fields are mutually assignable, but they are different symbols.
+ */
+function isSameTypeIdentity(
+  checker: ts.TypeChecker,
+  fieldType: ts.Type,
+  candidateType: ts.Type | undefined
+): boolean {
+  if (!candidateType) return false;
+  if (fieldType === candidateType) return true;
+  const a = typeSymbol(checker, fieldType);
+  return a !== undefined && a === typeSymbol(checker, candidateType);
+}
+
+function typeSymbol(checker: ts.TypeChecker, t: ts.Type): ts.Symbol | undefined {
+  const sym = t.aliasSymbol ?? t.symbol;
+  if (!sym) return undefined;
+  return sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+}
+
+/**
+ * Is `inst` the default instantiation of the generic declared type
+ * `declared`? `/** @impl Clone<Feature> *\/` names `interface Feature<G =
+ * Geometry, P = Props>` bare, and the scanner resolves a bare name to the
+ * declared type `Feature<G, P>` (which HKT instances such as `@impl
+ * FlatMap<Box>` rely on), while a value typed `Feature` has
+ * `Feature<Geometry, Props>`: TypeScript reads the bare name as its
+ * defaults. Only for a generic whose type parameters ALL have defaults, and
+ * only when every argument of `inst` is its parameter's default.
+ */
+export function isDefaultInstantiation(
+  checker: ts.TypeChecker,
+  inst: ts.Type,
+  declared: ts.Type,
+  onFailure: ScannerCheckerFailure
+): boolean {
+  const sym = declared.aliasSymbol ?? declared.symbol;
+  if (!sym || inst === declared) return false;
+  const decl = sym.declarations?.find(
+    (d): d is ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.ClassDeclaration =>
+      (ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d) || ts.isClassDeclaration(d)) &&
+      (d.typeParameters?.length ?? 0) > 0
+  );
+  const params = decl?.typeParameters;
+  if (!params || !params.every((tp) => tp.default)) return false;
+  try {
+    if (checker.getDeclaredTypeOfSymbol(sym) !== declared) return false;
+    const args =
+      inst.aliasSymbol === sym
+        ? inst.aliasTypeArguments
+        : !declared.aliasSymbol && inst.symbol === sym && (inst as ts.TypeReference).target
+          ? checker.getTypeArguments(inst as ts.TypeReference)
+          : undefined;
+    // A class/interface reference may carry its `this` type as a last argument.
+    if (!args || args.length < params.length) return false;
+    return params.every((tp, i) =>
+      sameType(checker, args[i], checker.getTypeFromTypeNode(tp.default!))
+    );
+  } catch (error) {
+    // A declaration the checker can't resolve: no match, so an instance
+    // declared for `Box` may not be found for `Box<string>`. Said, not
+    // swallowed (CLAUDE.md).
+    onFailure(decl!, error, `matching '${sym.name}' against its default type arguments`);
+    return false;
+  }
 }
 
 // ============================================================================
@@ -200,22 +290,133 @@ function isTypeMatch(
  * @param tcName - Typeclass name (e.g., "Ord")
  * @param forType - The actual ts.Type to find an instance for
  * @param scanner - Optional scanner instance (defaults to the singleton)
+ * @param excludeLocal - A top-level declaration of the current file to leave
+ *   out: the instance whose initializer is being expanded (`/** @impl
+ *   Clone<Feature> *\/ export const cloneFeature = summon<Clone<Feature>>()`
+ *   must not resolve to `cloneFeature` itself, which would be `const x = x`).
+ * @param useSite - The expression that will reference the instance (an
+ *   operator, a `summon`/`implicit()` call). Given, a `@derive` companion of a
+ *   type declared in this file is found from its annotation even before the
+ *   derive has expanded (a use above the declaration), unless the use runs
+ *   at module top level before the companion is assigned (see
+ *   {@link companionAssignedBefore}). Without it, only an already-expanded
+ *   companion is found (`getSynthesized`), as before.
  */
 export function resolveInstance(
   ctx: MacroContext,
   tcName: string,
   forType: ts.Type,
-  scanner: InstanceScanner = defaultScanner
+  scanner: InstanceScanner = defaultScanner,
+  excludeLocal?: string,
+  useSite?: ts.Node
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
-  const forTypeString = typeChecker.typeToString(forType);
+
+  // An enum, or a member of one (`Color.Green`, a `c: Color` narrowed to
+  // `Color.Blue`), is mutually assignable with `number` (or `string`), so the
+  // primitive's instance "matches" it too, and for a member it was the ONLY
+  // match: `Color.Green.show()` became `showNumber.show(...)` beside an `@impl
+  // Show<Color>`. The enum's own instance is looked for first, by symbol
+  // identity (CLAUDE.md "by identity"), in every stage; only when there is
+  // none does the ordinary (assignability) search below fall back to the
+  // primitive's.
+  const enumType = enumTypeOf(typeChecker, forType);
+  if (enumType) {
+    const own = resolveInStages(ctx, tcName, enumType, scanner, excludeLocal, true, useSite);
+    if (own) return own;
+  }
+  return resolveInStages(ctx, tcName, forType, scanner, excludeLocal, false, useSite);
+}
+
+function resolveInStages(
+  ctx: MacroContext,
+  tcName: string,
+  forType: ts.Type,
+  scanner: InstanceScanner,
+  excludeLocal: string | undefined,
+  identityOnly: boolean,
+  useSite?: ts.Node
+): ResolutionResult {
+  const forTypeString = ctx.typeChecker.typeToString(forType);
 
   // Stage 1: Local scope
-  const localResult = resolveFromLocalScope(ctx, tcName, forType, forTypeString, scanner);
+  const localResult = resolveFromLocalScope(
+    ctx,
+    tcName,
+    forType,
+    forTypeString,
+    scanner,
+    excludeLocal,
+    identityOnly,
+    useSite
+  );
   if (localResult) return localResult;
 
   // Stage 2 & 3: Imports (explicit and module-level)
-  return resolveFromImports(ctx, tcName, forType, forTypeString, scanner);
+  return resolveFromImports(ctx, tcName, forType, forTypeString, scanner, identityOnly);
+}
+
+/**
+ * The enum `t` is, or whose member(s) it is: the enum type itself, an enum
+ * member's literal type, or a union of one enum's members. Decided by the
+ * type's flags and the checker's own widening (`getBaseTypeOfLiteralType`
+ * maps an enum member to its enum), not by printed text. Undefined for
+ * anything else, including a union spanning two enums.
+ */
+function enumTypeOf(checker: ts.TypeChecker, t: ts.Type): ts.Type | undefined {
+  const isEnumLike = (m: ts.Type) => (m.flags & ts.TypeFlags.EnumLike) !== 0;
+  if (!(isEnumLike(t) || (t.isUnion() && t.types.every(isEnumLike)))) return undefined;
+  const base = checker.getBaseTypeOfLiteralType(t);
+  const sym = base.symbol;
+  return sym && sym.flags & ts.SymbolFlags.Enum ? base : undefined;
+}
+
+/**
+ * The scan hits minus `derived<TC<T>>()` consts whose derivation failed: the
+ * scanner registers such a const by its call, before (or without) its
+ * expansion, and a failed one is the un-expanded stub, not an instance
+ * (summon resolved to it and emitted `const s = m`).
+ */
+const reportedScanFailures = new WeakMap<ts.SourceFile, Set<string>>();
+
+/**
+ * The scanner's checker-failure callback for a resolution in `ctx`'s file: a
+ * warning (CLAUDE.md: a caught checker failure that degrades must leave a
+ * trace), at the node when it is in this file, else at the file, naming the
+ * other file. The scanner reports each failure once.
+ */
+export function scanWarnings(ctx: MacroContext): ScannerCheckerFailure {
+  return (node, error, what) => {
+    const sf = isSyntheticNode(node) ? undefined : node.getSourceFile?.();
+    // Once per (node, what) per file: one resolution asks again for every
+    // candidate, and every resolution in the file builds its own callback.
+    let seen = reportedScanFailures.get(ctx.sourceFile);
+    if (!seen) reportedScanFailures.set(ctx.sourceFile, (seen = new Set()));
+    const key = `${sf?.fileName ?? ""}\0${sf ? node.pos : -1}\0${what}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const here = sf === ctx.sourceFile && !isSyntheticNode(node);
+    ctx.reportWarning(
+      here ? node : ctx.sourceFile,
+      `typesugar skipped ${what}${here || !sf ? "" : ` (in ${sf.fileName})`} while looking for ` +
+        `typeclass instances: the type checker failed (${error}).`
+    );
+  };
+}
+
+function dropFailedDerivations(
+  ctx: MacroContext,
+  scanned: readonly ScannedInstance[]
+): ScannedInstance[] {
+  const check = getDerivedCallCheck();
+  if (!check || !scanned.some((i) => i.detectedVia === "derived-call")) return [...scanned];
+  return scanned.filter(
+    (inst) =>
+      inst.detectedVia !== "derived-call" ||
+      !inst.origin ||
+      !ts.isVariableDeclaration(inst.origin) ||
+      check(ctx, inst.origin)
+  );
 }
 
 function resolveFromLocalScope(
@@ -223,7 +424,10 @@ function resolveFromLocalScope(
   tcName: string,
   forType: ts.Type,
   forTypeString: string,
-  scanner: InstanceScanner
+  scanner: InstanceScanner,
+  excludeLocal?: string,
+  identityOnly = false,
+  useSite?: ts.Node
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
   const sourceFile = ctx.sourceFile;
@@ -232,22 +436,491 @@ function resolveFromLocalScope(
   // a `@impl`/`@instance` const that is in local scope but NOT exported is still
   // found — and found independent of declaration order. This is the registry-free
   // replacement for instances the global registry used to provide.
-  const scanned = scanner.scanLocalFile(typeChecker, sourceFile, ctx.program);
+  const allScanned = dropFailedDerivations(
+    ctx,
+    scanner.scanLocalFile(typeChecker, sourceFile, ctx.program, scanWarnings(ctx))
+  );
+  const scanned =
+    excludeLocal === undefined
+      ? allScanned
+      : allScanned.filter((inst) => inst.exportName !== excludeLocal);
   // Also check instances synthesized during THIS transform pass (e.g. a
   // `@derive(Eq)` companion) — invisible to the scan above, since that reads
   // the pre-transform source text and the companion doesn't exist there yet.
   const synthesized = scanner.getSynthesized(ctx.program, sourceFile.fileName);
+  // And, for a use site, the companions this file's `@derive` annotations
+  // will generate, so a use ABOVE the declaration (visited before the derive
+  // expands) finds `P.Eq` as a use below it does. One already synthesized is
+  // the same instance: not added twice.
+  const annotated = useSite
+    ? scanner
+        .scanLocalDeriveCompanions(typeChecker, sourceFile, ctx.program, scanWarnings(ctx))
+        .filter(
+          (inst) =>
+            inst.typeclassName === tcName &&
+            !synthesized.some(
+              (s) => s.typeclassName === inst.typeclassName && s.exportName === inst.exportName
+            ) &&
+            (!inst.origin ||
+              companionAssignedBefore(useSite, inst.origin, typeChecker, scanWarnings(ctx)))
+        )
+    : [];
+  const candidates =
+    synthesized.length > 0 || annotated.length > 0
+      ? [...scanned, ...synthesized, ...annotated]
+      : scanned;
   const matches = filterMatches(
     typeChecker,
-    synthesized.length > 0 ? [...scanned, ...synthesized] : scanned,
+    candidates,
     tcName,
     forType,
     forTypeString,
     sourceFile.fileName,
-    "local-scope"
+    "local-scope",
+    scanWarnings(ctx),
+    undefined,
+    identityOnly
   );
 
   return pickResult(matches, tcName, forType);
+}
+
+/**
+ * Whether the `@derive` companion generated right after `typeDecl` (in the
+ * same file) holds its value when `useSite` runs.
+ *
+ * A use below the declaration always does. A use above it does only when it
+ * cannot run before the declaration is reached -- conservatively, when some
+ * function enclosing it is DEFERRED (see `isDeferredFunction`): bound to a
+ * name (a function declaration, a `const f = () => ...`, a class's method,
+ * accessor, constructor or instance property initializer -- bound through
+ * its class), and that name is not referenced anywhere above the
+ * declaration except from inside another deferred function. An immediately
+ * invoked function (`(() => a === b)()`), a callback passed to a call at top
+ * level (`xs.filter(v => v === q)`) and a function called above the
+ * declaration all run before the companion's namespace is assigned (`P` is
+ * still undefined there), so a reference to it would throw at run time: those
+ * get "not assigned yet" (TS9001) at compile time instead (review 5, item 4).
+ * So do a class's definition-time parts -- static initializers and blocks,
+ * computed member names, decorators -- and a member a decorator receives (it
+ * may call it then); a reference to the class from its own definition-time
+ * parts counts as a use above the declaration (review 6), of what that
+ * reference runs (`isDeferredMember`, review 7).
+ *
+ * The references are found through the checker, by symbol, not by name. An
+ * `export { f }` above the declaration does not count (it doesn't call `f`);
+ * a call through a circular import during module evaluation is not modelled.
+ */
+export function companionAssignedBefore(
+  useSite: ts.Node,
+  typeDecl: ts.Node,
+  checker: ts.TypeChecker,
+  /**
+   * Told when a checker call fails and the check assumes the conservative
+   * answer (the use may run first): the caller reports it (CLAUDE.md — a
+   * caught checker failure that degrades leaves a visible trace). Once per
+   * kind of failure per call.
+   */
+  onCheckerFailure?: ScannerCheckerFailure
+): boolean {
+  const site = isSyntheticNode(useSite) ? ts.getOriginalNode(useSite) : useSite;
+  const sourceFile = typeDecl.getSourceFile();
+  // A generated node with no original has no position to judge: as before.
+  if (isSyntheticNode(site) || site.getSourceFile() !== sourceFile) return true;
+  if (site.pos >= typeDecl.end) return true;
+  const reported = new Set<string>();
+  return runsOnlyLater(site, {
+    checker,
+    sourceFile,
+    declEnd: typeDecl.end,
+    verdicts: new Map(),
+    memberVerdicts: new Map(),
+    checkerFailed: (node, error, what) => {
+      if (reported.has(what)) return;
+      reported.add(what);
+      onCheckerFailure?.(node, error, what);
+    },
+  });
+}
+
+interface DeferralCheck {
+  checker: ts.TypeChecker;
+  sourceFile: ts.SourceFile;
+  /** End of the type declaration the companion follows. */
+  declEnd: number;
+  /** Per function binding: settled, or `"pending"` while being checked (a cycle). */
+  verdicts: Map<ts.Symbol, boolean | "pending">;
+  /** The same, per class member (see `isDeferredMember`). */
+  memberVerdicts: Map<ts.Node, boolean | "pending">;
+  /** A checker call failed and the conservative answer was assumed (see `companionAssignedBefore`). */
+  checkerFailed: ScannerCheckerFailure;
+}
+
+/**
+ * Some function enclosing `node` (innermost first) is deferred, with `node`
+ * in the part of it that runs when it is called: its body or a parameter (a
+ * default value), an instance property's initializer. A member's computed
+ * name and its decorators -- and a parameter's decorators -- run when the
+ * class is defined, as do static initializers and static blocks (which are
+ * not functions here): those are judged by what encloses the class (review 6).
+ */
+function runsOnlyLater(node: ts.Node, check: DeferralCheck): boolean {
+  let prev: ts.Node = node;
+  let viaDecorator = false;
+  for (let n: ts.Node | undefined = node.parent; n; prev = n, n = n.parent) {
+    if (ts.isSourceFile(n)) break;
+    if (ts.isDecorator(n)) viaDecorator = true;
+    if (ts.isFunctionLike(n) || isInstancePropertyDeclaration(n)) {
+      const callTime = ts.isPropertyDeclaration(n)
+        ? prev === n.initializer
+        : prev === (n as ts.FunctionLikeDeclaration).body ||
+          (ts.isParameter(prev) && !viaDecorator);
+      viaDecorator = false;
+      if (callTime && isDeferredFunction(n, check)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * `member` or its class has decorators, or one of its parameters does: a
+ * decorator receives the method (or the class) at definition time and may
+ * call it then (TC39 and legacy decorators alike).
+ */
+function decoratedAtDefinition(member: ts.Node): boolean {
+  const decorated = (n: ts.Node) => ts.canHaveDecorators(n) && !!ts.getDecorators(n)?.length;
+  if (decorated(member) || (member.parent && decorated(member.parent))) return true;
+  return ts.isFunctionLike(member) && member.parameters.some((p) => decorated(p));
+}
+
+function isInstancePropertyDeclaration(n: ts.Node): n is ts.PropertyDeclaration {
+  return ts.isPropertyDeclaration(n) && !ts.getModifiers(n)?.some(isStaticModifier);
+}
+
+/**
+ * The function `fn` doesn't run before `check.declEnd`: it has a binding (see
+ * `functionBinding`), and every reference to that binding above the
+ * declaration is itself inside a deferred function. A reference cycle with
+ * nothing else calling into it never starts, so a binding being checked
+ * counts as deferred where it recurs.
+ */
+function isDeferredFunction(fn: ts.Node, check: DeferralCheck): boolean {
+  const binding = functionBinding(fn, check.checker);
+  if (!binding) return false;
+  const { symbol, declaration, name } = binding;
+  if (binding.isMember) return isDeferredMember(fn, binding, check);
+  const verdict = check.verdicts.get(symbol);
+  if (verdict === "pending") return true;
+  if (verdict !== undefined) return verdict;
+  check.verdicts.set(symbol, "pending");
+  let deferred = true;
+  const visit = (node: ts.Node): void => {
+    if (!deferred || node.pos >= check.declEnd) return;
+    // Its own name doesn't call it. Its own body (recursion) runs only once
+    // it is called -- except a class's: a class binding's references from
+    // its own static initializers, static blocks, computed names and
+    // decorators run at definition time, so the class is visited like any
+    // other code (references from its deferred members are judged by
+    // `runsOnlyLater`, where this binding is pending).
+    if (node === name) return;
+    if (node === declaration) return;
+    // A type annotation (`get self(): Box`) never runs.
+    if (isTypeOnly(node)) return;
+    if (
+      ts.isIdentifier(node) &&
+      node.text === symbol.name &&
+      referencesSymbol(node, symbol, check)
+    ) {
+      if (!runsOnlyLater(node, check)) deferred = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(check.sourceFile, visit);
+  check.verdicts.set(symbol, deferred);
+  return deferred;
+}
+
+/**
+ * A class member `fn` doesn't run before `check.declEnd` (review 7). Not
+ * "nothing refers to the class above the declaration": a reference runs only
+ * what it runs. Above the declaration, outside code that itself runs only
+ * later (`runsOnlyLater`), the member runs if
+ *
+ * - a reference to the class (or `this` in its static initializers and
+ *   blocks, which is the class) runs it (`classReferenceRuns`): `new C()` runs
+ *   the constructor and instance initializers, an access to the member
+ *   through the class or a new instance runs it, and so does handing the
+ *   class or an instance to code that could call it without naming either;
+ * - or a reference to the member itself (`x.same`, `this.same` in the
+ *   constructor), resolved through the checker by declaration -- it may be
+ *   called.
+ *
+ * `C.name` and `static shared = new C()` (the instance kept in the class's
+ * own static, reachable only through the class) run no method. What another
+ * member runs once IT runs follows from the same rule: references inside its
+ * body are judged by whether it is deferred. A member that it, its class or a
+ * parameter is decorated is never deferred (the decorator may call it), and
+ * one with a name this can't follow (a computed name) is deferred only when
+ * nothing above the declaration refers to the class at definition time.
+ */
+function isDeferredMember(
+  fn: ts.Node,
+  binding: { symbol: ts.Symbol; name: ts.Identifier },
+  check: DeferralCheck
+): boolean {
+  if (decoratedAtDefinition(fn)) return false;
+  const verdict = check.memberVerdicts.get(fn);
+  if (verdict === "pending") return true;
+  if (verdict !== undefined) return verdict;
+  check.memberVerdicts.set(fn, "pending");
+  const cls = fn.parent as ts.ClassLikeDeclaration;
+  const nameNode = (fn as ts.ClassElement).name;
+  const memberName =
+    nameNode &&
+    (ts.isIdentifier(nameNode) ||
+      ts.isPrivateIdentifier(nameNode) ||
+      ts.isStringLiteral(nameNode) ||
+      ts.isNumericLiteral(nameNode))
+      ? nameNode.text
+      : undefined;
+  const followable = memberName !== undefined || ts.isConstructorDeclaration(fn);
+  const { symbol } = binding;
+  let deferred = true;
+  const visit = (node: ts.Node): void => {
+    if (!deferred || node.pos >= check.declEnd) return;
+    if (node === binding.name || node === nameNode) return;
+    if (isTypeOnly(node)) return;
+    const classRef =
+      (ts.isIdentifier(node) &&
+        node.text === symbol.name &&
+        referencesSymbol(node, symbol, check)) ||
+      (node.kind === ts.SyntaxKind.ThisKeyword && isStaticThisOf(node, cls));
+    if (classRef) {
+      if (
+        !runsOnlyLater(node, check) &&
+        (!followable || classReferenceRuns(node as ts.Expression, fn, cls, check))
+      ) {
+        deferred = false;
+      }
+      return;
+    }
+    if (
+      memberName !== undefined &&
+      (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) &&
+      node.text === memberName &&
+      resolvesTo(node, fn, check) &&
+      !runsOnlyLater(node, check)
+    ) {
+      deferred = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(check.sourceFile, visit);
+  check.memberVerdicts.set(fn, deferred);
+  return deferred;
+}
+
+/** Does `id` (a member name) resolve to a symbol declared by `decl`? (Union members list every constituent's.) */
+function resolvesTo(id: ts.Node, decl: ts.Node, check: DeferralCheck): boolean {
+  if (isSyntheticNode(id)) return false;
+  let sym: ts.Symbol | undefined;
+  try {
+    sym = ts.isShorthandPropertyAssignment(id.parent)
+      ? check.checker.getShorthandAssignmentValueSymbol(id.parent)
+      : check.checker.getSymbolAtLocation(id);
+  } catch (error) {
+    // Can't tell: assume it does (never defers wrongly) — and say so.
+    check.checkerFailed(id, error, "resolving a member reference (assumed it may run first)");
+    return true;
+  }
+  return !!sym?.declarations?.includes(decl as ts.Declaration);
+}
+
+/** `this` in a static initializer or static block of `cls` (through arrows): the class itself. */
+function isStaticThisOf(node: ts.Node, cls: ts.ClassLikeDeclaration): boolean {
+  for (let n = node.parent; n; n = n.parent) {
+    if (ts.isArrowFunction(n)) continue;
+    if (ts.isClassStaticBlockDeclaration(n)) return n.parent === cls;
+    if (ts.isPropertyDeclaration(n) && ts.getModifiers(n)?.some(isStaticModifier)) {
+      return n.parent === cls;
+    }
+    if (ts.isFunctionLike(n) || ts.isClassLike(n) || ts.isSourceFile(n)) return false;
+  }
+  return false;
+}
+
+/**
+ * Does `ref` -- a reference to `cls` evaluated at definition time -- run the
+ * member `fn`? `new C(...)` runs the constructor and instance initializers.
+ * Then, along the chain of accesses and calls on the result, accessing `fn`
+ * (resolved through the checker by declaration) runs it; an access the
+ * checker can't resolve, or an element access, might. At the end of the
+ * chain, a value that could expose the class or an instance (not a
+ * primitive) running nowhere visible -- passed to a function, returned,
+ * stored anywhere but the class's own static fields -- might reach code that
+ * calls `fn` without naming the class, so it counts as running it.
+ */
+function classReferenceRuns(
+  ref: ts.Expression,
+  fn: ts.Node,
+  cls: ts.ClassLikeDeclaration,
+  check: DeferralCheck
+): boolean {
+  let cur: ts.Expression = ref;
+  if (ts.isNewExpression(cur.parent) && cur.parent.expression === cur) {
+    if (ts.isConstructorDeclaration(fn) || isInstancePropertyDeclaration(fn)) return true;
+    cur = cur.parent;
+  }
+  for (;;) {
+    const p = cur.parent;
+    if (
+      (ts.isParenthesizedExpression(p) ||
+        ts.isAsExpression(p) ||
+        ts.isSatisfiesExpression(p) ||
+        ts.isNonNullExpression(p) ||
+        ts.isTypeAssertionExpression(p)) &&
+      p.expression === cur
+    ) {
+      cur = p;
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(p) && p.expression === cur) {
+      if (resolvesTo(p.name, fn, check)) return true;
+      let sym: ts.Symbol | undefined;
+      try {
+        sym = check.checker.getSymbolAtLocation(p.name);
+      } catch (error) {
+        check.checkerFailed(p.name, error, "resolving a member access (assumed it may run first)");
+        return true;
+      }
+      if (!sym?.declarations?.length) return true;
+      cur = p;
+      continue;
+    }
+    if (ts.isElementAccessExpression(p) && p.expression === cur) return true;
+    if (ts.isCallExpression(p) && p.expression === cur) {
+      cur = p;
+      continue;
+    }
+    break;
+  }
+  return exposesValue(cur, cls, check);
+}
+
+/** See `classReferenceRuns`: could the value of `e` reach code that calls a member? */
+function exposesValue(
+  e: ts.Expression,
+  cls: ts.ClassLikeDeclaration,
+  check: DeferralCheck
+): boolean {
+  const p = e.parent;
+  if (ts.isExpressionStatement(p) || ts.isVoidExpression(p) || ts.isTypeOfExpression(p)) {
+    return false;
+  }
+  if (
+    ts.isPropertyDeclaration(p) &&
+    p.initializer === e &&
+    p.parent === cls &&
+    ts.getModifiers(p)?.some(isStaticModifier)
+  ) {
+    return false; // kept in the class's own static: used only through the class
+  }
+  if (isSyntheticNode(e)) return true;
+  let type: ts.Type;
+  try {
+    type = check.checker.getTypeAtLocation(e);
+  } catch (error) {
+    check.checkerFailed(e, error, "typing a class reference (assumed it may run first)");
+    return true;
+  }
+  const PRIMITIVE =
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.ESSymbolLike |
+    ts.TypeFlags.Void |
+    ts.TypeFlags.Undefined |
+    ts.TypeFlags.Null |
+    ts.TypeFlags.Never;
+  const parts = type.isUnion() ? type.types : [type];
+  return !parts.every((t) => (t.flags & PRIMITIVE) !== 0);
+}
+
+/** A type position (or declaration) -- erased, so nothing in it runs. A class's `extends` expression does. */
+function isTypeOnly(node: ts.Node): boolean {
+  if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return true;
+  if (!ts.isTypeNode(node)) return false;
+  return !(
+    ts.isExpressionWithTypeArguments(node) &&
+    ts.isHeritageClause(node.parent) &&
+    node.parent.token === ts.SyntaxKind.ExtendsKeyword &&
+    ts.isClassLike(node.parent.parent)
+  );
+}
+
+function referencesSymbol(id: ts.Identifier, symbol: ts.Symbol, check: DeferralCheck): boolean {
+  if (ts.isExportSpecifier(id.parent)) return false;
+  const sym = ts.isShorthandPropertyAssignment(id.parent)
+    ? check.checker.getShorthandAssignmentValueSymbol(id.parent)
+    : check.checker.getSymbolAtLocation(id);
+  return sym === symbol;
+}
+
+/**
+ * The name a function runs through, and the declaration that binds it: a
+ * named function declaration; a function or arrow that initializes a
+ * variable (`const f = () => ...`); or a member (method, accessor,
+ * constructor, instance property) of a class that is declared, or bound to a
+ * variable, by name -- it runs once the class is used. Anything else (an
+ * argument, an IIFE, an object literal's method) has none: it may run at once.
+ */
+function functionBinding(
+  fn: ts.Node,
+  checker: ts.TypeChecker
+): { symbol: ts.Symbol; declaration: ts.Node; name: ts.Identifier; isMember: boolean } | undefined {
+  const named = (name: ts.Node | undefined, declaration: ts.Node, isMember = false) => {
+    const symbol = name && ts.isIdentifier(name) ? checker.getSymbolAtLocation(name) : undefined;
+    return symbol && name && ts.isIdentifier(name)
+      ? { symbol, declaration, name, isMember }
+      : undefined;
+  };
+  if (ts.isFunctionDeclaration(fn)) return named(fn.name, fn);
+  if (ts.isFunctionExpression(fn) || ts.isArrowFunction(fn)) {
+    let p: ts.Node = fn.parent;
+    while (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isSatisfiesExpression(p)) {
+      p = p.parent;
+    }
+    return ts.isVariableDeclaration(p) && p.initializer && skipParens(p.initializer) === fn
+      ? named(p.name, p)
+      : undefined;
+  }
+  const isMember =
+    ts.isMethodDeclaration(fn) ||
+    ts.isGetAccessorDeclaration(fn) ||
+    ts.isSetAccessorDeclaration(fn) ||
+    ts.isConstructorDeclaration(fn) ||
+    isInstancePropertyDeclaration(fn);
+  if (!isMember) return undefined;
+  const cls = fn.parent;
+  if (ts.isClassDeclaration(cls)) return named(cls.name, cls, true);
+  if (ts.isClassExpression(cls) && ts.isVariableDeclaration(cls.parent)) {
+    return named(cls.parent.name, cls.parent, true);
+  }
+  return undefined;
+}
+
+function skipParens(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) {
+    e = e.expression;
+  }
+  return e;
+}
+
+function isStaticModifier(m: ts.ModifierLike): boolean {
+  return m.kind === ts.SyntaxKind.StaticKeyword;
 }
 
 function resolveFromImports(
@@ -255,7 +928,8 @@ function resolveFromImports(
   tcName: string,
   forType: ts.Type,
   forTypeString: string,
-  scanner: InstanceScanner
+  scanner: InstanceScanner,
+  identityOnly = false
 ): ResolutionResult {
   const typeChecker = ctx.typeChecker;
   const importMap = getImportMap(ctx);
@@ -272,7 +946,16 @@ function resolveFromImports(
     const moduleSymbol = typeChecker.getSymbolAtLocation(moduleSourceFile);
     if (!moduleSymbol) continue;
 
-    const scanned = scanner.scanModule(typeChecker, moduleSymbol, entry.resolvedPath, ctx.program);
+    const scanned = dropFailedDerivations(
+      ctx,
+      scanner.scanModule(
+        typeChecker,
+        moduleSymbol,
+        entry.resolvedPath,
+        ctx.program,
+        scanWarnings(ctx)
+      )
+    );
     const allMatches = filterMatches(
       typeChecker,
       scanned,
@@ -281,16 +964,22 @@ function resolveFromImports(
       forTypeString,
       entry.resolvedPath,
       "module-scan",
-      entry.specifier
+      scanWarnings(ctx),
+      entry.specifier,
+      identityOnly
     );
 
     for (const match of allMatches) {
-      const binding = entry.namedImports.find((b) => b.exportName === match.exportName);
+      // A companion (`Point.Eq`) is imported through its type's binding
+      // (`import { Point as P }` → `P.Eq`).
+      const dot = match.exportName.indexOf(".");
+      const importedName = dot === -1 ? match.exportName : match.exportName.slice(0, dot);
+      const binding = entry.namedImports.find((b) => b.exportName === importedName);
       if (binding) {
         explicitMatches.push({
           ...match,
           source: "explicit-import",
-          localName: binding.localName,
+          localName: binding.localName + (dot === -1 ? "" : match.exportName.slice(dot)),
           typeOnlyImport: binding.typeOnly,
         });
       } else {
@@ -308,6 +997,212 @@ function resolveFromImports(
 }
 
 // ============================================================================
+// The typeclass's own package (implicit scope of the typeclass)
+// ============================================================================
+
+/**
+ * The typeclass a type reference's name denotes, by identity: the checker
+ * follows imports, renames (`Eq as Equal`) and type aliases that forward to
+ * another type (`typesugar`'s `type Ord<A> = import("@typesugar/std").Ord<A>`)
+ * to the typeclass's own declaration. Undefined when the name is not a type
+ * here. Throws when the checker does (callers warn and degrade); the caller
+ * skips synthetic nodes (CLAUDE.md).
+ */
+export function resolveTypeclassSymbol(
+  checker: ts.TypeChecker,
+  typeName: ts.EntityName
+): ts.Symbol | undefined {
+  return followTypeclassSymbol(checker, checker.getSymbolAtLocation(typeName));
+}
+
+/** {@link resolveTypeclassSymbol} from a symbol already looked up (import aliases followed). */
+export function followTypeclassSymbol(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol | undefined
+): ts.Symbol | undefined {
+  let sym = symbol;
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  if (!sym || !(sym.flags & ts.SymbolFlags.Type)) return undefined;
+  // `type Clone<A> = std.Clone<A>` → std's `Clone` (bounded: aliases of aliases).
+  for (let i = 0; i < 8 && sym.flags & ts.SymbolFlags.TypeAlias; i++) {
+    const t = checker.getDeclaredTypeOfSymbol(sym);
+    const next: ts.Symbol | undefined =
+      t.aliasSymbol && t.aliasSymbol !== sym ? t.aliasSymbol : t.symbol;
+    const named = ts.SymbolFlags.Interface | ts.SymbolFlags.Class | ts.SymbolFlags.TypeAlias;
+    if (!next || next === sym || !(next.flags & named)) break;
+    sym = next;
+  }
+  return sym;
+}
+
+/**
+ * The name a typeclass is keyed by (instances, derivations and `@impl` tags
+ * name it), for the typeclass {@link followTypeclassSymbol} resolved from
+ * `start`: its declaration's own name, except when a `.d.ts` bundler renamed
+ * the declaration to avoid a clash and re-exported it under the real name.
+ * @typesugar/sql's dist declares `interface Read$1<A>` and exports
+ * `Read$1 as Read` (its legacy `meta.ts` also declares a `Read`), so
+ * `summon<Read<User>>()` looked for `Read$1` instances and found none for
+ * every consumer of the published package. The renamed name is recognised
+ * only through the export specifier on the alias chain from `start` that
+ * really is this declaration (`Read$1 as Read`, in a declaration file), not
+ * by the spelling alone. Instances are still keyed by name (module-qualified
+ * identity is PEP-060 item 13).
+ */
+export function typeclassKeyName(
+  checker: ts.TypeChecker,
+  start: ts.Symbol | undefined,
+  resolved: ts.Symbol
+): string {
+  const own = resolved.name;
+  const renamed = /^(.+)\$\d+$/.exec(own);
+  if (!renamed) return own;
+  if (!resolved.declarations?.length) return own;
+  if (!resolved.declarations.every((d) => d.getSourceFile().isDeclarationFile)) return own;
+  let sym = start;
+  for (let i = 0; i < 16 && sym && sym.flags & ts.SymbolFlags.Alias; i++) {
+    for (const d of sym.declarations ?? []) {
+      if (
+        ts.isExportSpecifier(d) &&
+        d.getSourceFile().isDeclarationFile &&
+        d.propertyName &&
+        ts.isIdentifier(d.propertyName) &&
+        d.propertyName.text === own &&
+        ts.isIdentifier(d.name) &&
+        d.name.text === renamed[1]
+      ) {
+        return renamed[1];
+      }
+    }
+    sym = checker.getImmediateAliasedSymbol(sym);
+  }
+  return own;
+}
+
+const packageNameCache = new Map<string, string | null>();
+
+/** The `name` of the nearest package.json at or above `dir`, if any. */
+function packageNameAt(dir: string): string | undefined {
+  const seen: string[] = [];
+  let d = dir;
+  for (;;) {
+    const cached = packageNameCache.get(d);
+    if (cached !== undefined) {
+      for (const s of seen) packageNameCache.set(s, cached);
+      return cached ?? undefined;
+    }
+    seen.push(d);
+    const pj = `${d}/package.json`;
+    if (ts.sys.fileExists(pj)) {
+      let name: string | null = null;
+      try {
+        const parsed = JSON.parse(ts.sys.readFile(pj) ?? "{}") as { name?: unknown };
+        if (typeof parsed.name === "string") name = parsed.name;
+      } catch {
+        name = null; // an unreadable package.json names no package
+      }
+      for (const s of seen) packageNameCache.set(s, name);
+      return name ?? undefined;
+    }
+    const parent = d.replace(/\/[^/]*$/, "");
+    if (!parent || parent === d) {
+      for (const s of seen) packageNameCache.set(s, null);
+      return undefined;
+    }
+    d = parent;
+  }
+}
+
+/**
+ * Where a typeclass's own instances are, when the file reaches the typeclass
+ * through another module: `import type { Ord } from "typesugar"` names
+ * `@typesugar/std`'s `Ord`, whose instances (`ordNumber`, ...) are exported
+ * by `@typesugar/std`, which the file doesn't import, so the import scan
+ * never sees them. Like Scala's implicit scope, which includes the
+ * typeclass's companion, the package that declares the typeclass is searched
+ * as if the file imported it: its entry, resolved FROM THIS FILE (so an
+ * emitted import of it resolves the same way), scanned like an imported
+ * module. Tried after the file's own scope and imports.
+ *
+ * `homePackage` names that package even when it can't be searched from here
+ * (not resolvable from this file, or not in the program), for the help text.
+ */
+export function resolveFromTypeclassHome(
+  ctx: MacroContext,
+  typeclass: ts.Symbol,
+  tcName: string,
+  forType: ts.Type,
+  scanner: InstanceScanner = defaultScanner
+): { result: ResolutionResult; homePackage?: string } {
+  const decl = typeclass.declarations?.[0];
+  if (!decl) return { result: undefined };
+  const declFile = decl.getSourceFile();
+  if (declFile === ctx.sourceFile) return { result: undefined };
+  const fileName = declFile.fileName.replace(/\\/g, "/");
+  const homePackage = packageNameAt(fileName.slice(0, fileName.lastIndexOf("/")));
+  if (!homePackage) return { result: undefined };
+  const resolved = ts.resolveModuleName(
+    homePackage,
+    ctx.sourceFile.fileName,
+    ctx.program.getCompilerOptions(),
+    ts.sys
+  ).resolvedModule?.resolvedFileName;
+  const entry = resolved ? ctx.program.getSourceFile(resolved) : undefined;
+  if (!entry || entry === ctx.sourceFile) return { result: undefined, homePackage };
+  // Already searched: the file imports the package itself.
+  if (getImportMap(ctx).some((e) => e.resolvedPath === entry.fileName)) {
+    return { result: undefined, homePackage };
+  }
+  const checker = ctx.typeChecker;
+  const moduleSymbol = checker.getSymbolAtLocation(entry);
+  if (!moduleSymbol) return { result: undefined, homePackage };
+  // The entry's exports, then (only if none matches) the instances it exports
+  // inside a namespace re-export: @typesugar/fp's root exports its instances
+  // as `TC.showNumber` (`export * as TC from "./typeclasses"`).
+  let scanned = scanner.scanModule(
+    checker,
+    moduleSymbol,
+    entry.fileName,
+    ctx.program,
+    scanWarnings(ctx)
+  );
+  if (
+    !scanned.some(
+      (i) =>
+        i.typeclassName === tcName && isTypeMatch(checker, forType, i.forType, scanWarnings(ctx))
+    )
+  ) {
+    try {
+      scanned = scanner.scanNamespaceReexports(
+        checker,
+        moduleSymbol,
+        entry.fileName,
+        ctx.program,
+        scanWarnings(ctx)
+      );
+    } catch (e) {
+      ctx.reportWarning(
+        ctx.sourceFile,
+        `typesugar could not search ${homePackage}'s namespace exports for a ${tcName} ` +
+          `instance (${e instanceof Error ? e.message : String(e)}); they were skipped.`
+      );
+    }
+  }
+  const matches = filterMatches(
+    checker,
+    scanned,
+    tcName,
+    forType,
+    checker.typeToString(forType),
+    entry.fileName,
+    "module-scan",
+    scanWarnings(ctx),
+    homePackage
+  );
+  return { result: pickResult(matches, tcName, forType), homePackage };
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -319,7 +1214,9 @@ function filterMatches(
   forTypeString: string,
   sourceModule: string,
   source: ResolutionSource,
-  importSpecifier?: string
+  onFailure: ScannerCheckerFailure,
+  importSpecifier?: string,
+  identityOnly = false
 ): ResolvedInstance[] {
   const results: ResolvedInstance[] = [];
 
@@ -327,7 +1224,12 @@ function filterMatches(
     if (inst.typeclassName !== tcName) continue;
 
     // Type-based matching: use ts.Type directly from scanner
-    if (!isTypeMatch(typeChecker, forType, inst.forType)) continue;
+    if (!isTypeMatch(typeChecker, forType, inst.forType, onFailure)) continue;
+
+    // `identityOnly`: only an instance declared for this very type (by
+    // symbol), not one that merely matches by assignability.
+    const sameTypeIdentity = isSameTypeIdentity(typeChecker, forType, inst.forType);
+    if (identityOnly && !sameTypeIdentity) continue;
 
     results.push({
       kind: "resolved",
@@ -338,6 +1240,8 @@ function filterMatches(
       sourceModule,
       source,
       importSpecifier,
+      sameTypeIdentity,
+      origin: inst.origin,
     });
   }
 
@@ -379,7 +1283,7 @@ export function resolveInstanceInScopeByName(
  * pass is visible.
  */
 export function findEmittableInstanceByName(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   typeName: string,
   scanner: InstanceScanner = defaultScanner
@@ -410,12 +1314,28 @@ export function buildInstanceReference(
 ): ts.Expression {
   const f = ctx.factory;
   if (resolved.source === "explicit-import" && resolved.localName && !resolved.typeOnlyImport) {
-    return f.createIdentifier(resolved.localName);
+    return buildDottedReference(f, resolved.localName);
   }
   if (resolved.source !== "local-scope" && resolved.importSpecifier) {
-    return ctx.ensureImport(resolved.exportName, resolved.importSpecifier);
+    return buildImportedReference(ctx, resolved.exportName, resolved.importSpecifier);
   }
   return buildDottedReference(f, resolved.exportName);
+}
+
+/**
+ * A reference to `exportName` of the module `specifier`, importing it (via
+ * `ctx.ensureImport`, aliased if the name is taken). A companion path
+ * (`"Point.Eq"`) imports its first segment and reads the rest from it.
+ */
+export function buildImportedReference(
+  ctx: Pick<MacroContext, "factory" | "ensureImport">,
+  exportName: string,
+  specifier: string
+): ts.Expression {
+  const [base, ...rest] = exportName.split(".");
+  let expr: ts.Expression = ctx.ensureImport(base, specifier);
+  for (const part of rest) expr = ctx.factory.createPropertyAccessExpression(expr, part);
+  return expr;
 }
 
 /** `"Point.Eq"` → `Point.Eq` property access; a plain name → identifier. */
@@ -439,7 +1359,7 @@ export function buildDottedReference(factory: ts.NodeFactory, name: string): ts.
  * imported-module instances as in scope unconditionally.
  */
 export function findInstanceInScopeByName(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   typeName: string,
   scanner: InstanceScanner = defaultScanner
@@ -477,11 +1397,19 @@ function baseTypeName(s: string): string {
  * widened in PEP-056 Wave 5 cleanup).
  */
 function findScannedInScope(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   match: (inst: ScannedInstance) => boolean,
   scanner: InstanceScanner = defaultScanner,
   includeNonExportedImports = true
 ): { instance: ScannedInstance; modulePath?: string; specifier?: string } | undefined {
+  // A `derived<TC<T>>()` const whose derivation failed is the un-expanded
+  // stub, not an instance: dropped here exactly as resolveInstance drops it
+  // (dropFailedDerivations, which reads the live per-program outcome
+  // registry the `derived` macro writes), so every consumer of this walk
+  // (implicit()'s by-name fallback, companion-path extraction, do-notation)
+  // agrees with the type-based resolver.
+  const live = (scanned: readonly ScannedInstance[]): ScannedInstance[] =>
+    dropFailedDerivations(ctx, scanned.filter(match));
   // Local file (includes non-exported @impl/@instance values). Also check
   // instances synthesized during THIS transform pass (e.g. a `@derive(Eq)`
   // companion) — invisible to the scan above, since that reads the
@@ -489,9 +1417,14 @@ function findScannedInScope(
   // See "same-pass state visibility" in CLAUDE.md: a scan of
   // sourceFile.statements is fixed at pass start and can never see what the
   // pass itself is in the middle of generating.
-  const local = scanner.scanLocalFile(ctx.typeChecker, ctx.sourceFile, ctx.program);
+  const local = scanner.scanLocalFile(
+    ctx.typeChecker,
+    ctx.sourceFile,
+    ctx.program,
+    scanWarnings(ctx)
+  );
   const synthesized = scanner.getSynthesized(ctx.program, ctx.sourceFile.fileName);
-  const localHit = local.find(match) ?? synthesized.find(match);
+  const localHit = live(local)[0] ?? live(synthesized)[0];
   if (localHit) return { instance: localHit };
 
   // Imported modules.
@@ -504,12 +1437,15 @@ function findScannedInScope(
       ctx.typeChecker,
       moduleSymbol,
       entry.resolvedPath,
-      ctx.program
+      ctx.program,
+      scanWarnings(ctx)
     );
     const hit =
-      scanned.find(match) ??
+      live(scanned)[0] ??
       (includeNonExportedImports
-        ? scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program).find(match)
+        ? live(
+            scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program, scanWarnings(ctx))
+          )[0]
         : undefined);
     if (hit) return { instance: hit, modulePath: entry.resolvedPath, specifier: entry.specifier };
   }
@@ -572,7 +1508,7 @@ const doNotationResolutionCache = new WeakMap<
 >();
 
 export function resolveDoNotationInstance(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   brand: string,
   scanner: InstanceScanner = defaultScanner
@@ -597,7 +1533,7 @@ export function resolveDoNotationInstance(
 }
 
 function resolveDoNotationInstanceUncached(
-  ctx: Pick<MacroContext, "typeChecker" | "program" | "sourceFile">,
+  ctx: MacroContext,
   tcName: string,
   brand: string,
   scanner: InstanceScanner
@@ -642,17 +1578,36 @@ function pickResult(
   if (matches.length === 0) return undefined;
   if (matches.length === 1) return matches[0];
 
-  // Deduplicate by (module, exportName) — the same instance reached through
-  // different paths. Keyed by module too: two DIFFERENT modules exporting a
-  // same-named instance are genuinely ambiguous, not one instance.
-  const seen = new Map<string, ResolvedInstance>();
+  // Deduplicate: the same instance reached through different paths is one
+  // instance. By identity (CLAUDE.md "Deciding what a type is"): the
+  // declaration it comes from, after re-exports are followed (`import { Vec }`
+  // from one module and `import { Vec as V2 }` from another are both vec.ts's
+  // `Vec.Eq`). Without an origin, by (module, exportName): keyed by module
+  // too, since two DIFFERENT modules exporting a same-named instance are
+  // genuinely ambiguous, not one instance.
+  const seen = new Map<unknown, ResolvedInstance>();
+  const originKeys = new Map<ts.Node, Map<string, object>>();
+  const keyOf = (m: ResolvedInstance): unknown => {
+    if (!m.origin) return `${m.sourceModule}\0${m.exportName}`;
+    let byTc = originKeys.get(m.origin);
+    if (!byTc) originKeys.set(m.origin, (byTc = new Map()));
+    let key = byTc.get(m.typeclassName);
+    if (!key) byTc.set(m.typeclassName, (key = {}));
+    return key;
+  };
   for (const m of matches) {
-    const key = `${m.sourceModule}\0${m.exportName}`;
+    const key = keyOf(m);
     if (!seen.has(key)) {
       seen.set(key, m);
     }
   }
   if (seen.size === 1) return seen.values().next().value;
+
+  // Several instances match structurally, but exactly one is declared for the
+  // requested type itself (`UserId.Eq` for a `UserId`, beside an `Email.Eq`
+  // for a class of the same shape): that one is meant.
+  const exact = [...seen.values()].filter((m) => m.sameTypeIdentity);
+  if (exact.length === 1) return exact[0];
 
   return {
     kind: "ambiguous",
