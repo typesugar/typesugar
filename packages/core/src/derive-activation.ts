@@ -58,7 +58,7 @@ function boundNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
 }
 
 /** Does `sourceFile` import `moduleName` (or a subpath of it) in any form? */
-function importsModule(sourceFile: ts.SourceFile, moduleName: string): boolean {
+export function fileImportsModule(sourceFile: ts.SourceFile, moduleName: string): boolean {
   return sourceFile.statements.some(
     (stmt) =>
       ts.isImportDeclaration(stmt) &&
@@ -76,7 +76,7 @@ export function isJSDocDeriveActive(sourceFile: ts.SourceFile, name: string): bo
   // side-effect-free registry read (no ambiguity warning for a probe).
   for (const macroName of [name, `${name}TC`]) {
     for (const macro of globalRegistry.getCandidates(macroName, "derive")) {
-      if (macro.module && importsModule(sourceFile, macro.module)) return true;
+      if (macro.module && fileImportsModule(sourceFile, macro.module)) return true;
     }
   }
   return false;
@@ -90,9 +90,12 @@ export function isJSDocDeriveActive(sourceFile: ts.SourceFile, name: string): bo
  */
 export function appliedDeriveTagNames(tag: ts.JSDocTag): string[] {
   if (!isJSDocTagAtLineStart(tag)) return [];
-  const names = deriveTagNames(tag);
-  let top: ts.Node = tag;
+  // A copied tag's file is its original's. With no file to read (a
+  // detached node), no derive can be shown to apply: none does — the
+  // expansion, which always has its file, must not be contradicted.
+  let top: ts.Node = ts.getOriginalNode(tag);
   while (top.parent) top = top.parent;
-  if (!ts.isSourceFile(top)) return names;
-  return names.filter((n) => isJSDocDeriveActive(top as ts.SourceFile, n));
+  if (!ts.isSourceFile(top)) return [];
+  const sourceFile = top;
+  return deriveTagNames(tag).filter((n) => isJSDocDeriveActive(sourceFile, n));
 }

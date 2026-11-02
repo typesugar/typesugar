@@ -35,6 +35,7 @@ import {
   isJSDocTagAtLineStart,
   deriveTagNames,
   isJSDocDeriveActive,
+  fileImportsModule,
 } from "@typesugar/core";
 
 // Moved to @typesugar/core (the instance scanner in @typesugar/macros needs it
@@ -42,7 +43,7 @@ import {
 export { isJSDocTagAtLineStart };
 
 import { safeGetNodeText, isPrimitiveType, type VisitFn } from "./transformer-utils.js";
-import { lookupMacroByName } from "./import-resolution.js";
+import { lookupMacroByName, isMacroModuleSpecifier } from "./import-resolution.js";
 
 // ---------------------------------------------------------------------------
 // JSDoc macro tags
@@ -91,17 +92,6 @@ function sourceFileOf(node: ts.Node): ts.SourceFile | undefined {
   let n: ts.Node | undefined = ts.getOriginalNode(node);
   while (n && !ts.isSourceFile(n)) n = n.parent;
   return n;
-}
-
-/** Does `sourceFile` import `moduleName` (or a subpath of it) in any form? */
-function fileImportsModule(sourceFile: ts.SourceFile, moduleName: string): boolean {
-  return sourceFile.statements.some(
-    (stmt) =>
-      ts.isImportDeclaration(stmt) &&
-      ts.isStringLiteral(stmt.moduleSpecifier) &&
-      (stmt.moduleSpecifier.text === moduleName ||
-        stmt.moduleSpecifier.text.startsWith(moduleName + "/"))
-  );
 }
 
 /**
@@ -216,17 +206,22 @@ export function tryExpandJSDocMacros(
         (a) => !ts.isIdentifier(a) || isJSDocDeriveActive(ctx.sourceFile, a.text)
       );
       const inactive = tagArgs.filter((a) => !args.includes(a));
-      if (inactive.length > 0 && importsTypesugar(ctx.sourceFile)) {
+      const isTypeTarget =
+        ts.isInterfaceDeclaration(currentNode) ||
+        ts.isClassDeclaration(currentNode) ||
+        ts.isTypeAliasDeclaration(currentNode);
+      if (
+        inactive.length > 0 &&
+        (isTypeTarget || !isDeriveProse(tag)) &&
+        importsMacroModule(ctx.sourceFile)
+      ) {
         // A file that uses typesugar most likely forgot the import; in one
         // that doesn't, the tag is someone else's and is left alone silently.
+        // Documentation of a derive (prose after the list, on a const) too.
         reportInactiveJSDocDerive(ctx, tag, inactive);
       }
       if (args.length === 0) continue;
-      if (
-        ts.isInterfaceDeclaration(currentNode) ||
-        ts.isClassDeclaration(currentNode) ||
-        ts.isTypeAliasDeclaration(currentNode)
-      ) {
+      if (isTypeTarget) {
         const syntheticDecorator = createSyntheticDecorator(ctx, tag, macroName, args);
         const derives = expandDeriveDecorator(ctx, verbose, syntheticDecorator, currentNode, args);
         if (derives) {
@@ -322,13 +317,16 @@ export function tryExpandJSDocMacros(
   return results.length > 0 ? [currentNode, ...results] : currentNode;
 }
 
-/** Does `sourceFile` import anything from typesugar (`typesugar`, `typesugar/…`, `@typesugar/…`)? */
-function importsTypesugar(sourceFile: ts.SourceFile): boolean {
-  return sourceFile.statements.some((stmt) => {
-    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) return false;
-    const spec = stmt.moduleSpecifier.text;
-    return spec === "typesugar" || spec.startsWith("typesugar/") || spec.startsWith("@typesugar/");
-  });
+/** Does `sourceFile` import typesugar or another registered macro package? */
+function importsMacroModule(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some(
+    (stmt) =>
+      ts.isImportDeclaration(stmt) &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      (stmt.moduleSpecifier.text === "typesugar" ||
+        stmt.moduleSpecifier.text.startsWith("typesugar/") ||
+        isMacroModuleSpecifier(stmt.moduleSpecifier.text))
+  );
 }
 
 function reportInactiveJSDocDerive(

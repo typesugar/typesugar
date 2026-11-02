@@ -142,11 +142,19 @@ function isNameNotReference(id: ts.Identifier, parent: ts.Node): boolean {
  */
 function remainingValueReferences(
   sourceFile: ts.SourceFile,
-  importNames: ReadonlySet<string>
+  importNames: ReadonlySet<string>,
+  includeTypes = false
 ): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node, parent: ts.Node | undefined): void => {
-    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    if (!includeTypes) {
+      // Type positions: type nodes, and the type-only uses an
+      // ExpressionWithTypeArguments has (a class's `implements`, an
+      // interface's `extends`). A class's `extends Base` is a value.
+      if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+      if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
+      if (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) return;
+    }
     if (ts.isImportDeclaration(node)) return;
     if (ts.isExportDeclaration(node)) {
       if (!node.moduleSpecifier && node.exportClause && ts.isNamedExports(node.exportClause)) {
@@ -177,8 +185,9 @@ function remainingValueReferences(
  * the code uses only as a type (`import { Show }` of an interface: no such
  * export at run time). In the JavaScript emit, do the elision TypeScript
  * would have done: drop a type-only declaration and type-only specifiers,
- * and — unless `verbatimModuleSyntax` or `emitDecoratorMetadata` keeps them —
- * the bindings the emitted code doesn't reference as values. A declaration
+ * and — unless `verbatimModuleSyntax` keeps them — the bindings the emitted
+ * code doesn't reference as values (any reference under
+ * `emitDecoratorMetadata`). A declaration
  * left with no binding is dropped (its comments stay), or under
  * `verbatimModuleSyntax` kept as a side-effect import, as TypeScript emits
  * `import {} from "m"`. The macros keep the type-only parts in their output
@@ -196,7 +205,6 @@ function withoutRebuiltTypeOnlySyntax(
   );
   if (rebuilt.length === 0) return sourceFile;
   const verbatim = !!options.verbatimModuleSyntax;
-  const keepUnused = verbatim || !!options.emitDecoratorMetadata;
   const bound = new Set<string>();
   for (const stmt of rebuilt) {
     const clause = stmt.importClause!;
@@ -205,7 +213,18 @@ function withoutRebuiltTypeOnlySyntax(
     if (bindings && ts.isNamespaceImport(bindings)) bound.add(bindings.name.text);
     else if (bindings) for (const el of bindings.elements) bound.add(el.name.text);
   }
-  const values = keepUnused ? undefined : remainingValueReferences(sourceFile, bound);
+  // Under emitDecoratorMetadata a type annotation can be a run-time
+  // reference, so any reference keeps a binding (TypeScript still drops an
+  // unreferenced one). The classic JSX factory (`React`, or jsxFactory's
+  // root) has no identifier before JSX is lowered: kept.
+  const values = verbatim
+    ? undefined
+    : remainingValueReferences(sourceFile, bound, !!options.emitDecoratorMetadata);
+  if (values && options.jsx === ts.JsxEmit.React) {
+    for (const factory of [options.jsxFactory ?? "React", options.jsxFragmentFactory]) {
+      if (factory) values.add(factory.split(".")[0]);
+    }
+  }
   const used = (name: ts.Identifier) => !values || values.has(name.text);
 
   let changed = false;

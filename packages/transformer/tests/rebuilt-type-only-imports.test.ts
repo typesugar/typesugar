@@ -126,4 +126,17 @@ export type S = Show<number>;
     expect(js).toMatch(/^import "@typesugar\/std";$/m);
     expect(js).not.toMatch(/\btype (Destructure|Eq)\b/);
   });
+
+  it("drops a plain specifier used only in an implements clause", () => {
+    const { program, file } = programFor(`import { match, Show } from "@typesugar/std";
+import type { Destructure } from "@typesugar/std";
+/** @derive(Destructure) */
+export type Shape = { kind: "c"; r: number } | { kind: "s"; w: number };
+export class Area implements Show<Shape> {
+  show(s: Shape) { return String(match(s).case(C(r)).then(r * r).else(0)); }
+}
+`);
+    const js = emitJs(program, file);
+    expect(js).not.toMatch(/\bShow\b/);
+  });
 });

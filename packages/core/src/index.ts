@@ -234,7 +234,11 @@ export {
   opaqueTypesAsUnderlying,
   type JsValueContext,
 } from "./ast-utils.js";
-export { isJSDocDeriveActive, appliedDeriveTagNames } from "./derive-activation.js";
+export {
+  isJSDocDeriveActive,
+  appliedDeriveTagNames,
+  fileImportsModule,
+} from "./derive-activation.js";
 
 // Receiver vs. an extension function's first parameter (transformer + suppression)
 export { receiverMatchesFirstParam } from "./extension-receiver.js";

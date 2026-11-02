@@ -126,6 +126,15 @@ export const same = p === q;
     expect(exportLine(main.code, "same")).toBe("export const same = p === q;");
   });
 
+  it("documentation of a derive on a const is not warned about", () => {
+    const result = transformOne(`
+import { defineDeriveMacro } from "@typesugar/core";
+/** @derive(Read) — derives a Read instance for a product type. */
+export const readMacro = defineDeriveMacro;
+`);
+    expect(result.diagnostics.filter((d) => /was ignored|9102/.test(d.message))).toEqual([]);
+  });
+
   it("a file that imports nothing from typesugar gets no warning for someone else's tag", () => {
     const result = transformOne(`
 /** @derive Serialize */
