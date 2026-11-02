@@ -380,12 +380,28 @@ describe("Diagnostic edge cases", () => {
   });
 
   it("@deriving with unknown typeclass reports error", () => {
+    // The file binds Serialize (a JSDoc derive applies only to a name the
+    // file imports or declares), but no derivation for it exists.
     const result = transform(`
+      interface Serialize<A> { serialize(a: A): string }
       /** @deriving Serialize */
       interface Foo { x: number; }
     `);
     const errs = errors(result);
     expect(errs.length).toBeGreaterThan(0);
+  });
+
+  it("@deriving a name the file doesn't bind is ignored, with a warning where typesugar is imported (audit F23)", () => {
+    const result = transform(`
+      import { comptime } from "typesugar";
+      /** @deriving Serialize */
+      interface Foo { x: number; }
+      export const n = comptime(1);
+    `);
+    expect(errors(result)).toEqual([]);
+    expect(result.diagnostics.some((d) => /@derive Serialize was ignored/.test(d.message))).toBe(
+      true
+    );
   });
 
   it("TS9001: summon for type with function field", () => {

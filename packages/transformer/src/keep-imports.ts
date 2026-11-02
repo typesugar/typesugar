@@ -142,11 +142,19 @@ function isNameNotReference(id: ts.Identifier, parent: ts.Node): boolean {
  */
 function remainingValueReferences(
   sourceFile: ts.SourceFile,
-  importNames: ReadonlySet<string>
+  importNames: ReadonlySet<string>,
+  includeTypes = false
 ): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node, parent: ts.Node | undefined): void => {
-    if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+    if (!includeTypes) {
+      // Type positions: type nodes, and the type-only uses an
+      // ExpressionWithTypeArguments has (a class's `implements`, an
+      // interface's `extends`). A class's `extends Base` is a value.
+      if (ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node)) return;
+      if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) return;
+      if (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword) return;
+    }
     if (ts.isImportDeclaration(node)) return;
     if (ts.isExportDeclaration(node)) {
       if (!node.moduleSpecifier && node.exportClause && ts.isNamedExports(node.exportClause)) {
@@ -169,16 +177,117 @@ function remainingValueReferences(
   return names;
 }
 
+/**
+ * An import declaration the macros rebuilt (`import { match, type D } from
+ * "m"` with the macro `match` removed) is printed verbatim: TypeScript elides
+ * only in its own parse-tree declarations, so the emitted JavaScript read
+ * `import { type D } from "m"`, a syntax error, and kept a plain specifier
+ * the code uses only as a type (`import { Show }` of an interface: no such
+ * export at run time). In the JavaScript emit, do the elision TypeScript
+ * would have done: drop a type-only declaration and type-only specifiers,
+ * and — unless `verbatimModuleSyntax` keeps them — the bindings the emitted
+ * code doesn't reference as values (any reference under
+ * `emitDecoratorMetadata`). A declaration
+ * left with no binding is dropped (its comments stay), or under
+ * `verbatimModuleSyntax` kept as a side-effect import, as TypeScript emits
+ * `import {} from "m"`. The macros keep the type-only parts in their output
+ * because a pass printed as TypeScript (`typesugar expand`, the strict check
+ * of the expansion, declaration emit) still needs those bindings.
+ */
+function withoutRebuiltTypeOnlySyntax(
+  sourceFile: ts.SourceFile,
+  factory: ts.NodeFactory,
+  options: ts.CompilerOptions
+): ts.SourceFile {
+  const rebuilt = sourceFile.statements.filter(
+    (s): s is ts.ImportDeclaration =>
+      ts.isImportDeclaration(s) && ts.getParseTreeNode(s) !== s && s.importClause !== undefined
+  );
+  if (rebuilt.length === 0) return sourceFile;
+  const verbatim = !!options.verbatimModuleSyntax;
+  const bound = new Set<string>();
+  for (const stmt of rebuilt) {
+    const clause = stmt.importClause!;
+    if (clause.name) bound.add(clause.name.text);
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) bound.add(bindings.name.text);
+    else if (bindings) for (const el of bindings.elements) bound.add(el.name.text);
+  }
+  // Under emitDecoratorMetadata a type annotation can be a run-time
+  // reference, so any reference keeps a binding (TypeScript still drops an
+  // unreferenced one). The classic JSX factory (`React`, or jsxFactory's
+  // root) has no identifier before JSX is lowered: kept.
+  const values = verbatim
+    ? undefined
+    : remainingValueReferences(sourceFile, bound, !!options.emitDecoratorMetadata);
+  if (values && options.jsx === ts.JsxEmit.React) {
+    for (const factory of [options.jsxFactory ?? "React", options.jsxFragmentFactory]) {
+      if (factory) values.add(factory.split(".")[0]);
+    }
+  }
+  const used = (name: ts.Identifier) => !values || values.has(name.text);
+
+  let changed = false;
+  const statements = sourceFile.statements.map((stmt): ts.Statement => {
+    if (!rebuilt.includes(stmt as ts.ImportDeclaration)) return stmt;
+    const decl = stmt as ts.ImportDeclaration;
+    const clause = decl.importClause!;
+    if (clause.isTypeOnly) {
+      changed = true;
+      return factory.createNotEmittedStatement(decl);
+    }
+    const name = clause.name && used(clause.name) ? clause.name : undefined;
+    const bindings = clause.namedBindings;
+    let newBindings: ts.NamedImportBindings | undefined;
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      newBindings = used(bindings.name) ? bindings : undefined;
+    } else if (bindings) {
+      const kept = bindings.elements.filter((el) => !el.isTypeOnly && used(el.name));
+      newBindings =
+        kept.length === bindings.elements.length
+          ? bindings
+          : kept.length > 0
+            ? factory.updateNamedImports(bindings, kept)
+            : undefined;
+    }
+    if (name === clause.name && newBindings === bindings) return decl;
+    changed = true;
+    if (!name && !newBindings) {
+      return verbatim
+        ? factory.createImportDeclaration(
+            decl.modifiers,
+            undefined,
+            decl.moduleSpecifier,
+            decl.attributes
+          )
+        : factory.createNotEmittedStatement(decl);
+    }
+    return factory.updateImportDeclaration(
+      decl,
+      decl.modifiers,
+      factory.updateImportClause(clause, false, name, newBindings),
+      decl.moduleSpecifier,
+      decl.attributes
+    );
+  });
+  return changed ? factory.updateSourceFile(sourceFile, statements) : sourceFile;
+}
+
 export function keepMacroReferencedImports(
   program?: ts.Program
 ): ts.TransformerFactory<ts.SourceFile> {
   return (context) => (sourceFile) => {
+    const resolver = emitResolverOf(context);
+    if (!resolver) return sourceFile;
+    sourceFile = withoutRebuiltTypeOnlySyntax(
+      sourceFile,
+      context.factory,
+      context.getCompilerOptions()
+    );
     // Nothing is elided under verbatimModuleSyntax. A file the macros left
     // unchanged is still looked at: `Point(1, 2)` calls a constructor its
     // import's module declares only once expanded.
     if (context.getCompilerOptions().verbatimModuleSyntax) return sourceFile;
-    const resolver = emitResolverOf(context);
-    if (!resolver) return sourceFile;
     // The file as written, when the macros changed it: only then can a
     // reference the source has be gone from the expansion.
     const written = ts.getParseTreeNode(sourceFile);

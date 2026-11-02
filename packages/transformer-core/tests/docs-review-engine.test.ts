@@ -362,7 +362,11 @@ describe("JSDoc attribute tags on function declarations (docs B#4)", () => {
 
   it("a JSDoc @derive on a function is reported (TS9102) instead of vanishing", () => {
     const result = virtual(
-      [`/** @derive(Eq) */`, `export function f(): number { return 1; }`].join("\n"),
+      [
+        `import type { Eq } from "typesugar";`,
+        `/** @derive(Eq) */`,
+        `export function f(): number { return 1; }`,
+      ].join("\n"),
       "derive-on-function"
     );
     expect(
@@ -628,7 +632,11 @@ describe("@deriving is a deprecated alias of @derive", () => {
 
   it("the JSDoc form derives and warns", () => {
     const r = transformCode(
-      [`/** @deriving Eq */`, `class P { constructor(public x: number) {} }`].join("\n"),
+      [
+        `import type { Eq } from "typesugar";`,
+        `/** @deriving Eq */`,
+        `class P { constructor(public x: number) {} }`,
+      ].join("\n"),
       { fileName: "/virtual/deriving-jsdoc.ts" }
     );
     expect(r.code).toMatch(/namespace P \{[\s\S]*export const Eq/);

@@ -326,6 +326,7 @@ const instTcString: InstTC<string> = { method: (a) => a };
 describe("@deriving JSDoc tag", () => {
   it("generates derived instances from @deriving tag", () => {
     const code = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 interface SimplePoint { x: number; y: number; }
     `.trim();
@@ -341,6 +342,7 @@ interface SimplePoint { x: number; y: number; }
     // have no Eq/Ord, so both derives failed (hidden while every file was
     // reprinted and so counted as changed).
     const code = `
+import type { Eq, Ord } from "typesugar";
 /** @deriving Eq, Ord */
 interface Span { start: number; end: number; }
     `.trim();
@@ -355,6 +357,7 @@ interface Span { start: number; end: number; }
 
   it("@deriving on type alias works", () => {
     const code = `
+import type { Debug } from "typesugar";
 /** @deriving Debug */
 type Color = { r: number; g: number; b: number; };
     `.trim();
@@ -394,6 +397,7 @@ export interface JsDocEq<A> {
 
   it("@deriving JSDoc generates derived instances", () => {
     const jsdocCode = `
+import type { Eq } from "typesugar";
 /** @deriving Eq */
 interface JsDocPoint { x: number; y: number; }
     `.trim();

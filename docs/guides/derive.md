@@ -41,7 +41,8 @@ const debug = summon<Debug<User>>().debug(u1);
 ### Imports and Activation
 
 - The `@derive` decorator, `summon` and `implicit`, and the markers `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Default`, `Json` and `TypeGuard` come from `typesugar`.
-- The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar` (`@derive(Show)` works even without importing one, because the transformer reads the name).
+- The markers `Show`, `Semigroup` and `Monoid` also come from `typesugar`; `Destructure` comes from `@typesugar/std`.
+- Both forms need the marker imported. The decorator form takes it as an argument. A JSDoc `/** @derive(Show) */` applies only to a name the file imports or declares: otherwise it is ignored (with a warning, if the file imports anything else from typesugar), so another tool's `@derive` tag is never taken for typesugar's. A type-only import is enough (`import type { Show } from "typesugar"`), and `typesugar check` and the editor don't report an import only a tag uses as unused.
 - Each marker is also its typeclass as a type, so one import serves `@derive(Clone)` and `summon<Clone<Point>>()`: `Eq`, `Ord`, `Clone`, `Debug`, `Hash`, `Json`, `Semigroup` and `Monoid` are `@typesugar/std`'s, `Show` is `@typesugar/fp`'s. `Default` and `TypeGuard` have no typeclass interface yet, so they are values only.
 - Operator and method sugar is import-scoped (PEP-052). Without the activation import, `u1 === u2` (and `u1 == u2`) stays reference equality and `u1 < u2` is a plain JavaScript comparison, and the transformer warns ([TS9804](../errors/TS9804.md)) with the import to add:
 
@@ -142,6 +143,7 @@ Like Rust's `#[derive(Clone)]`: each field is cloned through its own `Clone`, so
 The copy starts as a spread of the original and then sets the fields that need cloning, so an optional field that is absent stays absent, and properties the type doesn't declare are kept (by reference). A class's clone is an instance of the same class: it is created with the original's prototype (`Object.create(Object.getPrototypeOf(a))`) and its own fields are copied onto it, so methods, getters, `instanceof` and a subclass's overrides all work on the copy, and no constructor runs.
 
 ```typescript
+import type { Clone } from "typesugar";
 /** @derive(Clone) */
 export interface Shape {
   id: number;
@@ -326,11 +328,13 @@ constructor function per extractor and its `Destructure` instance, so patterns c
 the type or its variants: `case Point(x, y)`, `.case(Circle(r))`. The patterns compile to
 field reads and discriminant checks. See
 [Pattern Matching: Custom Extractors](./pattern-matching.md#custom-extractors).
-The derive comes with `@typesugar/std` (installed with `typesugar`) and needs no import,
-like the others; a project that installs only `@typesugar/transformer` needs `@typesugar/std`
-as well, or `Destructure` is an unknown derive.
+The derive comes with `@typesugar/std` (installed with `typesugar`), and like the others it is
+imported from there (`import type { Destructure } from "@typesugar/std"`); a project that
+installs only `@typesugar/transformer` needs `@typesugar/std` as well, or `Destructure` is an
+unknown derive.
 
 ```typescript
+import type { Destructure } from "@typesugar/std";
 /** @derive(Destructure) */
 export type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
 

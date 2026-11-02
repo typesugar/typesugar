@@ -189,9 +189,9 @@ describe("SQL-4: macro output imports the runtime names it uses", () => {
     expect((exports.plain as Fragment).text).toBe("SELECT 1");
   });
 
-  it("@derive(Read, Write) output runs when only `Read` was imported", async () => {
+  it("@derive(Read, Write) output runs when only `Read` is imported as a value", async () => {
     const { exports } = await expandAndRun(`
-      import { Read } from "@typesugar/sql";
+      import { Read, type Write } from "@typesugar/sql";
       /** @derive(Read, Write) */
       interface User { id: number; userName: string }
     `);
@@ -203,7 +203,7 @@ describe("SQL-4: macro output imports the runtime names it uses", () => {
 
   it("@derive(Meta) output runs (no registerInstanceMethods reference)", async () => {
     const { exports, expanded } = await expandAndRun(`
-      import { sql } from "@typesugar/sql";
+      import { sql, type Meta } from "@typesugar/sql";
       /** @derive(Meta) */
       interface User { id: number; name: string }
     `);
@@ -408,7 +408,7 @@ describe("SQL-13: derives accept boolean | null, literal unions and enums", () =
   it("derives Read/Write in strict mode", async () => {
     const { exports } = await expandAndRun(
       `
-      import { Read } from "@typesugar/sql";
+      import { Read, type Write } from "@typesugar/sql";
       enum Color { Red = "red", Blue = "blue" }
       enum Level { Low, High }
       /** @derive(Read, Write) */
@@ -440,7 +440,7 @@ describe("SQL-13: derives accept boolean | null, literal unions and enums", () =
 describe("SQL-14: @derive(Meta) is a real derive", () => {
   it("expands without an 'Unknown derive' diagnostic, also in a mixed list", async () => {
     const { exports, expanded } = await expandAndRun(`
-      import { Read } from "@typesugar/sql";
+      import { Read, type Meta } from "@typesugar/sql";
       /** @derive(Meta, Read) */
       interface P { id: number }
     `);

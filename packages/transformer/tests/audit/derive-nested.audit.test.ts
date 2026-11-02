@@ -86,7 +86,7 @@ export const same = t1 === t2;
 
 describe("audit F23: JSDoc @derive must not activate without an import", () => {
   // Tracked: audit/FABLE-AUDIT-2026-11.md F23 (PEP-052 named-trigger rule; tryExpandGenericDerive injects "@typesugar/macros")
-  it.fails("a file with `/** @derive Eq */` and NO imports is left byte-for-byte unchanged", () => {
+  it("a file with `/** @derive Eq */` and NO imports is left byte-for-byte unchanged", () => {
     const code = `
 /** @derive Eq */
 class P { constructor(public x: number) {} }
@@ -96,6 +96,52 @@ export const r = a === b;
     const result = transformOne(code);
     expect(result.code).not.toContain('from "@typesugar/macros"');
     expect(result.changed).toBe(false);
+  });
+});
+
+// Added with the F23 fix: every reader of a JSDoc @derive tag applies the
+// same import gate, so a tag the expansion ignored is not scanned as a
+// companion another file then references.
+describe("F23 fix: an ignored JSDoc @derive has no companion anywhere", () => {
+  it("another file's === on the type stays native instead of calling a missing Point.Eq", () => {
+    const proj = project({
+      "point.ts": `
+import { comptime } from "typesugar";
+/** @derive(Eq) */
+export interface Point { x: number }
+export const built = comptime(1 + 1);
+`,
+      "main.ts": `
+import "@typesugar/std/syntax/eq/ops";
+import { Point } from "./point";
+declare const p: Point; declare const q: Point;
+export const same = p === q;
+`,
+    });
+    const point = proj.transform("point.ts");
+    expect(point.code).not.toContain("namespace Point");
+    expect(point.diagnostics.some((d) => /@derive Eq was ignored/.test(d.message))).toBe(true);
+    const main = proj.transform("main.ts");
+    expect(main.code).not.toContain("Point.Eq");
+    expect(exportLine(main.code, "same")).toBe("export const same = p === q;");
+  });
+
+  it("documentation of a derive on a const is not warned about", () => {
+    const result = transformOne(`
+import { defineDeriveMacro } from "@typesugar/core";
+/** @derive(Read) — derives a Read instance for a product type. */
+export const readMacro = defineDeriveMacro;
+`);
+    expect(result.diagnostics.filter((d) => /was ignored|9102/.test(d.message))).toEqual([]);
+  });
+
+  it("a file that imports nothing from typesugar gets no warning for someone else's tag", () => {
+    const result = transformOne(`
+/** @derive Serialize */
+export interface P { x: number }
+`);
+    expect(result.changed).toBe(false);
+    expect(result.diagnostics).toEqual([]);
   });
 });
 

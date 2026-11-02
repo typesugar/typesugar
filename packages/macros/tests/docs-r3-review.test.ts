@@ -209,7 +209,8 @@ function factorial(n: number): number {
   // Needs transformer-core's @derive loop (macro-helpers.ts) to call
   // reportGenericDeriveFailure instead of ctx.reportError.
   it("a failed generic derivation reports TS9106 with the resolution trace", () => {
-    const r = transformAndRun(`/** @derive(Eq) */
+    const r = transformAndRun(`import type { Eq } from "typesugar";
+/** @derive(Eq) */
 interface UserProfile {
   id: number;
   metadata: unknown;

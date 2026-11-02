@@ -23,9 +23,12 @@ function expand(code: string) {
   };
 }
 
+// Each snippet imports what it derives: a JSDoc @derive of a name the file
+// doesn't bind is someone else's tag, and gets no TS9102 (audit F23).
 describe("TS9102: @derive on a non-type", () => {
   it("a JSDoc @derive on a const is an error at the tag, with help", () => {
-    const r = expand(`/** @derive(Eq, Clone) */
+    const r = expand(`import type { Eq, Clone } from "typesugar";
+/** @derive(Eq, Clone) */
 export const origin = { x: 0, y: 0 };
 `);
     expect(r.diagnostics).toHaveLength(1);
@@ -39,7 +42,8 @@ export const origin = { x: 0, y: 0 };
   });
 
   it("a JSDoc @derive on a function is the same error", () => {
-    const r = expand(`/** @derive(Eq) */
+    const r = expand(`import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export function makePoint() {
   return { x: 0, y: 0 };
 }
@@ -51,7 +55,8 @@ export function makePoint() {
   });
 
   it("a JSDoc @derive on an enum is the same error, not silence", () => {
-    const r = expand(`/** @derive(Eq) */
+    const r = expand(`import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export enum Color { Red, Green }
 `);
     expect(r.diagnostics.map((d) => [d.severity, d.code])).toEqual([["error", 9102]]);
@@ -97,7 +102,8 @@ export interface Point { x: number }
     // JSDoc's @example content ends at the next line-start tag; only a code
     // fence makes a line-start tag example code. This @derive used to be
     // ignored, leaving \`Point.Eq\` a ReferenceError at run time.
-    const r = expand(`/**
+    const r = expand(`import type { Eq } from "typesugar";
+/**
  * A point.
  * @example
  * const p: Point = { x: 1, y: 2 };
@@ -107,7 +113,8 @@ export interface Point { x: number; y: number }
 `);
     expect(r.diagnostics).toEqual([]);
     expect(r.code).toContain("export const Eq = {");
-    const onConst = expand(`/**
+    const onConst = expand(`import type { Eq } from "typesugar";
+/**
  * @example
  * use(l);
  * @derive(Eq)
@@ -118,7 +125,8 @@ export let l = 2;
   });
 
   it("a bare @derive(Eq) line on a const is still TS9102", () => {
-    const r = expand(`/**
+    const r = expand(`import type { Eq } from "typesugar";
+/**
  * Some docs.
  * @derive(Eq)
  */
@@ -128,7 +136,8 @@ export let l = 2;
   });
 
   it("on an interface it still derives", () => {
-    const r = expand(`/** @derive(Eq) */
+    const r = expand(`import type { Eq } from "typesugar";
+/** @derive(Eq) */
 export interface Point { x: number; y: number }
 `);
     expect(r.diagnostics).toEqual([]);

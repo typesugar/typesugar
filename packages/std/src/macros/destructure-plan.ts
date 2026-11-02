@@ -29,7 +29,7 @@
  */
 
 import * as ts from "typescript";
-import { isSyntheticNode, isJSDocTagAtLineStart, deriveTagNames } from "@typesugar/core";
+import { isSyntheticNode, appliedDeriveTagNames } from "@typesugar/core";
 
 /** A field an extractor binds, in order. */
 export interface FieldPlan {
@@ -97,9 +97,8 @@ export function deriveNamesOf(node: ts.Node): string[] {
   const names: string[] = [];
   for (const tag of ts.getJSDocTags(node)) {
     if (tag.tagName.text !== "derive" && tag.tagName.text !== "deriving") continue;
-    if (!isJSDocTagAtLineStart(tag)) continue;
-    // The shared parser: the tag's list only, never prose after it.
-    names.push(...deriveTagNames(tag));
+    // The shared parser, and only the derives that apply (audit F23).
+    names.push(...appliedDeriveTagNames(tag));
   }
   const modifiers = (node as { modifiers?: ts.NodeArray<ts.ModifierLike> }).modifiers ?? [];
   for (const m of modifiers) {

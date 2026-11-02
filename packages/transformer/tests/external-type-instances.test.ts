@@ -167,6 +167,7 @@ describe("@derive(Clone) on a local alias of Feature", () => {
   it("MyFeature.Clone exists and clones a value typed Feature", () => {
     const { t, m } = check({
       "instances.ts": `import type { Feature } from "geojson";
+import type { Clone } from "typesugar";
 /** @derive(Clone) */
 export type MyFeature = Feature;
 `,

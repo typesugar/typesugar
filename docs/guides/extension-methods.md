@@ -255,6 +255,7 @@ own. For the standard typeclasses, the method syntax is
 off until you import the typeclass's activation module (PEP-052):
 
 ```typescript
+import type { Eq } from "typesugar";
 import "@typesugar/std/syntax/eq"; // enables .equals() / .notEquals()
 
 /** @derive(Eq) */

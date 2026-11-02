@@ -416,6 +416,7 @@ export {
   createTypeRewriteAssignmentRule,
   createDerivedCompanionAccessRule,
   createDerivedDeclarationReferenceRule,
+  createJSDocDeriveImportRule,
   generatedValueNames,
   isDerivedValueSymbol,
 } from "./diagnostic-suppression-rules.js";

@@ -116,7 +116,10 @@ export function brk(s: Shape): number {
       const plain = path.join(VDIR, "plain.ts");
       const proxy = createProject(
         new Map([
-          [vec, `/** @derive(Eq, Clone) */\nexport interface Vec { x: number; y: number }\n`],
+          [
+            vec,
+            `import type { Eq, Clone } from "typesugar";\n/** @derive(Eq, Clone) */\nexport interface Vec { x: number; y: number }\n`,
+          ],
           [plain, `export interface Plain { x: number }\n`],
           [idx, `export { Vec } from "./vec.js";\nexport { Plain } from "./plain.js";\n`],
           [

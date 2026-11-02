@@ -78,7 +78,7 @@ function typecheck(code: string): string[] {
 describe("C#8: @derive(Read, Write, Codec) does not emit duplicate declarations", () => {
   it("the doc example runs and all three instances work", async () => {
     const { exports, expanded } = await expandAndRun(`
-      import { Read } from "@typesugar/sql";
+      import { Read, type Write, type Codec } from "@typesugar/sql";
       /** @derive(Read, Write, Codec) */
       export interface Acct { id: number; ownerName: string }
     `);
@@ -99,7 +99,7 @@ describe("C#8: @derive(Read, Write, Codec) does not emit duplicate declarations"
 
   it("works whatever order Codec appears in", async () => {
     const { exports, expanded } = await expandAndRun(`
-      import { Read } from "@typesugar/sql";
+      import { Read, type Codec } from "@typesugar/sql";
       /** @derive(Codec, Read) */
       interface Acct2 { id: number }
     `);
@@ -110,7 +110,7 @@ describe("C#8: @derive(Read, Write, Codec) does not emit duplicate declarations"
 
   it("@derive(Codec) alone still generates ReadX, WriteX and CodecX", async () => {
     const { exports } = await expandAndRun(`
-      import { Read } from "@typesugar/sql";
+      import { Read, type Codec } from "@typesugar/sql";
       /** @derive(Codec) */
       interface Acct3 { id: number }
     `);

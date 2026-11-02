@@ -334,6 +334,7 @@ describe("assert() — evaluates each sub-expression once (finding #17)", () => 
       derived: [
         `import { assert } from "@typesugar/testing";`,
         `import "@typesugar/std/syntax/eq/ops";`,
+        `import type { Eq } from "typesugar";`,
         `/** @derive(Eq) */`,
         `interface P { x: number }`,
       ],

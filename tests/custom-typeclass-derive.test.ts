@@ -60,6 +60,8 @@ function registerPrettyTypeclass() {
 // Tests
 // ============================================================================
 
+// Each snippet declares the typeclass it derives, as a user's file does (or
+// imports it): a JSDoc @derive applies only to a name the file binds.
 describe("custom typeclass @derive via GenericDerivation", () => {
   beforeEach(() => {
     registerPrettyTypeclass();
@@ -67,6 +69,7 @@ describe("custom typeclass @derive via GenericDerivation", () => {
 
   it("@derive(Pretty) generates companion namespace for product type", () => {
     const code = `
+interface Pretty<A> { pretty(a: A): string }
 /** @derive(Pretty) */
 interface Widget { name: string; count: number; }
     `.trim();
@@ -84,6 +87,7 @@ interface Widget { name: string; count: number; }
 
   it("generated Pretty instance produces correct output shape", () => {
     const code = `
+interface Pretty<A> { pretty(a: A): string }
 /** @derive(Pretty) */
 interface Config { host: string; port: number; }
     `.trim();
@@ -101,6 +105,8 @@ interface Config { host: string; port: number; }
 
   it("@derive(Pretty) alongside builtin @derive(Eq) both work", () => {
     const code = `
+import type { Eq } from "typesugar";
+interface Pretty<A> { pretty(a: A): string }
 /** @derive(Pretty, Eq) */
 interface Pair { x: number; y: number; }
     `.trim();
@@ -116,6 +122,7 @@ interface Pair { x: number; y: number; }
 
   it("@derive(Pretty) fails gracefully for unsupported field types", () => {
     const code = `
+interface Pretty<A> { pretty(a: A): string }
 /** @derive(Pretty) */
 interface Complex { data: Map<string, number>; }
     `.trim();

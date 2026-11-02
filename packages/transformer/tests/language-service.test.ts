@@ -25,7 +25,7 @@ import {
 // A `@derive(Eq)` expansion — a real transformation, so changed-flag/source-map
 // assertions are non-vacuous. (This used `type F<_> = ...`, which only counted
 // as "changed" because every file used to be reprinted, macros or not.)
-const MACRO_SRC = `/** @derive(Eq) */\ninterface Box { value: number }\n`;
+const MACRO_SRC = `import type { Eq } from "typesugar";\n/** @derive(Eq) */\ninterface Box { value: number }\n`;
 
 /**
  * Creates a mock LanguageServiceHost for testing

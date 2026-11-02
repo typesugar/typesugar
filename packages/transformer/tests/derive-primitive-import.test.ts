@@ -41,14 +41,18 @@ afterAll(() => {
 describe("@derive with a strategy referencing TC.<primitive>", () => {
   it("two @derive(Ord) types in one file get exactly one import, and the output runs", () => {
     const r = transformCode(
-      `/** @derive(Ord) */
+      `import type { Ord } from "typesugar";
+/** @derive(Ord) */
 export interface A { x: number }
 /** @derive(Ord) */
 export interface B { y: number }`,
       { fileName: "derive-two-ord.ts" }
     );
     expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-    const imports = r.code.match(/import\s*\{\s*Ord\s*\}\s*from\s*"@typesugar\/macros"/g) ?? [];
+    // A value import, aliased: the file's own `import type { Ord }` (which the
+    // JSDoc @derive needs) is erased, so it can't provide `Ord.number`.
+    const imports =
+      r.code.match(/import\s*\{\s*Ord(\s+as\s+[\w$]+)?\s*\}\s*from\s*"@typesugar\/macros"/g) ?? [];
     expect(imports).toHaveLength(1);
 
     // Parses (no duplicate-binding SyntaxError) and runs against a stub

@@ -622,6 +622,7 @@ instance that ships next to its type needs no import of its own.
 For your own types, derive the extractors:
 
 ```typescript
+import type { Destructure } from "@typesugar/std";
 /** @derive(Destructure) */
 export interface Point {
   readonly x: number;

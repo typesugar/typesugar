@@ -20,6 +20,8 @@ const repoRoot = path.resolve(pkgRoot, "..", "..");
 const cliPath = path.join(pkgRoot, "dist", "cli.js");
 
 const SHAPES = `import { match } from "@typesugar/std";
+import type { Destructure } from "@typesugar/std";
+import type { Eq } from "typesugar";
 
 /** @derive(Eq, Destructure) */
 export interface Point {
@@ -141,12 +143,13 @@ describe("derived values, imported, called and re-exported by name", () => {
   );
 
   it.skipIf(!fs.existsSync(cliPath))(
-    "a program that imports no typesugar package can @derive(Destructure)",
+    "a program whose only typesugar imports are type-only can @derive(Destructure)",
     () => {
-      // @derive is a built-in tag, so a library can use it without importing
-      // anything; Destructure comes from @typesugar/std's macros, which were
-      // loaded only for a program importing some typesugar package
-      // ("Unknown derive: 'Destructure'").
+      // A JSDoc @derive needs its derivables imported (audit F23), but a
+      // library may import them as types only, so its output has no runtime
+      // typesugar import. Destructure comes from @typesugar/std's macros,
+      // which must be loaded for such a program too ("Unknown derive:
+      // 'Destructure'").
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-reexport-"));
       dirs.push(dir);
       fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(dir, "node_modules"), "dir");
@@ -170,7 +173,9 @@ describe("derived values, imported, called and re-exported by name", () => {
       fs.mkdirSync(path.join(dir, "src"));
       fs.writeFileSync(
         path.join(dir, "src", "point.ts"),
-        `/** @derive(Destructure, Eq) */
+        `import type { Destructure } from "@typesugar/std";
+import type { Eq } from "typesugar";
+/** @derive(Destructure, Eq) */
 export interface Point {
   x: number;
   y: number;

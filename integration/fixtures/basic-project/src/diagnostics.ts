@@ -1,5 +1,5 @@
 // Integration test fixture: diagnostic positions
-import { staticAssert } from "typesugar";
+import { staticAssert, type Eq } from "typesugar";
 
 // ERROR: type error BEFORE @derive expansion (line 4, 0-indexed = 3)
 const x: number = "wrong";

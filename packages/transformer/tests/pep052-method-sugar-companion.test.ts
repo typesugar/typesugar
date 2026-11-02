@@ -23,6 +23,7 @@ function createVirtualFs(files: Record<string, string>) {
 describe("PEP-052 method sugar — cross-module derived companion", () => {
   it("injects an import for the companion base when only an unrelated binding was imported", () => {
     const lib = `
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 export class Point { constructor(public x: number) {} }
 export function origin(): Point { return new Point(0); }

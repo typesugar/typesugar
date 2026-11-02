@@ -183,6 +183,7 @@ afterEach(() => {
 });
 
 const POINT_TS = [
+  'import type { Eq } from "typesugar";',
   "/** @derive(Eq) */",
   "export class Point { constructor(public x: number, public y: number) {} }",
 ].join("\n");
@@ -264,6 +265,7 @@ describe("method sugar does not mutate the user's receiver node", () => {
 });
 
 const MODELS_TS = [
+  'import type { Eq } from "typesugar";',
   "/** @derive(Eq) */",
   "export class File { constructor(public name: string) {} }",
   'export function loadFile(): File { return new File("a"); }',

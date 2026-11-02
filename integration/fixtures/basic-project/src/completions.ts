@@ -2,7 +2,7 @@
 //
 // Test positions:
 //   Line 7, char 2: completions after "c." — should include r, g, b
-
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface Color { r: number; g: number; b: number; }
 

@@ -8,6 +8,7 @@ import {
   createMatchSwitchRule,
   createContractBlockRule,
   createComprehensionBlockRule,
+  createJSDocDeriveImportRule,
 } from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
@@ -84,6 +85,7 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance
 
   it("suppresses TS2339 for `.equals` on a JSDoc @derive(Eq) interface", () => {
     const code = [
+      `import type { Eq } from "typesugar";`,
       `/** @derive(Eq) */`,
       `interface User { id: number }`,
       `declare const u1: User, u2: User;`,
@@ -103,6 +105,7 @@ describe("ExtensionMethodCall diagnostic suppression rule — typeclass instance
     // No `@typesugar/std/syntax/eq` import: the transformer leaves
     // `u1.equals(u2)` as written (a TypeError at run time), so the error stays.
     const code = [
+      `import type { Eq } from "typesugar";`,
       `/** @derive(Eq) */`,
       `interface User { id: number }`,
       `declare const u1: User, u2: User;`,
@@ -173,6 +176,7 @@ describe("ExtensionMethodCall: method-syntax activation read from the program (t
   }
 
   const derived = [
+    `import type { Eq } from "typesugar";`,
     `/** @derive(Eq) */`,
     `interface P { x: number }`,
     `declare const p: P;`,
@@ -1191,5 +1195,85 @@ export function f(): void {
       { allowUnusedLabels: false }
     );
     expect(reported()).toEqual(["other", "seq"]);
+  });
+});
+
+describe("JSDocDeriveImport — an import a JSDoc @derive tag uses is not unused (audit F23)", () => {
+  const rule = createJSDocDeriveImportRule();
+
+  /** The unused-import diagnostics of `code` under noUnusedLocals, and which the rule hides. */
+  function unused(code: string) {
+    const fileName = "t.ts";
+    const sf = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true);
+    const host: ts.CompilerHost = {
+      getSourceFile: (fn) => (fn === fileName ? sf : undefined),
+      getDefaultLibFileName: () => "lib.d.ts",
+      writeFile: () => {},
+      getCurrentDirectory: () => "",
+      getCanonicalFileName: (fn) => fn,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+      fileExists: (fn) => fn === fileName,
+      readFile: (fn) => (fn === fileName ? code : undefined),
+    };
+    const program = ts.createProgram(
+      [fileName],
+      { noLib: true, noResolve: true, noUnusedLocals: true },
+      host
+    );
+    const checker = program.getTypeChecker();
+    const diags = program
+      .getSemanticDiagnostics(sf)
+      .filter((d) => rule.errorCodes.includes(d.code));
+    return {
+      codes: diags.map((d) => d.code),
+      kept: diags
+        .filter((d) => !rule.shouldSuppress(d, checker, sf))
+        .map((d) => code.slice(d.start!, d.start! + d.length!)),
+    };
+  }
+
+  it("hides the unused report for an import only the tag uses", () => {
+    const r = unused(
+      [
+        `import type { Eq } from "typesugar";`,
+        `/** @derive Eq */`,
+        `export interface P { x: number }`,
+      ].join("\n")
+    );
+    expect(r.codes.length).toBeGreaterThan(0);
+    expect(r.kept).toEqual([]);
+  });
+
+  it("reads the parenthesized form and several names", () => {
+    const r = unused(
+      [
+        `import type { Eq, Clone } from "typesugar";`,
+        `/** @derive(Eq, Clone) */`,
+        `export interface P { x: number }`,
+      ].join("\n")
+    );
+    expect(r.kept).toEqual([]);
+  });
+
+  it("keeps the report for a name no tag uses", () => {
+    const r = unused(
+      [
+        `import type { Eq } from "typesugar";`,
+        `import type { Ord } from "typesugar";`,
+        `/** @derive Eq */`,
+        `export interface P { x: number }`,
+      ].join("\n")
+    );
+    expect(r.kept.join(" ")).toContain("Ord");
+    expect(r.kept.join(" ")).not.toMatch(/\bEq\b/);
+  });
+
+  it("keeps every report in a file with no @derive tag", () => {
+    const r = unused(
+      [`import type { Eq } from "typesugar";`, `export interface P { x: number }`].join("\n")
+    );
+    expect(r.kept.length).toBe(r.codes.length);
+    expect(r.kept.length).toBeGreaterThan(0);
   });
 });

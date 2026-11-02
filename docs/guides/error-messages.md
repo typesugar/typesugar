@@ -107,6 +107,7 @@ Auto-derivation builds instances from field instances. If a field's type doesn't
 required instance, the error names the field:
 
 ```typescript
+import type { Eq } from "typesugar";
 /** @derive(Eq) */
 interface UserProfile {
   id: number;
