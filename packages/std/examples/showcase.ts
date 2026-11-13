@@ -422,8 +422,7 @@ const inclArr = (1).to(5).toArray();
 assert(inclArr.length === 5);
 assert(inclArr[4] === 5);
 
-// `step` is called as a function: Range's own `step` field shadows the method.
-const steppedArr = step((0).until(10), 2).toArray();
+const steppedArr = (0).until(10).step(2).toArray();
 assert(steppedArr[0] === 0 && steppedArr[1] === 2 && steppedArr[2] === 4);
 
 assert((0).until(10).contains(5) === true);

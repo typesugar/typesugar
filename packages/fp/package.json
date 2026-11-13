@@ -125,6 +125,7 @@
     "@typesugar/contracts": "workspace:*",
     "@typesugar/core": "workspace:*",
     "@typesugar/macros": "workspace:*",
+    "@typesugar/std": "workspace:*",
     "@typesugar/type-system": "workspace:*"
   },
   "devDependencies": {

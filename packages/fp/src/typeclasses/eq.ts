@@ -5,10 +5,10 @@
  * PartialOrd: Partial ordering (may be incomparable)
  * Ord: Total ordering
  *
- * Member names and argument order are the same as `@typesugar/std`'s `Eq` and
- * `Ord` (`equals`/`notEquals`, `compare`, `lessThan`, …), so an instance of one
- * is an instance of the other, and the `===`/`<` operator rewrites (which map
- * operators to those method names) work on fp's instances too.
+ * `Eq`, `Ord` and `Ordering` are `@typesugar/std`'s own types, re-exported, so
+ * an fp instance is a std instance and the `===`/`<` operator rewrites work on
+ * fp's instances too. `PartialOrd`, the `LT`/`EQ`/`GT` values and the
+ * combinators below are fp's.
  *
  * Laws:
  *   - Reflexivity: equals(x, x) === true
@@ -29,53 +29,17 @@
  */
 
 import { instance } from "@typesugar/macros/runtime";
+import type { Eq, Ord, Ordering } from "@typesugar/std/typeclasses";
+
+export type { Eq, Ord, Ordering };
 
 // ============================================================================
 // Ordering
 // ============================================================================
 
-/**
- * Result of a comparison
- */
-export type Ordering = -1 | 0 | 1;
-
 export const LT: Ordering = -1;
 export const EQ: Ordering = 0;
 export const GT: Ordering = 1;
-
-// ============================================================================
-// Eq
-// ============================================================================
-
-/**
- * Eq typeclass - equality comparison with operator support.
- *
- * The methods are annotated with @op to enable:
- * - `optA === optB` → `eqOption.equals(optA, optB)` when Option has an Eq instance
- * - `optA !== optB` → `eqOption.notEquals(optA, optB)`
- *
- * @example
- * ```typescript
- * const eq = getEq(eqNumber);
- * const a = Some(1);
- * const b = Some(1);
- *
- * // With @op annotation, the transformer rewrites:
- * a === b  // → eq.equals(a, b) → true
- * ```
- */
-export interface Eq<A> {
-  /**
-   * @op ===
-   * @op ==
-   */
-  equals(x: A, y: A): boolean;
-  /**
-   * @op !==
-   * @op !=
-   */
-  notEquals(x: A, y: A): boolean;
-}
 
 // ============================================================================
 // PartialOrd
@@ -87,42 +51,6 @@ export interface Eq<A> {
  */
 export interface PartialOrd<A> extends Eq<A> {
   partialCompare(x: A, y: A): Ordering | undefined;
-}
-
-// ============================================================================
-// Ord
-// ============================================================================
-
-/**
- * Ord typeclass - total ordering with operator support.
- *
- * Methods are annotated with @op to enable operator rewriting by the transformer:
- * - `a < b`  → `ordA.lessThan(a, b)`
- * - `a <= b` → `ordA.lessThanOrEqual(a, b)`
- * - `a > b`  → `ordA.greaterThan(a, b)`
- * - `a >= b` → `ordA.greaterThanOrEqual(a, b)`
- *
- * @example
- * ```typescript
- * const ord = getOrd(ordNumber);
- * const a = Some(1);
- * const b = Some(2);
- *
- * // With @op annotation, the transformer rewrites:
- * a < b   // → ord.lessThan(a, b) → true
- * a >= b  // → ord.greaterThanOrEqual(a, b) → false
- * ```
- */
-export interface Ord<A> extends Eq<A> {
-  compare(x: A, y: A): Ordering;
-  /** @op < */
-  lessThan(x: A, y: A): boolean;
-  /** @op <= */
-  lessThanOrEqual(x: A, y: A): boolean;
-  /** @op > */
-  greaterThan(x: A, y: A): boolean;
-  /** @op >= */
-  greaterThanOrEqual(x: A, y: A): boolean;
 }
 
 // ============================================================================

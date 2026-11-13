@@ -30,7 +30,7 @@ import type { Range } from "../data/range.js";
  * (10).to(1).step(-2).toArray() // [10, 8, 6, 4, 2]
  */
 export function step(r: Range, s: number): Range {
-  return { ...r, step: s };
+  return { ...r, stride: s };
 }
 
 /**
@@ -43,11 +43,11 @@ export function step(r: Range, s: number): Range {
  */
 export function reversed(r: Range): Range {
   const n = size(r);
-  if (n === 0) return { start: r.start, end: r.start, step: -r.step, inclusive: false };
+  if (n === 0) return { start: r.start, end: r.start, stride: -r.stride, inclusive: false };
   return {
-    start: r.start + (n - 1) * r.step,
+    start: r.start + (n - 1) * r.stride,
     end: r.start,
-    step: -r.step,
+    stride: -r.stride,
     inclusive: true,
   };
 }
@@ -74,11 +74,11 @@ export function toArray(r: Range): number[] {
  * for (const n of (1).to(5).iterator()) console.log(n)
  */
 export function* iterator(r: Range): IterableIterator<number> {
-  const { start, end, step, inclusive } = r;
-  if (step > 0) {
-    for (let i = start; inclusive ? i <= end : i < end; i += step) yield i;
-  } else if (step < 0) {
-    for (let i = start; inclusive ? i >= end : i > end; i += step) yield i;
+  const { start, end, stride, inclusive } = r;
+  if (stride > 0) {
+    for (let i = start; inclusive ? i <= end : i < end; i += stride) yield i;
+  } else if (stride < 0) {
+    for (let i = start; inclusive ? i >= end : i > end; i += stride) yield i;
   }
 }
 
@@ -88,22 +88,22 @@ export function* iterator(r: Range): IterableIterator<number> {
 
 /**
  * Returns true if the value is contained in the Range.
- * Considers step — a value must be reachable from start by step increments.
+ * Considers stride — a value must be reachable from start by stride increments.
  *
  * @example
  * (1).to(10).contains(5)        // true
  * (1).to(10).step(2).contains(4) // false (only odd numbers)
  */
 export function contains(r: Range, value: number): boolean {
-  const { start, end, step, inclusive } = r;
-  if (step > 0) {
+  const { start, end, stride, inclusive } = r;
+  if (stride > 0) {
     if (inclusive ? value > end : value >= end) return false;
     if (value < start) return false;
   } else {
     if (inclusive ? value < end : value <= end) return false;
     if (value > start) return false;
   }
-  return (value - start) % step === 0;
+  return (value - start) % stride === 0;
 }
 
 /**
@@ -115,11 +115,11 @@ export function contains(r: Range, value: number): boolean {
  * (1).to(10).step(2).size()     // 5
  */
 export function size(r: Range): number {
-  const { start, end, step, inclusive } = r;
-  if (step === 0 || Number.isNaN(step)) return 0;
-  if (!Number.isFinite(step)) return [...iterator(r)].length; // ±Infinity: at most 1
+  const { start, end, stride, inclusive } = r;
+  if (stride === 0 || Number.isNaN(stride)) return 0;
+  if (!Number.isFinite(stride)) return [...iterator(r)].length; // ±Infinity: at most 1
   // Number of whole steps from start that stay on the near side of `end`.
-  const steps = (end - start) / step;
+  const steps = (end - start) / stride;
   if (steps < 0) return 0;
   if (inclusive) return Math.floor(steps) + 1;
   return Math.ceil(steps);
