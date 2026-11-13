@@ -29,6 +29,7 @@ import {
   forEachMethodFreeReference,
   getOpMapForTypeclass,
   isImplicitDefault,
+  valueParameters,
   type DictMethod,
   type DictMethodMap,
   type ResultAlgebra,
@@ -1677,7 +1678,7 @@ function findUnfilledImplicitCall(
         const decl = ctx.typeChecker.getResolvedSignature(n)?.getDeclaration() as
           | ts.SignatureDeclaration
           | undefined;
-        const params = decl?.parameters;
+        const params = decl?.parameters ? valueParameters(decl) : undefined;
         if (params) {
           for (let i = filledArgumentCount(ctx, n); i < params.length; i++) {
             if (isImplicitDefault(params[i].initializer)) {

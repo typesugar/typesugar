@@ -169,6 +169,8 @@ export {
   isImplicitDefault,
   hasImplicitParams,
   getImplicitParamIndices,
+  valueParameters,
+  functionCallTarget,
   buildImplicitScopeFromDecl,
   transformImplicitsCall,
   type ImplicitScope,

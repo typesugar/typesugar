@@ -1,6 +1,6 @@
 # PEP-063: Typed Wrappers from Interfaces — Zero-Cost Around-Advice, `forward<S>()`, `mock<T>(defaults)`
 
-**Status:** In Progress (Waves 1–2 implemented; Wave 3 in review, #89)
+**Status:** Implemented (#89, #90, #91)
 **Date:** 2026-11-13
 **Author:** Claude (with Dean Povey)
 **Related:** [PEP-053](PEP-053-always-on-specialization.md) (always-on specialization),

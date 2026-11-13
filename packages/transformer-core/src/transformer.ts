@@ -17,6 +17,7 @@ import * as ts from "typescript";
 import {
   hasImplicitParams,
   transformImplicitsCall,
+  functionCallTarget,
   buildImplicitScopeFromDecl,
   SpecializationCache,
   type ImplicitScope,
@@ -319,9 +320,12 @@ class MacroTransformer {
       // This deliberately supersedes the PEP-056 parity choice in commit
       // 7210ac66, which kept implicit calls as plain dictionary passing
       // (Dean's decision 2026-10-19).
-      const autoSpecResult = ts.isCallExpression(result)
-        ? tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, result)
-        : undefined;
+      // A call through `f.call(thisArg, ...)` keeps dictionary passing: the
+      // specializer resolves the callee `f.call`, which has no body.
+      const autoSpecResult =
+        ts.isCallExpression(result) && !functionCallTarget(this.ctx, node)
+          ? tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, result)
+          : undefined;
       if (autoSpecResult !== undefined) {
         return preserveSourceMap(this.visitRewrittenCall(autoSpecResult, result), node);
       }

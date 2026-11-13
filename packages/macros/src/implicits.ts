@@ -105,12 +105,26 @@ export function hasImplicitParams(decl: ts.SignatureDeclaration): boolean {
 }
 
 /**
- * Return the indices of parameters with `= implicit()` defaults.
+ * The parameters a call's arguments line up with: the declared parameters
+ * without a leading `this` parameter, which is a type annotation and takes no
+ * argument (`function f(this: T, x: A)` is called as `f(x)`).
+ */
+export function valueParameters(decl: ts.SignatureDeclaration): readonly ts.ParameterDeclaration[] {
+  const first = decl.parameters[0];
+  return first && ts.isIdentifier(first.name) && first.name.escapedText === "this"
+    ? decl.parameters.slice(1)
+    : decl.parameters;
+}
+
+/**
+ * Return the argument positions of parameters with `= implicit()` defaults
+ * (a `this` parameter takes no position).
  */
 export function getImplicitParamIndices(decl: ts.SignatureDeclaration): number[] {
   const indices: number[] = [];
-  for (let i = 0; i < decl.parameters.length; i++) {
-    if (isImplicitDefault(decl.parameters[i].initializer)) {
+  const params = valueParameters(decl);
+  for (let i = 0; i < params.length; i++) {
+    if (isImplicitDefault(params[i].initializer)) {
       indices.push(i);
     }
   }
@@ -218,6 +232,39 @@ function extractTypeArgFromParam(
  * Returns the rewritten call expression, or `undefined` if no transformation
  * is needed (callee has no implicit params, or all args already provided).
  */
+/**
+ * For `f.call(thisArg, ...args)`, the declaration of `f` when it has
+ * `= implicit()` parameters. The checker resolves such a call to
+ * `Function.prototype.call`, whose declaration has none, so without this
+ * the implicits stay unfilled and are `undefined` at run time. Only an `f`
+ * with one call signature, called through the standard library's `call` (not
+ * an object's own `call` method), and with no spread arguments.
+ */
+export function functionCallTarget(
+  ctx: MacroContext,
+  callExpr: ts.CallExpression
+): ts.SignatureDeclaration | undefined {
+  const callee = callExpr.expression;
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "call") return undefined;
+  if (isSyntheticNode(callee) || callExpr.arguments.some(ts.isSpreadElement)) return undefined;
+  try {
+    const signatures = ctx.typeChecker.getTypeAtLocation(callee.expression).getCallSignatures();
+    if (signatures.length !== 1) return undefined;
+    const target = signatures[0].getDeclaration() as ts.SignatureDeclaration | undefined;
+    if (!target?.parameters || !hasImplicitParams(target)) return undefined;
+    const call = ctx.typeChecker.getSymbolAtLocation(callee.name)?.declarations?.[0];
+    if (!call || !ctx.program.isSourceFileDefaultLibrary(call.getSourceFile())) return undefined;
+    return target;
+  } catch (e) {
+    ctx.reportWarning(
+      callExpr,
+      `implicit(): couldn't resolve the function called through .call() ` +
+        `(${e instanceof Error ? e.message : String(e)}); its implicit parameters are not filled.`
+    );
+    return undefined;
+  }
+}
+
 export function transformImplicitsCall(
   ctx: MacroContext,
   callExpr: ts.CallExpression,
@@ -235,21 +282,36 @@ export function transformImplicitsCall(
 
   if (!decl || !decl.parameters) return undefined;
 
-  const providedArgs = callExpr.arguments.length;
-  if (providedArgs >= decl.parameters.length) return undefined;
+  const factory = ctx.factory;
+  const newArgs: ts.Expression[] = [...callExpr.arguments];
+  // The arguments that line up with `params`: all of them, except through
+  // `f.call(thisArg, ...args)`, where `thisArg` is `f`'s `this`.
+  let args: readonly ts.Expression[] = callExpr.arguments;
+  if (!hasImplicitParams(decl)) {
+    const target = functionCallTarget(ctx, callExpr);
+    if (!target) return undefined;
+    decl = target;
+    // The resolved signature is `Function.prototype.call`'s: it says nothing
+    // about `f`'s parameters, so type arguments are inferred from the
+    // arguments themselves (step 3 below).
+    resolvedSig = undefined;
+    args = callExpr.arguments.slice(1);
+    if (callExpr.arguments.length === 0) newArgs.push(factory.createIdentifier("undefined"));
+  }
+  const params = valueParameters(decl);
+
+  const providedArgs = args.length;
+  if (providedArgs >= params.length) return undefined;
 
   // Quick check: any unprovided params with = implicit()?
   let hasImplicits = false;
-  for (let i = providedArgs; i < decl.parameters.length; i++) {
-    if (isImplicitDefault(decl.parameters[i].initializer)) {
+  for (let i = providedArgs; i < params.length; i++) {
+    if (isImplicitDefault(params[i].initializer)) {
       hasImplicits = true;
       break;
     }
   }
   if (!hasImplicits) return undefined;
-
-  const factory = ctx.factory;
-  const newArgs: ts.Expression[] = [...callExpr.arguments];
 
   // Infer type parameter mappings using TypeChecker's inference
   const typeParamMap = new Map<string, string>();
@@ -258,7 +320,7 @@ export function transformImplicitsCall(
   const typeParamTypeMap = new Map<string, ts.Type>();
   try {
     // 1. Explicit type arguments take priority
-    if (callExpr.typeArguments && decl.typeParameters) {
+    if (callExpr.typeArguments && decl.typeParameters && args === callExpr.arguments) {
       for (let i = 0; i < callExpr.typeArguments.length; i++) {
         if (i < decl.typeParameters.length) {
           typeParamMap.set(decl.typeParameters[i].name.text, callExpr.typeArguments[i].getText());
@@ -277,7 +339,7 @@ export function transformImplicitsCall(
         const paramType = ctx.typeChecker.getTypeOfSymbolAtLocation(paramSymbol, callExpr);
         const paramTypeStr = ctx.typeChecker.typeToString(paramType);
 
-        const declParam = decl.parameters[j];
+        const declParam = params[j];
         // `a: A`: the resolved signature's parameter type IS the inferred `A`
         // (or the explicit type argument). Keep the ts.Type, so the instance
         // is resolved by type below: the name-based fallback can't match an
@@ -312,9 +374,9 @@ export function transformImplicitsCall(
     if (decl.typeParameters) {
       const typeParamNames = new Set(decl.typeParameters.map((tp) => tp.name.text));
 
-      for (let i = 0; i < providedArgs && i < decl.parameters.length; i++) {
-        const param = decl.parameters[i];
-        const arg = callExpr.arguments[i];
+      for (let i = 0; i < providedArgs && i < params.length; i++) {
+        const param = params[i];
+        const arg = args[i];
 
         // Simple type parameter reference (e.g., `value: A`)
         if (param.type && ts.isTypeReferenceNode(param.type)) {
@@ -361,8 +423,8 @@ export function transformImplicitsCall(
   }
 
   // Fill in missing implicit parameters
-  for (let i = providedArgs; i < decl.parameters.length; i++) {
-    const param = decl.parameters[i];
+  for (let i = providedArgs; i < params.length; i++) {
+    const param = params[i];
     if (!isImplicitDefault(param.initializer)) {
       // Non-implicit default — leave it alone but keep scanning; implicit
       // params may appear later (e.g. `f(a, n = 0, eq = implicit())`).
