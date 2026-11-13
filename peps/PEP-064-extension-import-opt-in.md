@@ -1,6 +1,6 @@
 # PEP-064: Imported Objects Supply Extension Methods Only When the Import Opts In
 
-**Status:** In Progress (Waves 1–2 in review: PRs #97, #98)
+**Status:** Implemented (PRs #97, #98)
 **Date:** 2026-11-13
 **Author:** Claude (with Dean Povey)
 **Related:** [PEP-027](PEP-027-use-extension-emit-registration.md) (`"use extension"`
@@ -274,10 +274,10 @@ Every import of an extension object in the repo gains the tag:
 
 ## Waves
 
-| Wave | Scope                                                                                                                                                                                                       | Branch                               | Status          |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | --------------- |
-| 1    | The decision in `findImportedExtensionMatches`; check/build agreement and tag-not-dispatched tests (transformer, `expand`, language service, unplugin); test, docs and example migration; consistency sweep | `pep-064-extension-import-opt-in`    | In review (#97) |
-| 2    | ExtensionImport unused-import suppression rule (bare functions and tagged objects); warning for a tag with no effect                                                                                        | `pep-064-wave-2-unused-and-inactive` | In review (#98) |
+| Wave | Scope                                                                                                                                                                                                       | Branch                               | Status       |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------ |
+| 1    | The decision in `findImportedExtensionMatches`; check/build agreement and tag-not-dispatched tests (transformer, `expand`, language service, unplugin); test, docs and example migration; consistency sweep | `pep-064-extension-import-opt-in`    | Merged (#97) |
+| 2    | ExtensionImport unused-import suppression rule (bare functions and tagged objects); warning for a tag with no effect                                                                                        | `pep-064-wave-2-unused-and-inactive` | Merged (#98) |
 
 ## Risks
 
