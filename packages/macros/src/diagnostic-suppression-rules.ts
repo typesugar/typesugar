@@ -75,6 +75,10 @@ import {
  *   first parameter accepts the receiver type, generic parameters erased to
  *   their constraints as the transformer matches them)
  *
+ * TS2551 is the same error when the type has a member with a similar name
+ * (`xs.sortBy(...)` on an array: "Did you mean 'sort'?"; remeda case study
+ * F8).
+ *
  * Also suppresses TS7006 on an untyped parameter of a callback passed to such
  * a call (`eff.map((x) => x * 2)`), which has no contextual type until the
  * call is rewritten.
@@ -225,7 +229,9 @@ function isRewrittenMethodCall(
  * call is an error (TS2339, suppressed above), so the callback gets no
  * contextual type; after expansion (`EffectExt.map(eff, (x) => x * 2)`) it
  * does. Only when the receiver's type has no such property of its own, so a
- * real method's callback is never affected.
+ * real method's callback is never affected. The callback may sit inside an
+ * array or object literal argument (remeda's `xs.sortBy([(u) => u.score,
+ * "desc"])`, F8): the literal gets its contextual type from the same call.
  */
 function isCallbackOfRewrittenCall(
   diagnostic: ts.Diagnostic,
@@ -239,8 +245,9 @@ function isCallbackOfRewrittenCall(
   if (!param || !ts.isParameter(param) || param.type) return false;
   const fn = param.parent;
   if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) return false;
-  const call = fn.parent;
-  if (!call || !ts.isCallExpression(call) || !call.arguments.includes(fn)) return false;
+  const arg = enclosingLiteralArgument(fn);
+  const call = arg.parent;
+  if (!call || !ts.isCallExpression(call) || !call.arguments.includes(arg)) return false;
   const callee = call.expression;
   if (!ts.isPropertyAccessExpression(callee)) return false;
   try {
@@ -255,6 +262,29 @@ function isCallbackOfRewrittenCall(
     return false;
   }
   return isRewrittenMethodCall(callee, checker, sourceFile, context);
+}
+
+/**
+ * The outermost expression `fn` is an element or property value of, through
+ * parenthesised, array literal and object literal (property assignment)
+ * levels; `fn` itself when it is none of those.
+ */
+function enclosingLiteralArgument(fn: ts.Expression): ts.Expression {
+  let node: ts.Expression = fn;
+  for (;;) {
+    const parent: ts.Node = node.parent;
+    if (ts.isParenthesizedExpression(parent) || ts.isArrayLiteralExpression(parent)) {
+      node = parent;
+    } else if (
+      ts.isPropertyAssignment(parent) &&
+      parent.initializer === node &&
+      ts.isObjectLiteralExpression(parent.parent)
+    ) {
+      node = parent.parent;
+    } else {
+      return node;
+    }
+  }
 }
 
 /** Is every declaration of `prop` inside a `declare global { ... }` block (std's stubs)? */

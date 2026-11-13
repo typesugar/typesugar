@@ -285,6 +285,38 @@ function withoutRebuiltTypeOnlySyntax(
   return changed ? factory.updateSourceFile(sourceFile, statements) : sourceFile;
 }
 
+/** The names a file's non-type-only import declarations bind. */
+function valueImportNames(sourceFile: ts.SourceFile): Set<string> {
+  const importNames = new Set<string>();
+  for (const stmt of sourceFile.statements) {
+    const clause = ts.isImportDeclaration(stmt) ? stmt.importClause : undefined;
+    if (!clause || clause.isTypeOnly) continue;
+    if (clause.name) importNames.add(clause.name.text);
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) importNames.add(bindings.name.text);
+    else if (bindings) for (const el of bindings.elements) importNames.add(el.name.text);
+  }
+  return importNames;
+}
+
+/**
+ * The import bindings of a macro-transformed file that its expansion
+ * references as values where the source did not (see
+ * `expandedValueReferences`): `chunk` in `chunk(users, 25)`, rewritten from
+ * `users.chunk(25)`. TypeScript's unused-import diagnostics are decided on the
+ * source as written, so these are the ones that are wrong
+ * (unused-import-diagnostics.ts).
+ */
+export function macroReferencedImports(
+  transformed: ts.SourceFile,
+  checker: ts.TypeChecker | undefined
+): Set<string> {
+  const importNames = valueImportNames(transformed);
+  return importNames.size === 0
+    ? importNames
+    : expandedValueReferences(transformed, importNames, checker);
+}
+
 export function keepMacroReferencedImports(
   program?: ts.Program
 ): ts.TransformerFactory<ts.SourceFile> {
@@ -306,15 +338,7 @@ export function keepMacroReferencedImports(
     const original =
       written !== sourceFile && written && ts.isSourceFile(written) ? written : undefined;
 
-    const importNames = new Set<string>();
-    for (const stmt of sourceFile.statements) {
-      const clause = ts.isImportDeclaration(stmt) ? stmt.importClause : undefined;
-      if (!clause || clause.isTypeOnly) continue;
-      if (clause.name) importNames.add(clause.name.text);
-      const bindings = clause.namedBindings;
-      if (bindings && ts.isNamespaceImport(bindings)) importNames.add(bindings.name.text);
-      else if (bindings) for (const el of bindings.elements) importNames.add(el.name.text);
-    }
+    const importNames = valueImportNames(sourceFile);
     const checker = program?.getTypeChecker();
     const reExports = checker
       ? keepDerivedReExports(sourceFile.statements, context.factory, resolver, checker)

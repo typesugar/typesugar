@@ -377,6 +377,30 @@ import { first, mapTo } from "./generic-ext";
 [1, 2, 3].mapTo("x"); // ["x", "x", "x"]
 ```
 
+### Chains through generic extensions
+
+A chain such as `users.sortBy(byScore).groupBy(byGroup)` is rewritten from the inside out:
+`groupBy(sortBy(users, byScore), byGroup)`. To pick the extension for `.groupBy`, the
+transformer needs the type `sortBy(...)` returns, and it cannot instantiate a generic
+signature. A return type that is a mapped or conditional type over the signature's type
+parameters (remeda's `ReorderedArray<T>`, `Chunk<T, N>`) is therefore read with the
+parameters at their constraints: the shape is kept (an array, an object) and the element
+type is not. Among overloads, only those taking the rewritten call's argument count are
+considered, so a library's data-last overload is not mistaken for the data-first one.
+
+If the next call in the chain then matches neither a member nor an imported extension (an
+extension that needs `number[]` after a call whose result is known only as an array), the
+transformer reports an error instead of leaving a call that would fail at run time. Call that
+step as a function, or annotate a variable:
+
+```typescript
+const sorted: number[] = scores.sortBy((s) => s);
+sorted.sum(); // → sum(sorted)
+```
+
+An import used only through method syntax is used: `typesugar check` and `typesugar build`
+don't report it under `noUnusedLocals`.
+
 ## When to Use `extend()`
 
 `extend(value).method(args)` is rarely needed. It calls `method` on `value` through a typeclass

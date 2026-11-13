@@ -49,6 +49,8 @@
 
 import * as ts from "typescript";
 import {
+  acceptsArgumentCount,
+  eraseGenericReturnType,
   isJSDocTagAtLineStart,
   isSyntheticNode,
   receiverMatchesFirstParam,
@@ -344,7 +346,7 @@ export function extensionImportUses(
           : chosen
             ? [chosen]
             : [],
-        returns: chosen ? returnTypeOf(chosen, receiver.type) : undefined,
+        returns: chosen ? returnTypeOf(chosen, receiver.type, callee) : undefined,
       };
     } else if (receiver.unrecoveredCall) {
       decision = {
@@ -397,11 +399,24 @@ export function extensionImportUses(
     }
     return { type, unrecoveredCall: false };
   };
-  const returnTypeOf = (m: ImportedExtensionMatch, receiverType: ts.Type): ts.Type | undefined => {
+  const returnTypeOf = (
+    m: ImportedExtensionMatch,
+    receiverType: ts.Type,
+    callee: ts.PropertyAccessExpression
+  ): ts.Type | undefined => {
     const sym = checker.getSymbolAtLocation(m.ident);
     if (!sym) return undefined;
     const valueType = checker.getTypeOfSymbolAtLocation(sym, m.ident);
-    return extensionCallReturnType(checker, m.ident, m.ext, valueType, receiverType);
+    const call = callee.parent;
+    if (!ts.isCallExpression(call)) return undefined;
+    return extensionCallReturnType(
+      checker,
+      m.ident,
+      m.ext,
+      valueType,
+      receiverType,
+      call.arguments.length + 1
+    );
   };
 
   const visit = (node: ts.Node): void => {
@@ -480,7 +495,11 @@ export function inactiveExtensionImportTags(
  * return type keeps the signature's own type parameters (`Effect<B, E>`),
  * which is still enough to pick the next extension (its first-parameter
  * match treats type parameters as wildcards); a bare type-parameter return
- * (`A`) is not, nor is `any`/`never`. Shared by the rewrite's chain
+ * (`A`) is not, nor is `any`/`never`. Only signatures taking `argumentCount`
+ * arguments (the receiver plus the call's own) count, and a mapped or
+ * deferred return type over the signature's type parameters is erased to
+ * their constraints (`eraseGenericReturnType`; remeda case study F6).
+ * Shared by the rewrite's chain
  * recovery (transformer-core `inferExtensionCallType`) and
  * {@link extensionImportUses}, so both pick the same overload.
  */
@@ -489,7 +508,8 @@ export function extensionCallReturnType(
   location: ts.Node,
   ext: StandaloneExtensionInfo,
   calleeValueType: ts.Type,
-  receiverType: ts.Type
+  receiverType: ts.Type,
+  argumentCount: number
 ): ts.Type | undefined {
   let fnType = calleeValueType;
   if (ext.qualifier !== undefined) {
@@ -499,11 +519,15 @@ export function extensionCallReturnType(
   }
   const sigs = fnType
     .getCallSignatures()
-    .filter((sig) => receiverMatchesFirstParam(checker, receiverType, sig, location));
+    .filter(
+      (sig) =>
+        acceptsArgumentCount(sig, argumentCount) &&
+        receiverMatchesFirstParam(checker, receiverType, sig, location)
+    );
   const sig = sigs.find((x) => !x.getTypeParameters()?.length) ?? sigs[0];
   if (!sig) return undefined;
-  const ret = checker.getReturnTypeOfSignature(sig);
-  if (ret.flags & (ts.TypeFlags.TypeParameter | ts.TypeFlags.Any | ts.TypeFlags.Never)) {
+  const ret = eraseGenericReturnType(checker, checker.getReturnTypeOfSignature(sig));
+  if (!ret || ret.flags & (ts.TypeFlags.TypeParameter | ts.TypeFlags.Any | ts.TypeFlags.Never)) {
     return undefined;
   }
   return ret;

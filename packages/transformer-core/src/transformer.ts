@@ -96,6 +96,7 @@ import {
   tryExpandTaggedTemplate as tryExpandTaggedTemplateFn,
   tryExpandTypeMacro as tryExpandTypeMacroFn,
   tryRewriteExtensionMethod as tryRewriteExtensionMethodFn,
+  reportUnrewrittenSugaredReceiverCall,
   tryTransformHKTDeclaration as tryTransformHKTDeclarationFn,
   tryRewriteTypeclassOperator as tryRewriteTypeclassOperatorFn,
   tryRewriteTypeclassUnaryOperator as tryRewriteTypeclassUnaryOperatorFn,
@@ -1494,6 +1495,12 @@ class MacroTransformer {
         }
         return methodSugarResult;
       }
+
+      reportUnrewrittenSugaredReceiverCall(
+        this.ctx,
+        this.resolveExtensionFromImports.bind(this),
+        node
+      );
     }
 
     // @opaque constructor call erasure -- `Some(x)` -> `x`, `None()` -> `null`.

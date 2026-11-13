@@ -214,7 +214,11 @@ export {
 } from "./derive-activation.js";
 
 // Receiver vs. an extension function's first parameter (transformer + suppression)
-export { receiverMatchesFirstParam } from "./extension-receiver.js";
+export {
+  receiverMatchesFirstParam,
+  acceptsArgumentCount,
+  eraseGenericReturnType,
+} from "./extension-receiver.js";
 
 // Type String Utilities (pure string, no TS dependency)
 export {
