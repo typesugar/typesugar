@@ -59,7 +59,6 @@ import {
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
-import { receiverMatchesFirstParam } from "./import-resolution.js";
 // Circular with method-sugar.ts (which imports buildInstanceReferenceExpression
 // from here); both bindings are only used at call time.
 import { inferMethodSugarCallType } from "./method-sugar.js";
