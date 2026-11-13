@@ -7,6 +7,7 @@ export default defineConfig({
     webpack: "src/webpack.ts",
     esbuild: "src/esbuild.ts",
     rollup: "src/rollup.ts",
+    rolldown: "src/rolldown.ts",
     tsup: "src/tsup.ts",
   },
   format: ["cjs", "esm"],
