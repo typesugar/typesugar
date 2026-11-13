@@ -263,7 +263,10 @@ The optional `@do-methods` tag next to `@impl` customizes emission (`bind=` / `m
 
 ## Extension Methods
 
-Rich extension methods for every basic type:
+Rich extension methods for every basic type. Import the functions you call
+(`import { clamp } from "@typesugar/std"`), or import a group object with a JSDoc
+`@extension` tag on the import (`/** @extension */ import { NumberExt } from "@typesugar/std"`);
+an imported object supplies extension methods only when its import opts in (PEP-064):
 
 | Type            | Methods                                                            |
 | --------------- | ------------------------------------------------------------------ |

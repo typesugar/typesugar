@@ -8,16 +8,30 @@
  * suppressed errors on calls the transformer then left as written (a
  * TypeError at run time).
  *
- * An import is a provider when it is a function named after the method, or
- * an object/namespace with a callable member of that name, whose first
- * parameter accepts the receiver (`receiverMatchesFirstParam`), except:
- * - a named/default import binding a whole module namespace that has not
- *   opted in (`"use extension"`, `@extension`): an ordinary library value;
+ * An import is a provider when its first parameter accepts the receiver
+ * (`receiverMatchesFirstParam`) and it is one of (PEP-064):
+ * - a function named after the method (`import { clamp }` for
+ *   `(42).clamp(0, 100)`): its name says it is meant for that call;
+ * - a member of an object or namespace imported by a declaration that opts
+ *   in: `import * as X`, or an import carrying a line-start JSDoc
+ *   `@extension` tag ({@link hasExtensionImportTag}). An ordinary method is
+ *   never an extension (Scala 3): a member taking `unknown`, `any` or an
+ *   unconstrained `T` accepts every receiver, so without this an imported
+ *   `log.info(msg: unknown)` turned `user.info()` -- a TS2339 mistake -- into
+ *   `log.info(user)`, and the shared suppression rule hid the error;
+ * - a member of an imported typeclass INSTANCE (an instance is meant to
+ *   supply its methods), for receivers of its own type
+ *   ({@link instanceServesReceiver}).
+ *
+ * In every case, never:
  * - a member every value has from the standard library (`bind`, `call`);
  * - a `declare global` stub seen through the value's apparent type;
- * - a member of a typeclass INSTANCE whose type is not the receiver's
- *   (by identity: {@link instanceServesReceiver});
  * - a member provider when the receiver has a native method of that name.
+ *
+ * Declaration-side markers (`"use extension"`, `@extension` on a function)
+ * do not qualify an object: they don't survive into a published `.d.ts`,
+ * so they would make a package's objects providers in its own repo and not
+ * for its users. The import site is the one place that says so.
  *
  * Reads declarations as written (pass-start source and `.d.ts`): an import
  * and what it provides exist before any pass starts, so no same-pass state
@@ -26,6 +40,7 @@
 
 import * as ts from "typescript";
 import {
+  isJSDocTagAtLineStart,
   receiverMatchesFirstParam,
   scanImportsForScope,
   type ResolutionScopeTracker,
@@ -98,15 +113,19 @@ export function findImportedExtensionMatches(
     hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
   }
 
-  const consider = (ident: ts.Identifier, importSource: string, namespaceImport: boolean) => {
-    if (!namespaceImport && isUnoptedModuleNamespaceBinding(env, ident)) return;
+  const consider = (ident: ts.Identifier, importSource: string, optedIn: boolean) => {
     let ext: StandaloneExtensionInfo | undefined;
     let target: ts.Symbol | undefined;
     try {
       ext = checkImportedSymbolForExtension(checker, ident, methodName, receiverType, env.program);
       if (!ext) return;
-      if (hasNativeMethod && ext.qualifier !== undefined) return;
-      if (ext.qualifier !== undefined && !instanceServesReceiver(env, ident, receiverType)) return;
+      if (ext.qualifier !== undefined) {
+        if (hasNativeMethod) return;
+        const instances = importedInstances(env, ident);
+        // Not opted in: only a typeclass instance supplies its members.
+        if (!optedIn && (instances === undefined || instances.length === 0)) return;
+        if (instances && !instancesServeReceiver(env, instances, receiverType)) return;
+      }
       target = extensionTarget(checker, ident, ext);
     } catch (error) {
       env.warn(
@@ -126,16 +145,36 @@ export function findImportedExtensionMatches(
     const importSource = ts.isStringLiteral(stmt.moduleSpecifier)
       ? stmt.moduleSpecifier.text
       : "unknown";
+    const tagged = hasExtensionImportTag(stmt);
     if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const spec of clause.namedBindings.elements) consider(spec.name, importSource, false);
+      for (const spec of clause.namedBindings.elements) consider(spec.name, importSource, tagged);
     }
     if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-      // `import * as X` is the explicit opt-in form: always a candidate.
+      // `import * as X` is itself the opt-in.
       consider(clause.namedBindings.name, importSource, true);
     }
-    if (clause.name) consider(clause.name, importSource, false);
+    if (clause.name) consider(clause.name, importSource, tagged);
   }
   return matches;
+}
+
+/**
+ * Does `decl` carry the import-site opt-in, a JSDoc `@extension` tag at a
+ * real tag position (PEP-064)?
+ *
+ * ```ts
+ * /** @extension *\/
+ * import { log } from "./logger";
+ * user.info(); // → log.info(user)
+ * ```
+ *
+ * Reads the import declaration as written: nothing a pass generates adds or
+ * removes one (CLAUDE.md "Resolving things a macro just generated").
+ */
+export function hasExtensionImportTag(decl: ts.ImportDeclaration): boolean {
+  return ts
+    .getJSDocTags(decl)
+    .some((tag) => tag.tagName.text === "extension" && isJSDocTagAtLineStart(tag));
 }
 
 /**
@@ -265,40 +304,6 @@ export function isGlobalAugmentationStub(prop: ts.Symbol): boolean {
   });
 }
 
-/**
- * Is `ident` a NAMED (or default) import binding a whole MODULE namespace --
- * `import { Effect } from "effect"`, where the package does
- * `export * as Effect from "./Effect.js"` -- that has not opted in to being an
- * extension provider (a `"use extension"` module / `@extension`)?
- *
- * Such a namespace is an ordinary library value, not an extension object: its
- * `map(self, f)` matched every Effect receiver and made `eff.map(f)` ambiguous
- * with the `EffectExt` the user imported for exactly that (docs start #2).
- * `import * as X` stays an explicit provider (that is the opt-in form), and a
- * named import of a declared object/`namespace` (`EffectExt`) is unaffected.
- */
-function isUnoptedModuleNamespaceBinding(env: ExtensionImportEnv, ident: ts.Identifier): boolean {
-  const checker = env.checker;
-  let target: ts.Symbol | undefined;
-  try {
-    target = checker.getSymbolAtLocation(ident);
-    if (target && target.flags & ts.SymbolFlags.Alias) target = checker.getAliasedSymbol(target);
-  } catch (error) {
-    env.warn(
-      ident,
-      `typesugar could not resolve the import '${ident.text}' while looking for extension methods (${error}); ignoring it as an extension provider.`
-    );
-    return true;
-  }
-  const decls = target?.getDeclarations();
-  if (!target || !decls || decls.length === 0) return false;
-  const isModule = decls.every(
-    (d) => ts.isSourceFile(d) || (ts.isModuleDeclaration(d) && ts.isStringLiteral(d.name))
-  );
-  if (!isModule) return false;
-  return !isExtensionEnabledIn(env, target);
-}
-
 /** The declaration symbol an extension match calls (aliases resolved), for de-duplication. */
 function extensionTarget(
   checker: ts.TypeChecker,
@@ -318,9 +323,9 @@ function extensionTarget(
  * extension provider (`ident.method(receiver)`), as far as being a typeclass
  * instance goes?
  *
- * Any imported object whose member's first parameter accepts the receiver
- * is a provider, which is right for an extension object (`EffectExt`) but
- * not for a typeclass instance: an instance is FOR one type. With
+ * An opted-in extension object (`EffectExt`) serves any receiver its
+ * member's first parameter accepts, but a typeclass instance is FOR one
+ * type, whether or not its import is opted in. With
  * `@impl Show<Color>` on a numeric enum, `number` is assignable to `Color`,
  * so `n.show()` on `n: number` became `showColor.show(n)`. An instance
  * serves only receivers of its own instance type, compared by identity
@@ -342,20 +347,35 @@ function extensionTarget(
  * (`@impl Functor<OptionF>`) is for a type constructor, not a type, so this
  * check does not apply to it and it keeps the plain first-parameter match.
  * An instance whose type the scanner could not resolve serves nothing here.
+ * When the scan itself fails (warned), the value is not treated as an
+ * instance: an opted-in import stays an ordinary extension object, and an
+ * import that is not opted in provides nothing.
  */
 export function instanceServesReceiver(
   env: ExtensionImportEnv,
   ident: ts.Identifier,
   receiverType: ts.Type
 ): boolean {
+  const instances = importedInstances(env, ident);
+  return instances === undefined || instancesServeReceiver(env, instances, receiverType);
+}
+
+/**
+ * The typeclass instances the imported value `ident` is, as the instance
+ * scanner reads them (empty: not an instance). Undefined when the check
+ * failed, after a warning.
+ */
+function importedInstances(
+  env: ExtensionImportEnv,
+  ident: ts.Identifier
+): ScannedInstance[] | undefined {
   const checker = env.checker;
-  let instances: ScannedInstance[];
   try {
     let sym = checker.getSymbolAtLocation(ident);
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     const decl = sym?.valueDeclaration;
-    if (!decl || !ts.isVariableDeclaration(decl)) return true;
-    instances = instanceScanner
+    if (!decl || !ts.isVariableDeclaration(decl)) return [];
+    return instanceScanner
       .scanValueDeclaration(checker, decl, (node, error, what) =>
         env.warn(
           node.getSourceFile?.() === env.sourceFile ? node : ident,
@@ -372,11 +392,20 @@ export function instanceServesReceiver(
   } catch (error) {
     env.warn(
       ident,
-      `typesugar could not check whether the import '${ident.text}' is a typeclass instance (${error}); treating it as an ordinary extension object.`
+      `typesugar could not check whether the import '${ident.text}' is a typeclass instance (${error}); it is not treated as one.`
     );
-    return true;
+    return undefined;
   }
+}
+
+/** {@link instanceServesReceiver} for the instances an import is (none: any receiver). */
+function instancesServeReceiver(
+  env: ExtensionImportEnv,
+  instances: readonly ScannedInstance[],
+  receiverType: ts.Type
+): boolean {
   if (instances.length === 0) return true;
+  const checker = env.checker;
   const receiver = widenLiteralType(checker, receiverType);
   return instances.some((inst) => {
     if (env.program && isHktTypeclass(env.program, inst.typeclassName)) return true;

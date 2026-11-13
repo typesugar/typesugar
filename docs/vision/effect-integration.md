@@ -250,9 +250,10 @@ HKT encodings available:
 
 ### Extension Methods
 
-Import `EffectExt` to enable fluent method chaining:
+Import `EffectExt`, with a JSDoc `@extension` tag on the import, to enable fluent method chaining:
 
 ```typescript
+/** @extension */
 import { EffectExt } from "@typesugar/effect";
 
 // The transformer rewrites .method() calls to direct function calls
@@ -267,7 +268,9 @@ effect
   .runPromise();
 ```
 
-Also available: `OptionExt`, `EitherExt` for Effect's Option and Either types.
+Also available: `OptionExt`, `EitherExt` for Effect's Option and Either types (tag their import the same way).
+An imported object supplies extension methods only when its import carries the tag
+(PEP-064; see the [extension methods guide](../guides/extension-methods.md#extension-objects)).
 
 ---
 

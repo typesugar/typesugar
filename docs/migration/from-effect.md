@@ -269,13 +269,15 @@ Likewise a plain `(self: T) => number` function rather than a `Hash.Hash<T>` ins
 ## Extension Methods
 
 ::: tip
-`import { Effect } from "effect"` does not compete with `EffectExt`: a module
-namespace imported by name is not an extension provider (only `import * as X` is).
+An imported object supplies extension methods only when its import opts in with a JSDoc
+`@extension` tag (PEP-064), so `import { Effect } from "effect"` does not compete with
+`EffectExt`. See [Extension Objects](../guides/extension-methods.md#extension-objects).
 :::
 
-Import `EffectExt` to enable fluent method calls that compile to direct function calls:
+Import `EffectExt`, with a JSDoc `@extension` tag on the import, to enable fluent method calls that compile to direct function calls:
 
 ```typescript
+/** @extension */
 import { EffectExt } from "@typesugar/effect";
 
 // The transformer rewrites .method() to EffectExt.method(self, ...)
@@ -288,7 +290,7 @@ effect
 
 Available extensions: `map`, `flatMap`, `tap`, `mapError`, `catchAll`, `orElse`, `orElseSucceed`, `orElseFail`, `as`, `asVoid`, `zip`, `zipWith`, `zipLeft`, `zipRight`, `provide`, `provideService`, `timeout`, `delay`, `repeat`, `retry`, `when`, `unless`, `tap`, `tapError`.
 
-Also: `OptionExt` and `EitherExt` for Effect's Option and Either types.
+Also: `OptionExt` and `EitherExt` for Effect's Option and Either types (tag their import the same way).
 
 ## Typeclass Bridge
 

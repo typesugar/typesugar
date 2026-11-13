@@ -323,6 +323,7 @@ describe('EffectExt with `import { Effect } from "effect"` (docs start #2)', () 
   it("the from-effect.md example: map + chained flatMap rewrite to EffectExt and run", () => {
     const result = transform(
       [
+        `/** @extension */`,
         `import { EffectExt } from "fakeeffectext";`,
         `import { Effect } from "fakeeffect";`,
         `declare function log(v: unknown): void;`,

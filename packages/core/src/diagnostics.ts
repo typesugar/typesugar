@@ -594,11 +594,14 @@ export const TS9062: DiagnosticDescriptor = {
 1. It's not a native method of \`{type}\`
 2. No extension method \`{method}\` is in scope
 
-Extension methods require an import:
+Extension methods require an import: the function named after the method,
+or an object of extension functions with a JSDoc @extension tag on its import
+(an imported object supplies extension methods only when its import opts in):
 
-  import { StringExt } from "@typesugar/std";  // for string methods
-  import { NumberExt } from "@typesugar/std";  // for number methods
-  import { ArrayExt } from "@typesugar/std";   // for array methods
+  import { capitalize } from "@typesugar/std";  // "hi".capitalize()
+
+  /** @extension */
+  import { StringExt } from "@typesugar/std";   // every StringExt member
 
 Or if it's a typeclass method, ensure the typeclass is in scope.`,
   seeAlso: "https://typesugar.org/errors/TS9062",
