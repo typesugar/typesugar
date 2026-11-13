@@ -160,6 +160,33 @@ export function findImportedExtensionMatches(
   return matches;
 }
 
+/**
+ * The match the rewrite uses among `matches` (all the providers of one call,
+ * in import order): the only one; the first when they share a qualifier; the
+ * bare function when every match is the same export reached two ways
+ * (`import { head }` and `import * as std`). Otherwise the call is ambiguous:
+ * the rewrite reports an error and uses the first. The one rule for this,
+ * shared by the rewrite (`scanImportsForExtension`) and
+ * {@link extensionImportUses}.
+ */
+export function chooseExtensionMatch(matches: readonly ImportedExtensionMatch[]): {
+  match: ImportedExtensionMatch | undefined;
+  ambiguous: boolean;
+} {
+  if (matches.length <= 1) return { match: matches[0], ambiguous: false };
+  if (new Set(matches.map((m) => m.ext.qualifier ?? "")).size === 1) {
+    return { match: matches[0], ambiguous: false };
+  }
+  const first = matches[0].target;
+  if (first && matches.every((m) => m.target === first)) {
+    return {
+      match: matches.find((m) => m.ext.qualifier === undefined) ?? matches[0],
+      ambiguous: false,
+    };
+  }
+  return { match: matches[0], ambiguous: true };
+}
+
 /** Which import bindings of a file serve extension calls in it ({@link extensionImportUses}). */
 export interface ExtensionImportUses {
   /** Bindings whose MEMBER some call resolves to (`log` for `user.info()` → `log.info(user)`). */
@@ -170,52 +197,104 @@ export interface ExtensionImportUses {
 
 /**
  * The import bindings of `env.sourceFile` that serve at least one
- * `recv.method()` call in it, as {@link findImportedExtensionMatches} decides
- * each call: the same decision as the rewrite, asked once per call whose
+ * `recv.method()` call in it, for the ExtensionImport suppression rule
+ * (TypeScript doesn't count an extension call as a use of its import).
+ *
+ * Each call is decided by {@link findImportedExtensionMatches} and
+ * {@link chooseExtensionMatch}, as the rewrite decides it; only calls whose
  * method name an import could provide (a binding's own name, or a property
- * of its value). Used for the unused-import suppression (TypeScript doesn't
- * count an extension call as a use of the import) and the warning for an
- * `@extension` tag that has no effect (PEP-064 Wave 2).
+ * of its value) are asked. A receiver the checker can't type because it is
+ * itself an extension call (`(1).to(5).reversed().toArray()`) gets the
+ * provider's return type, as the rewrite recovers it. Calls in a scope opted
+ * out of extensions (`isOptedOut`) are skipped: the rewrite leaves them.
+ * Not modelled: a same-file `@extension` function the rewrite prefers over
+ * an import (the live registry is the transformer's), so an import that
+ * loses to one still counts as used.
  *
  * Reads the file as written (pass-start source): the calls and imports exist
  * before any pass starts (CLAUDE.md "Resolving things a macro just
  * generated"). A checker failure on one call is warned and that call skipped.
  */
-export function extensionImportUses(env: ExtensionImportEnv): ExtensionImportUses {
+export function extensionImportUses(
+  env: ExtensionImportEnv,
+  isOptedOut: (call: ts.CallExpression) => boolean = () => false
+): ExtensionImportUses {
   const { checker, sourceFile } = env;
   const asMember = new Set<ts.Identifier>();
   const asFunction = new Set<ts.Identifier>();
   const candidates = new Set<string>();
-  for (const ident of importBindings(sourceFile)) {
-    candidates.add(ident.text);
-    try {
-      const sym = checker.getSymbolAtLocation(ident);
-      if (!sym) continue;
-      for (const prop of checker.getTypeOfSymbolAtLocation(sym, ident).getProperties()) {
-        candidates.add(prop.name);
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+    for (const ident of importClauseBindings(stmt.importClause)) {
+      candidates.add(ident.text);
+      try {
+        const sym = checker.getSymbolAtLocation(ident);
+        if (!sym) continue;
+        for (const prop of checker.getTypeOfSymbolAtLocation(sym, ident).getProperties()) {
+          candidates.add(prop.name);
+        }
+      } catch (error) {
+        env.warn(
+          ident,
+          `typesugar could not read the members of the import '${ident.text}' (${error}); ` +
+            `extension calls through them are not counted as uses of it.`
+        );
       }
-    } catch (error) {
-      env.warn(
-        ident,
-        `typesugar could not read the members of the import '${ident.text}' (${error}); ` +
-          `extension calls through them are not counted as uses of it.`
-      );
     }
   }
   if (candidates.size === 0) return { asMember, asFunction };
+
+  /** The rewrite's choice for `callee(...)`, and its receiver's type (recovered for a chain). */
+  const decide = (callee: ts.PropertyAccessExpression, depth: number) => {
+    let receiverType = checker.getTypeAtLocation(callee.expression);
+    const inner = callee.expression;
+    if (
+      receiverType.flags & ts.TypeFlags.Any &&
+      depth < 8 &&
+      ts.isCallExpression(inner) &&
+      ts.isPropertyAccessExpression(inner.expression)
+    ) {
+      const recovered = returnTypeOf(decide(inner.expression, depth + 1).match);
+      if (recovered) receiverType = recovered;
+    }
+    return chooseExtensionMatch(findImportedExtensionMatches(env, callee.name.text, receiverType));
+  };
+  const returnTypeOf = (m: ImportedExtensionMatch | undefined): ts.Type | undefined => {
+    if (!m) return undefined;
+    const sym = checker.getSymbolAtLocation(m.ident);
+    if (!sym) return undefined;
+    let fnType = checker.getTypeOfSymbolAtLocation(sym, m.ident);
+    if (m.ext.qualifier !== undefined) {
+      const prop = fnType.getProperty(m.ext.methodName);
+      if (!prop) return undefined;
+      fnType = checker.getTypeOfSymbolAtLocation(prop, m.ident);
+    }
+    const sigs = fnType.getCallSignatures();
+    return sigs.length === 1 ? sigs[0].getReturnType() : undefined;
+  };
 
   const visit = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
-      candidates.has(node.expression.name.text)
+      candidates.has(node.expression.name.text) &&
+      !isOptedOut(node)
     ) {
       const callee = node.expression;
       try {
-        const receiverType = checker.getTypeAtLocation(callee.expression);
-        for (const m of findImportedExtensionMatches(env, callee.name.text, receiverType)) {
-          (m.ext.qualifier === undefined ? asFunction : asMember).add(m.ident);
-        }
+        const { match, ambiguous } = decide(callee, 0);
+        // Ambiguous: an error is reported on the call; every candidate
+        // counts, so the unused report doesn't pile on.
+        const used = ambiguous
+          ? findImportedExtensionMatches(
+              env,
+              callee.name.text,
+              checker.getTypeAtLocation(callee.expression)
+            )
+          : match
+            ? [match]
+            : [];
+        for (const m of used) (m.ext.qualifier === undefined ? asFunction : asMember).add(m.ident);
       } catch (error) {
         env.warn(
           callee,
@@ -230,20 +309,8 @@ export function extensionImportUses(env: ExtensionImportEnv): ExtensionImportUse
   return { asMember, asFunction };
 }
 
-/** Every name the file's import declarations bind (named, default and namespace). */
-function importBindings(sourceFile: ts.SourceFile): ts.Identifier[] {
-  const out: ts.Identifier[] = [];
-  for (const stmt of sourceFile.statements) {
-    if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
-    out.push(...declarationBindings(stmt));
-  }
-  return out;
-}
-
-/** The names one import declaration binds. */
-function declarationBindings(decl: ts.ImportDeclaration): ts.Identifier[] {
-  const clause = decl.importClause;
-  if (!clause) return [];
+/** Every name an import clause binds (default, namespace and named). */
+export function importClauseBindings(clause: ts.ImportClause): ts.Identifier[] {
   const out: ts.Identifier[] = [];
   if (clause.name) out.push(clause.name);
   const bindings = clause.namedBindings;
@@ -254,24 +321,34 @@ function declarationBindings(decl: ts.ImportDeclaration): ts.Identifier[] {
 }
 
 /**
- * The `@extension` tags on this file's imports that do nothing: no binding of
- * the tagged declaration serves an extension call through one of its
- * MEMBERS (the only thing the tag enables; a function named after the method
- * needs no tag). Reported as a warning, like an inactive `@derive` (audit
- * F23): a tag that silently does nothing is worse than one that says so.
+ * The `@extension` tags on `sourceFile`'s imports that did nothing in this
+ * transform: no named or default binding of the tagged declaration was the
+ * qualifier of an extension call the rewrite emitted (`usedQualifiers`,
+ * recorded by the transformer as it rewrites: live same-pass state, read
+ * after the whole file has been visited). A function named after the method,
+ * or an `import * as X` namespace, needs no tag, so their use doesn't count.
+ * Reported as a warning, like an inactive `@derive` (audit F23): a tag that
+ * silently does nothing is worse than one that says so.
  */
-export function inactiveExtensionImportTags(env: ExtensionImportEnv): ts.JSDocTag[] {
-  const tagged: [ts.ImportDeclaration, ts.JSDocTag][] = [];
-  for (const stmt of env.sourceFile.statements) {
-    if (!ts.isImportDeclaration(stmt)) continue;
+export function inactiveExtensionImportTags(
+  sourceFile: ts.SourceFile,
+  usedQualifiers: ReadonlySet<string>
+): ts.JSDocTag[] {
+  const out: ts.JSDocTag[] = [];
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
     const tag = extensionImportTag(stmt);
-    if (tag) tagged.push([stmt, tag]);
+    if (!tag) continue;
+    const clause = stmt.importClause;
+    const named = [
+      ...(clause.name ? [clause.name] : []),
+      ...(clause.namedBindings && ts.isNamedImports(clause.namedBindings)
+        ? clause.namedBindings.elements.map((el) => el.name)
+        : []),
+    ];
+    if (!named.some((b) => usedQualifiers.has(b.text))) out.push(tag);
   }
-  if (tagged.length === 0) return [];
-  const { asMember } = extensionImportUses(env);
-  return tagged
-    .filter(([decl]) => !declarationBindings(decl).some((b) => asMember.has(b)))
-    .map(([, tag]) => tag);
+  return out;
 }
 
 /**

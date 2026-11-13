@@ -321,6 +321,79 @@ console.log("hi".shout());
   });
 });
 
+// The Wave 2 review cases: what counts as a use is what the rewrite does.
+const PAIRS = `export interface Pair { a: number; b: number }
+export const MkOps = { to(n: number, m: number): Pair { return { a: n, b: m }; } };
+export const RevOps = { rev(p: Pair): Pair { return { a: p.b, b: p.a }; } };
+`;
+
+describe.skipIf(!hasBuild)("PEP-064 Wave 2: uses as the rewrite makes them", () => {
+  let dir: string;
+  let check = "";
+  beforeAll(() => {
+    dir = makeProject(
+      {
+        "src/logger.ts":
+          LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+        "src/pairs.ts": PAIRS,
+        // RevOps serves only a call whose receiver is itself an extension
+        // call (the checker types it as an error; the rewrite recovers it).
+        "src/chain.ts": `/** @extension */
+import { MkOps } from "./pairs.js";
+/** @extension */
+import { RevOps } from "./pairs.js";
+console.log(JSON.stringify((1).to(5).rev()));
+`,
+        // The same export reached two ways: the rewrite uses the bare name,
+        // so the namespace import is really unused.
+        "src/twice.ts": `import { shout } from "./logger.js";
+import * as L from "./logger.js";
+console.log("hi".shout());
+`,
+        // A namespace import needs no tag.
+        "src/ns.ts": `/** @extension */
+import * as L from "./logger.js";
+console.log("hi".shout());
+`,
+        // A file opted out of extensions: the call is left as written, so
+        // the import is unused and the tag does nothing.
+        "src/optout.ts": `"use no typesugar extensions";
+/** @extension */
+import { log } from "./logger.js";
+export const f = () => ({ id: 1 }).info();
+`,
+      },
+      { noUnusedLocals: true }
+    );
+    dirs.push(dir);
+    check = cli(dir, "check").output;
+  });
+
+  it("chained receiver: no unused report and no warning, and the build runs", () => {
+    expect(check).not.toMatch(/chain\.ts\(\d+,\d+\)/);
+    const b = cli(dir, "build");
+    expect(b.output).not.toMatch(/chain\.ts/);
+    const r = run(dir, "chain.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('{"a":5,"b":1}\n');
+  });
+
+  it("the same export reached two ways: the unused namespace import is reported", () => {
+    expect(check).toMatch(/twice\.ts\(2,\d+\): error TS6133/);
+    expect(check).not.toMatch(/twice\.ts\(1,/);
+  });
+
+  it("a tag on a namespace import has no effect and warns", () => {
+    expect(check).toMatch(/ns\.ts\(1,\d+\): warning .*This @extension tag has no effect/);
+    expect(check).not.toMatch(/ns\.ts\(\d+,\d+\): error/);
+  });
+
+  it("an opted-out file: the import is unused and the tag warns", () => {
+    expect(check).toMatch(/optout\.ts\(3,\d+\): error TS6133/);
+    expect(check).toMatch(/optout\.ts\(2,\d+\): warning .*This @extension tag has no effect/);
+  });
+});
+
 describe.skipIf(!hasBuild)("PEP-064 Wave 2: an @extension tag with no effect warns", () => {
   let dir: string;
   beforeAll(() => {

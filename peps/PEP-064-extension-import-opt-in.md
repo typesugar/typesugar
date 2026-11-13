@@ -164,21 +164,37 @@ under `noUnusedLocals` an import used only through extension calls is reported
 tagged object import would hit it the moment a user writes what this PEP asks for. Wave 2
 adds an **ExtensionImport** suppression rule, mirroring F23's `JSDocDeriveImport`: an unused
 import diagnostic is hidden when every binding it reports serves at least one extension call
-in the file, decided by the same `findImportedExtensionMatches` the rewrite uses
-(`extensionImportUses`, `packages/macros/src/extension-imports.ts`, asked once per call
-whose method name an import could provide). When an import declaration binds a served name
-and an unused one, TypeScript reports the whole declaration (TS6192) and the rule keeps it:
-the unused binding is real.
+in the file, decided per call as the rewrite decides it (`extensionImportUses`,
+`packages/macros/src/extension-imports.ts`): `findImportedExtensionMatches`, then
+`chooseExtensionMatch`, the one rule both use for which of several matches the rewrite
+calls (so `import * as L` beside `import { shout }` from the same module is still reported
+unused: the rewrite calls `shout`). Only calls whose method name an import could provide
+are asked; a receiver that is itself an extension call gets the provider's return type, as
+the rewrite recovers it; calls in a scope opted out of extensions are skipped.
+
+The rule is a suppression rule, so it runs over the source as written, without the
+transform. Two differences from the rewrite remain: a same-file `@extension` function the
+rewrite prefers over an import (the live registry is the transformer's) still counts the
+import as used; and when one declaration binds a served name and an unused one, TypeScript
+reports the whole declaration (TS6192, "All imports in import declaration are unused") and
+the rule keeps it, since a suppression rule can hide a diagnostic but not narrow it.
 
 ### A tag that does nothing
 
-A tagged import none of whose bindings serves an object-member extension call in the file
-gets a warning: the tag has no effect (nothing uses the import as an extension object, or
-it only binds functions, which need no tag). This mirrors F23's inactive `@derive` warning:
-a tag that silently does nothing is worse than one that says so. It is a warning, not an
-error, and has no code of its own, like F23's. It is reported once per file, at the tag,
-from the transformer's visit of the source file, so `check`, `build`, `expand`, the language
-service and unplugin all show it.
+A tagged import none of whose named or default bindings was the object of an extension call
+the rewrite emitted in the file gets a warning: the tag has no effect (nothing uses the
+import as an extension object, it only binds functions, or it is an `import * as X`, which
+needs no tag). This mirrors F23's inactive `@derive` warning: a tag that silently does
+nothing is worse than one that says so. It is a warning with no code of its own, like F23's.
+
+The warning is not a second decision: the rewrite records the qualifier of each object
+extension call it emits (`tryRewriteExtensionMethod`'s `onRewrite`), and the transformer
+reads that set after visiting the whole file (live same-pass state, CLAUDE.md "Resolving
+things a macro just generated"). Chained receivers, opt-out scopes and registry precedence
+are therefore exactly the rewrite's. It is reported at the tag by every entry point that
+transforms the file (`check`, `build`, `expand`, the language service, unplugin, the
+playground). Not detected: a tag on the import of a declared typeclass instance, which needs
+no tag either.
 
 ## Rejected alternatives
 

@@ -45,6 +45,7 @@ import { resolveInstance } from "./instance-resolver.js";
 import {
   extensionImportUses,
   findImportedExtensionMatches,
+  importClauseBindings,
   type ExtensionImportEnv,
   type ExtensionImportUses,
 } from "./extension-imports.js";
@@ -1456,12 +1457,24 @@ export function createExtensionImportRule(): DiagnosticSuppressionRule {
       if (!perFile) usesByChecker.set(checker, (perFile = new WeakMap()));
       let uses = perFile.get(sourceFile);
       if (!uses) {
-        uses = extensionImportUses({
-          checker,
-          program: context?.program,
-          sourceFile,
-          warn: (_node, message) => reportCheckerFailure("ExtensionImport", message),
-        });
+        const program = context?.program;
+        let tracker: ResolutionScopeTracker;
+        if (program) {
+          tracker = operatorActivation(program, sourceFile).tracker;
+        } else {
+          tracker = new ResolutionScopeTracker();
+          scanImportsForScope(sourceFile, tracker);
+        }
+        uses = extensionImportUses(
+          {
+            checker,
+            program,
+            sourceFile,
+            warn: (_node, message) => reportCheckerFailure("ExtensionImport", message),
+          },
+          // The rewrite skips calls in a scope opted out of extensions.
+          (call) => isInOptedOutScope(sourceFile, call, tracker, "extensions")
+        );
         perFile.set(sourceFile, uses);
       }
       const used = uses;
@@ -1478,23 +1491,13 @@ function reportedImportBindings(node: ts.Node): ts.Identifier[] {
     if (ts.isImportClause(n)) {
       // The default binding alone, or the whole clause.
       if (n.name && node === n.name) return [n.name];
-      return clauseBindings(n);
+      return importClauseBindings(n);
     }
-    if (ts.isImportDeclaration(n)) return n.importClause ? clauseBindings(n.importClause) : [];
+    if (ts.isImportDeclaration(n))
+      return n.importClause ? importClauseBindings(n.importClause) : [];
     if (ts.isStatement(n)) return [];
   }
   return [];
-}
-
-/** Every name an import clause binds. */
-function clauseBindings(clause: ts.ImportClause): ts.Identifier[] {
-  const out: ts.Identifier[] = [];
-  if (clause.name) out.push(clause.name);
-  const bindings = clause.namedBindings;
-  if (bindings && ts.isNamespaceImport(bindings)) out.push(bindings.name);
-  if (bindings && ts.isNamedImports(bindings))
-    for (const el of bindings.elements) out.push(el.name);
-  return out;
 }
 
 // ===========================================================================

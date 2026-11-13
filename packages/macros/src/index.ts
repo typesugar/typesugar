@@ -302,6 +302,8 @@ export {
   findImportedExtensionMatches,
   hasExtensionImportTag,
   extensionImportUses,
+  chooseExtensionMatch,
+  importClauseBindings,
   inactiveExtensionImportTags,
   type ExtensionImportUses,
   checkImportedSymbolForExtension,

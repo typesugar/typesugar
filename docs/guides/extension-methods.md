@@ -265,8 +265,8 @@ editor hide that report when every name it is about serves an extension call in 
 (the ExtensionImport suppression rule); a name nothing uses is still reported.
 
 An `@extension` tag that enables nothing gets a warning: no call in the file goes through a
-member of that import (the import only binds functions, which need no tag, or its object is
-only called directly).
+member of that import (the import only binds functions, which need no tag; it is an
+`import * as X`, which needs none either; or its object is only called directly).
 
 ## Ambiguity Detection
 

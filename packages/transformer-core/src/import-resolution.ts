@@ -18,6 +18,7 @@ import {
   receiverMatchesFirstParam,
 } from "@typesugar/core";
 import {
+  chooseExtensionMatch,
   findImportedExtensionMatches,
   inactiveExtensionImportTags,
   type ExtensionImportEnv,
@@ -946,12 +947,16 @@ function extensionImportEnv(ctx: MacroContextImpl): ExtensionImportEnv {
 
 /**
  * Warn on each JSDoc `@extension` tag on an import of `ctx.sourceFile` that
- * does nothing (PEP-064): no binding of that import serves an extension
- * call through one of its members (inactiveExtensionImportTags, the rewrite's
- * own decision asked per call of the file as written).
+ * did nothing (PEP-064): no extension call the rewrite emitted in this file
+ * went through a member of that import. `usedQualifiers` is what the rewrite
+ * recorded as it went (live same-pass state), so this runs after the whole
+ * file has been visited.
  */
-export function reportInactiveExtensionImportTags(ctx: MacroContextImpl): void {
-  for (const tag of inactiveExtensionImportTags(extensionImportEnv(ctx))) {
+export function reportInactiveExtensionImportTags(
+  ctx: MacroContextImpl,
+  usedQualifiers: ReadonlySet<string>
+): void {
+  for (const tag of inactiveExtensionImportTags(ctx.sourceFile, usedQualifiers)) {
     ctx.reportWarning(
       tag,
       "This @extension tag has no effect: no method call in this file uses a member of " +
@@ -986,25 +991,12 @@ export function scanImportsForExtension(
     receiverType
   );
 
-  if (matches.length === 0) {
-    return undefined;
-  }
-
-  if (matches.length === 1) {
-    return matches[0].ext;
-  }
-
-  const uniqueQualifiers = new Set(matches.map((m) => m.ext.qualifier ?? ""));
-  if (uniqueQualifiers.size === 1) {
-    return matches[0].ext;
-  }
-
   // The same export reached two ways (`import { head }` and `import * as std`
-  // from one module) is one extension, not an ambiguity: prefer the bare name.
-  const first = matches[0].target;
-  if (first && matches.every((m) => m.target === first)) {
-    return (matches.find((m) => m.ext.qualifier === undefined) ?? matches[0]).ext;
-  }
+  // from one module) is one extension, not an ambiguity: the bare name wins
+  // (chooseExtensionMatch, shared with the ExtensionImport rule).
+  const { match, ambiguous } = chooseExtensionMatch(matches);
+  if (!match) return undefined;
+  if (!ambiguous) return match.ext;
 
   const typeName = ctx.typeChecker.typeToString(receiverType);
   const sources = matches
@@ -1023,5 +1015,5 @@ export function scanImportsForExtension(
     ctx.reportError(node, errorMessage);
   }
 
-  return matches[0].ext;
+  return match.ext;
 }

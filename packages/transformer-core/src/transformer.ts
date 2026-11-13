@@ -144,6 +144,9 @@ class MacroTransformer {
     Set<ts.ImportSpecifier | "namespace" | "default">
   >();
 
+  /** Qualifiers of the object extension calls this file's rewrite emitted (PEP-064). */
+  private extensionQualifiersUsed = new Set<string>();
+
   private importExtensionCache = new Map<
     ts.Type,
     Map<string, StandaloneExtensionInfo | undefined>
@@ -421,7 +424,6 @@ class MacroTransformer {
     }
 
     if (ts.isSourceFile(node)) {
-      if (node === this.ctx.sourceFile) reportInactiveExtensionImportTags(this.ctx);
       // Extensions registered during this pass are keyed to this file, and the
       // file's entries from an earlier pass (watch/LSP re-transform) are dropped.
       return withStandaloneExtensionFile(node.fileName, () => this.visitStatementContainer(node));
@@ -1180,6 +1182,13 @@ class MacroTransformer {
       );
     }
 
+    // PEP-064: an `@extension` tag on an import that no rewrite in this file
+    // went through. Read after the whole file was visited: the set is what
+    // the rewrite recorded during this pass (live same-pass state).
+    if (ts.isSourceFile(node) && node === this.ctx.sourceFile) {
+      reportInactiveExtensionImportTags(this.ctx, this.extensionQualifiersUsed);
+    }
+
     // PEP-027: for a "use extension" source file, append registration calls
     // for each exported function so the compiled dist self-registers its
     // extensions at module load time.
@@ -1410,7 +1419,10 @@ class MacroTransformer {
         this.visit.bind(this),
         this.resolveMacroFromSymbol.bind(this),
         this.resolveExtensionFromImports.bind(this),
-        node
+        node,
+        (ext) => {
+          if (ext.qualifier !== undefined) this.extensionQualifiersUsed.add(ext.qualifier);
+        }
       );
       if (result !== undefined) {
         if (this.expansionTracker) {

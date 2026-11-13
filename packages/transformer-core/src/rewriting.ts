@@ -264,7 +264,9 @@ export function tryRewriteExtensionMethod(
   visit: VisitFn,
   resolveMacroFromSymbol: ResolveMacroFn,
   resolveExtensionFromImports: ResolveExtensionFn,
-  node: ts.CallExpression
+  node: ts.CallExpression,
+  /** Told about each extension the rewrite emits a call to (PEP-064's unused-tag warning). */
+  onRewrite?: (ext: StandaloneExtensionInfo) => void
 ): ts.Expression | undefined {
   const guarded = checkMethodCallDispatchGuards(ctx, resolveMacroFromSymbol, node);
   if (!guarded) return undefined;
@@ -374,6 +376,7 @@ export function tryRewriteExtensionMethod(
     receiver,
     Array.from(node.arguments)
   );
+  onRewrite?.(standaloneExt);
 
   try {
     const visited = ts.visitNode(rewritten, visit) as ts.Expression;
