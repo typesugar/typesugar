@@ -36,19 +36,20 @@ finding recommended, so the duplicate copies are still there.
 
 ## Fix status (2026-11-13)
 
-| PR         | Findings addressed                                                                                                         |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
-| #88        | B2; B4/A5/D4 (`typeclasses` and JSDoc `derive` opt-outs); B3 residual (arrow-form TS9224); A6's diagnostic anchor; B·7; S5 |
-| #93        | A1 (one attribute dispatcher); the instance-lookup decision (B·2's precedence); D3's `instance-resolver.ts` comment        |
-| #94        | C1 (all rows Dean decided, plus `fallbackNameLookup`); C9; D2; S2's third Option; S3; S9; S10                              |
-| #92        | S4; S6; S7; S11                                                                                                            |
-| #95 (this) | D1; D3's remaining comments (except `macro-helpers.ts`, which #93/#94 rewrite); S8; the PEP-052 dispatcher note            |
+| PR  | Findings addressed                                                                                                         |
+| --- | -------------------------------------------------------------------------------------------------------------------------- |
+| #88 | B2; B4/A5/D4 (`typeclasses` and JSDoc `derive` opt-outs); B3 residual (arrow-form TS9224); A6's diagnostic anchor; B·7; S5 |
+| #93 | A1 (one attribute dispatcher); the instance-lookup decision (B·2's precedence); D3's `instance-resolver.ts` comment        |
+| #94 | C1 (all rows Dean decided, plus `fallbackNameLookup`); C9; D2; S2's third Option; S3; S9; S10                              |
+| #92 | S4; S6; S7; S11                                                                                                            |
+| #95 | D1; D3's remaining comments (except `macro-helpers.ts`, which #93/#94 rewrite); S8; the PEP-052 dispatcher note            |
+
+Found while doing the fixes and fixed in #99: `(0).to(10).step(2)` failed type-checking because the
+`Range` type's own `step` field hid the `step` extension method; the field is now `stride`. #99 also
+makes fp re-export std's `Eq`, `Ord` and `Ordering` instead of keeping an aligned copy.
 
 Not yet addressed (later work, per the plan below): A2, A3, A4, A6's shared dispatch, B·1, B·2/B·3's
-shared walk, B·4, B·5, B·6, C2–C8, S1's remaining duplication, S12's walker. Found while doing the
-fixes: `(0).to(10).step(2)` fails type-checking because the `Range` type's own `step` field hides the
-`step` extension method, while the std README and docs/guides/extension-methods.md show that form
-(reported on #94; needs a decision on renaming one of them).
+shared walk, B·4, B·5, B·6, C2–C8, S1's remaining duplication, S12's walker.
 
 ## Tier A — per finding
 
