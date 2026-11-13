@@ -163,6 +163,34 @@ as a function call instead, in place.
 A method that returns something else (`equals(a: A, b: A): boolean`) ends the
 chain: `(a === b) === flag` compares booleans natively.
 
+### Generic Code
+
+In a generic function the operands' type is a type parameter, which has no
+instance of its own. The instance is the function's dictionary: an operator on
+`A` dispatches to a parameter or `const` in scope whose type is the typeclass
+applied to `A`, the call you would write by hand:
+
+```typescript
+function addThenScale<A>(c: Numeric<A>, a: A, b: A, k: A): A {
+  return (a + b) * k; // Compiles to: c.mul(c.add(a, b), k)
+}
+
+function adder<A>(calculator: Numeric<A>) {
+  return (a: A, b: A) => a + b; // calculator.add(a, b)
+}
+```
+
+The dictionary can be an enclosing function's parameter (as in `adder`), an
+`= implicit()` parameter, a `const` declared above the operator (destructured
+too: `const { calculator } = holder`), or typed through an alias
+(`type MyCalc<T> = Numeric<T>`). A binding an inner scope shadows is not used,
+and with no dictionary in scope the operator stays JavaScript's own, which
+TypeScript reports (TS2365). Two dictionaries for the same typeclass and type
+parameter in scope are an ambiguity error. Specializing the function for a
+known instance inlines that instance's methods for these operators as it does
+for `c.add(a, b)` written out ([Specialization](./specialize.md)), so
+`addThenScale(numericPoint, p, q, r)` compiles to one object literal.
+
 ### Comparison
 
 | Operator | Typical Method              | Example   |

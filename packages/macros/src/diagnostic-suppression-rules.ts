@@ -2770,7 +2770,15 @@ function operatorActivation(
   return result;
 }
 
-function activatedOperatorTypeclasses(program: ts.Program, sourceFile: ts.SourceFile): Set<string> {
+/**
+ * The typeclasses whose operator syntax is active in `sourceFile`, computed
+ * the way the transform pass does (activation imports and typeclasses the
+ * file defines), for any file of the program, transformed yet or not.
+ */
+export function activatedOperatorTypeclasses(
+  program: ts.Program,
+  sourceFile: ts.SourceFile
+): Set<string> {
   return operatorActivation(program, sourceFile).activated;
 }
 

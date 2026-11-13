@@ -64,6 +64,13 @@ export interface ResolvedInstance {
   sameTypeIdentity?: boolean;
   /** The declaration the instance comes from ({@link ScannedInstance.origin}). */
   origin?: ts.Node;
+  /**
+   * The instance is a value bound in scope at the use site, a generic
+   * function's dictionary (`c: Calc<A>`), not a declared instance: its
+   * methods are not known, and `exportName` is the binding's name
+   * ({@link resolveDictionaryInScope}).
+   */
+  binding?: boolean;
 }
 
 export interface AmbiguousInstances {
@@ -344,6 +351,164 @@ export function resolveInstance(
     if (exact) return exact;
   }
   return resolveInStages(ctx, tcName, forType, scanner, excludeLocal, false, useSite);
+}
+
+/**
+ * The instance an operator on an operand of type `forType` dispatches to at
+ * `useSite`: for a type parameter (`a + b` with `a: A` in generic code), the
+ * dictionary in scope ({@link resolveDictionaryInScope}); otherwise, or when
+ * there is none, {@link resolveInstance}. Shared by the operator rewrite, its
+ * chain typing and the diagnostic filter, so all three decide alike.
+ */
+export function resolveOperatorInstance(
+  ctx: MacroContext,
+  tcName: string,
+  forType: ts.Type,
+  useSite: ts.Node
+): ResolutionResult {
+  if (forType.flags & ts.TypeFlags.TypeParameter) {
+    const dict = resolveDictionaryInScope(ctx, tcName, forType, useSite);
+    if (dict) return dict;
+  }
+  return resolveInstance(ctx, tcName, forType, undefined, undefined, useSite);
+}
+
+/**
+ * Per checker, per scope node: the parameters and variables of this file
+ * visible there. What `getSymbolsInScope` returns depends only on the
+ * enclosing scopes, not on the position inside one.
+ */
+const localsInScopeCache = new WeakMap<ts.TypeChecker, WeakMap<ts.Node, ts.Symbol[]>>();
+
+/** The nearest node that opens a scope: a block, function, class, loop, catch clause or file. */
+function scopeNodeOf(node: ts.Node): ts.Node {
+  let n = node.parent;
+  while (
+    n &&
+    !ts.isBlock(n) &&
+    !ts.isFunctionLike(n) &&
+    !ts.isSourceFile(n) &&
+    !ts.isModuleBlock(n) &&
+    !ts.isCaseBlock(n) &&
+    !ts.isCatchClause(n) &&
+    !ts.isClassLike(n) &&
+    !ts.isForStatement(n) &&
+    !ts.isForInStatement(n) &&
+    !ts.isForOfStatement(n)
+  ) {
+    n = n.parent;
+  }
+  return n ?? node.getSourceFile();
+}
+
+/**
+ * A generic function's typeclass dictionary for the type parameter
+ * `typeParam`, in scope at `useSite`: a parameter or variable of this file
+ * whose type is `TC<typeParam>` (`c: Calc<A>`, an enclosing function's
+ * `calculator: Calc<A>`, `const { calculator } = holder`, or through an alias
+ * `type MyCalc<T> = Calc<T>`). The typeclass by identity
+ * ({@link followTypeclassSymbol}), keyed by name like every instance; the
+ * type argument by identity (the same type parameter).
+ *
+ * Visibility is the checker's (`getSymbolsInScope`), so a binding an inner
+ * scope shadows is not found, and a variable is used only below its
+ * declaration (not in its own initializer, nor before it in its block).
+ * Returns the binding as a `local-scope` instance named by the binding
+ * ({@link ResolvedInstance.binding}), ambiguous when two bindings fit, or
+ * undefined. Only real nodes reach the checker (CLAUDE.md).
+ */
+export function resolveDictionaryInScope(
+  ctx: MacroContext,
+  tcName: string,
+  typeParam: ts.Type,
+  useSite: ts.Node
+): ResolutionResult {
+  if (isSyntheticNode(useSite)) return undefined;
+  const checker = ctx.typeChecker;
+  const sourceFile = useSite.getSourceFile();
+  const locals = getOrCreateWeak(
+    getOrCreateWeak(localsInScopeCache, checker, () => new WeakMap<ts.Node, ts.Symbol[]>()),
+    scopeNodeOf(useSite),
+    () =>
+      checker
+        .getSymbolsInScope(
+          useSite,
+          ts.SymbolFlags.FunctionScopedVariable | ts.SymbolFlags.BlockScopedVariable
+        )
+        .filter((s) => {
+          const d = s.valueDeclaration;
+          return (
+            !!d &&
+            d.getSourceFile() === sourceFile &&
+            (ts.isParameter(d) || ts.isVariableDeclaration(d) || ts.isBindingElement(d))
+          );
+        })
+  );
+  const start = useSite.getStart();
+  const found: Array<{ symbol: ts.Symbol; decl: ts.Declaration }> = [];
+  for (const symbol of locals) {
+    const decl = symbol.valueDeclaration!;
+    // A destructured binding is declared once its whole declaration is.
+    let whole: ts.Node = decl;
+    while (
+      ts.isBindingElement(whole) ||
+      ts.isObjectBindingPattern(whole) ||
+      ts.isArrayBindingPattern(whole)
+    ) {
+      whole = whole.parent;
+    }
+    if (!ts.isParameter(whole) && whole.getEnd() > start) continue;
+    if (
+      isDictionaryType(
+        checker,
+        checker.getTypeOfSymbolAtLocation(symbol, useSite),
+        tcName,
+        typeParam
+      )
+    ) {
+      found.push({ symbol, decl });
+    }
+  }
+  if (found.length === 0) return undefined;
+  const forTypeString = checker.typeToString(typeParam);
+  const resolved = found.map(
+    ({ symbol, decl }): ResolvedInstance => ({
+      kind: "resolved",
+      typeclassName: tcName,
+      forType: typeParam,
+      forTypeString,
+      exportName: symbol.name,
+      sourceModule: sourceFile.fileName,
+      source: "local-scope",
+      origin: decl,
+      binding: true,
+    })
+  );
+  return resolved.length === 1
+    ? resolved[0]
+    : { kind: "ambiguous", typeclassName: tcName, forType: typeParam, candidates: resolved };
+}
+
+/** `t` is `TC<typeParam>` for the typeclass keyed `tcName` (directly, or through a type alias). */
+function isDictionaryType(
+  checker: ts.TypeChecker,
+  t: ts.Type,
+  tcName: string,
+  typeParam: ts.Type
+): boolean {
+  const names = (start: ts.Symbol | undefined, args: readonly ts.Type[] | undefined): boolean => {
+    if (!start || !args || args[0] !== typeParam) return false;
+    const tc = followTypeclassSymbol(checker, start);
+    return !!tc && typeclassKeyName(checker, start, tc) === tcName;
+  };
+  if (
+    t.flags & ts.TypeFlags.Object &&
+    (t as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference &&
+    names(t.symbol, checker.getTypeArguments(t as ts.TypeReference))
+  ) {
+    return true;
+  }
+  return names(t.aliasSymbol, t.aliasTypeArguments);
 }
 
 function resolveInStages(
