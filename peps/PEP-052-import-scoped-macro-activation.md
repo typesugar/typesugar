@@ -654,7 +654,9 @@ welcome.ts`, `docs/examples/core/derive.ts` — claimed `===` rewrites to struct
     candidate for PEP-053-style source extraction later); the two
     intentionally-divergent `JSDOC_MACRO_TAGS` maps (each pipeline's
     dispatcher special-cases different tags; unifying the maps requires
-    unifying the dispatchers); `BUILTIN_METHOD_RECEIVER_NAMES` (guards JS
+    unifying the dispatchers; Wave 8 later merged the maps, and the 2026-11
+    architecture review merged the dispatchers, `attribute-dispatch.ts`);
+    `BUILTIN_METHOD_RECEIVER_NAMES` (guards JS
     natives, not typesugar packages); the macro-loader's
     `KNOWN_MACRO_PACKAGES` (true third-party macro-package discovery needs a
     `package.json` field design — its own PEP).
