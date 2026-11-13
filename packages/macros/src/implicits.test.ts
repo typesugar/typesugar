@@ -143,6 +143,12 @@ describe("getImplicitParamIndices", () => {
     const fn = findFunctionDecl(sf)!;
     expect(getImplicitParamIndices(fn)).toEqual([0]);
   });
+
+  it("gives argument positions, skipping a this parameter", () => {
+    const sf = parseSource(`function f(this: Box, a: number, eq: Eq<number> = implicit()) {}`);
+    const fn = findFunctionDecl(sf)!;
+    expect(getImplicitParamIndices(fn)).toEqual([1]);
+  });
 });
 
 // ============================================================================
