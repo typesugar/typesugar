@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
+import { TransformationPipeline } from "@typesugar/transformer";
 import { unpluginFactory } from "../unplugin.js";
 
 // Inside the repo so `@typesugar/macros` resolves from the root node_modules.
@@ -101,6 +102,47 @@ describe("finding #20: transform uses the code it is given", () => {
       log.mockRestore();
     }
     expect(fs.readdirSync(path.join(dir, "src"))).toEqual(["a.ts"]);
+  });
+});
+
+describe("dinero.js case study: unchanged files don't rebuild the Program", () => {
+  // The bundler hands every file over once per build. Text equal to what is
+  // on disk is what the Program already holds, so invalidating it (which
+  // throws the Program away) made a 136-file tsdown build rebuild the Program
+  // 136 times per output config: 29 s instead of under 2 s.
+  it("does not invalidate a file whose code matches the disk", () => {
+    project({
+      "src/dep.ts": `export const d = 1;\n`,
+      "src/a.ts": `${MACROS}import { d } from "./dep.js";\nexport const x = comptime(() => 1) + d;\n`,
+    });
+    const { plugin, ctx } = makePlugin();
+    const invalidate = vi.spyOn(TransformationPipeline.prototype, "invalidate");
+    try {
+      plugin.buildStart.call(ctx);
+      for (const rel of ["src/dep.ts", "src/a.ts"]) {
+        const file = path.join(dir, rel);
+        plugin.transform.call(ctx, fs.readFileSync(file, "utf8"), file);
+      }
+      expect(invalidate).not.toHaveBeenCalled();
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+
+  it("still invalidates when the code differs from the disk, and only once", () => {
+    project({ "src/a.ts": `${MACROS}export const x = comptime(() => 1);\n` });
+    const { plugin, ctx } = makePlugin();
+    const invalidate = vi.spyOn(TransformationPipeline.prototype, "invalidate");
+    try {
+      plugin.buildStart.call(ctx);
+      const file = path.join(dir, "src/a.ts");
+      const edited = `${MACROS}export const x = comptime(() => 40 + 2);\n`;
+      expect(plugin.transform.call(ctx, edited, file).code).toContain("42");
+      expect(plugin.transform.call(ctx, edited, file).code).toContain("42");
+      expect(invalidate).toHaveBeenCalledTimes(1);
+    } finally {
+      invalidate.mockRestore();
+    }
   });
 });
 

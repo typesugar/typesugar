@@ -300,10 +300,14 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
       }
 
       const file = path.normalize(fileOf(id));
-      if (latestCode.get(file) !== code) {
-        latestCode.set(file, code);
+      // Compare with what the pipeline reads for this file (the last code we
+      // were given, else the disk). On a file's first transform the code is
+      // usually the disk text the Program already holds, and invalidating
+      // would throw the whole Program away for every file in the build.
+      if ((latestCode.get(file) ?? ts.sys.readFile(file)) !== code) {
         p.invalidate(file);
       }
+      latestCode.set(file, code);
 
       const result = p.transform(file);
 
