@@ -129,6 +129,18 @@ internal consolidation with no live bug can wait. Stacked in this order, each on
 | 8   | Later       | **Import table + one instance-scope walk (B·2, B·3)**, after probing the re-parsed-copy hazard. **Decide the precedence semantics before 1.0** even if the code waits: today do-notation and derive planning take the first instance in import order while `===` sugar reports ambiguity, and changing which instance is chosen after 1.0 is a behaviour change.                                                                                                                                                                                                                                                          | Medium.                                                                    |
 | 9   | Later       | **Housekeeping**: label vocabulary from the registry (A4), module splits (C2, C3) including folding the three strict-typecheck paths, shared helpers (C4–C8, B·4), the remaining bare-name registries (B·1), `clampSyntheticPositions` (B·5), the `cfg` store question (B·6). Probe C6's memo hazard first; if it reproduces, it moves to PR 1.                                                                                                                                                                                                                                                                           | Mostly movement; several small PRs.                                        |
 
+### Decisions (Dean, 2026-11-13)
+
+- **PR 3:** delete `capabilities.ts`, `prelude.ts` and the unused manifest-discovery functions
+  (keep `loadManifest`), and the `impl("TC<T>", …)`/`typeclass("Name")`/`instance(…)`
+  expression macros with their runtime stubs. `@impl`/`@typeclass` (JSDoc or decorator) are the
+  only forms.
+- **PR 4:** fp adopts std's vocabulary: `equals`/`compare` (so `@op` operators work on fp's
+  Eq/Ord), `eqBy`/`ordBy` take `(f, E)`, and `constant`/`mapFst`/`mapSnd` follow std.
+- **Instance lookup:** do-notation and `@derive` planning report two matching in-scope instances
+  as ambiguous, as `===` sugar does; an exact brand still beats the `BF`/`_BTag` conventions.
+  Implemented with PR 2.
+
 ### The five consolidations
 
 | Consolidation                           | Verdict                   | Why                                                                                                                                                                           |
