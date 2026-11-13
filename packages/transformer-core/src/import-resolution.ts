@@ -18,11 +18,7 @@ import {
   type StandaloneExtensionInfo,
   receiverMatchesFirstParam,
 } from "@typesugar/core";
-import {
-  findImportedExtensionMatches,
-  isExtensionEnabledIn,
-  type ExtensionImportEnv,
-} from "@typesugar/macros";
+import { findImportedExtensionMatches, type ExtensionImportEnv } from "@typesugar/macros";
 
 // ---------------------------------------------------------------------------
 // Import tracking
@@ -557,16 +553,6 @@ function warnAmbiguous(
 }
 
 /**
- * Fall back to name-based lookup for macros without module requirement.
- */
-export function fallbackNameLookup(
-  name: string,
-  kind: MacroDefinition["kind"]
-): MacroDefinition | undefined {
-  return candidatesFor(name, kind).find((m) => m.module === undefined);
-}
-
-/**
  * Name-based lookup verified against the file's imports — the path for nodes
  * the checker cannot be asked about (synthetic, or a detached SourceFile
  * copy), and the fallback when the checker's declaration does not name a
@@ -982,14 +968,6 @@ function extensionImportEnv(ctx: MacroContextImpl): ExtensionImportEnv {
     scope: globalResolutionScope,
     warn: (node, message) => ctx.reportWarning(node, message),
   };
-}
-
-/**
- * Check if a symbol is extension-enabled (`@extension`, or a `"use
- * extension"` module).
- */
-export function isExtensionEnabled(ctx: MacroContextImpl, symbol: ts.Symbol): boolean {
-  return isExtensionEnabledIn(extensionImportEnv(ctx), symbol);
 }
 
 // receiverMatchesFirstParam lives in @typesugar/core (shared with the

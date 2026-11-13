@@ -585,20 +585,22 @@ export function partition<A, E, B>(
 /**
  * Eq instance for Either.
  *
- * Enables operator rewriting: `eitherA === eitherB` → `getEq(eqE, eqA).eqv(eitherA, eitherB)`
+ * Enables operator rewriting: `eitherA === eitherB` → `getEq(eqE, eqA).equals(eitherA, eitherB)`
  */
 export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Either<E, A>> {
-  return {
-    eqv: (x, y) => {
+  const eq: Eq<Either<E, A>> = {
+    equals: (x, y) => {
       if (isRight(x) && isRight(y)) {
-        return EA.eqv(x.right, y.right);
+        return EA.equals(x.right, y.right);
       }
       if (isLeft(x) && isLeft(y)) {
-        return EE.eqv(x.left!, y.left!);
+        return EE.equals(x.left!, y.left!);
       }
       return false;
     },
+    notEquals: (x, y) => !eq.equals(x, y),
   };
+  return eq;
 }
 
 /**
@@ -630,7 +632,7 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Either<E, A>> {
     return 1 as Ordering; // Right > Left
   };
   return {
-    eqv: getEq(OE, OA).eqv,
+    ...getEq(OE, OA),
     compare,
     lessThan: (x, y) => compare(x, y) === -1,
     lessThanOrEqual: (x, y) => compare(x, y) !== 1,

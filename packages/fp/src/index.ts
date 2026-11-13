@@ -25,7 +25,7 @@
 
 // Runtime barrel: nothing here may import `typescript` or `@typesugar/core`
 // (which loads the compiler and cosmiconfig). Compile-time registrations —
-// the zero-cost macros, the `@syntax-methods Show` marker fallback, the
+// the `@syntax-methods Show` marker fallback and the
 // Result algebras — live in `./macros` (`@typesugar/fp/macros`).
 
 // ============================================================================
@@ -227,14 +227,6 @@ export * as IOApp from "./io/io-app.js";
 // ============================================================================
 
 export * from "./syntax/index.js";
-
-// ============================================================================
-// Zero-Cost Abstractions
-// ============================================================================
-
-export * as ZeroCost from "./zero-cost/index.js";
-export { ZeroCostOptionOps, ZeroCostResultOps } from "./zero-cost/index.js";
-export type { ZeroCostOption, ZeroCostResult, ZeroCostOk, ZeroCostErr } from "./zero-cost/index.js";
 
 // ============================================================================
 // Typeclass Instances (for explicit usage)

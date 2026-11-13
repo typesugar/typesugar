@@ -32,7 +32,7 @@
  *       description: "pop() returns the most recently pushed item",
  *       check: (item: T) => {
  *         stack.push(item);
- *         return eq.eqv(stack.pop()!, item);
+ *         return eq.equals(stack.pop()!, item);
  *       },
  *     }),
  *   ];

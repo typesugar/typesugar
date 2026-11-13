@@ -1,5 +1,5 @@
 /**
- * `@impl` / `impl()` register instance methods for specialization keyed by
+ * `@impl` registers instance methods for specialization keyed by
  * the DECLARATION as well as by bare name, so two unrelated same-named
  * instances (different files) stay distinguishable on the fallback path.
  * The name-keyed entry is last-writer-wins.
@@ -12,7 +12,7 @@ import * as os from "os";
 import * as path from "path";
 import { createMacroContext } from "@typesugar/core";
 import type { MacroContext } from "@typesugar/core";
-import { implAttribute, implMacro } from "./typeclass.js";
+import { implAttribute } from "./typeclass.js";
 import { getInstanceMethods, getInstanceMethodsForDeclaration } from "./specialize.js";
 
 function withProgram(files: Record<string, string>, fn: (program: ts.Program) => void): void {
@@ -52,23 +52,27 @@ function firstVarDecl(sf: ts.SourceFile): ts.VariableDeclaration {
 const bodyText = (n: ts.Node | undefined) => (n ? n.getText() : undefined);
 
 describe("registerInstanceMethodsFromAST — declaration identity", () => {
-  it("impl(): same-named instances in two files are kept apart by declaration", () => {
+  it("@impl: same-named instances in two files are kept apart by declaration", () => {
     const src = (body: string) =>
       `interface Eq<A> { equals(a: A, b: A): boolean }\n` +
-      `declare function impl<T>(d: string, o: T): T;\n` +
-      `const eqThing = impl("Eq<Thing>", { equals: (a: number, b: number) => ${body} });\n`;
-    withProgram({ "a.ts": src("a === b"), "b.ts": src("a !== b") }, (program) => {
+      `interface Thing { n: number }\n` +
+      `const eqThing: Eq<Thing> = { equals: (a, b) => ${body} };\n`;
+    withProgram({ "a.ts": src("a.n === b.n"), "b.ts": src("a.n !== b.n") }, (program) => {
       const decls: ts.VariableDeclaration[] = [];
       for (const f of ["a.ts", "b.ts"]) {
         const sf = program.getSourceFiles().find((s) => s.fileName.endsWith(`/${f}`))!;
-        const decl = firstVarDecl(sf);
-        decls.push(decl);
-        const call = decl.initializer as ts.CallExpression;
-        inContext(program, sf, (ctx) => implMacro.expand(ctx, call, call.arguments));
+        const stmt = sf.statements.find(ts.isVariableStatement)!;
+        decls.push(firstVarDecl(sf));
+        inContext(program, sf, (ctx) => {
+          const dec = ctx.factory.createDecorator(ctx.factory.createIdentifier("impl"));
+          implAttribute.expand(ctx, dec, stmt as unknown as ts.Declaration, [
+            ctx.factory.createStringLiteral("Eq<Thing>"),
+          ]);
+        });
       }
       const [a, b] = decls.map((d) => getInstanceMethodsForDeclaration(d));
-      expect(bodyText(a?.methods.get("equals")?.node)).toContain("a === b");
-      expect(bodyText(b?.methods.get("equals")?.node)).toContain("a !== b");
+      expect(bodyText(a?.methods.get("equals")?.node)).toContain("a.n === b.n");
+      expect(bodyText(b?.methods.get("equals")?.node)).toContain("a.n !== b.n");
       // The name-keyed entry can only hold one of them.
       expect(getInstanceMethods("eqThing", program)).toBe(b);
     });

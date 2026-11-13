@@ -18,6 +18,7 @@ import {
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
   inlineMethod,
+  inlineMethodAsStatements,
   getResultAlgebra,
   analyzeForFlattening,
   flattenReturnsToExpression,
@@ -28,6 +29,7 @@ import {
   forEachMethodFreeReference,
   getOpMapForTypeclass,
   isImplicitDefault,
+  valueParameters,
   type DictMethod,
   type DictMethodMap,
   type ResultAlgebra,
@@ -83,24 +85,14 @@ function isVoidReturnType(
 }
 
 // ---------------------------------------------------------------------------
-// Instance name extraction + source-based instance extraction
+// Source-based instance extraction
 //
-// PEP-053 Wave 2: the implementation is shared with the legacy transformer and
-// lives in @typesugar/macros (instance-extraction.ts). It resolves import
-// aliases, identifier-alias consts, zero-arg factories, indirect members, and
-// companion paths, and accepts `@impl`-tagged OR typeclass-annotated
-// declarations (the unified criteria).
+// PEP-053 Wave 2: instance-name extraction is shared with the legacy
+// transformer and lives in @typesugar/macros (instance-extraction.ts). It
+// resolves import aliases, identifier-alias consts, zero-arg factories,
+// indirect members, and companion paths, and accepts `@impl`-tagged OR
+// typeclass-annotated declarations (the unified criteria).
 // ---------------------------------------------------------------------------
-
-export {
-  getInstanceName,
-  hasImplAnnotation,
-  hasTypeclassTypeAnnotation,
-  extractBrandFromImpl,
-} from "@typesugar/macros";
-
-// Re-export for backwards compatibility
-export { extractTypeArgumentsContent } from "@typesugar/core";
 
 export function tryExtractInstanceFromSource(
   ctx: MacroContextImpl,
@@ -830,7 +822,7 @@ function isTypesugarPrimitive(ctx: MacroContextImpl, symbol: ts.Symbol, at: ts.N
  * The instance registered for exactly the declaration `symbol` resolves to
  * (through an import alias). Registry shape (CLAUDE.md): macros'
  * `getInstanceMethodsForDeclaration` is a LIVE WeakMap keyed by declaration,
- * written by `@impl`/`impl()` in the same pass — never conflates same-named
+ * written by `@impl` in the same pass — never conflates same-named
  * instances, unlike the name-keyed `getInstanceMethods`.
  */
 function methodsForResolvedDeclaration(
@@ -1006,9 +998,68 @@ export function rewriteDictCallsForAutoSpec(
   node: ts.Node,
   dictParamMap: Map<string, DictMethodMap>,
   /** The call site the specialization is for: where inlined type names must resolve. */
-  location?: ts.Node
+  location?: ts.Node,
+  /**
+   * The function `node` is the body of: the names it binds and whether it is
+   * `async`. Given, `return D.m(...)` whose method body can't become an
+   * expression is inlined as statements (see inlineMethodAsStatements).
+   */
+  enclosing?: { bindings: ReadonlySet<string> }
 ): ts.Node {
+  /** `return D.m(args)` as `m`'s statements, or undefined to leave it to the expression path. */
+  function inlineReturnedCall(ret: ts.ReturnStatement): ts.Block | undefined {
+    if (!enclosing || !ret.expression) return undefined;
+    let call: ts.Expression = ret.expression;
+    while (ts.isParenthesizedExpression(call)) call = call.expression;
+    if (
+      !ts.isCallExpression(call) ||
+      !ts.isPropertyAccessExpression(call.expression) ||
+      !ts.isIdentifier(call.expression.expression)
+    ) {
+      return undefined;
+    }
+    const method = dictParamMap
+      .get(call.expression.expression.text)
+      ?.methods.get(call.expression.name.text);
+    if (!method) return undefined;
+    // The expression inliner goes first; this is only for what it declines.
+    // Except an `async` method, which it only applies in place as an async
+    // arrow: here its body's arguments are substituted too.
+    const isAsync = !!(
+      method.node &&
+      (ts.isArrowFunction(method.node) || ts.isFunctionExpression(method.node)
+        ? method.node.modifiers
+        : ts.isMethodDeclaration(method.node as ts.Node)
+          ? (method.node as unknown as ts.MethodDeclaration).modifiers
+          : undefined
+      )?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+    );
+    if (!isAsync && inlineMethod(ctx, method, Array.from(call.arguments))) return undefined;
+    const statements = inlineMethodAsStatements(ctx, method, call.arguments, enclosing);
+    if (!statements) return undefined;
+    // Type names in the body are re-expressed for the call site the same way
+    // as an inlined expression's, through a throwaway arrow around them.
+    const f = ctx.factory;
+    const wrapped = f.createArrowFunction(
+      undefined,
+      undefined,
+      [],
+      undefined,
+      f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      f.createBlock(statements, true)
+    );
+    const reexpressed = reexpressInlinedTypes(ctx, wrapped, method, location, call)?.expr;
+    if (!reexpressed || !ts.isArrowFunction(reexpressed) || !ts.isBlock(reexpressed.body)) {
+      return undefined;
+    }
+    return preserveSourceMap(f.createBlock(reexpressed.body.statements, true), ret);
+  }
+
   function visit(n: ts.Node): ts.Node {
+    if (ts.isReturnStatement(n)) {
+      const block = inlineReturnedCall(n);
+      if (block) return ts.visitEachChild(block, visit, ctx.transformContext);
+    }
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
@@ -1044,6 +1095,25 @@ export function rewriteDictCallsForAutoSpec(
   }
 
   return ts.visitNode(node, visit) as ts.Node;
+}
+
+/** Is any dictionary parameter still referenced in `node`? */
+function dictParamStillUsed(node: ts.Node, dictParamMap: Map<string, DictMethodMap>): boolean {
+  let used = false;
+  const scan = (n: ts.Node): void => {
+    if (used) return;
+    if (ts.isIdentifier(n) && dictParamMap.has(n.text)) {
+      used = true;
+      return;
+    }
+    if (ts.isPropertyAccessExpression(n)) {
+      scan(n.expression);
+      return;
+    }
+    ts.forEachChild(n, scan);
+  };
+  scan(node);
+  return used;
 }
 
 // ---------------------------------------------------------------------------
@@ -1094,7 +1164,23 @@ export function inlineAutoSpecializeForHoisting(
   for (const p of params) if (p.initializer) collectBindingNames(p.initializer, bound);
   for (const name of dictParamMap.keys()) if (bound.has(name)) return undefined;
 
-  const specializedBody = rewriteDictCallsForAutoSpec(ctx, body, dictParamMap, location);
+  const enclosingBindings = new Set<string>();
+  collectBindingNames(body, enclosingBindings);
+  for (const p of params) collectBindingNames(p, enclosingBindings);
+  const enclosing = { bindings: enclosingBindings };
+  let specializedBody = rewriteDictCallsForAutoSpec(
+    ctx,
+    body,
+    dictParamMap,
+    location,
+    ts.isBlock(body) ? enclosing : undefined
+  );
+  // A concise arrow body `=> D.m(...)` whose call the expression inliner
+  // declines is `{ return D.m(...); }` to the statement inliner.
+  if (!ts.isBlock(body) && dictParamStillUsed(specializedBody, dictParamMap)) {
+    const asBlock = ctx.factory.createBlock([ctx.factory.createReturnStatement(body)], true);
+    specializedBody = rewriteDictCallsForAutoSpec(ctx, asBlock, dictParamMap, location, enclosing);
+  }
 
   // Collect type parameter names that become unresolvable once stripped
   const fnTypeParamNames = new Set<string>();
@@ -1599,7 +1685,7 @@ function findUnfilledImplicitCall(
         const decl = ctx.typeChecker.getResolvedSignature(n)?.getDeclaration() as
           | ts.SignatureDeclaration
           | undefined;
-        const params = decl?.parameters;
+        const params = decl?.parameters ? valueParameters(decl) : undefined;
         if (params) {
           for (let i = filledArgumentCount(ctx, n); i < params.length; i++) {
             if (isImplicitDefault(params[i].initializer)) {

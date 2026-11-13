@@ -15,8 +15,7 @@
  * stay as aliases.)
  *
  * `Default` and `TypeGuard` have no typeclass interface in any package yet
- * (`@derive(Default)` generates `{ default() }`, std's `Defaultable` is
- * `{ defaultValue() }`), so they are values only.
+ * (`@derive(Default)` generates `{ default() }`), so they are values only.
  */
 import {
   Eq as EqMarker,

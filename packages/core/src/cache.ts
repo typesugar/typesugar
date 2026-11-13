@@ -296,36 +296,3 @@ export class MacroExpansionCache {
     return this.entries.size;
   }
 }
-
-// =============================================================================
-// In-Memory Cache (for single compilation runs)
-// =============================================================================
-
-/**
- * Lightweight in-memory cache for a single compilation run.
- * No disk I/O, no serialization overhead.
- */
-export class InMemoryExpansionCache {
-  private entries = new Map<string, string>();
-
-  computeKey(macroName: string, sourceText: string, argTexts: string[], scope = ""): string {
-    const input = [scope, macroName, sourceText, ...argTexts].join("\0");
-    return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
-  }
-
-  get(key: string): string | undefined {
-    return this.entries.get(key);
-  }
-
-  set(key: string, expandedText: string): void {
-    this.entries.set(key, expandedText);
-  }
-
-  clear(): void {
-    this.entries.clear();
-  }
-
-  get size(): number {
-    return this.entries.size;
-  }
-}

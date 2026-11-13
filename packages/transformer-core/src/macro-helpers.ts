@@ -17,6 +17,12 @@ import {
 } from "@typesugar/macros";
 
 import {
+  expandAttributeSources,
+  sortSourcesByDependency,
+  type AttributeDispatchHooks,
+  type AttributeSource,
+} from "./attribute-dispatch.js";
+import {
   MacroContextImpl,
   type MacroDefinition,
   type AttributeMacro,
@@ -26,7 +32,6 @@ import {
   DeriveVariantInfo,
   globalResolutionScope,
   isInOptedOutScope,
-  isMacroOptedOut,
   getSuggestionsForSymbol,
   formatSuggestionsMessage,
   TS9101,
@@ -54,42 +59,32 @@ import {
 // JSDoc macro tags
 // ---------------------------------------------------------------------------
 
-// PEP-052 Wave 8: unified with the legacy transformer's private copy
-// (transformer/src/index.ts JSDOC_MACRO_TAGS) — both dispatchers now handle
-// `derive`/`deriving` the same way (see tryExpandJSDocMacros below and
-// tryExpandAttributeMacros in transformer.ts): PEP-032 deleted the standalone
-// `derive` ATTRIBUTE macro from the registry, so both dispatchers special-case
-// it directly rather than looking it up via globalRegistry.getAttribute.
-// `adt` needs no special case — it's a real, registered attribute macro
-// (packages/macros/src/adt.ts) and only needed to be recognized as a
-// macro-triggering tag at all. `operators`/`operator` were already dead
-// entries before this wave (verified: no attribute macro named either exists
-// — real operator/method syntax activation is the separate Wave 6 mechanism,
-// `@syntax-operators` markers read via readSyntaxActivationMarkers, not this
-// dispatcher) — kept for parity/no silent removal, but they still just
-// produce "unknown macro tag" like before.
-export const JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
-  ["typeclass", "typeclass"],
-  ["impl", "impl"],
-  ["instance", "instance"],
-  ["derive", "derive"],
-  ["deriving", "deriving"],
-  ["operators", "operators"],
-  ["operator", "operator"],
-  ["extension", "extension"],
-  ["reflect", "reflect"],
-  ["hkt", "hkt"],
-  ["adt", "adt"],
+// The built-in JSDoc tags that dispatch the attribute macro of the same name.
+// `derive`/`deriving` have no registered attribute macro (PEP-032 deleted it):
+// both dispatchers special-case them (see tryExpandJSDocMacros below and
+// tryExpandAttributeMacros in transformer.ts). `adt` is a real, registered
+// attribute macro (packages/macros/src/adt.ts) and only needs to be
+// recognized as a macro-triggering tag.
+export const JSDOC_MACRO_TAGS: ReadonlySet<string> = new Set([
+  "typeclass",
+  "impl",
+  "instance",
+  "derive",
+  "deriving",
+  "extension",
+  "reflect",
+  "hkt",
+  "adt",
   // Function-only attribute macro (docs review B#4): `/** @tailrec */` on a
   // function declaration was silently ignored. On a non-function target the
   // macro itself reports that it only applies to functions.
-  ["tailrec", "tailrec"],
+  "tailrec",
   // @typesugar/sql's schema attribute macro: `/** @schema("users") */` was
   // silently ignored while the decorator form reached the macro.
-  ["schema", "schema"],
+  "schema",
   // @typesugar/contracts' function attribute macro (docs guides-b #4):
   // `/** @contract */ function f() { requires: ... }` was silently ignored.
-  ["contract", "contract"],
+  "contract",
 ]);
 
 /**
@@ -124,8 +119,7 @@ function sourceFileOf(node: ts.Node): ts.SourceFile | undefined {
  */
 export function jsDocTagMacroName(tag: ts.JSDocTag, node: ts.Node): string | undefined {
   const name = tag.tagName.text;
-  const builtin = JSDOC_MACRO_TAGS.get(name);
-  if (builtin) return builtin;
+  if (JSDOC_MACRO_TAGS.has(name)) return name;
   const sf = sourceFileOf(node);
   // Several modules may register an attribute macro of this name (PEP-060
   // item 8): the file's imports pick one.
@@ -177,7 +171,14 @@ export function hasJSDocMacroTags(node: ts.Node): boolean {
 export function tryExpandJSDocMacros(
   ctx: MacroContextImpl,
   verbose: boolean,
-  node: ts.Node
+  node: ts.Node,
+  /** The transformer's expansion tracker, when it keeps one. */
+  recordExpansion?: AttributeDispatchHooks["recordExpansion"],
+  /**
+   * Receives the extra statements macros returned (not derive output), which
+   * the caller visits so macros inside them expand, as for a decorator.
+   */
+  out?: { visitExtras?: ReadonlySet<ts.Statement> }
 ): ts.Node | ts.Node[] | undefined {
   if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "macros")) {
     return undefined;
@@ -186,10 +187,6 @@ export function tryExpandJSDocMacros(
   if (!isJSDocMacroTargetNode(node)) {
     return undefined;
   }
-
-  const tags = ts.getJSDocTags(node);
-  const results: ts.Node[] = [];
-  let derived = false;
 
   let targetDecl: ts.Declaration;
   if (ts.isVariableStatement(node)) {
@@ -200,37 +197,37 @@ export function tryExpandJSDocMacros(
   } else {
     targetDecl = node;
   }
+  const isTypeTarget =
+    ts.isInterfaceDeclaration(targetDecl) ||
+    ts.isClassDeclaration(targetDecl) ||
+    ts.isTypeAliasDeclaration(targetDecl);
 
-  let currentNode: ts.Declaration = targetDecl;
-
-  for (const tag of tags) {
+  // The tags, as sources for the shared dispatcher (attribute-dispatch.ts).
+  const sources: AttributeSource[] = [];
+  const tagOf = new Map<AttributeSource, ts.JSDocTag>();
+  for (const tag of ts.getJSDocTags(node)) {
     const macroName = jsDocTagMacroName(tag, node);
     if (!macroName) continue;
     // Prose / fenced-example / nested-comment mentions are not triggers.
     if (!isJSDocTagAtLineStart(tag)) continue;
 
-    // @derive/@deriving are handled directly (PEP-032 deleted the standalone
-    // `derive` attribute macro; individual derives are registered under
-    // globalRegistry.getDerive instead — see expandDeriveDecorator).
+    let args: ts.Expression[];
+    let prose: boolean | undefined;
     if (macroName === "derive" || macroName === "deriving") {
-      // `"use no typesugar derive"` covers the tag as it does the decorator.
-      if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "derive")) continue;
       const tagArgs = parseJSDocMacroArgs(ctx, tag, macroName);
       // Import-scoped like every other trigger (PEP-052): only the derivables
       // the file imports or declares apply (isJSDocDeriveActive, the gate
       // every reader of the tag shares).
-      const args = tagArgs.filter(
+      args = tagArgs.filter(
         (a) => !ts.isIdentifier(a) || isJSDocDeriveActive(ctx.sourceFile, a.text)
       );
       const inactive = tagArgs.filter((a) => !args.includes(a));
-      const isTypeTarget =
-        ts.isInterfaceDeclaration(currentNode) ||
-        ts.isClassDeclaration(currentNode) ||
-        ts.isTypeAliasDeclaration(currentNode);
+      prose = isDeriveProse(tag);
       if (
         inactive.length > 0 &&
-        (isTypeTarget || !isDeriveProse(tag)) &&
-        importsMacroModule(ctx.sourceFile)
+        (isTypeTarget || !prose) &&
+        importsMacroModule(ctx.sourceFile) &&
+        !isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "derive")
       ) {
         // A file that uses typesugar most likely forgot the import; in one
         // that doesn't, the tag is someone else's and is left alone silently.
@@ -238,90 +235,65 @@ export function tryExpandJSDocMacros(
         reportInactiveJSDocDerive(ctx, tag, inactive);
       }
       if (args.length === 0) continue;
-      if (isTypeTarget) {
-        const syntheticDecorator = createSyntheticDecorator(ctx, tag, macroName, args);
-        const derives = expandDeriveDecorator(ctx, verbose, syntheticDecorator, currentNode, args);
-        if (derives) {
-          results.push(...derives);
-          derived = true;
-        }
-      } else if (!isDeriveProse(tag)) {
-        // A const, a function, an enum: not a type, so nothing to derive. Said
-        // so (TS9102) rather than dropping the tag — a `/** @derive(Eq) */
-        // const p = ...` used to be ignored without a word.
-        reportDeriveOnNonType(ctx, tag, args, currentNode);
-      }
-      continue;
-    }
-
-    // An enum carries no other macro tag.
-    if (ts.isEnumDeclaration(currentNode)) {
-      ctx.reportWarning(
-        tag,
-        `JSDoc macro tag @${tag.tagName.text} is not supported on an enum and was ignored.`
-      );
-      continue;
-    }
-
-    const macro = lookupMacroByName(ctx.sourceFile, macroName, "attribute") as
-      | AttributeMacro
-      | undefined;
-    if (!macro) {
-      if (
-        OPTIONAL_PACKAGE_JSDOC_TAGS.has(macroName) &&
-        !isMacroNameRegistered(macroName, "attribute")
-      ) {
+    } else {
+      // An enum carries no other macro tag.
+      if (ts.isEnumDeclaration(targetDecl)) {
+        ctx.reportWarning(
+          tag,
+          `JSDoc macro tag @${tag.tagName.text} is not supported on an enum and was ignored.`
+        );
         continue;
       }
-      ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
-      continue;
+      args = parseJSDocMacroArgs(ctx, tag, macroName);
     }
-    if (isMacroOptedOut(ctx.sourceFile, node, macro)) continue;
+    const source: AttributeSource = {
+      macroName,
+      args,
+      decorator: createSyntheticDecorator(ctx, tag, macroName, args),
+      reportAt: tag,
+      optOutAt: node,
+      prose,
+    };
+    sources.push(source);
+    tagOf.set(source, tag);
+  }
+  if (sources.length === 0) return undefined;
 
+  const expansion = expandAttributeSources(ctx, verbose, targetDecl, targetDecl, sources, {
+    resolve: (source) => {
+      const macro = lookupMacroByName(ctx.sourceFile, source.macroName, "attribute") as
+        | AttributeMacro
+        | undefined;
+      if (
+        !macro &&
+        !(
+          OPTIONAL_PACKAGE_JSDOC_TAGS.has(source.macroName) &&
+          !isMacroNameRegistered(source.macroName, "attribute")
+        )
+      ) {
+        ctx.reportWarning(
+          source.reportAt,
+          `Unknown JSDoc macro tag @${tagOf.get(source)!.tagName.text}`
+        );
+      }
+      return macro;
+    },
     // A function declaration only dispatches attribute macros that declare
     // "function" as a valid target (@extension, @tailrec); anything else
     // (`/** @typeclass */ function f`) is reported, not silently dropped.
-    if (ts.isFunctionDeclaration(currentNode) && !macro.validTargets.includes("function")) {
-      reportUnsupportedOnFunction(ctx, tag);
-      continue;
-    }
-
-    const args = parseJSDocMacroArgs(ctx, tag, macroName);
-
-    const syntheticDecorator = createSyntheticDecorator(ctx, tag, macroName, args);
-
-    try {
-      if (verbose) {
-        console.log(`[typesugar] Expanding JSDoc macro: @${tag.tagName.text}`);
+    accepts: (source, macro, target) => {
+      if (ts.isFunctionDeclaration(target) && !macro.validTargets.includes("function")) {
+        reportUnsupportedOnFunction(ctx, tagOf.get(source)!);
+        return false;
       }
+      return true;
+    },
+    recordExpansion,
+  });
 
-      const expanded = macro.expand(ctx, syntheticDecorator, currentNode, args);
-
-      if (expanded === undefined) continue;
-
-      if (Array.isArray(expanded)) {
-        if (expanded.length > 0) {
-          currentNode = expanded[0] as ts.Declaration;
-          results.push(...expanded.slice(1));
-        }
-      } else {
-        currentNode = expanded as ts.Declaration;
-      }
-    } catch (err) {
-      const macroTag = tag.tagName.text;
-      const errMsg = err instanceof Error ? err.message : String(err);
-      ctx.reportError(tag, `@${macroTag} macro failed (this may be transient — try saving again)`);
-      if (verbose) {
-        console.error(
-          `[typesugar] @${macroTag} expand threw: ${err instanceof Error ? err.stack : errMsg}`
-        );
-      }
-    }
-  }
-
-  // Several @derive tags: their functions before any of their namespaces.
-  if (derived) results.splice(0, results.length, ...functionsFirst(results));
-
+  const currentNode = expansion.target as ts.Declaration;
+  const results = expansion.extras;
+  if (out) out.visitExtras = expansion.visitExtras;
   const wasExpanded = currentNode !== targetDecl || results.length > 0;
   if (!wasExpanded) {
     return undefined;
@@ -520,74 +492,9 @@ export function parseDecorator(decorator: ts.Decorator): {
 }
 
 export function sortDecoratorsByDependency(decorators: readonly ts.Decorator[]): ts.Decorator[] {
-  const parsed = decorators.map((d) => ({
-    decorator: d,
-    ...parseDecorator(d),
-  }));
-
-  const nameToIndex = new Map<string, number>();
-  for (let i = 0; i < parsed.length; i++) {
-    const name = parsed[i].macroName;
-    if (name) nameToIndex.set(name, i);
-  }
-
-  // Expand-order metadata only; the file's imports pick among same-named
-  // macros of different modules (PEP-060 item 8).
+  const parsed = decorators.map((decorator) => ({ decorator, ...parseDecorator(decorator) }));
   const sf = decorators.length > 0 ? sourceFileOf(decorators[0]) : undefined;
-  const orderingMacro = (name: string) =>
-    lookupMacroByName(sf, name, "attribute") ?? lookupMacroByName(sf, name, "derive");
-
-  let hasDeps = false;
-  for (const p of parsed) {
-    if (!p.macroName) continue;
-    const macro = orderingMacro(p.macroName);
-    if (macro?.expandAfter && macro.expandAfter.length > 0) {
-      hasDeps = true;
-      break;
-    }
-  }
-  if (!hasDeps) return [...decorators];
-
-  const n = parsed.length;
-  const inDegree = new Array<number>(n).fill(0);
-  const adj: number[][] = [];
-  for (let i = 0; i < n; i++) adj.push([]);
-
-  for (let i = 0; i < n; i++) {
-    const name = parsed[i].macroName;
-    if (!name) continue;
-    const macro = orderingMacro(name);
-    if (!macro?.expandAfter) continue;
-    for (const dep of macro.expandAfter) {
-      const depIdx = nameToIndex.get(dep);
-      if (depIdx !== undefined) {
-        adj[depIdx].push(i);
-        inDegree[i]++;
-      }
-    }
-  }
-
-  const queue: number[] = [];
-  for (let i = 0; i < n; i++) {
-    if (inDegree[i] === 0) queue.push(i);
-  }
-
-  const sorted: ts.Decorator[] = [];
-  while (queue.length > 0) {
-    queue.sort((a, b) => a - b);
-    const idx = queue.shift()!;
-    sorted.push(parsed[idx].decorator);
-    for (const next of adj[idx]) {
-      inDegree[next]--;
-      if (inDegree[next] === 0) queue.push(next);
-    }
-  }
-
-  if (sorted.length < n) {
-    return [...decorators];
-  }
-
-  return sorted;
+  return sortSourcesByDependency(sf, parsed).map((p) => p.decorator);
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
  *
  * Show Laws:
  *   - Determinism: show(x) === show(x) (same input always produces same output)
- *   - Eq Consistency: eqv(x, y) => show(x) === show(y) (equal values have equal representations)
+ *   - Eq Consistency: equals(x, y) => show(x) === show(y) (equal values have equal representations)
  *
  * Note: The Eq consistency law is optional and only applies when an Eq instance is provided.
  *
@@ -51,10 +51,10 @@ export function showLawsWithEq<A>(S: Show<A>, E: Eq<A>): LawSet {
     {
       name: "eq consistency",
       arity: 2,
-      description: "Equal values have equal representations: eqv(x, y) => show(x) === show(y)",
+      description: "Equal values have equal representations: equals(x, y) => show(x) === show(y)",
       check: (x: A, y: A): boolean => {
         // If x == y, then show(x) must equal show(y)
-        if (E.eqv(x, y)) {
+        if (E.equals(x, y)) {
           return S.show(x) === S.show(y);
         }
         // Vacuously true if x != y

@@ -10,14 +10,6 @@ export * from "./types.js";
 export * from "./registry.js";
 export * from "./context.js";
 
-// Macro Capabilities
-export {
-  resolveCapabilities,
-  createRestrictedContext,
-  DEFAULT_CAPABILITIES,
-  type MacroCapabilities,
-} from "./capabilities.js";
-
 // Runtime Safety Primitives
 export {
   invariant,
@@ -120,19 +112,6 @@ export {
   type SyntaxMarkerFallbackEntry,
 } from "./syntax-marker-fallback.js";
 
-// Prelude System
-export {
-  DEFAULT_PRELUDE,
-  getPreludeTypeclasses,
-  getPreludeEntry,
-  isPreludeMethod,
-  isPreludeOperator,
-  generatePreludeDeclaration,
-  METHOD_TO_TYPECLASS,
-  OPERATOR_TO_TYPECLASS,
-  type PreludeEntry,
-} from "./prelude.js";
-
 // Resolution Tracing
 export {
   globalResolutionTracer,
@@ -150,7 +129,6 @@ export {
 export {
   globalCoherenceChecker,
   CoherenceChecker,
-  createInstanceLocation,
   SOURCE_PRIORITY,
   type InstanceSource,
   type InstanceLocation,
@@ -159,22 +137,14 @@ export {
 
 // Library Manifest System
 export {
-  discoverManifests,
   loadManifest,
   validateManifest,
-  createManifestRegistry,
-  mergeManifestIntoRegistry,
-  getManifestRegistry,
-  resetManifestRegistry,
   type LibraryManifest,
   type ManifestTypeclass,
   type ManifestInstance,
   type ManifestExtension,
   type ManifestOperator,
   type ManifestDerive,
-  type DiscoveredManifest,
-  type ManifestDiscoveryOptions,
-  type ManifestRegistry,
 } from "./manifest.js";
 
 // Import Suggestions System
@@ -269,7 +239,7 @@ export {
 export { markPure, type CreateMacroContextOptions } from "./context.js";
 
 // Macro Expansion Cache
-export { MacroExpansionCache, InMemoryExpansionCache } from "./cache.js";
+export { MacroExpansionCache } from "./cache.js";
 
 // Macro Composition Pipeline
 export {

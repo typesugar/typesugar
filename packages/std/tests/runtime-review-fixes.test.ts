@@ -10,14 +10,7 @@ import {
   hashString,
   boundedBigInt,
 } from "../src/typeclasses/index.js";
-import {
-  range,
-  rangeInclusive,
-  rangeSize,
-  rangeReversed,
-  rangeToArray,
-  rangeLast,
-} from "../src/data/range.js";
+import * as R from "../src/extensions/range.js";
 import {
   groupBy,
   keyBy,
@@ -59,6 +52,8 @@ import {
   digits,
   rangeTo,
   rangeUntil,
+  to,
+  until,
   toWords,
   toOrdinal,
   toFileSize,
@@ -96,34 +91,34 @@ describe("#18 std primitive Eq/Ord/Hash for number", () => {
 
 describe("#22 Range size/reversed", () => {
   it("size counts stepped and single-element ranges", () => {
-    expect(rangeSize(range(0, 10, 3))).toBe(4); // 0,3,6,9
-    expect(rangeSize(rangeInclusive(0, 0))).toBe(1);
-    expect(rangeSize(rangeInclusive(1, 10, 2))).toBe(5);
-    expect(rangeSize(range(0, 0))).toBe(0);
-    expect(rangeSize(range(10, 0, -3))).toBe(4); // 10,7,4,1
-    expect(rangeSize(range(0, 10, -1))).toBe(0);
+    expect(R.size(R.step(until(0, 10), 3))).toBe(4); // 0,3,6,9
+    expect(R.size(to(0, 0))).toBe(1);
+    expect(R.size(R.step(to(1, 10), 2))).toBe(5);
+    expect(R.size(until(0, 0))).toBe(0);
+    expect(R.size(R.step(until(10, 0), -3))).toBe(4); // 10,7,4,1
+    expect(R.size(R.step(until(0, 10), -1))).toBe(0);
   });
 
   it("size always matches the iterated length", () => {
     for (const r of [
-      range(0, 10, 3),
-      range(0, 9, 3),
-      rangeInclusive(0, 9, 3),
-      rangeInclusive(5, -5, -2),
-      range(5, -5, -2),
-      rangeInclusive(3, 3),
-      range(3, 3),
+      R.step(until(0, 10), 3),
+      R.step(until(0, 9), 3),
+      R.step(to(0, 9), 3),
+      R.step(to(5, -5), -2),
+      R.step(until(5, -5), -2),
+      to(3, 3),
+      until(3, 3),
     ]) {
-      expect(rangeSize(r)).toBe(rangeToArray(r).length);
+      expect(R.size(r)).toBe(R.toArray(r).length);
     }
   });
 
   it("reversed yields exactly the original elements backwards", () => {
-    expect(rangeToArray(rangeReversed(range(0, 10)))).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
-    expect(rangeToArray(rangeReversed(range(0, 10, 3)))).toEqual([9, 6, 3, 0]);
-    expect(rangeToArray(rangeReversed(rangeInclusive(1, 10, 2)))).toEqual([9, 7, 5, 3, 1]);
-    expect(rangeToArray(rangeReversed(range(0, 0)))).toEqual([]);
-    expect(rangeLast(rangeReversed(range(0, 10)))).toBe(0);
+    expect(R.toArray(R.reversed(until(0, 10)))).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+    expect(R.toArray(R.reversed(R.step(until(0, 10), 3)))).toEqual([9, 6, 3, 0]);
+    expect(R.toArray(R.reversed(R.step(to(1, 10), 2)))).toEqual([9, 7, 5, 3, 1]);
+    expect(R.toArray(R.reversed(until(0, 0)))).toEqual([]);
+    expect(R.last(R.reversed(until(0, 10)))).toBe(0);
   });
 });
 

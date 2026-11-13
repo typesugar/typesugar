@@ -415,14 +415,13 @@ describe("@schema / @contract doc tags when their package is not loaded", () => 
     expect(result.code).toContain("@contract see docs/contracts.md");
   });
 
-  it("an unregistered tag that is not package-specific is still reported", () => {
-    // `operators` is a built-in tag no macro implements (kept for parity).
+  it("a tag no macro implements (`@operators`) is ordinary documentation", () => {
+    // `operators` was a built-in tag no macro implemented, reported as an
+    // unknown macro tag; the 1.0 API pruning dropped it from JSDOC_MACRO_TAGS.
     const result = transformCode(`/** @operators */\nexport interface T { a: number }`, {
       fileName: "/virtual/unknown-tag.ts",
     });
-    expect(result.diagnostics.map((d) => d.message)).toEqual([
-      "Unknown JSDoc macro tag @operators",
-    ]);
+    expect(result.diagnostics).toEqual([]);
   });
 });
 

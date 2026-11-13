@@ -3,28 +3,28 @@
  *
  * This package re-exports typeclass functionality from @typesugar/macros.
  * It provides:
- * - @typeclass decorator for defining typeclass interfaces
- * - @instance decorator for providing instances
- * - @derive decorator for auto-derivation
+ * - @typeclass for defining typeclass interfaces
+ * - @impl for providing instances (`@instance` is a deprecated alias)
+ * - @derive for derivation
  * - summon<T>() for compile-time instance resolution
  * - derived<T>() to declare a derived instance for a type you don't own
  * - extend<T>() for extension method syntax
  *
  * @example
  * ```typescript
- * import { typeclass, instance, derive, summon, extend } from "@typesugar/typeclass";
+ * import { derive, summon, extend } from "@typesugar/typeclass";
  *
- * @typeclass
+ * /** @typeclass *\/
  * interface Show<A> {
  *   show(a: A): string;
  * }
  *
- * @instance(Show, Number)
+ * /** @impl Show<number> *\/
  * const numberShow: Show<number> = {
  *   show: (n) => String(n)
  * };
  *
- * @derive(Show, Eq)
+ * /** @derive(Show, Eq) *\/
  * interface Point { x: number; y: number }
  *
  * const showPoint = summon<Show<Point>>();
@@ -52,7 +52,6 @@ export {
 export {
   typeclassAttribute,
   implAttribute,
-  implMacro,
   summonMacro,
   derivedMacro,
   extendMacro,
@@ -62,7 +61,7 @@ export {
 export type { TypeclassInfo, TypeclassMethod, InstanceInfo } from "@typesugar/macros";
 
 // Derivation utilities
-export { generateStandardTypeclasses, tryExtractSumType, instanceVarName } from "@typesugar/macros";
+export { tryExtractSumType, instanceVarName } from "@typesugar/macros";
 
 export type { SyntaxEntry } from "@typesugar/macros";
 

@@ -19,7 +19,7 @@ import type { TypeInfo } from "./reflect.js";
 /**
  * Declare a typeclass interface.
  *
- * **Preferred JSDoc syntax (no preprocessor needed):**
+ * **JSDoc syntax (preferred):**
  * ```typescript
  * /** @typeclass *\/
  * interface Eq<A> {
@@ -36,35 +36,21 @@ import type { TypeInfo } from "./reflect.js";
  * Operator overloading and summon() won't work, but the interface is still
  * usable as a plain TypeScript type.
  *
- * @example
- * ```typescript
- * // JSDoc syntax (preferred, no preprocessor):
- * /** @typeclass *\/
- * interface Eq<A> {
- *   /** @op === *\/
- *   /** @op === *\/
- *   eq(a: A, b: A): boolean;
- * }
- * ```
+ * This stub is the decorator form (`@typeclass` on a class); it returns the
+ * target unchanged.
  *
- * @param nameOrTarget - Typeclass name string OR decorator target (interface/class)
- * @param optionsOrContext - Optional configuration (expression form) or decorator context
- * @returns void (expression form) or the target unchanged (decorator form)
+ * @param target - The decorated class
+ * @param _context - The decorator context
+ * @returns The target unchanged
  */
-export function typeclass(name: string, options?: object): void;
-export function typeclass(target: any, context?: ClassDecoratorContext): any;
-export function typeclass(
-  nameOrTarget: string | any,
-  optionsOrContext?: object | ClassDecoratorContext
-): any {
-  if (typeof nameOrTarget === "string") return; // Expression form: no-op
-  return nameOrTarget; // Decorator form: return target unchanged
+export function typeclass(target: any, _context?: ClassDecoratorContext): any {
+  return target;
 }
 
 /**
  * Register a typeclass instance.
  *
- * **Preferred JSDoc syntax (no preprocessor needed):**
+ * **JSDoc syntax (preferred):**
  * ```typescript
  * /** @impl Eq<Point> *\/
  * export const pointEq: Eq<Point> = {
@@ -76,18 +62,13 @@ export function typeclass(
  * summon<TC<T>>() resolution, operator overloading, and zero-cost
  * specialization via method extraction.
  *
- * **Without transformer (fallback):** Expression form returns the object
- * unchanged. Decorator form is a no-op. The instance is usable as a plain
- * value but won't be discovered by summon() or operator rewriting.
+ * **Without transformer (fallback):** No-op decorator. The instance is usable
+ * as a plain value but won't be discovered by summon() or operator rewriting.
  *
  * @example
  * ```typescript
- * // JSDoc syntax (preferred, no preprocessor):
+ * // JSDoc syntax (preferred):
  * /** @impl Numeric<Complex> *\/
- * export const numericComplex: Numeric<Complex> = { ... };
- *
- * // Decorator on const (requires preprocessor):
- * @impl("Numeric<Complex>")
  * export const numericComplex: Numeric<Complex> = { ... };
  *
  * // Decorator on class (standard TS):
@@ -99,15 +80,11 @@ export function typeclass(
  * const flatMapArray: FlatMap<ArrayTag> = { ... };
  * ```
  *
- * @param descOrTarget - Description string like "Numeric<Complex>" OR decorator target
- * @param obj - The instance object (expression form only)
- * @returns The instance object unchanged (expression form) or decorator function (decorator form)
+ * @param _args - The instance description, like "Show<MyClass>"
+ * @returns A no-op decorator
  */
-export function impl<T>(desc: string, obj: T): T;
-export function impl(...args: unknown[]): PropertyDecorator & ClassDecorator & MethodDecorator;
-export function impl(...args: unknown[]): any {
-  if (args.length >= 2) return args[1]; // Expression form: return object unchanged
-  return () => {}; // Decorator form: no-op
+export function impl(..._args: unknown[]): PropertyDecorator & ClassDecorator & MethodDecorator {
+  return () => {};
 }
 
 /**
@@ -651,6 +628,73 @@ export type ValidationResult<T> =
  */
 export function validator<T>(): (value: unknown) => ValidationResult<T> {
   throw new Error("validator() must be processed by the typesugar transformer at compile time");
+}
+
+// ============================================================================
+// Forwarding (PEP-063)
+// ============================================================================
+
+/** The names of `S`'s method members. */
+export type MethodKeys<S> = {
+  [K in keyof S]-?: S[K] extends (...args: any[]) => any ? K : never;
+}[keyof S] &
+  string;
+
+type MethodOf<S, K extends keyof S> = Extract<S[K], (...args: any[]) => any>;
+
+/**
+ * Advice for {@link forward}: what to do around each forwarded method call.
+ *
+ * - `around(method, args, next)`: called in place of the method; `next()`
+ *   calls it on the wrapped object. Typed per member: `args` is that
+ *   method's parameters and `next()` and the result its return type. An
+ *   `async` around is applied only to methods that return a promise. (Its
+ *   result is typed loosely, `Promise<unknown>`, because TypeScript can't
+ *   relate an async function's result to a per-member type; an inlined
+ *   advice is still checked exactly, inside the generated object typed `S`.)
+ * - `only`: the methods the advice applies to (all methods when absent).
+ *
+ * An advice written inline in the `forward` call is inlined into each method;
+ * one passed as a variable is called through, and its `around` and `only` are
+ * checked at run time. Inline advice can also take `when` (see
+ * {@link InlineAdvice}).
+ */
+export interface Advice<S> {
+  around?<K extends MethodKeys<S>>(
+    method: K,
+    args: Parameters<MethodOf<S, K>>,
+    next: () => ReturnType<MethodOf<S, K>>
+  ): ReturnType<MethodOf<S, K>> | Promise<unknown>;
+  only?: readonly MethodKeys<S>[];
+}
+
+/**
+ * An advice written inline in a {@link forward} call: {@link Advice}, plus
+ * `when`, a compile-time `cfg` condition. When it is false the advice is
+ * dropped, and `forward` with no advice left is the wrapped object itself.
+ */
+export type InlineAdvice<S> = Advice<S> & { when?: string };
+
+/**
+ * A typed forwarding object for interface `S`: every method calls the same
+ * method on `inner`, with each advice's `around` inlined (the first advice is
+ * outermost). Generated at compile time from `S`'s members; no `Proxy`, no
+ * reflection. Calls `inner` makes on itself (`this.m()`) bypass the advice.
+ *
+ * @example
+ * ```typescript
+ * const repo = forward<UserRepo>(new PgUserRepo(db), {
+ *   around: (method, args, next) => {
+ *     const t0 = performance.now();
+ *     try { return next(); } finally { metrics.record(method, performance.now() - t0); }
+ *   },
+ *   when: "metrics",
+ * });
+ * ```
+ */
+export function forward<S>(inner: S, advice?: InlineAdvice<S> | readonly InlineAdvice<S>[]): S;
+export function forward(_inner: unknown, _advice?: unknown): unknown {
+  throw new Error("forward() must be processed by the typesugar transformer at compile time");
 }
 
 // ============================================================================

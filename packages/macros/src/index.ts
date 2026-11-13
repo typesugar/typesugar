@@ -23,6 +23,7 @@ import "./generic.js"; // Generic programming (Product/Sum) for structural deriv
 import "./auto-derive.js"; // Scala 3-style typeclass derivation via Mirror/Generic
 import "./static-assert.js";
 import "./cfg.js";
+import "./forward.js";
 import "./config-when.js";
 import "./include.js";
 import "./module-graph.js";
@@ -93,10 +94,7 @@ export {
 } from "./reflect.js";
 export {
   typeclassAttribute,
-  typeclassMacro,
-  // Primary names (preferred)
   implAttribute,
-  implMacro,
   summonMacro,
   derivedMacro,
   extendMacro,
@@ -108,7 +106,6 @@ export {
   registerTypeclassMacros,
   instanceVarName,
   companionPath,
-  generateStandardTypeclasses,
   tryExtractSumType,
   getTypeclassesForMethod,
   extractOpFromJSDoc,
@@ -133,6 +130,7 @@ export {
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
   inlineMethod,
+  inlineMethodAsStatements,
   collectMethodFreeNames,
   collectMethodLocalBindings,
   forEachMethodFreeReference,
@@ -167,6 +165,8 @@ export {
   isImplicitDefault,
   hasImplicitParams,
   getImplicitParamIndices,
+  valueParameters,
+  functionCallTarget,
   buildImplicitScopeFromDecl,
   transformImplicitsCall,
   type ImplicitScope,
@@ -261,8 +261,6 @@ export {
   // Grouped exports (Eq, Ord, Hash, Show are now on the derive markers in derive.ts)
   Semigroup,
   Monoid,
-  Semigroup as SemigroupPrimitives,
-  Monoid as MonoidPrimitives,
 } from "./primitives.js";
 
 // --- Instance Scanner & Resolver (PEP-038 Wave 2A/2B) ---
@@ -284,6 +282,8 @@ export {
   clearResolverCache,
   findInstanceInScopeByName,
   resolveDoNotationInstance,
+  isAmbiguousDoNotationInstance,
+  type AmbiguousDoNotationInstance,
   brandMatchesForType,
   scanWarnings,
   type ResolvedDoNotationInstance,
@@ -369,6 +369,7 @@ export {
 } from "./include.js";
 
 // --- Phase 2.2: Conditional compilation ---
+export { forwardMacro } from "./forward.js";
 export { cfgMacro, cfgAttrMacro, setCfgConfig, getCfgConfig, evaluateCfgCondition } from "./cfg.js";
 
 // --- Phase 2.3: Module-graph reflection ---

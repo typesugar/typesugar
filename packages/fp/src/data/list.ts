@@ -665,18 +665,20 @@ export function sequence<A>(list: List<Option<A>>): List<A> | undefined {
  * Eq instance for List
  */
 export function getEq<A>(E: Eq<A>): Eq<List<A>> {
-  return {
-    eqv: (x, y) => {
+  const eq: Eq<List<A>> = {
+    equals: (x, y) => {
       let currentX: List<A> = x;
       let currentY: List<A> = y;
       while (currentX !== null && currentY !== null) {
-        if (!E.eqv(currentX.head, currentY.head)) return false;
+        if (!E.equals(currentX.head, currentY.head)) return false;
         currentX = currentX.tail;
         currentY = currentY.tail;
       }
       return currentX === null && currentY === null;
     },
+    notEquals: (x, y) => !eq.equals(x, y),
   };
+  return eq;
 }
 
 /**
@@ -697,7 +699,7 @@ export function getOrd<A>(O: Ord<A>): Ord<List<A>> {
     return currentX === null ? (-1 as Ordering) : (1 as Ordering);
   };
   return {
-    eqv: getEq(O).eqv,
+    ...getEq(O),
     compare,
     lessThan: (x, y) => compare(x, y) === -1,
     lessThanOrEqual: (x, y) => compare(x, y) !== 1,

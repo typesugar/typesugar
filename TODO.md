@@ -82,9 +82,9 @@ typesugar, not just Result. Tracked inline in `src/macros/specialize.ts`.
 ### Package implementation
 
 - [ ] **`@typesugar/result` package** — New package with:
-  - `Result<E, T>` type (compatible with existing `ZeroCostResult`, param order: error first)
+  - `Result<E, T>` type (param order: error first)
   - `ok(value)` / `err(error)` constructors (expression macros, inline to target constructors)
-  - Result algebra instances: Option, Either, ZeroCostResult, Unsafe (bare T), Promise
+  - Result algebra instances: Option, Either, Unsafe (bare T), Promise
   - Extension methods: `.map()`, `.flatMap()`, `.unwrapOr()`, `.toOption()`, `.toEither()`, etc.
   - FlatMap registration for `let:/yield:` do-notation
   - `match()` integration (discriminant: `ok`)

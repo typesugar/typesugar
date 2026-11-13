@@ -15,8 +15,6 @@ import {
   summonMacro,
   extendMacro,
   summonAllMacro,
-  implMacro,
-  typeclassMacro,
   collectTypesMacro,
   moduleIndexMacro,
 } from "@typesugar/macros";
@@ -105,13 +103,11 @@ export interface Point { x: number }`;
 // ---------------------------------------------------------------------------
 
 describe("#5 scope-dependent expression macros are uncacheable", () => {
-  it("summon/extend/summonAll/collectTypes/moduleIndex/impl()/typeclass() declare cacheable: false", () => {
+  it("summon/extend/summonAll/collectTypes/moduleIndex declare cacheable: false", () => {
     for (const m of [
       summonMacro,
       extendMacro,
       summonAllMacro,
-      implMacro,
-      typeclassMacro,
       collectTypesMacro,
       moduleIndexMacro,
     ]) {

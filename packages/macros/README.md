@@ -26,6 +26,7 @@ This package provides implementations for:
 - **Operators**: `@op` JSDoc on typeclass methods, `pipe()`, `compose()`
 - **HKT support**: `@hkt`, HKT parameter transformation
 - **Conditional compilation**: `cfg()`, `@cfgAttr`
+- **Typed forwarding**: `forward<S>(inner, advice)` — a forwarding object for an interface with around-advice inlined per method
 - **Static assertions**: `staticAssert()`, `compileError()`, `compileWarning()`
 - **File inclusion**: `includeStr()`, `includeJson()`, `includeBytes()`
 - **Tail recursion**: `@tailrec`

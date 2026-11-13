@@ -17,7 +17,7 @@
  *     {
  *       name: "get-after-set",
  *       arity: 2,
- *       check: (k: K, v: V) => { cache.set(k, v); return eq.eqv(cache.get(k)!, v); }
+ *       check: (k: K, v: V) => { cache.set(k, v); return eq.equals(cache.get(k)!, v); }
  *     }
  *   ];
  * }

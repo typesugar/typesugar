@@ -394,11 +394,10 @@ describe("a derived union narrowed to one variant by assignment", () => {
     // instances; `recip: (a) => 1 / a` was "Ambiguous operator '/' for type
     // '1'" once the literal borrowed `a`'s declared type (the CI build break).
     const code = [
-      `import { typeclass } from "@typesugar/macros";`,
+      `/** @typeclass */`,
       `export interface Integral<A> { /** @op / */ div(a: A, b: A): A; /** @op < */ lt(a: A, b: A): boolean; /** @op === */ eq(a: A, b: A): boolean }`,
-      `typeclass("Integral");`,
+      `/** @typeclass */`,
       `export interface Fractional<A> { /** @op / */ div(a: A, b: A): A; /** @op < */ lt(a: A, b: A): boolean; /** @op === */ eq(a: A, b: A): boolean; recip(a: A): A }`,
-      `typeclass("Fractional");`,
       `export const integralNumber: Integral<number> = { div: (a, b) => Math.trunc(a / b), lt: (a, b) => a < b, eq: (a, b) => a === b };`,
       `export const fractionalNumber: Fractional<number> = {`,
       `  div: (a, b) => a / b, lt: (a, b) => a < b, eq: (a, b) => a === b,`,

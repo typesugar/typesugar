@@ -89,17 +89,21 @@ function asBinApp(e: Expr): BinApp | undefined {
   return undefined;
 }
 
-/** `L === R`, `eqv(L, R)` or `E.eqv(L, R)`. */
+/**
+ * `L === R`, `equals(L, R)` or `E.equals(L, R)` (the `Eq` method name in
+ * `@typesugar/std` and `@typesugar/fp`); `eqv` is still accepted for laws
+ * written against hand-rolled `Eq`-like objects.
+ */
 function asEquality(goal: string): { left: Expr; right: Expr } | undefined {
   const e = parsePredicate(goal.trim());
   if (!e) return undefined;
   if (e.kind === "binary" && e.op === "===") return { left: e.left, right: e.right };
   if (e.kind === "call" && e.args.length === 2) {
     const callee = e.callee;
-    const isEqv =
-      (callee.kind === "id" && callee.name === "eqv") ||
-      (callee.kind === "member" && callee.name === "eqv");
-    if (isEqv) return { left: e.args[0], right: e.args[1] };
+    const isEquals =
+      (callee.kind === "id" || callee.kind === "member") &&
+      (callee.name === "equals" || callee.name === "eqv");
+    if (isEquals) return { left: e.args[0], right: e.args[1] };
   }
   return undefined;
 }

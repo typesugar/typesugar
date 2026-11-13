@@ -22,7 +22,7 @@
  *       arity: 2,
  *       check: (k: K, v: V) => {
  *         c.set(k, v);
- *         return eq.eqv(c.get(k)!, v);
+ *         return eq.equals(c.get(k)!, v);
  *       },
  *     },
  *   ];

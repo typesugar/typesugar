@@ -212,6 +212,39 @@ export const r = summon<Eq<Point>>();
   });
 });
 
+describe("inline opt-outs reach multi-line JSDoc tags", () => {
+  it("// @ts-no-typesugar derive on the declaration line", () => {
+    const r = transformOne(`import type { Eq } from "typesugar";
+/**
+ * A point.
+ * @derive(Eq)
+ */
+export interface P { x: number } // @ts-no-typesugar derive
+`);
+    expect(r.code).not.toMatch(/namespace P/);
+  });
+
+  it("// @ts-no-typesugar typeclasses on the declaration line", () => {
+    const r = transformOne(`/**
+ * @typeclass
+ */
+export interface Shw<A> { show(a: A): string } // @ts-no-typesugar typeclasses
+`);
+    expect(r.code).not.toContain("__typesugar_companions");
+  });
+
+  it("control: the same JSDoc @derive expands without the comment", () => {
+    const r = transformOne(`import type { Eq } from "typesugar";
+/**
+ * A point.
+ * @derive(Eq)
+ */
+export interface P { x: number }
+`);
+    expect(r.code).toMatch(/namespace P/);
+  });
+});
+
 describe("A6: an ambiguous method-sugar instance is reported at the call", () => {
   it("anchors on the call, not the start of the file", () => {
     const src = `${EQ_TYPECLASS}

@@ -48,13 +48,6 @@ import {
   // Resolution scope
   ResolutionScopeTracker,
 
-  // Prelude
-  DEFAULT_PRELUDE,
-  isPreludeMethod,
-  isPreludeOperator,
-  METHOD_TO_TYPECLASS,
-  OPERATOR_TO_TYPECLASS,
-
   // Import suggestions
   registerExport,
   getSuggestionsForSymbol,
@@ -298,35 +291,7 @@ for (const [_key, _value] of typeRegistry) {
 assert(count === 2);
 
 // ============================================================================
-// 6. PRELUDE SYSTEM - Typeclasses Available Without Import
-// ============================================================================
-
-// The default prelude includes the most commonly used typeclasses
-// DEFAULT_PRELUDE is an array of PreludeEntry objects
-assert(DEFAULT_PRELUDE.length > 0);
-assert(DEFAULT_PRELUDE.some((e) => e.name === "Eq"));
-assert(DEFAULT_PRELUDE.some((e) => e.name === "Ord"));
-assert(DEFAULT_PRELUDE.some((e) => e.name === "Show"));
-assert(DEFAULT_PRELUDE.some((e) => e.name === "Clone"));
-
-// METHOD_TO_TYPECLASS and OPERATOR_TO_TYPECLASS are Maps
-assert(METHOD_TO_TYPECLASS.get("show") === "Show");
-assert(METHOD_TO_TYPECLASS.get("clone") === "Clone");
-assert(METHOD_TO_TYPECLASS.get("equals") === "Eq");
-
-// Operator-to-typeclass mapping
-assert(OPERATOR_TO_TYPECLASS.get("===") === "Eq");
-assert(OPERATOR_TO_TYPECLASS.get("<") === "Ord");
-// Note: "+" is mapped to Semigroup's combine, not Numeric
-// assert(OPERATOR_TO_TYPECLASS.get("+") === "Numeric");
-
-// Quick checks — isPreludeMethod returns PreludeEntry | undefined, not boolean
-assert(isPreludeMethod("show") !== undefined);
-assert(isPreludeMethod("nonExistentMethod") === undefined);
-assert(isPreludeOperator("===") !== undefined);
-
-// ============================================================================
-// 7. OPERATOR SYMBOLS - Standard JS Operators for Typeclass Dispatch
+// 6. OPERATOR SYMBOLS - Standard JS Operators for Typeclass Dispatch
 // ============================================================================
 
 // Operator dispatch uses @op JSDoc on typeclass methods.
@@ -334,7 +299,7 @@ assert(isPreludeOperator("===") !== undefined);
 // to typeclassInstance.methodName(a, b)
 
 // ============================================================================
-// 8. IMPORT SUGGESTIONS - "Did You Mean?" for Missing Symbols
+// 7. IMPORT SUGGESTIONS - "Did You Mean?" for Missing Symbols
 // ============================================================================
 
 // Register known exports for suggestion lookups
@@ -354,7 +319,7 @@ assert(formatted !== undefined);
 assert(formatted!.includes("@typesugar/showcase"));
 
 // ============================================================================
-// 9. COHERENCE CHECKING - Orphan Instance Detection
+// 8. COHERENCE CHECKING - Orphan Instance Detection
 // ============================================================================
 
 // CoherenceChecker detects conflicting typeclass instances
@@ -390,7 +355,7 @@ assert(SOURCE_PRIORITY.explicit < SOURCE_PRIORITY.derived);
 assert(SOURCE_PRIORITY.derived < SOURCE_PRIORITY["auto-derived"]);
 
 // ============================================================================
-// 10. RESOLUTION TRACING - Debug Why Resolution Succeeded or Failed
+// 9. RESOLUTION TRACING - Debug Why Resolution Succeeded or Failed
 // ============================================================================
 
 // formatResolutionTrace formats a ResolutionTrace (plain data) into diagnostic lines
@@ -422,7 +387,7 @@ const tracer = new ResolutionTracer();
 typeAssert<Equal<typeof tracer.formatForCLI, (fileName?: string) => string>>();
 
 // ============================================================================
-// 11. EXPANSION TRACKING - Source Map Support for Macros
+// 10. EXPANSION TRACKING - Source Map Support for Macros
 // ============================================================================
 
 // ExpansionTracker records what macros expanded where (for source maps)
@@ -440,7 +405,7 @@ assert(expansionTracker.count === 0);
 typeAssert<Equal<typeof globalExpansionTracker, ExpansionTracker>>();
 
 // ============================================================================
-// 12. RESOLUTION SCOPE - Opt-Out Directives
+// 11. RESOLUTION SCOPE - Opt-Out Directives
 // ============================================================================
 
 // ResolutionScopeTracker manages per-file opt-out state

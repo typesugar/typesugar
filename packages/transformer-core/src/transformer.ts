@@ -17,6 +17,7 @@ import * as ts from "typescript";
 import {
   hasImplicitParams,
   transformImplicitsCall,
+  functionCallTarget,
   buildImplicitScopeFromDecl,
   SpecializationCache,
   type ImplicitScope,
@@ -64,7 +65,6 @@ import {
   resolveModuleSpecifier,
   findImportModuleForName,
   moduleMatchesMacro,
-  fallbackNameLookup,
   fallbackNameLookupWithImports,
   lookupMacroByName,
   isLocalImplementationName,
@@ -86,10 +86,8 @@ import {
   tryExpandJSDocMacros as tryExpandJSDocMacrosFn,
   isJSDocTagAtLineStart,
   parseDecorator,
-  sortDecoratorsByDependency,
-  expandDeriveDecorator,
-  functionsFirst,
 } from "./macro-helpers.js";
+import { expandAttributeSources, type AttributeSource } from "./attribute-dispatch.js";
 
 import {
   tryExpandTaggedTemplate as tryExpandTaggedTemplateFn,
@@ -321,9 +319,12 @@ class MacroTransformer {
       // This deliberately supersedes the PEP-056 parity choice in commit
       // 7210ac66, which kept implicit calls as plain dictionary passing
       // (Dean's decision 2026-10-19).
-      const autoSpecResult = ts.isCallExpression(result)
-        ? tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, result)
-        : undefined;
+      // A call through `f.call(thisArg, ...)` keeps dictionary passing: the
+      // specializer resolves the callee `f.call`, which has no body.
+      const autoSpecResult =
+        ts.isCallExpression(result) && !functionCallTarget(this.ctx, node)
+          ? tryAutoSpecializeFn(this.ctx, this.verbose, this.specCache, result)
+          : undefined;
       if (autoSpecResult !== undefined) {
         return preserveSourceMap(this.visitRewrittenCall(autoSpecResult, result), node);
       }
@@ -1315,7 +1316,14 @@ class MacroTransformer {
     }
 
     if (hasJSDocMacroTagsFn(node) && !this.isJSDocExpanded(node)) {
-      const result = tryExpandJSDocMacrosFn(this.ctx, this.verbose, node);
+      const jsdocOut: { visitExtras?: ReadonlySet<ts.Statement> } = {};
+      const result = tryExpandJSDocMacrosFn(
+        this.ctx,
+        this.verbose,
+        node,
+        this.attributeExpansionRecorder(node),
+        jsdocOut
+      );
       // Mark even when nothing changed: a VariableDeclaration inherits its
       // statement's JSDoc tags, so a failed `/** @impl */ const x = ...`
       // would otherwise be dispatched again on the descent and report every
@@ -1333,12 +1341,18 @@ class MacroTransformer {
         // this expansion covered so the descent does not expand it again.
         this.markJSDocExpanded(node);
         this.markJSDocExpanded(head);
-        const visitedHead = ts.visitEachChild(
-          head,
-          this.visit.bind(this),
-          this.ctx.transformContext
+        const visitedHead = preserveSourceMap(
+          ts.visitEachChild(head, this.visit.bind(this), this.ctx.transformContext),
+          node
         );
-        return rest.length > 0 ? [visitedHead, ...rest] : visitedHead;
+        // A macro's extra statements may hold macros of their own (derive
+        // output and error stubs are final), as on the decorator path.
+        const visitedRest = rest.flatMap((stmt) => {
+          if (!ts.isStatement(stmt) || !jsdocOut.visitExtras?.has(stmt)) return [stmt];
+          const v = this.visit(stmt);
+          return Array.isArray(v) ? v : [v];
+        });
+        return visitedRest.length > 0 ? [visitedHead, ...visitedRest] : visitedHead;
       }
     }
 
@@ -1929,6 +1943,20 @@ class MacroTransformer {
   // Attribute macro expansion (kept here due to decorator update + visit interaction)
   // ---------------------------------------------------------------------------
 
+  /** Records an attribute expansion on `node` in the expansion tracker, when there is one. */
+  private attributeExpansionRecorder(
+    node: ts.Node
+  ): ((macroName: string, expanded: ts.Node) => void) | undefined {
+    const tracker = this.expansionTracker;
+    if (!tracker) return undefined;
+    return (macroName, expanded) => {
+      const expandedText = this.printNodeSafe(expanded);
+      if (expandedText) {
+        tracker.recordExpansion(macroName, node, this.ctx.sourceFile, expandedText);
+      }
+    };
+  }
+
   private tryExpandAttributeMacros(node: ts.HasDecorators): ts.Node | ts.Node[] | undefined {
     let decorators = ts.getDecorators(node);
     if (!decorators || decorators.length === 0) {
@@ -1959,8 +1987,6 @@ class MacroTransformer {
       return undefined;
     }
 
-    const sortedDecorators = sortDecoratorsByDependency(decorators);
-
     // A decorated `const`: the macro's target is its (single) declaration, as
     // for the JSDoc form (tryExpandJSDocMacros); the statement is rebuilt below.
     const asNode = node as ts.Node;
@@ -1973,133 +1999,54 @@ class MacroTransformer {
       );
       return undefined;
     }
+    const declaration: ts.Node = varStmt ? varStmt.declarationList.declarations[0] : node;
 
-    let currentNode: ts.Node = varStmt ? varStmt.declarationList.declarations[0] : node;
-    const extraStatements: ts.Statement[] = [];
-    const attributeExtras = new Set<ts.Statement>();
-    const remainingDecorators: ts.Decorator[] = [];
-    let wasTransformed = false;
-
-    for (const decorator of sortedDecorators) {
-      if (this.failedDecorators.has(decorator)) {
-        remainingDecorators.push(decorator);
-        continue;
-      }
-      const { macroName, args, identNode } = parseDecorator(decorator);
-
-      const isDerive = macroName === "derive" || macroName === "deriving";
-      if (
-        isDerive &&
-        isInOptedOutScope(this.ctx.sourceFile, decorator, globalResolutionScope, "derive")
-      ) {
-        remainingDecorators.push(decorator);
-        continue;
-      }
-
-      // @derive(Eq, Clone, ...) is always handled specially — no attribute
-      // macro named "derive" exists to look up (PEP-032 deleted it);
-      // individual derives are registered under globalRegistry.getDerive.
-      // Uses the pristine `node`, not `currentNode` — an earlier decorator
-      // in this same loop may have already replaced `currentNode` with a
-      // transformed node whose shape extractTypeInfo's checker-backed
-      // lookups (getTypeAtLocation, getPropertiesOfType) don't expect.
-      // `@deriving(...)` is the deprecated alias (expandDeriveDecorator warns).
-      if (isDerive) {
-        const derives = expandDeriveDecorator(this.ctx, this.verbose, decorator, node, args);
-        if (derives) {
-          extraStatements.push(...derives);
-          // Several @derive decorators: functions before namespaces (TS2434).
-          extraStatements.splice(0, extraStatements.length, ...functionsFirst(extraStatements));
-        }
-        // Handled even when it generated nothing (each failure is reported):
-        // drop the decorator, which is not valid TypeScript on an interface
-        // or type alias and would be an undefined decorator on a class. The
-        // reprint of every file used to drop it by accident; a file nothing
-        // changed is no longer reprinted.
-        if (
-          derives ||
-          ts.isInterfaceDeclaration(node) ||
-          ts.isClassDeclaration(node) ||
-          ts.isTypeAliasDeclaration(node)
-        ) {
-          wasTransformed = true;
-          continue;
-        }
-      }
-
-      // The bare-name fallback picks among same-named macros of several
-      // modules by the file's imports (lookupMacroByName), as every other
-      // bare-name site does; `getAttribute` would return none for such a name.
-      // Never for a name the file implements itself (`function reflect(t)
-      // {…}  @reflect class A`): that is the user's decorator, kept as is.
-      const resolved = identNode
-        ? this.resolveMacroFromSymbol(identNode, macroName, "attribute")
-        : undefined;
-      const ownDecorator =
-        !resolved &&
-        identNode !== undefined &&
-        isLocalImplementationName(this.ctx.typeChecker, this.ctx.program, identNode);
-      const macro = (resolved ??
-        (ownDecorator
-          ? undefined
-          : lookupMacroByName(this.ctx.sourceFile, macroName, "attribute"))) as
-        | AttributeMacro
-        | undefined;
-      if (macro && isMacroOptedOut(this.ctx.sourceFile, decorator, macro)) {
-        remainingDecorators.push(decorator);
-        continue;
-      }
-      if (macro) {
-        if (this.verbose) {
-          console.log(`[typesugar] Expanding attribute macro: ${macroName}`);
-        }
-
-        try {
-          const result = this.ctx.hygiene.withScope(() =>
-            macro.expand(this.ctx, decorator, currentNode as ts.Declaration, args)
-          );
-
-          if (Array.isArray(result)) {
-            if (result.length > 0) {
-              currentNode = result[0];
-              // Visited below like result[0], so macros inside them expand.
-              for (const extra of result.slice(1).filter(ts.isStatement)) {
-                extraStatements.push(extra);
-                attributeExtras.add(extra);
-              }
-            }
-          } else {
-            currentNode = result;
+    // The decorators, as sources for the shared dispatcher (attribute-dispatch.ts).
+    const sources: AttributeSource[] = decorators.map((decorator) => ({
+      ...parseDecorator(decorator),
+      decorator,
+      reportAt: decorator,
+      optOutAt: decorator,
+    }));
+    const expansion = expandAttributeSources(
+      this.ctx,
+      this.verbose,
+      declaration,
+      declaration,
+      sources,
+      {
+        // The bare-name fallback picks among same-named macros of several
+        // modules by the file's imports (lookupMacroByName), as every other
+        // bare-name site does. Never for a name the file implements itself
+        // (`function reflect(t) {…}  @reflect class A`): that is the user's
+        // decorator, kept as is.
+        resolve: ({ macroName, identNode }) => {
+          const resolved = identNode
+            ? this.resolveMacroFromSymbol(identNode, macroName, "attribute")
+            : undefined;
+          if (resolved) return resolved as AttributeMacro;
+          if (
+            identNode &&
+            isLocalImplementationName(this.ctx.typeChecker, this.ctx.program, identNode)
+          ) {
+            return undefined;
           }
-          wasTransformed = true;
-
-          if (this.expansionTracker) {
-            const expandedText = this.printNodeSafe(currentNode);
-            if (expandedText) {
-              this.expansionTracker.recordExpansion(
-                macroName,
-                node,
-                this.ctx.sourceFile,
-                expandedText
-              );
-            }
-          }
-        } catch (error) {
-          this.ctx.reportError(decorator, `Attribute macro expansion failed: ${error}`);
-          extraStatements.push(
-            createMacroErrorStmt(
-              this.ctx.factory,
-              `typesugar: attribute macro '${macroName}' failed: ${error}`
-            )
-          );
-          this.failedDecorators.add(decorator);
-          remainingDecorators.push(decorator);
-          wasTransformed = true;
-        }
-      } else {
-        remainingDecorators.push(decorator);
+          return lookupMacroByName(this.ctx.sourceFile, macroName, "attribute") as
+            | AttributeMacro
+            | undefined;
+        },
+        isFailed: ({ decorator }) => this.failedDecorators.has(decorator),
+        markFailed: ({ decorator }) => this.failedDecorators.add(decorator),
+        recordExpansion: this.attributeExpansionRecorder(node),
       }
-    }
+    );
+    let currentNode = expansion.target;
+    const extraStatements = expansion.extras;
+    const attributeExtras = expansion.visitExtras;
+    const remainingDecorators = decorators.filter((d) =>
+      expansion.unhandled.some((u) => u.decorator === d)
+    );
+    const wasTransformed = expansion.transformed;
 
     if (!wasTransformed) return undefined;
 

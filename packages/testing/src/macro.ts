@@ -1315,14 +1315,15 @@ function methodNamesOf(checker: ts.TypeChecker, type: ts.Type, location: ts.Node
 function createMockObjectCall(
   ctx: MacroContext,
   typeNode: ts.TypeNode,
-  methodNames: readonly string[]
+  methodNames: readonly string[],
+  defaults?: ts.Expression
 ): ts.Expression {
   const f = ctx.factory;
-  return f.createCallExpression(
-    runtimeRef(ctx, "createMockObject"),
-    [typeNode],
-    [f.createArrayLiteralExpression(methodNames.map((n) => f.createStringLiteral(n)))]
-  );
+  const args: ts.Expression[] = [
+    f.createArrayLiteralExpression(methodNames.map((n) => f.createStringLiteral(n))),
+  ];
+  if (defaults) args.push(defaults);
+  return f.createCallExpression(runtimeRef(ctx, "createMockObject"), [typeNode], args);
 }
 
 /**
@@ -1401,6 +1402,9 @@ export const mockAttribute = defineAttributeMacro({
  * ```typescript
  * const mockUser = mock<UserService>();
  * mockUser.getUser.mockReturnValue(Promise.resolve(testUser));
+ *
+ * // Optional defaults: function members become the persistent implementation
+ * const repo = mock<UserRepo>({ get: async (id) => ({ id }) });
  * ```
  */
 export const mockExpressionMacro = defineExpressionMacro({
@@ -1411,12 +1415,16 @@ export const mockExpressionMacro = defineExpressionMacro({
   expand(
     ctx: MacroContext,
     callExpr: ts.CallExpression,
-    _args: readonly ts.Expression[]
+    args: readonly ts.Expression[]
   ): ts.Expression {
     const typeArgs = callExpr.typeArguments;
 
     if (!typeArgs || typeArgs.length !== 1) {
       ctx.reportError(callExpr, "mock<T>() requires exactly one type argument");
+      return callExpr;
+    }
+    if (args.length > 1) {
+      ctx.reportError(callExpr, "mock<T>() takes at most one argument (the defaults object)");
       return callExpr;
     }
 
@@ -1430,7 +1438,12 @@ export const mockExpressionMacro = defineExpressionMacro({
     }
 
     const type = ctx.typeChecker.getTypeFromTypeNode(typeArg);
-    return createMockObjectCall(ctx, typeArg, methodNamesOf(ctx.typeChecker, type, callExpr));
+    return createMockObjectCall(
+      ctx,
+      typeArg,
+      methodNamesOf(ctx.typeChecker, type, callExpr),
+      args[0]
+    );
   },
 });
 

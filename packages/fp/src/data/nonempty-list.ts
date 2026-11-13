@@ -430,9 +430,11 @@ export function sequence<A>(nel: NonEmptyList<Option<A>>): Option<NonEmptyList<A
  */
 export function getEq<A>(E: Eq<A>): Eq<NonEmptyList<A>> {
   const listEq = L.getEq(E);
-  return {
-    eqv: (x, y) => E.eqv(x.head, y.head) && listEq.eqv(x.tail, y.tail),
+  const eq: Eq<NonEmptyList<A>> = {
+    equals: (x, y) => E.equals(x.head, y.head) && listEq.equals(x.tail, y.tail),
+    notEquals: (x, y) => !eq.equals(x, y),
   };
+  return eq;
 }
 
 /**
@@ -447,7 +449,7 @@ export function getOrd<A>(O: Ord<A>): Ord<NonEmptyList<A>> {
     return listOrd.compare(x.tail, y.tail);
   };
   return {
-    eqv: getEq(O).eqv,
+    ...getEq(O),
     compare,
     lessThan: (x, y) => compare(x, y) === -1,
     lessThanOrEqual: (x, y) => compare(x, y) !== 1,
@@ -589,12 +591,12 @@ export function groupBy<A, K>(
  *
  * @example
  * ```typescript
- * import { NonEmptyList } from "@typesugar/fp";
+ * import { NEL } from "@typesugar/fp/data";
  *
- * const nel = NonEmptyList.of(1, 2, 3);
- * NonEmptyList.map(nel, n => n * 2);      // NonEmptyList(2, 4, 6)
- * NonEmptyList.reduce(nel, (a, b) => a + b); // 6
- * NonEmptyList.head(nel);                 // 1 (always succeeds)
+ * const nel = NEL.of(1, 2, 3);
+ * NEL.map(nel, n => n * 2);      // NonEmptyList(2, 4, 6)
+ * NEL.reduce(nel, (a, b) => a + b); // 6
+ * NEL.head(nel);                 // 1 (always succeeds)
  * ```
  */
 export const NEL = {

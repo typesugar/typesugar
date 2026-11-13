@@ -783,8 +783,8 @@ Keep to one instance per type per typeclass.
 > diagnostic: the declaration-side diagnostics reserved for this (TS9050,
 > TS9051, TS9006) are defined but not emitted, and `CoherenceChecker` in
 > `@typesugar/core` is an experimental API that nothing calls. But a call site
-> that needs the instance (`summon`, `= implicit()`) reports an
-> error when more than one is in scope:
+> that needs the instance (`summon`, `= implicit()`, operator and method sugar,
+> a `let:`/`par:` comprehension) reports an error when more than one is in scope:
 >
 > "Ambiguous Show instance for 'number': ShowNumber, ShowNumber2 are all in
 > scope. Keep exactly one in scope, or pass the instance explicitly."
