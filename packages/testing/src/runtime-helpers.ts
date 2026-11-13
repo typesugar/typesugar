@@ -266,9 +266,16 @@ export function __seededRandom(seed: number): () => number {
  * ```typescript
  * const svc = createMockObject<UserService>(["getUser", "createUser"]);
  * svc.getUser.mockReturnValue(user);
+ *
+ * // function defaults become the persistent implementation
+ * const repo = createMockObject<Repo>(["get"], { get: async (id) => ({ id }) });
  * ```
  */
-export function createMockObject<T>(methodNames: readonly string[]): MockOf<T> {
+export function createMockObject<T>(
+  methodNames: readonly string[],
+  defaults?: Partial<T>
+): MockOf<T> {
+  const defs = (defaults ?? {}) as Record<string, unknown>;
   const calls: Record<string, unknown[][]> = {};
   const mockObj: Record<string, unknown> = { _calls: calls };
 
@@ -295,7 +302,19 @@ export function createMockObject<T>(methodNames: readonly string[]): MockOf<T> {
       get: () => inner.calls,
       enumerable: true,
     });
+    // A function default is the mock's persistent implementation, exactly as if
+    // `mockImplementation(fn)` had been called: `mockReset()` clears it.
+    const def = Object.prototype.hasOwnProperty.call(defs, name) ? defs[name] : undefined;
+    if (typeof def === "function") inner.mockImplementation(def as (...args: any[]) => any);
     mockObj[name] = tracked;
+  }
+
+  // Everything else in the defaults (plain values, or keys that are not methods)
+  // is copied onto the mock as a plain property.
+  for (const key of Object.keys(defs)) {
+    if (key === "_calls" || key === "_reset") continue;
+    if (methodNames.includes(key) && typeof defs[key] === "function") continue;
+    mockObj[key] = defs[key];
   }
 
   mockObj._reset = () => {
