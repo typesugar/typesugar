@@ -87,8 +87,10 @@ through an `export type` re-export) emits no binding, so `isPt.make(3)` is
 not inlined as `new Pt(3)` there.
 Inlining keeps the call's meaning: each argument is evaluated once, in order,
 even when the body uses it twice, out of order, or not at all, and a body
-that needs its receiver (`this`, `arguments`) or is `async` or a generator
-is not inlined. Default, rest and destructured parameters are inlined
+that needs its receiver (`this`, `arguments`) or is a generator is not
+inlined. An `async` method is applied in place as an async arrow,
+`(async (a) => body)(x)`, which is the call itself (same promise, same
+timing). Default, rest and destructured parameters are inlined
 directly where that is exact (`(a, b, sep = ",") => a + sep + b` called with
 two arguments becomes `a + "," + b`, `({ x, y })` over a variable `p` reads
 `p.x` and `p.y`, `(...xs) => xs.length` becomes `[1, 2, 3].length`).
@@ -168,6 +170,77 @@ function sortTwice<T>(items: T[], ord: Ord<T> = implicit()): T[] {
 sortTwice([3, 1, 2]); // compiles to sortTwice([3, 1, 2], numberOrd)
 ```
 
+### Around-advice: wrapping a call in an instance method
+
+An instance method that wraps a call (timing, logging, retries) inlines too,
+when the call is returned: `return T.around("op", () => expr)`. Its body is
+copied into the specialization as statements, `try`/`finally` and loops
+included, with the thunk's expression in place of `body()`:
+
+```typescript
+/** @typeclass */
+interface Traced<S> {
+  around<R>(op: string, body: () => R): R;
+}
+
+/** @impl Traced<UserSvc> */
+const timed: Traced<UserSvc> = {
+  around: (op, body) => {
+    const t0 = performance.now();
+    try {
+      return body();
+    } finally {
+      console.log(op, performance.now() - t0);
+    }
+  },
+};
+
+function getUser(id: string, T: Traced<UserSvc> = implicit()): string {
+  return T.around("getUser", () => "user:" + id);
+}
+
+getUser("1");
+// Compiles to:
+const __typesugar___getUser_UserSvc_0__ = (id: string) => {
+  {
+    const __typesugar_t0_0__ = performance.now();
+    try {
+      return "user:" + id;
+    } finally {
+      console.log("getUser", performance.now() - __typesugar_t0_0__);
+    }
+  }
+};
+__typesugar___getUser_UserSvc_0__("1");
+```
+
+With a no-op instance (`around: (op, body) => body()`) the specialization is
+just `return "user:" + id;`, so switching the instance in scope switches the
+advice off at no cost.
+
+The rules that keep this exact:
+
+- The method's own `return`s return from the specialized function, which is
+  what `return T.around(...)` did with its result; a body that can finish
+  without returning returns `undefined`.
+- Arguments are evaluated once, in order: a literal is substituted, a
+  function argument only where it is called once (`body()`), anything else
+  is bound to a `const` first (or dropped, if the method never reads it and
+  it has no effect).
+- A thunk called once, `body()` with `body` bound to `() => expr`, becomes
+  `expr` (also in the ordinary expression inliner). Inside a retry loop it is
+  still evaluated on every pass.
+- Every name the method declares (`t0`) gets a fresh name, so it can't
+  capture a name the arguments use.
+- An `async` method's body becomes `return (async () => { ... })();`, after
+  its arguments: exactly the call, so a `try` in the caller sees the same
+  rejection it would have.
+- It declines (dictionary passing, as before) when a name the method reads is
+  also bound in the calling function, when a function argument is used other
+  than by one call (stored, compared, called twice), when the method writes to
+  a parameter, and for receiver use (`this`, `arguments`), generators, labels,
+  destructuring and default or rest parameters.
+
 ## When Specialization Is Skipped
 
 The transformer only inlines what it can prove sound. A call falls back to
@@ -177,7 +250,9 @@ when the function body:
 
 - can't be resolved (e.g. the function comes from an untyped/dynamic source —
   declare it as a `const` arrow function or a named `function`);
-- contains a loop, `try/catch`, a `throw`, or mutable `let` bindings;
+- contains a loop, `try/catch`, a `throw`, or mutable `let` bindings (an
+  instance method may: see
+  [Around-advice](#around-advice-wrapping-a-call-in-an-instance-method));
 - has early/multiple returns that can't be flattened into a single expression
   (simple guard-clause chains _are_ flattened into ternaries);
 - calls an `= implicit()` function without passing its instance argument

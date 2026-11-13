@@ -30,7 +30,7 @@ import {
   type MemberMethodResolver,
   extractMethodsFromObjectLiteral,
   registerInstanceMethodsFromAST,
-  methodDependsOnReceiver,
+  methodDependsOnReceiverExceptAsync,
 } from "./specialize.js";
 import { findInstanceInScopeByName } from "./instance-resolver.js";
 
@@ -732,7 +732,9 @@ function isSafeToInlineMethod(
   allowModuleScopeOf: ts.SourceFile | undefined,
   onCheckerFailure?: InliningCheckerFailure
 ): MethodInlineSymbols | undefined {
-  if (methodDependsOnReceiver(methodNode)) return undefined;
+  // An `async` method is kept: only the statement inliner takes it (into an
+  // `async` caller), and inlineMethod declines it on its own check.
+  if (methodDependsOnReceiverExceptAsync(methodNode)) return undefined;
 
   let safe = true;
   const freeSymbols = new Map<string, ts.Symbol>();
