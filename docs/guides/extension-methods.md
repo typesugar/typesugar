@@ -95,7 +95,7 @@ without the opt-in any imported helper object would quietly take over calls that
 typos. The tag covers every name the import declaration binds, so keep extension objects in
 an import of their own. It works on named and default imports; `import * as X` needs none (the namespace
 import is the opt-in), and neither does a typeclass instance declared with an `/** @impl */` tag
-or a `@derive` companion (it supplies its methods for its own type). An instance made by an
+(it supplies its methods for its own type). An instance made by an
 `impl(...)` or `derived<TC<T>>()` call does need the tag: a published `.d.ts` shows it as a plain
 `TC<T>` value, so it would otherwise work from source and stop working from `dist/`.
 `"use extension"`, an `@extension` namespace and `registerExtensions()` in the providing module
@@ -237,7 +237,7 @@ When the transformer encounters `value.method()`:
 1. **Native property**: If `value` has a property `method`, use it
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
-4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported `@impl` instances and `@derive` companions, whose first parameter accepts the receiver
+4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported `@impl` instances, whose first parameter accepts the receiver
 5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` or `derived<TC<T>>()` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.

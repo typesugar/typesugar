@@ -95,8 +95,7 @@ An imported object or namespace member is an extension provider only if:
 - **(b)** it comes through `import * as X` (already the documented opt-in: the namespace
   import is itself the statement "I want this module's functions"); or
 - **(c)** it is declared as a typeclass instance in a form a published `.d.ts` keeps: an
-  `@impl`/`@instance` JSDoc tag, or a `@derive` companion (`Point.Eq`), for receivers of
-  its own type (`instancesServeReceiver`; the identity check is unchanged). An instance
+  `@impl`/`@instance` JSDoc tag, for receivers of its own type (`instancesServeReceiver`; the identity check is unchanged). An instance
   exists to supply its methods, so it needs no tag. An instance made by an `impl(...)` or
   `derived<TC<T>>()` call needs the tag: declaration emit erases the call, and the `.d.ts`
   shows a plain `TC<T>` annotation, so it would supply methods from source and not from

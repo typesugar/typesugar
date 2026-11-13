@@ -303,6 +303,7 @@ export {
   hasExtensionImportTag,
   isRegistryExtensionCalleeBound,
   isImportExtensionInScopeAt,
+  extensionCallReturnType,
   extensionImportUses,
   chooseExtensionMatch,
   importClauseBindings,

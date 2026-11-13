@@ -334,9 +334,41 @@ const user = { id: 1 };
 function f() {
   const log = { other: 1 };
   const shout = 2;
-  return [user.info(), "hi".shout(), log, shout];
+  const a = user.info();
+  const b = "hi".shout();
+  return [a, b, log, shout];
 }
 console.log(f(), user.info(), "x".shout());
+`,
+      // A property read is not a call: the rewrite leaves it.
+      "src/p1.ts": `/** @extension */
+import { log } from "./logger.js";
+const user = { id: 1, infos: 2 };
+const read = user.info;
+console.log(read, user.info());
+`,
+      // Typeclass method sugar in a scope opted out of extensions.
+      "src/m1.ts": `import { Eq } from "@typesugar/std";
+import "@typesugar/std/syntax/eq/ops";
+/** @derive(Eq) */
+export interface Point { x: number }
+const a: Point = { x: 1 };
+const b: Point = { x: 1 };
+function f() {
+  "use no typesugar extensions";
+  return a.equals(b);
+}
+console.log(a.equals(b), f());
+`,
+      // An @extension function registered by another file is not the global
+      // of the same name in a file that doesn't import it.
+      "src/esc-ext.ts": `export interface Html { s: string }
+/** @extension */
+export function escape(h: Html): string { return h.s.replace(/</g, "&lt;"); }
+`,
+      "src/esc.ts": `import type { Html } from "./esc-ext.js";
+const h: Html = { s: "<b>" };
+console.log(h.escape());
 `,
       // A registry entry for an imported object (registerExtensions), untagged.
       "src/ns.ts": `export const NumberExt = { clampTo(n: number, hi: number): number { return Math.min(hi, n); } };\n`,
@@ -364,17 +396,24 @@ console.log(user.info());
     ["i1", 4, "an untagged impl(...) instance"],
     ["o1", 6, "a call in a scope opted out of extensions"],
     ["s1", 8, "an object import shadowed by a local"],
-    ["s1", 8, "a function import shadowed by a local"],
+    ["s1", 9, "a function import shadowed by a local"],
+    ["p1", 4, "a property read, not a call (TS2551)"],
+    ["m1", 9, "typeclass method sugar opted out of extensions"],
+    ["esc", 3, "a registered function not in scope (a global of that name is)"],
     ["n1", 4, "an untagged import registered with registerExtensions"],
   ])("%s.ts line %i: %s is reported (TS2339)", (file, line) => {
-    expect(check).toMatch(new RegExp(`${file}\\.ts\\(${line},\\d+\\): error TS2339`));
+    expect(check).toMatch(new RegExp(`${file}\\.ts\\(${line},\\d+\\): error TS(2339|2551)`));
   });
 
   it("the unshadowed and opted-in calls are rewritten, and the build output runs", () => {
     expect(check).not.toMatch(/o1\.ts\(8,\d+\): error/);
-    expect(check).not.toMatch(/s1\.ts\(10,\d+\): error/);
+    expect(check).not.toMatch(/s1\.ts\(12,\d+\): error/);
+    expect(check).not.toMatch(/p1\.ts\(5,\d+\): error/);
+    expect(check).not.toMatch(/m1\.ts\(11,\d+\): error/);
     expect(check).not.toMatch(/d1\.ts\(\d+,\d+\): error/);
     cli(dir, "build");
+    const esc = fs.readFileSync(path.join(dir, "out", "esc.js"), "utf-8");
+    expect(esc).toContain("h.escape()");
     const d1 = fs.readFileSync(path.join(dir, "out", "d1.js"), "utf-8");
     expect(d1).toContain("log.info(user)");
     const r = run(dir, "d1.js");
@@ -453,6 +492,21 @@ console.log(JSON.stringify((1).to(5).rev()));
 `,
         // A receiver that is a variable bound to an extension call: the
         // rewrite recovers its type (Pair), so RevOps serves it, StrOps not.
+        // An overloaded provider: its overload for the receiver gives the type.
+        "src/over.ts": `import type { Pair } from "./pairs.js";
+function to(n: number, m: number): Pair;
+function to(s: string): string;
+function to(a: number | string, m?: number): Pair | string {
+  return typeof a === "string" ? a : { a, b: m ?? 0 };
+}
+export const OverOps = { to };
+`,
+        "src/overuse.ts": `/** @extension */
+import { OverOps } from "./over.js";
+/** @extension */
+import { RevOps } from "./pairs.js";
+console.log(JSON.stringify((1).to(5).rev()));
+`,
         "src/strs.ts": `export const StrOps = { rev(s: string): string { return [...s].reverse().join(""); } };\n`,
         "src/var.ts": `/** @extension */
 import { MkOps } from "./pairs.js";
@@ -504,6 +558,10 @@ export const f = () => ({ id: 1 }).info();
     const r = run(dir, "var.js");
     expect(r.status, r.output).toBe(0);
     expect(r.output).toBe('{"a":5,"b":1}\n');
+  });
+
+  it("an overloaded provider in a chain: the next provider is used", () => {
+    expect(check).not.toMatch(/overuse\.ts\(\d+,\d+\)/);
   });
 
   it("the same export reached two ways: the unused namespace import is reported", () => {

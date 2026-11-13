@@ -26,6 +26,7 @@ import {
   isNullOrUndefinedExpr,
   type OperatorChainHooks,
   isRegistryExtensionCalleeBound,
+  extensionCallReturnType,
 } from "@typesugar/macros";
 
 import {
@@ -516,26 +517,14 @@ function inferExtensionCallType(
       .getSymbolsInScope(call, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
       .find((s) => s.getName() === rootName);
     if (!sym) return undefined;
-    let calleeType = checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), call);
-    if (ext.qualifier) {
-      const prop = calleeType.getProperty(ext.methodName);
-      if (!prop) return undefined;
-      calleeType = checker.getTypeOfSymbolAtLocation(prop, call);
-    }
-    const sigs = calleeType
-      .getCallSignatures()
-      .filter((s) => receiverMatchesFirstParam(checker, innerType, s, call));
-    // Prefer a non-generic overload. A generic one (`EffectExt.map<A, E, B>
-    // (self: Effect<A, E>, ...): Effect<B, E>`) cannot be instantiated through
-    // the public checker API, so its return type keeps the signature's own
-    // type parameters (`Effect<B, E>`). That is still enough to pick the NEXT
-    // extension in a chain (`.flatMap`), whose first-parameter match treats
-    // type parameters as wildcards; a bare type-parameter return (`A`) is not.
-    const sig = sigs.find((s) => !s.getTypeParameters()?.length) ?? sigs[0];
-    if (!sig) return undefined;
-    const ret = checker.getReturnTypeOfSignature(sig);
-    if (ret.flags & ts.TypeFlags.TypeParameter) return undefined;
-    return ctx.isTypeReliable(ret) ? ret : undefined;
+    // The overload choice is shared with the ExtensionImport rule.
+    return extensionCallReturnType(
+      checker,
+      call,
+      ext,
+      checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), call),
+      innerType
+    );
   } catch (error) {
     ctx.reportWarning(
       call,

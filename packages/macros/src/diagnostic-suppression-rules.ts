@@ -117,6 +117,11 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
       // Verify the property name matches what the diagnostic reports
       if (propAccess.name.text !== propertyName) return false;
 
+      // The rewrite handles calls only: a property read (`const f = user.info`)
+      // is left as written, so its error stands.
+      const call = propAccess.parent;
+      if (!ts.isCallExpression(call) || call.expression !== propAccess) return false;
+
       return isRewrittenMethodCall(propAccess, checker, sourceFile, context);
     },
   };
@@ -147,23 +152,28 @@ function isRewrittenMethodCall(
 
   const typeName = checker.typeToString(receiverType);
 
-  // The rewrite skips both extension paths in a scope opted out of
-  // extensions ("use no typesugar extensions"), so the TS2339 stands there.
-  const extensionsOff = isInOptedOutScope(
-    sourceFile,
-    propAccess,
-    extensionScopeTracker(sourceFile, context?.program),
-    "extensions"
-  );
+  // The rewrite skips extension functions and typeclass method sugar in a
+  // scope opted out of extensions ("use no typesugar extensions"; rewriting.ts
+  // checkMethodCallDispatchGuards, method-sugar.ts tryResolveTypeclassMethod),
+  // so the TS2339 stands there.
+  if (
+    isInOptedOutScope(
+      sourceFile,
+      propAccess,
+      extensionScopeTracker(sourceFile, context?.program),
+      "extensions"
+    )
+  ) {
+    return false;
+  }
 
   // 1. Check standalone extension registry (from registerExtensions / @extension)
-  if (!extensionsOff && findInRegistry(propertyName, typeName, receiverType, checker, propAccess)) {
+  if (findInRegistry(propertyName, typeName, receiverType, checker, propAccess)) {
     return true;
   }
 
   // 2. Import-scoped resolution: scan imports for a matching function
   if (
-    !extensionsOff &&
     resolveExtensionFromImports(
       sourceFile,
       propertyName,
@@ -736,13 +746,14 @@ function findInRegistry(
   checker: ts.TypeChecker,
   propAccess: ts.PropertyAccessExpression
 ): boolean {
+  // The registry is keyed by printed type name (`forType`), and the rewrite
+  // looks it up by printed name the same way; matching it by identity is the
+  // registry's own change (PEP-062 Wave 11), not this rule's.
   const names = [typeName];
   try {
     names.push(checker.typeToString(checker.getBaseTypeOfLiteralType(receiverType)));
   } catch (e) {
-    if (isDiagnosticSuppressionAuditEnabled()) {
-      console.error(`[DiagnosticSuppression] findInRegistry: ${e}`);
-    }
+    reportCheckerFailure("ExtensionMethodCall", `widening a literal receiver failed: ${e}`);
   }
   // Strip generics: Array<number> → Array
   names.push(typeName.replace(/<.*>$/, ""));
