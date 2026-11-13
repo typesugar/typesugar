@@ -133,6 +133,7 @@ export {
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
   inlineMethod,
+  inlineMethodAsStatements,
   collectMethodFreeNames,
   collectMethodLocalBindings,
   forEachMethodFreeReference,

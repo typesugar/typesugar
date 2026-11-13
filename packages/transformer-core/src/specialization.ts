@@ -18,6 +18,7 @@ import {
   classifyInlineFailureDetailed,
   getInlineFailureHelp,
   inlineMethod,
+  inlineMethodAsStatements,
   getResultAlgebra,
   analyzeForFlattening,
   flattenReturnsToExpression,
@@ -989,9 +990,56 @@ export function rewriteDictCallsForAutoSpec(
   node: ts.Node,
   dictParamMap: Map<string, DictMethodMap>,
   /** The call site the specialization is for: where inlined type names must resolve. */
-  location?: ts.Node
+  location?: ts.Node,
+  /**
+   * The function `node` is the body of: the names it binds and whether it is
+   * `async`. Given, `return D.m(...)` whose method body can't become an
+   * expression is inlined as statements (see inlineMethodAsStatements).
+   */
+  enclosing?: { bindings: ReadonlySet<string>; async: boolean }
 ): ts.Node {
+  /** `return D.m(args)` as `m`'s statements, or undefined to leave it to the expression path. */
+  function inlineReturnedCall(ret: ts.ReturnStatement): ts.Block | undefined {
+    if (!enclosing || !ret.expression) return undefined;
+    let call: ts.Expression = ret.expression;
+    while (ts.isParenthesizedExpression(call)) call = call.expression;
+    if (
+      !ts.isCallExpression(call) ||
+      !ts.isPropertyAccessExpression(call.expression) ||
+      !ts.isIdentifier(call.expression.expression)
+    ) {
+      return undefined;
+    }
+    const method = dictParamMap
+      .get(call.expression.expression.text)
+      ?.methods.get(call.expression.name.text);
+    // The expression inliner goes first; this is only for what it declines.
+    if (!method || inlineMethod(ctx, method, Array.from(call.arguments))) return undefined;
+    const statements = inlineMethodAsStatements(ctx, method, call.arguments, enclosing);
+    if (!statements) return undefined;
+    // Type names in the body are re-expressed for the call site the same way
+    // as an inlined expression's, through a throwaway arrow around them.
+    const f = ctx.factory;
+    const wrapped = f.createArrowFunction(
+      undefined,
+      undefined,
+      [],
+      undefined,
+      f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      f.createBlock(statements, true)
+    );
+    const reexpressed = reexpressInlinedTypes(ctx, wrapped, method, location, call)?.expr;
+    if (!reexpressed || !ts.isArrowFunction(reexpressed) || !ts.isBlock(reexpressed.body)) {
+      return undefined;
+    }
+    return preserveSourceMap(f.createBlock(reexpressed.body.statements, true), ret);
+  }
+
   function visit(n: ts.Node): ts.Node {
+    if (ts.isReturnStatement(n)) {
+      const block = inlineReturnedCall(n);
+      if (block) return ts.visitEachChild(block, visit, ctx.transformContext);
+    }
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
@@ -1027,6 +1075,25 @@ export function rewriteDictCallsForAutoSpec(
   }
 
   return ts.visitNode(node, visit) as ts.Node;
+}
+
+/** Is any dictionary parameter still referenced in `node`? */
+function dictParamStillUsed(node: ts.Node, dictParamMap: Map<string, DictMethodMap>): boolean {
+  let used = false;
+  const scan = (n: ts.Node): void => {
+    if (used) return;
+    if (ts.isIdentifier(n) && dictParamMap.has(n.text)) {
+      used = true;
+      return;
+    }
+    if (ts.isPropertyAccessExpression(n)) {
+      scan(n.expression);
+      return;
+    }
+    ts.forEachChild(n, scan);
+  };
+  scan(node);
+  return used;
 }
 
 // ---------------------------------------------------------------------------
@@ -1077,7 +1144,26 @@ export function inlineAutoSpecializeForHoisting(
   for (const p of params) if (p.initializer) collectBindingNames(p.initializer, bound);
   for (const name of dictParamMap.keys()) if (bound.has(name)) return undefined;
 
-  const specializedBody = rewriteDictCallsForAutoSpec(ctx, body, dictParamMap, location);
+  const enclosingBindings = new Set<string>();
+  collectBindingNames(body, enclosingBindings);
+  for (const p of params) collectBindingNames(p, enclosingBindings);
+  const enclosing = {
+    bindings: enclosingBindings,
+    async: !!fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+  };
+  let specializedBody = rewriteDictCallsForAutoSpec(
+    ctx,
+    body,
+    dictParamMap,
+    location,
+    ts.isBlock(body) ? enclosing : undefined
+  );
+  // A concise arrow body `=> D.m(...)` whose call the expression inliner
+  // declines is `{ return D.m(...); }` to the statement inliner.
+  if (!ts.isBlock(body) && dictParamStillUsed(specializedBody, dictParamMap)) {
+    const asBlock = ctx.factory.createBlock([ctx.factory.createReturnStatement(body)], true);
+    specializedBody = rewriteDictCallsForAutoSpec(ctx, asBlock, dictParamMap, location, enclosing);
+  }
 
   // Collect type parameter names that become unresolvable once stripped
   const fnTypeParamNames = new Set<string>();

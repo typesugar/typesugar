@@ -1143,6 +1143,29 @@ export function collectMethodLocalBindings(methodNode: ts.Node): Set<string> {
 }
 
 /**
+ * Like {@link methodDependsOnReceiver}, but an `async` method that awaits is
+ * accepted: its body can still move into an `async` function that returns
+ * its result (inlineMethodAsStatements); the expression inliner keeps
+ * declining it through methodDependsOnReceiver.
+ */
+export function methodDependsOnReceiverExceptAsync(methodNode: ts.Node): boolean {
+  const fn = asInlineableFunction(methodNode);
+  if (!fn) return true;
+  if (fn.asteriskToken) return true;
+  const isAsync = !!fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+  let depends = false;
+  const hooks: WalkHooks = {
+    receiver: () => (depends = true),
+    suspend: () => {
+      if (!isAsync) depends = true;
+    },
+  };
+  for (const p of fn.parameters) walkNode(p, TOP_LEVEL_STATE, hooks);
+  if (fn.body) walkNode(fn.body, TOP_LEVEL_STATE, hooks);
+  return depends;
+}
+
+/**
  * Does this method body depend on its receiver/activation (`this`, `super`,
  * `arguments`, `new.target`, own `await`/`yield`), or is it async/a
  * generator? Such bodies change meaning when moved to a call site (tc#2).
@@ -1801,11 +1824,49 @@ function substituteParamRefs(
     return needsParens(node) ? f.createParenthesizedExpression(node) : node;
   };
 
+  // `body()` where `body` is bound to `() => <expr>` and read nowhere else
+  // becomes `(<expr>)`: calling a parameterless, non-async arrow evaluates
+  // its expression right there, with the same lexical `this` and
+  // `arguments`, so this is the call itself without the closure.
+  let refCounts: Map<string, number> | undefined;
+  const thunkBody = (i: number): ts.Expression | undefined => {
+    const arg = unwrapParens(callArgs[i]);
+    if (
+      !ts.isArrowFunction(arg) ||
+      arg.parameters.length > 0 ||
+      arg.typeParameters ||
+      arg.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) ||
+      ts.isBlock(arg.body)
+    ) {
+      return undefined;
+    }
+    if (!refCounts) {
+      refCounts = new Map();
+      const counts = refCounts;
+      walkNode(node, TOP_LEVEL_STATE, {
+        ref: (id) => counts.set(id.text, (counts.get(id.text) ?? 0) + 1),
+      });
+    }
+    if (refCounts.get(names[i]) !== 1) return undefined;
+    const expr = cloneNodeDeep(arg.body);
+    return needsParens(expr) ? f.createParenthesizedExpression(expr) : expr;
+  };
+
   const visit = (n: ts.Node): ts.Node => {
     if (ts.isTypeNode(n) || ts.isQualifiedName(n)) return n;
     if (ts.isIdentifier(n)) {
       const i = index.get(n.text);
       return i === undefined ? n : replacement(i);
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      !n.questionDotToken &&
+      n.arguments.length === 0
+    ) {
+      const i = index.get(n.expression.text);
+      const reduced = i === undefined ? undefined : thunkBody(i);
+      if (reduced) return reduced;
     }
     if (ts.isPropertyAccessExpression(n)) {
       const expr = visit(n.expression) as ts.Expression;
@@ -1900,6 +1961,175 @@ export function inlineMethod(
 ): ts.Expression | undefined {
   if (!method.node) return undefined;
   return inlineFromNode(ctx, method.node, callArgs, options);
+}
+
+/**
+ * Inline `return D.m(args)` as the statements of `m`'s block body, for a
+ * body the expression inliner can't take (a `try`/`finally`, a loop, several
+ * statements before the return). Every `return` in the body is then a return
+ * of the enclosing function, which is what `return D.m(args)` did with `m`'s
+ * result; a body that can finish without returning gets a trailing
+ * `return;`, which is the `undefined` the call would have returned.
+ *
+ * This is how around-advice written as a typeclass instance becomes zero
+ * cost: `T.around("get", () => repo.get(id))` with `around: (op, body) => {
+ * const t0 = now(); try { return body(); } finally { log(op, now() - t0); } }`
+ * inlines to the `try`/`finally` with `repo.get(id)` in place of `body()`.
+ *
+ * Parameters are bound in order: a literal or a parameterless arrow is
+ * substituted (an arrow called once is beta-reduced, see
+ * substituteParamRefs); anything else is evaluated once into a fresh
+ * `const`, before the body, as the call evaluated its arguments. Every name
+ * the body declares gets a fresh name too, so it can't capture a name the
+ * arguments use. `enclosingBindings` are the names bound in the function the
+ * statements land in: a body free name among them would be captured, so
+ * that declines.
+ *
+ * Declines (undefined, keep the dictionary call) for a body that uses its
+ * receiver or `arguments`, a generator, an `async` method unless
+ * `enclosingAsync`, labels, destructuring, classes, default/rest/destructured
+ * parameters, an assigned parameter, or an argument count that doesn't match.
+ */
+export function inlineMethodAsStatements(
+  ctx: MacroContext,
+  method: DictMethod,
+  callArgs: readonly ts.Expression[],
+  enclosing: { bindings: ReadonlySet<string>; async: boolean }
+): ts.Statement[] | undefined {
+  const fn = method.node ? asInlineableFunction(method.node) : undefined;
+  if (!fn || !fn.body || !ts.isBlock(fn.body) || fn.asteriskToken) return undefined;
+  if (typeof (ctx as Partial<MacroContext>).generateUniqueName !== "function") return undefined;
+  const isAsync = !!fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+  if (isAsync && !enclosing.async) return undefined;
+
+  const names: string[] = [];
+  for (const p of fn.parameters) {
+    if (!ts.isIdentifier(p.name) || p.initializer || p.dotDotDotToken || isThisParameter(p)) {
+      return undefined;
+    }
+    names.push(p.name.text);
+  }
+  if (callArgs.length !== names.length || callArgs.some((a) => ts.isSpreadElement(a))) {
+    return undefined;
+  }
+
+  // Receiver, own `await` outside an async method, assigned parameters,
+  // classes: none of these survive the move.
+  let unsafe = false;
+  const paramSet = new Set(names);
+  walkNode(fn.body, TOP_LEVEL_STATE, {
+    receiver: () => (unsafe = true),
+    suspend: () => {
+      if (!isAsync) unsafe = true;
+    },
+    unsupported: () => (unsafe = true),
+    ref: (id, _st, isWrite) => {
+      if (isWrite && paramSet.has(id.text)) unsafe = true;
+    },
+  });
+  if (unsafe) return undefined;
+  let structural = false;
+  const scan = (n: ts.Node): void => {
+    if (ts.isLabeledStatement(n) || ts.isObjectBindingPattern(n) || ts.isArrayBindingPattern(n)) {
+      structural = true;
+      return;
+    }
+    ts.forEachChild(n, scan);
+  };
+  scan(fn.body);
+  if (structural) return undefined;
+
+  const locals = collectMethodLocalBindings(fn);
+  for (const n of names) locals.delete(n);
+  const free = collectMethodFreeNames(fn);
+  for (const name of free) {
+    // Locals are renamed by text, so a name the body both declares and reads
+    // from outside (the checker recorded it as free where the method is
+    // defined) can't be renamed consistently; a free name the enclosing
+    // function binds would be captured once the statements land in it.
+    if (locals.has(name)) {
+      if (method.freeSymbols?.has(name)) return undefined;
+    } else if (enclosing.bindings.has(name)) {
+      return undefined;
+    }
+  }
+
+  const f = ctx.factory;
+  const consts: ts.Statement[] = [];
+  const subNames: string[] = [];
+  const subArgs: ts.Expression[] = [];
+  names.forEach((name, i) => {
+    const arg = callArgs[i];
+    const cls = classifyArgument(arg);
+    const e = unwrapParens(arg);
+    const thunk =
+      ts.isArrowFunction(e) &&
+      e.parameters.length === 0 &&
+      !e.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+    subNames.push(name);
+    if (cls === "literal" || thunk) {
+      subArgs.push(arg);
+      return;
+    }
+    const fresh = ctx.generateUniqueName(name);
+    consts.push(
+      f.createVariableStatement(
+        undefined,
+        f.createVariableDeclarationList(
+          [f.createVariableDeclaration(fresh, undefined, undefined, cloneNodeDeep(e))],
+          ts.NodeFlags.Const
+        )
+      )
+    );
+    subArgs.push(f.createIdentifier(fresh.text));
+  });
+  for (const local of locals) {
+    subNames.push(local);
+    subArgs.push(f.createIdentifier(ctx.generateUniqueName(local).text));
+  }
+
+  const body = substituteParamRefs(
+    ctx,
+    stripCommentsDeep(cloneNodeDeep(fn.body)),
+    subNames,
+    subArgs
+  ) as ts.Block;
+  // `return (expr);` from a substituted thunk: a return needs no parentheses.
+  const unparen = (n: ts.Node): ts.Node =>
+    ts.isReturnStatement(n) && n.expression && ts.isParenthesizedExpression(n.expression)
+      ? f.updateReturnStatement(n, n.expression.expression)
+      : ts.visitEachChild(n, unparen, ctx.transformContext);
+  const statements = [...consts, ...body.statements.map((st) => unparen(st) as ts.Statement)];
+  if (canCompleteNormally(body.statements)) statements.push(f.createReturnStatement());
+  return statements;
+}
+
+/**
+ * Can control reach the end of this statement list? Conservative: true
+ * unless it ends in a `return`/`throw`, a block that can't complete, an `if`
+ * whose branches both can't, or a `try` whose `try` and `catch` can't (or
+ * whose `finally` can't).
+ */
+function canCompleteNormally(statements: readonly ts.Statement[]): boolean {
+  const last = statements[statements.length - 1];
+  if (!last) return true;
+  if (ts.isReturnStatement(last) || ts.isThrowStatement(last)) return false;
+  if (ts.isBlock(last)) return canCompleteNormally(last.statements);
+  if (ts.isIfStatement(last)) {
+    return (
+      !last.elseStatement ||
+      canCompleteNormally([last.thenStatement]) ||
+      canCompleteNormally([last.elseStatement])
+    );
+  }
+  if (ts.isTryStatement(last)) {
+    if (last.finallyBlock && !canCompleteNormally(last.finallyBlock.statements)) return false;
+    return (
+      canCompleteNormally(last.tryBlock.statements) ||
+      (!!last.catchClause && canCompleteNormally(last.catchClause.block.statements))
+    );
+  }
+  return true;
 }
 
 /** How {@link inlineMethod} may bind a value it must not compute twice. */
