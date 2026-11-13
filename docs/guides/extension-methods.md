@@ -190,7 +190,7 @@ import {
 (1).to(10).filter((n) => n % 2 === 0); // [2, 4, 6, 8, 10]
 ```
 
-A `Range` is a plain `{ start, end, step, inclusive }` object, so it doesn't allocate an array
+A `Range` is a plain `{ start, end, stride, inclusive }` object, so it doesn't allocate an array
 until you call `.toArray()`, `.map()` or `.filter()`. It is not iterable: use `.forEach()` or
 `.toArray()` rather than `for...of`.
 

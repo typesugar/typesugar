@@ -497,7 +497,7 @@ export function toCompact(n: number): string {
  * (1).to(5).contains(3)        // true
  */
 export function to(n: number, end: number): Range {
-  return { start: n, end, step: 1, inclusive: true };
+  return { start: n, end, stride: 1, inclusive: true };
 }
 
 /**
@@ -510,7 +510,7 @@ export function to(n: number, end: number): Range {
  * (0).until(arr.length)           // common pattern for array indices
  */
 export function until(n: number, end: number): Range {
-  return { start: n, end, step: 1, inclusive: false };
+  return { start: n, end, stride: 1, inclusive: false };
 }
 
 export function times<T>(n: number, fn: (i: number) => T): T[] {

@@ -22,8 +22,16 @@ import {
   reduce,
   contains,
 } from "../src/extensions/range.js";
+import * as rangeMethods from "../src/extensions/range.js";
 
 describe("Range Extension Methods", () => {
+  // A field named after a method hides the method from the type checker:
+  // while the field was `step`, `(0).to(10).step(2)` was TS2349 (not callable).
+  it("no Range field shares a name with a Range extension method", () => {
+    const methods = new Set(Object.keys(rangeMethods));
+    expect(Object.keys(step(to(0, 10), 2)).filter((field) => methods.has(field))).toEqual([]);
+  });
+
   // ==========================================================================
   // to() and until() on numbers
   // ==========================================================================
@@ -33,7 +41,7 @@ describe("Range Extension Methods", () => {
       const r = to(1, 5);
       expect(r.start).toBe(1);
       expect(r.end).toBe(5);
-      expect(r.step).toBe(1);
+      expect(r.stride).toBe(1);
       expect(r.inclusive).toBe(true);
     });
 
@@ -55,7 +63,7 @@ describe("Range Extension Methods", () => {
       const r = until(1, 5);
       expect(r.start).toBe(1);
       expect(r.end).toBe(5);
-      expect(r.step).toBe(1);
+      expect(r.stride).toBe(1);
       expect(r.inclusive).toBe(false);
     });
 
@@ -76,7 +84,7 @@ describe("Range Extension Methods", () => {
   describe("step()", () => {
     it("sets step on a range", () => {
       const r = step(to(1, 10), 2);
-      expect(r.step).toBe(2);
+      expect(r.stride).toBe(2);
       expect(toArray(r)).toEqual([1, 3, 5, 7, 9]);
     });
 

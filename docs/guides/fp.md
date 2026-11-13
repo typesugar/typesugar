@@ -255,9 +255,9 @@ Add to your library's `package.json`:
 
 ## Eq and Ord
 
-`@typesugar/fp`'s `Eq` and `Ord` have the same members as `@typesugar/std`'s: `equals` and
-`notEquals`, `compare`, and `lessThan`/`lessThanOrEqual`/`greaterThan`/`greaterThanOrEqual`,
-so an instance of one works with the other's combinators. The combinators live in the `EqOps`
+`@typesugar/fp` exports `@typesugar/std`'s `Eq`, `Ord` and `Ordering` types: `equals` and
+`notEquals`, `compare`, and `lessThan`/`lessThanOrEqual`/`greaterThan`/`greaterThanOrEqual`. An
+fp instance is a std instance, so it works with either package's combinators. The combinators live in the `EqOps`
 namespace of `@typesugar/fp/typeclasses`; `eqBy` and `ordBy` take the projection first, as in std.
 Every data type has `getEq`/`getOrd` (`getOptionEq`, `getEitherOrd`, …).
 
