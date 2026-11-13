@@ -209,7 +209,14 @@ export function tryResolveTypeclassMethod(
     // Resolve the instance purely from scope (PEP-052): an imported/local
     // `@impl`/`@instance` value, or a `@derive(TC)` companion on the receiver's
     // type. No process-global instance registry.
-    let inst = resolveMethodSugarInstance(ctx, instanceSideType, typeName, baseTypeName, typeclass);
+    let inst = resolveMethodSugarInstance(
+      ctx,
+      node,
+      instanceSideType,
+      typeName,
+      baseTypeName,
+      typeclass
+    );
     // A literal receiver -- `(7).show()`, `const n = 3; n.show()`, `"s".show()`
     // -- is typed as its literal type (`7`), which no `@impl Show<number>`
     // is declared for: retry with its base type (`number`), widened by the
@@ -219,6 +226,7 @@ export function tryResolveTypeclassMethod(
       const widenedName = ctx.typeChecker.typeToString(widened);
       inst = resolveMethodSugarInstance(
         ctx,
+        node,
         widened,
         widenedName,
         stripTypeArguments(widenedName),
@@ -443,6 +451,8 @@ function staticCompanionReceiver(
  */
 function resolveMethodSugarInstance(
   ctx: MacroContextImpl,
+  /** The sugared call: where an ambiguity or resolver failure is reported. */
+  callNode: ts.CallExpression,
   receiverType: ts.Type,
   typeName: string,
   baseTypeName: string,
@@ -467,7 +477,7 @@ function resolveMethodSugarInstance(
       // Two distinct in-scope instances for the same typeclass/type -- surface it
       // rather than silently falling through to a companion or no-op.
       ctx.reportError(
-        ctx.sourceFile,
+        callNode,
         `Ambiguous ${typeclass} instance for '${typeName}': ` +
           `${r.candidates.map((c) => c.exportName).join(", ")}. ` +
           `Import exactly one to disambiguate.`
@@ -477,7 +487,7 @@ function resolveMethodSugarInstance(
   } catch (error) {
     // Fall through to companion detection, but leave a visible trace.
     ctx.reportWarning(
-      ctx.sourceFile,
+      callNode,
       `typesugar could not resolve a ${typeclass} instance for '${typeName}' (${error}); ` +
         `only a @derive(${typeclass}) companion will be considered for method sugar.`
     );

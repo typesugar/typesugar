@@ -822,8 +822,46 @@ export function resolveSymbolToMacro(
 }
 
 /**
- * Resolve an identifier to a macro definition via import tracking.
+ * Does `node` name the user's OWN implementation — a function, class or
+ * initialized variable declared in a source file of the program, reached
+ * without an import? Such a name is never a macro, so a caller must not
+ * fall back to a bare-name registry lookup for it: a local
+ * `function reflect(t) {…}` used as `@reflect` is the user's decorator, not
+ * the `reflect` macro (arch review 2026-11 B2).
+ *
+ * Ambient declarations (`declare function derive(…)`, a `.d.ts`) are NOT
+ * implementations: they are how a file types a macro name it doesn't import,
+ * so they keep the fallback. A synthetic node, or one outside the program's
+ * own copy of the file, is outside the checker's contract (CLAUDE.md) and
+ * answers false.
  */
+export function isLocalImplementationName(
+  typeChecker: ts.TypeChecker,
+  program: ts.Program,
+  node: ts.Node
+): boolean {
+  if (isSyntheticNode(node) || !isNodeInProgram(program, node)) return false;
+  let symbol: ts.Symbol | undefined;
+  try {
+    symbol = typeChecker.getSymbolAtLocation(node);
+  } catch {
+    return false;
+  }
+  if (!symbol || symbol.flags & ts.SymbolFlags.Alias) return false;
+  const declarations = symbol.getDeclarations();
+  if (!declarations || declarations.length === 0) return false;
+  return declarations.some((decl) => {
+    if (decl.getSourceFile().isDeclarationFile) return false;
+    if (ts.getCombinedModifierFlags(decl as ts.Declaration) & ts.ModifierFlags.Ambient)
+      return false;
+    return (
+      (ts.isFunctionDeclaration(decl) && decl.body !== undefined) ||
+      ts.isClassDeclaration(decl) ||
+      (ts.isVariableDeclaration(decl) && decl.initializer !== undefined)
+    );
+  });
+}
+
 /**
  * Per program, per SourceFile: is the file the program's own copy? Keyed by
  * program too: a SourceFile object is reused across programs (watch mode and

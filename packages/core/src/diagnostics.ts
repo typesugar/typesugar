@@ -1081,6 +1081,10 @@ plain labeled statement — which almost certainly does not do what the block
 was written to do (do-notation binds like \`x << effect()\` become bit-shift
 expressions; contract blocks become dead code).
 
+The same applies to a comprehension in expression position
+(\`const f = (x) => par: { ... } yield: { ... }\`): without activation it is
+not rewritten, and TypeScript reports a syntax error there.
+
 Activate the syntax with a side-effect import of the macro's syntax module,
 e.g.:
 
@@ -1345,6 +1349,8 @@ Reasons:
 - The instance is only visible as a declaration (it comes from a package's
   .d.ts, passed explicitly or found by = implicit()), so its method bodies
   can't be inlined. For a hot path, declare the instance in your own source.
+- The function is imported: only a function declared in the same file is
+  specialized, since its body could use helpers private to its own module.
 - The function body can't be resolved: declare the function as a const arrow
   function or a named function.
 - The body can't be inlined as an expression: a loop, try/catch, a throw,

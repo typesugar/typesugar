@@ -629,6 +629,7 @@ export function transformImplicitsCall(
 export const summonAllMacro = defineExpressionMacro({
   name: "summonAll",
   module: "typesugar",
+  optOutFeature: "typeclasses",
   description: "Summon multiple typeclass instances as a tuple",
   // Resolves instances from THIS file's scope — never reuse another file's expansion.
   cacheable: false,
