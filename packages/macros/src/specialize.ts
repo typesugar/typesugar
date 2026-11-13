@@ -1840,6 +1840,11 @@ function substituteParamRefs(
     ) {
       return undefined;
     }
+    // The arrow's `this`/`arguments` are the caller's: moved into a nested
+    // `function` of the body they would be that function's.
+    let lexical = false;
+    walkNode(arg.body, TOP_LEVEL_STATE, { receiver: () => (lexical = true) });
+    if (lexical) return undefined;
     if (!refCounts) {
       refCounts = new Map();
       const counts = refCounts;
@@ -1852,17 +1857,25 @@ function substituteParamRefs(
     return needsParens(expr) ? f.createParenthesizedExpression(expr) : expr;
   };
 
+  // A `body()` whose value is itself called (`body()()`, a tag, `new`) or
+  // deleted keeps its call: reduced to `o.m`, the outer call would bind
+  // `this` to `o`, and `delete o.m` would delete it.
+  const keepCall = new Set<ts.Node>();
   const visit = (n: ts.Node): ts.Node => {
     if (ts.isTypeNode(n) || ts.isQualifiedName(n)) return n;
     if (ts.isIdentifier(n)) {
       const i = index.get(n.text);
       return i === undefined ? n : replacement(i);
     }
+    if (ts.isCallExpression(n) || ts.isNewExpression(n)) keepCall.add(unwrapParens(n.expression));
+    if (ts.isTaggedTemplateExpression(n)) keepCall.add(unwrapParens(n.tag));
+    if (ts.isDeleteExpression(n)) keepCall.add(unwrapParens(n.expression));
     if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
       !n.questionDotToken &&
-      n.arguments.length === 0
+      n.arguments.length === 0 &&
+      !keepCall.has(n)
     ) {
       const i = index.get(n.expression.text);
       const reduced = i === undefined ? undefined : thunkBody(i);
@@ -1976,31 +1989,41 @@ export function inlineMethod(
  * const t0 = now(); try { return body(); } finally { log(op, now() - t0); } }`
  * inlines to the `try`/`finally` with `repo.get(id)` in place of `body()`.
  *
- * Parameters are bound in order: a literal or a parameterless arrow is
- * substituted (an arrow called once is beta-reduced, see
- * substituteParamRefs); anything else is evaluated once into a fresh
- * `const`, before the body, as the call evaluated its arguments. Every name
- * the body declares gets a fresh name too, so it can't capture a name the
- * arguments use. `enclosingBindings` are the names bound in the function the
- * statements land in: a body free name among them would be captured, so
- * that declines.
+ * Arguments are evaluated once, in order, before the body, as the call
+ * evaluated them: a literal is substituted; a function argument is
+ * substituted only where every use of its parameter is one plain call (`p()`,
+ * at most one in the body), so neither its identity nor its name can be
+ * observed (a parameterless arrow called that way is beta-reduced, see
+ * substituteParamRefs); anything else goes into a fresh `const`, or nowhere
+ * when the body never reads it and it has no effect. Every name the body
+ * declares gets a fresh name, so it can't capture a name the arguments use.
+ * `enclosing.bindings` are the names bound in the function the statements
+ * land in: a body free name among them would be captured, so that declines.
+ *
+ * An `async` method's body goes into `return (async () => { ... })();` after
+ * the argument `const`s: exactly the call (synchronous argument errors,
+ * rejection for everything after, the same promise timing, and the caller's
+ * own `try` never sees the body's throws), minus the dictionary lookup, with
+ * the body's arguments substituted.
  *
  * Declines (undefined, keep the dictionary call) for a body that uses its
- * receiver or `arguments`, a generator, an `async` method unless
- * `enclosingAsync`, labels, destructuring, classes, default/rest/destructured
- * parameters, an assigned parameter, or an argument count that doesn't match.
+ * receiver or `arguments`, a generator, labels, destructuring, classes,
+ * default/rest/destructured parameters, a parameter that is assigned or
+ * redeclared inside the body, a function argument used other than by one
+ * plain call, a local named like a global (`undefined`), locals in a method
+ * with no recorded free-name symbols, or an argument count that doesn't
+ * match.
  */
 export function inlineMethodAsStatements(
   ctx: MacroContext,
   method: DictMethod,
   callArgs: readonly ts.Expression[],
-  enclosing: { bindings: ReadonlySet<string>; async: boolean }
+  enclosing: { bindings: ReadonlySet<string> }
 ): ts.Statement[] | undefined {
   const fn = method.node ? asInlineableFunction(method.node) : undefined;
   if (!fn || !fn.body || !ts.isBlock(fn.body) || fn.asteriskToken) return undefined;
   if (typeof (ctx as Partial<MacroContext>).generateUniqueName !== "function") return undefined;
   const isAsync = !!fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
-  if (isAsync && !enclosing.async) return undefined;
 
   const names: string[] = [];
   for (const p of fn.parameters) {
@@ -2013,10 +2036,12 @@ export function inlineMethodAsStatements(
     return undefined;
   }
 
-  // Receiver, own `await` outside an async method, assigned parameters,
-  // classes: none of these survive the move.
+  // Receiver, own `await` outside an async method, classes: none of these
+  // survive the move. Count each parameter's references, and those that are
+  // a plain call (`p()`, `p(x)`; not `p?.()`, not a tag, not `new p`).
   let unsafe = false;
   const paramSet = new Set(names);
+  const refs = new Map<string, number>();
   walkNode(fn.body, TOP_LEVEL_STATE, {
     receiver: () => (unsafe = true),
     suspend: () => {
@@ -2025,14 +2050,41 @@ export function inlineMethodAsStatements(
     unsupported: () => (unsafe = true),
     ref: (id, _st, isWrite) => {
       if (isWrite && paramSet.has(id.text)) unsafe = true;
+      refs.set(id.text, (refs.get(id.text) ?? 0) + 1);
     },
   });
   if (unsafe) return undefined;
+  const callRefs = new Map<string, number>();
   let structural = false;
   const scan = (n: ts.Node): void => {
     if (ts.isLabeledStatement(n) || ts.isObjectBindingPattern(n) || ts.isArrayBindingPattern(n)) {
       structural = true;
       return;
+    }
+    // Writes walkNode doesn't report as such: `for (p of ...)`, `for (p in
+    // ...)`, and destructuring assignment `[p] = ...` / `({ p } = ...)`.
+    if (
+      (ts.isForOfStatement(n) || ts.isForInStatement(n)) &&
+      !ts.isVariableDeclarationList(n.initializer)
+    ) {
+      structural = true;
+      return;
+    }
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      (ts.isArrayLiteralExpression(n.left) || ts.isObjectLiteralExpression(n.left))
+    ) {
+      structural = true;
+      return;
+    }
+    if (
+      ts.isCallExpression(n) &&
+      !n.questionDotToken &&
+      ts.isIdentifier(n.expression) &&
+      paramSet.has(n.expression.text)
+    ) {
+      callRefs.set(n.expression.text, (callRefs.get(n.expression.text) ?? 0) + 1);
     }
     ts.forEachChild(n, scan);
   };
@@ -2040,36 +2092,61 @@ export function inlineMethodAsStatements(
   if (structural) return undefined;
 
   const locals = collectMethodLocalBindings(fn);
-  for (const n of names) locals.delete(n);
-  const free = collectMethodFreeNames(fn);
-  for (const name of free) {
-    // Locals are renamed by text, so a name the body both declares and reads
-    // from outside (the checker recorded it as free where the method is
-    // defined) can't be renamed consistently; a free name the enclosing
-    // function binds would be captured once the statements land in it.
-    if (locals.has(name)) {
-      if (method.freeSymbols?.has(name)) return undefined;
-    } else if (enclosing.bindings.has(name)) {
-      return undefined;
-    }
+  // A parameter the body redeclares (`catch (body)`, a nested `(op) => ...`)
+  // would need scope-aware substitution.
+  for (const n of names) {
+    if (locals.has(n) && countDeclarations(fn, n) > 1) return undefined;
+    locals.delete(n);
+  }
+  // Locals are renamed by text: every occurrence of the name, so the name
+  // must not also be read from outside the body. The checker recorded the
+  // body's real free names where the method is defined; without that record,
+  // or for a global with no declaration the record could hold (`undefined`),
+  // a local's name can't be told apart from a free one.
+  if (locals.size > 0 && !method.freeSymbols) return undefined;
+  for (const local of locals) {
+    if (method.freeSymbols?.has(local) || UNDECLARED_GLOBALS.has(local)) return undefined;
+  }
+  for (const name of collectMethodFreeNames(fn)) {
+    // A free name the enclosing function binds would be captured once the
+    // statements land in it.
+    if (!locals.has(name) && enclosing.bindings.has(name)) return undefined;
   }
 
   const f = ctx.factory;
   const consts: ts.Statement[] = [];
   const subNames: string[] = [];
   const subArgs: ts.Expression[] = [];
-  names.forEach((name, i) => {
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
     const arg = callArgs[i];
-    const cls = classifyArgument(arg);
     const e = unwrapParens(arg);
-    const thunk =
-      ts.isArrowFunction(e) &&
-      e.parameters.length === 0 &&
-      !e.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword);
+    const uses = refs.get(name) ?? 0;
     subNames.push(name);
-    if (cls === "literal" || thunk) {
+    if (classifyArgument(arg) === "literal") {
       subArgs.push(arg);
-      return;
+      continue;
+    }
+    if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) {
+      // Only ever called, at most once: substituting the function there is
+      // the call. Anything else (stored, compared, `.name`, called twice)
+      // would observe a copy or a `const`'s name.
+      if (uses > 1 || (uses === 1 && callRefs.get(name) !== 1)) return undefined;
+      // An arrow's `this`/`arguments` are the caller's; substituted into a
+      // nested `function` of the body they would be that function's.
+      let lexical = false;
+      if (ts.isArrowFunction(e)) {
+        walkNode(e.body, TOP_LEVEL_STATE, { receiver: () => (lexical = true) });
+      }
+      if (lexical) return undefined;
+      subArgs.push(arg);
+      continue;
+    }
+    // A parameter the body never reads, given a value with no effect
+    // (`[id]` for an advice's unused `args`): nothing to evaluate.
+    if (uses === 0 && isEffectFreeArgument(e)) {
+      subArgs.push(f.createIdentifier("undefined"));
+      continue;
     }
     const fresh = ctx.generateUniqueName(name);
     consts.push(
@@ -2082,7 +2159,7 @@ export function inlineMethodAsStatements(
       )
     );
     subArgs.push(f.createIdentifier(fresh.text));
-  });
+  }
   for (const local of locals) {
     subNames.push(local);
     subArgs.push(f.createIdentifier(ctx.generateUniqueName(local).text));
@@ -2099,9 +2176,46 @@ export function inlineMethodAsStatements(
     ts.isReturnStatement(n) && n.expression && ts.isParenthesizedExpression(n.expression)
       ? f.updateReturnStatement(n, n.expression.expression)
       : ts.visitEachChild(n, unparen, ctx.transformContext);
-  const statements = [...consts, ...body.statements.map((st) => unparen(st) as ts.Statement)];
-  if (canCompleteNormally(body.statements)) statements.push(f.createReturnStatement());
-  return statements;
+  const bodyStatements = body.statements.map((st) => unparen(st) as ts.Statement);
+  if (canCompleteNormally(body.statements)) bodyStatements.push(f.createReturnStatement());
+  if (!isAsync) return [...consts, ...bodyStatements];
+  const asyncArrow = f.createArrowFunction(
+    [f.createModifier(ts.SyntaxKind.AsyncKeyword)],
+    undefined,
+    [],
+    undefined,
+    f.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    f.createBlock(bodyStatements, true)
+  );
+  return [
+    ...consts,
+    f.createReturnStatement(
+      f.createCallExpression(f.createParenthesizedExpression(asyncArrow), undefined, [])
+    ),
+  ];
+}
+
+/** Globals with no declaration the checker could record as a free symbol. */
+const UNDECLARED_GLOBALS = new Set(["undefined", "NaN", "Infinity", "globalThis", "arguments"]);
+
+/** How many times `fn` binds `name` (its parameters included). */
+function countDeclarations(fn: InlineableFunction, name: string): number {
+  let n = 0;
+  walkFunction(fn, TOP_LEVEL_STATE, {
+    binding: (b) => {
+      if (b === name) n++;
+    },
+  });
+  return n;
+}
+
+/** An effect-free value, or an array literal of them (no spreads). */
+function isEffectFreeArgument(e: ts.Expression): boolean {
+  e = unwrapParens(e);
+  if (ts.isArrayLiteralExpression(e)) {
+    return e.elements.every((el) => !ts.isSpreadElement(el) && isEffectFreeArgument(el));
+  }
+  return isEffectFreeInitializer(e);
 }
 
 /**
@@ -2167,8 +2281,16 @@ function inlineFromNode(
   const body = fn?.body;
   if (!fn || !body) return undefined;
 
-  // Receiver/activation-dependent bodies can't move to the call site in any form.
-  if (methodDependsOnReceiver(fn)) return undefined;
+  // Receiver/activation-dependent bodies can't move to the call site in any
+  // form. An `async` one that only awaits is applied in place as an async
+  // arrow, which is the call itself (same promise, same timing), minus the
+  // dictionary lookup.
+  if (methodDependsOnReceiver(fn)) {
+    const asyncOnly =
+      fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword) &&
+      !methodDependsOnReceiverExceptAsync(fn);
+    return asyncOnly ? applyAsIIFE(ctx, fn, callArgs) : undefined;
+  }
 
   // Default / rest / destructured parameters: rewritten to plain ones with
   // equivalent arguments when that is exact, then inlined by the rules below.
@@ -2339,7 +2461,9 @@ function applyAsIIFE(
     );
   const body = stripCommentsDeep(cloneNodeDeep(fn.body));
   const arrow = f.createArrowFunction(
-    undefined,
+    fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+      ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)]
+      : undefined,
     undefined,
     params,
     undefined,

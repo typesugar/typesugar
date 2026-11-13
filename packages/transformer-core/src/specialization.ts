@@ -996,7 +996,7 @@ export function rewriteDictCallsForAutoSpec(
    * `async`. Given, `return D.m(...)` whose method body can't become an
    * expression is inlined as statements (see inlineMethodAsStatements).
    */
-  enclosing?: { bindings: ReadonlySet<string>; async: boolean }
+  enclosing?: { bindings: ReadonlySet<string> }
 ): ts.Node {
   /** `return D.m(args)` as `m`'s statements, or undefined to leave it to the expression path. */
   function inlineReturnedCall(ret: ts.ReturnStatement): ts.Block | undefined {
@@ -1013,8 +1013,20 @@ export function rewriteDictCallsForAutoSpec(
     const method = dictParamMap
       .get(call.expression.expression.text)
       ?.methods.get(call.expression.name.text);
+    if (!method) return undefined;
     // The expression inliner goes first; this is only for what it declines.
-    if (!method || inlineMethod(ctx, method, Array.from(call.arguments))) return undefined;
+    // Except an `async` method, which it only applies in place as an async
+    // arrow: here its body's arguments are substituted too.
+    const isAsync = !!(
+      method.node &&
+      (ts.isArrowFunction(method.node) || ts.isFunctionExpression(method.node)
+        ? method.node.modifiers
+        : ts.isMethodDeclaration(method.node as ts.Node)
+          ? (method.node as unknown as ts.MethodDeclaration).modifiers
+          : undefined
+      )?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
+    );
+    if (!isAsync && inlineMethod(ctx, method, Array.from(call.arguments))) return undefined;
     const statements = inlineMethodAsStatements(ctx, method, call.arguments, enclosing);
     if (!statements) return undefined;
     // Type names in the body are re-expressed for the call site the same way
@@ -1147,10 +1159,7 @@ export function inlineAutoSpecializeForHoisting(
   const enclosingBindings = new Set<string>();
   collectBindingNames(body, enclosingBindings);
   for (const p of params) collectBindingNames(p, enclosingBindings);
-  const enclosing = {
-    bindings: enclosingBindings,
-    async: !!fn.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
-  };
+  const enclosing = { bindings: enclosingBindings };
   let specializedBody = rewriteDictCallsForAutoSpec(
     ctx,
     body,

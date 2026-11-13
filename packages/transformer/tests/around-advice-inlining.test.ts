@@ -298,4 +298,175 @@ const result = getUser("2");
     expect(r.code).not.toContain('getUser("2", timed)');
     expect(run(r.code)).toEqual({ result: "user:2", events: ["getUser"] });
   });
+
+  // Regressions from the Wave 1 review (2026-11-13): each must match the
+  // plain dictionary call, or decline.
+  describe("review regressions", () => {
+    const runAsync = async (code: string, name: string) => {
+      const r = transformCode(code, { fileName: name });
+      expect(r.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+      const out = run(r.code);
+      let result: unknown;
+      try {
+        result = await out.result;
+      } catch (e) {
+        result = "REJECT " + (e as Error).message;
+      }
+      return { result, events: out.events, code: r.code, diagnostics: r.diagnostics };
+    };
+
+    it("an async around keeps its rejection away from the caller's try/catch", async () => {
+      const out = await runAsync(
+        `${PRELUDE}
+/** @impl Around<Svc> */
+const inst: Around<Svc> = {
+  around: (async (op: string, body: () => unknown) => {
+    events.push("start");
+    await null;
+    throw new Error("boom");
+  }) as Around<Svc>["around"],
+};
+async function f(T: Around<Svc> = implicit()): Promise<string> {
+  const g = async () => {
+    try {
+      return T.around("x", () => "v");
+    } catch {
+      return "caught";
+    }
+  };
+  return g();
+}
+const result = f();
+`,
+        "rr-async-trycatch.ts"
+      );
+      expect(out.result).toBe("REJECT boom");
+      expect(out.events).toEqual(["start"]);
+    });
+
+    it("an async around inlined into a sync nested function still returns a promise", async () => {
+      const out = await runAsync(
+        `${PRELUDE}
+/** @impl Around<Svc> */
+const inst: Around<Svc> = {
+  around: (async (op: string, body: () => Promise<string>) => {
+    const v = await body();
+    return v + "!";
+  }) as unknown as Around<Svc>["around"],
+};
+function f(T: Around<Svc> = implicit()): unknown {
+  const g = () => {
+    return T.around("x", () => Promise.resolve("v"));
+  };
+  return g();
+}
+const result = f();
+`,
+        "rr-async-nested-sync.ts"
+      );
+      expect(out.result).toBe("v!");
+      expect(out.diagnostics.some((d) => /TS9602/.test(d.message ?? ""))).toBe(false);
+    });
+
+    it("declines when the body assigns a parameter through for...of or destructuring", async () => {
+      for (const write of ['for (op of ["a", "b"]) events.push(op);', '[op] = [op + "!"];']) {
+        const out = await runAsync(
+          `${PRELUDE}
+/** @impl Around<Svc> */
+const inst: Around<Svc> = {
+  around: (op, body) => {
+    ${write}
+    try {
+      return body();
+    } finally {
+      events.push(op);
+    }
+  },
+};
+function f(name: string, T: Around<Svc> = implicit()): string {
+  return T.around(name, () => "v");
+}
+const result = f("n");
+`,
+          "rr-param-write.ts"
+        );
+        expect(out.result).toBe("v");
+        expect(out.events[out.events.length - 1]).not.toBe("n");
+      }
+    });
+
+    it("keeps the call when the thunk's value is itself called (no this binding)", async () => {
+      const out = await runAsync(
+        `${PRELUDE}
+/** @typeclass */
+interface Run<S> { run(op: string, body: () => () => string): string }
+/** @impl Run<Svc> */
+const inst: Run<Svc> = {
+  run: (op, body) => {
+    events.push(op);
+    return body()();
+  },
+};
+const o = {
+  m(this: unknown) {
+    return this === o ? "bound" : "unbound";
+  },
+};
+function f(T: Run<Svc> = implicit()): string {
+  return T.run("x", () => o.m);
+}
+const result = f();
+`,
+        "rr-thunk-callee.ts"
+      );
+      expect(out.result).toBe("unbound");
+    });
+
+    it("declines when a function argument is stored or used more than once", async () => {
+      const out = await runAsync(
+        `${PRELUDE}
+/** @impl Around<Svc> */
+const inst: Around<Svc> = {
+  around: (op, body) => {
+    const s = new Set([body]);
+    events.push(String(body.name === ""));
+    return s.has(body) ? body() : (undefined as never);
+  },
+};
+function f(T: Around<Svc> = implicit()): string {
+  return T.around("x", () => "v");
+}
+const result = f();
+`,
+        "rr-thunk-stored.ts"
+      );
+      expect(out.result).toBe("v");
+      expect(out.events).toEqual(["true"]);
+    });
+
+    it("declines when a local is named like an undeclared global", async () => {
+      const out = await runAsync(
+        `${PRELUDE}
+/** @impl Around<Svc> */
+const inst: Around<Svc> = {
+  around: (op, body) => {
+    const k = (undefined: unknown) => undefined;
+    events.push(String(k(1)) + String(undefined));
+    try {
+      return body();
+    } finally {
+      events.push(op);
+    }
+  },
+};
+function f(T: Around<Svc> = implicit()): string {
+  return T.around("x", () => "v");
+}
+const result = f();
+`,
+        "rr-local-undefined.ts"
+      );
+      expect(out).toMatchObject({ result: "v", events: ["1undefined", "x"] });
+    });
+  });
 });

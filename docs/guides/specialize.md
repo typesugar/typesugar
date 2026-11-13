@@ -88,8 +88,9 @@ not inlined as `new Pt(3)` there.
 Inlining keeps the call's meaning: each argument is evaluated once, in order,
 even when the body uses it twice, out of order, or not at all, and a body
 that needs its receiver (`this`, `arguments`) or is a generator is not
-inlined (an `async` one only into an `async` caller's `return`, see
-[Around-advice](#around-advice-wrapping-a-call-in-an-instance-method)). Default, rest and destructured parameters are inlined
+inlined. An `async` method is applied in place as an async arrow,
+`(async (a) => body)(x)`, which is the call itself (same promise, same
+timing). Default, rest and destructured parameters are inlined
 directly where that is exact (`(a, b, sep = ",") => a + sep + b` called with
 two arguments becomes `a + "," + b`, `({ x, y })` over a variable `p` reads
 `p.x` and `p.y`, `(...xs) => xs.length` becomes `[1, 2, 3].length`).
@@ -222,18 +223,23 @@ The rules that keep this exact:
 - The method's own `return`s return from the specialized function, which is
   what `return T.around(...)` did with its result; a body that can finish
   without returning returns `undefined`.
-- Arguments are evaluated once, in order: a literal or a parameterless arrow
-  is substituted, anything else is bound to a `const` first.
+- Arguments are evaluated once, in order: a literal is substituted, a
+  function argument only where it is called once (`body()`), anything else
+  is bound to a `const` first (or dropped, if the method never reads it and
+  it has no effect).
 - A thunk called once, `body()` with `body` bound to `() => expr`, becomes
   `expr` (also in the ordinary expression inliner). Inside a retry loop it is
   still evaluated on every pass.
 - Every name the method declares (`t0`) gets a fresh name, so it can't
   capture a name the arguments use.
-- An `async` method inlines into an `async` function's `return`.
+- An `async` method's body becomes `return (async () => { ... })();`, after
+  its arguments: exactly the call, so a `try` in the caller sees the same
+  rejection it would have.
 - It declines (dictionary passing, as before) when a name the method reads is
-  also bound in the calling function, and for receiver use (`this`,
-  `arguments`), generators, labels, destructuring and default or rest
-  parameters.
+  also bound in the calling function, when a function argument is used other
+  than by one call (stored, compared, called twice), when the method writes to
+  a parameter, and for receiver use (`this`, `arguments`), generators, labels,
+  destructuring and default or rest parameters.
 
 ## When Specialization Is Skipped
 

@@ -114,22 +114,31 @@ __typesugar___getUser_UserSvc_0__("1");
 
 Rules:
 
-- **Arguments** are bound in order. A literal or a parameterless non-async arrow is
-  substituted; anything else is evaluated once into a fresh `const` before the body.
+- **Arguments** are evaluated once, in order, before the body. A literal is substituted. A
+  function argument is substituted only where its parameter's one use is a plain call
+  (`body()`), so neither its identity nor a `const`'s inferred name can be observed; anything
+  else declines. Other values go into a fresh `const`, or are dropped when the body never
+  reads them and they have no effect (an advice's unused `args`).
 - **Thunk beta-reduction** (also in the expression inliner, `substituteParamRefs`): `body()`
-  where `body` is bound to `() => expr` and read nowhere else becomes `(expr)`. Exact:
-  calling a parameterless non-async arrow evaluates its expression in place with the same
-  lexical `this`/`arguments`; inside a loop (retry) it is still evaluated per iteration.
+  where `body` is bound to `() => expr` and read nowhere else becomes `(expr)`. Exact: calling
+  a parameterless non-async arrow evaluates its expression in place; inside a loop (retry) it
+  is still evaluated per iteration. Not when the call's value is itself called, tagged or
+  deleted (`body()()` would bind `this`), and not when the arrow reads `this`/`arguments`.
 - **Hygiene.** Every name the body declares gets a fresh name, so it can't capture a name the
   arguments use (`twice(t0)` with advice declaring `t0`). A body free name the enclosing
   function binds (the caller has its own `note` and the advice calls the module's `note`)
-  declines. A name the body both declares and reads from outside declines.
+  declines, as does a local that shares a name with a free name or an undeclared global
+  (`undefined`), a parameter redeclared inside the body, and a method with no recorded
+  free-name symbols.
 - **Declines** (dictionary passing, as before): receiver use (`this`, `arguments`), generators,
-  an `async` method unless the caller is `async`, labels, destructuring, classes, default/rest
-  parameters, an assigned parameter, a spread or mismatched argument count.
+  labels, destructuring, classes, default/rest parameters, a parameter written to (including
+  `for (p of ...)` and `[p] = ...`), a spread or mismatched argument count.
 - **`async`.** Instance extraction now keeps `async` methods
-  (`methodDependsOnReceiverExceptAsync`); the expression inliner still declines them, so only
-  an `async` caller's `return T.around(...)` takes one.
+  (`methodDependsOnReceiverExceptAsync`). The statement path puts an `async` body in
+  `return (async () => { ... })();` after the argument `const`s, which is exactly the call
+  (synchronous argument errors, the same promise and timing, the caller's own `try` never
+  sees the body's throws) with the arguments substituted. The expression inliner applies an
+  `async` method in place as an async arrow, so an async instance doesn't add TS9602 warnings.
 - Type names in the inlined body are re-expressed for the call site by the existing
   `reexpressInlinedTypes`.
 
@@ -198,9 +207,10 @@ the argument was silently dropped.
 - **Inlining block bodies** is where hygiene and control-flow bugs live (`return` mapping,
   `await`, labels, `arguments`, name capture). Wave 1 declines conservatively and keeps
   dictionary passing, which is always correct.
-- **New TS9602 warnings for `async` instances.** Extracting `async` methods means a caller
-  that uses one outside `return` position now reports "specialization skipped" where it was
-  silently skipped before. The warning is accurate; watch for noise.
+- **`async` instance methods now count toward the free-name rule.** A call site is
+  specialized only if every method of the instance resolves its free names there; an
+  `async` method used to be dropped from extraction, so it didn't count. Same rule as for
+  every other method; noted because it can turn a specialization off.
 - **`forward` sells no speed when the advice is on.** Measured equal to a closure wrapper. The
   docs sell typing, compile-out and no reflection, not nanoseconds.
 - **Self-call bypass** will surprise Spring users; documented up front.
