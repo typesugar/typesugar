@@ -300,9 +300,15 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
       }
 
       const file = path.normalize(fileOf(id));
-      if (latestCode.get(file) !== code) {
+      const previous = latestCode.get(file);
+      if (previous !== code) {
         latestCode.set(file, code);
-        p.invalidate(file);
+        // On first sight, code that is still what's on disk is what the
+        // pipeline already reads: invalidating it would drop the Program
+        // and rebuild it once per module (neverthrow case study F3).
+        if (previous !== undefined || code !== ts.sys.readFile(file)) {
+          p.invalidate(file);
+        }
       }
 
       const result = p.transform(file);
