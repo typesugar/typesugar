@@ -76,6 +76,13 @@ type FilterPattern = RegExp | string | Array<RegExp | string>;
 
 const DEFAULT_INCLUDE = /\.[jt]sx?$/;
 
+/**
+ * Declaration files hold no code for a macro to expand. tsdown's declaration
+ * plugin hands the bundler a generated one per source file; none of them is on
+ * disk or in the Program, so transforming them rebuilt the Program each time.
+ */
+const DECLARATION_FILE = /\.d\.[cm]?ts$/;
+
 /** Whether any include pattern names node_modules (an explicit opt-in). */
 function includesNodeModules(include: FilterPattern | undefined): boolean {
   if (include === undefined) return false;
@@ -105,6 +112,7 @@ function createTransformFilter(
     const normalizedId = id.replace(/\\/g, "/");
     // `(^|/)`: a relative id (`node_modules/x.js`) is under node_modules too.
     if (!keepNodeModules && /(^|\/)node_modules\//.test(normalizedId)) return false;
+    if (DECLARATION_FILE.test(normalizedId)) return false;
     return filter(normalizedId);
   };
 }

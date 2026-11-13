@@ -134,6 +134,17 @@ describe("S#6: include/exclude take globs", () => {
     expect(includes({}, nm())).toBe(false);
     expect(includes({}, path.join(dir, "src/a.css"))).toBe(false);
   });
+
+  // dinero.js case study: tsdown's declaration plugin hands the bundler a
+  // generated `.d.ts` module per source file. None is on disk or in the
+  // Program, so each one rebuilt the Program, for nothing a macro could expand.
+  it("never transforms declaration files", () => {
+    for (const decl of ["src/a.d.ts", "src/a.d.mts", "src/a.d.cts", "src/a.d.ts?dts"]) {
+      expect(includes({}, path.join(dir, decl))).toBe(false);
+      expect(includes({ include: ["**/*.ts"] }, path.join(dir, decl))).toBe(false);
+    }
+    expect(includes({}, path.join(dir, "src/a.dts.ts"))).toBe(true);
+  });
 });
 
 describe("S#6: warns about plain-word include/exclude patterns", () => {

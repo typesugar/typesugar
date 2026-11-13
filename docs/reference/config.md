@@ -244,6 +244,8 @@ export default defineConfig({
 - RegExps are tested against the module path.
 - Files under `node_modules` are always skipped, even when you pass your own
   `exclude`, unless an `include` pattern names `node_modules`.
+- Declaration files (`.d.ts`, `.d.mts`, `.d.cts`) are always skipped: they hold no
+  code for a macro to expand.
 - `include: []` transforms nothing.
 
 **Webpack** (CommonJS config) needs `.default`:
@@ -280,6 +282,19 @@ import typesugar from "unplugin-typesugar/rollup";
 export default {
   plugins: [typesugar()],
 };
+```
+
+**Rolldown / tsdown:**
+
+```typescript
+// tsdown.config.ts
+import { defineConfig } from "tsdown";
+import typesugar from "unplugin-typesugar/rolldown";
+
+export default defineConfig({
+  entry: ["src/index.ts"],
+  plugins: [typesugar()],
+});
 ```
 
 **Type-checking:** bundlers don't type-check. Run `typesugar check` in CI (not
