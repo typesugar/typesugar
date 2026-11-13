@@ -69,6 +69,13 @@ export interface PreprocessResult {
   changed: boolean;
   /** Preprocessor-emitted diagnostics (e.g. TS9223 for yield: in generators). */
   diagnostics: PreprocessDiagnostic[];
+  /**
+   * The expression-position comprehensions found (rewritten or not): the
+   * main label and its span in `source`. The pipeline uses them to warn
+   * TS9224 at each one when the file has not activated the label syntax and
+   * the rewrite is skipped.
+   */
+  sites?: { label: string; start: number; length: number }[];
 }
 
 /**
@@ -250,8 +257,13 @@ export function preprocessExpressionComprehensions(
 
   visit(sourceFile);
 
+  const sites = rewrites.map((rw) => {
+    const label = /^[A-Za-z_$][\w$]*/.exec(source.slice(rw.labelStart))?.[0] ?? "";
+    return { label, start: rw.labelStart, length: label.length };
+  });
+
   if (rewrites.length === 0) {
-    return { source, changed: false, diagnostics };
+    return { source, changed: false, diagnostics, sites };
   }
 
   const s = new MagicString(source);
@@ -305,6 +317,7 @@ export function preprocessExpressionComprehensions(
     },
     changed: true,
     diagnostics,
+    sites,
   };
 }
 

@@ -99,7 +99,10 @@ export {
   scanImportsForScope,
   hasInlineOptOut,
   isInOptedOutScope,
+  isMacroOptedOut,
   ResolutionScopeTracker,
+  OPT_OUT_FEATURES,
+  type OptOutFeature,
   type FileResolutionScope,
 } from "./resolution-scope.js";
 

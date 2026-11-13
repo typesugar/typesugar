@@ -1553,6 +1553,7 @@ function escapeRegExp(s: string): string {
 export const typeclassAttribute = defineAttributeMacro({
   name: "typeclass",
   module: "@typesugar/typeclass",
+  optOutFeature: "typeclasses",
   cacheable: false,
   description: "Define a typeclass from an interface, enabling derivation and extension methods",
   validTargets: ["interface"],
@@ -1797,6 +1798,7 @@ function implArgsFromAnnotation(
 export const implAttribute = defineAttributeMacro({
   name: "impl",
   module: "@typesugar/typeclass",
+  optOutFeature: "typeclasses",
   cacheable: false,
   description: "Register a typeclass instance for a specific type",
   validTargets: ["property", "class"],
@@ -2551,6 +2553,7 @@ export function tryExtractSumType(
 export const summonMacro = defineExpressionMacro({
   name: "summon",
   module: "@typesugar/typeclass",
+  optOutFeature: "typeclasses",
   description:
     "Resolve a typeclass instance at compile time with Scala 3-style auto-derivation via Mirror",
   // The expansion depends on the instances in scope in THIS file (and on the
@@ -3831,6 +3834,7 @@ function findEnclosingVariableDeclaration(node: ts.Node): ts.VariableDeclaration
 export const implMacro = defineExpressionMacro({
   name: "impl",
   module: "@typesugar/typeclass",
+  optOutFeature: "typeclasses",
   description:
     "Register a typeclass instance from preprocessor-rewritten @impl/@instance decorator",
   // Side effects (specialization registration keyed by the enclosing
@@ -3916,6 +3920,7 @@ export const implMacro = defineExpressionMacro({
 export const typeclassMacro = defineExpressionMacro({
   name: "typeclass",
   module: "@typesugar/typeclass",
+  optOutFeature: "typeclasses",
   description:
     "Register a typeclass from a preceding interface declaration (preprocessor-rewritten form)",
   // Marks the typeclass in scope for THIS file (a side effect); never cached.
@@ -4190,6 +4195,7 @@ export function registerTypeclassMacros(): void {
     defineAttributeMacro({
       name: "instance",
       module: "@typesugar/typeclass",
+      optOutFeature: "typeclasses",
       cacheable: implAttribute.cacheable,
       description: "@deprecated Use @impl instead",
       validTargets: implAttribute.validTargets,
@@ -4200,6 +4206,7 @@ export function registerTypeclassMacros(): void {
     defineExpressionMacro({
       name: "instance",
       module: "@typesugar/typeclass",
+      optOutFeature: "typeclasses",
       description: "@deprecated Use impl() instead",
       cacheable: false,
       expand: implMacro.expand,

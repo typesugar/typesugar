@@ -2,6 +2,7 @@
  * Core types for the typesugar macro system
  */
 
+import type { OptOutFeature } from "./resolution-scope.js";
 import * as ts from "typescript";
 import type { MacroExpansionCache } from "./cache.js";
 
@@ -268,6 +269,14 @@ export interface MacroDefinitionBase {
    * Useful when the macro name differs from the export name.
    */
   exportName?: string;
+
+  /**
+   * The `"use no typesugar <feature>"` opt-out that also turns this macro off,
+   * beyond `macros` (which turns off every macro). The `@typeclass`, `@impl`
+   * and `summon` family declare `"typeclasses"`. The dispatch checks it once
+   * the macro is resolved ({@link isMacroOptedOut}).
+   */
+  optOutFeature?: OptOutFeature;
 
   /**
    * Names of macros that must expand before this one on the same node.

@@ -512,21 +512,22 @@ export function reverseOrd<A>(O: Ord<A>): Ord<A> {
  */
 export function ordArray<A>(O: Ord<A>): Ord<A[]> {
   const E = eqArray({ equals: O.equals, notEquals: O.notEquals });
+  const compare = (xs: A[], ys: A[]): Ordering => {
+    const len = Math.min(xs.length, ys.length);
+    for (let i = 0; i < len; i++) {
+      const cmp = O.compare(xs[i], ys[i]);
+      if (cmp !== EQ_ORD) return cmp;
+    }
+    return xs.length < ys.length ? LT : xs.length > ys.length ? GT : EQ_ORD;
+  };
   return {
     equals: E.equals,
     notEquals: E.notEquals,
-    compare: (xs, ys) => {
-      const len = Math.min(xs.length, ys.length);
-      for (let i = 0; i < len; i++) {
-        const cmp = O.compare(xs[i], ys[i]);
-        if (cmp !== EQ_ORD) return cmp;
-      }
-      return xs.length < ys.length ? LT : xs.length > ys.length ? GT : EQ_ORD;
-    },
-    lessThan: (xs, ys) => ordArray(O).compare(xs, ys) === LT,
-    lessThanOrEqual: (xs, ys) => ordArray(O).compare(xs, ys) !== GT,
-    greaterThan: (xs, ys) => ordArray(O).compare(xs, ys) === GT,
-    greaterThanOrEqual: (xs, ys) => ordArray(O).compare(xs, ys) !== LT,
+    compare,
+    lessThan: (xs, ys) => compare(xs, ys) === LT,
+    lessThanOrEqual: (xs, ys) => compare(xs, ys) !== GT,
+    greaterThan: (xs, ys) => compare(xs, ys) === GT,
+    greaterThanOrEqual: (xs, ys) => compare(xs, ys) !== LT,
   };
 }
 

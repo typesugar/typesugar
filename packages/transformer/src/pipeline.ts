@@ -26,6 +26,8 @@ import {
   opaqueTypesAsUnderlying,
   forEachDescendant,
   TS9704,
+  TS9224,
+  isInOptedOutScope,
 } from "@typesugar/core";
 import { setCfgConfig, clearDerivationCaches } from "@typesugar/macros";
 import {
@@ -52,6 +54,7 @@ import {
 import {
   preprocessExpressionComprehensions,
   type PreprocessResult,
+  type PreprocessDiagnostic,
 } from "./arrow-comprehension-preprocess.js";
 
 // ---------------------------------------------------------------------------
@@ -574,6 +577,42 @@ export function macroTransformerFactory(
 /**
  * Diagnostic from macro expansion
  */
+/**
+ * TS9224 at each expression-position comprehension (`(x) => par: {…} yield:
+ * {…}`) of a file that has not activated the comprehension label syntax, for
+ * which the rewrite was therefore skipped. The block form gets the same hint
+ * from the transformer's labeled-block dispatch (label-activation.ts); this
+ * form never reaches it, because unrewritten it does not parse as a labeled
+ * statement. Only labels a loaded macro registers, and not in a file that
+ * opted out of macros. The rewrite itself is a dry run here: its text is
+ * discarded.
+ */
+function comprehensionNotActivatedHints(code: string, fileName: string): PreprocessDiagnostic[] {
+  if (!mayContainComprehension(code)) return [];
+  const sites = preprocessExpressionComprehensions(code, fileName).sites ?? [];
+  if (sites.length === 0) return [];
+  const scanFile = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, false);
+  if (isInOptedOutScope(scanFile, scanFile, globalResolutionScope, "macros")) return [];
+  const hints: PreprocessDiagnostic[] = [];
+  for (const site of sites) {
+    const macro = globalRegistry.getLabeledBlock(site.label);
+    if (!macro) continue;
+    const help = macro.syntaxModule
+      ? `Add \`import "${macro.syntaxModule}";\` to activate ${site.label}: blocks in this file.`
+      : `Import a module carrying a \`@syntax-labels ${macro.name}\` marker to activate ${site.label}: blocks in this file.`;
+    hints.push({
+      code: TS9224.code,
+      start: site.start,
+      length: site.length,
+      message:
+        `[typesugar] [TS9224] '${site.label}:' matches the ${macro.name} macro, but its label ` +
+        `syntax is not activated in this file\n  = help: ${help}`,
+      severity: "warning",
+    });
+  }
+  return hints;
+}
+
 export interface TransformDiagnostic {
   file: string;
   start: number;
@@ -1295,7 +1334,11 @@ export class TransformationPipeline {
       codeForTransform
     )
       ? preprocessExpressionComprehensions(codeForTransform, normalizedFileName)
-      : { source: codeForTransform, changed: false, diagnostics: [] };
+      : {
+          source: codeForTransform,
+          changed: false,
+          diagnostics: comprehensionNotActivatedHints(codeForTransform, normalizedFileName),
+        };
     let compMap: RawSourceMap | null = null;
     if (compResult.changed) {
       codeForTransform = compResult.source;

@@ -26,6 +26,7 @@ import {
   DeriveVariantInfo,
   globalResolutionScope,
   isInOptedOutScope,
+  isMacroOptedOut,
   getSuggestionsForSymbol,
   formatSuggestionsMessage,
   TS9101,
@@ -212,6 +213,8 @@ export function tryExpandJSDocMacros(
     // `derive` attribute macro; individual derives are registered under
     // globalRegistry.getDerive instead — see expandDeriveDecorator).
     if (macroName === "derive" || macroName === "deriving") {
+      // `"use no typesugar derive"` covers the tag as it does the decorator.
+      if (isInOptedOutScope(ctx.sourceFile, node, globalResolutionScope, "derive")) continue;
       const tagArgs = parseJSDocMacroArgs(ctx, tag, macroName);
       // Import-scoped like every other trigger (PEP-052): only the derivables
       // the file imports or declares apply (isJSDocDeriveActive, the gate
@@ -273,6 +276,7 @@ export function tryExpandJSDocMacros(
       ctx.reportWarning(tag, `Unknown JSDoc macro tag @${tag.tagName.text}`);
       continue;
     }
+    if (isMacroOptedOut(ctx.sourceFile, node, macro)) continue;
 
     // A function declaration only dispatches attribute macros that declare
     // "function" as a valid target (@extension, @tailrec); anything else

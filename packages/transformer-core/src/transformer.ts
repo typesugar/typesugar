@@ -31,6 +31,7 @@ import {
   AttributeMacro,
   globalResolutionScope,
   isInOptedOutScope,
+  isMacroOptedOut,
   isSyntheticNode,
   preserveSourceMap,
   ExpansionTracker,
@@ -66,6 +67,7 @@ import {
   fallbackNameLookup,
   fallbackNameLookupWithImports,
   lookupMacroByName,
+  isLocalImplementationName,
   resolveSymbolToMacro,
   resolveMacroFromSymbol as resolveMacroFromSymbolFn,
   scanImportsForExtension,
@@ -1718,6 +1720,7 @@ class MacroTransformer {
       | ExpressionMacro
       | undefined;
     if (!macro) return undefined;
+    if (isMacroOptedOut(this.ctx.sourceFile, node, macro)) return undefined;
 
     if (this.verbose) {
       console.log(`[typesugar] Expanding expression macro: ${macroName}`);
@@ -1884,6 +1887,7 @@ class MacroTransformer {
       | ExpressionMacro
       | undefined;
     if (!macro?.chainable) return undefined;
+    if (isMacroOptedOut(this.ctx.sourceFile, node, macro)) return undefined;
 
     if (!this.isOutermostChainCall(node)) return undefined;
 
@@ -2026,12 +2030,25 @@ class MacroTransformer {
       // The bare-name fallback picks among same-named macros of several
       // modules by the file's imports (lookupMacroByName), as every other
       // bare-name site does; `getAttribute` would return none for such a name.
+      // Never for a name the file implements itself (`function reflect(t)
+      // {…}  @reflect class A`): that is the user's decorator, kept as is.
       const resolved = identNode
         ? this.resolveMacroFromSymbol(identNode, macroName, "attribute")
         : undefined;
-      const macro = (resolved ?? lookupMacroByName(this.ctx.sourceFile, macroName, "attribute")) as
+      const ownDecorator =
+        !resolved &&
+        identNode !== undefined &&
+        isLocalImplementationName(this.ctx.typeChecker, this.ctx.program, identNode);
+      const macro = (resolved ??
+        (ownDecorator
+          ? undefined
+          : lookupMacroByName(this.ctx.sourceFile, macroName, "attribute"))) as
         | AttributeMacro
         | undefined;
+      if (macro && isMacroOptedOut(this.ctx.sourceFile, decorator, macro)) {
+        remainingDecorators.push(decorator);
+        continue;
+      }
       if (macro) {
         if (this.verbose) {
           console.log(`[typesugar] Expanding attribute macro: ${macroName}`);

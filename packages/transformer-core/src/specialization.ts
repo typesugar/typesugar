@@ -962,6 +962,23 @@ function resolveBodyFromSymbol(
 }
 
 /**
+ * Was the callee brought into this file by an import (an alias symbol)?
+ * Auto-specialization does not follow imports ({@link resolveBodyFromSymbol}),
+ * so TS9602 says that instead of advising a different declaration form.
+ * A checker failure here answers false (the generic message); the same
+ * lookup failing in resolveAutoSpecFunctionBody has already warned.
+ */
+function isImportedCallee(typeChecker: ts.TypeChecker, fnExpr: ts.Expression): boolean {
+  if (isSyntheticNode(fnExpr)) return false;
+  try {
+    const symbol = typeChecker.getSymbolAtLocation(fnExpr);
+    return symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The function a call's callee denotes, if its body can be read. `onFailure`
  * is told when the checker fails resolving it (the call is then not
  * specialized).
@@ -1859,8 +1876,12 @@ export function tryAutoSpecialize(
         ctx,
         node,
         fnName,
-        `function body not resolvable. ` +
-          `Declare it as a const arrow function or named function so its body can be resolved.`
+        isImportedCallee(ctx.typeChecker, node.expression)
+          ? `the function is imported, and only a function declared in the same file is ` +
+              `specialized (its body could reference that module's private helpers). ` +
+              `The call keeps dictionary passing, which is correct.`
+          : `function body not resolvable. ` +
+              `Declare it as a const arrow function or named function so its body can be resolved.`
       );
     }
     return undefined;
