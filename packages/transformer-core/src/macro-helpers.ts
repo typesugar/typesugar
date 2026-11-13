@@ -262,6 +262,7 @@ export function tryExpandJSDocMacros(
       args,
       decorator: createSyntheticDecorator(ctx, tag, macroName, args),
       reportAt: tag,
+      optOutAt: node,
       prose,
     };
     sources.push(source);

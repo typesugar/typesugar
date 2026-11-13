@@ -83,6 +83,7 @@ import {
 } from "@typesugar/core";
 import {
   resolveDoNotationInstance,
+  isAmbiguousDoNotationInstance,
   getDoInstanceModule,
   DEFAULT_DO_METHODS,
   type DoNotationMeta,
@@ -216,9 +217,16 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // builtins come in through the `@typesugar/std/syntax/do` marker every
     // do-notation file already imports). No global registry. The static
     // fallback serves the std builtins in hosts that cannot resolve modules.
-    const scoped =
-      resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName, undefined, firstBind.effect) ??
-      resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
+    const found = resolveDoNotationInstance(
+      ctx,
+      "FlatMap",
+      typeConstructorName,
+      undefined,
+      firstBind.effect
+    );
+    // Two instances in scope: reported there; no fallback, no TS9225.
+    if (isAmbiguousDoNotationInstance(found)) return mainBlock;
+    const scoped = found ?? resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
     if (!scoped) {
       // Provider-declared activation module (program-wide @do-instance-module
       // index) first; the static table is the fallback for providers whose
@@ -611,14 +619,17 @@ function buildChain(
         // 1. `@do-methods all=… receiver=…` join (Promise, Effect, …):
         //    `R.all([e1, e2])` continued with the FlatMap instance's
         //    bind/map, over the destructured results.
-        const parScoped =
-          resolveDoNotationInstance(
-            ctx,
-            "ParCombine",
-            typeConstructor,
-            undefined,
-            bindSteps[0]?.effect
-          ) ?? resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructor);
+        const parFound = resolveDoNotationInstance(
+          ctx,
+          "ParCombine",
+          typeConstructor,
+          undefined,
+          bindSteps[0]?.effect
+        );
+        // Ambiguous (reported): the generic chain below, not the std fallback.
+        const parScoped = isAmbiguousDoNotationInstance(parFound)
+          ? undefined
+          : (parFound ?? resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructor));
         if (parScoped?.doMeta?.all && parScoped.doMeta.receiver) {
           let bodyWithMaps = inner;
           for (const mapStep of [...mapSteps].reverse()) {

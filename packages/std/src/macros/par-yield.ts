@@ -86,7 +86,11 @@ import {
   defineLabeledBlockMacro,
   globalRegistry,
 } from "@typesugar/core";
-import { resolveDoNotationInstance, type DoNotationMeta } from "@typesugar/macros";
+import {
+  resolveDoNotationInstance,
+  isAmbiguousDoNotationInstance,
+  type DoNotationMeta,
+} from "@typesugar/macros";
 import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
 import {
   type BindStep,
@@ -195,17 +199,31 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // global registry; the static fallback serves the std builtins in hosts
     // that cannot resolve modules. A brand with no ParCombine instance falls
     // through to the generic applicative chain (same as before the flip).
-    const scoped =
-      resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName, undefined, mainBlock) ??
-      resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructorName);
+    const found = resolveDoNotationInstance(
+      ctx,
+      "ParCombine",
+      typeConstructorName,
+      undefined,
+      mainBlock
+    );
+    // Two instances in scope: reported there; no fallback, no further error.
+    if (isAmbiguousDoNotationInstance(found)) return mainBlock;
+    const scoped = found ?? resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructorName);
     if (!scoped) {
       // No ParCombine instance. A brand whose FlatMap instance is STATIC
       // style (fp's Option/Either/IO/List — the values carry no methods, so
       // `fa.map(...).ap(fb)` would throw) combines its independent binds
       // through that instance instead (docs review r3 guides-a #1).
+      const flatMapFound = resolveDoNotationInstance(
+        ctx,
+        "FlatMap",
+        typeConstructorName,
+        undefined,
+        mainBlock
+      );
+      if (isAmbiguousDoNotationInstance(flatMapFound)) return mainBlock;
       const flatMap =
-        resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName, undefined, mainBlock) ??
-        resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
+        flatMapFound ?? resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
       if (flatMap?.doMeta?.style === "static" && flatMap.doMeta.receiver) {
         const meta = importSelfReceiver(ctx, flatMap, flatMap.doMeta, typeConstructorName);
         const result = buildFlatMapParCombine(ctx, steps, returnExpr, meta);

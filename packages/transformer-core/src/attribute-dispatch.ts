@@ -33,6 +33,12 @@ export interface AttributeSource {
   decorator: ts.Decorator;
   /** Where this source's diagnostics are reported (the decorator, or the tag). */
   reportAt: ts.Node;
+  /**
+   * Where its opt-outs are looked up: the decorator, or for a tag the
+   * declaration, whose line carries a `// @ts-no-typesugar <feature>` comment
+   * (a tag's own line is inside the comment block).
+   */
+  optOutAt: ts.Node;
   /** A real decorator's identifier, resolved through the checker; none for a tag. */
   identNode?: ts.Node;
   /**
@@ -101,7 +107,7 @@ export function expandAttributeSources(
       // are registered under globalRegistry.getDerive. `@deriving(...)` is the
       // deprecated alias (expandDeriveDecorator warns).
       if (
-        isInOptedOutScope(ctx.sourceFile, source.reportAt, globalResolutionScope, "derive") ||
+        isInOptedOutScope(ctx.sourceFile, source.optOutAt, globalResolutionScope, "derive") ||
         (source.prose && !isTypeDeclaration(declaration))
       ) {
         unhandled.push(source);
@@ -126,7 +132,7 @@ export function expandAttributeSources(
     const macro = hooks.resolve(source);
     if (
       !macro ||
-      isMacroOptedOut(ctx.sourceFile, source.reportAt, macro) ||
+      isMacroOptedOut(ctx.sourceFile, source.optOutAt, macro) ||
       hooks.isFailed?.(source) ||
       (hooks.accepts && !hooks.accepts(source, macro, current))
     ) {

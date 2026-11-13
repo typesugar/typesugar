@@ -1405,12 +1405,12 @@ function baseTypeName(s: string): string {
 /**
  * Shared scope walk for the name-based lookups: local file (incl.
  * non-exported `@impl` values) first, then every imported module (re-exports
- * followed by the scanner, plus — unless `includeNonExportedImports` is
- * false — a module's own non-exported top-level declarations when it exports
- * no match). Returns the one instance satisfying `match` at the first stage
- * that has any, or `{ ambiguous }` when that stage has two distinct ones:
- * the same rule as `resolveInstance` (local beats imported; two imports are
- * ambiguous, never "first import wins").
+ * followed by the scanner), then — unless `includeNonExportedImports` is
+ * false — the non-exported top-level declarations of imported modules that
+ * export no match. Returns the one instance satisfying `match` at the first
+ * stage that has any, or `{ ambiguous }` when that stage has two distinct
+ * ones: the same rule as `resolveInstance` (local beats imported; two
+ * imports are ambiguous, never "first import wins").
  *
  * Non-exported visibility: a value need not be exported for a reference to
  * it to be ordinary, valid TypeScript — `export const Point = { Numeric:
@@ -1455,38 +1455,39 @@ function findScannedInScope(
 
   // Imported modules: every match across them, so two modules providing the
   // instance are reported as ambiguous instead of the first import winning
-  // (as resolveInstance does for the type-based lookup).
-  const imported: ScopeHit[] = [];
+  // (as resolveInstance does for the type-based lookup). Exports rank above
+  // other modules' non-exported declarations: a helper module's private
+  // `@impl` never competes with an instance some import exports.
+  const exportedHits: ScopeHit[] = [];
+  const privateHits: ScopeHit[] = [];
   for (const entry of getImportMap(ctx)) {
     const moduleSourceFile = ctx.program.getSourceFile(entry.resolvedPath);
     if (!moduleSourceFile) continue;
     const moduleSymbol = ctx.typeChecker.getSymbolAtLocation(moduleSourceFile);
     if (!moduleSymbol) continue;
-    const scanned = scanner.scanModule(
-      ctx.typeChecker,
-      moduleSymbol,
-      entry.resolvedPath,
-      ctx.program,
-      scanWarnings(ctx)
+    const at = { modulePath: entry.resolvedPath, specifier: entry.specifier };
+    const exported = live(
+      scanner.scanModule(
+        ctx.typeChecker,
+        moduleSymbol,
+        entry.resolvedPath,
+        ctx.program,
+        scanWarnings(ctx)
+      )
     );
-    const exportedHits = live(scanned);
-    const hits =
-      exportedHits.length > 0 || !includeNonExportedImports
-        ? exportedHits
-        : live(
-            scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program, scanWarnings(ctx))
-          );
-    for (const instance of hits) {
-      imported.push({
-        instance,
-        modulePath: entry.resolvedPath,
-        specifier: entry.specifier,
-        exported: exportedHits.includes(instance),
-      });
+    for (const instance of exported) exportedHits.push({ instance, ...at, exported: true });
+    if (exported.length === 0 && includeNonExportedImports) {
+      const own = live(
+        scanner.scanLocalFile(ctx.typeChecker, moduleSourceFile, ctx.program, scanWarnings(ctx))
+      );
+      for (const instance of own) privateHits.push({ instance, ...at, exported: false });
     }
   }
-  const importedHits = distinctHits(imported);
-  return importedHits.length > 0 ? oneOrAmbiguous(importedHits) : undefined;
+  for (const tier of [exportedHits, privateHits]) {
+    const hits = distinctHits(tier);
+    if (hits.length > 0) return oneOrAmbiguous(hits);
+  }
+  return undefined;
 }
 
 /** One instance the shared scope walk found, and where. */
@@ -1615,13 +1616,28 @@ export function resolveDoNotationInstance(
    * ambiguous (then none is returned), as `===` sugar does.
    */
   at?: ts.Node
-): ResolvedDoNotationInstance | undefined {
+): ResolvedDoNotationInstance | AmbiguousDoNotationInstance | undefined {
   const result = resolveDoNotationInstanceCached(ctx, tcName, brand, scanner);
   if (result && "ambiguous" in result) {
     reportAmbiguousScopeHits(ctx, at, tcName, brand, result.ambiguous);
-    return undefined;
+    return AMBIGUOUS_DO_NOTATION_INSTANCE;
   }
   return result;
+}
+
+/**
+ * {@link resolveDoNotationInstance} found two instances and reported it: the
+ * caller stops there, with no fallback and no "no instance" error.
+ */
+export interface AmbiguousDoNotationInstance {
+  readonly ambiguous: true;
+}
+const AMBIGUOUS_DO_NOTATION_INSTANCE: AmbiguousDoNotationInstance = { ambiguous: true };
+
+export function isAmbiguousDoNotationInstance(
+  r: ResolvedDoNotationInstance | AmbiguousDoNotationInstance | undefined
+): r is AmbiguousDoNotationInstance {
+  return r === AMBIGUOUS_DO_NOTATION_INSTANCE;
 }
 
 function resolveDoNotationInstanceCached(

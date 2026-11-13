@@ -2003,6 +2003,7 @@ class MacroTransformer {
       ...parseDecorator(decorator),
       decorator,
       reportAt: decorator,
+      optOutAt: decorator,
     }));
     const expansion = expandAttributeSources(
       this.ctx,
