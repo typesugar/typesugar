@@ -23,6 +23,7 @@ import "./generic.js"; // Generic programming (Product/Sum) for structural deriv
 import "./auto-derive.js"; // Scala 3-style typeclass derivation via Mirror/Generic
 import "./static-assert.js";
 import "./cfg.js";
+import "./forward.js";
 import "./config-when.js";
 import "./include.js";
 import "./module-graph.js";
@@ -370,6 +371,7 @@ export {
 } from "./include.js";
 
 // --- Phase 2.2: Conditional compilation ---
+export { forwardMacro } from "./forward.js";
 export { cfgMacro, cfgAttrMacro, setCfgConfig, getCfgConfig, evaluateCfgCondition } from "./cfg.js";
 
 // --- Phase 2.3: Module-graph reflection ---

@@ -241,6 +241,9 @@ The rules that keep this exact:
   a parameter, and for receiver use (`this`, `arguments`), generators, labels,
   destructuring and default or rest parameters.
 
+To wrap every method of a service at once, rather than writing
+`T.around(...)` in each, see [`forward<S>()`](./forward.md).
+
 ## When Specialization Is Skipped
 
 The transformer only inlines what it can prove sound. A call falls back to

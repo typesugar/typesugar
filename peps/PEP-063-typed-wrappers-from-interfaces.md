@@ -1,6 +1,6 @@
 # PEP-063: Typed Wrappers from Interfaces — Zero-Cost Around-Advice, `forward<S>()`, `mock<T>(defaults)`
 
-**Status:** In Progress (Wave 1 implemented; Waves 2–3 in review)
+**Status:** In Progress (Waves 1–2 implemented; Wave 3 in review, #89)
 **Date:** 2026-11-13
 **Author:** Claude (with Dean Povey)
 **Related:** [PEP-053](PEP-053-always-on-specialization.md) (always-on specialization),
@@ -176,10 +176,24 @@ count() { return inner.count(); } }))(new PgUserRepo(db))`.
   declines, is called through: `advice.around("get", [id], () => inner.get(id))`. Still a
   typed forwarding object with no reflection.
 - **Typing.** `Advice<S>.around` is generic per member:
-  `<K extends MethodKeys<S>>(method: K, args: Parameters<S[K]>, next: () => ReturnType<S[K]>) => ReturnType<S[K]>`.
+  `<K extends MethodKeys<S>>(method: K, args: Parameters<S[K]>, next: () => ReturnType<S[K]>) => ReturnType<S[K]> | Promise<unknown>`.
+  The `Promise<unknown>` is there because TypeScript can't relate an async function's inferred
+  `Promise<R>` to `Promise<Awaited<R>>` for a generic `K`; an inlined advice is still checked
+  exactly (its body lands in the object literal typed `S`), and a called-through advice's
+  result is cast back to `ReturnType<S["m"]>` (`never` for a generic member).
+- **Free names.** `forward` records the advice's free names with the checker (as instance
+  extraction does), so the statement inliner can rename the advice's locals.
 - **Ordering.** `forward<S>(inner, [outer, inner2])`: the first advice is outermost.
-- **`async`.** A member returning a promise gets an `async` advice only when the advice is
-  `async`; a sync advice around a promise-returning member wraps the promise as written.
+- **Non-literal advice** (a variable of type `Advice<S>`) is evaluated once and called through;
+  each method checks at run time that it has an `around` and that its `only` lists the
+  method. `when` is compile-time only, so it lives in `InlineAdvice<S>` and is an error on a
+  non-literal advice. With no advice left, `forward` emits `(inner satisfies S) as S`.
+- **What `S` can be**: an object type or a class without private/protected members; `any`,
+  `unknown`, a type parameter, a union and a callable type are compile errors. Non-identifier
+  member names are forwarded quoted; accessor pairs get a setter; optional methods are bound.
+- **`async`.** An `async` advice applies only to promise-returning members (a warning for the
+  others it would have matched); inlined, its body is `return (async () => { ... })()`, exactly
+  the call. A sync advice around a promise-returning member wraps the promise as written.
 - **`this`.** Calls are `inner.m(...)`, so `this` inside the implementation is the real object
   and `#private` fields work (unlike `Proxy`). Non-method members are forwarded as getters.
 - **Self-calls bypass the advice**, as with every forwarding proxy (Spring's problem). The
@@ -196,11 +210,11 @@ the argument was silently dropped.
 
 ## Waves
 
-| Wave | Scope                                                                                         | Branch                           | Status      |
-| ---- | --------------------------------------------------------------------------------------------- | -------------------------------- | ----------- |
-| 1    | Statement inlining of around-advice; thunk beta-reduction; `async` instance methods extracted | `pep-063-wave-1-around-inlining` | Implemented |
-| 2    | `forward<S>(inner, advice)` macro, runtime stub, guide                                        | `pep-063-wave-2-forward`         | In progress |
-| 3    | `mock<T>(defaults)` honours defaults                                                          | `pep-063-wave-3-mock-defaults`   | In progress |
+| Wave | Scope                                                                                         | Branch                           | Status          |
+| ---- | --------------------------------------------------------------------------------------------- | -------------------------------- | --------------- |
+| 1    | Statement inlining of around-advice; thunk beta-reduction; `async` instance methods extracted | `pep-063-wave-1-around-inlining` | Implemented     |
+| 2    | `forward<S>(inner, advice)` macro, runtime stub, guide                                        | `pep-063-wave-2-forward`         | Implemented     |
+| 3    | `mock<T>(defaults)` honours defaults                                                          | `pep-063-wave-3-mock-defaults`   | In review (#89) |
 
 ## Risks
 

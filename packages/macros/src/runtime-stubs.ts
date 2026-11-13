@@ -654,6 +654,73 @@ export function validator<T>(): (value: unknown) => ValidationResult<T> {
 }
 
 // ============================================================================
+// Forwarding (PEP-063)
+// ============================================================================
+
+/** The names of `S`'s method members. */
+export type MethodKeys<S> = {
+  [K in keyof S]-?: S[K] extends (...args: any[]) => any ? K : never;
+}[keyof S] &
+  string;
+
+type MethodOf<S, K extends keyof S> = Extract<S[K], (...args: any[]) => any>;
+
+/**
+ * Advice for {@link forward}: what to do around each forwarded method call.
+ *
+ * - `around(method, args, next)`: called in place of the method; `next()`
+ *   calls it on the wrapped object. Typed per member: `args` is that
+ *   method's parameters and `next()` and the result its return type. An
+ *   `async` around is applied only to methods that return a promise. (Its
+ *   result is typed loosely, `Promise<unknown>`, because TypeScript can't
+ *   relate an async function's result to a per-member type; an inlined
+ *   advice is still checked exactly, inside the generated object typed `S`.)
+ * - `only`: the methods the advice applies to (all methods when absent).
+ *
+ * An advice written inline in the `forward` call is inlined into each method;
+ * one passed as a variable is called through, and its `around` and `only` are
+ * checked at run time. Inline advice can also take `when` (see
+ * {@link InlineAdvice}).
+ */
+export interface Advice<S> {
+  around?<K extends MethodKeys<S>>(
+    method: K,
+    args: Parameters<MethodOf<S, K>>,
+    next: () => ReturnType<MethodOf<S, K>>
+  ): ReturnType<MethodOf<S, K>> | Promise<unknown>;
+  only?: readonly MethodKeys<S>[];
+}
+
+/**
+ * An advice written inline in a {@link forward} call: {@link Advice}, plus
+ * `when`, a compile-time `cfg` condition. When it is false the advice is
+ * dropped, and `forward` with no advice left is the wrapped object itself.
+ */
+export type InlineAdvice<S> = Advice<S> & { when?: string };
+
+/**
+ * A typed forwarding object for interface `S`: every method calls the same
+ * method on `inner`, with each advice's `around` inlined (the first advice is
+ * outermost). Generated at compile time from `S`'s members; no `Proxy`, no
+ * reflection. Calls `inner` makes on itself (`this.m()`) bypass the advice.
+ *
+ * @example
+ * ```typescript
+ * const repo = forward<UserRepo>(new PgUserRepo(db), {
+ *   around: (method, args, next) => {
+ *     const t0 = performance.now();
+ *     try { return next(); } finally { metrics.record(method, performance.now() - t0); }
+ *   },
+ *   when: "metrics",
+ * });
+ * ```
+ */
+export function forward<S>(inner: S, advice?: InlineAdvice<S> | readonly InlineAdvice<S>[]): S;
+export function forward(_inner: unknown, _advice?: unknown): unknown {
+  throw new Error("forward() must be processed by the typesugar transformer at compile time");
+}
+
+// ============================================================================
 // Conditional Compilation Stubs
 // ============================================================================
 

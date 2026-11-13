@@ -133,6 +133,11 @@ export {
   // Conditional compilation
   cfg,
   cfgAttr,
+  // Typed forwarding (PEP-063)
+  forward,
+  type Advice,
+  type InlineAdvice,
+  type MethodKeys,
   // File includes
   includeStr,
   includeText,

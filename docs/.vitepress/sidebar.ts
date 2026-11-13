@@ -102,6 +102,7 @@ export const sidebar: DefaultTheme.SidebarItem[] = [
           { text: "String Macros (frozen)", link: "/guides/strings" },
           { text: "Compile-Time Eval", link: "/guides/comptime" },
           { text: "Conditional Compilation", link: "/guides/conditional-compilation" },
+          { text: "Typed Forwarding", link: "/guides/forward" },
         ],
       },
       {

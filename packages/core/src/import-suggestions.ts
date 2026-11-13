@@ -301,6 +301,13 @@ const defaultExports: ExportedSymbol[] = [
     description: "Conditional compilation",
   },
   {
+    name: "forward",
+    module: "typesugar",
+    kind: "macro",
+    isReexport: false,
+    description: "Typed forwarding object for an interface, with around-advice inlined",
+  },
+  {
     name: "tailrec",
     module: "typesugar",
     kind: "macro",
