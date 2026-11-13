@@ -111,7 +111,8 @@ visit(node)
        │    ├─ tryRewriteExtensionMethod()     — value.method() rewriting
        │    └─ tryAutoSpecialize()             — dictionary inlining
        ├─ ClassDeclaration / FunctionDeclaration / etc.
-       │    └─ tryExpandAttributeMacros()      — @decorator expansion
+       │    ├─ tryExpandAttributeMacros()      — @decorator expansion
+       │    └─ tryExpandJSDocMacros()          — /** @tag */ expansion (same dispatcher)
        ├─ TaggedTemplateExpression
        │    └─ tryExpandTaggedTemplate()       — tag`...` expansion
        ├─ TypeReference
@@ -130,6 +131,8 @@ For `CallExpression` nodes, the order of checks matters: expression macros are c
 | `tryTransform(node)`          | SyntaxKind switch routing to specific handlers     |
 | `tryExpandExpressionMacro()`  | Handles `macroName(args)` calls                    |
 | `tryExpandAttributeMacros()`  | Handles `@decorator` macros                        |
+| `tryExpandJSDocMacros()`      | Handles `/** @tag */` macros                       |
+| `expandAttributeSources()`    | The dispatcher both of the above share             |
 | `tryExpandTaggedTemplate()`   | Handles `` tag`...` `` macros                      |
 | `tryExpandTypeMacro()`        | Handles `TypeMacro<T>` references                  |
 | `visitStatementContainer()`   | Handles labeled block macros (`let: { }`)          |

@@ -196,7 +196,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // that cannot resolve modules. A brand with no ParCombine instance falls
     // through to the generic applicative chain (same as before the flip).
     const scoped =
-      resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName) ??
+      resolveDoNotationInstance(ctx, "ParCombine", typeConstructorName, undefined, mainBlock) ??
       resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructorName);
     if (!scoped) {
       // No ParCombine instance. A brand whose FlatMap instance is STATIC
@@ -204,7 +204,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       // `fa.map(...).ap(fb)` would throw) combines its independent binds
       // through that instance instead (docs review r3 guides-a #1).
       const flatMap =
-        resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName) ??
+        resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName, undefined, mainBlock) ??
         resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
       if (flatMap?.doMeta?.style === "static" && flatMap.doMeta.receiver) {
         const meta = importSelfReceiver(ctx, flatMap, flatMap.doMeta, typeConstructorName);

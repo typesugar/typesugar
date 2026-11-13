@@ -217,7 +217,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // do-notation file already imports). No global registry. The static
     // fallback serves the std builtins in hosts that cannot resolve modules.
     const scoped =
-      resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName) ??
+      resolveDoNotationInstance(ctx, "FlatMap", typeConstructorName, undefined, firstBind.effect) ??
       resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
     if (!scoped) {
       // Provider-declared activation module (program-wide @do-instance-module
@@ -612,8 +612,13 @@ function buildChain(
         //    `R.all([e1, e2])` continued with the FlatMap instance's
         //    bind/map, over the destructured results.
         const parScoped =
-          resolveDoNotationInstance(ctx, "ParCombine", typeConstructor) ??
-          resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructor);
+          resolveDoNotationInstance(
+            ctx,
+            "ParCombine",
+            typeConstructor,
+            undefined,
+            bindSteps[0]?.effect
+          ) ?? resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructor);
         if (parScoped?.doMeta?.all && parScoped.doMeta.receiver) {
           let bodyWithMaps = inner;
           for (const mapStep of [...mapSteps].reverse()) {
