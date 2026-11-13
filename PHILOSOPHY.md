@@ -478,6 +478,22 @@ n.clamp(0, 100); // Found via import scan → clamp(n, 0, 100)
 
 No import, no extension. This is pure import-scoped resolution — the safest model.
 
+An imported object or namespace that groups extension functions (`EffectExt`) supplies its
+members only when the import opts in, with a JSDoc tag on the import (PEP-064):
+
+```typescript
+/** @extension */
+import { EffectExt } from "@typesugar/effect";
+
+eff.map((x) => x + 1); // → EffectExt.map(eff, (x) => x + 1)
+```
+
+An ordinary method is never an extension, as in Scala 3. Without that rule, any imported
+helper with a member taking `unknown` or a bare `T` (`log.info(msg: unknown)`) took over calls
+that should have been errors (`user.info()`), silently. The opt-in is at the import, not in the
+providing module, because the import is in the file that reads the call, and because a
+directive in the module's source is not in its published `.d.ts`.
+
 **2. Registry-based extensions** — For `@extension`-decorated functions and `@typesugar/std` built-ins.
 
 The `@extension` decorator registers a function in a global compile-time registry. Once registered, the extension is available to all files in the compilation without requiring an import:

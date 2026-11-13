@@ -13,7 +13,6 @@ import {
   globalRegistry,
   type MacroDefinition,
   type MacroRegistry,
-  globalResolutionScope,
   isSyntheticNode,
   type StandaloneExtensionInfo,
   receiverMatchesFirstParam,
@@ -959,13 +958,12 @@ export {
   isGlobalAugmentationStub,
 } from "@typesugar/macros";
 
-/** The shared decision's environment for this transform: its scope and warnings. */
+/** The shared decision's environment for this transform: its checker, program and warnings. */
 function extensionImportEnv(ctx: MacroContextImpl): ExtensionImportEnv {
   return {
     checker: ctx.typeChecker,
     program: ctx.program,
     sourceFile: ctx.sourceFile,
-    scope: globalResolutionScope,
     warn: (node, message) => ctx.reportWarning(node, message),
   };
 }

@@ -218,7 +218,31 @@ const result = (42).clamp(0, 100);`,
       expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
-    it("suppresses TS2339 when a namespace with matching method is imported", () => {
+    it("suppresses TS2339 when a namespace with matching method is imported with @extension", () => {
+      const rule = createExtensionMethodCallRule();
+      registerDiagnosticSuppressionRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/ext.ts": `export namespace NumberExt {
+          export function clamp(n: number, min: number, max: number): number {
+            return Math.max(min, Math.min(max, n));
+          }
+        }`,
+        "/test.ts": `/** @extension */
+import { NumberExt } from "./ext";
+const result = (42).clamp(0, 100);`,
+      });
+
+      const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
+      expect(ts2339.length).toBeGreaterThan(0);
+
+      const sourceFile = ts2339[0].file!;
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
+    });
+
+    // PEP-064: an imported namespace or object supplies extension methods only
+    // when its import opts in (or it is `import * as X`).
+    it("does NOT suppress when a namespace with a matching method is imported without the tag", () => {
       const rule = createExtensionMethodCallRule();
       registerDiagnosticSuppressionRule(rule);
 
@@ -236,7 +260,29 @@ const result = (42).clamp(0, 100);`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(false);
+    });
+
+    it("does NOT suppress when the @extension mention is prose, not a tag", () => {
+      const rule = createExtensionMethodCallRule();
+      registerDiagnosticSuppressionRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/ext.ts": `export namespace NumberExt {
+          export function clamp(n: number, min: number, max: number): number {
+            return Math.max(min, Math.min(max, n));
+          }
+        }`,
+        "/test.ts": `/** Not an opt-in: this mentions @extension in prose. */
+import { NumberExt } from "./ext";
+const result = (42).clamp(0, 100);`,
+      });
+
+      const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
+      expect(ts2339.length).toBeGreaterThan(0);
+
+      const sourceFile = ts2339[0].file!;
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(false);
     });
 
     it("does NOT suppress when imported function's first param doesn't match", () => {

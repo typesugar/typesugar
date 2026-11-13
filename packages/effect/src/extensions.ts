@@ -4,6 +4,7 @@
  * These extension methods enable fluent method chaining on Effect types:
  *
  * ```ts
+ * /** @extension *\/
  * import { EffectExt } from "@typesugar/effect";
  *
  * // Instead of Effect.map(effect, f), you can write:

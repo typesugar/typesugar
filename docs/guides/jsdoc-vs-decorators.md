@@ -57,6 +57,11 @@ macro tag on a function (`/** @typeclass */`, …) is ignored with the warning
 ignored." `@derive` on a function, a `const` or an `enum` is an error,
 [TS9102](/errors/TS9102): it only goes on an interface, class or type alias.
 
+`/** @extension */` on an `import` declaration is not this macro: it lets the
+imported objects supply extension methods
+([Extension Objects](./extension-methods.md#extension-objects)), and has no
+decorator form.
+
 ### A JSDoc tag must start its own comment line
 
 A tag only triggers a macro when it begins a line of the comment:

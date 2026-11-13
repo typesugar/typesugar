@@ -211,6 +211,8 @@ n.clamp(0, 100);    // → clamp(n, 0, 100)
 
 Resolution order: native property → extension functions in scope → typeclass methods.
 
+Providers (`findImportedExtensionMatches`, `packages/macros/src/extension-imports.ts`, shared with the ExtensionMethodCall suppression rule): an imported function named after the method; a member of an `import * as X` namespace or of an import tagged `/** @extension */` (PEP-064); a member of an imported typeclass instance, for its own type. Any other imported object is never a provider.
+
 Ambiguity: multiple matches → compile error with candidate list.
 
 ### Operators

@@ -965,7 +965,33 @@ describe("ExtensionMethodCall: a generic method of an imported extension object 
     };
   `;
 
-  it("suppresses TS2339 and the callback's TS7006 with the object imported", () => {
+  it("suppresses TS2339 and the callback's TS7006 with the object imported (@extension)", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program({
+      "/lib.d.ts": LIB,
+      "/ext.ts": EXT,
+      "/main.ts": `
+        /** @extension */
+        import { BoxExt, type Box } from "./ext";
+        declare const b: Box<number>;
+        export const r = b.map((x) => x + 1);
+      `,
+    });
+    const codes = diags.map((d) => d.code).sort();
+    expect(codes).toEqual([2339, 7006]);
+    const d2339 = diags.find((d) => d.code === 2339)!;
+    const d7006 = diags.find((d) => d.code === 7006)!;
+    expect(rule.shouldSuppress(d2339, checker, sf, { program: p })).toBe(true);
+    expect(callbackRule.shouldSuppress(d7006, checker, sf, { program: p })).toBe(true);
+  });
+
+  // PEP-064: an imported object supplies extension methods only when its
+  // import opts in; untagged, the call is the TS2339 mistake it looks like.
+  it("suppresses neither with the object imported without the @extension tag", () => {
     const {
       program: p,
       sf,
@@ -980,12 +1006,74 @@ describe("ExtensionMethodCall: a generic method of an imported extension object 
         export const r = b.map((x) => x + 1);
       `,
     });
-    const codes = diags.map((d) => d.code).sort();
-    expect(codes).toEqual([2339, 7006]);
     const d2339 = diags.find((d) => d.code === 2339)!;
     const d7006 = diags.find((d) => d.code === 7006)!;
+    expect(rule.shouldSuppress(d2339, checker, sf, { program: p })).toBe(false);
+    expect(callbackRule.shouldSuppress(d7006, checker, sf, { program: p })).toBe(false);
+  });
+
+  // PEP-064 review: without the tag, only a value DECLARED as an instance
+  // (`@impl`, `impl(...)`, `derived<>()`) supplies its members. A `TC<T>`
+  // annotation alone is read by the typeclass's name, and without a program
+  // not at all: an ordinary `Repo<User>` object passed the gate in the rule
+  // while the build rejected it.
+  const REPO = `
+    export interface User { id: number }
+    export interface Repo<A> { save(a: A): number }
+    export const users: Repo<User> = { save: (u) => u.id };
+  `;
+  const REPO_MAIN = `
+    import { users, type User } from "./repo";
+    declare const u: User;
+    export const r = u.save();
+  `;
+
+  it("an untagged Repo<User>-annotated object is not a provider, without a program", () => {
+    const { sf, checker, diags } = program({
+      "/lib.d.ts": LIB,
+      "/repo.ts": REPO,
+      "/main.ts": REPO_MAIN,
+    });
+    const d2339 = diags.find((d) => d.code === 2339)!;
+    expect(d2339).toBeDefined();
+    expect(rule.shouldSuppress(d2339, checker, sf)).toBe(false);
+  });
+
+  it("an untagged object annotated with a declared typeclass's name is not a provider", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program({
+      "/lib.d.ts": LIB,
+      "/tc.ts": `/** @typeclass */\nexport interface Repo<A> { save(a: A): number }\n`,
+      "/repo.ts": REPO,
+      "/main.ts": REPO_MAIN,
+    });
+    const d2339 = diags.find((d) => d.code === 2339)!;
+    expect(rule.shouldSuppress(d2339, checker, sf, { program: p })).toBe(false);
+  });
+
+  it("an untagged @impl instance is a provider for its own type", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program({
+      "/lib.d.ts": LIB,
+      "/repo.ts": `
+        /** @typeclass */
+        export interface Repo<A> { save(a: A): number }
+        export interface User { id: number }
+        /** @impl Repo<User> */
+        export const users: Repo<User> = { save: (u) => u.id };
+      `,
+      "/main.ts": REPO_MAIN,
+    });
+    const d2339 = diags.find((d) => d.code === 2339)!;
     expect(rule.shouldSuppress(d2339, checker, sf, { program: p })).toBe(true);
-    expect(callbackRule.shouldSuppress(d7006, checker, sf, { program: p })).toBe(true);
   });
 
   it("suppresses neither without the import", () => {

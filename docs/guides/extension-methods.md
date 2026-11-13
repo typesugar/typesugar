@@ -67,6 +67,37 @@ same function reached through both a named and a namespace import counts once.)
 
 **Trade-off:** Named imports enable better tree-shaking and make dependencies explicit. Namespace imports are convenient but may include unused code in the bundle.
 
+### Extension Objects
+
+An object or namespace that groups extension functions (`EffectExt` from `@typesugar/effect`,
+std's `NumberExt`, your own) supplies its members as extension methods only when the import
+says so, with a JSDoc `@extension` tag:
+
+```typescript
+// logger.ts
+export const log = {
+  info(msg: unknown): string {
+    return `[info] ${JSON.stringify(msg)}`;
+  },
+};
+
+// app.ts
+/** @extension */
+import { log } from "./logger";
+
+const user = { id: 1 };
+user.info(); // → log.info(user)
+```
+
+Without the tag, `user.info()` is the TS2339 error it looks like. An ordinary method is never
+an extension (as in Scala 3): `log.info` takes `unknown`, so it accepts every receiver, and
+without the opt-in any imported helper object would quietly take over calls that are really
+typos. The tag covers every name the import declaration binds, so keep extension objects in
+an import of their own. It works on named and default imports; `import * as X` needs none (the namespace
+import is the opt-in), and neither does a typeclass instance (an `@impl` or `derived<TC<T>>()` value supplies its
+methods for its own type). `"use extension"` in the providing module does not stand in for the
+tag: it isn't in a published `.d.ts`, and the tag keeps the decision next to the calls.
+
 ### "use extension" Directive (Recommended for Libraries)
 
 For libraries and modules where you want to be explicit that all exports are intended as extensions:
@@ -201,7 +232,7 @@ When the transformer encounters `value.method()`:
 1. **Native property**: If `value` has a property `method`, use it
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
-4. **Extension functions in scope**: Imported functions with matching first parameter
+4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported typeclass instances, whose first parameter accepts the receiver
 5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` or `derived<TC<T>>()` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.

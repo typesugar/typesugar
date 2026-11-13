@@ -61,8 +61,12 @@ function makeProject(files: Record<string, string>): string {
   return dir;
 }
 
-function cli(dir: string, command: "check" | "build"): { status: number | null; output: string } {
-  const r = spawnSync(process.execPath, [cliPath, command], {
+function cli(
+  dir: string,
+  command: "check" | "build" | "expand",
+  ...args: string[]
+): { status: number | null; output: string } {
+  const r = spawnSync(process.execPath, [cliPath, command, ...args], {
     cwd: dir,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -142,6 +146,131 @@ console.log(n.show());
     });
   }
 );
+
+// PEP-064: an imported object or namespace supplies extension methods only
+// when its import opts in (a JSDoc @extension tag, or `import * as X`), or
+// it is a typeclass instance. A member taking `unknown` or an unconstrained
+// `T` used to accept every receiver, so `user.info()` became `log.info(user)`
+// and the suppression rule hid the TS2339.
+const LOGGER = `export const log = { info(msg: unknown): string { return "info " + JSON.stringify(msg); } };
+export const util = { identity<T>(x: T): T { return x; } };
+`;
+
+describe.skipIf(!hasBuild)(
+  "PEP-064: imported objects are extension providers only when opted in",
+  () => {
+    let dir: string;
+    let output = "";
+    beforeAll(() => {
+      dir = makeProject({
+        "src/logger.ts": LOGGER,
+        // Untagged: the calls are the mistakes they look like.
+        "src/e.ts": `import { log, util } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info());
+console.log((5).identity());
+`,
+        // A library's utility object, untagged (\`name: string\`).
+        "src/g.ts": `import { ZeroCostOptionOps } from "@typesugar/fp";
+const name: string = "x";
+console.log(name.isSome());
+`,
+        // A default import of an object, untagged.
+        "src/h-lib.ts": `export default { info(msg: unknown): string { return String(msg); } };\n`,
+        "src/h.ts": `import logger from "./h-lib.js";
+const user = { id: 1 };
+console.log(user.info());
+`,
+      });
+      dirs.push(dir);
+      output = cli(dir, "check").output;
+    });
+
+    it.each([
+      ["e", 3, "a utility object member taking unknown"],
+      ["e", 4, "a utility object member taking an unconstrained T"],
+      ["g", 3, "a library object (ZeroCostOptionOps.isSome) on a string"],
+      ["h", 3, "a default-imported object"],
+    ])("%s.ts line %i: %s is reported (TS2339)", (file, line) => {
+      expect(output).toMatch(new RegExp(`${file}\\.ts\\(${line},\\d+\\): error TS2339`));
+    });
+  }
+);
+
+describe.skipIf(!hasBuild)("PEP-064: a JSDoc @extension tag on the import opts in", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = makeProject({
+      "src/logger.ts": LOGGER,
+      "src/h-lib.ts": `export default { info(msg: unknown): string { return "d " + String(msg); } };\n`,
+      "src/f.ts": `/** @extension */
+import { log, util } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info());
+console.log((5).identity());
+`,
+      "src/h.ts": `/**
+ * The default export's methods, as extensions.
+ * @extension
+ */
+import logger from "./h-lib.js";
+console.log("x".info());
+`,
+    });
+    dirs.push(dir);
+  });
+
+  it("check passes, the build rewrites the calls and runs, with no warning for the tag", () => {
+    const c = cli(dir, "check");
+    expect(c.output).not.toMatch(/error TS|warning|Unknown JSDoc/i);
+    expect(c.status, c.output).toBe(0);
+    const b = cli(dir, "build");
+    expect(b.output).not.toMatch(/warning|Unknown JSDoc/i);
+    expect(b.status, b.output).toBe(0);
+    const out = fs.readFileSync(path.join(dir, "out", "f.js"), "utf-8");
+    expect(out).toContain("log.info(user)");
+    expect(out).toContain("util.identity(");
+    const f = run(dir, "f.js");
+    expect(f.status, f.output).toBe(0);
+    expect(f.output).toBe('info {"id":1}\n5\n');
+    const h = run(dir, "h.js");
+    expect(h.status, h.output).toBe(0);
+    expect(h.output).toBe("d x\n");
+  });
+
+  it("typesugar expand shows the rewrite, the tag kept on the import, with no warning", () => {
+    const e = cli(dir, "expand", "src/f.ts");
+    expect(e.status, e.output).toBe(0);
+    expect(e.output).toContain("log.info(user)");
+    expect(e.output).toContain("/** @extension */");
+    expect(e.output).not.toMatch(/warning|Unknown JSDoc/i);
+  });
+});
+
+describe.skipIf(!hasBuild)("PEP-064: two tagged imports providing one method are ambiguous", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = makeProject({
+      "src/logger.ts": LOGGER,
+      "src/logger2.ts": `export const log2 = { info(msg: unknown): string { return String(msg); } };\n`,
+      "src/amb.ts": `/** @extension */
+import { log } from "./logger.js";
+/** @extension */
+import { log2 } from "./logger2.js";
+const user = { id: 1 };
+console.log(user.info());
+`,
+    });
+    dirs.push(dir);
+  });
+
+  it("the build reports the ambiguity, naming both providers", () => {
+    const b = cli(dir, "build");
+    expect(b.output).toMatch(/Ambiguous extension method 'info'/);
+    expect(b.output).toMatch(/log\.info \(from "\.\/logger\.js"\)/);
+    expect(b.output).toMatch(/log2\.info \(from "\.\/logger2\.js"\)/);
+  });
+});
 
 describe.skipIf(!hasBuild)("a union instance serves a receiver narrowed to a member", () => {
   let dir: string;

@@ -7,6 +7,8 @@
 
 import { Effect, pipe } from "effect";
 // Extension methods on Effect values: eff.map(f) -> EffectExt.map(eff, f).
+// The @extension tag is what lets an imported object supply them (PEP-064).
+/** @extension */
 import { EffectExt } from "@typesugar/effect";
 // do-notation (let:/yield:, par:) over Effect, with its FlatMap/ParCombine
 // instances in scope.

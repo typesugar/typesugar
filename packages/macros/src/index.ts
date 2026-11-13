@@ -296,8 +296,8 @@ export { getDoInstanceModule } from "./do-instance-index.js";
 // --- Import-scoped extension providers (shared by the rewrite and the ExtensionMethodCall rule) ---
 export {
   findImportedExtensionMatches,
+  hasExtensionImportTag,
   checkImportedSymbolForExtension,
-  isExtensionEnabledIn,
   hasExtensionDecorator,
   isDefaultLibMember,
   isGlobalAugmentationStub,
