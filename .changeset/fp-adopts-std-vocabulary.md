@@ -1,5 +1,5 @@
 ---
-"@typesugar/fp": patch
+"@typesugar/fp": minor
 "@typesugar/contracts": patch
 ---
 

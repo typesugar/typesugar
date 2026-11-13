@@ -7,12 +7,15 @@
  *   - Reflexivity: equals(x, x) === true
  *   - Symmetry: equals(x, y) === equals(y, x)
  *   - Transitivity: equals(x, y) && equals(y, z) => equals(x, z)
+ *   - Inequality: notEquals(x, y) === !equals(x, y)
  *
  * Ord Laws (extends Eq):
  *   - Antisymmetry: compare(x, y) <= 0 && compare(y, x) <= 0 => equals(x, y)
  *   - Transitivity: compare(x, y) <= 0 && compare(y, z) <= 0 => compare(x, z) <= 0
  *   - Totality: compare(x, y) <= 0 || compare(y, x) <= 0
  *   - Consistency: equals(x, y) === (compare(x, y) === 0)
+ *   - Comparison methods: lessThan(x, y) === (compare(x, y) < 0), and likewise
+ *     lessThanOrEqual, greaterThan, greaterThanOrEqual
  *
  * @module
  */
@@ -59,6 +62,13 @@ export function eqLaws<A>(E: Eq<A>): LawSet {
         // Vacuously true if premise doesn't hold
         return true;
       },
+    },
+    {
+      name: "inequality",
+      arity: 2,
+      description:
+        "notEquals (what `!==` calls) agrees with equals: notEquals(x, y) === !equals(x, y)",
+      check: (x: A, y: A): boolean => E.notEquals(x, y) === !E.equals(x, y),
     },
   ] as unknown as LawSet;
 }
@@ -118,6 +128,21 @@ export function ordLaws<A>(O: Ord<A>): LawSet {
       arity: 2,
       description: "Eq and Ord agree: equals(x, y) === (compare(x, y) === 0)",
       check: (x: A, y: A): boolean => O.equals(x, y) === (O.compare(x, y) === 0),
+    },
+    {
+      name: "comparison methods",
+      arity: 2,
+      description:
+        "The methods `<`, `<=`, `>`, `>=` call agree with compare: lessThan(x, y) === (compare(x, y) < 0), ...",
+      check: (x: A, y: A): boolean => {
+        const c = O.compare(x, y);
+        return (
+          O.lessThan(x, y) === c < 0 &&
+          O.lessThanOrEqual(x, y) === c <= 0 &&
+          O.greaterThan(x, y) === c > 0 &&
+          O.greaterThanOrEqual(x, y) === c >= 0
+        );
+      },
     },
   ] as unknown as LawSet;
 }
