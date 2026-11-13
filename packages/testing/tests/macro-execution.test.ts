@@ -108,6 +108,39 @@ describe("mock<T>() — executes (finding #9)", () => {
     expect(s.get("b")).toBeUndefined();
   });
 
+  it("passes the defaults argument through and honours it at runtime", () => {
+    const { code, diagnostics } = compile(
+      [
+        `import { mock } from "@typesugar/testing";`,
+        `interface Svc { get(id: string): number; ping(): string; label: string }`,
+        `export const s = mock<Svc>({ get: (id) => id.length, label: "hi" });`,
+      ].join("\n")
+    );
+    expect(diagnostics).toEqual([]);
+    expect(code).toMatch(/createMockObject<Svc>\(\["get", "ping"\], \{ get: /);
+    const { exports } = run(code);
+    const s = exports.s;
+    expect(s.get("abc")).toBe(3);
+    expect(s._calls.get).toEqual([["abc"]]);
+    expect(s.label).toBe("hi");
+    expect(s.ping()).toBeUndefined();
+    s.get.mockReturnValue(9);
+    expect(s.get("abc")).toBe(9);
+    s.get.mockReset();
+    expect(s.get("abc")).toBeUndefined();
+  });
+
+  it("reports an error for more than one argument", () => {
+    const { diagnostics } = compile(
+      [
+        `import { mock } from "@typesugar/testing";`,
+        `interface Svc { get(id: string): number }`,
+        `export const s = mock<Svc>({}, {} as any);`,
+      ].join("\n")
+    );
+    expect(diagnostics.length).toBeGreaterThan(0);
+  });
+
   it("@mock generates a working mock binding", () => {
     const { code, diagnostics } = compile(
       [

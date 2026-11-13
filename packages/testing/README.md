@@ -32,8 +32,18 @@ typeAssert<Equal<ReturnType<typeof parse>, AST>>();
   resolvable at test runtime — install it where your tests run, not only where they compile.
 - Macros inside `assert(...)` (`summon<…>()`, `extend(x).m()`, extension methods, operators)
   expand before the assertion is instrumented, so they work as they do anywhere else.
-- `mock<T>()` / `@mock` expand to `createMockObject<T>([...method names])`; you can call
-  `createMockObject` directly when the transformer is not configured.
+- `mock<T>(defaults?)` / `@mock` expand to `createMockObject<T>([...method names], defaults?)`; you
+  can call `createMockObject` directly when the transformer is not configured. Function members of
+  `defaults` become each method's persistent implementation (like `mockImplementation`, so
+  `mockReset()` clears them); other members are copied onto the mock as plain properties.
+  `defaults` is typed `Partial<T>`, so a wrong key or signature is a compile error.
+
+  ```typescript
+  const repo = mock<UserRepo>({ get: async (id) => ({ id }) });
+  await repo.get("1"); // { id: "1" }, and repo._calls.get is [["1"]]
+  repo.get.mockReturnValue(other); // overrides the default
+  ```
+
 - `assertSnapshot(expr)` keys snapshots by project-relative file path and expression text (no
   line number), so adding lines above a snapshot does not orphan it.
 
