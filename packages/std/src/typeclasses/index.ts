@@ -1261,7 +1261,7 @@ export function cloneArray<A>(C: Clone<A>): Clone<A[]> {
 /**
  * Debug typeclass - developer-facing string representation.
  *
- * Unlike Show (human-readable), Debug produces unambiguous output
+ * Unlike a human-readable display string, Debug produces unambiguous output
  * suitable for logging and debugging. Strings are quoted, types are
  * annotated, etc.
  *

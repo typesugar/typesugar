@@ -1,11 +1,11 @@
 ---
-"@typesugar/core": patch
-"@typesugar/macros": patch
-"@typesugar/typeclass": patch
-"@typesugar/transformer-core": patch
-"@typesugar/std": patch
-"@typesugar/fp": patch
-"typesugar": patch
+"@typesugar/core": minor
+"@typesugar/macros": minor
+"@typesugar/typeclass": minor
+"@typesugar/transformer-core": minor
+"@typesugar/std": minor
+"@typesugar/fp": minor
+"typesugar": minor
 ---
 
 1.0 public-API pruning (audit/ARCH-REVIEW-2026-11-TRIAGE.md, PR 3). Removes exports that
