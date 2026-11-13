@@ -76,6 +76,18 @@ export const r: string = user.info();
     ).toEqual([]);
   });
 
+  it("a tag with no effect: a typesugar warning at the tag", () => {
+    const diags = diagnosticsOf(`/** @extension */
+import { log } from "./logger";
+export const r: string = log.info("direct");
+`);
+    const warnings = diags.filter((d) =>
+      /@extension tag has no effect/.test(ts.flattenDiagnosticMessageText(d.messageText, " "))
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].category).toBe(ts.DiagnosticCategory.Warning);
+  });
+
   it("an untagged import: TS2339 on the call", () => {
     const diags = diagnosticsOf(`import { log } from "./logger";
 const user = { id: 1 };

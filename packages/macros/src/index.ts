@@ -301,6 +301,9 @@ export { getDoInstanceModule } from "./do-instance-index.js";
 export {
   findImportedExtensionMatches,
   hasExtensionImportTag,
+  extensionImportUses,
+  inactiveExtensionImportTags,
+  type ExtensionImportUses,
   checkImportedSymbolForExtension,
   hasExtensionDecorator,
   isDefaultLibMember,
@@ -422,6 +425,7 @@ export {
   createDerivedCompanionAccessRule,
   createDerivedDeclarationReferenceRule,
   createJSDocDeriveImportRule,
+  createExtensionImportRule,
   generatedValueNames,
   isDerivedValueSymbol,
 } from "./diagnostic-suppression-rules.js";

@@ -19,6 +19,7 @@ import {
   createDerivedDeclarationReferenceRule,
   createExtensionMethodCallRule,
   createJSDocDeriveImportRule,
+  createExtensionImportRule,
   createMacroCallChainRule,
   createMacroDecoratorRule,
   createMatchSwitchRule,
@@ -95,6 +96,9 @@ export function registerAllDiagnosticSuppressionRules(
   if (registerDiagnosticSuppressionRuleOnce(createJSDocDeriveImportRule())) {
     registered.push("JSDocDeriveImport");
   }
+  if (registerDiagnosticSuppressionRuleOnce(createExtensionImportRule())) {
+    registered.push("ExtensionImport");
+  }
 
   return registered;
 }
@@ -117,4 +121,5 @@ export const ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES = [
   "DerivedCompanionAccess",
   "DerivedDeclarationReference",
   "JSDocDeriveImport",
+  "ExtensionImport",
 ] as const;

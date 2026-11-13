@@ -1,6 +1,6 @@
 # PEP-064: Imported Objects Supply Extension Methods Only When the Import Opts In
 
-**Status:** In Progress (Wave 1 in review)
+**Status:** In Progress (Waves 1–2 in review: PRs #97, #98)
 **Date:** 2026-11-13
 **Author:** Claude (with Dean Povey)
 **Related:** [PEP-027](PEP-027-use-extension-emit-registration.md) (`"use extension"`
@@ -146,7 +146,8 @@ object; tagged, the user asked for it.
 `@extension` is also the name of the attribute macro that registers a function. The JSDoc
 macro dispatcher only looks at declaration nodes (`isJSDocMacroTargetNode`: interfaces,
 classes, type aliases, variables, functions, enums), never at an `ImportDeclaration`, so the
-tag on an import is never dispatched as the attribute macro and never warns. Wave 1 tests
+tag on an import is never dispatched as the attribute macro (the only warning it can get is
+Wave 2's "no effect" warning below). Wave 1 tests
 this through the transformer, `typesugar expand`, the language service and unplugin
 (PEP-056 parity).
 
@@ -163,7 +164,11 @@ under `noUnusedLocals` an import used only through extension calls is reported
 tagged object import would hit it the moment a user writes what this PEP asks for. Wave 2
 adds an **ExtensionImport** suppression rule, mirroring F23's `JSDocDeriveImport`: an unused
 import diagnostic is hidden when every binding it reports serves at least one extension call
-in the file, decided by the same `findImportedExtensionMatches` the rewrite uses.
+in the file, decided by the same `findImportedExtensionMatches` the rewrite uses
+(`extensionImportUses`, `packages/macros/src/extension-imports.ts`, asked once per call
+whose method name an import could provide). When an import declaration binds a served name
+and an unused one, TypeScript reports the whole declaration (TS6192) and the rule keeps it:
+the unused binding is real.
 
 ### A tag that does nothing
 
@@ -171,7 +176,9 @@ A tagged import none of whose bindings serves an object-member extension call in
 gets a warning: the tag has no effect (nothing uses the import as an extension object, or
 it only binds functions, which need no tag). This mirrors F23's inactive `@derive` warning:
 a tag that silently does nothing is worse than one that says so. It is a warning, not an
-error, and has no code of its own, like F23's.
+error, and has no code of its own, like F23's. It is reported once per file, at the tag,
+from the transformer's visit of the source file, so `check`, `build`, `expand`, the language
+service and unplugin all show it.
 
 ## Rejected alternatives
 
@@ -211,10 +218,10 @@ Every import of an extension object in the repo gains the tag:
 
 ## Waves
 
-| Wave | Scope                                                                                                                                                                                                       | Branch                               | Status    |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | --------- |
-| 1    | The decision in `findImportedExtensionMatches`; check/build agreement and tag-not-dispatched tests (transformer, `expand`, language service, unplugin); test, docs and example migration; consistency sweep | `pep-064-extension-import-opt-in`    | In review |
-| 2    | ExtensionImport unused-import suppression rule (bare functions and tagged objects); warning for a tag with no effect                                                                                        | `pep-064-wave-2-unused-and-inactive` | Planned   |
+| Wave | Scope                                                                                                                                                                                                       | Branch                               | Status          |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | --------------- |
+| 1    | The decision in `findImportedExtensionMatches`; check/build agreement and tag-not-dispatched tests (transformer, `expand`, language service, unplugin); test, docs and example migration; consistency sweep | `pep-064-extension-import-opt-in`    | In review (#97) |
+| 2    | ExtensionImport unused-import suppression rule (bare functions and tagged objects); warning for a tag with no effect                                                                                        | `pep-064-wave-2-unused-and-inactive` | In review (#98) |
 
 ## Risks
 

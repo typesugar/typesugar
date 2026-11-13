@@ -70,6 +70,7 @@ import {
   resolveSymbolToMacro,
   resolveMacroFromSymbol as resolveMacroFromSymbolFn,
   scanImportsForExtension,
+  reportInactiveExtensionImportTags,
 } from "./import-resolution.js";
 
 import {
@@ -420,6 +421,7 @@ class MacroTransformer {
     }
 
     if (ts.isSourceFile(node)) {
+      if (node === this.ctx.sourceFile) reportInactiveExtensionImportTags(this.ctx);
       // Extensions registered during this pass are keyed to this file, and the
       // file's entries from an earlier pass (watch/LSP re-transform) are dropped.
       return withStandaloneExtensionFile(node.fileName, () => this.visitStatementContainer(node));

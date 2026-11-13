@@ -160,6 +160,120 @@ export function findImportedExtensionMatches(
   return matches;
 }
 
+/** Which import bindings of a file serve extension calls in it ({@link extensionImportUses}). */
+export interface ExtensionImportUses {
+  /** Bindings whose MEMBER some call resolves to (`log` for `user.info()` → `log.info(user)`). */
+  asMember: ReadonlySet<ts.Identifier>;
+  /** Bindings called as a function named after the method (`clamp` for `n.clamp()`). */
+  asFunction: ReadonlySet<ts.Identifier>;
+}
+
+/**
+ * The import bindings of `env.sourceFile` that serve at least one
+ * `recv.method()` call in it, as {@link findImportedExtensionMatches} decides
+ * each call: the same decision as the rewrite, asked once per call whose
+ * method name an import could provide (a binding's own name, or a property
+ * of its value). Used for the unused-import suppression (TypeScript doesn't
+ * count an extension call as a use of the import) and the warning for an
+ * `@extension` tag that has no effect (PEP-064 Wave 2).
+ *
+ * Reads the file as written (pass-start source): the calls and imports exist
+ * before any pass starts (CLAUDE.md "Resolving things a macro just
+ * generated"). A checker failure on one call is warned and that call skipped.
+ */
+export function extensionImportUses(env: ExtensionImportEnv): ExtensionImportUses {
+  const { checker, sourceFile } = env;
+  const asMember = new Set<ts.Identifier>();
+  const asFunction = new Set<ts.Identifier>();
+  const candidates = new Set<string>();
+  for (const ident of importBindings(sourceFile)) {
+    candidates.add(ident.text);
+    try {
+      const sym = checker.getSymbolAtLocation(ident);
+      if (!sym) continue;
+      for (const prop of checker.getTypeOfSymbolAtLocation(sym, ident).getProperties()) {
+        candidates.add(prop.name);
+      }
+    } catch (error) {
+      env.warn(
+        ident,
+        `typesugar could not read the members of the import '${ident.text}' (${error}); ` +
+          `extension calls through them are not counted as uses of it.`
+      );
+    }
+  }
+  if (candidates.size === 0) return { asMember, asFunction };
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      candidates.has(node.expression.name.text)
+    ) {
+      const callee = node.expression;
+      try {
+        const receiverType = checker.getTypeAtLocation(callee.expression);
+        for (const m of findImportedExtensionMatches(env, callee.name.text, receiverType)) {
+          (m.ext.qualifier === undefined ? asFunction : asMember).add(m.ident);
+        }
+      } catch (error) {
+        env.warn(
+          callee,
+          `typesugar could not check whether '.${callee.name.text}()' is an extension call ` +
+            `(${error}); it is not counted as a use of any import.`
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return { asMember, asFunction };
+}
+
+/** Every name the file's import declarations bind (named, default and namespace). */
+function importBindings(sourceFile: ts.SourceFile): ts.Identifier[] {
+  const out: ts.Identifier[] = [];
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+    out.push(...declarationBindings(stmt));
+  }
+  return out;
+}
+
+/** The names one import declaration binds. */
+function declarationBindings(decl: ts.ImportDeclaration): ts.Identifier[] {
+  const clause = decl.importClause;
+  if (!clause) return [];
+  const out: ts.Identifier[] = [];
+  if (clause.name) out.push(clause.name);
+  const bindings = clause.namedBindings;
+  if (bindings && ts.isNamespaceImport(bindings)) out.push(bindings.name);
+  if (bindings && ts.isNamedImports(bindings))
+    for (const el of bindings.elements) out.push(el.name);
+  return out;
+}
+
+/**
+ * The `@extension` tags on this file's imports that do nothing: no binding of
+ * the tagged declaration serves an extension call through one of its
+ * MEMBERS (the only thing the tag enables; a function named after the method
+ * needs no tag). Reported as a warning, like an inactive `@derive` (audit
+ * F23): a tag that silently does nothing is worse than one that says so.
+ */
+export function inactiveExtensionImportTags(env: ExtensionImportEnv): ts.JSDocTag[] {
+  const tagged: [ts.ImportDeclaration, ts.JSDocTag][] = [];
+  for (const stmt of env.sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt)) continue;
+    const tag = extensionImportTag(stmt);
+    if (tag) tagged.push([stmt, tag]);
+  }
+  if (tagged.length === 0) return [];
+  const { asMember } = extensionImportUses(env);
+  return tagged
+    .filter(([decl]) => !declarationBindings(decl).some((b) => asMember.has(b)))
+    .map(([, tag]) => tag);
+}
+
 /**
  * Does `decl` carry the import-site opt-in, a JSDoc `@extension` tag at a
  * real tag position (PEP-064)?
@@ -174,9 +288,14 @@ export function findImportedExtensionMatches(
  * removes one (CLAUDE.md "Resolving things a macro just generated").
  */
 export function hasExtensionImportTag(decl: ts.ImportDeclaration): boolean {
+  return extensionImportTag(decl) !== undefined;
+}
+
+/** The import-site `@extension` tag of `decl`, if it has one ({@link hasExtensionImportTag}). */
+function extensionImportTag(decl: ts.ImportDeclaration): ts.JSDocTag | undefined {
   return ts
     .getJSDocTags(decl)
-    .some((tag) => tag.tagName.text === "extension" && isJSDocTagAtLineStart(tag));
+    .find((tag) => tag.tagName.text === "extension" && isJSDocTagAtLineStart(tag));
 }
 
 /**

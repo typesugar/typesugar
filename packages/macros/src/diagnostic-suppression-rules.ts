@@ -42,7 +42,12 @@ import { getTypeclassesForMethod } from "./typeclass.js";
 import { getOperatorCandidates, getTypeclassesDeclaringMethod } from "./typeclass-index.js";
 import { getOperatorString } from "./operators.js";
 import { resolveInstance } from "./instance-resolver.js";
-import { findImportedExtensionMatches, type ExtensionImportEnv } from "./extension-imports.js";
+import {
+  extensionImportUses,
+  findImportedExtensionMatches,
+  type ExtensionImportEnv,
+  type ExtensionImportUses,
+} from "./extension-imports.js";
 import { deriveNamesOf } from "./instance-scanner.js";
 import { hasGenericDerivation } from "./auto-derive.js";
 import {
@@ -1411,6 +1416,85 @@ function jsDocDeriveNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   };
   visit(sourceFile.statements);
   return names;
+}
+
+// ===========================================================================
+// ExtensionImport — an import that serves extension calls is not unused
+// ===========================================================================
+
+/**
+ * Create the ExtensionImport diagnostic suppression rule (PEP-064 Wave 2).
+ *
+ * TypeScript doesn't count an extension call as a use of the import that
+ * provides it, so under `noUnusedLocals` `import { clamp }` used only as
+ * `n.clamp(0, 1)`, or a tagged `/** @extension *\/ import { log }` used only
+ * as `user.info()`, is reported unused (6133/6192/6196). After expansion the
+ * import is used (`clamp(n, 0, 1)`, `log.info(user)`). Suppressed only when
+ * EVERY binding the diagnostic reports serves at least one extension call in
+ * the file, decided per call by the rewrite's own decision
+ * (`extensionImportUses` → `findImportedExtensionMatches`).
+ */
+export function createExtensionImportRule(): DiagnosticSuppressionRule {
+  // Per checker, then per file: a watch rebuild can reuse a SourceFile in a
+  // new program, whose checker answers differently.
+  const usesByChecker = new WeakMap<ts.TypeChecker, WeakMap<ts.SourceFile, ExtensionImportUses>>();
+  return {
+    name: "ExtensionImport",
+    errorCodes: UNUSED_IMPORT_CODES,
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile,
+      context?: DiagnosticSuppressionContext
+    ): boolean {
+      if (diagnostic.start === undefined) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      const reported = node ? reportedImportBindings(node) : [];
+      if (reported.length === 0) return false;
+      let perFile = usesByChecker.get(checker);
+      if (!perFile) usesByChecker.set(checker, (perFile = new WeakMap()));
+      let uses = perFile.get(sourceFile);
+      if (!uses) {
+        uses = extensionImportUses({
+          checker,
+          program: context?.program,
+          sourceFile,
+          warn: (_node, message) => reportCheckerFailure("ExtensionImport", message),
+        });
+        perFile.set(sourceFile, uses);
+      }
+      const used = uses;
+      return reported.every((b) => used.asMember.has(b) || used.asFunction.has(b));
+    },
+  };
+}
+
+/** The import bindings an unused-import diagnostic at `node` is about (none: not an import). */
+function reportedImportBindings(node: ts.Node): ts.Identifier[] {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (ts.isImportSpecifier(n)) return [n.name];
+    if (ts.isNamespaceImport(n)) return [n.name];
+    if (ts.isImportClause(n)) {
+      // The default binding alone, or the whole clause.
+      if (n.name && node === n.name) return [n.name];
+      return clauseBindings(n);
+    }
+    if (ts.isImportDeclaration(n)) return n.importClause ? clauseBindings(n.importClause) : [];
+    if (ts.isStatement(n)) return [];
+  }
+  return [];
+}
+
+/** Every name an import clause binds. */
+function clauseBindings(clause: ts.ImportClause): ts.Identifier[] {
+  const out: ts.Identifier[] = [];
+  if (clause.name) out.push(clause.name);
+  const bindings = clause.namedBindings;
+  if (bindings && ts.isNamespaceImport(bindings)) out.push(bindings.name);
+  if (bindings && ts.isNamedImports(bindings))
+    for (const el of bindings.elements) out.push(el.name);
+  return out;
 }
 
 // ===========================================================================

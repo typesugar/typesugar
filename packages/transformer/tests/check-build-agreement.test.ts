@@ -31,7 +31,10 @@ const repoRoot = path.resolve(pkgRoot, "..", "..");
 const cliPath = path.join(pkgRoot, "dist", "cli.js");
 const hasBuild = fs.existsSync(cliPath);
 
-function makeProject(files: Record<string, string>): string {
+function makeProject(
+  files: Record<string, string>,
+  extraOptions: Record<string, unknown> = {}
+): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-agree-"));
   fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(dir, "node_modules"), "dir");
   fs.writeFileSync(
@@ -45,6 +48,7 @@ function makeProject(files: Record<string, string>): string {
         skipLibCheck: true,
         types: [],
         outDir: "out",
+        ...extraOptions,
       },
       include: ["src"],
     })
@@ -269,6 +273,76 @@ console.log(user.info());
     expect(b.output).toMatch(/Ambiguous extension method 'info'/);
     expect(b.output).toMatch(/log\.info \(from "\.\/logger\.js"\)/);
     expect(b.output).toMatch(/log2\.info \(from "\.\/logger2\.js"\)/);
+  });
+});
+
+describe.skipIf(!hasBuild)("PEP-064 Wave 2: extension imports under noUnusedLocals", () => {
+  // TypeScript doesn't count an extension call as a use of its import, so a
+  // bare function (`"hi".shout()`) or a tagged object (`user.info()`) used
+  // only that way was TS6133/TS6192 from \`typesugar check\`.
+  let dir: string;
+  let output = "";
+  beforeAll(() => {
+    dir = makeProject(
+      {
+        "src/logger.ts":
+          LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+        "src/used.ts": `/** @extension */
+import { log, util } from "./logger.js";
+import { shout } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info(), (5).identity(), "hi".shout());
+`,
+        // \`log\` is really unused here: still reported.
+        "src/unused.ts": `import { shout, log } from "./logger.js";
+console.log("hi".shout());
+`,
+      },
+      { noUnusedLocals: true }
+    );
+    dirs.push(dir);
+    output = cli(dir, "check").output;
+  });
+
+  it("an import used only through extension calls is not reported unused", () => {
+    expect(output).not.toMatch(/[\\/]used\.ts\(\d+,\d+\): error/);
+  });
+
+  it("a binding no call uses is still reported", () => {
+    expect(output).toMatch(/unused\.ts\(1,\d+\): error TS6(133|192)/);
+  });
+
+  it("the build runs", () => {
+    const b = cli(dir, "build");
+    expect(b.output).toMatch(/unused\.ts/);
+    const r = run(dir, "used.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('info {"id":1} 5 HI\n');
+  });
+});
+
+describe.skipIf(!hasBuild)("PEP-064 Wave 2: an @extension tag with no effect warns", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = makeProject({
+      "src/logger.ts":
+        LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+      // A function import needs no tag; an object called directly uses none.
+      "src/c.ts": `/** @extension */
+import { shout } from "./logger.js";
+/** @extension */
+import { log } from "./logger.js";
+console.log("hi".shout(), log.info("direct"));
+`,
+    });
+    dirs.push(dir);
+  });
+
+  it("check warns on each tag, at the tag, and exits 0", () => {
+    const c = cli(dir, "check");
+    expect(c.status, c.output).toBe(0);
+    expect(c.output).toMatch(/c\.ts\(1,\d+\): warning .*This @extension tag has no effect/);
+    expect(c.output).toMatch(/c\.ts\(3,\d+\): warning .*This @extension tag has no effect/);
   });
 });
 

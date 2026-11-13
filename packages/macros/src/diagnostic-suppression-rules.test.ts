@@ -9,6 +9,7 @@ import {
   createContractBlockRule,
   createComprehensionBlockRule,
   createJSDocDeriveImportRule,
+  createExtensionImportRule,
 } from "./diagnostic-suppression-rules.js";
 import { registerTypeclassMacros } from "./typeclass.js";
 import { globalResolutionScope } from "@typesugar/core";
@@ -1362,6 +1363,95 @@ describe("JSDocDeriveImport — an import a JSDoc @derive tag uses is not unused
       [`import type { Eq } from "typesugar";`, `export interface P { x: number }`].join("\n")
     );
     expect(r.kept.length).toBe(r.codes.length);
+    expect(r.kept.length).toBeGreaterThan(0);
+  });
+});
+
+describe("ExtensionImport — an import that serves extension calls is not unused (PEP-064)", () => {
+  const rule = createExtensionImportRule();
+
+  const LIB = `
+    interface Array<T> { length: number }
+    interface Boolean {} interface Function {} interface IArguments {} interface Number {}
+    interface Object {} interface RegExp {} interface String { toUpperCase(): string }
+    interface CallableFunction {} interface NewableFunction {}
+  `;
+  const EXT = `
+    export const log = { info(msg: unknown): string { return String(msg); } };
+    export function shout(s: string): string { return s.toUpperCase(); }
+    export const other = 1;
+  `;
+
+  /** The unused-import diagnostics of `/main.ts` under noUnusedLocals, and the text of those the rule keeps. */
+  function unused(main: string) {
+    const files: Record<string, string> = { "/lib.d.ts": LIB, "/ext.ts": EXT, "/main.ts": main };
+    const host: ts.CompilerHost = {
+      getSourceFile: (name, lv) =>
+        name in files ? ts.createSourceFile(name, files[name], lv, true) : undefined,
+      getDefaultLibFileName: () => "/lib.d.ts",
+      writeFile: () => {},
+      getCurrentDirectory: () => "/",
+      getDirectories: () => [],
+      fileExists: (f) => f in files,
+      readFile: (f) => files[f],
+      getCanonicalFileName: (f) => f,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+    };
+    const program = ts.createProgram(
+      Object.keys(files),
+      {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        strict: true,
+        noLib: true,
+        noUnusedLocals: true,
+        types: [],
+      },
+      host
+    );
+    const sf = program.getSourceFile("/main.ts")!;
+    const checker = program.getTypeChecker();
+    const diags = program
+      .getSemanticDiagnostics(sf)
+      .filter((d) => rule.errorCodes.includes(d.code));
+    return {
+      codes: diags.map((d) => d.code),
+      kept: diags
+        .filter((d) => !rule.shouldSuppress(d, checker, sf, { program }))
+        .map((d) => main.slice(d.start!, d.start! + d.length!)),
+    };
+  }
+
+  it("hides the report for a function import used only as an extension", () => {
+    const r = unused(`import { shout } from "./ext";\nexport const z = "hi".shout();\n`);
+    expect(r.codes.length).toBeGreaterThan(0);
+    expect(r.kept).toEqual([]);
+  });
+
+  it("hides the report for a tagged object import used only through extension calls", () => {
+    const r = unused(
+      `/** @extension */\nimport { log } from "./ext";\nconst user = { id: 1 };\nexport const x = user.info();\n`
+    );
+    expect(r.codes.length).toBeGreaterThan(0);
+    expect(r.kept).toEqual([]);
+  });
+
+  it("keeps the report for a binding no extension call uses", () => {
+    const r = unused(`import { shout, other } from "./ext";\nexport const z = "hi".shout();\n`);
+    expect(r.kept.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the report for an UNTAGGED object import (it serves nothing)", () => {
+    const r = unused(
+      `import { log } from "./ext";\nconst user = { id: 1 };\nexport const x = user.info();\n`
+    );
+    expect(r.kept.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the report for an import with no extension call at all", () => {
+    const r = unused(`import { shout } from "./ext";\nexport const z = 1;\n`);
     expect(r.kept.length).toBeGreaterThan(0);
   });
 });

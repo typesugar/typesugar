@@ -257,6 +257,17 @@ Some(5).map((n) => n * 2);
 // → map(Some(5), n => n * 2)
 ```
 
+### Unused imports and unused tags
+
+TypeScript doesn't count `n.clamp(0, 100)` as a use of `clamp`, so under `noUnusedLocals` an
+import used only through extension calls would be reported unused. `typesugar check` and the
+editor hide that report when every name it is about serves an extension call in the file
+(the ExtensionImport suppression rule); a name nothing uses is still reported.
+
+An `@extension` tag that enables nothing gets a warning: no call in the file goes through a
+member of that import (the import only binds functions, which need no tag, or its object is
+only called directly).
+
 ## Ambiguity Detection
 
 If multiple extension functions match the same receiver type and method name, the transformer emits a compile error:

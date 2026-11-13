@@ -17,7 +17,11 @@ import {
   type StandaloneExtensionInfo,
   receiverMatchesFirstParam,
 } from "@typesugar/core";
-import { findImportedExtensionMatches, type ExtensionImportEnv } from "@typesugar/macros";
+import {
+  findImportedExtensionMatches,
+  inactiveExtensionImportTags,
+  type ExtensionImportEnv,
+} from "@typesugar/macros";
 
 // ---------------------------------------------------------------------------
 // Import tracking
@@ -938,6 +942,23 @@ function extensionImportEnv(ctx: MacroContextImpl): ExtensionImportEnv {
     sourceFile: ctx.sourceFile,
     warn: (node, message) => ctx.reportWarning(node, message),
   };
+}
+
+/**
+ * Warn on each JSDoc `@extension` tag on an import of `ctx.sourceFile` that
+ * does nothing (PEP-064): no binding of that import serves an extension
+ * call through one of its members (inactiveExtensionImportTags, the rewrite's
+ * own decision asked per call of the file as written).
+ */
+export function reportInactiveExtensionImportTags(ctx: MacroContextImpl): void {
+  for (const tag of inactiveExtensionImportTags(extensionImportEnv(ctx))) {
+    ctx.reportWarning(
+      tag,
+      "This @extension tag has no effect: no method call in this file uses a member of " +
+        "this import as an extension. The tag lets an imported object or namespace supply " +
+        "extension methods; a function named after the method needs no tag."
+    );
+  }
 }
 
 // receiverMatchesFirstParam lives in @typesugar/core (shared with the
