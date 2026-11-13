@@ -102,8 +102,11 @@ function importBindingsAt(
     if (bindings && ts.isNamespaceImport(bindings)) all.push(bindings.name);
     else if (bindings) for (const el of bindings.elements) all.push(el.name);
     if (wholeDeclaration) return all.length > 0 ? all : undefined;
-    // TS6133 on a named import is reported at its specifier, which starts
-    // with `propertyName` in `{ a as b }`; the binding is the specifier's name.
+    // TS6133 on one of several named imports is reported at its specifier,
+    // which starts with `propertyName` in `{ a as b }`; the binding is the
+    // specifier's name. With a single binding it is reported at the
+    // declaration.
+    if (all.length === 1) return all;
     const one =
       bindings && ts.isNamedImports(bindings)
         ? bindings.elements.find((el) => start >= el.getStart(file) && start < el.end)?.name

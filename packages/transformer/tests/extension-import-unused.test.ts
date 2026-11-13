@@ -88,6 +88,10 @@ describe.skipIf(!hasBuild)("imports used only through extension methods (remeda 
       "src/all.ts": `import { chunk, count } from "./ext.js";
 console.log([1, 2, 3].chunk(2).count());
 `,
+      // The only binding, used as a method: TS6133 on the declaration.
+      "src/one.ts": `import { count } from "./ext.js";
+console.log([1, 2, 3].count());
+`,
       // One used as a method, one not used at all: TS6133 on the second only.
       "src/some.ts": `import { chunk, sortBy } from "./ext.js";
 console.log([1, 2, 3].chunk(2).length);
@@ -106,7 +110,7 @@ console.log(1);
     ["check", () => check],
     ["build", () => build],
   ])("%s: no unused-import error for bindings the expansion calls", (_, out) => {
-    expect(out()).not.toMatch(/all\.ts\(\d+,\d+\): error TS6(133|192)/);
+    expect(out()).not.toMatch(/\/(all|one)\.ts\(\d+,\d+\): error TS6(133|192)/);
     expect(out()).not.toMatch(/'chunk' is declared but/);
   });
 
