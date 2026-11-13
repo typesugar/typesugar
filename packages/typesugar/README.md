@@ -162,7 +162,7 @@ npx typesugar expand src/file.ts
 
 - Placeholders for the built-in macros: `comptime`, `derive`, `pipe`, `compose`, `flow`,
   `typeclass`, `impl`, `instance`, `summon`, `summonAll`, `derived`, `extend`, `implicit`,
-  `extension`, `reflect`, `typeInfo`, `fieldNames`, `validator`, `cfg`, `cfgAttr`,
+  `extension`, `reflect`, `typeInfo`, `fieldNames`, `validator`, `cfg`, `cfgAttr`, `forward`,
   `includeStr`, `includeText`, `includeBytes`, `includeJson`, `staticAssert`,
   `compileError`, `compileWarning`, `tailrec`, `hkt`. These are runtime stubs the
   transformer replaces; they are functions, not namespaces.

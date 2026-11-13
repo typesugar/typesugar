@@ -190,6 +190,7 @@ Move computation from runtime to compile time:
 - **`includeStr()` / `includeJson()`** — embed file contents at compile time
 - **`staticAssert()`** — compile-time assertions that disappear in output
 - **`cfg()` / `@cfgAttr`** — conditional compilation for feature flags
+- **`forward<S>()`** — interceptors for an interface without a `Proxy` or annotations, compiled out when disabled
 - **`"use no typesugar"`** — [opt-out directives](/guides/opt-out) for debugging and interop
 
 ```typescript

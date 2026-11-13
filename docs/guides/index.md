@@ -37,13 +37,14 @@ The framework for ad-hoc polymorphism:
 
 New language features — the "typesugar" in typesugar:
 
-| Guide                                                   | Description                                               |
-| ------------------------------------------------------- | --------------------------------------------------------- |
-| [Operators](./operators.md)                             | Operator overloading via `@op` JSDoc on typeclass methods |
-| [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units                     |
-| [String Macros](./strings.md)                           | `regex`, `html`, `raw` templates (frozen)                 |
-| [Compile-Time Eval](./comptime.md)                      | Run code at build time with `comptime()`                  |
-| [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`                 |
+| Guide                                                   | Description                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------- |
+| [Operators](./operators.md)                             | Operator overloading via `@op` JSDoc on typeclass methods   |
+| [Tagged Templates](./tagged-templates.md)               | Type-safe SQL, regex, HTML, and units                       |
+| [String Macros](./strings.md)                           | `regex`, `html`, `raw` templates (frozen)                   |
+| [Compile-Time Eval](./comptime.md)                      | Run code at build time with `comptime()`                    |
+| [Conditional Compilation](./conditional-compilation.md) | Feature flags with `cfg()` and `@cfgAttr`                   |
+| [Typed Forwarding](./forward.md)                        | `forward<S>()`: interceptors without proxies or annotations |
 
 ## Type Safety & Contracts
 
