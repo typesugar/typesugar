@@ -1,7 +1,7 @@
 ---
 "@typesugar/transformer-core": patch
-"@typesugar/macros": patch
-"@typesugar/std": patch
+"@typesugar/macros": minor
+"@typesugar/std": minor
 ---
 
 Decorators and JSDoc tags go through one attribute-macro dispatcher
@@ -17,7 +17,7 @@ exactly like the decorator it stands for:
   again");
 - extra statements a macro returns are visited, so macros inside them expand.
 
-Instance lookup by name follows `===` sugar's rule everywhere: two instances at the same level
+**Breaking:** instance lookup by name follows `===` sugar's rule everywhere: two instances at the same level
 (two local ones, or two imported modules that both export one) are an error naming both, and
 nothing else is reported for that use. An instance some import exports ranks above another module's
 non-exported one. A
