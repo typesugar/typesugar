@@ -258,6 +258,16 @@ describe("algebraic rules require matching facts (#3)", () => {
     ).toBe(false);
   });
 
+  it("reads an Eq call (equals, or the legacy eqv) as the equality", () => {
+    const fact = [{ variable: "combine", predicate: "associative(combine)" }];
+    const lhs = "combine(combine(a, b), c)";
+    const rhs = "combine(a, combine(b, c))";
+    expect(tryAlgebraicProof(`E.equals(${lhs}, ${rhs})`, fact).proven).toBe(true);
+    expect(tryAlgebraicProof(`equals(${lhs}, ${rhs})`, fact).proven).toBe(true);
+    expect(tryAlgebraicProof(`E.eqv(${lhs}, ${rhs})`, fact).proven).toBe(true);
+    expect(tryAlgebraicProof(`E.notEquals(${lhs}, ${rhs})`, fact).proven).toBe(false);
+  });
+
   it("identity needs the fact to name the identity element", () => {
     const facts = [{ variable: "empty", predicate: "identity(combine)" }];
     expect(tryAlgebraicProof("combine(empty, a) === a", facts).proven).toBe(true);

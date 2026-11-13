@@ -41,7 +41,7 @@ export function flatMapLaws<F, A>(FM: FlatMap<F>, EqFA: EqFA<F, A>): LawSet {
       description:
         "flatMap is associative: F.flatMap(F.flatMap(fa, f), g) === F.flatMap(fa, a => F.flatMap(f(a), g))",
       check: (fa: Kind<F, A>, f: (a: A) => Kind<F, A>, g: (a: A) => Kind<F, A>): boolean =>
-        EqFA.eqv(
+        EqFA.equals(
           FM.flatMap(FM.flatMap(fa, f), g),
           FM.flatMap(fa, (a: A) => FM.flatMap(f(a), g))
         ),
@@ -58,7 +58,7 @@ export function flatMapLaws<F, A>(FM: FlatMap<F>, EqFA: EqFA<F, A>): LawSet {
         // We can't easily express the alternative without a pure, so this is
         // mainly a sanity check that flatMap is internally consistent
         const viaFlatMap2 = FM.flatMap(fa, (a: A) => f(a));
-        return EqFA.eqv(viaFlatMap, viaFlatMap2);
+        return EqFA.equals(viaFlatMap, viaFlatMap2);
       },
     },
   ] as unknown as LawSet;
@@ -86,14 +86,14 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       arity: 2,
       proofHint: "identity-left",
       description: "pure is left identity for flatMap: F.flatMap(F.pure(a), f) === f(a)",
-      check: (a: A, f: (a: A) => Kind<F, A>): boolean => EqFA.eqv(M.flatMap(M.pure(a), f), f(a)),
+      check: (a: A, f: (a: A) => Kind<F, A>): boolean => EqFA.equals(M.flatMap(M.pure(a), f), f(a)),
     },
     {
       name: "right identity",
       arity: 1,
       proofHint: "identity-right",
       description: "pure is right identity for flatMap: F.flatMap(fa, F.pure) === fa",
-      check: (fa: Kind<F, A>): boolean => EqFA.eqv(M.flatMap(fa, M.pure), fa),
+      check: (fa: Kind<F, A>): boolean => EqFA.equals(M.flatMap(fa, M.pure), fa),
     },
     {
       name: "associativity",
@@ -102,7 +102,7 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       description:
         "flatMap is associative: F.flatMap(F.flatMap(fa, f), g) === F.flatMap(fa, a => F.flatMap(f(a), g))",
       check: (fa: Kind<F, A>, f: (a: A) => Kind<F, A>, g: (a: A) => Kind<F, A>): boolean =>
-        EqFA.eqv(
+        EqFA.equals(
           M.flatMap(M.flatMap(fa, f), g),
           M.flatMap(fa, (a: A) => M.flatMap(f(a), g))
         ),
@@ -114,7 +114,7 @@ export function monadLaws<F, A>(M: Monad<F>, EqFA: EqFA<F, A>): LawSet {
       description:
         "map can be derived from flatMap: F.map(fa, f) === F.flatMap(fa, a => F.pure(f(a)))",
       check: (fa: Kind<F, A>, f: (a: A) => A): boolean =>
-        EqFA.eqv(
+        EqFA.equals(
           M.map(fa, f),
           M.flatMap(fa, (a: A) => M.pure(f(a)))
         ),
@@ -147,7 +147,7 @@ export function monadStackSafetyLaws<F, A>(
           for (let i = 0; i < depth; i++) {
             result = M.flatMap(result, M.pure);
           }
-          return EqFA.eqv(result, M.pure(a));
+          return EqFA.equals(result, M.pure(a));
         } catch (e) {
           // Stack overflow means the law fails
           return false;

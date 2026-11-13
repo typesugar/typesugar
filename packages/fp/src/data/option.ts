@@ -486,7 +486,7 @@ export function isEmpty<A>(opt: Option<A>): boolean {
 /**
  * Eq instance for Option.
  *
- * Enables operator rewriting: `optA === optB` → `getEq(eqA).eqv(optA, optB)`
+ * Enables operator rewriting: `optA === optB` → `getEq(eqA).equals(optA, optB)`
  *
  * @example
  * ```typescript
@@ -494,17 +494,19 @@ export function isEmpty<A>(opt: Option<A>): boolean {
  * const a = Some(1);
  * const b = Some(1);
  *
- * // With transformer: a === b → eqOptNum.eqv(a, b) → true
+ * // With transformer: a === b → eqOptNum.equals(a, b) → true
  * ```
  */
 export function getEq<A>(E: Eq<A>): Eq<Option<A>> {
-  return {
-    eqv: (x: any, y: any) => {
+  const eq: Eq<Option<A>> = {
+    equals: (x: any, y: any) => {
       if (x === null && y === null) return true;
-      if (x !== null && y !== null) return E.eqv(x, y);
+      if (x !== null && y !== null) return E.equals(x, y);
       return false;
     },
+    notEquals: (x, y) => !eq.equals(x, y),
   };
+  return eq;
 }
 
 /**
@@ -532,7 +534,7 @@ export function getOrd<A>(O: Ord<A>): Ord<Option<A>> {
     return O.compare(a, b);
   };
   return {
-    eqv: getEq(O).eqv,
+    ...getEq(O),
     compare,
     lessThan: (x, y) => compare(x, y) === -1,
     lessThanOrEqual: (x, y) => compare(x, y) !== 1,

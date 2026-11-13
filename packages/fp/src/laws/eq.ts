@@ -4,15 +4,18 @@
  * Laws for equality and ordering typeclasses.
  *
  * Eq Laws:
- *   - Reflexivity: eqv(x, x) === true
- *   - Symmetry: eqv(x, y) === eqv(y, x)
- *   - Transitivity: eqv(x, y) && eqv(y, z) => eqv(x, z)
+ *   - Reflexivity: equals(x, x) === true
+ *   - Symmetry: equals(x, y) === equals(y, x)
+ *   - Transitivity: equals(x, y) && equals(y, z) => equals(x, z)
+ *   - Inequality: notEquals(x, y) === !equals(x, y)
  *
  * Ord Laws (extends Eq):
- *   - Antisymmetry: compare(x, y) <= 0 && compare(y, x) <= 0 => eqv(x, y)
+ *   - Antisymmetry: compare(x, y) <= 0 && compare(y, x) <= 0 => equals(x, y)
  *   - Transitivity: compare(x, y) <= 0 && compare(y, z) <= 0 => compare(x, z) <= 0
  *   - Totality: compare(x, y) <= 0 || compare(y, x) <= 0
- *   - Consistency: eqv(x, y) === (compare(x, y) === 0)
+ *   - Consistency: equals(x, y) === (compare(x, y) === 0)
+ *   - Comparison methods: lessThan(x, y) === (compare(x, y) < 0), and likewise
+ *     lessThanOrEqual, greaterThan, greaterThanOrEqual
  *
  * @module
  */
@@ -36,29 +39,36 @@ export function eqLaws<A>(E: Eq<A>): LawSet {
       name: "reflexivity",
       arity: 1,
       proofHint: "reflexivity",
-      description: "Every value is equal to itself: eqv(x, x) === true",
-      check: (x: A): boolean => E.eqv(x, x),
+      description: "Every value is equal to itself: equals(x, x) === true",
+      check: (x: A): boolean => E.equals(x, x),
     },
     {
       name: "symmetry",
       arity: 2,
       proofHint: "symmetry",
-      description: "Equality is symmetric: eqv(x, y) === eqv(y, x)",
-      check: (x: A, y: A): boolean => E.eqv(x, y) === E.eqv(y, x),
+      description: "Equality is symmetric: equals(x, y) === equals(y, x)",
+      check: (x: A, y: A): boolean => E.equals(x, y) === E.equals(y, x),
     },
     {
       name: "transitivity",
       arity: 3,
       proofHint: "transitivity",
-      description: "Equality is transitive: eqv(x, y) && eqv(y, z) implies eqv(x, z)",
+      description: "Equality is transitive: equals(x, y) && equals(y, z) implies equals(x, z)",
       check: (x: A, y: A, z: A): boolean => {
         // If x == y and y == z, then x == z must hold
-        if (E.eqv(x, y) && E.eqv(y, z)) {
-          return E.eqv(x, z);
+        if (E.equals(x, y) && E.equals(y, z)) {
+          return E.equals(x, z);
         }
         // Vacuously true if premise doesn't hold
         return true;
       },
+    },
+    {
+      name: "inequality",
+      arity: 2,
+      description:
+        "notEquals (what `!==` calls) agrees with equals: notEquals(x, y) === !equals(x, y)",
+      check: (x: A, y: A): boolean => E.notEquals(x, y) === !E.equals(x, y),
     },
   ] as unknown as LawSet;
 }
@@ -85,10 +95,10 @@ export function ordLaws<A>(O: Ord<A>): LawSet {
       arity: 2,
       proofHint: "antisymmetry",
       description:
-        "If x <= y and y <= x, then x == y: compare(x,y) <= 0 && compare(y,x) <= 0 => eqv(x,y)",
+        "If x <= y and y <= x, then x == y: compare(x,y) <= 0 && compare(y,x) <= 0 => equals(x,y)",
       check: (x: A, y: A): boolean => {
         if (O.compare(x, y) <= 0 && O.compare(y, x) <= 0) {
-          return O.eqv(x, y);
+          return O.equals(x, y);
         }
         return true;
       },
@@ -116,8 +126,23 @@ export function ordLaws<A>(O: Ord<A>): LawSet {
     {
       name: "consistency",
       arity: 2,
-      description: "Eq and Ord agree: eqv(x, y) === (compare(x, y) === 0)",
-      check: (x: A, y: A): boolean => O.eqv(x, y) === (O.compare(x, y) === 0),
+      description: "Eq and Ord agree: equals(x, y) === (compare(x, y) === 0)",
+      check: (x: A, y: A): boolean => O.equals(x, y) === (O.compare(x, y) === 0),
+    },
+    {
+      name: "comparison methods",
+      arity: 2,
+      description:
+        "The methods `<`, `<=`, `>`, `>=` call agree with compare: lessThan(x, y) === (compare(x, y) < 0), ...",
+      check: (x: A, y: A): boolean => {
+        const c = O.compare(x, y);
+        return (
+          O.lessThan(x, y) === c < 0 &&
+          O.lessThanOrEqual(x, y) === c <= 0 &&
+          O.greaterThan(x, y) === c > 0 &&
+          O.greaterThanOrEqual(x, y) === c >= 0
+        );
+      },
     },
   ] as unknown as LawSet;
 }

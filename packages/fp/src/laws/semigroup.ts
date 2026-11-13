@@ -37,7 +37,7 @@ export function semigroupLaws<A>(S: Semigroup<A>, E: Eq<A>): LawSet {
       description:
         "combine is associative: combine(combine(x, y), z) === combine(x, combine(y, z))",
       check: (x: A, y: A, z: A): boolean =>
-        E.eqv(S.combine(S.combine(x, y), z), S.combine(x, S.combine(y, z))),
+        E.equals(S.combine(S.combine(x, y), z), S.combine(x, S.combine(y, z))),
     },
   ] as unknown as LawSet;
 }
@@ -65,14 +65,14 @@ export function monoidLaws<A>(M: Monoid<A>, E: Eq<A>): LawSet {
       arity: 1,
       proofHint: "identity-left",
       description: "empty is a left identity: combine(empty, x) === x",
-      check: (x: A): boolean => E.eqv(M.combine(M.empty, x), x),
+      check: (x: A): boolean => E.equals(M.combine(M.empty, x), x),
     },
     {
       name: "right identity",
       arity: 1,
       proofHint: "identity-right",
       description: "empty is a right identity: combine(x, empty) === x",
-      check: (x: A): boolean => E.eqv(M.combine(x, M.empty), x),
+      check: (x: A): boolean => E.equals(M.combine(x, M.empty), x),
     },
   ] as unknown as LawSet;
 }
