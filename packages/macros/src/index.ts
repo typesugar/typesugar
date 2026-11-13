@@ -288,6 +288,8 @@ export {
   clearResolverCache,
   findInstanceInScopeByName,
   resolveDoNotationInstance,
+  isAmbiguousDoNotationInstance,
+  type AmbiguousDoNotationInstance,
   brandMatchesForType,
   scanWarnings,
   type ResolvedDoNotationInstance,

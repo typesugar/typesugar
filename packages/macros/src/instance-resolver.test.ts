@@ -16,11 +16,22 @@ import {
   resolveInstance,
   clearResolverCache,
   resolveDoNotationInstance,
+  isAmbiguousDoNotationInstance,
+  type ResolvedDoNotationInstance,
   brandMatchesForType,
   findInstanceInScopeByName,
   type ResolutionResult,
 } from "./instance-resolver.js";
 import type { MacroContext } from "@typesugar/core";
+
+/** resolveDoNotationInstance where one instance is in scope (never the ambiguity marker). */
+function resolveUnambiguous(
+  ...args: Parameters<typeof resolveDoNotationInstance>
+): ResolvedDoNotationInstance | undefined {
+  const r = resolveDoNotationInstance(...args);
+  if (isAmbiguousDoNotationInstance(r)) throw new Error("unexpectedly ambiguous");
+  return r;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -483,7 +494,7 @@ export {};
       "main.ts"
     );
 
-    const hit = resolveDoNotationInstance(t.ctx, "FlatMap", "Box", t.scanner);
+    const hit = resolveUnambiguous(t.ctx, "FlatMap", "Box", t.scanner);
     expect(hit).toBeDefined();
     expect(hit!.exportName).toBe("flatMapBox");
     expect(hit!.modulePath).toBeUndefined();
@@ -507,7 +518,7 @@ export {};
       "main.ts"
     );
 
-    const hit = resolveDoNotationInstance(t.ctx, "FlatMap", "Task", t.scanner);
+    const hit = resolveUnambiguous(t.ctx, "FlatMap", "Task", t.scanner);
     expect(hit).toBeDefined();
     expect(hit!.exportName).toBe("flatMapTask");
     expect(hit!.modulePath).toContain("instances");
@@ -531,7 +542,7 @@ export {};
       "main.ts"
     );
 
-    const hit = resolveDoNotationInstance(t.ctx, "FlatMap", "Option", t.scanner);
+    const hit = resolveUnambiguous(t.ctx, "FlatMap", "Option", t.scanner);
     expect(hit?.exportName).toBe("flatMapOption");
   });
 
@@ -547,7 +558,7 @@ export const flatMapTask = {};
       "main.ts"
     );
 
-    expect(resolveDoNotationInstance(t.ctx, "FlatMap", "Task", t.scanner)).toBeUndefined();
+    expect(resolveUnambiguous(t.ctx, "FlatMap", "Task", t.scanner)).toBeUndefined();
   });
 
   it("filters by typeclass: a ParCombine instance does not satisfy FlatMap", () => {
@@ -562,8 +573,8 @@ export {};
       "main.ts"
     );
 
-    expect(resolveDoNotationInstance(t.ctx, "FlatMap", "Task", t.scanner)).toBeUndefined();
-    expect(resolveDoNotationInstance(t.ctx, "ParCombine", "Task", t.scanner)).toBeDefined();
+    expect(resolveUnambiguous(t.ctx, "FlatMap", "Task", t.scanner)).toBeUndefined();
+    expect(resolveUnambiguous(t.ctx, "ParCombine", "Task", t.scanner)).toBeDefined();
   });
 });
 

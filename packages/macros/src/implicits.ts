@@ -537,7 +537,13 @@ export function transformImplicitsCall(
     // by its type-constructor name. Still scope-based — no process-global registry —
     // and never another module's non-exported member (not referenceable from here).
     if (!instanceExpr) {
-      const hit = findEmittableInstanceByName(ctx, typeclassName, concreteType);
+      const hit = findEmittableInstanceByName(
+        ctx,
+        typeclassName,
+        concreteType,
+        undefined,
+        callExpr
+      );
       if (hit) {
         instanceExpr =
           hit.specifier && hit.modulePath

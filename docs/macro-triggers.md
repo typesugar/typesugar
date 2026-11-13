@@ -105,7 +105,7 @@ defineAttributeMacro({
 });
 ```
 
-**Transformer Location:** `tryExpandAttributeMacros()` in `packages/transformer-core/src/transformer.ts`
+**Transformer Location:** `tryExpandAttributeMacros()` (decorators) in `packages/transformer-core/src/transformer.ts` and `tryExpandJSDocMacros()` (JSDoc tags) in `macro-helpers.ts`, both through `expandAttributeSources()` in `attribute-dispatch.ts`
 
 ---
 
