@@ -65,6 +65,11 @@ interface AdviceSpec {
   /** Member names from `only`; undefined: every method. */
   only?: Set<string>;
   async: boolean;
+  /**
+   * Not an object literal: its `around` and `only` are only known at run
+   * time, so each method checks them (see wrapCall).
+   */
+  runtime?: boolean;
 }
 
 /** A method member of `S` with one call signature. */
@@ -109,18 +114,43 @@ export const forwardMacro = defineExpressionMacro({
       return callExpr;
     }
 
+    const f = ctx.factory;
+    const checker = ctx.typeChecker;
     const advices = args[1] ? readAdvices(ctx, args[1]) : [];
     if (!advices) return callExpr;
-    if (advices.length === 0) return args[0];
+    // No advice left: `(inner satisfies S) as S`, the value itself, checked
+    // against S and typed S, as the call was.
+    if (advices.length === 0) {
+      return f.createAsExpression(
+        f.createSatisfiesExpression(
+          f.createParenthesizedExpression(args[0]),
+          cloneNodeDeep(typeArg)
+        ),
+        cloneNodeDeep(typeArg)
+      );
+    }
 
-    const checker = ctx.typeChecker;
     const type = checker.getTypeFromTypeNode(typeArg);
-    const f = ctx.factory;
-    const innerName = "inner";
+    const problem = unsupportedTarget(checker, type);
+    if (problem) {
+      ctx.reportError(callExpr, `forward<S>(): ${problem}`);
+      return callExpr;
+    }
+    // The IIFE's parameters must not capture a name the type argument uses
+    // (`forward<typeof inner>(x)`).
+    const typeNames = new Set<string>();
+    const collectNames = (n: ts.Node): void => {
+      if (ts.isIdentifier(n)) typeNames.add(n.text);
+      ts.forEachChild(n, collectNames);
+    };
+    collectNames(typeArg);
+    const innerName = typeNames.has("inner") ? ctx.generateUniqueName("inner").text : "inner";
     // Every advice may need a parameter (see wrapCall); only those that do get one.
-    const paramName = (a: AdviceSpec): string => `advice${advices.indexOf(a)}`;
+    const paramNames = advices.map((_, i) =>
+      typeNames.has(`advice${i}`) ? ctx.generateUniqueName(`advice${i}`).text : `advice${i}`
+    );
+    const paramName = (a: AdviceSpec): string => paramNames[advices.indexOf(a)];
     const needsParam = new Set<AdviceSpec>(advices.filter((a) => a.aroundByReference));
-    const allParamNames = advices.map(paramName);
     const typeNode = (): ts.TypeNode => cloneNodeDeep(typeArg);
     // Each inline `around` as a method, built (and its free names resolved) once.
     const adviceMethods = new Map<AdviceSpec, DictMethod>();
@@ -134,11 +164,14 @@ export const forwardMacro = defineExpressionMacro({
     for (const prop of checker.getPropertiesOfType(type)) {
       // Symbol-keyed members ("__@iterator@12") have no name to write here.
       if (prop.name.startsWith("__@")) continue;
-      const propType = checker.getTypeOfSymbolAtLocation(prop, callExpr);
-      const signatures = propType.getCallSignatures();
+      // Read at the type argument, which is real source (checked above); the
+      // call itself may have been rebuilt by another macro.
+      const propType = checker.getTypeOfSymbolAtLocation(prop, typeArg);
+      // An optional method's type is `F | undefined`: its signatures are F's.
+      const signatures = checker.getNonNullableType(propType).getCallSignatures();
       const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-      const innerMember = (): ts.PropertyAccessExpression =>
-        f.createPropertyAccessExpression(f.createIdentifier(innerName), prop.name);
+      const innerMember = (): ts.Expression =>
+        memberAccess(f, f.createIdentifier(innerName), prop.name);
 
       if (signatures.length === 0) {
         members.push(...forwardedProperty(f, prop, innerMember));
@@ -153,11 +186,11 @@ export const forwardMacro = defineExpressionMacro({
             `forward<S>(): '${prop.name}' is ${optional ? "optional" : "overloaded"}, so it is forwarded without advice`
           );
         }
-        members.push(boundMethod(f, typeNode(), prop.name, innerMember(), optional));
+        members.push(boundMethod(f, typeNode(), prop.name, innerName, innerMember(), optional));
         continue;
       }
 
-      const member = methodMember(f, checker, typeArg, prop.name, signatures[0]);
+      const member = methodMember(f, checker, typeArg, innerName, prop.name, signatures[0]);
       const callArgs = member.params.map((p) =>
         p.rest ? f.createSpreadElement(f.createIdentifier(p.name)) : f.createIdentifier(p.name)
       );
@@ -174,7 +207,7 @@ export const forwardMacro = defineExpressionMacro({
         }
       }
 
-      const bindings = new Set([innerName, ...allParamNames, ...member.params.map((p) => p.name)]);
+      const bindings = new Set([innerName, ...paramNames, ...member.params.map((p) => p.name)]);
       const body = wrapCall(
         ctx,
         adviceMethod,
@@ -189,7 +222,7 @@ export const forwardMacro = defineExpressionMacro({
         f.createMethodDeclaration(
           undefined,
           undefined,
-          prop.name,
+          propertyName(f, prop.name),
           undefined,
           undefined,
           member.params.map((p) =>
@@ -258,7 +291,28 @@ function readAdvices(ctx: MacroContext, arg: ts.Expression): AdviceSpec[] | unde
       return undefined;
     }
     if (!ts.isObjectLiteralExpression(item)) {
-      out.push({ expr: item, aroundByReference: true, async: false });
+      // Read at run time: its `around` and `only` are checked per call (see
+      // wrapCall). A `when` can't be: it is a compile-time condition.
+      let hasWhen = false;
+      try {
+        // A macro-generated advice has no type to read (CLAUDE.md); its
+        // `when`, if any, is ignored, as a plain object's would be.
+        hasWhen =
+          !isSyntheticNode(item) && !!ctx.typeChecker.getTypeAtLocation(item).getProperty("when");
+      } catch (error) {
+        ctx.reportWarning(
+          item,
+          `forward<S>(): the type checker failed reading the advice's type (${error}); a \`when\` in it would be ignored`
+        );
+      }
+      if (hasWhen) {
+        ctx.reportError(
+          item,
+          "forward<S>(): `when` is a compile-time condition, read only from an advice written inline as an object literal"
+        );
+        return undefined;
+      }
+      out.push({ expr: item, aroundByReference: true, async: false, runtime: true });
       continue;
     }
     const spec: AdviceSpec = { expr: item, aroundByReference: false, async: false };
@@ -330,10 +384,11 @@ function methodMember(
   f: ts.NodeFactory,
   checker: ts.TypeChecker,
   typeArg: ts.TypeNode,
+  innerName: string,
   name: string,
   sig: ts.Signature
 ): MethodMember {
-  const used = new Set<string>(["inner"]);
+  const used = new Set<string>([innerName]);
   const params = sig.getParameters().map((p, i) => {
     const decl = p.valueDeclaration;
     const rest = !!decl && ts.isParameter(decl) && !!decl.dotDotDotToken;
@@ -408,14 +463,54 @@ function wrapCall(
       // `next` thunk the next advice out receives.
       statements = inlined;
     } else {
+      // Called through the advice's parameter: `around` (optional in Advice)
+      // and, for a non-literal advice, `only` are checked at run time; the
+      // `next` thunk is bound once so the unadvised path calls it too.
       needsParam.add(a);
-      const around = f.createPropertyAccessExpression(f.createIdentifier(paramName(a)), "around");
+      const ref = (): ts.Identifier => f.createIdentifier(paramName(a));
+      const nextName = ctx.generateUniqueName("next");
+      callArgs[2] = f.createIdentifier(nextName.text);
+      let guard: ts.Expression = f.createPropertyAccessExpression(ref(), "around");
+      if (a.runtime) {
+        guard = f.createLogicalAnd(
+          guard,
+          f.createLogicalOr(
+            f.createLogicalNot(f.createPropertyAccessExpression(ref(), "only")),
+            f.createCallExpression(
+              f.createPropertyAccessExpression(
+                f.createPropertyAccessExpression(ref(), "only"),
+                "includes"
+              ),
+              undefined,
+              [f.createStringLiteral(member.name)]
+            )
+          )
+        );
+      }
       // `around` is typed `R | Promise<unknown>` (see Advice); the member returns R.
+      const advised = f.createAsExpression(
+        f.createCallExpression(
+          f.createPropertyAccessExpression(ref(), "around"),
+          undefined,
+          callArgs
+        ),
+        member.returnType()
+      );
       statements = [
+        f.createVariableStatement(
+          undefined,
+          f.createVariableDeclarationList(
+            [f.createVariableDeclaration(nextName, undefined, undefined, thunk)],
+            ts.NodeFlags.Const
+          )
+        ),
         f.createReturnStatement(
-          f.createAsExpression(
-            f.createCallExpression(around, undefined, callArgs),
-            member.returnType()
+          f.createConditionalExpression(
+            guard,
+            f.createToken(ts.SyntaxKind.QuestionToken),
+            advised,
+            f.createToken(ts.SyntaxKind.ColonToken),
+            f.createCallExpression(f.createIdentifier(nextName.text), undefined, [])
           )
         ),
       ];
@@ -460,7 +555,11 @@ function adviceAsMethod(
     if (failed) return;
     let symbol: ts.Symbol | undefined;
     try {
-      symbol = ctx.typeChecker.getSymbolAtLocation(id);
+      // A shorthand `{ tag }` names the property; its value is the variable.
+      symbol =
+        id.parent && ts.isShorthandPropertyAssignment(id.parent) && id.parent.name === id
+          ? ctx.typeChecker.getShorthandAssignmentValueSymbol(id.parent)
+          : ctx.typeChecker.getSymbolAtLocation(id);
     } catch (error) {
       failed = true;
       ctx.reportWarning(
@@ -488,28 +587,35 @@ function adviceAsMethod(
   };
 }
 
-/** `get name() { return inner.name; }`, and `set name(v) { inner.name = v; }` unless it is readonly. */
+/**
+ * `get name() { return inner.name; }`, and `set name(value) { inner.name =
+ * value; }` when the member is writable: a property without `readonly`, or
+ * an accessor with a setter.
+ */
 function forwardedProperty(
   f: ts.NodeFactory,
   prop: ts.Symbol,
-  innerMember: () => ts.PropertyAccessExpression
+  innerMember: () => ts.Expression
 ): ts.ObjectLiteralElementLike[] {
   const getter = f.createGetAccessorDeclaration(
     undefined,
-    prop.name,
+    propertyName(f, prop.name),
     [],
     undefined,
     f.createBlock([f.createReturnStatement(innerMember())], true)
   );
-  const decl = prop.valueDeclaration;
-  const readonly =
-    !decl ||
-    !(ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl)) ||
-    !!decl.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword);
-  if (readonly) return [getter];
+  const decls = prop.declarations ?? [];
+  const writable =
+    decls.some((d) => ts.isSetAccessorDeclaration(d)) ||
+    decls.some(
+      (d) =>
+        (ts.isPropertySignature(d) || ts.isPropertyDeclaration(d)) &&
+        !d.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword)
+    );
+  if (!writable) return [getter];
   const setter = f.createSetAccessorDeclaration(
     undefined,
-    prop.name,
+    propertyName(f, prop.name),
     [f.createParameterDeclaration(undefined, undefined, "value")],
     f.createBlock(
       [f.createExpressionStatement(f.createAssignment(innerMember(), f.createIdentifier("value")))],
@@ -524,7 +630,8 @@ function boundMethod(
   f: ts.NodeFactory,
   typeArg: ts.TypeNode,
   name: string,
-  innerMember: ts.PropertyAccessExpression,
+  innerName: string,
+  innerMember: ts.Expression,
   optional: boolean
 ): ts.ObjectLiteralElementLike {
   const bind = optional
@@ -536,18 +643,75 @@ function boundMethod(
         ),
         undefined,
         undefined,
-        [f.createIdentifier("inner")]
+        [f.createIdentifier(innerName)]
       )
     : f.createCallExpression(f.createPropertyAccessExpression(innerMember, "bind"), undefined, [
-        f.createIdentifier("inner"),
+        f.createIdentifier(innerName),
       ]);
   return f.createPropertyAssignment(
-    name,
+    propertyName(f, name),
     f.createAsExpression(
       bind,
       f.createIndexedAccessTypeNode(typeArg, f.createLiteralTypeNode(f.createStringLiteral(name)))
     )
   );
+}
+
+/** An identifier name (reserved words included: they are valid property names). */
+function isIdentifierName(name: string): boolean {
+  return /^[A-Za-z_$][\w$]*$/.test(name);
+}
+
+/** `name` as written in an object literal: an identifier, or a quoted name. */
+function propertyName(f: ts.NodeFactory, name: string): ts.PropertyName {
+  return isIdentifierName(name) ? f.createIdentifier(name) : f.createStringLiteral(name);
+}
+
+/** `obj.name`, or `obj["name"]` when the name isn't an identifier (`"content-type"`, `0`). */
+function memberAccess(f: ts.NodeFactory, obj: ts.Expression, name: string): ts.Expression {
+  return isIdentifierName(name)
+    ? f.createPropertyAccessExpression(obj, name)
+    : f.createElementAccessExpression(obj, f.createStringLiteral(name));
+}
+
+/**
+ * Why `forward` can't generate an object for this `S`, or undefined. It
+ * forwards an object type's members: not `any`/`unknown`, a type parameter
+ * (its members aren't known here) or a union (only the shared ones are), not
+ * a callable or constructible type (the object itself isn't forwarded), and
+ * not a class with private or protected members (only an instance of the
+ * class can be one).
+ */
+function unsupportedTarget(checker: ts.TypeChecker, type: ts.Type): string | undefined {
+  if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+    return "S is `any` or `unknown`; give the interface to forward";
+  }
+  if (type.flags & ts.TypeFlags.TypeParameter) {
+    return "S is a type parameter, whose members aren't known where forward<S>() expands; give the interface to forward";
+  }
+  if (type.isUnion()) return "S is a union; give one interface to forward";
+  if (!(type.flags & ts.TypeFlags.Object) && !type.isIntersection()) {
+    return `S (${checker.typeToString(type)}) is not an object type`;
+  }
+  if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) {
+    return "S has call or construct signatures; only an object's members can be forwarded";
+  }
+  const props = checker.getPropertiesOfType(type);
+  if (props.length === 0) return "S has no members to forward";
+  for (const prop of props) {
+    const hidden =
+      prop.name.startsWith("__#") ||
+      (prop.declarations ?? []).some(
+        (d) =>
+          (ts.getCombinedModifierFlags(d as ts.Declaration) &
+            (ts.ModifierFlags.Private | ts.ModifierFlags.Protected)) !==
+          0
+      );
+    if (hidden) {
+      return `S has a private or protected member ('${prop.name.replace(/^__#\d+@/, "")}'), so only an instance of the class can be one; forward an interface of its public members`;
+    }
+  }
+  return undefined;
 }
 
 globalRegistry.register(forwardMacro);

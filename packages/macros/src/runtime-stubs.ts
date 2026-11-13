@@ -676,8 +676,11 @@ type MethodOf<S, K extends keyof S> = Extract<S[K], (...args: any[]) => any>;
  *   relate an async function's result to a per-member type; an inlined
  *   advice is still checked exactly, inside the generated object typed `S`.)
  * - `only`: the methods the advice applies to (all methods when absent).
- * - `when`: a compile-time `cfg` condition; when false the advice is dropped,
- *   and `forward` with no advice left is the wrapped object itself.
+ *
+ * An advice written inline in the `forward` call is inlined into each method;
+ * one passed as a variable is called through, and its `around` and `only` are
+ * checked at run time. Inline advice can also take `when` (see
+ * {@link InlineAdvice}).
  */
 export interface Advice<S> {
   around?<K extends MethodKeys<S>>(
@@ -686,8 +689,14 @@ export interface Advice<S> {
     next: () => ReturnType<MethodOf<S, K>>
   ): ReturnType<MethodOf<S, K>> | Promise<unknown>;
   only?: readonly MethodKeys<S>[];
-  when?: string;
 }
+
+/**
+ * An advice written inline in a {@link forward} call: {@link Advice}, plus
+ * `when`, a compile-time `cfg` condition. When it is false the advice is
+ * dropped, and `forward` with no advice left is the wrapped object itself.
+ */
+export type InlineAdvice<S> = Advice<S> & { when?: string };
 
 /**
  * A typed forwarding object for interface `S`: every method calls the same
@@ -706,7 +715,7 @@ export interface Advice<S> {
  * });
  * ```
  */
-export function forward<S>(inner: S, advice?: Advice<S> | readonly Advice<S>[]): S;
+export function forward<S>(inner: S, advice?: InlineAdvice<S> | readonly InlineAdvice<S>[]): S;
 export function forward(_inner: unknown, _advice?: unknown): unknown {
   throw new Error("forward() must be processed by the typesugar transformer at compile time");
 }

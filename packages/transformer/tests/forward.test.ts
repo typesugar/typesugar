@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import * as ts from "typescript";
+import { fileURLToPath } from "node:url";
 import { transformCode } from "../src/pipeline.js";
 import { setCfgConfig } from "@typesugar/macros";
 
@@ -64,6 +65,9 @@ function typeErrors(code: string): string[] {
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     skipLibCheck: true,
     types: [],
+    // The expansion's `import("typesugar").Advice<S>` must resolve: an
+    // unresolved import type is an error type, which would hide real errors.
+    paths: { typesugar: [TYPESUGAR_DTS] },
   };
   const host = ts.createCompilerHost(options);
   const getSourceFile = host.getSourceFile.bind(host);
@@ -72,9 +76,10 @@ function typeErrors(code: string): string[] {
   const program = ts.createProgram([fileName], options, host);
   return ts
     .getPreEmitDiagnostics(program, program.getSourceFile(fileName))
-    .filter((d) => d.code !== 2307) // the virtual file can't resolve "typesugar"
     .map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
 }
+
+const TYPESUGAR_DTS = fileURLToPath(new URL("../../typesugar/dist/index.d.ts", import.meta.url));
 
 afterEach(() => setCfgConfig({}));
 
@@ -137,7 +142,7 @@ const result = repo.get("2");
 `,
       "forward-when-off.ts"
     );
-    expect(r.code).toContain("const repo = new MemRepo();");
+    expect(r.code).toContain("const repo = (new MemRepo()) satisfies UserRepo as UserRepo;");
     expect(run(r.code).result).toBe("user:2:s");
   });
 
@@ -193,6 +198,7 @@ const result = [repo.get("4"), repo.get("5"), made];
     );
     expect(r.code).toContain("advice0.around(");
     expect(run(r.code)).toEqual({ result: ["user:4:s", "user:5:s", 1], events: ["get", "get"] });
+    expect(typeErrors(r.code)).toEqual([]);
   });
 
   it("does not let a member parameter capture a name the advice reads", () => {
@@ -288,5 +294,181 @@ const result = fwd.wrap(42).value;
     );
     expect(run(r.code).result).toBe(42);
     expect(typeErrors(r.code)).toEqual([]);
+  });
+
+  // Regressions from the Wave 2 review (2026-11-13).
+  describe("review regressions", () => {
+    it("checks a variable advice's `only` and `around` at run time, and type-checks", () => {
+      const r = transform(
+        `${PRELUDE}
+import type { Advice } from "typesugar";
+const onlySave: Advice<UserRepo> = {
+  around: (method, args, next) => {
+    events.push(method);
+    return next();
+  },
+  only: ["save"],
+};
+const noAround: Advice<UserRepo> = { only: ["get"] };
+const a = forward<UserRepo>(new MemRepo(), onlySave);
+const b = forward<UserRepo>(new MemRepo(), noAround);
+const result = [a.get("1"), a.save("x"), b.get("2")];
+`,
+        "rr-variable-advice.ts"
+      );
+      expect(run(r.code)).toEqual({ result: ["user:1:s", 1, "user:2:s"], events: ["save"] });
+      expect(typeErrors(r.code)).toEqual([]);
+    });
+
+    it("rejects `when` on an advice that isn't written inline", () => {
+      const r = transformCode(
+        `${PRELUDE}
+const adv = { around: (m: string, a: unknown[], next: () => any) => next(), when: "metrics" };
+const repo = forward<UserRepo>(new MemRepo(), adv);
+const result = 0;
+`,
+        { fileName: "rr-variable-when.ts" }
+      );
+      expect(
+        r.diagnostics.some((d) => d.severity === "error" && /`when`/.test(d.message ?? ""))
+      ).toBe(true);
+    });
+
+    it("keeps a shorthand property in an inlined advice pointing at the outer variable", () => {
+      const r = transform(
+        `${PRELUDE}
+const tag = "outer";
+const repo = forward<UserRepo>(new MemRepo(), {
+  around: (method, args, next) => {
+    events.push(JSON.stringify({ tag }));
+    {
+      const tag = "inner";
+      events.push(tag);
+    }
+    return next();
+  },
+  only: ["get"],
+});
+const result = repo.get("1");
+`,
+        "rr-shorthand.ts"
+      );
+      expect(run(r.code)).toEqual({ result: "user:1:s", events: ['{"tag":"outer"}', "inner"] });
+      expect(typeErrors(r.code)).toEqual([]);
+    });
+
+    it("binds optional methods to inner, and forwards quoted and numeric member names", () => {
+      const r = transform(
+        `
+import { forward } from "typesugar";
+interface Odd {
+  greet?(who: string): string;
+  "content-type"(): string;
+  0: string;
+}
+const events: string[] = [];
+class Impl implements Odd {
+  #n = "impl";
+  0 = "zero";
+  greet(who: string) {
+    return this.#n + " greets " + who;
+  }
+  "content-type"() {
+    return "text/plain";
+  }
+}
+const o = forward<Odd>(new Impl(), { around: (m, a, next) => next() });
+const result = [o.greet?.("bob"), o["content-type"](), o[0]];
+`,
+        "rr-names.ts"
+      );
+      expect(run(r.code).result).toEqual(["impl greets bob", "text/plain", "zero"]);
+      expect(typeErrors(r.code)).toEqual([]);
+    });
+
+    it("forwards writes through an accessor pair", () => {
+      const r = transform(
+        `
+import { forward } from "typesugar";
+interface Dial {
+  get level(): number;
+  set level(v: number);
+  bump(): number;
+}
+const events: string[] = [];
+class D implements Dial {
+  level = 1;
+  bump() {
+    return ++this.level;
+  }
+}
+const inner = new D();
+const d = forward<Dial>(inner, { around: (m, a, next) => next() });
+d.level = 5;
+const result = [inner.level, d.bump()];
+`,
+        "rr-accessor.ts"
+      );
+      expect(run(r.code).result).toEqual([5, 6]);
+    });
+
+    it("keeps S's type when no advice is left", () => {
+      setCfgConfig({ off: false });
+      const r = transform(
+        `
+import { forward } from "typesugar";
+interface Api {
+  load(id: string): string;
+}
+const events: string[] = [];
+const api = forward<Api>({ load: (id) => "x" + id }, { around: (m, a, next) => next(), when: "off" });
+const result = api.load("1");
+`,
+        "rr-no-advice.ts"
+      );
+      expect(r.code).toContain("satisfies Api");
+      expect(run(r.code).result).toBe("x1");
+      expect(typeErrors(r.code)).toEqual([]);
+    });
+
+    it("reports S it can't forward instead of emitting an empty or broken object", () => {
+      for (const [decl, s] of [
+        ["", "any"],
+        ["class Svc { private secret = 1; get() { return 1; } }", "Svc"],
+        ["interface Cat { meow(): void } interface Dog { bark(): void }", "Cat | Dog"],
+        ["interface Fn { (x: number): number; name: string }", "Fn"],
+      ]) {
+        const r = transformCode(
+          `
+import { forward } from "typesugar";
+${decl}
+declare const x: any;
+const f = forward<${s}>(x, { around: (m, a, next) => next() });
+`,
+          { fileName: "rr-unsupported.ts" }
+        );
+        expect(
+          r.diagnostics.some(
+            (d) => d.severity === "error" && /forward<S>\(\)/.test(d.message ?? "")
+          ),
+          s
+        ).toBe(true);
+      }
+    });
+
+    it("doesn't let the generated parameter capture a name in the type argument", () => {
+      const r = transform(
+        `
+import { forward } from "typesugar";
+const events: string[] = [];
+const inner = { hi: (n: number) => n + 1 };
+const f = forward<typeof inner>(inner, { around: (m, a, next) => next() });
+const result = f.hi(1);
+`,
+        "rr-typeof-inner.ts"
+      );
+      expect(run(r.code).result).toBe(2);
+      expect(typeErrors(r.code)).toEqual([]);
+    });
   });
 });

@@ -184,6 +184,13 @@ count() { return inner.count(); } }))(new PgUserRepo(db))`.
 - **Free names.** `forward` records the advice's free names with the checker (as instance
   extraction does), so the statement inliner can rename the advice's locals.
 - **Ordering.** `forward<S>(inner, [outer, inner2])`: the first advice is outermost.
+- **Non-literal advice** (a variable of type `Advice<S>`) is evaluated once and called through;
+  each method checks at run time that it has an `around` and that its `only` lists the
+  method. `when` is compile-time only, so it lives in `InlineAdvice<S>` and is an error on a
+  non-literal advice. With no advice left, `forward` emits `(inner satisfies S) as S`.
+- **What `S` can be**: an object type or a class without private/protected members; `any`,
+  `unknown`, a type parameter, a union and a callable type are compile errors. Non-identifier
+  member names are forwarded quoted; accessor pairs get a setter; optional methods are bound.
 - **`async`.** An `async` advice applies only to promise-returning members (a warning for the
   others it would have matched); inlined, its body is `return (async () => { ... })()`, exactly
   the call. A sync advice around a promise-returning member wraps the promise as written.

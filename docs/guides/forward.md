@@ -60,7 +60,8 @@ const repo = ((inner: UserRepo): UserRepo => ({
 }))(new PgUserRepo(db));
 ```
 
-and with `metrics` off, to `const repo = new PgUserRepo(db);`.
+and with `metrics` off, to `const repo = (new PgUserRepo(db)) satisfies UserRepo as UserRepo;`:
+the object itself, typed `UserRepo`.
 
 ## The advice
 
@@ -68,20 +69,26 @@ and with `metrics` off, to `const repo = new PgUserRepo(db);`.
 | -------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `around` | `(method, args, next) => result`: runs in place of each method. `next()` calls the method on `inner`.                   |
 | `only`   | The methods the advice applies to. A name that isn't a method of `S` is a type error, so a rename can't leave it stale. |
-| `when`   | A compile-time [`cfg`](./conditional-compilation.md) condition. False: the advice is dropped.                           |
+| `when`   | A compile-time [`cfg`](./conditional-compilation.md) condition. False: the advice is dropped. Inline advice only.       |
 
 `around` is typed per member: for `get`, `args` is `[id: string]` and `next()`
-returns `Promise<User>`, and `around` must return that type.
+returns `Promise<User>`, and `around` must return that type. In practice that
+means returning `next()`'s result (or something TypeScript can see is the same
+type); advice that returns a value of its own, like a cache, needs a cast.
 
 - **Inlined.** An advice written as an object literal with an inline `around`
   is copied into each method, with `method` as the member's name, `args` as its
   arguments and `next()` as the call on `inner`. The result is the code you
   would have written by hand.
-- **Called through.** Any other advice (a variable, a function call) is
-  evaluated once, when `forward` runs, and each method calls its `around`. The
-  same happens when the inline `around` can't be copied safely (it reads a name
-  that one of the generated parameters would shadow). Either way there is no
-  `Proxy`.
+- **Called through.** Any other advice (a variable of type `Advice<S>`, a
+  function call) is evaluated once, when `forward` runs, and each method calls
+  its `around`, checking at run time that it has one and that `only` (if any)
+  lists the method. `when` can't be checked at run time, so it is an error on
+  such an advice. The same call-through happens when an inline `around` can't
+  be copied safely (it reads a name that one of the generated parameters
+  would shadow). Either way there is no `Proxy`. A called-through advice can't
+  be checked for `async` at compile time: give an async one an `only` list of
+  promise-returning methods.
 - **Several advices**: pass a list, outermost first:
   `forward<S>(inner, [tracing, retries])`.
 - **`async`**: a sync advice around a promise-returning method sees the promise
@@ -90,9 +97,21 @@ returns `Promise<User>`, and `around` must return that type.
   which behaves exactly like calling the advice.
 - **`this` and private fields** work: methods are called as `inner.m(...)`, so
   `inner`'s own `#private` fields are reachable, unlike through a `Proxy`.
-- **Properties** are forwarded with getters (and setters unless `readonly`).
+- **Properties** are forwarded with getters, and setters when writable (no
+  `readonly`, or an accessor with a `set`). A function-typed property
+  (`onClick: () => void`) is forwarded as a method, advice included; assigning
+  to it on the forwarding object doesn't reach `inner`.
 - **Overloaded and optional methods** are forwarded as `inner.m.bind(inner)`,
   without advice, with a warning when an advice would have applied.
+- **Names** that aren't identifiers (`"content-type"`, `0`) are forwarded as
+  quoted members.
+- **Fluent methods** that return `this` return `inner`, so in
+  `repo.add(1).add(2)` only the first call goes through the advice.
+- **Optional parameters** are passed on as written, so an omitted one arrives
+  as `undefined` (`args.length` is the declared count).
+- **What `S` can be**: an interface or object type, or a class without private
+  or protected members. `any`, a type parameter, a union and a callable type
+  are compile errors.
 
 ## When to use it, and when not
 
