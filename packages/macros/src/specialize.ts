@@ -372,7 +372,7 @@ function instanceRegistryFor(program?: ts.Program): Map<string, DictMethodMap> {
  * needed: a fresh Program has fresh nodes, and the WeakMap lets old ones go.
  *
  * Shape (CLAUDE.md "Resolving things a macro just generated"): a LIVE keyed
- * registry written by `@impl` / `impl()` during the transform pass and read
+ * registry written by `@impl` during the transform pass and read
  * within the same pass — not a scan of a pass-start snapshot. The usual
  * declare-before-use constraint of a single top-down pass applies.
  */

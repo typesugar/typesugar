@@ -19,7 +19,7 @@
 > | F1 Unrestricted macro registration  | CRITICAL | Partially mitigated (PEP-055 discovery consent gate) — [#14](https://github.com/typesugar/typesugar/issues/14) tracks the remaining identity-verification gap, see `SECURITY.md` |
 > | F2 Path traversal in include macros | CRITICAL | **Resolved** — boundary check + red-team tests                                                                                                                                   |
 > | F3 Comptime `node:vm` escape        | HIGH     | Partially mitigated — [#15](https://github.com/typesugar/typesugar/issues/15)                                                                                                    |
-> | F4 Capabilities advisory            | HIGH     | Partially addressed — [#16](https://github.com/typesugar/typesugar/issues/16)                                                                                                    |
+> | F4 No capability restriction        | HIGH     | Open — [#16](https://github.com/typesugar/typesugar/issues/16)                                                                                                                   |
 > | F5 No macro output validation       | HIGH     | Open (detection exists) — [#17](https://github.com/typesugar/typesugar/issues/17)                                                                                                |
 > | F6–F8                               | MEDIUM   | Unchanged (see each finding)                                                                                                                                                     |
 >
@@ -32,7 +32,7 @@
 
 typesugar is a compile-time macro system — it rewrites TypeScript source code during compilation. This gives it a fundamentally different threat model from runtime libraries: **a compromised macro can rewrite any code that passes through the compiler**, and the developer may never see the rewritten output.
 
-The current system has strong foundations (capability declarations, permission-gated comptime, expansion tracking) but lacks **enforcement boundaries**. Capabilities are advisory, not mandatory. The sandbox can be bypassed. There is no mechanism to detect when a macro produces unexpected output.
+The current system has strong foundations (permission-gated comptime, expansion tracking) but lacks **enforcement boundaries**. Macros run with no capability restriction. The sandbox can be bypassed. There is no mechanism to detect when a macro produces unexpected output.
 
 This review identifies 8 vulnerabilities across 3 severity tiers and proposes a layered defense model inspired by Rust (Watt), Racket (syntax taints), Scala 3 (staging), OCaml (ppxlib), and Zig (comptime restrictions).
 
@@ -218,42 +218,38 @@ The sandbox provides `Math`, `Number`, `String`, `Boolean`, `Array`, `Object`, `
 
 ---
 
-### F4: Capabilities Are Not Wired Up (HIGH — open)
+### F4: No Macro Capability Restriction (HIGH — open)
 
-> **Status (2026-10-19, corrects the 2026-06-21 note):** Open; tracked in
-> [#16](https://github.com/typesugar/typesugar/issues/16). The capability system
-> in `packages/core/src/capabilities.ts` is **not used anywhere**: macro
-> definitions have no `capabilities` field, nothing calls
-> `createRestrictedContext()` or `resolveCapabilities()`, and nothing reads
-> `needsFileSystem` (the proxy doesn't handle it at all). The earlier note that
-> "`needsFileSystem: false` makes file access opt-in" was wrong: changing that
-> default restricted nothing. Every macro, including an approved third-party
-> one, runs with the full `MacroContext` and ordinary Node access (`fs`,
-> `process`, network). The module is marked `@experimental`. Enforcement is
-> deferred to #16; the analysis below describes the proxy as it would behave
-> once wired in.
+> **Status (2026-11-13):** Open; tracked in
+> [#16](https://github.com/typesugar/typesugar/issues/16). Every macro,
+> including an approved third-party one, runs with the full `MacroContext` and
+> ordinary Node access (`fs`, `process`, network). The experimental
+> capability module that used to sit in `@typesugar/core`
+> (`capabilities.ts`) was never wired in: macro definitions had no
+> `capabilities` field and nothing applied its restriction. It was removed
+> before 1.0 rather than shipped as an unenforced public API; #16 designs
+> enforcement from scratch.
 
-**Location:** `packages/core/src/capabilities.ts`
+**Location:** the transformer passes each macro the full `MacroContext`
+(`packages/transformer-core/src/transformer.ts`).
 
-The `createRestrictedContext()` proxy blocks property access on `MacroContext`, but:
+The earlier, unwired design (a `Proxy` around `MacroContext` driven by a
+per-macro capability object) also had three weaknesses any replacement has to
+avoid:
 
-1. **Default capabilities grant everything:** `DEFAULT_CAPABILITIES` has `needsTypeChecker: true`. The restriction only works if macros explicitly opt into less capability.
-2. **The proxy doesn't deeply restrict:** A macro that gets `ctx.typeChecker` (which is allowed by default) has unrestricted access to the entire program's type information, including all file paths and source text.
-3. **Capabilities aren't enforced at registration:** Nothing stops a macro from declaring `needsFileSystem: false` and then accessing the file system through `ctx.program.getSourceFile(path)`.
+1. **Its defaults granted everything:** the type checker was allowed by default,
+   so a restriction only helped if a macro explicitly opted into less.
+2. **A proxy doesn't restrict deeply:** a macro that gets `ctx.typeChecker` has
+   the whole program's type information, including every file path and its
+   source text.
+3. **Declared capabilities weren't enforced:** nothing stopped a macro that
+   declared no file-system access from reading sources through
+   `ctx.program.getSourceFile(path)`, or from using Node's `fs` directly.
 
-**Recommendation:** Invert the default — capabilities should be **deny by default**, with macros requesting what they need:
-
-```typescript
-export const DEFAULT_CAPABILITIES: Required<MacroCapabilities> = {
-  needsTypeChecker: false, // Most syntactic macros don't need this
-  needsFileSystem: false,
-  needsProjectIndex: false,
-  canEmitDiagnostics: true,
-  maxTimeout: 5000,
-};
-```
-
-This is a breaking change but aligns with the principle of least privilege.
+**Recommendation:** when #16 adds restriction, make it **deny by default**,
+with macros requesting what they need (type checker, project index,
+diagnostics, a time budget), and enforce it outside the macro's own realm
+(the proxy alone cannot stop direct `fs`/`process` access).
 
 ---
 
@@ -404,7 +400,7 @@ Formalize the existing progressive disclosure as security tiers:
 | **Tier 1: Type-Aware**   | `@derive`, `summon`, `@typeclass`             | Type checker queries. No file IO, no code gen | Any package            |
 | **Tier 2: Code Gen**     | `@reflect`, `quote()`, `defineSyntaxMacro`    | AST construction, hygiene system              | Audited packages       |
 | **Tier 3: IO**           | `comptime({fs})`, `includeStr`, `includeJson` | File system, environment                      | First-party only       |
-| **Tier 4: Unrestricted** | Custom macros with `needsFileSystem: true`    | Everything                                    | Explicitly allowlisted |
+| **Tier 4: Unrestricted** | Custom macros that need file or network IO    | Everything                                    | Explicitly allowlisted |
 
 The transformer enforces tier boundaries: a Tier 0 macro cannot access `ctx.typeChecker`. A Tier 1 macro cannot call `ctx.parseExpression()`.
 
@@ -538,19 +534,19 @@ function createHardenedSandbox(permissions: ComptimePermissions): vm.Context {
 
 ## Implementation Priority
 
-| Priority | Item                                   | Effort           | Impact                                 |
-| -------- | -------------------------------------- | ---------------- | -------------------------------------- |
-| **P0**   | Path sandboxing in include macros (F2) | Small            | Blocks arbitrary file read             |
-| **P0**   | `--typesugar-expand` CLI tool          | Medium           | Primary detection mechanism            |
-| **P1**   | Macro allowlist in config (F1)         | Medium           | Blocks malicious packages              |
-| **P1**   | Comptime sandbox hardening (F3)        | Medium           | Prevents sandbox escape                |
-| **P1**   | Expansion audit log                    | Medium           | CI-reviewable record of macro behavior |
-| **P2**   | Invert default capabilities (F4)       | Small (breaking) | Least privilege by default             |
-| **P2**   | Macro output validation (F5)           | Medium           | Catches injected dangerous patterns    |
-| **P2**   | Unhygienic escape logging (F6)         | Small            | Audit trail for variable capture       |
-| **P3**   | Macro trust tiers                      | Large            | Comprehensive trust model              |
-| **P3**   | Taint tracking on AST nodes            | Large            | Racket-inspired deep defense           |
-| **P3**   | WASM sandbox for third-party macros    | Large            | Watt-inspired isolation                |
+| Priority | Item                                   | Effort | Impact                                 |
+| -------- | -------------------------------------- | ------ | -------------------------------------- |
+| **P0**   | Path sandboxing in include macros (F2) | Small  | Blocks arbitrary file read             |
+| **P0**   | `--typesugar-expand` CLI tool          | Medium | Primary detection mechanism            |
+| **P1**   | Macro allowlist in config (F1)         | Medium | Blocks malicious packages              |
+| **P1**   | Comptime sandbox hardening (F3)        | Medium | Prevents sandbox escape                |
+| **P1**   | Expansion audit log                    | Medium | CI-reviewable record of macro behavior |
+| **P2**   | Deny-by-default capabilities (F4)      | Large  | Least privilege by default             |
+| **P2**   | Macro output validation (F5)           | Medium | Catches injected dangerous patterns    |
+| **P2**   | Unhygienic escape logging (F6)         | Small  | Audit trail for variable capture       |
+| **P3**   | Macro trust tiers                      | Large  | Comprehensive trust model              |
+| **P3**   | Taint tracking on AST nodes            | Large  | Racket-inspired deep defense           |
+| **P3**   | WASM sandbox for third-party macros    | Large  | Watt-inspired isolation                |
 
 ---
 

@@ -21,7 +21,7 @@ import {
   hasGenericDerivation,
 } from "@typesugar/macros";
 import type { GenericMeta } from "@typesugar/macros";
-import { summon, extend, implicit, deriving, instance } from "@typesugar/macros";
+import { summon, extend, implicit, deriving } from "@typesugar/macros";
 
 // ============================================================================
 // Helpers
@@ -232,13 +232,6 @@ describe("Red Team: Type Safety", () => {
   // Round 2: Typecheck Bypass
   // ==========================================================================
   describe("Round 2: Typecheck Bypass", () => {
-    // Finding TS-11: instance() with wrong signatures passes through
-    it("@impl with wrong method signatures — runtime passes through unchanged", () => {
-      const wrongImpl = { eq: (a: number) => true };
-      const result = instance("Eq<number>", wrongImpl);
-      expect(result).toBe(wrongImpl);
-    });
-
     // Finding TS-12: Derive on class with private fields
     it("@derive(Eq) on class with private fields — only public fields compared", () => {
       class Secret {

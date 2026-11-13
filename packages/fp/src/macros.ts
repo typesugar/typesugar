@@ -15,9 +15,6 @@
 import { registerSyntaxMarkerFallback } from "@typesugar/core";
 import { registerResultAlgebra, type ResultAlgebra } from "@typesugar/macros";
 
-// Zero-cost Option/Result inlining macros (registered on import).
-export { zeroCostOptionMacro, zeroCostResultMacro } from "./zero-cost/macros.js";
-
 // PEP-052 Wave 6: resolution-free fallback for fp's `@syntax-methods Show`
 // marker, so it activates in hosts that cannot resolve modules via the
 // checker (mirrors std's registrations in `std/src/macros/index.ts`). Lives

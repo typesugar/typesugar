@@ -1763,16 +1763,19 @@ function findCompanionHost(
 // ============================================================================
 
 /**
- * Attribute macro to register a typeclass instance.
+ * Parse a typeclass instantiation string like "Numeric<Expression<number>>"
+ * into its components: typeclassName and forType.
  *
- * Preferred JSDoc syntax (no preprocessor needed):
- *   /** @impl Eq<Point> *\/
- *   export const pointEq: Eq<Point> = { ... };
- *
- * Legacy decorator syntax (requires preprocessor):
- *   @impl("Eq<Point>")
- *   export const pointEq: Eq<Point> = { ... };
+ * Handles nested generics by matching the outermost angle brackets.
  */
+function parseTypeclassInstantiation(
+  text: string
+): { typeclassName: string; forType: string } | null {
+  const parsed = parseTypeInstantiation(text);
+  if (!parsed || !parsed.args) return null;
+  return { typeclassName: parsed.base, forType: parsed.args };
+}
+
 /**
  * The typeclass and type of a bare `@impl`/`@instance` tag, read from the
  * target const's `: TC<T>` annotation (one type argument, a plain typeclass
@@ -1795,6 +1798,17 @@ function implArgsFromAnnotation(
   return { tcName: type.typeName.text, typeName: getNodeText(type.typeArguments[0]) };
 }
 
+/**
+ * Attribute macro to register a typeclass instance.
+ *
+ * JSDoc syntax (on a const or class):
+ *   /** @impl Eq<Point> *\/
+ *   export const pointEq: Eq<Point> = { ... };
+ *
+ * Decorator syntax (on a class):
+ *   @impl("Show<MyClass>")
+ *   class MyClassShow implements Show<MyClass> { ... }
+ */
 export const implAttribute = defineAttributeMacro({
   name: "impl",
   module: "@typesugar/typeclass",
@@ -3786,361 +3800,6 @@ export const extendMacro = defineExpressionMacro({
 });
 
 // ============================================================================
-// instance() - Expression Macro for Preprocessor-Rewritten @instance
-// ============================================================================
-// Handles calls like:
-//   const numericExpr = instance("Numeric<Expression<number>>", { add: ..., mul: ... });
-//
-// The preprocessor rewrites `@instance("...")` decorators to this form.
-// This macro registers the instance and returns the object literal unchanged.
-// ============================================================================
-
-/**
- * Parse a typeclass instantiation string like "Numeric<Expression<number>>"
- * into its components: typeclassName and forType.
- *
- * Handles nested generics by matching the outermost angle brackets.
- */
-function parseTypeclassInstantiation(
-  text: string
-): { typeclassName: string; forType: string } | null {
-  const parsed = parseTypeInstantiation(text);
-  if (!parsed || !parsed.args) return null;
-  return { typeclassName: parsed.base, forType: parsed.args };
-}
-
-/**
- * Walk up the AST to find the enclosing VariableDeclaration.
- */
-function findEnclosingVariableDeclaration(node: ts.Node): ts.VariableDeclaration | null {
-  let current: ts.Node | undefined = node;
-  while (current) {
-    if (ts.isVariableDeclaration(current)) {
-      return current;
-    }
-    current = current.parent;
-  }
-  return null;
-}
-
-/**
- * Expression macro for registering typeclass instances.
- *
- * This is the internal target for preprocessor-rewritten @impl/@instance decorators.
- * Users should prefer the JSDoc syntax which doesn't require the preprocessor.
- *
- * @internal
- */
-export const implMacro = defineExpressionMacro({
-  name: "impl",
-  module: "@typesugar/typeclass",
-  optOutFeature: "typeclasses",
-  description:
-    "Register a typeclass instance from preprocessor-rewritten @impl/@instance decorator",
-  // Side effects (specialization registration keyed by the enclosing
-  // declaration) must run on every expansion; never serve it from a cache.
-  cacheable: false,
-
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    // Expect: impl("Typeclass<Type>", { ... })
-    if (args.length < 2) {
-      ctx.reportError(callExpr, 'impl() requires two arguments: impl("Typeclass<Type>", { ... })');
-      return callExpr;
-    }
-
-    const descriptionArg = args[0];
-    const objectLiteralArg = args[1];
-
-    // Parse the description string
-    if (!ts.isStringLiteral(descriptionArg)) {
-      ctx.reportError(
-        descriptionArg,
-        'First argument to instance() must be a string literal like "Numeric<Expression<number>>"'
-      );
-      return objectLiteralArg;
-    }
-
-    const parsed = parseTypeclassInstantiation(descriptionArg.text);
-    if (!parsed) {
-      ctx.reportError(
-        descriptionArg,
-        `Invalid typeclass instantiation format: "${descriptionArg.text}". Expected "Typeclass<Type>".`
-      );
-      return objectLiteralArg;
-    }
-
-    const { typeclassName, forType } = parsed;
-
-    // Find the enclosing VariableDeclaration to get the instance name
-    const varDecl = findEnclosingVariableDeclaration(callExpr);
-    if (!varDecl || !ts.isIdentifier(varDecl.name)) {
-      ctx.reportWarning(
-        callExpr,
-        "instance() called outside a variable declaration; skipping registration"
-      );
-      return objectLiteralArg;
-    }
-
-    const instanceName = varDecl.name.text;
-
-    // Notify coverage system
-    notifyPrimitiveRegistered(forType, typeclassName);
-
-    // Extract and register methods for specialization (if object literal)
-    if (ts.isObjectLiteralExpression(objectLiteralArg)) {
-      const methods = inlineableMethods(
-        ctx,
-        extractMethodsFromObjectLiteral(objectLiteralArg, ctx.hygiene),
-        objectLiteralArg
-      );
-      if (methods.size > 0) {
-        registerInstanceMethodsFromAST(instanceName, forType, methods, ctx.program, varDecl);
-      }
-    }
-
-    // Return the object literal unchanged — strip the impl() wrapper
-    return objectLiteralArg;
-  },
-});
-
-// ============================================================================
-// typeclass("Name") - Expression Macro for Preprocessor-Rewritten Form
-// ============================================================================
-// Handles the preprocessor-rewritten form:
-//   interface Eq<A> { /** @op === */ equals(a: A, b: A): boolean; }
-//   typeclass("Eq");
-//
-// This registers the typeclass metadata and generates companion code.
-// ============================================================================
-
-export const typeclassMacro = defineExpressionMacro({
-  name: "typeclass",
-  module: "@typesugar/typeclass",
-  optOutFeature: "typeclasses",
-  description:
-    "Register a typeclass from a preceding interface declaration (preprocessor-rewritten form)",
-  // Marks the typeclass in scope for THIS file (a side effect); never cached.
-  cacheable: false,
-
-  expand(
-    ctx: MacroContext,
-    callExpr: ts.CallExpression,
-    args: readonly ts.Expression[]
-  ): ts.Expression {
-    // Expect: typeclass("TypeclassName") or typeclass("TypeclassName", { options })
-    if (args.length < 1) {
-      ctx.reportError(callExpr, 'typeclass() requires at least one argument: typeclass("Name")');
-      return ctx.factory.createVoidZero();
-    }
-
-    const nameArg = args[0];
-    if (!ts.isStringLiteral(nameArg)) {
-      ctx.reportError(nameArg, "First argument to typeclass() must be a string literal");
-      return ctx.factory.createVoidZero();
-    }
-
-    const tcName = nameArg.text;
-    const sourceFile = callExpr.getSourceFile();
-
-    // Find the interface declaration with this name in the source file
-    let targetInterface: ts.InterfaceDeclaration | undefined;
-    for (const statement of sourceFile.statements) {
-      if (ts.isInterfaceDeclaration(statement) && statement.name.text === tcName) {
-        targetInterface = statement;
-        break;
-      }
-    }
-
-    if (!targetInterface) {
-      ctx.reportError(
-        callExpr,
-        `No interface named "${tcName}" found in this file. ` +
-          `typeclass("${tcName}") must follow an interface declaration.`
-      );
-      return ctx.factory.createVoidZero();
-    }
-
-    // Validate + mark in-scope. No registry write (PEP-052): the op-index re-derives
-    // the definition from the interface AST per program.
-    if (!buildTypeclassInfoFromInterface(targetInterface)) {
-      ctx.reportError(
-        targetInterface,
-        `Interface ${tcName} must have at least one type parameter (e.g., interface ${tcName}<A>)`
-      );
-      return ctx.factory.createVoidZero();
-    }
-    globalResolutionScope.registerDefinedTypeclass(ctx.sourceFile.fileName, tcName);
-    return ctx.factory.createVoidZero();
-  },
-});
-
-// ============================================================================
-// Built-in Typeclass Interfaces (for reference/documentation)
-// ============================================================================
-// These are the standard typeclass interfaces that users should define
-// in their code. The macros will work with any interface that follows
-// the typeclass pattern.
-
-/**
- * Generate code for standard typeclass interfaces.
- * Users can call this or define their own.
- */
-export function generateStandardTypeclasses(): string {
-  return `
-// ============================================================================
-// Standard Typeclasses
-// ============================================================================
-
-/** Equality typeclass - Scala 3: trait Eq[A] */
-
-interface Eq<A> {
-  /**
-   * @op ===
-   * @op ==
-   */
-  equals(a: A, b: A): boolean;
-  /**
-   * @op !==
-   * @op !=
-   */
-  notEquals(a: A, b: A): boolean;
-}
-typeclass("Eq");
-
-/** Ordering typeclass - Scala 3: trait Ord[A] extends Eq[A] */
-
-interface Ord<A> {
-  /** @op < */
-  compare(a: A, b: A): -1 | 0 | 1;
-}
-typeclass("Ord");
-
-/** Show typeclass - Scala 3: trait Show[A] */
-
-interface Show<A> {
-  show(a: A): string;
-}
-typeclass("Show");
-
-/** Hash typeclass */
-
-interface Hash<A> {
-  hash(a: A): number;
-}
-typeclass("Hash");
-
-/** Semigroup typeclass - Scala 3: trait Semigroup[A] */
-
-interface Semigroup<A> {
-  /** @op + */
-  combine(a: A, b: A): A;
-}
-typeclass("Semigroup");
-
-/** Monoid typeclass - Scala 3: trait Monoid[A] extends Semigroup[A] */
-
-interface Monoid<A> {
-  empty(): A;
-  /** @op + */
-  combine(a: A, b: A): A;
-}
-typeclass("Monoid");
-
-/** Functor typeclass - Scala 3: trait Functor[F[_]] */
-
-interface Functor<F> {
-  map<A, B>(fa: F, f: (a: A) => B): F;
-}
-typeclass("Functor");
-
-// ============================================================================
-// Primitive Instances
-// ============================================================================
-
-// Eq instances for primitives
-const eqNumber: Eq<number> = /*#__PURE__*/ {
-  equals: (a, b) => a === b,
-  notEquals: (a, b) => a !== b,
-};
-
-const eqString: Eq<string> = /*#__PURE__*/ {
-  equals: (a, b) => a === b,
-  notEquals: (a, b) => a !== b,
-};
-
-const eqBoolean: Eq<boolean> = /*#__PURE__*/ {
-  equals: (a, b) => a === b,
-  notEquals: (a, b) => a !== b,
-};
-
-// Show instances for primitives
-const showNumber: Show<number> = /*#__PURE__*/ {
-  show: (a) => String(a),
-};
-
-const showString: Show<string> = /*#__PURE__*/ {
-  show: (a) => JSON.stringify(a),
-};
-
-const showBoolean: Show<boolean> = /*#__PURE__*/ {
-  show: (a) => String(a),
-};
-
-// Ord instances for primitives
-const ordNumber: Ord<number> = /*#__PURE__*/ {
-  compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
-};
-
-const ordString: Ord<string> = /*#__PURE__*/ {
-  compare: (a, b) => a < b ? -1 : a > b ? 1 : 0,
-};
-
-// Hash instances for primitives
-const hashNumber: Hash<number> = /*#__PURE__*/ {
-  hash: (a) => a | 0,
-};
-
-const hashString: Hash<string> = /*#__PURE__*/ {
-  hash: (a) => {
-    let h = 5381;
-    for (let i = 0; i < a.length; i++) {
-      h = ((h << 5) + h) + a.charCodeAt(i);
-    }
-    return h >>> 0;
-  },
-};
-
-const hashBoolean: Hash<boolean> = /*#__PURE__*/ {
-  hash: (a) => a ? 1 : 0,
-};
-
-// Semigroup instances for primitives
-const semigroupNumber: Semigroup<number> = /*#__PURE__*/ {
-  combine: (a, b) => a + b,
-};
-
-const semigroupString: Semigroup<string> = /*#__PURE__*/ {
-  combine: (a, b) => a + b,
-};
-
-// Monoid instances for primitives
-const monoidNumber: Monoid<number> = /*#__PURE__*/ {
-  empty: () => 0,
-  combine: (a, b) => a + b,
-};
-
-const monoidString: Monoid<string> = /*#__PURE__*/ {
-  empty: () => "",
-  combine: (a, b) => a + b,
-};
-`;
-}
-
-// ============================================================================
 // Instance Registration (companion attachment)
 // ============================================================================
 
@@ -4188,9 +3847,7 @@ export function registerInstanceWithMeta(info: InstanceInfo, instanceValue?: any
  */
 export function registerTypeclassMacros(): void {
   globalRegistry.register(typeclassAttribute);
-  globalRegistry.register(typeclassMacro);
   globalRegistry.register(implAttribute);
-  globalRegistry.register(implMacro);
   globalRegistry.register(
     defineAttributeMacro({
       name: "instance",
@@ -4200,16 +3857,6 @@ export function registerTypeclassMacros(): void {
       description: "@deprecated Use @impl instead",
       validTargets: implAttribute.validTargets,
       expand: implAttribute.expand,
-    })
-  );
-  globalRegistry.register(
-    defineExpressionMacro({
-      name: "instance",
-      module: "@typesugar/typeclass",
-      optOutFeature: "typeclasses",
-      description: "@deprecated Use impl() instead",
-      cacheable: false,
-      expand: implMacro.expand,
     })
   );
   globalRegistry.register(summonMacro);

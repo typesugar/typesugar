@@ -27,6 +27,9 @@ import { MacroContextImpl, createMacroContext } from "@typesugar/core";
 import {
   registerInstanceMethodsFromAST,
   SpecializationCache,
+  getInstanceName,
+  hasImplAnnotation,
+  extractBrandFromImpl,
   type DictMethod,
 } from "@typesugar/macros";
 
@@ -59,9 +62,6 @@ function registerTestInstance(
 }
 
 import {
-  getInstanceName,
-  hasImplAnnotation,
-  extractBrandFromImpl,
   tryExtractInstanceFromSource,
   resolveAutoSpecFunctionBody,
   rewriteDictCallsForAutoSpec,

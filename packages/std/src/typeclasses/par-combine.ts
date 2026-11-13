@@ -115,29 +115,10 @@ export function getParCombine(name: string): ParCombine<unknown> | undefined {
 /**
  * Get the std-local zero-cost AST builder for a type-constructor brand, if any.
  * Consumed by the par:/yield: macro to emit optimized code for std builtins
- * (Promise, AsyncIterable, Array, Iterable) and locally registered types.
+ * (Promise, AsyncIterable, Array, Iterable).
  */
 export function getStdParCombineBuilder(brand: string): ParCombineBuilder | undefined {
   return parCombineRegistry.get(brand)?.builder;
-}
-
-/**
- * Register a ParCombine instance for a type constructor.
- * Provide a builder for zero-cost macro expansion, or omit to use runtime dispatch.
- *
- * @deprecated Declare an @impl ParCombine<F> instance instead — resolution is
- * scope-based (PEP-052). This function is maintained for backward compatibility.
- */
-export function registerParCombine<F>(
-  name: string,
-  instance: ParCombine<F>,
-  builder?: ParCombineBuilder
-): void {
-  const actualBuilder = builder ?? createGenericParCombineBuilder(name);
-  parCombineRegistry.set(name, {
-    instance: instance as ParCombine<unknown>,
-    builder: actualBuilder,
-  });
 }
 
 // ============================================================================
@@ -607,88 +588,4 @@ function buildIterableParCombine(
       ),
     ]
   );
-}
-
-function createGenericParCombineBuilder(name: string): ParCombineBuilder {
-  return (ctx, steps, returnExpr) => {
-    const { factory } = ctx;
-    const bindSteps = steps.filter((s): s is BindStep => s.kind === "bind");
-    const mapSteps = steps.filter((s): s is MapStep => s.kind === "map");
-
-    let yieldExpr = returnExpr;
-    for (let i = mapSteps.length - 1; i >= 0; i--) {
-      const step = mapSteps[i];
-      yieldExpr = createIIFE(factory, step.name, yieldExpr, step.expression);
-    }
-
-    if (bindSteps.length === 0) return yieldExpr;
-
-    const nameLiteral = factory.createStringLiteral(name);
-    const effectsArray = factory.createArrayLiteralExpression(bindSteps.map((s) => s.effect));
-
-    const destructuredParam = factory.createParameterDeclaration(
-      undefined,
-      undefined,
-      createTupleBindingPattern(
-        factory,
-        bindSteps.map((s) => s.name)
-      )
-    );
-
-    const mapArrow = factory.createArrowFunction(
-      undefined,
-      undefined,
-      [destructuredParam],
-      undefined,
-      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-      yieldExpr
-    );
-
-    // IIFE: (function() { const __pc = getParCombine("name")!; return __pc.map(__pc.all([...]), f); })()
-    const pcDecl = factory.createVariableDeclaration(
-      factory.createIdentifier("__pc"),
-      undefined,
-      undefined,
-      factory.createNonNullExpression(
-        factory.createCallExpression(factory.createIdentifier("getParCombine"), undefined, [
-          nameLiteral,
-        ])
-      )
-    );
-    const allCall = factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("__pc"),
-        factory.createIdentifier("all")
-      ),
-      undefined,
-      [effectsArray]
-    );
-    const mapCall = factory.createCallExpression(
-      factory.createPropertyAccessExpression(
-        factory.createIdentifier("__pc"),
-        factory.createIdentifier("map")
-      ),
-      undefined,
-      [allCall, mapArrow]
-    );
-    const returnStmt = factory.createReturnStatement(mapCall);
-    const block = factory.createBlock(
-      [
-        factory.createVariableStatement(
-          undefined,
-          factory.createVariableDeclarationList([pcDecl], ts.NodeFlags.Const)
-        ),
-        returnStmt,
-      ],
-      true
-    );
-    const iife = factory.createCallExpression(
-      factory.createParenthesizedExpression(
-        factory.createArrowFunction(undefined, undefined, [], undefined, undefined, block)
-      ),
-      undefined,
-      []
-    );
-    return iife;
-  };
 }

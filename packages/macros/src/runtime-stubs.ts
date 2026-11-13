@@ -19,7 +19,7 @@ import type { TypeInfo } from "./reflect.js";
 /**
  * Declare a typeclass interface.
  *
- * **Preferred JSDoc syntax (no preprocessor needed):**
+ * **JSDoc syntax (preferred):**
  * ```typescript
  * /** @typeclass *\/
  * interface Eq<A> {
@@ -36,35 +36,21 @@ import type { TypeInfo } from "./reflect.js";
  * Operator overloading and summon() won't work, but the interface is still
  * usable as a plain TypeScript type.
  *
- * @example
- * ```typescript
- * // JSDoc syntax (preferred, no preprocessor):
- * /** @typeclass *\/
- * interface Eq<A> {
- *   /** @op === *\/
- *   /** @op === *\/
- *   eq(a: A, b: A): boolean;
- * }
- * ```
+ * This stub is the decorator form (`@typeclass` on a class); it returns the
+ * target unchanged.
  *
- * @param nameOrTarget - Typeclass name string OR decorator target (interface/class)
- * @param optionsOrContext - Optional configuration (expression form) or decorator context
- * @returns void (expression form) or the target unchanged (decorator form)
+ * @param target - The decorated class
+ * @param _context - The decorator context
+ * @returns The target unchanged
  */
-export function typeclass(name: string, options?: object): void;
-export function typeclass(target: any, context?: ClassDecoratorContext): any;
-export function typeclass(
-  nameOrTarget: string | any,
-  optionsOrContext?: object | ClassDecoratorContext
-): any {
-  if (typeof nameOrTarget === "string") return; // Expression form: no-op
-  return nameOrTarget; // Decorator form: return target unchanged
+export function typeclass(target: any, _context?: ClassDecoratorContext): any {
+  return target;
 }
 
 /**
  * Register a typeclass instance.
  *
- * **Preferred JSDoc syntax (no preprocessor needed):**
+ * **JSDoc syntax (preferred):**
  * ```typescript
  * /** @impl Eq<Point> *\/
  * export const pointEq: Eq<Point> = {
@@ -76,18 +62,13 @@ export function typeclass(
  * summon<TC<T>>() resolution, operator overloading, and zero-cost
  * specialization via method extraction.
  *
- * **Without transformer (fallback):** Expression form returns the object
- * unchanged. Decorator form is a no-op. The instance is usable as a plain
- * value but won't be discovered by summon() or operator rewriting.
+ * **Without transformer (fallback):** No-op decorator. The instance is usable
+ * as a plain value but won't be discovered by summon() or operator rewriting.
  *
  * @example
  * ```typescript
- * // JSDoc syntax (preferred, no preprocessor):
+ * // JSDoc syntax (preferred):
  * /** @impl Numeric<Complex> *\/
- * export const numericComplex: Numeric<Complex> = { ... };
- *
- * // Decorator on const (requires preprocessor):
- * @impl("Numeric<Complex>")
  * export const numericComplex: Numeric<Complex> = { ... };
  *
  * // Decorator on class (standard TS):
@@ -99,15 +80,11 @@ export function typeclass(
  * const flatMapArray: FlatMap<ArrayTag> = { ... };
  * ```
  *
- * @param descOrTarget - Description string like "Numeric<Complex>" OR decorator target
- * @param obj - The instance object (expression form only)
- * @returns The instance object unchanged (expression form) or decorator function (decorator form)
+ * @param _args - The instance description, like "Show<MyClass>"
+ * @returns A no-op decorator
  */
-export function impl<T>(desc: string, obj: T): T;
-export function impl(...args: unknown[]): PropertyDecorator & ClassDecorator & MethodDecorator;
-export function impl(...args: unknown[]): any {
-  if (args.length >= 2) return args[1]; // Expression form: return object unchanged
-  return () => {}; // Decorator form: no-op
+export function impl(..._args: unknown[]): PropertyDecorator & ClassDecorator & MethodDecorator {
+  return () => {};
 }
 
 /**

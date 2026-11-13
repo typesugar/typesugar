@@ -42,8 +42,6 @@
  * @see PEP-008 for full design rationale
  */
 
-import { typeclass } from "@typesugar/macros/runtime";
-
 /**
  * Destructure typeclass — pattern matching extraction protocol.
  *
@@ -66,4 +64,3 @@ export interface Destructure<Pattern, Input, Output> {
    */
   extract(input: Input): Output | undefined;
 }
-typeclass("Destructure");

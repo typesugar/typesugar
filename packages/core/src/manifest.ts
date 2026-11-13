@@ -1,15 +1,15 @@
 /**
  * Library Manifest System
  *
- * Enables third-party libraries to declare typeclass instances, typeclasses,
- * and extension methods that typesugar can discover and use.
+ * The schema for a `typesugar.manifest.json` file, in which a library would
+ * declare its typeclasses, instances, extension methods and operators, plus
+ * `loadManifest`/`validateManifest` to read and check one.
  *
- * Libraries create a `typesugar.manifest.json` file or add a `typesugar`
- * field to their `package.json`.
+ * Planned, not in 1.0: the compiler does not discover or read manifests, so a
+ * manifest has no effect on a build (see docs/guides/library-manifest.md).
  */
 
 import * as fs from "fs";
-import * as path from "path";
 
 // =============================================================================
 // Manifest Schema Types
@@ -120,129 +120,8 @@ export interface LibraryManifest {
 }
 
 // =============================================================================
-// Manifest Discovery and Loading
+// Manifest Loading
 // =============================================================================
-
-/**
- * A discovered manifest with its source location.
- */
-export interface DiscoveredManifest {
-  /** The parsed manifest */
-  manifest: LibraryManifest;
-  /** Path to the manifest file or package.json */
-  sourcePath: string;
-  /** Package root directory */
-  packageRoot: string;
-}
-
-/**
- * Options for manifest discovery.
- */
-export interface ManifestDiscoveryOptions {
-  /** Base directory to start searching from */
-  baseDir: string;
-  /** Whether to scan node_modules (default: true) */
-  scanNodeModules?: boolean;
-  /** Package names to exclude */
-  exclude?: string[];
-  /** Maximum depth for node_modules scanning */
-  maxDepth?: number;
-}
-
-/**
- * Discover all typesugar manifests in a project.
- */
-export function discoverManifests(options: ManifestDiscoveryOptions): DiscoveredManifest[] {
-  const results: DiscoveredManifest[] = [];
-  const visited = new Set<string>();
-  const { exclude = [], scanNodeModules = true, maxDepth = 3 } = options;
-
-  function scanDirectory(dir: string, depth: number): void {
-    if (depth > maxDepth) return;
-    if (visited.has(dir)) return;
-    visited.add(dir);
-
-    // Check for typesugar.manifest.json
-    const manifestPath = path.join(dir, "typesugar.manifest.json");
-    if (fs.existsSync(manifestPath)) {
-      try {
-        const content = fs.readFileSync(manifestPath, "utf-8");
-        const manifest = JSON.parse(content) as LibraryManifest;
-        if (!exclude.includes(manifest.name)) {
-          results.push({
-            manifest,
-            sourcePath: manifestPath,
-            packageRoot: dir,
-          });
-        }
-      } catch {
-        // Invalid manifest, skip
-      }
-    }
-
-    // Check for package.json with typesugar field
-    const pkgPath = path.join(dir, "package.json");
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const content = fs.readFileSync(pkgPath, "utf-8");
-        const pkg = JSON.parse(content) as {
-          name?: string;
-          typesugar?: Partial<LibraryManifest>;
-        };
-        if (pkg.typesugar && pkg.name) {
-          const manifest: LibraryManifest = {
-            version: 1,
-            name: pkg.name,
-            ...pkg.typesugar,
-          };
-          if (!exclude.includes(manifest.name)) {
-            results.push({
-              manifest,
-              sourcePath: pkgPath,
-              packageRoot: dir,
-            });
-          }
-        }
-      } catch {
-        // Invalid package.json, skip
-      }
-    }
-
-    // Scan node_modules if enabled
-    if (scanNodeModules) {
-      const nodeModulesPath = path.join(dir, "node_modules");
-      if (fs.existsSync(nodeModulesPath) && fs.statSync(nodeModulesPath).isDirectory()) {
-        try {
-          const entries = fs.readdirSync(nodeModulesPath);
-          for (const entry of entries) {
-            if (entry.startsWith(".")) continue;
-            const entryPath = path.join(nodeModulesPath, entry);
-            const stat = fs.statSync(entryPath);
-            if (stat.isDirectory()) {
-              // Handle scoped packages
-              if (entry.startsWith("@")) {
-                const scopedEntries = fs.readdirSync(entryPath);
-                for (const scopedEntry of scopedEntries) {
-                  const scopedPath = path.join(entryPath, scopedEntry);
-                  if (fs.statSync(scopedPath).isDirectory()) {
-                    scanDirectory(scopedPath, depth + 1);
-                  }
-                }
-              } else {
-                scanDirectory(entryPath, depth + 1);
-              }
-            }
-          }
-        } catch {
-          // Cannot read node_modules, skip
-        }
-      }
-    }
-  }
-
-  scanDirectory(options.baseDir, 0);
-  return results;
-}
 
 /**
  * Load a single manifest file.
@@ -320,103 +199,4 @@ export function validateManifest(manifest: LibraryManifest): {
   }
 
   return { valid: errors.length === 0, errors };
-}
-
-// =============================================================================
-// Manifest Registry (Runtime)
-// =============================================================================
-
-/**
- * Aggregated registrations from all discovered manifests.
- */
-export interface ManifestRegistry {
-  typeclasses: Map<string, ManifestTypeclass & { source: string }>;
-  instances: Map<string, ManifestInstance & { source: string }>;
-  extensions: Map<string, ManifestExtension & { source: string }>;
-  operators: Map<string, ManifestOperator & { source: string }>;
-  derives: Map<string, ManifestDerive & { source: string }>;
-}
-
-/**
- * Create an empty manifest registry.
- */
-export function createManifestRegistry(): ManifestRegistry {
-  return {
-    typeclasses: new Map(),
-    instances: new Map(),
-    extensions: new Map(),
-    operators: new Map(),
-    derives: new Map(),
-  };
-}
-
-/**
- * Merge a discovered manifest into the registry.
- */
-export function mergeManifestIntoRegistry(
-  registry: ManifestRegistry,
-  discovered: DiscoveredManifest
-): void {
-  const { manifest, sourcePath } = discovered;
-
-  if (manifest.typeclasses) {
-    for (const tc of manifest.typeclasses) {
-      registry.typeclasses.set(tc.name, { ...tc, source: sourcePath });
-    }
-  }
-
-  if (manifest.instances) {
-    for (const inst of manifest.instances) {
-      const key = `${inst.typeclass}<${inst.forType}>`;
-      registry.instances.set(key, { ...inst, source: sourcePath });
-    }
-  }
-
-  if (manifest.extensions) {
-    for (const ext of manifest.extensions) {
-      const key = `${ext.forType}.${ext.method}`;
-      registry.extensions.set(key, { ...ext, source: sourcePath });
-    }
-  }
-
-  if (manifest.operators) {
-    for (const op of manifest.operators) {
-      const key = `${op.symbol}@${op.forType}`;
-      registry.operators.set(key, { ...op, source: sourcePath });
-    }
-  }
-
-  if (manifest.derives) {
-    for (const derive of manifest.derives) {
-      registry.derives.set(derive.name, { ...derive, source: sourcePath });
-    }
-  }
-}
-
-/**
- * Global manifest registry (populated during initialization).
- */
-let globalManifestRegistry: ManifestRegistry | null = null;
-
-/**
- * Get the global manifest registry, initializing if needed.
- */
-export function getManifestRegistry(baseDir?: string): ManifestRegistry {
-  if (!globalManifestRegistry) {
-    globalManifestRegistry = createManifestRegistry();
-    if (baseDir) {
-      const discovered = discoverManifests({ baseDir });
-      for (const d of discovered) {
-        mergeManifestIntoRegistry(globalManifestRegistry, d);
-      }
-    }
-  }
-  return globalManifestRegistry;
-}
-
-/**
- * Reset the global manifest registry (for testing).
- */
-export function resetManifestRegistry(): void {
-  globalManifestRegistry = null;
 }

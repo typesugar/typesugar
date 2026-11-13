@@ -59,42 +59,32 @@ import {
 // JSDoc macro tags
 // ---------------------------------------------------------------------------
 
-// PEP-052 Wave 8: unified with the legacy transformer's private copy
-// (transformer/src/index.ts JSDOC_MACRO_TAGS) — both dispatchers now handle
-// `derive`/`deriving` the same way (see tryExpandJSDocMacros below and
-// tryExpandAttributeMacros in transformer.ts): PEP-032 deleted the standalone
-// `derive` ATTRIBUTE macro from the registry, so both dispatchers special-case
-// it directly rather than looking it up via globalRegistry.getAttribute.
-// `adt` needs no special case — it's a real, registered attribute macro
-// (packages/macros/src/adt.ts) and only needed to be recognized as a
-// macro-triggering tag at all. `operators`/`operator` were already dead
-// entries before this wave (verified: no attribute macro named either exists
-// — real operator/method syntax activation is the separate Wave 6 mechanism,
-// `@syntax-operators` markers read via readSyntaxActivationMarkers, not this
-// dispatcher) — kept for parity/no silent removal, but they still just
-// produce "unknown macro tag" like before.
-export const JSDOC_MACRO_TAGS: ReadonlyMap<string, string> = new Map([
-  ["typeclass", "typeclass"],
-  ["impl", "impl"],
-  ["instance", "instance"],
-  ["derive", "derive"],
-  ["deriving", "deriving"],
-  ["operators", "operators"],
-  ["operator", "operator"],
-  ["extension", "extension"],
-  ["reflect", "reflect"],
-  ["hkt", "hkt"],
-  ["adt", "adt"],
+// The built-in JSDoc tags that dispatch the attribute macro of the same name.
+// `derive`/`deriving` have no registered attribute macro (PEP-032 deleted it):
+// both dispatchers special-case them (see tryExpandJSDocMacros below and
+// tryExpandAttributeMacros in transformer.ts). `adt` is a real, registered
+// attribute macro (packages/macros/src/adt.ts) and only needs to be
+// recognized as a macro-triggering tag.
+export const JSDOC_MACRO_TAGS: ReadonlySet<string> = new Set([
+  "typeclass",
+  "impl",
+  "instance",
+  "derive",
+  "deriving",
+  "extension",
+  "reflect",
+  "hkt",
+  "adt",
   // Function-only attribute macro (docs review B#4): `/** @tailrec */` on a
   // function declaration was silently ignored. On a non-function target the
   // macro itself reports that it only applies to functions.
-  ["tailrec", "tailrec"],
+  "tailrec",
   // @typesugar/sql's schema attribute macro: `/** @schema("users") */` was
   // silently ignored while the decorator form reached the macro.
-  ["schema", "schema"],
+  "schema",
   // @typesugar/contracts' function attribute macro (docs guides-b #4):
   // `/** @contract */ function f() { requires: ... }` was silently ignored.
-  ["contract", "contract"],
+  "contract",
 ]);
 
 /**
@@ -129,8 +119,7 @@ function sourceFileOf(node: ts.Node): ts.SourceFile | undefined {
  */
 export function jsDocTagMacroName(tag: ts.JSDocTag, node: ts.Node): string | undefined {
   const name = tag.tagName.text;
-  const builtin = JSDOC_MACRO_TAGS.get(name);
-  if (builtin) return builtin;
+  if (JSDOC_MACRO_TAGS.has(name)) return name;
   const sf = sourceFileOf(node);
   // Several modules may register an attribute macro of this name (PEP-060
   // item 8): the file's imports pick one.
