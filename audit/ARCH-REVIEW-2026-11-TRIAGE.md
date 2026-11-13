@@ -34,6 +34,22 @@ finding recommended, so the duplicate copies are still there.
 | B3  | **Fixed.** With `import "@typesugar/std/syntax/do"`, arrow-body `par:` and `all:` emit `Promise.all([x, Promise.resolve(2)]).then(([a, b]) => a + b)`. Residual: without the activation import the arrow-body form is left untouched with **no** diagnostic, while the block-body form warns TS9224 ("label syntax is not activated").                                                                                                                                                                | #81 (`b3b647e8`)            |
 | B4  | **Partly fixed.** `"use no typesugar operators"` now works (`p === q` stays `p === q`). Still no-ops: `"use no typesugar typeclasses"` (`summon<Eq<Point>>()` still becomes `eqPoint`, `@typeclass`/`@impl` still emit companions), and `"use no typesugar derive"` still expands a JSDoc `/** @derive Eq */` (the decorator form is honoured). `git grep` finds 3 `"operators"`, 1 `"derive"` (decorator path only) and 0 `"typeclasses"` checks; `docs/guides/opt-out.md:91-96` documents all five. | operators: #82 (`895aa99b`) |
 
+## Fix status (2026-11-13)
+
+| PR         | Findings addressed                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| #88        | B2; B4/A5/D4 (`typeclasses` and JSDoc `derive` opt-outs); B3 residual (arrow-form TS9224); A6's diagnostic anchor; B·7; S5 |
+| #93        | A1 (one attribute dispatcher); the instance-lookup decision (B·2's precedence); D3's `instance-resolver.ts` comment        |
+| #94        | C1 (all rows Dean decided, plus `fallbackNameLookup`); C9; D2; S2's third Option; S3; S9; S10                              |
+| #92        | S4; S6; S7; S11                                                                                                            |
+| #95 (this) | D1; D3's remaining comments (except `macro-helpers.ts`, which #93/#94 rewrite); S8; the PEP-052 dispatcher note            |
+
+Not yet addressed (later work, per the plan below): A2, A3, A4, A6's shared dispatch, B·1, B·2/B·3's
+shared walk, B·4, B·5, B·6, C2–C8, S1's remaining duplication, S12's walker. Found while doing the
+fixes: `(0).to(10).step(2)` fails type-checking because the `Range` type's own `step` field hides the
+`step` extension method, while the std README and docs/guides/extension-methods.md show that form
+(reported on #94; needs a decision on renaming one of them).
+
 ## Tier A — per finding
 
 | ID  | Status        | Evidence on origin/main                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | What is left                                                                                                                                                                                    |

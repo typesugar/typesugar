@@ -151,8 +151,9 @@ export function hasImplAnnotation(decl: ts.Declaration): boolean {
  * `const x: Functor<F> = …` (a PascalCase type reference with ≥1 type
  * argument)? Recognizes a typeclass instance for source-based inlining
  * WITHOUT an explicit `@impl` tag — and therefore without triggering the
- * `@impl` attribute macro's companion generation (PEP-052). Mirrors the
- * instance scanner's type-annotation discovery.
+ * `@impl` attribute macro's companion generation (PEP-052). Looser than the
+ * instance scanner's type-annotation discovery, which needs exactly one type
+ * argument (`instance-scanner.ts`); this accepts any number.
  */
 export function hasTypeclassTypeAnnotation(varDecl: ts.VariableDeclaration | undefined): boolean {
   const typeNode = varDecl?.type;

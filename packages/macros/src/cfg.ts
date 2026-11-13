@@ -43,7 +43,8 @@ import {
 
 /**
  * Global configuration for conditional compilation.
- * Populated from environment variables, config files, and transformer options.
+ * Populated from `TYPESUGAR_CFG_*` environment variables and the transformer's
+ * `cfgConfig` option; config files are not read (that is `config.when()`).
  */
 let cfgConfig: Record<string, unknown> = {};
 let cfgInitialized = false;
