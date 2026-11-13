@@ -14,7 +14,7 @@ import { describe, it, expect } from "vitest";
 import "../src/macros/let-yield.js";
 import "../src/macros/par-yield.js";
 import { globalRegistry } from "@typesugar/core";
-import { getParCombine, registerParCombine } from "../src/typeclasses/par-combine.js";
+import { getParCombine } from "../src/typeclasses/par-combine.js";
 
 // ============================================================================
 // Test helper: Option type with .map() and .flatMap() for testing
@@ -910,16 +910,6 @@ describe("ParCombine registry", () => {
     expect(getParCombine("AsyncIterable")).toBeDefined();
     expect(getParCombine("Array")).toBeDefined();
     expect(getParCombine("Iterable")).toBeDefined();
-  });
-
-  it("should allow registering custom ParCombine instances", () => {
-    const customInstance = {
-      all: (effects: unknown[]) => effects,
-      map: (combined: unknown, f: (r: unknown[]) => unknown) => f(combined as unknown[]),
-    };
-    registerParCombine("TestCombine", customInstance);
-    const retrieved = getParCombine("TestCombine");
-    expect(retrieved).toBe(customInstance);
   });
 });
 

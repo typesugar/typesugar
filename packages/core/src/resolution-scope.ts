@@ -404,27 +404,12 @@ export function scanImportsForScope(
   // visit) makes activation independent of declaration order — an operator used
   // above its typeclass's declaration in the same file still activates.
   for (const stmt of sourceFile.statements) {
-    // (a) `/** @typeclass */ interface Foo<A> { ... }`
+    // `/** @typeclass */ interface Foo<A> { ... }`
     if (
       ts.isInterfaceDeclaration(stmt) &&
       ts.getJSDocTags(stmt).some((tag) => tag.tagName.text === "typeclass")
     ) {
       tracker.registerDefinedTypeclass(fileName, stmt.name.text);
-      continue;
-    }
-    // (b) the call form `typeclass("Foo");` (used when the interface carries no
-    // JSDoc tag) — register it here too so same-file activation doesn't depend on
-    // the macro running during the top-down visit.
-    if (ts.isExpressionStatement(stmt) && ts.isCallExpression(stmt.expression)) {
-      const call = stmt.expression;
-      if (
-        ts.isIdentifier(call.expression) &&
-        call.expression.text === "typeclass" &&
-        call.arguments.length >= 1 &&
-        ts.isStringLiteralLike(call.arguments[0])
-      ) {
-        tracker.registerDefinedTypeclass(fileName, call.arguments[0].text);
-      }
     }
   }
 

@@ -11,9 +11,9 @@ A library would declare its typeclasses, instances, extension methods and operat
 then discover those declarations in dependencies and use them for `summon`, implicit resolution
 and extension-method rewriting, without the library's own code going through typesugar.
 
-`@typesugar/core` exports the building blocks for this (`loadManifest`, `validateManifest`,
-`discoverManifests`, `createManifestRegistry`, `mergeManifestIntoRegistry`,
-`getManifestRegistry`), but nothing in the compiler calls them, so a manifest has no effect on a
+`@typesugar/core` exports the manifest schema types (`LibraryManifest` and its parts) and
+`loadManifest`/`validateManifest` to read and check a manifest file, but nothing in the compiler
+calls them and there is no discovery of manifests in dependencies, so a manifest has no effect on a
 build. Treat these exports as unstable.
 
 ## What to use today

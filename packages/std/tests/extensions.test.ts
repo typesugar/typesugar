@@ -22,6 +22,8 @@ import {
   saturatingAdd,
   randomInt,
   remap,
+  to,
+  until,
 } from "../src/extensions/number";
 
 // String extensions
@@ -148,30 +150,11 @@ import {
   unzipPairs,
 } from "../src/data/tuple";
 
-// Range extensions
-import {
-  range,
-  rangeInclusive,
-  rangeToArray,
-  rangeContains,
-  rangeMap,
-  rangeFilter,
-  rangeReduce,
-  rangeReversed,
-  rangeBy,
-} from "../src/data/range";
+// Range extensions (namespaced: their method names clash with Array's)
+import * as R from "../src/extensions/range";
 
 // Typeclasses
-import {
-  boundedNumber,
-  enumBoolean,
-  numericNumber,
-  parseableNumber,
-  defaultNumber,
-  defaultString,
-  sizedArray,
-  sizedString,
-} from "../src/typeclasses";
+import { boundedNumber, enumBoolean, numericNumber } from "../src/typeclasses";
 
 // ============================================================================
 // Number Extensions
@@ -757,35 +740,35 @@ describe("TupleExt", () => {
 // Range Extensions
 // ============================================================================
 
-describe("RangeExt", () => {
-  it("range (exclusive)", () => {
-    expect(rangeToArray(range(1, 5))).toEqual([1, 2, 3, 4]);
+describe("Range extensions", () => {
+  it("until (exclusive)", () => {
+    expect(R.toArray(until(1, 5))).toEqual([1, 2, 3, 4]);
   });
 
-  it("rangeInclusive", () => {
-    expect(rangeToArray(rangeInclusive(1, 5))).toEqual([1, 2, 3, 4, 5]);
+  it("to (inclusive)", () => {
+    expect(R.toArray(to(1, 5))).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("rangeBy (step)", () => {
-    expect(rangeToArray(rangeBy(range(0, 10), 3))).toEqual([0, 3, 6, 9]);
+  it("step", () => {
+    expect(R.toArray(R.step(until(0, 10), 3))).toEqual([0, 3, 6, 9]);
   });
 
-  it("rangeReversed", () => {
-    const r = rangeReversed(rangeInclusive(1, 5));
-    const arr = rangeToArray(r);
+  it("reversed", () => {
+    const r = R.reversed(to(1, 5));
+    const arr = R.toArray(r);
     expect(arr).toEqual([5, 4, 3, 2, 1]);
   });
 
-  it("rangeContains", () => {
-    expect(rangeContains(range(1, 10), 5)).toBe(true);
-    expect(rangeContains(range(1, 10), 10)).toBe(false);
-    expect(rangeContains(rangeInclusive(1, 10), 10)).toBe(true);
+  it("contains", () => {
+    expect(R.contains(until(1, 10), 5)).toBe(true);
+    expect(R.contains(until(1, 10), 10)).toBe(false);
+    expect(R.contains(to(1, 10), 10)).toBe(true);
   });
 
-  it("rangeMap / rangeFilter / rangeReduce", () => {
-    expect(rangeMap(range(1, 4), (n) => n * n)).toEqual([1, 4, 9]);
-    expect(rangeFilter(range(1, 10), (n) => n % 2 === 0)).toEqual([2, 4, 6, 8]);
-    expect(rangeReduce(rangeInclusive(1, 5), 0, (acc, n) => acc + n)).toBe(15);
+  it("map / filter / reduce", () => {
+    expect(R.map(until(1, 4), (n) => n * n)).toEqual([1, 4, 9]);
+    expect(R.filter(until(1, 10), (n) => n % 2 === 0)).toEqual([2, 4, 6, 8]);
+    expect(R.reduce(to(1, 5), 0, (acc, n) => acc + n)).toBe(15);
   });
 });
 
@@ -813,26 +796,5 @@ describe("Typeclasses", () => {
     expect(numericNumber.abs(-7)).toBe(7);
     expect(numericNumber.signum(-3)).toBe(-1);
     expect(numericNumber.fromNumber(42)).toBe(42);
-  });
-
-  it("Parseable<number>", () => {
-    const ok = parseableNumber.parse("42");
-    expect(ok.ok).toBe(true);
-    if (ok.ok) expect(ok.value).toBe(42);
-
-    const fail = parseableNumber.parse("not a number");
-    expect(fail.ok).toBe(false);
-  });
-
-  it("Defaultable", () => {
-    expect(defaultNumber.defaultValue()).toBe(0);
-    expect(defaultString.defaultValue()).toBe("");
-  });
-
-  it("Sized", () => {
-    const sa = sizedArray<number>();
-    expect(sa.size([1, 2, 3])).toBe(3);
-    expect(sa.isEmpty([])).toBe(true);
-    expect(sizedString.size("hello")).toBe(5);
   });
 });

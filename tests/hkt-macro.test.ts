@@ -346,7 +346,7 @@ const eitherStringFunctor = {
     expect(result.code).toContain("eitherStringFunctor");
   });
 
-  it("parseTypeclassInstantiation handles nested brackets correctly (non-exported, zero-cost)", () => {
+  it("@impl parses nested brackets in its type argument correctly (non-exported, zero-cost)", () => {
     const code = `
 /** @typeclass */
 interface Monad<F> {

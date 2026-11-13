@@ -114,23 +114,6 @@ import { MacroExpansionCache } from "@typesugar/core";
 const cache = new MacroExpansionCache(cacheDir);
 ```
 
-## Capabilities
-
-Declarative permissions. Source: `packages/core/src/capabilities.ts`.
-
-```typescript
-import { createRestrictedContext, MacroCapabilities } from "@typesugar/core";
-
-const caps: MacroCapabilities = {
-  needsTypeChecker: true,
-  needsFileSystem: false,
-  needsProjectIndex: false,
-  canEmitDiagnostics: true,
-  maxTimeout: 5000,
-};
-const restricted = createRestrictedContext(ctx, caps, "myMacro");
-```
-
 ## Configuration
 
 Source: `packages/core/src/config.ts`.

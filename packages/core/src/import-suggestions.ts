@@ -92,13 +92,6 @@ const defaultExports: ExportedSymbol[] = [
     description: "Ordering comparison",
   },
   {
-    name: "Printable",
-    module: "@typesugar/std",
-    kind: "typeclass",
-    isReexport: false,
-    description: "String representation",
-  },
-  {
     name: "Clone",
     module: "@typesugar/std",
     kind: "typeclass",
@@ -118,13 +111,6 @@ const defaultExports: ExportedSymbol[] = [
     kind: "typeclass",
     isReexport: false,
     description: "Hash code generation",
-  },
-  {
-    name: "Defaultable",
-    module: "@typesugar/std",
-    kind: "typeclass",
-    isReexport: false,
-    description: "Default value construction",
   },
   {
     name: "Semigroup",

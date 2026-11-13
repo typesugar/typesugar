@@ -64,7 +64,6 @@ import {
   resolveModuleSpecifier,
   findImportModuleForName,
   moduleMatchesMacro,
-  fallbackNameLookup,
   fallbackNameLookupWithImports,
   lookupMacroByName,
   isLocalImplementationName,

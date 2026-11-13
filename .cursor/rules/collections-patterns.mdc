@@ -111,6 +111,6 @@ Every package must re-export from `index.ts`:
 When bridging to `@typesugar/fp` or `@typesugar/std`, cover ALL relevant typeclasses:
 
 - `@typesugar/fp`: Foldable, Functor, Monad, SemigroupK, MonoidK, Monoid, Eq, Ord
-- `@typesugar/std`: Sized, Searchable, Reducible
+- `@typesugar/std`: Eq, Ord, Hash, Semigroup, Monoid
 
-Don't leave gaps — if `Reducible` exists in std, provide `reducibleFromIterableOnce`.
+Don't leave gaps — if a typeclass exists in fp or std, provide its bridge.

@@ -24,7 +24,6 @@ import {
   resolveModuleSpecifier,
   findImportModuleForName,
   moduleMatchesMacro,
-  fallbackNameLookup,
   fallbackNameLookupWithImports,
   resolveSymbolToMacro,
   resolveMacroFromSymbol,
@@ -251,56 +250,8 @@ describe("findImportModuleForName", () => {
 });
 
 // ---------------------------------------------------------------------------
-// fallbackNameLookup / fallbackNameLookupWithImports
+// fallbackNameLookupWithImports
 // ---------------------------------------------------------------------------
-
-describe("fallbackNameLookup", () => {
-  beforeEach(() => {
-    globalRegistry.clear();
-  });
-
-  it("finds a module-less macro by name", () => {
-    const macro = defineExpressionMacro({
-      name: "ir_test_modulefree",
-      expand: (_ctx, _call, _args) => ts.factory.createNumericLiteral(0),
-    });
-    globalRegistry.register(macro);
-    expect(fallbackNameLookup("ir_test_modulefree", "expression")).toBe(macro);
-  });
-
-  it("returns undefined for a macro that requires a module", () => {
-    globalRegistry.register(
-      defineExpressionMacro({
-        name: "ir_test_scoped",
-        module: "@typesugar/core",
-        expand: () => ts.factory.createNumericLiteral(0),
-      })
-    );
-    expect(fallbackNameLookup("ir_test_scoped", "expression")).toBeUndefined();
-  });
-
-  it("returns undefined for unknown names", () => {
-    expect(fallbackNameLookup("does_not_exist", "expression")).toBeUndefined();
-  });
-
-  it("dispatches per kind", () => {
-    const expr = defineExpressionMacro({
-      name: "ir_kind_expr",
-      expand: () => ts.factory.createNumericLiteral(0),
-    });
-    const attr = defineAttributeMacro({
-      name: "ir_kind_attr",
-      validTargets: ["class"],
-      expand: () => undefined,
-    });
-    globalRegistry.register(expr);
-    globalRegistry.register(attr);
-    expect(fallbackNameLookup("ir_kind_expr", "expression")).toBe(expr);
-    // Wrong kind should miss
-    expect(fallbackNameLookup("ir_kind_expr", "attribute")).toBeUndefined();
-    expect(fallbackNameLookup("ir_kind_attr", "attribute")).toBe(attr);
-  });
-});
 
 describe("fallbackNameLookupWithImports", () => {
   beforeEach(() => {

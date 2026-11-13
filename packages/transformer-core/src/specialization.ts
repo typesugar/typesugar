@@ -83,24 +83,14 @@ function isVoidReturnType(
 }
 
 // ---------------------------------------------------------------------------
-// Instance name extraction + source-based instance extraction
+// Source-based instance extraction
 //
-// PEP-053 Wave 2: the implementation is shared with the legacy transformer and
-// lives in @typesugar/macros (instance-extraction.ts). It resolves import
-// aliases, identifier-alias consts, zero-arg factories, indirect members, and
-// companion paths, and accepts `@impl`-tagged OR typeclass-annotated
-// declarations (the unified criteria).
+// PEP-053 Wave 2: instance-name extraction is shared with the legacy
+// transformer and lives in @typesugar/macros (instance-extraction.ts). It
+// resolves import aliases, identifier-alias consts, zero-arg factories,
+// indirect members, and companion paths, and accepts `@impl`-tagged OR
+// typeclass-annotated declarations (the unified criteria).
 // ---------------------------------------------------------------------------
-
-export {
-  getInstanceName,
-  hasImplAnnotation,
-  hasTypeclassTypeAnnotation,
-  extractBrandFromImpl,
-} from "@typesugar/macros";
-
-// Re-export for backwards compatibility
-export { extractTypeArgumentsContent } from "@typesugar/core";
 
 export function tryExtractInstanceFromSource(
   ctx: MacroContextImpl,
@@ -830,7 +820,7 @@ function isTypesugarPrimitive(ctx: MacroContextImpl, symbol: ts.Symbol, at: ts.N
  * The instance registered for exactly the declaration `symbol` resolves to
  * (through an import alias). Registry shape (CLAUDE.md): macros'
  * `getInstanceMethodsForDeclaration` is a LIVE WeakMap keyed by declaration,
- * written by `@impl`/`impl()` in the same pass — never conflates same-named
+ * written by `@impl` in the same pass — never conflates same-named
  * instances, unlike the name-keyed `getInstanceMethods`.
  */
 function methodsForResolvedDeclaration(

@@ -1695,28 +1695,6 @@ export function richToLegacyDiagnostic(rich: RichDiagnostic): MacroDiagnostic {
   };
 }
 
-/**
- * Create a RichDiagnostic from a legacy string-based error.
- * Used when migrating from ctx.reportError() to structured diagnostics.
- */
-export function legacyToRichDiagnostic(
-  message: string,
-  severity: "error" | "warning" | "info",
-  node?: ts.Node,
-  sourceFile?: ts.SourceFile
-): RichDiagnostic {
-  return {
-    code: 9999,
-    severity,
-    category: DiagnosticCategory.Internal,
-    message,
-    primarySpan: node && sourceFile ? { node, sourceFile } : undefined,
-    labels: [],
-    notes: [],
-    suggestions: [],
-  };
-}
-
 // ============================================================================
 // CLI Renderer: Rust-Style Error Output
 // ============================================================================
@@ -1828,8 +1806,6 @@ export interface CLIRenderOptions {
   contextLines?: number;
   /** Whether to show the explanation (default: false) */
   showExplanation?: boolean;
-  /** Custom writer function (default: console.error) */
-  writer?: (line: string) => void;
 }
 
 /**
@@ -1975,61 +1951,4 @@ export function renderDiagnosticCLI(
   }
 
   return lines.join("\n");
-}
-
-/**
- * Print a RichDiagnostic to the console (stderr).
- */
-export function printDiagnostic(diagnostic: RichDiagnostic, options: CLIRenderOptions = {}): void {
-  const writer = options.writer ?? ((line: string) => console.error(line));
-  writer(renderDiagnosticCLI(diagnostic, options));
-}
-
-/**
- * Render multiple diagnostics with a summary.
- */
-export function renderDiagnosticsCLI(
-  diagnostics: RichDiagnostic[],
-  options: CLIRenderOptions = {}
-): string {
-  if (diagnostics.length === 0) {
-    return "";
-  }
-
-  const lines: string[] = [];
-  const color = makeColor(options.colors);
-
-  for (const diag of diagnostics) {
-    lines.push(renderDiagnosticCLI(diag, options));
-    lines.push(""); // Blank line between diagnostics
-  }
-
-  // Summary
-  const errorCount = diagnostics.filter((d) => d.severity === "error").length;
-  const warnCount = diagnostics.filter((d) => d.severity === "warning").length;
-
-  const parts: string[] = [];
-  if (errorCount > 0) {
-    parts.push(color(`${errorCount} error${errorCount > 1 ? "s" : ""}`, "bold", "red"));
-  }
-  if (warnCount > 0) {
-    parts.push(color(`${warnCount} warning${warnCount > 1 ? "s" : ""}`, "bold", "yellow"));
-  }
-
-  if (parts.length > 0) {
-    lines.push(`${parts.join(", ")} generated`);
-  }
-
-  return lines.join("\n");
-}
-
-/**
- * Print multiple diagnostics with a summary.
- */
-export function printDiagnostics(
-  diagnostics: RichDiagnostic[],
-  options: CLIRenderOptions = {}
-): void {
-  const writer = options.writer ?? ((line: string) => console.error(line));
-  writer(renderDiagnosticsCLI(diagnostics, options));
 }

@@ -1,6 +1,6 @@
 "use extension";
 
-import { type Range, range as rangeExclusive, rangeInclusive } from "../data/range.js";
+import type { Range } from "../data/range.js";
 
 /**
  * Number Extension Methods
@@ -497,7 +497,7 @@ export function toCompact(n: number): string {
  * (1).to(5).contains(3)        // true
  */
 export function to(n: number, end: number): Range {
-  return rangeInclusive(n, end);
+  return { start: n, end, step: 1, inclusive: true };
 }
 
 /**
@@ -510,7 +510,7 @@ export function to(n: number, end: number): Range {
  * (0).until(arr.length)           // common pattern for array indices
  */
 export function until(n: number, end: number): Range {
-  return rangeExclusive(n, end);
+  return { start: n, end, step: 1, inclusive: false };
 }
 
 export function times<T>(n: number, fn: (i: number) => T): T[] {

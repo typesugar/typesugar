@@ -554,18 +554,6 @@ export function getTypeclassDef(program: ts.Program, tcName: string): TypeclassI
   return buildIndex(program).get(tcName)?.def;
 }
 
-/**
- * All typeclass definitions in scope for the program (source `@typeclass`
- * declarations + the built-in seed). Registry-free replacement for `getTypeclasses()`.
- */
-export function getAllTypeclassDefs(program: ts.Program): Map<string, TypeclassInfo> {
-  const out = new Map<string, TypeclassInfo>();
-  for (const info of buildIndex(program).values()) {
-    if (info.def) out.set(info.name, info.def);
-  }
-  return out;
-}
-
 /** Whether a typeclass with the given name is declared/seeded for the program. */
 export function isTypeclassDeclared(program: ts.Program, tcName: string): boolean {
   return buildIndex(program).has(tcName);

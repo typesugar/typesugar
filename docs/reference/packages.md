@@ -277,7 +277,7 @@ npm install @typesugar/typeclass
 
 ```typescript
 typeclass(); // decorator
-instance(); // decorator
+instance(); // decorator (deprecated alias of @impl)
 derive(); // decorator (generates typeclass instances)
 summon<T>();
 derived<T>(); // export const cloneFeature = derived<Clone<Feature>>(): an instance for a type you don't own

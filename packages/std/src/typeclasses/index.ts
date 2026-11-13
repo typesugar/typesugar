@@ -15,7 +15,6 @@
  * - Operator overloading via @op JSDoc tags
  */
 
-import { typeclass } from "@typesugar/macros/runtime";
 import { registerInstanceWithMeta } from "@typesugar/macros";
 
 // ============================================================================
@@ -52,7 +51,6 @@ export interface Eq<A> {
    */
   notEquals(a: A, b: A): boolean;
 }
-typeclass("Eq");
 
 /**
  * Eq for numbers. Deliberately JS `===` semantics, because this instance backs
@@ -194,7 +192,6 @@ export function eqArray<A>(E: Eq<A>): Eq<A[]> {
 export interface Hash<A> {
   hash(a: A): number;
 }
-typeclass("Hash");
 
 /**
  * Hash for numbers. Consistent with both `eqNumber` and `ordNumber`: `0` and
@@ -345,7 +342,6 @@ export interface Ord<A> extends Eq<A> {
   /** @op >= */
   greaterThanOrEqual(a: A, b: A): boolean;
 }
-typeclass("Ord");
 
 /**
  * Total order on numbers: `-0` and `0` compare equal, and NaN sorts after every
@@ -551,7 +547,6 @@ export interface Semigroup<A> {
   /** @op + */
   combine(a: A, b: A): A;
 }
-typeclass("Semigroup");
 
 export const semigroupString: Semigroup<string> = {
   combine: (a, b) => a + b,
@@ -624,7 +619,6 @@ export interface Monoid<A> extends Semigroup<A> {
   combine(a: A, b: A): A;
   empty(): A;
 }
-typeclass("Monoid");
 
 export const monoidString: Monoid<string> = {
   combine: (a, b) => a + b,
@@ -885,7 +879,6 @@ export interface Numeric<A> {
   zero(): A;
   one(): A;
 }
-typeclass("Numeric");
 
 export const numericNumber: Numeric<number> = {
   add: (a, b) => a + b,
@@ -961,7 +954,6 @@ export interface Integral<A> {
   rem(a: A, b: A): A;
   toInteger(a: A): bigint;
 }
-typeclass("Integral");
 
 export const integralNumber: Integral<number> = {
   div: (a, b) => Math.floor(a / b),
@@ -1029,7 +1021,6 @@ export interface Fractional<A> {
   recip(a: A): A;
   fromRational(num: number, den: number): A;
 }
-typeclass("Fractional");
 
 export const fractionalNumber: Fractional<number> = {
   div: (a, b) => a / b,
@@ -1097,306 +1088,6 @@ registerInstanceWithMeta(
 );
 
 // ============================================================================
-// Parseable — Haskell Read, Rust FromStr, Scala: not built-in
-// Types that can be parsed from a string.
-// ============================================================================
-
-export type ParseResult<A> = { ok: true; value: A; rest: string } | { ok: false; error: string };
-
-export interface Parseable<A> {
-  parse(s: string): ParseResult<A>;
-}
-
-export const parseableNumber: Parseable<number> = {
-  parse: (s) => {
-    const trimmed = s.trim();
-    const n = Number(trimmed);
-    if (isNaN(n) && trimmed !== "NaN") {
-      return { ok: false, error: `Cannot parse '${trimmed}' as number` };
-    }
-    return { ok: true, value: n, rest: "" };
-  },
-};
-
-export const parseableBoolean: Parseable<boolean> = {
-  parse: (s) => {
-    const trimmed = s.trim().toLowerCase();
-    if (trimmed === "true" || trimmed === "1" || trimmed === "yes") {
-      return { ok: true, value: true, rest: "" };
-    }
-    if (trimmed === "false" || trimmed === "0" || trimmed === "no") {
-      return { ok: true, value: false, rest: "" };
-    }
-    return { ok: false, error: `Cannot parse '${trimmed}' as boolean` };
-  },
-};
-
-export const parseableBigInt: Parseable<bigint> = {
-  parse: (s) => {
-    const trimmed = s.trim();
-    try {
-      return { ok: true, value: BigInt(trimmed), rest: "" };
-    } catch {
-      return { ok: false, error: `Cannot parse '${trimmed}' as bigint` };
-    }
-  },
-};
-
-// ============================================================================
-// Printable — Rust Display, Haskell Show (but human-readable focus)
-// Human-readable string representation (vs Debug which is for developers).
-// ============================================================================
-
-export interface Printable<A> {
-  display(a: A): string;
-}
-
-export const printableNumber: Printable<number> = {
-  display: (a) => {
-    if (Number.isInteger(a)) return String(a);
-    return a.toLocaleString();
-  },
-};
-
-export const printableString: Printable<string> = {
-  display: (a) => a,
-};
-
-export const printableBoolean: Printable<boolean> = {
-  display: (a) => (a ? "true" : "false"),
-};
-
-export const printableDate: Printable<Date> = {
-  display: (a) => a.toISOString(),
-};
-
-// ============================================================================
-// Coercible — Scala Conversion, Rust From/Into
-// Safe type conversions.
-// ============================================================================
-
-export interface Coercible<A, B> {
-  coerce(a: A): B;
-}
-
-export const numberToString: Coercible<number, string> = {
-  coerce: (a) => String(a),
-};
-
-export const stringToNumber: Coercible<string, number> = {
-  coerce: (a) => Number(a),
-};
-
-export const numberToBigInt: Coercible<number, bigint> = {
-  coerce: (a) => BigInt(Math.trunc(a)),
-};
-
-export const bigIntToNumber: Coercible<bigint, number> = {
-  coerce: (a) => Number(a),
-};
-
-export const numberToBoolean: Coercible<number, boolean> = {
-  coerce: (a) => a !== 0,
-};
-
-export const booleanToNumber: Coercible<boolean, number> = {
-  coerce: (a) => (a ? 1 : 0),
-};
-
-export const stringToBoolean: Coercible<string, boolean> = {
-  coerce: (a) => a !== "" && a !== "0" && a.toLowerCase() !== "false",
-};
-
-export const dateToNumber: Coercible<Date, number> = {
-  coerce: (a) => a.getTime(),
-};
-
-export const numberToDate: Coercible<number, Date> = {
-  coerce: (a) => new Date(a),
-};
-
-// ============================================================================
-// Defaultable — Rust Default, Haskell: not built-in, Scala: not built-in
-// Types with a sensible default value.
-// ============================================================================
-
-export interface Defaultable<A> {
-  defaultValue(): A;
-}
-
-export const defaultNumber: Defaultable<number> = {
-  defaultValue: () => 0,
-};
-
-export const defaultString: Defaultable<string> = {
-  defaultValue: () => "",
-};
-
-export const defaultBoolean: Defaultable<boolean> = {
-  defaultValue: () => false,
-};
-
-export const defaultBigInt: Defaultable<bigint> = {
-  defaultValue: () => 0n,
-};
-
-export function defaultArray<A>(): Defaultable<A[]> {
-  return { defaultValue: () => [] };
-}
-
-export function defaultMap<K, V>(): Defaultable<Map<K, V>> {
-  return { defaultValue: () => new Map() };
-}
-
-export function defaultSet<A>(): Defaultable<Set<A>> {
-  return { defaultValue: () => new Set() };
-}
-
-export const defaultDate: Defaultable<Date> = {
-  defaultValue: () => new Date(0),
-};
-
-// ============================================================================
-// Copyable — Rust Clone/Copy, Scala: not built-in
-// Types that can be deeply copied.
-// ============================================================================
-
-export interface Copyable<A> {
-  copy(a: A): A;
-}
-
-export const copyableNumber: Copyable<number> = {
-  copy: (a) => a,
-};
-
-export const copyableString: Copyable<string> = {
-  copy: (a) => a,
-};
-
-export const copyableBoolean: Copyable<boolean> = {
-  copy: (a) => a,
-};
-
-export const copyableBigInt: Copyable<bigint> = {
-  copy: (a) => a,
-};
-
-export const copyableDate: Copyable<Date> = {
-  copy: (a) => new Date(a.getTime()),
-};
-
-export function copyableArray<A>(inner: Copyable<A>): Copyable<A[]> {
-  return { copy: (a) => a.map((x) => inner.copy(x)) };
-}
-
-export function copyableMap<K, V>(innerK: Copyable<K>, innerV: Copyable<V>): Copyable<Map<K, V>> {
-  return {
-    copy: (a) => {
-      const m = new Map<K, V>();
-      for (const [k, v] of a) m.set(innerK.copy(k), innerV.copy(v));
-      return m;
-    },
-  };
-}
-
-export function copyableSet<A>(inner: Copyable<A>): Copyable<Set<A>> {
-  return {
-    copy: (a) => {
-      const s = new Set<A>();
-      for (const x of a) s.add(inner.copy(x));
-      return s;
-    },
-  };
-}
-
-// ============================================================================
-// Sized — Rust: implicit, Haskell: not built-in
-// Types with a known size/length.
-// ============================================================================
-
-export interface Sized<A> {
-  size(a: A): number;
-  isEmpty(a: A): boolean;
-}
-
-export const sizedString: Sized<string> = {
-  size: (a) => a.length,
-  isEmpty: (a) => a.length === 0,
-};
-
-export function sizedArray<A>(): Sized<A[]> {
-  return {
-    size: (a) => a.length,
-    isEmpty: (a) => a.length === 0,
-  };
-}
-
-export function sizedMap<K, V>(): Sized<Map<K, V>> {
-  return {
-    size: (a) => a.size,
-    isEmpty: (a) => a.size === 0,
-  };
-}
-
-export function sizedSet<A>(): Sized<Set<A>> {
-  return {
-    size: (a) => a.size,
-    isEmpty: (a) => a.size === 0,
-  };
-}
-
-// ============================================================================
-// Identifiable — Swift Identifiable
-// Types with a unique identity.
-// ============================================================================
-
-export interface Identifiable<A, Id = string> {
-  id(a: A): Id;
-}
-
-// ============================================================================
-// Reducible — Haskell Foldable1, Scala ReducibleOps
-// Non-empty foldable — guaranteed to have at least one element.
-// ============================================================================
-
-export interface Reducible<F> {
-  reduceLeft<A>(fa: F, f: (acc: A, a: A) => A): A;
-  reduceRight<A>(fa: F, f: (a: A, acc: A) => A): A;
-}
-
-// ============================================================================
-// Zippable — Haskell: ZipList, Scala: LazyZip
-// Types that support element-wise pairing.
-// ============================================================================
-
-export interface Zippable<F> {
-  zip<A, B>(fa: F, fb: F): F;
-  zipWith<A, B, C>(fa: F, fb: F, f: (a: A, b: B) => C): F;
-}
-
-// ============================================================================
-// Splittable — Haskell: not built-in, Kotlin: partition/chunked
-// Types that can be split/partitioned.
-// ============================================================================
-
-export interface Splittable<F> {
-  splitAt<A>(fa: F, n: number): [F, F];
-  partition<A>(fa: F, pred: (a: A) => boolean): [F, F];
-  chunked<A>(fa: F, size: number): F[];
-}
-
-// ============================================================================
-// Searchable — common across all languages
-// Types that support searching/finding elements.
-// ============================================================================
-
-export interface Searchable<F> {
-  find<A>(fa: F, pred: (a: A) => boolean): A | undefined;
-  contains<A>(fa: F, elem: A): boolean;
-  indexOf<A>(fa: F, elem: A): number;
-}
-
-// ============================================================================
 // Group — Haskell Group, Scala cats-kernel Group
 // Monoid with an inverse operation. Completes the algebraic chain:
 // Semigroup → Monoid → Group
@@ -1432,7 +1123,6 @@ export interface Group<A> {
   /** Inverse operation: combine(invert(a), a) === empty() */
   invert(a: A): A;
 }
-typeclass("Group");
 
 /** Additive group for numbers (identity: 0, operation: +, inverse: negation) */
 export const groupNumber: Group<number> = {
@@ -1483,7 +1173,6 @@ registerInstanceWithMeta(
 export interface Clone<A> {
   clone(a: A): A;
 }
-typeclass("Clone");
 
 export const cloneNumber: Clone<number> = {
   clone: (a) => a,
@@ -1581,7 +1270,6 @@ export function cloneArray<A>(C: Clone<A>): Clone<A[]> {
 export interface Debug<A> {
   debug(a: A): string;
 }
-typeclass("Debug");
 
 export const debugNumber: Debug<number> = {
   debug: (a) => String(a),
@@ -1679,7 +1367,6 @@ export interface Json<A> {
   toJson(a: A): unknown;
   fromJson(json: unknown): A;
 }
-typeclass("Json");
 
 export const jsonNumber: Json<number> = {
   toJson: (a) => a,
