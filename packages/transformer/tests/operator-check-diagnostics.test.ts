@@ -227,3 +227,67 @@ console.log(rationalToString(s3), s4);
     expect(errors, r.output).toHaveLength(2);
   });
 });
+
+describe.skipIf(!hasBuild)(
+  "typesugar check: operators on a type parameter with its dictionary in scope",
+  () => {
+    // `(a + b) * k` on `a, b, k: A` with `c: Calc<A>` in scope is rewritten to
+    // `c.multiply(c.add(a, b), k)`, an `A`: TypeScript's TS2365 / TS2363 on the
+    // operators, and the TS2322 of returning their `number` as an `A`, go
+    // with them. Without a dictionary in scope they are still errors.
+    const CALC = `/** @typeclass */
+export interface Calc<A> {
+  /** @op + */ add(a: A, b: A): A;
+  /** @op * */ multiply(a: A, b: A): A;
+  /** @op < */ lessThan(a: A, b: A): boolean;
+}
+`;
+    let good: string;
+    let bad: string;
+
+    beforeAll(() => {
+      good = makeProject({
+        "src/generic.ts": `${CALC}
+export function addThenScale<A>(c: Calc<A>, a: A, b: A, k: A): A {
+  return (a + b) * k;
+}
+export function adder<A>(calculator: Calc<A>) {
+  return (a: A, b: A): A => a + b;
+}
+export function below<A>(c: Calc<A>, a: A, b: A): boolean {
+  const sum: A = a + b;
+  return sum < b;
+}
+`,
+      });
+      bad = makeProject({
+        "src/generic.ts": `${CALC}
+export function noDict<A>(a: A, b: A) {
+  return a + b;
+}
+export function wrongResult<A>(c: Calc<A>, a: A, b: A): string {
+  return a + b;
+}
+`,
+      });
+    });
+
+    afterAll(() => {
+      for (const d of [good, bad]) if (d) fs.rmSync(d, { recursive: true, force: true });
+    });
+
+    it("checks clean where the operators are rewritten", () => {
+      const r = check(good);
+      expect(r.output).not.toMatch(/ error TS/);
+      expect(r.status, r.output).toBe(0);
+    });
+
+    it("still reports an operator with no dictionary, and a result that doesn't fit", () => {
+      const r = check(bad);
+      expect(r.output).toMatch(/generic\.ts\(9,10\): error TS2365/);
+      expect(r.output).toMatch(
+        /generic\.ts\(12,10\): error TS2322: Type .A. is not assignable to type .string./
+      );
+    });
+  }
+);

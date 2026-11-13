@@ -14,6 +14,8 @@ import {
   transformHKTDeclaration,
   getOperatorCandidates,
   resolveInstance,
+  resolveOperatorInstance,
+  resolveDictionaryInScope,
   companionAssignedBefore,
   scanWarnings,
   deriveNamesOf,
@@ -804,10 +806,10 @@ export function tryRewriteTypeclassOperator(
   for (const candidate of candidates) {
     // `node` as the use site: a companion of a type declared below the
     // operator in this file is found from its `@derive` annotation.
-    let result = resolveInstance(ctx, candidate.typeclass, leftType, undefined, undefined, node);
+    let result = resolveOperatorInstance(ctx, candidate.typeclass, leftType, node);
     if (!result) {
       for (const t of typesToTry()) {
-        result = resolveInstance(ctx, candidate.typeclass, t, undefined, undefined, node);
+        result = resolveOperatorInstance(ctx, candidate.typeclass, t, node);
         if (result) break;
       }
     }
@@ -1236,7 +1238,12 @@ export function tryRewriteTypeclassUnaryOperator(
 
   let matched: { typeclass: string; method: string; resolved: ResolvedInstance } | undefined;
   for (const candidate of candidates) {
-    const result = resolveInstance(ctx, candidate.typeclass, operandType);
+    // A type parameter's dictionary in scope (generic code); else the
+    // instance for the operand's type, as before (no use site).
+    const result =
+      (operandType.flags & ts.TypeFlags.TypeParameter
+        ? resolveDictionaryInScope(ctx, candidate.typeclass, operandType, node)
+        : undefined) ?? resolveInstance(ctx, candidate.typeclass, operandType);
     if (!result) continue;
     if (result.kind === "ambiguous") {
       ctx.reportError(

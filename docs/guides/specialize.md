@@ -53,6 +53,11 @@ The transformer:
 Multiple dictionaries work the same way — `sortAndShow(items, ordNumber,
 showNumber)` specializes on both at once.
 
+An operator in the body that dispatches to the dictionary (`a + b` on `a: A`
+with `num: Numeric<A>` in scope, see
+[Operators in generic code](./operators.md#generic-code)) is specialized the
+same way as the `num.add(a, b)` it stands for.
+
 ### Which instances are recognized
 
 - Instances declared with `/** @impl TC<T> */`, or with an

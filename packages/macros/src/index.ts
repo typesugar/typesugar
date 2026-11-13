@@ -70,6 +70,7 @@ export {
   rewrittenChainType,
   rewrittenOperandType,
   operatorRewriteResult,
+  dictionaryOperatorDispatch,
   declaredDispatchTypes,
   declaredOperandType,
   isPrimitiveTypedBinary,
@@ -278,6 +279,8 @@ export {
 } from "./instance-scanner.js";
 export {
   resolveInstance,
+  resolveOperatorInstance,
+  resolveDictionaryInScope,
   companionAssignedBefore,
   buildInstanceReference,
   buildImportedReference,
@@ -419,6 +422,7 @@ export {
   createJSDocDeriveImportRule,
   generatedValueNames,
   isDerivedValueSymbol,
+  activatedOperatorTypeclasses,
 } from "./diagnostic-suppression-rules.js";
 
 // --- Unified Diagnostic Suppression Registration (PEP-034) ---
