@@ -157,15 +157,6 @@ describe("Typeclass Macro Placeholder Edge Cases", () => {
       expect(typeof decorator).toBe("function");
     });
 
-    it("instance expression form returns object unchanged at runtime", async () => {
-      const { instance } = await import("../packages/typeclass/src/index.js");
-
-      // Expression form (2 args) returns the second argument unchanged
-      const obj = { show: (n: number) => String(n) };
-      const result = instance("Show<number>", obj);
-      expect(result).toBe(obj);
-    });
-
     it("deriving decorator returns empty function at runtime", async () => {
       const { deriving } = await import("../packages/typeclass/src/index.js");
 

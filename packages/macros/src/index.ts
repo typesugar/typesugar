@@ -94,10 +94,7 @@ export {
 } from "./reflect.js";
 export {
   typeclassAttribute,
-  typeclassMacro,
-  // Primary names (preferred)
   implAttribute,
-  implMacro,
   summonMacro,
   derivedMacro,
   extendMacro,
@@ -109,7 +106,6 @@ export {
   registerTypeclassMacros,
   instanceVarName,
   companionPath,
-  generateStandardTypeclasses,
   tryExtractSumType,
   getTypeclassesForMethod,
   extractOpFromJSDoc,
@@ -265,8 +261,6 @@ export {
   // Grouped exports (Eq, Ord, Hash, Show are now on the derive markers in derive.ts)
   Semigroup,
   Monoid,
-  Semigroup as SemigroupPrimitives,
-  Monoid as MonoidPrimitives,
 } from "./primitives.js";
 
 // --- Instance Scanner & Resolver (PEP-038 Wave 2A/2B) ---
@@ -288,6 +282,8 @@ export {
   clearResolverCache,
   findInstanceInScopeByName,
   resolveDoNotationInstance,
+  isAmbiguousDoNotationInstance,
+  type AmbiguousDoNotationInstance,
   brandMatchesForType,
   scanWarnings,
   type ResolvedDoNotationInstance,

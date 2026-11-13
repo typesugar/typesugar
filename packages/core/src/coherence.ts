@@ -313,27 +313,3 @@ export class CoherenceChecker {
  * Global coherence checker instance.
  */
 export const globalCoherenceChecker = new CoherenceChecker();
-
-/**
- * Helper to create an InstanceLocation from a ts.Node.
- */
-export function createInstanceLocation(
-  typeclass: string,
-  forType: string,
-  source: InstanceSource,
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
-  modulePath?: string
-): InstanceLocation {
-  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-  return {
-    typeclass,
-    forType,
-    source,
-    fileName: sourceFile.fileName,
-    line: line + 1,
-    column: character,
-    node,
-    modulePath,
-  };
-}

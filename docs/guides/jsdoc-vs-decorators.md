@@ -23,8 +23,10 @@ interface Point {
 }
 ```
 
-Both forms are read by the transformer and produce identical output. The
-difference is **what plain `tsc` thinks of your source before TypeSugar runs**.
+Both forms are read by the transformer, through the same dispatcher, and produce
+identical output: the same `expandAfter` order, opt-outs, error reporting and
+expansion view. The difference is **what plain `tsc` thinks of your source before
+TypeSugar runs**.
 
 Both forms also need what they derive imported. In the decorator form `Eq` is
 an argument, so TypeScript needs it anyway. In the JSDoc form the import is what

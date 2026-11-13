@@ -13,6 +13,34 @@ import * as ts from "typescript";
 import { config, ResolutionMode } from "./config.js";
 import { getSyntaxMarkerFallback } from "./syntax-marker-fallback.js";
 import { isSyntheticNode } from "./ast-utils.js";
+import type { MacroDefinitionBase } from "./types.js";
+
+/**
+ * The features a `"use no typesugar <feature>"` directive or a
+ * `// @ts-no-typesugar <feature>` comment can turn off. Each one is checked by
+ * the dispatch that implements it; docs/guides/opt-out.md has the table.
+ *
+ * - `macros`: expression, attribute, tagged-template, type and labeled-block macros;
+ * - `derive`: `@derive(...)`, as a decorator or a JSDoc tag;
+ * - `extensions`: extension methods and typeclass method sugar (`a.equals(b)`);
+ * - `typeclasses`: the macros that declare `optOutFeature: "typeclasses"`
+ *   (`@typeclass`, `@impl`/`@instance`, `summon`, `summonAll`);
+ * - `operators`: typeclass operator rewriting (`a === b` → `eq.equals(a, b)`).
+ */
+export type OptOutFeature = "macros" | "derive" | "extensions" | "typeclasses" | "operators";
+
+/** Every {@link OptOutFeature}, in the order the guide lists them. */
+export const OPT_OUT_FEATURES: readonly OptOutFeature[] = [
+  "macros",
+  "derive",
+  "extensions",
+  "typeclasses",
+  "operators",
+];
+
+function isOptOutFeature(word: string): word is OptOutFeature {
+  return (OPT_OUT_FEATURES as readonly string[]).includes(word);
+}
 
 /**
  * Resolution scope for a single file.
@@ -27,7 +55,7 @@ export interface FileResolutionScope {
   /** Whether this file has a "use no typesugar" directive */
   optedOut: boolean;
   /** Specific features opted out of */
-  optedOutFeatures: Set<string>;
+  optedOutFeatures: Set<OptOutFeature>;
   /** Whether this file has a "use extension" directive */
   hasUseExtension: boolean;
   /**
@@ -176,7 +204,7 @@ export class ResolutionScopeTracker {
   /**
    * Add a specific feature to the opt-out list.
    */
-  addOptedOutFeature(fileName: string, feature: string): void {
+  addOptedOutFeature(fileName: string, feature: OptOutFeature): void {
     const scope = this.getScope(fileName);
     scope.optedOutFeatures.add(feature);
   }
@@ -184,7 +212,7 @@ export class ResolutionScopeTracker {
   /**
    * Check if a specific feature is opted out for a file.
    */
-  isFeatureOptedOut(fileName: string, feature: string): boolean {
+  isFeatureOptedOut(fileName: string, feature: OptOutFeature): boolean {
     const scope = this.getScope(fileName);
     return scope.optedOut || scope.optedOutFeatures.has(feature);
   }
@@ -376,27 +404,12 @@ export function scanImportsForScope(
   // visit) makes activation independent of declaration order — an operator used
   // above its typeclass's declaration in the same file still activates.
   for (const stmt of sourceFile.statements) {
-    // (a) `/** @typeclass */ interface Foo<A> { ... }`
+    // `/** @typeclass */ interface Foo<A> { ... }`
     if (
       ts.isInterfaceDeclaration(stmt) &&
       ts.getJSDocTags(stmt).some((tag) => tag.tagName.text === "typeclass")
     ) {
       tracker.registerDefinedTypeclass(fileName, stmt.name.text);
-      continue;
-    }
-    // (b) the call form `typeclass("Foo");` (used when the interface carries no
-    // JSDoc tag) — register it here too so same-file activation doesn't depend on
-    // the macro running during the top-down visit.
-    if (ts.isExpressionStatement(stmt) && ts.isCallExpression(stmt.expression)) {
-      const call = stmt.expression;
-      if (
-        ts.isIdentifier(call.expression) &&
-        call.expression.text === "typeclass" &&
-        call.arguments.length >= 1 &&
-        ts.isStringLiteralLike(call.arguments[0])
-      ) {
-        tracker.registerDefinedTypeclass(fileName, call.arguments[0].text);
-      }
     }
   }
 
@@ -417,7 +430,7 @@ export function scanImportsForScope(
         const featureMatch = text.match(/^use no typesugar (\w+)$/);
         if (featureMatch) {
           const feature = featureMatch[1];
-          if (["operators", "derive", "extensions", "typeclasses", "macros"].includes(feature)) {
+          if (isOptOutFeature(feature)) {
             tracker.addOptedOutFeature(fileName, feature);
           }
         }
@@ -438,7 +451,7 @@ export function scanImportsForScope(
 export function hasInlineOptOut(
   sourceFile: ts.SourceFile,
   node: ts.Node,
-  feature?: string
+  feature?: OptOutFeature
 ): boolean {
   // Synthetic nodes have no source position — no comment to check
   if (isSyntheticNode(node)) return false;
@@ -534,13 +547,30 @@ function commentTextsInRange(sourceFile: ts.SourceFile, start: number, end: numb
 }
 
 /**
+ * Is `macro` turned off at `node` by the opt-out feature it declares
+ * ({@link MacroDefinitionBase.optOutFeature})? The `macros` feature is the
+ * caller's own, earlier check; this adds the macro-specific one.
+ */
+export function isMacroOptedOut(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  macro: Pick<MacroDefinitionBase, "optOutFeature">,
+  tracker: ResolutionScopeTracker = globalResolutionScope
+): boolean {
+  return (
+    macro.optOutFeature !== undefined &&
+    isInOptedOutScope(sourceFile, node, tracker, macro.optOutFeature)
+  );
+}
+
+/**
  * Check if a node is inside a function with "use no typesugar" directive.
  */
 export function isInOptedOutScope(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   tracker: ResolutionScopeTracker = globalResolutionScope,
-  feature?: string
+  feature?: OptOutFeature
 ): boolean {
   const fileName = sourceFile.fileName;
   const scope = tracker.getScope(fileName);

@@ -632,6 +632,12 @@ export const flatMapList = {
  * Note: This uses `andThen` which short-circuits on first error,
  * unlike Validated's applicative operations that accumulate errors.
  * Use the Applicative instance for error accumulation.
+ *
+ * Deliberately NOT tagged `@impl FlatMap<ValidatedF>`, so do-notation's scope
+ * resolution never finds it: a scope-found FlatMap would make `let:` over
+ * Validated silently short-circuit, contradicting the accumulating
+ * Applicative (the reason Cats gives Validated no Monad). Pass it explicitly
+ * when sequencing is what you want, or convert to Either.
  */
 export function flatMapValidated<E>() {
   return {
@@ -644,8 +650,9 @@ export function flatMapValidated<E>() {
 
 /**
  * All FlatMap instances for @typesugar/fp types, keyed by type-constructor name.
- * The let:/yield: macro resolves these by scope (PEP-052) — importing
- * @typesugar/fp brings the @impl-tagged instances above into scope.
+ * The let:/yield: macro resolves the `@impl`-tagged ones above by scope
+ * (PEP-052) — importing @typesugar/fp brings them into scope. `Validated` is
+ * here for explicit use only; it has no `@impl` (see `flatMapValidated`).
  */
 export const fpFlatMapInstances = {
   Option: flatMapOption,

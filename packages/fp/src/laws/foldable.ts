@@ -44,7 +44,7 @@ export function foldableLaws<F, A, M>(
         // For a commutative monoid, foldLeft and foldRight should agree
         const left = Fld.foldLeft(fa, Monoid.empty, (acc, a) => Monoid.combine(acc, toM(a)));
         const right = Fld.foldRight(fa, Monoid.empty, (a, acc) => Monoid.combine(toM(a), acc));
-        return EqM.eqv(left, right);
+        return EqM.equals(left, right);
       },
     },
     {
@@ -59,7 +59,7 @@ export function foldableLaws<F, A, M>(
         );
         // foldMap implemented via foldLeft (should be same for commutative monoids)
         const viaFoldLeft = Fld.foldLeft(fa, Monoid.empty, (acc, a) => Monoid.combine(acc, toM(a)));
-        return EqM.eqv(viaFoldRight, viaFoldLeft);
+        return EqM.equals(viaFoldRight, viaFoldLeft);
       },
     },
   ] as unknown as LawSet;
@@ -85,7 +85,7 @@ export function foldableOrderLaws<F, A>(Fld: Foldable<F>, EqA: Eq<A>): LawSet {
         const rightList = Fld.foldRight<A, A[]>(fa, [], (a, acc) => [a, ...acc]);
 
         if (leftList.length !== rightList.length) return false;
-        return leftList.every((a, i) => EqA.eqv(a, rightList[i]));
+        return leftList.every((a, i) => EqA.equals(a, rightList[i]));
       },
     },
   ] as unknown as LawSet;

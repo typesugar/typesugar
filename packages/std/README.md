@@ -79,14 +79,6 @@ import { to, until, step, toArray, contains, first, forEach, map, filter } from 
 (1).to(10).filter((n) => n % 2 === 0); // [2, 4, 6, 8, 10]
 ```
 
-**Legacy function-based API (deprecated — use `.to()` / `.until()` above):**
-
-```typescript
-import { range, rangeToArray, rangeInclusive } from "@typesugar/std";
-rangeToArray(range(1, 10)); // [1, 2, ..., 9]
-rangeToArray(rangeInclusive(1, 10)); // [1, 2, ..., 10]
-```
-
 ## Standard Typeclasses
 
 `@typesugar/std` exports core typeclasses that power operator dispatch and auto-derivation:
@@ -390,16 +382,6 @@ const r4 = (1).to(5).reversed(); // Range { 5, 4, 3, 2, 1 }
 (1).to(5).reduce(0, (sum, n) => sum + n); // 15
 ```
 
-**Legacy function-based API (deprecated — use `.to()` / `.until()` above):**
-
-```typescript
-import { range, rangeToArray, rangeInclusive, rangeBy } from "@typesugar/std";
-
-rangeToArray(range(1, 5)); // [1, 2, 3, 4]
-rangeToArray(rangeInclusive(1, 5)); // [1, 2, 3, 4, 5]
-rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
-```
-
 ## API Reference
 
 ### Typeclasses
@@ -432,6 +414,7 @@ rangeToArray(rangeBy(range(0, 10), 2)); // [0, 2, 4, 6, 8]
   - Materialize: `toArray(r)`, `iterator(r)`
   - Query: `contains(r, v)`, `first(r)`, `last(r)`, `size(r)`, `isEmpty(r)`
   - Iterate: `forEach(r, fn)`, `map(r, fn)`, `filter(r, fn)`, `reduce(r, init, fn)`
+  - Instances: `eqRange`, `ordRange`
 
 ## License
 

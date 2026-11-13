@@ -253,6 +253,46 @@ Add to your library's `package.json`:
 }
 ```
 
+## Eq and Ord
+
+`@typesugar/fp` exports `@typesugar/std`'s `Eq`, `Ord` and `Ordering` types: `equals` and
+`notEquals`, `compare`, and `lessThan`/`lessThanOrEqual`/`greaterThan`/`greaterThanOrEqual`. An
+fp instance is a std instance, so it works with either package's combinators. The combinators live in the `EqOps`
+namespace of `@typesugar/fp/typeclasses`; `eqBy` and `ordBy` take the projection first, as in std.
+Every data type has `getEq`/`getOrd` (`getOptionEq`, `getEitherOrd`, …).
+
+The methods carry `@op` tags, so in a file that activates the operators, `===` and `<` on a
+type with an instance in scope call the instance:
+
+```typescript
+import "@typesugar/std/syntax/eq/ops"; // activates === / !== for Eq instances
+import "@typesugar/std/syntax/ord/ops"; // activates < <= > >= for Ord instances
+import { Some, None, getOptionEq, type Option } from "@typesugar/fp";
+import { EqOps, type Eq, type Ord } from "@typesugar/fp/typeclasses";
+
+interface User {
+  id: number;
+  name: string;
+}
+
+/** @impl Eq<User> */
+const eqUser: Eq<User> = EqOps.eqBy((u: User) => u.id); // strict equality on the id
+
+/** @impl Ord<User> */
+const ordUser: Ord<User> = EqOps.ordBy((u: User) => u.name, EqOps.ordString);
+
+const ann: User = { id: 1, name: "Ann" };
+const bob: User = { id: 2, name: "Bob" };
+
+ann === bob; // false: compiles to eqUser.equals(ann, bob)
+ann < bob; // true: compiles to ordUser.lessThan(ann, bob)
+
+const eqOptNum = getOptionEq(EqOps.eqNumber);
+const a: Option<number> = Some(1);
+eqOptNum.equals(a, Some(1)); // true
+eqOptNum.notEquals(a, None); // true
+```
+
 ## Higher-Kinded Types
 
 typesugar supports HKTs for generic FP code:

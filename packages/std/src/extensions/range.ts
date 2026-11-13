@@ -16,22 +16,7 @@
  * - Ruby (Range: each, step, to_a)
  */
 
-import {
-  type Range,
-  rangeBy,
-  rangeReversed,
-  rangeToArray,
-  rangeIterator,
-  rangeForEach,
-  rangeMap,
-  rangeFilter,
-  rangeReduce,
-  rangeContains,
-  rangeSize,
-  rangeFirst,
-  rangeLast,
-  rangeIsEmpty,
-} from "../data/range.js";
+import type { Range } from "../data/range.js";
 
 // ============================================================================
 // Range Transformations (return new Range)
@@ -45,7 +30,7 @@ import {
  * (10).to(1).step(-2).toArray() // [10, 8, 6, 4, 2]
  */
 export function step(r: Range, s: number): Range {
-  return rangeBy(r, s);
+  return { ...r, stride: s };
 }
 
 /**
@@ -57,7 +42,14 @@ export function step(r: Range, s: number): Range {
  * (1).to(10).step(2).reversed().toArray() // [9, 7, 5, 3, 1]
  */
 export function reversed(r: Range): Range {
-  return rangeReversed(r);
+  const n = size(r);
+  if (n === 0) return { start: r.start, end: r.start, stride: -r.stride, inclusive: false };
+  return {
+    start: r.start + (n - 1) * r.stride,
+    end: r.start,
+    stride: -r.stride,
+    inclusive: true,
+  };
 }
 
 // ============================================================================
@@ -72,7 +64,7 @@ export function reversed(r: Range): Range {
  * (1).to(10).step(3).toArray()  // [1, 4, 7, 10]
  */
 export function toArray(r: Range): number[] {
-  return rangeToArray(r);
+  return [...iterator(r)];
 }
 
 /**
@@ -81,8 +73,13 @@ export function toArray(r: Range): number[] {
  * @example
  * for (const n of (1).to(5).iterator()) console.log(n)
  */
-export function iterator(r: Range): IterableIterator<number> {
-  return rangeIterator(r);
+export function* iterator(r: Range): IterableIterator<number> {
+  const { start, end, stride, inclusive } = r;
+  if (stride > 0) {
+    for (let i = start; inclusive ? i <= end : i < end; i += stride) yield i;
+  } else if (stride < 0) {
+    for (let i = start; inclusive ? i >= end : i > end; i += stride) yield i;
+  }
 }
 
 // ============================================================================
@@ -91,14 +88,22 @@ export function iterator(r: Range): IterableIterator<number> {
 
 /**
  * Returns true if the value is contained in the Range.
- * Considers step — a value must be reachable from start by step increments.
+ * Considers stride — a value must be reachable from start by stride increments.
  *
  * @example
  * (1).to(10).contains(5)        // true
  * (1).to(10).step(2).contains(4) // false (only odd numbers)
  */
 export function contains(r: Range, value: number): boolean {
-  return rangeContains(r, value);
+  const { start, end, stride, inclusive } = r;
+  if (stride > 0) {
+    if (inclusive ? value > end : value >= end) return false;
+    if (value < start) return false;
+  } else {
+    if (inclusive ? value < end : value <= end) return false;
+    if (value > start) return false;
+  }
+  return (value - start) % stride === 0;
 }
 
 /**
@@ -110,7 +115,14 @@ export function contains(r: Range, value: number): boolean {
  * (1).to(10).step(2).size()     // 5
  */
 export function size(r: Range): number {
-  return rangeSize(r);
+  const { start, end, stride, inclusive } = r;
+  if (stride === 0 || Number.isNaN(stride)) return 0;
+  if (!Number.isFinite(stride)) return [...iterator(r)].length; // ±Infinity: at most 1
+  // Number of whole steps from start that stay on the near side of `end`.
+  const steps = (end - start) / stride;
+  if (steps < 0) return 0;
+  if (inclusive) return Math.floor(steps) + 1;
+  return Math.ceil(steps);
 }
 
 /**
@@ -121,7 +133,8 @@ export function size(r: Range): number {
  * (10).to(1).first()            // undefined (empty with positive step)
  */
 export function first(r: Range): number | undefined {
-  return rangeFirst(r);
+  const result = iterator(r).next();
+  return result.done ? undefined : result.value;
 }
 
 /**
@@ -132,7 +145,9 @@ export function first(r: Range): number | undefined {
  * (1).to(10).step(3).last()     // 10
  */
 export function last(r: Range): number | undefined {
-  return rangeLast(r);
+  let result: number | undefined;
+  for (const n of iterator(r)) result = n;
+  return result;
 }
 
 /**
@@ -143,7 +158,7 @@ export function last(r: Range): number | undefined {
  * (10).to(1).isEmpty()          // true (empty with positive step)
  */
 export function isEmpty(r: Range): boolean {
-  return rangeIsEmpty(r);
+  return first(r) === undefined;
 }
 
 // ============================================================================
@@ -157,7 +172,8 @@ export function isEmpty(r: Range): boolean {
  * (1).to(5).forEach(n => console.log(n))
  */
 export function forEach(r: Range, fn: (n: number, index: number) => void): void {
-  return rangeForEach(r, fn);
+  let idx = 0;
+  for (const n of iterator(r)) fn(n, idx++);
 }
 
 /**
@@ -167,7 +183,10 @@ export function forEach(r: Range, fn: (n: number, index: number) => void): void 
  * (1).to(5).map(n => n * n)     // [1, 4, 9, 16, 25]
  */
 export function map<T>(r: Range, fn: (n: number, index: number) => T): T[] {
-  return rangeMap(r, fn);
+  const result: T[] = [];
+  let idx = 0;
+  for (const n of iterator(r)) result.push(fn(n, idx++));
+  return result;
 }
 
 /**
@@ -177,7 +196,9 @@ export function map<T>(r: Range, fn: (n: number, index: number) => T): T[] {
  * (1).to(10).filter(n => n % 2 === 0) // [2, 4, 6, 8, 10]
  */
 export function filter(r: Range, pred: (n: number) => boolean): number[] {
-  return rangeFilter(r, pred);
+  const result: number[] = [];
+  for (const n of iterator(r)) if (pred(n)) result.push(n);
+  return result;
 }
 
 /**
@@ -187,25 +208,7 @@ export function filter(r: Range, pred: (n: number) => boolean): number[] {
  * (1).to(5).reduce(0, (acc, n) => acc + n) // 15
  */
 export function reduce<T>(r: Range, init: T, fn: (acc: T, n: number) => T): T {
-  return rangeReduce(r, init, fn);
+  let acc = init;
+  for (const n of iterator(r)) acc = fn(acc, n);
+  return acc;
 }
-
-// ============================================================================
-// Aggregate — collect all into a namespace-like object for extension
-// ============================================================================
-
-export const RangeExtensions = {
-  step,
-  reversed,
-  toArray,
-  iterator,
-  contains,
-  size,
-  first,
-  last,
-  isEmpty,
-  forEach,
-  map,
-  filter,
-  reduce,
-} as const;

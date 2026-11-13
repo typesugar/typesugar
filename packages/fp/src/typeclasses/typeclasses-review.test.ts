@@ -95,7 +95,7 @@ describe("product3/4/5 return flat tuples (#16)", () => {
 
 describe("ordNumber is a lawful total order including NaN (#17)", () => {
   it("NaN equals itself and sorts last", () => {
-    expect(ordNumber.eqv(NaN, NaN)).toBe(true);
+    expect(ordNumber.equals(NaN, NaN)).toBe(true);
     expect(ordNumber.compare(NaN, 1)).toBe(1);
     expect(ordNumber.compare(1, NaN)).toBe(-1);
     expect(ordNumber.compare(NaN, NaN)).toBe(0);

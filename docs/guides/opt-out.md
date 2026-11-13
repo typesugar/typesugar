@@ -87,13 +87,19 @@ const x = comptime(() => 1 + 1); // → 2
 
 Available features:
 
-| Feature       | What it disables                                                                       |
-| ------------- | -------------------------------------------------------------------------------------- |
-| `macros`      | Expression macros, tagged templates, type macros, labeled blocks                       |
-| `derive`      | `@derive()` decorator expansion                                                        |
-| `extensions`  | Standalone extension method rewriting, typeclass instance-method sugar (`a.equals(b)`) |
-| `typeclasses` | `@typeclass`, `@impl`, `summon()`                                                      |
-| `operators`   | Operator overloading                                                                   |
+| Feature       | What it disables                                                                                    |
+| ------------- | --------------------------------------------------------------------------------------------------- |
+| `macros`      | Every macro: expression macros, attribute macros, tagged templates, type macros, labeled blocks     |
+| `derive`      | `@derive(...)`, both as a decorator and as a JSDoc `/** @derive ... */` tag                         |
+| `extensions`  | Standalone extension method rewriting, typeclass instance-method sugar (`a.equals(b)`), operators\* |
+| `typeclasses` | `@typeclass`, `@impl` / `@instance` (decorator or JSDoc tag), `summon()`, `summonAll()`             |
+| `operators`   | Typeclass operator rewriting (`a === b` → `eq.equals(a, b)`)                                        |
+
+\* `extensions` also turns off operator rewriting, which it gated before `operators` was its own
+feature; existing opt-outs keep working. Use `operators` to turn off only that.
+
+Under `typeclasses`, an `@impl` value is still an ordinary object: other files can import it, and
+operator and method sugar (governed by `operators` and `extensions`) can still use it.
 
 You can combine multiple features:
 

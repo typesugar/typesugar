@@ -16,7 +16,7 @@ import {
   validNel,
   invalidNel,
 } from "../data/validated";
-import { NonEmptyList } from "../data/nonempty-list";
+import { NEL } from "../data/nonempty-list";
 import { Either, Left, Right } from "../data/either";
 import { Option, Some, None } from "../data/option";
 import { pipe } from "../syntax/pipe";
@@ -103,7 +103,7 @@ function validateUsername(input: string): ValidationResult<string> {
 
   return errors.length === 0
     ? validNel(input)
-    : Validated.invalidNel(NonEmptyList.of(...errors));
+    : Validated.invalid(NEL.of(errors[0], ...errors.slice(1)));
 }
 
 /**
@@ -152,7 +152,7 @@ function validatePassword(password: string): ValidationResult<string> {
 
   return errors.length === 0
     ? validNel(password)
-    : Validated.invalidNel(NonEmptyList.of(...errors));
+    : Validated.invalid(NEL.of(errors[0], ...errors.slice(1)));
 }
 
 /**
@@ -306,7 +306,7 @@ export function formatErrors(
     return null;
   }
 
-  return NonEmptyList.toArray(result.error).map(
+  return NEL.toArray(result.error).map(
     (e) => `${e.field}: ${e.message}`,
   );
 }
@@ -321,7 +321,7 @@ export function formatErrorsByField(
     return null;
   }
 
-  const errors = NonEmptyList.toArray(result.error);
+  const errors = NEL.toArray(result.error);
   const grouped: Record<string, string[]> = {};
 
   for (const error of errors) {

@@ -43,7 +43,7 @@ export function semigroupKLaws<F, A>(SK: SemigroupK<F>, EqFA: EqFA<F, A>): LawSe
       description:
         "combineK is associative: combineK(combineK(x, y), z) === combineK(x, combineK(y, z))",
       check: (x: Kind<F, A>, y: Kind<F, A>, z: Kind<F, A>): boolean =>
-        EqFA.eqv(SK.combineK(SK.combineK(x, y), z), SK.combineK(x, SK.combineK(y, z))),
+        EqFA.equals(SK.combineK(SK.combineK(x, y), z), SK.combineK(x, SK.combineK(y, z))),
     },
   ] as unknown as LawSet;
 }
@@ -69,14 +69,14 @@ export function monoidKLaws<F, A>(MK: MonoidK<F>, EqFA: EqFA<F, A>): LawSet {
       arity: 1,
       proofHint: "identity-left",
       description: "emptyK is left identity: combineK(emptyK, x) === x",
-      check: (x: Kind<F, A>): boolean => EqFA.eqv(MK.combineK(MK.emptyK<A>(), x), x),
+      check: (x: Kind<F, A>): boolean => EqFA.equals(MK.combineK(MK.emptyK<A>(), x), x),
     },
     {
       name: "right identity",
       arity: 1,
       proofHint: "identity-right",
       description: "emptyK is right identity: combineK(x, emptyK) === x",
-      check: (x: Kind<F, A>): boolean => EqFA.eqv(MK.combineK(x, MK.emptyK<A>()), x),
+      check: (x: Kind<F, A>): boolean => EqFA.equals(MK.combineK(x, MK.emptyK<A>()), x),
     },
   ] as unknown as LawSet;
 }
@@ -107,7 +107,7 @@ export function alternativeLaws<F, A>(Alt: Alternative<F>, EqFA: EqFA<F, A>): La
       description:
         "ap distributes over combineK: ap(combineK(f, g), a) === combineK(ap(f, a), ap(g, a))",
       check: (a: Kind<F, A>, f: Kind<F, (a: A) => A>, g: Kind<F, (a: A) => A>): boolean =>
-        EqFA.eqv(Alt.ap(Alt.combineK(f, g), a), Alt.combineK(Alt.ap(f, a), Alt.ap(g, a))),
+        EqFA.equals(Alt.ap(Alt.combineK(f, g), a), Alt.combineK(Alt.ap(f, a), Alt.ap(g, a))),
     },
     {
       name: "right absorption",
@@ -115,7 +115,7 @@ export function alternativeLaws<F, A>(Alt: Alternative<F>, EqFA: EqFA<F, A>): La
       description: "ap with emptyK absorbs: ap(emptyK, a) === emptyK",
       check: (a: Kind<F, A>): boolean => {
         const emptyF = Alt.emptyK<(x: A) => A>();
-        return EqFA.eqv(Alt.ap(emptyF, a), Alt.emptyK<A>());
+        return EqFA.equals(Alt.ap(emptyF, a), Alt.emptyK<A>());
       },
     },
   ] as unknown as LawSet;
@@ -147,7 +147,7 @@ export function alternativeLawsNonDistributive<F, A>(
       description: "ap with emptyK absorbs: ap(emptyK, a) === emptyK",
       check: (a: Kind<F, A>): boolean => {
         const emptyF = Alt.emptyK<(x: A) => A>();
-        return EqFA.eqv(Alt.ap(emptyF, a), Alt.emptyK<A>());
+        return EqFA.equals(Alt.ap(emptyF, a), Alt.emptyK<A>());
       },
     },
   ] as unknown as LawSet;

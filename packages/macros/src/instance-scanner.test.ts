@@ -451,30 +451,6 @@ const inst = {};`,
   });
 });
 
-describe("call-form instance detection (PEP-052 Wave 3 review fix)", () => {
-  it('detects `const x = impl("TC<T>", {...})` initializers in source files', () => {
-    const mod = createTestModule(`
-declare function impl<T>(desc: string, body: T): T;
-/** @do-methods bind=andThen */
-export const flatMapTask = impl("FlatMap<Task>", {
-  map: (fa: any, f: any) => fa.map(f),
-  flatMap: (fa: any, f: any) => fa.andThen(f),
-});
-    `);
-
-    const scanner = new InstanceScanner();
-    const results = scanner.scanModule(mod.typeChecker, mod.moduleSymbol, mod.resolvedPath);
-
-    expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({
-      typeclassName: "FlatMap",
-      forTypeString: "Task",
-      exportName: "flatMapTask",
-    });
-    expect(results[0].doMeta?.bind).toBe("andThen");
-  });
-});
-
 describe("resolveTypeString keyword resolution (PEP-052 Wave 5 review fix)", () => {
   // On some ts.TypeChecker instances, resolving a keyword type via an
   // unbound synthetic node (ts.factory.createKeywordTypeNode +

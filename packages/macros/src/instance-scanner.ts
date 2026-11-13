@@ -4,8 +4,7 @@
  * Scans a module's exports for typeclass instances by detecting:
  * 1. `@impl("TC<Type>")` JSDoc tags (primary)
  * 2. Explicit type annotations matching `TC<Type>` (secondary fallback)
- * 3. Call-form initializers: `impl("TC<Type>", {...})`, and
- *    `derived<TC<Type>>()` (a derived instance, declared once)
+ * 3. `derived<TC<Type>>()` initializers (a derived instance, declared once)
  * 4. `@derive(TC)` companions (`Type.TC`) of an exported type: from the
  *    type's `@derive` annotation, or, in a `.d.ts`, from the `@impl` tag the
  *    derive puts on each companion member
@@ -43,11 +42,11 @@ export interface ScannedInstance {
   sourceModule: string;
   /**
    * How this instance was detected: an `@impl`/`@instance` JSDoc tag
-   * (survives declaration emit), an `impl(...)`/`instance(...)` call or a
-   * `derived<TC<T>>()` call (source only: the `.d.ts` shows a `TC<T>`
-   * annotation), a `TC<T>` annotation, or a `@derive` companion.
+   * (survives declaration emit), a `derived<TC<T>>()` call (source only: the
+   * `.d.ts` shows a `TC<T>` annotation), a `TC<T>` annotation, or a `@derive`
+   * companion.
    */
-  detectedVia: "impl-tag" | "impl-call" | "type-annotation" | "derived" | "derived-call";
+  detectedVia: "impl-tag" | "type-annotation" | "derived" | "derived-call";
   /** Do-notation emission metadata from a `@do-methods` JSDoc tag, if present */
   doMeta?: DoNotationMeta;
   /**
@@ -402,7 +401,7 @@ export class InstanceScanner {
 
   /**
    * The typeclass instances one value declaration declares (an `@impl` tag, a
-   * `TC<T>` annotation, `impl("TC<T>", ...)` or `derived<TC<T>>()`), read the
+   * `TC<T>` annotation or `derived<TC<T>>()`), read the
    * same way a module scan reads it. Empty when the declaration is not an
    * instance. Used by extension-method resolution to recognise an imported
    * value as an instance and learn the type it is for.
@@ -535,7 +534,7 @@ export class InstanceScanner {
     const results: ScannedInstance[] = [];
 
     // An instance is a value: a variable. A function or class that happens to
-    // carry an `@impl` tag is not one — typesugar's own `impl()` declaration
+    // carry an `@impl` tag is not one — typesugar's own `impl` decorator stub
     // has a fenced `/** @impl Eq<Point> */` example in its JSDoc, which
     // `ts.getJSDocTags` reports as a tag, and the name-based fallback in
     // implicit() used to emit a reference to `impl` as an `Eq<Point>`.
@@ -596,39 +595,7 @@ export class InstanceScanner {
       return results;
     }
 
-    // Strategy 3: call-form initializer `const x = impl("TC<T>", {...})` /
-    // `instance("TC<T>", ...)`. Before PEP-052 Wave 3 these were made
-    // resolvable by the impl() expression macro's registry mirror; the mirror
-    // is gone, so the scanner reads the declaration shape directly. Source
-    // files only — in emitted `.d.ts` the call is erased, so PUBLISHED
-    // call-form instances remain invisible (the documented authoring form is
-    // the `@impl` JSDoc tag, which survives declaration emit).
-    if (varDecl?.initializer && ts.isCallExpression(varDecl.initializer)) {
-      const call = varDecl.initializer;
-      if (
-        ts.isIdentifier(call.expression) &&
-        (call.expression.text === "impl" || call.expression.text === "instance") &&
-        call.arguments.length >= 1 &&
-        ts.isStringLiteralLike(call.arguments[0])
-      ) {
-        const parsed = parseTypeInstantiation(call.arguments[0].text);
-        if (parsed) {
-          const callResult: ScannedInstance = {
-            typeclassName: parsed.base,
-            forTypeString: parsed.args,
-            forType: resolveTypeString(typeChecker, parsed.args, stmtNode, this.checkerFailed),
-            exportName,
-            sourceModule: resolvedPath,
-            detectedVia: "impl-call",
-          };
-          if (doMeta) callResult.doMeta = doMeta;
-          callResult.origin = varDecl;
-          results.push(callResult);
-        }
-      }
-    }
-
-    // Strategy 4: `const x = derived<TC<T>>()` declares a derived instance;
+    // Strategy 3: `const x = derived<TC<T>>()` declares a derived instance;
     // the initializer says what it is, so no @impl tag is needed. In emitted
     // `.d.ts` it is `x: TC<T>`, which Strategy 2 finds. Shape (CLAUDE.md
     // "Resolving things a macro just generated"): this reads the source as

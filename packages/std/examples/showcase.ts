@@ -27,7 +27,6 @@ import {
   type Numeric,
   type Integral,
   type Floating,
-  type ParseResult,
   type Group,
   type Eq,
   type Ord,
@@ -43,20 +42,11 @@ import {
   integralNumber,
   fractionalNumber,
   floatingNumber,
-  parseableNumber,
-  parseableBoolean,
-  printableNumber,
-  printableString,
-  numberToString,
-  stringToNumber,
-  defaultNumber,
-  defaultString,
-  defaultBoolean,
-  copyableNumber,
-  copyableDate,
-  copyableArray,
-  sizedString,
-  sizedArray,
+  cloneNumber,
+  cloneDate,
+  cloneArray,
+  debugNumber,
+  debugString,
   groupNumber,
   eqNumber,
   eqString,
@@ -115,12 +105,12 @@ import {
   swap,
   bimap,
   triple,
-  range,
-  rangeInclusive,
-  rangeToArray,
-  rangeBy,
-  rangeContains,
-  rangeMap,
+  // Range extension methods (a named import enables the method syntax)
+  to,
+  until,
+  step,
+  toArray,
+  contains,
   // Data type typeclass instances
   eqPair,
   ordPair,
@@ -174,60 +164,26 @@ assert(floatingNumber.sqrt(16) === 4);
 assert(Math.abs(floatingNumber.sin(Math.PI / 2) - 1) < 1e-10);
 
 // ============================================================================
-// 2. CONVERSION TYPECLASSES — Parseable, Printable, Coercible, Defaultable
+// 2. STRUCTURAL TYPECLASSES — Clone, Debug, Group
 // ============================================================================
 
-// Parseable: safe string-to-value parsing
-const parsed = parseableNumber.parse("42");
-assert(parsed.ok === true);
-if (parsed.ok) assert(parsed.value === 42);
-
-const bad = parseableNumber.parse("not a number");
-assert(bad.ok === false);
-
-const boolParsed = parseableBoolean.parse("yes");
-assert(boolParsed.ok === true);
-if (boolParsed.ok) assert(boolParsed.value === true);
-
-// Printable: human-readable display
-assert(printableNumber.display(1234) === "1234");
-assert(printableString.display("hello") === "hello");
-
-// Coercible: safe type conversions (Rust From/Into)
-assert(numberToString.coerce(42) === "42");
-assert(stringToNumber.coerce("3.14") === 3.14);
-
-// Defaultable: sensible default values (Rust Default)
-assert(defaultNumber.defaultValue() === 0);
-assert(defaultString.defaultValue() === "");
-assert(defaultBoolean.defaultValue() === false);
-
-// ============================================================================
-// 3. STRUCTURAL TYPECLASSES — Copyable, Sized, Group
-// ============================================================================
-
-// Copyable: deep copying (primitives are trivially copied)
-assert(copyableNumber.copy(42) === 42);
+// Clone: deep copying (primitives are trivially copied)
+assert(cloneNumber.clone(42) === 42);
 
 const now = new Date();
-const copied = copyableDate.copy(now);
+const copied = cloneDate.clone(now);
 assert(copied.getTime() === now.getTime());
 assert(!Object.is(copied, now)); // different object (reference inequality, never rewritten to Eq)
 
-const arrCopier = copyableArray(copyableNumber);
+const arrCloner = cloneArray(cloneNumber);
 const original = [1, 2, 3];
-const cloned = arrCopier.copy(original);
+const cloned = arrCloner.clone(original);
 assert(cloned[0] === 1 && cloned[1] === 2 && cloned[2] === 3);
 assert(cloned !== original);
 
-// Sized: length/empty checks
-assert(sizedString.size("hello") === 5);
-assert(sizedString.isEmpty("") === true);
-assert(sizedString.isEmpty("x") === false);
-
-const numSized = sizedArray<number>();
-assert(numSized.size([1, 2, 3]) === 3);
-assert(numSized.isEmpty([]) === true);
+// Debug: developer-facing representation
+assert(debugNumber.debug(42) === "42");
+assert(debugString.debug("hi") === '"hi"');
 
 // Group: monoid with inverse (Semigroup -> Monoid -> Group)
 assert(groupNumber.empty() === 0);
@@ -236,7 +192,7 @@ assert(groupNumber.invert(5) === -5);
 assert(groupNumber.combine(groupNumber.invert(5), 5) === groupNumber.empty());
 
 // ============================================================================
-// 4. EQUALITY & ORDERING — Eq, Ord with @op annotations for operator dispatch
+// 3. EQUALITY & ORDERING — Eq, Ord with @op annotations for operator dispatch
 // ============================================================================
 
 // Eq: equality comparison (supports @op === and @op !==)
@@ -302,7 +258,7 @@ assert(monoidArr.empty().length === 0);
 assert(monoidArr.combine(monoidArr.empty(), [1, 2, 3]).length === 3);
 
 // ============================================================================
-// 5. NUMERIC OPERATIONS — Typeclass-based arithmetic via @op
+// 4. NUMERIC OPERATIONS — Typeclass-based arithmetic via @op
 // ============================================================================
 
 // The Numeric typeclass supports operator dispatch via @op JSDoc tags:
@@ -329,7 +285,7 @@ function genericSum<A>(xs: A[], N: Numeric<A>): A {
 assert(genericSum([1, 2, 3, 4, 5], numericNumber) === 15);
 
 // ============================================================================
-// 6. NUMBER EXTENSIONS — Dot syntax via global augmentation (PEP-012 Wave 8)
+// 5. NUMBER EXTENSIONS — Dot syntax via global augmentation (PEP-012 Wave 8)
 // ============================================================================
 
 // With global augmentation, Number has .clamp(), .isEven(), etc.
@@ -347,7 +303,7 @@ assert(gcd(12, 8) === 4);
 assert(lcm(4, 6) === 12);
 
 // ============================================================================
-// 7. STRING EXTENSIONS — Dot syntax via global augmentation
+// 6. STRING EXTENSIONS — Dot syntax via global augmentation
 // ============================================================================
 
 // String has .capitalize(), .camelCase(), etc.
@@ -364,7 +320,7 @@ const w = "camelCaseString".words();
 assert(w.length > 0);
 
 // ============================================================================
-// 8. ARRAY EXTENSIONS — Dot syntax via global augmentation
+// 7. ARRAY EXTENSIONS — Dot syntax via global augmentation
 // ============================================================================
 
 // Array has .head(), .tail(), .chunk(), etc.
@@ -410,7 +366,7 @@ assert([[1, 2], [3], [4, 5]].flatten().length === 5);
 assert([1, null, 2, undefined, 3].compact().length === 3);
 
 // ============================================================================
-// 9. OBJECT EXTENSIONS — pick, omit, deep merge
+// 8. OBJECT EXTENSIONS — pick, omit, deep merge
 // ============================================================================
 
 const obj = { a: 1, b: 2, c: 3, d: 4 };
@@ -435,7 +391,7 @@ assert((merged as any).theme.size === 12);
 assert((merged as any).theme.font === "mono");
 
 // ============================================================================
-// 10. DATA TYPES — Pair, Triple, Range
+// 9. DATA TYPES — Pair, Triple, Range
 // ============================================================================
 
 // Pair: typed 2-tuples with combinators
@@ -457,29 +413,26 @@ assert(snd(mapped) === "HI");
 const t = triple(1, "two", true);
 assert(t[0] === 1 && t[1] === "two" && t[2] === true);
 
-// Range: Scala/Kotlin-style numeric ranges
-const r = range(0, 5);
-const arr = rangeToArray(r);
+// Range: Scala/Kotlin-style numeric ranges, built with .until() / .to()
+const arr = (0).until(5).toArray();
 assert(arr.length === 5);
 assert(arr[0] === 0 && arr[4] === 4);
 
-const inclusive = rangeInclusive(1, 5);
-const inclArr = rangeToArray(inclusive);
+const inclArr = (1).to(5).toArray();
 assert(inclArr.length === 5);
 assert(inclArr[4] === 5);
 
-const stepped = rangeBy(range(0, 10), 2);
-const steppedArr = rangeToArray(stepped);
+const steppedArr = (0).until(10).step(2).toArray();
 assert(steppedArr[0] === 0 && steppedArr[1] === 2 && steppedArr[2] === 4);
 
-assert(rangeContains(range(0, 10), 5) === true);
-assert(rangeContains(range(0, 10), 10) === false);
+assert((0).until(10).contains(5) === true);
+assert((0).until(10).contains(10) === false);
 
-const doubled = rangeMap(range(1, 4), (n) => n * 2);
+const doubled = (1).until(4).toArray().map((n: number) => n * 2);
 assert(doubled[0] === 2 && doubled[1] === 4 && doubled[2] === 6);
 
 // --------------------------------------------------------------------------
-// 10.4 Typeclass Instances for Data Types
+// 9.4 Typeclass Instances for Data Types
 // --------------------------------------------------------------------------
 
 // Pair has Eq and Ord instances that work with @op operator dispatch.
@@ -505,9 +458,9 @@ assert(ordTripleNum.lessThan(triple(1, 2, 3), triple(1, 2, 4)) === true);
 assert(ordTripleNum.compare(triple(1, 2, 3), triple(1, 2, 3)) === EQ_ORD);
 
 // Range has concrete Eq and Ord instances (registered for operator dispatch)
-const r1 = range(0, 10);
-const r2 = range(0, 10);
-const r3 = range(0, 20);
+const r1 = (0).until(10);
+const r2 = (0).until(10);
+const r3 = (0).until(20);
 
 assert(eqRange.equals(r1, r2) === true);
 assert(eqRange.equals(r1, r3) === false);
@@ -518,7 +471,7 @@ assert(ordRange.lessThan(r1, r3) === true); // (0,10) < (0,20) by end
 // - `range1 < range2` would use ordRange.lessThan
 
 // ============================================================================
-// 11. PATTERN MATCHING — Fluent match() API
+// 10. PATTERN MATCHING — Fluent match() API
 // ============================================================================
 
 // Discriminated union matching with destructuring
@@ -565,7 +518,7 @@ const listResult = match([1, 2, 3] as number[])
 assert(listResult === "starts with 1, 2");
 
 // ============================================================================
-// 12. DO-NOTATION — let:/yield: and par:/yield: comprehensions
+// 11. DO-NOTATION — let:/yield: and par:/yield: comprehensions
 // ============================================================================
 
 // FlatMap is pre-registered for Array, Promise, and other types.
@@ -575,7 +528,7 @@ assert(listResult === "starts with 1, 2");
 // the let:/yield: and par:/yield: syntax requires the typesugar transformer.
 
 // --------------------------------------------------------------------------
-// 12.1 Sequential Comprehensions (let:/yield:)
+// 11.1 Sequential Comprehensions (let:/yield:)
 // --------------------------------------------------------------------------
 
 // Basic array comprehension (cartesian product):
@@ -626,7 +579,7 @@ assert(withPureMap[0] === 3); // (1*2)+1
 // The _ binding executes but its value is ignored
 
 // --------------------------------------------------------------------------
-// 12.2 Parallel Comprehensions (par:/yield:)
+// 11.2 Parallel Comprehensions (par:/yield:)
 // --------------------------------------------------------------------------
 
 // Promise.all (parallel execution):
@@ -669,7 +622,7 @@ assert(applicativeResult.value === 30);
 // Unlike let:, par: accumulates ALL errors from all bindings
 
 // --------------------------------------------------------------------------
-// 12.3 Custom FlatMap Instances
+// 11.3 Custom FlatMap Instances
 // --------------------------------------------------------------------------
 
 // Define a custom monad for use with let:/yield:
@@ -701,7 +654,7 @@ const taskResult = new Task(() => 10).flatMap((x) =>
 assert(taskResult.run() === 20);
 
 // ============================================================================
-// 13. TYPE-LEVEL ASSERTIONS — verifying typeclass shapes
+// 12. TYPE-LEVEL ASSERTIONS — verifying typeclass shapes
 // ============================================================================
 
 typeAssert<Extends<typeof numericNumber, Numeric<number>>>();
@@ -719,15 +672,11 @@ typeAssert<Extends<typeof LT, Ordering>>();
 typeAssert<Extends<typeof EQ_ORD, Ordering>>();
 typeAssert<Extends<typeof GT, Ordering>>();
 
-// ParseResult is a tagged union
-type NumParsed = ParseResult<number>;
-typeAssert<Equal<NumParsed, { ok: true; value: number; rest: string } | { ok: false; error: string }>>();
-
 // Pair is a readonly tuple
 typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, string]>>();
 
 // ============================================================================
-// 14. TRANSFORMER FEATURES — @op Operator Dispatch Setup
+// 13. TRANSFORMER FEATURES — @op Operator Dispatch Setup
 // ============================================================================
 
 // The @typesugar/std typeclasses use @op JSDoc tags for operator dispatch.
@@ -776,7 +725,7 @@ typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, stri
 // and activate the operator syntax: import "@typesugar/std/syntax/eq/ops";
 
 // ============================================================================
-// 15. = implicit() — Auto-Resolution of Typeclass Instances
+// 14. = implicit() — Auto-Resolution of Typeclass Instances
 // ============================================================================
 
 // The `= implicit()` default parameter pattern enables automatic resolution of
@@ -788,7 +737,7 @@ typeAssert<Equal<ReturnType<typeof pair<number, string>>, readonly [number, stri
 // happens at compile time when the typesugar transformer is active.
 
 // --------------------------------------------------------------------------
-// 15.1 Manual Dictionary-Passing (Without = implicit())
+// 14.1 Manual Dictionary-Passing (Without = implicit())
 // --------------------------------------------------------------------------
 
 // Without = implicit(), you pass instances explicitly:
@@ -802,7 +751,7 @@ assert(sortedManual[0] === 1);
 assert(sortedManual[4] === 5);
 
 // --------------------------------------------------------------------------
-// 15.2 With = implicit() (Design Pattern)
+// 14.2 With = implicit() (Design Pattern)
 // --------------------------------------------------------------------------
 
 // With = implicit(), the transformer resolves instances automatically:
@@ -829,7 +778,7 @@ assert(sortedManual[4] === 5);
 // 3. Passing a known instance auto-specializes — always, no annotation needed
 
 // --------------------------------------------------------------------------
-// 15.3 Generic Operations Using = implicit() Pattern
+// 14.3 Generic Operations Using = implicit() Pattern
 // --------------------------------------------------------------------------
 
 // Generic min using Ord:
@@ -868,7 +817,7 @@ assert(combineAll([1, 2, 3, 4], semigroupNumber, 0) === 10);
 assert(combineAll(["hello", " ", "world"], semigroupString, "") === "hello world");
 
 // ============================================================================
-// 16. SUM TYPE DERIVATION — @derive on Discriminated Unions
+// 15. SUM TYPE DERIVATION — @derive on Discriminated Unions
 // ============================================================================
 
 // The derive macro supports discriminated unions (sum types) in addition to
@@ -877,7 +826,7 @@ assert(combineAll(["hello", " ", "world"], semigroupString, "") === "hello world
 // 2. Only compares same-variant fields when discriminants match
 
 // --------------------------------------------------------------------------
-// 16.1 Example: Result<T, E> Sum Type
+// 15.1 Example: Result<T, E> Sum Type
 // --------------------------------------------------------------------------
 
 // A simple Result type (similar to Rust's Result or fp-ts Either):
@@ -922,7 +871,7 @@ assert(eqResultNumStr.equals(Err("a"), Err("b")) === false);
 assert(eqResultNumStr.equals(Ok(42), Err("fail") as Result<number, string>) === false);
 
 // --------------------------------------------------------------------------
-// 16.2 Example: Tree<A> Recursive Sum Type
+// 15.2 Example: Tree<A> Recursive Sum Type
 // --------------------------------------------------------------------------
 
 // Recursive types demonstrate depth of derivation:
@@ -961,7 +910,7 @@ assert(eqTreeNum.equals(tree1, tree2) === true);
 assert(eqTreeNum.equals(tree1, tree3) === false);
 
 // --------------------------------------------------------------------------
-// 16.3 @derive Usage (With Transformer)
+// 15.3 @derive Usage (With Transformer)
 // --------------------------------------------------------------------------
 
 // When the transformer is active, you can use @derive directly:
@@ -981,7 +930,7 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 // opt1 === opt2; // Compiles to: eqOption(eqNumber).equals(opt1, opt2)
 
 // ============================================================================
-// 17. COMPLETE TRANSFORMER INTEGRATION — How It All Fits Together
+// 16. COMPLETE TRANSFORMER INTEGRATION — How It All Fits Together
 // ============================================================================
 
 // Summary of transformer features demonstrated in this showcase:
@@ -998,15 +947,15 @@ assert(eqTreeNum.equals(tree1, tree3) === false);
 //    - Generic functions with = implicit() default typeclass params
 //    - Transformer fills in instances at call sites
 //
-// 4. **Sum Type Derivation** (Section 16)
+// 3. **Sum Type Derivation** (Section 16)
 //    - @derive works on discriminated unions
 //    - Generates discriminant-first comparison logic
 //
-// 5. **Auto-Specialization** (Section 15.2)
+// 4. **Auto-Specialization** (Section 15.2)
 //    - Always on — passing a known instance auto-inlines its methods
 //    - No annotation or extra call needed
 //
-// 6. **let:/yield: and par:/yield:** (Section 12)
+// 5. **let:/yield: and par:/yield:** (Section 12)
 //    - Do-notation via FlatMap typeclass
 //    - FlatMap instance resolved from scope
 

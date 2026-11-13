@@ -85,24 +85,14 @@ function isVoidReturnType(
 }
 
 // ---------------------------------------------------------------------------
-// Instance name extraction + source-based instance extraction
+// Source-based instance extraction
 //
-// PEP-053 Wave 2: the implementation is shared with the legacy transformer and
-// lives in @typesugar/macros (instance-extraction.ts). It resolves import
-// aliases, identifier-alias consts, zero-arg factories, indirect members, and
-// companion paths, and accepts `@impl`-tagged OR typeclass-annotated
-// declarations (the unified criteria).
+// PEP-053 Wave 2: instance-name extraction is shared with the legacy
+// transformer and lives in @typesugar/macros (instance-extraction.ts). It
+// resolves import aliases, identifier-alias consts, zero-arg factories,
+// indirect members, and companion paths, and accepts `@impl`-tagged OR
+// typeclass-annotated declarations (the unified criteria).
 // ---------------------------------------------------------------------------
-
-export {
-  getInstanceName,
-  hasImplAnnotation,
-  hasTypeclassTypeAnnotation,
-  extractBrandFromImpl,
-} from "@typesugar/macros";
-
-// Re-export for backwards compatibility
-export { extractTypeArgumentsContent } from "@typesugar/core";
 
 export function tryExtractInstanceFromSource(
   ctx: MacroContextImpl,
@@ -832,7 +822,7 @@ function isTypesugarPrimitive(ctx: MacroContextImpl, symbol: ts.Symbol, at: ts.N
  * The instance registered for exactly the declaration `symbol` resolves to
  * (through an import alias). Registry shape (CLAUDE.md): macros'
  * `getInstanceMethodsForDeclaration` is a LIVE WeakMap keyed by declaration,
- * written by `@impl`/`impl()` in the same pass — never conflates same-named
+ * written by `@impl` in the same pass — never conflates same-named
  * instances, unlike the name-keyed `getInstanceMethods`.
  */
 function methodsForResolvedDeclaration(
@@ -961,6 +951,23 @@ function resolveBodyFromSymbol(
     return undefined;
   }
   return undefined;
+}
+
+/**
+ * Was the callee brought into this file by an import (an alias symbol)?
+ * Auto-specialization does not follow imports ({@link resolveBodyFromSymbol}),
+ * so TS9602 says that instead of advising a different declaration form.
+ * A checker failure here answers false (the generic message); the same
+ * lookup failing in resolveAutoSpecFunctionBody has already warned.
+ */
+function isImportedCallee(typeChecker: ts.TypeChecker, fnExpr: ts.Expression): boolean {
+  if (isSyntheticNode(fnExpr)) return false;
+  try {
+    const symbol = typeChecker.getSymbolAtLocation(fnExpr);
+    return symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1955,8 +1962,12 @@ export function tryAutoSpecialize(
         ctx,
         node,
         fnName,
-        `function body not resolvable. ` +
-          `Declare it as a const arrow function or named function so its body can be resolved.`
+        isImportedCallee(ctx.typeChecker, node.expression)
+          ? `the function is imported, and only a function declared in the same file is ` +
+              `specialized (its body could reference that module's private helpers). ` +
+              `The call keeps dictionary passing, which is correct.`
+          : `function body not resolvable. ` +
+              `Declare it as a const arrow function or named function so its body can be resolved.`
       );
     }
     return undefined;

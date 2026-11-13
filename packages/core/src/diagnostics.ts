@@ -1084,6 +1084,10 @@ plain labeled statement — which almost certainly does not do what the block
 was written to do (do-notation binds like \`x << effect()\` become bit-shift
 expressions; contract blocks become dead code).
 
+The same applies to a comprehension in expression position
+(\`const f = (x) => par: { ... } yield: { ... }\`): without activation it is
+not rewritten, and TypeScript reports a syntax error there.
+
 Activate the syntax with a side-effect import of the macro's syntax module,
 e.g.:
 
@@ -1348,6 +1352,8 @@ Reasons:
 - The instance is only visible as a declaration (it comes from a package's
   .d.ts, passed explicitly or found by = implicit()), so its method bodies
   can't be inlined. For a hot path, declare the instance in your own source.
+- The function is imported: only a function declared in the same file is
+  specialized, since its body could use helpers private to its own module.
 - The function body can't be resolved: declare the function as a const arrow
   function or a named function.
 - The body can't be inlined as an expression: a loop, try/catch, a throw,
@@ -1692,28 +1698,6 @@ export function richToLegacyDiagnostic(rich: RichDiagnostic): MacroDiagnostic {
   };
 }
 
-/**
- * Create a RichDiagnostic from a legacy string-based error.
- * Used when migrating from ctx.reportError() to structured diagnostics.
- */
-export function legacyToRichDiagnostic(
-  message: string,
-  severity: "error" | "warning" | "info",
-  node?: ts.Node,
-  sourceFile?: ts.SourceFile
-): RichDiagnostic {
-  return {
-    code: 9999,
-    severity,
-    category: DiagnosticCategory.Internal,
-    message,
-    primarySpan: node && sourceFile ? { node, sourceFile } : undefined,
-    labels: [],
-    notes: [],
-    suggestions: [],
-  };
-}
-
 // ============================================================================
 // CLI Renderer: Rust-Style Error Output
 // ============================================================================
@@ -1825,8 +1809,6 @@ export interface CLIRenderOptions {
   contextLines?: number;
   /** Whether to show the explanation (default: false) */
   showExplanation?: boolean;
-  /** Custom writer function (default: console.error) */
-  writer?: (line: string) => void;
 }
 
 /**
@@ -1972,61 +1954,4 @@ export function renderDiagnosticCLI(
   }
 
   return lines.join("\n");
-}
-
-/**
- * Print a RichDiagnostic to the console (stderr).
- */
-export function printDiagnostic(diagnostic: RichDiagnostic, options: CLIRenderOptions = {}): void {
-  const writer = options.writer ?? ((line: string) => console.error(line));
-  writer(renderDiagnosticCLI(diagnostic, options));
-}
-
-/**
- * Render multiple diagnostics with a summary.
- */
-export function renderDiagnosticsCLI(
-  diagnostics: RichDiagnostic[],
-  options: CLIRenderOptions = {}
-): string {
-  if (diagnostics.length === 0) {
-    return "";
-  }
-
-  const lines: string[] = [];
-  const color = makeColor(options.colors);
-
-  for (const diag of diagnostics) {
-    lines.push(renderDiagnosticCLI(diag, options));
-    lines.push(""); // Blank line between diagnostics
-  }
-
-  // Summary
-  const errorCount = diagnostics.filter((d) => d.severity === "error").length;
-  const warnCount = diagnostics.filter((d) => d.severity === "warning").length;
-
-  const parts: string[] = [];
-  if (errorCount > 0) {
-    parts.push(color(`${errorCount} error${errorCount > 1 ? "s" : ""}`, "bold", "red"));
-  }
-  if (warnCount > 0) {
-    parts.push(color(`${warnCount} warning${warnCount > 1 ? "s" : ""}`, "bold", "yellow"));
-  }
-
-  if (parts.length > 0) {
-    lines.push(`${parts.join(", ")} generated`);
-  }
-
-  return lines.join("\n");
-}
-
-/**
- * Print multiple diagnostics with a summary.
- */
-export function printDiagnostics(
-  diagnostics: RichDiagnostic[],
-  options: CLIRenderOptions = {}
-): void {
-  const writer = options.writer ?? ((line: string) => console.error(line));
-  writer(renderDiagnosticsCLI(diagnostics, options));
 }

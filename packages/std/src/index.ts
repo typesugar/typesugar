@@ -8,9 +8,9 @@
  * ## Typeclasses
  *
  * Standard typeclasses with primitive instances:
+ * - Eq, Hash, Ord, Semigroup, Monoid, Group
  * - Bounded, Enum, Numeric, Integral, Fractional, Floating
- * - Parseable, Printable, Coercible, Defaultable, Copyable
- * - Sized, Identifiable, Reducible, Zippable, Splittable, Searchable
+ * - Clone, Debug, Json
  *
  * ## Extension Methods
  *

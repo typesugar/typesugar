@@ -250,6 +250,21 @@ describe("Ord laws", () => {
       expect(o.compare([1, 2, 3], [1, 3, 0])).toBeLessThan(0);
       expect(o.compare([2], [1, 9])).toBeGreaterThan(0);
     });
+
+    it("comparison methods agree with compare, using the element Ord once per pair", () => {
+      let calls = 0;
+      const counting = {
+        ...ordNumber,
+        compare: (a: number, b: number) => (calls++, ordNumber.compare(a, b)),
+      };
+      const oc = ordArray(counting);
+      expect(oc.lessThan([1, 2], [1, 3])).toBe(true);
+      expect(oc.lessThanOrEqual([1, 3], [1, 3])).toBe(true);
+      expect(oc.greaterThan([2], [1, 9])).toBe(true);
+      expect(oc.greaterThanOrEqual([1], [1, 0])).toBe(false);
+      // 2 + 2 + 1 + 1 element comparisons: no per-call dictionary rebuild adds any.
+      expect(calls).toBe(6);
+    });
   });
 });
 

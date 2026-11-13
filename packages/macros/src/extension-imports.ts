@@ -23,7 +23,7 @@
  * - a member of an imported value declared as a typeclass instance by an
  *   `@impl`/`@instance` JSDoc tag (an instance is meant to supply its
  *   methods), for receivers of its own type
- *   ({@link instancesServeReceiver}). Not `impl(...)` or `derived<TC<T>>()`
+ *   ({@link instancesServeReceiver}). Not `derived<TC<T>>()`
  *   untagged: a published `.d.ts` shows them as a plain `TC<T>` annotation,
  *   so they would supply methods from source and not from `dist/`.
  *
@@ -131,7 +131,7 @@ export function findImportedExtensionMatches(
         // Not opted in: only an instance declared in a form that reads the
         // same from source and from a published `.d.ts` supplies its members:
         // an `@impl`/`@instance` JSDoc tag.
-        // `impl(...)` and `derived<TC<T>>()` are erased to a `TC<T>`
+        // `derived<TC<T>>()` is erased to a `TC<T>`
         // annotation in the `.d.ts`, and an annotation alone doesn't open the
         // gate: whether `TC` is a typeclass is read by name
         // (isTypeclassDeclared), and without a program not at all.
@@ -844,7 +844,7 @@ function importedInstances(
  * to the typeclass method-sugar path, which applies its own instance policy.
  *
  * What counts as an instance is read by the instance scanner, the same way
- * instance resolution reads it (an `@impl`/`@instance` tag, `impl(...)`,
+ * instance resolution reads it (an `@impl`/`@instance` tag,
  * `derived<TC<T>>()`, or a `TC<T>` annotation naming a declared typeclass);
  * any other value (empty `instances`) is not affected. An instance of a higher-kinded typeclass
  * (`@impl Functor<OptionF>`) is for a type constructor, not a type, so this

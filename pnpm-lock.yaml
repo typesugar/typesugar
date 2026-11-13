@@ -572,6 +572,9 @@ importers:
       '@typesugar/macros':
         specifier: workspace:*
         version: link:../macros
+      '@typesugar/std':
+        specifier: workspace:*
+        version: link:../std
       '@typesugar/type-system':
         specifier: workspace:*
         version: link:../type-system

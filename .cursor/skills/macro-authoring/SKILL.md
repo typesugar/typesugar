@@ -114,23 +114,6 @@ import { MacroExpansionCache } from "@typesugar/core";
 const cache = new MacroExpansionCache(cacheDir);
 ```
 
-## Capabilities
-
-Declarative permissions. Source: `packages/core/src/capabilities.ts`.
-
-```typescript
-import { createRestrictedContext, MacroCapabilities } from "@typesugar/core";
-
-const caps: MacroCapabilities = {
-  needsTypeChecker: true,
-  needsFileSystem: false,
-  needsProjectIndex: false,
-  canEmitDiagnostics: true,
-  maxTimeout: 5000,
-};
-const restricted = createRestrictedContext(ctx, caps, "myMacro");
-```
-
 ## Configuration
 
 Source: `packages/core/src/config.ts`.
@@ -228,7 +211,7 @@ n.clamp(0, 100);    // → clamp(n, 0, 100)
 
 Resolution order: native property → extension functions in scope → typeclass methods.
 
-Providers (`findImportedExtensionMatches`, `packages/macros/src/extension-imports.ts`, shared with the ExtensionMethodCall suppression rule): an imported function named after the method; a member of an `import * as X` namespace or of an import tagged `/** @extension */` (PEP-064); a member of an imported `/** @impl */` instance, for its own type. Any other imported object (an untagged `impl(...)`/`derived<TC<T>>()` value, a registry entry reached through an import) is never a provider, and neither is a type-only binding or one shadowed by a local at the call.
+Providers (`findImportedExtensionMatches`, `packages/macros/src/extension-imports.ts`, shared with the ExtensionMethodCall suppression rule): an imported function named after the method; a member of an `import * as X` namespace or of an import tagged `/** @extension */` (PEP-064); a member of an imported `/** @impl */` instance, for its own type. Any other imported object (an untagged `derived<TC<T>>()` value, a registry entry reached through an import) is never a provider, and neither is a type-only binding or one shadowed by a local at the call.
 
 Ambiguity: multiple matches → compile error with candidate list.
 

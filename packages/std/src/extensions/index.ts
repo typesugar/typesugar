@@ -112,7 +112,7 @@ export { filterMapKeys, filterMapValues, setUnion, setIntersection, setDifferenc
 // resolver pairs `r.size()` with an imported `size` (docs review 2026-10:
 // `(1).to(10).size()` etc. type-checked but threw at runtime). None of these
 // names is exported by anything else at the root except `last` (Array), which
-// dispatches below. The range-prefixed functions in data/range.ts remain.
+// dispatches below.
 export {
   step,
   reversed,
@@ -126,7 +126,6 @@ export {
   map,
   filter,
   reduce,
-  RangeExtensions,
 } from "./range";
 
 /**

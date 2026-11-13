@@ -6,18 +6,6 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  type Range,
-  range,
-  rangeInclusive,
-  rangeLast,
-  rangeSize,
-  rangeIsEmpty,
-  rangeForEach,
-  rangeMap,
-  rangeFilter,
-  rangeReduce,
-} from "../src/data/range.js";
 import { to, until } from "../src/extensions/number.js";
 import {
   step,
@@ -25,11 +13,25 @@ import {
   toArray,
   iterator,
   first,
+  last,
+  size,
+  isEmpty,
+  forEach,
+  map,
+  filter,
+  reduce,
   contains,
-  RangeExtensions,
 } from "../src/extensions/range.js";
+import * as rangeMethods from "../src/extensions/range.js";
 
 describe("Range Extension Methods", () => {
+  // A field named after a method hides the method from the type checker:
+  // while the field was `step`, `(0).to(10).step(2)` was TS2349 (not callable).
+  it("no Range field shares a name with a Range extension method", () => {
+    const methods = new Set(Object.keys(rangeMethods));
+    expect(Object.keys(step(to(0, 10), 2)).filter((field) => methods.has(field))).toEqual([]);
+  });
+
   // ==========================================================================
   // to() and until() on numbers
   // ==========================================================================
@@ -39,7 +41,7 @@ describe("Range Extension Methods", () => {
       const r = to(1, 5);
       expect(r.start).toBe(1);
       expect(r.end).toBe(5);
-      expect(r.step).toBe(1);
+      expect(r.stride).toBe(1);
       expect(r.inclusive).toBe(true);
     });
 
@@ -61,7 +63,7 @@ describe("Range Extension Methods", () => {
       const r = until(1, 5);
       expect(r.start).toBe(1);
       expect(r.end).toBe(5);
-      expect(r.step).toBe(1);
+      expect(r.stride).toBe(1);
       expect(r.inclusive).toBe(false);
     });
 
@@ -82,7 +84,7 @@ describe("Range Extension Methods", () => {
   describe("step()", () => {
     it("sets step on a range", () => {
       const r = step(to(1, 10), 2);
-      expect(r.step).toBe(2);
+      expect(r.stride).toBe(2);
       expect(toArray(r)).toEqual([1, 3, 5, 7, 9]);
     });
 
@@ -184,46 +186,46 @@ describe("Range Extension Methods", () => {
     });
   });
 
-  describe("rangeLast()", () => {
+  describe("last()", () => {
     it("returns last element of non-empty range", () => {
-      expect(rangeLast(to(1, 5))).toBe(5);
+      expect(last(to(1, 5))).toBe(5);
     });
 
     it("handles stepped range", () => {
-      expect(rangeLast(step(to(1, 10), 3))).toBe(10); // [1, 4, 7, 10]
+      expect(last(step(to(1, 10), 3))).toBe(10); // [1, 4, 7, 10]
     });
 
     it("returns undefined for empty range", () => {
-      expect(rangeLast(to(10, 1))).toBe(undefined);
+      expect(last(to(10, 1))).toBe(undefined);
     });
   });
 
-  describe("rangeSize()", () => {
+  describe("size()", () => {
     it("returns correct size for inclusive range", () => {
-      expect(rangeSize(to(1, 10))).toBe(10);
+      expect(size(to(1, 10))).toBe(10);
     });
 
     it("returns correct size for exclusive range", () => {
-      expect(rangeSize(until(1, 10))).toBe(9);
+      expect(size(until(1, 10))).toBe(9);
     });
 
     it("returns 0 for empty range", () => {
-      expect(rangeSize(to(10, 1))).toBe(0);
+      expect(size(to(10, 1))).toBe(0);
     });
 
     it("handles stepped ranges", () => {
       // [1, 3, 5, 7, 9] (deep review #22 fixed the old undercount).
-      expect(rangeSize(step(to(1, 10), 2))).toBe(5);
+      expect(size(step(to(1, 10), 2))).toBe(5);
     });
   });
 
-  describe("rangeIsEmpty()", () => {
+  describe("isEmpty()", () => {
     it("returns false for non-empty range", () => {
-      expect(rangeIsEmpty(to(1, 10))).toBe(false);
+      expect(isEmpty(to(1, 10))).toBe(false);
     });
 
     it("returns true for empty range", () => {
-      expect(rangeIsEmpty(to(10, 1))).toBe(true); // can't go 10→1 with step 1
+      expect(isEmpty(to(10, 1))).toBe(true); // can't go 10→1 with step 1
     });
   });
 
@@ -231,10 +233,10 @@ describe("Range Extension Methods", () => {
   // Iteration methods
   // ==========================================================================
 
-  describe("rangeForEach()", () => {
+  describe("forEach()", () => {
     it("iterates over all elements with index", () => {
       const results: [number, number][] = [];
-      rangeForEach(to(1, 3), (n, i) => results.push([n, i]));
+      forEach(to(1, 3), (n, i) => results.push([n, i]));
       expect(results).toEqual([
         [1, 0],
         [2, 1],
@@ -243,60 +245,39 @@ describe("Range Extension Methods", () => {
     });
   });
 
-  describe("rangeMap()", () => {
+  describe("map()", () => {
     it("maps values to new array", () => {
-      const result = rangeMap(to(1, 5), (n) => n * n);
+      const result = map(to(1, 5), (n) => n * n);
       expect(result).toEqual([1, 4, 9, 16, 25]);
     });
 
     it("provides index to callback", () => {
-      const result = rangeMap(to(10, 12), (n, i) => `${i}:${n}`);
+      const result = map(to(10, 12), (n, i) => `${i}:${n}`);
       expect(result).toEqual(["0:10", "1:11", "2:12"]);
     });
   });
 
-  describe("rangeFilter()", () => {
+  describe("filter()", () => {
     it("filters values matching predicate", () => {
-      const result = rangeFilter(to(1, 10), (n) => n % 2 === 0);
+      const result = filter(to(1, 10), (n) => n % 2 === 0);
       expect(result).toEqual([2, 4, 6, 8, 10]);
     });
 
     it("returns empty array when nothing matches", () => {
-      const result = rangeFilter(to(1, 3), (n) => n > 10);
+      const result = filter(to(1, 3), (n) => n > 10);
       expect(result).toEqual([]);
     });
   });
 
-  describe("rangeReduce()", () => {
+  describe("reduce()", () => {
     it("reduces range to single value", () => {
-      const sum = rangeReduce(to(1, 5), 0, (acc, n) => acc + n);
+      const sum = reduce(to(1, 5), 0, (acc, n) => acc + n);
       expect(sum).toBe(15); // 1+2+3+4+5
     });
 
     it("handles initial value type", () => {
-      const result = rangeReduce(to(1, 3), "", (acc, n) => acc + n);
+      const result = reduce(to(1, 3), "", (acc, n) => acc + n);
       expect(result).toBe("123");
-    });
-  });
-
-  // ==========================================================================
-  // RangeExtensions namespace
-  // ==========================================================================
-
-  describe("RangeExtensions namespace", () => {
-    it("contains all range extension methods", () => {
-      expect(RangeExtensions.step).toBe(step);
-      expect(RangeExtensions.reversed).toBe(reversed);
-      expect(RangeExtensions.toArray).toBe(toArray);
-      expect(RangeExtensions.iterator).toBe(iterator);
-      expect(RangeExtensions.contains).toBe(contains);
-      expect(RangeExtensions.first).toBe(first);
-      expect(typeof RangeExtensions.size).toBe("function");
-      expect(typeof RangeExtensions.isEmpty).toBe("function");
-      expect(typeof RangeExtensions.forEach).toBe("function");
-      expect(typeof RangeExtensions.map).toBe("function");
-      expect(typeof RangeExtensions.filter).toBe("function");
-      expect(typeof RangeExtensions.reduce).toBe("function");
     });
   });
 
@@ -332,8 +313,8 @@ describe("Range Extension Methods", () => {
     });
 
     it("chaining multiple operations", () => {
-      // rangeFilter returns number[], so we use regular array.map for the final step
-      const filtered = rangeFilter(step(to(1, 20), 2), (n) => n % 3 === 0);
+      // filter returns number[], so we use regular array.map for the final step
+      const filtered = filter(step(to(1, 20), 2), (n) => n % 3 === 0);
       // to(1, 20).step(2) = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
       // filter(n % 3 === 0) = [3, 9, 15]
       expect(filtered).toEqual([3, 9, 15]);

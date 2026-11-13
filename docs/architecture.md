@@ -90,8 +90,9 @@ The transformer is a TypeScript program transformer that expands macros during c
 ### Location
 
 ```
-src/transforms/macro-transformer.ts    # Main transformer (legacy location)
-packages/transformer/src/index.ts      # Package entry point
+packages/transformer-core/src/transformer.ts  # MacroTransformer (the visitor)
+packages/transformer/src/pipeline.ts          # TransformationPipeline, transformCode, the ts-patch factory
+packages/transformer/src/index.ts             # Package entry point
 ```
 
 ### Main Class: `MacroTransformer`
@@ -111,7 +112,8 @@ visit(node)
        │    ├─ tryRewriteExtensionMethod()     — value.method() rewriting
        │    └─ tryAutoSpecialize()             — dictionary inlining
        ├─ ClassDeclaration / FunctionDeclaration / etc.
-       │    └─ tryExpandAttributeMacros()      — @decorator expansion
+       │    ├─ tryExpandAttributeMacros()      — @decorator expansion
+       │    └─ tryExpandJSDocMacros()          — /** @tag */ expansion (same dispatcher)
        ├─ TaggedTemplateExpression
        │    └─ tryExpandTaggedTemplate()       — tag`...` expansion
        ├─ TypeReference
@@ -130,6 +132,8 @@ For `CallExpression` nodes, the order of checks matters: expression macros are c
 | `tryTransform(node)`          | SyntaxKind switch routing to specific handlers     |
 | `tryExpandExpressionMacro()`  | Handles `macroName(args)` calls                    |
 | `tryExpandAttributeMacros()`  | Handles `@decorator` macros                        |
+| `tryExpandJSDocMacros()`      | Handles `/** @tag */` macros                       |
+| `expandAttributeSources()`    | The dispatcher both of the above share             |
 | `tryExpandTaggedTemplate()`   | Handles `` tag`...` `` macros                      |
 | `tryExpandTypeMacro()`        | Handles `TypeMacro<T>` references                  |
 | `visitStatementContainer()`   | Handles labeled block macros (`let: { }`)          |
@@ -223,23 +227,9 @@ packages/core/src/
 └── config.ts     # config.get(), defineConfig()
 ```
 
-**`src/core/` — Internal implementation (used by the legacy transformer)**
-
-This is consumed only by `src/transforms/macro-transformer.ts` and built-in macros in `src/macros/`. It has additional infrastructure not yet promoted to the public package:
-
-```
-src/core/
-├── types.ts        # Extended types (OPERATOR_SYMBOLS for @op validation)
-├── registry.ts     # Mirror of packages/core registry + standalone extensions
-├── context.ts      # MacroContextImpl (parallel implementation)
-├── hygiene.ts      # Lexical hygiene for generated identifiers
-├── cache.ts        # MacroExpansionCache for incremental builds
-├── pipeline.ts     # Composable macro pipelines
-├── capabilities.ts # MacroCapabilities, restricted contexts
-└── source-map.ts   # Expansion tracking for debugging
-```
-
-The two locations are a legacy artifact. The long-term goal is to consolidate everything into `packages/core/`.
+The rest of the infrastructure (`MacroContextImpl` in `context.ts`, hygiene, the expansion
+cache, pipelines, expansion tracking in `source-map.ts`) lives in the same package,
+`packages/core/src/`. There is no second, internal copy.
 
 ### MacroContext
 
@@ -340,7 +330,7 @@ if (!cached) {
 
 ---
 
-## 4. Quasiquoting (`src/macros/quote.ts`)
+## 4. Quasiquoting (`packages/macros/src/quote.ts`)
 
 The quasiquoting system provides AST construction via tagged templates, replacing verbose `ts.factory` calls.
 
@@ -386,7 +376,7 @@ const typeNode = quoteType(ctx)`Array<${elementType}>`;
 
 ---
 
-## 5. Typeclass System (`src/macros/typeclass.ts`)
+## 5. Typeclass System (`packages/macros/src/typeclass.ts`)
 
 The typeclass system implements Scala 3-style typeclasses with zero-cost specialization.
 
@@ -535,7 +525,7 @@ const arrayFunctor: Functor<ArrayF> = {
 
 Beyond the core typeclass and specialization macros, typesugar provides several additional macro subsystems.
 
-### Derive System (`src/macros/derive.ts`, `src/macros/custom-derive.ts`)
+### Derive System (`packages/macros/src/derive.ts`, `packages/macros/src/custom-derive.ts`)
 
 The derive system generates implementations from type structure, similar to Rust's `#[derive()]`.
 
@@ -564,7 +554,7 @@ defineFieldDerive("Validate", (field) => {
 });
 ```
 
-### Conditional Compilation (`src/macros/cfg.ts`)
+### Conditional Compilation (`packages/macros/src/cfg.ts`)
 
 Provides compile-time conditional code inclusion, similar to Rust's `#[cfg()]`:
 
@@ -575,9 +565,9 @@ const value = cfg("debug", debugImpl, releaseImpl);
 function experimentalFeature() { ... } // removed if condition is false
 ```
 
-The condition evaluator supports `&&`, `||`, `!`, `==`, `!=`, parentheses, and dotted config paths. Config values come from transformer options, environment variables (`TYPESUGAR_CFG_*`), and config files.
+The condition evaluator supports `&&`, `||`, `!`, `==`, `!=`, parentheses, and dotted config paths. Config values come from the transformer's `cfgConfig` option and from `TYPESUGAR_CFG_*` environment variables (`__` separates nesting levels). Unlike `config.when()`, `cfg()` does not read config files.
 
-### Pattern-Based Macros (`src/macros/syntax-macro.ts`) — experimental
+### Pattern-Based Macros (`packages/macros/src/syntax-macro.ts`) — experimental
 
 Implements a small Rust `macro_rules!`-style capture-and-template system for **expression** macros. Experimental: the API may change.
 
@@ -597,7 +587,7 @@ defineRewrite("double", "$x:expr", "($x) + ($x)");
 
 **Capture kinds:** `expr`, `ident`, `literal`, `type`. A pattern is a capture list matched positionally against the call's arguments (`"$a, $b"` or `"unless($a, $b)"`); other literal syntax and `stmts` captures are rejected when the macro is defined, and an arm matches only a call with exactly as many arguments. Captures are substituted as AST nodes (parenthesised as needed, macros inside them still expand). There is no hygiene for names the template introduces.
 
-### Reflection (`src/macros/reflect.ts`)
+### Reflection (`packages/macros/src/reflect.ts`)
 
 Compile-time type introspection:
 
@@ -611,7 +601,7 @@ const names = fieldNames<User>();  // ["name", "age"]
 const guard = validator<User>();   // runtime type guard function
 ```
 
-### Tail-Call Optimization (`src/macros/tailrec.ts`)
+### Tail-Call Optimization (`packages/macros/src/tailrec.ts`)
 
 Transforms tail-recursive functions into `while(true)` loops:
 
@@ -628,7 +618,7 @@ The macro validates that all recursive calls are in tail position (following Sca
 
 Only named `function` declarations are supported — not arrow functions, function expressions or methods. Tail positions are `return f(...)` (also inside loops, `switch` clauses, ternaries, `||`/`&&`/`??` right-hand sides and comma expressions) and a final `f(...);` statement in a function that returns no value. Optional, defaulted and rest parameters behave exactly as in a real call (an omitted argument gets its default again). Shapes the loop can't preserve — destructured parameters, `arguments`, `var`, generators, calls inside `try`/`catch`/`finally` or nested functions — are reported as errors and the function is left unoptimised.
 
-### Compile-Time Evaluation (`src/macros/comptime.ts`)
+### Compile-Time Evaluation (`packages/macros/src/comptime.ts`)
 
 ```typescript
 const result = comptime(() => fibonacci(10)); // inlined as 55
@@ -639,7 +629,7 @@ The evaluator uses a two-tier approach:
 1. **AST evaluator** — Direct SyntaxKind-based dispatch for simple expressions (literals, binary ops, arrays, objects, conditionals)
 2. **VM fallback** — For complex expressions, transpiles TypeScript to JavaScript and runs in a sandboxed Node `vm` module with safe built-ins (Math, JSON, Array, etc.) and a 5-second timeout
 
-### Macro Pipelines (`src/core/pipeline.ts`)
+### Macro Pipelines (`packages/core/src/pipeline.ts`)
 
 Chain transformations into a registered macro:
 
@@ -651,30 +641,7 @@ pipeline("myMacro", "my-module")
   .build(); // registers as ExpressionMacro
 ```
 
-### Capability Restrictions (`src/core/capabilities.ts`) — experimental, not enforced
-
-> **Not wired in 1.0.** Macro definitions have no `capabilities` field and the
-> transformer never wraps `ctx` in `createRestrictedContext()`, so none of the
-> restrictions below apply to any macro today. `needsFileSystem` is not read
-> anywhere: there is no file-system restriction even in the proxy. See
-> SECURITY-REVIEW.md F4.
-
-Intended design: declarative permissions for macros to limit what they can access:
-
-```typescript
-const caps: MacroCapabilities = {
-  needsTypeChecker: true,
-  needsFileSystem: false, // not enforced: nothing reads this flag
-  needsProjectIndex: false, // blocks program-wide queries (when the proxy is applied)
-  canEmitDiagnostics: true,
-  maxTimeout: 5000,
-};
-const restricted = createRestrictedContext(ctx, caps, "myMacro");
-```
-
-`createRestrictedContext()` wraps `MacroContext` in a Proxy that throws on unauthorized access, but only when a caller applies it, and no caller does yet.
-
-### Expansion Tracking (`src/core/source-map.ts`)
+### Expansion Tracking (`packages/core/src/source-map.ts`)
 
 Records macro expansions for source maps and debugging:
 
@@ -887,7 +854,7 @@ This section documents known limitations and planned enhancements.
 3. `CompilerHost.readFile()` checks cache, preprocesses on miss
 4. Watch mode: invalidate cache entry when source file's mtime changes
 
-**Complexity:** Medium — can reuse `MacroExpansionCache` infrastructure from `src/core/cache.ts`.
+**Complexity:** Medium — can reuse `MacroExpansionCache` infrastructure from `packages/core/src/cache.ts`.
 
 See `docs/PLAN-implicit-operators.md` for the detailed implementation plan.
 

@@ -96,7 +96,7 @@ typos. The tag covers every name the import declaration binds, so keep extension
 an import of their own. It works on named and default imports; `import * as X` needs none (the namespace
 import is the opt-in), and neither does a typeclass instance declared with an `/** @impl */` tag
 (it supplies its methods for its own type). An instance made by an
-`impl(...)` or `derived<TC<T>>()` call does need the tag: a published `.d.ts` shows it as a plain
+`derived<TC<T>>()` call does need the tag: a published `.d.ts` shows it as a plain
 `TC<T>` value, so it would otherwise work from source and stop working from `dist/`.
 `"use extension"`, an `@extension` namespace and `registerExtensions()` in the providing module
 do not stand in for the tag either, for the same reason, and the tag keeps the decision next to
@@ -226,7 +226,7 @@ import {
 (1).to(10).filter((n) => n % 2 === 0); // [2, 4, 6, 8, 10]
 ```
 
-A `Range` is a plain `{ start, end, step, inclusive }` object, so it doesn't allocate an array
+A `Range` is a plain `{ start, end, stride, inclusive }` object, so it doesn't allocate an array
 until you call `.toArray()`, `.map()` or `.filter()`. It is not iterable: use `.forEach()` or
 `.toArray()` rather than `for...of`.
 

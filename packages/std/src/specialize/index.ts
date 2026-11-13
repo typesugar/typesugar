@@ -11,7 +11,7 @@
  * instances auto-specializes the call, eliminating dictionary passing:
  *
  * ```typescript
- * import { stdFlatMapArray, stdFlatMapPromise } from "@typesugar/std/specialize";
+ * import { stdFlatMapArray, stdFlatMapPromise } from "@typesugar/std";
  *
  * // Generic function using FlatMap
  * function double<F>(F: FlatMap<F>, fa: Kind<F, number>): Kind<F, number> {

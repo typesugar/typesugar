@@ -96,7 +96,7 @@ An imported object or namespace member is an extension provider only if:
   import is itself the statement "I want this module's functions"); or
 - **(c)** it is declared as a typeclass instance in a form a published `.d.ts` keeps: an
   `@impl`/`@instance` JSDoc tag, for receivers of its own type (`instancesServeReceiver`; the identity check is unchanged). An instance
-  exists to supply its methods, so it needs no tag. An instance made by an `impl(...)` or
+  exists to supply its methods, so it needs no tag. An instance made by a
   `derived<TC<T>>()` call needs the tag: declaration emit erases the call, and the `.d.ts`
   shows a plain `TC<T>` annotation, so it would supply methods from source and not from
   `dist/` (the split the next section rejects for declaration markers; found in the
@@ -249,7 +249,7 @@ at all.
   member whose parameter happens to fit.
 - **Declaration-side opt-in** (`"use extension"`/`@extension` on the object): does not
   survive into `.d.ts` (above).
-- **Untagged `impl(...)`/`derived<TC<T>>()` instances as providers**: the call is erased
+- **Untagged `derived<TC<T>>()` instances as providers**: the call is erased
   from the `.d.ts` (above). Emitting a `/** @impl */` comment into declarations would keep
   them; not done, since the tag at the import already covers it.
 

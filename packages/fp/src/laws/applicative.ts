@@ -44,7 +44,7 @@ export function applyLaws<F, A>(Ap: Apply<F>, EqFA: EqFA<F, A>): LawSet {
         const compose = (bc: (a: A) => A) => (ab: (a: A) => A) => (a: A) => bc(ab(a));
         const left = Ap.ap(Ap.ap(Ap.map(fbc, compose), fab), fa);
         const right = Ap.ap(fbc, Ap.ap(fab, fa));
-        return EqFA.eqv(left, right);
+        return EqFA.equals(left, right);
       },
     },
   ] as unknown as LawSet;
@@ -72,7 +72,7 @@ export function applicativeLaws<F, A>(Ap: Applicative<F>, EqFA: EqFA<F, A>): Law
       proofHint: "identity-left",
       description: "pure identity is identity: F.ap(F.pure(a => a), fa) === fa",
       check: (fa: Kind<F, A>): boolean =>
-        EqFA.eqv(
+        EqFA.equals(
           Ap.ap(
             Ap.pure((a: A) => a),
             fa
@@ -86,14 +86,14 @@ export function applicativeLaws<F, A>(Ap: Applicative<F>, EqFA: EqFA<F, A>): Law
       proofHint: "homomorphism",
       description: "pure distributes over ap: F.ap(F.pure(f), F.pure(a)) === F.pure(f(a))",
       check: (a: A, f: (a: A) => A): boolean =>
-        EqFA.eqv(Ap.ap(Ap.pure(f), Ap.pure(a)), Ap.pure(f(a))),
+        EqFA.equals(Ap.ap(Ap.pure(f), Ap.pure(a)), Ap.pure(f(a))),
     },
     {
       name: "interchange",
       arity: 2,
       description: "interchange: F.ap(ff, F.pure(a)) === F.ap(F.pure(f => f(a)), ff)",
       check: (a: A, ff: Kind<F, (a: A) => A>): boolean =>
-        EqFA.eqv(
+        EqFA.equals(
           Ap.ap(ff, Ap.pure(a)),
           Ap.ap(
             Ap.pure((f: (a: A) => A) => f(a)),
@@ -106,7 +106,7 @@ export function applicativeLaws<F, A>(Ap: Applicative<F>, EqFA: EqFA<F, A>): Law
       arity: 2,
       description: "map via ap: F.map(fa, f) === F.ap(F.pure(f), fa)",
       check: (fa: Kind<F, A>, f: (a: A) => A): boolean =>
-        EqFA.eqv(Ap.map(fa, f), Ap.ap(Ap.pure(f), fa)),
+        EqFA.equals(Ap.map(fa, f), Ap.ap(Ap.pure(f), fa)),
     },
   ] as unknown as LawSet;
 }

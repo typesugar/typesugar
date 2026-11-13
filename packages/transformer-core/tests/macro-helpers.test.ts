@@ -93,7 +93,7 @@ function withCtx(
 }
 
 // ---------------------------------------------------------------------------
-// JSDOC_MACRO_TAGS map
+// JSDOC_MACRO_TAGS set
 // ---------------------------------------------------------------------------
 
 describe("JSDOC_MACRO_TAGS", () => {
@@ -102,8 +102,6 @@ describe("JSDOC_MACRO_TAGS", () => {
     expect(JSDOC_MACRO_TAGS.has("impl")).toBe(true);
     expect(JSDOC_MACRO_TAGS.has("instance")).toBe(true);
     expect(JSDOC_MACRO_TAGS.has("deriving")).toBe(true);
-    expect(JSDOC_MACRO_TAGS.has("operators")).toBe(true);
-    expect(JSDOC_MACRO_TAGS.has("operator")).toBe(true);
     expect(JSDOC_MACRO_TAGS.has("extension")).toBe(true);
     expect(JSDOC_MACRO_TAGS.has("reflect")).toBe(true);
     expect(JSDOC_MACRO_TAGS.has("hkt")).toBe(true);
@@ -113,12 +111,10 @@ describe("JSDOC_MACRO_TAGS", () => {
     expect(JSDOC_MACRO_TAGS.has("param")).toBe(false);
     expect(JSDOC_MACRO_TAGS.has("returns")).toBe(false);
     expect(JSDOC_MACRO_TAGS.has("deprecated")).toBe(false);
-  });
-
-  it("maps each tag to its canonical macro name", () => {
-    for (const [tag, macroName] of JSDOC_MACRO_TAGS) {
-      expect(macroName).toBe(tag);
-    }
+    // No attribute macro is named either; operator syntax is activated by
+    // `@syntax-operators` markers, not by a JSDoc macro tag.
+    expect(JSDOC_MACRO_TAGS.has("operators")).toBe(false);
+    expect(JSDOC_MACRO_TAGS.has("operator")).toBe(false);
   });
 });
 
