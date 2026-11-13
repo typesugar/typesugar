@@ -386,11 +386,12 @@ class MacroTransformer {
       methodCache.set(methodName, result);
     }
     // Per call site, after the per-type cache: a local that shadows the
-    // import here would be what the rewritten call names. A call a macro
-    // rebuilt with no parse-tree node has no scope of its own: the file's
-    // top level is asked instead (as isExtensionCalleeBound does).
+    // import here would be what the rewritten call names. Asked at the
+    // call's parse-tree node: a call rebuilt by `factory.update*` has no
+    // parent chain of its own, and one a macro built from scratch has no
+    // parse-tree node, so the file's top level is asked instead.
     if (result) {
-      const location: ts.Node = ts.getParseTreeNode(node) ? node : sourceFile;
+      const location: ts.Node = ts.getParseTreeNode(node) ?? sourceFile;
       try {
         if (!isImportExtensionInScopeAt(this.ctx.typeChecker, location, result)) return undefined;
       } catch (error) {

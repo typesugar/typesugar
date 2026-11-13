@@ -293,9 +293,11 @@ export function extensionImportUses(
    * A receiver still `any`/`never` is skipped, as the rewrite skips it
    * (`isTypeReliable`): `any` accepts every first parameter, so a declared
    * `any` value would otherwise make every provider "used". The exception is
-   * a call receiver this can't recover but the rewrite may (typeclass method
-   * sugar, `p.clone().shout()`): every match then counts, so `check` doesn't
-   * fail on code the build compiles (it may hide a real unused import there).
+   * a method call receiver whose method is not a member of ITS receiver,
+   * which this can't recover but the rewrite may (typeclass method sugar,
+   * `p.clone().shout()`): every match then counts, so `check` doesn't fail on
+   * code the build compiles (it may hide a real unused import there). A call
+   * that returns a declared `any` (`JSON.parse(s).info()`) is skipped.
    */
   const decide = (callee: ts.PropertyAccessExpression, depth: number): Decision => {
     const cached = decided.get(callee);
@@ -305,14 +307,16 @@ export function extensionImportUses(
     if (!(receiver.type.flags & unreliable)) {
       const matches = matchesFor(callee.name.text, receiver.type);
       const { match, ambiguous } = chooseExtensionMatch(matches);
-      if (match && isImportExtensionInScopeAt(checker, callee, match.ext)) {
-        decision = {
-          used: ambiguous
-            ? matches.filter((m) => isImportExtensionInScopeAt(checker, callee, m.ext))
-            : [match],
-          returns: returnTypeOf(match, receiver.type),
-        };
-      }
+      const chosen =
+        match && isImportExtensionInScopeAt(checker, callee, match.ext) ? match : undefined;
+      decision = {
+        used: ambiguous
+          ? matches.filter((m) => isImportExtensionInScopeAt(checker, callee, m.ext))
+          : chosen
+            ? [chosen]
+            : [],
+        returns: chosen ? returnTypeOf(chosen, receiver.type) : undefined,
+      };
     } else if (receiver.unrecoveredCall) {
       decision = {
         used: matchesFor(callee.name.text, receiver.type).filter((m) =>
@@ -329,8 +333,9 @@ export function extensionImportUses(
    * (transformer-core `inferSugaredExpressionType`): an extension call's
    * provider return type, through parentheses and through an un-annotated
    * variable of this file it initialises (`const r = (1).to(5); r.rev()`).
-   * `unrecoveredCall`: the type stayed unreliable at a call this doesn't
-   * model (typeclass method sugar), which the rewrite may still recover.
+   * `unrecoveredCall`: the type stayed unreliable at a method call whose
+   * method its receiver lacks, which this doesn't model (typeclass method
+   * sugar) and the rewrite may still recover.
    */
   const receiverTypeOf = (
     expr: ts.Expression,
@@ -339,11 +344,14 @@ export function extensionImportUses(
     const type = checker.getTypeAtLocation(expr);
     if (!(type.flags & unreliable) || depth >= 32) return { type, unrecoveredCall: false };
     if (ts.isParenthesizedExpression(expr)) return receiverTypeOf(expr.expression, depth + 1);
-    if (ts.isCallExpression(expr)) {
-      const returns = ts.isPropertyAccessExpression(expr.expression)
-        ? decide(expr.expression, depth + 1).returns
-        : undefined;
-      return returns ? { type: returns, unrecoveredCall: false } : { type, unrecoveredCall: true };
+    if (ts.isCallExpression(expr) && ts.isPropertyAccessExpression(expr.expression)) {
+      const inner = expr.expression;
+      const returns = decide(inner, depth + 1).returns;
+      if (returns) return { type: returns, unrecoveredCall: false };
+      const own = checker
+        .getApparentType(checker.getTypeAtLocation(inner.expression))
+        .getProperty(inner.name.text);
+      return { type, unrecoveredCall: own === undefined };
     }
     if (ts.isIdentifier(expr)) {
       const decl = checker.getSymbolAtLocation(expr)?.valueDeclaration;
@@ -491,10 +499,14 @@ export function isImportExtensionInScopeAt(
   ext: StandaloneExtensionInfo
 ): boolean {
   if (isSyntheticNode(location)) return true;
+  // A node with no parent chain (rebuilt by `factory.update*`) has no scope
+  // the checker can be asked about either; the file's top level has the import.
+  const sf = location.getSourceFile() as ts.SourceFile | undefined;
+  if (!sf) return true;
   const rootName = ext.qualifier ?? ext.methodName;
   // Cheap first: only a non-import declaration of that name somewhere in the
   // file can shadow the import (a scope query copies every global).
-  if (!nonImportDeclaredNames(location.getSourceFile()).has(rootName)) return true;
+  if (!nonImportDeclaredNames(sf).has(rootName)) return true;
   const sym = checker
     .getSymbolsInScope(location, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
     .find((s) => s.getName() === rootName);
@@ -511,6 +523,12 @@ const declaredNamesCache = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
  * and binding patterns, parameters, functions, classes, enums, namespaces,
  * `import x =`). Syntax only, and a superset: a name in it may shadow an
  * import somewhere, which the caller then asks the checker about.
+ *
+ * Shape (CLAUDE.md "Resolving things a macro just generated"): a scan of the
+ * file as parsed, cached per SourceFile. A declaration a macro synthesizes
+ * mid-pass is not in it; that is safe here, since the question is whether
+ * the USER's code shadows an import at a call the user wrote, and the
+ * checker (the slow path) can't see synthesized declarations either.
  */
 function nonImportDeclaredNames(sf: ts.SourceFile): ReadonlySet<string> {
   let names = declaredNamesCache.get(sf);
@@ -547,9 +565,9 @@ function nonImportDeclaredNames(sf: ts.SourceFile): ReadonlySet<string> {
  * callee, the qualifier or the bare function name, must be in scope there
  * and have the member or be callable. And it must be the registered
  * declaration, not whatever has that name: the value in scope is declared
- * in the file that registered the entry (`declaringFile`, when the entry
- * has one), so a global `escape` never stands in for an `@extension`
- * function `escape` registered by another file.
+ * at module level of the file that registered the entry (`declaringFile`,
+ * when the entry has one), so neither a global `escape` nor a parameter
+ * named `clamp` stands in for the registered `@extension` function.
  *
  * A name in scope that is an import binding does not count: an import
  * supplies extensions only through {@link findImportedExtensionMatches}
@@ -576,7 +594,9 @@ export function isRegistryExtensionCalleeBound(
   const declaringFile = ext.declaringFile;
   if (
     declaringFile !== undefined &&
-    !sym.declarations?.some((d) => d.getSourceFile().fileName === declaringFile)
+    !sym.declarations?.some(
+      (d) => sameFileName(d.getSourceFile().fileName, declaringFile) && isModuleLevelDeclaration(d)
+    )
   ) {
     return false;
   }
@@ -585,6 +605,29 @@ export function isRegistryExtensionCalleeBound(
   return ext.qualifier !== undefined
     ? type.getProperty(ext.methodName) !== undefined
     : type.getCallSignatures().length > 0;
+}
+
+/**
+ * Is `decl` declared at module level (the file's top level, or inside a
+ * namespace), where an `@extension` or a `registerExtensions` target is,
+ * rather than a parameter or a local of a function body?
+ */
+function isModuleLevelDeclaration(decl: ts.Node): boolean {
+  for (let n = decl.parent; n; n = n.parent) {
+    if (ts.isSourceFile(n)) return true;
+    if (ts.isFunctionLike(n) || ts.isBlock(n) || ts.isClassLike(n)) return false;
+  }
+  return false;
+}
+
+/** Two file names for one file: separators unified, case folded on a case-insensitive host. */
+function sameFileName(a: string, b: string): boolean {
+  const caseSensitive = ts.sys?.useCaseSensitiveFileNames ?? true;
+  const norm = (f: string) => {
+    const unified = f.split("\\").join("/");
+    return caseSensitive ? unified : unified.toLowerCase();
+  };
+  return norm(a) === norm(b);
 }
 
 /**

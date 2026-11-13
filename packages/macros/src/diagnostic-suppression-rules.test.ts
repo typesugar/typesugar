@@ -1441,6 +1441,15 @@ describe("ExtensionImport — an import that serves extension calls is not unuse
     expect(r.kept).toEqual(['import { shout } from "./ext";']);
   });
 
+  it("keeps the report when the only call's receiver is a call returning a declared any", () => {
+    // JSON-style: the method exists on its receiver, so the any is declared,
+    // not an extension call the rewrite might still recover.
+    const r = unused(
+      `/** @extension */\nimport { log } from "./ext";\ndeclare const J: { parse(s: string): any };\nexport const z = J.parse("1").info();\n`
+    );
+    expect(r.kept).toHaveLength(1);
+  });
+
   it("keeps the report when a local shadows the import at the only call", () => {
     const r = unused(
       `/** @extension */\nimport { log } from "./ext";\nexport function f() {\n  const log = { info: (_: unknown) => "local" };\n  return ({ id: 1 } as { id: number }).info();\n}\n`

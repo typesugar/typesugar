@@ -175,6 +175,28 @@ const result = (42).clamp(0, 100);`,
       expect(evaluateDiagnosticSuppression(ts2339[0], checker, ts2339[0].file!)).toBe(false);
     });
 
+    it("does NOT suppress when only a parameter of the registering file has the name", () => {
+      registerStandaloneExtensionEntry({
+        methodName: "clamp",
+        forType: "number",
+        qualifier: undefined,
+        declaringFile: "/test.ts",
+      });
+
+      const rule = createExtensionMethodCallRule();
+      registerDiagnosticSuppressionRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/test.ts": `export function f(clamp: (n: number) => number, n: number) {
+  return n.clamp(0, 1);
+}`,
+      });
+
+      const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
+      expect(ts2339.length).toBeGreaterThan(0);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, ts2339[0].file!)).toBe(false);
+    });
+
     it("does NOT suppress a qualified registered extension reached through an untagged import", () => {
       // PEP-064: an imported object supplies members only through the import
       // decision; a registry entry for its name doesn't make it a provider.
@@ -487,7 +509,7 @@ const result = (42).isEven();`,
       expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
     });
 
-    it("handles property access without call (still suppresses)", () => {
+    it("does NOT suppress a property read: the rewrite handles calls only", () => {
       registerStandaloneExtensionEntry({
         methodName: "doubled",
         forType: "number",
@@ -498,7 +520,7 @@ const result = (42).isEven();`,
       registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
-        // Property access without call — still TS2339
+        // Property access without call: the build leaves it, so TS2339 stands
         "/test.ts": `declare function doubled(n: number): number;
 const fn = (42).doubled;`,
       });
@@ -507,7 +529,7 @@ const fn = (42).doubled;`,
       expect(ts2339.length).toBeGreaterThan(0);
 
       const sourceFile = ts2339[0].file!;
-      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(false);
     });
   });
 });
