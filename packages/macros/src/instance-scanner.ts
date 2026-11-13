@@ -41,8 +41,13 @@ export interface ScannedInstance {
   exportName: string;
   /** Resolved file path of the source module */
   sourceModule: string;
-  /** How this instance was detected */
-  detectedVia: "impl-tag" | "type-annotation" | "derived" | "derived-call";
+  /**
+   * How this instance was detected: an `@impl`/`@instance` JSDoc tag
+   * (survives declaration emit), an `impl(...)`/`instance(...)` call or a
+   * `derived<TC<T>>()` call (source only: the `.d.ts` shows a `TC<T>`
+   * annotation), a `TC<T>` annotation, or a `@derive` companion.
+   */
+  detectedVia: "impl-tag" | "impl-call" | "type-annotation" | "derived" | "derived-call";
   /** Do-notation emission metadata from a `@do-methods` JSDoc tag, if present */
   doMeta?: DoNotationMeta;
   /**
@@ -614,7 +619,7 @@ export class InstanceScanner {
             forType: resolveTypeString(typeChecker, parsed.args, stmtNode, this.checkerFailed),
             exportName,
             sourceModule: resolvedPath,
-            detectedVia: "impl-tag",
+            detectedVia: "impl-call",
           };
           if (doMeta) callResult.doMeta = doMeta;
           callResult.origin = varDecl;

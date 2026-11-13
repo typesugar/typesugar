@@ -1424,6 +1424,32 @@ describe("ExtensionImport — an import that serves extension calls is not unuse
     };
   }
 
+  it("hides one report over a declaration split between a @derive tag and an extension call", () => {
+    // TS6192 covers both bindings; JSDocDeriveImport alone needs every
+    // binding to be a derive name, this rule alone every binding to serve a call.
+    const r = unused(
+      `import { other, shout } from "./ext";\n/** @derive(other) */\nexport interface P { x: number }\nexport const z = "hi".shout();\n`
+    );
+    expect(r.codes).toContain(6192);
+    expect(r.kept).toEqual([]);
+  });
+
+  it("keeps the report when the only call has an any receiver (the rewrite skips it)", () => {
+    const r = unused(
+      `import { shout } from "./ext";\ndeclare const j: any;\nexport const z = j.shout();\n`
+    );
+    expect(r.kept).toEqual(['import { shout } from "./ext";']);
+  });
+
+  it("keeps the report when a local shadows the import at the only call", () => {
+    const r = unused(
+      `/** @extension */\nimport { log } from "./ext";\nexport function f() {\n  const log = { info: (_: unknown) => "local" };\n  return ({ id: 1 } as { id: number }).info();\n}\n`
+    );
+    // The import, and the (really unused) local.
+    expect(r.kept).toContain("log");
+    expect(r.kept).toHaveLength(2);
+  });
+
   it("hides the report for a function import used only as an extension", () => {
     const r = unused(`import { shout } from "./ext";\nexport const z = "hi".shout();\n`);
     expect(r.codes.length).toBeGreaterThan(0);

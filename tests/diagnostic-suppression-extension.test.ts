@@ -103,7 +103,7 @@ describe("ExtensionMethodCall diagnostic suppression rule", () => {
       const rule = createExtensionMethodCallRule();
       expect(rule.name).toBe("ExtensionMethodCall");
       // TS2339 for the call, TS7006 for an untyped callback parameter of it
-      expect(rule.errorCodes).toEqual([2339, 7006]);
+      expect(rule.errorCodes).toEqual([2339, 2551, 7006]);
     });
   });
 
@@ -119,8 +119,10 @@ describe("ExtensionMethodCall diagnostic suppression rule", () => {
       const rule = createExtensionMethodCallRule();
       registerDiagnosticSuppressionRule(rule);
 
+      // The rewrite emits `NumberExt.clamp(42, 0, 100)`, so NumberExt must be in scope.
       const { checker, diagnostics } = createProgram({
-        "/test.ts": `const result = (42).clamp(0, 100);`,
+        "/test.ts": `declare const NumberExt: { clamp(n: number, lo: number, hi: number): number };
+const result = (42).clamp(0, 100);`,
       });
 
       const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
@@ -143,7 +145,8 @@ describe("ExtensionMethodCall diagnostic suppression rule", () => {
       registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
-        "/test.ts": `const result = (42).clamp(0, 100);`,
+        "/test.ts": `declare function clamp(n: number, lo: number, hi: number): number;
+const result = (42).clamp(0, 100);`,
       });
 
       const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
@@ -151,6 +154,48 @@ describe("ExtensionMethodCall diagnostic suppression rule", () => {
 
       const sourceFile = ts2339[0].file!;
       expect(evaluateDiagnosticSuppression(ts2339[0], checker, sourceFile)).toBe(true);
+    });
+
+    it("does NOT suppress a registered extension whose callee is not in scope (the rewrite skips it)", () => {
+      registerStandaloneExtensionEntry({
+        methodName: "clamp",
+        forType: "number",
+        qualifier: undefined,
+      });
+
+      const rule = createExtensionMethodCallRule();
+      registerDiagnosticSuppressionRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/test.ts": `const result = (42).clamp(0, 100);`,
+      });
+
+      const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
+      expect(ts2339.length).toBeGreaterThan(0);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, ts2339[0].file!)).toBe(false);
+    });
+
+    it("does NOT suppress a qualified registered extension reached through an untagged import", () => {
+      // PEP-064: an imported object supplies members only through the import
+      // decision; a registry entry for its name doesn't make it a provider.
+      registerStandaloneExtensionEntry({
+        methodName: "clamp",
+        forType: "number",
+        qualifier: "NumberExt",
+      });
+
+      const rule = createExtensionMethodCallRule();
+      registerDiagnosticSuppressionRule(rule);
+
+      const { checker, diagnostics } = createProgram({
+        "/ext.ts": `export const NumberExt = { clamp(n: number, lo: number, hi: number): number { return n; } };`,
+        "/test.ts": `import { NumberExt } from "./ext";
+const result = (42).clamp(0, 100);`,
+      });
+
+      const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
+      expect(ts2339.length).toBeGreaterThan(0);
+      expect(evaluateDiagnosticSuppression(ts2339[0], checker, ts2339[0].file!)).toBe(false);
     });
 
     it("does NOT suppress TS2339 for unregistered methods (no false positives)", () => {
@@ -335,7 +380,8 @@ const result = (42).clamp(0, 100);`,
       registerDiagnosticSuppressionRule(rule);
 
       const { program, checker, diagnostics } = createProgram({
-        "/test.ts": `const result = (42).clamp(0, 100);`,
+        "/test.ts": `declare function clamp(n: number, lo: number, hi: number): number;
+const result = (42).clamp(0, 100);`,
       });
 
       const fileDiags = getDiagnosticsForFile(diagnostics, "/test.ts");
@@ -407,7 +453,8 @@ const bad: string = undeclaredVar;`,
       registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
-        "/test.ts": `const result = "hello".capitalize();`,
+        "/test.ts": `declare function capitalize(s: string): string;
+const result = "hello".capitalize();`,
       });
 
       const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
@@ -429,7 +476,8 @@ const bad: string = undeclaredVar;`,
       registerDiagnosticSuppressionRule(rule);
 
       const { checker, diagnostics } = createProgram({
-        "/test.ts": `const result = (42).isEven();`,
+        "/test.ts": `declare function isEven(n: number): boolean;
+const result = (42).isEven();`,
       });
 
       const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");
@@ -451,7 +499,8 @@ const bad: string = undeclaredVar;`,
 
       const { checker, diagnostics } = createProgram({
         // Property access without call — still TS2339
-        "/test.ts": `const fn = (42).doubled;`,
+        "/test.ts": `declare function doubled(n: number): number;
+const fn = (42).doubled;`,
       });
 
       const ts2339 = getTS2339Diagnostics(diagnostics, "/test.ts");

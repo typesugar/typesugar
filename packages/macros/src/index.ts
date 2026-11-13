@@ -301,6 +301,8 @@ export { getDoInstanceModule } from "./do-instance-index.js";
 export {
   findImportedExtensionMatches,
   hasExtensionImportTag,
+  isRegistryExtensionCalleeBound,
+  isImportExtensionInScopeAt,
   extensionImportUses,
   chooseExtensionMatch,
   importClauseBindings,
@@ -310,7 +312,6 @@ export {
   hasExtensionDecorator,
   isDefaultLibMember,
   isGlobalAugmentationStub,
-  instanceServesReceiver,
   type ExtensionImportEnv,
   type ImportedExtensionMatch,
 } from "./extension-imports.js";

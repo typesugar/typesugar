@@ -276,6 +276,113 @@ console.log(user.info());
   });
 });
 
+// The Wave 1 review cases: check reports what build leaves as written, or
+// hides only what build rewrites.
+describe.skipIf(!hasBuild)("PEP-064: check agrees with build on the review cases", () => {
+  let dir: string;
+  let check = "";
+  beforeAll(() => {
+    dir = makeProject({
+      "src/logger.ts":
+        LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+      // Type-only bindings are erased from the emit: never providers.
+      "src/t1.ts": `/** @extension */
+import type { log } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info());
+`,
+      "src/t2.ts": `/** @extension */
+import { type log } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info());
+`,
+      "src/t3.ts": `import type * as L from "./logger.js";
+console.log("hi".shout());
+`,
+      "src/t4.ts": `import type { shout } from "./logger.js";
+console.log("hi".shout());
+`,
+      // impl(...) reads as a plain annotation in a .d.ts: untagged, not a provider.
+      "src/tc.ts": `/** @typeclass */
+export interface Describe<A> { describe(a: A): string }
+export interface Color { r: number }
+`,
+      "src/inst.ts": `import type { Color } from "./tc.js";
+function impl<T>(_spec: string, o: T): T { return o; }
+export const describeColor = impl("Describe<Color>", { describe: (c: Color) => "rgb " + c.r });
+`,
+      "src/i1.ts": `import { describeColor } from "./inst.js";
+import type { Color } from "./tc.js";
+const c: Color = { r: 1 };
+console.log(c.describe());
+`,
+      // A scope opted out of extensions: the rewrite leaves the call.
+      "src/o1.ts": `/** @extension */
+import { log } from "./logger.js";
+const user = { id: 1 };
+function f() {
+  "use no typesugar extensions";
+  return user.info();
+}
+console.log(f(), user.info());
+`,
+      // A local that shadows the import at the call: the rewrite would call it.
+      "src/s1.ts": `/** @extension */
+import { log } from "./logger.js";
+import { shout } from "./logger.js";
+const user = { id: 1 };
+function f() {
+  const log = { other: 1 };
+  const shout = 2;
+  return [user.info(), "hi".shout(), log, shout];
+}
+console.log(f(), user.info(), "x".shout());
+`,
+      // A registry entry for an imported object (registerExtensions), untagged.
+      "src/ns.ts": `export const NumberExt = { clampTo(n: number, hi: number): number { return Math.min(hi, n); } };\n`,
+      "src/n1.ts": `import { registerExtensions } from "@typesugar/macros";
+import { NumberExt } from "./ns.js";
+registerExtensions("number", NumberExt);
+console.log((42).clampTo(10));
+`,
+      // TS2551 ("did you mean 'infos'?") on a call the build rewrites.
+      "src/d1.ts": `/** @extension */
+import { log } from "./logger.js";
+const user = { id: 1, infos: 2 };
+console.log(user.info());
+`,
+    });
+    dirs.push(dir);
+    check = cli(dir, "check").output;
+  });
+
+  it.each([
+    ["t1", 4, "import type { log } with the tag"],
+    ["t2", 4, "import { type log } with the tag"],
+    ["t3", 2, "import type * as L"],
+    ["t4", 2, "import type { shout } (a bare function)"],
+    ["i1", 4, "an untagged impl(...) instance"],
+    ["o1", 6, "a call in a scope opted out of extensions"],
+    ["s1", 8, "an object import shadowed by a local"],
+    ["s1", 8, "a function import shadowed by a local"],
+    ["n1", 4, "an untagged import registered with registerExtensions"],
+  ])("%s.ts line %i: %s is reported (TS2339)", (file, line) => {
+    expect(check).toMatch(new RegExp(`${file}\\.ts\\(${line},\\d+\\): error TS2339`));
+  });
+
+  it("the unshadowed and opted-in calls are rewritten, and the build output runs", () => {
+    expect(check).not.toMatch(/o1\.ts\(8,\d+\): error/);
+    expect(check).not.toMatch(/s1\.ts\(10,\d+\): error/);
+    expect(check).not.toMatch(/d1\.ts\(\d+,\d+\): error/);
+    cli(dir, "build");
+    const d1 = fs.readFileSync(path.join(dir, "out", "d1.js"), "utf-8");
+    expect(d1).toContain("log.info(user)");
+    const r = run(dir, "d1.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('info {"id":1,"infos":2}\n');
+  });
+});
+
 describe.skipIf(!hasBuild)("PEP-064 Wave 2: extension imports under noUnusedLocals", () => {
   // TypeScript doesn't count an extension call as a use of its import, so a
   // bare function (`"hi".shout()`) or a tagged object (`user.info()`) used
@@ -344,6 +451,18 @@ import { MkOps } from "./pairs.js";
 import { RevOps } from "./pairs.js";
 console.log(JSON.stringify((1).to(5).rev()));
 `,
+        // A receiver that is a variable bound to an extension call: the
+        // rewrite recovers its type (Pair), so RevOps serves it, StrOps not.
+        "src/strs.ts": `export const StrOps = { rev(s: string): string { return [...s].reverse().join(""); } };\n`,
+        "src/var.ts": `/** @extension */
+import { MkOps } from "./pairs.js";
+/** @extension */
+import { RevOps } from "./pairs.js";
+/** @extension */
+import { StrOps } from "./strs.js";
+const r = (1).to(5);
+console.log(JSON.stringify(r.rev()));
+`,
         // The same export reached two ways: the rewrite uses the bare name,
         // so the namespace import is really unused.
         "src/twice.ts": `import { shout } from "./logger.js";
@@ -374,6 +493,15 @@ export const f = () => ({ id: 1 }).info();
     const b = cli(dir, "build");
     expect(b.output).not.toMatch(/chain\.ts/);
     const r = run(dir, "chain.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('{"a":5,"b":1}\n');
+  });
+
+  it("a receiver bound to an extension call: only the provider the rewrite picks is used", () => {
+    expect(check).toMatch(/var\.ts\(6,\d+\): error TS6133/);
+    expect(check).not.toMatch(/var\.ts\([1-4],\d+\): error/);
+    cli(dir, "build");
+    const r = run(dir, "var.js");
     expect(r.status, r.output).toBe(0);
     expect(r.output).toBe('{"a":5,"b":1}\n');
   });

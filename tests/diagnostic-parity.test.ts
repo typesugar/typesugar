@@ -156,6 +156,7 @@ const d = m + m;
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
+declare function clamp(n: number, lo: number, hi: number): number;
 const x: number = 5;
 const y = x.clamp(0, 10);
 `,

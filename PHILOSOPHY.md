@@ -496,18 +496,19 @@ directive in the module's source is not in its published `.d.ts`.
 
 **2. Registry-based extensions** — For `@extension`-decorated functions and `@typesugar/std` built-ins.
 
-The `@extension` decorator registers a function in a global compile-time registry. Once registered, the extension is available to all files in the compilation without requiring an import:
+The `@extension` decorator registers a function in a global compile-time registry, keyed by method name and receiver type. The rewrite injects no import, so a registered extension is used only where its callee is in scope: the function itself (imported, or declared in the file), or the namespace that holds it. A namespace or object reached through an import supplies members only under the import rule above (tagged, or `import * as X`):
 
 ```typescript
 // extensions.ts
 @extension
 export function head<A>(arr: readonly A[]): A | undefined { return arr[0]; }
 
-// any-file.ts — no import needed because @extension registers globally
+// any-file.ts
+import { head } from "./extensions";
 [1, 2, 3].head(); // Found via registry → head([1, 2, 3])
 ```
 
-This is intentional for framework-provided extensions (like `@typesugar/std`'s number/string/array methods) that should feel built-in. For user extensions, the import-resolved path is preferred.
+The registry is what lets a same-file `@extension` function serve calls below it, and it records the receiver type for the editor. For user extensions, the import-resolved path is preferred.
 
 **3. `"use extension"` directive** — Marks all exports of a file as extension-eligible for consumers who import from it. This is a library authoring pattern:
 

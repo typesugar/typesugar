@@ -945,27 +945,6 @@ function extensionImportEnv(ctx: MacroContextImpl): ExtensionImportEnv {
   };
 }
 
-/**
- * Warn on each JSDoc `@extension` tag on an import of `ctx.sourceFile` that
- * did nothing (PEP-064): no extension call the rewrite emitted in this file
- * went through a member of that import. `usedQualifiers` is what the rewrite
- * recorded as it went (live same-pass state), so this runs after the whole
- * file has been visited.
- */
-export function reportInactiveExtensionImportTags(
-  ctx: MacroContextImpl,
-  usedQualifiers: ReadonlySet<string>
-): void {
-  for (const tag of inactiveExtensionImportTags(ctx.sourceFile, usedQualifiers)) {
-    ctx.reportWarning(
-      tag,
-      "This @extension tag has no effect: no method call in this file uses a member of " +
-        "this import as an extension. The tag lets an imported object or namespace supply " +
-        "extension methods; a function named after the method needs no tag."
-    );
-  }
-}
-
 // receiverMatchesFirstParam lives in @typesugar/core (shared with the
 // ExtensionMethodCall suppression rule); re-exported for this package's users.
 export { receiverMatchesFirstParam };
@@ -1016,4 +995,25 @@ export function scanImportsForExtension(
   }
 
   return match.ext;
+}
+
+/**
+ * Warn on each JSDoc `@extension` tag on an import of `ctx.sourceFile` that
+ * did nothing (PEP-064): no extension call the rewrite emitted in this file
+ * went through a member of that import. `usedQualifiers` is what the rewrite
+ * recorded as it went (live same-pass state), so this runs after the whole
+ * file has been visited.
+ */
+export function reportInactiveExtensionImportTags(
+  ctx: MacroContextImpl,
+  usedQualifiers: ReadonlySet<string>
+): void {
+  for (const tag of inactiveExtensionImportTags(ctx.sourceFile, usedQualifiers)) {
+    ctx.reportWarning(
+      tag,
+      "This @extension tag has no effect: no method call in this file uses a member of " +
+        "this import as an extension. The tag lets an imported object or namespace supply " +
+        "extension methods; a function named after the method needs no tag."
+    );
+  }
 }

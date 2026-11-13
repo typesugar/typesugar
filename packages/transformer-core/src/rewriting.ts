@@ -25,6 +25,7 @@ import {
   admitsNullish,
   isNullOrUndefinedExpr,
   type OperatorChainHooks,
+  isRegistryExtensionCalleeBound,
 } from "@typesugar/macros";
 
 import {
@@ -265,7 +266,10 @@ export function tryRewriteExtensionMethod(
   resolveMacroFromSymbol: ResolveMacroFn,
   resolveExtensionFromImports: ResolveExtensionFn,
   node: ts.CallExpression,
-  /** Told about each extension the rewrite emits a call to (PEP-064's unused-tag warning). */
+  /**
+   * Told about each extension call the rewrite emits through one of the
+   * file's imports (PEP-064's unused-tag warning); not registry rewrites.
+   */
   onRewrite?: (ext: StandaloneExtensionInfo) => void
 ): ts.Expression | undefined {
   const guarded = checkMethodCallDispatchGuards(ctx, resolveMacroFromSymbol, node);
@@ -347,6 +351,9 @@ export function tryRewriteExtensionMethod(
     if (standaloneExt) break;
   }
 
+  // Through an import (not the registry): the qualifier, if any, is that
+  // import's binding, which is what PEP-064's unused-tag warning counts.
+  let viaImport = false;
   if (!standaloneExt) {
     standaloneExt = resolveExtensionFromImports(node, methodName, receiverType);
     if (standaloneExt) {
@@ -355,6 +362,7 @@ export function tryRewriteExtensionMethod(
         standaloneExt = undefined;
       }
     }
+    viaImport = standaloneExt !== undefined;
   }
 
   if (!standaloneExt) {
@@ -376,10 +384,10 @@ export function tryRewriteExtensionMethod(
     receiver,
     Array.from(node.arguments)
   );
-  onRewrite?.(standaloneExt);
 
   try {
     const visited = ts.visitNode(rewritten, visit) as ts.Expression;
+    if (viaImport) onRewrite?.(standaloneExt);
     return preserveSourceMap(visited, node);
   } catch (error) {
     ctx.reportError(node, `Extension method rewrite failed: ${error}`);
@@ -549,20 +557,11 @@ function isExtensionCalleeBound(
   ext: StandaloneExtensionInfo
 ): boolean {
   const rootName = ext.qualifier ?? ext.methodName;
-  const checker = ctx.typeChecker;
   try {
     // A synthesized call has no scope of its own; fall back to the file's
     // top-level scope (CLAUDE.md: don't hand a synthetic node to the checker).
     const location: ts.Node = isProgramNode(node) ? node : ctx.sourceFile;
-    const sym = checker
-      .getSymbolsInScope(location, ts.SymbolFlags.Value)
-      .find((s) => s.getName() === rootName);
-    if (!sym) return false;
-    const type = checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), location);
-    if (ext.qualifier) {
-      return type.getProperty(ext.methodName) !== undefined || ctx.isTypeReliable(type) === false;
-    }
-    return type.getCallSignatures().length > 0 || ctx.isTypeReliable(type) === false;
+    return isRegistryExtensionCalleeBound(ctx.typeChecker, location, ext);
   } catch (error) {
     ctx.reportWarning(
       node,

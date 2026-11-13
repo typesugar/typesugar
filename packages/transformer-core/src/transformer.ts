@@ -21,6 +21,7 @@ import {
   buildImplicitScopeFromDecl,
   SpecializationCache,
   type ImplicitScope,
+  isImportExtensionInScopeAt,
 } from "@typesugar/macros";
 
 import {
@@ -377,12 +378,27 @@ class MacroTransformer {
       this.importExtensionCache.set(receiverType, methodCache);
     }
 
+    let result: StandaloneExtensionInfo | undefined;
     if (methodCache.has(methodName)) {
-      return methodCache.get(methodName);
+      result = methodCache.get(methodName);
+    } else {
+      result = scanImportsForExtension(this.ctx, sourceFile, methodName, receiverType, node);
+      methodCache.set(methodName, result);
     }
-
-    const result = scanImportsForExtension(this.ctx, sourceFile, methodName, receiverType, node);
-    methodCache.set(methodName, result);
+    // Per call site, after the per-type cache: a local that shadows the
+    // import here would be what the rewritten call names.
+    if (result) {
+      try {
+        if (!isImportExtensionInScopeAt(this.ctx.typeChecker, node, result)) return undefined;
+      } catch (error) {
+        this.ctx.reportWarning(
+          node,
+          `typesugar skipped extension method '${methodName}' rewrite: could not check that ` +
+            `the import providing it is in scope (${error}).`
+        );
+        return undefined;
+      }
+    }
     return result;
   }
 

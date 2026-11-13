@@ -20,12 +20,19 @@
  *   unconstrained `T` accepts every receiver, so without this an imported
  *   `log.info(msg: unknown)` turned `user.info()` -- a TS2339 mistake -- into
  *   `log.info(user)`, and the shared suppression rule hid the error;
- * - a member of an imported value DECLARED as a typeclass instance (`@impl`,
- *   `@instance`, `impl(...)`, `derived<TC<T>>()`: an instance is meant to
- *   supply its methods), for receivers of its own type
- *   ({@link instanceServesReceiver}).
+ * - a member of an imported value declared as a typeclass instance by an
+ *   `@impl`/`@instance` JSDoc tag or a `@derive` companion (an instance is
+ *   meant to supply its methods), for receivers of its own type
+ *   ({@link instancesServeReceiver}). Not `impl(...)` or `derived<TC<T>>()`
+ *   untagged: a published `.d.ts` shows them as a plain `TC<T>` annotation,
+ *   so they would supply methods from source and not from `dist/`.
+ *
+ * A match is used only at a call where its name is still the import binding
+ * ({@link isImportExtensionInScopeAt}, applied per call by each consumer).
  *
  * In every case, never:
+ * - a type-only binding (`import type`, `{ type X }`): it is erased from the
+ *   emit;
  * - a member every value has from the standard library (`bind`, `call`);
  * - a `declare global` stub seen through the value's apparent type;
  * - a member provider when the receiver has a native method of that name.
@@ -43,6 +50,7 @@
 import * as ts from "typescript";
 import {
   isJSDocTagAtLineStart,
+  isSyntheticNode,
   receiverMatchesFirstParam,
   type StandaloneExtensionInfo,
 } from "@typesugar/core";
@@ -120,12 +128,14 @@ export function findImportedExtensionMatches(
       if (ext.qualifier !== undefined) {
         if (hasNativeMethod) return;
         const instances = importedInstances(env, ident);
-        // Not opted in: only a value declared as a typeclass instance
-        // (`@impl`/`@instance`, `impl(...)`, `derived<TC<T>>()`) supplies its
-        // members. A `TC<T>` annotation alone does not open the gate: whether
-        // `TC` is a typeclass is read by name (isTypeclassDeclared), and
-        // without a program not at all.
-        if (!optedIn && !instances?.some((inst) => inst.detectedVia !== "type-annotation")) return;
+        // Not opted in: only an instance declared in a form that reads the
+        // same from source and from a published `.d.ts` supplies its members:
+        // an `@impl`/`@instance` JSDoc tag, or a `@derive` companion.
+        // `impl(...)` and `derived<TC<T>>()` are erased to a `TC<T>`
+        // annotation in the `.d.ts`, and an annotation alone doesn't open the
+        // gate: whether `TC` is a typeclass is read by name
+        // (isTypeclassDeclared), and without a program not at all.
+        if (!optedIn && !instances?.some(isDeclarationVisibleInstance)) return;
         if (instances && !instancesServeReceiver(env, instances, receiverType)) return;
       }
       target = extensionTarget(checker, ident, ext);
@@ -147,9 +157,14 @@ export function findImportedExtensionMatches(
     const importSource = ts.isStringLiteral(stmt.moduleSpecifier)
       ? stmt.moduleSpecifier.text
       : "unknown";
+    // A type-only binding is erased from the emit, so a call through it
+    // would throw at run time: never a provider, tag or not.
+    if (clause.isTypeOnly) continue;
     const tagged = hasExtensionImportTag(stmt);
     if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-      for (const spec of clause.namedBindings.elements) consider(spec.name, importSource, tagged);
+      for (const spec of clause.namedBindings.elements) {
+        if (!spec.isTypeOnly) consider(spec.name, importSource, tagged);
+      }
     }
     if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
       // `import * as X` is itself the opt-in.
@@ -205,7 +220,8 @@ export interface ExtensionImportUses {
  * method name an import could provide (a binding's own name, or a property
  * of its value) are asked. A receiver the checker can't type because it is
  * itself an extension call (`(1).to(5).reversed().toArray()`) gets the
- * provider's return type, as the rewrite recovers it. Calls in a scope opted
+ * provider's return type, as the rewrite recovers it; a receiver still
+ * `any` or `never` is skipped, as the rewrite skips it. Calls in a scope opted
  * out of extensions (`isOptedOut`) are skipped: the rewrite leaves them.
  * Not modelled: a same-file `@extension` function the rewrite prefers over
  * an import (the live registry is the transformer's), so an import that
@@ -244,20 +260,76 @@ export function extensionImportUses(
   }
   if (candidates.size === 0) return { asMember, asFunction };
 
-  /** The rewrite's choice for `callee(...)`, and its receiver's type (recovered for a chain). */
-  const decide = (callee: ts.PropertyAccessExpression, depth: number) => {
-    let receiverType = checker.getTypeAtLocation(callee.expression);
-    const inner = callee.expression;
-    if (
-      receiverType.flags & ts.TypeFlags.Any &&
-      depth < 8 &&
-      ts.isCallExpression(inner) &&
-      ts.isPropertyAccessExpression(inner.expression)
-    ) {
-      const recovered = returnTypeOf(decide(inner.expression, depth + 1).match);
-      if (recovered) receiverType = recovered;
+  // Memoized per receiver type and method (as the transformer's
+  // importExtensionCache), and per callee: a chain's links are decided once.
+  const matchCache = new Map<ts.Type, Map<string, ImportedExtensionMatch[]>>();
+  const matchesFor = (methodName: string, receiverType: ts.Type) => {
+    let byMethod = matchCache.get(receiverType);
+    if (!byMethod) matchCache.set(receiverType, (byMethod = new Map()));
+    let found = byMethod.get(methodName);
+    if (!found)
+      byMethod.set(
+        methodName,
+        (found = findImportedExtensionMatches(env, methodName, receiverType))
+      );
+    return found;
+  };
+  const unreliable = ts.TypeFlags.Any | ts.TypeFlags.Never;
+  const decided = new Map<ts.PropertyAccessExpression, ImportedExtensionMatch[]>();
+  /**
+   * The rewrite's candidates for `callee(...)` (the ambiguous ones, or its
+   * one choice), with its receiver's type recovered for a chain. A receiver
+   * still `any`/`never` after that is skipped, as the rewrite skips it
+   * (`isTypeReliable`): `any` accepts every first parameter.
+   */
+  const decide = (callee: ts.PropertyAccessExpression, depth: number): ImportedExtensionMatch[] => {
+    const cached = decided.get(callee);
+    if (cached) return cached;
+    const receiverType = receiverTypeOf(callee.expression, depth);
+    let used: ImportedExtensionMatch[] = [];
+    if (!(receiverType.flags & unreliable)) {
+      const matches = matchesFor(callee.name.text, receiverType);
+      const { match, ambiguous } = chooseExtensionMatch(matches);
+      // Ambiguous: an error is reported on the call; every candidate
+      // counts, so the unused report doesn't pile on. A provider shadowed
+      // by a local at the call is not used (the rewrite skips it).
+      used = (ambiguous ? matches : match ? [match] : []).filter((m) =>
+        isImportExtensionInScopeAt(checker, callee, m.ext)
+      );
     }
-    return chooseExtensionMatch(findImportedExtensionMatches(env, callee.name.text, receiverType));
+    decided.set(callee, used);
+    return used;
+  };
+  /**
+   * The type of a receiver as the rewrite recovers it
+   * (transformer-core `inferSugaredExpressionType`): an extension call's
+   * provider return type, through parentheses and through an un-annotated
+   * variable of this file it initialises (`const r = (1).to(5); r.rev()`).
+   * Typeclass method sugar on the way is not modelled (the receiver stays
+   * unreliable, and the call is skipped).
+   */
+  const receiverTypeOf = (expr: ts.Expression, depth: number): ts.Type => {
+    const type = checker.getTypeAtLocation(expr);
+    if (!(type.flags & unreliable) || depth >= 32) return type;
+    if (ts.isParenthesizedExpression(expr)) return receiverTypeOf(expr.expression, depth + 1);
+    if (ts.isCallExpression(expr) && ts.isPropertyAccessExpression(expr.expression)) {
+      // The rewrite's choice is the first (also when ambiguous).
+      return returnTypeOf(decide(expr.expression, depth + 1)[0]) ?? type;
+    }
+    if (ts.isIdentifier(expr)) {
+      const decl = checker.getSymbolAtLocation(expr)?.valueDeclaration;
+      if (
+        decl &&
+        ts.isVariableDeclaration(decl) &&
+        !decl.type &&
+        decl.initializer &&
+        ts.isIdentifier(decl.name) &&
+        decl.getSourceFile() === sourceFile
+      ) {
+        return receiverTypeOf(decl.initializer, depth + 1);
+      }
+    }
+    return type;
   };
   const returnTypeOf = (m: ImportedExtensionMatch | undefined): ts.Type | undefined => {
     if (!m) return undefined;
@@ -282,19 +354,8 @@ export function extensionImportUses(
     ) {
       const callee = node.expression;
       try {
-        const { match, ambiguous } = decide(callee, 0);
-        // Ambiguous: an error is reported on the call; every candidate
-        // counts, so the unused report doesn't pile on.
-        const used = ambiguous
-          ? findImportedExtensionMatches(
-              env,
-              callee.name.text,
-              checker.getTypeAtLocation(callee.expression)
-            )
-          : match
-            ? [match]
-            : [];
-        for (const m of used) (m.ext.qualifier === undefined ? asFunction : asMember).add(m.ident);
+        for (const m of decide(callee, 0))
+          (m.ext.qualifier === undefined ? asFunction : asMember).add(m.ident);
       } catch (error) {
         env.warn(
           callee,
@@ -325,7 +386,10 @@ export function importClauseBindings(clause: ts.ImportClause): ts.Identifier[] {
  * transform: no named or default binding of the tagged declaration was the
  * qualifier of an extension call the rewrite emitted (`usedQualifiers`,
  * recorded by the transformer as it rewrites: live same-pass state, read
- * after the whole file has been visited). A function named after the method,
+ * after the whole file has been visited). The qualifiers are names, which
+ * identify the binding: the rewrite records only calls through an import,
+ * and uses one only where its name at the call is that import binding
+ * ({@link isImportExtensionInScopeAt}). A function named after the method,
  * or an `import * as X` namespace, needs no tag, so their use doesn't count.
  * Reported as a warning, like an inactive `@derive` (audit F23): a tag that
  * silently does nothing is worse than one that says so.
@@ -339,16 +403,76 @@ export function inactiveExtensionImportTags(
     if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
     const tag = extensionImportTag(stmt);
     if (!tag) continue;
-    const clause = stmt.importClause;
-    const named = [
-      ...(clause.name ? [clause.name] : []),
-      ...(clause.namedBindings && ts.isNamedImports(clause.namedBindings)
-        ? clause.namedBindings.elements.map((el) => el.name)
-        : []),
-    ];
+    // Named and default bindings: a namespace import needs no tag.
+    const named = importClauseBindings(stmt.importClause).filter(
+      (b) => !ts.isNamespaceImport(b.parent)
+    );
     if (!named.some((b) => usedQualifiers.has(b.text))) out.push(tag);
   }
   return out;
+}
+
+/**
+ * Does the import extension `ext` (a {@link findImportedExtensionMatches}
+ * result) still name the import at `location`? The rewrite emits
+ * `log.info(user)` / `shout(s)` at the call site, so a local that shadows
+ * the import there (`function f() { const log = {...}; user.info(); }`)
+ * would be called instead. The name in scope at `location` must be declared
+ * by an import (the binding itself; an import has no other declarations of
+ * that name in a module). A synthetic `location` is outside the checker's
+ * contract (CLAUDE.md) and answers true: it has no scope of its own and the
+ * file's top level has the import. Shared by the rewrite, the
+ * ExtensionMethodCall rule and {@link extensionImportUses}. Checker failures
+ * propagate to the caller.
+ */
+export function isImportExtensionInScopeAt(
+  checker: ts.TypeChecker,
+  location: ts.Node,
+  ext: StandaloneExtensionInfo
+): boolean {
+  if (isSyntheticNode(location)) return true;
+  const rootName = ext.qualifier ?? ext.methodName;
+  const sym = checker
+    .getSymbolsInScope(location, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
+    .find((s) => s.getName() === rootName);
+  return (
+    sym?.declarations?.some(
+      (d) => ts.isImportSpecifier(d) || ts.isImportClause(d) || ts.isNamespaceImport(d)
+    ) ?? false
+  );
+}
+
+/**
+ * Can a call at `location` use the standalone-registry entry `ext`
+ * (`@extension` functions and namespaces, `registerExtension(s)`)? Its callee,
+ * the qualifier or the bare function name, must be a value in scope there
+ * that has the member or is callable: the rewrite emits `Q.m(recv)` or
+ * `m(recv)` and injects no import. A QUALIFIED entry whose qualifier is an
+ * import binding does not count: an imported object supplies members only
+ * through {@link findImportedExtensionMatches} (PEP-064), so an
+ * `@extension namespace NumOps` registered by another file doesn't make an
+ * untagged `import { NumOps }` a provider. Shared by the rewrite and the
+ * ExtensionMethodCall suppression rule, so they agree. Checker failures
+ * propagate to the caller, which warns.
+ */
+export function isRegistryExtensionCalleeBound(
+  checker: ts.TypeChecker,
+  location: ts.Node,
+  ext: StandaloneExtensionInfo
+): boolean {
+  const rootName = ext.qualifier ?? ext.methodName;
+  const sym = checker
+    .getSymbolsInScope(location, ts.SymbolFlags.Value)
+    .find((s) => s.getName() === rootName);
+  if (!sym) return false;
+  const isAlias = (sym.flags & ts.SymbolFlags.Alias) !== 0;
+  if (ext.qualifier !== undefined && isAlias) return false;
+  const target = isAlias ? checker.getAliasedSymbol(sym) : sym;
+  const type = checker.getTypeOfSymbolAtLocation(target, location);
+  if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Never)) return true;
+  return ext.qualifier !== undefined
+    ? type.getProperty(ext.methodName) !== undefined
+    : type.getCallSignatures().length > 0;
 }
 
 /**
@@ -492,52 +616,17 @@ function extensionTarget(
   return resolve(checker.getTypeOfSymbolAtLocation(sym, ident).getProperty(ext.methodName));
 }
 
-/**
- * May the imported value `ident` serve `receiver.method()` as an object
- * extension provider (`ident.method(receiver)`), as far as being a typeclass
- * instance goes?
- *
- * An opted-in extension object (`EffectExt`) serves any receiver its
- * member's first parameter accepts, but a typeclass instance is FOR one
- * type, whether or not its import is opted in. With
- * `@impl Show<Color>` on a numeric enum, `number` is assignable to `Color`,
- * so `n.show()` on `n: number` became `showColor.show(n)`. An instance
- * serves only receivers of its own instance type, compared by identity
- * (CLAUDE.md "Deciding what a type is"): the same type, or the same symbol
- * after alias resolution with identical type arguments. A literal receiver
- * (`Color.Red`, `3`) is widened by the checker to its base type first.
- * A receiver NARROWED from a union instance type is served too: for
- * `@impl Describe<Shape>` with `type Shape = Circle | Square`, `t.describe()`
- * where `if (t.kind === "circle")` made `t` a `Circle` -- each member of the
- * receiver (one, or a union) is, by identity, a member of the instance's
- * union type. Assignability is not used, so enum and number never match each
- * other. A receiver that only matches the instance's type by shape is left
- * to the typeclass method-sugar path, which applies its own instance policy.
- *
- * What counts as an instance is read by the instance scanner, the same way
- * instance resolution reads it (an `@impl`/`@instance` tag, `impl(...)`,
- * `derived<TC<T>>()`, or a `TC<T>` annotation naming a declared typeclass);
- * any other value is not affected. An instance of a higher-kinded typeclass
- * (`@impl Functor<OptionF>`) is for a type constructor, not a type, so this
- * check does not apply to it and it keeps the plain first-parameter match.
- * An instance whose type the scanner could not resolve serves nothing here.
- * When the scan itself fails (warned), the value is not treated as an
- * instance: an opted-in import stays an ordinary extension object, and an
- * import that is not opted in provides nothing.
- */
-export function instanceServesReceiver(
-  env: ExtensionImportEnv,
-  ident: ts.Identifier,
-  receiverType: ts.Type
-): boolean {
-  const instances = importedInstances(env, ident);
-  return instances === undefined || instancesServeReceiver(env, instances, receiverType);
+/** An instance form that a published `.d.ts` keeps: an `@impl` tag or a `@derive` companion. */
+function isDeclarationVisibleInstance(inst: ScannedInstance): boolean {
+  return inst.detectedVia === "impl-tag" || inst.detectedVia === "derived";
 }
 
 /**
  * The typeclass instances the imported value `ident` is, as the instance
  * scanner reads them (empty: not an instance). Undefined when the check
- * failed, after a warning.
+ * failed, after a warning: the value is then not treated as an instance, so
+ * an opted-in import stays an ordinary extension object, and an import that
+ * is not opted in provides nothing.
  */
 function importedInstances(
   env: ExtensionImportEnv,
@@ -572,7 +661,36 @@ function importedInstances(
   }
 }
 
-/** {@link instanceServesReceiver} for the instances an import is (none: any receiver). */
+/**
+ * May an imported value that is the typeclass `instances` (as
+ * {@link importedInstances} reads them; empty: not an instance) serve
+ * `receiver.method()` as an object extension provider?
+ *
+ * An opted-in extension object (`EffectExt`) serves any receiver its
+ * member's first parameter accepts, but a typeclass instance is FOR one
+ * type, whether or not its import is opted in. With
+ * `@impl Show<Color>` on a numeric enum, `number` is assignable to `Color`,
+ * so `n.show()` on `n: number` became `showColor.show(n)`. An instance
+ * serves only receivers of its own instance type, compared by identity
+ * (CLAUDE.md "Deciding what a type is"): the same type, or the same symbol
+ * after alias resolution with identical type arguments. A literal receiver
+ * (`Color.Red`, `3`) is widened by the checker to its base type first.
+ * A receiver NARROWED from a union instance type is served too: for
+ * `@impl Describe<Shape>` with `type Shape = Circle | Square`, `t.describe()`
+ * where `if (t.kind === "circle")` made `t` a `Circle` -- each member of the
+ * receiver (one, or a union) is, by identity, a member of the instance's
+ * union type. Assignability is not used, so enum and number never match each
+ * other. A receiver that only matches the instance's type by shape is left
+ * to the typeclass method-sugar path, which applies its own instance policy.
+ *
+ * What counts as an instance is read by the instance scanner, the same way
+ * instance resolution reads it (an `@impl`/`@instance` tag, `impl(...)`,
+ * `derived<TC<T>>()`, or a `TC<T>` annotation naming a declared typeclass);
+ * any other value (empty `instances`) is not affected. An instance of a higher-kinded typeclass
+ * (`@impl Functor<OptionF>`) is for a type constructor, not a type, so this
+ * check does not apply to it and it keeps the plain first-parameter match.
+ * An instance whose type the scanner could not resolve serves nothing here.
+ */
 function instancesServeReceiver(
   env: ExtensionImportEnv,
   instances: readonly ScannedInstance[],
