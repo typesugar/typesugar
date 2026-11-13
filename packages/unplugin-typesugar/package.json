@@ -20,6 +20,28 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "vite": [
+        "./dist/vite.d.ts"
+      ],
+      "webpack": [
+        "./dist/webpack.d.ts"
+      ],
+      "esbuild": [
+        "./dist/esbuild.d.ts"
+      ],
+      "rollup": [
+        "./dist/rollup.d.ts"
+      ],
+      "rolldown": [
+        "./dist/rolldown.d.ts"
+      ],
+      "tsup": [
+        "./dist/tsup.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "import": {

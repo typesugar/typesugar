@@ -42,6 +42,13 @@ describe("bundler entry points", () => {
         expect(tsupConfig).toContain(`${bundler}: "src/${bundler}.ts"`);
       });
 
+      // moduleResolution node10 (still the default with `module: commonjs`)
+      // ignores `exports`; dinero.js's tsconfig uses it, so its vitest and
+      // tsdown configs could not type-check an import of any subpath.
+      it(`has types for unplugin-typesugar/${bundler} under node10 resolution`, () => {
+        expect(pkg.typesVersions?.["*"]?.[bundler]).toEqual([`./dist/${bundler}.d.ts`]);
+      });
+
       it(`is published as unplugin-typesugar/${bundler}`, () => {
         const entry = pkg.exports[`./${bundler}`];
         expect(entry).toEqual({
