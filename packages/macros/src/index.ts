@@ -302,7 +302,6 @@ export {
   findImportedExtensionMatches,
   hasExtensionImportTag,
   checkImportedSymbolForExtension,
-  isExtensionEnabledIn,
   hasExtensionDecorator,
   isDefaultLibMember,
   isGlobalAugmentationStub,

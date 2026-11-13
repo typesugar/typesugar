@@ -92,8 +92,9 @@ user.info(); // → log.info(user)
 Without the tag, `user.info()` is the TS2339 error it looks like. An ordinary method is never
 an extension (as in Scala 3): `log.info` takes `unknown`, so it accepts every receiver, and
 without the opt-in any imported helper object would quietly take over calls that are really
-typos. The tag works on named and default imports; `import * as X` needs none (the namespace
-import is the opt-in), and neither does a typeclass instance (an `@impl` value supplies its
+typos. The tag covers every name the import declaration binds, so keep extension objects in
+an import of their own. It works on named and default imports; `import * as X` needs none (the namespace
+import is the opt-in), and neither does a typeclass instance (an `@impl` or `derived<TC<T>>()` value supplies its
 methods for its own type). `"use extension"` in the providing module does not stand in for the
 tag: it isn't in a published `.d.ts`, and the tag keeps the decision next to the calls.
 

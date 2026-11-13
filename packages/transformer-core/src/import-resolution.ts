@@ -13,16 +13,11 @@ import {
   globalRegistry,
   type MacroDefinition,
   type MacroRegistry,
-  globalResolutionScope,
   isSyntheticNode,
   type StandaloneExtensionInfo,
   receiverMatchesFirstParam,
 } from "@typesugar/core";
-import {
-  findImportedExtensionMatches,
-  isExtensionEnabledIn,
-  type ExtensionImportEnv,
-} from "@typesugar/macros";
+import { findImportedExtensionMatches, type ExtensionImportEnv } from "@typesugar/macros";
 
 // ---------------------------------------------------------------------------
 // Import tracking
@@ -935,23 +930,14 @@ export {
   isGlobalAugmentationStub,
 } from "@typesugar/macros";
 
-/** The shared decision's environment for this transform: its scope and warnings. */
+/** The shared decision's environment for this transform: its checker, program and warnings. */
 function extensionImportEnv(ctx: MacroContextImpl): ExtensionImportEnv {
   return {
     checker: ctx.typeChecker,
     program: ctx.program,
     sourceFile: ctx.sourceFile,
-    scope: globalResolutionScope,
     warn: (node, message) => ctx.reportWarning(node, message),
   };
-}
-
-/**
- * Check if a symbol is extension-enabled (`@extension`, or a `"use
- * extension"` module).
- */
-export function isExtensionEnabled(ctx: MacroContextImpl, symbol: ts.Symbol): boolean {
-  return isExtensionEnabledIn(extensionImportEnv(ctx), symbol);
 }
 
 // receiverMatchesFirstParam lives in @typesugar/core (shared with the

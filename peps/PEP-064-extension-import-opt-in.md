@@ -94,10 +94,20 @@ An imported object or namespace member is an extension provider only if:
   tag); or
 - **(b)** it comes through `import * as X` (already the documented opt-in: the namespace
   import is itself the statement "I want this module's functions"); or
-- **(c)** it is a typeclass instance (an `@impl`/`@instance` value, `impl(...)`,
-  `derived<TC<T>>()`, or a `TC<T>` annotation naming a declared typeclass), for receivers of
-  its own type (`instanceServesReceiver`, unchanged). An instance exists to supply its
-  methods, so it needs no tag.
+- **(c)** it is declared as a typeclass instance (an `@impl`/`@instance` value,
+  `impl(...)`, `derived<TC<T>>()`), for receivers of its own type
+  (`instanceServesReceiver`, unchanged). An instance exists to supply its methods, so it
+  needs no tag. A value whose only sign of being an instance is a `TC<T>` type annotation
+  does not qualify without the tag: whether `TC` is a typeclass is read by its name
+  (`isTypeclassDeclared`, the pattern PEP-062 Wave 11 is removing), and a diagnostic
+  filter without a program cannot read it at all, so an ordinary `users: Repo<User>`
+  object would pass in `check` and be rejected by `build` (found in the Wave 1 review).
+
+The tag belongs to the import declaration, so it covers every binding of that declaration:
+`/** @extension */ import { EffectExt, Effect } from "..."` opts in both, and the `Effect`
+module namespace's `map` then competes with `EffectExt.map` (an ambiguity error). Keep
+extension objects in an import of their own. A per-specifier form is not possible: TypeScript
+does not attach JSDoc to an import specifier.
 
 Unchanged:
 
@@ -207,6 +217,12 @@ Every import of an extension object in the repo gains the tag:
 | 2    | ExtensionImport unused-import suppression rule (bare functions and tagged objects); warning for a tag with no effect                                                                                        | `pep-064-wave-2-unused-and-inactive` | Planned   |
 
 ## Risks
+
+- **Bare functions are still opted in by name alone.** `import { info }` where `info(msg:
+unknown)` makes a typo `user.info()` become `info(user)`. This is the decided design (the
+  name match is the opt-in, and std's extension functions rely on it); a function named
+  after the method you call is much less likely to be an accident than any member of any
+  imported object. Revisit if it bites in a case study.
 
 - **A third-party extension object needs the tag.** Anyone used to importing `EffectExt`
   and calling methods gets TS2339 until they add `/** @extension */`. The TS9062 error page

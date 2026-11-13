@@ -786,12 +786,13 @@ function findPropertyAccess(node: ts.Node): ts.PropertyAccessExpression | undefi
 /**
  * Does an import of this file provide `methodName` for `receiverType`, as the
  * transformer decides it (findImportedExtensionMatches, extension-imports.ts,
- * which its `scanImportsForExtension` calls): unopted module namespaces,
- * default-lib members, `declare global` stubs and typeclass instances for
- * another type are not providers. This rule used to keep its own copy of the
- * provider rules without those checks and suppressed TS2339 on calls the
- * transformer then left as written. The transformer always has the program;
- * without one the shared decision gives its stricter answer.
+ * which its `scanImportsForExtension` calls): an object is a provider only
+ * when its import opts in (a JSDoc `@extension` tag, `import * as X`) or it
+ * is a declared typeclass instance (PEP-064), and default-lib members,
+ * `declare global` stubs and typeclass instances for another type never
+ * are. This rule used to keep its own copy of the provider rules without
+ * those checks and suppressed TS2339 on calls the transformer then left as
+ * written.
  */
 function resolveExtensionFromImports(
   sourceFile: ts.SourceFile,
@@ -804,7 +805,6 @@ function resolveExtensionFromImports(
     checker,
     program,
     sourceFile,
-    scope: program ? operatorActivation(program, sourceFile).tracker : scopeOf(sourceFile),
     warn: (_node, message) => reportCheckerFailure("ExtensionMethodCall", message),
   };
   return findImportedExtensionMatches(env, methodName, receiverType).length > 0;
@@ -813,13 +813,6 @@ function resolveExtensionFromImports(
 // ===========================================================================
 // Shared helpers
 // ===========================================================================
-
-/** A file's own `"use extension"` / activation scan, for a filter called without a program. */
-function scopeOf(sourceFile: ts.SourceFile): ResolutionScopeTracker {
-  const tracker = new ResolutionScopeTracker();
-  scanImportsForScope(sourceFile, tracker);
-  return tracker;
-}
 
 /** Leave a visible trace when a checker call fails and the rule degrades (CLAUDE.md). */
 const reportedCheckerFailures = new Set<string>();

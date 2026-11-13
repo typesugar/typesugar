@@ -14,12 +14,14 @@
  *   `(42).clamp(0, 100)`): its name says it is meant for that call;
  * - a member of an object or namespace imported by a declaration that opts
  *   in: `import * as X`, or an import carrying a line-start JSDoc
- *   `@extension` tag ({@link hasExtensionImportTag}). An ordinary method is
+ *   `@extension` tag ({@link hasExtensionImportTag}), which covers every
+ *   binding of that declaration. An ordinary method is
  *   never an extension (Scala 3): a member taking `unknown`, `any` or an
  *   unconstrained `T` accepts every receiver, so without this an imported
  *   `log.info(msg: unknown)` turned `user.info()` -- a TS2339 mistake -- into
  *   `log.info(user)`, and the shared suppression rule hid the error;
- * - a member of an imported typeclass INSTANCE (an instance is meant to
+ * - a member of an imported value DECLARED as a typeclass instance (`@impl`,
+ *   `@instance`, `impl(...)`, `derived<TC<T>>()`: an instance is meant to
  *   supply its methods), for receivers of its own type
  *   ({@link instanceServesReceiver}).
  *
@@ -42,8 +44,6 @@ import * as ts from "typescript";
 import {
   isJSDocTagAtLineStart,
   receiverMatchesFirstParam,
-  scanImportsForScope,
-  type ResolutionScopeTracker,
   type StandaloneExtensionInfo,
 } from "@typesugar/core";
 import { instanceScanner, type ScannedInstance } from "./instance-scanner.js";
@@ -53,15 +53,13 @@ import { isHktTypeclass, isTypeclassDeclared } from "./typeclass-index.js";
 export interface ExtensionImportEnv {
   checker: ts.TypeChecker;
   /**
-   * The program (typeclass index). The transformer always has it; a
-   * diagnostic filter called without one gets the stricter answer: a
-   * `TC<T>`-annotated value counts as an instance, and no typeclass is HKT.
+   * The program (typeclass index). The transformer always has it. Without
+   * one, a `TC<T>`-annotated value of an opted-in import counts as an
+   * instance (it then serves only its own type), and no typeclass is HKT.
    */
   program: ts.Program | undefined;
   /** The file whose imports are read. */
   sourceFile: ts.SourceFile;
-  /** `"use extension"` modules: the transformer's scope, or the rule's own scan. */
-  scope: ResolutionScopeTracker;
   /** A degraded checker failure, made visible (CLAUDE.md). */
   warn(node: ts.Node, message: string): void;
 }
@@ -122,8 +120,12 @@ export function findImportedExtensionMatches(
       if (ext.qualifier !== undefined) {
         if (hasNativeMethod) return;
         const instances = importedInstances(env, ident);
-        // Not opted in: only a typeclass instance supplies its members.
-        if (!optedIn && (instances === undefined || instances.length === 0)) return;
+        // Not opted in: only a value declared as a typeclass instance
+        // (`@impl`/`@instance`, `impl(...)`, `derived<TC<T>>()`) supplies its
+        // members. A `TC<T>` annotation alone does not open the gate: whether
+        // `TC` is a typeclass is read by name (isTypeclassDeclared), and
+        // without a program not at all.
+        if (!optedIn && !instances?.some((inst) => inst.detectedVia !== "type-annotation")) return;
         if (instances && !instancesServeReceiver(env, instances, receiverType)) return;
       }
       target = extensionTarget(checker, ident, ext);
@@ -224,30 +226,6 @@ export function checkImportedSymbolForExtension(
   }
 
   return undefined;
-}
-
-/**
- * Is `symbol` (an import's target) extension-enabled: declared with
- * `@extension`, or in a `"use extension"` module (scanned into `env.scope`
- * on demand)?
- */
-export function isExtensionEnabledIn(env: ExtensionImportEnv, symbol: ts.Symbol): boolean {
-  const declarations = symbol.getDeclarations();
-  if (!declarations || declarations.length === 0) return false;
-  for (const decl of declarations) {
-    const sourceFile = decl.getSourceFile();
-    const fileName = sourceFile.fileName;
-    if (sourceFile.isDeclarationFile) {
-      if (hasExtensionDecorator(decl)) return true;
-      continue;
-    }
-    if (fileName !== env.sourceFile.fileName) {
-      scanImportsForScope(sourceFile, env.scope, env.program);
-    }
-    if (env.scope.hasUseExtension(fileName)) return true;
-    if (hasExtensionDecorator(decl)) return true;
-  }
-  return false;
 }
 
 /** Check if a declaration has the @extension decorator. */
