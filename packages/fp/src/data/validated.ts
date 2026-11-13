@@ -596,13 +596,15 @@ export function sequenceNel<E, A>(arr: ValidatedNel<E, A>[]): ValidatedNel<E, A[
  * Eq instance for Validated
  */
 export function getEq<E, A>(EE: Eq<E>, EA: Eq<A>): Eq<Validated<E, A>> {
-  return {
-    eqv: (x, y) => {
-      if (isValid(x) && isValid(y)) return EA.eqv(x.value, y.value);
-      if (isInvalid(x) && isInvalid(y)) return EE.eqv(x.error, y.error);
+  const eq: Eq<Validated<E, A>> = {
+    equals: (x, y) => {
+      if (isValid(x) && isValid(y)) return EA.equals(x.value, y.value);
+      if (isInvalid(x) && isInvalid(y)) return EE.equals(x.error, y.error);
       return false;
     },
+    notEquals: (x, y) => !eq.equals(x, y),
   };
+  return eq;
 }
 
 /**
@@ -617,7 +619,7 @@ export function getOrd<E, A>(OE: Ord<E>, OA: Ord<A>): Ord<Validated<E, A>> {
     return 1 as Ordering;
   };
   return {
-    eqv: getEq(OE, OA).eqv,
+    ...getEq(OE, OA),
     compare,
     lessThan: (x, y) => compare(x, y) === -1,
     lessThanOrEqual: (x, y) => compare(x, y) !== 1,

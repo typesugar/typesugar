@@ -39,7 +39,7 @@ export function functorLaws<F, A>(Fn: Functor<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "identity-left",
       description: "Mapping identity preserves structure: F.map(fa, a => a) === fa",
       check: (fa: Kind<F, A>): boolean =>
-        EqFA.eqv(
+        EqFA.equals(
           Fn.map(fa, (a: A) => a),
           fa
         ),
@@ -50,7 +50,7 @@ export function functorLaws<F, A>(Fn: Functor<F>, EqFA: EqFA<F, A>): LawSet {
       proofHint: "composition",
       description: "Mapping composes: F.map(F.map(fa, f), g) === F.map(fa, a => g(f(a)))",
       check: (fa: Kind<F, A>, f: (a: A) => A, g: (a: A) => A): boolean =>
-        EqFA.eqv(
+        EqFA.equals(
           Fn.map(Fn.map(fa, f), g),
           Fn.map(fa, (a: A) => g(f(a)))
         ),
@@ -70,7 +70,7 @@ export function functorLaws<F, A>(Fn: Functor<F>, EqFA: EqFA<F, A>): LawSet {
  */
 export function functorCompositionLaws<F, A, B, C>(
   Fn: Functor<F>,
-  EqFC: { readonly eqv: (fa1: Kind<F, C>, fa2: Kind<F, C>) => boolean },
+  EqFC: { readonly equals: (fa1: Kind<F, C>, fa2: Kind<F, C>) => boolean },
   f: (a: A) => B,
   g: (b: B) => C
 ): LawSet {
@@ -81,7 +81,7 @@ export function functorCompositionLaws<F, A, B, C>(
       proofHint: "composition",
       description: "F.map(F.map(fa, f), g) === F.map(fa, a => g(f(a)))",
       check: (fa: Kind<F, A>): boolean =>
-        EqFC.eqv(
+        EqFC.equals(
           Fn.map(Fn.map(fa, f), g),
           Fn.map(fa, (a: A) => g(f(a)))
         ),

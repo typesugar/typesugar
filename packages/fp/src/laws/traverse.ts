@@ -60,7 +60,7 @@ export function traverseLaws<F, A>(T: Traverse<F>, EqFA: EqFA<F, A>): LawSet {
       check: (fa: Kind<F, A>): boolean => {
         // traverse with identity applicative should be identity
         const result = T.traverse(idApplicative)(fa, (a: A) => idApplicative.pure(a));
-        return EqFA.eqv(result as Kind<F, A>, fa);
+        return EqFA.equals(result as Kind<F, A>, fa);
       },
     },
     {
@@ -70,7 +70,7 @@ export function traverseLaws<F, A>(T: Traverse<F>, EqFA: EqFA<F, A>): LawSet {
       check: (fa: Kind<F, A>): boolean => {
         // Using identity applicative, traverse should preserve the structure
         const result = T.traverse(idApplicative)(fa, idApplicative.pure);
-        return EqFA.eqv(result as Kind<F, A>, fa);
+        return EqFA.equals(result as Kind<F, A>, fa);
       },
     },
   ] as unknown as LawSet;
@@ -87,7 +87,7 @@ export function traverseLaws<F, A>(T: Traverse<F>, EqFA: EqFA<F, A>): LawSet {
 export function traverseLawsWithApplicative<F, G, A>(
   T: Traverse<F>,
   Ap: Applicative<G>,
-  EqGFA: { readonly eqv: (x: Kind<G, Kind<F, A>>, y: Kind<G, Kind<F, A>>) => boolean }
+  EqGFA: { readonly equals: (x: Kind<G, Kind<F, A>>, y: Kind<G, Kind<F, A>>) => boolean }
 ): LawSet {
   return [
     {
@@ -97,7 +97,7 @@ export function traverseLawsWithApplicative<F, G, A>(
       check: (fa: Kind<F, A>): boolean => {
         const left = T.traverse(Ap)(fa, Ap.pure);
         const right = Ap.pure(fa);
-        return EqGFA.eqv(left, right);
+        return EqGFA.equals(left, right);
       },
     },
   ] as unknown as LawSet;
@@ -114,7 +114,7 @@ export function traverseLawsWithApplicative<F, G, A>(
 export function sequenceLaws<F, G, A>(
   T: Traverse<F>,
   Ap: Applicative<G>,
-  EqGFA: { readonly eqv: (x: Kind<G, Kind<F, A>>, y: Kind<G, Kind<F, A>>) => boolean }
+  EqGFA: { readonly equals: (x: Kind<G, Kind<F, A>>, y: Kind<G, Kind<F, A>>) => boolean }
 ): LawSet {
   return [
     {
@@ -124,7 +124,7 @@ export function sequenceLaws<F, G, A>(
       check: (fga: Kind<F, Kind<G, A>>): boolean => {
         const viaSequence = T.traverse(Ap)(fga, (x: Kind<G, A>) => x);
         const viaTraverse = T.traverse(Ap)(fga, (x: Kind<G, A>) => x);
-        return EqGFA.eqv(viaSequence, viaTraverse);
+        return EqGFA.equals(viaSequence, viaTraverse);
       },
     },
   ] as unknown as LawSet;

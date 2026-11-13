@@ -44,7 +44,7 @@ import type { Kind } from "../hkt.js";
  * @template A - The element type
  */
 export type EqF<F, A> = {
-  readonly eqv: (fa1: Kind<F, A>, fa2: Kind<F, A>) => boolean;
+  readonly equals: (fa1: Kind<F, A>, fa2: Kind<F, A>) => boolean;
 };
 
 /**
@@ -62,7 +62,7 @@ export interface VerifyLawsOptions<A = unknown> {
    * Eq instance for comparing results.
    * Required for most law checks.
    */
-  readonly eq?: { readonly eqv: (x: A, y: A) => boolean };
+  readonly eq?: { readonly equals: (x: A, y: A) => boolean };
 
   /**
    * Arbitrary instance for generating test values.
@@ -92,7 +92,7 @@ export interface VerifyLawsOptions<A = unknown> {
  */
 export type ValueLawGenerator<TC, A> = (
   instance: TC,
-  eq: { readonly eqv: (x: A, y: A) => boolean }
+  eq: { readonly equals: (x: A, y: A) => boolean }
 ) => readonly import("@typesugar/contracts").Law[];
 
 /**

@@ -225,11 +225,13 @@ export function compose(...fns: Array<(a: unknown) => unknown>): (a: unknown) =>
 export const identity = <A>(a: A): A => a;
 
 /**
- * Constant function - always returns the same value
+ * Constant function - a thunk that always returns the same value. Same
+ * semantics as `@typesugar/std`'s `constant`. Where a unary callback is
+ * expected (`map(fa, constant(x))`), a thunk works as is.
  */
 export const constant =
   <A>(a: A) =>
-  <B>(_: B): A =>
+  (): A =>
     a;
 
 /**
@@ -385,25 +387,22 @@ export const snd = <A, B>([_, b]: [A, B]): B => b;
 export const swap = <A, B>([a, b]: [A, B]): [B, A] => [b, a];
 
 /**
- * Map over the first element
+ * Map over the first element. Pair first, as in `@typesugar/std`'s `mapFst`.
  */
-export const mapFst =
-  <A, B, C>(f: (a: A) => C) =>
-  ([a, b]: [A, B]): [C, B] => [f(a), b];
+export const mapFst = <A, B, C>([a, b]: [A, B], f: (a: A) => C): [C, B] => [f(a), b];
 
 /**
- * Map over the second element
+ * Map over the second element. Pair first, as in `@typesugar/std`'s `mapSnd`.
  */
-export const mapSnd =
-  <A, B, C>(f: (b: B) => C) =>
-  ([a, b]: [A, B]): [A, C] => [a, f(b)];
+export const mapSnd = <A, B, C>([a, b]: [A, B], f: (b: B) => C): [A, C] => [a, f(b)];
 
 /**
- * Map over both elements
+ * Map over both elements. Pair first, as in `@typesugar/std`'s `bimap`.
  */
-export const bimap =
-  <A, B, C, D>(f: (a: A) => C, g: (b: B) => D) =>
-  ([a, b]: [A, B]): [C, D] => [f(a), g(b)];
+export const bimap = <A, B, C, D>([a, b]: [A, B], f: (a: A) => C, g: (b: B) => D): [C, D] => [
+  f(a),
+  g(b),
+];
 
 // ============================================================================
 // Lazy Evaluation

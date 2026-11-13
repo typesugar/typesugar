@@ -50,6 +50,10 @@ match(opt)
 `v` is asserted to the payload type `number`, which `_opt != null` alone doesn't give the
 type checker.
 
+`Eq` and `Ord` use the same members as `@typesugar/std`'s (`equals`/`notEquals`, `compare`,
+`lessThan`, …), so the `===` and `<` operator rewrites work on fp's instances; see
+[Eq and Ord](https://typesugar.org/guides/fp#eq-and-ord) in the guide.
+
 ## Documentation
 
 - [Functional Programming guide](https://typesugar.org/guides/fp) — Option, Either, IO, typeclasses, transformers

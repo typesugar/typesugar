@@ -22,23 +22,18 @@ import { IO } from "../io/io.js";
 // ============================================================================
 
 /**
- * A generic Do builder that works with any monad
+ * A generic Do builder that works with any monad-shaped dictionary
+ * (`pure`, `flatMap`, `map`).
  *
  * @example
  * ```typescript
- * const result = Do(OptionMonad)
+ * const result = Do(OptionDo)
  *   .bind('x', Some(1))
  *   .bind('y', Some(2))
  *   .bind('z', ({ x, y }) => Some(x + y))
  *   .return(({ z }) => z * 10);
  * ```
  */
-export interface Monad<F> {
-  pure<A>(a: A): F;
-  flatMap<A, B>(fa: F, f: (a: A) => F): F;
-  map<A, B>(fa: F, f: (a: A) => B): F;
-}
-
 export class DoBuilder<F, Ctx extends object> {
   constructor(
     private readonly M: {
@@ -186,9 +181,10 @@ export function EitherFor<E>() {
 // ============================================================================
 
 /**
- * IO monad instance for Do
+ * IO monad dictionary for the Do builder. Not exported: the public `IODo` is
+ * the `bind`/`let_` helper in `io/io.ts`, re-exported by `./index.ts`.
  */
-export const IODo = {
+const ioDoMonad = {
   pure: <A>(a: A): IO<A> => IO.pure(a),
   flatMap: <A, B>(fa: IO<A>, f: (a: A) => IO<B>): IO<B> => IO.flatMap(fa, f),
   map: <A, B>(fa: IO<A>, f: (a: A) => B): IO<B> => IO.map(fa, f),
@@ -205,7 +201,7 @@ export const IODo = {
  *   .return(() => ExitSuccess);
  * ```
  */
-export const IOFor = Do<IO<unknown>>(IODo);
+export const IOFor = Do<IO<unknown>>(ioDoMonad);
 
 // ============================================================================
 // Chain Builder (Alternative Approach)
