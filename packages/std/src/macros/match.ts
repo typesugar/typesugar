@@ -1294,7 +1294,9 @@ export function findMissingCases(
  * nothing here, though it does for TS9226: its test is a compound
  * (`"value" in _r && "value" in _r.value`), after which TypeScript doesn't
  * narrow `_r`, so an untested covering arm's reads (`_r.error`) wouldn't
- * type-check in the output (`strictOutput`). Such a match keeps every test.
+ * type-check in the output (`strictOutput`). Such matches usually compile
+ * to a decision tree instead ({@link tryGenerateDecisionTree}), which tests
+ * the outer value alone and so does narrow it.
  */
 function findCoveringArmIndex(
   ctx: MacroContext,
@@ -2311,6 +2313,10 @@ function expandFluentMatchInner(
   if (discMatch) {
     return generateDiscriminantSwitchIIFE(ctx, chainExpr, scrutinee, discMatch, arms, elseResult);
   }
+
+  // Nested extractor arms (`Ok(Ok(v))`, `Ok(Err(e))`) → a decision tree
+  const tree = tryGenerateDecisionTree(ctx, chainExpr, scrutinee, arms, elseResult);
+  if (tree !== undefined) return tree;
 
   return generateIIFE(ctx, chainExpr, scrutinee, arms, elseResult);
 }
@@ -3456,7 +3462,11 @@ function generateArmStatements(
  */
 /** @internal shared with match-switch.ts */
 export function isGuaranteedObject(ctx: MacroContext, scrutinee: ts.Expression): boolean {
-  const type = getScrutineeType(ctx, scrutinee);
+  return isGuaranteedObjectType(getScrutineeType(ctx, scrutinee));
+}
+
+/** {@link isGuaranteedObject}, for a type (an extractor payload's, in the decision tree). */
+function isGuaranteedObjectType(type: ts.Type | undefined): boolean {
   if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
 
   const checkSingleType = (t: ts.Type): boolean => {
@@ -3598,6 +3608,502 @@ function generateIIFE(
   }
 
   // (() => { ... })()  — or `await (async () => { ... })()` when arms await
+  return wrapInIIFE(ctx, chainExpr, statements, movedExpressions(scrutinee, arms, elseResult));
+}
+
+// ============================================================================
+// Decision tree for nested extractor arms (neverthrow case study F16)
+// ============================================================================
+//
+// `Ok(Ok(v))`, `Ok(Err(e))`, `Err(e)` compiled to three independent `if`s
+// that each repeated the outer test (`"value" in _r && (_r.value != null &&
+// typeof _r.value === "object" && "value" in _r.value)`), kept every test
+// (a compound test doesn't narrow `_r`, so an untested last arm's reads
+// failed strictOutput, see findCoveringArmIndex) and ended in
+// `throw new MatchError(_r)`, a runtime import of @typesugar/std. The tree
+// is what a person writes:
+//
+//   if ("value" in _r) {
+//     const _value = _r.value;          // narrowed by TypeScript
+//     if ("value" in _value) { const v = _value.value; return ...; }
+//     const e = _value.error; return ...;
+//   }
+//   const e = _r.error; return ...;
+//
+// Adjacent arms whose top-level extractor has the same descriptor form a
+// group: its test runs once, its payload is bound to a const, and its
+// sub-patterns are matched as arms of their own, recursively. Arm order is
+// kept: only ADJACENT arms are grouped, and an arm with a guard, `.or()` or
+// `.as()` (or any other pattern) between them ends the group; every arm the
+// tree doesn't group is emitted as the flat chain emits it, and a value no
+// arm of a group matches falls through to the arms after the group, as in
+// the flat chain.
+//
+// A level's last branch has no test when the branches before it that
+// ALWAYS return, together with it, provably cover the level's type (the
+// scrutinee's, or the payload's): those branches' tests narrow the value for
+// TypeScript, so the untested branch's reads type-check, and no value
+// reaches past it. A group always returns when its own last branch is
+// untested. With the whole match covered there is no throw and no import.
+
+/**
+ * The types of a level's value. `bind`: its static type as the flat chain
+ * would type it (the extractor's payload typing), which types the bindings
+ * and payload casts under it. `proof`: the same type when every member's
+ * test is decided ({@link groupPayloadType}), else undefined; only this one
+ * may drop a test or a null/object guard.
+ */
+interface TreeLevelTypes {
+  bind: ts.Type | undefined;
+  proof: ts.Type | undefined;
+}
+
+/** A top-level arm or a sub-pattern of a group, as a level of the tree sees it. */
+interface TreeArm {
+  /** The pattern, or undefined for a top-level arm the tree never groups (guard, `.or()`, `.as()`). */
+  pattern: PatternInfo | undefined;
+  result: ts.Expression;
+  arm?: CaseArm;
+}
+
+type TreeUnit =
+  | { kind: "arm"; arm: TreeArm }
+  | { kind: "group"; first: ExtractorPattern; arms: { sub: PatternInfo; result: ts.Expression }[] };
+
+/**
+ * A `has k` / `field = value` extractor with one payload field: what the
+ * tree groups. The coverage check (patternsCoverType) sees through exactly
+ * these. `not-null`/`null`/`always`, `self` payloads, several payload fields
+ * and custom extractors keep the flat form.
+ */
+function isGroupableExtractor(p: PatternInfo | undefined): p is ExtractorPattern {
+  if (!p || p.kind !== "extractor" || p.def.kind !== "sum-variant") return false;
+  const { test, discriminantField, payloadFields } = p.def;
+  const tested =
+    (typeof test === "object" && test !== null) ||
+    (test === undefined && discriminantField !== undefined);
+  return (
+    tested &&
+    payloadFields?.length === 1 &&
+    payloadFields[0] !== SELF_PAYLOAD &&
+    p.bindings.length === 1
+  );
+}
+
+/** Extractors with the same key run the same test and read the same field. */
+function extractorDescriptorKey(def: ExtractorDef): string {
+  const { test, discriminantField, discriminantValue, payloadFields } = def;
+  return JSON.stringify([test, discriminantField, discriminantValue, payloadFields]);
+}
+
+/**
+ * Split a level's arms into units: maximal runs of adjacent groupable
+ * extractors with the same descriptor become a group when one of them
+ * matches its payload with a further extractor; every other arm is a unit
+ * of its own. (A run whose payloads are bindings or literals stays flat:
+ * `Ok(1)`, `Ok(v)` emits what it always did.)
+ */
+function formTreeUnits(arms: readonly TreeArm[]): TreeUnit[] {
+  const units: TreeUnit[] = [];
+  for (let i = 0; i < arms.length; ) {
+    const p = arms[i].pattern;
+    if (isGroupableExtractor(p)) {
+      const key = extractorDescriptorKey(p.def);
+      let j = i + 1;
+      while (j < arms.length) {
+        const q = arms[j].pattern;
+        if (!isGroupableExtractor(q) || extractorDescriptorKey(q.def) !== key) break;
+        j++;
+      }
+      const run = arms.slice(i, j) as (TreeArm & { pattern: ExtractorPattern })[];
+      if (run.some((a) => a.pattern.bindings[0].kind === "extractor")) {
+        units.push({
+          kind: "group",
+          first: p,
+          arms: run.map((a) => ({ sub: a.pattern.bindings[0], result: a.result })),
+        });
+        i = j;
+        continue;
+      }
+    }
+    units.push({ kind: "arm", arm: arms[i] });
+    i++;
+  }
+  return units;
+}
+
+/**
+ * Can every pattern under a group be emitted as an arm of its own level?
+ * Regex and custom extractors (which call `extract` into a temp) and
+ * unsupported patterns aren't; the match keeps the flat form.
+ */
+function treeSafe(p: PatternInfo): boolean {
+  switch (p.kind) {
+    case "regex":
+    case "unsupported":
+      return false;
+    case "extractor":
+      return p.def.kind !== "custom" && p.bindings.every(treeSafe);
+    case "array":
+      return p.elements.every((e) => treeSafe(e.pattern));
+    case "object":
+      return p.properties.every((pr) => treeSafe(pr.pattern));
+    case "type-constructor":
+      return treeSafe(p.binding);
+    default:
+      return true;
+  }
+}
+
+/** Every pattern under every group, at any depth, is {@link treeSafe}. */
+function unitsTreeSafe(units: readonly TreeUnit[]): boolean {
+  return units.every((u) => u.kind === "arm" || u.arms.every((a) => treeSafe(a.sub)));
+}
+
+/**
+ * What an arm the tree doesn't group counts for in its level's coverage:
+ * nothing for an extractor whose payload is matched further, whose compound
+ * test narrows nothing (as in findCoveringArmIndex).
+ */
+function coverageContribution(p: PatternInfo): PatternInfo[] {
+  return p.kind === "extractor" && !p.bindings.every(patternCoversAll) ? [] : [p];
+}
+
+/** The extractor with its payload bound by `_`: what a group that always returns covers. */
+function withWildcardPayload(p: ExtractorPattern): ExtractorPattern {
+  return { ...p, bindings: p.bindings.map((): PatternInfo => ({ kind: "wildcard" })) };
+}
+
+/** Does the extractor's test fail for every value of the object type `member`? */
+function testFailsForMember(checker: ts.TypeChecker, def: ExtractorDef, member: ts.Type): boolean {
+  if (def.test && typeof def.test === "object") {
+    return checker.getPropertyOfType(member, def.test.hasKey) === undefined;
+  }
+  if (def.discriminantField === undefined || def.discriminantValue === undefined) return false;
+  const prop = checker.getPropertyOfType(member, def.discriminantField);
+  if (!prop || prop.flags & ts.SymbolFlags.Optional) return false;
+  const want =
+    typeof def.discriminantValue === "boolean"
+      ? String(def.discriminantValue)
+      : JSON.stringify(def.discriminantValue);
+  const t = checker.getTypeOfSymbol(prop);
+  return (t.isUnion() ? t.types : [t]).every((v) => {
+    const key = getLiteralValueFromType(v);
+    return key !== undefined && key !== want;
+  });
+}
+
+/**
+ * The static type of a group's payload const: the payload of the members
+ * of `levelType` its test selects (the extractor's payload typing, which
+ * narrows as TypeScript narrows the inlined test). Undefined — so nothing
+ * under the group is untested and every guard stays — unless the test is
+ * decided for every member (holds for the whole member, or can't hold:
+ * not an object, the key absent, another tag), since an optional key or a
+ * non-literal tag would let TypeScript keep members the typing leaves out.
+ */
+function groupPayloadType(
+  ctx: MacroContext,
+  def: ExtractorDef,
+  levelType: ts.Type | undefined,
+  at: ts.Node
+): ts.Type | undefined {
+  if (!levelType || levelType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+  const checker = ctx.typeChecker;
+  try {
+    const members = levelType.isUnion() ? levelType.types : [levelType];
+    const decided = members.every(
+      (m) =>
+        nullishKeyOfType(m) !== undefined ||
+        !isObjectLike(m) ||
+        testHoldsForMember(checker, def, m) ||
+        testFailsForMember(checker, def, m)
+    );
+    return decided ? def.payloadTyping?.(levelType)?.types[0] : undefined;
+  } catch (e) {
+    ctx.reportWarning(
+      at,
+      `match: could not read the type of an extractor's payload (${e instanceof Error ? e.message : String(e)}); ` +
+        `the arms under it keep every test.`
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Emit a group: its test (on `accessor`), and its body — the payload const
+ * and the sub-patterns' level. `exits`: the body always returns.
+ */
+function emitTreeGroup(
+  ctx: MacroContext,
+  unit: TreeUnit & { kind: "group" },
+  accessor: () => ts.Expression,
+  level: TreeLevelTypes,
+  skipObjectGuard: boolean,
+  at: ts.Node
+): {
+  test: ts.Expression | undefined;
+  body: ts.Statement[];
+  exits: boolean;
+  whole: ExtractorPattern;
+} {
+  const f = ctx.factory;
+  const whole = withWildcardPayload(unit.first);
+  const def = unit.first.def;
+  const field = def.payloadFields![0];
+  const test = buildCondition(f, whole, accessor(), skipObjectGuard, level.bind);
+  const typing = level.bind && def.payloadTyping?.(level.bind);
+  const payloadName = ctx.tryShortName(`_${field}`);
+  const decl = f.createVariableStatement(
+    undefined,
+    f.createVariableDeclarationList(
+      [
+        f.createVariableDeclaration(
+          payloadName,
+          undefined,
+          undefined,
+          payloadAccess(f, accessor(), field, typing)
+        ),
+      ],
+      ts.NodeFlags.Const
+    )
+  );
+  const inner = emitTreeLevel(
+    ctx,
+    unit.arms.map((a) => ({ pattern: a.sub, result: a.result })),
+    () => f.createIdentifier(payloadName.text),
+    { bind: typing?.types[0], proof: groupPayloadType(ctx, def, level.proof, at) },
+    at
+  );
+  return { test, body: [decl, ...inner.statements], exits: inner.exits, whole };
+}
+
+/** Do `patterns` provably cover `type` (patternsCoverType), warning when the checker fails? */
+function treeLevelCovered(
+  ctx: MacroContext,
+  type: ts.Type | undefined,
+  patterns: readonly PatternInfo[],
+  at: ts.Node
+): boolean {
+  if (!type) return false;
+  try {
+    return patternsCoverType(ctx, type, patterns);
+  } catch (e) {
+    ctx.reportWarning(
+      at,
+      `match: could not read an extractor payload's type to check its arms ` +
+        `(${e instanceof Error ? e.message : String(e)}); they keep every test.`
+    );
+    return false;
+  }
+}
+
+/**
+ * Emit the arms of a group's payload (`accessor`, of static type `type`).
+ * No arm here has a guard, `.or()` or `.as()`: those end a group.
+ */
+function emitTreeLevel(
+  ctx: MacroContext,
+  arms: readonly TreeArm[],
+  accessor: () => ts.Expression,
+  level: TreeLevelTypes,
+  at: ts.Node
+): { statements: ts.Statement[]; exits: boolean } {
+  const f = ctx.factory;
+  const { bind: type, proof } = level;
+  const skipObjectGuard = isGuaranteedObjectType(proof);
+  const statements: ts.Statement[] = [];
+  const covered: PatternInfo[] = [];
+  for (const unit of formTreeUnits(arms)) {
+    if (unit.kind === "group") {
+      const g = emitTreeGroup(ctx, unit, accessor, level, skipObjectGuard, at);
+      if (g.exits && treeLevelCovered(ctx, proof, [...covered, g.whole], at)) {
+        statements.push(...g.body);
+        return { statements, exits: true };
+      }
+      statements.push(
+        g.test
+          ? f.createIfStatement(g.test, f.createBlock(g.body, true))
+          : f.createBlock(g.body, true)
+      );
+      if (g.exits) covered.push(g.whole);
+      continue;
+    }
+    const p = unit.arm.pattern!;
+    if (patternCoversAll(p)) {
+      statements.push(
+        ...generateArmStatements(
+          ctx,
+          f,
+          p,
+          accessor(),
+          undefined,
+          unit.arm.result,
+          undefined,
+          skipObjectGuard,
+          type
+        )
+      );
+      return { statements, exits: true };
+    }
+    const contribution = coverageContribution(p);
+    if (treeLevelCovered(ctx, proof, [...covered, ...contribution], at)) {
+      statements.push(
+        ...collectBindings(f, p, accessor(), type),
+        f.createReturnStatement(unit.arm.result)
+      );
+      return { statements, exits: true };
+    }
+    covered.push(...contribution);
+    statements.push(
+      ...generateArmStatements(
+        ctx,
+        f,
+        p,
+        accessor(),
+        undefined,
+        unit.arm.result,
+        undefined,
+        skipObjectGuard,
+        type
+      )
+    );
+  }
+  return { statements, exits: false };
+}
+
+/**
+ * Compile a match with nested extractor arms to a decision tree (see the
+ * section comment), or undefined to leave it to {@link generateIIFE}: when
+ * no adjacent arms form a group, when a group holds a pattern the tree
+ * can't emit on its own (regex, custom extractor), or when the scrutinee is
+ * read at a wider declared type than the one its arms are typed against
+ * (scrutineeReading).
+ */
+function tryGenerateDecisionTree(
+  ctx: MacroContext,
+  chainExpr: ts.Expression,
+  scrutinee: ts.Expression,
+  arms: CaseArm[],
+  elseResult: ts.Expression | undefined
+): ts.Expression | undefined {
+  const treeArms: TreeArm[] = arms.map((arm) => ({
+    pattern:
+      arm.guard || arm.alternatives.length > 0 || arm.asPattern
+        ? undefined
+        : analyzePattern(arm.pattern),
+    result: arm.result,
+    arm,
+  }));
+  const units = formTreeUnits(treeArms);
+  if (!units.some((u) => u.kind === "group") || !unitsTreeSafe(units)) return undefined;
+  if (scrutineeReading(ctx, scrutinee).assertion) return undefined;
+
+  const f = ctx.factory;
+  const scrutineeName = scrutineeShortName(ctx, scrutinee);
+  const ref = () => f.createIdentifier(scrutineeName.text);
+  const scrutineeType = getScrutineeType(ctx, scrutinee);
+  const skipObjectGuard = isGuaranteedObject(ctx, scrutinee);
+  const covers = (patterns: PatternInfo[]) => {
+    const c = findMissingCases(ctx, scrutinee, patterns);
+    return c.kind === "complete" && !c.unanalysed;
+  };
+
+  const statements: ts.Statement[] = [
+    f.createVariableStatement(
+      undefined,
+      f.createVariableDeclarationList(
+        [f.createVariableDeclaration(scrutineeName, undefined, undefined, scrutinee)],
+        ts.NodeFlags.Const
+      )
+    ),
+  ];
+  const covered: PatternInfo[] = [];
+  let done = false;
+
+  for (const unit of units) {
+    if (unit.kind === "group") {
+      const g = emitTreeGroup(
+        ctx,
+        unit,
+        ref,
+        { bind: scrutineeType, proof: scrutineeType },
+        skipObjectGuard,
+        chainExpr
+      );
+      if (g.exits && covers([...covered, g.whole])) {
+        statements.push(...g.body);
+        done = true;
+        break;
+      }
+      statements.push(
+        g.test
+          ? f.createIfStatement(g.test, f.createBlock(g.body, true))
+          : f.createBlock(g.body, true)
+      );
+      if (g.exits) covered.push(g.whole);
+      continue;
+    }
+
+    // An arm the tree doesn't group: as generateIIFE emits it.
+    const arm = unit.arm.arm!;
+    const own = [arm.pattern, ...arm.alternatives].map(analyzePattern);
+    const p = own[0];
+    if (!arm.guard && !own.some(patternCoversAll)) {
+      const contribution = own.flatMap(coverageContribution);
+      if (covers([...covered, ...contribution])) {
+        // The covering arm: no test, only its bindings.
+        if (arm.asPattern) statements.push(...generateAsBindings(f, arm.asPattern, ref()));
+        if (p.kind !== "literal" && p.kind !== "wildcard") {
+          statements.push(...collectBindings(f, p, ref(), scrutineeType));
+        }
+        statements.push(f.createReturnStatement(arm.result));
+        done = true;
+        break;
+      }
+      covered.push(...contribution);
+    }
+    if (arm.alternatives.length > 0) {
+      statements.push(
+        ...generateOrArmStatements(ctx, f, arm, ref(), skipObjectGuard, scrutineeType)
+      );
+    } else if (p.kind === "regex") {
+      statements.push(...generateRegexArmStatements(ctx, f, p, arm, ref()));
+    } else {
+      statements.push(
+        ...generateArmStatements(
+          ctx,
+          f,
+          p,
+          ref(),
+          arm.guard,
+          arm.result,
+          arm.asPattern,
+          skipObjectGuard,
+          scrutineeType
+        )
+      );
+    }
+    if (
+      !arm.guard &&
+      (own.some(patternCoversAll) ||
+        (p.kind === "extractor" &&
+          p.def.test === "always" &&
+          p.bindings.every((b) => b.kind === "variable" || b.kind === "wildcard")))
+    ) {
+      // Always returns: nothing after it can run.
+      done = true;
+      break;
+    }
+  }
+
+  if (!done && !alwaysExits(statements[statements.length - 1])) {
+    statements.push(
+      elseResult !== undefined
+        ? f.createReturnStatement(elseResult)
+        : createMatchErrorThrow(ctx, ref())
+    );
+  }
   return wrapInIIFE(ctx, chainExpr, statements, movedExpressions(scrutinee, arms, elseResult));
 }
 

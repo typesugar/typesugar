@@ -617,11 +617,10 @@ export const f = (r: RR) =>
       expect(f(err("b"))).toBe("outer b");
     });
 
-    // A one-level match's last arm needs no test: `if ("value" in _r)
-    // return` narrows `_r` to the Err. A nested arm's test is a compound
-    // (`"value" in _r && "error" in _r.value`) that narrows nothing, so an
-    // untested last arm's `_r.error` would not type-check: every arm keeps
-    // its test here.
+    // A flat nested arm's test is a compound (`"value" in _r && "error" in
+    // _r.value`) that narrows nothing, so an untested last arm's `_r.error`
+    // would not type-check. The decision tree (F16, below) tests `_r` alone
+    // and binds the payload, so both levels narrow.
     it("the output type-checks (strictOutput)", () => {
       const out = transformCode(
         `${RESULT}
@@ -668,6 +667,148 @@ export const f = (r: RR) => match(r).case(Ok(Ok(v))).then(v).case(Err(e)).then(0
       const r = transformAndRun(`${RESULT}
 export const f = (r: Result<number, string>) => match(r).case(Ok(1)).then(1).case(Err(e)).then(0);`);
       expect(r.errors.join("\n")).toMatch(/TS9226|Non-exhaustive/);
+    });
+
+    // neverthrow case study F16: nested arms compiled to independent `if`s
+    // that repeated the outer test (`"value" in _r && (_r.value != null &&
+    // typeof _r.value === "object" && "value" in _r.value)`), kept every
+    // test, and ended in `throw new MatchError(_r)`, a runtime import of
+    // @typesugar/std. Adjacent arms with the same extractor now share one
+    // test, bind the payload to a const that TypeScript narrows, and the
+    // last branch of a level that the arms provably cover has no test.
+    describe("nested arms compile to a decision tree (neverthrow F16)", () => {
+      const strictMessages = (code: string, name: string) => {
+        const out = transformCode(code, {
+          fileName: path.resolve(here, `__match_f16_${name}.ts`),
+          strictOutput: true,
+        });
+        return (out.diagnostics ?? []).map((d: { message?: string }) => String(d.message));
+      };
+      const mkOf = (r: { exports: Record<string, unknown> }) =>
+        r.exports.mk as Record<"ok" | "err", (x: unknown) => unknown>;
+      const NESTED = `${RESULT}
+export const f = (r: RR) =>
+  match(r).case(Ok(Ok(v))).then(\`ok \${v}\`).case(Ok(Err(e))).then(\`inner \${e}\`).case(Err(e)).then(\`outer \${e}\`);`;
+
+      it("tests the outer variant once, with no MatchError and no runtime import", () => {
+        const r = exec(NESTED);
+        expect(r.errors).toEqual([]);
+        expect(r.warnings).toEqual([]);
+        const fn = r.code.slice(r.code.indexOf("export const f"));
+        expect(fn.match(/"value" in _r\b/g) ?? []).toHaveLength(1);
+        expect(fn).not.toContain(`"error" in _r`);
+        // The payload is a class instance: no null / typeof guard on it.
+        expect(fn).not.toContain("typeof");
+        expect(fn).not.toContain("!= null");
+        expect(r.code).not.toContain("MatchError");
+        expect(r.js).not.toMatch(/require\("@typesugar\/std"\)/);
+        const { ok, err } = mkOf(r);
+        const f = r.exports.f as Fn;
+        expect(f(ok(ok(1)))).toBe("ok 1");
+        expect(f(ok(err("a")))).toBe("inner a");
+        expect(f(err("b"))).toBe("outer b");
+      });
+
+      it("the decision tree type-checks (strictOutput)", () => {
+        expect(strictMessages(NESTED, "tree")).toEqual([]);
+      });
+
+      it("a guard between same-extractor arms keeps arm order", () => {
+        const code = `${RESULT}
+export const f = (r: RR) =>
+  match(r)
+    .case(Ok(Ok(v))).then("ok " + v)
+    .case(Ok(Err(e))).if(e === "x").then("guarded " + e)
+    .case(Ok(Err(e))).then("inner " + e)
+    .case(Err(e)).then("outer " + e);`;
+        const r = exec(code);
+        expect(r.errors).toEqual([]);
+        const { ok, err } = mkOf(r);
+        const f = r.exports.f as Fn;
+        expect(f(ok(ok(1)))).toBe("ok 1");
+        expect(f(ok(err("x")))).toBe("guarded x");
+        expect(f(ok(err("y")))).toBe("inner y");
+        expect(f(err("b"))).toBe("outer b");
+        expect(strictMessages(code, "guard")).toEqual([]);
+      });
+
+      it("a partial nested match falls through to .else()", () => {
+        const code = `${RESULT}
+export const f = (r: RR) => match(r).case(Ok(Ok(v))).then("ok " + v).case(Err(e)).then("outer " + e).else("other");`;
+        const r = exec(code);
+        expect(r.errors).toEqual([]);
+        const { ok, err } = mkOf(r);
+        const f = r.exports.f as Fn;
+        expect(f(ok(ok(1)))).toBe("ok 1");
+        expect(f(ok(err("a")))).toBe("other");
+        expect(f(err("b"))).toBe("outer b");
+        expect(r.code).not.toContain("MatchError");
+        expect(strictMessages(code, "else")).toEqual([]);
+      });
+
+      it("a payload that may be null keeps its guard", () => {
+        const code = `${RESULT}
+export const f = (r: Result<Result<number, string> | null, string>) =>
+  match(r).case(Ok(Ok(v))).then("ok " + v).case(Ok(Err(e))).then("inner " + e).case(Ok(null)).then("null").case(Err(e)).then("outer " + e);`;
+        const r = exec(code);
+        expect(r.errors).toEqual([]);
+        const fn = r.code.slice(r.code.indexOf("export const f"));
+        expect(fn.match(/"value" in _r\b/g) ?? []).toHaveLength(1);
+        expect(fn).toContain("!= null");
+        expect(fn).toContain(`typeof`);
+        const { ok, err } = mkOf(r);
+        const f = r.exports.f as Fn;
+        expect(f(ok(ok(1)))).toBe("ok 1");
+        expect(f(ok(err("a")))).toBe("inner a");
+        expect(f(ok(null))).toBe("null");
+        expect(f(err("b"))).toBe("outer b");
+        expect(strictMessages(code, "nullable")).toEqual([]);
+      });
+
+      it("`field = value` extractors nest three deep", () => {
+        const code = `import { match } from "@typesugar/std";
+type R<T, E> = { ok: true; value: T } | { ok: false; error: E };
+declare function Ok<T>(v: T): R<T, never>;
+declare function Err<E>(e: E): R<never, E>;
+/** @impl Destructure<typeof Ok, R<unknown, unknown>, unknown>
+ *  @destructure ok = true -> value */
+const dOk = { extract: (v: R<unknown, unknown>): unknown => v };
+/** @impl Destructure<typeof Err, R<unknown, unknown>, unknown>
+ *  @destructure ok = false -> error */
+const dErr = { extract: (v: R<unknown, unknown>): unknown => v };
+export const f = (r: R<R<R<number, string>, string>, string>) =>
+  match(r).case(Ok(Ok(Ok(v)))).then(v).case(Ok(Ok(Err(e)))).then("3 " + e).case(Ok(Err(e))).then("2 " + e).case(Err(e)).then("1 " + e);`;
+        const r = exec(code);
+        expect(r.errors).toEqual([]);
+        const fn = r.code.slice(r.code.indexOf("export const f"));
+        expect(fn.match(/_r\.ok === true/g) ?? []).toHaveLength(1);
+        expect(fn).not.toContain("=== false");
+        expect(fn).not.toContain("MatchError");
+        const f = r.exports.f as Fn;
+        const ok = (value: unknown) => ({ ok: true, value });
+        const err = (error: unknown) => ({ ok: false, error });
+        expect(f(ok(ok(ok(7))))).toBe(7);
+        expect(f(ok(ok(err("c"))))).toBe("3 c");
+        expect(f(ok(err("b")))).toBe("2 b");
+        expect(f(err("a"))).toBe("1 a");
+        expect(strictMessages(code, "deep")).toEqual([]);
+      });
+
+      // Single-level matches, and nested literal payloads, keep their output.
+      it("single-level and literal-payload matches emit what they did", () => {
+        const r = exec(`${RESULT}
+export const g = (r: Result<number, string>) => match(r).case(Ok(v)).then(v).case(Err(e)).then(0);
+export const h = (r: Result<number, string>) => match(r).case(Ok(1)).then(1).case(Ok(v)).then(v).case(Err(e)).then(0);`);
+        expect(r.errors).toEqual([]);
+        const g = r.code.slice(r.code.indexOf("export const g"), r.code.indexOf("export const h"));
+        expect(g.trimEnd()).toBe(
+          'export const g = (r: Result<number, string>) => (() => {\n    const _r = r;\n    if ("value" in _r) {\n        const v = _r.value;\n        return v;\n    }\n    const e = _r.error;\n    return 0;\n})();'
+        );
+        const h = r.code.slice(r.code.indexOf("export const h")).trimEnd();
+        expect(h).toMatch(
+          /^export const h = \(r: Result<number, string>\) => \(\(\) => \{\n {4}const (\w+) = r;\n {4}if \("value" in \1 && \1\.value === 1\) \{\n {8}return 1;\n {4}\}\n {4}if \("value" in \1\) \{\n {8}const v = \1\.value;\n {8}return v;\n {4}\}\n {4}const e = \1\.error;\n {4}return 0;\n\}\)\(\);$/
+        );
+      });
     });
   });
 
