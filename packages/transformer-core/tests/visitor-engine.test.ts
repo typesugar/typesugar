@@ -28,7 +28,7 @@ const OPTIONS: ts.CompilerOptions = {
 };
 
 /** Transform `entry` inside a multi-file in-memory program. */
-function run(files: Record<string, string>, entry: string) {
+function run(files: Record<string, string>, entry: string, extraOptions: ts.CompilerOptions = {}) {
   const host: ts.CompilerHost = {
     getSourceFile: (name, lv) => {
       if (name in files) return ts.createSourceFile(name, files[name], lv, true);
@@ -45,7 +45,7 @@ function run(files: Record<string, string>, entry: string) {
     useCaseSensitiveFileNames: () => true,
     getNewLine: () => "\n",
   };
-  const program = ts.createProgram(Object.keys(files), OPTIONS, host);
+  const program = ts.createProgram(Object.keys(files), { ...OPTIONS, ...extraOptions }, host);
   return transformCode(files[entry], { fileName: entry, program });
 }
 
@@ -159,6 +159,53 @@ describe("a receiver's own method wins over a same-named import", () => {
     expect(r.code).toContain("r.match(");
     expect(r.code).not.toMatch(/match\(r, /);
   });
+
+  // Review of #102: under strictNullChecks an optional method's type is
+  // `F | undefined`, which has no call signatures, so the member read as
+  // "not callable" and the import replaced it.
+  it("leaves box.fold?.(f, g) alone when the method is optional (strict)", () => {
+    const r = run(
+      {
+        "/node_modules/fake-fold-macros/index.d.ts": `
+          export declare function fold<T>(value: T, ...rest: unknown[]): unknown;
+        `,
+        "/main.ts": `
+          import { fold } from "fake-fold-macros";
+          interface Box { fold?(onOk: (n: number) => number, onErr: () => number): number }
+          declare const box: Box;
+          export const viaMacro = fold(box);
+          export const viaMethod = box.fold?.((n) => n, () => 0);
+        `,
+      },
+      "/main.ts",
+      { strict: true }
+    );
+    expect(errorsOf(r)).toEqual([]);
+    expect(r.code).toContain("box.fold?.(");
+    expect(r.code).not.toMatch(/fold\(box, /);
+  });
+
+  // A union of unrelated function types has no call signatures of its own
+  // either; each member of the union is callable.
+  it("leaves box.fold(f) alone when the method's type is a union of function types", () => {
+    const r = run(
+      {
+        "/node_modules/fake-fold-macros/index.d.ts": `
+          export declare function fold<T>(value: T, ...rest: unknown[]): unknown;
+        `,
+        "/main.ts": `
+          import { fold } from "fake-fold-macros";
+          interface Box { fold: ((s: string) => number) | ((n: number, m: number) => string) }
+          declare const box: Box;
+          export const viaMacro = fold(box);
+          export function call(b: Box) { return b.fold("x" as never, 1 as never); }
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).toContain("b.fold(");
+    expect(r.code).not.toMatch(/fold\(b, /);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -202,6 +249,27 @@ describe("a missing member is not a macro by name", () => {
     // macro call like any other: expanded, not left as a runtime call.
     expect(r.code).toContain("direct = 2");
     expect(r.code).toContain("viaMethod = 2");
+  });
+
+  // Review of #102: the import the extension call used was never recorded
+  // as a macro import, so it stayed in the output when the method form was
+  // its only use -- a runtime import of a package with no runtime export.
+  it("drops the macro import when x.countArgs(1) is its only use", () => {
+    const r = run(
+      {
+        "/node_modules/fake-count-macros/index.d.ts": `
+          export declare function countArgs<T>(value: T, ...rest: unknown[]): number;
+        `,
+        "/main.ts": `
+          import { countArgs } from "fake-count-macros";
+          declare const x: { kind: "a" };
+          export const viaMethod = x.countArgs(1);
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).toContain("viaMethod = 2");
+    expect(r.code).not.toContain("fake-count-macros");
   });
 });
 

@@ -126,7 +126,14 @@ export function findImportedExtensionMatches(
   let hasNativeMethod = false;
   if (own && hasNativeMember) {
     try {
-      hasNativeMethod = checker.getTypeOfSymbol(own).getCallSignatures().length > 0;
+      // Callable once `undefined` is removed (an optional method is
+      // `F | undefined` under strictNullChecks), or, for a union of
+      // unrelated function types, when every member is callable: neither
+      // shape has call signatures of its own.
+      const memberType = checker.getNonNullableType(checker.getTypeOfSymbol(own));
+      hasNativeMethod =
+        memberType.getCallSignatures().length > 0 ||
+        (memberType.isUnion() && memberType.types.every((t) => t.getCallSignatures().length > 0));
     } catch (error) {
       // Can't tell: treat the member as a method, so the receiver keeps it.
       hasNativeMethod = true;

@@ -1929,6 +1929,11 @@ class MacroTransformer {
         macro.expand(this.ctx, result, result.arguments)
       );
       if (expanded === result) return result;
+      // The callee is synthetic, so resolveMacroFromSymbol took the by-name
+      // path and never recorded the import; record the file's own import
+      // binding here so cleanupMacroImports drops it like it does for a
+      // direct `name(value, ...)` call.
+      this.recordImportBindingNamed(macroName);
       if (this.expansionTracker) {
         const expandedText = this.printNodeSafe(expanded);
         if (expandedText) {
@@ -1948,6 +1953,25 @@ class MacroTransformer {
         this.ctx.factory,
         `typesugar: expansion of '${macroName}' failed: ${error}`
       );
+    }
+  }
+
+  /**
+   * Record the file's named import whose local name is `localName` as a macro
+   * import. The specifier is a real node of the program's source file, so the
+   * checker is asked about it, never about a synthetic node.
+   */
+  private recordImportBindingNamed(localName: string): void {
+    for (const stmt of this.ctx.sourceFile.statements) {
+      if (!ts.isImportDeclaration(stmt)) continue;
+      const bindings = stmt.importClause?.namedBindings;
+      if (!bindings || !ts.isNamedImports(bindings)) continue;
+      const spec = bindings.elements.find((e) => e.name.text === localName);
+      if (!spec) continue;
+      if (isSyntheticNode(spec) || !isNodeInProgram(this.ctx.program, spec)) return;
+      const symbol = this.ctx.typeChecker.getSymbolAtLocation(spec.name);
+      if (symbol) this.recordMacroImport(symbol);
+      return;
     }
   }
 
