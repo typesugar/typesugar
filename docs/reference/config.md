@@ -297,6 +297,12 @@ export default defineConfig({
 });
 ```
 
+tsdown runs every output format (ESM, CJS) through the same plugin instance.
+When the builds hand typesugar different code for the same file, typesugar
+keeps one TypeScript Program for each. A step with `dts: { emitDtsOnly: true }`
+discards its JavaScript, so leave typesugar out of that step's `plugins`: there
+it only expands code that is thrown away.
+
 **Type-checking:** bundlers don't type-check. Run `typesugar check` in CI (not
 `tsc --noEmit`, which never runs the macros), or set `strict: true`.
 
