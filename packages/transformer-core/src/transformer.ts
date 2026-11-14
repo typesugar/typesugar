@@ -2074,9 +2074,19 @@ class MacroTransformer {
   // Chain macro expansion (fluent API support, e.g. match(x).case().then().else())
   // ---------------------------------------------------------------------------
 
+  /**
+   * The root call of a fluent chain (`match(x)` in `match(x).case(p).then(r)`):
+   * walk down links, calls whose callee is a property of another call. A
+   * namespace-qualified root (`std.match(x)`, callee a property of an
+   * identifier) is a root, not a link.
+   */
   private findChainRoot(node: ts.CallExpression): ts.CallExpression | undefined {
     let current: ts.Expression = node;
-    while (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+    while (
+      ts.isCallExpression(current) &&
+      ts.isPropertyAccessExpression(current.expression) &&
+      ts.isCallExpression(current.expression.expression)
+    ) {
       current = current.expression.expression;
     }
     return ts.isCallExpression(current) ? current : undefined;
@@ -2099,10 +2109,22 @@ class MacroTransformer {
     const rootCall = this.findChainRoot(node);
     if (!rootCall) return undefined;
 
-    if (!ts.isIdentifier(rootCall.expression)) return undefined;
-    const macroName = rootCall.expression.text;
+    // `match(x)…` or, through a namespace import, `std.match(x)…`: resolved
+    // by the callee's symbol either way.
+    const rootCallee = rootCall.expression;
+    let macroName: string;
+    if (ts.isIdentifier(rootCallee)) {
+      macroName = rootCallee.text;
+    } else if (
+      ts.isPropertyAccessExpression(rootCallee) &&
+      ts.isIdentifier(rootCallee.expression)
+    ) {
+      macroName = rootCallee.name.text;
+    } else {
+      return undefined;
+    }
 
-    const macro = this.resolveMacroFromSymbol(rootCall.expression, macroName, "expression") as
+    const macro = this.resolveMacroFromSymbol(rootCallee, macroName, "expression") as
       | ExpressionMacro
       | undefined;
     if (!macro?.chainable) return undefined;

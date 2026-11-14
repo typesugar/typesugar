@@ -206,11 +206,28 @@ function typeConstructorProblem(pattern: ts.CallExpression): string | undefined 
  * Walk from the outermost chain CallExpression inward to collect all links.
  * Returns links in source order (left-to-right).
  */
+/**
+ * A fluent-chain link (`<call>.case(...)`): a call whose callee is a property
+ * of another call. The root `match(x)` is not one, and neither is
+ * `std.match(x)`, whose callee is a property of a namespace import.
+ */
+function isChainLinkCall(call: ts.CallExpression): boolean {
+  return (
+    ts.isPropertyAccessExpression(call.expression) &&
+    ts.isCallExpression(skipChainParens(call.expression.expression))
+  );
+}
+
+function skipChainParens(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return e;
+}
+
 function parseChain(outermost: ts.CallExpression): { root: ts.CallExpression; links: ChainLink[] } {
   const links: ChainLink[] = [];
   let current: ts.Expression = outermost;
 
-  while (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
+  while (ts.isCallExpression(current) && isChainLinkCall(current)) {
     const call = current;
     const propAccess = call.expression as ts.PropertyAccessExpression;
     links.push({
@@ -218,7 +235,7 @@ function parseChain(outermost: ts.CallExpression): { root: ts.CallExpression; li
       args: call.arguments,
       node: call,
     });
-    current = propAccess.expression;
+    current = skipChainParens(propAccess.expression);
   }
 
   if (!ts.isCallExpression(current)) {
@@ -4470,8 +4487,10 @@ function expandMatch(
   callExpr: ts.CallExpression,
   args: readonly ts.Expression[]
 ): ts.Expression {
-  // Fluent chain mode: match(x).case(...).then(...).else(...)
-  if (ts.isPropertyAccessExpression(callExpr.expression)) {
+  // Fluent chain mode: match(x).case(...).then(...).else(...). A link's
+  // callee hangs off a call (`<match(x)…>.then`); `std.match` (a namespace
+  // import) is the root call itself, in either form.
+  if (isChainLinkCall(callExpr)) {
     return expandFluentMatch(ctx, callExpr, args);
   }
 
