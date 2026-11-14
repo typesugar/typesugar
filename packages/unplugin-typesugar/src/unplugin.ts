@@ -212,43 +212,110 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
   // the project's TypeScript is 7 (no JS compiler API). Memoized.
   assertSupportedTypeScript(ts);
   warnAboutPlainPatterns(options?.include, options?.exclude);
-  let pipeline: TransformationPipeline | undefined;
+  /**
+   * One pipeline per version of the source the bundler hands us. Earlier
+   * plugins in the chain may already have rewritten a file, so a pipeline
+   * transforms THAT text, not the file on disk (review #20); `code` is the
+   * latest text it was given per file. Usually there is one view. Several
+   * builds can share this plugin instance and see different code for the same
+   * file: tsdown runs its ESM and CJS builds through one instance, and with
+   * `dts: { emitDtsOnly: true }` one of them gets each file's source and the
+   * other a stub (`export {}`) under the same id. With one text per file, each
+   * switch rebuilt the Program, and in between a file's expansion saw the
+   * other build's stubs (remeda case study F4). Nothing in a transform call
+   * says which build it belongs to (tsdown gives every call a new context),
+   * so a file whose text differs from what a view already transformed goes to
+   * another view, where it is new.
+   */
+  interface View {
+    pipeline: TransformationPipeline;
+    code: Map<string, string>;
+  }
+  const views: View[] = [];
+  /** Each view holds a Program; beyond this, the last view is rebuilt instead. */
+  const MAX_VIEWS = 2;
+  let warnedTooManyViews = false;
   /** Error from creating the pipeline; reported (fatally) by buildStart/transform. */
   let setupError: unknown;
   const verbose = options?.verbose ?? false;
   const emitJs = needsEmitJs(meta?.framework ?? "unknown");
   /** Project root: Vite's `config.root` when known, else process.cwd(). */
   let root = process.cwd();
-  /**
-   * The latest `code` the bundler handed us per file. Earlier plugins in the
-   * chain may already have rewritten the file, so the pipeline must transform
-   * THIS text, not re-read the file from disk (review #20).
-   */
-  const latestCode = new Map<string, string>();
   /** include/exclude predicate, rebuilt if the root changes. */
   let transformFilter: { root: string; test: (id: string) => boolean } | undefined;
 
-  function ensurePipeline(): TransformationPipeline | undefined {
-    if (pipeline || setupError) return pipeline;
+  function createView(): View | undefined {
+    if (setupError) return undefined;
     try {
       const configPath = findTsConfig(root, options?.tsconfig);
-      pipeline = createPipeline(configPath, {
+      const code = new Map<string, string>();
+      const pipeline = createPipeline(configPath, {
         verbose,
         diskCache: options?.diskCache,
         strict: options?.strict,
         emitJs,
         transformerConfig: options?.cfgConfig ? { cfgConfig: options.cfgConfig } : undefined,
-        readFile: (f) => latestCode.get(path.normalize(f)) ?? ts.sys.readFile(f),
+        readFile: (f) => code.get(path.normalize(f)) ?? ts.sys.readFile(f),
       });
       if (verbose) {
         console.log(`[typesugar] Loaded config from ${configPath}`);
         console.log(`[typesugar] Program has ${pipeline.getFileNames().length} files`);
         console.log(`[typesugar] Framework: ${meta?.framework ?? "unknown"}, emitJs: ${emitJs}`);
       }
+      const view = { pipeline, code };
+      views.push(view);
+      return view;
     } catch (error) {
       setupError = error;
+      return undefined;
     }
-    return pipeline;
+  }
+
+  function ensurePipeline(): TransformationPipeline | undefined {
+    return (views[0] ?? createView())?.pipeline;
+  }
+
+  /** The view that transforms `code` for `file`, updated to read it. */
+  function viewFor(file: string, code: string): View | undefined {
+    // A view that already reads this text: nothing to rebuild.
+    const same = views.find((v) => v.code.get(file) === code);
+    if (same) return same;
+    // A view that hasn't seen the file reads it from disk. On first sight,
+    // code that is still what's on disk is what the pipeline already reads:
+    // invalidating it would drop the Program and rebuild it once per module
+    // (neverthrow case study F3).
+    let view = views.find((v) => !v.code.has(file));
+    if (!view && views.length < MAX_VIEWS) view = createView();
+    if (view) {
+      view.code.set(file, code);
+      if (code !== ts.sys.readFile(file)) view.pipeline.invalidate(file);
+      return view;
+    }
+    // Every view has another text for this file: an edit nothing reported,
+    // or more builds than views. Rebuild the last view, as before views.
+    view = views[views.length - 1];
+    if (!warnedTooManyViews) {
+      warnedTooManyViews = true;
+      console.warn(
+        `[typesugar] ${file} arrived with more than ${MAX_VIEWS} different texts without a ` +
+          `file change being reported; typesugar rebuilds its TypeScript Program each time ` +
+          `this happens, which slows the build.`
+      );
+    }
+    view.code.set(file, code);
+    view.pipeline.invalidate(file);
+    return view;
+  }
+
+  /** A file changed on disk: every view reads it again. */
+  function fileChanged(file: string): Set<string> {
+    const dependents = new Set<string>();
+    for (const view of views) {
+      view.code.delete(file);
+      for (const dep of view.pipeline.getDependents(file)) dependents.add(dep);
+      view.pipeline.invalidate(file);
+    }
+    return dependents;
   }
 
   return {
@@ -262,11 +329,7 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
       // HMR: an edit to a file must also re-run macros in the files that
       // depend on it (a derive/reflect macro reads the dependency's types).
       handleHotUpdate(ctx) {
-        if (!pipeline) return;
-        const file = path.normalize(ctx.file);
-        latestCode.delete(file);
-        const dependents = pipeline.getDependents(file);
-        pipeline.invalidate(file);
+        const dependents = fileChanged(path.normalize(ctx.file));
         if (dependents.size === 0) return;
         const mods = new Set(ctx.modules);
         for (const dep of dependents) {
@@ -300,26 +363,15 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
 
     transform(code, id) {
       if (typeof code !== "string") return null;
-      const p = ensurePipeline();
-      if (!p) {
+      const file = path.normalize(fileOf(id));
+      const view = ensurePipeline() && viewFor(file, code);
+      if (!view) {
         const msg = `[typesugar] failed to initialise: ${setupError instanceof Error ? setupError.message : String(setupError)}`;
         this?.error?.(msg);
         throw new Error(msg);
       }
 
-      const file = path.normalize(fileOf(id));
-      const previous = latestCode.get(file);
-      if (previous !== code) {
-        latestCode.set(file, code);
-        // On first sight, code that is still what's on disk is what the
-        // pipeline already reads: invalidating it would drop the Program
-        // and rebuild it once per module (neverthrow case study F3).
-        if (previous !== undefined || code !== ts.sys.readFile(file)) {
-          p.invalidate(file);
-        }
-      }
-
-      const result = p.transform(file);
+      const result = view.pipeline.transform(file);
 
       // Re-run when anything this file's expansion depends on changes.
       for (const dep of result.dependencies ?? []) {
@@ -367,10 +419,9 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
 
     // File watcher integration for cache invalidation
     watchChange(id) {
-      if (pipeline) {
+      if (views.length > 0) {
         const file = path.normalize(fileOf(id));
-        latestCode.delete(file);
-        pipeline.invalidate(file);
+        fileChanged(file);
         if (verbose) {
           console.log(`[typesugar] Invalidated cache for ${file}`);
         }
@@ -379,12 +430,15 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
 
     // Cleanup at end of build: save caches, print profiling report, run strict typecheck
     buildEnd() {
+      const pipeline = views[0]?.pipeline;
       if (!pipeline) return;
       let strictErrors: string | undefined;
       try {
         // Strict mode: type errors in the expanded output fail the build
         // (docs review 2026-10: they used to be console.error'd only, so a CI
-        // gate built on `strict: true` passed with type errors).
+        // gate built on `strict: true` passed with type errors). It checks the
+        // first view only: in tsdown's declaration-only step another view holds
+        // stubs, and checking it would report the stubs' missing exports.
         if (options?.strict) {
           const diagnostics = pipeline
             .strictTypecheck()
@@ -406,7 +460,7 @@ export const unpluginFactory: UnpluginFactory<TypesugarPluginOptions | undefined
           }
         }
       } finally {
-        pipeline.cleanup();
+        for (const view of views) view.pipeline.cleanup();
       }
       if (strictErrors) {
         // Rollup/Vite's buildEnd context has error(), which throws; other

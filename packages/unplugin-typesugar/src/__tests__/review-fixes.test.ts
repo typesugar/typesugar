@@ -140,3 +140,78 @@ describe("built dist/*.js of workspace packages are left alone", () => {
     expect(ctx.error).not.toHaveBeenCalled();
   });
 });
+
+// remeda case study F4: tsdown runs its ESM and CJS builds through one plugin
+// instance, and with `dts: { emitDtsOnly: true }` one build hands the plugin
+// each file's source and the other a stub (`export {}`) under the same id.
+// The plugin kept one text per file, so each switch rebuilt the Program, and
+// in between the Program held the stub, so a file's expansion could not see
+// what another file exports.
+describe("builds that see different code for the same file", () => {
+  const STUB = "export {};\n";
+
+  it("switching between the builds' texts does not rebuild the Program", () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 5; i++) files[`src/m${i}.ts`] = `export const v${i} = ${i};\n`;
+    project(files);
+    const { plugin, ctx } = makePlugin({ verbose: true });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const builds = () =>
+      log.mock.calls.filter((c) => String(c[0]).includes("Creating TypeScript program")).length;
+    try {
+      plugin.buildStart.call(ctx);
+      plugin.buildStart.call(ctx);
+      const pass = () => {
+        for (const rel of Object.keys(files)) {
+          const file = path.join(dir, rel);
+          plugin.transform.call(ctx, fs.readFileSync(file, "utf8"), file);
+          plugin.transform.call(ctx, STUB, file);
+        }
+      };
+      pass();
+      const afterFirstPass = builds();
+      pass();
+      pass();
+      expect(builds()).toBe(afterFirstPass);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("expands each file against the other files as its own build sees them", () => {
+    project({
+      "src/a.ts": `import { double } from "./b";\nexport const r = (2).double();\n`,
+      "src/b.ts": `export function double(n: number): number {\n  return n * 2;\n}\n`,
+    });
+    const { plugin, ctx } = makePlugin();
+    plugin.buildStart.call(ctx);
+    plugin.buildStart.call(ctx);
+    const a = path.join(dir, "src/a.ts");
+    const b = path.join(dir, "src/b.ts");
+    plugin.transform.call(ctx, fs.readFileSync(b, "utf8"), b);
+    plugin.transform.call(ctx, STUB, b);
+    const out = plugin.transform.call(ctx, fs.readFileSync(a, "utf8"), a);
+    expect(out?.code).toContain("double((2))");
+  });
+
+  it("an edit reported by the bundler reaches every build", () => {
+    project({
+      "src/a.ts": `${MACROS}import { n } from "./b";\nexport const x = comptime(() => 1) + n;\n`,
+      "src/b.ts": `export const n = 1;\n`,
+    });
+    const { plugin, ctx } = makePlugin();
+    plugin.buildStart.call(ctx);
+    const a = path.join(dir, "src/a.ts");
+    const b = path.join(dir, "src/b.ts");
+    plugin.transform.call(ctx, fs.readFileSync(a, "utf8"), a);
+    plugin.transform.call(ctx, STUB, a);
+    fs.writeFileSync(
+      a,
+      `${MACROS}import { n } from "./b";\nexport const x = comptime(() => 40 + 2) + n;\n`
+    );
+    plugin.watchChange.call(ctx, a);
+    const out = plugin.transform.call(ctx, fs.readFileSync(a, "utf8"), a);
+    expect(out.code).toContain("42");
+    expect(fs.readFileSync(b, "utf8")).toContain("n = 1");
+  });
+});
