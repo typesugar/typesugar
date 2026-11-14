@@ -96,7 +96,6 @@ export {
   inlineAutoSpecializeForHoisting,
   specializeForResultAlgebra,
   rewriteResultCalls,
-  getTypeName,
   getContextualTypeForCall,
   isInlinedCallSite,
   hasInlinedCallSites,

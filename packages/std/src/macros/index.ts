@@ -32,7 +32,7 @@ import "../typeclasses/par-combine.js";
  */
 export const promiseResultAlgebra: ResultAlgebra = {
   name: "Promise",
-  targetTypes: ["Promise"],
+  targetTypes: [{ global: "Promise" }],
   rewriteOk: (ctx, value) =>
     ctx.factory.createCallExpression(
       ctx.factory.createPropertyAccessExpression(

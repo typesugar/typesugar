@@ -268,8 +268,32 @@ It also warns TS9602 when the instance itself is only a declaration (from a
 package's `.d.ts`; see [Which instances are recognized](#which-instances-are-recognized)).
 
 Result-returning functions get one extra trick: **return-type-driven
-specialization** rewrites `ok()`/`err()` constructors when a `Result`-typed
-function is used where an `Option`, `Either`, or `Promise` is expected.
+specialization** rewrites `ok()`/`err()` constructors when a function returning
+a registered Result type is used where an `Option` or `Either` (from
+`@typesugar/fp`) or a `Promise` is expected. Types and constructors are matched
+by declaration, not by name, so a library's own `Result` (neverthrow's, say)
+is never rewritten, and an alias import (`import { Option as Opt }`) still
+counts. typesugar registers the targets but no Result type; a package
+registers its own from its `./macros` entry:
+
+```typescript
+import { registerResultSource } from "@typesugar/macros";
+
+registerResultSource({
+  name: "MyResult",
+  type: { module: "my-result", name: "Result" },
+  ok: [
+    { module: "my-result", name: "ok" },
+    { module: "my-result", name: "Result.ok" },
+  ],
+  err: [
+    { module: "my-result", name: "err" },
+    { module: "my-result", name: "Result.err" },
+  ],
+});
+```
+
+Only calls that resolve to those constructors are rewritten.
 
 ## Opting Out
 

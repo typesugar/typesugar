@@ -1,7 +1,8 @@
 # PEP-062: Typeclass Dispatch Everywhere
 
 **Status:** Draft (2026-10-21). Nothing implemented except the `match()` work tracked in
-[PEP-008](PEP-008-pattern-matching.md) Waves 10–11.
+[PEP-008](PEP-008-pattern-matching.md) Waves 10–11, and row 10's name matching
+(2026-11-14; see the note under the table).
 **Date:** 2026-10-21
 **Author:** Claude (with Dean Povey)
 **Related:** [PEP-052](PEP-052-import-scoped-macro-activation.md) (import-scoped
@@ -77,6 +78,11 @@ listed; the B and C rows are summarised after the table.
 | 13  | Coverage registry                        | `macros/src/coverage.ts:52-70, 275-327`; `typeclass.ts:218`                                    | Global `"Type::TC"` set; `checkCoverageForDerive` never called                                                                                                                   | Exported helpers answer by name; dead code                                                                        | Delete                                               |
 | 14  | `erased()` capabilities (frozen package) | `erased/src/macros.ts:34-97, 214-221`                                                          | Capability name → typeclass table                                                                                                                                                | User typeclasses can't be capabilities; an unknown one warns and the method is silently missing from the vtable   | Read the typeclass index                             |
 | 15  | codec field kinds (frozen package)       | `codec/src/macros.ts:24-52`; `json-codec.ts:72-111`                                            | Closed set of field kinds                                                                                                                                                        | No per-field codec for user types                                                                                 | `Codec` per field                                    |
+
+Row 10, 2026-11-14: return-type specialization no longer matches by name. Sources
+(`registerResultSource`), algebra targets and the `ok`/`err` calls in a body are matched
+by declaration through the checker, so a third-party `Result` such as neverthrow's is
+left alone. The global registries and `ResultAlgebra` itself remain until Wave 4.
 
 Also wrong, but not in the table:
 
@@ -281,13 +287,15 @@ Waves 4–7 are smaller and can follow.
 
 - **Both Result and Either go to std, one Option** (Dean, 2026-10-21: "there is space
   for both result and either").
-  - `Result<T, E>` (`{ ok: true; value } | { ok: false; error }`, today fp's
-    `ZeroCostResult`) is the error type.
+  - `Result<T, E>` (`{ ok: true; value } | { ok: false; error }`, then fp's
+    `ZeroCostResult`, removed before 1.0 in the architecture review's API pruning) is the
+    error type.
   - `Either<E, A>` (field-presence `Left`/`Right`, today fp's `data/either`) is the
     general two-way union.
   - Both get full instances and `Destructure` extractors, with conversions between them.
   - fp's two Options (`data/option` and `zero-cost`'s `ZeroCostOption`, both `T | null`)
-    merge into one std `Option`.
+    merge into one std `Option`. (`ZeroCostOption` was removed before 1.0, leaving
+    `data/option`.)
 - **`ApplicativeError` and `MonadError` move to std and replace `ResultAlgebra`** (Dean,
   2026-10-21). Return-type specialization (row 10) is `pure` plus `raiseError` with the
   typeclass taken out, keyed by type name. Instead, `ok(x)` / `err(e)` in a function

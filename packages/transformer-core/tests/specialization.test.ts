@@ -30,6 +30,8 @@ import {
   getInstanceName,
   hasImplAnnotation,
   extractBrandFromImpl,
+  registerResultAlgebra,
+  registerResultSource,
   type DictMethod,
 } from "@typesugar/macros";
 
@@ -69,7 +71,6 @@ import {
   tryAutoSpecialize,
   tryReturnTypeDrivenSpecialize,
   tryInlineDerivedInstanceCall,
-  getTypeName,
   getContextualTypeForCall,
   eliminateDeadDerivedInstances,
 } from "../src/specialization.js";
@@ -180,6 +181,67 @@ function createMultiFileProgram(
 function makeMultiFileCtx(files: Record<string, string>, rootName = "main.ts"): MacroContextImpl {
   const { program, sourceFile } = createMultiFileProgram(files, rootName);
   return createMacroContext(program, sourceFile, sharedTransformContext);
+}
+
+/** Test Result source and algebras for the return-type specialization tests. */
+function registerTestResultTypes(): void {
+  registerResultSource({
+    name: "MyResult",
+    type: { module: "./myresult", name: "Result" },
+    ok: [{ module: "./myresult", name: "ok" }],
+    err: [{ module: "./myresult", name: "err" }],
+  });
+  registerResultSource({
+    name: "StaticResult",
+    type: { module: "./staticresult", name: "Result" },
+    ok: [{ module: "./staticresult", name: "Result.ok" }],
+    err: [{ module: "./staticresult", name: "Result.err" }],
+  });
+  registerResultAlgebra({
+    name: "TestOption",
+    targetTypes: [{ module: "./option", name: "Option" }],
+    rewriteOk: (_ctx, value) => value,
+    rewriteErr: (ctx) => ctx.factory.createNull(),
+    preservesError: false,
+  });
+  registerResultAlgebra({
+    name: "TestEither",
+    targetTypes: [{ module: "./either", name: "Either" }],
+    rewriteOk: (ctx, value) =>
+      ctx.factory.createObjectLiteralExpression([
+        ctx.factory.createPropertyAssignment("_tag", ctx.factory.createStringLiteral("Right")),
+        ctx.factory.createPropertyAssignment("right", value),
+      ]),
+    rewriteErr: (ctx, error) =>
+      ctx.factory.createObjectLiteralExpression([
+        ctx.factory.createPropertyAssignment("_tag", ctx.factory.createStringLiteral("Left")),
+        ctx.factory.createPropertyAssignment("left", error),
+      ]),
+    preservesError: true,
+  });
+  registerResultAlgebra({
+    name: "TestPromise",
+    targetTypes: [{ global: "Promise" }],
+    rewriteOk: (ctx, value) =>
+      ctx.factory.createCallExpression(
+        ctx.factory.createPropertyAccessExpression(
+          ctx.factory.createIdentifier("Promise"),
+          "resolve"
+        ),
+        undefined,
+        [value]
+      ),
+    rewriteErr: (ctx, error) =>
+      ctx.factory.createCallExpression(
+        ctx.factory.createPropertyAccessExpression(
+          ctx.factory.createIdentifier("Promise"),
+          "reject"
+        ),
+        undefined,
+        [error]
+      ),
+    preservesError: true,
+  });
 }
 
 function findFirstCall(sf: ts.SourceFile): ts.CallExpression | undefined {
@@ -846,19 +908,6 @@ externFn(__test_eq_TS9602, 1);
 // Return-type-driven specialization
 // ===========================================================================
 
-describe("getTypeName", () => {
-  it("returns the named type for a simple type", () => {
-    const { program, sourceFile } = createProgramFromSource(
-      `interface Foo {}\nconst x: Foo = {} as Foo;`
-    );
-    const checker = program.getTypeChecker();
-    const varStmt = sourceFile.statements[1] as ts.VariableStatement;
-    const decl = varStmt.declarationList.declarations[0];
-    const type = checker.getTypeAtLocation(decl);
-    expect(getTypeName(checker, type)).toBe("Foo");
-  });
-});
-
 describe("getContextualTypeForCall", () => {
   it("returns the declared variable type as contextual type", () => {
     const { program, sourceFile } = createProgramFromSource(
@@ -909,6 +958,188 @@ fn(1);`
     )!;
     const result = tryReturnTypeDrivenSpecialize(ctx, false, cache, call);
     expect(result).toBeUndefined();
+  });
+});
+
+// Which Result types and target types take part is decided by symbol
+// identity, never by name: a library's own `Result` (neverthrow's, or any
+// class with static `ok`/`err`) must be left alone unless a source is
+// registered for that exact declaration (PEP-062 row 10).
+describe("tryReturnTypeDrivenSpecialize: by declaration, not by name", () => {
+  const OPTION = `export interface Option<A> { readonly __option?: A }`;
+  const EITHER = `export interface Left<E> { readonly _tag: "Left"; readonly left: E }
+export interface Right<A> { readonly _tag: "Right"; readonly right: A }
+export type Either<E, A> = Left<E> | Right<A>;`;
+  // The Result registered as a source below.
+  const MY_RESULT = `export interface Result<T, E> { readonly ok: boolean; readonly value?: T; readonly error?: E }
+export function ok<T>(value: T): Result<T, never> { return { ok: true, value }; }
+export function err<E>(error: E): Result<never, E> { return { ok: false, error }; }`;
+  // A third-party Result: a class with static constructors, never registered.
+  const CLASS_RESULT = `export class Result<T, E> {
+  private constructor(readonly isOk: boolean, readonly value?: T, readonly error?: E) {}
+  static ok<T>(value: T): Result<T, never> { return new Result<T, never>(true, value); }
+  static err<E>(error: E): Result<never, E> { return new Result<never, E>(false, undefined, error); }
+  static combine<T, E>(rs: Result<T, E>[]): Result<T[], E> { return Result.ok([]) as Result<T[], E>; }
+}
+export const ok = Result.ok;
+export const err = Result.err;`;
+  // A registered Result whose constructors are a class's statics.
+  const STATIC_RESULT = `export class Result<T, E> {
+  private constructor(readonly isOk: boolean, readonly value?: T, readonly error?: E) {}
+  static ok<T>(value: T): Result<T, never> { return new Result<T, never>(true, value); }
+  static err<E>(error: E): Result<never, E> { return new Result<never, E>(false, undefined, error); }
+}`;
+  // neverthrow's shape: a class union, free ok/err, and a Result namespace.
+  const NEVERTHROW = `export class Ok<T, E> { readonly ok = true as const; constructor(readonly value: T) {} }
+export class Err<T, E> { readonly ok = false as const; constructor(readonly error: E) {} }
+export type Result<T, E> = Ok<T, E> | Err<T, E>;
+export const ok = <T, E = never>(value: T): Result<T, E> => new Ok<T, E>(value);
+export const err = <T = never, E = unknown>(error: E): Result<T, E> => new Err<T, E>(error);
+export namespace Result {
+  export function combine<T, E>(rs: Result<T, E>[]): Result<T[], E> { return ok([]); }
+  export function fromThrowable<A extends unknown[], R, E>(fn: (...a: A) => R, h: (e: unknown) => E) {
+    return (...a: A): Result<R, E> => { try { return ok(fn(...a)); } catch (e) { return err(h(e)); } };
+  }
+}`;
+
+  beforeAll(() => {
+    registerTestResultTypes();
+  });
+
+  function specialize(
+    main: string,
+    callee: string
+  ): { result: ts.Expression | undefined; hoisted: string } {
+    const ctx = makeMultiFileCtx({
+      "main.ts": main,
+      "option.ts": OPTION,
+      "either.ts": EITHER,
+      "myresult.ts": MY_RESULT,
+      "classresult.ts": CLASS_RESULT,
+      "neverthrow.ts": NEVERTHROW,
+      "staticresult.ts": STATIC_RESULT,
+    });
+    const cache = new SpecializationCache();
+    const call = findAllCalls(ctx.sourceFile).find(
+      (c) => ts.isIdentifier(c.expression) && c.expression.text === callee
+    )!;
+    const result = tryReturnTypeDrivenSpecialize(ctx, false, cache, call);
+    const hoisted = cache
+      .getHoistedDeclarations()
+      .map((d) => printNode(d))
+      .join("\n");
+    return { result, hoisted };
+  }
+
+  it("leaves a third-party class Result with static ok/err alone", () => {
+    const { result } = specialize(
+      `import { Result, ok } from "./classresult";
+import { Option } from "./option";
+function parse(s: string): Result<number, string> { return s ? ok(1) : Result.err("empty"); }
+const o: Option<number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("leaves neverthrow's Result (Ok | Err union, ok/err, Result.combine) alone", () => {
+    const { result } = specialize(
+      `import { Result, ok, err } from "./neverthrow";
+import { Option } from "./option";
+function parse(s: string): Result<number, string> { return s ? ok(1) : err("empty"); }
+function all(): Result<number[], string> { return Result.combine([parse("1")]); }
+const o: Option<number[]> = all();`,
+      "all"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("specializes a registered Result to an aliased import of a registered target", () => {
+    const { result, hoisted } = specialize(
+      `import { Result, ok, err } from "./myresult";
+import { Option as Opt } from "./option";
+function parse(s: string): Result<number, string> { return s ? ok(s.length) : err("empty"); }
+const o: Opt<number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeDefined();
+    expect(hoisted).toContain("s.length : null");
+  });
+
+  it("rewrites the registered constructors under an aliased import", () => {
+    const { result, hoisted } = specialize(
+      `import { Result, ok as succeed, err as fail } from "./myresult";
+import { Option } from "./option";
+function parse(s: string): Result<number, string> { return s ? succeed(s.length) : fail("empty"); }
+const o: Option<number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeDefined();
+    expect(hoisted).toContain("s.length : null");
+    expect(hoisted).not.toContain("succeed(");
+  });
+
+  it("rewrites a registered class's static constructors through an aliased import", () => {
+    const { result, hoisted } = specialize(
+      `import { Result as R } from "./staticresult";
+import { Option } from "./option";
+function parse(s: string): R<number, string> { return s ? R.ok(s.length) : R.err("empty"); }
+const o: Option<number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeDefined();
+    expect(hoisted).toContain("s.length : null");
+  });
+
+  it("leaves a call that only shares a constructor's name alone", () => {
+    const { result, hoisted } = specialize(
+      `import { Result, ok } from "./myresult";
+import { err } from "./neverthrow";
+import { Option } from "./option";
+function parse(s: string): Result<number, string> {
+  if (!s) err(s);
+  return ok(s.length);
+}
+const o: Option<number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeDefined();
+    expect(hoisted).toContain("err(s)");
+    expect(hoisted).toContain("return s.length");
+  });
+
+  it("matches a global target (Promise) declared by the lib", () => {
+    const { result, hoisted } = specialize(
+      `import { Result, ok, err } from "./myresult";
+function parse(s: string): Result<number, string> { return s ? ok(s.length) : err(s); }
+const p: Promise<number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeDefined();
+    expect(hoisted).toContain("Promise.resolve(s.length)");
+  });
+
+  it("does not take a module's own class named Promise for the global", () => {
+    const { result } = specialize(
+      `import { Result, ok, err } from "./myresult";
+class Promise<T> { constructor(readonly value: T) {} }
+function parse(s: string): Result<number, string> { return s ? ok(s.length) : err(s); }
+export const p: Promise<number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it("matches a union-typed target (Either = Left | Right) by its alias", () => {
+    const { result, hoisted } = specialize(
+      `import { Result, ok, err } from "./myresult";
+import { Either } from "./either";
+function parse(s: string): Result<number, string> { return s ? ok(s.length) : err("empty"); }
+const e: Either<string, number> = parse("1");`,
+      "parse"
+    );
+    expect(result).toBeDefined();
+    expect(hoisted).toContain('_tag: "Right"');
   });
 });
 

@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { getResultAlgebra } from "@typesugar/macros";
+import { getResultAlgebras } from "@typesugar/macros";
 import { optionResultAlgebra, eitherResultAlgebra } from "./macros.js";
 
 function fakeCtx() {
@@ -18,7 +18,7 @@ function fakeCtx() {
 describe("optionResultAlgebra", () => {
   it("targets Option and discards the error", () => {
     expect(optionResultAlgebra.name).toBe("Option");
-    expect(optionResultAlgebra.targetTypes).toContain("Option");
+    expect(optionResultAlgebra.targetTypes).toEqual([{ module: "@typesugar/fp", name: "Option" }]);
     expect(optionResultAlgebra.preservesError).toBe(false);
   });
 
@@ -39,7 +39,7 @@ describe("optionResultAlgebra", () => {
 describe("eitherResultAlgebra", () => {
   it("targets Either and preserves the error", () => {
     expect(eitherResultAlgebra.name).toBe("Either");
-    expect(eitherResultAlgebra.targetTypes).toContain("Either");
+    expect(eitherResultAlgebra.targetTypes).toEqual([{ module: "@typesugar/fp", name: "Either" }]);
     expect(eitherResultAlgebra.preservesError).toBe(true);
   });
 
@@ -76,9 +76,8 @@ describe("eitherResultAlgebra", () => {
 
 describe("registration", () => {
   it("registers both algebras with the shared registry on import", () => {
-    expect(getResultAlgebra("Option")).toBeDefined();
-    expect(getResultAlgebra("Option")!.name).toBe("Option");
-    expect(getResultAlgebra("Either")).toBeDefined();
-    expect(getResultAlgebra("Either")!.name).toBe("Either");
+    const names = getResultAlgebras().map((a) => a.name);
+    expect(names).toContain("Option");
+    expect(names).toContain("Either");
   });
 });
