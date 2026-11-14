@@ -1,6 +1,6 @@
 # PEP-065: `match: switch` — Guards, Nested Tests, and No Silent Value Cases
 
-**Status:** Draft
+**Status:** Accepted (decisions D1–D3, Dean, 2026-11-14); implementation in progress
 **Date:** 2026-11-14
 **Author:** Claude (with Dean Povey)
 **Related:** [PEP-008](PEP-008-pattern-matching.md) (fluent `match()`),
@@ -136,11 +136,28 @@ pattern when `F` resolves (by symbol, through the checker, not by name) to:
 
 A call to anything else (an ordinary function, `f(x)`, `Symbol.for("a")`) is a value
 computed at run time, not a pattern. Arithmetic, `a || b` and template literals are values
-too. Any such value is an error: _"a case in a match: switch is a literal, a constant or a
-pattern; bind the value to a const and use the const"_. Today the same call compiles as a
+too. Any such value is an error:
+
+> match: a case in a match: switch is a literal, a constant or a pattern; `f(x)` is none of
+> these (`f` has no extractor). Bind the value to a const (`const v = f(x)` and `case v:`), or
+> test it in a guard: `case _ && s === f(x):`.
+
+(`s` is the scrutinee as written; when it isn't a plain name the message says to name it.)
+Today the same call compiles as a
 value case, and the bound names in it throw at run time (defect 1). Making it an error
 means that adding a `Destructure` instance for `f` later turns an error into a pattern,
 never one meaning into another.
+
+**Precedent: Scala** does the same. A pattern `f(x)` needs `f` to have an `unapply`
+extractor, otherwise it is a compile error; a value is compared only through a stable
+identifier (a capitalised name or a backticked one, our constant), and anything computed
+goes in a guard (`case v if v == f(x)`).
+
+**`_` at the top level is a wildcard** (today it is compared as a value and throws
+ReferenceError). Unguarded, `case _:` is an error pointing at `default:`; guarded,
+`case _ && cond:` is how a computed comparison or a condition on the whole value is
+written. A bare identifier other than `_` stays a constant: unlike the fluent form, a
+switch case never binds the whole value (it already has a name).
 
 We considered keeping arbitrary expressions as value cases with parentheses as the escape
 (`case (f(x)):` compares, `case f(x):` is a pattern). Rejected: Prettier 3.8.1 removes
@@ -207,9 +224,9 @@ We considered `case when(P, guard):` (rejected: a runtime-looking call that must
 erased, and reads worse) and `case P: if (!g) continue;` (not valid: `continue` needs a
 loop).
 
-### Nested tests (D1)
+### Nested tests (D1, decided: D1-a plus an explicit exact length)
 
-Recommended: **tests where a test is the only possible meaning; destructuring where
+**Tests where a test is the only possible meaning; destructuring where
 destructuring is.** Below the top level,
 
 - literals (`{ a: { b: 1 } }`), extractors (`{ value: Some(v) }`), type tests
@@ -220,8 +237,33 @@ destructuring is.** Below the top level,
   (`coordinates: [x, y]` reads two elements whatever the length), so Turf-style code keeps
   its hand-written output.
 
-This leaves one documented difference from the fluent form (nested array length), which the
-guide already describes. The alternative, D1-b, is full fluent semantics (every nested
+**Exact length, opt in: `[x, y, ...[]]`.** A rest element whose pattern is the empty array
+says "and nothing after": the case tests `Array.isArray(v) && v.length === 2` for that array
+and binds `x`, `y`. It reads as what it means, is valid JavaScript (`const [x, y, ...[]] = a`
+is legal destructuring), means the same in the fluent form (where `[x, y]` already tests
+the length, and an empty rest pattern matches only an empty rest), and Prettier 3.8.1 keeps
+it as written (checked). Like any nested test, it puts the switch in the `switch (true)`
+form. A plain `[x, y]` keeps destructuring without a test.
+
+```ts
+match: switch (geom) {
+  case { type: "Point", coordinates: [x, y, ...[]] }: // exactly 2D
+    draw2d(x, y);
+    break;
+  case { type: "Point", coordinates: [x, y, z] }: // 3D (destructures; z may be undefined)
+    draw3d(x, y, z);
+    break;
+  // ...
+}
+```
+
+Rejected for the marker: `[x, y] as const` (TypeScript syntax that already means
+"readonly", so it would mean two things) and an `exact([x, y])` call (a runtime-looking
+call that must be erased).
+
+This leaves one documented difference from the fluent form (an unmarked nested array
+destructures instead of testing length), which the guide already describes. D1-b
+(rejected), is full fluent semantics (every nested
 array tests its length, every nested property tests presence): consistent with `match()`,
 but it changes the meaning and output of existing `match: switch` code and adds
 `Array.isArray`/length tests to traversal loops where the type already guarantees the shape.
@@ -270,25 +312,26 @@ handles `match:` labels the way it already handles contract labels (`processor.t
 
 ## Waves
 
-| Wave | Scope                                                                                                                                                                                                                                              | Branch                       | Status      |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------- |
-| 1    | Defects 1 and 2: case-label classification (literal / constant / pattern, anything else an error naming the fix); `P && g` an error pointing at Wave 2 until it lands; MatchSwitch suppression for shadowed names; exec tests for each probe above | `pep-065-wave-1-case-labels` | Not started |
-| 2    | Guards: `case P && g:`, scoped substitution of bound names with source ranges, `switch (true)` lowering, coverage excludes guarded cases, suppression of TS2872/TS2678/TS2367 on guarded labels, ESLint check                                      | `pep-065-wave-2-guards`      | Not started |
-| 3    | Nested tests per D1 and top-level type tests and regex; coverage through `findMissingCases`                                                                                                                                                        | `pep-065-wave-3-tests`       | Not started |
+| Wave | Scope                                                                                                                                                                                                                                                             | Branch                       | Status      |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------- |
+| 1    | Defects 1 and 2: case-label classification (literal / constant / pattern, anything else an error naming the fix); `P && g` an error pointing at Wave 2 until it lands; top-level `_`; MatchSwitch suppression for shadowed names; exec tests for each probe above | `pep-065-wave-1-case-labels` | Not started |
+| 2    | Guards: `case P && g:`, scoped substitution of bound names with source ranges, `switch (true)` lowering, coverage excludes guarded cases, suppression of TS2872/TS2678/TS2367 on guarded labels, ESLint check                                                     | `pep-065-wave-2-guards`      | Not started |
+| 3    | Nested tests per D1 (including `[x, y, ...[]]` exact length) and top-level type tests and regex; coverage through `findMissingCases`                                                                                                                              | `pep-065-wave-3-tests`       | Not started |
 
 Each wave updates the guide's "Statement form" section, `docs/macro-triggers.md`,
 `docs/reference/packages.md`, the std README and the playground's match example, and the
 `match-switch.ts` header, in the same PR.
 
-## Open decisions (for Dean)
+## Decisions (Dean, 2026-11-14)
 
-- **D1: nested semantics.** Recommended D1-a (nested literals/extractors/type tests test;
-  nested shapes destructure). D1-b is full fluent semantics.
-- **D2: guard syntax.** Recommended `case P && g:`. Alternative `case when(P, g):`.
-- **D3: reject computed value cases**: calls to ordinary functions (not extractors or
-  constructors, which stay patterns), `case a + 1:`, `case a || b:`. Recommended yes:
-  typesugar is pre-release, and the only other rule that tells such a case apart from a
-  pattern (parentheses) doesn't survive Prettier.
+- **D1: nested semantics.** D1-a: nested literals, extractors and type tests test; nested
+  shapes destructure; exact array length is opted into with `[x, y, ...[]]` ("we could have
+  an explicit way to enforce length").
+- **D2: guard syntax.** `case P && g:` ("lets do that").
+- **D3: computed value cases are compile errors**, not values: calls to ordinary functions
+  (extractors and constructors stay patterns), `case a + 1:`, `case a || b:`. "It certainly
+  should not silently fail"; Scala rejects the same shapes. The error suggests a `const` or a
+  guard (`case _ && s === f(x):`).
 
 ## Risks
 

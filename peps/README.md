@@ -72,4 +72,4 @@ _Implemented_ / _Complete_ / _Done_ (shipped) · _Superseded_ / _Withdrawn_
 | [062](PEP-062-typeclass-dispatch-everywhere.md)         | Typeclass Dispatch Everywhere                                 | Draft (audit + plan; `match()` part in PEP-008 Waves 10–11)                  |
 | [063](PEP-063-typed-wrappers-from-interfaces.md)        | Typed Wrappers from Interfaces (around-advice, `forward`)     | Implemented                                                                  |
 | [064](PEP-064-extension-import-opt-in.md)               | Extension Objects Need an Import-Site `@extension` Opt-In     | Implemented (#97, #98)                                                       |
-| [065](PEP-065-match-switch-guards-and-tests.md)         | `match: switch` — Guards, Nested Tests, No Silent Value Cases | Draft                                                                        |
+| [065](PEP-065-match-switch-guards-and-tests.md)         | `match: switch` — Guards, Nested Tests, No Silent Value Cases | Accepted                                                                     |
