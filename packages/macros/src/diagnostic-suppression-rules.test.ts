@@ -1490,3 +1490,94 @@ describe("ExtensionImport — an import that serves extension calls is not unuse
     expect(r.kept.length).toBeGreaterThan(0);
   });
 });
+
+describe("a class as an extractor pattern: TS2348 (neverthrow case study F8)", () => {
+  // neverthrow's Ok and Err are classes. As written, `.case(Ok(v))` calls a
+  // class without `new`, which TypeScript reports as TS2348 ("Value of type
+  // 'typeof Ok' is not callable"); the expansion never calls it (a
+  // Destructure instance or an `instanceof` test).
+  const CLASSES = [
+    `class Ok<T> { constructor(readonly value: T) {} }`,
+    `class Err<E> { constructor(readonly error: E) {} }`,
+    `type Result<T, E> = Ok<T> | Err<E>;`,
+  ].join("\n");
+
+  it("suppresses it for a class in a .case() pattern, including nested ones", () => {
+    const rule = createMacroCallChainRule();
+    const code = [
+      `import { match } from "@typesugar/std";`,
+      CLASSES,
+      `declare const r: Result<Result<number, string>, string>;`,
+      `export const a = match(r)`,
+      `  .case(Ok(Ok(v))).then(v)`,
+      `  .case(Ok(Err(e))).then(0)`,
+      `  .case(Err(e)).then(-1);`,
+    ].join("\n");
+    const { sf, checker, diags } = diagnose(code);
+    const notCallable = diags.filter((d) => d.code === 2348);
+    expect(notCallable.length).toBe(5); // sanity: the source really triggers it
+    for (const d of notCallable) expect(rule.shouldSuppress(d, checker, sf)).toBe(true);
+  });
+
+  it("does NOT suppress it in an arm's result, or outside a match chain", () => {
+    const rule = createMacroCallChainRule();
+    const code = [
+      `import { match } from "@typesugar/std";`,
+      CLASSES,
+      `declare const r: Result<number, string>;`,
+      `export const a = match(r).case(Ok(v)).then(Ok(v)).case(Err(e)).then(0);`,
+      `export const b = Ok(1);`,
+    ].join("\n");
+    const { sf, checker, diags } = diagnose(code);
+    const reported = diags
+      .filter((d) => d.code === 2348 && !rule.shouldSuppress(d, checker, sf))
+      .map((d) => code.slice(d.start!, d.start! + d.length!));
+    expect(reported).toEqual(["Ok(v)", "Ok(1)"]); // `.then(Ok(v))` and `b = Ok(1)`
+  });
+
+  it("suppresses it for a class in a match: switch case pattern, not in its statements", () => {
+    const rule = createMatchSwitchRule();
+    const markerDir = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../std/src/syntax"
+    );
+    const fileName = path.join(markerDir, "__match_switch_class_probe__.ts");
+    const code = `import "./match.js";
+${CLASSES}
+export function f(r: Result<number, string>): number {
+  match: switch (r) {
+    case Ok(v):
+      return Ok(v).value;
+    case Err(e):
+      return 0;
+  }
+}
+`;
+    const options: ts.CompilerOptions = {
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      types: [],
+    };
+    const host = ts.createCompilerHost(options);
+    const orig = { getSourceFile: host.getSourceFile, fileExists: host.fileExists };
+    host.getSourceFile = (fn, lv, ...rest) =>
+      fn === fileName
+        ? ts.createSourceFile(fn, code, lv, true)
+        : orig.getSourceFile.call(host, fn, lv, ...rest);
+    host.fileExists = (fn) => fn === fileName || orig.fileExists.call(host, fn);
+    const program = ts.createProgram([fileName], options, host);
+    const sf = program.getSourceFile(fileName)!;
+    const notCallable = program.getSemanticDiagnostics(sf).filter((d) => d.code === 2348);
+    // One character past the call tells the pattern (`Ok(v):`) from the statement (`Ok(v).`).
+    const at = (d: ts.Diagnostic) => code.slice(d.start!, d.start! + d.length! + 1);
+    const reported = notCallable
+      .filter((d) => !rule.shouldSuppress(d, program.getTypeChecker(), sf, { program }))
+      .map(at);
+    expect(notCallable.length).toBe(3);
+    expect(reported).toEqual(["Ok(v)."]); // the statement's call, not the two patterns
+  });
+});

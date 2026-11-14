@@ -1582,6 +1582,12 @@ export interface ResolvedDoNotationInstance {
   specifier?: string;
   /** `@do-methods` metadata, when the instance declares any. */
   doMeta?: DoNotationMeta;
+  /**
+   * The brand the instance is declared for, when it was found by the bind's
+   * type rather than by the inferred brand (a bind typed `Ok<…>` served by
+   * `@impl FlatMap<Result>`): callers continue with this brand.
+   */
+  brand?: string;
 }
 
 /**
@@ -1615,9 +1621,15 @@ export function resolveDoNotationInstance(
    * Where to report two in-scope instances of the same precedence as
    * ambiguous (then none is returned), as `===` sugar does.
    */
-  at?: ts.Node
+  at?: ts.Node,
+  /**
+   * The bind's type. When no instance is declared under the inferred brand,
+   * an instance whose declared type is made of the same declarations serves
+   * it (see {@link instanceCoversType}).
+   */
+  valueType?: ts.Type
 ): ResolvedDoNotationInstance | AmbiguousDoNotationInstance | undefined {
-  const result = resolveDoNotationInstanceCached(ctx, tcName, brand, scanner);
+  const result = resolveDoNotationInstanceCached(ctx, tcName, brand, scanner, valueType);
   if (result && "ambiguous" in result) {
     reportAmbiguousScopeHits(ctx, at, tcName, brand, result.ambiguous);
     return AMBIGUOUS_DO_NOTATION_INSTANCE;
@@ -1644,23 +1656,27 @@ function resolveDoNotationInstanceCached(
   ctx: MacroContext,
   tcName: string,
   brand: string,
-  scanner: InstanceScanner
+  scanner: InstanceScanner,
+  valueType: ts.Type | undefined
 ): ResolvedDoNotationInstance | { ambiguous: ScopeHit[] } | undefined {
   // The cache key does not include the scanner — bypass it entirely for
   // custom scanners (test isolation) so a fresh scanner never receives a
   // stale default-scanner result.
   if (scanner !== defaultScanner) {
-    return resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner);
+    return resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner, valueType);
   }
   let cache = doNotationResolutionCache.get(ctx.program);
   if (!cache) {
     cache = new Map();
     doNotationResolutionCache.set(ctx.program, cache);
   }
-  const cacheKey = `${ctx.sourceFile.fileName}::${tcName}:${brand}`;
+  // The type-based match depends on the bind's type too; a type's id is
+  // unique within its program, which keys the cache already.
+  const typeId = valueType ? (valueType as { id?: number }).id : undefined;
+  const cacheKey = `${ctx.sourceFile.fileName}::${tcName}:${brand}:${typeId ?? ""}`;
   const cached = cache.get(cacheKey);
   if (cached !== undefined) return cached ?? undefined;
-  const result = resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner);
+  const result = resolveDoNotationInstanceUncached(ctx, tcName, brand, scanner, valueType);
   cache.set(cacheKey, result ?? null);
   return result;
 }
@@ -1669,7 +1685,8 @@ function resolveDoNotationInstanceUncached(
   ctx: MacroContext,
   tcName: string,
   brand: string,
-  scanner: InstanceScanner
+  scanner: InstanceScanner,
+  valueType: ts.Type | undefined
 ): ResolvedDoNotationInstance | { ambiguous: ScopeHit[] } | undefined {
   // Exact brand spelling wins over the `BF`/`_BTag` conventions, so a
   // genuine type named e.g. `RateF` can never shadow a `Rate` instance (or
@@ -1679,9 +1696,20 @@ function resolveDoNotationInstanceUncached(
     inst.typeclassName === tcName && baseTypeName(inst.forTypeString) === brand;
   const conventionMatch = (inst: ScannedInstance): boolean =>
     inst.typeclassName === tcName && brandMatchesForType(baseTypeName(inst.forTypeString), brand);
-  const hit =
+  const byName =
     findScannedInScope(ctx, exactMatch, scanner) ??
     findScannedInScope(ctx, conventionMatch, scanner);
+  // Last, by type: the brand is the bind's printed name, which is not the
+  // instance's type when the bind is typed as one member of a union
+  // (`Ok<…>` for `Result = Ok | Err`) or through an alias (PEP-062 "match by
+  // type, not by name"; neverthrow case study F7). Only when no instance
+  // carries the brand's name, so the name conventions above keep precedence.
+  const valueParts = !byName && valueType ? declarationsOf(ctx.typeChecker, valueType) : undefined;
+  const typeMatch = (inst: ScannedInstance): boolean =>
+    inst.typeclassName === tcName &&
+    valueParts !== undefined &&
+    instanceCoversType(ctx.typeChecker, inst, valueParts);
+  const hit = byName ?? (valueParts ? findScannedInScope(ctx, typeMatch, scanner) : undefined);
   if (!hit) return undefined;
   if (isAmbiguous(hit)) return hit;
   return {
@@ -1689,7 +1717,48 @@ function resolveDoNotationInstanceUncached(
     modulePath: hit.modulePath,
     specifier: hit.exported ? hit.specifier : undefined,
     doMeta: hit.instance.doMeta,
+    brand: byName ? undefined : baseTypeName(hit.instance.forTypeString),
   };
+}
+
+/**
+ * The class and interface declarations a type is made of, by symbol
+ * identity: one per union member (`Ok<T, E> | Err<T, E>` → {Ok, Err}), or
+ * the type's own (`Ok<number, never>` → {Ok}). Undefined when any member has
+ * no class or interface symbol (a primitive, `null`, an anonymous object, a
+ * phantom tag): such a type is not compared this way.
+ */
+function declarationsOf(checker: ts.TypeChecker, type: ts.Type): Set<ts.Symbol> | undefined {
+  const parts = type.isUnion() ? type.types : [type];
+  if (parts.length === 0) return undefined;
+  const out = new Set<ts.Symbol>();
+  for (const part of parts) {
+    let sym = part.getSymbol();
+    if (!sym) return undefined;
+    if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!(sym.flags & (ts.SymbolFlags.Class | ts.SymbolFlags.Interface))) return undefined;
+    out.add(sym);
+  }
+  return out;
+}
+
+/**
+ * Whether an instance's declared type (`Result` in `@impl FlatMap<Result>`,
+ * resolved in the instance's own scope) is made of every declaration the
+ * bind's type is made of: `Ok<…>`, `Err<…>`, `Result<…>` and an alias of it
+ * are all served by an instance for `Result = Ok | Err`; an unrelated class
+ * that happens to share a member's name is not.
+ */
+function instanceCoversType(
+  checker: ts.TypeChecker,
+  inst: ScannedInstance,
+  valueParts: Set<ts.Symbol>
+): boolean {
+  if (!inst.forType) return false;
+  const instParts = declarationsOf(checker, inst.forType);
+  if (!instParts) return false;
+  for (const part of valueParts) if (!instParts.has(part)) return false;
+  return true;
 }
 
 /**

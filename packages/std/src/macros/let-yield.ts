@@ -107,6 +107,7 @@ import {
   createTupleBindingPattern,
   emitComprehensionResult,
   importSelfReceiver,
+  bindTypeOf,
 } from "./comprehension-utils.js";
 import { extractParSteps, validateIndependence } from "./par-yield.js";
 import { getStdParCombineBuilder } from "../typeclasses/par-combine.js";
@@ -196,7 +197,7 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       );
       return mainBlock;
     }
-    const typeConstructorName = inferTypeConstructor(
+    let typeConstructorName = inferTypeConstructor(
       firstBind.effect,
       typeChecker,
       ctx.sourceFile,
@@ -222,10 +223,14 @@ export const letYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
       "FlatMap",
       typeConstructorName,
       undefined,
-      firstBind.effect
+      firstBind.effect,
+      bindTypeOf(firstBind.effect, typeChecker)
     );
     // Two instances in scope: reported there; no fallback, no TS9225.
     if (isAmbiguousDoNotationInstance(found)) return mainBlock;
+    // Found by type (a bind typed `Ok<…>` for `@impl FlatMap<Result>`): go
+    // on as the brand the instance is declared for.
+    if (found?.brand) typeConstructorName = found.brand;
     const scoped = found ?? resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
     if (!scoped) {
       // Provider-declared activation module (program-wide @do-instance-module

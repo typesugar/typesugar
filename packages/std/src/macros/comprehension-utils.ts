@@ -374,6 +374,22 @@ export function getSynthesizedTypeConstructor(fileName: string, name: string): s
   return synthesizedTable().get(fileName)?.get(name);
 }
 
+/**
+ * The checker's type for a bind expression, for instance resolution by type
+ * (`resolveDoNotationInstance`'s `valueType`). Undefined for a synthetic node
+ * (outside the checker's contract) or when the checker fails: resolution
+ * then goes by the inferred brand alone, as it did before.
+ */
+export function bindTypeOf(expr: ts.Expression, typeChecker: ts.TypeChecker): ts.Type | undefined {
+  if (isSyntheticNode(expr)) return undefined;
+  try {
+    return typeChecker.getTypeAtLocation(expr);
+  } catch {
+    // inferTypeConstructor has already warned about this expression.
+    return undefined;
+  }
+}
+
 export function inferTypeConstructor(
   expr: ts.Expression,
   typeChecker: ts.TypeChecker,

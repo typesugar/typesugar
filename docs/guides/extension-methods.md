@@ -234,10 +234,10 @@ until you call `.toArray()`, `.map()` or `.filter()`. It is not iterable: use `.
 
 When the transformer encounters `value.method()`:
 
-1. **Native property**: If `value` has a property `method`, use it
+1. **Native method**: If `value` has a callable property `method`, use it. No import replaces it: with `import { match } from "ts-pattern"` (or typesugar's `match` macro) in scope, neverthrow's `result.match(onOk, onErr)` is still neverthrow's method. A property that can't be called (a `step: number` field) doesn't block an imported function `step(value, n)`.
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
-4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported `@impl` instances, whose first parameter accepts the receiver
+4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported `@impl` instances, whose first parameter accepts the receiver. When the imported function is an expression macro, the rewritten call is a call to that macro and expands as one: `shape.match(handlers)` compiles exactly like `match(shape, handlers)`.
 5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` or `derived<TC<T>>()` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.
