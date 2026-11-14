@@ -16,8 +16,11 @@ import {
   SpecializationCache,
   createHoistedSpecialization,
   registerResultAlgebra,
-  getResultAlgebra,
+  getResultAlgebras,
+  registerResultSource,
+  getResultSources,
   type ResultAlgebra,
+  type DeclarationRef,
 } from "@typesugar/macros";
 // Built-in Result algebras live with their owning packages (PEP-055 Phase D):
 import { optionResultAlgebra, eitherResultAlgebra } from "@typesugar/fp/macros";
@@ -420,39 +423,55 @@ describe("Phase 2: Deduplication / Hoisting", () => {
 
 describe("Phase 3: Result Algebra", () => {
   describe("ResultAlgebra registry", () => {
+    // Algebras name their targets by declaration (PEP-062), so look one up by
+    // the DeclarationRef it targets.
+    const algebraFor = (ref: DeclarationRef) =>
+      getResultAlgebras().find((a) =>
+        a.targetTypes.some((t) => JSON.stringify(t) === JSON.stringify(ref))
+      );
+
     it("should have Option algebra registered by default", () => {
-      const algebra = getResultAlgebra("Option");
+      const algebra = algebraFor({ module: "@typesugar/fp", name: "Option" });
       expect(algebra).toBeDefined();
       expect(algebra!.name).toBe("Option");
     });
 
     it("should have Either algebra registered by default", () => {
-      const algebra = getResultAlgebra("Either");
+      const algebra = algebraFor({ module: "@typesugar/fp", name: "Either" });
       expect(algebra).toBeDefined();
       expect(algebra!.name).toBe("Either");
     });
 
     it("should have Promise algebra registered by default", () => {
-      const algebra = getResultAlgebra("Promise");
+      const algebra = algebraFor({ global: "Promise" });
       expect(algebra).toBeDefined();
       expect(algebra!.name).toBe("Promise");
     });
 
     it("should return undefined for unregistered type", () => {
-      expect(getResultAlgebra("UnknownType")).toBeUndefined();
+      expect(algebraFor({ module: "unknown-lib", name: "UnknownType" })).toBeUndefined();
     });
 
-    it("should allow registering custom algebras", () => {
+    it("should allow registering custom algebras and Result sources", () => {
+      const target: DeclarationRef = { module: "custom-lib", name: "CustomResult" };
       const customAlgebra: ResultAlgebra = {
         name: "CustomResult",
-        targetTypes: ["CustomResult"],
+        targetTypes: [target],
         rewriteOk: (ctx, value) => value,
         rewriteErr: (ctx, error) => ctx.factory.createNull(),
         preservesError: false,
       };
 
       registerResultAlgebra(customAlgebra);
-      expect(getResultAlgebra("CustomResult")!.name).toBe("CustomResult");
+      expect(algebraFor(target)!.name).toBe("CustomResult");
+
+      registerResultSource({
+        name: "CustomSource",
+        type: { module: "custom-lib", name: "Result" },
+        ok: [{ module: "custom-lib", name: "Result.ok" }],
+        err: [{ module: "custom-lib", name: "Result.err" }],
+      });
+      expect(getResultSources().map((src) => src.name)).toContain("CustomSource");
     });
   });
 
