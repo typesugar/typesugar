@@ -9,8 +9,13 @@
  * is how findings #1-#3 shipped.
  */
 import { describe, it, expect } from "vitest";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { MatchError, match as runtimeMatch } from "@typesugar/std";
+import { transformCode } from "@typesugar/transformer";
 import { transformAndRun } from "./match-exec-helpers.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 type Fn = (...args: unknown[]) => unknown;
 
@@ -561,6 +566,109 @@ export const g = (c: Circle | null) => match(c).case({ kind: "circle", radius })
     expect(withElse.errors).toEqual([]);
     expect(withElse.exports.n).toBe(1);
     expect((withElse.exports.g as Fn)(null)).toBe(-1);
+  });
+
+  // neverthrow case study F11: `has` extractors over a union of classes
+  // covered it one level deep (`Ok(u)` + `Err(e)`), but not when an arm's
+  // payload is itself matched by extractors: `Ok(Ok(v))` + `Ok(Err(e))` +
+  // `Err(e)` covers `Result<Result<number, string>, string>` and reported
+  // TS9226 "the scrutinee type is not enumerable".
+  describe("nested has-extractors over a class union (neverthrow F11)", () => {
+    const RESULT = `import { match } from "@typesugar/std";
+class Ok<T, E> { constructor(readonly value: T) {} }
+class Err<T, E> { constructor(readonly error: E) {} }
+type Result<T, E> = Ok<T, E> | Err<T, E>;
+/** @impl Destructure<typeof Ok, Result<unknown, unknown>, unknown>
+ *  @destructure has value -> value */
+const destructureOk = { extract: <T, E>(r: Result<T, E>): T | undefined => ("value" in r ? r.value : undefined) };
+/** @impl Destructure<typeof Err, Result<unknown, unknown>, unknown>
+ *  @destructure has error -> error */
+const destructureErr = { extract: <T, E>(r: Result<T, E>): E | undefined => ("error" in r ? r.error : undefined) };
+type RR = Result<Result<number, string>, string>;
+export const mk = { ok: (v: unknown) => new Ok(v), err: (e: unknown) => new Err(e) };
+`;
+    const exec = (code: string) => {
+      const r = transformAndRun(code);
+      if (r.runError) throw new Error(`${String(r.runError)}\n--- emitted ---\n${r.code}`);
+      return r;
+    };
+
+    it("Ok(Ok(v)), Ok(Err(e)), Err(e) is exhaustive and runs the right arm", () => {
+      const r = exec(`${RESULT}
+export const f = (r: RR) =>
+  match(r).case(Ok(Ok(v))).then(v).case(Ok(Err(e))).then("inner " + e).case(Err(e)).then("outer " + e);`);
+      expect(r.errors).toEqual([]);
+      const { ok, err } = r.exports.mk as Record<"ok" | "err", (x: unknown) => unknown>;
+      const f = r.exports.f as Fn;
+      expect(f(ok(ok(1)))).toBe(1);
+      expect(f(ok(err("a")))).toBe("inner a");
+      expect(f(err("b"))).toBe("outer b");
+    });
+
+    it("the arms may come in any order", () => {
+      const r = exec(`${RESULT}
+export const f = (r: RR) =>
+  match(r).case(Err(e)).then("outer " + e).case(Ok(Err(e))).then("inner " + e).case(Ok(Ok(v))).then(v);`);
+      expect(r.errors).toEqual([]);
+      const { ok, err } = r.exports.mk as Record<"ok" | "err", (x: unknown) => unknown>;
+      const f = r.exports.f as Fn;
+      expect(f(ok(ok(1)))).toBe(1);
+      expect(f(ok(err("a")))).toBe("inner a");
+      expect(f(err("b"))).toBe("outer b");
+    });
+
+    // A one-level match's last arm needs no test: `if ("value" in _r)
+    // return` narrows `_r` to the Err. A nested arm's test is a compound
+    // (`"value" in _r && "error" in _r.value`) that narrows nothing, so an
+    // untested last arm's `_r.error` would not type-check: every arm keeps
+    // its test here.
+    it("the output type-checks (strictOutput)", () => {
+      const out = transformCode(
+        `${RESULT}
+export const f = (r: RR) =>
+  match(r).case(Ok(Ok(v))).then(v).case(Ok(Err(e))).then("inner " + e).case(Err(e)).then("outer " + e);
+export const g = (r: RR) =>
+  match(r).case(Err(e)).then("outer " + e).case(Ok(Err(e))).then("inner " + e).case(Ok(Ok(v))).then(v);`,
+        { fileName: path.resolve(here, "__match_f11_strict.ts"), strictOutput: true }
+      );
+      const msgs = (out.diagnostics ?? []).map((d: { message?: string }) => String(d.message));
+      expect(msgs).toEqual([]);
+    });
+
+    it("`field = value` extractors and literal payloads nest too", () => {
+      const TAGGED = `import { match } from "@typesugar/std";
+type R<T, E> = { ok: true; value: T } | { ok: false; error: E };
+declare function Ok<T>(v: T): R<T, never>;
+declare function Err<E>(e: E): R<never, E>;
+/** @impl Destructure<typeof Ok, R<unknown, unknown>, unknown>
+ *  @destructure ok = true -> value */
+const dOk = { extract: (v: R<unknown, unknown>): unknown => v };
+/** @impl Destructure<typeof Err, R<unknown, unknown>, unknown>
+ *  @destructure ok = false -> error */
+const dErr = { extract: (v: R<unknown, unknown>): unknown => v };
+export const f = (r: R<R<number, string>, boolean>) =>
+  match(r).case(Ok(Ok(v))).then(v).case(Ok(Err(e))).then(e).case(Err(true)).then("t")`;
+      const r = exec(`${TAGGED}.case(Err(false)).then("f");`);
+      expect(r.errors).toEqual([]);
+      const f = r.exports.f as Fn;
+      expect(f({ ok: true, value: { ok: true, value: 7 } })).toBe(7);
+      expect(f({ ok: true, value: { ok: false, error: "x" } })).toBe("x");
+      expect(f({ ok: false, error: false })).toBe("f");
+      const missing = transformAndRun(`${TAGGED};`);
+      expect(missing.errors.join("\n")).toMatch(/Non-exhaustive/);
+    });
+
+    it("missing a nested arm is still non-exhaustive", () => {
+      const r = transformAndRun(`${RESULT}
+export const f = (r: RR) => match(r).case(Ok(Ok(v))).then(v).case(Err(e)).then(0);`);
+      expect(r.errors.join("\n")).toMatch(/TS9226|Non-exhaustive/);
+    });
+
+    it("a nested literal arm does not cover its payload", () => {
+      const r = transformAndRun(`${RESULT}
+export const f = (r: Result<number, string>) => match(r).case(Ok(1)).then(1).case(Err(e)).then(0);`);
+      expect(r.errors.join("\n")).toMatch(/TS9226|Non-exhaustive/);
+    });
   });
 
   it("an arm with an extra literal constraint does not cover its variant", () => {
