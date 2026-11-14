@@ -878,6 +878,32 @@ export function describe(s: Shape): string {
   }
 }
 `,
+        // A match: case pattern name that also names an outer declaration
+        // (the functions \`h\` and \`w\`): as written, the label was not
+        // comparable to Shape (TS2678) and \`w * h\` was arithmetic on a
+        // function (TS2363). Only \`w.toUpperCase()\` on the number is an error.
+        "src/swclash.ts": `import "@typesugar/std/syntax/match";
+
+type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+
+export function h(s: Shape): number {
+  match: switch (s) {
+    case { kind: "rect", w, h }:
+      return w * h;
+    case { kind: "circle", r }:
+      return r;
+  }
+}
+
+export function w(s: Shape): string {
+  match: switch (s) {
+    case { kind: "rect", w }:
+      return w.toUpperCase();
+    case { kind: "circle" }:
+      return "c";
+  }
+}
+`,
         "src/con.ts": `import "@typesugar/contracts/syntax";
 
 export function half(n: number): { value: number } {
@@ -988,6 +1014,12 @@ export function lengthOf(n: number): number {
         );
         expect(shadow).toEqual([
           "shadow.ts(10,87): error TS2339: Property 'toUpperCase' does not exist on type 'number'.",
+        ]);
+        const swclash = [...r.output.matchAll(/(swclash\.ts\(\d+,\d+\): error .*)/g)].map(
+          (m) => m[1]
+        );
+        expect(swclash).toEqual([
+          "swclash.ts(17,16): error TS2339: Property 'toUpperCase' does not exist on type 'number'.",
         ]);
         expect(r.output).toContain(
           "sw.ts(10,19): error TS2551: Property 'toFixd' does not exist on type 'number'. Did you mean 'toFixed'?"

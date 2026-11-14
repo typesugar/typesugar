@@ -550,3 +550,131 @@ export function f(geom: Geometry): number {
     expect(diags.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"))).toEqual([]);
   });
 });
+
+// PEP-065 Wave 1: every case label is a literal, a constant or a pattern.
+// Before, a label the switch form didn't recognise (an attempted guard, a
+// type test, a call) compiled with no error as a value case, and its bound
+// names threw ReferenceError at run time.
+describe("match: switch — case labels (PEP-065)", () => {
+  const SHAPE = `type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };\n`;
+
+  it("rejects `P && guard` instead of compiling a value case that throws", () => {
+    const r = transformAndRun(`${ACTIVATE}${SHAPE}
+export function f(s: Shape): string {
+  match: switch (s) {
+    case { kind: "rect", w, h } && w === h:
+      return "square";
+    case { kind: "rect", w, h }:
+      return "rect " + w * h;
+    case { kind: "circle", r }:
+      return "circle " + r;
+  }
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("guard")]);
+  });
+
+  it("rejects a type test (String(s)) instead of compiling a value case that throws", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function g(t: string | Date): number {
+  match: switch (t) {
+    case String(s):
+      return s.length;
+    case Date(d):
+      return d.getTime();
+    default:
+      return -1;
+  }
+}
+`);
+    expect(r.errors.length).toBeGreaterThan(0);
+    for (const e of r.errors) expect(e).toContain("type test");
+  });
+
+  it("rejects a call to an ordinary function, suggesting a const", () => {
+    const r = transformAndRun(`${ACTIVATE}
+const twice = (n: number) => n * 2;
+export function h(n: number, m: number): string {
+  match: switch (n) {
+    case twice(m):
+      return "double";
+    default:
+      return "other";
+  }
+}
+`);
+    expect(r.errors).toEqual([
+      expect.stringMatching(
+        /literal, a constant or a pattern; `twice\(m\)`[\s\S]*const v = twice\(m\)/
+      ),
+    ]);
+  });
+
+  it("rejects computed values: arithmetic, ||, a template with substitutions", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(n: number, m: number, s: string): number {
+  match: switch (n) {
+    case m + 1:
+      return 1;
+    case m || 2:
+      return 2;
+    default:
+      return 0;
+  }
+}
+export function k(s: string, x: string): number {
+  match: switch (s) {
+    case \`a\${x}\`:
+      return 1;
+    default:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toHaveLength(3);
+    for (const e of r.errors) expect(e).toContain("literal, a constant or a pattern");
+  });
+
+  it("rejects a regex until Wave 3 adds regex tests", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(s: string): number {
+  match: switch (s) {
+    case /^a/:
+      return 1;
+    default:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("regex")]);
+  });
+
+  it("an unguarded `case _:` points at default:", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(n: 1 | 2): number {
+  match: switch (n) {
+    case 1:
+      return 1;
+    case _:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("`case _:` matches every value")]);
+  });
+
+  it("accepts a template literal without substitutions as a literal", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(s: "a" | "b"): number {
+  match: switch (s) {
+    case \`a\`:
+      return 1;
+    case "b":
+      return 2;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect((r.exports.h as (s: string) => number)("a")).toBe(1);
+  });
+});

@@ -450,6 +450,12 @@ switch, and the activation import is removed from the output too. `break`, `retu
 inside a case, say) leaves the switch: when a case names the label, the output keeps it, in
 every form below.
 
+**Case labels** are literals, constants (`C`, `Dir.Up`) and, below, patterns. A value
+computed at run time (`case twice(m):`, `case m + 1:`) is a compile error, as in Scala:
+bind it to a `const` and write `case v:`. A call is a pattern when
+its callee has an extractor (`Some(v)`, `Point(x, y)`); a call to an ordinary function is
+a computed value. `case _:` is an error too: write `default:`.
+
 **`default:`** covers the remaining values and turns the check off, as `.else()` does. A
 `default:` that only `throw`s is a safety net for values outside the type (untyped input),
 so it keeps the check on: a member added to the union later is still a compile error, not a

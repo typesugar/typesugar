@@ -145,6 +145,43 @@ const NON_INSTANCEOF_CONSTRUCTORS = new Set([
 ]);
 
 /**
+ * What the callee of a call pattern `Name(...)` is, through the checker (the
+ * symbol, alias-resolved), not by name: `"constructor"` (a class, or a value
+ * with construct signatures such as `Date`; the built-ins tested with
+ * `typeof` count), `"value"` (in scope, but not a constructor: an ordinary
+ * function), `"missing"` (not in scope), or `"unknown"` when it can't be
+ * asked (no expansion context, a synthetic node, or the checker threw, which
+ * is reported as a warning).
+ *
+ * @internal shared with match-switch.ts
+ */
+export function calleeKind(callee: ts.Identifier): "constructor" | "value" | "missing" | "unknown" {
+  const name = callee.text;
+  if (NON_INSTANCEOF_CONSTRUCTORS.has(name)) return "constructor";
+  const ctx = extractorContext;
+  if (!ctx || isSyntheticNode(callee)) return "unknown";
+  const checker = ctx.typeChecker;
+  try {
+    let sym = checker.getSymbolAtLocation(callee);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (!sym) return "missing";
+    if (sym.flags & ts.SymbolFlags.Class) return "constructor";
+    const valueType =
+      sym.flags & ts.SymbolFlags.Value ? checker.getTypeOfSymbolAtLocation(sym, callee) : undefined;
+    if (valueType && valueType.getConstructSignatures().length > 0) return "constructor";
+    return "value";
+  } catch (e) {
+    // Degrade to the type test, visibly (CLAUDE.md).
+    ctx.reportWarning(
+      callee,
+      `match: could not check that ${name} is a class (${e instanceof Error ? e.message : String(e)}); ` +
+        `${name}(...) is compiled to \`instanceof ${name}\`.`
+    );
+    return "unknown";
+  }
+}
+
+/**
  * Why `Name(...)`, which has no `Destructure` instance, can't be a
  * type-constructor pattern, or undefined when it can. That pattern is a type
  * test, `value instanceof Name`, binding the whole value to its one argument:
@@ -173,30 +210,9 @@ function typeConstructorProblem(pattern: ts.CallExpression): string | undefined 
       `to bind them in the pattern.`
     );
   }
-  if (NON_INSTANCEOF_CONSTRUCTORS.has(name)) return undefined;
-  const ctx = extractorContext;
-  if (!ctx || isSyntheticNode(callee)) return undefined;
-  const checker = ctx.typeChecker;
-  let sym: ts.Symbol | undefined;
-  try {
-    sym = checker.getSymbolAtLocation(callee);
-    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-    if (sym && sym.flags & ts.SymbolFlags.Class) return undefined;
-    const valueType =
-      sym && sym.flags & ts.SymbolFlags.Value
-        ? checker.getTypeOfSymbolAtLocation(sym, callee)
-        : undefined;
-    if (valueType && valueType.getConstructSignatures().length > 0) return undefined;
-  } catch (e) {
-    // Degrade to the type test, visibly (CLAUDE.md).
-    ctx.reportWarning(
-      callee,
-      `match: could not check that ${name} is a class (${e instanceof Error ? e.message : String(e)}); ` +
-        `${name}(...) is compiled to \`instanceof ${name}\`.`
-    );
-    return undefined;
-  }
-  return sym
+  const kind = calleeKind(callee);
+  if (kind === "constructor" || kind === "unknown") return undefined;
+  return kind === "value"
     ? `${name} is not a class, and ${noInstance}, which needs a class (or a built-in ` +
         `constructor such as Date). Give ${name} ${giveInstance} to match its fields.`
     : `${name} is not in scope: ${name}(...) needs a class, or a Destructure instance for ${name}.`;
