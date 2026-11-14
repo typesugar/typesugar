@@ -2244,14 +2244,17 @@ function labelPattern(label: ts.Expression): { pattern: ts.Expression; guarded: 
 }
 
 /**
- * A case label whose pattern binds (an object/array pattern or an extractor
- * call); a bare identifier case is a value, and an unknown one is a real
- * error.
+ * A case label that is a pattern (an object/array pattern, an extractor call
+ * or type test, or a regex, PEP-065); a bare identifier case is a value, and
+ * an unknown one is a real error.
  */
 function isPatternLabel(label: ts.Expression): boolean {
   const e = labelPattern(label).pattern;
   return (
-    ts.isObjectLiteralExpression(e) || ts.isArrayLiteralExpression(e) || ts.isCallExpression(e)
+    ts.isObjectLiteralExpression(e) ||
+    ts.isArrayLiteralExpression(e) ||
+    ts.isCallExpression(e) ||
+    e.kind === ts.SyntaxKind.RegularExpressionLiteral
   );
 }
 

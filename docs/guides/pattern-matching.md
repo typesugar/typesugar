@@ -502,11 +502,16 @@ switch (geom.type) {
 }
 ```
 
-- The discriminant is the only thing tested. The rest of the pattern **destructures**:
-  `coordinates: [x, y]` reads the first two elements whatever the length, as
-  `const [x, y] = …` does. So a literal below the top level (`{ kind: "a", inner: { tag: "x" } }`)
-  is an error; test it in the case body, or use the fluent `match()`, which tests every
-  sub-pattern.
+- Literals, extractors, type tests and regexes **test**, at any depth:
+  `{ kind: "a", inner: { tag: "x" } }`, `{ kind: "slot", value: Some(v) }`, `Some(0)`. Nested
+  values are read with `?.`, so a missing optional parent fails the case instead of throwing.
+- Object and array shapes with nothing like that inside **destructure**: `coordinates: [x, y]`
+  reads the first two elements whatever the length, as `const [x, y] = …` does. To test the
+  length, end the array with an empty rest, `coordinates: [x, y, ...[]]` ("and nothing
+  after"). The fluent `match()` tests every array's length.
+- A case that tests anything below its discriminant compiles to `switch (true)`, binding one
+  `const` per name; a switch whose cases test only their discriminant keeps the
+  discriminant switch.
 - A field the variant declares optional is read like any other (`undefined` when missing), so
   `case { k: "b", extra }:` covers the `b` variant. The fluent form tests that it is present.
 - Several names, rest and nesting go in one declaration: `case { kind: "rect", w, h, style: { fill } }:`
@@ -575,8 +580,14 @@ code and `v * 2` would fail strict type-checking.
 
 `case Point(x, y):` works for any constructor with a `Destructure` instance in scope (see
 [Custom Extractors](#custom-extractors)); one without a descriptor has its `extract` called
-once per test. Array patterns at the top level (test a length) and type tests (`String(s)`)
-are fluent-only.
+once per test.
+
+**Type tests and regexes** work at the top level too: `case String(s):` (`typeof`),
+`case Date(d):` or `case Circle(c):` for a class with no `Destructure` instance
+(`instanceof`), binding the narrowed value; `case /^a/:` tests a string. As in the fluent
+form, they don't count toward exhaustiveness, so such a switch needs a `default:`. Array
+patterns at the top level (a length test) are fluent-only: `switch (xs.length)` is the
+switch idiom.
 
 The label without the import is an ordinary JavaScript label on a plain switch, and the
 transformer warns (TS9224). Plain `tsc` accepts the literal form as written (a labelled

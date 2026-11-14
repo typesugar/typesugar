@@ -280,9 +280,14 @@ but it changes the meaning and output of existing `match: switch` code and adds
 `case String(s):`, `case Date(d):`, `case MyClass(x):` (no `Destructure` instance: an
 `instanceof` test binding the whole value), and `case /re/:` on a string scrutinee are
 supported at the top level, with `typeof`/`instanceof`/`.test()` tests reused from the
-fluent form (`buildCondition`). Their coverage follows the fluent form's (`String(s)` covers
-the `string` member of `string | Date`). Regex is test-only; capture groups need `.as()`,
-which stays fluent-only.
+fluent form (`buildCondition`). Regex is test-only; capture groups need `.as()`, which
+stays fluent-only.
+
+Coverage uses the same engine as the fluent form, with the same limits (checked in Wave 3
+against the fluent equivalents): type tests and regexes count toward nothing, so
+`String(s)` and `Date(d)` over `string | Date` still need a `default:`; and `Some(v)` /
+`None` inside a field (`{ kind: "slot", value: Some(v) }`) don't cover the field's type.
+Both forms report TS9226 there. Teaching the engine either is separate work, not this PEP.
 
 ### Name clashes (defect 2)
 
@@ -323,8 +328,8 @@ turns `no-undef` off for TypeScript, so this is left alone. `no-labels` and
 | Wave | Scope                                                                                                                                                                                                                                                             | Branch                       | Status           |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------- |
 | 1    | Defects 1 and 2: case-label classification (literal / constant / pattern, anything else an error naming the fix); `P && g` an error pointing at Wave 2 until it lands; top-level `_`; MatchSwitch suppression for shadowed names; exec tests for each probe above | `pep-065-wave-1-case-labels` | In review (#107) |
-| 2    | Guards: `case P && g:`, scoped substitution of bound names with source ranges, `switch (true)` lowering, coverage excludes guarded cases, suppression of TS2872/TS2678/TS2367 on guarded labels, ESLint check                                                     | `pep-065-wave-2-guards`      | In review        |
-| 3    | Nested tests per D1 (including `[x, y, ...[]]` exact length) and top-level type tests and regex; coverage through `findMissingCases`                                                                                                                              | `pep-065-wave-3-tests`       | Not started      |
+| 2    | Guards: `case P && g:`, scoped substitution of bound names with source ranges, `switch (true)` lowering, coverage excludes guarded cases, suppression of TS2872/TS2678/TS2367 on guarded labels, ESLint check                                                     | `pep-065-wave-2-guards`      | In review (#109) |
+| 3    | Nested tests per D1 (including `[x, y, ...[]]` exact length) and top-level type tests and regex; coverage through `findMissingCases`                                                                                                                              | `pep-065-wave-3-tests`       | In review        |
 
 Each wave updates the guide's "Statement form" section, `docs/macro-triggers.md`,
 `docs/reference/packages.md`, the std README and the playground's match example, and the

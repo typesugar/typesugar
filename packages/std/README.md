@@ -317,7 +317,9 @@ match: switch (shape.kind) {
 
 Case labels are literals, constants or patterns (`case { kind: "rect", w, h }:`,
 `case Some(v):`); a value computed at run time is a compile error. A guard is
-`case P && cond:`; when it is false the next case is tried.
+`case P && cond:`; when it is false the next case is tried. Literals, extractors, type
+tests (`String(s)`) and regexes test at any depth; other shapes destructure, and
+`[x, y, ...[]]` tests an exact length.
 
 ### Pattern Types
 

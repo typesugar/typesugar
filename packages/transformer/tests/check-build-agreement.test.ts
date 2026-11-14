@@ -927,6 +927,45 @@ export function f(s: Shape): string {
   }
 }
 `,
+        // Nested tests and type tests (PEP-065 Wave 3): the expansion's tests
+        // narrow what the case then reads (\`t.inner\` after \`t.inner?.tag ===
+        // "x"\`, \`v\` after \`typeof v === "string"\`), so only the misspelt
+        // \`getFullYar\` is an error.
+        "src/swtests.ts": `import "@typesugar/std/syntax/match";
+
+type T = { kind: "a"; inner?: { tag: "x" | "y"; n: number } } | { kind: "b" };
+
+export function f(t: T): number {
+  match: switch (t) {
+    case { kind: "a", inner: { tag: "x", n } }:
+      return n;
+    case { kind: "a" }:
+      return 0;
+    case { kind: "b" }:
+      return 1;
+  }
+}
+
+export function g(v: string | Date): number {
+  match: switch (v) {
+    case String(s):
+      return s.length;
+    case Date(d):
+      return d.getFullYar();
+    default:
+      return 0;
+  }
+}
+
+export function h(w: string): number {
+  match: switch (w) {
+    case /^a/:
+      return 1;
+    default:
+      return 0;
+  }
+}
+`,
         "src/con.ts": `import "@typesugar/contracts/syntax";
 
 export function half(n: number): { value: number } {
@@ -1037,6 +1076,12 @@ export function lengthOf(n: number): number {
         );
         expect(shadow).toEqual([
           "shadow.ts(10,87): error TS2339: Property 'toUpperCase' does not exist on type 'number'.",
+        ]);
+        const swtests = [...r.output.matchAll(/(swtests\.ts\(\d+,\d+\): error .*)/g)].map(
+          (m) => m[1]
+        );
+        expect(swtests).toEqual([
+          "swtests.ts(21,16): error TS2551: Property 'getFullYar' does not exist on type 'Date'. Did you mean 'getFullYear'?",
         ]);
         const swguard = [...r.output.matchAll(/(swguard\.ts\(\d+,\d+\): error .*)/g)].map(
           (m) => m[1]

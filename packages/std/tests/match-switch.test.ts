@@ -490,21 +490,6 @@ export function f(g: Geometry | null): string {
     expect(f({ type: "Polygon", coordinates: [] })).toBe("other");
   });
 
-  it("rejects a nested test, which a destructuring case can't express", () => {
-    const r = transformAndRun(`${ACTIVATE}
-type T = { kind: "a"; inner: { tag: "x" | "y" } } | { kind: "b" };
-export function f(t: T): number {
-  match: switch (t) {
-    case { kind: "a", inner: { tag: "x" } }:
-      return 1;
-    default:
-      return 0;
-  }
-}
-`);
-    expect(r.errors).toEqual([expect.stringContaining("only top-level properties can be tested")]);
-  });
-
   it("rejects bindings on a case that falls through with no body", () => {
     const r = transformAndRun(`${ACTIVATE}${GEOMETRY}
 export function f(g: Geometry): number {
@@ -558,23 +543,6 @@ export function f(geom: Geometry): number {
 describe("match: switch — case labels (PEP-065)", () => {
   const SHAPE = `type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };\n`;
 
-  it("rejects a type test (String(s)) instead of compiling a value case that throws", () => {
-    const r = transformAndRun(`${ACTIVATE}
-export function g(t: string | Date): number {
-  match: switch (t) {
-    case String(s):
-      return s.length;
-    case Date(d):
-      return d.getTime();
-    default:
-      return -1;
-  }
-}
-`);
-    expect(r.errors.length).toBeGreaterThan(0);
-    for (const e of r.errors) expect(e).toContain("type test");
-  });
-
   it("rejects a call to an ordinary function, suggesting a const or a guard", () => {
     const r = transformAndRun(`${ACTIVATE}
 const twice = (n: number) => n * 2;
@@ -617,20 +585,6 @@ export function k(s: string, x: string): number {
 `);
     expect(r.errors).toHaveLength(3);
     for (const e of r.errors) expect(e).toContain("literal, a constant or a pattern");
-  });
-
-  it("rejects a regex until Wave 3 adds regex tests", () => {
-    const r = transformAndRun(`${ACTIVATE}
-export function h(s: string): number {
-  match: switch (s) {
-    case /^a/:
-      return 1;
-    default:
-      return 0;
-  }
-}
-`);
-    expect(r.errors).toEqual([expect.stringContaining("regex")]);
   });
 
   it("an unguarded `case _:` points at default:", () => {
@@ -844,5 +798,215 @@ export function h(o: { n: number }, m: number): string {
 }
 `);
     expect(r.errors).toEqual([expect.stringContaining("name the scrutinee")]);
+  });
+});
+
+// PEP-065 Wave 3 (D1-a): a literal, an extractor, a type test or a regex
+// below the top level TESTS; an object or array shape without one still
+// destructures, and `[x, y, ...[]]` opts into an exact length.
+describe("match: switch — nested tests, type tests, regex (PEP-065)", () => {
+  it("tests a nested literal, and moves on (not throws) when an optional parent is missing", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type T = { kind: "a"; inner?: { tag: "x" | "y" } } | { kind: "b" };
+export function f(t: T): string {
+  match: switch (t) {
+    case { kind: "a", inner: { tag: "x" } }:
+      return "ax";
+    case { kind: "a" }:
+      return "a";
+    case { kind: "b" }:
+      return "b";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (t: unknown) => string;
+    expect(f({ kind: "a", inner: { tag: "x" } })).toBe("ax");
+    expect(f({ kind: "a", inner: { tag: "y" } })).toBe("a");
+    expect(f({ kind: "a" })).toBe("a");
+    expect(f({ kind: "b" })).toBe("b");
+  });
+
+  it("a case with a nested test covers less than its variant", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type T = { kind: "a"; n: 1 | 2 } | { kind: "b" };
+export function f(t: T): string {
+  match: switch (t) {
+    case { kind: "a", n: 1 }:
+      return "a1";
+    case { kind: "b" }:
+      return "b";
+  }
+  return "?";
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("Non-exhaustive")]);
+  });
+
+  it("tests nested extractors, and binds through them", () => {
+    const r = transformAndRun(`${ACTIVATE}
+import { Some, None, type Option } from "@typesugar/fp";
+type Slot = { kind: "slot"; value: Option<number> } | { kind: "empty" };
+export function f(s: Slot): string {
+  match: switch (s) {
+    case { kind: "slot", value: Some(v) }:
+      return "some " + v;
+    case { kind: "slot", value: None }:
+      return "none";
+    case { kind: "empty" }:
+      return "empty";
+    // The coverage check (shared with the fluent form) doesn't see that
+    // Some/None inside a field cover the field's type, so this needs a default.
+    default:
+      return "?";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (s: unknown) => string;
+    expect(f({ kind: "slot", value: 4 })).toBe("some 4");
+    expect(f({ kind: "slot", value: null })).toBe("none");
+    expect(f({ kind: "empty" })).toBe("empty");
+  });
+
+  it("an extractor's literal argument is a test (Some(0))", () => {
+    const r = transformAndRun(`${ACTIVATE}
+import { Some, None, type Option } from "@typesugar/fp";
+export function f(o: Option<number>): string {
+  match: switch (o) {
+    case Some(0):
+      return "zero";
+    case Some(n):
+      return "some " + n;
+    case None:
+      return "none";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (o: unknown) => string;
+    expect(f(0)).toBe("zero");
+    expect(f(3)).toBe("some 3");
+    expect(f(null)).toBe("none");
+  });
+
+  it("[x, y, ...[]] tests the exact length; [x, y, z] still destructures", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type G = { type: "Point"; coordinates: number[] } | { type: "Line"; coordinates: number[][] };
+export function f(g: G): string {
+  match: switch (g) {
+    case { type: "Point", coordinates: [x, y, ...[]] }:
+      return "2d " + x + "," + y;
+    case { type: "Point", coordinates: [x, y, z] }:
+      return "3d " + x + "," + y + "," + z;
+    case { type: "Line" }:
+      return "line";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (g: unknown) => string;
+    expect(f({ type: "Point", coordinates: [1, 2] })).toBe("2d 1,2");
+    expect(f({ type: "Point", coordinates: [1, 2, 3] })).toBe("3d 1,2,3");
+    expect(f({ type: "Point", coordinates: [1] })).toBe("3d 1,undefined,undefined");
+  });
+
+  it("an unmarked nested array keeps the hand-written discriminant switch", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type G = { type: "Point"; coordinates: number[] } | { type: "Line"; coordinates: number[][] };
+export function f(g: G): number {
+  match: switch (g) {
+    case { type: "Point", coordinates: [x, y] }:
+      return x + y;
+    case { type: "Line" }:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toMatch(/switch \(g\.type\)/);
+    expect(r.code).toContain("const [x, y] = g.coordinates;");
+  });
+
+  it("top-level type tests bind the narrowed value", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function g(t: string | Date): number {
+  match: switch (t) {
+    case String(s):
+      return s.length;
+    case Date(d):
+      return d.getFullYear();
+    // As in the fluent form, type tests don't count toward exhaustiveness.
+    default:
+      return -1;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const g = r.exports.g as (t: unknown) => number;
+    expect(g("abc")).toBe(3);
+    expect(g(new Date(2020, 1, 1))).toBe(2020);
+  });
+
+  it("a class with no Destructure instance is an instanceof test", () => {
+    const r = transformAndRun(`${ACTIVATE}
+class Circle { constructor(public r: number) {} }
+class Square { constructor(public side: number) {} }
+export function area(s: Circle | Square): number {
+  match: switch (s) {
+    case Circle(c):
+      return 3 * c.r * c.r;
+    case Square(q):
+      return q.side * q.side;
+    default:
+      return 0;
+  }
+}
+export const out = [area(new Circle(1)), area(new Square(2))];
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.exports.out).toEqual([3, 4]);
+  });
+
+  it("a regex case tests a string", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(s: string): number {
+  match: switch (s) {
+    case /^a/:
+      return 1;
+    case /^b/ && s.length > 1:
+      return 2;
+    default:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const h = r.exports.h as (s: string) => number;
+    expect(h("apple")).toBe(1);
+    expect(h("bb")).toBe(2);
+    expect(h("b")).toBe(0);
+    expect(h("c")).toBe(0);
+  });
+
+  it("combines a nested test with a guard", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type T = { kind: "a"; inner: { tag: "x" | "y"; n: number } } | { kind: "b" };
+export function f(t: T): string {
+  match: switch (t) {
+    case { kind: "a", inner: { tag: "x", n } } && n > 5:
+      return "big x";
+    case { kind: "a" }:
+      return "a";
+    case { kind: "b" }:
+      return "b";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (t: unknown) => string;
+    expect(f({ kind: "a", inner: { tag: "x", n: 9 } })).toBe("big x");
+    expect(f({ kind: "a", inner: { tag: "x", n: 1 } })).toBe("a");
+    expect(f({ kind: "a", inner: { tag: "y", n: 9 } })).toBe("a");
   });
 });

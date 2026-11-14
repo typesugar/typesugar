@@ -37,10 +37,12 @@
  *   `switch (true) { case geom != null && geom.type === "Point": { ... } }` —
  *   an if/else chain that keeps switch semantics (break, fallthrough).
  *
- * Below the discriminant, a pattern DESTRUCTURES; it does not test.
- * `coordinates: [x, y]` reads the first two elements whatever the length, as
- * `const [x, y] = geom.coordinates` does. Literals deeper than the top level
- * are therefore errors.
+ * Below the discriminant, literals, extractors, type tests and regexes TEST
+ * (PEP-065 D1-a), reading nested values with `?.`; object and array shapes
+ * with none of those inside DESTRUCTURE: `coordinates: [x, y]` reads the
+ * first two elements whatever the length, as `const [x, y] =
+ * geom.coordinates` does, and `[x, y, ...[]]` opts into an exact length.
+ * A case that tests below its discriminant compiles to `switch (true)`.
  *
  * A guard is `case P && cond:` (PEP-065): a top-level `&&` in a label is
  * always a guard, `P` being the left-most operand. A failing guard tries the
@@ -139,11 +141,16 @@ function isWildcard(e: ts.Expression): boolean {
   return ts.isIdentifier(e) && e.text === "_";
 }
 
-/** A pattern case: object pattern, or a call to a built-in extractor (`Some(v)`). */
+/**
+ * A pattern case: an object or array pattern, a call to an extractor
+ * (`Some(v)`) or a type test (`String(s)`, `Date(d)`, a class), or a regex.
+ */
 function isPatternSyntax(expr: ts.Expression): boolean {
   if (ts.isObjectLiteralExpression(expr) || ts.isArrayLiteralExpression(expr)) return true;
+  if (expr.kind === ts.SyntaxKind.RegularExpressionLiteral) return true;
   if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
-    return analyzePattern(expr).kind === "extractor";
+    const kind = analyzePattern(expr).kind;
+    return kind === "extractor" || kind === "type-constructor";
   }
   return false;
 }
@@ -189,21 +196,9 @@ function labelProblem(
     return guard ? undefined : "match: `case _:` matches every value; write `default:` instead.";
   }
   if (isConstantName(e) || ts.isNoSubstitutionTemplateLiteral(e)) return undefined;
-  if (e.kind === ts.SyntaxKind.RegularExpressionLiteral) {
-    return (
-      "match: a regex case is not supported in a match: switch yet (PEP-065 Wave 3); use the " +
-      "fluent match()."
-    );
-  }
   let note = "";
   if (ts.isCallExpression(e)) {
     const pattern = analyzePattern(e);
-    if (pattern.kind === "type-constructor") {
-      return (
-        `match: a type test (\`${sourceText(e)}\`) is not supported in a match: switch yet ` +
-        "(PEP-065 Wave 3); use the fluent match()."
-      );
-    }
     if (pattern.kind === "unsupported" && ts.isIdentifier(e.expression)) {
       // A constructor called wrongly (two arguments, no Destructure
       // instance) is a pattern with a problem; anything else is a value.
@@ -448,10 +443,30 @@ function collectPaths(
       return;
     case "array":
       p.elements.forEach((el, i) => {
-        if (el.isRest) restOf(el.pattern);
+        if (el.isRest && el.pattern.kind === "variable") {
+          // `[head, ...tail]`: tail is the rest of the array, `x.slice(1)`.
+          out.read.set(el.pattern.name, () =>
+            f.createCallExpression(f.createPropertyAccessExpression(base(), "slice"), undefined, [
+              f.createNumericLiteral(i),
+            ])
+          );
+        } else if (el.isRest) restOf(el.pattern);
         else collectPaths(f, el.pattern, () => f.createElementAccessExpression(base(), i), out);
       });
       return;
+    case "type-constructor":
+      // `Date(d)` binds the whole (tested) value.
+      collectPaths(f, p.binding, base, out);
+      return;
+    case "extractor": {
+      const fields = p.def.kind === "sum-variant" ? (p.def.payloadFields ?? []) : [];
+      p.bindings.forEach((b, i) => {
+        const field = fields[i];
+        if (field !== undefined)
+          collectPaths(f, b, () => payloadAccess(f, base(), field, undefined), out);
+      });
+      return;
+    }
     case "object":
       for (const prop of p.properties) {
         if (prop.isRest) restOf(prop.pattern);
@@ -470,6 +485,230 @@ function fieldAccess(f: ts.NodeFactory, base: ts.Expression, key: string): ts.Ex
     : f.createElementAccessExpression(base, f.createStringLiteral(key));
 }
 
+/** A `[x, y, ...[]]` array pattern: nothing after its elements (an exact length). */
+function isExactArray(p: PatternInfo & { kind: "array" }): boolean {
+  const last = p.elements[p.elements.length - 1];
+  return (
+    !!last && last.isRest && last.pattern.kind === "array" && last.pattern.elements.length === 0
+  );
+}
+
+/**
+ * Does a sub-pattern test the value (PEP-065 D1-a)? A literal, a regex, a
+ * type test or an extractor does; an object or array shape only through a
+ * part that does, or an exact length (`[x, y, ...[]]`). Anything else
+ * destructures.
+ */
+function needsTest(p: PatternInfo): boolean {
+  switch (p.kind) {
+    case "literal":
+    case "regex":
+    case "type-constructor":
+    case "extractor":
+      return true;
+    case "object":
+      return p.properties.some((prop) => !prop.isRest && needsTest(prop.pattern));
+    case "array":
+      return isExactArray(p) || p.elements.some((el) => !el.isRest && needsTest(el.pattern));
+    default:
+      return false;
+  }
+}
+
+/**
+ * The pattern as exhaustiveness sees it: what it tests, with the bindings and
+ * the shapes that only destructure taken out (as wildcards). A shape that
+ * tests something keeps its form, which can only make it cover less.
+ */
+function prune(p: PatternInfo): PatternInfo {
+  switch (p.kind) {
+    case "variable":
+      return { kind: "wildcard" };
+    case "object":
+      return {
+        kind: "object",
+        properties: p.properties.flatMap((prop) =>
+          prop.isRest || !needsTest(prop.pattern) ? [] : [{ ...prop, pattern: prune(prop.pattern) }]
+        ),
+        hasRest: false,
+      };
+    case "array":
+      return needsTest(p)
+        ? { ...p, elements: p.elements.map((el) => ({ ...el, pattern: prune(el.pattern) })) }
+        : { kind: "wildcard" };
+    case "extractor":
+      return { ...p, bindings: p.bindings.map(prune) };
+    case "type-constructor":
+      return { ...p, binding: prune(p.binding) };
+    default:
+      return p;
+  }
+}
+
+/** `base?.key` (or `base?.["key"]`): a nested read in a test, which must not throw. */
+function chainField(f: ts.NodeFactory, base: ts.Expression, key: string): ts.Expression {
+  const dot = f.createToken(ts.SyntaxKind.QuestionDotToken);
+  return /^[A-Za-z_$][\w$]*$/.test(key)
+    ? f.createPropertyAccessChain(base, dot, key)
+    : f.createElementAccessChain(base, dot, f.createStringLiteral(key));
+}
+
+/**
+ * Append the tests sub-pattern `p` makes on `base` (PEP-065 D1-a): literals,
+ * regexes, type tests and built-in extractors test; object and array shapes
+ * recurse (reading nested values with `?.`, so a missing parent fails the
+ * test instead of throwing) and test an array's length only when it is
+ * exact (`[x, y, ...[]]`). Returns why it can't, for a custom extractor
+ * below the top level (its `extract` result would need a variable per test).
+ */
+function switchTests(
+  f: ts.NodeFactory,
+  p: PatternInfo,
+  base: () => ts.Expression,
+  out: ts.Expression[]
+): string | undefined {
+  switch (p.kind) {
+    case "literal":
+      out.push(literalCheck(f, base(), p.node));
+      return undefined;
+    case "regex": {
+      const value = base();
+      out.push(
+        f.createBinaryExpression(
+          f.createBinaryExpression(
+            f.createTypeOfExpression(value),
+            ts.SyntaxKind.EqualsEqualsEqualsToken,
+            f.createStringLiteral("string")
+          ),
+          ts.SyntaxKind.AmpersandAmpersandToken,
+          f.createCallExpression(f.createPropertyAccessExpression(p.node, "test"), undefined, [
+            base(),
+          ])
+        )
+      );
+      return undefined;
+    }
+    case "type-constructor": {
+      const test = buildCondition(f, { ...p, binding: { kind: "wildcard" } }, base());
+      if (test) out.push(test);
+      return switchTests(f, p.binding, base, out);
+    }
+    case "extractor": {
+      if (p.def.kind !== "sum-variant") {
+        return (
+          `${p.extractorName}(...) below the top level of a match: switch case (its extract() ` +
+          `result needs a variable); match it in a case of its own, or use the fluent match()`
+        );
+      }
+      const test = buildCondition(
+        f,
+        {
+          ...p,
+          bindings: p.bindings.map(() => ({ kind: "wildcard" }) as PatternInfo),
+        },
+        base()
+      );
+      if (test) out.push(test);
+      const fields = p.def.payloadFields ?? [];
+      for (let i = 0; i < p.bindings.length; i++) {
+        const field = fields[i];
+        if (field === undefined) continue;
+        const problem = switchTests(
+          f,
+          p.bindings[i],
+          () => payloadAccess(f, base(), field, undefined),
+          out
+        );
+        if (problem) return problem;
+      }
+      return undefined;
+    }
+    case "object":
+      for (const prop of p.properties) {
+        if (prop.isRest || !needsTest(prop.pattern)) continue;
+        const problem = switchTests(f, prop.pattern, () => chainField(f, base(), prop.key), out);
+        if (problem) return problem;
+      }
+      return undefined;
+    case "array": {
+      const plain = p.elements.filter((el) => !el.isRest);
+      if (isExactArray(p)) {
+        const value = base();
+        out.push(
+          f.createBinaryExpression(
+            f.createCallExpression(
+              f.createPropertyAccessExpression(f.createIdentifier("Array"), "isArray"),
+              undefined,
+              [value]
+            ),
+            ts.SyntaxKind.AmpersandAmpersandToken,
+            f.createBinaryExpression(
+              f.createPropertyAccessExpression(base(), "length"),
+              ts.SyntaxKind.EqualsEqualsEqualsToken,
+              f.createNumericLiteral(plain.length)
+            )
+          )
+        );
+      }
+      for (let i = 0; i < plain.length; i++) {
+        if (!needsTest(plain[i].pattern)) continue;
+        const problem = switchTests(
+          f,
+          plain[i].pattern,
+          () =>
+            f.createElementAccessChain(
+              base(),
+              f.createToken(ts.SyntaxKind.QuestionDotToken),
+              f.createNumericLiteral(i)
+            ),
+          out
+        );
+        if (problem) return problem;
+      }
+      return undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** Why sub-pattern `p` can't be tested below the top level, or undefined when it can. */
+function nestedProblem(p: PatternInfo): string | undefined {
+  switch (p.kind) {
+    case "extractor":
+      if (p.def.kind !== "sum-variant") {
+        return (
+          `match: ${p.extractorName}(...) can't be tested below the top level of a match: switch ` +
+          `case (its extract() result needs a variable); match it in a case of its own, or use ` +
+          `the fluent match().`
+        );
+      }
+      return p.bindings.map(nestedProblem).find((x) => x !== undefined);
+    case "type-constructor":
+      return nestedProblem(p.binding);
+    case "object":
+      return p.properties.map((prop) => nestedProblem(prop.pattern)).find((x) => x !== undefined);
+    case "array":
+      return p.elements.map((el) => nestedProblem(el.pattern)).find((x) => x !== undefined);
+    case "unsupported":
+      return `match: ${p.reason ?? "unsupported pattern in a match: switch case"}`;
+    default:
+      return undefined;
+  }
+}
+
+/** `a && b && ...`, or undefined for no tests. */
+function allOf(f: ts.NodeFactory, tests: ts.Expression[]): ts.Expression | undefined {
+  return tests.length === 0
+    ? undefined
+    : tests.reduce((a, b) => f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b));
+}
+
+/** One `const name = <where it is read from>` per bound name. */
+function pathConsts(f: ts.NodeFactory, paths: BindingPaths): ts.Statement[] {
+  return [...paths.read].map(([name, read]) => constDecl(f, f.createIdentifier(name), read()));
+}
+
 /** Analyse one pattern case; report and return undefined if it can't be compiled. */
 function analyzeCase(
   ctx: MacroContext,
@@ -483,25 +722,56 @@ function analyzeCase(
   if (pattern.kind === "object") {
     const literals: { key: string; node: ts.Expression }[] = [];
     const bindingProps: typeof pattern.properties = [];
+    // Properties whose pattern tests below the top level (PEP-065 D1-a):
+    // `inner: { tag: "x" }`, `value: Some(v)`, `coordinates: [x, y, ...[]]`.
+    const tested: typeof pattern.properties = [];
     for (const prop of pattern.properties) {
       if (!prop.isRest && prop.pattern.kind === "literal") {
         literals.push({ key: prop.key, node: prop.pattern.node });
         continue;
       }
-      if (!prop.isRest && toBinding(f, prop.pattern) === false) {
-        ctx.reportError(
-          node,
-          `match: in a match: switch, only top-level properties can be tested; "${prop.key}"'s ` +
-            `pattern needs a runtime test. Destructure it and test the value in the case body, or ` +
-            `use the fluent match() for nested tests.`
-        );
-        return undefined;
+      if (!prop.isRest && needsTest(prop.pattern)) {
+        const problem = nestedProblem(prop.pattern);
+        if (problem) {
+          ctx.reportError(node, problem);
+          return undefined;
+        }
+        tested.push(prop);
+        continue;
       }
       bindingProps.push(prop);
     }
     const restProp = bindingProps.find((p) => p.isRest);
     const named = bindingProps.filter((p) => !p.isRest && p.pattern.kind !== "wildcard");
+    const paths = (s: () => ts.Expression): BindingPaths => {
+      const out: BindingPaths = { read: new Map(), rest: new Set() };
+      collectPaths(f, pattern, s, out);
+      return out;
+    };
+    const testedNames = tested.some((prop) => {
+      const out: BindingPaths = { read: new Map(), rest: new Set() };
+      collectPaths(f, prop.pattern, () => f.createIdentifier("_"), out);
+      return out.read.size > 0;
+    });
     const bind = (s: () => ts.Expression): ts.Statement[] => {
+      if (tested.length > 0) {
+        // A tested property can't be destructured (an extractor's payload is
+        // read through its descriptor): one const per name, read where it
+        // comes from, plus the rest object if there is one.
+        const consts = pathConsts(f, paths(s));
+        if (!restProp || restProp.pattern.kind !== "variable") return consts;
+        const excluded = pattern.properties
+          .filter((p) => !p.isRest)
+          .map((p) =>
+            f.createBindingElement(undefined, p.key, f.createIdentifier(`_excl_${p.key}`))
+          );
+        const rest = f.createBindingElement(
+          f.createToken(ts.SyntaxKind.DotDotDotToken),
+          undefined,
+          f.createIdentifier(restProp.pattern.name)
+        );
+        return [...consts, constDecl(f, f.createObjectBindingPattern([...excluded, rest]), s())];
+      }
       if (!restProp && named.length === 1) {
         // `{ type: "Point", coordinates: [x, y] }` → `const [x, y] = geom.coordinates;`
         const b = toBinding(f, named[0].pattern) as ts.BindingName;
@@ -526,8 +796,7 @@ function analyzeCase(
     };
     const test = (s: () => ts.Expression, guardNullish: boolean): ts.Expression => {
       const parts: ts.Expression[] = [];
-      if (literals.length === 0) {
-        if (!guardNullish) return f.createTrue();
+      if (guardNullish && literals.length === 0) {
         parts.push(
           f.createBinaryExpression(
             f.createTypeOfExpression(s()),
@@ -544,32 +813,62 @@ function analyzeCase(
       for (const lit of literals) {
         parts.push(literalCheck(f, f.createPropertyAccessExpression(s(), lit.key), lit.node));
       }
-      return parts.reduce((a, b) =>
-        f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
-      );
+      for (const prop of tested) {
+        switchTests(f, prop.pattern, () => fieldAccess(f, s(), prop.key), parts);
+      }
+      return allOf(f, parts) ?? f.createTrue();
     };
     return {
       literals,
       bind,
       test,
+      // A case that tests more than its discriminant can't be a discriminant
+      // switch's label: it has to be able to fail on to the next case.
       discriminant:
-        literals.length === 1 ? { field: literals[0].key, label: literals[0].node } : undefined,
-      // Only the top-level literals are tested; every other property is
-      // destructured (bound or `undefined`), not tested for presence, so it
-      // isn't part of the coverage pattern: `{ k: "b", extra }` covers the
-      // `b` variant even where `extra` is optional (the fluent match tests
-      // `"extra" in` and doesn't).
+        literals.length === 1 && tested.length === 0
+          ? { field: literals[0].key, label: literals[0].node }
+          : undefined,
+      // Only what is tested is part of the coverage pattern; every other
+      // property is destructured (bound or `undefined`), not tested for
+      // presence: `{ k: "b", extra }` covers the `b` variant even where
+      // `extra` is optional (the fluent match tests `"extra" in` and doesn't).
       coverage: {
         kind: "object",
-        properties: pattern.properties.filter((p) => !p.isRest && p.pattern.kind === "literal"),
+        properties: pattern.properties.flatMap((p) =>
+          !p.isRest && needsTest(p.pattern) ? [{ ...p, pattern: prune(p.pattern) }] : []
+        ),
         hasRest: pattern.hasRest,
       },
-      bindsNames: !!restProp || named.length > 0,
-      paths: (s) => {
-        const out: BindingPaths = { read: new Map(), rest: new Set() };
-        collectPaths(f, pattern, s, out);
-        return out;
+      bindsNames: !!restProp || named.length > 0 || testedNames,
+      paths,
+    };
+  }
+
+  if (pattern.kind === "type-constructor" || pattern.kind === "regex") {
+    // `String(s)`, `Date(d)`, `Circle(c)` (a class without a Destructure
+    // instance: `instanceof`), `/re/`: a test of the whole value; a type
+    // test binds the value, which the case's test narrows.
+    const problem = nestedProblem(pattern);
+    if (problem) {
+      ctx.reportError(node, problem);
+      return undefined;
+    }
+    const paths = (s: () => ts.Expression): BindingPaths => {
+      const out: BindingPaths = { read: new Map(), rest: new Set() };
+      collectPaths(f, pattern, s, out);
+      return out;
+    };
+    return {
+      literals: [],
+      bind: (s) => pathConsts(f, paths(s)),
+      test: (s) => {
+        const parts: ts.Expression[] = [];
+        switchTests(f, pattern, s, parts);
+        return allOf(f, parts) ?? f.createTrue();
       },
+      coverage: prune(pattern),
+      bindsNames: paths(() => f.createIdentifier("_")).read.size > 0,
+      paths,
     };
   }
 
@@ -584,26 +883,56 @@ function analyzeCase(
       return undefined;
     }
     const fields = def.payloadFields ?? [];
-    const bindings: { field: string; name: ts.BindingName }[] = [];
-    for (let i = 0; i < pattern.bindings.length; i++) {
-      const b = toBinding(f, pattern.bindings[i]);
-      if (b === false) {
-        ctx.reportError(
-          node,
-          `match: in a match: switch, ${pattern.extractorName}(...)'s arguments are bindings, not ` +
-            `tests. Bind the value and test it in the case body, or use the fluent match().`
-        );
-        return undefined;
-      }
-      if (b !== undefined && fields[i] !== undefined) bindings.push({ field: fields[i], name: b });
-    }
+    // `self` of an @opaque type is asserted to its payload type (PayloadTyping).
+    const typing = scrutineeType && def.payloadTyping?.(scrutineeType);
+    const paths = (s: () => ts.Expression): BindingPaths => {
+      const out: BindingPaths = { read: new Map(), rest: new Set() };
+      pattern.bindings.forEach((b, i) => {
+        if (fields[i] !== undefined) {
+          collectPaths(f, b, () => payloadAccess(f, s(), fields[i], typing), out);
+        }
+      });
+      return out;
+    };
     const wildcarded: PatternInfo = {
       ...pattern,
       bindings: pattern.bindings.map(() => ({ kind: "wildcard" }) as PatternInfo),
     };
+    // An argument that tests (`Some(0)`, `Ok({ kind: "a" })`, PEP-065 D1-a):
+    // the case tests it too, and binds one const per name.
+    const tested = pattern.bindings.some(needsTest);
+    if (tested) {
+      const problem = nestedProblem(pattern);
+      if (problem) {
+        ctx.reportError(node, problem);
+        return undefined;
+      }
+      return {
+        literals: [],
+        bind: (s) => pathConsts(f, paths(s)),
+        test: (s, guardNullish) => {
+          const parts: ts.Expression[] = [];
+          const own = buildCondition(f, wildcarded, s(), !guardNullish);
+          if (own) parts.push(own);
+          pattern.bindings.forEach((b, i) => {
+            const field = fields[i];
+            if (field !== undefined && needsTest(b)) {
+              switchTests(f, b, () => payloadAccess(f, s(), field, typing), parts);
+            }
+          });
+          return allOf(f, parts) ?? f.createTrue();
+        },
+        coverage: prune(pattern),
+        bindsNames: paths(() => f.createIdentifier("_")).read.size > 0,
+        paths,
+      };
+    }
+    const bindings: { field: string; name: ts.BindingName }[] = [];
+    for (let i = 0; i < pattern.bindings.length; i++) {
+      const b = toBinding(f, pattern.bindings[i]) as ts.BindingName | undefined;
+      if (b !== undefined && fields[i] !== undefined) bindings.push({ field: fields[i], name: b });
+    }
     const discValue = def.discriminantValue;
-    // `self` of an @opaque type is asserted to its payload type (PayloadTyping).
-    const typing = scrutineeType && def.payloadTyping?.(scrutineeType);
     return {
       literals: [],
       bind: (s) =>
@@ -624,15 +953,7 @@ function analyzeCase(
           : undefined,
       coverage: wildcarded,
       bindsNames: bindings.length > 0,
-      paths: (s) => {
-        const out: BindingPaths = { read: new Map(), rest: new Set() };
-        pattern.bindings.forEach((b, i) => {
-          if (fields[i] !== undefined) {
-            collectPaths(f, b, () => payloadAccess(f, s(), fields[i], typing), out);
-          }
-        });
-        return out;
-      },
+      paths,
     };
   }
 
@@ -640,7 +961,7 @@ function analyzeCase(
     node,
     pattern.kind === "array"
       ? "match: a match: switch can't test an array's shape; switch on its length, or use the fluent match()."
-      : "match: unsupported pattern in a match: switch (supported: literals, constants, object patterns, built-in extractors)."
+      : "match: unsupported pattern in a match: switch (supported: literals, constants, object patterns, extractors, type tests, regexes)."
   );
   return undefined;
 }
