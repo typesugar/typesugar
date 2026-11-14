@@ -6,13 +6,17 @@
  * wrapped to throw. `resolveAutoSpecFunctionBody` tells its caller the same
  * way.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as ts from "typescript";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { createMacroContext, type MacroContextImpl } from "@typesugar/core";
-import { SpecializationCache } from "@typesugar/macros";
+import {
+  SpecializationCache,
+  registerResultAlgebra,
+  registerResultSource,
+} from "@typesugar/macros";
 
 import {
   resolveAutoSpecFunctionBody,
@@ -89,6 +93,24 @@ function warningsOf(
 }
 
 describe("specialization: a caught checker failure warns, once per call", () => {
+  // Return-type-driven specialization asks the checker only once some Result
+  // source and algebra are registered.
+  beforeAll(() => {
+    registerResultSource({
+      name: "CheckerFailureResult",
+      type: { module: "./result", name: "Result" },
+      ok: [],
+      err: [],
+    });
+    registerResultAlgebra({
+      name: "CheckerFailureOption",
+      targetTypes: [{ global: "Promise" }],
+      rewriteOk: (_ctx, value) => value,
+      rewriteErr: (_ctx, error) => error,
+      preservesError: false,
+    });
+  });
+
   it("return-type-driven specialization of a call whose type the checker can't read", () => {
     withFixture((program, sf, calls) => {
       expect(

@@ -17,7 +17,9 @@ import { stripPositions } from "@typesugar/core";
 import {
   SpecializationCache,
   registerResultAlgebra,
-  getResultAlgebra,
+  getResultAlgebras,
+  getResultSources,
+  registerResultSource,
   registerInstanceMethodsFromAST,
   getInstanceMethods,
   isRegisteredInstance,
@@ -149,34 +151,45 @@ describe("SpecializationCache", () => {
 // `promiseResultAlgebra` in `packages/std/tests/result-algebra.test.ts`.
 // This file only tests the registry mechanism itself, which stays here.
 describe("Result algebra registry", () => {
-  it("registerResultAlgebra adds an algebra findable by registerResultAlgebra/getResultAlgebra", () => {
+  it("registerResultAlgebra adds an algebra to getResultAlgebras", () => {
     registerResultAlgebra({
       name: "TestAlgebra",
-      targetTypes: ["TestType"],
+      targetTypes: [{ module: "test-lib", name: "TestType" }],
       rewriteOk: (_ctx, value) => value,
       rewriteErr: (_ctx, error) => error,
       preservesError: true,
     });
 
-    const algebra = getResultAlgebra("TestType");
-    expect(algebra!.name).toBe("TestAlgebra");
+    const algebra = getResultAlgebras().find((a) => a.name === "TestAlgebra");
+    expect(algebra!.targetTypes).toEqual([{ module: "test-lib", name: "TestType" }]);
   });
 
-  it("getResultAlgebra returns undefined for an unregistered type", () => {
-    expect(getResultAlgebra("SomeUnregisteredType")).toBeUndefined();
-  });
-
-  it("registerResultAlgebra can target multiple type names at once", () => {
-    registerResultAlgebra({
-      name: "MultiTarget",
-      targetTypes: ["TypeA", "TypeB"],
-      rewriteOk: (_ctx, value) => value,
-      rewriteErr: (_ctx, error) => error,
+  it("re-registering an algebra by name replaces it", () => {
+    const base = {
+      rewriteOk: (_ctx: unknown, value: ts.Expression) => value,
+      rewriteErr: (_ctx: unknown, error: ts.Expression) => error,
       preservesError: false,
+    };
+    registerResultAlgebra({ ...base, name: "Twice", targetTypes: [{ global: "A" }] });
+    registerResultAlgebra({ ...base, name: "Twice", targetTypes: [{ global: "B" }] });
+
+    const twice = getResultAlgebras().filter((a) => a.name === "Twice");
+    expect(twice).toHaveLength(1);
+    expect(twice[0].targetTypes).toEqual([{ global: "B" }]);
+  });
+
+  it("registerResultSource adds a source to getResultSources", () => {
+    registerResultSource({
+      name: "TestResult",
+      type: { module: "test-lib", name: "Result" },
+      ok: [{ module: "test-lib", name: "Result.ok" }],
+      err: [{ module: "test-lib", name: "Result.err" }],
     });
 
-    expect(getResultAlgebra("TypeA")!.name).toBe("MultiTarget");
-    expect(getResultAlgebra("TypeB")!.name).toBe("MultiTarget");
+    expect(getResultSources().find((s) => s.name === "TestResult")!.type).toEqual({
+      module: "test-lib",
+      name: "Result",
+    });
   });
 });
 

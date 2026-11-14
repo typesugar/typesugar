@@ -19,7 +19,8 @@ import {
   getInlineFailureHelp,
   inlineMethod,
   inlineMethodAsStatements,
-  getResultAlgebra,
+  getResultAlgebras,
+  getResultSources,
   analyzeForFlattening,
   flattenReturnsToExpression,
   getInstanceName,
@@ -33,6 +34,8 @@ import {
   type DictMethod,
   type DictMethodMap,
   type ResultAlgebra,
+  type ResultSource,
+  type DeclarationRef,
 } from "@typesugar/macros";
 
 import {
@@ -2173,21 +2176,94 @@ function skippedSpecialization(
 // Return-type-driven specialization helpers
 // ---------------------------------------------------------------------------
 
-export function getTypeName(typeChecker: ts.TypeChecker, type: ts.Type): string | undefined {
+const resolvedDeclarationRefs = new WeakMap<
+  ts.TypeChecker,
+  WeakMap<ts.SourceFile, Map<string, ts.Symbol | null>>
+>();
+
+/**
+ * The symbol a registered `DeclarationRef` names, alias imports followed, or
+ * undefined when it doesn't resolve from this file (its module isn't in the
+ * program). Cached per checker and file: a `{ module }` ref resolves through
+ * the file's own imports first, and a watch rebuild can reuse an unchanged
+ * SourceFile in a new program, whose symbols are new.
+ */
+function resolveDeclarationRef(ctx: MacroContextImpl, ref: DeclarationRef): ts.Symbol | undefined {
+  let byFile = resolvedDeclarationRefs.get(ctx.typeChecker);
+  if (!byFile) resolvedDeclarationRefs.set(ctx.typeChecker, (byFile = new WeakMap()));
+  let cache = byFile.get(ctx.sourceFile);
+  if (!cache) byFile.set(ctx.sourceFile, (cache = new Map()));
+  const key = "global" in ref ? `global:${ref.global}` : `${ref.module}#${ref.name}`;
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached ?? undefined;
+
+  const checker = ctx.typeChecker;
+  const unalias = (sym: ts.Symbol | undefined): ts.Symbol | undefined =>
+    sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+  let sym: ts.Symbol | undefined;
+  try {
+    if ("global" in ref) {
+      // Resolved with no location, so only a global can answer: a module's
+      // own declaration of the same name is a different symbol.
+      sym = checker.resolveName(
+        ref.global,
+        undefined,
+        ts.SymbolFlags.Type | ts.SymbolFlags.Value,
+        false
+      );
+    } else {
+      // "Result.ok": the export, then each member of the class or namespace
+      // (a class's statics are its symbol's exports) or of the value's type.
+      const [first, ...members] = ref.name.split(".");
+      sym = unalias(moduleExport(ctx, ref.module, first));
+      for (const member of members) {
+        if (!sym) break;
+        sym = unalias(
+          sym.exports?.get(ts.escapeLeadingUnderscores(member)) ??
+            checker.getPropertyOfType(checker.getTypeOfSymbol(sym), member)
+        );
+      }
+    }
+  } catch (error) {
+    const name = key.replace("#", "'s ");
+    warnCheckerFailure(
+      ctx,
+      undefined,
+      `return-type-driven specialization (resolving ${name})`,
+      error
+    );
+    sym = undefined;
+  }
+  cache.set(key, sym ?? null);
+  return sym;
+}
+
+/**
+ * The declarations a type is an instance of, to compare by identity with
+ * registered `DeclarationRef`s: its type alias (`Either<E, A>`, a union) and
+ * its interface or class, and the same for each non-nullish member of a
+ * union (`Option<A> | undefined`). Never its name (PEP-062).
+ */
+function typeDeclarationSymbols(type: ts.Type): ts.Symbol[] {
+  const symbols: ts.Symbol[] = [];
+  const add = (t: ts.Type): void => {
+    if (t.aliasSymbol) symbols.push(t.aliasSymbol);
+    const sym = t.getSymbol();
+    if (sym) symbols.push(sym);
+  };
+  add(type);
   if (type.isUnion()) {
     for (const t of type.types) {
-      if (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) continue;
-      const name = getTypeName(typeChecker, t);
-      if (name) return name;
+      if (!(t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined))) add(t);
     }
   }
-  const symbol = type.getSymbol() ?? type.aliasSymbol;
-  if (symbol) {
-    return symbol.getName();
-  }
-  const typeStr = typeChecker.typeToString(type);
-  const match = typeStr.match(/^(\w+)(?:<|$)/);
-  return match ? match[1] : undefined;
+  return symbols;
+}
+
+/** Whether `ref` resolves to one of `symbols`. */
+function refIsAmong(ctx: MacroContextImpl, ref: DeclarationRef, symbols: ts.Symbol[]): boolean {
+  const sym = resolveDeclarationRef(ctx, ref);
+  return sym !== undefined && symbols.includes(sym);
 }
 
 /**
@@ -2249,13 +2325,15 @@ export function getContextualTypeForCall(
 export function specializeForResultAlgebra(
   ctx: MacroContextImpl,
   fn: ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration,
-  algebra: ResultAlgebra
+  algebra: ResultAlgebra,
+  source: ResultSource
 ): ts.Expression | undefined {
   const params = Array.from(fn.parameters);
   const body = ts.isFunctionDeclaration(fn) ? fn.body : fn.body;
   if (!body) return undefined;
 
-  const rewrittenBody = rewriteResultCalls(ctx, body, algebra);
+  const rewrittenBody = rewriteResultCalls(ctx, body, algebra, source);
+  if (!rewrittenBody) return undefined;
 
   let finalBody: ts.ConciseBody = rewrittenBody as ts.ConciseBody;
 
@@ -2279,50 +2357,79 @@ export function specializeForResultAlgebra(
   );
 }
 
+/**
+ * Rewrite the calls in `node` that construct a `source` Result through
+ * `algebra`. A call is a constructor when its callee resolves, alias imports
+ * followed, to one of `source`'s registered `ok`/`err` declarations; a
+ * function that merely shares the name (`ok`, `Result.err`) is left alone.
+ * Undefined, with a warning, when a callee can't be checked: a partly
+ * rewritten body would mix the two representations.
+ */
 export function rewriteResultCalls(
   ctx: MacroContextImpl,
   node: ts.Node,
-  algebra: ResultAlgebra
-): ts.Node {
+  algebra: ResultAlgebra,
+  source: ResultSource
+): ts.Node | undefined {
+  const resolveAll = (refs: readonly DeclarationRef[]): Set<ts.Symbol> =>
+    new Set(refs.flatMap((ref) => resolveDeclarationRef(ctx, ref) ?? []));
+  const okConstructors = resolveAll(source.ok);
+  const errConstructors = resolveAll(source.err);
+  let failed = false;
+
+  function constructorKind(call: ts.CallExpression): "ok" | "err" | undefined {
+    const callee = call.expression;
+    const name = ts.isIdentifier(callee)
+      ? callee
+      : ts.isPropertyAccessExpression(callee)
+        ? callee.name
+        : undefined;
+    if (!name) return undefined;
+    if (isSyntheticNode(name)) {
+      failed = true;
+      ctx.reportWarning(
+        call,
+        `typesugar skipped return-type-driven specialization to ${algebra.name}: a macro-generated call in the body can't be checked against ${source.name}'s constructors.`
+      );
+      return undefined;
+    }
+    try {
+      let sym = ctx.typeChecker.getSymbolAtLocation(name);
+      if (sym && sym.flags & ts.SymbolFlags.Alias) sym = ctx.typeChecker.getAliasedSymbol(sym);
+      if (!sym) return undefined;
+      if (okConstructors.has(sym)) return "ok";
+      if (errConstructors.has(sym)) return "err";
+      return undefined;
+    } catch (error) {
+      failed = true;
+      warnCheckerFailure(
+        ctx,
+        call,
+        `return-type-driven specialization to ${algebra.name} (checking a call in the body)`,
+        error
+      );
+      return undefined;
+    }
+  }
+
   function visit(n: ts.Node): ts.Node {
+    if (failed) return n;
     if (ts.isCallExpression(n)) {
-      if (ts.isIdentifier(n.expression) && n.expression.text === "ok") {
-        if (n.arguments.length >= 1) {
-          const visitedValue = ts.visitNode(n.arguments[0], visit) as ts.Expression;
-          return algebra.rewriteOk(ctx, visitedValue);
-        }
-        return algebra.rewriteOk(ctx, ctx.factory.createIdentifier("undefined"));
-      }
-
-      if (ts.isIdentifier(n.expression) && n.expression.text === "err") {
-        if (n.arguments.length >= 1) {
-          const visitedError = ts.visitNode(n.arguments[0], visit) as ts.Expression;
-          return algebra.rewriteErr(ctx, visitedError);
-        }
-        return algebra.rewriteErr(ctx, ctx.factory.createIdentifier("undefined"));
-      }
-
-      if (ts.isPropertyAccessExpression(n.expression)) {
-        const obj = n.expression.expression;
-        const method = n.expression.name.text;
-
-        if (ts.isIdentifier(obj) && (obj.text === "Result" || obj.text === "R")) {
-          if (method === "ok" && n.arguments.length >= 1) {
-            const visitedValue = ts.visitNode(n.arguments[0], visit) as ts.Expression;
-            return algebra.rewriteOk(ctx, visitedValue);
-          }
-          if (method === "err" && n.arguments.length >= 1) {
-            const visitedError = ts.visitNode(n.arguments[0], visit) as ts.Expression;
-            return algebra.rewriteErr(ctx, visitedError);
-          }
-        }
+      const kind = constructorKind(n);
+      if (kind) {
+        const arg =
+          n.arguments.length >= 1
+            ? (ts.visitNode(n.arguments[0], visit) as ts.Expression)
+            : ctx.factory.createIdentifier("undefined");
+        return kind === "ok" ? algebra.rewriteOk(ctx, arg) : algebra.rewriteErr(ctx, arg);
       }
     }
 
     return ts.visitEachChild(n, visit, ctx.transformContext);
   }
 
-  return ts.visitNode(node, visit) as ts.Node;
+  const rewritten = ts.visitNode(node, visit) as ts.Node;
+  return failed ? undefined : rewritten;
 }
 
 // ---------------------------------------------------------------------------
@@ -2335,6 +2442,13 @@ export function tryReturnTypeDrivenSpecialize(
   specCache: SpecializationCache,
   node: ts.CallExpression
 ): ts.Expression | undefined {
+  // Only registered Result sources and algebras take part, each matched by
+  // its declaration (PEP-062): with none registered, there is nothing to do.
+  const sources = getResultSources();
+  const algebras = getResultAlgebras();
+  if (sources.length === 0 || algebras.length === 0) return undefined;
+  if (isSyntheticNode(node)) return undefined;
+
   let fnType: ts.Type;
   try {
     fnType = ctx.typeChecker.getTypeAtLocation(node.expression);
@@ -2347,12 +2461,11 @@ export function tryReturnTypeDrivenSpecialize(
 
   const returnType = callSigs[0].getReturnType();
 
-  const returnTypeName = getTypeName(ctx.typeChecker, returnType);
-  if (
-    returnTypeName !== "Result" &&
-    returnTypeName !== "Either" &&
-    returnTypeName !== "Validation"
-  ) {
+  // A third-party Result (neverthrow's, or any type merely named `Result`)
+  // is never a source: the return type must BE a registered source's type.
+  const returnSymbols = typeDeclarationSymbols(returnType);
+  const source = sources.find((s) => refIsAmong(ctx, s.type, returnSymbols));
+  if (!source) {
     return undefined;
   }
 
@@ -2363,16 +2476,14 @@ export function tryReturnTypeDrivenSpecialize(
     return undefined;
   }
 
-  const targetTypeName = getTypeName(ctx.typeChecker, contextualType);
-  if (!targetTypeName) {
+  const targetSymbols = typeDeclarationSymbols(contextualType);
+  if (refIsAmong(ctx, source.type, targetSymbols)) {
     return undefined;
   }
 
-  if (returnTypeName === targetTypeName) {
-    return undefined;
-  }
-
-  const algebra = getResultAlgebra(targetTypeName);
+  const algebra = algebras.find((a) =>
+    a.targetTypes.some((ref) => refIsAmong(ctx, ref, targetSymbols))
+  );
   if (!algebra) {
     return undefined;
   }
@@ -2385,7 +2496,7 @@ export function tryReturnTypeDrivenSpecialize(
 
   if (verbose) {
     console.log(
-      `[typesugar] Return-type-driven specialization: ${fnName} from ${returnTypeName ?? "Result"} to ${targetTypeName}`
+      `[typesugar] Return-type-driven specialization: ${fnName} from ${source.name} to ${algebra.name}`
     );
   }
 
@@ -2416,7 +2527,7 @@ export function tryReturnTypeDrivenSpecialize(
     );
   }
 
-  const specialized = specializeForResultAlgebra(ctx, fnBody, algebra);
+  const specialized = specializeForResultAlgebra(ctx, fnBody, algebra, source);
   if (!specialized) {
     return undefined;
   }

@@ -30,7 +30,7 @@ registerSyntaxMarkerFallback("@typesugar/fp/syntax/show", { methods: ["Show"] })
  */
 export const optionResultAlgebra: ResultAlgebra = {
   name: "Option",
-  targetTypes: ["Option"],
+  targetTypes: [{ module: "@typesugar/fp", name: "Option" }],
   rewriteOk: (_ctx, value) => value,
   rewriteErr: (ctx, _error) => ctx.factory.createNull(),
   preservesError: false,
@@ -44,7 +44,7 @@ export const optionResultAlgebra: ResultAlgebra = {
  */
 export const eitherResultAlgebra: ResultAlgebra = {
   name: "Either",
-  targetTypes: ["Either"],
+  targetTypes: [{ module: "@typesugar/fp", name: "Either" }],
   rewriteOk: (ctx, value) =>
     ctx.factory.createObjectLiteralExpression([
       ctx.factory.createPropertyAssignment("_tag", ctx.factory.createStringLiteral("Right")),

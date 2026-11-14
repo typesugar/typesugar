@@ -229,6 +229,41 @@ export function createHoistedSpecialization(
 // ============================================================================
 
 /**
+ * A declaration named by where it comes from. Return-type-driven
+ * specialization resolves it through the checker and compares symbols, alias
+ * imports followed; it never compares type or function names (PEP-062: a
+ * third-party `Result`, such as neverthrow's, must not be taken for a
+ * registered one).
+ *
+ * - `{ module, name }`: the export `name` of the module `module`, resolved
+ *   from the file being transformed. A dotted `name` names a member:
+ *   `"Result.ok"` is the static `ok` of the exported class or namespace
+ *   `Result`.
+ * - `{ global }`: the global the TypeScript lib declares under that name
+ *   (`Promise`); a module's own declaration of the same name is not it.
+ */
+export type DeclarationRef =
+  | { readonly module: string; readonly name: string }
+  | { readonly global: string };
+
+/**
+ * A Result type that return-type-driven specialization may rewrite: the type
+ * a function returns and the functions that construct its success and
+ * failure values. Only calls that resolve to one of these constructors are
+ * rewritten.
+ */
+export interface ResultSource {
+  /** Name of the source, for registration and diagnostics. */
+  name: string;
+  /** The Result type (an interface, class or type alias). */
+  type: DeclarationRef;
+  /** Constructors of a success value: `ok(value)`, `Result.ok(value)`. */
+  ok: readonly DeclarationRef[];
+  /** Constructors of a failure value: `err(error)`, `Result.err(error)`. */
+  err: readonly DeclarationRef[];
+}
+
+/**
  * A Result algebra defines how to rewrite `ok()` and `err()` constructors
  * when specializing a Result-returning function to a target type.
  *
@@ -240,11 +275,11 @@ export interface ResultAlgebra {
   name: string;
 
   /**
-   * Type names that this algebra targets.
-   * When the contextual type matches one of these, this algebra is used.
-   * e.g., ["Option"] for the Option algebra
+   * The types this algebra targets, by declaration. When the contextual
+   * type is one of these (or an alias import of one), this algebra is used.
+   * e.g., `[{ module: "@typesugar/fp", name: "Option" }]`
    */
-  targetTypes: string[];
+  targetTypes: readonly DeclarationRef[];
 
   /**
    * Rewrite rule for `ok(value)` calls.
@@ -265,25 +300,35 @@ export interface ResultAlgebra {
   preservesError: boolean;
 }
 
-/**
- * Registry of Result algebras, keyed by target type name.
- */
+/** Registered Result algebras, keyed by algebra name (re-registering replaces). */
 const resultAlgebraRegistry = new Map<string, ResultAlgebra>();
+
+/** Registered Result sources, keyed by source name (re-registering replaces). */
+const resultSourceRegistry = new Map<string, ResultSource>();
 
 /**
  * Register a Result algebra for use in return-type-driven specialization.
  */
 export function registerResultAlgebra(algebra: ResultAlgebra): void {
-  for (const typeName of algebra.targetTypes) {
-    resultAlgebraRegistry.set(typeName, algebra);
-  }
+  resultAlgebraRegistry.set(algebra.name, algebra);
+}
+
+/** Every registered Result algebra. */
+export function getResultAlgebras(): readonly ResultAlgebra[] {
+  return [...resultAlgebraRegistry.values()];
 }
 
 /**
- * Look up a Result algebra by target type name.
+ * Register a Result type whose functions return-type-driven specialization
+ * may rewrite. A Result type that isn't registered is never rewritten.
  */
-export function getResultAlgebra(typeName: string): ResultAlgebra | undefined {
-  return resultAlgebraRegistry.get(typeName);
+export function registerResultSource(source: ResultSource): void {
+  resultSourceRegistry.set(source.name, source);
+}
+
+/** Every registered Result source. */
+export function getResultSources(): readonly ResultSource[] {
+  return [...resultSourceRegistry.values()];
 }
 
 // Built-in Result algebras (Option, Either, Promise) are registered by
@@ -291,8 +336,11 @@ export function getResultAlgebra(typeName: string): ResultAlgebra | undefined {
 // Phase D relocation. `optionResultAlgebra`/`eitherResultAlgebra` live in
 // `@typesugar/fp/macros` (`packages/fp/src/macros.ts`); `promiseResultAlgebra`
 // lives in `@typesugar/std/macros` (`packages/std/src/macros/index.ts`).
-// `registerResultAlgebra` remains the extension point for third-party
-// result types — this file no longer calls it itself.
+// `registerResultAlgebra` and `registerResultSource` remain the extension
+// points for third-party result types — this file calls neither itself.
+// No package registers a Result SOURCE today: fp's zero-cost Result was
+// removed before 1.0, and PEP-062 Wave 4 replaces this mechanism with
+// `ApplicativeError` instances.
 
 // ============================================================================
 // Specialization Registry

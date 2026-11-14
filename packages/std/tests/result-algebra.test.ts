@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from "vitest";
 import * as ts from "typescript";
-import { getResultAlgebra } from "@typesugar/macros";
+import { getResultAlgebras } from "@typesugar/macros";
 import { promiseResultAlgebra } from "../src/macros/index.js";
 
 function fakeCtx() {
@@ -29,7 +29,7 @@ function print(node: ts.Node): string {
 describe("promiseResultAlgebra", () => {
   it("targets Promise and preserves the error", () => {
     expect(promiseResultAlgebra.name).toBe("Promise");
-    expect(promiseResultAlgebra.targetTypes).toContain("Promise");
+    expect(promiseResultAlgebra.targetTypes).toEqual([{ global: "Promise" }]);
     expect(promiseResultAlgebra.preservesError).toBe(true);
   });
 
@@ -48,7 +48,6 @@ describe("promiseResultAlgebra", () => {
   });
 
   it("registers with the shared registry on import", () => {
-    expect(getResultAlgebra("Promise")).toBeDefined();
-    expect(getResultAlgebra("Promise")!.name).toBe("Promise");
+    expect(getResultAlgebras().map((a) => a.name)).toContain("Promise");
   });
 });
