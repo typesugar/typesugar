@@ -20,7 +20,11 @@ import * as ts from "typescript";
 import { isSyntheticNode, type MacroContext } from "@typesugar/core";
 import { getOperatorCandidates } from "./typeclass-index.js";
 import { getOperatorString } from "./operators.js";
-import { resolveInstance } from "./instance-resolver.js";
+import {
+  resolveDictionaryInScope,
+  resolveOperatorInstance,
+  type ResolvedInstance,
+} from "./instance-resolver.js";
 
 /**
  * What the caller decides outside the type question: whether the rewrite is
@@ -397,12 +401,13 @@ function operatorRewriteStep(
   left: ts.Type,
   activated: ReadonlySet<string>,
   hooks: OperatorChainHooks
-): { resultIsSelf: boolean; dispatchType: ts.Type } | undefined {
+): OperatorRewriteStep | undefined {
   if (isSyntheticNode(node) || hooks.optedOut(node)) return undefined;
   const op = getOperatorString(node.operatorToken.kind);
   if (!op) return undefined;
   const candidates = getOperatorCandidates(ctx.program, activated, op);
-  let found: { rightOperandIsSelf: boolean; resultIsSelf: boolean } | undefined;
+  let found: { method: string; rightOperandIsSelf: boolean; resultIsSelf: boolean } | undefined;
+  let resolved: ResolvedInstance | undefined;
   let forType: ts.Type | undefined;
   let dispatchType = left;
   try {
@@ -420,11 +425,11 @@ function operatorRewriteStep(
       return fallback;
     };
     for (const candidate of candidates) {
-      let r = resolveInstance(ctx, candidate.typeclass, left, undefined, undefined, node);
+      let r = resolveOperatorInstance(ctx, candidate.typeclass, left, node);
       let via = left;
       if (!r) {
         for (const t of fallbackTypes()) {
-          r = resolveInstance(ctx, candidate.typeclass, t, undefined, undefined, node);
+          r = resolveOperatorInstance(ctx, candidate.typeclass, t, node);
           if (r) {
             via = t;
             break;
@@ -435,6 +440,7 @@ function operatorRewriteStep(
       // Ambiguous, or two typeclasses apply: the rewrite reports it and stays native.
       if (r.kind === "ambiguous" || found) return undefined;
       found = candidate;
+      resolved = r;
       forType = r.forType;
       dispatchType = via;
     }
@@ -455,7 +461,21 @@ function operatorRewriteStep(
     );
     return undefined;
   }
-  return { resultIsSelf: found.resultIsSelf, dispatchType };
+  return {
+    resultIsSelf: found.resultIsSelf,
+    dispatchType,
+    method: found.method,
+    resolved: resolved!,
+  };
+}
+
+/** What {@link operatorRewriteStep} decided: the method and instance the operator is rewritten to. */
+interface OperatorRewriteStep {
+  resultIsSelf: boolean;
+  /** The type the instance was found for (the left operand's, or a declared type). */
+  dispatchType: ts.Type;
+  method: string;
+  resolved: ResolvedInstance;
 }
 
 /**
@@ -476,6 +496,90 @@ export function operatorRewriteResult(
   activated: ReadonlySet<string>,
   hooks: OperatorChainHooks
 ): ts.Type | true | undefined {
+  const step = binaryOperatorStep(ctx, node, activated, hooks);
+  if (!step) return undefined;
+  return step.resultIsSelf ? step.dispatchType : true;
+}
+
+/**
+ * The dictionary binding an operator in generic code is rewritten to call
+ * (`a + b` with `a: A` and `c: Calc<A>` in scope → `c.add(a, b)`): the
+ * binding's name and the method, or undefined when the operator isn't
+ * rewritten to a dictionary in scope. For the auto-specializer, which copies
+ * a generic function's SOURCE body (where the operator is still written) and
+ * must inline the instance for it as it does for a written `c.add(a, b)`.
+ * `nullable`: an operand's type admits null/undefined, where the rewrite
+ * guards the call (a comparison keeps its native result for a nullish
+ * operand), which the specializer doesn't reproduce. Decided exactly as the
+ * rewrite decides it (binary: {@link operatorRewriteStep}; prefix unary: a
+ * type parameter's dictionary for an activated one-parameter `@op`).
+ */
+export function dictionaryOperatorDispatch(
+  ctx: MacroContext,
+  node: ts.BinaryExpression | ts.PrefixUnaryExpression,
+  activated: ReadonlySet<string>,
+  hooks: OperatorChainHooks
+): { binding: string; method: string; nullable: boolean } | undefined {
+  if (activated.size === 0 || isSyntheticNode(node) || hooks.optedOut(node)) return undefined;
+  if (ts.isBinaryExpression(node)) {
+    const step = binaryOperatorStep(ctx, node, activated, hooks);
+    if (!step?.resolved.binding) return undefined;
+    let nullable = false;
+    try {
+      const checker = ctx.typeChecker;
+      nullable =
+        (!isPrimitiveTypedBinary(node.left) &&
+          admitsNullish(checker.getTypeAtLocation(node.left))) ||
+        (!isPrimitiveTypedBinary(node.right) &&
+          admitsNullish(checker.getTypeAtLocation(node.right)));
+    } catch (error) {
+      hooks.warn(node, `typesugar could not resolve the operand types of an operator (${error}).`);
+      nullable = true;
+    }
+    return { binding: step.resolved.exportName, method: step.method, nullable };
+  }
+  const op = getPrefixUnaryOperatorString(node.operator);
+  if (!op || isSyntheticNode(node.operand)) return undefined;
+  try {
+    const t = ctx.typeChecker.getTypeAtLocation(node.operand);
+    if (!(t.flags & ts.TypeFlags.TypeParameter)) return undefined;
+    let found: { binding: string; method: string; nullable: boolean } | undefined;
+    for (const candidate of getOperatorCandidates(ctx.program, activated, op, "unary")) {
+      const r = resolveDictionaryInScope(ctx, candidate.typeclass, t, node);
+      if (!r) continue;
+      if (r.kind === "ambiguous" || found) return undefined;
+      found = { binding: r.exportName, method: candidate.method, nullable: false };
+    }
+    return found;
+  } catch (error) {
+    hooks.warn(node, `typesugar could not resolve the operand type of an operator (${error}).`);
+    return undefined;
+  }
+}
+
+/** Prefix-unary operator tokens `@op` can map (the rewrite's own list). */
+function getPrefixUnaryOperatorString(kind: ts.SyntaxKind): string | undefined {
+  switch (kind) {
+    case ts.SyntaxKind.MinusToken:
+      return "-";
+    case ts.SyntaxKind.PlusToken:
+      return "+";
+    case ts.SyntaxKind.ExclamationToken:
+      return "!";
+    case ts.SyntaxKind.TildeToken:
+      return "~";
+    default:
+      return undefined;
+  }
+}
+
+/** {@link operatorRewriteResult}'s decision, with the method and instance. */
+function binaryOperatorStep(
+  ctx: MacroContext,
+  node: ts.BinaryExpression,
+  activated: ReadonlySet<string>,
+  hooks: OperatorChainHooks
+): OperatorRewriteStep | undefined {
   if (activated.size === 0 || isSyntheticNode(node)) return undefined;
   if (isNullOrUndefinedExpr(node.left) || isNullOrUndefinedExpr(node.right)) return undefined;
   const checker = ctx.typeChecker;
@@ -493,7 +597,5 @@ export function operatorRewriteResult(
     return undefined;
   }
   if (isPrimitiveByFlags(left)) return undefined;
-  const step = operatorRewriteStep(ctx, node, left, activated, hooks);
-  if (!step) return undefined;
-  return step.resultIsSelf ? step.dispatchType : true;
+  return operatorRewriteStep(ctx, node, left, activated, hooks);
 }

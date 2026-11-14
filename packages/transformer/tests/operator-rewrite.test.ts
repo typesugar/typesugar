@@ -494,3 +494,162 @@ export const m2 = mk("1") + mk("2");
     expect(stmt).toBe(doc + 1);
   });
 });
+
+describe("Operators on a type parameter dispatch to the dictionary in scope", () => {
+  // In generic code (`a + b` with `a, b: A`) no instance can be resolved from
+  // the operand's type: it is a type parameter. The instance is a VALUE in
+  // scope, the function's dictionary (`c: Calc<A>`), as in a hand-written
+  // `c.add(a, b)`. Before this, the operator stayed native JavaScript, and a
+  // specialization of the function inlined that native body for the
+  // concrete instance: `addThenScale(x, y, x)` on objects returned NaN.
+  const prelude = `
+/** @typeclass */
+export interface Calc<A> {
+  /** @op + */ add(a: A, b: A): A;
+  /** @op - */ subtract(a: A, b: A): A;
+  /** @op * */ multiply(a: A, b: A): A;
+  /** @op === */ equal(a: A, b: A): boolean;
+  /** @op - */ negate(a: A): A;
+}
+export type Big = { v: number };
+/** @impl Calc<Big> */
+export const calcBig: Calc<Big> = {
+  add: (a, b) => ({ v: a.v + b.v }),
+  subtract: (a, b) => ({ v: a.v - b.v }),
+  multiply: (a, b) => ({ v: a.v * b.v }),
+  equal: (a, b) => a.v === b.v,
+  negate: (a) => ({ v: -a.v }),
+};
+export const x: Big = { v: 1 }, y: Big = { v: 2 };
+`;
+
+  function evaluate(code: string): Record<string, unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ts = require("typescript") as typeof import("typescript");
+    const js = ts.transpileModule(code, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const mod = { exports: {} as Record<string, unknown> };
+    new Function("module", "exports", "require", js)(mod, mod.exports, () => ({
+      implicit: () => {
+        throw new Error("implicit() was not filled in");
+      },
+    }));
+    return mod.exports;
+  }
+
+  const errors = (r: { diagnostics: Array<{ severity: string }> }) =>
+    r.diagnostics.filter((d) => d.severity === "error");
+  /** The generic function's own (emitted, not specialized) body. */
+  const bodyOf = (code: string, name: string): string => {
+    const start = code.indexOf(`function ${name}`);
+    // Redundant parentheses around a rewritten operand are kept from the source.
+    const body = start === -1 ? "" : code.slice(start, code.indexOf("\n}\n", start) + 2);
+    return body.replace(/\((\w+\.\w+\([^()]*\))\)/g, "$1");
+  };
+
+  it("a chain on a dictionary parameter's type parameter calls the dictionary", () => {
+    const code = `${prelude}
+export function addThenScale<A>(c: Calc<A>, a: A, b: A, k: A): A {
+  return (a + b) * k;
+}
+export function neg<A>(c: Calc<A>, a: A): A {
+  return -a;
+}
+export function same<A>(c: Calc<A>, a: A, b: A): boolean {
+  return a === b;
+}
+`;
+    const result = transformCode(code, { fileName: "op-tparam-param.ts" });
+    expect(errors(result)).toEqual([]);
+    expect(bodyOf(result.code, "addThenScale")).toContain("return c.multiply(c.add(a, b), k);");
+    expect(bodyOf(result.code, "neg")).toContain("return c.negate(a);");
+    expect(bodyOf(result.code, "same")).toContain("return c.equal(a, b);");
+    const out = evaluate(result.code) as Record<string, (...args: unknown[]) => unknown>;
+    expect(out.addThenScale(out.calcBig, { v: 1 }, { v: 2 }, { v: 3 })).toEqual({ v: 9 });
+    expect(out.neg(out.calcBig, { v: 1 })).toEqual({ v: -1 });
+  });
+
+  it("the dictionary may be an enclosing function's parameter, a destructured const, or typed through an alias", () => {
+    const code = `${prelude}
+type MyCalc<T> = Calc<T>;
+export function adder<A>(calculator: MyCalc<A>) {
+  return (a: A, b: A) => a + b;
+}
+export function viaHolder<A>(holder: { calculator: Calc<A> }, a: A, b: A): A {
+  const { calculator } = holder;
+  return a - b;
+}
+`;
+    const result = transformCode(code, { fileName: "op-tparam-scope.ts" });
+    expect(errors(result)).toEqual([]);
+    expect(bodyOf(result.code, "adder")).toContain("calculator.add(a, b)");
+    expect(bodyOf(result.code, "viaHolder")).toContain("return calculator.subtract(a, b);");
+    const out = evaluate(result.code) as Record<string, (...args: unknown[]) => unknown>;
+    const add = out.adder(out.calcBig) as (a: unknown, b: unknown) => unknown;
+    expect(add({ v: 1 }, { v: 2 })).toEqual({ v: 3 });
+    expect(out.viaHolder({ calculator: out.calcBig }, { v: 5 }, { v: 2 })).toEqual({ v: 3 });
+  });
+
+  it("a specialization inlines the instance for the dispatched operators", () => {
+    const code = `${prelude}
+export function addThenScale<A>(c: Calc<A>, a: A, b: A, k: A): A {
+  return (a + b) * k;
+}
+export const r = addThenScale(calcBig, x, y, x);
+`;
+    const result = transformCode(code, { fileName: "op-tparam-spec.ts" });
+    expect(errors(result)).toEqual([]);
+    expect(result.code).not.toMatch(/\(a \+ b\) \* k/);
+    expect(evaluate(result.code).r).toEqual({ v: 3 });
+  });
+
+  it("an implicit() dictionary works the same way", () => {
+    const code = `import { implicit } from "@typesugar/typeclass";
+${prelude}
+export function addThenScale<A>(a: A, b: A, k: A, c: Calc<A> = implicit()): A {
+  return (a + b) * k;
+}
+export const r = addThenScale(x, y, x);
+`;
+    const result = transformCode(code, { fileName: "op-tparam-implicit.ts" });
+    expect(errors(result)).toEqual([]);
+    expect(bodyOf(result.code, "addThenScale")).toContain("return c.multiply(c.add(a, b), k);");
+    expect(evaluate(result.code).r).toEqual({ v: 3 });
+  });
+
+  it("a shadowed dictionary is not used", () => {
+    const code = `${prelude}
+export function f<A>(c: Calc<A>, a: A, b: A) {
+  return (c: number) => a + b;
+}
+`;
+    const result = transformCode(code, { fileName: "op-tparam-shadow.ts" });
+    expect(bodyOf(result.code, "f")).not.toContain("c.add");
+  });
+
+  it("two dictionaries for the same type parameter are an ambiguity error", () => {
+    const code = `${prelude}
+export function f<A>(c: Calc<A>, d: Calc<A>, a: A, b: A) {
+  return a + b;
+}
+`;
+    const result = transformCode(code, { fileName: "op-tparam-ambiguous.ts" });
+    expect(
+      errors(result)
+        .map((d) => (d as unknown as { message: string }).message)
+        .join("\n")
+    ).toMatch(/Ambiguous Calc instance for type 'A': c, d/);
+    expect(bodyOf(result.code, "f")).toContain("return a + b;");
+  });
+
+  it("without a dictionary in scope the operator is left alone", () => {
+    const code = `${prelude}
+export function f<A>(a: A, b: A) {
+  return a + b;
+}
+`;
+    const result = transformCode(code, { fileName: "op-tparam-none.ts" });
+    expect(bodyOf(result.code, "f")).toContain("return a + b;");
+  });
+});

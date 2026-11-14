@@ -30,6 +30,8 @@ import {
   getOpMapForTypeclass,
   isImplicitDefault,
   valueParameters,
+  dictionaryOperatorDispatch,
+  activatedOperatorTypeclasses,
   type DictMethod,
   type DictMethodMap,
   type ResultAlgebra,
@@ -993,6 +995,17 @@ export function resolveAutoSpecFunctionBody(
 // Dictionary call rewriting
 // ---------------------------------------------------------------------------
 
+/**
+ * Inline the instances for the dictionary calls of a specialized copy's body:
+ * `F.method(...)` with `F` a dictionary parameter, and an operator the
+ * operator rewrite dispatches to one (`a + b` on `a: A` with `F: Calc<A>` in
+ * scope is `F.add(a, b)`: {@link dictionaryOperatorDispatch}). The body is
+ * the callee's SOURCE, where the operator is still written, so it is decided
+ * here, on the real node, with the callee file's own activation. An operator
+ * whose operands may be nullish is left as an uninlined `F.method(...)` call,
+ * so the leftover-use check declines the specialization (the rewrite guards
+ * that call, which this copy doesn't reproduce).
+ */
 export function rewriteDictCallsForAutoSpec(
   ctx: MacroContextImpl,
   node: ts.Node,
@@ -1055,6 +1068,30 @@ export function rewriteDictCallsForAutoSpec(
     return preserveSourceMap(f.createBlock(reexpressed.body.statements, true), ret);
   }
 
+  const factory = ctx.factory;
+
+  /** `methods.method(args)` inlined (at the source node `site`), or undefined. */
+  function inlineDictCall(
+    dictMethods: DictMethodMap,
+    methodName: string,
+    args: ts.Expression[],
+    site: ts.Node
+  ): ts.Expression | undefined {
+    const method = dictMethods.methods.get(methodName);
+    if (!method) return undefined;
+    const inlined = inlineMethod(ctx, method, args);
+    // A type the body names that can't be written at the call site:
+    // the call stays a dictionary call (and the leftover-use check of
+    // inlineAutoSpecializeForHoisting then declines the specialization).
+    // In a hoisted specialization a method type parameter the call
+    // doesn't instantiate (a dictionary parameter typed `any`) is
+    // written `unknown`: the specialized function's own return type is
+    // the call's when it was declared in terms of its type parameters.
+    const reexpressed =
+      inlined && reexpressInlinedTypes(ctx, inlined, method, location, site)?.expr;
+    return reexpressed ? preserveSourceMap(reexpressed, site) : undefined;
+  }
+
   function visit(n: ts.Node): ts.Node {
     if (ts.isReturnStatement(n)) {
       const block = inlineReturnedCall(n);
@@ -1065,29 +1102,52 @@ export function rewriteDictCallsForAutoSpec(
       ts.isPropertyAccessExpression(n.expression) &&
       ts.isIdentifier(n.expression.expression)
     ) {
-      const dictParamName = n.expression.expression.text;
-      const dictMethods = dictParamMap.get(dictParamName);
-
+      const dictMethods = dictParamMap.get(n.expression.expression.text);
       if (dictMethods) {
-        const methodName = n.expression.name.text;
-        const method = dictMethods.methods.get(methodName);
+        const mapped = inlineDictCall(
+          dictMethods,
+          n.expression.name.text,
+          Array.from(n.arguments),
+          n
+        );
+        if (mapped) return ts.visitEachChild(mapped, visit, ctx.transformContext);
+      }
+    }
 
-        if (method) {
-          const inlined = inlineMethod(ctx, method, Array.from(n.arguments));
-          // A type the body names that can't be written at the call site:
-          // the call stays a dictionary call (and the leftover-use check of
-          // inlineAutoSpecializeForHoisting then declines the specialization).
-          // In a hoisted specialization a method type parameter the call
-          // doesn't instantiate (a dictionary parameter typed `any`) is
-          // written `unknown`: the specialized function's own return type is
-          // the call's when it was declared in terms of its type parameters.
-          const reexpressed =
-            inlined && reexpressInlinedTypes(ctx, inlined, method, location, n)?.expr;
-          if (reexpressed) {
-            const mapped = preserveSourceMap(reexpressed, n);
-            return ts.visitEachChild(mapped, visit, ctx.transformContext);
-          }
+    if ((ts.isBinaryExpression(n) || ts.isPrefixUnaryExpression(n)) && !isSyntheticNode(n)) {
+      const sourceFile = n.getSourceFile();
+      const dispatch = dictionaryOperatorDispatch(
+        ctx,
+        n,
+        activatedOperatorTypeclasses(ctx.program, sourceFile),
+        {
+          optedOut: (at) =>
+            isInOptedOutScope(sourceFile, at, globalResolutionScope, "operators") ||
+            isInOptedOutScope(sourceFile, at, globalResolutionScope, "extensions"),
+          warn: (at, message) => ctx.reportWarning(at, message),
         }
+      );
+      const dictMethods = dispatch && dictParamMap.get(dispatch.binding);
+      if (dispatch && dictMethods) {
+        // The operands first, on their real nodes (an operand may be an
+        // operator itself); the inlined result is not visited again.
+        const args = (ts.isBinaryExpression(n) ? [n.left, n.right] : [n.operand]).map(
+          (a) => ts.visitNode(a, visit) as ts.Expression
+        );
+        const mapped = dispatch.nullable
+          ? undefined
+          : inlineDictCall(dictMethods, dispatch.method, args, n);
+        return (
+          mapped ??
+          factory.createCallExpression(
+            factory.createPropertyAccessExpression(
+              factory.createIdentifier(dispatch.binding),
+              dispatch.method
+            ),
+            undefined,
+            args
+          )
+        );
       }
     }
 
