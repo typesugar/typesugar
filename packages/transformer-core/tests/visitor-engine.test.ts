@@ -97,6 +97,115 @@ describe("#2 method call on a node_modules type that shares a macro's name", () 
 });
 
 // ---------------------------------------------------------------------------
+// neverthrow case study F12: a receiver's own method wins over a same-named
+// import, as the extension-methods guide's resolution order says.
+// `import { match } from "@typesugar/std"` (a macro) or from ts-pattern (a
+// function) made every neverthrow `result.match(onOk, onErr)` in the file
+// into `match(result, onOk, onErr)`. #2 above didn't catch it: there `pipe`'s
+// module doesn't resolve, so it has no signature to match the receiver
+// against.
+// ---------------------------------------------------------------------------
+describe("a receiver's own method wins over a same-named import", () => {
+  beforeAll(() => {
+    globalRegistry.register(
+      defineExpressionMacro({
+        name: "fold",
+        module: "fake-fold-macros",
+        expand(ctx: MacroContext) {
+          return ctx.factory.createNumericLiteral(1);
+        },
+      })
+    );
+  });
+
+  it("leaves box.fold(f, g) alone when the file imports a fold macro that accepts any value", () => {
+    const r = run(
+      {
+        "/node_modules/fake-fold-macros/index.d.ts": `
+          export declare function fold<T>(value: T, ...rest: unknown[]): unknown;
+        `,
+        "/main.ts": `
+          import { fold } from "fake-fold-macros";
+          declare class Box { fold(onOk: (n: number) => number, onErr: () => number): number; }
+          declare const box: Box;
+          export const viaMacro = fold(box);
+          export const viaMethod = box.fold((n) => n, () => 0);
+        `,
+      },
+      "/main.ts"
+    );
+    expect(errorsOf(r)).toEqual([]);
+    expect(r.code).toContain("box.fold(");
+    expect(r.code).not.toMatch(/fold\(box, /);
+  });
+
+  it("leaves r.match(f, g) alone when the file imports a plain match FUNCTION (ts-pattern beside neverthrow)", () => {
+    const r = run(
+      {
+        "/node_modules/fake-pattern/index.d.ts": `
+          export declare function match<T>(value: T): { with(...a: unknown[]): unknown };
+        `,
+        "/main.ts": `
+          import { match } from "fake-pattern";
+          declare class Ok { match(onOk: (n: number) => number, onErr: () => number): number; }
+          declare const r: Ok;
+          export const viaPattern = match(r);
+          export const viaMethod = r.match((n) => n, () => 0);
+        `,
+      },
+      "/main.ts"
+    );
+    expect(errorsOf(r)).toEqual([]);
+    expect(r.code).toContain("r.match(");
+    expect(r.code).not.toMatch(/match\(r, /);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// neverthrow case study F12, the other half: on a receiver with NO such
+// member, `x.countArgs(...)` was dispatched to an imported `countArgs` macro
+// by name (the checker has no symbol for a missing property, and that fell
+// back to name lookup), and the macro was handed `x.countArgs(...)` itself.
+// It is an extension call, `countArgs(x, ...)`, and that is a macro call.
+// ---------------------------------------------------------------------------
+describe("a missing member is not a macro by name", () => {
+  beforeAll(() => {
+    globalRegistry.register(
+      defineExpressionMacro({
+        name: "countArgs",
+        module: "fake-count-macros",
+        expand(ctx: MacroContext, call) {
+          // How the macro was called: `countArgs(x, 1)` has 2 arguments; the
+          // by-name dispatch of `x.countArgs(1)` passed the method call (1).
+          return ctx.factory.createNumericLiteral(call.arguments.length);
+        },
+      })
+    );
+  });
+
+  it("x.countArgs(1) on a value without that member expands as countArgs(x, 1)", () => {
+    const r = run(
+      {
+        "/node_modules/fake-count-macros/index.d.ts": `
+          export declare function countArgs<T>(value: T, ...rest: unknown[]): number;
+        `,
+        "/main.ts": `
+          import { countArgs } from "fake-count-macros";
+          declare const x: { kind: "a" };
+          export const direct = countArgs(x, 1);
+          export const viaMethod = x.countArgs(1);
+        `,
+      },
+      "/main.ts"
+    );
+    // The extension rewrite makes it `countArgs(x, 1)`, and that call is a
+    // macro call like any other: expanded, not left as a runtime call.
+    expect(r.code).toContain("direct = 2");
+    expect(r.code).toContain("viaMethod = 2");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #10 expression macro must never be dispatched as an attribute macro
 // ---------------------------------------------------------------------------
 describe("#10 macro kind is part of symbol->macro resolution", () => {

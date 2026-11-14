@@ -94,29 +94,48 @@ export function findImportedExtensionMatches(
   if (!sourceFile?.statements) return matches;
 
   // A receiver's OWN method (e.g. Array.prototype.map) must never be
-  // redirected to a same-named member of some imported object: an imported
-  // typeclass instance like `parCombinePromise` has a `map(fa, f)` whose first
-  // parameter accepts an array, and `arr.map(f)` was being rewritten to
-  // `parCombinePromise.map(arr, f)`. Only a bare imported function named
-  // after the method (the explicit-override form) may shadow a native method.
+  // redirected to an import: an imported typeclass instance like
+  // `parCombinePromise` has a `map(fa, f)` whose first parameter accepts an
+  // array, and `arr.map(f)` was being rewritten to
+  // `parCombinePromise.map(arr, f)`. Nor to a bare imported function named
+  // after the method, when the receiver's own member is callable: the
+  // guide's resolution order puts the native property first, and
+  // `import { match } from "ts-pattern"` (or typesugar's `match` macro) took
+  // over every neverthrow `result.match(onOk, onErr)` in the file
+  // (neverthrow case study F12). A bare function may still stand in for a
+  // member that can't be called: `range.step(5)` → `step(range, 5)` where
+  // `step` is a number field.
   // A `declare global` extension stub (std's `interface Number { clamp }`)
   // is not a native method: it exists only so the call type-checks.
   // The check uses the receiver with `null | undefined` removed: for
   // `host.directoryExists?.bind(host)` the receiver is `F | undefined`, and a
   // union only has the properties of ALL its members, so `bind` was "not
   // native" and the call was offered to every import's `.bind`.
-  let hasNativeMethod = false;
+  let own: ts.Symbol | undefined;
   try {
-    const own = checker.getPropertyOfType(
+    own = checker.getPropertyOfType(
       checker.getApparentType(checker.getNonNullableType(receiverType)),
       methodName
     );
-    hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
   } catch {
     // getApparentType can throw on an unusual receiver; the type's own
     // property table is the same question without it (no degradation).
-    const own = receiverType.getProperty(methodName);
-    hasNativeMethod = own !== undefined && !isGlobalAugmentationStub(own);
+    own = receiverType.getProperty(methodName);
+  }
+  const hasNativeMember = own !== undefined && !isGlobalAugmentationStub(own);
+  let hasNativeMethod = false;
+  if (own && hasNativeMember) {
+    try {
+      hasNativeMethod = checker.getTypeOfSymbol(own).getCallSignatures().length > 0;
+    } catch (error) {
+      // Can't tell: treat the member as a method, so the receiver keeps it.
+      hasNativeMethod = true;
+      env.warn(
+        sourceFile,
+        `typesugar could not check whether '.${methodName}' is callable on its receiver ` +
+          `(${error}); no imported '${methodName}' replaces it.`
+      );
+    }
   }
 
   const consider = (ident: ts.Identifier, importSource: string, optedIn: boolean) => {
@@ -125,8 +144,11 @@ export function findImportedExtensionMatches(
     try {
       ext = checkImportedSymbolForExtension(checker, ident, methodName, receiverType, env.program);
       if (!ext) return;
+      if (hasNativeMethod) return;
       if (ext.qualifier !== undefined) {
-        if (hasNativeMethod) return;
+        // A member of an imported object never replaces a native member,
+        // callable or not.
+        if (hasNativeMember) return;
         const instances = importedInstances(env, ident);
         // Not opted in: only an instance declared in a form that reads the
         // same from source and from a published `.d.ts` supplies its members:
