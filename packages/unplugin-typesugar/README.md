@@ -88,6 +88,19 @@ export default {
 };
 ```
 
+## Rolldown / tsdown
+
+```typescript
+// tsdown.config.ts
+import { defineConfig } from "tsdown";
+import typesugar from "unplugin-typesugar/rolldown";
+
+export default defineConfig({
+  entry: ["src/index.ts"],
+  plugins: [typesugar()],
+});
+```
+
 ## Configuration
 
 All plugins accept the same options:
@@ -101,7 +114,8 @@ interface TypesugarPluginOptions {
    * Files to transform: a RegExp, a glob, or an array of either (default: /\.[jt]sx?$/).
    * Globs (picomatch) match the absolute module path; a relative glob resolves against
    * the project root (Vite's `root`, else the working directory); `**`-prefixed globs
-   * match anywhere. `include: []` transforms nothing.
+   * match anywhere. `include: []` transforms nothing. node_modules and declaration
+   * files (`.d.ts`) are always skipped.
    */
   include?: RegExp | string | Array<RegExp | string>;
 
@@ -167,6 +181,7 @@ This means macros are fully expanded before your code reaches the bundler's opti
 - `unplugin-typesugar/webpack` — Webpack plugin
 - `unplugin-typesugar/esbuild` — esbuild plugin
 - `unplugin-typesugar/rollup` — Rollup plugin
+- `unplugin-typesugar/rolldown` — Rolldown plugin (also for tsdown)
 - `unplugin-typesugar/tsup` — `withTypesugar(options, pluginOptions?)` for tsup configs
 - `unplugin-typesugar` — Core unplugin factory
 

@@ -1,7 +1,7 @@
 {
   "name": "unplugin-typesugar",
   "version": "0.1.1",
-  "description": "Bundler integrations for typesugar (Vite, Webpack, esbuild, Rollup)",
+  "description": "Bundler integrations for typesugar (Vite, Webpack, esbuild, Rollup, Rolldown)",
   "author": "Dean Povey <dean.povey@gmail.com>",
   "repository": {
     "type": "git",
@@ -20,6 +20,28 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "vite": [
+        "./dist/vite.d.ts"
+      ],
+      "webpack": [
+        "./dist/webpack.d.ts"
+      ],
+      "esbuild": [
+        "./dist/esbuild.d.ts"
+      ],
+      "rollup": [
+        "./dist/rollup.d.ts"
+      ],
+      "rolldown": [
+        "./dist/rolldown.d.ts"
+      ],
+      "tsup": [
+        "./dist/tsup.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "import": {
@@ -71,6 +93,16 @@
         "default": "./dist/rollup.cjs"
       }
     },
+    "./rolldown": {
+      "import": {
+        "types": "./dist/rolldown.d.ts",
+        "default": "./dist/rolldown.js"
+      },
+      "require": {
+        "types": "./dist/rolldown.d.cts",
+        "default": "./dist/rolldown.cjs"
+      }
+    },
     "./tsup": {
       "import": {
         "types": "./dist/tsup.d.ts",
@@ -95,6 +127,8 @@
     "webpack",
     "esbuild",
     "rollup",
+    "rolldown",
+    "tsdown",
     "tsup",
     "bundler",
     "plugin"

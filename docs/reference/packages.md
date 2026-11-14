@@ -131,6 +131,7 @@ import typesugar from "unplugin-typesugar/vite";
 import typesugar from "unplugin-typesugar/webpack";
 import typesugar from "unplugin-typesugar/esbuild";
 import typesugar from "unplugin-typesugar/rollup";
+import typesugar from "unplugin-typesugar/rolldown"; // also tsdown: plugins: [typesugar()]
 import { withTypesugar } from "unplugin-typesugar/tsup"; // defineConfig(withTypesugar({ ..., dts: true }))
 ```
 
