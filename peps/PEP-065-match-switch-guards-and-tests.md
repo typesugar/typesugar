@@ -126,9 +126,21 @@ In a `match:` switch a case label is one of:
   regex (`/re/`);
 - a **guarded case**: `P && guard`, where `P` is any of the above.
 
-Any other expression (a call to something that is neither an extractor nor a type,
-arithmetic, `a || b`, a template literal) is an error: _"a case in a match: switch is a
-literal, a constant or a pattern; bind the value to a const and use the const"_.
+Call syntax is how extractors and type tests are written, so a call `F(args)` is a
+pattern when `F` resolves (by symbol, through the checker, not by name) to:
+
+- a built-in extractor or a `Destructure` instance in scope: an **extractor** (`Some(v)`,
+  `Point(x, y)`), as today;
+- a constructor (a value with construct signatures: `String`, `Date`, a class) and no
+  `Destructure` instance: a **type test**.
+
+A call to anything else (an ordinary function, `f(x)`, `Symbol.for("a")`) is a value
+computed at run time, not a pattern. Arithmetic, `a || b` and template literals are values
+too. Any such value is an error: _"a case in a match: switch is a literal, a constant or a
+pattern; bind the value to a const and use the const"_. Today the same call compiles as a
+value case, and the bound names in it throw at run time (defect 1). Making it an error
+means that adding a `Destructure` instance for `f` later turns an error into a pattern,
+never one meaning into another.
 
 We considered keeping arbitrary expressions as value cases with parentheses as the escape
 (`case (f(x)):` compares, `case f(x):` is a pattern). Rejected: Prettier 3.8.1 removes
@@ -273,7 +285,8 @@ Each wave updates the guide's "Statement form" section, `docs/macro-triggers.md`
 - **D1: nested semantics.** Recommended D1-a (nested literals/extractors/type tests test;
   nested shapes destructure). D1-b is full fluent semantics.
 - **D2: guard syntax.** Recommended `case P && g:`. Alternative `case when(P, g):`.
-- **D3: reject non-constant value cases** (`case f(x):`, `case a + 1:`). Recommended yes:
+- **D3: reject computed value cases**: calls to ordinary functions (not extractors or
+  constructors, which stay patterns), `case a + 1:`, `case a || b:`. Recommended yes:
   typesugar is pre-release, and the only other rule that tells such a case apart from a
   pattern (parentheses) doesn't survive Prettier.
 
