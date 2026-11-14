@@ -417,6 +417,44 @@ your own) needs its own instance, and a name with no instance in scope is a type
 declare instances with `@destructure _tag = "Some" -> value` or
 `@destructure ok = true -> value`, or use an object pattern (`{ _tag: "Some", value: v }`).
 
+#### Nested extractors
+
+An extractor's payload can be matched by another extractor. Adjacent arms with the same
+outer extractor share one test, the payload is bound to a const, and the inner patterns are
+matched on it, as you would write it by hand. With neverthrow-style `Ok` / `Err` classes
+(`has value -> value`, `has error -> error`):
+
+```typescript
+match(r) // r: Result<Result<number, string>, string>
+  .case(Ok(Ok(v)))
+  .then(`ok ${v}`)
+  .case(Ok(Err(e)))
+  .then(`inner ${e}`)
+  .case(Err(e))
+  .then(`outer ${e}`);
+
+// Compiles to (inside the IIFE):
+// const _r = r;
+// if ("value" in _r) {
+//   const _value = _r.value;
+//   if ("value" in _value) { const v = _value.value; return `ok ${v}`; }
+//   const e = _value.error;
+//   return `inner ${e}`;
+// }
+// const e = _r.error;
+// return `outer ${e}`;
+```
+
+The last branch at each level has no test when the arms provably cover that level's type
+(here `Result<number, string>` inside, the whole `r` outside), so this match has no
+`throw new MatchError` and no runtime import. The payload's `!= null && typeof === "object"`
+guard is left out only when its type rules out `null` and primitives. Arm order is kept:
+only adjacent arms are grouped, so an arm with a guard, `.or()` or `.as()` between two
+`Ok(...)` arms splits them, and that arm keeps the flat form
+(`"value" in _r && "error" in _r.value`). Extractors with a `not-null` test (`Some(Some(v))`),
+a `self` payload, several payload fields, or a payload matched only by literals keep the
+flat form too.
+
 ---
 
 ## Statement form: `match: switch`
@@ -609,7 +647,7 @@ match(o)
 
 Object patterns on a discriminated union (`{ kind: "circle", r }`, compiled to the discriminant switch) have no throw either when every variant has an arm with no guard and nothing left to test (see [Discriminated Union Patterns](#discriminated-union-patterns)). The same goes for an arm that takes every value (`_`, a binding) at the end of a match compiled to an `if` chain, and for the object-handler form `match(value, { ... })` with a handler for every member of a literal union or every variant: its last handler is called with no test.
 
-Extractor arms may match their payload with further extractors or literals. With `has` or `field = value` extractors, `Ok(Ok(v))`, `Ok(Err(e))` and `Err(e)` cover a `Result<Result<number, string>, string>`, so the match needs no `.else()`, and dropping `Ok(Err(e))` is reported as non-exhaustive. Such a match keeps every arm's test and the terminal throw: a nested test (`"value" in _r && "error" in _r.value`) doesn't narrow `_r` for TypeScript, so an untested last arm wouldn't type-check. Payloads under `Some(...)` (a `not-null` extractor) aren't looked through, so `Some(Some(v))` still needs a fallback.
+Extractor arms may match their payload with further extractors or literals. With `has` or `field = value` extractors, `Ok(Ok(v))`, `Ok(Err(e))` and `Err(e)` cover a `Result<Result<number, string>, string>`, so the match needs no `.else()`, and dropping `Ok(Err(e))` is reported as non-exhaustive. It compiles to a decision tree with no throw (see [Nested extractors](#nested-extractors)). Payloads under `Some(...)` (a `not-null` extractor) aren't looked through, so `Some(Some(v))` still needs a fallback.
 
 ---
 
@@ -845,13 +883,14 @@ error: Pattern "pending" can never match type "ok" | "fail"
 
 ### Code Generation Strategies
 
-| Shape                                                                               | Output                                                         |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Scrutinee type is a single literal (see above)                                      | The chosen arm's expression, nothing else                      |
-| Arms that bind nothing, ending in `.else()`, `_` or full coverage, on an identifier | Conditional chain: `x === a ? r1 : x === b ? r2 : r3`, no IIFE |
-| 7+ plain literal arms                                                               | `switch` in an IIFE                                            |
-| Object patterns sharing one literal discriminant property                           | `switch` on the discriminant in an IIFE                        |
-| Anything else                                                                       | `if` chain in an IIFE (scrutinee evaluated once)               |
+| Shape                                                                               | Output                                                                |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Scrutinee type is a single literal (see above)                                      | The chosen arm's expression, nothing else                             |
+| Arms that bind nothing, ending in `.else()`, `_` or full coverage, on an identifier | Conditional chain: `x === a ? r1 : x === b ? r2 : r3`, no IIFE        |
+| 7+ plain literal arms                                                               | `switch` in an IIFE                                                   |
+| Object patterns sharing one literal discriminant property                           | `switch` on the discriminant in an IIFE                               |
+| Extractor arms whose payloads are matched by extractors (`Ok(Ok(v))`)               | Decision tree in an IIFE, see [Nested extractors](#nested-extractors) |
+| Anything else                                                                       | `if` chain in an IIFE (scrutinee evaluated once)                      |
 
 "Arms that bind nothing" are plain literals (`.or()` allowed) and extractors with no bindings (`None`, `Nil`, `Some(_)`), with no guard or `.as()`: `match(o).case(None).then("none").case(Some(_)).then("some")` compiles to `o == null ? "none" : "some"`. An arm that binds a name needs a block for its `const`, so it keeps the IIFE.
 

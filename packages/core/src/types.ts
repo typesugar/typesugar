@@ -593,11 +593,15 @@ export interface LabeledBlockMacro extends MacroDefinitionBase {
   syntaxModule?: string;
 
   /**
-   * The {@link syntaxModule} only activates the label and has nothing to run
-   * (a marker constant). In a file the transformer changed, its side-effect
-   * import (`import "<syntaxModule>";`) is removed from the output, so the
-   * label syntax costs no runtime import. Leave unset for a module with real
-   * runtime content (`@typesugar/std/syntax/do` also provides instances).
+   * The {@link syntaxModule} has nothing the expanded code needs to run. In a
+   * file the transformer changed, its side-effect import (`import
+   * "<syntaxModule>";`) is removed from the output, so the label syntax costs
+   * no runtime import. A module may still export values: an expansion that
+   * calls one imports it by name (`ensureImport`), and that named import
+   * stays (`@typesugar/std/syntax/do` exports std's do-notation instances,
+   * and a static-style `Iterable` comprehension imports `flatMapIterable`).
+   * Leave unset for a module whose loading itself does something the output
+   * relies on (registers a global, patches a prototype).
    */
   erasableSyntaxModule?: boolean;
 

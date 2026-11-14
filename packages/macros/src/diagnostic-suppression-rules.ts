@@ -1914,7 +1914,12 @@ function flattenMatchChain(
   let expr: ts.CallExpression = call;
   for (let i = 0; i < 200; i++) {
     const callee = expr.expression;
-    if (ts.isIdentifier(callee)) {
+    // The root: `match(x)`, or `std.match(x)` through a namespace import (a
+    // property of an identifier, where a link is a property of a call).
+    const isRoot =
+      ts.isIdentifier(callee) ||
+      (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression));
+    if (isRoot) {
       if (links.length === 0) return undefined; // the root call's own args
       if (!isTypesugarMatch(callee, checker, sourceFile)) return undefined;
       links.reverse();
@@ -1994,6 +1999,44 @@ function isWithin(node: ts.Node, ancestor: ts.Node): boolean {
   return false;
 }
 
+/**
+ * `std.match` with `import * as std from "@typesugar/std"`: the export `match`
+ * of the module the namespace binds, decided as for a bare import (by its
+ * declaration's package); when the module doesn't resolve, by the namespace
+ * import's module specifier.
+ */
+function isTypesugarMatchThroughNamespace(
+  callee: ts.PropertyAccessExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): boolean {
+  if (callee.name.text !== "match") return false;
+  let member: ts.Symbol | undefined;
+  let namespace: ts.Symbol | undefined;
+  try {
+    member = checker.getSymbolAtLocation(callee.name);
+    namespace = checker.getSymbolAtLocation(callee.expression);
+  } catch (e) {
+    reportCheckerFailure("MacroCallChain", e);
+    return false;
+  }
+  const decls = member?.getDeclarations() ?? [];
+  if (decls.length > 0) {
+    return decls.some((d) => {
+      const pkg = packageOfFile(d.getSourceFile().fileName);
+      return pkg !== undefined && isTypesugarMatchModule(pkg);
+    });
+  }
+  const nsDecl = namespace?.declarations?.[0];
+  if (!nsDecl || !ts.isNamespaceImport(nsDecl)) return false;
+  const importDecl = nsDecl.parent.parent;
+  return (
+    ts.isStringLiteral(importDecl.moduleSpecifier) &&
+    isTypesugarMatchModule(importDecl.moduleSpecifier.text) &&
+    importDecl.getSourceFile() === sourceFile
+  );
+}
+
 /** Packages whose `match` export is the typesugar macro (match.ts `module`). */
 function isTypesugarMatchModule(spec: string): boolean {
   return spec === "@typesugar/std" || spec.startsWith("@typesugar/std/") || spec === "typesugar";
@@ -2017,10 +2060,13 @@ function packageOfFile(fileName: string): string | undefined {
  * `match` never qualifies.
  */
 function isTypesugarMatch(
-  callee: ts.Identifier,
+  callee: ts.Identifier | ts.PropertyAccessExpression,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile
 ): boolean {
+  if (ts.isPropertyAccessExpression(callee)) {
+    return isTypesugarMatchThroughNamespace(callee, checker, sourceFile);
+  }
   let symbol: ts.Symbol | undefined;
   try {
     symbol = checker.getSymbolAtLocation(callee);

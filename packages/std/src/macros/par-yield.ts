@@ -126,6 +126,10 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
   continuationLabels: ["yield", "pure"],
   valueProducing: true,
   syntaxModule: "@typesugar/std/syntax/do",
+  // Std's do instances are plain values; the expansion imports by name any it
+  // calls (neverthrow case study F9: the side-effect import made
+  // @typesugar/std a runtime dependency of every do-notation user).
+  erasableSyntaxModule: true,
   expand(
     ctx: MacroContext,
     mainBlock: ts.LabeledStatement,

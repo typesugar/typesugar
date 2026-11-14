@@ -84,7 +84,10 @@ export const five = (o: Option<number>) => match(o).case(Some(5)).then("five").c
     );
     expect(r.errors).toEqual([]);
     expect(r.strict).toEqual([]);
-    expect(r.code).toContain("const v = _e.right as unknown as number;");
+    // Compiled as a decision tree (neverthrow F16): the Right's payload is
+    // bound once, and the inner Some's binding keeps its cast.
+    expect(r.code).toContain("const _right = _e.right;");
+    expect(r.code).toContain("const v = _right as unknown as number;");
     const ex = run(r.code);
     expect((ex.r as Fn)({ right: 4 })).toBe(8);
     expect((ex.r as Fn)({ right: null })).toBe(0);
