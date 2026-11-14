@@ -101,6 +101,13 @@ already handles this (`shadowedNameSubjects`, `RESULT_TYPE_CODES` in
 `strict-check.ts`'s `BLIND_SPOT_RULES`, so the expansion is re-checked and widening the
 suppression loses no real errors.
 
+Found while fixing it (Wave 1): **any** pattern label whose object literal lacks a field
+of the variant got TS2678 from `typesugar check`, with no name clash at all
+(`case { kind: "rect", w }:` on `{ kind: "rect"; w; h }`: "Property 'h' is missing"). The
+fix hides TS2678 on pattern labels; a real mismatch is still reported by the expansion
+check, at the literal (`case { kind: "rectangle", h }:` gives TS2678
+`'"rectangle"' is not comparable to '"circle" | "rect"'` at `"rectangle"`).
+
 **3. Nested array patterns don't test length, by design, and nothing warns.**
 `case { kind: "p", c: [x, y] }:` on `{ kind: "p", c: [5] }` runs the case with
 `y === undefined`. This is the documented semantics (destructure below the discriminant,
@@ -314,7 +321,7 @@ handles `match:` labels the way it already handles contract labels (`processor.t
 
 | Wave | Scope                                                                                                                                                                                                                                                             | Branch                       | Status      |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------- |
-| 1    | Defects 1 and 2: case-label classification (literal / constant / pattern, anything else an error naming the fix); `P && g` an error pointing at Wave 2 until it lands; top-level `_`; MatchSwitch suppression for shadowed names; exec tests for each probe above | `pep-065-wave-1-case-labels` | Not started |
+| 1    | Defects 1 and 2: case-label classification (literal / constant / pattern, anything else an error naming the fix); `P && g` an error pointing at Wave 2 until it lands; top-level `_`; MatchSwitch suppression for shadowed names; exec tests for each probe above | `pep-065-wave-1-case-labels` | In review   |
 | 2    | Guards: `case P && g:`, scoped substitution of bound names with source ranges, `switch (true)` lowering, coverage excludes guarded cases, suppression of TS2872/TS2678/TS2367 on guarded labels, ESLint check                                                     | `pep-065-wave-2-guards`      | Not started |
 | 3    | Nested tests per D1 (including `[x, y, ...[]]` exact length) and top-level type tests and regex; coverage through `findMissingCases`                                                                                                                              | `pep-065-wave-3-tests`       | Not started |
 

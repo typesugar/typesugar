@@ -43,6 +43,12 @@
  * are therefore errors. A guard (`case P if cond`) is not valid syntax; test
  * the condition in the case body.
  *
+ * Case labels are literals, constants (`C`, `Dir.Up`) or patterns
+ * (PEP-065). Anything else, a value computed at run time (`case f(x):` where
+ * `f` has no extractor and is not a class, `case a + 1:`), is a compile
+ * error, as in Scala; it used to compile as a value case whose bound names
+ * threw ReferenceError.
+ *
  * `default:` covers the remaining values and turns the exhaustiveness check
  * off, as `.else()` does, except a `default:` that only throws: that is a
  * runtime safety net for values outside the type, so the check still runs.
@@ -60,6 +66,7 @@ import {
 import {
   analyzePattern,
   buildCondition,
+  calleeKind,
   findMissingCases,
   getLiteralValueFromType,
   getPatternLiteralKey,
@@ -97,12 +104,83 @@ function isZeroArgExtractor(expr: ts.Expression): boolean {
   return analyzePattern(expr).kind === "extractor";
 }
 
+/** `e` without the parentheses around it (`case ("a"):` is the label `"a"`). */
+function unparen(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return e;
+}
+
+/** `a`, `a.b.c`, `this.a`: a constant compared with `===` (no calls, no `?.`). */
+function isConstantName(e: ts.Expression): boolean {
+  if (ts.isIdentifier(e) || e.kind === ts.SyntaxKind.ThisKeyword) return true;
+  return ts.isPropertyAccessExpression(e) && !e.questionDotToken && isConstantName(e.expression);
+}
+
+/** The source text of `node` for a message (a synthetic node has none). */
+function sourceText(node: ts.Node): string {
+  return isSyntheticNode(node) ? "this value" : node.getText();
+}
+
+/**
+ * Why a case label is not a literal, a constant or a pattern (PEP-065), or
+ * undefined when it is one. A label that is none of these used to compile as
+ * a value case compared with `===`, and the names it binds threw
+ * ReferenceError at run time; Scala rejects the same shapes (a pattern call
+ * needs an extractor, a value must be a stable identifier).
+ */
+function labelProblem(expr: ts.Expression): string | undefined {
+  const e = unparen(expr);
+  if (isPatternSyntax(e)) return undefined;
+  if (ts.isIdentifier(e) && e.text === "_") {
+    return "match: `case _:` matches every value; write `default:` instead.";
+  }
+  if (isConstantName(e) || ts.isNoSubstitutionTemplateLiteral(e)) return undefined;
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+    return (
+      "match: guards (`case P && cond:`) are not supported in a match: switch yet (PEP-065 " +
+      "Wave 2). Test the condition in the case body, or use the fluent match() with .if()."
+    );
+  }
+  if (e.kind === ts.SyntaxKind.RegularExpressionLiteral) {
+    return (
+      "match: a regex case is not supported in a match: switch yet (PEP-065 Wave 3); use the " +
+      "fluent match()."
+    );
+  }
+  let note = "";
+  if (ts.isCallExpression(e)) {
+    const pattern = analyzePattern(e);
+    if (pattern.kind === "type-constructor") {
+      return (
+        `match: a type test (\`${sourceText(e)}\`) is not supported in a match: switch yet ` +
+        "(PEP-065 Wave 3); use the fluent match()."
+      );
+    }
+    if (pattern.kind === "unsupported" && ts.isIdentifier(e.expression)) {
+      // A constructor called wrongly (two arguments, no Destructure
+      // instance) is a pattern with a problem; anything else is a value.
+      const kind = calleeKind(e.expression);
+      if (kind === "constructor" || kind === "unknown") {
+        return `match: ${pattern.reason ?? "unsupported pattern in a match: switch"}`;
+      }
+      note = ` (\`${e.expression.text}\` has no extractor and is not a class)`;
+    }
+  } else if (analyzePattern(e).kind === "literal") {
+    return undefined;
+  }
+  const text = sourceText(e);
+  return (
+    `match: a case in a match: switch is a literal, a constant or a pattern; \`${text}\` is ` +
+    `none of these${note}. Bind the value to a const (\`const v = ${text};\` and \`case v:\`).`
+  );
+}
+
 function classify(sw: ts.SwitchStatement): Clause[] {
   const raw = sw.caseBlock.clauses;
-  const patternMode = raw.some((c) => ts.isCaseClause(c) && isPatternSyntax(c.expression));
+  const patternMode = raw.some((c) => ts.isCaseClause(c) && isPatternSyntax(unparen(c.expression)));
   return raw.map((clause): Clause => {
     if (ts.isDefaultClause(clause)) return { kind: "default", clause };
-    const e = clause.expression;
+    const e = unparen(clause.expression);
     if (isPatternSyntax(e) || (patternMode && isZeroArgExtractor(e))) {
       return { kind: "pattern", clause, pattern: analyzePattern(e) };
     }
@@ -112,7 +190,7 @@ function classify(sw: ts.SwitchStatement): Clause[] {
 
 /** The key (in match.ts's literal-key form) a value case covers, if it is one value. */
 function valueKey(ctx: MacroContext, expr: ts.Expression): string | undefined {
-  const asPattern = analyzePattern(expr);
+  const asPattern = analyzePattern(unparen(expr));
   if (asPattern.kind === "literal") return getPatternLiteralKey(asPattern);
   if (isSyntheticNode(expr)) return undefined;
   try {
@@ -592,6 +670,16 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
   const f = ctx.factory;
   const sw = labeled.statement as ts.SwitchStatement;
   const scrutinee = sw.expression;
+  let badLabel = false;
+  for (const clause of sw.caseBlock.clauses) {
+    if (!ts.isCaseClause(clause)) continue;
+    const problem = labelProblem(clause.expression);
+    if (problem) {
+      ctx.reportError(clause.expression, problem);
+      badLabel = true;
+    }
+  }
+  if (badLabel) return [sw];
   const clauses = classify(sw);
   const defaultClause = clauses.find((c) => c.kind === "default")?.clause as
     | ts.DefaultClause
@@ -647,7 +735,7 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
   const coverage = findMissingCases(ctx, scrutinee, [
     ...[...cases.values()].map((pc) => pc.coverage),
     ...values.flatMap((c) => {
-      const p = analyzePattern(c.expression);
+      const p = analyzePattern(unparen(c.expression));
       return p.kind === "literal" ? [p] : [];
     }),
   ]);

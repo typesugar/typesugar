@@ -2160,6 +2160,41 @@ function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
   return undefined;
 }
 
+/** "Type 'X' is not comparable to type 'Y'": a case label against the switch's subject. */
+const TS_NOT_COMPARABLE = 2678;
+
+/** The case clause of a `match:` switch that `node` is in (its label or its statements). */
+function enclosingMatchCase(node: ts.Node): ts.CaseClause | undefined {
+  const labeled = enclosingMatchSwitch(node);
+  if (!labeled) return undefined;
+  for (let n: ts.Node | undefined = node; n && n !== labeled; n = n.parent) {
+    if (ts.isCaseClause(n) && n.parent.parent === labeled.statement) return n;
+  }
+  return undefined;
+}
+
+/**
+ * A case label that is a pattern, which binds (an object/array pattern or an
+ * extractor call); a bare identifier case is a value, and an unknown one is a
+ * real error.
+ */
+function isPatternLabel(label: ts.Expression): boolean {
+  let e = label;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return (
+    ts.isObjectLiteralExpression(e) || ts.isArrayLiteralExpression(e) || ts.isCallExpression(e)
+  );
+}
+
+/** Is `id` a name the pattern of the `match:` case it is used in binds? */
+function isBoundByEnclosingCase(id: ts.Identifier): boolean {
+  const clause = enclosingMatchCase(id);
+  if (!clause || !isPatternLabel(clause.expression)) return false;
+  const bound = new Set<string>();
+  collectPatternBindings(clause.expression, bound);
+  return bound.has(id.text);
+}
+
 /**
  * Create the MatchSwitch diagnostic suppression rule.
  *
@@ -2172,6 +2207,17 @@ function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
  *   pattern or its own statements. The expansion declares exactly those
  *   names, in a block around exactly those statements. A name bound by one
  *   case and used in another is still reported: it IS undeclared there.
+ * - When such a name also names an outer declaration (the enclosing
+ *   function, an outer const, a DOM global), the errors that come from that
+ *   declaration's type (SHADOWED_NAME_CODES on the name or a chain/operand
+ *   starting at it, RESULT_TYPE_CODES on a value that is the name), as the
+ *   MacroCallChain rule does for the fluent chain (PEP-065).
+ * - TS2678 ("not comparable") on a pattern label: as written it is an object
+ *   literal compared with the scrutinee (`{ kind: "circle" }` lacks the
+ *   variant's other fields), which the expansion replaces with tests.
+ *   `MatchSwitch` is in strict-check.ts BLIND_SPOT_RULES, so `typesugar
+ *   check`/`build` type-check the expansion instead: a misused binding or a
+ *   test against a value the type can't have is reported there.
  * - TS7028 ("Unused label", under `allowUnusedLabels: false`) on the `match`
  *   label itself, which the expansion removes.
  * - TS2366 ("Function lacks ending return statement") / TS7030 ("Not all
@@ -2188,7 +2234,17 @@ function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
 export function createMatchSwitchRule(): DiagnosticSuppressionRule {
   return {
     name: "MatchSwitch",
-    errorCodes: [2304, 18004, 7028, 2366, 7030],
+    errorCodes: [
+      ...new Set([
+        ...UNRESOLVED_CHAIN_NAME_CODES,
+        7028,
+        2366,
+        7030,
+        TS_NOT_COMPARABLE,
+        ...SHADOWED_NAME_CODES,
+        ...RESULT_TYPE_CODES,
+      ]),
+    ],
 
     shouldSuppress(diagnostic, _checker, sourceFile, context): boolean {
       if (diagnostic.start === undefined || !context?.program) return false;
@@ -2210,33 +2266,48 @@ export function createMatchSwitchRule(): DiagnosticSuppressionRule {
         if (!matchSwitchActivated(context.program, sourceFile)) return false;
         return !switchCanComplete(last.statement, last.label.text);
       }
-      if (!ts.isIdentifier(node)) return false;
-      const labeled = enclosingMatchSwitch(node);
-      if (!labeled) return false;
-      if (!matchSwitchActivated(context.program, sourceFile)) return false;
-
-      if (diagnostic.code === 7028) return node === labeled.label;
-
-      const clause = (() => {
-        for (let n: ts.Node | undefined = node; n && n !== labeled; n = n.parent) {
-          if (ts.isCaseClause(n) && n.parent.parent === labeled.statement) return n;
-        }
-        return undefined;
-      })();
-      if (!clause) return false;
-      // Only a pattern binds (an object/array pattern or an extractor call);
-      // a bare identifier case is a value, and an unknown one is a real error.
-      const pattern = clause.expression;
-      if (
-        !ts.isObjectLiteralExpression(pattern) &&
-        !ts.isArrayLiteralExpression(pattern) &&
-        !ts.isCallExpression(pattern)
-      ) {
-        return false;
+      if (diagnostic.code === 7028) {
+        const labeled = ts.isIdentifier(node) ? enclosingMatchSwitch(node) : undefined;
+        return (
+          !!labeled && node === labeled.label && matchSwitchActivated(context.program, sourceFile)
+        );
       }
-      const bound = new Set<string>();
-      collectPatternBindings(pattern, bound);
-      return bound.has(node.text);
+
+      if (diagnostic.code === TS_NOT_COMPARABLE) {
+        // A pattern label, as written, is an object literal (or call)
+        // compared with the scrutinee: `{ kind: "circle" }` lacks the
+        // variant's other fields, and a pattern name that also names an
+        // outer declaration has that declaration's type. The expansion
+        // replaces the comparison; it is checked there (BLIND_SPOT_RULES).
+        const clause = enclosingMatchCase(node);
+        return (
+          !!clause &&
+          isWithin(node, clause.expression) &&
+          isPatternLabel(clause.expression) &&
+          matchSwitchActivated(context.program, sourceFile)
+        );
+      }
+
+      // "Cannot find name" is about the identifier itself. The other codes are
+      // what TypeScript reports when a pattern name also names an outer
+      // declaration (the enclosing function, an outer const, a DOM global):
+      // as written, the case's uses resolve to that declaration and are
+      // checked against ITS type. The expansion declares the name, and the
+      // switch is a blind spot of the source check, so `typesugar check` and
+      // `build` check the uses in the expansion, against the binding (as the
+      // MacroCallChain rule does for the fluent chain).
+      const subjects = UNRESOLVED_CHAIN_NAME_CODES.includes(diagnostic.code)
+        ? ts.isIdentifier(node)
+          ? [node]
+          : []
+        : RESULT_TYPE_CODES.includes(diagnostic.code)
+          ? [diagnosticSubject(assignedValue(node))].filter(
+              (id): id is ts.Identifier => id !== undefined
+            )
+          : shadowedNameSubjects(node);
+      return (
+        subjects.some(isBoundByEnclosingCase) && matchSwitchActivated(context.program, sourceFile)
+      );
     },
   };
 }
