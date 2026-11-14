@@ -31,7 +31,10 @@ const repoRoot = path.resolve(pkgRoot, "..", "..");
 const cliPath = path.join(pkgRoot, "dist", "cli.js");
 const hasBuild = fs.existsSync(cliPath);
 
-function makeProject(files: Record<string, string>): string {
+function makeProject(
+  files: Record<string, string>,
+  extraOptions: Record<string, unknown> = {}
+): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typesugar-agree-"));
   fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(dir, "node_modules"), "dir");
   fs.writeFileSync(
@@ -45,6 +48,7 @@ function makeProject(files: Record<string, string>): string {
         skipLibCheck: true,
         types: [],
         outDir: "out",
+        ...extraOptions,
       },
       include: ["src"],
     })
@@ -269,6 +273,335 @@ console.log(user.info());
     expect(b.output).toMatch(/Ambiguous extension method 'info'/);
     expect(b.output).toMatch(/log\.info \(from "\.\/logger\.js"\)/);
     expect(b.output).toMatch(/log2\.info \(from "\.\/logger2\.js"\)/);
+  });
+});
+
+// The Wave 1 review cases: check reports what build leaves as written, or
+// hides only what build rewrites.
+describe.skipIf(!hasBuild)("PEP-064: check agrees with build on the review cases", () => {
+  let dir: string;
+  let check = "";
+  beforeAll(() => {
+    dir = makeProject({
+      "src/logger.ts":
+        LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+      // Type-only bindings are erased from the emit: never providers.
+      "src/t1.ts": `/** @extension */
+import type { log } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info());
+`,
+      "src/t2.ts": `/** @extension */
+import { type log } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info());
+`,
+      "src/t3.ts": `import type * as L from "./logger.js";
+console.log("hi".shout());
+`,
+      "src/t4.ts": `import type { shout } from "./logger.js";
+console.log("hi".shout());
+`,
+      // impl(...) reads as a plain annotation in a .d.ts: untagged, not a provider.
+      "src/tc.ts": `/** @typeclass */
+export interface Describe<A> { describe(a: A): string }
+export interface Color { r: number }
+`,
+      "src/inst.ts": `import type { Color } from "./tc.js";
+function impl<T>(_spec: string, o: T): T { return o; }
+export const describeColor = impl("Describe<Color>", { describe: (c: Color) => "rgb " + c.r });
+`,
+      "src/i1.ts": `import { describeColor } from "./inst.js";
+import type { Color } from "./tc.js";
+const c: Color = { r: 1 };
+console.log(c.describe());
+`,
+      // A scope opted out of extensions: the rewrite leaves the call.
+      "src/o1.ts": `/** @extension */
+import { log } from "./logger.js";
+const user = { id: 1 };
+function f() {
+  "use no typesugar extensions";
+  return user.info();
+}
+console.log(f(), user.info());
+`,
+      // A local that shadows the import at the call: the rewrite would call it.
+      "src/s1.ts": `/** @extension */
+import { log } from "./logger.js";
+import { shout } from "./logger.js";
+const user = { id: 1 };
+function f() {
+  const log = { other: 1 };
+  const shout = 2;
+  const a = user.info();
+  const b = "hi".shout();
+  return [a, b, log, shout];
+}
+console.log(f(), user.info(), "x".shout());
+`,
+      // A property read is not a call: the rewrite leaves it.
+      "src/p1.ts": `/** @extension */
+import { log } from "./logger.js";
+const user = { id: 1, infos: 2 };
+const read = user.info;
+console.log(read, user.info());
+`,
+      // Typeclass method sugar in a scope opted out of extensions.
+      "src/m1.ts": `import { Eq } from "@typesugar/std";
+import "@typesugar/std/syntax/eq/ops";
+/** @derive(Eq) */
+export interface Point { x: number }
+const a: Point = { x: 1 };
+const b: Point = { x: 1 };
+function f() {
+  "use no typesugar extensions";
+  return a.equals(b);
+}
+console.log(a.equals(b), f());
+`,
+      // An @extension function registered by another file is not the global
+      // of the same name in a file that doesn't import it.
+      "src/esc-ext.ts": `export interface Html { s: string }
+/** @extension */
+export function escape(h: Html): string { return h.s.replace(/</g, "&lt;"); }
+`,
+      "src/esc.ts": `import type { Html } from "./esc-ext.js";
+const h: Html = { s: "<b>" };
+console.log(h.escape());
+`,
+      // A registry entry for an imported object (registerExtensions), untagged.
+      "src/ns.ts": `export const NumberExt = { clampTo(n: number, hi: number): number { return Math.min(hi, n); } };\n`,
+      "src/n1.ts": `import { registerExtensions } from "@typesugar/macros";
+import { NumberExt } from "./ns.js";
+registerExtensions("number", NumberExt);
+console.log((42).clampTo(10));
+`,
+      // TS2551 ("did you mean 'infos'?") on a call the build rewrites.
+      "src/d1.ts": `/** @extension */
+import { log } from "./logger.js";
+const user = { id: 1, infos: 2 };
+console.log(user.info());
+`,
+    });
+    dirs.push(dir);
+    check = cli(dir, "check").output;
+  });
+
+  it.each([
+    ["t1", 4, "import type { log } with the tag"],
+    ["t2", 4, "import { type log } with the tag"],
+    ["t3", 2, "import type * as L"],
+    ["t4", 2, "import type { shout } (a bare function)"],
+    ["i1", 4, "an untagged impl(...) instance"],
+    ["o1", 6, "a call in a scope opted out of extensions"],
+    ["s1", 8, "an object import shadowed by a local"],
+    ["s1", 9, "a function import shadowed by a local"],
+    ["p1", 4, "a property read, not a call (TS2551)"],
+    ["m1", 9, "typeclass method sugar opted out of extensions"],
+    ["esc", 3, "a registered function not in scope (a global of that name is)"],
+    ["n1", 4, "an untagged import registered with registerExtensions"],
+  ])("%s.ts line %i: %s is reported (TS2339)", (file, line) => {
+    expect(check).toMatch(new RegExp(`${file}\\.ts\\(${line},\\d+\\): error TS(2339|2551)`));
+  });
+
+  it("the unshadowed and opted-in calls are rewritten, and the build output runs", () => {
+    expect(check).not.toMatch(/o1\.ts\(8,\d+\): error/);
+    expect(check).not.toMatch(/s1\.ts\(12,\d+\): error/);
+    expect(check).not.toMatch(/p1\.ts\(5,\d+\): error/);
+    expect(check).not.toMatch(/m1\.ts\(11,\d+\): error/);
+    expect(check).not.toMatch(/d1\.ts\(\d+,\d+\): error/);
+    cli(dir, "build");
+    const esc = fs.readFileSync(path.join(dir, "out", "esc.js"), "utf-8");
+    expect(esc).toContain("h.escape()");
+    const d1 = fs.readFileSync(path.join(dir, "out", "d1.js"), "utf-8");
+    expect(d1).toContain("log.info(user)");
+    const r = run(dir, "d1.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('info {"id":1,"infos":2}\n');
+  });
+});
+
+describe.skipIf(!hasBuild)("PEP-064 Wave 2: extension imports under noUnusedLocals", () => {
+  // TypeScript doesn't count an extension call as a use of its import, so a
+  // bare function (`"hi".shout()`) or a tagged object (`user.info()`) used
+  // only that way was TS6133/TS6192 from \`typesugar check\`.
+  let dir: string;
+  let output = "";
+  beforeAll(() => {
+    dir = makeProject(
+      {
+        "src/logger.ts":
+          LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+        "src/used.ts": `/** @extension */
+import { log, util } from "./logger.js";
+import { shout } from "./logger.js";
+const user = { id: 1 };
+console.log(user.info(), (5).identity(), "hi".shout());
+`,
+        // \`log\` is really unused here: still reported.
+        "src/unused.ts": `import { shout, log } from "./logger.js";
+console.log("hi".shout());
+`,
+      },
+      { noUnusedLocals: true }
+    );
+    dirs.push(dir);
+    output = cli(dir, "check").output;
+  });
+
+  it("an import used only through extension calls is not reported unused", () => {
+    expect(output).not.toMatch(/[\\/]used\.ts\(\d+,\d+\): error/);
+  });
+
+  it("a binding no call uses is still reported", () => {
+    expect(output).toMatch(/unused\.ts\(1,\d+\): error TS6(133|192)/);
+  });
+
+  it("the build runs", () => {
+    const b = cli(dir, "build");
+    expect(b.output).toMatch(/unused\.ts/);
+    const r = run(dir, "used.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('info {"id":1} 5 HI\n');
+  });
+});
+
+// The Wave 2 review cases: what counts as a use is what the rewrite does.
+const PAIRS = `export interface Pair { a: number; b: number }
+export const MkOps = { to(n: number, m: number): Pair { return { a: n, b: m }; } };
+export const RevOps = { rev(p: Pair): Pair { return { a: p.b, b: p.a }; } };
+`;
+
+describe.skipIf(!hasBuild)("PEP-064 Wave 2: uses as the rewrite makes them", () => {
+  let dir: string;
+  let check = "";
+  beforeAll(() => {
+    dir = makeProject(
+      {
+        "src/logger.ts":
+          LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+        "src/pairs.ts": PAIRS,
+        // RevOps serves only a call whose receiver is itself an extension
+        // call (the checker types it as an error; the rewrite recovers it).
+        "src/chain.ts": `/** @extension */
+import { MkOps } from "./pairs.js";
+/** @extension */
+import { RevOps } from "./pairs.js";
+console.log(JSON.stringify((1).to(5).rev()));
+`,
+        // A receiver that is a variable bound to an extension call: the
+        // rewrite recovers its type (Pair), so RevOps serves it, StrOps not.
+        // An overloaded provider: its overload for the receiver gives the type.
+        "src/over.ts": `import type { Pair } from "./pairs.js";
+function to(n: number, m: number): Pair;
+function to(s: string): string;
+function to(a: number | string, m?: number): Pair | string {
+  return typeof a === "string" ? a : { a, b: m ?? 0 };
+}
+export const OverOps = { to };
+`,
+        "src/overuse.ts": `/** @extension */
+import { OverOps } from "./over.js";
+/** @extension */
+import { RevOps } from "./pairs.js";
+console.log(JSON.stringify((1).to(5).rev()));
+`,
+        "src/strs.ts": `export const StrOps = { rev(s: string): string { return [...s].reverse().join(""); } };\n`,
+        "src/var.ts": `/** @extension */
+import { MkOps } from "./pairs.js";
+/** @extension */
+import { RevOps } from "./pairs.js";
+/** @extension */
+import { StrOps } from "./strs.js";
+const r = (1).to(5);
+console.log(JSON.stringify(r.rev()));
+`,
+        // The same export reached two ways: the rewrite uses the bare name,
+        // so the namespace import is really unused.
+        "src/twice.ts": `import { shout } from "./logger.js";
+import * as L from "./logger.js";
+console.log("hi".shout());
+`,
+        // A namespace import needs no tag.
+        "src/ns.ts": `/** @extension */
+import * as L from "./logger.js";
+console.log("hi".shout());
+`,
+        // A file opted out of extensions: the call is left as written, so
+        // the import is unused and the tag does nothing.
+        "src/optout.ts": `"use no typesugar extensions";
+/** @extension */
+import { log } from "./logger.js";
+export const f = () => ({ id: 1 }).info();
+`,
+      },
+      { noUnusedLocals: true }
+    );
+    dirs.push(dir);
+    check = cli(dir, "check").output;
+  });
+
+  it("chained receiver: no unused report and no warning, and the build runs", () => {
+    expect(check).not.toMatch(/chain\.ts\(\d+,\d+\)/);
+    const b = cli(dir, "build");
+    expect(b.output).not.toMatch(/chain\.ts/);
+    const r = run(dir, "chain.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('{"a":5,"b":1}\n');
+  });
+
+  it("a receiver bound to an extension call: only the provider the rewrite picks is used", () => {
+    expect(check).toMatch(/var\.ts\(6,\d+\): error TS6133/);
+    expect(check).not.toMatch(/var\.ts\([1-4],\d+\): error/);
+    cli(dir, "build");
+    const r = run(dir, "var.js");
+    expect(r.status, r.output).toBe(0);
+    expect(r.output).toBe('{"a":5,"b":1}\n');
+  });
+
+  it("an overloaded provider in a chain: the next provider is used", () => {
+    expect(check).not.toMatch(/overuse\.ts\(\d+,\d+\)/);
+  });
+
+  it("the same export reached two ways: the unused namespace import is reported", () => {
+    expect(check).toMatch(/twice\.ts\(2,\d+\): error TS6133/);
+    expect(check).not.toMatch(/twice\.ts\(1,/);
+  });
+
+  it("a tag on a namespace import has no effect and warns", () => {
+    expect(check).toMatch(/ns\.ts\(1,\d+\): warning .*This @extension tag has no effect/);
+    expect(check).not.toMatch(/ns\.ts\(\d+,\d+\): error/);
+  });
+
+  it("an opted-out file: the import is unused and the tag warns", () => {
+    expect(check).toMatch(/optout\.ts\(3,\d+\): error TS6133/);
+    expect(check).toMatch(/optout\.ts\(2,\d+\): warning .*This @extension tag has no effect/);
+  });
+});
+
+describe.skipIf(!hasBuild)("PEP-064 Wave 2: an @extension tag with no effect warns", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = makeProject({
+      "src/logger.ts":
+        LOGGER + `export function shout(s: string): string { return s.toUpperCase(); }\n`,
+      // A function import needs no tag; an object called directly uses none.
+      "src/c.ts": `/** @extension */
+import { shout } from "./logger.js";
+/** @extension */
+import { log } from "./logger.js";
+console.log("hi".shout(), log.info("direct"));
+`,
+    });
+    dirs.push(dir);
+  });
+
+  it("check warns on each tag, at the tag, and exits 0", () => {
+    const c = cli(dir, "check");
+    expect(c.status, c.output).toBe(0);
+    expect(c.output).toMatch(/c\.ts\(1,\d+\): warning .*This @extension tag has no effect/);
+    expect(c.output).toMatch(/c\.ts\(3,\d+\): warning .*This @extension tag has no effect/);
   });
 });
 

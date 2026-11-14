@@ -94,9 +94,14 @@ an extension (as in Scala 3): `log.info` takes `unknown`, so it accepts every re
 without the opt-in any imported helper object would quietly take over calls that are really
 typos. The tag covers every name the import declaration binds, so keep extension objects in
 an import of their own. It works on named and default imports; `import * as X` needs none (the namespace
-import is the opt-in), and neither does a typeclass instance (an `@impl` or `derived<TC<T>>()` value supplies its
-methods for its own type). `"use extension"` in the providing module does not stand in for the
-tag: it isn't in a published `.d.ts`, and the tag keeps the decision next to the calls.
+import is the opt-in), and neither does a typeclass instance declared with an `/** @impl */` tag
+(it supplies its methods for its own type). An instance made by an
+`derived<TC<T>>()` call does need the tag: a published `.d.ts` shows it as a plain
+`TC<T>` value, so it would otherwise work from source and stop working from `dist/`.
+`"use extension"`, an `@extension` namespace and `registerExtensions()` in the providing module
+do not stand in for the tag either, for the same reason, and the tag keeps the decision next to
+the calls. A type-only import (`import type`, `{ type log }`) never supplies extensions: it is
+erased from the output.
 
 ### "use extension" Directive (Recommended for Libraries)
 
@@ -232,7 +237,7 @@ When the transformer encounters `value.method()`:
 1. **Native property**: If `value` has a property `method`, use it
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
-4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported typeclass instances, whose first parameter accepts the receiver
+4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported `@impl` instances, whose first parameter accepts the receiver
 5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` or `derived<TC<T>>()` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.
@@ -256,6 +261,20 @@ Some(5).map((n) => n * 2);
 // 2. Type rewrite registry: Option.map → map(receiver, ...args)
 // → map(Some(5), n => n * 2)
 ```
+
+### Unused imports and unused tags
+
+TypeScript doesn't count `n.clamp(0, 100)` as a use of `clamp`, so under `noUnusedLocals` an
+import used only through extension calls would be reported unused. `typesugar check` and the
+editor hide that report when every name it is about serves an extension call in the file
+(the ExtensionImport suppression rule), or a JSDoc `@derive` tag; a name nothing uses is still
+reported.
+
+An `@extension` tag that enables nothing gets a warning: no call in the file goes through a
+member of that import (the import only binds functions, which need no tag; it is an
+`import * as X`, which needs none either; or its object is only called directly). A file that
+turns typesugar off with `"use no typesugar"` is not transformed at all, so its tags get no
+warning.
 
 ## Ambiguity Detection
 
@@ -399,7 +418,9 @@ registerExtensions("number", MathExt);
 registerExtension("string", myStringFunction);
 ```
 
-Prefer the `"use extension"` directive for new code.
+Prefer the `"use extension"` directive for new code. An object registered with
+`registerExtensions()` and used from another file still needs `/** @extension */` on its import
+there ([Extension Objects](#extension-objects)).
 
 ## Best Practices
 

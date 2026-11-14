@@ -89,16 +89,40 @@ import { log } from "some-unresolved-module";
 export const n = 1;
 `;
 
-  it("transformer-core: no diagnostic, the import kept", () => {
+  // The only diagnostic is Wave 2's "no effect" warning (nothing uses the
+  // import): no attribute-macro expansion, no "Unknown JSDoc macro tag".
+  const onlyNoEffect = (diags: Diag[]) =>
+    expect(diags.map((d) => d.message)).toEqual([expect.stringMatching(/tag has no effect/)]);
+
+  it("transformer-core: only the no-effect warning, the import kept", () => {
     const r = transformCodeInMemory(code, { fileName: "pep064-dispatch-core.ts" });
-    expect(r.diagnostics).toEqual([]);
+    onlyNoEffect(r.diagnostics);
     expect(r.code).toContain(`/** @extension */\nimport { log } from "some-unresolved-module";`);
   });
 
-  it("playground: no diagnostic, the import kept", () => {
+  it("playground: only the no-effect warning, the import kept", () => {
     clearCache();
     const r = playgroundTransform(code, { fileName: "pep064-dispatch-playground.ts" });
-    expect(r.diagnostics).toEqual([]);
+    onlyNoEffect(r.diagnostics);
     expect(r.code).toContain(`import { log } from "some-unresolved-module";`);
+  });
+});
+
+describe("PEP-064 Wave 2: a tag with no effect warns, on every pipeline", () => {
+  // `log` is called directly, never as an extension: the tag enables nothing.
+  const NO_EFFECT = `/** @extension */
+import { log } from "./logger";
+export const r = log.info("direct");
+`;
+
+  it.each(pipelines)("%s: one warning, at the tag", (_name, run) => {
+    const r = run(NO_EFFECT);
+    const warnings = r.diagnostics.filter((d) => /@extension tag has no effect/.test(d.message));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].severity).toBe("warning");
+  });
+
+  it.each(pipelines)("%s: no warning when the tag is used", (_name, run) => {
+    expect(run(TAGGED).diagnostics).toEqual([]);
   });
 });

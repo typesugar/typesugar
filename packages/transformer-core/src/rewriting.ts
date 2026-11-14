@@ -25,6 +25,8 @@ import {
   admitsNullish,
   isNullOrUndefinedExpr,
   type OperatorChainHooks,
+  isRegistryExtensionCalleeBound,
+  extensionCallReturnType,
 } from "@typesugar/macros";
 
 import {
@@ -57,7 +59,6 @@ import {
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
-import { receiverMatchesFirstParam } from "./import-resolution.js";
 // Circular with method-sugar.ts (which imports buildInstanceReferenceExpression
 // from here); both bindings are only used at call time.
 import { inferMethodSugarCallType } from "./method-sugar.js";
@@ -264,7 +265,12 @@ export function tryRewriteExtensionMethod(
   visit: VisitFn,
   resolveMacroFromSymbol: ResolveMacroFn,
   resolveExtensionFromImports: ResolveExtensionFn,
-  node: ts.CallExpression
+  node: ts.CallExpression,
+  /**
+   * Told about each extension call the rewrite emits through one of the
+   * file's imports (PEP-064's unused-tag warning); not registry rewrites.
+   */
+  onRewrite?: (ext: StandaloneExtensionInfo) => void
 ): ts.Expression | undefined {
   const guarded = checkMethodCallDispatchGuards(ctx, resolveMacroFromSymbol, node);
   if (!guarded) return undefined;
@@ -345,6 +351,9 @@ export function tryRewriteExtensionMethod(
     if (standaloneExt) break;
   }
 
+  // Through an import (not the registry): the qualifier, if any, is that
+  // import's binding, which is what PEP-064's unused-tag warning counts.
+  let viaImport = false;
   if (!standaloneExt) {
     standaloneExt = resolveExtensionFromImports(node, methodName, receiverType);
     if (standaloneExt) {
@@ -353,6 +362,7 @@ export function tryRewriteExtensionMethod(
         standaloneExt = undefined;
       }
     }
+    viaImport = standaloneExt !== undefined;
   }
 
   if (!standaloneExt) {
@@ -377,6 +387,7 @@ export function tryRewriteExtensionMethod(
 
   try {
     const visited = ts.visitNode(rewritten, visit) as ts.Expression;
+    if (viaImport) onRewrite?.(standaloneExt);
     return preserveSourceMap(visited, node);
   } catch (error) {
     ctx.reportError(node, `Extension method rewrite failed: ${error}`);
@@ -505,26 +516,14 @@ function inferExtensionCallType(
       .getSymbolsInScope(call, ts.SymbolFlags.Value | ts.SymbolFlags.Alias)
       .find((s) => s.getName() === rootName);
     if (!sym) return undefined;
-    let calleeType = checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), call);
-    if (ext.qualifier) {
-      const prop = calleeType.getProperty(ext.methodName);
-      if (!prop) return undefined;
-      calleeType = checker.getTypeOfSymbolAtLocation(prop, call);
-    }
-    const sigs = calleeType
-      .getCallSignatures()
-      .filter((s) => receiverMatchesFirstParam(checker, innerType, s, call));
-    // Prefer a non-generic overload. A generic one (`EffectExt.map<A, E, B>
-    // (self: Effect<A, E>, ...): Effect<B, E>`) cannot be instantiated through
-    // the public checker API, so its return type keeps the signature's own
-    // type parameters (`Effect<B, E>`). That is still enough to pick the NEXT
-    // extension in a chain (`.flatMap`), whose first-parameter match treats
-    // type parameters as wildcards; a bare type-parameter return (`A`) is not.
-    const sig = sigs.find((s) => !s.getTypeParameters()?.length) ?? sigs[0];
-    if (!sig) return undefined;
-    const ret = checker.getReturnTypeOfSignature(sig);
-    if (ret.flags & ts.TypeFlags.TypeParameter) return undefined;
-    return ctx.isTypeReliable(ret) ? ret : undefined;
+    // The overload choice is shared with the ExtensionImport rule.
+    return extensionCallReturnType(
+      checker,
+      call,
+      ext,
+      checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), call),
+      innerType
+    );
   } catch (error) {
     ctx.reportWarning(
       call,
@@ -546,20 +545,11 @@ function isExtensionCalleeBound(
   ext: StandaloneExtensionInfo
 ): boolean {
   const rootName = ext.qualifier ?? ext.methodName;
-  const checker = ctx.typeChecker;
   try {
     // A synthesized call has no scope of its own; fall back to the file's
     // top-level scope (CLAUDE.md: don't hand a synthetic node to the checker).
     const location: ts.Node = isProgramNode(node) ? node : ctx.sourceFile;
-    const sym = checker
-      .getSymbolsInScope(location, ts.SymbolFlags.Value)
-      .find((s) => s.getName() === rootName);
-    if (!sym) return false;
-    const type = checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), location);
-    if (ext.qualifier) {
-      return type.getProperty(ext.methodName) !== undefined || ctx.isTypeReliable(type) === false;
-    }
-    return type.getCallSignatures().length > 0 || ctx.isTypeReliable(type) === false;
+    return isRegistryExtensionCalleeBound(ctx.typeChecker, location, ext);
   } catch (error) {
     ctx.reportWarning(
       node,

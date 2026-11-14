@@ -104,7 +104,7 @@ describe("Diagnostic Parity — unified diagnostic suppression pipeline", () => 
     const expected = [...ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES];
     // Note: we can't easily reflect on create*Rule exports, but ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES
     // is maintained alongside the registration function in the same file.
-    expect(expected).toHaveLength(13);
+    expect(expected).toHaveLength(14);
   });
 
   it("OperatorOverload: suppresses TS2365 only where an @op instance rewrites it", () => {
@@ -156,6 +156,7 @@ const d = m + m;
 
     const { program, diagnostics } = createProgram({
       "/test.ts": `
+declare function clamp(n: number, lo: number, hi: number): number;
 const x: number = 5;
 const y = x.clamp(0, 10);
 `,
@@ -296,22 +297,23 @@ describe("diagnostic suppression rule completeness (Wave 3B)", () => {
       "DerivedCompanionAccess", // from @typesugar/macros
       "DerivedDeclarationReference", // from @typesugar/macros
       "JSDocDeriveImport", // from @typesugar/macros
+      "ExtensionImport", // from @typesugar/macros
     ]);
 
     const actualNames = new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES);
     expect(actualNames).toEqual(expectedNames);
   });
 
-  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 13 rules", () => {
+  it("registerAllDiagnosticSuppressionRules with positionMapFn registers exactly 14 rules", () => {
     const dummyMapFn = () => null;
     const registered = registerAllDiagnosticSuppressionRules({ positionMapFn: dummyMapFn });
-    expect(registered).toHaveLength(13);
+    expect(registered).toHaveLength(14);
     expect(new Set(registered)).toEqual(new Set(ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES));
   });
 
-  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 12 rules", () => {
+  it("registerAllDiagnosticSuppressionRules without positionMapFn registers exactly 13 rules", () => {
     const registered = registerAllDiagnosticSuppressionRules();
-    expect(registered).toHaveLength(12);
+    expect(registered).toHaveLength(13);
     expect(registered).not.toContain("MacroGenerated");
   });
 });

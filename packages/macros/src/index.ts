@@ -297,11 +297,18 @@ export { getDoInstanceModule } from "./do-instance-index.js";
 export {
   findImportedExtensionMatches,
   hasExtensionImportTag,
+  isRegistryExtensionCalleeBound,
+  isImportExtensionInScopeAt,
+  extensionCallReturnType,
+  extensionImportUses,
+  chooseExtensionMatch,
+  importClauseBindings,
+  inactiveExtensionImportTags,
+  type ExtensionImportUses,
   checkImportedSymbolForExtension,
   hasExtensionDecorator,
   isDefaultLibMember,
   isGlobalAugmentationStub,
-  instanceServesReceiver,
   type ExtensionImportEnv,
   type ImportedExtensionMatch,
 } from "./extension-imports.js";
@@ -418,6 +425,7 @@ export {
   createDerivedCompanionAccessRule,
   createDerivedDeclarationReferenceRule,
   createJSDocDeriveImportRule,
+  createExtensionImportRule,
   generatedValueNames,
   isDerivedValueSymbol,
 } from "./diagnostic-suppression-rules.js";

@@ -24,7 +24,7 @@ import type {
   TypeRewriteEntry,
 } from "@typesugar/core";
 import {
-  findStandaloneExtension,
+  findStandaloneExtensions,
   getAllTypeRewrites,
   typeRewriteEntryCoversFile,
   isDiagnosticSuppressionAuditEnabled,
@@ -42,7 +42,16 @@ import { getTypeclassesForMethod } from "./typeclass.js";
 import { getOperatorCandidates, getTypeclassesDeclaringMethod } from "./typeclass-index.js";
 import { getOperatorString } from "./operators.js";
 import { resolveInstance } from "./instance-resolver.js";
-import { findImportedExtensionMatches, type ExtensionImportEnv } from "./extension-imports.js";
+import {
+  chooseExtensionMatch,
+  extensionImportUses,
+  findImportedExtensionMatches,
+  importClauseBindings,
+  isRegistryExtensionCalleeBound,
+  isImportExtensionInScopeAt,
+  type ExtensionImportEnv,
+  type ExtensionImportUses,
+} from "./extension-imports.js";
 import { deriveNamesOf } from "./instance-scanner.js";
 import { hasGenericDerivation } from "./auto-derive.js";
 import {
@@ -57,8 +66,10 @@ import {
 /**
  * Create the ExtensionMethodCall diagnostic suppression rule.
  *
- * Suppresses TS2339 when the "missing" property is actually an extension method
- * that the transformer will rewrite at emit time. Checks both:
+ * Suppresses TS2339 (and TS2551, the same error with a "did you mean"
+ * suggestion: `user.info()` where `user` has `infos`) when the "missing"
+ * property is actually an extension method that the transformer will rewrite
+ * at emit time. Checks both:
  * - The standalone extension registry (from `registerExtensions` / `@extension`)
  * - Import-scoped resolution (any imported function whose name matches and whose
  *   first parameter accepts the receiver type, generic parameters erased to
@@ -71,7 +82,7 @@ import {
 export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
   return {
     name: "ExtensionMethodCall",
-    errorCodes: [2339, 7006],
+    errorCodes: [2339, 2551, 7006],
 
     shouldSuppress(
       diagnostic: ts.Diagnostic,
@@ -89,6 +100,7 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
 
       // Extract the property name from the diagnostic message.
       // TS2339 message format: "Property 'X' does not exist on type 'Y'."
+      // TS2551 adds " Did you mean 'Z'?".
       const messageText = flattenMessage(diagnostic.messageText);
       const propertyName = extractPropertyName(messageText);
       if (!propertyName) return false;
@@ -104,6 +116,11 @@ export function createExtensionMethodCallRule(): DiagnosticSuppressionRule {
 
       // Verify the property name matches what the diagnostic reports
       if (propAccess.name.text !== propertyName) return false;
+
+      // The rewrite handles calls only: a property read (`const f = user.info`)
+      // is left as written, so its error stands.
+      const call = propAccess.parent;
+      if (!ts.isCallExpression(call) || call.expression !== propAccess) return false;
 
       return isRewrittenMethodCall(propAccess, checker, sourceFile, context);
     },
@@ -135,14 +152,36 @@ function isRewrittenMethodCall(
 
   const typeName = checker.typeToString(receiverType);
 
+  // The rewrite skips extension functions and typeclass method sugar in a
+  // scope opted out of extensions ("use no typesugar extensions"; rewriting.ts
+  // checkMethodCallDispatchGuards, method-sugar.ts tryResolveTypeclassMethod),
+  // so the TS2339 stands there.
+  if (
+    isInOptedOutScope(
+      sourceFile,
+      propAccess,
+      extensionScopeTracker(sourceFile, context?.program),
+      "extensions"
+    )
+  ) {
+    return false;
+  }
+
   // 1. Check standalone extension registry (from registerExtensions / @extension)
-  if (findInRegistry(propertyName, typeName, receiverType, checker)) {
+  if (findInRegistry(propertyName, typeName, receiverType, checker, propAccess)) {
     return true;
   }
 
   // 2. Import-scoped resolution: scan imports for a matching function
   if (
-    resolveExtensionFromImports(sourceFile, propertyName, receiverType, checker, context?.program)
+    resolveExtensionFromImports(
+      sourceFile,
+      propertyName,
+      receiverType,
+      checker,
+      context?.program,
+      propAccess
+    )
   ) {
     return true;
   }
@@ -694,36 +733,40 @@ function declaredSymbolOf(checker: ts.TypeChecker, id: ts.Identifier): ts.Symbol
  * 1. Exact type name from typeToString (e.g., "42", "Array<number>")
  * 2. Base type of literal (e.g., "42" → "number", '"hello"' → "string")
  * 3. Generics stripped (e.g., "Array<number>" → "Array")
+ *
+ * An entry counts only when the rewrite could use it at `propAccess`
+ * (isRegistryExtensionCalleeBound, shared with the rewrite): its callee is in
+ * scope there, and a qualified entry is not reached through an import, which
+ * the import decision covers instead (PEP-064).
  */
 function findInRegistry(
   propertyName: string,
   typeName: string,
   receiverType: ts.Type,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  propAccess: ts.PropertyAccessExpression
 ): boolean {
-  if (findStandaloneExtension(propertyName, typeName)) {
-    return true;
-  }
-
-  // Widen literal types: 42 → number, "hello" → string, true → boolean
+  // The registry is keyed by printed type name (`forType`), and the rewrite
+  // looks it up by printed name the same way; matching it by identity is the
+  // registry's own change (PEP-062 Wave 11), not this rule's.
+  const names = [typeName];
   try {
-    const baseType = checker.getBaseTypeOfLiteralType(receiverType);
-    const baseName = checker.typeToString(baseType);
-    if (baseName !== typeName && findStandaloneExtension(propertyName, baseName)) {
-      return true;
-    }
+    names.push(checker.typeToString(checker.getBaseTypeOfLiteralType(receiverType)));
   } catch (e) {
-    if (isDiagnosticSuppressionAuditEnabled()) {
-      console.error(`[DiagnosticSuppression] findInRegistry: ${e}`);
+    reportCheckerFailure("ExtensionMethodCall", `widening a literal receiver failed: ${e}`);
+  }
+  // Strip generics: Array<number> → Array
+  names.push(typeName.replace(/<.*>$/, ""));
+
+  for (const name of new Set(names)) {
+    for (const ext of findStandaloneExtensions(propertyName, name)) {
+      try {
+        if (isRegistryExtensionCalleeBound(checker, propAccess, ext)) return true;
+      } catch (e) {
+        reportCheckerFailure("ExtensionMethodCall", `registry callee check failed: ${e}`);
+      }
     }
   }
-
-  // Strip generics: Array<number> → Array
-  const strippedName = typeName.replace(/<.*>$/, "");
-  if (strippedName !== typeName && findStandaloneExtension(propertyName, strippedName)) {
-    return true;
-  }
-
   return false;
 }
 
@@ -799,7 +842,8 @@ function resolveExtensionFromImports(
   methodName: string,
   receiverType: ts.Type,
   checker: ts.TypeChecker,
-  program: ts.Program | undefined
+  program: ts.Program | undefined,
+  location: ts.Node
 ): boolean {
   const env: ExtensionImportEnv = {
     checker,
@@ -807,7 +851,17 @@ function resolveExtensionFromImports(
     sourceFile,
     warn: (_node, message) => reportCheckerFailure("ExtensionMethodCall", message),
   };
-  return findImportedExtensionMatches(env, methodName, receiverType).length > 0;
+  // The rewrite's choice, and only while a local doesn't shadow it here.
+  const { match } = chooseExtensionMatch(
+    findImportedExtensionMatches(env, methodName, receiverType)
+  );
+  if (!match) return false;
+  try {
+    return isImportExtensionInScopeAt(checker, location, match.ext);
+  } catch (e) {
+    reportCheckerFailure("ExtensionMethodCall", `import scope check failed: ${e}`);
+    return false;
+  }
 }
 
 // ===========================================================================
@@ -1345,7 +1399,6 @@ const UNUSED_IMPORT_CODES: readonly number[] = [6133, 6192, 6196];
  * `@deriving` tag in the same file.
  */
 export function createJSDocDeriveImportRule(): DiagnosticSuppressionRule {
-  const derivedNames = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
   return {
     name: "JSDocDeriveImport",
     errorCodes: UNUSED_IMPORT_CODES,
@@ -1356,34 +1409,26 @@ export function createJSDocDeriveImportRule(): DiagnosticSuppressionRule {
       sourceFile: ts.SourceFile
     ): boolean {
       if (diagnostic.start === undefined) return false;
-      let names = derivedNames.get(sourceFile);
-      if (!names) derivedNames.set(sourceFile, (names = jsDocDeriveNames(sourceFile)));
+      const names = jsDocDeriveNamesOf(sourceFile);
       if (names.size === 0) return false;
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
-      for (let n: ts.Node | undefined = node; n; n = n.parent) {
-        if (ts.isImportSpecifier(n)) return names.has(n.name.text);
-        if (ts.isImportClause(n)) {
-          // The default binding alone, or the whole clause.
-          if (n.name && node === n.name) return names.has(n.name.text);
-          return allBound(n, names);
-        }
-        if (ts.isImportDeclaration(n)) return !!n.importClause && allBound(n.importClause, names);
-        if (ts.isImportEqualsDeclaration(n)) return names.has(n.name.text);
-        if (ts.isStatement(n)) return false;
-      }
-      return false;
+      const reported = node ? reportedImportBindings(node) : [];
+      return reported.length > 0 && reported.every((b) => isDeriveTagBinding(b, names));
     },
   };
 }
 
-/** Every name `clause` binds is in `names` (a namespace import never is). */
-function allBound(clause: ts.ImportClause, names: ReadonlySet<string>): boolean {
-  const bound: string[] = [];
-  if (clause.name) bound.push(clause.name.text);
-  const bindings = clause.namedBindings;
-  if (bindings && ts.isNamespaceImport(bindings)) return false;
-  if (bindings) for (const el of bindings.elements) bound.push(el.name.text);
-  return bound.length > 0 && bound.every((b) => names.has(b));
+const derivedNamesByFile = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+/** {@link jsDocDeriveNames}, cached per file (they read the file as written). */
+function jsDocDeriveNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  let names = derivedNamesByFile.get(sourceFile);
+  if (!names) derivedNamesByFile.set(sourceFile, (names = jsDocDeriveNames(sourceFile)));
+  return names;
+}
+
+/** Is the import binding `b` a name a `@derive` tag lists (a namespace import never is)? */
+function isDeriveTagBinding(b: ts.Identifier, names: ReadonlySet<string>): boolean {
+  return !ts.isNamespaceImport(b.parent) && names.has(b.text);
 }
 
 /**
@@ -1411,6 +1456,112 @@ function jsDocDeriveNames(sourceFile: ts.SourceFile): ReadonlySet<string> {
   };
   visit(sourceFile.statements);
   return names;
+}
+
+// ===========================================================================
+// ExtensionImport — an import that serves extension calls is not unused
+// ===========================================================================
+
+/**
+ * Create the ExtensionImport diagnostic suppression rule (PEP-064 Wave 2).
+ *
+ * TypeScript doesn't count an extension call as a use of the import that
+ * provides it, so under `noUnusedLocals` `import { clamp }` used only as
+ * `n.clamp(0, 1)`, or a tagged `/** @extension *\/ import { log }` used only
+ * as `user.info()`, is reported unused (6133/6192/6196). After expansion the
+ * import is used (`clamp(n, 0, 1)`, `log.info(user)`). Suppressed only when
+ * EVERY binding the diagnostic reports serves at least one extension call in
+ * the file, decided per call by the rewrite's own decision
+ * (`extensionImportUses` → `findImportedExtensionMatches`), or is a name a
+ * JSDoc `@derive` tag lists (the JSDocDeriveImport case, so a declaration
+ * whose bindings are split between the two is covered).
+ */
+export function createExtensionImportRule(): DiagnosticSuppressionRule {
+  // Per checker, then per file: a watch rebuild can reuse a SourceFile in a
+  // new program, whose checker answers differently.
+  const usesByChecker = new WeakMap<ts.TypeChecker, WeakMap<ts.SourceFile, ExtensionImportUses>>();
+  return {
+    name: "ExtensionImport",
+    errorCodes: UNUSED_IMPORT_CODES,
+
+    shouldSuppress(
+      diagnostic: ts.Diagnostic,
+      checker: ts.TypeChecker,
+      sourceFile: ts.SourceFile,
+      context?: DiagnosticSuppressionContext
+    ): boolean {
+      if (diagnostic.start === undefined) return false;
+      const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
+      const reported = node ? reportedImportBindings(node) : [];
+      if (reported.length === 0) return false;
+      let perFile = usesByChecker.get(checker);
+      if (!perFile) usesByChecker.set(checker, (perFile = new WeakMap()));
+      let uses = perFile.get(sourceFile);
+      if (!uses) {
+        const program = context?.program;
+        const tracker = extensionScopeTracker(sourceFile, program);
+        uses = extensionImportUses(
+          {
+            checker,
+            program,
+            sourceFile,
+            warn: (_node, message) => reportCheckerFailure("ExtensionImport", message),
+          },
+          // The rewrite skips calls in a scope opted out of extensions.
+          (call) => isInOptedOutScope(sourceFile, call, tracker, "extensions")
+        );
+        perFile.set(sourceFile, uses);
+      }
+      const used = uses;
+      // A binding a `@derive` tag uses counts too: TypeScript reports one
+      // TS6192 over `import { Eq, clamp }` when `Eq` serves only a tag and
+      // `clamp` only an extension call, and neither rule alone covers both.
+      const deriveNames = jsDocDeriveNamesOf(sourceFile);
+      return reported.every(
+        (b) => used.asMember.has(b) || used.asFunction.has(b) || isDeriveTagBinding(b, deriveNames)
+      );
+    },
+  };
+}
+
+/**
+ * The file's opt-out scopes, for `isInOptedOutScope(..., "extensions")`: the
+ * program's cached scan, or a fresh one without a program.
+ */
+function extensionScopeTracker(
+  sourceFile: ts.SourceFile,
+  program: ts.Program | undefined
+): ResolutionScopeTracker {
+  if (program) return operatorActivation(program, sourceFile).tracker;
+  let tracker = programlessScopeTrackers.get(sourceFile);
+  if (!tracker) {
+    tracker = new ResolutionScopeTracker();
+    scanImportsForScope(sourceFile, tracker);
+    programlessScopeTrackers.set(sourceFile, tracker);
+  }
+  return tracker;
+}
+const programlessScopeTrackers = new WeakMap<ts.SourceFile, ResolutionScopeTracker>();
+
+/**
+ * The import bindings an unused-import diagnostic at `node` is about (none:
+ * not an import), shared by JSDocDeriveImport and ExtensionImport.
+ */
+function reportedImportBindings(node: ts.Node): ts.Identifier[] {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (ts.isImportSpecifier(n)) return [n.name];
+    if (ts.isNamespaceImport(n)) return [n.name];
+    if (ts.isImportClause(n)) {
+      // The default binding alone, or the whole clause.
+      if (n.name && node === n.name) return [n.name];
+      return importClauseBindings(n);
+    }
+    if (ts.isImportDeclaration(n))
+      return n.importClause ? importClauseBindings(n.importClause) : [];
+    if (ts.isImportEqualsDeclaration(n)) return [n.name];
+    if (ts.isStatement(n)) return [];
+  }
+  return [];
 }
 
 // ===========================================================================

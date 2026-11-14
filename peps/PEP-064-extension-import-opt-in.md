@@ -1,6 +1,6 @@
 # PEP-064: Imported Objects Supply Extension Methods Only When the Import Opts In
 
-**Status:** In Progress (Wave 1 in review)
+**Status:** Implemented (PRs #97, #98)
 **Date:** 2026-11-13
 **Author:** Claude (with Dean Povey)
 **Related:** [PEP-027](PEP-027-use-extension-emit-registration.md) (`"use extension"`
@@ -94,14 +94,26 @@ An imported object or namespace member is an extension provider only if:
   tag); or
 - **(b)** it comes through `import * as X` (already the documented opt-in: the namespace
   import is itself the statement "I want this module's functions"); or
-- **(c)** it is declared as a typeclass instance (an `@impl`/`@instance` value,
-  `impl(...)`, `derived<TC<T>>()`), for receivers of its own type
-  (`instanceServesReceiver`, unchanged). An instance exists to supply its methods, so it
-  needs no tag. A value whose only sign of being an instance is a `TC<T>` type annotation
-  does not qualify without the tag: whether `TC` is a typeclass is read by its name
-  (`isTypeclassDeclared`, the pattern PEP-062 Wave 11 is removing), and a diagnostic
+- **(c)** it is declared as a typeclass instance in a form a published `.d.ts` keeps: an
+  `@impl`/`@instance` JSDoc tag, for receivers of its own type (`instancesServeReceiver`; the identity check is unchanged). An instance
+  exists to supply its methods, so it needs no tag. An instance made by a
+  `derived<TC<T>>()` call needs the tag: declaration emit erases the call, and the `.d.ts`
+  shows a plain `TC<T>` annotation, so it would supply methods from source and not from
+  `dist/` (the split the next section rejects for declaration markers; found in the
+  pre-merge review). A value whose only sign of being an instance is a `TC<T>` type
+  annotation does not qualify without the tag: whether `TC` is a typeclass is read by its
+  name (`isTypeclassDeclared`, the pattern PEP-062 Wave 11 is removing), and a diagnostic
   filter without a program cannot read it at all, so an ordinary `users: Repo<User>`
   object would pass in `check` and be rejected by `build` (found in the Wave 1 review).
+
+A type-only binding (`import type`, `import { type log }`, `import type * as L`) is never a
+provider, tag or not: it is erased from the emit, so `log.info(user)` would throw a
+ReferenceError at run time. This applies to bare functions too.
+
+A provider is used only where its import binding is what the name means at the call: a
+local that shadows `log` or `shout` in a function body would be what the rewritten
+`log.info(user)` calls, so the call is left as written there (`isImportExtensionInScopeAt`,
+shared by the rewrite, the ExtensionMethodCall rule and the ExtensionImport rule).
 
 The tag belongs to the import declaration, so it covers every binding of that declaration:
 `/** @extension */ import { EffectExt, Effect } from "..."` opts in both, and the `Effect`
@@ -125,7 +137,13 @@ Unchanged:
 the module for the standalone extension registry; `@extension` on a function is the
 attribute macro that registers it.
 
-They do **not** qualify an object as a provider, in-repo or published. Reasons:
+They do **not** qualify an object as a provider, in-repo or published. Nor does a
+registry entry: an `@extension namespace NumOps` or `registerExtensions("number", NumOps)`
+registers `{ qualifier: "NumOps" }` in the process-wide standalone registry, which the
+rewrite consults before the imports. A qualified registry entry whose qualifier is an
+import binding at the call is skipped, so the import decision covers it
+(`isRegistryExtensionCalleeBound`, shared by the rewrite and the ExtensionMethodCall rule;
+before this, the result also depended on which file was transformed first). Reasons:
 
 1. **One behaviour for source and `.d.ts`.** If an in-repo `"use extension"` module's
    objects qualified, the same import would provide extensions when the package is consumed
@@ -146,13 +164,22 @@ object; tagged, the user asked for it.
 `@extension` is also the name of the attribute macro that registers a function. The JSDoc
 macro dispatcher only looks at declaration nodes (`isJSDocMacroTargetNode`: interfaces,
 classes, type aliases, variables, functions, enums), never at an `ImportDeclaration`, so the
-tag on an import is never dispatched as the attribute macro and never warns. Wave 1 tests
+tag on an import is never dispatched as the attribute macro (the only warning it can get is
+Wave 2's "no effect" warning below). Wave 1 tests
 this through the transformer, `typesugar expand`, the language service and unplugin
 (PEP-056 parity).
 
 TypeScript attaches a JSDoc comment to an `ImportDeclaration`: `ts.getJSDocTags(importDecl)`
 returns the tag on TS 5.9.3 and 6.0.3 (checked 2026-11-13; the repo supports 5.9–6.x). The
 comment survives `tsc` emit unchanged, which is harmless.
+
+### TS2551
+
+TypeScript reports a missing property as TS2551 instead of TS2339 when the receiver has a
+similar name (`user.info()` where `user` has `infos`: "Did you mean 'infos'?"). The
+ExtensionMethodCall rule hides both, so a rewritten call doesn't fail `check`. It also
+leaves both standing in a scope opted out of extensions (`"use no typesugar extensions"`),
+where the rewrite leaves the call.
 
 ### Unused imports
 
@@ -163,15 +190,48 @@ under `noUnusedLocals` an import used only through extension calls is reported
 tagged object import would hit it the moment a user writes what this PEP asks for. Wave 2
 adds an **ExtensionImport** suppression rule, mirroring F23's `JSDocDeriveImport`: an unused
 import diagnostic is hidden when every binding it reports serves at least one extension call
-in the file, decided by the same `findImportedExtensionMatches` the rewrite uses.
+in the file, decided per call as the rewrite decides it (`extensionImportUses`,
+`packages/macros/src/extension-imports.ts`): `findImportedExtensionMatches`, then
+`chooseExtensionMatch`, the one rule both use for which of several matches the rewrite
+calls (so `import * as L` beside `import { shout }` from the same module is still reported
+unused: the rewrite calls `shout`). Only calls whose method name an import could provide
+are asked; a receiver that is itself an extension call, or an un-annotated variable such a
+call initialises, gets the provider's return type, as the rewrite recovers it; a receiver
+still `any` or `never` is skipped, as the rewrite skips it; calls in a scope opted out of
+extensions, and providers shadowed by a local at the call, are skipped. A binding a JSDoc
+`@derive` tag lists also counts, so one TS6192 over `import { Eq, clamp }` with `Eq` used by
+a tag and `clamp` by an extension call is hidden (JSDocDeriveImport alone needs every
+binding to be a derive name).
+
+The rule is a suppression rule, so it runs over the source as written, without the
+transform. Differences from the rewrite remain: a same-file `@extension` function the
+rewrite prefers over an import (the live registry is the transformer's) still counts the
+import as used; typeclass method sugar on the way to a receiver is not recovered (the call
+is skipped); and when one declaration binds a served name and an unused one, TypeScript
+reports the whole declaration (TS6192, "All imports in import declaration are unused") and
+the rule keeps it, since a suppression rule can hide a diagnostic but not narrow it.
 
 ### A tag that does nothing
 
-A tagged import none of whose bindings serves an object-member extension call in the file
-gets a warning: the tag has no effect (nothing uses the import as an extension object, or
-it only binds functions, which need no tag). This mirrors F23's inactive `@derive` warning:
-a tag that silently does nothing is worse than one that says so. It is a warning, not an
-error, and has no code of its own, like F23's.
+A tagged import none of whose named or default bindings was the object of an extension call
+the rewrite emitted in the file gets a warning: the tag has no effect (nothing uses the
+import as an extension object, it only binds functions, or it is an `import * as X`, which
+needs no tag). This mirrors F23's inactive `@derive` warning: a tag that silently does
+nothing is worse than one that says so. It is a warning with no code of its own, like F23's.
+
+The warning is not a second decision: the rewrite records the qualifier of each object
+extension call it emits through an import, once the rewritten call has been visited
+successfully (`tryRewriteExtensionMethod`'s `onRewrite`; registry rewrites are not
+recorded), and the transformer
+reads that set after visiting the whole file (live same-pass state, CLAUDE.md "Resolving
+things a macro just generated"). Chained receivers, opt-out scopes and registry precedence
+are therefore exactly the rewrite's. It is reported at the tag by every entry point that
+transforms the file (`check`, `build`, `expand`, the language service, unplugin, the
+playground). The qualifier is recorded by name, which identifies the binding: an import
+extension is used only where the name at the call is the import binding. Not detected: a
+tag on the import of an `@impl`-tagged instance, which needs no tag either; and a tag in a
+file that turns typesugar off (`"use no typesugar"`), which the pipeline does not transform
+at all.
 
 ## Rejected alternatives
 
@@ -189,6 +249,9 @@ error, and has no code of its own, like F23's.
   member whose parameter happens to fit.
 - **Declaration-side opt-in** (`"use extension"`/`@extension` on the object): does not
   survive into `.d.ts` (above).
+- **Untagged `derived<TC<T>>()` instances as providers**: the call is erased
+  from the `.d.ts` (above). Emitting a `/** @impl */` comment into declarations would keep
+  them; not done, since the tag at the import already covers it.
 
 ## Migration
 
@@ -211,10 +274,10 @@ Every import of an extension object in the repo gains the tag:
 
 ## Waves
 
-| Wave | Scope                                                                                                                                                                                                       | Branch                               | Status    |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | --------- |
-| 1    | The decision in `findImportedExtensionMatches`; check/build agreement and tag-not-dispatched tests (transformer, `expand`, language service, unplugin); test, docs and example migration; consistency sweep | `pep-064-extension-import-opt-in`    | In review |
-| 2    | ExtensionImport unused-import suppression rule (bare functions and tagged objects); warning for a tag with no effect                                                                                        | `pep-064-wave-2-unused-and-inactive` | Planned   |
+| Wave | Scope                                                                                                                                                                                                       | Branch                               | Status       |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------ |
+| 1    | The decision in `findImportedExtensionMatches`; check/build agreement and tag-not-dispatched tests (transformer, `expand`, language service, unplugin); test, docs and example migration; consistency sweep | `pep-064-extension-import-opt-in`    | Merged (#97) |
+| 2    | ExtensionImport unused-import suppression rule (bare functions and tagged objects); warning for a tag with no effect                                                                                        | `pep-064-wave-2-unused-and-inactive` | Merged (#98) |
 
 ## Risks
 
@@ -233,3 +296,8 @@ unknown)` makes a typo `user.info()` become `info(user)`. This is the decided de
   with TS2339, so the failure is loud, not a silent change of meaning.
 - **The `dist/` `.d.ts` path still needs no marker**, since the tag is at the import; this
   is the point of the design.
+- **Hosts that skip JSDoc.** A host that parses with `jsDocParsingMode` set to skip
+  comments that don't affect type errors (ts-patch's `tspc` with TypeScript 5.3+ may) would
+  not see the tag. Not yet checked; if so, the call fails with TS2339 (loud).
+- **`import x = require(...)` with the tag** is not an opt-in (only `ImportDeclaration`s
+  are read) and gets no warning.

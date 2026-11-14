@@ -43,6 +43,7 @@ describe("registerAllDiagnosticSuppressionRules", () => {
       "DerivedCompanionAccess",
       "DerivedDeclarationReference",
       "JSDocDeriveImport",
+      "ExtensionImport",
     ]);
     expect(ruleNames).toEqual(registered);
   });
@@ -55,7 +56,7 @@ describe("registerAllDiagnosticSuppressionRules", () => {
 
     expect(registered).toContain("MacroGenerated");
     expect(ruleNames).toContain("MacroGenerated");
-    expect(rules).toHaveLength(13);
+    expect(rules).toHaveLength(14);
   });
 
   it("returns empty array on duplicate registration", () => {
@@ -63,7 +64,7 @@ describe("registerAllDiagnosticSuppressionRules", () => {
     const second = registerAllDiagnosticSuppressionRules();
     expect(second).toEqual([]);
     // Rules should still be there, just not re-registered
-    expect(getDiagnosticSuppressionRules()).toHaveLength(12);
+    expect(getDiagnosticSuppressionRules()).toHaveLength(13);
   });
 
   it("ALL_DIAGNOSTIC_SUPPRESSION_RULE_NAMES contains every rule", () => {

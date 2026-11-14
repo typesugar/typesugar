@@ -21,6 +21,7 @@ import {
   buildImplicitScopeFromDecl,
   SpecializationCache,
   type ImplicitScope,
+  isImportExtensionInScopeAt,
 } from "@typesugar/macros";
 
 import {
@@ -71,6 +72,7 @@ import {
   resolveSymbolToMacro,
   resolveMacroFromSymbol as resolveMacroFromSymbolFn,
   scanImportsForExtension,
+  reportInactiveExtensionImportTags,
 } from "./import-resolution.js";
 
 import {
@@ -141,6 +143,9 @@ class MacroTransformer {
     ts.ImportDeclaration,
     Set<ts.ImportSpecifier | "namespace" | "default">
   >();
+
+  /** Qualifiers of the object extension calls this file's rewrite emitted (PEP-064). */
+  private extensionQualifiersUsed = new Set<string>();
 
   private importExtensionCache = new Map<
     ts.Type,
@@ -372,12 +377,31 @@ class MacroTransformer {
       this.importExtensionCache.set(receiverType, methodCache);
     }
 
+    let result: StandaloneExtensionInfo | undefined;
     if (methodCache.has(methodName)) {
-      return methodCache.get(methodName);
+      result = methodCache.get(methodName);
+    } else {
+      result = scanImportsForExtension(this.ctx, sourceFile, methodName, receiverType, node);
+      methodCache.set(methodName, result);
     }
-
-    const result = scanImportsForExtension(this.ctx, sourceFile, methodName, receiverType, node);
-    methodCache.set(methodName, result);
+    // Per call site, after the per-type cache: a local that shadows the
+    // import here would be what the rewritten call names. Asked at the
+    // call's parse-tree node: a call rebuilt by `factory.update*` has no
+    // parent chain of its own, and one a macro built from scratch has no
+    // parse-tree node, so the file's top level is asked instead.
+    if (result) {
+      const location: ts.Node = ts.getParseTreeNode(node) ?? sourceFile;
+      try {
+        if (!isImportExtensionInScopeAt(this.ctx.typeChecker, location, result)) return undefined;
+      } catch (error) {
+        this.ctx.reportWarning(
+          node,
+          `typesugar skipped extension method '${methodName}' rewrite: could not check that ` +
+            `the import providing it is in scope (${error}).`
+        );
+        return undefined;
+      }
+    }
     return result;
   }
 
@@ -1177,6 +1201,13 @@ class MacroTransformer {
       );
     }
 
+    // PEP-064: an `@extension` tag on an import that no rewrite in this file
+    // went through. Read after the whole file was visited: the set is what
+    // the rewrite recorded during this pass (live same-pass state).
+    if (ts.isSourceFile(node) && node === this.ctx.sourceFile) {
+      reportInactiveExtensionImportTags(this.ctx, this.extensionQualifiersUsed);
+    }
+
     // PEP-027: for a "use extension" source file, append registration calls
     // for each exported function so the compiled dist self-registers its
     // extensions at module load time.
@@ -1420,7 +1451,10 @@ class MacroTransformer {
         this.visit.bind(this),
         this.resolveMacroFromSymbol.bind(this),
         this.resolveExtensionFromImports.bind(this),
-        node
+        node,
+        (ext) => {
+          if (ext.qualifier !== undefined) this.extensionQualifiersUsed.add(ext.qualifier);
+        }
       );
       if (result !== undefined) {
         if (this.expansionTracker) {

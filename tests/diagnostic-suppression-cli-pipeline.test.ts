@@ -189,6 +189,7 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
 
       const result = simulateCliBuild({
         "/test.ts": `
+          declare function clamp(n: number, lo: number, hi: number): number; // the rewrite calls it
           const x = (42).clamp(0, 100);
         `,
       });
@@ -263,6 +264,7 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
       const result = simulateCliBuild({
         "/test.ts": `
           // Extension method — TS2339 suppressed by ExtensionMethodCall rule
+          declare function clamp(n: number, lo: number, hi: number): number; // the rewrite calls it
           const x = (42).clamp(0, 100);
         `,
       });
@@ -286,6 +288,7 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
 
       simulateCliBuild({
         "/test.ts": `
+          declare function clamp(n: number, lo: number, hi: number): number; // the rewrite calls it
           const x = (42).clamp(0, 100);
         `,
       });
@@ -306,6 +309,7 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
 
       simulateCliBuild({
         "/test.ts": `
+          declare function clamp(n: number, lo: number, hi: number): number; // the rewrite calls it
           const x = (42).clamp(0, 100);
         `,
       });
@@ -329,7 +333,8 @@ describe("CLI Pipeline Diagnostic Suppression Integration (PEP-011 Wave 6)", () 
 
         simulateCliBuild({
           "/test.ts": `
-            const x = (42).clamp(0, 100);
+            declare function clamp(n: number, lo: number, hi: number): number; // the rewrite calls it
+          const x = (42).clamp(0, 100);
           `,
         });
 
