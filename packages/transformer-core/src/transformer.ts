@@ -1908,18 +1908,36 @@ class MacroTransformer {
    * otherwise never expands, so `shape.match(handlers)` stayed a runtime
    * call to `match` (neverthrow case study F12). The callee is the file's own
    * import binding (the rewrite checks it is in scope here), so the macro is
-   * resolved by the file's imports, as for any synthetic node. Expanded once:
+   * resolved by the file's imports, as for any synthetic node. Through a
+   * namespace import the callee is `ns.name`: the macro is the export of the
+   * module `ns` binds (by symbol, see namespaceMemberMacro). Expanded once:
    * the result is visited as an expansion, never fed back here.
    */
   private expandRewrittenMacroCall(
     result: ts.Expression,
     original: ts.CallExpression
   ): ts.Expression {
-    if (!ts.isCallExpression(result) || !ts.isIdentifier(result.expression)) return result;
-    const macroName = result.expression.text;
-    const macro = this.resolveMacroFromSymbol(result.expression, macroName, "expression") as
-      | ExpressionMacro
-      | undefined;
+    if (!ts.isCallExpression(result)) return result;
+    const callee = result.expression;
+    let macroName: string;
+    let macro: ExpressionMacro | undefined;
+    let recordImport: () => void;
+    if (ts.isIdentifier(callee)) {
+      macroName = callee.text;
+      macro = this.resolveMacroFromSymbol(callee, macroName, "expression") as
+        | ExpressionMacro
+        | undefined;
+      recordImport = () => this.recordImportBindingNamed(macroName);
+    } else if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+      macroName = callee.name.text;
+      const found = this.namespaceMemberMacro(callee.expression.text, macroName);
+      macro = found?.macro;
+      recordImport = () => {
+        if (found) this.recordMacroImport(found.namespaceSymbol);
+      };
+    } else {
+      return result;
+    }
     if (!macro || isMacroOptedOut(this.ctx.sourceFile, original, macro)) return result;
     if (this.verbose) {
       console.log(`[typesugar] Expanding expression macro via extension call: ${macroName}`);
@@ -1933,7 +1951,7 @@ class MacroTransformer {
       // path and never recorded the import; record the file's own import
       // binding here so cleanupMacroImports drops it like it does for a
       // direct `name(value, ...)` call.
-      this.recordImportBindingNamed(macroName);
+      recordImport();
       if (this.expansionTracker) {
         const expandedText = this.printNodeSafe(expanded);
         if (expandedText) {
@@ -1954,6 +1972,54 @@ class MacroTransformer {
         `typesugar: expansion of '${macroName}' failed: ${error}`
       );
     }
+  }
+
+  /**
+   * The expression macro `name` exported by the module that this file's
+   * namespace import `qualifier` (`import * as qualifier from "..."`) binds.
+   * Resolved by symbol: the namespace binding is a real node of the program's
+   * source file, its module's export `name` is looked up through the checker,
+   * and that export is resolved to a macro as a direct call's callee is.
+   */
+  private namespaceMemberMacro(
+    qualifier: string,
+    name: string
+  ): { macro: ExpressionMacro; namespaceSymbol: ts.Symbol } | undefined {
+    const checker = this.ctx.typeChecker;
+    for (const stmt of this.ctx.sourceFile.statements) {
+      if (!ts.isImportDeclaration(stmt)) continue;
+      const bindings = stmt.importClause?.namedBindings;
+      if (!bindings || !ts.isNamespaceImport(bindings) || bindings.name.text !== qualifier)
+        continue;
+      if (isSyntheticNode(bindings) || !isNodeInProgram(this.ctx.program, bindings))
+        return undefined;
+      try {
+        const namespaceSymbol = checker.getSymbolAtLocation(bindings.name);
+        if (!namespaceSymbol) return undefined;
+        const moduleSymbol =
+          namespaceSymbol.flags & ts.SymbolFlags.Alias
+            ? checker.getAliasedSymbol(namespaceSymbol)
+            : namespaceSymbol;
+        const exported = checker.tryGetMemberInModuleExports(name, moduleSymbol);
+        if (!exported) return undefined;
+        const macro = resolveSymbolToMacro(
+          checker,
+          this.ctx.sourceFile,
+          exported,
+          name,
+          "expression"
+        );
+        return macro ? { macro: macro as ExpressionMacro, namespaceSymbol } : undefined;
+      } catch (error) {
+        this.ctx.reportWarning(
+          bindings,
+          `typesugar could not check whether '${qualifier}.${name}' is a macro ` +
+            `(${error}); the extension call is left as a run-time call.`
+        );
+        return undefined;
+      }
+    }
+    return undefined;
   }
 
   /**

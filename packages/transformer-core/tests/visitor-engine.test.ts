@@ -251,6 +251,26 @@ describe("a missing member is not a macro by name", () => {
     expect(r.code).toContain("viaMethod = 2");
   });
 
+  it("through a namespace import: x.countArgs(1) expands as m.countArgs(x, 1)", () => {
+    const r = run(
+      {
+        "/node_modules/fake-count-macros/index.d.ts": `
+          export declare function countArgs<T>(value: T, ...rest: unknown[]): number;
+        `,
+        "/main.ts": `
+          import * as m from "fake-count-macros";
+          declare const x: { kind: "a" };
+          export const direct = m.countArgs(x, 1);
+          export const viaMethod = x.countArgs(1);
+        `,
+      },
+      "/main.ts"
+    );
+    expect(r.code).toContain("direct = 2");
+    expect(r.code).toContain("viaMethod = 2");
+    expect(r.code).not.toContain("fake-count-macros");
+  });
+
   // Review of #102: the import the extension call used was never recorded
   // as a macro import, so it stayed in the output when the method form was
   // its only use -- a runtime import of a package with no runtime export.
