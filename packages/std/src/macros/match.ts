@@ -1199,18 +1199,24 @@ export function findMissingCases(
   }
 
   // Untagged extractor tests (fp's Option/List/Either/Validated): `not-null`
-  // + `null` cover everything; `has k` tests cover the scrutinee's union when
-  // every non-nullish member has a required `k` from the set (and a nullish
-  // member, if any, is covered by a `null` test).
+  // + `null` cover everything; `has k` tests (and `field = value` ones whose
+  // payloads are matched further) cover the scrutinee's union member by
+  // member, nested payload patterns included (patternsCoverType).
   const fpCovered = new Set<string>();
-  const hasKeys = new Set<string>();
   for (const p of patterns) {
-    if (p.kind !== "extractor" || !p.def.test || !p.bindings.every(patternCoversAll)) continue;
-    if (typeof p.def.test === "string") fpCovered.add(p.def.test);
-    else hasKeys.add(p.def.test.hasKey);
+    if (p.kind !== "extractor" || typeof p.def.test !== "string") continue;
+    if (p.bindings.every(patternCoversAll)) fpCovered.add(p.def.test);
   }
   if (fpCovered.has("not-null") && fpCovered.has("null")) return { kind: "complete" };
-  if (hasKeys.size > 0 && coveredByKeyTests(ctx, scrutinee, hasKeys, fpCovered.has("null"))) {
+  if (
+    patterns.some(
+      (p) =>
+        p.kind === "extractor" &&
+        (typeof p.def.test === "object" ||
+          (p.def.discriminantField !== undefined && !p.bindings.every(patternCoversAll)))
+    ) &&
+    coveredByExtractorTests(ctx, scrutinee, patterns)
+  ) {
     return { kind: "complete" };
   }
 
@@ -1299,6 +1305,12 @@ export function findMissingCases(
  * An arm that is itself a catch-all (`_`, a binding) is left to the normal
  * path, which already ends there. A value outside the static type (an `any`
  * cast) takes the last arm, as in TypeScript's own exhaustive switch.
+ *
+ * An extractor whose payload is matched further (`Ok(Ok(v))`) counts for
+ * nothing here, though it does for TS9226: its test is a compound
+ * (`"value" in _r && "value" in _r.value`), after which TypeScript doesn't
+ * narrow `_r`, so an untested covering arm's reads (`_r.error`) wouldn't
+ * type-check in the output (`strictOutput`). Such a match keeps every test.
  */
 function findCoveringArmIndex(
   ctx: MacroContext,
@@ -1311,7 +1323,14 @@ function findCoveringArmIndex(
     if (arm.guard) continue;
     const own = [arm.pattern, ...arm.alternatives].map(analyzePattern);
     if (own.some(patternCoversAll)) return -1;
-    patterns.push(...own);
+    patterns.push(
+      ...own.map(
+        (p): PatternInfo =>
+          p.kind === "extractor" && !p.bindings.every(patternCoversAll)
+            ? { kind: "unsupported", node: arm.pattern }
+            : p
+      )
+    );
     const coverage = findMissingCases(ctx, scrutinee, patterns);
     if (coverage.kind === "complete" && !coverage.unanalysed) return i;
   }
@@ -1394,29 +1413,118 @@ function variantMembers(ctx: MacroContext, scrutinee: ts.Expression): ts.Type[] 
   return (type.isUnion() ? type.types : [type]).filter((t) => !nullishKeyOfType(t));
 }
 
-/** Does every member of the scrutinee's union have a required key from `keys`? */
-function coveredByKeyTests(
+/**
+ * Do the scrutinee's extractor patterns, nested ones included, cover its
+ * type ({@link patternsCoverType})?
+ */
+function coveredByExtractorTests(
   ctx: MacroContext,
   scrutinee: ts.Expression,
-  keys: ReadonlySet<string>,
-  nullCovered: boolean
+  patterns: readonly PatternInfo[]
 ): boolean {
-  const type = getScrutineeType(ctx, scrutinee);
-  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
-  const members = type.isUnion() ? type.types : [type];
   try {
-    return members.every((m) => {
-      if (m.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) {
-        return nullCovered;
-      }
-      return [...keys].some((k) => {
-        const prop = ctx.typeChecker.getPropertyOfType(m, k);
-        return prop !== undefined && (prop.flags & ts.SymbolFlags.Optional) === 0;
-      });
-    });
-  } catch {
+    return patternsCoverType(ctx, getScrutineeType(ctx, scrutinee), patterns);
+  } catch (e) {
+    ctx.reportWarning(
+      scrutinee,
+      `match: could not read the scrutinee's type to check its extractor patterns ` +
+        `(${e instanceof Error ? e.message : String(e)}); they are not counted as covering it.`
+    );
     return false;
   }
+}
+
+type ExtractorPattern = PatternInfo & { kind: "extractor" };
+
+/**
+ * Do the patterns cover every value of `type`, judged member by member of
+ * its union? A member is covered by a catch-all, by a literal (or nullish)
+ * pattern for it, or by a group of extractors whose test holds for the
+ * WHOLE member (`has k` with `k` required on it, `field = value` with that
+ * literal type) and whose payload patterns cover the member's payload type
+ * — recursively, so `Ok(Ok(v))` + `Ok(Err(e))` + `Err(e)` covers
+ * `Result<Result<number, string>, string>` (neverthrow case study F11).
+ * `null` + `not-null` (or `always`) extractors that bind with catch-alls
+ * cover everything, as at the top level.
+ *
+ * Extractors with the same descriptor form one group (the same test and
+ * field reads). `not-null` payloads are not looked through (`Some(Some(x))`):
+ * the payload may be an `@opaque` type whose `null` member the checker
+ * can't see.
+ */
+function patternsCoverType(
+  ctx: MacroContext,
+  type: ts.Type | undefined,
+  patterns: readonly PatternInfo[]
+): boolean {
+  if (patterns.some(patternCoversAll)) return true;
+  if (!type || type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const extractors = patterns.filter((p): p is ExtractorPattern => p.kind === "extractor");
+  const plainTests = new Set<string>();
+  for (const p of extractors) {
+    if (typeof p.def.test === "string" && p.bindings.every(patternCoversAll)) {
+      plainTests.add(p.def.test);
+    }
+  }
+  if (plainTests.has("always") || (plainTests.has("not-null") && plainTests.has("null"))) {
+    return true;
+  }
+  const literalKeys = new Set(patterns.map(getPatternLiteralKey));
+  const groups = new Map<string, ExtractorPattern[]>();
+  for (const p of extractors) {
+    const { kind, test, discriminantField, discriminantValue, payloadFields } = p.def;
+    if (kind !== "sum-variant") continue;
+    if (typeof test !== "object" && discriminantField === undefined) continue;
+    const key = JSON.stringify([test, discriminantField, discriminantValue, payloadFields]);
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  return (type.isUnion() ? type.types : [type]).every((m) => {
+    const nk = nullishKeyOfType(m);
+    if (nk) return literalKeys.has(nk) || plainTests.has("null");
+    const lk = getLiteralValueFromType(m);
+    if (lk !== undefined && literalKeys.has(lk)) return true;
+    for (const group of groups.values()) {
+      if (testHoldsForMember(ctx.typeChecker, group[0].def, m) && payloadsCover(ctx, group, m)) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/** Does the extractor's `has k` / `field = value` test hold for every value of `member`? */
+function testHoldsForMember(checker: ts.TypeChecker, def: ExtractorDef, member: ts.Type): boolean {
+  if (def.test && typeof def.test === "object") {
+    const prop = checker.getPropertyOfType(member, def.test.hasKey);
+    return prop !== undefined && (prop.flags & ts.SymbolFlags.Optional) === 0;
+  }
+  if (def.discriminantField === undefined || def.discriminantValue === undefined) return false;
+  const prop = checker.getPropertyOfType(member, def.discriminantField);
+  if (!prop || prop.flags & ts.SymbolFlags.Optional) return false;
+  const want =
+    typeof def.discriminantValue === "boolean"
+      ? String(def.discriminantValue)
+      : JSON.stringify(def.discriminantValue);
+  return getLiteralValueFromType(checker.getTypeOfSymbol(prop)) === want;
+}
+
+/**
+ * Do the payload patterns of `group` (one extractor descriptor) cover
+ * `member`'s payload? One that binds every position with a catch-all does.
+ * Otherwise some position must be covered by the patterns that bind every
+ * OTHER position with a catch-all (a sound under-approximation for several
+ * payload positions), its type read from the extractor's payload typing.
+ */
+function payloadsCover(ctx: MacroContext, group: readonly ExtractorPattern[], member: ts.Type) {
+  if (group.some((p) => p.bindings.every(patternCoversAll))) return true;
+  const types = group[0].def.payloadTyping?.(member)?.types;
+  if (!types) return false;
+  return types.some((t, i) => {
+    const subs = group
+      .filter((p) => p.bindings.every((b, j) => j === i || patternCoversAll(b)))
+      .map((p) => p.bindings[i]);
+    return subs.length > 0 && patternsCoverType(ctx, t, subs);
+  });
 }
 
 /**

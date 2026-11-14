@@ -107,6 +107,7 @@ import {
   resolveStdDoFallback,
   emitComprehensionResult,
   importSelfReceiver,
+  bindTypeOf,
 } from "./comprehension-utils.js";
 
 // ============================================================================
@@ -177,7 +178,7 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
 
     // Infer the type constructor from the first bind step
     const firstBind = steps.find((s): s is BindStep => s.kind === "bind")!;
-    const typeConstructorName = inferTypeConstructor(
+    let typeConstructorName = inferTypeConstructor(
       firstBind.effect,
       typeChecker,
       ctx.sourceFile,
@@ -199,15 +200,19 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
     // global registry; the static fallback serves the std builtins in hosts
     // that cannot resolve modules. A brand with no ParCombine instance falls
     // through to the generic applicative chain (same as before the flip).
+    const bindType = bindTypeOf(firstBind.effect, typeChecker);
     const found = resolveDoNotationInstance(
       ctx,
       "ParCombine",
       typeConstructorName,
       undefined,
-      mainBlock
+      mainBlock,
+      bindType
     );
     // Two instances in scope: reported there; no fallback, no further error.
     if (isAmbiguousDoNotationInstance(found)) return mainBlock;
+    // Found by type: go on as the brand the instance is declared for.
+    if (found?.brand) typeConstructorName = found.brand;
     const scoped = found ?? resolveStdDoFallback(ctx.sourceFile, "ParCombine", typeConstructorName);
     if (!scoped) {
       // No ParCombine instance. A brand whose FlatMap instance is STATIC
@@ -219,9 +224,11 @@ export const parYieldMacro: LabeledBlockMacro = defineLabeledBlockMacro({
         "FlatMap",
         typeConstructorName,
         undefined,
-        mainBlock
+        mainBlock,
+        bindType
       );
       if (isAmbiguousDoNotationInstance(flatMapFound)) return mainBlock;
+      if (flatMapFound?.brand) typeConstructorName = flatMapFound.brand;
       const flatMap =
         flatMapFound ?? resolveStdDoFallback(ctx.sourceFile, "FlatMap", typeConstructorName);
       if (flatMap?.doMeta?.style === "static" && flatMap.doMeta.receiver) {

@@ -71,6 +71,7 @@ import {
   isLocalImplementationName,
   resolveSymbolToMacro,
   resolveMacroFromSymbol as resolveMacroFromSymbolFn,
+  isNodeInProgram,
   scanImportsForExtension,
   reportInactiveExtensionImportTags,
 } from "./import-resolution.js";
@@ -1466,7 +1467,7 @@ class MacroTransformer {
             "(extension method)"
           );
         }
-        return result;
+        return this.expandRewrittenMacroCall(result, node);
       }
 
       // Typeclass instance-method sugar runs LAST, after extension methods and
@@ -1756,6 +1757,7 @@ class MacroTransformer {
           macroName = node.expression.name.text;
           identNode = node.expression.name;
         } else {
+          if (this.isMissingMemberOfValue(node.expression)) return undefined;
           macroName = node.expression.name.text;
           identNode = node.expression;
         }
@@ -1896,6 +1898,109 @@ class MacroTransformer {
         this.ctx.factory,
         `typesugar: expansion of '${macroName}' failed: ${error}`
       );
+    }
+  }
+
+  /**
+   * An extension rewrite's call, `name(value, ...)` for `value.name(...)`,
+   * when `name` is an imported expression macro: expanded like any other
+   * call to that macro. The rewritten call is synthetic, which the visitor
+   * otherwise never expands, so `shape.match(handlers)` stayed a runtime
+   * call to `match` (neverthrow case study F12). The callee is the file's own
+   * import binding (the rewrite checks it is in scope here), so the macro is
+   * resolved by the file's imports, as for any synthetic node. Expanded once:
+   * the result is visited as an expansion, never fed back here.
+   */
+  private expandRewrittenMacroCall(
+    result: ts.Expression,
+    original: ts.CallExpression
+  ): ts.Expression {
+    if (!ts.isCallExpression(result) || !ts.isIdentifier(result.expression)) return result;
+    const macroName = result.expression.text;
+    const macro = this.resolveMacroFromSymbol(result.expression, macroName, "expression") as
+      | ExpressionMacro
+      | undefined;
+    if (!macro || isMacroOptedOut(this.ctx.sourceFile, original, macro)) return result;
+    if (this.verbose) {
+      console.log(`[typesugar] Expanding expression macro via extension call: ${macroName}`);
+    }
+    try {
+      const expanded = this.ctx.hygiene.withScope(() =>
+        macro.expand(this.ctx, result, result.arguments)
+      );
+      if (expanded === result) return result;
+      // The callee is synthetic, so resolveMacroFromSymbol took the by-name
+      // path and never recorded the import; record the file's own import
+      // binding here so cleanupMacroImports drops it like it does for a
+      // direct `name(value, ...)` call.
+      this.recordImportBindingNamed(macroName);
+      if (this.expansionTracker) {
+        const expandedText = this.printNodeSafe(expanded);
+        if (expandedText) {
+          this.expansionTracker.recordExpansion(
+            macroName,
+            original,
+            this.ctx.sourceFile,
+            expandedText
+          );
+        }
+      }
+      const visited = ts.visitNode(expanded, this.visit.bind(this)) as ts.Expression;
+      return preserveSourceMap(visited, original);
+    } catch (error) {
+      this.ctx.reportError(original, `Macro expansion failed: ${error}`);
+      return createMacroErrorExpr(
+        this.ctx.factory,
+        `typesugar: expansion of '${macroName}' failed: ${error}`
+      );
+    }
+  }
+
+  /**
+   * Record the file's named import whose local name is `localName` as a macro
+   * import. The specifier is a real node of the program's source file, so the
+   * checker is asked about it, never about a synthetic node.
+   */
+  private recordImportBindingNamed(localName: string): void {
+    for (const stmt of this.ctx.sourceFile.statements) {
+      if (!ts.isImportDeclaration(stmt)) continue;
+      const bindings = stmt.importClause?.namedBindings;
+      if (!bindings || !ts.isNamedImports(bindings)) continue;
+      const spec = bindings.elements.find((e) => e.name.text === localName);
+      if (!spec) continue;
+      if (isSyntheticNode(spec) || !isNodeInProgram(this.ctx.program, spec)) return;
+      const symbol = this.ctx.typeChecker.getSymbolAtLocation(spec.name);
+      if (symbol) this.recordMacroImport(symbol);
+      return;
+    }
+  }
+
+  /**
+   * `value.name(...)` where `value` is a value (not a namespace or module
+   * import) whose type has no member `name`: never a macro call. The checker
+   * has no symbol for a missing member, and macro resolution then falls back
+   * to the NAME, so with `match` imported, `shape.match({...})` was expanded
+   * as the `match` macro with `shape.match(...)` as its call (neverthrow case
+   * study F12). Left alone, the call is an extension call or the checker's
+   * "property does not exist". A namespace receiver (`std.match(x)`) and a
+   * receiver the checker can't see keep the name-based resolution.
+   */
+  private isMissingMemberOfValue(access: ts.PropertyAccessExpression): boolean {
+    if (isSyntheticNode(access) || !isNodeInProgram(this.ctx.program, access)) return false;
+    const checker = this.ctx.typeChecker;
+    try {
+      if (checker.getSymbolAtLocation(access)) return false;
+      let receiver = checker.getSymbolAtLocation(access.expression);
+      if (!receiver) return false;
+      if (receiver.flags & ts.SymbolFlags.Alias) receiver = checker.getAliasedSymbol(receiver);
+      return (receiver.flags & ts.SymbolFlags.Module) === 0;
+    } catch (error) {
+      this.ctx.reportWarning(
+        access,
+        `typesugar could not check whether '.${access.name.text}' is a member of its receiver ` +
+          `(${error}); resolving it as a macro by name.`
+      );
+      return false;
     }
   }
 

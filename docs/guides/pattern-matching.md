@@ -574,6 +574,7 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue
 | Literal union (`"a" \| "b"`)     | All values must be covered     |
 | Boolean                          | Both `true` and `false`        |
 | Option / Either / List           | All variant extractors present |
+| Nested extractors (`Ok(Err(e))`) | Each variant's payload covered |
 | Tuple (`[number, string]`)       | An arm of its length, bindings |
 | `string`, `number`, arrays, etc. | Requires `_` or `.else()`      |
 | `unknown` / `any`                | Requires `_` or `.else()`      |
@@ -613,6 +614,8 @@ match(o)
 ```
 
 Object patterns on a discriminated union (`{ kind: "circle", r }`, compiled to the discriminant switch) have no throw either when every variant has an arm with no guard and nothing left to test (see [Discriminated Union Patterns](#discriminated-union-patterns)). The same goes for an arm that takes every value (`_`, a binding) at the end of a match compiled to an `if` chain, and for the object-handler form `match(value, { ... })` with a handler for every member of a literal union or every variant: its last handler is called with no test.
+
+Extractor arms may match their payload with further extractors or literals. With `has` or `field = value` extractors, `Ok(Ok(v))`, `Ok(Err(e))` and `Err(e)` cover a `Result<Result<number, string>, string>`, so the match needs no `.else()`, and dropping `Ok(Err(e))` is reported as non-exhaustive. Such a match keeps every arm's test and the terminal throw: a nested test (`"value" in _r && "error" in _r.value`) doesn't narrow `_r` for TypeScript, so an untested last arm wouldn't type-check. Payloads under `Some(...)` (a `not-null` extractor) aren't looked through, so `Some(Some(v))` still needs a fallback.
 
 ---
 
@@ -745,6 +748,12 @@ match(p)
   .then(x + y);
 // const x = _p.x; const y = _p.y; return x + y;  (no extract() call)
 ```
+
+The name in the pattern can be a class, too: neverthrow's `Ok` and `Err` are classes, and
+`@impl Destructure<typeof Ok, Result<unknown, unknown>, unknown>` with
+`@destructure has value -> value` makes `.case(Ok(v))` compile to `"value" in _r` and
+`_r.value`. As written, `Ok(v)` calls a class without `new`; `typesugar check` and the
+editor don't report that (TS2348) inside a pattern, only elsewhere.
 
 **`@destructure`** tells the macro what `extract` does, so it inlines the test and the
 field reads and never calls the instance. It is data in a JSDoc tag, so it survives `.d.ts`
