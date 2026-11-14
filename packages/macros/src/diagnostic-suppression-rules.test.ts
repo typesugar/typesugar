@@ -1519,6 +1519,20 @@ describe("a class as an extractor pattern: TS2348 (neverthrow case study F8)", (
     for (const d of notCallable) expect(rule.shouldSuppress(d, checker, sf)).toBe(true);
   });
 
+  it("suppresses it, and the arm bindings' TS2304, in a chain rooted at a namespace import (std.match)", () => {
+    const rule = createMacroCallChainRule();
+    const code = [
+      `import * as std from "@typesugar/std";`,
+      CLASSES,
+      `declare const r: Result<number, string>;`,
+      `export const a = std.match(r).case(Ok(v)).then(v).case(Err(e)).then(0);`,
+    ].join("\n");
+    const { sf, checker, diags } = diagnose(code);
+    const relevant = diags.filter((d) => d.code === 2348 || d.code === 2304);
+    expect(relevant.length).toBe(5); // Ok(v), Err(e), and v, v, e
+    for (const d of relevant) expect(rule.shouldSuppress(d, checker, sf)).toBe(true);
+  });
+
   it("does NOT suppress it in an arm's result, or outside a match chain", () => {
     const rule = createMacroCallChainRule();
     const code = [

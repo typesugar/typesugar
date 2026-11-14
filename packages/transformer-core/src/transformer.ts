@@ -2119,6 +2119,10 @@ class MacroTransformer {
       ts.isPropertyAccessExpression(rootCallee) &&
       ts.isIdentifier(rootCallee.expression)
     ) {
+      // `value.match(...)` on a value without that member is an extension
+      // call, never a chain root resolved by name (as in
+      // tryExpandExpressionMacro).
+      if (this.isMissingMemberOfValue(rootCallee)) return undefined;
       macroName = rootCallee.name.text;
     } else {
       return undefined;

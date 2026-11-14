@@ -55,4 +55,14 @@ describe("match through a namespace import", () => {
     expect(code).toContain(`=== "circle"`);
     expect(code).not.toContain(".match(");
   });
+
+  it("bare import: sh.match(handlers) on a value without .match is an extension call, not a chain root", () => {
+    const r = transformCode(
+      `import { match } from "@typesugar/std";\n${SHAPE}export const d = sh.match({ circle: (c: { r: number }) => c.r, square: (q: { s: number }) => q.s });`,
+      { fileName: "match-bare-extension.ts" }
+    );
+    expect(r.diagnostics.filter((d) => d.severity === "error").map((d) => d.message)).toEqual([]);
+    expect(r.code).toContain(`=== "circle"`);
+    expect(r.code).not.toContain(".match(");
+  });
 });
