@@ -29,6 +29,7 @@ import {
   typeRewriteEntryCoversFile,
   isDiagnosticSuppressionAuditEnabled,
   isSyntheticNode,
+  rewrittenArgumentCount,
   globalResolutionScope,
   ResolutionScopeTracker,
   scanImportsForScope,
@@ -176,7 +177,14 @@ function isRewrittenMethodCall(
     return true;
   }
 
-  // 2. Import-scoped resolution: scan imports for a matching function
+  // 2. Import-scoped resolution: scan imports for a matching function. The
+  // rewrite passes the receiver plus the call's arguments; an import that
+  // can't take them is not a provider (remeda case study F9).
+  const call = propAccess.parent;
+  const argumentCount =
+    ts.isCallExpression(call) && call.expression === propAccess
+      ? rewrittenArgumentCount(call)
+      : undefined;
   if (
     resolveExtensionFromImports(
       sourceFile,
@@ -184,7 +192,8 @@ function isRewrittenMethodCall(
       receiverType,
       checker,
       context?.program,
-      propAccess
+      propAccess,
+      argumentCount
     )
   ) {
     return true;
@@ -873,7 +882,8 @@ function resolveExtensionFromImports(
   receiverType: ts.Type,
   checker: ts.TypeChecker,
   program: ts.Program | undefined,
-  location: ts.Node
+  location: ts.Node,
+  argumentCount: number | undefined
 ): boolean {
   const env: ExtensionImportEnv = {
     checker,
@@ -883,7 +893,7 @@ function resolveExtensionFromImports(
   };
   // The rewrite's choice, and only while a local doesn't shadow it here.
   const { match } = chooseExtensionMatch(
-    findImportedExtensionMatches(env, methodName, receiverType)
+    findImportedExtensionMatches(env, methodName, receiverType, argumentCount)
   );
   if (!match) return false;
   try {

@@ -218,6 +218,7 @@ export {
   receiverMatchesFirstParam,
   acceptsArgumentCount,
   eraseGenericReturnType,
+  rewrittenArgumentCount,
 } from "./extension-receiver.js";
 
 // Type String Utilities (pure string, no TS dependency)

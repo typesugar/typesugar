@@ -56,6 +56,7 @@ import {
   relativeImportStyleOf,
   sourceSpecifierExtension,
   type RelativeImportStyle,
+  rewrittenArgumentCount,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -566,7 +567,7 @@ function inferExtensionCallType(
       // overload taking that many can be the one TypeScript picks: remeda's
       // purried functions declare the data-last overload first (remeda
       // case study F6).
-      call.arguments.length + 1
+      rewrittenArgumentCount(call)
     );
   } catch (error) {
     ctx.reportWarning(

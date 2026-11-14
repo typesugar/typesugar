@@ -47,6 +47,16 @@ export function receiverMatchesFirstParam(
 }
 
 /**
+ * How many arguments the rewrite of `recv.method(args)` passes: the receiver
+ * plus the call's own. `undefined` when a spread argument makes the count
+ * unknown, so no import is ruled out by it.
+ */
+export function rewrittenArgumentCount(call: ts.CallExpression): number | undefined {
+  if (call.arguments.some(ts.isSpreadElement)) return undefined;
+  return call.arguments.length + 1;
+}
+
+/**
  * Can `sig` be called with `count` arguments? Optional and defaulted
  * parameters may be left out; a rest parameter takes any number.
  */

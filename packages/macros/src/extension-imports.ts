@@ -9,7 +9,9 @@
  * TypeError at run time).
  *
  * An import is a provider when its first parameter accepts the receiver
- * (`receiverMatchesFirstParam`) and it is one of (PEP-064):
+ * (`receiverMatchesFirstParam`), it can take the rewritten call's argument
+ * count when that is known (the receiver plus the call's arguments,
+ * `acceptsArgumentCount`), and it is one of (PEP-064):
  * - a function named after the method (`import { clamp }` for
  *   `(42).clamp(0, 100)`): its name says it is meant for that call;
  * - a member of an object or namespace imported by a declaration that opts
@@ -54,6 +56,7 @@ import {
   isJSDocTagAtLineStart,
   isSyntheticNode,
   receiverMatchesFirstParam,
+  rewrittenArgumentCount,
   type StandaloneExtensionInfo,
 } from "@typesugar/core";
 import { instanceScanner, type ScannedInstance } from "./instance-scanner.js";
@@ -85,11 +88,14 @@ export interface ImportedExtensionMatch {
 /**
  * Every import of `env.sourceFile` that provides `methodName` for
  * `receiverType`, in import order (see the module comment for the rules).
+ * `argumentCount` is what the rewrite would pass (`rewrittenArgumentCount`),
+ * or undefined when unknown.
  */
 export function findImportedExtensionMatches(
   env: ExtensionImportEnv,
   methodName: string,
-  receiverType: ts.Type
+  receiverType: ts.Type,
+  argumentCount?: number
 ): ImportedExtensionMatch[] {
   const { checker, sourceFile } = env;
   const matches: ImportedExtensionMatch[] = [];
@@ -151,7 +157,14 @@ export function findImportedExtensionMatches(
     let ext: StandaloneExtensionInfo | undefined;
     let target: ts.Symbol | undefined;
     try {
-      ext = checkImportedSymbolForExtension(checker, ident, methodName, receiverType, env.program);
+      ext = checkImportedSymbolForExtension(
+        checker,
+        ident,
+        methodName,
+        receiverType,
+        env.program,
+        argumentCount
+      );
       if (!ext) return;
       if (hasNativeMethod) return;
       if (ext.qualifier !== undefined) {
@@ -291,17 +304,23 @@ export function extensionImportUses(
   }
   if (candidates.size === 0) return { asMember, asFunction };
 
-  // Memoized per receiver type and method (as the transformer's
-  // importExtensionCache), and per callee: a chain's links are decided once.
+  // Memoized per receiver type, method and argument count (as the
+  // transformer's importExtensionCache), and per callee: a chain's links are
+  // decided once.
   const matchCache = new Map<ts.Type, Map<string, ImportedExtensionMatch[]>>();
-  const matchesFor = (methodName: string, receiverType: ts.Type) => {
+  const matchesFor = (callee: ts.PropertyAccessExpression, receiverType: ts.Type) => {
+    const methodName = callee.name.text;
+    const argumentCount = ts.isCallExpression(callee.parent)
+      ? rewrittenArgumentCount(callee.parent)
+      : undefined;
+    const key = `${methodName}/${argumentCount ?? "..."}`;
     let byMethod = matchCache.get(receiverType);
     if (!byMethod) matchCache.set(receiverType, (byMethod = new Map()));
-    let found = byMethod.get(methodName);
+    let found = byMethod.get(key);
     if (!found)
       byMethod.set(
-        methodName,
-        (found = findImportedExtensionMatches(env, methodName, receiverType))
+        key,
+        (found = findImportedExtensionMatches(env, methodName, receiverType, argumentCount))
       );
     return found;
   };
@@ -336,7 +355,7 @@ export function extensionImportUses(
     const receiver = receiverTypeOf(callee.expression, depth);
     let decision: Decision = { used: [], returns: undefined };
     if (!(receiver.type.flags & unreliable)) {
-      const matches = matchesFor(callee.name.text, receiver.type);
+      const matches = matchesFor(callee, receiver.type);
       const { match, ambiguous } = chooseExtensionMatch(matches);
       const chosen =
         match && isImportExtensionInScopeAt(checker, callee, match.ext) ? match : undefined;
@@ -350,7 +369,7 @@ export function extensionImportUses(
       };
     } else if (receiver.unrecoveredCall) {
       decision = {
-        used: matchesFor(callee.name.text, receiver.type).filter((m) =>
+        used: matchesFor(callee, receiver.type).filter((m) =>
           isImportExtensionInScopeAt(checker, callee, m.ext)
         ),
         returns: undefined,
@@ -415,7 +434,7 @@ export function extensionImportUses(
       m.ext,
       valueType,
       receiverType,
-      call.arguments.length + 1
+      rewrittenArgumentCount(call)
     );
   };
 
@@ -496,7 +515,8 @@ export function inactiveExtensionImportTags(
  * which is still enough to pick the next extension (its first-parameter
  * match treats type parameters as wildcards); a bare type-parameter return
  * (`A`) is not, nor is `any`/`never`. Only signatures taking `argumentCount`
- * arguments (the receiver plus the call's own) count, and a mapped or
+ * arguments (the receiver plus the call's own; any number with a spread
+ * argument) count, and a mapped or
  * deferred return type over the signature's type parameters is erased to
  * their constraints (`eraseGenericReturnType`; remeda case study F6).
  * Shared by the rewrite's chain
@@ -509,7 +529,7 @@ export function extensionCallReturnType(
   ext: StandaloneExtensionInfo,
   calleeValueType: ts.Type,
   receiverType: ts.Type,
-  argumentCount: number
+  argumentCount: number | undefined
 ): ts.Type | undefined {
   let fnType = calleeValueType;
   if (ext.qualifier !== undefined) {
@@ -521,7 +541,7 @@ export function extensionCallReturnType(
     .getCallSignatures()
     .filter(
       (sig) =>
-        acceptsArgumentCount(sig, argumentCount) &&
+        (argumentCount === undefined || acceptsArgumentCount(sig, argumentCount)) &&
         receiverMatchesFirstParam(checker, receiverType, sig, location)
     );
   const sig = sigs.find((x) => !x.getTypeParameters()?.length) ?? sigs[0];
@@ -710,23 +730,34 @@ function extensionImportTag(decl: ts.ImportDeclaration): ts.JSDocTag | undefined
 /**
  * Check if an imported identifier provides an extension method: a function
  * named `methodName`, or a member of that name (not a default-lib member or
- * a `declare global` stub), whose first parameter accepts the receiver.
+ * a `declare global` stub), whose first parameter accepts the receiver and
+ * which can take `argumentCount` arguments when that is given.
+ *
+ * The count matters because a generic first parameter accepts almost any
+ * receiver: remeda's one-parameter `isArray<T>(data: ArrayLike<unknown> | T)`
+ * matched `Array.isArray(c)`, which became `isArray(Array, c)` (remeda case
+ * study F9). An import that can't take the call is not a candidate, so the
+ * native method is called.
  */
 export function checkImportedSymbolForExtension(
   typeChecker: ts.TypeChecker,
   ident: ts.Identifier,
   methodName: string,
   receiverType: ts.Type,
-  program?: ts.Program
+  program?: ts.Program,
+  argumentCount?: number
 ): StandaloneExtensionInfo | undefined {
   const symbol = typeChecker.getSymbolAtLocation(ident);
   if (!symbol) return undefined;
 
   const identType = typeChecker.getTypeOfSymbolAtLocation(symbol, ident);
+  const fits = (sig: ts.Signature) =>
+    (argumentCount === undefined || acceptsArgumentCount(sig, argumentCount)) &&
+    receiverMatchesFirstParam(typeChecker, receiverType, sig, ident);
 
   if (ident.text === methodName) {
     for (const sig of identType.getCallSignatures()) {
-      if (receiverMatchesFirstParam(typeChecker, receiverType, sig, ident)) {
+      if (fits(sig)) {
         return { methodName, forType: "", qualifier: undefined };
       }
     }
@@ -748,7 +779,7 @@ export function checkImportedSymbolForExtension(
 
   const propType = typeChecker.getTypeOfSymbolAtLocation(prop, ident);
   for (const sig of propType.getCallSignatures()) {
-    if (receiverMatchesFirstParam(typeChecker, receiverType, sig, ident)) {
+    if (fits(sig)) {
       return { methodName, forType: "", qualifier: ident.text };
     }
   }

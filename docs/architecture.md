@@ -395,10 +395,10 @@ The typeclass system implements Scala 3-style typeclasses with zero-cost special
 
 When the transformer encounters `value.method(args)`, it resolves the method through:
 
-1. **Native property check** — If `method` is a real property on the type, skip rewriting (unless an import-scoped extension forces it)
+1. **Native property check** — If `method` is a callable property on the type, skip rewriting; no import replaces it. A property that can't be called (a `step: number` field) doesn't block an imported function
 2. **Standalone extensions**:
    - Pre-registered entries in `standaloneExtensionRegistry` (`findStandaloneExtension()`)
-   - Import-scoped resolution via `resolveExtensionFromImports()`
+   - Import-scoped resolution via `resolveExtensionFromImports()`. A candidate's first parameter must accept the receiver, and it must take the rewritten call's argument count (the receiver plus the call's arguments; unknown with a spread argument)
 3. **Typeclass instance-method sugar** (`tryResolveTypeclassMethod`, PEP-052 Phase E)
    — gated on activation, same rule as operators below: the using file must have
    activated the declaring typeclass's method syntax, either by importing its
