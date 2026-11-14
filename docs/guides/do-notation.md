@@ -21,6 +21,8 @@ Label syntax is import-scoped (PEP-052) — the comprehension labels only expand
 import "@typesugar/std/syntax/do";
 ```
 
+The import is removed from the compiled output, so do-notation adds no runtime dependency on `@typesugar/std`. When a comprehension calls one of std's instances (the static-style `Iterable` and `AsyncIterable` ones), the output imports that instance by name.
+
 Without this import the labels are left as ordinary JavaScript and the compiler warns (TS9224: `'let:' matches the letYield macro, but its label syntax is not activated in this file`) with a hint naming the import to add. Ordinary loop labels that happen to collide with a macro label (e.g. `all: for (...)`) are never hijacked and produce no warning.
 
 ### Instance Scoping
