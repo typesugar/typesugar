@@ -315,6 +315,12 @@ match: switch (shape.kind) {
 }
 ```
 
+Case labels are literals, constants or patterns (`case { kind: "rect", w, h }:`,
+`case Some(v):`); a value computed at run time is a compile error. A guard is
+`case P && cond:`; when it is false the next case is tried. Literals, extractors, type
+tests (`String(s)`) and regexes test at any depth; other shapes destructure, and
+`[x, y, ...[]]` tests an exact length.
+
 ### Pattern Types
 
 The fluent API supports all structural patterns — literals, variable binding, wildcards, arrays/tuples, objects, discriminated unions, type patterns (`String(s)`, `Date(d)`), OR patterns (`.or()`), AS patterns (`.as()`), regex, nested patterns, and extractors via the `Destructure` typeclass. An extractor (`Some(v)`, `Point(x, y)`) resolves its instance by the constructor's symbol: `@typesugar/fp` ships instances for its constructors, and `@derive(Destructure)` generates them for your own types.

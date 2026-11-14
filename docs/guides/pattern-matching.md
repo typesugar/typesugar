@@ -450,6 +450,13 @@ switch, and the activation import is removed from the output too. `break`, `retu
 inside a case, say) leaves the switch: when a case names the label, the output keeps it, in
 every form below.
 
+**Case labels** are literals, constants (`C`, `Dir.Up`) and, below, patterns. A value
+computed at run time (`case twice(m):`, `case m + 1:`) is a compile error, as in Scala:
+bind it to a `const` and write `case c:`, or test it in a guard (`case _ && n === twice(m):`,
+below). A call is a pattern when
+its callee has an extractor (`Some(v)`, `Point(x, y)`); a call to an ordinary function is
+a computed value. `case _:` is an error too: write `default:`.
+
 **`default:`** covers the remaining values and turns the check off, as `.else()` does. A
 `default:` that only `throw`s is a safety net for values outside the type (untyped input),
 so it keeps the check on: a member added to the union later is still a compile error, not a
@@ -495,11 +502,16 @@ switch (geom.type) {
 }
 ```
 
-- The discriminant is the only thing tested. The rest of the pattern **destructures**:
-  `coordinates: [x, y]` reads the first two elements whatever the length, as
-  `const [x, y] = …` does. So a literal below the top level (`{ kind: "a", inner: { tag: "x" } }`)
-  is an error; test it in the case body, or use the fluent `match()`, which tests every
-  sub-pattern.
+- Literals, extractors, type tests and regexes **test**, at any depth:
+  `{ kind: "a", inner: { tag: "x" } }`, `{ kind: "slot", value: Some(v) }`, `Some(0)`. Nested
+  values are read with `?.`, so a missing optional parent fails the case instead of throwing.
+- Object and array shapes with nothing like that inside **destructure**: `coordinates: [x, y]`
+  reads the first two elements whatever the length, as `const [x, y] = …` does. To test the
+  length, end the array with an empty rest, `coordinates: [x, y, ...[]]` ("and nothing
+  after"). The fluent `match()` tests every array's length.
+- A case that tests anything below its discriminant compiles to `switch (true)`, binding one
+  `const` per name; a switch whose cases test only their discriminant keeps the
+  discriminant switch.
 - A field the variant declares optional is read like any other (`undefined` when missing), so
   `case { k: "b", extra }:` covers the `b` variant. The fluent form tests that it is present.
 - Several names, rest and nesting go in one declaration: `case { kind: "rect", w, h, style: { fill } }:`
@@ -509,8 +521,37 @@ switch (geom.type) {
   (one that falls through with no body would never see them).
 - A scrutinee that isn't an identifier or `this` is read once into a `const` first
   (`match: switch (feature.geometry)` → `const _geometry = feature.geometry;`).
-- There are no guards: `case P if cond` isn't valid syntax, and `case P: if (!cond) break;`
-  would leave the switch rather than try the next case. Test the condition in the body.
+
+**Guards** are written `case P && cond:`. When the condition is false the switch tries the
+next case, which `case P: if (!cond) break;` can't do (it leaves the switch). The condition
+can use the names `P` binds:
+
+```typescript
+match: switch (s) {
+  case { kind: "rect", w, h } && w === h:
+    return "square";
+  case { kind: "rect", w, h }:
+    return `rect ${w}x${h}`;
+  case _ && s.kind === "circle" && s.r > 100:
+    return "big circle";
+  case { kind: "circle", r }:
+    return `circle ${r}`;
+}
+```
+
+- A top-level `&&` in a case label is always a guard; the pattern is its left-most operand.
+  `case _ && cond:` has no pattern, only the condition.
+- The guard runs before the case's own bindings, so the names in it are read where they come
+  from: `case { kind: "rect", w, h } && w === h:` becomes `case s.kind === "rect" && s.w === s.h:`.
+  A name the guard rebinds (an arrow's parameter) is left alone. A rest binding (`...rest`)
+  can't be read in a guard.
+- A guarded case covers nothing for exhaustiveness, as `.if()` doesn't in the fluent form.
+- A switch with a guard compiles to `switch (true)`; one without keeps the discriminant switch.
+- A guarded case with no statements of its own falls through as usual; its names serve only its
+  guard.
+- With `@typesugar/eslint-plugin`'s processor, `no-constant-binary-expression` isn't reported on a
+  guarded label's pattern (an object literal on the left of `&&`, which the macro reads as a
+  pattern).
 
 **Extractors** work as in the fluent form: `case Some(v):` / `case None:`, `Left`/`Right`,
 `Cons`/`Nil`, `Valid`/`Invalid`, and your own instances. One whose descriptor tests a
@@ -539,8 +580,14 @@ code and `v * 2` would fail strict type-checking.
 
 `case Point(x, y):` works for any constructor with a `Destructure` instance in scope (see
 [Custom Extractors](#custom-extractors)); one without a descriptor has its `extract` called
-once per test. Array patterns at the top level (test a length) and type tests (`String(s)`)
-are fluent-only.
+once per test.
+
+**Type tests and regexes** work at the top level too: `case String(s):` (`typeof`),
+`case Date(d):` or `case Circle(c):` for a class with no `Destructure` instance
+(`instanceof`), binding the narrowed value; `case /^a/:` tests a string. As in the fluent
+form, they don't count toward exhaustiveness, so such a switch needs a `default:`. Array
+patterns at the top level (a length test) are fluent-only: `switch (xs.length)` is the
+switch idiom.
 
 The label without the import is an ordinary JavaScript label on a plain switch, and the
 transformer warns (TS9224). Plain `tsc` accepts the literal form as written (a labelled

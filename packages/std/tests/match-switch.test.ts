@@ -490,21 +490,6 @@ export function f(g: Geometry | null): string {
     expect(f({ type: "Polygon", coordinates: [] })).toBe("other");
   });
 
-  it("rejects a nested test, which a destructuring case can't express", () => {
-    const r = transformAndRun(`${ACTIVATE}
-type T = { kind: "a"; inner: { tag: "x" | "y" } } | { kind: "b" };
-export function f(t: T): number {
-  match: switch (t) {
-    case { kind: "a", inner: { tag: "x" } }:
-      return 1;
-    default:
-      return 0;
-  }
-}
-`);
-    expect(r.errors).toEqual([expect.stringContaining("only top-level properties can be tested")]);
-  });
-
   it("rejects bindings on a case that falls through with no body", () => {
     const r = transformAndRun(`${ACTIVATE}${GEOMETRY}
 export function f(g: Geometry): number {
@@ -548,5 +533,480 @@ export function f(geom: Geometry): number {
     });
     const diags = ts.getPreEmitDiagnostics(program).filter((d) => d.file?.fileName === "/x.ts");
     expect(diags.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"))).toEqual([]);
+  });
+});
+
+// PEP-065 Wave 1: every case label is a literal, a constant or a pattern.
+// Before, a label the switch form didn't recognise (an attempted guard, a
+// type test, a call) compiled with no error as a value case, and its bound
+// names threw ReferenceError at run time.
+describe("match: switch — case labels (PEP-065)", () => {
+  const SHAPE = `type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };\n`;
+
+  it("rejects a call to an ordinary function, suggesting a const or a guard", () => {
+    const r = transformAndRun(`${ACTIVATE}
+const twice = (n: number) => n * 2;
+export function h(n: number, m: number): string {
+  match: switch (n) {
+    case twice(m):
+      return "double";
+    default:
+      return "other";
+  }
+}
+`);
+    expect(r.errors).toEqual([
+      expect.stringMatching(
+        /literal, a constant or a pattern; `twice\(m\)`[\s\S]*const c = twice\(m\)[\s\S]*case _ && n === twice\(m\)/
+      ),
+    ]);
+  });
+
+  it("rejects computed values: arithmetic, ||, a template with substitutions", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(n: number, m: number, s: string): number {
+  match: switch (n) {
+    case m + 1:
+      return 1;
+    case m || 2:
+      return 2;
+    default:
+      return 0;
+  }
+}
+export function k(s: string, x: string): number {
+  match: switch (s) {
+    case \`a\${x}\`:
+      return 1;
+    default:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toHaveLength(3);
+    for (const e of r.errors) expect(e).toContain("literal, a constant or a pattern");
+  });
+
+  it("an unguarded `case _:` points at default:", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(n: 1 | 2): number {
+  match: switch (n) {
+    case 1:
+      return 1;
+    case _:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("`case _:` matches every value")]);
+  });
+
+  it("accepts a template literal without substitutions as a literal", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(s: "a" | "b"): number {
+  match: switch (s) {
+    case \`a\`:
+      return 1;
+    case "b":
+      return 2;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect((r.exports.h as (s: string) => number)("a")).toBe(1);
+  });
+});
+
+// PEP-065 Wave 2: guards. `case P && cond:` tries the next case when the
+// condition is false; the condition can use the names P binds.
+describe("match: switch — guards (PEP-065)", () => {
+  const SHAPE = `type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };\n`;
+
+  it("a failing guard tries the next case; the guard reads the pattern's names", () => {
+    const r = transformAndRun(`${ACTIVATE}${SHAPE}
+export function f(s: Shape): string {
+  match: switch (s) {
+    case { kind: "rect", w, h } && w === h:
+      return "square " + w;
+    case { kind: "rect", w, h }:
+      return "rect " + w * h;
+    case { kind: "circle", r } && r > 0:
+      return "circle " + r;
+    case { kind: "circle" }:
+      return "dot";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (s: unknown) => string;
+    expect(f({ kind: "rect", w: 2, h: 2 })).toBe("square 2");
+    expect(f({ kind: "rect", w: 2, h: 3 })).toBe("rect 6");
+    expect(f({ kind: "circle", r: 1 })).toBe("circle 1");
+    expect(f({ kind: "circle", r: 0 })).toBe("dot");
+    // The guard reads the fields themselves; the body binds them as before.
+    expect(r.code).toMatch(/case s\.kind === "rect" && s\.w === s\.h: \{\s*const \{ w, h \} = s;/);
+  });
+
+  it("an unguarded switch keeps its discriminant switch", () => {
+    const r = transformAndRun(`${ACTIVATE}${SHAPE}
+export function f(s: Shape): number {
+  match: switch (s) {
+    case { kind: "rect", w, h }:
+      return w * h;
+    case { kind: "circle", r }:
+      return r;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toMatch(/switch \(s\.kind\)/);
+  });
+
+  it("guards literal cases and `_` (a computed comparison)", () => {
+    const r = transformAndRun(`${ACTIVATE}
+const twice = (n: number) => n * 2;
+export function f(n: number, m: number, loud: boolean): string {
+  match: switch (n) {
+    case 0 && loud:
+      return "ZERO";
+    case 0:
+      return "zero";
+    case _ && n === twice(m):
+      return "double";
+    default:
+      return "other";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (n: number, m: number, loud: boolean) => string;
+    expect(f(0, 9, true)).toBe("ZERO");
+    expect(f(0, 9, false)).toBe("zero");
+    expect(f(6, 3, false)).toBe("double");
+    expect(f(5, 3, false)).toBe("other");
+  });
+
+  it("a guarded case covers nothing: the unguarded variants must still be covered", () => {
+    const r = transformAndRun(`${ACTIVATE}${SHAPE}
+export function f(s: Shape): string {
+  match: switch (s) {
+    case { kind: "rect", w, h } && w === h:
+      return "square";
+    case { kind: "circle" }:
+      return "circle";
+  }
+  return "?";
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("rect")]);
+  });
+
+  it("a guarded case with no statements of its own falls through; its names serve the guard", () => {
+    const r = transformAndRun(`${ACTIVATE}${SHAPE}
+export function f(s: Shape): string {
+  match: switch (s) {
+    case { kind: "rect", w, h } && w === h:
+    case { kind: "circle" }:
+      return "round-ish";
+    case { kind: "rect" }:
+      return "rect";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (s: unknown) => string;
+    expect(f({ kind: "rect", w: 2, h: 2 })).toBe("round-ish");
+    expect(f({ kind: "rect", w: 2, h: 3 })).toBe("rect");
+    expect(f({ kind: "circle", r: 1 })).toBe("round-ish");
+  });
+
+  it("leaves a name the guard itself rebinds alone", () => {
+    const r = transformAndRun(`${ACTIVATE}${SHAPE}
+export function f(s: Shape, xs: number[]): string {
+  match: switch (s) {
+    case { kind: "rect", w } && xs.some((w) => w > 10) && w > 0:
+      return "big";
+    default:
+      return "other";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toContain("xs.some((w) => w > 10) && s.w > 0");
+    const f = r.exports.f as (s: unknown, xs: number[]) => string;
+    expect(f({ kind: "rect", w: 1, h: 1 }, [11])).toBe("big");
+    expect(f({ kind: "rect", w: 1, h: 1 }, [1])).toBe("other");
+  });
+
+  it("binds nested and extractor names in a guard", () => {
+    const r = transformAndRun(`${ACTIVATE}
+import { Some, None, type Option } from "@typesugar/fp";
+type P = { kind: "p"; at: [number, number] } | { kind: "q" };
+export function f(p: P): string {
+  match: switch (p) {
+    case { kind: "p", at: [x, y] } && x === y:
+      return "diagonal";
+    default:
+      return "off";
+  }
+}
+export function g(o: Option<number>): string {
+  match: switch (o) {
+    case Some(v) && v > 0:
+      return "positive";
+    case Some(v):
+      return "some " + v;
+    case None:
+      return "none";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (p: unknown) => string;
+    expect(f({ kind: "p", at: [3, 3] })).toBe("diagonal");
+    expect(f({ kind: "p", at: [3, 4] })).toBe("off");
+    const g = r.exports.g as (o: unknown) => string;
+    expect(g(5)).toBe("positive");
+    expect(g(-1)).toBe("some -1");
+    expect(g(null)).toBe("none");
+  });
+
+  it("rejects a rest binding in a guard (it has no single place to read from)", () => {
+    const r = transformAndRun(`${ACTIVATE}${SHAPE}
+export function f(s: Shape): number {
+  match: switch (s) {
+    case { kind: "rect", ...rest } && rest.w > 0:
+      return 1;
+    default:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("rest")]);
+  });
+
+  it("asks to name a scrutinee that isn't a plain name when suggesting a guard", () => {
+    const r = transformAndRun(`${ACTIVATE}
+const twice = (n: number) => n * 2;
+export function h(o: { n: number }, m: number): string {
+  match: switch (o.n) {
+    case twice(m):
+      return "double";
+    default:
+      return "other";
+  }
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("name the scrutinee")]);
+  });
+});
+
+// PEP-065 Wave 3 (D1-a): a literal, an extractor, a type test or a regex
+// below the top level TESTS; an object or array shape without one still
+// destructures, and `[x, y, ...[]]` opts into an exact length.
+describe("match: switch — nested tests, type tests, regex (PEP-065)", () => {
+  it("tests a nested literal, and moves on (not throws) when an optional parent is missing", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type T = { kind: "a"; inner?: { tag: "x" | "y" } } | { kind: "b" };
+export function f(t: T): string {
+  match: switch (t) {
+    case { kind: "a", inner: { tag: "x" } }:
+      return "ax";
+    case { kind: "a" }:
+      return "a";
+    case { kind: "b" }:
+      return "b";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (t: unknown) => string;
+    expect(f({ kind: "a", inner: { tag: "x" } })).toBe("ax");
+    expect(f({ kind: "a", inner: { tag: "y" } })).toBe("a");
+    expect(f({ kind: "a" })).toBe("a");
+    expect(f({ kind: "b" })).toBe("b");
+  });
+
+  it("a case with a nested test covers less than its variant", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type T = { kind: "a"; n: 1 | 2 } | { kind: "b" };
+export function f(t: T): string {
+  match: switch (t) {
+    case { kind: "a", n: 1 }:
+      return "a1";
+    case { kind: "b" }:
+      return "b";
+  }
+  return "?";
+}
+`);
+    expect(r.errors).toEqual([expect.stringContaining("Non-exhaustive")]);
+  });
+
+  it("tests nested extractors, and binds through them", () => {
+    const r = transformAndRun(`${ACTIVATE}
+import { Some, None, type Option } from "@typesugar/fp";
+type Slot = { kind: "slot"; value: Option<number> } | { kind: "empty" };
+export function f(s: Slot): string {
+  match: switch (s) {
+    case { kind: "slot", value: Some(v) }:
+      return "some " + v;
+    case { kind: "slot", value: None }:
+      return "none";
+    case { kind: "empty" }:
+      return "empty";
+    // The coverage check (shared with the fluent form) doesn't see that
+    // Some/None inside a field cover the field's type, so this needs a default.
+    default:
+      return "?";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (s: unknown) => string;
+    expect(f({ kind: "slot", value: 4 })).toBe("some 4");
+    expect(f({ kind: "slot", value: null })).toBe("none");
+    expect(f({ kind: "empty" })).toBe("empty");
+  });
+
+  it("an extractor's literal argument is a test (Some(0))", () => {
+    const r = transformAndRun(`${ACTIVATE}
+import { Some, None, type Option } from "@typesugar/fp";
+export function f(o: Option<number>): string {
+  match: switch (o) {
+    case Some(0):
+      return "zero";
+    case Some(n):
+      return "some " + n;
+    case None:
+      return "none";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (o: unknown) => string;
+    expect(f(0)).toBe("zero");
+    expect(f(3)).toBe("some 3");
+    expect(f(null)).toBe("none");
+  });
+
+  it("[x, y, ...[]] tests the exact length; [x, y, z] still destructures", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type G = { type: "Point"; coordinates: number[] } | { type: "Line"; coordinates: number[][] };
+export function f(g: G): string {
+  match: switch (g) {
+    case { type: "Point", coordinates: [x, y, ...[]] }:
+      return "2d " + x + "," + y;
+    case { type: "Point", coordinates: [x, y, z] }:
+      return "3d " + x + "," + y + "," + z;
+    case { type: "Line" }:
+      return "line";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (g: unknown) => string;
+    expect(f({ type: "Point", coordinates: [1, 2] })).toBe("2d 1,2");
+    expect(f({ type: "Point", coordinates: [1, 2, 3] })).toBe("3d 1,2,3");
+    expect(f({ type: "Point", coordinates: [1] })).toBe("3d 1,undefined,undefined");
+  });
+
+  it("an unmarked nested array keeps the hand-written discriminant switch", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type G = { type: "Point"; coordinates: number[] } | { type: "Line"; coordinates: number[][] };
+export function f(g: G): number {
+  match: switch (g) {
+    case { type: "Point", coordinates: [x, y] }:
+      return x + y;
+    case { type: "Line" }:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.code).toMatch(/switch \(g\.type\)/);
+    expect(r.code).toContain("const [x, y] = g.coordinates;");
+  });
+
+  it("top-level type tests bind the narrowed value", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function g(t: string | Date): number {
+  match: switch (t) {
+    case String(s):
+      return s.length;
+    case Date(d):
+      return d.getFullYear();
+    // As in the fluent form, type tests don't count toward exhaustiveness.
+    default:
+      return -1;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const g = r.exports.g as (t: unknown) => number;
+    expect(g("abc")).toBe(3);
+    expect(g(new Date(2020, 1, 1))).toBe(2020);
+  });
+
+  it("a class with no Destructure instance is an instanceof test", () => {
+    const r = transformAndRun(`${ACTIVATE}
+class Circle { constructor(public r: number) {} }
+class Square { constructor(public side: number) {} }
+export function area(s: Circle | Square): number {
+  match: switch (s) {
+    case Circle(c):
+      return 3 * c.r * c.r;
+    case Square(q):
+      return q.side * q.side;
+    default:
+      return 0;
+  }
+}
+export const out = [area(new Circle(1)), area(new Square(2))];
+`);
+    expect(r.errors).toEqual([]);
+    expect(r.exports.out).toEqual([3, 4]);
+  });
+
+  it("a regex case tests a string", () => {
+    const r = transformAndRun(`${ACTIVATE}
+export function h(s: string): number {
+  match: switch (s) {
+    case /^a/:
+      return 1;
+    case /^b/ && s.length > 1:
+      return 2;
+    default:
+      return 0;
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const h = r.exports.h as (s: string) => number;
+    expect(h("apple")).toBe(1);
+    expect(h("bb")).toBe(2);
+    expect(h("b")).toBe(0);
+    expect(h("c")).toBe(0);
+  });
+
+  it("combines a nested test with a guard", () => {
+    const r = transformAndRun(`${ACTIVATE}
+type T = { kind: "a"; inner: { tag: "x" | "y"; n: number } } | { kind: "b" };
+export function f(t: T): string {
+  match: switch (t) {
+    case { kind: "a", inner: { tag: "x", n } } && n > 5:
+      return "big x";
+    case { kind: "a" }:
+      return "a";
+    case { kind: "b" }:
+      return "b";
+  }
+}
+`);
+    expect(r.errors).toEqual([]);
+    const f = r.exports.f as (t: unknown) => string;
+    expect(f({ kind: "a", inner: { tag: "x", n: 9 } })).toBe("big x");
+    expect(f({ kind: "a", inner: { tag: "x", n: 1 } })).toBe("a");
+    expect(f({ kind: "a", inner: { tag: "y", n: 9 } })).toBe("a");
   });
 });
