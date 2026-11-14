@@ -1622,6 +1622,7 @@ export function createMacroCallChainRule(): DiagnosticSuppressionRule {
     errorCodes: [
       ...new Set([
         2339,
+        NOT_CALLABLE_CLASS,
         ...UNRESOLVED_CHAIN_NAME_CODES,
         ...POSSIBLY_NULLISH_CODES,
         ...SHADOWED_NAME_CODES,
@@ -1641,6 +1642,11 @@ export function createMacroCallChainRule(): DiagnosticSuppressionRule {
 
       if (diagnostic.code === 2339 && isMatchChainMethodName(node, checker, sourceFile)) {
         return true;
+      }
+
+      if (diagnostic.code === NOT_CALLABLE_CLASS) {
+        const call = notCallableCall(node);
+        return call !== undefined && isInCasePattern(call, checker, sourceFile);
       }
 
       if (POSSIBLY_NULLISH_CODES.includes(diagnostic.code)) {
@@ -1811,6 +1817,47 @@ function isValueReference(id: ts.Identifier): boolean {
 
 /** "Cannot find name" and the shorthand-property form, for a pattern name. */
 const UNRESOLVED_CHAIN_NAME_CODES: readonly number[] = [2304, 18004];
+
+/**
+ * "Value of type 'typeof X' is not callable. Did you mean to include 'new'?":
+ * a class used as a type or extractor pattern (`.case(Ok(v))`, `case
+ * Ok(v):`) is called without `new` as written. The expansion never calls it:
+ * the pattern becomes a Destructure instance's test or an `instanceof`
+ * (neverthrow case study F8).
+ */
+const NOT_CALLABLE_CLASS = 2348;
+
+/** The call a TS2348 is about: it spans the whole call, `X(v)`. */
+function notCallableCall(node: ts.Node): ts.CallExpression | undefined {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) {
+    if (ts.isCallExpression(n)) return n;
+    if (!ts.isIdentifier(n) && !ts.isPropertyAccessExpression(n)) return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Is `call` inside the pattern of a typesugar `match()` arm: an argument of
+ * a `.case()` or `.or()` link, directly or nested in other patterns
+ * (`.case(Ok(Err(e)))`)? Not an arm's result (`.then(Ok(v))`) or guard: the
+ * innermost enclosing chain link decides. That the chain is typesugar's
+ * `match` is decided by symbol (flattenMatchChain).
+ */
+function isInCasePattern(
+  call: ts.CallExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile
+): boolean {
+  for (let current: ts.Node | undefined = call.parent; current; current = current.parent) {
+    if (!ts.isCallExpression(current)) continue;
+    if (!current.arguments.some((a) => isWithin(call, a))) continue;
+    const callee = current.expression;
+    if (!ts.isPropertyAccessExpression(callee)) continue; // a pattern call: keep going
+    if (!flattenMatchChain(current, checker, sourceFile)) return false;
+    return callee.name.text === "case" || callee.name.text === "or";
+  }
+  return false;
+}
 
 /**
  * The identifiers a shadowing diagnostic at `node` may be about: the name or
@@ -2172,6 +2219,8 @@ function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
  *   pattern or its own statements. The expansion declares exactly those
  *   names, in a block around exactly those statements. A name bound by one
  *   case and used in another is still reported: it IS undeclared there.
+ * - TS2348 ("not callable") on a class used as an extractor pattern
+ *   (`case Ok(v):`), which the expansion never calls (NOT_CALLABLE_CLASS).
  * - TS7028 ("Unused label", under `allowUnusedLabels: false`) on the `match`
  *   label itself, which the expansion removes.
  * - TS2366 ("Function lacks ending return statement") / TS7030 ("Not all
@@ -2188,12 +2237,22 @@ function enclosingMatchSwitch(node: ts.Node): ts.LabeledStatement | undefined {
 export function createMatchSwitchRule(): DiagnosticSuppressionRule {
   return {
     name: "MatchSwitch",
-    errorCodes: [2304, 18004, 7028, 2366, 7030],
+    errorCodes: [2304, 18004, 7028, 2366, 7030, NOT_CALLABLE_CLASS],
 
     shouldSuppress(diagnostic, _checker, sourceFile, context): boolean {
       if (diagnostic.start === undefined || !context?.program) return false;
       const node = findNodeAtPosition(sourceFile, diagnostic.start, diagnostic.length ?? 1);
       if (!node || isSyntheticNode(node)) return false;
+      if (diagnostic.code === NOT_CALLABLE_CLASS) {
+        // A class in a case's pattern (`case Ok(v):`), not in its statements.
+        const call = notCallableCall(node);
+        const labeled = call && enclosingMatchSwitch(call);
+        if (!call || !labeled || !ts.isSwitchStatement(labeled.statement)) return false;
+        const inPattern = labeled.statement.caseBlock.clauses.some(
+          (c) => ts.isCaseClause(c) && isWithin(call, c.expression)
+        );
+        return inPattern && matchSwitchActivated(context.program, sourceFile);
+      }
       if (diagnostic.code === 2366 || diagnostic.code === 7030) {
         const fn = functionOfEndDiagnostic(node);
         const body = fn?.body;

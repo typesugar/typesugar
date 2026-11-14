@@ -740,6 +740,12 @@ match(p)
 // const x = _p.x; const y = _p.y; return x + y;  (no extract() call)
 ```
 
+The name in the pattern can be a class, too: neverthrow's `Ok` and `Err` are classes, and
+`@impl Destructure<typeof Ok, Result<unknown, unknown>, unknown>` with
+`@destructure has value -> value` makes `.case(Ok(v))` compile to `"value" in _r` and
+`_r.value`. As written, `Ok(v)` calls a class without `new`; `typesugar check` and the
+editor don't report that (TS2348) inside a pattern, only elsewhere.
+
 **`@destructure`** tells the macro what `extract` does, so it inlines the test and the
 field reads and never calls the instance. It is data in a JSDoc tag, so it survives `.d.ts`
 emit and works for a library's instances, whose bodies a consumer's build can't see:
