@@ -30,6 +30,7 @@ import { createPositionMapper } from "@typesugar/transformer/position-mapper";
 import {
   applyEdits,
   isTypesugarUnusedImportError,
+  LineIndex,
   mapMessages,
   stripBom,
   type MappingState,
@@ -100,6 +101,52 @@ function collectMacroSyntaxEdits(fileName: string, text: string): TextEdit[] {
   return edits;
 }
 
+/**
+ * Rules that report a guarded `match:` case label as written. In
+ * `case { kind: "rect", w } && w > 0:` the left operand is an object literal,
+ * always truthy as a value; the `match:` macro reads it as a pattern
+ * (PEP-065), so a report on it is not about the code that runs.
+ */
+const GUARDED_PATTERN_RULES = new Set(["no-constant-binary-expression"]);
+
+/**
+ * The spans (offsets in `text`) of the patterns of guarded case labels in
+ * `match:` switches: the left-most operand of a label's top-level `&&`
+ * chain, as std's match-switch.ts splitGuard reads it. By syntax only: the
+ * label name, not whether the file activates `match:` (an inactive label is
+ * a TS9224 warning of its own).
+ */
+function guardedPatternSpans(fileName: string, text: string): Array<[number, number]> {
+  if (!text.includes("match:")) return [];
+  const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, kind);
+  const unparen = (e: ts.Expression): ts.Expression => {
+    while (ts.isParenthesizedExpression(e)) e = e.expression;
+    return e;
+  };
+  const isAnd = (e: ts.Expression): e is ts.BinaryExpression =>
+    ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken;
+  const spans: Array<[number, number]> = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isLabeledStatement(node) &&
+      node.label.text === "match" &&
+      ts.isSwitchStatement(node.statement)
+    ) {
+      for (const clause of node.statement.caseBlock.clauses) {
+        if (!ts.isCaseClause(clause)) continue;
+        let e = unparen(clause.expression);
+        if (!isAnd(e)) continue;
+        while (isAnd(e)) e = unparen(e.left);
+        spans.push([e.getStart(sf), e.getEnd()]);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return spans;
+}
+
 interface TransformResult {
   code: string;
   toOriginal: (offset: number) => number | null;
@@ -160,6 +207,7 @@ export function createProcessor(): Linter.Processor {
   // when its postprocess runs, so a long-lived ESLint process (editor
   // integration, `--cache` runs) doesn't retain every file it has linted.
   const fileStates = new Map<string, MappingState>();
+  const guardedPatterns = new Map<string, Array<[number, number]>>();
 
   return {
     meta: {
@@ -178,6 +226,7 @@ export function createProcessor(): Linter.Processor {
 
       // ESLint parses — and applies fixes to — the BOM-less text.
       const source = stripBom(text);
+      guardedPatterns.set(filename, guardedPatternSpans(filename, source));
       if (!usesTypesugar(source)) {
         fileStates.set(filename, {
           originalSource: source,
@@ -199,9 +248,17 @@ export function createProcessor(): Linter.Processor {
     postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
       const state = fileStates.get(filename);
       fileStates.delete(filename);
+      const spans = guardedPatterns.get(filename) ?? [];
+      guardedPatterns.delete(filename);
       if (!state) {
         return messages.flat();
       }
+      const original = new LineIndex(state.originalSource);
+      const onGuardedPattern = (m: Linter.LintMessage): boolean => {
+        if (!m.ruleId || !GUARDED_PATTERN_RULES.has(m.ruleId) || spans.length === 0) return false;
+        const at = original.toOffset(m.line, m.column);
+        return spans.some(([start, end]) => at >= start && at < end);
+      };
 
       const flat = messages
         .flat()
@@ -209,7 +266,7 @@ export function createProcessor(): Linter.Processor {
         // rewriter's `Kind` import) has no original line to check against.
         .filter((m) => !isTypesugarUnusedImportError(m, state.transformedSource));
       return mapMessages(flat, state).filter(
-        (m) => !isTypesugarUnusedImportError(m, state.originalSource)
+        (m) => !isTypesugarUnusedImportError(m, state.originalSource) && !onGuardedPattern(m)
       );
     },
   };

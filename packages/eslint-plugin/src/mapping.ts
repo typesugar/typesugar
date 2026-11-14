@@ -46,7 +46,7 @@ function lineStarts(text: string): number[] {
   return starts;
 }
 
-class LineIndex {
+export class LineIndex {
   private readonly starts: number[];
   constructor(private readonly text: string) {
     this.starts = lineStarts(text);
