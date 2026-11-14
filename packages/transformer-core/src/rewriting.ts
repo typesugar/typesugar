@@ -56,6 +56,7 @@ import {
   relativeImportStyleOf,
   sourceSpecifierExtension,
   type RelativeImportStyle,
+  rewrittenArgumentCount,
 } from "@typesugar/core";
 
 import { createMacroErrorExpression, type VisitFn } from "./transformer-utils.js";
@@ -396,6 +397,45 @@ export function tryRewriteExtensionMethod(
 }
 
 /**
+ * Report `recv.method(...)` when nothing rewrote it and its receiver is
+ * itself sugar the checker could not type (`users.sortBy(f).nosuch()`,
+ * `const s = users.sortBy(f); s.nosuch()`). The checker types such a receiver
+ * as an error, so it reports no TS2339 for the call, and the call would be
+ * emitted as written: a TypeError at run time with no diagnostic (remeda case
+ * study F6). Call it only after every method-call rewrite has declined.
+ *
+ * Reported only when the receiver's type was recovered from the sugar it is
+ * rewritten to and lacks `method`: a receiver that is `any` in the source,
+ * or whose type could not be recovered, keeps the existing warning (see
+ * `tryRewriteExtensionMethod`). Original (parsed) nodes only (CLAUDE.md).
+ */
+export function reportUnrewrittenSugaredReceiverCall(
+  ctx: MacroContextImpl,
+  resolveExtensionFromImports: ResolveExtensionFn,
+  node: ts.CallExpression
+): void {
+  if (isSyntheticNode(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+  const receiver = node.expression.expression;
+  const methodName = node.expression.name.text;
+  const checker = ctx.typeChecker;
+  try {
+    if (ctx.isTypeReliable(checker.getTypeAtLocation(receiver))) return;
+  } catch {
+    return;
+  }
+  const inferred = inferSugaredExpressionType(ctx, resolveExtensionFromImports, receiver, 0);
+  if (!inferred) return;
+  if (checker.getApparentType(inferred).getProperty(methodName)) return;
+  ctx.reportError(
+    node,
+    `'${methodName}' is not a method of '${checker.typeToString(inferred)}', the type typesugar ` +
+      `infers for this receiver, and no imported extension '${methodName}' accepts it, so the call ` +
+      `would fail at run time. Call it as a function (${methodName}(receiver, ...)) or give the ` +
+      `receiver a type annotation.`
+  );
+}
+
+/**
  * The type an expression WILL have once typesugar's sugar is rewritten, for an
  * expression the checker could not type (an error type): an extension call or
  * typeclass method-sugar call (`p.clone()`), a parenthesised one, or an
@@ -522,7 +562,12 @@ function inferExtensionCallType(
       call,
       ext,
       checker.getTypeOfSymbolAtLocation(skipAlias(checker, sym), call),
-      innerType
+      innerType,
+      // The rewrite passes the receiver plus the call's arguments, so only an
+      // overload taking that many can be the one TypeScript picks: remeda's
+      // purried functions declare the data-last overload first (remeda
+      // case study F6).
+      rewrittenArgumentCount(call)
     );
   } catch (error) {
     ctx.reportWarning(

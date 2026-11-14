@@ -31,6 +31,10 @@ import {
 import { VirtualCompilerHost } from "./virtual-host.js";
 import { keepMacroReferencedImports } from "./keep-imports.js";
 import {
+  captureMacroReferencedImports,
+  withoutMacroReferencedImports,
+} from "./unused-import-diagnostics.js";
+import {
   expandedCheckRegions,
   inBlindSpot,
   mapExpandedDiagnostics,
@@ -707,6 +711,9 @@ function build(options: CliOptions): void {
   // check (the expansion the build really made).
   const expandedSources = new Map<string, string>();
   const expandedMaps = new Map<string, () => RawSourceMap | null>();
+  // Import bindings only the expansion references, whose unused-import
+  // diagnostics are dropped (unused-import-diagnostics.ts).
+  const macroReferenced = new Map<string, ReadonlySet<string>>();
   if (noEmit || declarationOnly) {
     // `check`: program.emit() is a no-op under noEmit, so the macro
     // transformer would never run and macro errors would go unreported.
@@ -721,26 +728,28 @@ function build(options: CliOptions): void {
       emitDeclarations ||
       Boolean(options.strict) ||
       expandedCheckRegions(suppressed, program).size > 0;
-    for (const [f, text] of expandProgramSources(
-      program,
-      transformerFactory,
-      expandedMaps,
-      print
-    )) {
+    for (const [f, text] of expandProgramSources(program, transformerFactory, expandedMaps, print, [
+      captureMacroReferencedImports(program, macroReferenced),
+    ])) {
       expandedSources.set(f, text);
     }
     profiler.end("cli.build.checkExpand");
+    tsDiagnostics = withoutMacroReferencedImports(tsDiagnostics, macroReferenced);
   } else {
     profiler.start("cli.build.emit");
     const emitResult = program.emit(undefined, customWriteFile, undefined, false, {
       before: [
         transformerFactory,
         captureExpandedSource(program, expandedSources, expandedMaps),
+        captureMacroReferencedImports(program, macroReferenced),
         keepMacroReferencedImports(program),
       ],
     });
     profiler.end("cli.build.emit");
-    tsDiagnostics = filterTsDiagnostics([...preEmitDiagnostics, ...emitResult.diagnostics]);
+    tsDiagnostics = withoutMacroReferencedImports(
+      filterTsDiagnostics([...preEmitDiagnostics, ...emitResult.diagnostics]),
+      macroReferenced
+    );
   }
 
   // The expanded type check (strict-check.ts): the expansion as a program
@@ -962,6 +971,8 @@ function watch(options: CliOptions): void {
   // doesn't repeat. Across cycles: the expanded text of each file the macros
   // changed, as last emitted -- the builder re-emits only affected files.
   let suppressed: Array<{ diagnostic: ts.Diagnostic; rule: string }> = [];
+  // Import bindings only the expansion references (unused-import-diagnostics.ts).
+  const macroReferenced = new Map<string, ReadonlySet<string>>();
   let printedTs: ts.Diagnostic[] = [];
   const expandedSources = new Map<string, string>();
   const expandedMaps = new Map<string, () => RawSourceMap | null>();
@@ -1051,6 +1062,17 @@ function watch(options: CliOptions): void {
         );
         if (filtered.length === 0) return;
       }
+      // Reported after the emit, so the expansion's imports are known.
+      const kept = withoutMacroReferencedImports([diagnostic], macroReferenced);
+      if (kept.length === 0) return;
+      for (const d of kept.slice(1)) {
+        const extra = toWrittenPosition(d);
+        if (extra) {
+          printedTs.push(extra);
+          report([extra]);
+        }
+      }
+      diagnostic = kept[0];
       // Undefined for one on the comprehension preprocessor's own tag.
       const written = toWrittenPosition(diagnostic);
       if (written) {
@@ -1116,6 +1138,7 @@ function watch(options: CliOptions): void {
           forgetExpansion,
           transformerFactory,
           captureExpandedSource(program, expandedSources, expandedMaps),
+          captureMacroReferencedImports(program, macroReferenced),
           keepMacroReferencedImports(program),
           ...(customTransformers?.before ?? []),
         ],

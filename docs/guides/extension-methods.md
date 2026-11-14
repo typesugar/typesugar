@@ -237,7 +237,7 @@ When the transformer encounters `value.method()`:
 1. **Native method**: If `value` has a callable property `method`, use it. No import replaces it: with `import { match } from "ts-pattern"` (or typesugar's `match` macro) in scope, neverthrow's `result.match(onOk, onErr)` is still neverthrow's method. A property that can't be called (a `step: number` field) doesn't block an imported function `step(value, n)`.
 2. **Type rewrite registry** (PEP-012): If the receiver type is `@opaque`, look up the method in the type rewrite registry and rewrite to the companion function
 3. **Global augmentation**: If the method is declared via `declare global { interface T { ... } }`, the type checker sees it, and the transformer rewrites via `forceRewrite`
-4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported `@impl` instances, whose first parameter accepts the receiver. When the imported function is an expression macro, the rewritten call is a call to that macro and expands as one: `shape.match(handlers)` compiles exactly like `match(shape, handlers)`.
+4. **Extension functions in scope**: Imported functions named after the method, members of `import * as X` namespaces and of [`@extension`-tagged imports](#extension-objects), and members of imported `@impl` instances, whose first parameter accepts the receiver and which can take the rewritten call's arguments (the receiver plus the call's own; any number with a spread argument). A generic first parameter accepts almost any receiver, so the count is what keeps a one-parameter function such as remeda's `isArray(data)` from taking a call that passes arguments. When the imported function is an expression macro, the rewritten call is a call to that macro and expands as one: `shape.match(handlers)` compiles exactly like `match(shape, handlers)`.
 5. **Typeclass methods**: Rewritten to a call on the instance in scope (an `@impl` or `derived<TC<T>>()` value, or a `@derive`d companion such as `Point.Show`) — `p.show()` → `Point.Show.show(p)`. There is no runtime `Show.summon`; `summon<Show<Point>>()` is a compile-time macro.
 
 Type rewrite registry (step 2) has highest priority for `@opaque` types because the registry is authoritative. Global augmentation (step 3) handles built-in type extensions from `@typesugar/std`.
@@ -376,6 +376,30 @@ import { first, mapTo } from "./generic-ext";
 ["a", "b"].first(); // "a"
 [1, 2, 3].mapTo("x"); // ["x", "x", "x"]
 ```
+
+### Chains through generic extensions
+
+A chain such as `users.sortBy(byScore).groupBy(byGroup)` is rewritten from the inside out:
+`groupBy(sortBy(users, byScore), byGroup)`. To pick the extension for `.groupBy`, the
+transformer needs the type `sortBy(...)` returns, and it cannot instantiate a generic
+signature. A return type that is a mapped or conditional type over the signature's type
+parameters (remeda's `ReorderedArray<T>`, `Chunk<T, N>`) is therefore read with the
+parameters at their constraints: the shape is kept (an array, an object) and the element
+type is not. Among overloads, only those taking the rewritten call's argument count are
+considered, so a library's data-last overload is not mistaken for the data-first one.
+
+If the next call in the chain then matches neither a member nor an imported extension (an
+extension that needs `number[]` after a call whose result is known only as an array), the
+transformer reports an error instead of leaving a call that would fail at run time. Call that
+step as a function, or annotate a variable:
+
+```typescript
+const sorted: number[] = scores.sortBy((s) => s);
+sorted.sum(); // → sum(sorted)
+```
+
+An import used only through method syntax is used: `typesugar check` and `typesugar build`
+don't report it under `noUnusedLocals`.
 
 ## When to Use `extend()`
 

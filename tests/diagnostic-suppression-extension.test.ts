@@ -102,7 +102,7 @@ describe("ExtensionMethodCall diagnostic suppression rule", () => {
     it("creates a rule with correct metadata", () => {
       const rule = createExtensionMethodCallRule();
       expect(rule.name).toBe("ExtensionMethodCall");
-      // TS2339 for the call, TS7006 for an untyped callback parameter of it
+      // TS2339 (TS2551 with a similar name) for the call, TS7006 for an untyped callback parameter of it
       expect(rule.errorCodes).toEqual([2339, 2551, 7006]);
     });
   });

@@ -986,7 +986,8 @@ export function scanImportsForExtension(
   sourceFile: ts.SourceFile,
   methodName: string,
   receiverType: ts.Type,
-  node?: ts.Node
+  node?: ts.Node,
+  argumentCount?: number
 ): StandaloneExtensionInfo | undefined {
   if (!sourceFile || !sourceFile.statements) {
     return undefined;
@@ -995,7 +996,8 @@ export function scanImportsForExtension(
   const matches = findImportedExtensionMatches(
     { ...extensionImportEnv(ctx), sourceFile },
     methodName,
-    receiverType
+    receiverType,
+    argumentCount
   );
 
   // The same export reached two ways (`import { head }` and `import * as std`

@@ -46,6 +46,67 @@ export function receiverMatchesFirstParam(
   return matchesErased(checker, receiverType, paramType, new Set<ts.Type>(typeParams), 0);
 }
 
+/**
+ * How many arguments the rewrite of `recv.method(args)` passes: the receiver
+ * plus the call's own. `undefined` when a spread argument makes the count
+ * unknown, so no import is ruled out by it.
+ */
+export function rewrittenArgumentCount(call: ts.CallExpression): number | undefined {
+  if (call.arguments.some(ts.isSpreadElement)) return undefined;
+  return call.arguments.length + 1;
+}
+
+/**
+ * Can `sig` be called with `count` arguments? Optional and defaulted
+ * parameters may be left out; a rest parameter takes any number.
+ */
+export function acceptsArgumentCount(sig: ts.Signature, count: number): boolean {
+  let required = 0;
+  let max = 0;
+  for (const param of sig.getParameters()) {
+    const decl = param.valueDeclaration;
+    if (decl && ts.isParameter(decl)) {
+      if (decl.dotDotDotToken) return count >= required;
+      if (!decl.questionToken && !decl.initializer) required++;
+    } else {
+      required++;
+    }
+    max++;
+  }
+  return count >= required && count <= max;
+}
+
+/**
+ * The return type of an uninstantiated generic signature, usable as the
+ * receiver type of the next call in a chain. A type reference
+ * (`Effect<B, E>`) is kept as it is: the next extension's first-parameter
+ * match treats its type parameters as wildcards. A mapped type over a type
+ * parameter (remeda's `ReorderedArray<T>`) or a conditional, indexed or
+ * other deferred type over one (`Chunk<T, N>`) matches nothing as it stands,
+ * so it is erased to what it is for the parameters' constraints: the mapped
+ * type instantiated with them (its apparent type), the deferred type's base
+ * constraint. That keeps the shape (an array, an object) and loses the
+ * element types, so an extension that needs a specific element type is not
+ * matched; the caller reports that call rather than leave it as written.
+ * Undefined when there is nothing usable.
+ */
+export function eraseGenericReturnType(
+  checker: ts.TypeChecker,
+  type: ts.Type
+): ts.Type | undefined {
+  if (type.flags & ts.TypeFlags.TypeParameter) return type;
+  if (type.flags & ts.TypeFlags.Instantiable) {
+    return checker.getBaseConstraintOfType(type) ?? undefined;
+  }
+  if (
+    type.flags & ts.TypeFlags.Object &&
+    (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Mapped
+  ) {
+    return checker.getApparentType(type);
+  }
+  return type;
+}
+
 function isReferenceType(type: ts.Type): type is ts.TypeReference {
   return (
     (type.flags & ts.TypeFlags.Object) !== 0 &&

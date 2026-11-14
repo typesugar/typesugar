@@ -129,13 +129,15 @@ export function captureExpandedSource(
  * return the printed text of the files the macros changed (none when `print`
  * is false: the expansion then runs only for its diagnostics). Run it only
  * after the program's own diagnostics are collected: the transform attaches
- * synthetic nodes to the program's trees (see cli.ts `check`).
+ * synthetic nodes to the program's trees (see cli.ts `check`). `after` runs
+ * on each expanded tree, after the macro transformer.
  */
 export function expandProgramSources(
   program: ts.Program,
   transformerFactory: ts.TransformerFactory<ts.SourceFile>,
   maps?: Map<string, () => RawSourceMap | null>,
-  print = true
+  print = true,
+  after: readonly ts.TransformerFactory<ts.SourceFile>[] = []
 ): Map<string, string> {
   const expanded = new Map<string, string>();
   const capture = captureExpandedSource(program, expanded, maps);
@@ -145,7 +147,7 @@ export function expandProgramSources(
     }
     const result = ts.transform(
       sourceFile,
-      print ? [transformerFactory, capture] : [transformerFactory],
+      print ? [transformerFactory, ...after, capture] : [transformerFactory, ...after],
       program.getCompilerOptions()
     );
     result.dispose();

@@ -42,6 +42,7 @@ import {
   getRemoveComment,
   TS9222,
   withStandaloneExtensionFile,
+  rewrittenArgumentCount,
 } from "@typesugar/core";
 
 import {
@@ -96,6 +97,7 @@ import {
   tryExpandTaggedTemplate as tryExpandTaggedTemplateFn,
   tryExpandTypeMacro as tryExpandTypeMacroFn,
   tryRewriteExtensionMethod as tryRewriteExtensionMethodFn,
+  reportUnrewrittenSugaredReceiverCall,
   tryTransformHKTDeclaration as tryTransformHKTDeclarationFn,
   tryRewriteTypeclassOperator as tryRewriteTypeclassOperatorFn,
   tryRewriteTypeclassUnaryOperator as tryRewriteTypeclassUnaryOperatorFn,
@@ -378,12 +380,23 @@ class MacroTransformer {
       this.importExtensionCache.set(receiverType, methodCache);
     }
 
+    // Keyed by the argument count too: whether an import can take the
+    // rewritten call depends on it (remeda case study F9).
+    const argumentCount = rewrittenArgumentCount(node);
+    const key = `${methodName}/${argumentCount ?? "..."}`;
     let result: StandaloneExtensionInfo | undefined;
-    if (methodCache.has(methodName)) {
-      result = methodCache.get(methodName);
+    if (methodCache.has(key)) {
+      result = methodCache.get(key);
     } else {
-      result = scanImportsForExtension(this.ctx, sourceFile, methodName, receiverType, node);
-      methodCache.set(methodName, result);
+      result = scanImportsForExtension(
+        this.ctx,
+        sourceFile,
+        methodName,
+        receiverType,
+        node,
+        argumentCount
+      );
+      methodCache.set(key, result);
     }
     // Per call site, after the per-type cache: a local that shadows the
     // import here would be what the rewritten call names. Asked at the
@@ -1494,6 +1507,12 @@ class MacroTransformer {
         }
         return methodSugarResult;
       }
+
+      reportUnrewrittenSugaredReceiverCall(
+        this.ctx,
+        this.resolveExtensionFromImports.bind(this),
+        node
+      );
     }
 
     // @opaque constructor call erasure -- `Some(x)` -> `x`, `None()` -> `null`.

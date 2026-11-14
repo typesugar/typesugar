@@ -1118,6 +1118,107 @@ describe("ExtensionMethodCall: a generic method of an imported extension object 
   });
 });
 
+describe("ExtensionMethodCall: a name close to a native member, and callbacks inside literals (remeda F8)", () => {
+  // `xs.sortBy(rules)` on a `User[]` is rewritten to `sortBy(xs, rules)`, but
+  // TypeScript reports a missing property as TS2551 ("Did you mean 'sort'?")
+  // instead of TS2339 when the type has a member with a similar name, and the
+  // rule only handled TS2339. The callback inside remeda's tuple rule
+  // (`[(u) => u.score, "desc"]`) was TS7006 because only a callback passed
+  // directly as an argument was recognised.
+  const rule = createExtensionMethodCallRule();
+
+  function program(main: string) {
+    const files: Record<string, string> = {
+      "/lib.d.ts": `
+        interface Array<T> { length: number; sort(cmp?: (a: T, b: T) => number): this }
+        interface ReadonlyArray<T> { readonly length: number }
+        interface Boolean {} interface Function {} interface IArguments {} interface Number {}
+        interface Object {} interface RegExp {} interface String {} interface CallableFunction {}
+        interface NewableFunction {}
+      `,
+      "/ext.ts": `
+        export function sortBy<T>(
+          data: readonly T[],
+          rule: readonly [(x: T) => number, "asc" | "desc"] | { readonly by: (x: T) => number },
+        ): T[] { return [...data]; }
+      `,
+      "/main.ts": main,
+    };
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      noLib: true,
+      types: [],
+    };
+    const host: ts.CompilerHost = {
+      getSourceFile: (name, lv) =>
+        name in files ? ts.createSourceFile(name, files[name], lv, true) : undefined,
+      getDefaultLibFileName: () => "/lib.d.ts",
+      writeFile: () => {},
+      getCurrentDirectory: () => "/",
+      getDirectories: () => [],
+      fileExists: (f) => f in files,
+      readFile: (f) => files[f],
+      getCanonicalFileName: (f) => f,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+    };
+    const p = ts.createProgram(Object.keys(files), options, host);
+    const sf = p.getSourceFile("/main.ts")!;
+    return { program: p, sf, checker: p.getTypeChecker(), diags: p.getSemanticDiagnostics(sf) };
+  }
+
+  it("suppresses TS2551 and the TS7006 of a callback inside a tuple argument", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program(`
+      import { sortBy } from "./ext";
+      interface User { readonly score: number }
+      declare const xs: User[];
+      export const r = xs.sortBy([(u) => u.score, "desc"]);
+    `);
+    expect(diags.map((d) => d.code).sort()).toEqual([2551, 7006]);
+    for (const d of diags) expect(rule.shouldSuppress(d, checker, sf, { program: p })).toBe(true);
+  });
+
+  it("suppresses the TS7006 of a callback in an object literal argument", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program(`
+      import { sortBy } from "./ext";
+      interface User { readonly score: number }
+      declare const xs: User[];
+      export const r = xs.sortBy({ by: (u) => u.score });
+    `);
+    expect(diags.map((d) => d.code).sort()).toEqual([2551, 7006]);
+    for (const d of diags) expect(rule.shouldSuppress(d, checker, sf, { program: p })).toBe(true);
+  });
+
+  it("suppresses neither without the import", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program(`
+      interface User { readonly score: number }
+      declare const xs: User[];
+      export const r = xs.sortBy([(u) => u.score, "desc"]);
+    `);
+    expect(diags.map((d) => d.code).sort()).toEqual([2551, 7006]);
+    for (const d of diags) expect(rule.shouldSuppress(d, checker, sf, { program: p })).toBe(false);
+  });
+});
+
 describe("ComprehensionBlock — do-notation's own syntax before expansion (let:/par:/yield:)", () => {
   // `typesugar check` and `build` type-check the source as written, where a
   // comprehension is not valid TypeScript: they reported TS1214 on the
@@ -1579,5 +1680,81 @@ export function f(r: Result<number, string>): number {
       .map(at);
     expect(notCallable.length).toBe(3);
     expect(reported).toEqual(["Ok(v)."]); // the statement's call, not the two patterns
+  });
+});
+
+describe("ExtensionMethodCall: an import that can't take the call is not a provider (remeda F9)", () => {
+  // The transformer leaves `recv.method(args)` as written when no import can
+  // take the receiver plus the call's arguments, so the TS2339 must stay.
+  const rule = createExtensionMethodCallRule();
+
+  function program(main: string) {
+    const files: Record<string, string> = {
+      "/lib.d.ts": `
+        interface Array<T> { length: number }
+        interface Boolean {} interface Function {} interface IArguments {} interface Number {}
+        interface Object {} interface RegExp {} interface String {} interface CallableFunction {}
+        interface NewableFunction {}
+      `,
+      "/ext.ts": `
+        export function only<T>(data: T): T { return data; }
+      `,
+      "/main.ts": main,
+    };
+    const options: ts.CompilerOptions = {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      noEmit: true,
+      noLib: true,
+      types: [],
+    };
+    const host: ts.CompilerHost = {
+      getSourceFile: (name, lv) =>
+        name in files ? ts.createSourceFile(name, files[name], lv, true) : undefined,
+      getDefaultLibFileName: () => "/lib.d.ts",
+      writeFile: () => {},
+      getCurrentDirectory: () => "/",
+      getDirectories: () => [],
+      fileExists: (f) => f in files,
+      readFile: (f) => files[f],
+      getCanonicalFileName: (f) => f,
+      useCaseSensitiveFileNames: () => true,
+      getNewLine: () => "\n",
+    };
+    const p = ts.createProgram(Object.keys(files), options, host);
+    const sf = p.getSourceFile("/main.ts")!;
+    return { program: p, sf, checker: p.getTypeChecker(), diags: p.getSemanticDiagnostics(sf) };
+  }
+
+  it("suppresses TS2339 when the import takes the call", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program(`
+      import { only } from "./ext";
+      declare const xs: number[];
+      export const r = xs.only();
+    `);
+    expect(diags.map((d) => d.code)).toEqual([2339]);
+    expect(rule.shouldSuppress(diags[0], checker, sf, { program: p })).toBe(true);
+  });
+
+  it("keeps TS2339 when the call has more arguments than the import takes", () => {
+    const {
+      program: p,
+      sf,
+      checker,
+      diags,
+    } = program(`
+      import { only } from "./ext";
+      declare const xs: number[];
+      export const r = xs.only(1);
+    `);
+    expect(diags.map((d) => d.code)).toEqual([2339]);
+    expect(rule.shouldSuppress(diags[0], checker, sf, { program: p })).toBe(false);
   });
 });
