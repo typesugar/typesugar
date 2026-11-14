@@ -568,6 +568,7 @@ error TS9226: [typesugar] [TS9226] Non-exhaustive match — missing cases: "blue
 | Literal union (`"a" \| "b"`)     | All values must be covered     |
 | Boolean                          | Both `true` and `false`        |
 | Option / Either / List           | All variant extractors present |
+| Nested extractors (`Ok(Err(e))`) | Each variant's payload covered |
 | Tuple (`[number, string]`)       | An arm of its length, bindings |
 | `string`, `number`, arrays, etc. | Requires `_` or `.else()`      |
 | `unknown` / `any`                | Requires `_` or `.else()`      |
@@ -607,6 +608,8 @@ match(o)
 ```
 
 Object patterns on a discriminated union (`{ kind: "circle", r }`, compiled to the discriminant switch) have no throw either when every variant has an arm with no guard and nothing left to test (see [Discriminated Union Patterns](#discriminated-union-patterns)). The same goes for an arm that takes every value (`_`, a binding) at the end of a match compiled to an `if` chain, and for the object-handler form `match(value, { ... })` with a handler for every member of a literal union or every variant: its last handler is called with no test.
+
+Extractor arms may match their payload with further extractors or literals. With `has` or `field = value` extractors, `Ok(Ok(v))`, `Ok(Err(e))` and `Err(e)` cover a `Result<Result<number, string>, string>`, so the match needs no `.else()`, and dropping `Ok(Err(e))` is reported as non-exhaustive. Such a match keeps every arm's test and the terminal throw: a nested test (`"value" in _r && "error" in _r.value`) doesn't narrow `_r` for TypeScript, so an untested last arm wouldn't type-check. Payloads under `Some(...)` (a `not-null` extractor) aren't looked through, so `Some(Some(v))` still needs a fallback.
 
 ---
 
