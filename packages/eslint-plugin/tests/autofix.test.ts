@@ -261,3 +261,54 @@ describe("processor bookkeeping (tooling #27)", () => {
     expect(processor.postprocess!([[unused]], "/project/s.ts")).toEqual([unused]);
   });
 });
+
+// PEP-065: a guarded `match:` case label is `{ pattern } && cond` as written,
+// which `no-constant-binary-expression` (eslint:recommended) reports: an
+// object literal is always truthy. The macro reads the left operand as a
+// pattern, not a value, so the report is dropped there and nowhere else.
+describe("guarded match: case labels (PEP-065)", () => {
+  const verify = (source: string) =>
+    new Linter({ configType: "flat", cwd: "/project" }).verify(
+      source,
+      [
+        {
+          files: ["**/*.ts"],
+          ...plugin.configs!.recommended,
+          rules: { "no-constant-binary-expression": "error" },
+        },
+      ] as Linter.Config[],
+      { filename: "/project/fixture.ts" }
+    );
+
+  it("drops no-constant-binary-expression on a guarded label's pattern", () => {
+    const messages = verify(`import "@typesugar/std/syntax/match";
+export function f(s) {
+  match: switch (s) {
+    case { kind: "rect", w, h } && w === h:
+      return "square";
+    case [a, b] && a > b:
+      return "desc";
+    default:
+      return "other";
+  }
+}
+`);
+    expect(messages).toEqual([]);
+  });
+
+  it("still reports it outside match: labels", () => {
+    const messages = verify(`import "@typesugar/std/syntax/match";
+export function f(s, ok) {
+  switch (s) {
+    case { kind: "rect" } && ok:
+      return 1;
+  }
+  return { a: 1 } && ok;
+}
+`);
+    expect(messages.map((m) => `${m.ruleId} ${m.line}:${m.column}`)).toEqual([
+      "no-constant-binary-expression 4:10",
+      "no-constant-binary-expression 7:10",
+    ]);
+  });
+});

@@ -2220,26 +2220,69 @@ function enclosingMatchCase(node: ts.Node): ts.CaseClause | undefined {
   return undefined;
 }
 
+function unparen(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return e;
+}
+
 /**
- * A case label that is a pattern, which binds (an object/array pattern or an
- * extractor call); a bare identifier case is a value, and an unknown one is a
- * real error.
+ * The pattern of a case label: the label itself, or for a guarded label
+ * (`P && cond`, PEP-065) the left-most operand of its `&&` chain (as
+ * std's match-switch.ts splitGuard reads it).
+ */
+function labelPattern(label: ts.Expression): { pattern: ts.Expression; guarded: boolean } {
+  let e = unparen(label);
+  let guarded = false;
+  while (
+    ts.isBinaryExpression(e) &&
+    e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+  ) {
+    e = unparen(e.left);
+    guarded = true;
+  }
+  return { pattern: e, guarded };
+}
+
+/**
+ * A case label whose pattern binds (an object/array pattern or an extractor
+ * call); a bare identifier case is a value, and an unknown one is a real
+ * error.
  */
 function isPatternLabel(label: ts.Expression): boolean {
-  let e = label;
-  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  const e = labelPattern(label).pattern;
   return (
     ts.isObjectLiteralExpression(e) || ts.isArrayLiteralExpression(e) || ts.isCallExpression(e)
   );
 }
 
-/** Is `id` a name the pattern of the `match:` case it is used in binds? */
+/** Is `id` a name the pattern of the `match:` case it is used in binds (guard included)? */
 function isBoundByEnclosingCase(id: ts.Identifier): boolean {
   const clause = enclosingMatchCase(id);
   if (!clause || !isPatternLabel(clause.expression)) return false;
   const bound = new Set<string>();
-  collectPatternBindings(clause.expression, bound);
+  collectPatternBindings(labelPattern(clause.expression).pattern, bound);
   return bound.has(id.text);
+}
+
+/**
+ * Codes TypeScript reports about a guarded label as written (`{ ... } && cond`
+ * compared with the scrutinee): the left operand is always truthy (TS2872),
+ * and the whole label, a boolean, is not comparable to the scrutinee (TS2678)
+ * or has no overlap with it (TS2367).
+ */
+const TS_ALWAYS_TRUTHY = 2872;
+
+/** Is `node` a guarded `match:` label's comparison that the expansion replaces? */
+function isGuardedLabelArtifact(node: ts.Node, code: number): boolean {
+  const clause = enclosingMatchCase(node);
+  if (!clause || !isWithin(node, clause.expression)) return false;
+  const { pattern, guarded } = labelPattern(clause.expression);
+  if (!guarded) return false;
+  if (code === TS_ALWAYS_TRUTHY) return isWithin(node, pattern);
+  if (code === 2304) return ts.isIdentifier(node) && node === pattern && node.text === "_";
+  // TS2678 / TS2367: on the label as a whole (its span starts with the pattern).
+  const label = unparen(clause.expression);
+  return node.getStart() === label.getStart() && node.end === label.end;
 }
 
 /**
@@ -2291,6 +2334,7 @@ export function createMatchSwitchRule(): DiagnosticSuppressionRule {
         7030,
         NOT_CALLABLE_CLASS,
         TS_NOT_COMPARABLE,
+        TS_ALWAYS_TRUTHY,
         ...SHADOWED_NAME_CODES,
         ...RESULT_TYPE_CODES,
       ]),
@@ -2331,6 +2375,13 @@ export function createMatchSwitchRule(): DiagnosticSuppressionRule {
         return (
           !!labeled && node === labeled.label && matchSwitchActivated(context.program, sourceFile)
         );
+      }
+
+      if (
+        [TS_ALWAYS_TRUTHY, TS_NOT_COMPARABLE, 2367, 2304].includes(diagnostic.code) &&
+        isGuardedLabelArtifact(node, diagnostic.code)
+      ) {
+        return matchSwitchActivated(context.program, sourceFile);
       }
 
       if (diagnostic.code === TS_NOT_COMPARABLE) {

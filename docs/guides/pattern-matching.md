@@ -452,7 +452,8 @@ every form below.
 
 **Case labels** are literals, constants (`C`, `Dir.Up`) and, below, patterns. A value
 computed at run time (`case twice(m):`, `case m + 1:`) is a compile error, as in Scala:
-bind it to a `const` and write `case v:`. A call is a pattern when
+bind it to a `const` and write `case c:`, or test it in a guard (`case _ && n === twice(m):`,
+below). A call is a pattern when
 its callee has an extractor (`Some(v)`, `Point(x, y)`); a call to an ordinary function is
 a computed value. `case _:` is an error too: write `default:`.
 
@@ -515,8 +516,37 @@ switch (geom.type) {
   (one that falls through with no body would never see them).
 - A scrutinee that isn't an identifier or `this` is read once into a `const` first
   (`match: switch (feature.geometry)` → `const _geometry = feature.geometry;`).
-- There are no guards: `case P if cond` isn't valid syntax, and `case P: if (!cond) break;`
-  would leave the switch rather than try the next case. Test the condition in the body.
+
+**Guards** are written `case P && cond:`. When the condition is false the switch tries the
+next case, which `case P: if (!cond) break;` can't do (it leaves the switch). The condition
+can use the names `P` binds:
+
+```typescript
+match: switch (s) {
+  case { kind: "rect", w, h } && w === h:
+    return "square";
+  case { kind: "rect", w, h }:
+    return `rect ${w}x${h}`;
+  case _ && s.kind === "circle" && s.r > 100:
+    return "big circle";
+  case { kind: "circle", r }:
+    return `circle ${r}`;
+}
+```
+
+- A top-level `&&` in a case label is always a guard; the pattern is its left-most operand.
+  `case _ && cond:` has no pattern, only the condition.
+- The guard runs before the case's own bindings, so the names in it are read where they come
+  from: `case { kind: "rect", w, h } && w === h:` becomes `case s.kind === "rect" && s.w === s.h:`.
+  A name the guard rebinds (an arrow's parameter) is left alone. A rest binding (`...rest`)
+  can't be read in a guard.
+- A guarded case covers nothing for exhaustiveness, as `.if()` doesn't in the fluent form.
+- A switch with a guard compiles to `switch (true)`; one without keeps the discriminant switch.
+- A guarded case with no statements of its own falls through as usual; its names serve only its
+  guard.
+- With `@typesugar/eslint-plugin`'s processor, `no-constant-binary-expression` isn't reported on a
+  guarded label's pattern (an object literal on the left of `&&`, which the macro reads as a
+  pattern).
 
 **Extractors** work as in the fluent form: `case Some(v):` / `case None:`, `Left`/`Right`,
 `Cons`/`Nil`, `Valid`/`Invalid`, and your own instances. One whose descriptor tests a

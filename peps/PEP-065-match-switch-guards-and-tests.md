@@ -295,14 +295,15 @@ wrong use of the binding itself.
 
 ### ESLint
 
-The recommended config (lightweight processor) lints unexpanded source. Rules that would
-fire on a pattern switch are `no-undef` (pattern names; usually off under
-typescript-eslint), `no-fallthrough` (no change from a plain switch) and
-`no-constant-binary-expression` / `no-constant-condition` on a guarded label whose
-pattern is an object literal (`{…} && g` is always-truthy on the left). Wave 2 checks
-these against the repo's ESLint setup and, if they fire, the lightweight processor
-handles `match:` labels the way it already handles contract labels (`processor.ts`
-`CONTRACT_LABELS`). Not yet verified.
+The recommended config (lightweight processor) lints unexpanded source. Checked in Wave 2
+with ESLint's own rules on a guarded switch: `no-constant-binary-expression`
+(eslint:recommended) reports the pattern of every guarded label (an object literal on the
+left of `&&` is always truthy as a value). The processor drops that report on a guarded
+`match:` label's pattern only (`GUARDED_PATTERN_RULES`, `guardedPatternSpans` in
+`processor.ts`). `no-constant-condition` and `no-fallthrough` don't fire. `no-undef`
+reports pattern names, guarded or not, as it already did before this PEP; typescript-eslint
+turns `no-undef` off for TypeScript, so this is left alone. `no-labels` and
+`no-unused-labels` are already off in the recommended config.
 
 ## No-gos
 
@@ -319,11 +320,11 @@ handles `match:` labels the way it already handles contract labels (`processor.t
 
 ## Waves
 
-| Wave | Scope                                                                                                                                                                                                                                                             | Branch                       | Status      |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------- |
-| 1    | Defects 1 and 2: case-label classification (literal / constant / pattern, anything else an error naming the fix); `P && g` an error pointing at Wave 2 until it lands; top-level `_`; MatchSwitch suppression for shadowed names; exec tests for each probe above | `pep-065-wave-1-case-labels` | In review   |
-| 2    | Guards: `case P && g:`, scoped substitution of bound names with source ranges, `switch (true)` lowering, coverage excludes guarded cases, suppression of TS2872/TS2678/TS2367 on guarded labels, ESLint check                                                     | `pep-065-wave-2-guards`      | Not started |
-| 3    | Nested tests per D1 (including `[x, y, ...[]]` exact length) and top-level type tests and regex; coverage through `findMissingCases`                                                                                                                              | `pep-065-wave-3-tests`       | Not started |
+| Wave | Scope                                                                                                                                                                                                                                                             | Branch                       | Status           |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------- |
+| 1    | Defects 1 and 2: case-label classification (literal / constant / pattern, anything else an error naming the fix); `P && g` an error pointing at Wave 2 until it lands; top-level `_`; MatchSwitch suppression for shadowed names; exec tests for each probe above | `pep-065-wave-1-case-labels` | In review (#107) |
+| 2    | Guards: `case P && g:`, scoped substitution of bound names with source ranges, `switch (true)` lowering, coverage excludes guarded cases, suppression of TS2872/TS2678/TS2367 on guarded labels, ESLint check                                                     | `pep-065-wave-2-guards`      | In review        |
+| 3    | Nested tests per D1 (including `[x, y, ...[]]` exact length) and top-level type tests and regex; coverage through `findMissingCases`                                                                                                                              | `pep-065-wave-3-tests`       | Not started      |
 
 Each wave updates the guide's "Statement form" section, `docs/macro-triggers.md`,
 `docs/reference/packages.md`, the std README and the playground's match example, and the

@@ -40,8 +40,14 @@
  * Below the discriminant, a pattern DESTRUCTURES; it does not test.
  * `coordinates: [x, y]` reads the first two elements whatever the length, as
  * `const [x, y] = geom.coordinates` does. Literals deeper than the top level
- * are therefore errors. A guard (`case P if cond`) is not valid syntax; test
- * the condition in the case body.
+ * are therefore errors.
+ *
+ * A guard is `case P && cond:` (PEP-065): a top-level `&&` in a label is
+ * always a guard, `P` being the left-most operand. A failing guard tries the
+ * next case. The guard runs before the case's bindings exist, so the names P
+ * binds are read in it from where they come from (`w` → `s.w`). Any guard
+ * puts the switch in the `switch (true)` form, and a guarded case covers
+ * nothing for exhaustiveness. `case _ && cond:` is a guard alone.
  *
  * Case labels are literals, constants (`C`, `Dir.Up`) or patterns
  * (PEP-065). Anything else, a value computed at run time (`case f(x):` where
@@ -84,10 +90,54 @@ import {
 
 const DEFAULT_FALLBACK = "a default: clause";
 
+/**
+ * A case clause, by what its label is. `label` is the label without its
+ * guard (and parentheses); `guard` is the condition after `&&` (PEP-065).
+ */
 type Clause =
-  | { kind: "value"; clause: ts.CaseClause }
-  | { kind: "pattern"; clause: ts.CaseClause; pattern: PatternInfo }
+  | { kind: "value"; clause: ts.CaseClause; label: ts.Expression; guard?: ts.Expression }
+  | {
+      kind: "pattern";
+      clause: ts.CaseClause;
+      label: ts.Expression;
+      pattern: PatternInfo;
+      guard?: ts.Expression;
+    }
+  /** `case _ && cond:`: no test of its own, only the guard. */
+  | { kind: "wildcard"; clause: ts.CaseClause; guard: ts.Expression }
   | { kind: "default"; clause: ts.DefaultClause };
+
+/**
+ * Split a guarded label `P && g1 && g2` into the pattern (the left-most
+ * operand of the `&&` chain) and the guard (the rest, joined with `&&`). A
+ * top-level `&&` in a case label is always a guard: `&&` is not a pattern
+ * operator.
+ */
+function splitGuard(
+  f: ts.NodeFactory,
+  expr: ts.Expression
+): { label: ts.Expression; guard?: ts.Expression } {
+  const e = unparen(expr);
+  if (!isAnd(e)) return { label: e };
+  const conditions: ts.Expression[] = [];
+  let left: ts.Expression = e;
+  while (isAnd(left)) {
+    conditions.unshift(left.right);
+    left = unparen(left.left);
+  }
+  const guard = conditions.reduce((a, b) =>
+    f.createBinaryExpression(a, ts.SyntaxKind.AmpersandAmpersandToken, b)
+  );
+  return { label: left, guard };
+}
+
+function isAnd(e: ts.Expression): e is ts.BinaryExpression {
+  return ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken;
+}
+
+function isWildcard(e: ts.Expression): boolean {
+  return ts.isIdentifier(e) && e.text === "_";
+}
 
 /** A pattern case: object pattern, or a call to a built-in extractor (`Some(v)`). */
 function isPatternSyntax(expr: ts.Expression): boolean {
@@ -128,19 +178,17 @@ function sourceText(node: ts.Node): string {
  * ReferenceError at run time; Scala rejects the same shapes (a pattern call
  * needs an extractor, a value must be a stable identifier).
  */
-function labelProblem(expr: ts.Expression): string | undefined {
-  const e = unparen(expr);
+function labelProblem(
+  f: ts.NodeFactory,
+  expr: ts.Expression,
+  scrutinee: ts.Expression
+): string | undefined {
+  const { label: e, guard } = splitGuard(f, expr);
   if (isPatternSyntax(e)) return undefined;
-  if (ts.isIdentifier(e) && e.text === "_") {
-    return "match: `case _:` matches every value; write `default:` instead.";
+  if (isWildcard(e)) {
+    return guard ? undefined : "match: `case _:` matches every value; write `default:` instead.";
   }
   if (isConstantName(e) || ts.isNoSubstitutionTemplateLiteral(e)) return undefined;
-  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-    return (
-      "match: guards (`case P && cond:`) are not supported in a match: switch yet (PEP-065 " +
-      "Wave 2). Test the condition in the case body, or use the fluent match() with .if()."
-    );
-  }
   if (e.kind === ts.SyntaxKind.RegularExpressionLiteral) {
     return (
       "match: a regex case is not supported in a match: switch yet (PEP-065 Wave 3); use the " +
@@ -169,22 +217,32 @@ function labelProblem(expr: ts.Expression): string | undefined {
     return undefined;
   }
   const text = sourceText(e);
+  const named = ts.isIdentifier(scrutinee) || scrutinee.kind === ts.SyntaxKind.ThisKeyword;
+  const inGuard = named
+    ? `test it in a guard: \`case _ && ${sourceText(scrutinee)} === ${text}:\``
+    : `name the scrutinee (\`const v = ${sourceText(scrutinee)};\` and \`match: switch (v)\`) ` +
+      `and test it in a guard: \`case _ && v === ${text}:\``;
   return (
     `match: a case in a match: switch is a literal, a constant or a pattern; \`${text}\` is ` +
-    `none of these${note}. Bind the value to a const (\`const v = ${text};\` and \`case v:\`).`
+    `none of these${note}. Bind the value to a const (\`const c = ${text};\` and \`case c:\`), ` +
+    `or ${inGuard}.`
   );
 }
 
-function classify(sw: ts.SwitchStatement): Clause[] {
+function classify(f: ts.NodeFactory, sw: ts.SwitchStatement): Clause[] {
   const raw = sw.caseBlock.clauses;
-  const patternMode = raw.some((c) => ts.isCaseClause(c) && isPatternSyntax(unparen(c.expression)));
+  const split = new Map(
+    raw.flatMap((c) => (ts.isCaseClause(c) ? [[c, splitGuard(f, c.expression)] as const] : []))
+  );
+  const patternMode = [...split.values()].some(({ label }) => isPatternSyntax(label));
   return raw.map((clause): Clause => {
     if (ts.isDefaultClause(clause)) return { kind: "default", clause };
-    const e = unparen(clause.expression);
-    if (isPatternSyntax(e) || (patternMode && isZeroArgExtractor(e))) {
-      return { kind: "pattern", clause, pattern: analyzePattern(e) };
+    const { label, guard } = split.get(clause)!;
+    if (guard && isWildcard(label)) return { kind: "wildcard", clause, guard };
+    if (isPatternSyntax(label) || (patternMode && isZeroArgExtractor(label))) {
+      return { kind: "pattern", clause, label, pattern: analyzePattern(label), guard };
     }
-    return { kind: "value", clause };
+    return { kind: "value", clause, label, guard };
   });
 }
 
@@ -246,9 +304,9 @@ function checkCoverage(
 function literalCoverage(
   ctx: MacroContext,
   scrutinee: ts.Expression,
-  values: readonly ts.CaseClause[]
+  values: readonly ts.Expression[]
 ): MatchCoverage {
-  const keys = values.map((c) => valueKey(ctx, c.expression)).filter((k) => k !== undefined);
+  const keys = values.map((label) => valueKey(ctx, label)).filter((k) => k !== undefined);
   // Reuse match.ts's analysis through literal PatternInfos: a key covers
   // itself, whatever expression produced it (a literal, a const, an enum member).
   const patterns: PatternInfo[] = keys.map((k) => ({ kind: "literal", node: keyToLiteral(k) }));
@@ -359,6 +417,57 @@ interface PatternCase {
   /** The pattern as exhaustiveness sees it (sub-patterns are bindings, not tests). */
   coverage: PatternInfo;
   bindsNames: boolean;
+  /**
+   * Where each bound name is read from, given the scrutinee (for a guard,
+   * which runs before the case's bindings), and the names a rest element
+   * binds, which have no single place to read from.
+   */
+  paths: (scrutinee: () => ts.Expression) => BindingPaths;
+}
+
+interface BindingPaths {
+  read: Map<string, () => ts.Expression>;
+  rest: Set<string>;
+}
+
+/** Record where each name `p` binds is read from, `base` being the value `p` matches. */
+function collectPaths(
+  f: ts.NodeFactory,
+  p: PatternInfo,
+  base: () => ts.Expression,
+  out: BindingPaths
+): void {
+  const restOf = (q: PatternInfo) => {
+    const inner: BindingPaths = { read: new Map(), rest: out.rest };
+    collectPaths(f, q, base, inner);
+    for (const name of inner.read.keys()) out.rest.add(name);
+  };
+  switch (p.kind) {
+    case "variable":
+      out.read.set(p.name, base);
+      return;
+    case "array":
+      p.elements.forEach((el, i) => {
+        if (el.isRest) restOf(el.pattern);
+        else collectPaths(f, el.pattern, () => f.createElementAccessExpression(base(), i), out);
+      });
+      return;
+    case "object":
+      for (const prop of p.properties) {
+        if (prop.isRest) restOf(prop.pattern);
+        else collectPaths(f, prop.pattern, () => fieldAccess(f, base(), prop.key), out);
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+/** `base.key`, or `base["key"]` when the key is not an identifier. */
+function fieldAccess(f: ts.NodeFactory, base: ts.Expression, key: string): ts.Expression {
+  return /^[A-Za-z_$][\w$]*$/.test(key)
+    ? f.createPropertyAccessExpression(base, key)
+    : f.createElementAccessExpression(base, f.createStringLiteral(key));
 }
 
 /** Analyse one pattern case; report and return undefined if it can't be compiled. */
@@ -456,6 +565,11 @@ function analyzeCase(
         hasRest: pattern.hasRest,
       },
       bindsNames: !!restProp || named.length > 0,
+      paths: (s) => {
+        const out: BindingPaths = { read: new Map(), rest: new Set() };
+        collectPaths(f, pattern, s, out);
+        return out;
+      },
     };
   }
 
@@ -510,6 +624,15 @@ function analyzeCase(
           : undefined,
       coverage: wildcarded,
       bindsNames: bindings.length > 0,
+      paths: (s) => {
+        const out: BindingPaths = { read: new Map(), rest: new Set() };
+        pattern.bindings.forEach((b, i) => {
+          if (fields[i] !== undefined) {
+            collectPaths(f, b, () => payloadAccess(f, s(), fields[i], typing), out);
+          }
+        });
+        return out;
+      },
     };
   }
 
@@ -520,6 +643,143 @@ function analyzeCase(
       : "match: unsupported pattern in a match: switch (supported: literals, constants, object patterns, built-in extractors)."
   );
   return undefined;
+}
+
+/**
+ * Is `id` a reference to a variable (not a property name, a declared name, a
+ * label)? Only references to a pattern's names are rewritten in a guard.
+ */
+function isReference(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (!p) return true;
+  if (ts.isPropertyAccessExpression(p)) return p.name !== id;
+  if (ts.isQualifiedName(p) || ts.isLabeledStatement(p) || ts.isBreakOrContinueStatement(p)) {
+    return false;
+  }
+  if (ts.isBindingElement(p) && p.propertyName === id) return false;
+  if (
+    (ts.isPropertyAssignment(p) ||
+      ts.isMethodDeclaration(p) ||
+      ts.isPropertyDeclaration(p) ||
+      ts.isGetAccessorDeclaration(p) ||
+      ts.isSetAccessorDeclaration(p) ||
+      ts.isParameter(p) ||
+      ts.isVariableDeclaration(p) ||
+      ts.isBindingElement(p) ||
+      ts.isFunctionDeclaration(p) ||
+      ts.isFunctionExpression(p) ||
+      ts.isClassDeclaration(p) ||
+      ts.isClassExpression(p)) &&
+    p.name === id
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Add the names `name` declares (an identifier or a destructuring pattern) to `out`. */
+function addBindingNames(name: ts.BindingName, out: Set<string>): void {
+  if (ts.isIdentifier(name)) {
+    out.add(name.text);
+    return;
+  }
+  for (const el of name.elements) {
+    if (!ts.isOmittedExpression(el)) addBindingNames(el.name, out);
+  }
+}
+
+/**
+ * The names declared directly in a scope `node` opens, which hide a pattern
+ * name of the same spelling inside it: a function's parameters and its
+ * body's declarations, a block's declarations, a `for`'s or a `catch`'s
+ * variable.
+ */
+function scopeDeclarations(node: ts.Node): Set<string> | undefined {
+  const out = new Set<string>();
+  const statements = (body: ts.Node | undefined) => {
+    if (!body || !ts.isBlock(body)) return;
+    for (const st of body.statements) {
+      if (ts.isVariableStatement(st)) {
+        for (const d of st.declarationList.declarations) addBindingNames(d.name, out);
+      } else if ((ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st)) && st.name) {
+        out.add(st.name.text);
+      }
+    }
+  };
+  if (ts.isFunctionLike(node)) {
+    for (const param of node.parameters) addBindingNames(param.name, out);
+    if (
+      (ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node)) &&
+      node.name &&
+      ts.isIdentifier(node.name)
+    ) {
+      out.add(node.name.text);
+    }
+    statements((node as ts.FunctionLikeDeclaration).body);
+    return out;
+  }
+  if (ts.isBlock(node)) {
+    statements(node);
+    return out;
+  }
+  if (
+    (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node)) &&
+    node.initializer &&
+    ts.isVariableDeclarationList(node.initializer)
+  ) {
+    for (const d of node.initializer.declarations) addBindingNames(d.name, out);
+    return out;
+  }
+  if (ts.isCatchClause(node) && node.variableDeclaration) {
+    addBindingNames(node.variableDeclaration.name, out);
+    return out;
+  }
+  return undefined;
+}
+
+/**
+ * The guard with each name the case's pattern binds replaced by the place it
+ * is read from (`w` → `s.w`): the guard runs as part of the case's test,
+ * before the case's own `const` bindings exist. A name the guard itself
+ * rebinds (an arrow's parameter, a local) is left alone inside that scope.
+ * The replacement keeps the name's source-map range, so an error in it is
+ * reported at the name as written. Undefined (after reporting) when the
+ * guard reads a rest binding, which has no single place to read from.
+ */
+function substituteGuard(
+  ctx: MacroContext,
+  guard: ts.Expression,
+  paths: BindingPaths
+): ts.Expression | undefined {
+  const f = ctx.factory;
+  let failed = false;
+  const visit = (n: ts.Node, hidden: ReadonlySet<string>): ts.Node => {
+    if (ts.isTypeNode(n)) return n;
+    if (ts.isIdentifier(n)) {
+      if (hidden.has(n.text) || !isReference(n)) return n;
+      if (paths.rest.has(n.text)) {
+        ctx.reportError(
+          n,
+          `match: a guard can't read the rest binding \`${n.text}\` (it is built from the ` +
+            `properties the pattern doesn't name); bind the property you need, or test it in ` +
+            `the case body.`
+        );
+        failed = true;
+        return n;
+      }
+      const read = paths.read.get(n.text);
+      return read ? ts.setSourceMapRange(read(), n) : n;
+    }
+    if (ts.isShorthandPropertyAssignment(n) && !hidden.has(n.name.text)) {
+      const read = paths.read.get(n.name.text);
+      if (read) return f.createPropertyAssignment(n.name.text, read());
+    }
+    const declared = scopeDeclarations(n);
+    const inner = declared ? new Set([...hidden, ...declared]) : hidden;
+    return ts.visitEachChild(n, (c) => visit(c, inner), ctx.transformContext);
+  };
+  const out = visit(guard, new Set()) as ts.Expression;
+  return failed ? undefined : out;
 }
 
 /** Print `labeled`'s leading comments (above `match:`) before `node`. */
@@ -597,6 +857,18 @@ function analyzeCustomCase(
     // It can fail on any value, so for exhaustiveness it covers nothing.
     coverage: pattern,
     bindsNames: named,
+    paths: () => {
+      const out: BindingPaths = { read: new Map(), rest: new Set() };
+      pattern.bindings.forEach((b, i) =>
+        collectPaths(
+          f,
+          b,
+          pattern.bindings.length === 1 ? ref : () => f.createElementAccessExpression(ref(), i),
+          out
+        )
+      );
+      return out;
+    },
   };
 }
 
@@ -673,24 +945,35 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
   let badLabel = false;
   for (const clause of sw.caseBlock.clauses) {
     if (!ts.isCaseClause(clause)) continue;
-    const problem = labelProblem(clause.expression);
+    const problem = labelProblem(f, clause.expression, scrutinee);
     if (problem) {
       ctx.reportError(clause.expression, problem);
       badLabel = true;
     }
   }
   if (badLabel) return [sw];
-  const clauses = classify(sw);
+  const clauses = classify(f, sw);
+  const byClause = new Map(
+    clauses.flatMap((c) => (c.kind === "default" ? [] : [[c.clause, c] as const]))
+  );
   const defaultClause = clauses.find((c) => c.kind === "default")?.clause as
     | ts.DefaultClause
     | undefined;
-  const values = clauses.flatMap((c) => (c.kind === "value" ? [c.clause] : []));
+  const guarded = clauses.some((c) => c.kind !== "default" && c.guard !== undefined);
+  // A guarded case covers nothing: its guard may fail (as `.if()` in the fluent form).
+  const unguardedValues = clauses.flatMap((c) => (c.kind === "value" && !c.guard ? [c.label] : []));
 
   const { wrap, rewrite } = relabel(ctx, labeled);
 
   // Literal form: the switch itself, unchanged.
-  if (!clauses.some((c) => c.kind === "pattern")) {
-    checkCoverage(ctx, labeled, scrutinee, literalCoverage(ctx, scrutinee, values), defaultClause);
+  if (!guarded && !clauses.some((c) => c.kind === "pattern")) {
+    checkCoverage(
+      ctx,
+      labeled,
+      scrutinee,
+      literalCoverage(ctx, scrutinee, unguardedValues),
+      defaultClause
+    );
     // The same switch node's children, in a node that carries the label's
     // leading comments (the switch's own range starts after `match:`).
     const caseBlock = !rewrite
@@ -708,7 +991,7 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
     return [withLeadingComments(wrap(same), labeled)];
   }
 
-  // Pattern form.
+  // Pattern form (or guarded cases).
   const scrutineeType = getScrutineeType(ctx, scrutinee);
   const cases = new Map<ts.CaseClause, PatternCase>();
   let failed = false;
@@ -719,7 +1002,7 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
       failed = true;
       continue;
     }
-    if (pc.bindsNames && c.clause.statements.length === 0) {
+    if (pc.bindsNames && c.clause.statements.length === 0 && !c.guard) {
       ctx.reportError(
         c.clause.expression,
         "match: this case binds names but has no statements of its own, so the names would be " +
@@ -733,9 +1016,11 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
   const casePreludes = [...cases.values()].flatMap((pc) => (pc.prelude ? [pc.prelude] : []));
 
   const coverage = findMissingCases(ctx, scrutinee, [
-    ...[...cases.values()].map((pc) => pc.coverage),
-    ...values.flatMap((c) => {
-      const p = analyzePattern(unparen(c.expression));
+    ...clauses.flatMap((c) =>
+      c.kind === "pattern" && !c.guard ? [cases.get(c.clause)!.coverage] : []
+    ),
+    ...unguardedValues.flatMap((label) => {
+      const p = analyzePattern(label);
       return p.kind === "literal" ? [p] : [];
     }),
   ]);
@@ -762,14 +1047,18 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
       (t) => (t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) !== 0
     );
   const all = [...cases.values()];
-  const field = all[0].discriminant?.field;
+  const field = all[0]?.discriminant?.field;
   const discriminantSwitch =
-    values.length === 0 &&
+    !guarded &&
+    unguardedValues.length === 0 &&
     !mayBeNullish &&
     field !== undefined &&
     all.every((pc) => pc.discriminant?.field === field && pc.literals.length <= 1);
 
+  // A case with no statements of its own falls through: its bindings (which
+  // serve only its guard) are not declared.
   const body = (clause: ts.CaseClause, pc: PatternCase | undefined): ts.Statement[] => {
+    if (clause.statements.length === 0) return [];
     const binds = pc ? pc.bind(ref) : [];
     const statements = rewrite ? clause.statements.map(rewrite) : [...clause.statements];
     return binds.length > 0 ? [f.createBlock([...binds, ...statements], true)] : statements;
@@ -793,16 +1082,39 @@ function expandMatchSwitch(ctx: MacroContext, labeled: ts.LabeledStatement): ts.
     );
   }
 
-  // switch (true) { case <test>: { <bindings>; ... } }: an if/else chain with
-  // switch semantics, so break / fallthrough / continue mean what they say.
+  // switch (true) { case <test> && <guard>: { <bindings>; ... } }: an if/else
+  // chain with switch semantics, so break / fallthrough / continue mean what
+  // they say, and a failing guard goes on to the next case.
   if (!rereadable) hoist();
   const guardNullish = !isGuaranteedObject(ctx, scrutinee);
-  const newClauses = sw.caseBlock.clauses.map((clause) => {
-    if (ts.isDefaultClause(clause)) return defaultClauseOf(clause);
+  const tests = new Map<ts.CaseClause, ts.Expression>();
+  for (const clause of sw.caseBlock.clauses) {
+    if (ts.isDefaultClause(clause)) continue;
+    const c = byClause.get(clause)!;
     const pc = cases.get(clause);
-    const test = pc ? pc.test(ref, guardNullish) : literalCheck(f, ref(), clause.expression);
-    return f.createCaseClause(test, body(clause, pc));
-  });
+    const own =
+      c.kind === "pattern" && pc
+        ? pc.test(ref, guardNullish)
+        : c.kind === "value"
+          ? literalCheck(f, ref(), c.label)
+          : undefined;
+    let guard = c.guard;
+    if (guard && pc) {
+      guard = substituteGuard(ctx, guard, pc.paths(ref));
+      if (!guard) failed = true;
+    }
+    const test =
+      own && guard && own.kind !== ts.SyntaxKind.TrueKeyword
+        ? f.createBinaryExpression(own, ts.SyntaxKind.AmpersandAmpersandToken, guard)
+        : (guard ?? own ?? f.createTrue());
+    tests.set(clause, test);
+  }
+  if (failed) return [sw];
+  const newClauses = sw.caseBlock.clauses.map((clause) =>
+    ts.isDefaultClause(clause)
+      ? defaultClauseOf(clause)
+      : f.createCaseClause(tests.get(clause)!, body(clause, cases.get(clause)))
+  );
   return withLeadingCommentsOnFirst(
     [...prelude, wrap(f.createSwitchStatement(f.createTrue(), f.createCaseBlock(newClauses)))],
     labeled

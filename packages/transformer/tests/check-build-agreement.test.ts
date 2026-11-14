@@ -904,6 +904,29 @@ export function w(s: Shape): string {
   }
 }
 `,
+        // Guards (PEP-065): as written, a guarded label is \`{ ... } && cond\`
+        // compared with the scrutinee (TS2872, TS2678, TS2367) and its names
+        // are undeclared (TS18004, TS2304). The expansion reads the names from
+        // the scrutinee, so only \`w.length\` on a number is an error.
+        "src/swguard.ts": `import "@typesugar/std/syntax/match";
+
+type Shape = { kind: "circle"; r: number } | { kind: "rect"; w: number; h: number };
+
+export function f(s: Shape): string {
+  match: switch (s) {
+    case { kind: "rect", w, h } && w === h:
+      return "square";
+    case { kind: "rect", w } && w.length > 0:
+      return "long";
+    case { kind: "rect" }:
+      return "rect";
+    case _ && s.kind === "circle" && s.r > 9:
+      return "big";
+    case { kind: "circle", r }:
+      return "c" + r;
+  }
+}
+`,
         "src/con.ts": `import "@typesugar/contracts/syntax";
 
 export function half(n: number): { value: number } {
@@ -1014,6 +1037,12 @@ export function lengthOf(n: number): number {
         );
         expect(shadow).toEqual([
           "shadow.ts(10,87): error TS2339: Property 'toUpperCase' does not exist on type 'number'.",
+        ]);
+        const swguard = [...r.output.matchAll(/(swguard\.ts\(\d+,\d+\): error .*)/g)].map(
+          (m) => m[1]
+        );
+        expect(swguard).toEqual([
+          "swguard.ts(9,35): error TS2339: Property 'length' does not exist on type 'number'.",
         ]);
         const swclash = [...r.output.matchAll(/(swclash\.ts\(\d+,\d+\): error .*)/g)].map(
           (m) => m[1]
